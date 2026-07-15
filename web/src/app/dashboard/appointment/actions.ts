@@ -6,14 +6,16 @@ import { verifyOrigin, checkRateLimit } from '@/lib/csrf';
 import { adminSupabase } from '@/lib/admin-supabase';
 
 import { logger } from '@/lib/logger';
+import {
+    parseAppointmentActionInput,
+    parseFcNotificationPhone,
+} from '@/lib/privileged-action-input-policy';
+import { getVerifiedAdminSession } from '@/lib/server-session';
 type UpdateAppointmentState = {
     success: boolean;
     message?: string;
     error?: string;
 };
-
-type AppointmentActionType = 'schedule' | 'confirm' | 'reject';
-type AppointmentCategory = 'life' | 'nonlife';
 
 const HANWHA_APPROVED_STATUSES = ['hanwha-commission-approved', 'appointment-completed', 'final-link-sent'] as const;
 
@@ -92,15 +94,15 @@ const resolveInsuranceStageStatus = (profile: {
 
 export async function updateAppointmentAction(
     prevState: UpdateAppointmentState,
-    payload: {
-        fcId: string;
-        phone: string;
-        type: AppointmentActionType;
-        category: AppointmentCategory;
-        value: string | null; // 자유 입력 일정 메모 또는 Date(YYYY-MM-DD)
-        reason?: string | null;
-    }
+    payload: unknown,
 ): Promise<UpdateAppointmentState> {
+    void prevState;
+    const sessionCheck = await getVerifiedAdminSession();
+    if (!sessionCheck.ok) {
+        logger.warn('[appointment/actions] unauthorized server action', { status: sessionCheck.status });
+        return { success: false, error: sessionCheck.error };
+    }
+
     // Security: Verify origin to prevent CSRF
     const originCheck = await verifyOrigin();
     if (!originCheck.valid) {
@@ -108,24 +110,37 @@ export async function updateAppointmentAction(
         return { success: false, error: 'Security check failed' };
     }
 
+    const parsedInput = parseAppointmentActionInput(payload);
+    if (!parsedInput.ok) {
+        return { success: false, error: parsedInput.error };
+    }
+    const { fcId, type, category, value, reason } = parsedInput.value;
+
     // Security: Rate limiting (max 20 appointment updates per minute per FC)
-    const rateLimit = checkRateLimit(`appointment:${payload.fcId}`, 20, 60000);
+    const rateLimit = checkRateLimit(`appointment:${fcId}`, 20, 60000);
     if (!rateLimit.allowed) {
-        logger.warn('[appointment/actions] Rate limit exceeded for FC:', payload.fcId);
+        logger.warn('[appointment/actions] Rate limit exceeded for FC:', fcId);
         return { success: false, error: 'Too many requests. Please try again later.' };
     }
 
-    const { fcId, phone, type, category, value, reason } = payload;
-
     const { data: currentProfile, error: profileError } = await adminSupabase
         .from('fc_profiles')
-        .select('status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,appointment_date_life,appointment_date_nonlife,life_commission_completed,nonlife_commission_completed')
+        .select('phone,status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,appointment_date_life,appointment_date_nonlife,life_commission_completed,nonlife_commission_completed')
         .eq('id', fcId)
         .single();
 
     if (profileError) {
         return { success: false, error: `프로필 조회 실패: ${profileError.message}` };
     }
+    if (!currentProfile) {
+        return { success: false, error: '프로필을 찾을 수 없습니다.' };
+    }
+
+    const phoneResult = parseFcNotificationPhone(currentProfile.phone);
+    if (!phoneResult.ok) {
+        return { success: false, error: phoneResult.error };
+    }
+    const notificationPhone = phoneResult.value;
 
     if (!hasExistingInsuranceActivity(currentProfile) && !hasHanwhaApprovedPdf(currentProfile)) {
         return { success: false, error: '다위촉 URL 승인과 PDF 등록이 끝난 뒤에만 생명/손해 위촉 단계를 진행할 수 있습니다.' };
@@ -192,12 +207,12 @@ export async function updateAppointmentAction(
         body: notifBody,
         target_url: '/appointment',
         recipient_role: 'fc',
-        resident_id: phone,
+        resident_id: notificationPhone,
     });
     if (notifError) logger.error('Notification insert failed:', notifError);
 
     // 4. Send Push Notification
-    const { success, error: pushError } = await sendPushNotification(phone, {
+    const { success, error: pushError } = await sendPushNotification(notificationPhone, {
         title: notifTitle,
         body: notifBody,
         data: { url: '/appointment' },

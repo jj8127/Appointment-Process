@@ -16,7 +16,8 @@ describe('priority security hardening source contracts', () => {
     expect(source).toMatch(/functions\.invoke[\s\S]*'device-token-register'/);
     expect(source).not.toContain(".from('device_tokens')");
     expect(dashboardSource).not.toContain(".from('device_tokens')");
-    expect(dashboardSource).toContain("functions.invoke('fc-notify'");
+    expect(dashboardSource).toContain('invokeFcNotify({');
+    expect(dashboardSource).not.toContain("functions.invoke('fc-notify'");
     expect(migration).toContain('revoke all on table public.device_tokens from anon');
     expect(migration).toContain('revoke all on table public.device_tokens from authenticated');
   });
@@ -40,6 +41,9 @@ describe('priority security hardening source contracts', () => {
       'web/src/app/api/fc-delete/route.ts',
       'web/src/app/actions.ts',
       'web/src/app/dashboard/notifications/actions.ts',
+      'web/src/app/dashboard/exam/schedule/actions.ts',
+      'web/src/app/dashboard/appointment/actions.ts',
+      'web/src/app/dashboard/docs/actions.ts',
     ];
 
     for (const file of checkedFiles) {
@@ -50,6 +54,40 @@ describe('priority security hardening source contracts', () => {
       expect(`${file}\n${source}`).not.toContain("cookieStore.get('session_role')");
       expect(`${file}\n${source}`).not.toContain("cookieStore.get('session_resident')");
     }
+  });
+
+  it('authorizes every exam schedule server action before service-role database access', () => {
+    const source = readRepoFile('web/src/app/dashboard/exam/schedule/actions.ts');
+    const actionSource = (name: string) => {
+      const start = source.indexOf(`export async function ${name}`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const next = source.indexOf('export async function ', start + 1);
+      return source.slice(start, next === -1 ? undefined : next);
+    };
+
+    for (const action of ['saveExamRoundAction', 'deleteExamRoundAction']) {
+      const body = actionSource(action);
+      const authIndex = body.indexOf('await getVerifiedAdminSession()');
+      expect(authIndex).toBeGreaterThanOrEqual(0);
+      expect(authIndex).toBeLessThan(body.indexOf('adminSupabase'));
+    }
+
+    const fetchBody = actionSource('fetchExamRoundsAction');
+    const readAuthIndex = fetchBody.indexOf('await getVerifiedReadOnlyAdminSession()');
+    expect(readAuthIndex).toBeGreaterThanOrEqual(0);
+    expect(readAuthIndex).toBeLessThan(fetchBody.indexOf('adminSupabase'));
+
+    const deleteBody = actionSource('deleteExamRoundAction');
+    expect(deleteBody).not.toContain(".from('exam_registrations')");
+    expect(deleteBody).not.toContain(".from('exam_locations')");
+    expect(deleteBody).toContain(".from('exam_rounds')");
+    const schema = readRepoFile('supabase/schema.sql');
+    expect(schema).toMatch(
+      /create table if not exists public\.exam_locations[\s\S]{0,500}round_id uuid not null references public\.exam_rounds \(id\) on delete cascade/,
+    );
+    expect(schema).toMatch(
+      /create table if not exists public\.exam_registrations[\s\S]{0,1200}round_id uuid not null references public\.exam_rounds \(id\) on delete cascade/,
+    );
   });
 
   it('uses a server-only push service below the authenticated server action wrapper', () => {
@@ -92,12 +130,20 @@ describe('priority security hardening source contracts', () => {
 
   it('splits request-board bridge tokens from fc app session tokens', () => {
     const source = readRepoFile('supabase/functions/_shared/request-board-auth.ts');
+    const webSource = readRepoFile('web/src/lib/request-board-app-session.ts');
+    const appSecretSection = source.slice(
+      source.indexOf('function getAppSessionSigningSecret()'),
+      source.indexOf('function toBase64('),
+    );
 
     expect(source).toContain('REQUEST_BOARD_BRIDGE_TOKEN_SECRET');
     expect(source).toContain('REQUEST_BOARD_BRIDGE_TOKEN_PREVIOUS_SECRET');
     expect(source).toContain('FC_APP_SESSION_TOKEN_SECRET');
     expect(source).toContain('FC_APP_SESSION_TOKEN_PREVIOUS_SECRET');
     expect(source).toContain('REQUEST_BOARD_AUTH_BRIDGE_SECRET');
+    expect(appSecretSection).not.toContain('LEGACY_SHARED_BRIDGE_SECRET');
+    expect(appSecretSection).not.toContain('REQUEST_BOARD_AUTH_BRIDGE_SECRET');
+    expect(webSource).not.toContain('REQUEST_BOARD_AUTH_BRIDGE_SECRET');
     expect(source).toMatch(/payload\.kind !== 'request_board_bridge'/);
     expect(source).toMatch(/payload\.kind !== 'fc_onboarding_session'/);
   });

@@ -53,7 +53,9 @@ describe('board category contract', () => {
     expect(digestScript).toContain("const CATEGORY_SLUG = 'general';");
     expect(digestScript).toContain('loadCanonicalBoardCategories');
     expect(digestScript).toContain('GENERAL_BOARD_CATEGORY.name');
-    expect(digestScript).toContain('GENERAL_BOARD_CATEGORY.sortOrder');
+    expect(digestScript).toContain("requireEnv(env, 'BOARD_AUTOMATION_TOKEN')");
+    expect(digestScript).toContain("'x-board-automation-token': config.automationToken");
+    expect(digestScript).not.toContain("name: 'board-category-create'");
   });
 
   it('validates canonical categories at board write boundaries', () => {

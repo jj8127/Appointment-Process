@@ -27,8 +27,8 @@ serve(async (req: Request) => {
   const body = await parseJson<Payload>(req);
   if (!body) return json({ ok: false, code: 'invalid_json', message: 'Invalid JSON' }, 400, origin);
 
-  const actorCheck = await requireActor(body, origin);
-  if (!actorCheck.ok) return actorCheck.response;
+  const actorCheck = await requireActor(req, body, 'board-category-create', origin);
+  if (actorCheck.ok === false) return actorCheck.response;
   const forbidden = requireRole(actorCheck.actor, ['admin'], origin);
   if (forbidden) return forbidden;
 

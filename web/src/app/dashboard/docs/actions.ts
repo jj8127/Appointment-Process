@@ -6,6 +6,11 @@ import { verifyOrigin, checkRateLimit } from '@/lib/csrf';
 import { adminSupabase } from '@/lib/admin-supabase';
 
 import { logger } from '@/lib/logger';
+import {
+    parseDocStatusActionInput,
+    parseFcNotificationPhone,
+} from '@/lib/privileged-action-input-policy';
+import { getVerifiedAdminSession } from '@/lib/server-session';
 type UpdateDocStatusState = {
     success: boolean;
     message?: string;
@@ -38,14 +43,15 @@ function buildDocWorkflowResetPayload() {
 
 export async function updateDocStatusAction(
     prevState: UpdateDocStatusState,
-    payload: {
-        fcId: string;
-        phone: string;
-        docType: string;
-        status: 'approved' | 'rejected' | 'pending';
-        reason?: string | null;
-    }
+    payload: unknown,
 ): Promise<UpdateDocStatusState> {
+    void prevState;
+    const sessionCheck = await getVerifiedAdminSession();
+    if (!sessionCheck.ok) {
+        logger.warn('[docs/actions] unauthorized server action', { status: sessionCheck.status });
+        return { success: false, error: sessionCheck.error };
+    }
+
     // Security: Verify origin to prevent CSRF
     const originCheck = await verifyOrigin();
     if (!originCheck.valid) {
@@ -53,19 +59,65 @@ export async function updateDocStatusAction(
         return { success: false, error: 'Security check failed' };
     }
 
+    const parsedInput = parseDocStatusActionInput(payload);
+    if (!parsedInput.ok) {
+        return { success: false, error: parsedInput.error };
+    }
+    const { fcId, docType, status, reason } = parsedInput.value;
+
     // Security: Rate limiting (max 30 document updates per minute per FC)
-    const rateLimit = checkRateLimit(`docs:${payload.fcId}`, 30, 60000);
+    const rateLimit = checkRateLimit(`docs:${fcId}`, 30, 60000);
     if (!rateLimit.allowed) {
-        logger.warn('[docs/actions] Rate limit exceeded for FC:', payload.fcId);
+        logger.warn('[docs/actions] Rate limit exceeded for FC:', fcId);
         return { success: false, error: 'Too many requests. Please try again later.' };
     }
 
-    const { fcId, phone, docType, status, reason } = payload;
-    const trimmedReason = String(reason ?? '').trim();
-
-    if (status === 'rejected' && !trimmedReason) {
-        return { success: false, error: '반려 사유를 입력해주세요.' };
+    const trimmedReason = reason ?? '';
+    const { data: profile, error: profileLookupError } = await adminSupabase
+        .from('fc_profiles')
+        .select('phone')
+        .eq('id', fcId)
+        .single();
+    if (profileLookupError) {
+        return { success: false, error: `프로필 조회 실패: ${profileLookupError.message}` };
     }
+    if (!profile) {
+        return { success: false, error: '프로필을 찾을 수 없습니다.' };
+    }
+
+    const deliverNotification = async ({
+        title,
+        body,
+        targetUrl,
+    }: {
+        title: string;
+        body: string;
+        targetUrl: '/hanwha-commission' | '/docs-upload';
+    }) => {
+        const phoneResult = parseFcNotificationPhone(profile.phone);
+        if (!phoneResult.ok) {
+            logger.error('[docs/actions] notification skipped because the stored FC phone is invalid', {
+                fcId,
+                error: phoneResult.error,
+            });
+            return;
+        }
+        const notificationPhone = phoneResult.value;
+
+        await adminSupabase.from('notifications').insert({
+            title,
+            body,
+            target_url: targetUrl,
+            recipient_role: 'fc',
+            resident_id: notificationPhone,
+        });
+        await sendPushNotification(notificationPhone, {
+            title,
+            body,
+            data: { url: targetUrl },
+            skipNotificationInsert: true,
+        });
+    };
 
     const { data: currentDoc, error: currentDocError } = await adminSupabase
         .from('fc_documents')
@@ -142,31 +194,19 @@ export async function updateDocStatusAction(
         const title = '서류 검토 완료';
         const body = '모든 서류가 승인되었습니다. 다위촉 URL 단계로 진행해주세요.';
 
-        await adminSupabase.from('notifications').insert({
+        await deliverNotification({
             title,
             body,
-            target_url: '/hanwha-commission',
-            recipient_role: 'fc',
-            resident_id: phone,
-        });
-
-        await sendPushNotification(phone, {
-            title,
-            body,
-            data: { url: '/hanwha-commission' },
-            skipNotificationInsert: true,
+            targetUrl: '/hanwha-commission',
         });
     } else if (status === 'rejected') {
         const title = '서류 반려 안내';
-        const body = `서류가 반려되었습니다.\n사유: ${(reason ?? '').trim() || '사유 없음'}`;
-        await adminSupabase.from('notifications').insert({
+        const body = `서류가 반려되었습니다.\n사유: ${trimmedReason}`;
+        await deliverNotification({
             title,
             body,
-            target_url: '/docs-upload',
-            recipient_role: 'fc',
-            resident_id: phone,
+            targetUrl: '/docs-upload',
         });
-        await sendPushNotification(phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
     }
 
     revalidatePath('/dashboard');

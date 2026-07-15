@@ -16,6 +16,7 @@ import {
 const actorEnv = {
   SUPABASE_URL: 'https://example.supabase.co',
   SUPABASE_ANON_KEY: 'anon-key',
+  BOARD_AUTOMATION_TOKEN: 'automation-token',
   BOARD_AUTOMATION_ACTOR_ROLE: 'admin',
   BOARD_AUTOMATION_ACTOR_PHONE: '01012345678',
   BOARD_AUTOMATION_ACTOR_NAME: '자동 브리핑',
@@ -27,6 +28,7 @@ function createFetchRecorder(responses) {
     calls.push({
       url,
       body: JSON.parse(init.body ?? '{}'),
+      headers: init.headers ?? {},
     });
     const next = responses.shift();
     if (!next) {
@@ -111,6 +113,21 @@ test('dry-run validates payload without calling Supabase', async () => {
   assert.equal(result.payload.title, '보험소식 브리핑 2026.05.16');
   assert.equal(result.payload.categoryName, '일반');
   assert.equal(result.payload.categorySlug, 'general');
+  assert.doesNotMatch(JSON.stringify(result), /automation-token/);
+});
+
+test('non-dry automation fails before network I/O when its paired token is missing', async () => {
+  const { calls, fetchImpl } = createFetchRecorder([]);
+  const runner = createPostInsuranceDigestRunner({ fetchImpl });
+
+  await assert.rejects(runner({
+    env: { ...actorEnv, BOARD_AUTOMATION_TOKEN: '' },
+    digest: {
+      content: 'digest summary',
+      sourceUrls: ['https://example.com/a'],
+    },
+  }), /BOARD_AUTOMATION_TOKEN/);
+  assert.equal(calls.length, 0);
 });
 
 test('runner rejects automation actor names contaminated with secret assignments', async () => {
@@ -235,32 +252,29 @@ test('runner uses existing general category and posts digest', async () => {
   assert.match(calls[1].url, /board-list$/);
   assert.match(calls[2].url, /board-create$/);
   assert.equal(calls[2].body.categoryId, 'cat-existing');
+  for (const call of calls) {
+    assert.equal(call.headers['x-board-automation-token'], 'automation-token');
+    assert.doesNotMatch(JSON.stringify(call.body), /automation-token/);
+  }
 });
 
-test('runner creates general category when missing', async () => {
+test('runner fails closed without creating a category when canonical general is missing', async () => {
   const { calls, fetchImpl } = createFetchRecorder([
     { body: { ok: true, data: [{ id: 'cat-pick', name: '가람Pick', slug: 'garam-pick', isActive: true }] } },
-    { body: { ok: true, data: { id: 'cat-created' } } },
-    { body: { ok: true, data: { items: [] } } },
-    { body: { ok: true, data: { id: 'post-2' } } },
   ]);
   const runner = createPostInsuranceDigestRunner({ fetchImpl, now: () => new Date('2026-05-16T00:00:00Z') });
 
-  const result = await runner({
+  await assert.rejects(runner({
     env: actorEnv,
     digest: {
       title: '보험소식 브리핑 2026.05.16',
       content: '오늘의 핵심 요약\n- 테스트',
       sourceUrls: ['https://example.com/a'],
     },
-  });
+  }), /canonical general board category is missing/i);
 
-  assert.equal(result.status, 'posted');
-  assert.equal(result.categoryId, 'cat-created');
-  assert.match(calls[1].url, /board-category-create$/);
-  assert.equal(calls[1].body.name, '일반');
-  assert.equal(calls[1].body.slug, 'general');
-  assert.equal(calls[1].body.sortOrder, 3);
+  assert.equal(calls.length, 1);
+  assert.doesNotMatch(calls[0].url, /board-category-create$/);
 });
 
 test('runner skips when same-day digest already exists', async () => {

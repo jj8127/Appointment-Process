@@ -9,6 +9,7 @@ import {
   sanitizeFileName,
   supabase,
 } from '../_shared/board.ts';
+import { isBoardPostWritableByActor } from '../_shared/board-actor-policy.ts';
 
 type FileInput = {
   fileName: string;
@@ -40,8 +41,8 @@ serve(async (req: Request) => {
   const body = await parseJson<Payload>(req);
   if (!body) return json({ ok: false, code: 'invalid_json', message: 'Invalid JSON' }, 400, origin);
 
-  const actorCheck = await requireActor(body, origin);
-  if (!actorCheck.ok) return actorCheck.response;
+  const actorCheck = await requireActor(req, body, 'board-attachment-sign', origin);
+  if (actorCheck.ok === false) return actorCheck.response;
   const forbidden = requireRole(actorCheck.actor, ['admin', 'manager'], origin);
   if (forbidden) return forbidden;
 
@@ -52,6 +53,22 @@ serve(async (req: Request) => {
   }
   if (files.length > ATTACHMENT_LIMITS.maxFiles) {
     return json({ ok: false, code: 'file_limit', message: 'too many files' }, 400, origin);
+  }
+
+  const invalidFile = files.some((file) => (
+    !file
+    || (file.fileType !== 'image' && file.fileType !== 'file')
+    || typeof file.fileName !== 'string'
+    || !file.fileName.trim()
+    || file.fileName.trim().length > 180
+    || typeof file.mimeType !== 'string'
+    || !file.mimeType.trim()
+    || file.mimeType.trim().length > 200
+    || !Number.isSafeInteger(file.fileSize)
+    || file.fileSize <= 0
+  ));
+  if (invalidFile) {
+    return json({ ok: false, code: 'invalid_file', message: 'invalid attachment metadata' }, 400, origin);
   }
 
   const totalSize = files.reduce((sum, file) => sum + (file.fileSize ?? 0), 0);
@@ -70,7 +87,7 @@ serve(async (req: Request) => {
 
   const { data: post, error: postError } = await supabase
     .from('board_posts')
-    .select('id')
+    .select('id,author_role,author_resident_id')
     .eq('id', postId)
     .maybeSingle();
 
@@ -80,11 +97,17 @@ serve(async (req: Request) => {
   if (!post) {
     return json({ ok: false, code: 'not_found', message: 'post not found' }, 404, origin);
   }
+  if (!isBoardPostWritableByActor(actorCheck.actor, {
+    authorRole: post.author_role,
+    authorResidentId: post.author_resident_id,
+  })) {
+    return json({ ok: false, code: 'forbidden', message: 'cannot attach files to this post' }, 403, origin);
+  }
 
   const results: Array<{ storagePath: string; signedUrl: string }> = [];
 
   for (const file of files) {
-    const sanitized = sanitizeFileName(file.fileName);
+    const sanitized = sanitizeFileName(file.fileName.trim());
     const storagePath = `board/${postId}/${crypto.randomUUID()}_${sanitized}`;
     const { data, error } = await supabase.storage
       .from('board-attachments')

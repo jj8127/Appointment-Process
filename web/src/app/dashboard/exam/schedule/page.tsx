@@ -145,7 +145,6 @@ export default function ExamSchedulePage() {
                 notes,
                 locations: values.locations,
                 roundId: editingId,
-                actionLabel: editingId ? '수정' as const : '등록' as const,
             };
             const { saveExamRoundAction } = await import('./actions');
             const result = await saveExamRoundAction({ success: false }, payload);

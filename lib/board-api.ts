@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
+import { getStoredAppSessionToken } from '@/lib/request-board-api';
 
 export type BoardActorRole = 'admin' | 'manager' | 'fc';
 export type BoardDisplayRole = 'admin' | 'manager' | 'fc' | 'developer';
@@ -108,6 +109,45 @@ export type BoardDetail = {
 
 type InvokeResult<T> = { ok: boolean; data?: T; message?: string };
 
+export type BoardFunctionName =
+  | 'board-attachment-delete'
+  | 'board-attachment-finalize'
+  | 'board-attachment-sign'
+  | 'board-categories-list'
+  | 'board-category-create'
+  | 'board-category-update'
+  | 'board-comment-create'
+  | 'board-comment-delete'
+  | 'board-comment-like-toggle'
+  | 'board-comment-update'
+  | 'board-create'
+  | 'board-delete'
+  | 'board-detail'
+  | 'board-list'
+  | 'board-pin'
+  | 'board-reaction-toggle'
+  | 'board-update';
+
+type BoardInvokeOptions = {
+  body: Record<string, unknown>;
+  headers: Record<string, string>;
+};
+
+type BoardInvokeTransport = (
+  name: BoardFunctionName,
+  options: BoardInvokeOptions,
+) => Promise<{ data: unknown; error: unknown }>;
+
+export class BoardSessionError extends Error {
+  readonly code = 'missing_app_session';
+  readonly status = 401;
+
+  constructor(message = '게시판 세션이 없습니다. 다시 로그인해주세요.') {
+    super(message);
+    this.name = 'BoardSessionError';
+  }
+}
+
 async function extractFunctionsErrorMessage(error: unknown): Promise<string | null> {
   if (!error || typeof error !== 'object') return null;
   const withContext = error as {
@@ -146,8 +186,26 @@ async function extractFunctionsErrorMessage(error: unknown): Promise<string | nu
   return null;
 }
 
-async function invokeBoard<T>(name: string, body: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.functions.invoke(name, { body });
+export async function invokeBoardWithDeps<T>(
+  name: BoardFunctionName,
+  body: Record<string, unknown>,
+  deps: {
+    getStoredAppSessionToken: () => Promise<string | null>;
+    invoke: BoardInvokeTransport;
+  },
+): Promise<T> {
+  const storedAppSessionToken = await deps.getStoredAppSessionToken();
+  const appSessionToken = String(storedAppSessionToken ?? '').trim();
+  if (!appSessionToken) {
+    throw new BoardSessionError();
+  }
+
+  const { data, error } = await deps.invoke(name, {
+    body,
+    headers: {
+      'x-app-session-token': appSessionToken,
+    },
+  });
   if (error) {
     const message = await extractFunctionsErrorMessage(error);
     if (message) {
@@ -167,6 +225,16 @@ async function invokeBoard<T>(name: string, body: Record<string, unknown>): Prom
     throw new Error(payload?.message ?? '요청에 실패했습니다.');
   }
   return payload.data as T;
+}
+
+async function invokeBoard<T>(name: BoardFunctionName, body: Record<string, unknown>): Promise<T> {
+  return invokeBoardWithDeps<T>(name, body, {
+    getStoredAppSessionToken,
+    invoke: async (functionName, options) => {
+      const { data, error } = await supabase.functions.invoke(functionName, options);
+      return { data, error };
+    },
+  });
 }
 
 export function buildBoardActor(session: {

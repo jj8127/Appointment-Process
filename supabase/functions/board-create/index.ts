@@ -110,7 +110,7 @@ serve(async (req: Request) => {
   const body = await parseJson<Payload>(req);
   if (!body) return json({ ok: false, code: 'invalid_json', message: 'Invalid JSON' }, 400, origin);
 
-  const actorCheck = await requireActor(body, origin);
+  const actorCheck = await requireActor(req, body, 'board-create', origin);
   if (actorCheck.ok === false) return actorCheck.response;
   const forbidden = requireRole(actorCheck.actor, ['admin', 'manager'], origin);
   if (forbidden) return forbidden;
@@ -134,6 +134,16 @@ serve(async (req: Request) => {
   }
   if (!category?.id || category.is_active !== true || !isCanonicalBoardCategorySlug(category.slug)) {
     return json({ ok: false, code: 'invalid_category', message: 'category not found or inactive' }, 400, origin);
+  }
+  if (
+    actorCheck.authMode === 'automation'
+    && (category.slug !== 'general' || !title.startsWith('보험소식 브리핑'))
+  ) {
+    return json({
+      ok: false,
+      code: 'automation_forbidden',
+      message: 'board automation may create only the canonical insurance digest',
+    }, 403, origin);
   }
 
   const { data, error } = await supabase

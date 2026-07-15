@@ -1,4 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import {
+  buildVerifiedBoardActor,
+  isBoardAutomationActionAllowed,
+  verifyBoardAutomationToken,
+} from './board-actor-policy.ts';
+import { requireAppSessionFromRequest } from './request-board-auth.ts';
 
 export type Role = 'admin' | 'manager' | 'fc';
 export type BoardDisplayRole = Role | 'developer';
@@ -10,7 +16,7 @@ export type Actor = {
 };
 
 export type ActorCheck =
-  | { ok: true; actor: Actor }
+  | { ok: true; actor: Actor; authMode: 'app' | 'automation' }
   | { ok: false; response: Response };
 
 function getEnv(name: string): string | undefined {
@@ -36,7 +42,7 @@ export function resolveCorsOrigin(origin?: string) {
 export function buildCorsHeaders(origin?: string) {
   return {
     'Access-Control-Allow-Origin': resolveCorsOrigin(origin),
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey, x-app-session-token, x-board-automation-token',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Credentials': 'true',
   };
@@ -99,89 +105,137 @@ export async function parseJson<T>(req: Request): Promise<T | null> {
   }
 }
 
-export async function requireActor(payload: { actor?: Actor }, origin?: string): Promise<ActorCheck> {
-  if (!payload?.actor) {
-    return { ok: false, response: fail('missing_actor', 'actor is required', 400, origin) };
+export async function requireActor(
+  req: Request,
+  payload: { actor?: Actor },
+  action: string,
+  origin?: string,
+): Promise<ActorCheck> {
+  const providedAutomationToken = req.headers.get('x-board-automation-token')?.trim() ?? '';
+  if (providedAutomationToken) {
+    const expectedAutomationToken = getEnv('BOARD_AUTOMATION_TOKEN')?.trim() ?? '';
+    if (!expectedAutomationToken) {
+      return { ok: false, response: fail('automation_unavailable', 'board automation is not configured', 503, origin) };
+    }
+    if (!verifyBoardAutomationToken(providedAutomationToken, expectedAutomationToken)) {
+      return { ok: false, response: fail('invalid_automation_token', 'invalid board automation token', 401, origin) };
+    }
+    if (!isBoardAutomationActionAllowed(action)) {
+      return { ok: false, response: fail('automation_forbidden', 'board automation action is not allowed', 403, origin) };
+    }
+
+    const automationPhone = cleanPhone(getEnv('BOARD_AUTOMATION_ACTOR_PHONE') ?? '');
+    if (automationPhone.length !== 11) {
+      return { ok: false, response: fail('automation_unavailable', 'board automation actor is not configured', 503, origin) };
+    }
+    const { data, error } = await supabase
+      .from('admin_accounts')
+      .select('id,name,phone,active')
+      .eq('phone', automationPhone)
+      .eq('active', true)
+      .maybeSingle();
+    if (error) return { ok: false, response: dbError(error, origin) };
+    if (!data?.id || !data.active || cleanPhone(data.phone ?? '') !== automationPhone) {
+      return { ok: false, response: fail('actor_not_found', 'automation admin account not found', 403, origin) };
+    }
+
+    const automationName = redactSensitiveText(
+      getEnv('BOARD_AUTOMATION_ACTOR_NAME') ?? data.name ?? '',
+    ).trim();
+    const policyResult = buildVerifiedBoardActor({
+      role: 'admin',
+      residentId: automationPhone,
+      displayName: automationName,
+    });
+    if (policyResult.ok === false) {
+      return {
+        ok: false,
+        response: fail(policyResult.code, policyResult.message, policyResult.status, origin),
+      };
+    }
+    return { ok: true, actor: policyResult.actor, authMode: 'automation' };
   }
 
-  const role = payload.actor.role;
-  const residentId = cleanPhone(payload.actor.residentId ?? '');
-  const displayName = redactSensitiveText(payload.actor.displayName ?? '').trim();
-
-  if (!role || !residentId) {
-    return { ok: false, response: fail('invalid_actor', 'invalid actor payload', 400, origin) };
+  const sessionResult = await requireAppSessionFromRequest(req);
+  if (sessionResult.ok === false) {
+    return {
+      ok: false,
+      response: fail(
+        sessionResult.code,
+        '게시판 기능을 사용하려면 다시 로그인해주세요.',
+        sessionResult.status,
+        origin,
+      ),
+    };
   }
+
+  const role = sessionResult.session.role;
+  const residentId = cleanPhone(sessionResult.session.phone);
   if (residentId.length !== 11) {
-    return { ok: false, response: fail('invalid_resident_id', 'residentId must be 11 digits', 400, origin) };
-  }
-  if (!['admin', 'manager', 'fc'].includes(role)) {
-    return { ok: false, response: fail('invalid_role', 'invalid actor role', 400, origin) };
+    return { ok: false, response: fail('invalid_session_actor', 'invalid signed board session actor', 401, origin) };
   }
 
+  let canonicalName = '';
   if (role === 'admin') {
     const { data, error } = await supabase
       .from('admin_accounts')
       .select('id,name,phone,active')
       .eq('phone', residentId)
+      .eq('active', true)
       .maybeSingle();
     if (error) {
-      return { ok: false, response: fail('db_error', error.message, 500, origin) };
+      return { ok: false, response: dbError(error, origin) };
     }
-    if (!data?.id || !data.active) {
+    if (!data?.id || !data.active || cleanPhone(data.phone ?? '') !== residentId) {
       return { ok: false, response: fail('actor_not_found', 'admin account not found', 403, origin) };
     }
-    return {
-      ok: true,
-      actor: {
-        role,
-        residentId,
-        displayName: displayName || data.name || '',
-      },
-    };
-  }
-
-  if (role === 'manager') {
+    canonicalName = redactSensitiveText(data.name ?? '').trim();
+  } else if (role === 'manager') {
     const { data, error } = await supabase
       .from('manager_accounts')
       .select('id,name,phone,active')
       .eq('phone', residentId)
+      .eq('active', true)
       .maybeSingle();
     if (error) {
-      return { ok: false, response: fail('db_error', error.message, 500, origin) };
+      return { ok: false, response: dbError(error, origin) };
     }
-    if (!data?.id || !data.active) {
+    if (!data?.id || !data.active || cleanPhone(data.phone ?? '') !== residentId) {
       return { ok: false, response: fail('actor_not_found', 'manager account not found', 403, origin) };
     }
+    canonicalName = redactSensitiveText(data.name ?? '').trim();
+  } else {
+    const query = supabase
+      .from('fc_profiles')
+      .select('id,name,phone,signup_completed');
+    const { data, error } = sessionResult.session.fcId
+      ? await query.eq('id', sessionResult.session.fcId).maybeSingle()
+      : await query.eq('phone', residentId).maybeSingle();
+    if (error) {
+      return { ok: false, response: dbError(error, origin) };
+    }
+    if (
+      !data?.id
+      || data.signup_completed !== true
+      || cleanPhone(data.phone ?? '') !== residentId
+    ) {
+      return { ok: false, response: fail('actor_not_found', 'completed FC profile not found', 403, origin) };
+    }
+    canonicalName = redactSensitiveText(data.name ?? '').trim();
+  }
+
+  const policyResult = buildVerifiedBoardActor(
+    { role, residentId, displayName: canonicalName },
+    payload.actor,
+  );
+  if (policyResult.ok === false) {
     return {
-      ok: true,
-      actor: {
-        role,
-        residentId,
-        displayName: displayName || data.name || '',
-      },
+      ok: false,
+      response: fail(policyResult.code, policyResult.message, policyResult.status, origin),
     };
   }
 
-  const { data, error } = await supabase
-    .from('fc_profiles')
-    .select('id,name,phone')
-    .eq('phone', residentId)
-    .maybeSingle();
-  if (error) {
-    return { ok: false, response: fail('db_error', error.message, 500, origin) };
-  }
-  if (!data?.id) {
-    return { ok: false, response: fail('actor_not_found', 'fc profile not found', 403, origin) };
-  }
-
-  return {
-    ok: true,
-    actor: {
-      role,
-      residentId,
-      displayName: displayName || data.name || '',
-    },
-  };
+  return { ok: true, actor: policyResult.actor, authMode: 'app' };
 }
 
 export function requireRole(actor: Actor, roles: Role[], origin?: string) {

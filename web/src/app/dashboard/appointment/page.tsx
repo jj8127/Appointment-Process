@@ -382,7 +382,6 @@ export default function AppointmentPage() {
         { success: false },
         {
           fcId: String(rejectTarget.fc.id),
-          phone: rejectTarget.fc.phone ?? '',
           type: 'reject',
           category: rejectTarget.category,
           value: null,
@@ -450,7 +449,6 @@ export default function AppointmentPage() {
             { success: false },
             {
               fcId: String(fc.id),
-              phone: fc.phone ?? '',
               type,
               category,
               value,

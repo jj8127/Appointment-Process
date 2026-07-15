@@ -557,7 +557,6 @@ export default function DashboardPage() {
           { success: false },
           {
             fcId: selectedFc.id,
-            phone: selectedFc.phone,
             type: 'reject',
             category,
             value: null,
@@ -582,7 +581,6 @@ export default function DashboardPage() {
         const doc = rejectTarget.doc;
         const res = await updateDocStatusAction({ success: false }, {
           fcId: selectedFc.id,
-          phone: selectedFc.phone,
           docType: doc.doc_type,
           status: 'rejected',
           reason,
@@ -1467,7 +1465,6 @@ export default function DashboardPage() {
           { success: false },
           {
             fcId: selectedFc!.id,
-            phone: selectedFc!.phone,
             type,
             category,
             value,
@@ -2750,7 +2747,6 @@ export default function DashboardPage() {
                                               const manualApprovalNote = isSubmitted ? null : '총무 수동 승인: 파일 미제출';
                                               const res = await updateDocStatusAction({ success: false }, {
                                                 fcId: selectedFc.id,
-                                                phone: selectedFc.phone,
                                                 docType: d.doc_type,
                                                 status: nextStatus,
                                                 reason: manualApprovalNote,
