@@ -3506,9 +3506,9 @@
   - `messages.sender_id = '01058006018'`로 2026-04-22자 신규 메시지 sample 조회 성공
   - self-referral 3건 모두 별도 문구로 `전송 완료` 확인
 - 증적:
-  - `.codex/harness/reports/missing-recommender-message-send-2026-04-22.md`
-  - `.codex/harness/reports/missing-recommender-message-send-2026-04-22.json`
-  - `.codex/harness/reports/fc-missing-recommender-2026-04-22-outreach.csv`
+  - `privacy-deleted; see central FC raw-harness receipt`
+  - `privacy-deleted; see central FC raw-harness receipt`
+  - `privacy-deleted; see central FC raw-harness receipt`
 
 ---
 
@@ -3558,9 +3558,9 @@
 - 통과: `npm run report:legacy-recommenders -- --date=2026-04-22 --apply`
 - 통과: `npm run report:missing-recommender -- --date=2026-04-22-after-link`
 - 증적:
-  - `.codex/harness/reports/legacy-recommender-reconcile-2026-04-22.md`
-  - `.codex/harness/reports/legacy-recommender-reconcile-2026-04-22.json`
-  - `.codex/harness/reports/fc-missing-recommender-2026-04-22-after-link.csv`
+  - `privacy-deleted; see central FC raw-harness receipt`
+  - `privacy-deleted; see central FC raw-harness receipt`
+  - `privacy-deleted; see central FC raw-harness receipt`
 
 ---
 
@@ -3717,7 +3717,7 @@
   - 스택이 있으면 `back()`, 없으면 fallback route로 `replace()`하는 공용 helper를 추가했다.
   - `메신저` route header에 이 helper를 연결해 top header back button이 항상 보이도록 했다.
 - Android emulator QA
-  - FC flow와 admin internal-messenger flow 증적을 `.codex/harness/evidence/android-optimization-pass1/`에 수집했다.
+  - FC flow와 admin internal-messenger flow 증적을 `privacy-deleted; see central FC raw-harness receipt`에 수집했다.
   - 제공받은 developer/admin 계정은 request_board session sync 과정에서 다시 login으로 돌아가는 현상이 있어, plain-admin QA session injection으로 internal messenger admin list/read 동작까지는 검증했다.
 
 **결과**:
@@ -3733,7 +3733,7 @@
 - 통과: `npx eslint --rule "import/no-unresolved: off" supabase/functions/fc-notify/index.ts`
 - 통과: `node scripts/ci/check-governance.mjs`
 - 통과: `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
-- 증적: `E:\hanhwa\fc-onboarding-app\.codex\harness\evidence\android-optimization-pass1\home.png`, `messenger-hub.png`, `admin-messenger-deeplink.png`, `admin-chat-open-2.png`, `admin-messenger-after-read.png`, `notifications-admin.png`
+- 증적: `privacy-deleted; see central FC raw-harness receipt`, `messenger-hub.png`, `admin-messenger-deeplink.png`, `admin-chat-open-2.png`, `admin-messenger-after-read.png`, `notifications-admin.png`
 - 미실행: 사용자가 이어서 수행할 실제 계정 수동 QA 전체 세트
 - 별도 메모: `npx tsc --noEmit --pretty false`는 이번 변경과 무관한 기존 오류(`app/appointment.tsx`, `app/hanwha-commission.tsx`, `app/referral.tsx`, `components/DaumPostcode.tsx`, `hooks/use-my-referral-code.ts`)로 인해 여전히 실패
 

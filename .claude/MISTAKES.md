@@ -1842,7 +1842,7 @@
   - 전화번호/주민번호처럼 앞자리 0이 의미를 갖는 보고서 CSV는 기본 export를 spreadsheet-safe text 형식으로 저장하고, 필요하면 raw CSV를 별도 파일로 같이 만든다.
   - 보고서 산출물은 생성 직후 첫 몇 줄을 다시 읽어 phone column formatting contract를 확인한다.
 - Related files:
-  - `scripts/reporting/export-missing-recommender-report.mjs`, `.codex/harness/reports/fc-missing-recommender-2026-04-22.csv`
+  - `scripts/reporting/export-missing-recommender-report.mjs`, `privacy-deleted; see central FC raw-harness receipt`
 - Verification:
   - `npm run report:missing-recommender -- --date=2026-04-22`
   - `Get-Content .codex\\harness\\reports\\fc-missing-recommender-2026-04-22.csv -TotalCount 5`
@@ -1863,7 +1863,7 @@
   - backend smoke 통과만으로 모바일 로그인 회귀를 닫지 않는다. 최소 1회는 emulator/device에서 실제 fetch contract를 확인한다.
   - emulator를 재기동할 때 DNS가 흔들리면 `-dns-server 8.8.8.8,1.1.1.1`로 띄우고 그 상태를 QA note에 남긴다.
 - Related files:
-  - `.codex/harness/evidence/android-optimization-pass1/*`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md`
+  - `privacy-deleted; see central FC raw-harness receipt`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md`
 - Verification:
   - emulator relaunch: `emulator.exe -avd codex-api34 -dns-server 8.8.8.8,1.1.1.1`
   - `adb shell ping -c 1 google.com`
@@ -2390,7 +2390,7 @@
 - Why it was missed: 색상 회귀를 개별 버튼/카드 스타일 문제로만 보고, Expo system UI + React Navigation theme + screen fallback background를 같은 acceptance로 묶지 않았다. 실기기 dark-mode screenshot 확인을 완료 조건에 두지 않아 같은 증상이 반복됐다.
 - Permanent guardrail: 가람in 모바일은 별도 dark theme 구현 전까지 light-only 계약이다. `app.json`, root `ThemeProvider`, `NavigationBar`, screen/container fallback background를 함께 고정하고, UI 색상 회귀 수정 뒤에는 SM_S942N 또는 Android target에서 해당 화면 스크린샷을 반드시 확인한다.
 - Related files: `app.json`, `app/_layout.tsx`, `app/login.tsx`
-- Verification: `npm run lint -- app/_layout.tsx app/login.tsx`, `npx expo config --type public`, `npx expo run:android --device SM_S942N`, ADB screenshot `.codex/harness/evidence/kim-referral-auth/login-after-color-fix.png`
+- Verification: `npm run lint -- app/_layout.tsx app/login.tsx`, `npx expo config --type public`, `npx expo run:android --device SM_S942N`, ADB screenshot `privacy-deleted; see central FC raw-harness receipt`
 
 ## 2026-06-04 | Admin Web FC Access | JS로 쓰는 웹 세션 쿠키를 그대로 FC 권한 근거로 쓰려 해 impersonation 위험을 만들 뻔함
 - Symptom: 관리자 웹 추천인 그래프를 FC에게 열면서 `session_role=fc`, `session_resident=<전화번호>` 쿠키만 있으면 그래프 API allowlist를 통과할 수 있는 구조가 될 수 있었다.
