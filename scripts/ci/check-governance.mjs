@@ -2,6 +2,8 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 
+import { checkAgentsFile } from './documentation-governance.mjs';
+
 function run(cmd) {
   return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
@@ -182,6 +184,9 @@ function main() {
   const errors = [];
   const requireHandbookSync = handbookSyncRequired();
   const requireContractSync = contractSyncRequired();
+
+  const agentsSize = checkAgentsFile('AGENTS.md');
+  if (!agentsSize.ok) errors.push(agentsSize.error);
 
   const requiredDocs = [
     '.claude/PROJECT_GUIDE.md',

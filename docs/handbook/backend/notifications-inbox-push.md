@@ -2,8 +2,39 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-06-16
-source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + web/src/app/actions.ts + web/src/app/api/admin/push/route.ts + web/src/app/api/web-push/subscribe/route.ts
+last_verified: 2026-07-12
+source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts
+
+## Priority Security Notes (2026-07-12)
+
+- The public Next `/api/fc-notify` route has two independent trust boundaries. Browser requests
+  require an exact scheme-and-canonical-Host origin match plus a verified signed/active server session;
+  Request Board callbacks require `X-Request-Bridge-Token` matching `REQUEST_BOARD_NOTIFY_TOKEN`.
+- A server-held service-role key is key custody, not caller authentication. Never restore raw-body
+  forwarding or use a JS-readable role/resident value as the authorization actor.
+- Browser outbound payloads are rebuilt from the verified session. Managers cannot send messages;
+  admin/developer may target verified completed non-designer FCs, and a signed completed FC may
+  target only the shared admin conversation.
+- Request Board callbacks allow only `type=notify`, `target_role=fc`, an 11-digit target, an internal
+  relative URL, and the eight current `request_board_*` lifecycle/message categories. Unknown
+  control fields such as `skip_notification_insert` are not forwarded. Complete title/body values
+  are redacted before the shared 120/2000-character bounds are applied.
+- Browser chat callers omit sender id/name and never insert `notifications` directly. The protected
+  route derives canonical sender identity, while the Edge Function is the single notification-row writer.
+- Sender `FC_ONBOARDING_NOTIFY_TOKEN` and receiver `REQUEST_BOARD_NOTIFY_TOKEN` must be configured
+  with the same high-entropy value before rollout. The sender endpoint must be the exact HTTPS
+  `/api/fc-notify` route (HTTP only for localhost development checks); missing or invalid configuration
+  fails closed before network I/O.
+- The direct `fc-notify` handler now has three explicit ingress modes: `latest_notice` public read,
+  exact service `apikey`, or signed `x-app-session-token`. App mode rechecks the active DB actor and
+  rebuilds action-specific identity/scope before any service-role side effect. Deploy it only after
+  mobile caller adoption and required re-login are verified.
+- All 17 `board-*` handlers use the same request-bound app actor. This is required because a Board
+  handler that still trusts body actor data can become a confused deputy and call `fc-notify` with its
+  own service key. Web Board calls use `/api/board`; mobile calls attach the token in `lib/board-api.ts`.
+- Exam apply notification delivery is post-commit best effort. A failed admin/self notification must
+  be logged as incomplete delivery and must never turn a saved registration into a visible application
+  failure that invites a duplicate retry.
 
 ## Priority Security Notes (2026-07-06)
 

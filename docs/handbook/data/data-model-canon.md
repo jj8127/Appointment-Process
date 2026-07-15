@@ -100,3 +100,8 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 - `recommender_link_source` enum은 `signup | self_service | admin_override | legacy_migration`만 허용한다.
 - `referral_events.event_type` canonical set에는 `referral_linked`, `referral_changed`, `referral_cleared`가 포함되며, `referral_events.source` canonical set에는 `signup`, `self_service`, `legacy_migration`이 추가된다.
 - `public.get_invitee_referral_code(uuid)` canonical 반환값은 이제 invitee-facing current snapshot `fc_profiles.recommender_code`다. historical resolution이 필요하면 별도 admin/read model에서 처리하고, 이 helper 의미를 다시 넓히지 않는다.
+
+## 2026-07-13 원자 저장 RPC 메모
+
+- `public.update_board_post_atomic`은 게시글 field 변경과 전체 attachment order 검증·재정렬을 한 트랜잭션에서 처리한다. 전달된 attachment id 집합은 해당 post의 현재 전체 집합과 정확히 일치해야 하며 실행 권한은 `service_role`에만 있다.
+- `public.save_exam_round_atomic`은 회차와 장소 목록을 함께 저장한다. 마감일/시험일 순서, 라벨·비고 길이, 시험 유형, 장소 개수·길이·중복을 DB에서도 검증하고, 기존 신청이 참조하는 제거 대상 장소는 보존한다. 이 RPC도 `service_role`만 실행할 수 있다.

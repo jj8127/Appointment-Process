@@ -41,3 +41,10 @@ contract_guard_2026_07_03: mobile board/notice screens, admin board/notification
 - `garam-pick`의 표시명은 `상품추천`이며 stable slug는 계속 `garam-pick`입니다.
 - `policy`는 `시책` 표시명과 sort order 5를 사용합니다.
 - canonical 5종 밖의 legacy category 게시글은 migration에서 `general`로 재배치하고 old category는 inactive 처리합니다.
+
+## 2026-07-13 actor·automation·attachment 계약
+
+- Board Edge Functions derive the actor from `x-app-session-token` plus the canonical active account/profile. A client `actor` object may be checked for mismatch, but it cannot grant a role or identity.
+- `x-board-automation-token` is a separate internal boundary. Automation is limited to category list, general-category list, and create; automated list reads require the canonical active `general` category and return only `id,title,created_at` with a fixed limit.
+- Managers may mutate only their own manager-authored posts; FC sessions cannot use manager/admin mutation paths. Signed upload and finalize both enforce that ownership.
+- Attachment finalize accepts only canonical `board/<postId>/<uuid>_<sanitizedName>` paths, validates metadata and limits against the stored object, and rejects duplicate paths. Post fields and attachment ordering are committed together through `update_board_post_atomic`.

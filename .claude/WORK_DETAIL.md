@@ -7,6 +7,195 @@
 
 ---
 
+## <a id="20260715-operations-documentation"></a> 2026-07-15 | Operations documentation and governance boundary
+
+**Background**:
+- The root `AGENTS.md` had grown beyond 100 KiB by accumulating status, roadmap, and implementation history, so it no longer worked as a session control document.
+- Current local security commits needed a single operational handoff that preserved the signed-session, Board actor, and atomic-write contracts without claiming remote rollout success.
+
+**Current evidence**:
+- Local commits `75b1a0a` and `a12928b` separate notification/app-session authentication from Board actor binding and privileged atomic writes.
+- The exact frozen changed Edge command for FC notify plus the 17 Board entrypoints passes `18/18` with zero diagnostics.
+- The full web TypeScript gate remains red on pre-existing test import/type debt; focused security paths are not treated as a substitute.
+- Remote caller-first rollout, migration application, and authenticated role E2E are not proven.
+- An active tracked editor configuration contains a live-looking token-like secret. No value, prefix, or hash was read into or copied into this change; external revoke/rotate and history/clone assessment remain P0.
+- Release decision remains `HOLD`.
+
+**Changes**:
+- Reduced `AGENTS.md` to a stable control document below 24 KiB and routed history to existing handbook/work-log sources rather than duplicating it.
+- Added developer onboarding with tool/env-name setup, disposable test data, safe local checks, and Docker/Deno/Sentry troubleshooting.
+- Rebuilt the operations runbook around service signals, incident classes, sensitive logging, read-token-only Sentry, signed-session/bridge key domains, rollback/escalation, and report-only automation.
+- Expanded deployment into lane-specific caller-first, additive migration, Edge, smoke, observation, rollback, and explicit-approval checkpoints.
+- Classified commands by mutation risk and removed example personal data/password operations from the command guide.
+- Added an executable UTF-8 byte gate with exact 24,576 allowed / 24,577 rejected boundary tests and integrated it into governance.
+- After independent evaluation found an ordering ambiguity, separated auth rollout from DB/API compatibility: signed caller adoption precedes Edge auth enforcement, while each RPC migration is applied and verified before its new caller is activated. `board-update` activation is tied to the Board migration plus the 17-Board enforcement window; admin-web exam schedule activation follows the Exam migration in a separate web release.
+
+**Verification**:
+- `node scripts/ci/documentation-governance.test.mjs`: PASS, 4/4 tests; exact 24,576 allowed and 24,577 rejected.
+- `node scripts/ci/documentation-governance.mjs AGENTS.md`: PASS, 10,795/24,576 bytes after rollout-order correction.
+- `node scripts/ci/check-governance.mjs`: PASS.
+- `node scripts/ci/check-governance.mjs --require-handbook-sync`: PASS.
+- `node scripts/ci/check-governance.mjs --require-contract-sync`: PASS.
+- `git diff --check`: PASS; existing LF-to-CRLF notices only.
+- Local Markdown link/path check: PASS, 83 checked and 0 missing.
+- Added-line/new-file PII and credential-pattern scan: PASS, 0 phone, resident-number, JWT, private-key, bearer, or known-token-prefix matches.
+- Repository staged count: 0. The protected editor configuration still has zero worktree/index status entries, matching the evaluator pre-state; its content was not read or printed.
+- The pre-existing navigation source test remains exactly one unstaged status entry with staged count 0, matching the evaluator pre-state; this documentation increment did not read or edit its content.
+- A separate evaluator must review this unstaged increment.
+
+**Safety**:
+- No push, PR, deploy, remote DB/function/secret change, EAS action, Sentry mutation, credential rotation, stage, or commit was performed in this increment.
+
+---
+
+## <a id="20260712-sentry-build-upload-guard"></a> 2026-07-12 | Sentry-disabled local build hard guard
+
+**Background**:
+- A verification build set an empty shell `SENTRY_AUTH_TOKEN` and `SENTRY_DISABLE_UPLOAD=1`, but Next reloaded the ignored `web/.env.local` token and the Sentry plugin uploaded source-map artifacts.
+
+**Changes**:
+- Added a pure parser for authoritative Sentry upload-disable values.
+- Wired `SENTRY_DISABLE_UPLOAD` into `withSentryConfig` so it removes the auth token and sets `sourcemaps.disable=true`, even when a local dotenv file contains upload credentials.
+- Added behavior and source-wiring regressions and corrected the local verification runbook.
+
+**Files**:
+- `web/next.config.ts`
+- `web/src/lib/sentry-build-policy.ts`
+- `web/.env.example`
+- `lib/__tests__/sentry-build-upload-guard.test.ts`
+- `README.md`
+- `.claude/MISTAKES.md`
+
+**Verification**:
+- RED: the pre-fix build output contained live Sentry artifact upload activity.
+- GREEN evidence is recorded in the workspace harness QA report; no additional live Sentry mutation is permitted during guard verification.
+
+---
+
+## <a id="20260712-fc-notify-dual-ingress"></a> 2026-07-12 | FC notify dual-ingress authentication
+
+**Background**:
+- Public `/api/fc-notify` forwarded an unauthenticated raw body with a service-role credential.
+- The same route serves signed browser callers and the Request Board server bridge, so a receiver-only change would either leave the boundary open or break notification fanout.
+
+**Changes**:
+- Added a pure dual-ingress policy and rebuilt every privileged outbound payload from allowlisted fields.
+- Browser requests now require exact request-origin evidence (scheme plus canonical Host), a signed active account session, and session-derived role/identity. Caller-controlled `X-Forwarded-Host` is never fallback authority, and FC session tokens are bound to the same completed profile id and phone.
+- Preserved exact regular-admin, developer, manager, and FC caller behavior while restricting message scope to admin/developer-to-eligible-FC and signed-FC-to-shared-admin.
+- Added constant-time `REQUEST_BOARD_NOTIFY_TOKEN` verification plus the exact eight-category Request Board allowlist.
+- Redacted complete notification text before applying the shared 120/2000-character Request Board bounds, safely truncated browser messages, rejected external/control-character URLs, and rebuilt every upstream payload from allowlisted fields.
+- Removed browser-supplied sender identity and direct `notifications` inserts from both web chat callers. The protected route now derives canonical sender identity and the Edge Function remains the single notification-row writer.
+- Updated the Request Board sender in the paired repository to require its token, the exact protected HTTPS endpoint, the same category allowlist, and the same redaction/bounds before network I/O.
+- Added a tracked, secret-free `web/.env.example` so the paired receiver token and local verification contract are reviewable without exposing credentials.
+- Normalized a pre-existing LF-only navigation source test so the Windows full Jest suite no longer reports a false failure.
+
+**Files**:
+- `web/src/app/api/fc-notify/route.ts`
+- `web/src/lib/fc-notify-proxy-policy.ts`
+- `web/src/lib/server-session.ts`
+- `web/src/lib/staff-identity.ts`
+- `lib/__tests__/fc-notify-route-auth.test.ts`
+- `lib/__tests__/admin-web-chat-source.test.ts`
+- `lib/__tests__/navigation-background-source.test.ts`
+- `web/.gitignore`
+- `web/.env.example`
+- `README.md`
+- `docs/handbook/backend/notifications-inbox-push.md`
+- `.claude/MISTAKES.md`
+
+**Verification**:
+- RED/GREEN route policy, exact scheme+Host origin, X-Forwarded-Host-only denial, caller parity, completed-FC binding, full-redaction-before-bound, single-writer/source identity, and Windows CRLF regression tests.
+- Focused security/chat tests and full repository checks are recorded in the workspace harness QA report.
+- No deployment, environment, database, Supabase Function, Vercel, Sentry, or credential state was changed.
+
+---
+
+## <a id="20260712-direct-edge-board-auth"></a> 2026-07-12 | Direct Edge and Board signed-session boundary
+
+**Background**:
+- The protected Next notification proxy did not close direct public access to the service-role
+  `fc-notify` handler.
+- The 17 `board-*` handlers shared a second confused-deputy boundary: request body role/phone plus an
+  active-row lookup was accepted as authentication, after which service-role writes and trusted
+  notification fanout were available.
+
+**Changes**:
+- Limited public `fc-notify` to `latest_notice`; exact service `apikey` remains the internal ingress,
+  while every app action requires the signed app-session header, active DB actor recheck, and a rebuilt
+  action payload.
+- Added a common mobile FC notify transport and migrated direct app callers.
+- Replaced the Board body-actor authority with a request-bound verifier across all 17 endpoints.
+- Added mobile token attachment and fail-closed missing-session behavior in the common Board transport.
+- Routed admin-web Board calls through `/api/board`, which verifies origin, signed active server session,
+  rate limit, exact function allowlist, and the HttpOnly app-session cookie. Login no longer returns the
+  app-session token in browser-visible JSON.
+- Added a least-privilege insurance-digest token path limited to category/list reads and canonical
+  `general` digest creation. The runner no longer creates categories and the blocked CLI logs in each
+  actor to obtain the signed app-session header.
+
+**Rollout**:
+- Caller Release A must precede Edge Release B. Existing mobile admins without stored tokens require
+  re-login; there is no safe body-actor compatibility fallback.
+- Configure `FC_APP_SESSION_TOKEN_SECRET`, `BOARD_AUTOMATION_TOKEN`, and the active automation admin
+  phone before Edge enforcement. Apply the atomic Board migration before `board-update` deployment.
+- Deploy all 17 Board functions in one controlled window so no sibling service-key deputy remains.
+
+**Verification**:
+- RED/GREEN app/automation policy, caller transport, web proxy, exact function inventory, and source
+  boundary tests.
+- Passed: `deno check --frozen --config supabase/functions/deno.json supabase/functions/fc-notify/index.ts supabase/functions/board-attachment-delete/index.ts supabase/functions/board-attachment-finalize/index.ts supabase/functions/board-attachment-sign/index.ts supabase/functions/board-categories-list/index.ts supabase/functions/board-category-create/index.ts supabase/functions/board-category-update/index.ts supabase/functions/board-comment-create/index.ts supabase/functions/board-comment-delete/index.ts supabase/functions/board-comment-like-toggle/index.ts supabase/functions/board-comment-update/index.ts supabase/functions/board-create/index.ts supabase/functions/board-delete/index.ts supabase/functions/board-detail/index.ts supabase/functions/board-list/index.ts supabase/functions/board-pin/index.ts supabase/functions/board-reaction-toggle/index.ts supabase/functions/board-update/index.ts` (`18/18` entrypoints, zero diagnostics).
+- Local loopback handler evidence is recorded in the workspace harness; no live API, database, secret,
+  function, or deployment state was changed.
+
+---
+
+## <a id="20260712-board-write-integrity"></a> 2026-07-12 | Board write integrity
+
+**Changes**:
+- Applied the same manager-own-post predicate to attachment sign and finalize.
+- Finalize now revalidates count/size/type, canonical post-bound storage paths, unique/unfinalized paths,
+  object existence, actual object size, and MIME metadata before inserting attachment rows.
+- Added the service-role-only `update_board_post_atomic` SQL function so post field changes and attachment
+  order are validated and committed in one database transaction.
+- Redacted Board update title/content and notification rows before persistence/fanout.
+
+**Deployment order**:
+- Apply `20260712000001_atomic_board_post_update.sql` first, then deploy `board-update`. The Edge change
+  intentionally fails closed if the RPC is absent; do not roll back by restoring multi-statement writes.
+
+**Verification**:
+- RED/GREEN ownership, canonical path, object-proof, atomic RPC/source tests plus Deno checks.
+
+---
+
+## <a id="20260712-privileged-actions-exam-boundaries"></a> 2026-07-12 | Privileged Server Actions and exam commit boundaries
+
+**Changes**:
+- Added active signed-admin checks before all service-role exam schedule, appointment, and document
+  Server Action access; manager remains eligible only for the explicit schedule read action.
+- Added fail-closed runtime parsing for UUID/date/discriminant/length/list inputs and stopped accepting
+  client notification phone or exam action labels.
+- Derived notification phones from `fc_profiles`; document changes that do not send a notification remain
+  compatible with malformed legacy phone data.
+- Made exam registration notifications post-commit best effort so a saved application cannot be shown as
+  failed merely because delivery failed.
+- Reduced exam round deletion to one `exam_rounds` statement and relied on the verified FK cascades, so
+  registrations/locations are not destructively removed in separate transactions.
+
+**Verification**:
+- RED/GREEN input, auth-order, post-commit rejection injection, and single-delete cascade source contracts.
+- Full web lint and a Sentry-loopback production build passed without upload/release/artifact activity.
+
+**Local-source evidence**:
+- `saveExamRoundAction` now uses the single `save_exam_round_atomic` RPC. Migration
+  `20260712000002_atomic_exam_round_save.sql` and `supabase/schema.sql` contain the matching function,
+  revoke access from `public`, `anon`, and `authenticated`, and grant execution only to `service_role`;
+  `lib/__tests__/exam-round-atomic-save.test.ts` locks the caller, transaction, schema-parity, and grant contract.
+- This verifies only the current local source and tests. It is not evidence that the migration was applied
+  remotely or that any database, Edge Function, or application deployment occurred.
+
+---
+
 ## <a id="20260708-document-policy-cleanup"></a> 2026-07-08 | Resident-number policy and documentation cleanup
 
 **Background**:
@@ -11611,3 +11800,34 @@
 
 **Notes**:
 - The request_board companion change adds the production parity checker that queries both Supabase projects after a designer add/change.
+
+---
+
+## <a id="20260713-preserved-audit-completion"></a> 2026-07-13 | Preserved audit evidence normalization and repository verification
+
+**Scope**: preserved Codex Security artifacts, repository-wide safe verification, handbook governance, and local unauthenticated browser QA.
+
+**Evidence handling**:
+- Kept scan inputs and the dirty repository snapshot unchanged while normalizing only round-03 scan artifacts.
+- Backed up the four non-canonical worker JSONL sets before mechanical schema normalization.
+- Verified all six workers against exact keys/types, raw trace, three ledger rows per candidate, affected-location existence/ranges, work/tree ledgers, and shared-input hashes.
+- Delegated the 853/853 preserved round-03 candidate sources to a separate evidence-only semantic reconciliation pass; no new discovery pass was started.
+- Final reconciliation retained 262 canonical rows and 1,968 total provenance entries, mapped all 853 round-03 source ids exactly once, and classified 42 candidates as genuine-new with zero mapping/structural errors.
+- Canonical JSONL SHA-256: `595ebe54be9bffc87b7296dbcae659ed5010a4edd477ffdeb3f5e3c8c11132be`; `discovery_terminal.md` is intentionally absent because genuine-new is greater than zero.
+- This completes preserved artifact normalization/reconciliation only. It does not claim deep-scan novelty convergence; a later authorized round 4 must reach zero genuine-new before writing a terminal marker.
+
+**Verification**:
+- Passed: `npm test -- --runInBand` — 121 suites / 658 tests.
+- Passed: root lint, `npx tsc --noEmit`, web lint, Expo export, and Sentry-disabled root/web production builds.
+- Passed: board Edge smoke 6/6 and board-list Edge smoke 5/5.
+- Passed after handbook/map reconciliation: `node scripts/ci/check-governance.mjs` and `git diff --check` (line-ending warnings only).
+- Integrated QA validator executed successfully but its stored run remains 17 PASS, 3 FAIL, 28 BLOCKED, and 4 SKIPPED; this is not an all-green release result.
+
+**Browser QA**:
+- `/auth` rendered without horizontal overflow at 320, 390, and 768 CSS pixels and exposed an alert after empty submit.
+- The password visibility action has no accessible name.
+- `/account-deletion` rendered at 390 CSS pixels with the required deletion, retention, Play Store, and privacy-policy content.
+- Authenticated workflow QA was not run without disposable credentials. The in-app Browser PNG capture defect is recorded in the workspace harness; rejected PNGs are not release evidence.
+
+**Safety**:
+- No commit, push, deploy, environment, database, migration, credential, production account, or live Sentry mutation was performed in this pass.

@@ -2,8 +2,8 @@ doc_id: SHARED-DOCUMENTATION-CONTRACT
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer
-last_verified: 2026-07-07
-source_of_truth: handbook convention + scripts/ci/check-governance.mjs
+last_verified: 2026-07-15
+source_of_truth: handbook convention + scripts/ci/check-governance.mjs + scripts/ci/documentation-governance.mjs
 
 # Documentation Contract
 
@@ -60,6 +60,15 @@ source_of_truth: handbook convention + scripts/ci/check-governance.mjs
 - `AGENTS.md`는 빠른 시작, 작업 라우팅, 금지사항, 현재 큰 리스크를 담습니다.
 - 누적 구현 상세, 긴 완료 목록, 과거 장애 분석은 `WORK_DETAIL.md`, `CHANGELOG.md`, 관련 handbook로 옮깁니다.
 - `AGENTS.md`에 새 긴 정책을 추가해야 할 것 같으면 먼저 이 문서 또는 owning handbook가 더 적절한지 확인합니다.
+
+### AGENTS.md 크기 경계
+
+- 루트 `AGENTS.md`는 UTF-8 기준 **24,576 bytes 이하**여야 합니다.
+- 24,576 bytes는 허용하고 24,577 bytes부터 governance가 실패합니다.
+- stable control rule, plugin routing, release safety, golden rule, context routing만 유지합니다.
+- 현재 상태는 큰 차단점과 owning evidence 링크만 두며, 누적 완료 목록·일자별 ledger·긴 roadmap은 두지 않습니다.
+- 제거한 history를 다른 새 문서에 그대로 복제하지 않습니다. 이미 존재하는 handbook와 `WORK_LOG.md`/`WORK_DETAIL.md`를 링크합니다.
+- `node scripts/ci/documentation-governance.test.mjs`가 경계와 UTF-8 byte 계산을 검증하고, `node scripts/ci/check-governance.mjs`가 실제 파일 크기를 차단합니다.
 
 ### legacy reference 처리
 
@@ -135,6 +144,7 @@ source_of_truth: handbook convention + scripts/ci/check-governance.mjs
 - handbook sync 세션 또는 handbook를 실제 수정하는 세션에서는 map에 등재된 owning 문서 중 하나를 반드시 같이 수정해야 합니다.
 - 새 코드 영역이 생기면 구현보다 먼저 map부터 보강합니다.
 - CI 강제 범위를 넓히는 변경은 사용자 확인 후 적용합니다.
+- 현재 24 KiB AGENTS gate는 2026-07-15 문서 안정화 작업에서 명시적으로 승인된 공통 제어 규칙입니다.
 
 ## 실수 기록 원칙
 

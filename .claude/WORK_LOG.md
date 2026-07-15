@@ -6,9 +6,11 @@
 ---
 
 ## 프로젝트 현황
-- 범위: 최근 1개월 Git 이력 기반 문서화 완료 (`2026-01-12` ~ `2026-02-11`, 총 44 commits)
-- 현재 포커스: 초대링크 회원가입 exact-code search 지연/중복 apply 안정화, 추천인 current-state 후속 QA
+- 범위: current local source와 보존 감사의 차이 재검증
+- 현재 포커스: signed-session/원자성 변경의 문서·운영·릴리스 계약 정리
 - 운영 스택: Expo 앱 + Next.js 웹 + Supabase(Edge Functions/RLS)
+- 릴리스 판정: `HOLD`
+- 근거: local security commits `75b1a0a`, `a12928b`; changed Edge Deno 18/18 통과. web TypeScript 기존 테스트 부채, signed caller→Edge auth enforcement 원격 증거, RPC migration→caller 활성화 원격 증거, 인증 E2E, tracked token-like secret 대응은 미완료
 
 ## 주의사항
 - ⚠️ 모바일은 Supabase Auth 세션이 아닌 커스텀 세션(`residentId`, `role`) 기반으로 동작
@@ -16,6 +18,22 @@
 - ⚠️ 민감정보(주민번호)는 암호화 저장/전용 API 조회 원칙 준수
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
+
+## 2026-07-15
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 07-15 | Developer onboarding, operations/deployment checklists, 24 KiB AGENTS governance | `AGENTS.md`, `docs/handbook/developer-onboarding.md`, `docs/handbook/operations-runbook.md`, `docs/deployment/DEPLOYMENT.md`, `scripts/ci/documentation-governance*.mjs` | [detail](WORK_DETAIL.md#20260715-operations-documentation) |
+
+## 2026-07-12
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 07-12 | Sentry-disabled local build hard guard | `web/next.config.ts`, `web/src/lib/sentry-build-policy.ts`, `lib/__tests__/sentry-build-upload-guard.test.ts` | [detail](WORK_DETAIL.md#20260712-sentry-build-upload-guard) |
+| 07-12 | FC notify dual-ingress authentication and Windows full-suite repair | `web/src/app/api/fc-notify/route.ts`, `web/src/lib/fc-notify-proxy-policy.ts`, `web/src/lib/server-session.ts`, `lib/__tests__/fc-notify-route-auth.test.ts`, `lib/__tests__/navigation-background-source.test.ts` | [detail](WORK_DETAIL.md#20260712-fc-notify-dual-ingress) |
+| 07-12 | Direct FC notify and 17-function Board signed-session boundary | `supabase/functions/fc-notify/index.ts`, `supabase/functions/_shared/board.ts`, `lib/fc-notify-client.ts`, `lib/board-api.ts`, `web/src/app/api/board/route.ts` | [detail](WORK_DETAIL.md#20260712-direct-edge-board-auth) |
+| 07-12 | Board attachment ownership, storage proof, and atomic post update | `supabase/functions/board-attachment-*`, `supabase/functions/board-update/index.ts`, `supabase/migrations/20260712000001_atomic_board_post_update.sql` | [detail](WORK_DETAIL.md#20260712-board-write-integrity) |
+| 07-12 | Privileged Server Action auth/input hardening and exam commit boundaries | `web/src/app/dashboard/{exam,appointment,docs}`, `web/src/lib/privileged-action-input-policy.ts`, `lib/exam-flow-contract.ts` | [detail](WORK_DETAIL.md#20260712-privileged-actions-exam-boundaries) |
 
 ## 2026-07-07
 
@@ -505,3 +523,12 @@
 | 07-08 | Admin web public account deletion URL for Google Play Data Safety | `web/src/app/account-deletion/page.tsx`, `web/src/lib/admin-web-public-paths.ts`, `web/src/lib/admin-web-public-paths.test.ts`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [details](WORK_DETAIL.md#20260708-account-deletion-url) |
 | 07-08 | Suppress web-push auto-registration on public admin web pages | `web/src/components/WebPushRegistrar.tsx`, `web/src/lib/web-push-registration-policy.ts`, `web/src/lib/web-push-registration-policy.test.ts`, `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [details](WORK_DETAIL.md#20260708-public-page-web-push-registration) |
 | 07-08 | Designer bootstrap parity guard for GaramIn and GaramLink identity | `supabase/functions/_shared/__tests__/request-board-auth.test.ts`, `docs/handbook/shared/cross-repo-bridge-contract.md`, `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [details](WORK_DETAIL.md#20260708-designer-bootstrap-parity) |
+
+## 2026-07-13 preserved audit completion update
+
+- Normalized all six preserved round-03 candidate/ledger sets to the canonical schema without changing candidate ids, counts, input hashes, HEAD, or pre-existing dirty state.
+- Central validation passed 971 tree paths, six 4,381-row work ledgers, 853 deduplicated round-03 candidate sources, valid affected locations, exact raw trace coverage, and zero schema/type/path errors.
+- Completed full local verification: 121 Jest suites / 658 tests, root/web lint, root TypeScript, Expo export, Next production build, governance, and diff check.
+- Reconciled handbook ownership and contract evidence for the new board actor/list policies, FC notification authentication policy, atomic board/exam RPCs, mobile request-board bridge, and privileged admin actions.
+- Browser QA covered local `/auth` and public `/account-deletion`; authenticated flows and accepted screenshots remain limited as documented in the workspace harness.
+- Final evidence-only merge produced 262 canonical candidates from 1,968 provenance sources, including 42 genuine-new candidates; mapping and structural error counts are zero and the terminal marker is correctly absent.

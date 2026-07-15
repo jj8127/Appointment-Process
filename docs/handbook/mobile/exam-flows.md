@@ -77,3 +77,9 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - `exam-apply.tsx`, `exam-apply2.tsx`, `exam-register.tsx`, and `exam-register2.tsx` must use `lib/exam-flow-contract.ts` for life/nonlife route keys, query keys, notification channels, payment-account copy, selection keys, and form-state defaults.
 - Life/nonlife differences should be expressed as config in the shared contract, not as screen-local branching that can drift.
 - Regression evidence: `lib/__tests__/exam-flow-contract.test.ts`.
+
+## 2026-07-13 저장·알림 원자성 계약
+
+- FC 시험 신청은 등록 row를 먼저 확정한 뒤 관리자/본인 알림을 `sendExamApplyNotificationsBestEffort`로 병렬 전송한다. 일부 알림 실패는 `failedTargets` 경고로 남기되 이미 저장된 신청을 mutation 실패로 되돌리지 않으며, 사용자가 같은 신청을 중복 재시도하도록 만들지 않는다.
+- 모바일 시험 알림은 `invokeFcNotify`의 app-session 헤더 계약을 사용하고, 관리자 승인 알림은 인증 쿠키가 포함된 `/api/fc-notify` 서버 경계를 사용한다.
+- 관리자 회차 저장은 검증된 admin session과 중앙 payload parser를 거친 뒤 `save_exam_round_atomic` RPC로 회차와 장소를 한 트랜잭션에서 갱신한다. 조회는 read-only admin session을 허용하고, 삭제는 parent round 한 건을 삭제해 FK cascade 계약을 따른다.

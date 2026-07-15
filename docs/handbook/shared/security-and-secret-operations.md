@@ -2,10 +2,56 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-04-23
-source_of_truth: env contracts + reset-password functions + admin service-role callers
+last_verified: 2026-07-15
+source_of_truth: env contracts + reset-password functions + supabase/functions/_shared/board.ts + web/src/lib/server-session.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
+
+## 2026-07-12 FC Notify Dual-Ingress Secret Contract
+
+- Browser `/api/fc-notify` calls require the source origin to match the actual request URL's scheme plus canonical Host and a verified signed server session. `X-Forwarded-Host` alone is not authorization evidence.
+- FC sessions bind the signed token's `fcId` and resident phone to the same `signup_completed=true` profile before any privileged notification read or send.
+- Request Board uses a dedicated pair: sender `FC_ONBOARDING_NOTIFY_TOKEN`, receiver `REQUEST_BOARD_NOTIFY_TOKEN`. Both missing and mismatched values fail closed; no other bridge secret or service-role key is an authentication fallback.
+- The sender accepts only the exact HTTPS `/api/fc-notify` endpoint, with plain HTTP limited to localhost development checks. The receiver compares SHA-256 digests with `timingSafeEqual`, never logs the token, and rebuilds the outbound payload from an action/category allowlist.
+- Both sides redact complete title/body values before applying identical 120/2000-character bounds. Browser callers omit sender identity and direct notification inserts; the route derives identity and the Edge Function remains the single notification-row writer.
+- Deploy sender/token first and the hardened receiver second. If the protected receiver rollout fails, keep the receiver closed, repair token parity, or temporarily disable bridge fanout. Never restore the unauthenticated raw-body proxy as a rollback.
+
+## 2026-07-12 Board App-Session And Automation Contract
+
+- A phone number, role, CORS origin, or active account row is not proof of possession. Every Board
+  request is authorized by either a signed `x-app-session-token` rebound to the active DB actor or the
+  narrow automation ingress below. The service-role client is used only after that decision.
+- Mobile keeps the signed token in secure app-session storage. Admin web keeps it in the HttpOnly
+  `web_app_session` cookie and reaches Board through the signed same-origin `/api/board` proxy. The
+  login route must strip `appSessionToken` from public JSON.
+- `BOARD_AUTOMATION_TOKEN` is a dedicated high-entropy exact-match secret paired between the
+  insurance-digest runner and Edge secrets. `BOARD_AUTOMATION_ACTOR_PHONE` must be an active admin;
+  `BOARD_AUTOMATION_ACTOR_NAME` is server configuration, never request authority.
+- Automation may read categories/list and create only `보험소식 브리핑 ...` in canonical `general`.
+  Missing category is a blocker. It may not create categories or reach update/delete/pin/attachment.
+- Rotate the runner and Edge token together. Empty, near-match, wrong-action, and wrong-category
+  requests fail closed. Never log the token or include it in dry-run payloads.
+- Authentication rollout is caller first: deploy signed mobile/web/runner transports, verify adoption
+  and admin re-login, then enforce actor-bound authentication across FC notify and all 17 Board Edge
+  handlers in one controlled window. Partial Board auth rollout can reopen a sibling confused-deputy
+  path. This rule does not define DB/RPC version ordering.
+- Atomic RPC rollout is a separate compatibility sequence: (A) old/new-DB-compatible caller or
+  feature-disabled RPC path, (B) additive migration plus existence/grant/transaction verification,
+  (C) new RPC caller activation, then (D) observation and auth smoke before removing legacy/compat.
+- The current `board-update` handler is RPC-required: activate it only after the Board RPC migration
+  is verified and signed caller adoption is proven, as part of the 17-Board auth enforcement window.
+  The admin-web exam schedule action is also RPC-required: activate it in a separate web release only
+  after the Exam RPC migration is verified. Neither current artifact is an A-stage compatible caller.
+- Never use multi-statement writes as a compatibility or rollback path. Use feature-off/held safe
+  artifacts before activation and additive forward correction after migration.
+
+## 2026-07-12 Local Sentry Build Deny Contract
+
+- A local verification build is safe only when `SENTRY_DISABLE_UPLOAD=1` reaches the final Sentry
+  plugin config and forces both `authToken: undefined` and `sourcemaps.disable=true`.
+- Clearing a parent-shell token is insufficient because Next may reload an ignored `.env.local`.
+  Route unexpected traffic to a loopback-only `SENTRY_URL` and inspect output for upload/release/
+  artifact activity; build success does not excuse an external mutation.
 
 ## 2026-07-07 Supabase Functions Lockfile
 
@@ -15,7 +61,10 @@ source_of_truth: env contracts + reset-password functions + admin service-role c
 
 - Privileged admin web routes must verify the signed server session. Raw `session_role` or `session_resident` cookies are not an authorization source outside the explicit session helper/proxy boundary.
 - `device_tokens` must be treated as service-role-only storage. Register/delete goes through `device-token-register`; fanout goes through server routes or server-only helpers.
-- Request Board bridge tokens use `REQUEST_BOARD_BRIDGE_TOKEN_SECRET`; app session tokens use `FC_APP_SESSION_TOKEN_SECRET`. The legacy bridge secret is verify-only during rotation and must not mint new bridge tokens.
+- Request Board bridge-token compatibility and FC app-session signing are separate HMAC trust domains.
+  App sessions are signed only by `FC_APP_SESSION_TOKEN_SECRET` and verify only that current key plus
+  `FC_APP_SESSION_TOKEN_PREVIOUS_SECRET`; `REQUEST_BOARD_AUTH_BRIDGE_SECRET` is never an app-session
+  minting or verification fallback.
 
 ## 반드시 문서화되는 항목
 

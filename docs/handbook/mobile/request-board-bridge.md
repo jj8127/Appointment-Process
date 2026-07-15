@@ -82,3 +82,8 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 
 - [../shared/cross-repo-bridge-contract.md](../shared/cross-repo-bridge-contract.md)
 - [request_board handbook](../../../../request_board/docs/handbook/INDEX.md)
+
+## 2026-07-13 app-session 전달 계약
+
+- `app/request-board.tsx`의 notification inbox 조회와 모바일 board Edge Function 호출은 저장된 앱 세션을 `x-app-session-token`으로 전달한다. 세션이 없으면 네트워크 호출 전에 401 의미의 세션 오류로 종료한다.
+- 화면이 보내는 role/resident/display-name 값은 표시·호환용 claim일 뿐 actor의 진실 원천이 아니다. Edge Function은 서명된 세션과 canonical account/profile을 기준으로 actor를 확정하고 claim 불일치를 거부한다.

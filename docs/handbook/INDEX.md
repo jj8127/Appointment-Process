@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-INDEX
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer, operator
-last_verified: 2026-07-08
+last_verified: 2026-07-15
 source_of_truth: code + handbook/*
 
 # 가람in Handbook
@@ -11,7 +11,7 @@ source_of_truth: code + handbook/*
 
 ## 사용 원칙
 
-- 운영 규칙/현황/로드맵은 계속 루트 [AGENTS.md](../../AGENTS.md)를 봅니다.
+- 루트 [AGENTS.md](../../AGENTS.md)는 빠른 제어·안전·현재 큰 차단점만 봅니다.
 - 화면 동작, 버튼 의미, 상태 전이, 운영 절차는 이 handbook를 봅니다.
 - 교차 저장소 계약은 [`shared/`](./shared/)가 소유하고, 화면 상세는 각 저장소 소유 문서가 소유합니다.
 - 문서 우선순위와 갱신 기준은 [shared/documentation-contract.md](./shared/documentation-contract.md)를 공식 원본으로 봅니다.
@@ -30,7 +30,10 @@ source_of_truth: code + handbook/*
 - 화면 인벤토리: [screen-inventory.md](./screen-inventory.md)
 - 액션 사전: [button-action-matrix.md](./button-action-matrix.md)
 - 운영 런북: [operations-runbook.md](./operations-runbook.md)
+- 개발자 온보딩: [developer-onboarding.md](./developer-onboarding.md)
 - 변경 의무: [change-checklist.md](./change-checklist.md)
+- 릴리스·배포 체크리스트: [../deployment/DEPLOYMENT.md](../deployment/DEPLOYMENT.md)
+- 명령 안전 등급: [../guides/COMMANDS.md](../guides/COMMANDS.md)
 
 ## 문서군
 

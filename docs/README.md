@@ -2,9 +2,10 @@
 
 `fc-onboarding-app/docs`는 운영, 배포, 테스트, 보조 가이드를 모아둔 인덱스입니다.
 
-- 기준일: `2026-07-08`
+- 기준일: `2026-07-15`
 - 문서 SSOT: `docs/handbook/INDEX.md`
 - cross-repo 문서 운영 계약: `docs/handbook/shared/documentation-contract.md`
+- 현재 릴리스 판정: `HOLD`
 
 ## 디렉토리 구조
 
@@ -12,6 +13,10 @@
 
 - `INDEX.md`
   - handbook 진입점
+- `developer-onboarding.md`
+  - 필수 도구, 환경변수 이름, local run, 안전 검증, 문제 해결
+- `operations-runbook.md`
+  - service signal, incident, Sentry/PII, rollback/escalation
 - `shared/`
   - 역할/브리지/보안/문서 운영 공통 계약
 - `mobile/`
@@ -26,14 +31,14 @@
 ### `deployment/`
 
 - `DEPLOYMENT.md`
-  - Expo/EAS 배포 절차
-  - 릴리즈 체크포인트
-  - 운영 반영 순서
+  - Expo/admin web/Edge/migration/native lane별 릴리스 체크리스트
+  - caller-first rollout, smoke, 관측, rollback/forward correction
+  - 명시적 승인 전 원격 명령 금지
 
 ### `guides/`
 
 - `COMMANDS.md`
-  - 자주 쓰는 운영 명령어
+  - `SAFE_LOCAL`/`LOCAL_STATE`/`READ_ONLY_EXTERNAL`/`REMOTE_MUTATION` 안전 등급
 - `BOARD_REQUIREMENTS.md`
   - 게시판 관련 요구사항/정책
 - `SMS_TESTING.md`
@@ -91,6 +96,8 @@
   - 최근 작업 이력
 - `docs/handbook/shared/documentation-contract.md`
   - 문서 우선순위, 최소 갱신 세트, legacy 처리, 애매한 규칙 확인 기준
+- `scripts/ci/documentation-governance.mjs`
+  - 루트 AGENTS 24 KiB 크기 gate
 
 ## 문서 유지 원칙
 

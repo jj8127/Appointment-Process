@@ -65,6 +65,8 @@ Board reaction counts in `app/board.tsx` and `app/admin-board-manage.tsx` must u
 
 Admin web reject reason entry in `web/src/app/dashboard/page.tsx`, `web/src/app/dashboard/appointment/page.tsx`, and `web/src/app/dashboard/docs/page.tsx` must use `RejectReasonModal` from `web/src/components/RejectReasonModal.tsx`. The shared component owns textarea layout, cancel/submit buttons, and keyboard behavior: Enter submits, while Shift+Enter inserts a newline.
 
+Admin web document and appointment mutations treat browser payloads as `unknown` and validate them through `web/src/lib/privileged-action-input-policy.ts` after verifying the server session. Client-provided recipient phones are not part of the action contract; server actions derive the canonical FC phone from `fcId` before creating inbox or push notifications. Regression evidence lives in `lib/__tests__/privileged-server-action-input-policy.test.ts`.
+
 ## Shared Function Contracts
 
 Business formatting, normalization, mapping, grouping, and permission predicates must live in shared helpers once more than one screen depends on the same rule. Screen components may keep event handlers and mutation wiring, but duplicated function-level business rules should be moved into `lib/*` helpers and covered by source guards.

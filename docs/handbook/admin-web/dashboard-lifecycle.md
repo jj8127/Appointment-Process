@@ -117,6 +117,12 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - request-board 메신저 이동은 `NEXT_PUBLIC_REQUEST_BOARD_URL`이 설정된 경우에만 열고, 값이 없거나 잘못된 배포에서 production URL로 fallback하지 않는다.
 - `/api/admin/fc`와 `/dashboard`는 resident-number full-view contract를 계속 trusted server path 기준으로 유지한다. direct decrypt가 빠진 런타임에서는 edge fallback/degraded 상태를 로그로 남기되, 권한 있는 사용자의 full-view 자체를 마스킹 정책으로 바꾸지 않는다.
 
+## 2026-07-13 privileged action 입력 계약
+
+- 서류 상태와 생명/손해 위촉 server action은 privileged DB 접근 전에 verified admin session, origin, rate limit, 중앙 payload parser를 순서대로 통과해야 한다. 호출자는 payload에 `phone`을 보내지 않는다.
+- 알림 수신 전화번호는 server action이 `fcId`로 현재 `fc_profiles.phone`을 다시 읽고 11자리 canonical 값으로 검증해 사용한다. 브라우저가 제공한 전화번호를 notification/push recipient로 신뢰하지 않는다.
+- 시험 회차 저장/삭제도 같은 session·payload 경계를 사용하며, 저장은 `save_exam_round_atomic`으로 회차와 장소를 원자적으로 반영한다. 등록/수정 문구는 client `actionLabel`이 아니라 server의 `roundId` 유무로 결정한다.
+
 ## 연관 문서
 
 - [../workflow-state-matrix.md](../workflow-state-matrix.md)

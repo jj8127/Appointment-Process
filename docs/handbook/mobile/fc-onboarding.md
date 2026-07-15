@@ -128,3 +128,8 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 - FC onboarding next-step labels and workflow display state must stay aligned with `lib/fc-workflow-core.ts`.
 - Admin web wrappers and mobile screens should expose surface-specific presentation only; workflow priority and allowance state rules belong in the shared core.
+
+## 2026-07-13 FC notification session boundary
+
+- Protected FC notification calls from onboarding screens use `lib/fc-notify-client.ts` instead of invoking `fc-notify` directly. The helper attaches the stored app-session token as `x-app-session-token`; a missing token is a session error before the network call.
+- `latest_notice` remains the explicit public-read exception. Consent, document, profile, and appointment updates keep their existing notification meaning, but the Edge Function derives the caller identity from the signed session rather than trusting screen-supplied actor claims.

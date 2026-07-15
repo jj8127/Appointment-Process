@@ -1,394 +1,266 @@
 # Command Reference Guide
 
-> 프로젝트 운영 및 관리에 필요한 주요 명령어 모음
+> Last verified: 2026-07-15
+> Current release decision: **HOLD**
 
----
+## 안전 등급
 
-## Table of Contents
+| 등급 | 의미 | 실행 규칙 |
+| --- | --- | --- |
+| `SAFE_LOCAL` | source/원격 상태를 바꾸지 않는 로컬 검사 | 현재 scope에서 실행 가능 |
+| `LOCAL_STATE` | local server, emulator, generated output, local DB를 변경 | 대상이 local·폐기 가능함을 확인 |
+| `READ_ONLY_EXTERNAL` | 외부 서비스 조회 | 해당 plugin과 read-only credential 사용 |
+| `REMOTE_MUTATION` | deploy, push, DB/secret, 게시, EAS/Sentry 상태 변경 | 현재 대화의 명시적 승인 필수 |
 
-- [Development](#development)
-  - [App Development](#app-development)
-  - [Web Development](#web-development)
-  - [Testing](#testing)
-  - [Push Preflight (Governance)](#push-preflight-governance)
-- [Build & Deployment](#build--deployment)
-  - [Building](#building)
-  - [Deployment](#deployment)
-- [Database Management](#database-management)
-  - [Account Management](#account-management)
-  - [Password Management](#password-management)
-- [Troubleshooting](#troubleshooting)
-- [Tools & Utilities](#tools--utilities)
+`npm audit fix`, stash/reset/checkout, autofix lint/formatter는 기본 작업 흐름에서 금지한다.
 
----
+## Sentry 업로드 차단
 
-## Development
+모든 build 예시는 먼저 네 가지 변수를 현재 PowerShell 프로세스에만 설정한다.
 
-### App Development
-
-#### Run App on Android
-```bash
-npx expo run:android
-```
-앱을 Android 기기 또는 에뮬레이터에서 실행하고 설치합니다.
-
-#### Run App on iOS (Expo Go)
-```bash
-npx expo start
-```
-실행 후 Expo Go 모드로 전환하여 QR 코드를 스캔합니다.
-
-#### Clean Build with Custom Icon
-```bash
-# 1. 기존 앱 삭제
-adb uninstall com.jj8127.Garam_in
-
-# 2. Clean build 및 실행
-npx expo prebuild --clean && npx expo run:android
-```
-
-#### Run with MCP Server
-앱이 이미 설치되어 있어야 합니다.
 ```powershell
-.\start-mcp.ps1
+$env:SENTRY_DISABLE_AUTO_UPLOAD = 'true'
+$env:SENTRY_DISABLE_UPLOAD = '1'
+$env:SENTRY_AUTH_TOKEN = 'local-verification-disabled'
+$env:SENTRY_URL = 'http://127.0.0.1:9'
 ```
 
-### Web Development
+upload/release/artifact mutation 흔적이 있으면 build는 실패다.
 
-#### Start Web Development Server
-```bash
-cd web
+## 개발 서버
+
+### Expo dev server — `LOCAL_STATE`
+
+```powershell
+Set-Location D:\hanhwa\fc-onboarding-app
+npm start
+```
+
+### Expo web dev server — `LOCAL_STATE`
+
+```powershell
+Set-Location D:\hanhwa\fc-onboarding-app
+npm run web
+```
+
+### Admin web dev server — `LOCAL_STATE`
+
+```powershell
+Set-Location D:\hanhwa\fc-onboarding-app\web
 npm run dev
 ```
 
-### Testing
+### Native local run — `LOCAL_STATE`
 
-#### Integrated Checklist Run (누락 방지)
-
-**1. 실행 결과 파일 초기화**
-```bash
-npm run qa:init:integrated
+```powershell
+npm run android
+npm run ios
 ```
 
-**2. 케이스 수행 후 누락/형식 검증**
-```bash
-npm run qa:validate:integrated
-```
+emulator/device 설치 상태를 바꿀 수 있다. EAS build와는 다르지만 대상 device를 확인한다.
 
-> 상세 가이드는 `docs/testing/INTEGRATED_TEST_CHECKLIST.md`를 참고합니다.
+## 기본 품질 gate — `SAFE_LOCAL`
 
-### Push Preflight (Governance)
-
-#### Mandatory check before every push
-```bash
+```powershell
+Set-Location D:\hanhwa\fc-onboarding-app
+git diff --check
+node scripts/ci/documentation-governance.test.mjs
+node scripts/ci/documentation-governance.mjs AGENTS.md
 node scripts/ci/check-governance.mjs
+npm run lint
+npx tsc --noEmit
+npm test -- --runInBand
+npm run test:coverage -- --runInBand
 ```
 
-#### If governance fails with schema/migration sync error
-```text
-Schema change policy violation: update supabase/schema.sql and supabase/migrations/*.sql together.
+handbook-sensitive change를 강제 재검증할 때:
+
+```powershell
+node scripts/ci/check-governance.mjs --require-handbook-sync
 ```
 
-Action:
-1. If `supabase/migrations/*.sql` changed, add a same-push `supabase/schema.sql` sync edit.
-2. Re-run `node scripts/ci/check-governance.mjs`.
-3. Push only after `[governance-check] passed`.
+## Production-shape local build — `SAFE_LOCAL`
 
-#### Web Bundle for Testsprite
+### Expo web export
 
-**1. 웹 번들 생성**
-```bash
-npx expo export --platform web --output-dir dist-web
-npx serve -l 8081 dist-web
-```
+```powershell
+$env:SENTRY_DISABLE_AUTO_UPLOAD = 'true'
+$env:SENTRY_DISABLE_UPLOAD = '1'
+$env:SENTRY_AUTH_TOKEN = 'local-verification-disabled'
+$env:SENTRY_URL = 'http://127.0.0.1:9'
 
-**2. 이전 실행 락 삭제 (필요시)**
-```bash
-del testsprite_tests\tmp\execution.lock
-```
-
----
-
-## Build & Deployment
-
-### Building
-
-#### Build for Production
-
-**중요: 빌드 전 버전 업데이트 필수!**
-
-**Android Build**
-```bash
-npm run eas:build:android
-```
-
-**iOS Build**
-```bash
-npm run eas:build:ios
-```
-
-> `npm run eas:build:*`는 Git 2.45+에서 발생할 수 있는 `core.hooksPath` shallow-clone(128) 충돌을 자동으로 정리합니다.
-> 글로벌 `eas-cli`가 오래된 경우에는 자동으로 `npx eas-cli@18.3.0`로 우회해, 최근 EAS 업로드 단계와 안 맞는 구버전 CLI를 타지 않도록 합니다.
-
-### Deployment
-
-#### Deploy Admin Web to Vercel
-
-현재 루트 `vercel.json`은 관리자 웹을 빌드합니다: `cd web && npm run build`, output `web/.next`.
-
-**1. 저장소 루트에서 Vercel과 연동**
-```bash
-vercel link --project admin_web
-```
-
-**2. 프로덕션 배포**
-```bash
-vercel deploy --prod --archive=tgz
-```
-
-#### Expo Web Static Export
-
-Expo web export는 ignored generated output인 `dist/`를 생성합니다. 테스트/정적 배포가 필요할 때마다 새로 빌드하고, `dist/`를 source처럼 커밋하거나 오래된 checkout 산출물로 배포 여부를 판단하지 않습니다.
-
-**1. 정적 export 생성**
-```bash
+Set-Location D:\hanhwa\fc-onboarding-app
 npm run build
 ```
 
-**2. 로컬 확인 또는 별도 static deployment에 사용**
-```bash
-npx serve -l 8081 dist
+`dist/`는 ignored generated output이다. 오래된 output을 배포 증거로 쓰거나 source로 commit하지 않는다.
+
+### Admin web build
+
+```powershell
+$env:SENTRY_DISABLE_AUTO_UPLOAD = 'true'
+$env:SENTRY_DISABLE_UPLOAD = '1'
+$env:SENTRY_AUTH_TOKEN = 'local-verification-disabled'
+$env:SENTRY_URL = 'http://127.0.0.1:9'
+
+Set-Location D:\hanhwa\fc-onboarding-app\web
+npm run build
 ```
 
-별도 `appointmentprocess` 정적 Vercel 배포가 필요할 때만 해당 프로젝트로 link 후 freshly generated `dist`를 배포합니다.
+### Vercel production-shape input build
 
-#### Submit to App Store Connect
+Vercel plugin으로 link/project 경계를 확인한 뒤 local build만 실행한다.
 
-최근 빌드한 iOS 앱을 App Store Connect에 제출합니다.
-```bash
-eas submit --platform ios --latest
+```powershell
+$env:SENTRY_DISABLE_AUTO_UPLOAD = 'true'
+$env:SENTRY_DISABLE_UPLOAD = '1'
+$env:SENTRY_AUTH_TOKEN = 'local-verification-disabled'
+$env:SENTRY_URL = 'http://127.0.0.1:9'
+
+Set-Location D:\hanhwa\fc-onboarding-app
+vercel build --prod
 ```
 
----
+이 명령은 deploy 승인이 아니다. remote env pull 또는 link 변경이 필요하면 먼저 범위를 확인한다.
 
-## Database Management
+## Node/ops tests — `SAFE_LOCAL`
 
-### Account Management
-
-#### Create Manager (본부장) Account
-
-**1. 로컬에서 비밀번호 해시/솔트 생성**
-```bash
-node -e "const crypto=require('crypto');const password='새비번';const salt=crypto.randomBytes(16);const hash=crypto.pbkdf2Sync(password,salt,100000,32,'sha256');console.log('phone=01012341234');console.log('password_salt(base64)=',salt.toString('base64'));console.log('password_hash(base64)=',hash.toString('base64'));"
+```powershell
+$nodeTests = @(
+  Get-ChildItem -Path 'web\src\lib\*.test.ts','web\src\lib\*.test.node.ts','scripts\ops\*.test.mjs' -File
+) | Sort-Object FullName | Select-Object -ExpandProperty FullName
+node --test $nodeTests
 ```
 
-**2. Supabase SQL Editor에서 계정 생성**
-```sql
-INSERT INTO public.manager_accounts (
-    name,
-    phone,
-    password_hash,
-    password_salt,
-    password_set_at,
-    active
-)
-VALUES (
-    '홍길동 본부장',
-    '01012341234',
-    '<hash>',
-    '<salt>',
-    now(),
-    true
-);
+## Supabase Edge — `SAFE_LOCAL`
+
+### 전체 진입점 Deno check
+
+```powershell
+$edgeEntrypoints = Get-ChildItem -LiteralPath supabase\functions -Recurse -File -Filter index.ts |
+  Sort-Object FullName |
+  Select-Object -ExpandProperty FullName
+deno check --frozen --config supabase/functions/deno.json $edgeEntrypoints
 ```
 
-**3. 필요시 잠금 해제/초기화**
-```sql
-UPDATE public.manager_accounts
-SET failed_count = 0,
-    locked_until = null
-WHERE phone = '01012341234';
+검사 범위를 줄여 기존 오류를 숨기지 않는다. changed-entrypoint와 full-scope 결과를 따로 기록한다.
+
+### Board loopback smoke
+
+```powershell
+node scripts/testing/board-edge-handler-smoke.mjs
+node scripts/testing/board-list-edge-handler-smoke.mjs
 ```
 
-#### Query Manager Accounts
-```sql
-SELECT
-    id,
-    name,
-    phone,
-    active,
-    failed_count,
-    locked_until,
-    password_set_at
-FROM public.manager_accounts
-ORDER BY created_at DESC;
+원격 Function 호출·배포 대신 loopback handler를 사용한다.
+
+## Supabase local stack — `LOCAL_STATE`
+
+```powershell
+docker info
+supabase start
+supabase status
 ```
 
-#### Assign Manager to Affiliation (알림 수신 매핑)
-```sql
--- 한 소속에 여러 본부장을 붙일 수 있습니다.
-INSERT INTO public.affiliation_manager_mappings (
-    affiliation,
-    manager_phone,
-    active
-)
-VALUES
-    ('1팀(서울1) : 서선미 본부장님', '01012341234', true),
-    ('1팀(서울1) : 서선미 본부장님', '01099998888', true)
-ON CONFLICT (affiliation, manager_phone)
-DO UPDATE SET
-    active = EXCLUDED.active,
-    updated_at = now();
+local DB가 폐기 가능하고 remote project를 가리키지 않는지 확인한 뒤에만:
+
+```powershell
+supabase db reset
+supabase db lint
 ```
 
-```sql
--- 비활성/해제
-UPDATE public.affiliation_manager_mappings
-SET active = false,
-    updated_at = now()
-WHERE affiliation = '1팀(서울1) : 서선미 본부장님'
-  AND manager_phone = '01012341234';
+Docker가 없거나 daemon이 꺼져 있으면 `ENVIRONMENT_BLOCKED`로 기록한다. 원격 DB로 대체하지 않는다.
+
+## Dependency audit — `SAFE_LOCAL`
+
+```powershell
+npm audit
+Push-Location web
+npm audit
+Pop-Location
 ```
 
-#### Create FC Account
+결과를 기록하되 `npm audit fix`는 실행하지 않는다.
 
-**1. 비밀번호 해시/솔트 생성**
-```bash
-node -e "const crypto=require('crypto');const password='qwer1234!';const salt=crypto.randomBytes(16);const hash=crypto.pbkdf2Sync(password,salt,100000,32,'sha256');console.log('PASSWORD_SALT:',salt.toString('base64'));console.log('PASSWORD_HASH:',hash.toString('base64'));"
+## 통합 QA 기록 — `LOCAL_STATE`
+
+```powershell
+npm run qa:init:integrated
+npm run qa:validate:integrated
 ```
 
-**2. FC 프로필 및 자격증명 생성**
-```sql
-WITH new_fc AS (
-    INSERT INTO public.fc_profiles (
-        name,
-        affiliation,
-        phone,
-        recommender,
-        email
-    ) VALUES (
-        '홍길동',
-        '1본부',
-        '01012345678',
-        '추천인명',
-        'hong@example.com'
-    )
-    RETURNING id
-)
-INSERT INTO public.fc_credentials (
-    fc_id,
-    password_hash,
-    password_salt,
-    password_set_at
-)
-SELECT
-    id,
-    '<PASSWORD_HASH>',
-    '<PASSWORD_SALT>',
-    now()
-FROM new_fc;
+initializer는 기존 결과 파일을 바꿀 수 있으므로 새 실행을 시작할 때만 사용한다. 현재 저장된 통합 QA의 FAIL/BLOCKED/SKIPPED를 녹색 gate로 해석하지 않는다.
+
+## Sentry 조회 — `READ_ONLY_EXTERNAL`
+
+Sentry plugin과 `SENTRY_READ_AUTH_TOKEN`만 사용한다.
+
+```powershell
+npm run ops:sentry-triage -- --dry-run
+npm run ops:sentry-triage -- --last-seen-days 7 --summary-only
 ```
 
-### Password Management
+`SENTRY_AUTH_TOKEN`으로 읽기 fallback하지 않는다. issue resolve, release 생성, source-map upload는 `REMOTE_MUTATION`이다.
 
-#### Reset Account Password
-```sql
-UPDATE public.manager_accounts
-SET
-    password_hash = '<새_해시>',
-    password_salt = '<새_솔트>',
-    password_set_at = now(),
-    failed_count = 0,
-    locked_until = null
-WHERE phone = '<전화번호>';
+## 보험 브리핑 — 현재 `PAUSED`
+
+다음은 token pair와 수동 local/staging E2E가 복구된 뒤의 읽기/입력 검증용이다.
+
+```powershell
+npm run ops:post-insurance-digest -- --check-existing
+npm run ops:post-insurance-digest -- --input-file <sanitized-local-payload> --dry-run
 ```
 
----
+실제 게시 명령은 `REMOTE_MUTATION`이다. 현재 자동화와 수동 게시는 모두 중지 상태다.
 
-## Troubleshooting
+## 승인 전 실행 금지 — `REMOTE_MUTATION`
 
-### Clear App Data
-```bash
-adb uninstall com.jj8127.Garam_in
+```text
+git push
+gh pr create
+vercel deploy --prod
+supabase db push
+supabase functions deploy <function-name>
+supabase secrets set ...
+eas update ...
+eas build ...
+eas submit ...
+Sentry issue/release mutation
+보험 브리핑 실제 게시
 ```
 
-### Unlock Locked Account
-```sql
-UPDATE public.manager_accounts
-SET failed_count = 0,
-    locked_until = null
-WHERE phone = '<전화번호>';
+승인 요청에는 environment, project, commit, lane, 비용 영향, smoke, rollback을 포함하고 secret 값은 넣지 않는다.
+
+## 문제 해결
+
+### Docker unavailable
+
+```powershell
+docker info
+supabase status
 ```
 
----
+daemon 연결 실패는 환경 차단이다. remote reset/push로 우회하지 않는다.
 
-## Tools & Utilities
+### Port/process 확인 — `SAFE_LOCAL`
 
-### Codex MCP Tools
-
-**1. Codex 접속**
-```bash
-codex
+```powershell
+Get-NetTCPConnection -State Listen | Sort-Object LocalPort
+Get-Process node,deno -ErrorAction SilentlyContinue
 ```
 
-**2. 사용 가능한 도구 목록 보기**
-```bash
-list_mcp_tools
+process 종료는 다른 작업 소유권을 확인한 뒤 수행한다.
+
+### Android local data 제거 — `LOCAL_STATE`
+
+```powershell
+adb uninstall <local-package-id>
 ```
 
-### Generate Password Hash
+대상 device/package를 확인하고 폐기 가능한 테스트 앱에만 사용한다.
 
-**단일 생성**
-```bash
-node -e "const crypto=require('crypto');const password='qwer1234!';const salt=crypto.randomBytes(16);const hash=crypto.pbkdf2Sync(password,salt,100000,32,'sha256');console.log('PASSWORD_SALT:',salt.toString('base64'));console.log('PASSWORD_HASH:',hash.toString('base64'));"
-```
+## 관련 문서
 
-**매니저 계정용 (전화번호 포함)**
-```bash
-node -e "const crypto=require('crypto');const password='새비번';const salt=crypto.randomBytes(16);const hash=crypto.pbkdf2Sync(password,salt,100000,32,'sha256');console.log('phone=01012341234');console.log('password_salt(base64)=',salt.toString('base64'));console.log('password_hash(base64)=',hash.toString('base64'));"
-```
-
----
-
-## Security Notes
-
-### Password Hashing
-- **Algorithm**: PBKDF2 with SHA-256
-- **Iterations**: 100,000
-- **Salt Length**: 16 bytes (random)
-- **Hash Length**: 32 bytes
-- **Encoding**: Base64
-
-### Account Lockout
-- **Max Failed Attempts**: 5
-- **Lockout Duration**: 10 minutes
-- **Auto-unlock**: After lockout period expires
-
----
-
-## Quick Reference
-
-| Task | Command |
-|------|---------|
-| Run Android App | `npx expo run:android` |
-| Run iOS (Expo Go) | `npx expo start` |
-| Start Web Dev | `cd web && npm run dev` |
-| Build Android | `npm run eas:build:android` |
-| Build iOS | `npm run eas:build:ios` |
-| Deploy to Vercel | `vercel deploy --prod` |
-| Submit to App Store | `eas submit --platform ios --latest` |
-| Clear App Data | `adb uninstall com.jj8127.Garam_in` |
-| Generate Password Hash | `node -e "const crypto=require('crypto')..."` |
-
----
-
-## Related Documentation
-
-- [DEPLOYMENT.md](../deployment/DEPLOYMENT.md) - 상세 배포 가이드
-- [README.md](../../README.md) - 프로젝트 개요
-- [CLAUDE.md](../../CLAUDE.md) - AI 개발 가이드
-
----
-
-**Last Updated**: 2026-01-12
-**Maintainer**: Development Team
+- 개발자 온보딩: [`../handbook/developer-onboarding.md`](../handbook/developer-onboarding.md)
+- 운영 런북: [`../handbook/operations-runbook.md`](../handbook/operations-runbook.md)
+- 배포 체크리스트: [`../deployment/DEPLOYMENT.md`](../deployment/DEPLOYMENT.md)

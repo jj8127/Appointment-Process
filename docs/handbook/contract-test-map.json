@@ -7,7 +7,9 @@
       "prefixes": [
         "app/dashboard.tsx",
         "lib/notifications.ts",
+        "lib/fc-notify-client.ts",
         "supabase/functions/device-token-register/",
+        "supabase/functions/_shared/fc-notify-auth-policy.ts",
         "supabase/functions/_shared/request-board-auth.ts",
         "web/src/app/api/admin/",
         "web/src/app/api/fc-delete/",
@@ -19,10 +21,19 @@
         "web/src/lib/admin-route-auth.ts",
         "web/src/lib/push-notification-service.ts",
         "web/src/lib/request-board-app-session.ts",
+        "web/src/lib/fc-notify-proxy-policy.ts",
+        "web/src/lib/privileged-action-input-policy.ts",
+        "web/src/lib/sentry-build-policy.ts",
         "web/src/lib/server-session.ts"
       ],
       "requires_any": [
         "lib/__tests__/priority-security-hardening.test.ts",
+        "lib/__tests__/app-session-secret-boundary.test.ts",
+        "lib/__tests__/fc-notify-client.test.ts",
+        "lib/__tests__/fc-notify-edge-auth-policy.test.ts",
+        "lib/__tests__/fc-notify-route-auth.test.ts",
+        "lib/__tests__/privileged-server-action-input-policy.test.ts",
+        "lib/__tests__/sentry-build-upload-guard.test.ts",
         "supabase/functions/_shared/__tests__/request-board-auth.test.ts",
         "docs/handbook/backend/notifications-inbox-push.md",
         "docs/handbook/contract-test-map.json"
@@ -68,6 +79,8 @@
         "lib/notification-route.ts",
         "scripts/ops/post-insurance-digest.mjs",
         "supabase/functions/board-",
+        "supabase/functions/_shared/board-actor-policy.ts",
+        "supabase/functions/_shared/board-list-policy.ts",
         "web/src/app/api/admin/notices/",
         "web/src/app/dashboard/board/",
         "web/src/app/dashboard/notifications/"
@@ -79,6 +92,9 @@
         "lib/__tests__/board-reaction-state.test.ts",
         "lib/__tests__/admin-web-board-source.test.ts",
         "lib/__tests__/board-category-contract.test.ts",
+        "lib/__tests__/board-caller-auth.test.ts",
+        "lib/__tests__/board-edge-auth-policy.test.ts",
+        "lib/__tests__/board-list-automation-policy.test.ts",
         "lib/__tests__/notification-route.test.ts",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/backend/board-api-and-notice-model.md",

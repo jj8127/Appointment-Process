@@ -1,7 +1,8 @@
 ﻿# 가람in FC Onboarding Monorepo
 
-> Last verified: `2026-03-28`
-> Source of truth: [AGENTS.md](./AGENTS.md)
+> Last verified: `2026-07-15`
+> Control entry: [AGENTS.md](./AGENTS.md)
+> Current behavior SSOT: [docs/handbook/INDEX.md](./docs/handbook/INDEX.md)
 
 가람PA지사의 FC 위촉, 온보딩, 운영, 관리자 웹을 함께 관리하는 모노레포입니다.  
 사용자 노출 브랜드는 `가람in`이며, 설계의뢰 시스템 `가람Link(request_board)`와 계정, 비밀번호, 세션, 알림을 연동합니다.
@@ -19,6 +20,7 @@
 
 ## Current Snapshot
 
+- 현재 판정은 **릴리스 HOLD**입니다. 로컬 changed Edge Deno 18/18은 통과했지만, 전체 web TypeScript 기존 테스트 부채, 원격 caller/migration rollout, 인증 E2E, tracked token-like secret 대응이 남아 있습니다.
 - FC 핵심 흐름은 `회원가입 -> 본인확인 -> 보증 보험 동의 -> 시험 -> 서류 -> 한화 위촉 URL -> 생명/손해 위촉 -> 완료`까지 end-to-end로 구현되어 있습니다.
 - FC 가입은 `none / life_only / nonlife_only / both` 커미션 완료 유형을 지원하며, 부분 완료 사용자는 `draft`부터 남은 트랙을 계속 진행합니다.
 - `manager`는 앱/웹 전반에서 읽기 전용 역할을 유지합니다.
@@ -110,44 +112,50 @@ fc-onboarding-app/
 
 ## Quick Start
 
+상세 도구·환경변수·문제 해결은 [개발자 온보딩](./docs/handbook/developer-onboarding.md)을 먼저 봅니다. 아래 명령은 local-only이며 배포나 원격 DB 변경을 포함하지 않습니다.
+
 ### 1. Mobile App
 
-```bash
+```powershell
 npm install
 npm start
-npm run android
-npm run ios
 ```
 
 ### 2. Admin Web
 
-```bash
-cd web
+```powershell
+Push-Location web
 npm install
 npm run dev
-npm run build
-npm run start
+Pop-Location
 ```
 
 ### 3. Validation
 
-```bash
+```powershell
+git diff --check
+node scripts/ci/documentation-governance.test.mjs
+node scripts/ci/check-governance.mjs
 npm run lint
-npm test
-npm run test:coverage
-npm run qa:init:integrated
-npm run qa:validate:integrated
+npx tsc --noEmit
+npm test -- --runInBand
 ```
 
-### 4. Supabase
+### 4. Upload-disabled local builds
 
-```bash
-supabase login
-supabase link --project-ref <project-ref>
-supabase db push
-supabase functions deploy login-with-password --project-ref <project-ref>
-supabase functions deploy sync-request-board-session --project-ref <project-ref>
+```powershell
+$env:SENTRY_DISABLE_AUTO_UPLOAD = 'true'
+$env:SENTRY_DISABLE_UPLOAD = '1'
+$env:SENTRY_AUTH_TOKEN = 'local-verification-disabled'
+$env:SENTRY_URL = 'http://127.0.0.1:9'
+
+npm run build
+Push-Location web
+npm run build
+Pop-Location
 ```
+
+Supabase local은 Docker가 실행 중이고 DB가 폐기 가능할 때만 `supabase start`/`supabase status`를 사용합니다. 원격 명령과 배포 절차는 [릴리스·배포 체크리스트](./docs/deployment/DEPLOYMENT.md)의 명시적 승인 경계를 따릅니다.
 
 ## Environment Contract
 
@@ -170,6 +178,7 @@ EXPO_PUBLIC_REQUEST_BOARD_USE_LOCAL_DEV=1
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
+REQUEST_BOARD_NOTIFY_TOKEN=...
 NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY=...
 WEB_PUSH_VAPID_PRIVATE_KEY=...
 WEB_PUSH_SUBJECT=mailto:...
@@ -191,7 +200,7 @@ SENTRY_PROJECT=react-native
 
 - `SENTRY_AUTH_TOKEN`은 Expo/Next release, source-map upload용 secret입니다. Sentry issue/event 조회 fallback으로 사용하지 않습니다.
 - Sentry API 조회(organization/project/issue/event/release/artifact)는 `SENTRY_READ_AUTH_TOKEN`만 사용합니다.
-- local verification build에서 source-map upload나 release 상태 변경을 피하려면 해당 command에서 `SENTRY_AUTH_TOKEN`을 비우고 실행합니다.
+- local verification build에서는 `SENTRY_DISABLE_AUTO_UPLOAD=true`, `SENTRY_DISABLE_UPLOAD=1`, 무효 local upload token, loopback `SENTRY_URL`을 함께 설정합니다. Next는 `.env.local`을 다시 읽으므로 shell token을 비우는 것만으로는 차단 증거가 아닙니다.
 
 ### Supabase Edge Function Secrets
 
@@ -199,8 +208,13 @@ SENTRY_PROJECT=react-native
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 REQUEST_BOARD_AUTH_BRIDGE_SECRET=...
+FC_APP_SESSION_TOKEN_SECRET=...
+FC_APP_SESSION_TOKEN_PREVIOUS_SECRET=...
 REQUEST_BOARD_PASSWORD_SYNC_URL=...
 REQUEST_BOARD_PASSWORD_SYNC_TOKEN=...
+BOARD_AUTOMATION_TOKEN=...
+BOARD_AUTOMATION_ACTOR_PHONE=...
+BOARD_AUTOMATION_ACTOR_NAME=보험소식 브리핑
 ADMIN_WEB_URL=...
 ADMIN_PUSH_SECRET=...
 ```
@@ -211,6 +225,44 @@ ADMIN_PUSH_SECRET=...
 | --- | --- | --- |
 | `REQUEST_BOARD_AUTH_BRIDGE_SECRET` | `FC_ONBOARDING_AUTH_BRIDGE_SECRET` | 반드시 동일 |
 | `REQUEST_BOARD_PASSWORD_SYNC_TOKEN` | `FC_ONBOARDING_PASSWORD_SYNC_TOKEN` | 반드시 동일 |
+| `REQUEST_BOARD_NOTIFY_TOKEN` | `FC_ONBOARDING_NOTIFY_TOKEN` | 반드시 동일; 누락 시 알림 bridge는 fail closed |
+
+`REQUEST_BOARD_AUTH_BRIDGE_SECRET`은 Request Board bridge-token 호환 경계에만 사용합니다.
+FC 앱 세션은 새 토큰을 `FC_APP_SESSION_TOKEN_SECRET`으로만 서명하고, 검증 시에도 해당 current
+key와 `FC_APP_SESSION_TOKEN_PREVIOUS_SECRET`만 허용합니다. bridge secret을 app-session fallback으로
+재사용하면 bridge secret 보유자가 admin app-session을 위조할 수 있으므로 금지합니다.
+
+`/api/fc-notify`의 Request Board ingress는 `X-Request-Bridge-Token`과
+`REQUEST_BOARD_NOTIFY_TOKEN`을 상수 시간 비교한 뒤, 허용된 `request_board_*` 알림만
+전달합니다. Request Board sender URL은 정확한 HTTPS `/api/fc-notify`여야 하며 plain
+HTTP는 localhost 개발 검증에서만 허용됩니다. title/body는 전체 secret redaction 후
+각각 120/2000자로 제한됩니다. 브라우저 ingress는 별도로 request URL의 scheme+Host가
+일치하는 same-origin 및 signed server session 검증을 통과해야 하며 body의 role/actor나
+`X-Forwarded-Host`를 권한 근거로 사용하지 않습니다. 웹 채팅 caller는 sender identity를
+보내거나 `notifications` row를 직접 쓰지 않고, route가 identity를 재구성하며 Edge가
+notification persistence의 단일 writer입니다.
+
+### Direct Edge and Board rollout contract (2026-07-12)
+
+- `fc-notify`에서 무인증으로 허용되는 action은 홈 공개 공지용 `latest_notice` 하나뿐입니다.
+  내부 서버는 exact service `apikey`, 모바일 앱은 `x-app-session-token`을 사용하며, Edge는
+  서명 role/phone/fcId를 활성 DB actor에 다시 결합합니다.
+- 17개 `board-*` 함수도 같은 앱 세션과 활성 actor 재검증을 모든 service-role 조회보다 먼저
+  수행합니다. body의 `actor`는 구 caller 호환용 claim일 뿐 권한 근거가 아닙니다.
+- 모바일 Board 공통 transport는 저장된 앱 세션이 없으면 네트워크 전에 실패합니다. 관리자
+  웹은 브라우저에서 Supabase Function을 직접 호출하지 않고 signed same-origin `/api/board`
+  proxy와 HttpOnly `web_app_session`을 사용합니다.
+- 보험 브리핑은 exact `BOARD_AUTOMATION_TOKEN`과 활성
+  `BOARD_AUTOMATION_ACTOR_PHONE`을 요구합니다. 허용 범위는 category/list 조회와
+  `general` 카테고리의 `보험소식 브리핑 ...` 생성뿐이며 category 생성, 수정, 삭제, 첨부는
+  금지됩니다.
+- 인증 축은 signed 모바일/web/runner caller 채택·재로그인 확인 뒤 `fc-notify`와 17개 Board
+  Function의 auth enforcement를 수행합니다. body-actor fallback은 두지 않습니다.
+- DB 축은 별도입니다. old/new DB 호환 caller 또는 기능 비활성 → additive RPC migration 검증
+  → RPC caller 활성화 → 관측 후 compat 제거 순서입니다. 새 `board-update`는 Board migration
+  검증 뒤 17개 Board enforcement 창에서, admin-web exam schedule은 Exam migration 검증 뒤
+  별도 web release에서 활성화합니다. 이 로컬 변경 세트에서는 배포·secret 설정·DB migration
+  적용을 수행하지 않았습니다.
 
 ## request_board Integration Points
 
@@ -246,6 +298,10 @@ ADMIN_PUSH_SECRET=...
 
 - 운영 기준: [AGENTS.md](./AGENTS.md)
 - handbook: [docs/handbook/INDEX.md](./docs/handbook/INDEX.md)
+- 개발자 온보딩: [docs/handbook/developer-onboarding.md](./docs/handbook/developer-onboarding.md)
+- 운영 런북: [docs/handbook/operations-runbook.md](./docs/handbook/operations-runbook.md)
+- 배포 체크리스트: [docs/deployment/DEPLOYMENT.md](./docs/deployment/DEPLOYMENT.md)
+- 명령 안전 등급: [docs/guides/COMMANDS.md](./docs/guides/COMMANDS.md)
 - 작업 로그: [.claude/WORK_LOG.md](./.claude/WORK_LOG.md), [.claude/WORK_DETAIL.md](./.claude/WORK_DETAIL.md)
 - 문서 인덱스: [docs/README.md](./docs/README.md)
 - 계약 문서: [contracts](./contracts)

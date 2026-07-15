@@ -30,6 +30,228 @@
 - Verification:
 ```
 
+## 2026-07-15 | Deployment ordering | auth adoption and DB RPC compatibility were collapsed into one caller-first sequence
+- Symptom:
+  - The first documentation draft placed signed caller adoption, additive RPC migration, and Edge enforcement in one linear “caller-first” rollout, obscuring whether RPC-required callers were safe against the old DB.
+- Root cause:
+  - Authentication enforcement ordering and DB/API version compatibility were treated as one deployment axis even though `board-update` and admin-web exam schedule activate different RPC callers at different times.
+- Why it was missed:
+  - Focus stayed on closing the body-actor authentication boundary, so migration-before-caller activation was stated only indirectly.
+- Permanent guardrail:
+  - Document authentication as signed caller adoption → Edge auth enforcement.
+  - Document atomic DB change as old/new-compatible or feature-disabled caller → additive migration verification → per-caller activation → observation/auth smoke → compatibility removal.
+  - Name the activation point for `board-update` and admin-web exam schedule separately; never use “caller-first” as shorthand for DB/API version ordering.
+- Related files:
+  - `AGENTS.md`
+  - `docs/deployment/DEPLOYMENT.md`
+  - `docs/handbook/operations-runbook.md`
+  - `docs/handbook/shared/security-and-secret-operations.md`
+- Verification:
+  - Documentation boundary, governance normal/handbook/contract, link/path, diff, and sensitive-pattern gates.
+
+## 2026-07-15 | Documentation control surface | AGENTS accumulated delivery history until it exceeded the quick-control boundary
+- Symptom:
+  - Root `AGENTS.md` exceeded 100 KiB and mixed stable safety rules with old snapshots, roadmap items, and a long progress ledger.
+- Root cause:
+  - Session-close guidance repeatedly appended status to the control file instead of linking the existing handbook and work-log owners.
+- Why it was missed:
+  - Governance checked code/document synchronization but had no byte-size boundary for the session entry document.
+- Permanent guardrail:
+  - Keep root `AGENTS.md` at or below 24,576 UTF-8 bytes and retain only stable control rules, release safety, current major blockers, and context routes.
+  - Store current behavior in the handbook and append delivery evidence to `WORK_LOG.md`/`WORK_DETAIL.md`; do not recreate removed history in another new file.
+  - Run the 24,576/24,577 boundary tests and integrated governance on every documentation-control change.
+- Related files:
+  - `AGENTS.md`
+  - `docs/handbook/shared/documentation-contract.md`
+  - `scripts/ci/documentation-governance.mjs`
+  - `scripts/ci/documentation-governance.test.mjs`
+  - `scripts/ci/check-governance.mjs`
+- Verification:
+  - `node scripts/ci/documentation-governance.test.mjs`
+  - `node scripts/ci/check-governance.mjs`
+
+## 2026-07-12 | App Session HMAC | bridge secret fallback crossed token trust domains
+- Symptom:
+  - A token with `kind='fc_onboarding_session'` and admin claims could be signed with the legacy Request Board bridge secret and accepted as an FC app session.
+- Root cause:
+  - Edge and web app-session signers reused `REQUEST_BOARD_AUTH_BRIDGE_SECRET` as a fallback, and the Edge verifier included the same bridge secret alongside the dedicated app-session keys.
+- Why it was missed:
+  - Token `kind` checks were tested, but the signer/verifier key domain was not; an attacker who knew the shared bridge secret could choose the app-session kind before signing.
+- Permanent guardrail:
+  - App sessions mint only with `FC_APP_SESSION_TOKEN_SECRET` and verify only its current/previous pair. Bridge secrets must never appear in an app-session signer or verifier.
+  - Rotation installs the new current key and old key as `FC_APP_SESSION_TOKEN_PREVIOUS_SECRET`, then removes the previous key after the maximum token TTL. Missing dedicated current key fails closed and requires login/session repair rather than bridge-secret fallback.
+- Related files:
+  - `supabase/functions/_shared/request-board-auth.ts`
+  - `web/src/lib/request-board-app-session.ts`
+  - `lib/__tests__/app-session-secret-boundary.test.ts`
+- Verification:
+  - Forged bridge-secret admin app-session RED→GREEN test plus current/previous dedicated-key positive controls.
+
+## 2026-07-12 | Sentry Verification Build | clearing the shell token did not override `.env.local`
+- Symptom:
+  - A local Next production verification build was launched with an empty shell `SENTRY_AUTH_TOKEN` and `SENTRY_DISABLE_UPLOAD=1`, but Next reloaded the ignored `web/.env.local` token and the Sentry plugin uploaded source-map artifact bundles.
+- Root cause:
+  - `web/next.config.ts` passed `process.env.SENTRY_AUTH_TOKEN` directly to `withSentryConfig` and did not implement the documented `SENTRY_DISABLE_UPLOAD` guard. Clearing an environment variable before Next's dotenv phase was not an authoritative deny control.
+- Why it was missed:
+  - The operating note assumed an empty parent-shell variable could not be repopulated by framework env loading, and prior checks treated build exit status as sufficient evidence without inspecting Sentry upload lines.
+- Permanent guardrail:
+  - `SENTRY_DISABLE_UPLOAD=1` must set both `authToken: undefined` and `sourcemaps.disable: true` in the final Next Sentry config, regardless of ignored local env files.
+  - Safe local builds set `SENTRY_DISABLE_UPLOAD=1`, clear `SENTRY_AUTH_TOKEN`, and inspect output for artifact/upload/release activity; a successful build with an upload is an operational failure.
+  - Verification of the guard must route any unexpected upload attempt to a loopback-only Sentry URL, never to the live service.
+- Related files:
+  - `web/next.config.ts`
+  - `web/src/lib/sentry-build-policy.ts`
+  - `web/.env.example`
+  - `lib/__tests__/sentry-build-upload-guard.test.ts`
+  - `README.md`
+- Verification:
+  - RED: a Sentry-disabled build still uploaded artifacts because the flag was unused.
+  - GREEN: pure policy/source regression plus a loopback-routed production build with no upload attempt.
+
+## 2026-07-12 | Direct Edge Actor Trust | an active phone record was mistaken for proof of possession
+- Symptom:
+  - Anonymous callers could forge an active admin/manager/FC phone in the request body and make service-role `fc-notify` or any of 17 `board-*` functions read, write, delete, or fan out notifications as that actor.
+- Root cause:
+  - The handlers used a service-role Supabase client and treated a caller-supplied role/phone plus an active-row lookup as authentication. `board-create` and `board-update` then became confused deputies that called the newly protected `fc-notify` with their own trusted service key.
+- Why it was missed:
+  - Reviews followed normal app callers and checked CORS, role allowlists, and key custody, but did not prove possession at the public Edge boundary or search sibling service-key callers after hardening the direct notify endpoint.
+- Permanent guardrail:
+  - All non-public mobile Edge actions require a signed `x-app-session-token`, then rebind token role/phone/fcId to an active database actor before any service-role query. `latest_notice` is the only public `fc-notify` action.
+  - Every `board-*` endpoint must call the common request-bound verifier with its exact function name. Body actor fields are compatibility claims only and may never create authority.
+  - Web Board calls go through the signed same-origin `/api/board` proxy; mobile Board calls attach the stored app-session token in the common transport.
+  - Insurance-digest automation uses an exact `BOARD_AUTOMATION_TOKEN`, an active server-configured admin phone, and only `board-categories-list`, `board-list`, and canonical-general `board-create`. It may never create categories or reach update/delete/attachment actions.
+  - Caller Release A must be adopted before the 17-function Edge Release B. There is no safe body-actor fallback for old clients.
+- Related files:
+  - `supabase/functions/fc-notify/index.ts`
+  - `supabase/functions/_shared/fc-notify-auth-policy.ts`
+  - `supabase/functions/_shared/board.ts`
+  - `supabase/functions/_shared/board-actor-policy.ts`
+  - `lib/fc-notify-client.ts`
+  - `lib/board-api.ts`
+  - `web/src/app/api/board/route.ts`
+  - `scripts/ops/post-insurance-digest.mjs`
+  - `lib/__tests__/fc-notify-edge-auth-source.test.ts`
+  - `lib/__tests__/board-edge-auth-source.test.ts`
+- Verification:
+  - RED/GREEN pure policy and source contracts, all-function Deno checks, and loopback handler smokes that prove forged requests stop before writes/downstream fanout.
+
+## 2026-07-12 | Board Attachment And Update Integrity | role checks did not prove post ownership or atomicity
+- Symptom:
+  - A legitimate manager could request upload/finalize operations for another author's post, finalize caller-selected storage paths without proving an object existed, and a bad attachment order could return 400 after post fields had already changed.
+- Root cause:
+  - Attachment sign/finalize checked only the broad manager role and post existence. Finalize trusted path/size/MIME metadata, while `board-update` mutated the post before validating and separately updating attachment order.
+- Why it was missed:
+  - Delete/update had local manager ownership checks, but sibling attachment endpoints and the ordering of multi-step writes were not reviewed as one post-write invariant.
+- Permanent guardrail:
+  - Admin may manage every post; manager may manage only a manager-authored post whose canonical author phone matches the signed actor.
+  - Finalize accepts only canonical `board/<postId>/<uuid>_<sanitized-name>` paths, unique unfinalized objects that exist in Storage, and server-verified size/MIME metadata within the shared limits.
+  - Post fields and attachment order are applied by the service-role-only `update_board_post_atomic` database function in one transaction. Its migration must precede the updated Edge function.
+- Related files:
+  - `supabase/functions/board-attachment-sign/index.ts`
+  - `supabase/functions/board-attachment-finalize/index.ts`
+  - `supabase/functions/board-update/index.ts`
+  - `supabase/migrations/20260712000001_atomic_board_post_update.sql`
+  - `lib/__tests__/board-edge-auth-policy.test.ts`
+- Verification:
+  - RED/GREEN ownership/path/atomic-source contracts and Deno checks for all Board functions.
+
+## 2026-07-12 | Privileged Server Actions | same-origin UI access was mistaken for authorization
+- Symptom:
+  - Exam schedule, appointment, and document Server Actions could reach service-role database writes without a verified signed admin session. A read-only manager could bypass disabled buttons and mutate or delete exam data.
+- Root cause:
+  - The implementation relied on dashboard routing, disabled UI controls, and in two files an origin check, none of which proves the caller's role inside an exported Server Action.
+- Why it was missed:
+  - API routes had signed-session helpers, but the same inventory did not include all `'use server'` modules holding `adminSupabase`.
+- Permanent guardrail:
+  - Every privileged Server Action must verify an active signed session before parsing attacker input or touching `adminSupabase`; read-only actions explicitly use the manager-capable read helper.
+  - Runtime input is parsed fail closed, and notification phone/identity is loaded from the database rather than accepted from the client.
+  - The priority security source test inventories every server module that imports `adminSupabase`.
+- Related files:
+  - `web/src/app/dashboard/exam/schedule/actions.ts`
+  - `web/src/app/dashboard/appointment/actions.ts`
+  - `web/src/app/dashboard/docs/actions.ts`
+  - `web/src/lib/privileged-action-input-policy.ts`
+  - `lib/__tests__/privileged-server-action-input-policy.test.ts`
+- Verification:
+  - RED/GREEN auth-order and input-policy tests, full web lint, and a Sentry-loopback production build.
+
+## 2026-07-12 | Exam Apply Commit Boundary | notification failure was shown as registration failure
+- Symptom:
+  - The exam registration row could be saved successfully, then a failed admin/self notification made the mutation show `신청 실패`, encouraging a duplicate retry.
+- Root cause:
+  - Post-commit notification delivery was awaited inside the same mutation failure boundary as the database write.
+- Why it was missed:
+  - Happy-path tests treated database mutation and best-effort notification as one operation and did not inject a delivery failure after commit.
+- Permanent guardrail:
+  - `sendExamApplyNotificationsBestEffort` settles both deliveries, reports only failed target classes, and never reclassifies a committed application as failed.
+  - Source tests forbid sequential `await notifyExamFlow(notificationPayloads.*)` calls in both life and nonlife apply screens.
+- Related files:
+  - `lib/exam-flow-contract.ts`
+  - `app/exam-apply.tsx`
+  - `app/exam-apply2.tsx`
+  - `lib/__tests__/exam-flow-contract.test.ts`
+- Verification:
+  - RED missing-helper failure, then GREEN rejection-injection and screen source contracts.
+
+## 2026-07-12 | Exam Round Delete | manual child deletion split one cascade into destructive partial steps
+- Symptom:
+  - Deleting a round removed registrations first, then locations, then the round. A later failure could return an error after registrations were already lost.
+- Root cause:
+  - The Server Action manually reproduced foreign-key cascade behavior with three separate service-role statements.
+- Why it was missed:
+  - Step-by-step logging looked safer than a single delete, but transaction boundaries and the existing `ON DELETE CASCADE` schema were not checked together.
+- Permanent guardrail:
+  - Round deletion is one `exam_rounds` delete statement; database cascades remove locations and registrations atomically.
+  - The source contract forbids direct registration/location deletes in `deleteExamRoundAction` and verifies both cascade constraints in the schema snapshot.
+- Related files:
+  - `web/src/app/dashboard/exam/schedule/actions.ts`
+  - `supabase/schema.sql`
+  - `lib/__tests__/priority-security-hardening.test.ts`
+- Verification:
+  - RED source contract against the three-step delete, then GREEN targeted Jest and web lint.
+
+## 2026-07-12 | FC Notify Proxy Trust Boundary | server-side key custody was mistaken for caller authentication
+- Symptom:
+  - Public callers could POST arbitrary FC notify actions to `/api/fc-notify`; the route performed privileged web-push/database work and forwarded the raw body to the service-role Edge Function.
+- Root cause:
+  - The route protected the service-role key from the browser bundle but did not authenticate the caller, separate browser and Request Board ingress, or rebuild an action-specific outbound payload.
+  - The first hardened draft also bounded text before redaction, duplicated/delegated notification persistence ambiguously, and compared client-supplied sender display data even though the server already owned the canonical identity.
+- Why it was missed:
+  - Reviews followed the visible admin-web callers and treated the proxy as browser-only, without inventorying the cross-repository `request_board` server caller or testing the public route as an independent trust boundary.
+- Permanent guardrail:
+  - Every public privileged proxy must inventory all callers, authenticate each ingress independently, reject unsupported actions before side effects, and serialize only a server-rebuilt allowlisted payload.
+  - Browser compatibility tests must feed the exact caller payloads for regular admin, developer, manager, and FC sessions; server-derived display identity must use the same canonical helper as the client contract.
+  - Same-origin authorization requires the canonical request origin (scheme + Host); caller-controlled `X-Forwarded-Host` is not a fallback authority. A signed FC token must bind its `fcId` and phone to the same completed profile before authorization.
+  - Redact the complete title/body/message before applying notification bounds so truncation cannot turn a detectable secret into an undetectable partial secret.
+  - Browser chat callers must omit sender id/name and direct notification inserts; the protected route derives identity and the Edge function remains the single notification-row writer.
+  - `lib/__tests__/fc-notify-route-auth.test.ts` must fail if `/api/fc-notify` loses signed-session/origin checks, constant-time bridge-token verification, identity reconstruction, or reintroduces raw-body forwarding.
+- Related files:
+  - `web/src/app/api/fc-notify/route.ts`
+  - `web/src/lib/fc-notify-proxy-policy.ts`
+  - `web/src/lib/server-session.ts`
+  - `web/src/app/dashboard/chat/page.tsx`
+  - `web/src/app/chat/page.tsx`
+  - `lib/__tests__/fc-notify-route-auth.test.ts`
+  - `lib/__tests__/admin-web-chat-source.test.ts`
+- Verification:
+  - RED: `npx jest lib/__tests__/fc-notify-route-auth.test.ts --runInBand` failed on the unauthenticated route and raw `JSON.stringify(body)` forwarding.
+  - GREEN: `npx jest lib/__tests__/fc-notify-route-auth.test.ts --runInBand`
+
+## 2026-07-12 | Windows Source Contracts | LF-only fixture comparison made the full suite falsely red
+- Symptom:
+  - The complete Jest suite failed two navigation background assertions even though the expected source was present; the checkout used CRLF while the test embedded LF-only multiline strings.
+- Root cause:
+  - A source-contract test compared raw file bytes without normalizing line endings first.
+- Why it was missed:
+  - Focused suites did not collect this unrelated source test, and the existing assertion output looked like a content mismatch until the invisible carriage returns were isolated.
+- Permanent guardrail:
+  - Source-contract tests that compare multiline text must normalize `\r\n?` to `\n` before assertions, or use whitespace-tolerant behavior/AST checks. Full-suite verification remains required after focused security tests.
+- Related files:
+  - `lib/__tests__/navigation-background-source.test.ts`
+- Verification:
+  - RED: full `npm test -- --runInBand` failed 2/549 assertions on the Windows checkout.
+  - GREEN: focused navigation source test and then the complete Jest suite.
+
 ## 2026-07-07 | CI Audit Repo Identity | audit tests assumed the local folder name
 - Symptom:
   - GitHub Actions CI failed in `shared-ui-action-contracts.test.ts` and `shared-function-contracts.test.ts` because the audit inventory reported `Appointment-Process` instead of `fc-onboarding-app`.
@@ -3406,6 +3628,20 @@
   - `cd web && npm run lint -- src/components/WebPushRegistrar.tsx src/lib/web-push-registration-policy.ts src/lib/web-push-registration-policy.test.ts`
   - `node --test web/src/lib/admin-web-public-paths.test.ts web/src/lib/web-push-registration-policy.test.ts`
   - `cd web && SENTRY_AUTH_TOKEN='' SENTRY_DISABLE_UPLOAD=1 npm run build`
+
+## 2026-07-13 | Deep-scan artifact validation | PowerShell parser and working-directory assumptions created false signals
+
+- Symptom:
+  - `ConvertFrom-Json` reported failures on large valid JSONL rows, and one worker setup created stray `deep_discovery/worker-01` through `worker-06` directories outside the intended `round-03` root.
+- Root cause:
+  - Console-oriented PowerShell parsing was used as the JSONL authority, and a relative worker path was resolved from the wrong current directory.
+- Permanent guardrail:
+  - Validate JSONL with a standards-compliant streaming parser and record line count, schema keys, types, and exact-once trace checks; do not treat PowerShell rendering/parser output alone as corruption evidence.
+  - Resolve scan artifact directories to absolute paths and assert the expected `round-03/worker-*` parent before creating or writing anything.
+  - If a wrong empty artifact directory is created, verify its absolute path and emptiness before removal, then record the correction in the harness.
+- Verification:
+  - Central validation passed all six round-03 workers with 4,381 work-ledger rows each, 971 tree paths, unchanged input hashes, valid locations, canonical schemas, and zero validation errors.
+
 
 ## 2026-07-06 | Identity Gate Used Stale Public Fields | home unlock trusted masked resident/address remnants
 - Symptom:

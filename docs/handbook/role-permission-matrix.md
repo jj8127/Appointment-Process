@@ -2,10 +2,35 @@ doc_id: FC-HANDBOOK-ROLE-MATRIX
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer, operator
-last_verified: 2026-03-26
-source_of_truth: hooks/use-session.tsx + web/src/hooks/use-session.tsx + handbook/shared/*
+last_verified: 2026-07-12
+source_of_truth: hooks/use-session.tsx + web/src/hooks/use-session.tsx + web/src/lib/server-session.ts + web/src/lib/fc-notify-proxy-policy.ts + handbook/shared/*
 
 # 역할/권한 매트릭스
+
+## 2026-07-12 Admin web notification proxy matrix
+
+| verified session | inbox/unread | message |
+| --- | --- | --- |
+| `admin` + `staff_type=admin` | shared admin scope | verified completed non-designer FC only; sender `admin` / `총무팀` |
+| `admin` + `staff_type=developer` | own admin or own FC bridge scope | verified completed non-designer FC only; sender is own phone/name |
+| `manager` | own read-only admin or own FC bridge scope | forbidden |
+| completed `fc` | own FC scope | shared admin conversation only; sender is signed profile phone/name |
+
+The regression owner is `lib/__tests__/fc-notify-route-auth.test.ts`. It covers caller payload parity, forged identities, canonical Host enforcement, completed-FC binding, Request Board token/category validation, and raw-body forwarding prohibition.
+
+## 2026-07-12 Verified Board actor matrix
+
+| verified actor | read/detail | post/category/pin | comments/reactions | attachments/delete |
+| --- | --- | --- | --- | --- |
+| `admin` / `developer` subtype | allowed | global admin policy | allowed | global admin policy |
+| `manager` | allowed | create and update/delete own manager-authored post; category/pin forbidden | allowed as manager | own manager-authored post only |
+| completed `fc` | allowed | forbidden | own signed identity only | forbidden |
+| insurance automation | category/list only | canonical `general` digest create only | forbidden | forbidden |
+
+The Board actor is derived from a signed app session plus active database record. Client `actor`,
+display name, disabled buttons, or a known phone number never grant authority. Admin web uses
+`/api/board`; mobile uses the common token-attaching Board transport. Regression owners are
+`board-edge-auth-policy.test.ts`, `board-edge-auth-source.test.ts`, and `board-caller-auth.test.ts`.
 
 | role | 주 저장소 역할 | 쓰기 권한 | 대표 화면 | 비고 |
 | --- | --- | --- | --- | --- |

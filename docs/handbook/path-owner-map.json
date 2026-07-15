@@ -237,6 +237,7 @@
         "supabase/functions/_shared/internal-chat.ts",
         "supabase/functions/_shared/notification-delivery-policy.ts",
         "supabase/functions/_shared/__tests__/notification-delivery-policy.test.ts",
+        "supabase/functions/_shared/fc-notify-auth-policy.ts",
         "supabase/functions/device-token-register/",
         "supabase/functions/fc-notify/",
         "supabase/functions/__tests__/fc-notify-",
@@ -270,7 +271,9 @@
       "prefixes": [
         "supabase/functions/board-",
         "supabase/functions/_shared/board.ts",
+        "supabase/functions/_shared/board-actor-policy.ts",
         "supabase/functions/_shared/board-categories.ts",
+        "supabase/functions/_shared/board-list-policy.ts",
         "supabase/functions/__tests__/board-"
       ],
       "requires_any": [
