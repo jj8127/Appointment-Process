@@ -23,6 +23,11 @@ export type ExamApplicantFilterOption = {
   label: string;
 };
 
+export type ExamApplicantFilterItem = Pick<
+  ExamApplicantListItem,
+  'round_id' | 'round_label' | 'exam_date' | 'exam_type' | 'is_third_exam'
+>;
+
 export type ExamApplicantExportColumnKey =
   | 'affiliation'
   | 'name'
@@ -126,7 +131,7 @@ export function formatExamApplicantSubjectFilterLabel(subjectKey: string): strin
   }
 }
 
-export function getExamApplicantRoundFilterValue(item: ExamApplicantListItem): string {
+export function getExamApplicantRoundFilterValue(item: ExamApplicantFilterItem): string {
   const roundId = String(item.round_id ?? '').trim();
   if (roundId) return roundId;
 
@@ -138,7 +143,7 @@ export function getExamApplicantRoundFilterValue(item: ExamApplicantListItem): s
   ].join(':');
 }
 
-export function formatExamApplicantRoundFilterLabel(item: ExamApplicantListItem): string {
+export function formatExamApplicantRoundFilterLabel(item: ExamApplicantFilterItem): string {
   const dateMatch = String(item.exam_date ?? '').match(/^(\d{4}-\d{2}-\d{2})/);
   const dateLabel = dateMatch ? dateMatch[1] : '날짜 미정';
   const roundLabel = item.round_label && item.round_label !== '-' ? item.round_label : '회차 미정';
@@ -148,7 +153,7 @@ export function formatExamApplicantRoundFilterLabel(item: ExamApplicantListItem)
 }
 
 export function buildExamApplicantSubjectFilterOptions(
-  rows: ExamApplicantListItem[],
+  rows: ExamApplicantFilterItem[],
 ): ExamApplicantFilterOption[] {
   const optionByValue = new Map<string, ExamApplicantFilterOption>();
 
@@ -173,7 +178,7 @@ export function buildExamApplicantSubjectFilterOptions(
 }
 
 export function buildExamApplicantRoundFilterOptions(
-  rows: ExamApplicantListItem[],
+  rows: ExamApplicantFilterItem[],
   subjectFilterValue = EXAM_APPLICANT_ALL_FILTER_VALUE,
 ): ExamApplicantFilterOption[] {
   const optionByValue = new Map<string, ExamApplicantFilterOption>();
@@ -202,7 +207,7 @@ export function buildExamApplicantRoundFilterOptions(
 }
 
 export function isExamApplicantRoundFilterValid(
-  rows: ExamApplicantListItem[],
+  rows: ExamApplicantFilterItem[],
   subjectFilterValue: string,
   roundFilterValue: string,
 ): boolean {
@@ -213,7 +218,7 @@ export function isExamApplicantRoundFilterValid(
   );
 }
 
-export function formatExamApplicantSubject(item: ExamApplicantListItem): string {
+export function formatExamApplicantSubject(item: Pick<ExamApplicantListItem, 'exam_type' | 'round_label' | 'is_third_exam'>): string {
   const primarySubject = getExamApplicantPrimarySubject(item);
   const base =
     primarySubject === 'life'

@@ -10,6 +10,7 @@ import {
   getReferralGraphLocalDragDepths,
   getReferralGraphConnectedNodeIds,
 } from './referral-graph-interaction.ts';
+import type { ReferralGraphDragFollowerNode } from './referral-graph-interaction.ts';
 import type { GraphEdge } from '../types/referral-graph.ts';
 
 function makeEdge(source: string, target: string): GraphEdge {
@@ -73,7 +74,7 @@ test('getReferralGraphDescendantDepths follows only directed lower nodes', () =>
 });
 
 test('applyReferralGraphDragFollowerTranslation gives descendants elastic movement without pinning them', () => {
-  const nodesById = new Map([
+  const nodesById = new Map<string, ReferralGraphDragFollowerNode>([
     ['child', { id: 'child', x: 0, y: 0, vx: 9, vy: 9 }],
     ['grand-child', { id: 'grand-child', x: 0, y: 0, vx: 9, vy: 9 }],
   ]);
