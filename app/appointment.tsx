@@ -22,6 +22,7 @@ import { Button } from '@/components/Button';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useToast } from '@/components/Toast';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { APPOINTMENT_GUIDE_IMAGES } from '@/lib/guide-images';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
@@ -212,14 +213,11 @@ export default function AppointmentScreen() {
         throw new Error('업데이트된 데이터가 없습니다. (전화번호 불일치 가능성)');
       }
 
-      await supabase.functions
-        .invoke('fc-notify', {
-          body: {
+      await invokeFcNotify({
             type: 'fc_update',
             fc_id: data.data.id,
             message: `${data.data.name ?? ''}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
             url: '/dashboard',
-          },
         })
         .catch(() => undefined);
 

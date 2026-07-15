@@ -22,9 +22,9 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { resolveNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
-import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 type AttachedFile = {
@@ -68,13 +68,11 @@ const isAttachedFile = (value: unknown): value is AttachedFile => {
 const fetchNotices = async (role: 'admin' | 'fc' | null, residentId: string): Promise<Notice[]> => {
   if (!role) return [];
 
-  const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
-    body: {
+  const { data, error } = await invokeFcNotify<InboxListResponse>({
       type: 'inbox_list',
       role,
       resident_id: role === 'fc' ? (residentId || null) : null,
       limit: 100,
-    },
   });
 
   if (error) throw error;
@@ -120,17 +118,15 @@ export default function NoticeScreen() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      if (role !== 'admin') {
+      if (role !== 'admin' || readOnly) {
         throw new Error('관리자만 공지를 삭제할 수 있습니다.');
       }
 
-      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; message?: string }>('fc-notify', {
-        body: {
+      const { data, error } = await invokeFcNotify<{ ok?: boolean; message?: string }>({
           type: 'inbox_delete',
           role: 'admin',
           resident_id: null,
           notice_ids: [id],
-        },
       });
       if (error) throw error;
       if (!data?.ok) {
@@ -227,7 +223,7 @@ export default function NoticeScreen() {
                 </View>
                 <View style={styles.headerActions}>
                   <Text style={styles.date}>{new Date(n.created_at).toLocaleDateString()}</Text>
-                  {role === 'admin' && (
+                  {role === 'admin' && !readOnly && (
                     <Pressable
                       hitSlop={8}
                       onPress={(event) => {

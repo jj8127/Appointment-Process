@@ -89,8 +89,8 @@ export function buildInternalChatViewerPayload(
 async function invokeFcNotify<T extends FcNotifySuccess>(
   body: Record<string, unknown>,
 ): Promise<T> {
-  const { supabase } = await import('./supabase');
-  const { data, error } = await supabase.functions.invoke('fc-notify', { body });
+  const { invokeFcNotify: invokeMobileFcNotify } = await import('./fc-notify-client');
+  const { data, error } = await invokeMobileFcNotify<T>(body as Record<string, unknown> & { type: string });
   if (error) {
     throw error;
   }

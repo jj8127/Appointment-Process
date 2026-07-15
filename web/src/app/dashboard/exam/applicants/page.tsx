@@ -45,7 +45,6 @@ import {
     type ExamApplicantExportColumnKey,
     type ExamApplicantFilterOption,
 } from '@/lib/exam-applicant-list-display';
-import { supabase } from '@/lib/supabase';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -263,28 +262,24 @@ async function notifyFcExamApprovalStatus(item: Applicant, isConfirmed: boolean)
         throw new Error('FC 전화번호를 찾을 수 없습니다.');
     }
 
-    const title = isConfirmed
-        ? '시험 신청이 승인되었습니다.'
-        : '시험 신청 승인 상태가 변경되었습니다.';
-    const body = isConfirmed
-        ? `${formatExamApprovalInfo(item)} 접수가 승인되었습니다. 시험 신청 화면에서 상태를 확인해주세요.`
-        : `${formatExamApprovalInfo(item)} 접수 완료가 해제되었습니다. 시험 신청 화면에서 상태를 확인해주세요.`;
-
-    const { data, error } = await supabase.functions.invoke('fc-notify', {
-        body: {
-            type: 'notify',
-            target_role: 'fc',
+    const response = await fetch('/api/fc-notify', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            type: 'exam_approval_notify',
             target_id: targetId,
-            title,
-            body,
-            category: 'exam_apply',
-            url: item.exam_type === 'nonlife' ? '/exam-apply2' : '/exam-apply',
-        },
+            is_confirmed: isConfirmed,
+            exam_info: formatExamApprovalInfo(item),
+            exam_type: item.exam_type,
+        }),
     });
-
-    if (error) throw error;
-    if (!data?.ok) {
-        throw new Error((data as { message?: string } | null)?.message ?? '시험 승인 알림 전송 실패');
+    const data: unknown = await response.json().catch(() => null);
+    if (!response.ok || !isRecord(data) || data.ok !== true) {
+        const message = isRecord(data) && typeof data.error === 'string'
+            ? data.error
+            : '시험 승인 알림 전송 실패';
+        throw new Error(message);
     }
 }
 

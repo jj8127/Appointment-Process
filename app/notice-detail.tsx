@@ -15,8 +15,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { useSession } from '@/hooks/use-session';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { openExternalUrl } from '@/lib/open-external-url';
-import { supabase } from '@/lib/supabase';
 import { COLORS } from '@/lib/theme';
 
 type AttachedFile = {
@@ -64,13 +64,11 @@ async function fetchNoticeDetail(
 ): Promise<NoticeDetail | null> {
   if (!role) return null;
 
-  const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
-    body: {
+  const { data, error } = await invokeFcNotify<InboxListResponse>({
       type: 'inbox_list',
       role,
       resident_id: role === 'fc' ? (residentId || null) : null,
       limit: 200,
-    },
   });
   if (error) throw error;
   if (!data?.ok) {

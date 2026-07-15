@@ -21,8 +21,9 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { supabase } from '@/lib/supabase';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { logger } from '@/lib/logger';
+import { supabase } from '@/lib/supabase';
 
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
@@ -143,8 +144,7 @@ export default function AdminNoticeScreen() {
   // 공지 등록 후 모든 FC에게 알림 + 푸시 전송
   const notifyAllFcs = async (titleText: string, bodyText: string, categoryText?: string, url?: string) => {
     try {
-      const { data, error } = await supabase.functions.invoke('fc-notify', {
-        body: {
+      const { data, error } = await invokeFcNotify({
           type: 'notify',
           target_role: 'fc',
           target_id: null,
@@ -152,7 +152,6 @@ export default function AdminNoticeScreen() {
           body: bodyText,
           category: categoryText || '공지',
           url: url ?? '/notice',
-        },
       });
       if (error) throw error;
       if (!data?.ok) {

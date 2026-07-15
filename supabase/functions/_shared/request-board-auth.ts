@@ -96,14 +96,13 @@ function getBridgeVerificationSecrets() {
 }
 
 function getAppSessionSigningSecret() {
-  return getTrimmedEnv('FC_APP_SESSION_TOKEN_SECRET') || getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET);
+  return getTrimmedEnv('FC_APP_SESSION_TOKEN_SECRET');
 }
 
 function getAppSessionVerificationSecrets() {
   return uniqueSecrets([
     getTrimmedEnv('FC_APP_SESSION_TOKEN_SECRET'),
     getTrimmedEnv('FC_APP_SESSION_TOKEN_PREVIOUS_SECRET'),
-    getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET),
   ]);
 }
 
@@ -209,7 +208,7 @@ async function verifySignedTokenWithSecrets<TPayload extends SignedTokenPayloadB
   let sawExpiredToken = false;
   for (const secret of secrets) {
     const parsed = await verifySignedToken<TPayload>(token, secret);
-    if (parsed.ok) return parsed;
+    if (parsed.ok === true) return parsed;
     if (parsed.reason === 'expired_token') sawExpiredToken = true;
   }
   return { ok: false, reason: sawExpiredToken ? 'expired_token' : 'invalid_token' };

@@ -55,6 +55,9 @@ export function getWebStaffSenderName(input: {
   if (input.role === 'admin' && input.staffType === 'developer') {
     return input.displayName?.trim() || '개발자';
   }
+  if (input.role === 'fc') {
+    return input.displayName?.trim() || input.residentId || 'FC';
+  }
   return '총무팀';
 }
 

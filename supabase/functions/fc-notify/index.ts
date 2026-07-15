@@ -7,6 +7,16 @@ import {
   shouldIncludeInternalChatParticipant,
 } from '../_shared/internal-chat.ts';
 import { filterManagerTokensForNotification } from '../_shared/notification-delivery-policy.ts';
+import {
+  buildAppFcNotifyPayload,
+  isTrustedFcNotifyServiceKey,
+  type FcNotifyAppActor,
+} from '../_shared/fc-notify-auth-policy.ts';
+import {
+  parseDesignerCompanyNameFromAffiliation,
+  requireAppSessionFromRequest,
+  type AppSessionTokenPayload,
+} from '../_shared/request-board-auth.ts';
 
 type Payload =
   | { type: 'fc_update'; fc_id: string; message?: string }
@@ -698,7 +708,7 @@ async function resolveFcUpdateAdminRecipientIds(fcAffiliation?: string | null): 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-app-session-token, x-client-info, apikey',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Credentials': 'true',
 };
@@ -748,6 +758,94 @@ async function fetchInternalFcProfiles() {
   }[];
 }
 
+type FcNotifyActorResolution =
+  | { ok: true; actor: FcNotifyAppActor }
+  | { ok: false; status: 401 | 403 | 500; message: string };
+
+async function resolveFcNotifyAppActor(
+  session: AppSessionTokenPayload,
+): Promise<FcNotifyActorResolution> {
+  const phone = sanitize(session.phone);
+  if (phone.length !== 11) {
+    return { ok: false, status: 401, message: 'Invalid signed session actor' };
+  }
+
+  if (session.role === 'admin') {
+    const { data, error } = await supabase
+      .from('admin_accounts')
+      .select('name,phone,active,staff_type')
+      .eq('phone', phone)
+      .eq('active', true)
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, message: error.message };
+    if (!data?.phone || sanitize(data.phone) !== phone) {
+      return { ok: false, status: 403, message: 'Active admin account not found' };
+    }
+    return {
+      ok: true,
+      actor: {
+        sessionRole: 'admin',
+        phone,
+        displayName: typeof data.name === 'string' ? data.name.trim() || null : null,
+        staffType: data.staff_type === 'developer' ? 'developer' : 'admin',
+        fcId: null,
+        isRequestBoardDesigner: false,
+      },
+    };
+  }
+
+  if (session.role === 'manager') {
+    const { data, error } = await supabase
+      .from('manager_accounts')
+      .select('name,phone,active')
+      .eq('phone', phone)
+      .eq('active', true)
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, message: error.message };
+    if (!data?.phone || sanitize(data.phone) !== phone) {
+      return { ok: false, status: 403, message: 'Active manager account not found' };
+    }
+    return {
+      ok: true,
+      actor: {
+        sessionRole: 'manager',
+        phone,
+        displayName: typeof data.name === 'string' ? data.name.trim() || null : null,
+        staffType: null,
+        fcId: null,
+        isRequestBoardDesigner: false,
+      },
+    };
+  }
+
+  const query = supabase
+    .from('fc_profiles')
+    .select('id,name,phone,affiliation,signup_completed');
+  const { data, error } = session.fcId
+    ? await query.eq('id', session.fcId).maybeSingle()
+    : await query.eq('phone', phone).maybeSingle();
+  if (error) return { ok: false, status: 500, message: error.message };
+  if (
+    !data?.id
+    || sanitize(data.phone) !== phone
+    || data.signup_completed !== true
+  ) {
+    return { ok: false, status: 403, message: 'Completed FC profile not found' };
+  }
+
+  return {
+    ok: true,
+    actor: {
+      sessionRole: 'fc',
+      phone,
+      displayName: typeof data.name === 'string' ? data.name.trim() || null : null,
+      staffType: null,
+      fcId: data.id,
+      isRequestBoardDesigner: Boolean(parseDesignerCompanyNameFromAffiliation(data.affiliation)),
+    },
+  };
+}
+
 serve(async (req: Request) => {
   // Preflight
   if (req.method === 'OPTIONS') {
@@ -757,13 +855,46 @@ serve(async (req: Request) => {
     return err('Method not allowed', 405);
   }
 
-  let body: Payload;
+  let rawBody: Record<string, unknown>;
   try {
-    body = await req.json();
-    console.log('[fc-notify] payload', body);
+    const parsedBody: unknown = await req.json();
+    if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+      return err('Invalid JSON', 400);
+    }
+    rawBody = parsedBody as Record<string, unknown>;
   } catch {
     return err('Invalid JSON', 400);
   }
+
+  let body: Payload;
+  let authMode: 'public' | 'service' | 'app';
+  let appActor: FcNotifyAppActor | null = null;
+
+  if (rawBody.type === 'latest_notice') {
+    body = { type: 'latest_notice' };
+    authMode = 'public';
+  } else if (isTrustedFcNotifyServiceKey(req.headers.get('apikey'), serviceKey)) {
+    body = rawBody as unknown as Payload;
+    authMode = 'service';
+  } else {
+    const sessionResult = await requireAppSessionFromRequest(req);
+    if (sessionResult.ok === false) {
+      return err(sessionResult.message, sessionResult.status);
+    }
+    const actorResult = await resolveFcNotifyAppActor(sessionResult.session);
+    if (actorResult.ok === false) {
+      return err(actorResult.message, actorResult.status);
+    }
+    const policyResult = buildAppFcNotifyPayload(rawBody, actorResult.actor);
+    if (policyResult.ok === false) {
+      return err(policyResult.error, policyResult.status);
+    }
+    appActor = actorResult.actor;
+    body = policyResult.payload as unknown as Payload;
+    authMode = 'app';
+  }
+
+  console.log('[fc-notify] request', { type: body.type, auth: authMode });
 
   if (body.type === 'chat_targets') {
     const residentId = sanitize(body.resident_id);
@@ -1166,7 +1297,11 @@ serve(async (req: Request) => {
         .in('id', notificationIds);
 
       if (role === 'fc') {
-        if (residentId) {
+        if (appActor?.sessionRole === 'fc') {
+          // A signed FC may delete only a row addressed to that FC. Global broadcast rows
+          // are shared state and must never be physically deleted by one recipient.
+          deleteQuery = deleteQuery.eq('recipient_role', 'fc').eq('resident_id', residentId);
+        } else if (residentId) {
           deleteQuery = deleteQuery.eq('recipient_role', 'fc').or(`resident_id.eq.${residentId},resident_id.is.null`);
         } else {
           deleteQuery = deleteQuery.eq('recipient_role', 'fc').is('resident_id', null);

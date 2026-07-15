@@ -38,6 +38,7 @@ import {
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
 import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
@@ -244,9 +245,7 @@ const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
 
 const fetchLatestNotice = async (): Promise<LatestNoticeSummary | null> => {
   try {
-    const { data, error } = await supabase.functions.invoke<LatestNoticeResponse>('fc-notify', {
-      body: { type: 'latest_notice' },
-    });
+    const { data, error } = await invokeFcNotify<LatestNoticeResponse>({ type: 'latest_notice' });
     if (error) throw error;
     if (!data?.ok) {
       throw new Error(data?.message ?? '최신 공지를 불러오지 못했습니다.');

@@ -1,5 +1,5 @@
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { logger } from '@/lib/logger';
-import { supabase } from '@/lib/supabase';
 
 type ExamApprovalNotifyParams = {
   residentId?: string | null;
@@ -35,8 +35,7 @@ export async function notifyExamApprovalStatus({
     ? `${normalizedExamInfo} 접수가 승인되었습니다. 시험 신청 화면에서 상태를 확인해주세요.`
     : `${normalizedExamInfo} 접수 완료가 해제되었습니다. 시험 신청 화면에서 상태를 확인해주세요.`;
 
-  const { data, error } = await supabase.functions.invoke('fc-notify', {
-    body: {
+  const { data, error } = await invokeFcNotify({
       type: 'notify',
       target_role: 'fc',
       target_id: targetId,
@@ -44,7 +43,6 @@ export async function notifyExamApprovalStatus({
       body,
       category: 'exam_apply',
       url: examPath,
-    },
   });
 
   if (error) throw error;

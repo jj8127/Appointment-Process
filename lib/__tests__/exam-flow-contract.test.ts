@@ -13,6 +13,7 @@ import {
   getExamRoundSelectionState,
   getExamFlowConfig,
   isLocationInRound,
+  sendExamApplyNotificationsBestEffort,
 } from '../exam-flow-contract';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -258,6 +259,27 @@ describe('exam flow contract', () => {
     });
   });
 
+  it('keeps post-commit notification failures from reclassifying a saved application as failed', async () => {
+    const payloads = buildExamApplyNotificationPayloads({
+      examType: 'life',
+      actor: 'FC user',
+      residentId: 'resident-1',
+      examTitle: '2026-07-20',
+      locationName: 'Seoul',
+    });
+    const notify = jest
+      .fn<Promise<void>, [typeof payloads.admin]>()
+      .mockRejectedValueOnce(new Error('notification unavailable'))
+      .mockResolvedValueOnce();
+
+    await expect(
+      sendExamApplyNotificationsBestEffort(payloads, notify),
+    ).resolves.toEqual({ failedTargets: ['admin'] });
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(notify).toHaveBeenNthCalledWith(1, payloads.admin);
+    expect(notify).toHaveBeenNthCalledWith(2, payloads.fcSelf);
+  });
+
   it('keeps owned screens wired to the common exam flow contract', () => {
     const expectations = [
       {
@@ -308,6 +330,13 @@ describe('exam flow contract', () => {
       const source = readAppSource(expectation.file);
       for (const required of expectation.required) {
         expect(source).toContain(required);
+      }
+
+      if (expectation.file === 'exam-apply.tsx' || expectation.file === 'exam-apply2.tsx') {
+        expect(source).toContain('sendExamApplyNotificationsBestEffort');
+        expect(source).not.toMatch(
+          /await notifyExamFlow\(notificationPayloads\.(admin|fcSelf)\)/,
+        );
       }
 
       expect(source).not.toMatch(/const (LIFE|NONLIFE)_EXAM_FEE_ACCOUNT/);

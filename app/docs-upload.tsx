@@ -23,6 +23,7 @@ import { useToast } from '@/components/Toast';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { logger } from '@/lib/logger';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
@@ -70,8 +71,7 @@ async function sendNotificationAndPush(
   body: string,
   url?: string,
 ) {
-  const { error, data } = await supabase.functions.invoke('fc-notify', {
-    body: {
+  const { error, data } = await invokeFcNotify({
       type: 'notify',
       target_role: role,
       target_id: residentId,
@@ -79,7 +79,6 @@ async function sendNotificationAndPush(
       body,
       category: 'app_event',
       url,
-    },
   });
   if (error) {
     throw error;

@@ -39,6 +39,7 @@ import {
   hasHanwhaApprovedPdf as hasHanwhaApprovedPdfEvidence,
 } from '@/lib/fc-workflow';
 import { useSession } from '@/hooks/use-session';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
@@ -347,8 +348,7 @@ async function sendNotificationAndPush(
     url,
   }).catch(() => { /* ignore notification failures */ });
 
-  await supabase.functions.invoke('fc-notify', {
-    body: {
+  await invokeFcNotify({
       type: 'notify',
       target_role: role,
       target_id: residentId,
@@ -357,7 +357,6 @@ async function sendNotificationAndPush(
       category: 'app_event',
       url,
       skip_notification_insert: true,
-    },
   }).catch(() => { /* ignore push failures */ });
 }
 

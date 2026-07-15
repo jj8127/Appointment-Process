@@ -34,6 +34,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { goBackOrReplace } from '@/lib/back-navigation';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { fetchFcChatTargets } from '@/lib/internal-chat-api';
 import { getChatTargetPickerHeaderConfig } from '@/lib/chat-navigation';
 import { logger } from '@/lib/logger';
@@ -691,8 +692,7 @@ export default function ChatScreen() {
     const notiTitle = `${senderName}: ${notiBody}`;
     const notifyUrl = `/chat?targetId=${encodeURIComponent(myId)}&targetName=${encodeURIComponent(senderName)}`;
 
-    void supabase.functions.invoke('fc-notify', {
-      body: {
+    void invokeFcNotify({
         type: 'notify',
         target_role: recipientRole,
         target_id: residentIdForPush,
@@ -702,7 +702,6 @@ export default function ChatScreen() {
         url: notifyUrl,
         sender_id: myId,
         sender_name: senderName,
-      },
     }).then(({ data: notifyData, error: notifyError }) => {
       if (notifyError || !notifyData?.ok) {
         logger.warn('Error in message notification', { error: notifyError ?? notifyData?.message });

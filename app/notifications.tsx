@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
@@ -30,7 +31,6 @@ import {
   resolveRequestBoardNotificationRoute,
 } from '@/lib/notification-route';
 import { resolveNoticeRoute } from '@/lib/notice-route';
-import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { COLORS } from '@/lib/theme';
 
@@ -44,6 +44,7 @@ type Notice = {
   created_at?: string | null;
   source: 'notification' | 'notice';
   origin: 'request_board' | 'fc_onboarding' | 'notice';
+  isBroadcast?: boolean;
 };
 
 type InboxNotificationPayload = {
@@ -53,6 +54,7 @@ type InboxNotificationPayload = {
   category?: string | null;
   target_url?: string | null;
   created_at?: string | null;
+  resident_id?: string | null;
 };
 
 type InboxNoticePayload = {
@@ -113,8 +115,13 @@ export default function NotificationsScreen() {
     staffType,
   });
   const includeRequestBoardFcInbox = inboxRole === 'admin' && requestBoardRole === 'fc';
+  const canDeleteSharedNotices = inboxRole === 'admin' && !readOnly;
   const hiddenNoticeStorageKey =
-    inboxRole === 'fc' ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}` : null;
+    inboxRole === 'fc'
+      ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}`
+      : readOnly
+        ? `${HIDDEN_NOTICE_KEY_PREFIX}:manager:${residentId || 'manager'}`
+        : null;
 
   const selectionModeRef = useRef(selectionMode);
   const isDraggingRef = useRef(isDragging);
@@ -343,14 +350,12 @@ export default function NotificationsScreen() {
   const fetchInbox = useCallback(async (): Promise<{ pushRows: Notice[]; noticeRows: Notice[] }> => {
     if (!inboxRole) return { pushRows: [], noticeRows: [] };
 
-    const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
-      body: {
+    const { data, error } = await invokeFcNotify<InboxListResponse>({
         type: 'inbox_list',
         role: inboxRole,
         resident_id: inboxResidentId,
         limit: 100,
         include_request_board_fc: includeRequestBoardFcInbox,
-      },
     });
     if (error) throw error;
     if (!data?.ok) {
@@ -367,6 +372,7 @@ export default function NotificationsScreen() {
       created_at: item.created_at,
       source: 'notification',
       origin: isRequestBoardCategory(item.category) ? 'request_board' : 'fc_onboarding',
+      isBroadcast: !item.resident_id,
     }));
 
     const noticeRows: Notice[] = (data.notices ?? []).map((item) => ({
@@ -379,6 +385,7 @@ export default function NotificationsScreen() {
       created_at: item.created_at,
       source: 'notice',
       origin: 'notice',
+      isBroadcast: true,
     }));
 
     if (!isRequestBoardDesigner) {
@@ -406,6 +413,7 @@ export default function NotificationsScreen() {
       const hiddenNoticeIds = await loadHiddenNoticeIds();
       const merged = [...pushRows, ...noticeRows]
         .filter((item) => {
+          if (hiddenNoticeIds.has(item.id)) return false;
           if (item.source !== 'notice') return true;
           const rawNoticeId = item.id.replace('notice:', '');
           return !hiddenNoticeIds.has(rawNoticeId);
@@ -553,23 +561,25 @@ export default function NotificationsScreen() {
 
       const selectedSet = new Set(selectedSnapshot);
       const selectedItems = notices.filter((item) => selectedSet.has(item.id));
+      const locallyHiddenNotificationIds = selectedItems
+        .filter((item) => inboxRole === 'fc' && item.source === 'notification' && item.isBroadcast)
+        .map((item) => item.id);
+      const locallyHiddenNotificationIdSet = new Set(locallyHiddenNotificationIds);
       const notificationIds = selectedItems
-        .filter((item) => item.source === 'notification')
+        .filter((item) => item.source === 'notification' && !locallyHiddenNotificationIdSet.has(item.id))
         .map((item) => item.rawId);
       const noticeIds = selectedSnapshot
         .filter((id) => id.startsWith('notice:'))
         .map((id) => id.replace('notice:', ''));
 
-      if (notificationIds.length > 0 || (inboxRole === 'admin' && noticeIds.length > 0)) {
-        const { data, error } = await supabase.functions.invoke('fc-notify', {
-          body: {
+      if (notificationIds.length > 0 || (canDeleteSharedNotices && noticeIds.length > 0)) {
+        const { data, error } = await invokeFcNotify({
             type: 'inbox_delete',
             role: inboxRole,
             resident_id: inboxResidentId,
             notification_ids: notificationIds,
-            notice_ids: inboxRole === 'admin' ? noticeIds : [],
+            notice_ids: canDeleteSharedNotices ? noticeIds : [],
             include_request_board_fc: includeRequestBoardFcInbox,
-          },
         });
         if (error) throw error;
         if (!data?.ok) {
@@ -579,9 +589,10 @@ export default function NotificationsScreen() {
         }
       }
 
-      if (inboxRole === 'fc' && noticeIds.length > 0) {
+      if (!canDeleteSharedNotices && (noticeIds.length > 0 || locallyHiddenNotificationIds.length > 0)) {
         const hidden = await loadHiddenNoticeIds();
         noticeIds.forEach((id) => hidden.add(id));
+        locallyHiddenNotificationIds.forEach((id) => hidden.add(id));
         await saveHiddenNoticeIds(hidden);
       }
 
@@ -592,13 +603,15 @@ export default function NotificationsScreen() {
       void load();
 
       const totalNotifIds = notificationIds.length;
-      const isNoticeOnlyFc = inboxRole === 'fc' && noticeIds.length > 0 && totalNotifIds === 0;
+      const isLocallyHiddenOnly = !canDeleteSharedNotices
+        && (noticeIds.length > 0 || locallyHiddenNotificationIds.length > 0)
+        && totalNotifIds === 0;
       alertTimerRef.current = setTimeout(() => {
         if (!mountedRef.current) return;
         Alert.alert(
           '완료',
-          isNoticeOnlyFc
-            ? '선택한 공지는 알림센터에서 숨김 처리되었습니다.'
+          isLocallyHiddenOnly
+            ? '선택한 항목은 이 기기의 알림센터에서 숨김 처리되었습니다.'
             : '선택한 항목을 삭제했습니다.',
         );
       }, 150);

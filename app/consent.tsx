@@ -25,6 +25,7 @@ import { FormInput } from '@/components/FormInput';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { AGREEMENT_GUIDE_IMAGES } from '@/lib/guide-images';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
@@ -148,13 +149,10 @@ export default function AllowanceConsentScreen() {
         throw new Error('정보를 저장하지 못했습니다.');
       }
 
-      supabase.functions
-        .invoke('fc-notify', {
-          body: {
+      invokeFcNotify({
             type: 'fc_update',
             fc_id: data.profile.id,
             message: `${data.profile.name ?? ''}님이 보증보험 조회 동의일을 입력했습니다.`,
-          },
         })
         .catch(() => { });
 

@@ -20,6 +20,7 @@ import { Button } from '@/components/Button';
 import CompactHeader from '@/components/CompactHeader';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { hasHanwhaApprovalEvidence, hasHanwhaPdfMetadata } from '@/lib/fc-workflow';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
@@ -245,14 +246,11 @@ export default function HanwhaCommissionScreen() {
         throw new Error('업데이트된 데이터가 없습니다. (전화번호 불일치 가능성)');
       }
 
-      await supabase.functions
-        .invoke('fc-notify', {
-          body: {
+      await invokeFcNotify({
             type: 'fc_update',
             fc_id: data.data.id,
             message: `${data.data.name ?? ''}님이 다위촉 URL 완료를 보고했습니다. (입력일: ${ymd})`,
             url: '/dashboard',
-          },
         })
         .catch(() => undefined);
 

@@ -75,8 +75,16 @@ export async function POST(req: Request) {
       throw error;
     }
 
-    const response = NextResponse.json(data ?? { ok: false, message: '로그인 결과를 확인할 수 없습니다.' });
-    const appSessionToken = String(data?.appSessionToken ?? '').trim();
+    const loginData: LoginResponse = data ?? {
+      ok: false,
+      message: '로그인 결과를 확인할 수 없습니다.',
+    };
+    const {
+      appSessionToken: rawAppSessionToken,
+      ...publicLoginData
+    } = loginData;
+    const response = NextResponse.json(publicLoginData);
+    const appSessionToken = String(rawAppSessionToken ?? '').trim();
     response.cookies.set(WEB_APP_SESSION_COOKIE, data?.ok && appSessionToken ? appSessionToken : '', {
       httpOnly: true,
       sameSite: 'strict',

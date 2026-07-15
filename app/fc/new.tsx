@@ -29,6 +29,7 @@ import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwa
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { canOpenFcProfileRegistration } from '@/lib/fc-workflow';
 import { logger } from '@/lib/logger';
 import { safeStorage } from '@/lib/safe-storage';
@@ -159,8 +160,7 @@ async function sendNotificationAndPush(
   body: string,
 ) {
   try {
-    const { data, error } = await supabase.functions.invoke('fc-notify', {
-      body: {
+    const { data, error } = await invokeFcNotify({
         type: 'notify',
         target_role: role,
         target_id: residentId,
@@ -168,7 +168,6 @@ async function sendNotificationAndPush(
         body,
         category: 'app_event',
         url: '/dashboard',
-      },
     });
     if (error) throw error;
     if (!data?.ok) {

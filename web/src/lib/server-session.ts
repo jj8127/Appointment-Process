@@ -15,6 +15,8 @@ export type VerifiedServerSession = {
   role: ServerSessionRole;
   residentId: string;
   residentDigits: string;
+  displayName: string;
+  staffType: 'admin' | 'developer' | null;
 };
 
 type SessionCheckOptions = {
@@ -32,11 +34,12 @@ async function verifyRecord(
   role: ServerSessionRole,
   phoneCandidates: string[],
   requireActive: boolean,
+  expectedFcId: string | null,
 ) {
   if (role === 'admin') {
     let query = adminSupabase
       .from('admin_accounts')
-      .select('id,active')
+      .select('id,name,active,staff_type')
       .in('phone', phoneCandidates);
 
     if (requireActive) {
@@ -45,13 +48,17 @@ async function verifyRecord(
 
     const { data, error } = await query.maybeSingle();
     if (error) throw error;
-    return Boolean(data?.id);
+    if (!data?.id) return null;
+    return {
+      displayName: String(data.name ?? '').trim(),
+      staffType: data.staff_type === 'developer' ? 'developer' as const : 'admin' as const,
+    };
   }
 
   if (role === 'manager') {
     let query = adminSupabase
       .from('manager_accounts')
-      .select('id,active')
+      .select('id,name,active')
       .in('phone', phoneCandidates);
 
     if (requireActive) {
@@ -60,17 +67,33 @@ async function verifyRecord(
 
     const { data, error } = await query.maybeSingle();
     if (error) throw error;
-    return Boolean(data?.id);
+    if (!data?.id) return null;
+    return {
+      displayName: String(data.name ?? '').trim(),
+      staffType: null,
+    };
   }
 
-  const { data, error } = await adminSupabase
+  if (!expectedFcId) return null;
+
+  let query = adminSupabase
     .from('fc_profiles')
-    .select('id')
+    .select('id,name,signup_completed')
     .in('phone', phoneCandidates)
-    .maybeSingle();
+    .eq('id', expectedFcId);
+
+  if (requireActive) {
+    query = query.eq('signup_completed', true);
+  }
+
+  const { data, error } = await query.maybeSingle();
 
   if (error) throw error;
-  return Boolean(data?.id);
+  if (!data?.id) return null;
+  return {
+    displayName: String(data.name ?? '').trim(),
+    staffType: null,
+  };
 }
 
 export async function getVerifiedServerSession(options: SessionCheckOptions): Promise<SessionCheckResult> {
@@ -104,6 +127,7 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
   const phoneCandidates = buildPhoneCandidates(session.residentId, residentDigits);
 
   try {
+    let expectedFcId: string | null = null;
     if (session.role === 'fc') {
       const fcGraphSession = verifyFcGraphSessionValue(
         cookieStore.get(FC_GRAPH_SESSION_COOKIE)?.value,
@@ -112,6 +136,7 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
       if (!fcGraphSession) {
         return { ok: false, status: 401, error: 'Invalid FC graph session' };
       }
+      expectedFcId = fcGraphSession.fcId;
     } else {
       const staffSession = verifyStaffSessionValue(
         cookieStore.get(STAFF_SESSION_COOKIE)?.value,
@@ -125,13 +150,14 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
       }
     }
 
-    const verified = await verifyRecord(
+    const verifiedRecord = await verifyRecord(
       session.role,
       phoneCandidates,
       options.requireActive ?? true,
+      expectedFcId,
     );
 
-    if (!verified) {
+    if (!verifiedRecord) {
       return { ok: false, status: 403, error: 'Forbidden' };
     }
 
@@ -141,6 +167,8 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
         role: session.role,
         residentId: session.residentId,
         residentDigits,
+        displayName: verifiedRecord.displayName,
+        staffType: verifiedRecord.staffType,
       },
     };
   } catch (error: unknown) {

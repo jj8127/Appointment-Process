@@ -64,6 +64,13 @@ export type ExamNotifyPayload = {
   url: string;
 };
 
+export type ExamApplyNotificationPayloads = {
+  admin: ExamNotifyPayload;
+  fcSelf: ExamNotifyPayload;
+};
+
+export type ExamApplyNotificationTarget = keyof ExamApplyNotificationPayloads;
+
 export type ExamRoundFormState = {
   selectedRoundId: string | null;
   roundForm: {
@@ -196,7 +203,7 @@ export function buildExamApplyNotificationPayloads({
   residentId: string;
   examTitle: string;
   locationName?: string | null;
-}): { admin: ExamNotifyPayload; fcSelf: ExamNotifyPayload } {
+}): ExamApplyNotificationPayloads {
   const config = getExamFlowConfig(examType);
   const title = `${actor}님이 ${examTitle}을 신청하였습니다.`;
   const body = locationName
@@ -222,6 +229,30 @@ export function buildExamApplyNotificationPayloads({
       category: 'exam_apply',
       url: config.applyRoute,
     },
+  };
+}
+
+/**
+ * Exam registration has already been committed before this helper runs. Delivery
+ * failures are therefore reported as metadata and must never turn the saved
+ * application into a mutation failure that invites a duplicate retry.
+ */
+export async function sendExamApplyNotificationsBestEffort(
+  payloads: ExamApplyNotificationPayloads,
+  notify: (payload: ExamNotifyPayload) => Promise<void>,
+): Promise<{ failedTargets: ExamApplyNotificationTarget[] }> {
+  const entries = [
+    ['admin', payloads.admin],
+    ['fcSelf', payloads.fcSelf],
+  ] as const;
+  const results = await Promise.allSettled(
+    entries.map(([, payload]) => Promise.resolve().then(() => notify(payload))),
+  );
+
+  return {
+    failedTargets: results.flatMap((result, index) =>
+      result.status === 'rejected' ? [entries[index][0]] : [],
+    ),
   };
 }
 

@@ -1,3 +1,4 @@
+import { invokeFcNotify } from './fc-notify-client';
 import { logger } from './logger';
 import {
   fetchMobileUnreadNotificationCountWithDeps,
@@ -5,7 +6,6 @@ import {
 } from './mobile-unread-notification-count-plan';
 import { getNotificationCheckpoint } from './notification-checkpoint';
 import { rbGetNotificationUnreadCount } from './request-board-api';
-import { supabase } from './supabase';
 
 export async function fetchMobileUnreadNotificationCount({
   role,
@@ -18,7 +18,7 @@ export async function fetchMobileUnreadNotificationCount({
     requestBoardRole,
   }, {
     getNotificationCheckpoint,
-    invokeFcNotify: (body) => supabase.functions.invoke('fc-notify', { body }),
+    invokeFcNotify: (body) => invokeFcNotify(body),
     getRequestBoardUnreadCount: rbGetNotificationUnreadCount,
     warn: (message, err) => logger.warn(message, err),
   });

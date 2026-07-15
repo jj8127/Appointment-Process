@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 const root = join(__dirname, '..', '..');
 const chatPagePath = join(root, 'web', 'src', 'app', 'dashboard', 'chat', 'page.tsx');
+const legacyChatPagePath = join(root, 'web', 'src', 'app', 'chat', 'page.tsx');
 const chatListRoutePath = join(root, 'web', 'src', 'app', 'api', 'admin', 'chat-list', 'route.ts');
 const notificationBellPath = join(root, 'web', 'src', 'components', 'DashboardNotificationBell.tsx');
 const fcNotifyRoutePath = join(root, 'web', 'src', 'app', 'api', 'fc-notify', 'route.ts');
@@ -113,19 +114,41 @@ describe('admin web direct chat list source', () => {
     expect(notificationBell).toContain("isDeveloper ? fetchInbox('fc') : Promise.resolve(null)");
   });
 
-  it('does not send shared admin web push to developer browser subscriptions', () => {
+  it('keeps admin-targeted web push out of the browser FC notify proxy', () => {
     const fcNotifyRoute = readFileSync(fcNotifyRoutePath, 'utf8');
     const adminPushRoute = readFileSync(adminPushRoutePath, 'utf8');
 
-    expect(fcNotifyRoute).toContain('normalizeAdminNotificationTargetId');
-    expect(fcNotifyRoute).toContain('fetchSharedAdminResidentIds');
-    expect(fcNotifyRoute).toContain("account.staff_type !== 'developer'");
-    expect(fcNotifyRoute).toContain('fetchAdminWebPushSubscriptions(body.target_id)');
+    expect(fcNotifyRoute).toContain('buildBrowserFcNotifyPayload');
+    expect(fcNotifyRoute).toContain(".eq('role', 'fc')");
+    expect(fcNotifyRoute).not.toContain(".eq('role', 'admin')");
+    expect(fcNotifyRoute).not.toContain('fetchSharedAdminResidentIds');
+    expect(fcNotifyRoute).not.toContain('fetchAdminWebPushSubscriptions');
     expect(adminPushRoute).toContain('normalizeAdminNotificationTargetId');
     expect(adminPushRoute).toContain('fetchSharedAdminResidentIds');
     expect(adminPushRoute).toContain("account.staff_type !== 'developer'");
     expect(adminPushRoute).toContain("query = query.eq('resident_id', normalizedTargetId)");
     expect(adminPushRoute).toContain("query = query.in('resident_id', sharedAdminResidentIds)");
+  });
+
+  it('keeps Edge fc-notify as the single browser-message notification writer and derives sender identity server-side', () => {
+    const dashboardChat = readFileSync(chatPagePath, 'utf8');
+    const legacyChat = readFileSync(legacyChatPagePath, 'utf8');
+    const dashboardNotifyStart = dashboardChat.indexOf('async function sendFcMessageNotification');
+    const dashboardNotifyEnd = dashboardChat.indexOf('// --- Page Component', dashboardNotifyStart);
+    const dashboardNotifySource = dashboardChat.slice(dashboardNotifyStart, dashboardNotifyEnd);
+    const legacySendStart = legacyChat.indexOf('const sendMessageContent');
+    const legacySendEnd = legacyChat.indexOf('const sendMessage =', legacySendStart);
+    const legacySendSource = legacyChat.slice(legacySendStart, legacySendEnd);
+    const legacyProxyStart = legacySendSource.indexOf("fetch('/api/fc-notify'");
+    const legacyProxyEnd = legacySendSource.indexOf('const data =', legacyProxyStart);
+    const legacyProxySource = legacySendSource.slice(legacyProxyStart, legacyProxyEnd);
+
+    expect(dashboardNotifySource).not.toContain("from('notifications').insert");
+    expect(dashboardNotifySource).not.toContain('sender_id:');
+    expect(dashboardNotifySource).not.toContain('sender_name:');
+    expect(legacySendSource).not.toContain("from('notifications').insert");
+    expect(legacyProxySource).not.toContain('sender_id:');
+    expect(legacyProxySource).not.toContain('sender_name:');
   });
 
   it('keeps Edge notification inbox and mobile push fanout separated by shared admin vs personal admin targets', () => {

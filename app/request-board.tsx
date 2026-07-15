@@ -26,6 +26,7 @@ import { useAppLogout } from '@/hooks/use-app-logout';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
@@ -47,7 +48,6 @@ import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-polic
 import { normalizeDesignerRejectReason } from '@/lib/request-board-review-actions';
 import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { getRequestBoardWebBaseUrl } from '@/lib/request-board-url';
-import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
@@ -308,14 +308,16 @@ export default function RequestBoardScreen() {
       // Notifications from fc-notify
       (async () => {
         try {
-          const { data, error } = await supabase.functions.invoke('fc-notify', {
-            body: {
+          const { data, error } = await invokeFcNotify<{
+            ok?: boolean;
+            message?: string;
+            notifications?: NotificationItem[];
+          }>({
               type: 'inbox_list',
               role: inboxRole,
               resident_id: notificationInboxResidentId,
               limit: 100,
               include_request_board_fc: includeRequestBoardFcInbox,
-            },
           });
           if (error) throw error;
           if (!data?.ok) throw new Error(data?.message ?? '데이터 로드 실패');

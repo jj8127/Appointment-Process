@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import {
   buildExamRoundLocationRows,
   hasExamRoundLocationsForSave,
@@ -46,9 +47,7 @@ const examFlowType = 'life' as const;
 const examFlowConfig = getExamFlowConfig(examFlowType);
 
 async function notifyExamFlow(payload: ExamNotifyPayload) {
-  const { data, error } = await supabase.functions.invoke('fc-notify', {
-    body: payload,
-  });
+  const { data, error } = await invokeFcNotify(payload);
   if (error) throw error;
   if (!data?.ok) {
     throw new Error(data?.message ?? '알림 전송 실패');

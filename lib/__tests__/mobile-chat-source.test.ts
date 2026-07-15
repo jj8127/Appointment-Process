@@ -30,8 +30,9 @@ describe('mobile direct chat source', () => {
 
     expect(sendSource).toContain('const optimisticMessage = createOptimisticMessage');
     expect(sendSource).toContain('applyMessages([optimisticMessage, ...messagesRef.current])');
-    expect(sendSource).toContain("void supabase.functions.invoke('fc-notify'");
-    expect(sendSource).not.toContain('await supabase.functions.invoke');
+    expect(sendSource).toContain('void invokeFcNotify({');
+    expect(sendSource).not.toContain("supabase.functions.invoke('fc-notify'");
+    expect(sendSource).not.toContain('await invokeFcNotify');
   });
 
   it('shows KakaoTalk-style unread recipient counts on sent direct messages', () => {

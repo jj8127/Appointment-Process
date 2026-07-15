@@ -26,6 +26,7 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useSession } from '@/hooks/use-session';
 import { canUseFcExamApply } from '@/lib/exam-role';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import {
   formatMissingExamApplicationFields,
   getMissingExamApplicationFields,
@@ -38,6 +39,7 @@ import {
   getExamFlowConfig,
   getExamRoundSelectionState,
   isLocationInRound,
+  sendExamApplyNotificationsBestEffort,
   type ExamNotifyPayload,
 } from '@/lib/exam-flow-contract';
 import { LIFE_EXAM_FEE_ROWS } from '@/lib/exam-fees';
@@ -83,9 +85,7 @@ const CARD_SHADOW = {
 };
 
 async function notifyExamFlow(payload: ExamNotifyPayload) {
-  const { data, error } = await supabase.functions.invoke('fc-notify', {
-    body: payload,
-  });
+  const { data, error } = await invokeFcNotify(payload);
   if (error) throw error;
   if (!data?.ok) {
     throw new Error(data?.message ?? '알림 전송 실패');
@@ -438,8 +438,16 @@ export default function ExamApplyScreen() {
         locationName: locName,
       });
 
-      await notifyExamFlow(notificationPayloads.admin);
-      await notifyExamFlow(notificationPayloads.fcSelf);
+      const { failedTargets } = await sendExamApplyNotificationsBestEffort(
+        notificationPayloads,
+        notifyExamFlow,
+      );
+      if (failedTargets.length > 0) {
+        logger.warn('[exam-apply] registration saved but notification delivery was incomplete', {
+          examType: examFlowType,
+          failedTargets,
+        });
+      }
     },
     onSuccess: () => {
       Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');

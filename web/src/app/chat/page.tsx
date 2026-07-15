@@ -25,7 +25,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import { buildAdminDashboardChatUrl } from '@/lib/admin-chat-url';
 import { logger } from '@/lib/logger';
-import { getWebStaffChatActorId, getWebStaffSenderName } from '@/lib/staff-identity';
+import { getWebStaffChatActorId } from '@/lib/staff-identity';
 type Message = {
   id: string;
   content: string;
@@ -49,7 +49,7 @@ const CHARCOAL = '#111827';
 const sanitize = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
 
 function ChatContent() {
-  const { role, residentId, hydrated, staffType, displayName } = useSession();
+  const { role, residentId, hydrated, staffType } = useSession();
   const params = useSearchParams();
   const router = useRouter();
 
@@ -73,10 +73,6 @@ function ChatContent() {
       return targetNameParam || (otherId === 'admin' ? '총무팀' : otherId || '메신저');
     },
     [otherId, role, targetNameParam],
-  );
-  const senderName = useMemo(
-    () => getWebStaffSenderName({ role, residentId, staffType, displayName }),
-    [displayName, residentId, role, staffType],
   );
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -253,22 +249,6 @@ function ChatContent() {
       const residentIdForPush = isReceiverAdmin ? null : otherId;
       const notiBody = content;
 
-      const { error: notifErr } = await supabase.from('notifications').insert({
-        title: '새 메시지',
-        body: notiBody,
-        category: 'message',
-        target_url: recipientRole === 'admin' ? `/chat?targetId=${myId}&targetName=FC` : '/chat',
-        recipient_role: recipientRole,
-        resident_id: residentIdForPush,
-      });
-      if (notifErr) {
-        upsertLocalMessage({
-          ...inserted,
-          sendStatus: 'sent',
-          errorMessage: `[알림 기록 실패] ${notifErr.message}`,
-        });
-      }
-
       try {
         const resp = await fetch('/api/fc-notify', {
           method: 'POST',
@@ -278,8 +258,6 @@ function ChatContent() {
             target_role: recipientRole,
             target_id: residentIdForPush,
             message: notiBody,
-            sender_id: myId,
-            sender_name: senderName,
           }),
         });
         const data = await resp.json().catch(() => null);

@@ -46,7 +46,7 @@ import {
     formatUnreadReceiptCount,
     getDirectMessageUnreadCount,
 } from '@/lib/message-read-receipts';
-import { getWebStaffChatActorId, getWebStaffSenderName } from '@/lib/staff-identity';
+import { getWebStaffChatActorId } from '@/lib/staff-identity';
 
 import { logger } from '@/lib/logger';
 // --- Constants ---
@@ -79,8 +79,6 @@ type Message = {
 type SendFcMessageNotificationInput = {
     fcPhone: string;
     body: string;
-    myChatId: string;
-    senderName: string;
 };
 
 const sortMessagesByCreatedAt = (rows: Message[]) =>
@@ -168,34 +166,7 @@ function updateMessageRows(rows: Message[], incoming: Message) {
 async function sendFcMessageNotification({
     fcPhone,
     body,
-    myChatId,
-    senderName,
 }: SendFcMessageNotificationInput) {
-    const notificationBase = {
-        title: '상담 답변 알림',
-        body,
-        recipient_role: 'fc' as const,
-        resident_id: fcPhone,
-        category: 'message',
-    };
-
-    let { error: notifErr } = await supabase.from('notifications').insert({
-        ...notificationBase,
-        target_url: '/chat',
-    });
-
-    const missingTargetColumn =
-        notifErr?.code === '42703' || String(notifErr?.message ?? '').includes('target_url');
-    if (missingTargetColumn) {
-        const fallback = await supabase.from('notifications').insert(notificationBase);
-        notifErr = fallback.error ?? null;
-    }
-    if (notifErr) {
-        logger.warn('[chat][admin->fc] notifications insert error', notifErr.message);
-    } else {
-        logger.debug('[chat][admin->fc] notifications insert ok', { resident_id: fcPhone, body });
-    }
-
     try {
         const resp = await fetch('/api/fc-notify', {
             method: 'POST',
@@ -205,8 +176,6 @@ async function sendFcMessageNotification({
                 target_role: 'fc',
                 target_id: fcPhone,
                 message: body,
-                sender_id: myChatId,
-                sender_name: senderName,
             }),
         });
         const data = await resp.json().catch(() => null);
@@ -536,14 +505,10 @@ function ChatRoom({
     presence: WebPresenceSnapshot | null;
     onConversationUpdated?: () => void;
 }) {
-    const { isReadOnly, role, residentId, staffType, displayName } = useSession();
+    const { isReadOnly, role, residentId, staffType } = useSession();
     const myChatId = useMemo(
         () => getWebStaffChatActorId({ role, residentId, staffType }),
         [residentId, role, staffType],
-    );
-    const senderName = useMemo(
-        () => getWebStaffSenderName({ role, residentId, staffType, displayName }),
-        [displayName, residentId, role, staffType],
     );
     const [messages, setMessages] = useState<Message[]>([]);
     const [inputText, setInputText] = useState('');
@@ -755,8 +720,6 @@ function ChatRoom({
             void sendFcMessageNotification({
                 fcPhone: fc.phone,
                 body: notifBody,
-                myChatId,
-                senderName,
             });
         } catch (err: unknown) {
             messagesRef.current = messagesRef.current.filter((message) => message.id !== optimisticId);
