@@ -1,3 +1,5 @@
+/// <reference lib="deno.ns" />
+
 const PLAY_STORE_URL =
   'https://play.google.com/store/apps/details?id=com.jj8127.Garam_in';
 const IOS_STORE_URL =
@@ -66,7 +68,7 @@ ${deeplink ? `<a class="btn p" href="${deeplink}" id="appBtn"></a>` : ''}
 </html>`;
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve((req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,

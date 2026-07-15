@@ -174,7 +174,7 @@ serve(async (req: Request) => {
   }
 
   const sessionResult = await requireAppSessionFromRequest(req);
-  if (!sessionResult.ok) {
+  if (sessionResult.ok === false) {
     return fail(sessionResult.code, sessionResult.message);
   }
 

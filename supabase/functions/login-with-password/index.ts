@@ -143,7 +143,7 @@ async function autoIssueReferralCodeOnLogin(params: {
     reason: params.reason ?? 'auto_issue_on_login',
   });
 
-  if (!result.ok) {
+  if (result.ok === false) {
     console.warn(
       '[login-with-password] referral code auto-issue failed',
       JSON.stringify({
@@ -359,7 +359,7 @@ serve(async (req: Request) => {
     });
 
     const shadowResult = await ensureManagerReferralShadowProfile(supabase, manager.phone, manager.name);
-    if (!shadowResult.ok) {
+    if (shadowResult.ok === false) {
       console.warn(
         '[login-with-password] manager referral shadow ensure failed',
         JSON.stringify({ phone: manager.phone, message: shadowResult.message }),

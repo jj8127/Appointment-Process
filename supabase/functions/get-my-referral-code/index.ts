@@ -111,7 +111,7 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     : await profileQuery.eq('phone', sessionPhone).maybeSingle();
   if (!profileResult.data?.id && managerAccount) {
     const ensureResult = await ensureManagerReferralShadowProfile(supabase, sessionPhone, managerAccount.name);
-    if (!ensureResult.ok) {
+    if (ensureResult.ok === false) {
       return json({ ok: false, code: 'db_error', message: ensureResult.message }, 500);
     }
 
@@ -162,7 +162,7 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
       reason: 'auto_issue_on_self_service_lookup',
     });
 
-    if (!ensureResult.ok) {
+    if (ensureResult.ok === false) {
       return json({ ok: false, code: 'db_error', message: ensureResult.message }, 500);
     }
 
@@ -189,7 +189,7 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     : null;
 
   let recommenderAffiliation: string | null = null;
-  let recommenderCode: string | null =
+  const recommenderCode: string | null =
     typeof profile.recommender_code === 'string' && profile.recommender_code.trim()
       ? profile.recommender_code.trim()
       : null;
@@ -228,7 +228,7 @@ serve(async (req: Request) => {
 
   // Verify session token from Authorization header
   const sessionResult = await requireAppSessionFromRequest(req);
-  if (!sessionResult.ok) {
+  if (sessionResult.ok === false) {
     return fail(sessionResult.code, sessionResult.message);
   }
 

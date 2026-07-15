@@ -91,7 +91,7 @@ async function resolveSession(session: SessionPayload) {
 
   if (!profileResult.data?.id && managerAccount) {
     const ensureResult = await ensureManagerReferralShadowProfile(supabase, sessionPhone, managerAccount.name);
-    if (!ensureResult.ok) {
+    if (ensureResult.ok === false) {
       return { error: json({ ok: false, code: 'db_error', message: ensureResult.message }, 500) };
     }
 
@@ -128,7 +128,7 @@ serve(async (req: Request) => {
   if (req.method !== 'POST') return fail('method_not_allowed', 'Method not allowed', 405);
 
   const sessionResult = await requireAppSessionFromRequest(req);
-  if (!sessionResult.ok) return fail(sessionResult.code, sessionResult.message);
+  if (sessionResult.ok === false) return fail(sessionResult.code, sessionResult.message);
 
   let code = '';
   try {
@@ -203,7 +203,7 @@ serve(async (req: Request) => {
     reason: 'referral_self_service',
   });
 
-  if (!applyResult.ok) {
+  if (applyResult.ok === false) {
     return json({ ok: false, code: 'db_error', message: applyResult.message }, 500);
   }
 

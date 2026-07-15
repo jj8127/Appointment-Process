@@ -42,6 +42,146 @@ type FcCredentialRow = {
   reset_sent_at?: string | null;
 };
 
+type DecodedRow<T> =
+  | { ok: true; value: T | null }
+  | { ok: false; error: Error };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return typeof value === 'string' || value === null;
+}
+
+function isOptionalNullableString(value: unknown): value is string | null | undefined {
+  return value === undefined || isNullableString(value);
+}
+
+function isNullableBoolean(value: unknown): value is boolean | null {
+  return typeof value === 'boolean' || value === null;
+}
+
+function isOptionalNullableBoolean(value: unknown): value is boolean | null | undefined {
+  return value === undefined || isNullableBoolean(value);
+}
+
+function invalidRow(table: string): DecodedRow<never> {
+  return { ok: false, error: new Error(`Invalid ${table} row returned by Supabase`) };
+}
+
+function decodeAdminAccountRow(value: unknown): DecodedRow<AdminAccountRow> {
+  if (value === null) return { ok: true, value: null };
+  if (
+    !isRecord(value)
+    || typeof value.id !== 'string'
+    || !isNullableString(value.name)
+    || typeof value.phone !== 'string'
+    || !isNullableBoolean(value.active)
+    || !isOptionalNullableString(value.staff_type)
+    || !isOptionalNullableString(value.password_set_at)
+    || !isOptionalNullableString(value.reset_token_hash)
+    || !isOptionalNullableString(value.reset_token_expires_at)
+    || !isOptionalNullableString(value.reset_sent_at)
+  ) {
+    return invalidRow('admin_accounts');
+  }
+
+  return {
+    ok: true,
+    value: {
+      id: value.id,
+      name: value.name,
+      phone: value.phone,
+      active: value.active,
+      staff_type: value.staff_type,
+      password_set_at: value.password_set_at,
+      reset_token_hash: value.reset_token_hash,
+      reset_token_expires_at: value.reset_token_expires_at,
+      reset_sent_at: value.reset_sent_at,
+    },
+  };
+}
+
+function decodeManagerAccountRow(value: unknown): DecodedRow<ManagerAccountRow> {
+  if (value === null) return { ok: true, value: null };
+  if (
+    !isRecord(value)
+    || typeof value.id !== 'string'
+    || !isNullableString(value.name)
+    || typeof value.phone !== 'string'
+    || !isNullableBoolean(value.active)
+    || !isOptionalNullableString(value.password_set_at)
+    || !isOptionalNullableString(value.reset_token_hash)
+    || !isOptionalNullableString(value.reset_token_expires_at)
+    || !isOptionalNullableString(value.reset_sent_at)
+  ) {
+    return invalidRow('manager_accounts');
+  }
+
+  return {
+    ok: true,
+    value: {
+      id: value.id,
+      name: value.name,
+      phone: value.phone,
+      active: value.active,
+      password_set_at: value.password_set_at,
+      reset_token_hash: value.reset_token_hash,
+      reset_token_expires_at: value.reset_token_expires_at,
+      reset_sent_at: value.reset_sent_at,
+    },
+  };
+}
+
+function decodeFcProfileRow(value: unknown): DecodedRow<FcProfileRow> {
+  if (value === null) return { ok: true, value: null };
+  if (
+    !isRecord(value)
+    || typeof value.id !== 'string'
+    || !isNullableString(value.name)
+    || typeof value.phone !== 'string'
+    || !isOptionalNullableString(value.affiliation)
+    || !isOptionalNullableBoolean(value.signup_completed)
+  ) {
+    return invalidRow('fc_profiles');
+  }
+
+  return {
+    ok: true,
+    value: {
+      id: value.id,
+      name: value.name,
+      phone: value.phone,
+      affiliation: value.affiliation,
+      signup_completed: value.signup_completed,
+    },
+  };
+}
+
+function decodeFcCredentialRow(value: unknown): DecodedRow<FcCredentialRow> {
+  if (value === null) return { ok: true, value: null };
+  if (
+    !isRecord(value)
+    || !isOptionalNullableString(value.password_set_at)
+    || !isOptionalNullableString(value.reset_token_hash)
+    || !isOptionalNullableString(value.reset_token_expires_at)
+    || !isOptionalNullableString(value.reset_sent_at)
+  ) {
+    return invalidRow('fc_credentials');
+  }
+
+  return {
+    ok: true,
+    value: {
+      password_set_at: value.password_set_at,
+      reset_token_hash: value.reset_token_hash,
+      reset_token_expires_at: value.reset_token_expires_at,
+      reset_sent_at: value.reset_sent_at,
+    },
+  };
+}
+
 export type PasswordResetAccountKind = 'admin' | 'manager' | 'fc';
 
 export type PasswordResetAccount = {
@@ -97,11 +237,16 @@ export async function findPasswordResetAccount(
     .select(ADMIN_RESET_SELECT)
     .eq('phone', phone)
     .maybeSingle();
-  const admin = rawAdmin as AdminAccountRow | null;
 
   if (adminError) {
     return { account: null, error: adminError };
   }
+
+  const decodedAdmin = decodeAdminAccountRow(rawAdmin);
+  if (decodedAdmin.ok === false) {
+    return { account: null, error: decodedAdmin.error };
+  }
+  const admin = decodedAdmin.value;
 
   if (admin?.id) {
     return {
@@ -128,11 +273,16 @@ export async function findPasswordResetAccount(
     .select(MANAGER_RESET_SELECT)
     .eq('phone', phone)
     .maybeSingle();
-  const manager = rawManager as ManagerAccountRow | null;
 
   if (managerError) {
     return { account: null, error: managerError };
   }
+
+  const decodedManager = decodeManagerAccountRow(rawManager);
+  if (decodedManager.ok === false) {
+    return { account: null, error: decodedManager.error };
+  }
+  const manager = decodedManager.value;
 
   if (manager?.id) {
     return {
@@ -159,11 +309,16 @@ export async function findPasswordResetAccount(
     .select(FC_PROFILE_RESET_SELECT)
     .eq('phone', phone)
     .maybeSingle();
-  const profile = rawProfile as FcProfileRow | null;
 
   if (profileError) {
     return { account: null, error: profileError };
   }
+
+  const decodedProfile = decodeFcProfileRow(rawProfile);
+  if (decodedProfile.ok === false) {
+    return { account: null, error: decodedProfile.error };
+  }
+  const profile = decodedProfile.value;
 
   if (!profile?.id) {
     return { account: null, error: null };
@@ -174,11 +329,16 @@ export async function findPasswordResetAccount(
     .select(FC_CREDENTIAL_RESET_SELECT)
     .eq('fc_id', profile.id)
     .maybeSingle();
-  const creds = rawCreds as FcCredentialRow | null;
 
   if (credsError) {
     return { account: null, error: credsError };
   }
+
+  const decodedCreds = decodeFcCredentialRow(rawCreds);
+  if (decodedCreds.ok === false) {
+    return { account: null, error: decodedCreds.error };
+  }
+  const creds = decodedCreds.value;
 
   return {
     account: {

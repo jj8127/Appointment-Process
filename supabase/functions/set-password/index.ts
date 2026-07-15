@@ -7,6 +7,7 @@ import {
   type CommissionCompletionStatus,
 } from '../_shared/commission.ts';
 import { applyReferralLinkState } from '../_shared/referral-link.ts';
+import { getEnv } from '../_shared/request-board-auth.ts';
 import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
 
 type Payload = {
@@ -38,13 +39,6 @@ type ReferralResolutionResult = {
   resolvedReferral: ResolvedReferralDetails | null;
   rejectionReason: string | null;
 };
-
-function getEnv(name: string): string | undefined {
-  const g: any = globalThis as any;
-  if (g?.Deno?.env?.get) return g.Deno.env.get(name);
-  if (g?.process?.env) return g.process.env[name];
-  return undefined;
-}
 
 // Security: Restrict CORS to specific origins
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
@@ -576,7 +570,7 @@ serve(async (req: Request) => {
       reason: 'set_password_signup',
     });
 
-    if (!applyResult.ok) {
+    if (applyResult.ok === false) {
       console.warn('[set-password] applyReferralLinkState failed', applyResult.message);
       return json(
         {
