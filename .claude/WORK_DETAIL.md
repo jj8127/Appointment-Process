@@ -11831,3 +11831,24 @@
 
 **Safety**:
 - No commit, push, deploy, environment, database, migration, credential, production account, or live Sentry mutation was performed in this pass.
+
+---
+
+## <a id="20260716-full-typescript-gates"></a> 2026-07-16 | Full web and Edge Function TypeScript gates
+
+**Scope**: all tracked Supabase Edge Function entrypoints and the admin web no-emit TypeScript gate.
+
+**Changes**:
+- Replaced unsafe password-reset row assertions with fail-closed runtime decoders.
+- Used explicit literal failure checks for result unions while preserving signed-session, bridge-token, actor, and referral authorization branches.
+- Enabled explicit `.ts` imports only under the existing web `noEmit` contract, completed the local `d3-force` declaration, and narrowed test/helper input types to fields actually read at runtime.
+
+**Verification**:
+- Passed full `deno check --frozen --config supabase/functions/deno.json` for 46/46 tracked entrypoints with zero diagnostics.
+- Passed board loopback smoke suites 6/6 and 5/5, related Jest tests, password-sync tests, and Node/ops suites.
+- Passed web `npx tsc --noEmit --pretty false`, lint, Sentry-disabled production build, 26 focused tests, and the full web Node suite with 228 passed, 0 failed, and 1 existing remote-data skip.
+- Independent evaluators found no test exclusion, compiler weakening, unsafe cast, authentication bypass, package change, or protected-navigation-file mutation in either contract.
+
+**Safety**:
+- No push, PR, deployment, remote Supabase change, migration, secret change, or Sentry upload was performed.
+- Release posture remains `HOLD` while external authenticated E2E and remaining release blockers are unresolved.

@@ -532,3 +532,10 @@
 - Reconciled handbook ownership and contract evidence for the new board actor/list policies, FC notification authentication policy, atomic board/exam RPCs, mobile request-board bridge, and privileged admin actions.
 - Browser QA covered local `/auth` and public `/account-deletion`; authenticated flows and accepted screenshots remain limited as documented in the workspace harness.
 - Final evidence-only merge produced 262 canonical candidates from 1,968 provenance sources, including 42 genuine-new candidates; mapping and structural error counts are zero and the terminal marker is correctly absent.
+
+## 2026-07-16 full TypeScript gate repair
+
+- Closed all 27 errors across the 46 tracked Edge Function entrypoints without relaxing Deno configuration, signed-session checks, or actor boundaries.
+- Closed the admin web TypeScript gate without excluding tests or weakening strictness; lint, production build, and 238 local web tests passed, with one existing remote-data test still intentionally skipped.
+- Added fail-closed runtime decoding for password-reset database rows and recorded the full-gate guardrails in `.claude/MISTAKES.md`.
+- See [details](WORK_DETAIL.md#20260716-full-typescript-gates).

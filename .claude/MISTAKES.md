@@ -3712,3 +3712,18 @@
 - Verification:
   - `git check-ignore --no-index -q -- .vscode/mcp.json`
   - Confirm the path is absent from the candidate tree without opening or diffing its contents.
+
+## 2026-07-16 | Narrow Type Checks Hid Full-Gate Failures | local suites passed while repository-wide TypeScript gates stayed red
+- Symptom:
+  - The web and Edge Function focused tests passed, but the full web TypeScript check and all-function Deno check still reported errors.
+- Root cause:
+  - Test-only `.ts` imports were not enabled for the web no-emit check, a local `d3-force` declaration was incomplete, and several Edge Function result unions were accessed without an explicit failure discriminant.
+  - A password-reset database row was asserted into an application type instead of being decoded at the runtime boundary.
+- Permanent guardrail:
+  - Run web source-inspection tests from the FC repository root because their fixture paths intentionally resolve from `process.cwd()`.
+  - Keep `allowImportingTsExtensions` paired with the web `noEmit` contract; do not exclude tests to make TypeScript green.
+  - Narrow result unions with an explicit literal failure check and decode unknown database rows before use; do not use casts, `any`, `@ts-ignore`, or relaxed compiler settings to silence a full-entrypoint error.
+- Verification:
+  - `cd web && npx tsc --noEmit --pretty false`
+  - Run all 46 tracked `supabase/functions/*/index.ts` entrypoints through `deno check --frozen --config supabase/functions/deno.json`.
+  - Run web Node source-inspection tests from the repository root.
