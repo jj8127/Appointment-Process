@@ -58,6 +58,7 @@ credentials/
 # local codex/mcp settings
 .codex/
 .codex-tmp/
+/.vscode/mcp.json
 .claude/settings.local.json
 .idea/
 

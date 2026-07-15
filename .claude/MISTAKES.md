@@ -3699,3 +3699,16 @@
   - `docs/handbook/shared/cross-repo-bridge-contract.md`
 - Verification:
   - `npm test -- --runInBand supabase/functions/_shared/__tests__/request-board-auth.test.ts`
+
+## 2026-07-16 | Local MCP Configuration Was Tracked | local credentials entered repository history
+- Symptom:
+  - A machine-local MCP configuration path was present in the tracked tree and reachable history.
+- Root cause:
+  - The repository ignored other local tool settings but did not ignore the VS Code MCP configuration path.
+- Permanent guardrail:
+  - Keep local MCP configuration in environment variables or an approved secure store; never commit the machine-local file.
+  - Never copy credential values into examples, logs, screenshots, test fixtures, receipts, or assistant knowledge.
+  - Verify the exact local path is ignored before configuring an MCP integration.
+- Verification:
+  - `git check-ignore --no-index -q -- .vscode/mcp.json`
+  - Confirm the path is absent from the candidate tree without opening or diffing its contents.
