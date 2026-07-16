@@ -87,16 +87,24 @@ async function sendBoardPush(targetRole: BoardPushTargetRole, title: string, bod
     try {
       const parsed = raw ? JSON.parse(raw) as { ok?: boolean; message?: string } : null;
       if (parsed?.ok === false) {
-        console.warn('[board-create] push fanout returned not ok', {
-          targetRole,
-          message: parsed.message ?? 'unknown',
+        reportEdgeDiagnostic({
+          event: 'board_create.push_fanout',
+          reason: 'upstream_rejected',
+          status: response.status,
+          retryable: false,
+          errorClass: 'upstream',
         });
       }
     } catch {
       // Ignore non-JSON success bodies; transport success is enough for best-effort push.
     }
-  } catch (error) {
-    console.warn('[board-create] push fanout network error', { targetRole, error });
+  } catch {
+    reportEdgeDiagnostic({
+      event: 'board_create.push_fanout',
+      reason: 'request_failed',
+      retryable: true,
+      errorClass: 'network',
+    });
   }
 }
 
@@ -197,7 +205,11 @@ serve(async (req: Request) => {
 
   const notificationError = await insertNotificationsWithFallback(notificationRows);
   if (notificationError) {
-    console.warn('[board-create] notifications insert failed', notificationError.message);
+    reportEdgeDiagnostic({
+      event: 'board_create.notification_insert',
+      reason: 'insert_failed',
+      errorClass: 'database',
+    });
   }
 
   await Promise.all([

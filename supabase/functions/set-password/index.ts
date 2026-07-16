@@ -210,7 +210,11 @@ async function resolveReferralDetails(params: {
       .maybeSingle();
 
     if (codeError) {
-      console.warn('[set-password] resolveReferralDetails: referral code lookup error', codeError.message);
+      reportEdgeDiagnostic({
+        event: 'set_password.referral_resolution',
+        reason: 'code_lookup_failed',
+        errorClass: 'database',
+      });
       return { resolvedReferral: null, rejectionReason: 'code_lookup_failed' };
     }
     if (!referralCodeRow) {
@@ -234,7 +238,11 @@ async function resolveReferralDetails(params: {
       .maybeSingle();
 
     if (inviterError) {
-      console.warn('[set-password] resolveReferralDetails: inviter profile lookup error', inviterError.message);
+      reportEdgeDiagnostic({
+        event: 'set_password.referral_resolution',
+        reason: 'inviter_profile_lookup_failed',
+        errorClass: 'database',
+      });
       return { resolvedReferral: null, rejectionReason: 'inviter_profile_lookup_failed' };
     }
     if (!inviterProfile?.phone) {
@@ -275,8 +283,11 @@ async function resolveReferralDetails(params: {
       },
       rejectionReason: null,
     };
-  } catch (err) {
-    console.warn('[set-password] resolveReferralDetails: unexpected error', err instanceof Error ? err.message : String(err));
+  } catch {
+    reportEdgeDiagnostic({
+      event: 'set_password.referral_resolution',
+      reason: 'unexpected_error',
+    });
     return { resolvedReferral: null, rejectionReason: 'unexpected_resolution_error' };
   }
 }
@@ -313,7 +324,11 @@ async function insertReferralEvent(params: {
     });
 
   if (error) {
-    console.warn(`[set-password] ${params.logLabel}: event insert error`, error.message);
+    reportEdgeDiagnostic({
+      event: 'set_password.referral_event',
+      reason: 'insert_failed',
+      errorClass: 'database',
+    });
   }
 }
 
@@ -571,7 +586,11 @@ serve(async (req: Request) => {
     });
 
     if (applyResult.ok === false) {
-      console.warn('[set-password] applyReferralLinkState failed', applyResult.message);
+      reportEdgeDiagnostic({
+        event: 'set_password.referral_link',
+        reason: 'apply_failed',
+        errorClass: 'database',
+      });
       return json(
         {
           ok: false,

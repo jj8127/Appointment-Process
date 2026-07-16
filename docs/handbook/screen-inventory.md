@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-SCREEN-INVENTORY
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer, operator
-last_verified: 2026-03-28
+last_verified: 2026-07-16
 source_of_truth: app/* + web/src/app/*
 
 # 화면 인벤토리
@@ -23,6 +23,7 @@ source_of_truth: app/* + web/src/app/*
 - 추천인: `/dashboard/referrals`
 - 메신저/채팅: `/dashboard/messenger`, `/dashboard/chat`
 - 운영 보조: `/dashboard/settings`, `/dashboard/profile`, `/auth`
+- `/dashboard/settings` account-deletion failures retain the existing user notification but emit only a fixed message through the sanitized web logger; raw exceptions never reach a direct console sink.
 
 ## 우선 문서화 화면군
 

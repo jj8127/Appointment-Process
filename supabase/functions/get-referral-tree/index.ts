@@ -5,6 +5,7 @@ import {
   requireAppSessionFromRequest,
   type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
 const corsHeaders = {
@@ -418,10 +419,12 @@ async function loadTreeRows(rootFcId: string, depth: number) {
   try {
     const rows = await buildFallbackTreeRows(rootFcId, depth);
     return { rows };
-  } catch (fallbackError) {
-    console.error('[get-referral-tree] rpc and fallback both failed', {
-      rpcError: error.message,
-      fallbackError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+  } catch {
+    reportEdgeDiagnostic({
+      event: 'referral_tree.load',
+      reason: 'rpc_and_fallback_failed',
+      retryable: true,
+      errorClass: 'database',
     });
     return { error };
   }

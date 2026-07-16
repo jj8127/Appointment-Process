@@ -10,6 +10,7 @@ import {
   supabase,
 } from '../_shared/board.ts';
 import { isBoardPostWritableByActor } from '../_shared/board-actor-policy.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 
 type FileInput = {
   fileName: string;
@@ -113,7 +114,11 @@ serve(async (req: Request) => {
       .from('board-attachments')
       .createSignedUploadUrl(storagePath);
     if (error || !data?.signedUrl) {
-      console.error('[storage_error]', error?.message);
+      reportEdgeDiagnostic({
+        event: 'board_attachment.storage',
+        reason: 'signed_upload_url_failed',
+        errorClass: 'upstream',
+      });
       return json({ ok: false, code: 'storage_error', message: '파일 업로드 URL 생성에 실패했습니다.' }, 500, origin);
     }
     results.push({ storagePath, signedUrl: data.signedUrl });

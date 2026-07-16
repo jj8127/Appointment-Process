@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import { getEnv, parseAppSessionToken } from '../_shared/request-board-auth.ts';
 
 type PresenceAction = 'heartbeat' | 'offline' | 'read';
@@ -164,8 +165,13 @@ async function getPresenceSnapshots(phones: string[]) {
       throw error;
     }
     return mergePresenceSnapshots(normalizedPhones, (data ?? []) as PresenceSnapshot[]);
-  } catch (error) {
-    console.warn('[user-presence] get_user_presence rpc failed; falling back to table read', error);
+  } catch {
+    reportEdgeDiagnostic({
+      event: 'user_presence.rpc_fallback',
+      reason: 'get_failed',
+      retryable: true,
+      errorClass: 'database',
+    });
 
     const { data, error: tableError } = await supabase
       .from('user_presence')
@@ -196,8 +202,13 @@ async function touchPresence(phone: string) {
 
     const snapshot = Array.isArray(data) ? data[0] ?? null : null;
     return snapshot as PresenceSnapshot | null;
-  } catch (error) {
-    console.warn('[user-presence] touch_user_presence rpc failed; falling back to table write', error);
+  } catch {
+    reportEdgeDiagnostic({
+      event: 'user_presence.rpc_fallback',
+      reason: 'touch_failed',
+      retryable: true,
+      errorClass: 'database',
+    });
 
     const touchedAt = new Date().toISOString();
     const { data: updatedRow, error: updateError } = await supabase
@@ -251,8 +262,13 @@ async function stalePresence(phone: string, expectedAt: string | null) {
 
     const snapshot = Array.isArray(data) ? data[0] ?? null : null;
     return snapshot as PresenceMutationSnapshot | null;
-  } catch (error) {
-    console.warn('[user-presence] stale_user_presence rpc failed; falling back to table write', error);
+  } catch {
+    reportEdgeDiagnostic({
+      event: 'user_presence.rpc_fallback',
+      reason: 'stale_failed',
+      retryable: true,
+      errorClass: 'database',
+    });
 
     const currentRow = await getPresenceTableRow(phone);
     if (!currentRow) {

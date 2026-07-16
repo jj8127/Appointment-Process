@@ -364,7 +364,11 @@ serve(async (req: Request) => {
     if (docPaths.length > 0) {
       const { error: storageError } = await supabase.storage.from('fc-documents').remove(docPaths);
       if (storageError) {
-        console.warn('[delete-account] fc-documents storage remove failed', storageError.message ?? storageError);
+        reportEdgeDiagnostic({
+          event: 'delete_account.storage_cleanup',
+          reason: 'fc_documents_remove_failed',
+          errorClass: 'upstream',
+        });
       }
     }
   }
@@ -389,10 +393,11 @@ serve(async (req: Request) => {
         .from('board-attachments')
         .remove(boardAttachmentPaths);
       if (boardStorageError) {
-        console.warn(
-          '[delete-account] board-attachments storage remove failed',
-          boardStorageError.message ?? boardStorageError,
-        );
+        reportEdgeDiagnostic({
+          event: 'delete_account.storage_cleanup',
+          reason: 'board_attachments_remove_failed',
+          errorClass: 'upstream',
+        });
       }
     }
     await ignoreMissingTable(await supabase.from('board_posts').delete().in('id', postIds));
@@ -416,7 +421,11 @@ serve(async (req: Request) => {
     if (chatPaths.length > 0) {
       const { error: chatStorageError } = await supabase.storage.from('chat-uploads').remove(chatPaths);
       if (chatStorageError) {
-        console.warn('[delete-account] chat-uploads storage remove failed', chatStorageError.message ?? chatStorageError);
+        reportEdgeDiagnostic({
+          event: 'delete_account.storage_cleanup',
+          reason: 'chat_uploads_remove_failed',
+          errorClass: 'upstream',
+        });
       }
     }
   }

@@ -53,5 +53,5 @@ contract_guard_2026_07_03: mobile board/notice screens, admin board/notification
 
 - Reviewed Board transport/view/database failures use the shared closed Edge diagnostic helper with fixed event/reason values and optional bounded status metadata.
 - Board diagnostics must not include actor or post identifiers, target roles, response bodies, parsed upstream messages, raw database/storage errors, URLs, or object paths.
-- Push fanout and view tracking remain best effort. A diagnostic failure must not change the existing response, database, or notification behavior.
-- The frozen residual direct-console inventory is investigation debt rather than an approved sink list; any change requires the privacy source test and AST baseline to be reviewed together.
+- Push fanout, notification insert, attachment cleanup, and view tracking retain their existing best-effort or fail-closed behavior. A diagnostic failure must not change the existing response, database, storage, or notification behavior.
+- The reviewed Board surface has no unproven direct-console sink. Only the two exact missing-configuration literals remain allowlisted; every operational failure uses the closed diagnostic helper, and changes require the privacy source test and AST baseline to be reviewed together.

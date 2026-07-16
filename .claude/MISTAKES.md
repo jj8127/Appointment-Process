@@ -36,13 +36,14 @@
   - Direct push, signup OTP, and group-chat diagnostics could print identifiers, provider errors/bodies, push tokens, or test OTP data. The admin-web server push consumer also logged recipient/content/token data and returned raw provider failure text.
 - Root cause:
   - Privacy filtering existed at Sentry `beforeSend`, but not at the first shared logger sink, direct-console callsites had no reviewed safe-field contract, and no real-consumer test traced provider response text through the shared logger.
+  - TypeScript unions and callsite casts were treated as sufficient even though runtime input can bypass types; the sink itself did not reconstruct a closed record field by field.
 - Why it was missed:
   - Sanitizer tests exercised Sentry-shaped objects only; they did not assert console output, the Sentry-adjacent capture arguments, `Error.name`, natural-language phone/OTP/filename/object-path variants, raw `Error` reconstruction, or the actual admin-web provider consumer.
 - Permanent guardrail:
   - Sanitize the message, structured data, and `Error` name/message/stack before formatting or calling either console or Sentry-adjacent capture hooks.
   - Sensitive provider/OTP/push callsites log only fixed reason/status fields. Never log a destination identifier, OTP, token, raw provider body, filename, or storage path, including in test mode.
   - Keep runtime negative tests and positive controls for mobile/web sanitizers and logger classification, plus a narrow source contract for the explicitly reviewed direct-console paths. Do not replace this with a broad unrelated console rewrite.
-  - The first narrow source lock did not inventory sibling Edge/web console sinks. Keep the reviewed 14-file AST baseline exact at 36 residual calls (9 fixed literals plus 27 unproven items), treat neither class as approved, and route every newly remediated Edge path through the closed shared diagnostic helper.
+  - The first narrow source lock did not inventory sibling Edge/web console sinks. Investigation snapshots must not fossilize unproven sinks: close or explicitly reclassify them, then keep the reviewed 14-file AST allowlist exact at 9 fixed single-literal diagnostics, 0 unproven, 9 total. Only those exact literals are approved; all variable/error paths use the closed shared helper or sanitized logger.
 - Related files:
   - `lib/logger.ts`, `web/src/lib/logger.ts`
   - `lib/sentry-sanitize.ts`, `web/src/lib/sentry-sanitize.ts`
@@ -55,7 +56,7 @@
 - Verification:
   - Pre-fix falsification failed on every new sensitive class and reviewed direct-console source boundary; the same tests pass after the fix.
   - Root/web TypeScript, targeted ESLint, focused Jest/Node suites, and both changed Edge Function Deno checks pass without remote calls or Sentry uploads.
-  - The follow-up closes 15 proven sensitive sinks, runs poison values through the real helper sink, inverts the password-sync leak characterizations, and freezes the exact 9/27/36 residual inventory.
+  - The first follow-up closed 15 proven sensitive sinks and added runtime poison checks. The second closes all 27 residual unproven sinks, extends the closed event/reason pairs and poison/source tests, removes the request-mode log, and freezes the final exact 9/0/9 reviewed allowlist.
 
 ## 2026-07-16 | Clean dependency reproducibility | hoisting and runtime globals hid export requirements
 - Symptom:

@@ -37,7 +37,7 @@ describe('fc-notify Edge authentication wiring', () => {
   it('keeps only latest_notice explicitly public and does not log raw payloads', () => {
     expect(source).toContain("rawBody.type === 'latest_notice'");
     expect(source).not.toContain("console.log('[fc-notify] payload', body)");
-    expect(source).toContain("console.log('[fc-notify] request'");
+    expect(source).not.toContain("console.log('[fc-notify] request'");
   });
 
   it('prevents signed FC callers from physically deleting global broadcast rows', () => {

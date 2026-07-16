@@ -374,8 +374,13 @@ async function notifyAdminWebPush(title: string, body: string, url: string, targ
     const sent = typeof parsed?.sent === 'number' ? parsed.sent : undefined;
     const failed = typeof parsed?.failed === 'number' ? parsed.failed : undefined;
     return { ok: true, status: resp.status, sent, failed } as AdminWebPushResult;
-  } catch (e) {
-    console.warn('[fc-notify] admin web push callback failed', e);
+  } catch {
+    reportEdgeDiagnostic({
+      event: 'fc_notify.admin_web_push',
+      reason: 'request_failed',
+      retryable: true,
+      errorClass: 'network',
+    });
     return { ok: false, reason: 'callback-network-error' } as AdminWebPushResult;
   }
 }
@@ -897,8 +902,6 @@ serve(async (req: Request) => {
     authMode = 'app';
   }
 
-  console.log('[fc-notify] request', { type: body.type, auth: authMode });
-
   if (body.type === 'chat_targets') {
     const residentId = sanitize(body.resident_id);
     if (!residentId) {
@@ -1372,7 +1375,11 @@ serve(async (req: Request) => {
               .from('board-attachments')
               .remove(storagePaths);
             if (storageErr) {
-              console.warn('[fc-notify] board attachment cleanup failed', storageErr.message);
+              reportEdgeDiagnostic({
+                event: 'fc_notify.attachment_cleanup',
+                reason: 'storage_remove_failed',
+                errorClass: 'upstream',
+              });
             }
           }
 
@@ -1504,7 +1511,11 @@ serve(async (req: Request) => {
           target_url: url,
         });
     if (logError) {
-      console.warn('notifications insert failed', logError.message);
+      reportEdgeDiagnostic({
+        event: 'fc_notify.notification_insert',
+        reason: 'insert_failed',
+        errorClass: 'database',
+      });
     }
 
     let adminWebPush: AdminWebPushResult | null = null;
@@ -1580,7 +1591,11 @@ serve(async (req: Request) => {
         .select('expo_push_token,resident_id,display_name,role')
         .in('resident_id', recipientResidentIds);
       if (error) {
-        console.warn('[fc-notify] device token load failed', error.message);
+        reportEdgeDiagnostic({
+          event: 'fc_notify.device_token_load',
+          reason: 'query_failed',
+          errorClass: 'database',
+        });
       } else if (data) {
         tokens = data;
       }
@@ -1638,7 +1653,13 @@ serve(async (req: Request) => {
 
   tokens = filterManagerTokensForNotification(tokens, { category: (body as any).type, targetId: targetResidentId });
   tokens = dedupeTokens(tokens);
-  if (logError) console.warn('notifications insert failed', logError.message);
+  if (logError) {
+    reportEdgeDiagnostic({
+      event: 'fc_notify.notification_insert',
+      reason: 'insert_failed',
+      errorClass: 'database',
+    });
+  }
 
   let adminWebPush: AdminWebPushResult | null = null;
   // Send web push to admin browser subscribers for fc_update / fc_delete

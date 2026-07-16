@@ -7,6 +7,30 @@
 
 ---
 
+## <a id="20260716-residual-diagnostic-privacy-closure"></a> 2026-07-16 | Residual diagnostic privacy closure
+
+**Scope and invariant**:
+- Closed all 27 previously unproven direct-console sinks in the reviewed 14-file Edge/admin-web surface, including the five ambiguous source sites, without changing product responses, database/storage decisions, fallback behavior, notification fanout, or user-facing error text.
+- The final direct-console allowlist is exactly 9 fixed single-literal diagnostics, 0 unproven, 9 total. Variable errors, messages, response bodies, identifiers, filenames, and storage paths must terminate at the closed Edge helper or the sanitized web logger.
+
+**Changes**:
+- Extended the closed Edge event/reason pairs for referral resolution/events, notification callback/storage/database paths, presence fallback, referral-tree fallback, Board push/notification/storage operations, and account storage cleanup.
+- Removed the FC notify request-mode log, routed all other residual Edge failures through fixed diagnostics, and routed the settings deletion exception to a fixed sanitized logger message while retaining the existing user notification.
+- Extended poison-field/runtime pair tests and source assertions, converted the AST baseline from investigation debt to an exact reviewed allowlist, and mapped all remediated callers to the diagnostic contract and owning handbooks.
+
+**Verification**:
+- PASS: Deno helper poison/allowlist tests 5/5, changed Edge entrypoints 9/9, and the full frozen Edge entrypoint set 46/46.
+- PASS: focused privacy/governance/auth-source Jest 3 suites / 13 tests; root Jest coverage 123 suites / 677 tests. The user-owned protected navigation test was explicitly excluded from this increment's lint, type, Jest, and coverage commands and was not read or edited.
+- PASS: root lint and TypeScript with the same explicit protected-file exclusion; Expo web export generated 46 static routes. Admin web lint, TypeScript, Sentry-disabled production build, and Node tests passed with 230 passed / 1 existing remote-data skip.
+- PASS: ops 28/28, Board loopback smoke 11/11, root/web audits with zero advisories, Sentry report-only dry-run, all three governance modes, and final diff check.
+- An independent evaluator found and then rechecked an AST alias/indirect-call bypass guard. The final guard rejects aliases, `.call`, global/element access, and variable/multiple/interpolated arguments; the final independent verdict has no remaining finding.
+- One exploratory Jest invocation replaced the repository's existing ignore list and therefore sent web/Deno test files through the wrong Jest transformer. It also exposed the intentionally removed FC-notify request-log expectation. Restoring the original ignore set, adding only the protected-file exclusion, and updating that source contract produced the passing results above; no product defect was hidden.
+
+**Safety**:
+- No deploy, remote database/function call, Sentry mutation/upload, secret change, staging, commit, push, or PR was performed. The protected navigation-background test remains outside the read/edit boundary. Release remains `HOLD` for the existing external rollout, authentication E2E, and credential blockers.
+
+---
+
 ## <a id="20260716-edge-diagnostic-closure"></a> 2026-07-16 | Closed Edge diagnostics and proven sink closure
 
 **Scope and invariant**:
@@ -17,7 +41,7 @@
 - Added one shared `edge-diagnostic.ts` sink and routed the 15 proven set-password, login, password-sync, FC notify, Board, account-cleanup, and admin-web settings paths to closed diagnostics or a fixed logger message.
 - Preserved Request Board password-sync request body, headers, timeout/finally cleanup, and best-effort response behavior while stopping non-OK body reads and raw JSON/Error serialization.
 - Added Deno poison/positive-control tests, inverted the three password-sync leak characterization tests, and added source assertions for all remediated paths.
-- Frozen the exact remaining 36 direct-console calls across 14 reviewed files as 9 fixed non-sensitive literals plus 27 unproven items. The AST baseline is investigation debt and explicitly not an approval list.
+- At this intermediate snapshot, the exact remaining 36 direct-console calls were frozen as 9 fixed literals plus 27 unproven items. The later [residual diagnostic privacy closure](#20260716-residual-diagnostic-privacy-closure) closed all 27 and replaced this investigation snapshot with the final 9/0/9 reviewed allowlist.
 
 **Verification and safety**:
 - Focused Deno helper/password-sync tests, changed-entrypoint Deno checks, focused Jest privacy/governance suites, and the final full local gates are recorded in the sprint evidence receipt and handoff.

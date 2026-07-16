@@ -23,6 +23,7 @@
 
 | Date | Work | Key files | Detail |
 |---|---|---|---|
+| 07-16 | Closed all 27 residual variable/error diagnostic sinks; final reviewed direct-console allowlist 9/0/9 | reviewed auth/notify/presence/Board/storage/settings callers, Edge helper, privacy/governance tests | [detail](WORK_DETAIL.md#20260716-residual-diagnostic-privacy-closure) |
 | 07-16 | Closed Edge diagnostic contract and 15 proven sensitive sink removals | `supabase/functions/_shared/edge-diagnostic.ts`, reviewed auth/notify/Board/delete callers, `scripts/ci/edge-diagnostic-console-baseline.json` | [detail](WORK_DETAIL.md#20260716-edge-diagnostic-closure) |
 | 07-16 | Mobile/web logger and sensitive push·OTP·group-chat diagnostics privacy boundary | `lib/logger.ts`, `web/src/lib/{logger,sentry-sanitize,push-notification-service}.ts`, `lib/sentry-sanitize.ts`, `app/api/push+api.ts`, `lib/notifications.ts`, `supabase/functions/{request-signup-otp,group-chat}/index.ts` | [→ 상세](WORK_DETAIL.md#20260716-diagnostic-privacy-boundary) |
 | 07-16 | FC 최종 품질 상태·credential 경계 문서 정합화 + 보험 digest fallback 모델 pin 제거/회귀 방지 | `AGENTS.md`, `README.md`, `docs/handbook/operations-runbook.md`, `docs/deployment/DEPLOYMENT.md`, `scripts/ops/run-insurance-digest-codex.ps1`, `scripts/ops/post-insurance-digest.test.mjs`, `.codex/harness/*` | [→ 상세](WORK_DETAIL.md#20260716-fc-completion-state-ops-fallback) |

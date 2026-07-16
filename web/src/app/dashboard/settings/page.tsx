@@ -143,7 +143,7 @@ export default function SettingsPage() {
       router.replace('/auth');
     } catch (err: unknown) {
       const error = err as Error;
-      console.error('[Settings] Account deletion failed', error);
+      logger.error('[Settings] Account deletion failed');
       notifications.show({
         title: '계정 삭제 실패',
         message: error?.message ?? '계정 삭제 중 오류가 발생했습니다.',

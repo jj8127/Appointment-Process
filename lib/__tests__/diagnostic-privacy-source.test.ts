@@ -69,7 +69,14 @@ describe('diagnostic privacy source boundary', () => {
     const setPassword = read('supabase/functions/set-password/index.ts');
     expect(setPassword).not.toContain("not found or inactive', params.referralCode");
     expect(setPassword).not.toContain('referralCode: params.referralCode');
+    expect(setPassword).not.toContain('referral code lookup error');
+    expect(setPassword).not.toContain('inviter profile lookup error');
+    expect(setPassword).not.toContain('resolveReferralDetails: unexpected error');
+    expect(setPassword).not.toContain('${params.logLabel}: event insert error');
+    expect(setPassword).not.toContain('applyReferralLinkState failed');
     expect(setPassword).toContain("event: 'set_password.referral_resolution'");
+    expect(setPassword).toContain("event: 'set_password.referral_event'");
+    expect(setPassword).toContain("event: 'set_password.referral_link'");
 
     const login = read('supabase/functions/login-with-password/index.ts');
     expect(login).not.toContain('phone: cleanPhone(params.actorPhone)');
@@ -86,13 +93,34 @@ describe('diagnostic privacy source boundary', () => {
     expect(notify).not.toContain('statusText: resp.statusText');
     expect(notify).not.toContain('body: text.slice(0, 300)');
     expect(notify).not.toContain("no admin recipients resolved for fc_update/fc_delete");
+    expect(notify).not.toContain('admin web push callback failed');
+    expect(notify).not.toContain("console.log('[fc-notify] request'");
+    expect(notify).not.toContain('board attachment cleanup failed');
+    expect(notify).not.toContain("console.warn('notifications insert failed'");
+    expect(notify).not.toContain('device token load failed');
     expect(notify).toContain("event: 'fc_notify.admin_web_push'");
     expect(notify).toContain("event: 'fc_notify.recipient_resolution'");
+    expect(notify).toContain("event: 'fc_notify.attachment_cleanup'");
+    expect(notify).toContain("event: 'fc_notify.notification_insert'");
+    expect(notify).toContain("event: 'fc_notify.device_token_load'");
+
+    const presence = read('supabase/functions/user-presence/index.ts');
+    expect(presence).not.toContain('rpc failed; falling back to table');
+    expect(presence).toContain("event: 'user_presence.rpc_fallback'");
+
+    const referralTree = read('supabase/functions/get-referral-tree/index.ts');
+    expect(referralTree).not.toContain('rpc and fallback both failed');
+    expect(referralTree).not.toContain('fallbackError instanceof Error');
+    expect(referralTree).toContain("event: 'referral_tree.load'");
 
     for (const name of ['board-create', 'board-update']) {
       const source = read(`supabase/functions/${name}/index.ts`);
       expect(source).not.toContain('body: raw.slice(0, 300)');
+      expect(source).not.toContain('push fanout returned not ok');
+      expect(source).not.toContain('push fanout network error');
+      expect(source).not.toContain('notifications insert failed');
       expect(source).toContain(`event: '${name.replace('-', '_')}.push_fanout'`);
+      expect(source).toContain(`event: '${name.replace('-', '_')}.notification_insert'`);
     }
 
     const boardDetail = read('supabase/functions/board-detail/index.ts');
@@ -103,12 +131,26 @@ describe('diagnostic privacy source boundary', () => {
     expect(boardShared).not.toContain("console.error('[db_error]'");
     expect(boardShared).toContain("event: 'board.database_operation'");
 
+    const attachmentDelete = read('supabase/functions/board-attachment-delete/index.ts');
+    expect(attachmentDelete).not.toContain('storage delete error:');
+    expect(attachmentDelete).toContain("reason: 'delete_failed'");
+
+    const attachmentSign = read('supabase/functions/board-attachment-sign/index.ts');
+    expect(attachmentSign).not.toContain("console.error('[storage_error]'");
+    expect(attachmentSign).toContain("reason: 'signed_upload_url_failed'");
+
     const deleteAccount = read('supabase/functions/delete-account/index.ts');
     expect(deleteAccount).not.toContain('profileId, authDeleteError.message');
+    expect(deleteAccount).not.toContain('fc-documents storage remove failed');
+    expect(deleteAccount).not.toContain('board-attachments storage remove failed');
+    expect(deleteAccount).not.toContain('chat-uploads storage remove failed');
     expect(deleteAccount).toContain("event: 'delete_account.auth_cleanup'");
+    expect(deleteAccount).toContain("event: 'delete_account.storage_cleanup'");
 
     const settings = read('web/src/app/dashboard/settings/page.tsx');
     expect(settings).not.toContain('Starting account deletion via delete-account function');
+    expect(settings).not.toContain("console.error('[Settings] Account deletion failed'");
     expect(settings).toContain("logger.info('[settings] account deletion requested')");
+    expect(settings).toContain("logger.error('[Settings] Account deletion failed')");
   });
 });

@@ -9,7 +9,17 @@
         "supabase/functions/_shared/__tests__/edge-diagnostic_test.ts",
         "scripts/ci/edge-diagnostic-console-baseline.json",
         "lib/__tests__/diagnostic-console-governance.test.ts",
-        "lib/__tests__/diagnostic-privacy-source.test.ts"
+        "lib/__tests__/diagnostic-privacy-source.test.ts",
+        "supabase/functions/set-password/index.ts",
+        "supabase/functions/fc-notify/index.ts",
+        "supabase/functions/user-presence/index.ts",
+        "supabase/functions/get-referral-tree/index.ts",
+        "supabase/functions/board-create/index.ts",
+        "supabase/functions/board-update/index.ts",
+        "supabase/functions/board-attachment-delete/index.ts",
+        "supabase/functions/board-attachment-sign/index.ts",
+        "supabase/functions/delete-account/index.ts",
+        "web/src/app/dashboard/settings/page.tsx"
       ],
       "requires_any": [
         "supabase/functions/_shared/__tests__/edge-diagnostic_test.ts",
