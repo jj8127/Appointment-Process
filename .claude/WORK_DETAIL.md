@@ -7,18 +7,52 @@
 
 ---
 
+## <a id="20260716-dependency-security-closeout"></a> 2026-07-16 | Root and admin-web dependency security closeout
+
+**Scope**:
+- Local root Expo and admin-web package/build boundaries only.
+- No deploy, EAS action, Supabase remote mutation, Sentry upload, push, PR, secret rotation, or history rewrite.
+
+**Changes**:
+- Aligned the root graph with Expo SDK 54, moved Expo MCP to development scope, removed invalid broad overrides, pinned reviewed patched transitives below their owning packages, and added an executable dependency contract.
+- Used Expo's SDK 54 Sentry compatibility line and removed only the unsupported replay option while preserving masking, sampling, and `beforeSend` sanitization.
+- Declared the Node build requirements exposed by clean installation and made the Expo web export command work at both the compatibility floor and the recommended Node 24 runtime.
+- Removed the unused admin-web 3D/VR force-graph dependency chain, updated the Supabase SDK and reviewed transitive security boundaries, and retained the 2D graph actually imported by the app.
+- Replaced onboarding `npm install` commands with lock-preserving `npm ci`; dependency maintenance that intentionally changes a lock remains a separate reviewed operation.
+- Added a contract-map rule so future root/web manifest, lock, Sentry, and export changes must update an owning contract/test or handbook evidence path.
+
+**Verification**:
+- Root Node 20/npm 10 and Node 24/npm 11 clean `npm ci`: PASS with an unchanged final lock hash.
+- Root full and production audits: zero advisories; `npm ls --all`, Expo install check, lint, TypeScript, Sentry-disabled build, and diff check: PASS.
+- Root Jest and coverage: 122 suites / 666 tests PASS; focused dependency/Sentry contracts: 23 PASS; ops 27/27 and Board smoke 11/11 PASS.
+- Root Expo web export: PASS on Node 20 and Node 24 with 46 static routes; no application source imports `ws`, and the browser export contains no `ws` browser-stub marker.
+- Admin web clean install, dependency tree, lint, TypeScript, Sentry-disabled build, and full/production audits: PASS with zero advisories.
+- Admin web Node tests: 228 PASS, zero failures, one pre-existing remote-data skip.
+- Admin web dependency commit: `64f1e23`.
+
+**Residual risk and release decision**:
+- Node 24 remains the documented runtime. The root manifest does not declare an engine floor; compatibility was verified on Node 20.19.5/npm 10.8.2 and Node 24.18/npm 11.16, while upstream Supabase support has moved to Node 22+. Node 20 is evidence of compatibility, not a production target.
+- Remote Supabase authentication/Realtime, signed caller rollout, migrations, authenticated role E2E, external credential rotation, and history/clone disposition remain unproven.
+- Release decision remains `HOLD` even though the local dependency and build gates are green.
+
+**Safety**:
+- Sentry upload credentials were cleared and both upload-deny flags were set for builds. No raw secret, personal data, remote response body, deploy, migration, or remote mutation was copied into evidence.
+- The pre-existing user-owned navigation-background test remained outside the dependency change and staging boundary.
+
+---
+
 ## <a id="20260715-operations-documentation"></a> 2026-07-15 | Operations documentation and governance boundary
 
 **Background**:
 - The root `AGENTS.md` had grown beyond 100 KiB by accumulating status, roadmap, and implementation history, so it no longer worked as a session control document.
 - Current local security commits needed a single operational handoff that preserved the signed-session, Board actor, and atomic-write contracts without claiming remote rollout success.
 
-**Current evidence**:
+**Evidence captured on 2026-07-15** (historical baseline; current resolutions are recorded in the 2026-07-16 closeouts):
 - Local commits `75b1a0a` and `a12928b` separate notification/app-session authentication from Board actor binding and privileged atomic writes.
 - The exact frozen changed Edge command for FC notify plus the 17 Board entrypoints passes `18/18` with zero diagnostics.
-- The full web TypeScript gate remains red on pre-existing test import/type debt; focused security paths are not treated as a substitute.
+- The full web TypeScript gate was red on pre-existing test import/type debt; it was resolved in `4bbf0fc` without narrowing the gate.
 - Remote caller-first rollout, migration application, and authenticated role E2E are not proven.
-- An active tracked editor configuration contains a live-looking token-like secret. No value, prefix, or hash was read into or copied into this change; external revoke/rotate and history/clone assessment remain P0.
+- An active tracked editor configuration contained a live-looking token-like secret at this snapshot. The active file was removed in `ba174e1`; external revoke/rotate and history/clone assessment remain P0.
 - Release decision remains `HOLD`.
 
 **Changes**:

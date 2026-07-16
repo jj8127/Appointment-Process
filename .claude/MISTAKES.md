@@ -30,6 +30,28 @@
 - Verification:
 ```
 
+## 2026-07-16 | Clean dependency reproducibility | hoisting and runtime globals hid export requirements
+- Symptom:
+  - A regular development tree passed focused checks, but a clean Node 20 installation first lacked the Expo Babel preset and then failed static rendering because the runtime did not expose WebSocket by default.
+  - Aligning the dependency graph with Expo SDK 54 also exposed a Sentry replay option that was not supported by the SDK-compatible Sentry version.
+- Root cause:
+  - The build relied on a transitively hoisted preset, a newer-runtime global, and an SDK integration option from a different Sentry compatibility line.
+- Why it was missed:
+  - Dependency validation used the existing `node_modules` tree and focused tests without a clean install plus export on both the lowest permitted and recommended Node runtimes.
+- Permanent guardrail:
+  - Declare build-time packages directly, keep Node 24 as the documented runtime, and run `npm ci` before claiming package reproducibility.
+  - Do not infer a supported runtime from the root manifest because it has no engine floor. Keep Node 24 as the documented runtime; if Node 20 compatibility is intentionally retained, prove the exact Node 20.19.5/npm 10.8.2 and Node 24 matrix with clean exports rather than a warm tree.
+  - Run `npx expo install --check`, the root dependency contract, lint, TypeScript, full tests, audits, and a Sentry-disabled export after package or SDK integration changes.
+  - Prefer narrow owner-scoped overrides and typed SDK options; do not repair one advisory with an incompatible graph-wide override.
+- Related files:
+  - `package.json`
+  - `package-lock.json`
+  - `lib/sentry.ts`
+  - `scripts/ci/root-dependency-security.test.ts`
+  - `docs/handbook/developer-onboarding.md`
+- Verification:
+  - Clean Node 20/npm 10 and Node 24/npm 11 installs and exports pass with the same lock hash; full/production audits report zero advisories.
+
 ## 2026-07-15 | Deployment ordering | auth adoption and DB RPC compatibility were collapsed into one caller-first sequence
 - Symptom:
   - The first documentation draft placed signed caller adoption, additive RPC migration, and Edge enforcement in one linear “caller-first” rollout, obscuring whether RPC-required callers were safe against the old DB.

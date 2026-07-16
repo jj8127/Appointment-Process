@@ -3,6 +3,24 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "dependency-and-build-security",
+      "prefixes": [
+        "package.json",
+        "package-lock.json",
+        "lib/sentry.ts",
+        "scripts/ci/root-dependency-security.test.ts",
+        "web/package.json",
+        "web/package-lock.json",
+        "web/src/lib/sentry-build-policy.ts"
+      ],
+      "requires_any": [
+        "scripts/ci/root-dependency-security.test.ts",
+        "lib/__tests__/sentry-build-upload-guard.test.ts",
+        "docs/handbook/developer-onboarding.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
       "id": "priority-security-boundaries",
       "prefixes": [
         "app/dashboard.tsx",

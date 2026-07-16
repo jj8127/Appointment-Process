@@ -29,7 +29,6 @@ if (dsn) {
         maskAllText: true,
         maskAllImages: true,
         maskAllVectors: true,
-        screenshotStrategy: 'canvas',
       }),
     ],
     beforeSend(event) {

@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-DEVELOPER-ONBOARDING
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer
-last_verified: 2026-07-15
+last_verified: 2026-07-16
 source_of_truth: package.json + web/package.json + .env.example + web/.env.example
 
 # 개발자 온보딩
@@ -38,13 +38,13 @@ PowerShell에서 저장소 루트와 admin web 의존성을 각각 설치한다.
 
 ```powershell
 Set-Location D:\hanhwa\fc-onboarding-app
-npm install
+npm ci
 Push-Location web
-npm install
+npm ci
 Pop-Location
 ```
 
-`package-lock.json`을 임의로 재생성하지 않는다. 설치가 lockfile을 바꿨다면 원인을 확인하고 관련 없는 변경은 stage하지 않는다.
+`npm ci`는 추적된 lockfile을 그대로 재현하는 기본 설치 경로다. 의존성 유지보수에서만 `npm install`로 lockfile을 의도적으로 갱신하고, manifest/lock diff와 감사 결과를 함께 검토한다. 설치가 예상 밖으로 lockfile을 바꿨다면 즉시 중지하고 원인을 확인하며 관련 없는 변경은 stage하지 않는다.
 
 ## 4. 환경변수 이름
 
@@ -178,8 +178,8 @@ Pop-Location
 
 ## 8. 현재 기대되는 결과
 
-- changed FC notify/Board Edge 진입점: Deno 18/18, 진단 0건.
-- 전체 web TypeScript: 기존 테스트 import/type 부채로 실패. 새 오류와 기존 부채를 분리해 기록한다.
+- 전체 추적 Edge Function 진입점: Deno 46/46, 진단 0건.
+- 전체 admin web TypeScript, root/web clean install·build, root/web full/production audit: PASS, audit advisory 0건.
 - 인증 browser E2E와 원격 migration/caller rollout: 아직 증거가 없어 차단 상태다.
 - 따라서 focused gate가 통과해도 전체 릴리스 판정은 `HOLD`다.
 
