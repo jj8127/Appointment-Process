@@ -7,10 +7,10 @@
 
 ## 프로젝트 현황
 - 범위: current local source와 보존 감사의 차이 재검증
-- 현재 포커스: 로컬 의존성·빌드 계약 마감과 최종 전체 품질 매트릭스 재실행
+- 현재 포커스: 최종 전체 품질 매트릭스 유지와 운영 fallback·문서 상태 정합화
 - 운영 스택: Expo 앱 + Next.js 웹 + Supabase(Edge Functions/RLS)
 - 릴리스 판정: `HOLD`
-- 근거: local security commits `75b1a0a`, `a12928b`; full Edge Deno 46/46와 web TypeScript 통과; root/web package audit 0. active tracked 설정은 `ba174e1`에서 제거했으나 signed caller→Edge auth enforcement, RPC migration→caller 활성화, 인증 E2E, 외부 credential rotation/history 평가는 미완료
+- 근거: `quality-full-20260716-015916` FC 18/18, full Edge Deno 46/46, root·web TypeScript와 package audit 통과. active tracked credential copy는 0이지만 local untracked 6, 과거 노출과 외부 rotation/history/clone, signed caller→Edge auth enforcement, RPC migration→caller 활성화, 인증 E2E는 미완료
 
 ## 주의사항
 - ⚠️ 모바일은 Supabase Auth 세션이 아닌 커스텀 세션(`residentId`, `role`) 기반으로 동작
@@ -23,6 +23,7 @@
 
 | Date | Work | Key files | Detail |
 |---|---|---|---|
+| 07-16 | FC 최종 품질 상태·credential 경계 문서 정합화 + 보험 digest fallback 모델 pin 제거/회귀 방지 | `AGENTS.md`, `README.md`, `docs/handbook/operations-runbook.md`, `docs/deployment/DEPLOYMENT.md`, `scripts/ops/run-insurance-digest-codex.ps1`, `scripts/ops/post-insurance-digest.test.mjs`, `.codex/harness/*` | [→ 상세](WORK_DETAIL.md#20260716-fc-completion-state-ops-fallback) |
 | 07-16 | Root/admin-web dependency, clean-install, audit, and Expo export gate closure | `package*.json`, `web/package*.json`, `lib/sentry.ts`, `scripts/ci/root-dependency-security.test.ts`, `docs/handbook/developer-onboarding.md` | [→ 상세](WORK_DETAIL.md#20260716-dependency-security-closeout) |
 
 ## 2026-07-15

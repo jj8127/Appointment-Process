@@ -3749,3 +3749,17 @@
   - `cd web && npx tsc --noEmit --pretty false`
   - Run all 46 tracked `supabase/functions/*/index.ts` entrypoints through `deno check --frozen --config supabase/functions/deno.json`.
   - Run web Node source-inspection tests from the repository root.
+
+## 2026-07-16 | Reusable Codex Fallback Pinned A Model | subscription and runtime portability drifted
+- Symptom:
+  - The paused insurance digest fallback passed an explicit model option even though reusable automation must follow the installed Codex default.
+- Root cause:
+  - The fallback encoded a one-time model choice inside the operational script, and no test treated model independence as part of the automation contract.
+- Why it was missed:
+  - Existing ops tests covered payload, token, category, idempotency, and redaction behavior but did not inspect the PowerShell launcher arguments.
+- Permanent guardrail:
+  - Reusable Codex launchers must omit `-m` and `--model` unless a separately approved contract requires a pin.
+  - `scripts/ops/post-insurance-digest.test.mjs` must read the fallback source and fail if either model option is reintroduced.
+- Verification:
+  - `node --test scripts/ops/post-insurance-digest.test.mjs` (15/15)
+  - all `scripts/ops/*.test.mjs` (28/28)

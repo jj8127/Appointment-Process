@@ -15,6 +15,7 @@ The repository contains the FC mobile app, admin web app, shared TypeScript cont
 | Signed application sessions and authenticated notification ingress | `75b1a0af2c421647ab567421a39ea91b8f714f65` | Locally implemented and focused-test verified; remote rollout not proven |
 | Actor-bound Board actions, attachment checks, atomic Board updates, atomic exam saves, and privileged-action input boundaries | `a12928b053f46614418d7f2345b8ab2ac59dc7ec` | Locally implemented and independently evaluated; remote migrations and caller rollout not proven |
 | Onboarding, operations, deployment, governance, and rollback documentation | `863594df2c1b712dde99746768c273f79b6e1f4a` | Local documentation increment committed after independent re-evaluation |
+| Repository-wide TypeScript, Deno, build, test, and dependency closure | `1c76cfb` through `d24a004` | Current full receipt passes FC 18/18; remote state is still not proven |
 
 ## Product guarantees
 
@@ -27,10 +28,11 @@ The repository contains the FC mobile app, admin web app, shared TypeScript cont
 
 ## Current acceptance state
 
-- The three local commits above are present on the current branch.
-- Focused security, type, smoke, governance, and documentation checks recorded in the central sanitized QA report passed for their frozen scopes.
+- The listed local commits and closure range are present on the current branch.
+- `quality-full-20260716-015916` passes FC 18/18, including all 46 tracked Edge entrypoints, root and web TypeScript, lint, Jest and coverage, Expo/web builds, Node/ops/Board smoke, Sentry dry-run, and both package audits.
+- The web Node result is 228 PASS / 1 SKIP. The skipped `referral-graph-realdata` case requires actual Supabase data and external credentials, so it is classified `DESTRUCTIVE_OR_EXTERNAL_TEST_BLOCKER`, not a local product failure or remote E2E pass.
 - The unexplained local change in `lib/__tests__/navigation-background-source.test.ts` remains outside the completed commits and must stay unstaged until its provenance is established.
-- A tracked editor configuration has a known secret-exposure incident. No value, prefix, digest, or raw copy is reproduced here.
+- Credential state is active tracked copy 0, current local untracked copy 6, and confirmed historical tracked exposure. Authorized local cleanup plus external rotation and history/clone assessment remain open; no value, prefix, digest, or raw copy is reproduced here.
 - Authenticated browser evidence, remote migration state, caller-first rollout, remote smoke, rollback observation, and secret revocation/history cleanup remain unproven.
 
 ## Non-goals
@@ -41,4 +43,4 @@ The repository contains the FC mobile app, admin web app, shared TypeScript cont
 
 ## Release verdict
 
-**릴리스 HOLD.** The local mitigations are meaningful, but the tracked-secret incident and the missing authenticated and remote rollout evidence are release blockers.
+**릴리스 HOLD.** The local matrix is green, but credential incident response plus authenticated and remote rollout evidence remain release blockers.

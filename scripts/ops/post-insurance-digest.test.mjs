@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -47,6 +47,17 @@ function createFetchRecorder(responses) {
   };
   return { calls, fetchImpl };
 }
+
+test('Codex fallback inherits the configured default model', async () => {
+  const fallbackSource = await readFile(
+    new URL('./run-insurance-digest-codex.ps1', import.meta.url),
+    'utf8',
+  );
+  const argsBlock = fallbackSource.match(/\$CodexArgs\s*=\s*@\(([\s\S]*?)\r?\n\)/);
+
+  assert.ok(argsBlock, 'missing $CodexArgs launcher block');
+  assert.doesNotMatch(argsBlock[1], /['"](?:-m|--model)(?:[=\s][^'"]*)?['"]/);
+});
 
 test('parseArgs accepts inline JSON input and dry-run flag', () => {
   const parsed = parseArgs([

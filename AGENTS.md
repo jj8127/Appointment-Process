@@ -14,10 +14,10 @@
 
 **릴리스 HOLD**
 
-- 로컬 보안 변경은 `75b1a0a`와 `a12928b`에 분리돼 있고, changed Edge Deno 검증은 18/18 진입점에서 진단 0건이다.
-- 전체 web TypeScript gate는 기존 테스트 import/type 부채로 실패한다. focused 보안 경로 통과를 전체 gate 녹색으로 해석하지 않는다.
+- 최신 로컬 전체 영수증 `quality-full-20260716-015916`은 FC 18/18을 통과했다. 전체 Edge Deno는 46/46, root·web TypeScript와 lint/build/test/audit gate도 모두 PASS다.
+- web Node suite는 228 PASS / 1 SKIP다. skip은 실제 Supabase 데이터와 외부 자격증명이 필요한 `referral-graph-realdata`이며 `DESTRUCTIVE_OR_EXTERNAL_TEST_BLOCKER`로 분류한다. 로컬 품질 실패로 바꾸거나 원격 E2E 통과로 해석하지 않는다.
 - signed caller 채택 뒤 Edge auth enforcement를 했다는 원격 증거와, 별도 RPC migration 뒤 caller 활성화를 했다는 원격 증거가 모두 없다. 실제 인증 계정 E2E도 없다.
-- active tracked editor 설정에 live-looking token-like secret이 남아 있다. 값·접두사·해시는 읽거나 문서에 복사하지 말고, 외부 소유자가 revoke/rotate와 history/clone 영향 평가를 완료해야 한다.
+- credential 상태는 active tracked copy 0, 현재 local untracked copy 6, 과거 tracked 노출 확인이다. 값을 읽거나 복사하지 말고, 승인된 로컬 정리와 외부 revoke/rotate·history/clone 평가를 완료해야 한다.
 - 위 차단점과 포트폴리오 감사의 P0/Critical·High 항목이 닫히기 전 HOLD를 해제하지 않는다.
 
 ## 프로젝트와 역할 경계

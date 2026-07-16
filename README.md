@@ -1,6 +1,6 @@
 ﻿# 가람in FC Onboarding Monorepo
 
-> Last verified: `2026-07-15`
+> Last verified: `2026-07-16`
 > Control entry: [AGENTS.md](./AGENTS.md)
 > Current behavior SSOT: [docs/handbook/INDEX.md](./docs/handbook/INDEX.md)
 
@@ -20,7 +20,9 @@
 
 ## Current Snapshot
 
-- 현재 판정은 **릴리스 HOLD**입니다. 로컬 changed Edge Deno 18/18은 통과했지만, 전체 web TypeScript 기존 테스트 부채, 원격 caller/migration rollout, 인증 E2E, tracked token-like secret 대응이 남아 있습니다.
+- 현재 판정은 **릴리스 HOLD**입니다. 최신 전체 영수증 `quality-full-20260716-015916`에서 FC 18/18, 전체 Edge Deno 46/46, root·web TypeScript와 lint/build/test/audit가 통과했습니다. 그러나 원격 caller/migration rollout과 인증 E2E는 아직 증명되지 않았습니다.
+- web Node suite의 1개 skip은 실제 Supabase 데이터와 외부 자격증명이 필요한 `referral-graph-realdata`로, `DESTRUCTIVE_OR_EXTERNAL_TEST_BLOCKER`입니다. 로컬 제품 결함이나 원격 E2E PASS로 재분류하지 않습니다.
+- credential 상태는 active tracked copy 0, 현재 local untracked copy 6, 과거 tracked 노출 확인입니다. 승인된 로컬 정리와 외부 revoke/rotate·history/clone 평가가 끝날 때까지 HOLD를 유지합니다.
 - FC 핵심 흐름은 `회원가입 -> 본인확인 -> 보증 보험 동의 -> 시험 -> 서류 -> 한화 위촉 URL -> 생명/손해 위촉 -> 완료`까지 end-to-end로 구현되어 있습니다.
 - FC 가입은 `none / life_only / nonlife_only / both` 커미션 완료 유형을 지원하며, 부분 완료 사용자는 `draft`부터 남은 트랙을 계속 진행합니다.
 - `manager`는 앱/웹 전반에서 읽기 전용 역할을 유지합니다.

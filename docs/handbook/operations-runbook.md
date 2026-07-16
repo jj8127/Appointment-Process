@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-OPS-RUNBOOK
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: operator
-last_verified: 2026-07-15
+last_verified: 2026-07-16
 source_of_truth: web/src/app/api/* + supabase/functions/* + scripts/ops/*
 
 # 운영 런북
@@ -11,11 +11,11 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + scripts/ops/*
 
 **릴리스 HOLD**
 
-- local commits `75b1a0a`, `a12928b`는 signed session, Board actor binding, atomic Board/exam write 경계를 보강한다.
-- changed FC notify/Board Edge Deno 검증은 18/18, 진단 0건이다.
-- 전체 web TypeScript gate는 기존 테스트 import/type 부채로 실패한다.
+- 최신 로컬 전체 영수증 `quality-full-20260716-015916`은 FC 18/18을 통과했다.
+- 전체 Edge Deno는 46/46이고 root·web TypeScript, lint, Jest·coverage, Expo/web build, Node·ops·Board smoke, Sentry dry-run, root·web audit가 모두 PASS다.
+- web Node suite의 1개 skip은 실제 Supabase 데이터와 외부 자격증명이 필요한 `referral-graph-realdata`다. 공유·운영 데이터를 대상으로 실행하지 않았으며 `DESTRUCTIVE_OR_EXTERNAL_TEST_BLOCKER`로 분류한다.
 - signed caller 채택 뒤 Edge auth enforcement를 했다는 원격 증거와, 별도 RPC migration 뒤 caller 활성화를 했다는 원격 증거가 없다. 실제 인증 계정 E2E도 없다.
-- active tracked editor 설정의 live-looking token-like secret은 외부 revoke/rotate와 history/clone 영향 평가 전까지 P0다. 값·접두사·해시는 복사하지 않는다.
+- credential 상태는 active tracked copy 0, 현재 local untracked copy 6, 과거 tracked 노출 확인이다. 승인된 로컬 정리와 외부 revoke/rotate·history/clone 영향 평가 전까지 P0다. 값·접두사·해시는 복사하지 않는다.
 
 focused 검증 통과를 서비스 전체 healthy 또는 release-ready로 보고하지 않는다.
 
@@ -128,6 +128,8 @@ rotation은 새 current → old current를 previous → 최대 token TTL 경과 
 
 현재 자동 게시 상태는 **PAUSED**다.
 
+- 2026-07-16 read-only 확인에서 이 fallback을 실행하는 Windows Scheduled Task는 0개였다. 스케줄러 상태를 생성·수정·활성화하지 않았다.
+- fallback은 설치된 Codex의 기본 모델을 사용한다. 모델 pin을 다시 넣지 않으며 ops regression test로 이를 고정한다.
 - 재개 게이트: `BOARD_AUTOMATION_TOKEN` pair 복구, 활성 admin actor 확인, local/staging manual E2E, category/list/create 최소 권한 확인.
 - 허용 action: `board-categories-list`, `board-list`, canonical `general`의 `board-create`.
 - category 생성/수정, post 수정/삭제, attachment action은 금지한다.
@@ -189,4 +191,4 @@ rotation은 새 current → old current를 previous → 최대 token TTL 경과 
 - rollback 또는 forward correction 결과
 - PII/secret이 없는 영수증
 
-P0/Critical·High, web TypeScript release-red gate, authenticated E2E, remote rollout 중 하나라도 남으면 결론은 계속 **릴리스 HOLD**다.
+P0/Critical·High, authenticated E2E, remote rollout, credential incident 대응 중 하나라도 남으면 결론은 계속 **릴리스 HOLD**다. 현재 root·web TypeScript gate는 PASS지만 외부 차단을 대신하지 않는다.

@@ -11886,3 +11886,30 @@
 **Safety**:
 - No push, PR, deployment, remote Supabase change, migration, secret change, or Sentry upload was performed.
 - Release posture remains `HOLD` while external authenticated E2E and remaining release blockers are unresolved.
+
+---
+
+## <a id="20260716-fc-completion-state-ops-fallback"></a> 2026-07-16 | Final FC state alignment and model-independent insurance fallback
+
+**Scope**: current local quality claims, credential-incident boundaries, compact harness handoff, and the paused insurance digest Codex fallback.
+
+**Changes**:
+- Replaced stale web TypeScript and Deno debt claims with the current sanitized receipt: FC 18/18, all 46 Edge entrypoints, and root/web TypeScript PASS.
+- Recorded the credential boundary as active tracked copy 0, current local untracked copy 6, confirmed historical exposure, and external rotate/history/clone HOLD without copying any credential material.
+- Classified the single actual-Supabase referral graph skip as `DESTRUCTIVE_OR_EXTERNAL_TEST_BLOCKER`; it was not run against shared or production data.
+- Removed the explicit model option from the insurance digest fallback so the installed Codex default is used, and added a deterministic source-contract assertion that rejects a future `-m` or `--model` option.
+- Updated the session grounding discovery path to portable `%USERPROFILE%\.agents\skills\...`.
+- Verified read-only that zero matching Windows Scheduled Tasks currently invoke the fallback; no scheduler state was created, changed, enabled, or invoked, and the insurance automation remains PAUSED.
+
+**Verification**:
+- Passed `node --test scripts/ops/post-insurance-digest.test.mjs`: 15/15.
+- Passed all `scripts/ops/*.test.mjs`: 28/28.
+- Passed `node scripts/ci/documentation-governance.test.mjs`: 4/4.
+- Passed `node scripts/ci/check-governance.mjs`.
+- Passed `git diff --check`; output contained line-ending warnings only.
+- Read-only Scheduled Task inspection returned matching task count 0.
+
+**Safety**:
+- Did not read, edit, stage, or commit the protected navigation test.
+- No push, PR, deployment, remote database change, credential mutation, task-scheduler mutation, or Sentry mutation was performed.
+- Release posture remains `HOLD` for external authenticated E2E, ordered rollout, credential incident response, and remaining portfolio P0 items.

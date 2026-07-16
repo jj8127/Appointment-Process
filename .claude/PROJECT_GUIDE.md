@@ -1,7 +1,7 @@
 # 프로젝트 가이드 (All-in-One)
 
 > 이 문서는 `fc-onboarding-app`의 실무 기준 문서입니다.  
-> 새 세션 AI Agent는 오리엔테이션이 필요하면 먼저 `C:\Users\jj812\.codex\skills\hanhwa-session-grounding\SKILL.md`를 사용하고, 그다음 이 파일과 `WORK_LOG.md`를 확인하세요.
+> 새 세션 AI Agent는 오리엔테이션이 필요하면 먼저 `%USERPROFILE%\.agents\skills\hanhwa-session-grounding\SKILL.md`를 사용하고, 그다음 이 파일과 `WORK_LOG.md`를 확인하세요.
 
 ---
 
@@ -269,7 +269,7 @@ MISTAKES.md      : 반복 가능한 실수와 재발 방지 가드레일 전용
 
 ### 세션 시작/오리엔테이션
 ```txt
-[$hanhwa-session-grounding](C:\Users\jj812\.codex\skills\hanhwa-session-grounding\SKILL.md)을 사용해
+[$hanhwa-session-grounding](%USERPROFILE%\.agents\skills\hanhwa-session-grounding\SKILL.md)을 사용해
 현재 세션에 필요한 문서를 먼저 읽고 프로젝트 흐름을 파악해줘.
 그 다음 [작업 설명]을 기존 패턴으로 진행해.
 ```

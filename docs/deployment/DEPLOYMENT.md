@@ -1,17 +1,17 @@
 # FC 릴리스·배포 체크리스트
 
-> Last verified: 2026-07-15
+> Last verified: 2026-07-16
 > Current decision: **릴리스 HOLD**
 > Scope: Expo app/web, Next admin web, Supabase migration/Edge, native binary
 
-이 문서는 승인된 릴리스 창의 순서와 rollback 기준을 정의한다. 명령을 적어 둔 것은 실행 승인이 아니다. 현재 원격 caller rollout, migration, 인증 E2E, tracked secret 대응 증거가 없으므로 실제 배포는 금지 상태다.
+이 문서는 승인된 릴리스 창의 순서와 rollback 기준을 정의한다. 명령을 적어 둔 것은 실행 승인이 아니다. 최신 로컬 전체 영수증은 FC 18/18, Deno 46/46, root·web TypeScript를 포함해 녹색이지만 원격 caller rollout, migration, 인증 E2E와 credential incident 대응 증거가 없으므로 실제 배포는 금지 상태다.
 
 ## 1. 변경 동결과 기준선
 
 - [ ] 명시적 릴리스 승인자와 대상 환경이 기록돼 있다.
 - [ ] branch, HEAD, `git status --short`, commit 범위가 기록돼 있다.
 - [ ] 설명할 수 없는 dirty/untracked 파일이 배포 입력에서 제외됐다.
-- [ ] P0/Critical·High, web TypeScript 실패, 인증 E2E 차단점의 disposition이 승인됐다.
+- [ ] P0/Critical·High, 인증 E2E, credential incident 차단점의 disposition이 승인됐다.
 - [ ] secret 값이 아닌 이름·defined/missing 상태만 점검했다.
 - [ ] rollback owner, 관측 담당, 중단 조건이 정해졌다.
 
@@ -86,6 +86,8 @@ Pop-Location
 - [ ] `npm audit fix`, autofix formatter/lint는 실행하지 않았다.
 - [ ] upload/release/artifact mutation이 없었다.
 - [ ] 기존 부채와 신규 회귀를 분리했으며 검사 범위를 줄이지 않았다.
+
+현재 기준 영수증 `quality-full-20260716-015916`은 FC 18/18을 통과했고, 전체 Edge Deno 46/46과 root·web TypeScript도 PASS다. web Node 228 PASS / 1 SKIP 중 `referral-graph-realdata` skip은 실제 Supabase 데이터와 외부 자격증명이 필요한 `DESTRUCTIVE_OR_EXTERNAL_TEST_BLOCKER`다. 공유·운영 DB로 대신 실행하지 않는다. credential 상태는 active tracked copy 0, local untracked copy 6, 과거 tracked 노출 확인이며 외부 rotate/history/clone 평가는 계속 차단 상태다.
 
 ## 3. 배포 lane 분리
 
