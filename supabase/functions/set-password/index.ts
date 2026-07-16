@@ -7,6 +7,7 @@ import {
   type CommissionCompletionStatus,
 } from '../_shared/commission.ts';
 import { applyReferralLinkState } from '../_shared/referral-link.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import { getEnv } from '../_shared/request-board-auth.ts';
 import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
 
@@ -213,18 +214,17 @@ async function resolveReferralDetails(params: {
       return { resolvedReferral: null, rejectionReason: 'code_lookup_failed' };
     }
     if (!referralCodeRow) {
-      console.warn('[set-password] resolveReferralDetails: referral code not found or inactive', params.referralCode);
+      reportEdgeDiagnostic({
+        event: 'set_password.referral_resolution',
+        reason: 'not_found_or_inactive',
+      });
       return { resolvedReferral: null, rejectionReason: 'not_found_or_inactive' };
     }
     if (params.validatedInviterFcId && params.validatedInviterFcId !== referralCodeRow.fc_id) {
-      console.warn(
-        '[set-password] resolveReferralDetails: inviter hint mismatch, using referral code source of truth',
-        JSON.stringify({
-          referralCode: params.referralCode,
-          validatedInviterFcId: params.validatedInviterFcId,
-          resolvedInviterFcId: referralCodeRow.fc_id,
-        }),
-      );
+      reportEdgeDiagnostic({
+        event: 'set_password.referral_resolution',
+        reason: 'inviter_hint_mismatch',
+      });
     }
 
     const { data: inviterProfile, error: inviterError } = await params.supabase

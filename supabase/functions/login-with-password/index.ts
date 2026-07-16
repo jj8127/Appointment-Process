@@ -12,6 +12,7 @@ import {
   ensureManagerReferralShadowProfile,
 } from '../_shared/referral-code.ts';
 import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
 
 type Payload = {
@@ -144,15 +145,11 @@ async function autoIssueReferralCodeOnLogin(params: {
   });
 
   if (result.ok === false) {
-    console.warn(
-      '[login-with-password] referral code auto-issue failed',
-      JSON.stringify({
-        actorRole: params.actorRole,
-        phone: cleanPhone(params.actorPhone),
-        fcId: params.profile.id,
-        message: result.message,
-      }),
-    );
+    reportEdgeDiagnostic({
+      event: 'login_with_password.referral_bootstrap',
+      reason: 'referral_code_auto_issue_failed',
+      errorClass: 'database',
+    });
   }
 }
 
@@ -360,10 +357,11 @@ serve(async (req: Request) => {
 
     const shadowResult = await ensureManagerReferralShadowProfile(supabase, manager.phone, manager.name);
     if (shadowResult.ok === false) {
-      console.warn(
-        '[login-with-password] manager referral shadow ensure failed',
-        JSON.stringify({ phone: manager.phone, message: shadowResult.message }),
-      );
+      reportEdgeDiagnostic({
+        event: 'login_with_password.referral_bootstrap',
+        reason: 'manager_shadow_ensure_failed',
+        errorClass: 'database',
+      });
     } else {
       const { data: managerReferralProfile, error: managerReferralProfileError } = await supabase
         .from('fc_profiles')
@@ -372,10 +370,11 @@ serve(async (req: Request) => {
         .maybeSingle();
 
       if (managerReferralProfileError) {
-        console.warn(
-          '[login-with-password] manager referral profile lookup failed',
-          JSON.stringify({ phone: manager.phone, message: managerReferralProfileError.message }),
-        );
+        reportEdgeDiagnostic({
+          event: 'login_with_password.referral_bootstrap',
+          reason: 'manager_shadow_lookup_failed',
+          errorClass: 'database',
+        });
       } else {
         await autoIssueReferralCodeOnLogin({
           profile: managerReferralProfile,

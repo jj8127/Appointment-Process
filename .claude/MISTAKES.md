@@ -42,16 +42,20 @@
   - Sanitize the message, structured data, and `Error` name/message/stack before formatting or calling either console or Sentry-adjacent capture hooks.
   - Sensitive provider/OTP/push callsites log only fixed reason/status fields. Never log a destination identifier, OTP, token, raw provider body, filename, or storage path, including in test mode.
   - Keep runtime negative tests and positive controls for mobile/web sanitizers and logger classification, plus a narrow source contract for the explicitly reviewed direct-console paths. Do not replace this with a broad unrelated console rewrite.
+  - The first narrow source lock did not inventory sibling Edge/web console sinks. Keep the reviewed 14-file AST baseline exact at 36 residual calls (9 fixed literals plus 27 unproven items), treat neither class as approved, and route every newly remediated Edge path through the closed shared diagnostic helper.
 - Related files:
   - `lib/logger.ts`, `web/src/lib/logger.ts`
   - `lib/sentry-sanitize.ts`, `web/src/lib/sentry-sanitize.ts`
   - `app/api/push+api.ts`, `lib/notifications.ts`
   - `web/src/lib/push-notification-service.ts`
   - `supabase/functions/request-signup-otp/index.ts`, `supabase/functions/group-chat/index.ts`
+  - `supabase/functions/_shared/edge-diagnostic.ts`, `scripts/ci/edge-diagnostic-console-baseline.json`
   - `lib/__tests__/logger.test.ts`, `lib/__tests__/sentry-sanitize.test.ts`, `lib/__tests__/diagnostic-privacy-source.test.ts`, `lib/__tests__/priority-security-hardening.test.ts`, `web/src/lib/sentry-sanitize.test.ts`
+  - `lib/__tests__/diagnostic-console-governance.test.ts`, `supabase/functions/_shared/__tests__/edge-diagnostic_test.ts`
 - Verification:
   - Pre-fix falsification failed on every new sensitive class and reviewed direct-console source boundary; the same tests pass after the fix.
   - Root/web TypeScript, targeted ESLint, focused Jest/Node suites, and both changed Edge Function Deno checks pass without remote calls or Sentry uploads.
+  - The follow-up closes 15 proven sensitive sinks, runs poison values through the real helper sink, inverts the password-sync leak characterizations, and freezes the exact 9/27/36 residual inventory.
 
 ## 2026-07-16 | Clean dependency reproducibility | hoisting and runtime globals hid export requirements
 - Symptom:

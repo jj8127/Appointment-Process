@@ -64,4 +64,51 @@ describe('diagnostic privacy source boundary', () => {
     expect(groupChatSource).toContain("console.warn('[group-chat] expo push failed', { status: response.status })");
     expect(groupChatSource).toContain("reason: 'notification_insert_failed'");
   });
+
+  test('the reviewed Edge and settings leak paths terminate at closed diagnostics', () => {
+    const setPassword = read('supabase/functions/set-password/index.ts');
+    expect(setPassword).not.toContain("not found or inactive', params.referralCode");
+    expect(setPassword).not.toContain('referralCode: params.referralCode');
+    expect(setPassword).toContain("event: 'set_password.referral_resolution'");
+
+    const login = read('supabase/functions/login-with-password/index.ts');
+    expect(login).not.toContain('phone: cleanPhone(params.actorPhone)');
+    expect(login).not.toContain('JSON.stringify({ phone: manager.phone');
+    expect(login).toContain("event: 'login_with_password.referral_bootstrap'");
+
+    const passwordSync = read('supabase/functions/_shared/request-board-password-sync.ts');
+    expect(passwordSync).not.toContain('response.text()');
+    expect(passwordSync).not.toContain('JSON.stringify(json)');
+    expect(passwordSync).not.toContain('console.warn');
+    expect(passwordSync).toContain("event: 'request_board.password_sync'");
+
+    const notify = read('supabase/functions/fc-notify/index.ts');
+    expect(notify).not.toContain('statusText: resp.statusText');
+    expect(notify).not.toContain('body: text.slice(0, 300)');
+    expect(notify).not.toContain("no admin recipients resolved for fc_update/fc_delete");
+    expect(notify).toContain("event: 'fc_notify.admin_web_push'");
+    expect(notify).toContain("event: 'fc_notify.recipient_resolution'");
+
+    for (const name of ['board-create', 'board-update']) {
+      const source = read(`supabase/functions/${name}/index.ts`);
+      expect(source).not.toContain('body: raw.slice(0, 300)');
+      expect(source).toContain(`event: '${name.replace('-', '_')}.push_fanout'`);
+    }
+
+    const boardDetail = read('supabase/functions/board-detail/index.ts');
+    expect(boardDetail).not.toContain("console.warn('[board-detail] view track failed'");
+    expect(boardDetail).toContain("event: 'board.view_tracking'");
+
+    const boardShared = read('supabase/functions/_shared/board.ts');
+    expect(boardShared).not.toContain("console.error('[db_error]'");
+    expect(boardShared).toContain("event: 'board.database_operation'");
+
+    const deleteAccount = read('supabase/functions/delete-account/index.ts');
+    expect(deleteAccount).not.toContain('profileId, authDeleteError.message');
+    expect(deleteAccount).toContain("event: 'delete_account.auth_cleanup'");
+
+    const settings = read('web/src/app/dashboard/settings/page.tsx');
+    expect(settings).not.toContain('Starting account deletion via delete-account function');
+    expect(settings).toContain("logger.info('[settings] account deletion requested')");
+  });
 });

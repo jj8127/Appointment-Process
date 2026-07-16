@@ -2,7 +2,7 @@ doc_id: FC-BACKEND-BOARD-NOTICE
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-06-08
+last_verified: 2026-07-16
 source_of_truth: supabase/functions/board-* + web/src/app/api/admin/notices/route.ts
 
 contract_guard_2026_07_03: mobile board/notice screens, admin board/notification pages, board Edge Functions, notice API routes, notification route normalization, and automated digest posting are mapped in docs/handbook/contract-test-map.json.
@@ -48,3 +48,10 @@ contract_guard_2026_07_03: mobile board/notice screens, admin board/notification
 - `x-board-automation-token` is a separate internal boundary. Automation is limited to category list, general-category list, and create; automated list reads require the canonical active `general` category and return only `id,title,created_at` with a fixed limit.
 - Managers may mutate only their own manager-authored posts; FC sessions cannot use manager/admin mutation paths. Signed upload and finalize both enforce that ownership.
 - Attachment finalize accepts only canonical `board/<postId>/<uuid>_<sanitizedName>` paths, validates metadata and limits against the stored object, and rejects duplicate paths. Post fields and attachment ordering are committed together through `update_board_post_atomic`.
+
+## 2026-07-16 Board diagnostic privacy contract
+
+- Reviewed Board transport/view/database failures use the shared closed Edge diagnostic helper with fixed event/reason values and optional bounded status metadata.
+- Board diagnostics must not include actor or post identifiers, target roles, response bodies, parsed upstream messages, raw database/storage errors, URLs, or object paths.
+- Push fanout and view tracking remain best effort. A diagnostic failure must not change the existing response, database, or notification behavior.
+- The frozen residual direct-console inventory is investigation debt rather than an approved sink list; any change requires the privacy source test and AST baseline to be reviewed together.

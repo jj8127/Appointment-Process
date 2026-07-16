@@ -5,6 +5,7 @@ import {
   verifyBoardAutomationToken,
 } from './board-actor-policy.ts';
 import { requireAppSessionFromRequest } from './request-board-auth.ts';
+import { reportEdgeDiagnostic } from './edge-diagnostic.ts';
 
 export type Role = 'admin' | 'manager' | 'fc';
 export type BoardDisplayRole = Role | 'developer';
@@ -73,7 +74,12 @@ export function fail(code: string, message: string, status = 400, origin?: strin
 
 /** DB 에러를 서버 로그에만 기록하고, 클라이언트에는 일반화된 메시지만 반환 */
 export function dbError(err: { message?: string }, origin?: string) {
-  console.error('[db_error]', err?.message);
+  void err;
+  reportEdgeDiagnostic({
+    event: 'board.database_operation',
+    reason: 'database_operation_failed',
+    errorClass: 'database',
+  });
   return json({ ok: false, code: 'db_error', message: '데이터베이스 오류가 발생했습니다.' }, 500, origin);
 }
 

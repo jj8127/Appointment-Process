@@ -10,6 +10,7 @@ import {
   toBoardDisplayRole,
   redactSensitiveText,
 } from '../_shared/board.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 
 type Payload = {
   actor?: {
@@ -52,7 +53,11 @@ serve(async (req: Request) => {
 
   if (viewTrackError) {
     // 조회수 기록 실패가 상세 조회 전체 실패로 이어지지 않도록 경고만 남기고 진행
-    console.warn('[board-detail] view track failed', viewTrackError.message);
+    reportEdgeDiagnostic({
+      event: 'board.view_tracking',
+      reason: 'view_tracking_failed',
+      errorClass: 'database',
+    });
   }
 
   const { data: post, error: postError } = await supabase

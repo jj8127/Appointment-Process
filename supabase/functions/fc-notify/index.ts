@@ -7,6 +7,7 @@ import {
   shouldIncludeInternalChatParticipant,
 } from '../_shared/internal-chat.ts';
 import { filterManagerTokensForNotification } from '../_shared/notification-delivery-policy.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import {
   buildAppFcNotifyPayload,
   isTrustedFcNotifyServiceKey,
@@ -347,25 +348,27 @@ async function notifyAdminWebPush(title: string, body: string, url: string, targ
       body: JSON.stringify({ title, body, url, targetId: targetId ?? null }),
     });
 
-    const text = await resp.text().catch(() => '');
-    let parsed: Record<string, unknown> | null = null;
-    try {
-      parsed = text ? (JSON.parse(text) as Record<string, unknown>) : null;
-    } catch {
-      parsed = null;
-    }
-
     if (!resp.ok) {
-      console.warn('[fc-notify] admin web push callback failed', {
+      reportEdgeDiagnostic({
+        event: 'fc_notify.admin_web_push',
+        reason: 'upstream_rejected',
         status: resp.status,
-        statusText: resp.statusText,
-        body: text.slice(0, 300),
+        retryable: resp.status >= 500,
+        errorClass: 'upstream',
       });
       return {
         ok: false,
         status: resp.status,
         reason: `http-${resp.status}`,
       } as AdminWebPushResult;
+    }
+
+    const text = await resp.text().catch(() => '');
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = text ? (JSON.parse(text) as Record<string, unknown>) : null;
+    } catch {
+      parsed = null;
     }
 
     const sent = typeof parsed?.sent === 'number' ? parsed.sent : undefined;
@@ -1608,9 +1611,10 @@ serve(async (req: Request) => {
         }
       }
     } else {
-      console.warn('[fc-notify] no admin recipients resolved for fc_update/fc_delete', {
-        fc_id,
-        affiliation: fcRow.affiliation,
+      reportEdgeDiagnostic({
+        event: 'fc_notify.recipient_resolution',
+        reason: 'no_admin_recipients',
+        count: 0,
       });
     }
   } else {

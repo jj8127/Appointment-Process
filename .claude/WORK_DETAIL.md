@@ -7,6 +7,25 @@
 
 ---
 
+## <a id="20260716-edge-diagnostic-closure"></a> 2026-07-16 | Closed Edge diagnostics and proven sink closure
+
+**Scope and invariant**:
+- Reviewed the exact residual diagnostic surface without changing unrelated console debt. Fifteen paths were proven to expose a phone, referral code, UUID/profile identifier, affiliation, raw upstream body/JSON, or raw `Error` before the first sink.
+- Diagnostic output is now reject-by-construction: fixed event/reason pairs plus optional bounded status/count, boolean retryability, and a coarse error class. Raw messages, errors, bodies, URLs/paths, identifiers, phone numbers, referral values, and affiliations are not accepted and are discarded even after a forced type escape.
+
+**Changes**:
+- Added one shared `edge-diagnostic.ts` sink and routed the 15 proven set-password, login, password-sync, FC notify, Board, account-cleanup, and admin-web settings paths to closed diagnostics or a fixed logger message.
+- Preserved Request Board password-sync request body, headers, timeout/finally cleanup, and best-effort response behavior while stopping non-OK body reads and raw JSON/Error serialization.
+- Added Deno poison/positive-control tests, inverted the three password-sync leak characterization tests, and added source assertions for all remediated paths.
+- Frozen the exact remaining 36 direct-console calls across 14 reviewed files as 9 fixed non-sensitive literals plus 27 unproven items. The AST baseline is investigation debt and explicitly not an approval list.
+
+**Verification and safety**:
+- Focused Deno helper/password-sync tests, changed-entrypoint Deno checks, focused Jest privacy/governance suites, and the final full local gates are recorded in the sprint evidence receipt and handoff.
+- No deploy, remote function/database call, secret change, Sentry upload, staging, commit, push, or PR was performed. The user-owned navigation-background test remained outside the edit boundary.
+- Production log replay, authenticated remote flows, and rollout credential checks remain external. Release decision remains `HOLD`.
+
+---
+
 ## <a id="20260716-diagnostic-privacy-boundary"></a> 2026-07-16 | Diagnostic privacy boundary for logger, push, OTP, and group chat
 
 **Validated path and invariant**:

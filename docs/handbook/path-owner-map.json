@@ -197,6 +197,20 @@
       ]
     },
     {
+      "id": "backend-diagnostic-privacy",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/_shared/edge-diagnostic.ts",
+        "supabase/functions/_shared/__tests__/edge-diagnostic_test.ts",
+        "scripts/ci/edge-diagnostic-console-baseline.json",
+        "lib/__tests__/diagnostic-console-governance.test.ts",
+        "lib/__tests__/diagnostic-privacy-source.test.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/shared/security-and-secret-operations.md"
+      ]
+    },
+    {
       "id": "backend-auth-bridge",
       "severity": "contract",
       "prefixes": [

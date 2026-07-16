@@ -1,0 +1,278 @@
+{
+  "description": "Frozen investigation debt for the reviewed Edge/web diagnostic surface. Entries are not approved safe sinks.",
+  "auditedFiles": [
+    "supabase/functions/set-password/index.ts",
+    "supabase/functions/login-with-password/index.ts",
+    "supabase/functions/_shared/request-board-password-sync.ts",
+    "supabase/functions/fc-notify/index.ts",
+    "supabase/functions/user-presence/index.ts",
+    "supabase/functions/get-referral-tree/index.ts",
+    "supabase/functions/board-create/index.ts",
+    "supabase/functions/board-update/index.ts",
+    "supabase/functions/board-detail/index.ts",
+    "supabase/functions/_shared/board.ts",
+    "supabase/functions/board-attachment-delete/index.ts",
+    "supabase/functions/board-attachment-sign/index.ts",
+    "supabase/functions/delete-account/index.ts",
+    "web/src/app/dashboard/settings/page.tsx"
+  ],
+  "expectedCounts": {
+    "fixed-non-sensitive": 9,
+    "unproven": 27,
+    "total": 36
+  },
+  "sinks": [
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: referral code lookup error', codeError.message)",
+      "classification": "unproven",
+      "anchor": "referral-code-lookup-error"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: inviter profile lookup error', inviterError.message)",
+      "classification": "unproven",
+      "anchor": "inviter-profile-lookup-error"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: inviter profile not found or missing phone')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "inviter-profile-missing"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: inviter profile is neither signup completed nor manager shadow')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "inviter-profile-ineligible"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: inviter profile is request-board designer')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "inviter-profile-designer"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: inviter phone is not normalized')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "inviter-phone-not-normalized"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: self-referral detected, skipping')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "self-referral"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: unexpected error', err instanceof Error ? err.message : String(err))",
+      "classification": "unproven",
+      "anchor": "referral-resolution-unexpected-error"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn(`[set-password] ${params.logLabel}: event insert error`, error.message)",
+      "classification": "unproven",
+      "anchor": "referral-event-insert-error"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] applyReferralLinkState failed', applyResult.message)",
+      "classification": "unproven",
+      "anchor": "referral-link-state-error"
+    },
+    {
+      "path": "supabase/functions/fc-notify/index.ts",
+      "method": "warn",
+      "call": "console.warn('[fc-notify] admin web push disabled: missing ADMIN_WEB_URL')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "admin-web-url-missing"
+    },
+    {
+      "path": "supabase/functions/fc-notify/index.ts",
+      "method": "warn",
+      "call": "console.warn('[fc-notify] admin web push disabled: invalid ADMIN_WEB_URL')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "admin-web-url-invalid"
+    },
+    {
+      "path": "supabase/functions/fc-notify/index.ts",
+      "method": "warn",
+      "call": "console.warn('[fc-notify] admin web push callback failed', e)",
+      "classification": "unproven",
+      "anchor": "admin-web-push-transport-error"
+    },
+    {
+      "path": "supabase/functions/fc-notify/index.ts",
+      "method": "log",
+      "call": "console.log('[fc-notify] request', { type: body.type, auth: authMode })",
+      "classification": "unproven",
+      "anchor": "request-mode"
+    },
+    {
+      "path": "supabase/functions/fc-notify/index.ts",
+      "method": "warn",
+      "call": "console.warn('[fc-notify] board attachment cleanup failed', storageErr.message)",
+      "classification": "unproven",
+      "anchor": "board-attachment-cleanup-error"
+    },
+    {
+      "path": "supabase/functions/fc-notify/index.ts",
+      "method": "warn",
+      "call": "console.warn('notifications insert failed', logError.message)",
+      "classification": "unproven",
+      "anchor": "notifications-insert-error-first"
+    },
+    {
+      "path": "supabase/functions/fc-notify/index.ts",
+      "method": "warn",
+      "call": "console.warn('[fc-notify] device token load failed', error.message)",
+      "classification": "unproven",
+      "anchor": "device-token-load-error"
+    },
+    {
+      "path": "supabase/functions/fc-notify/index.ts",
+      "method": "warn",
+      "call": "console.warn('notifications insert failed', logError.message)",
+      "classification": "unproven",
+      "anchor": "notifications-insert-error-second"
+    },
+    {
+      "path": "supabase/functions/user-presence/index.ts",
+      "method": "warn",
+      "call": "console.warn('[user-presence] get_user_presence rpc failed; falling back to table read', error)",
+      "classification": "unproven",
+      "anchor": "presence-read-fallback"
+    },
+    {
+      "path": "supabase/functions/user-presence/index.ts",
+      "method": "warn",
+      "call": "console.warn('[user-presence] touch_user_presence rpc failed; falling back to table write', error)",
+      "classification": "unproven",
+      "anchor": "presence-touch-fallback"
+    },
+    {
+      "path": "supabase/functions/user-presence/index.ts",
+      "method": "warn",
+      "call": "console.warn('[user-presence] stale_user_presence rpc failed; falling back to table write', error)",
+      "classification": "unproven",
+      "anchor": "presence-stale-fallback"
+    },
+    {
+      "path": "supabase/functions/get-referral-tree/index.ts",
+      "method": "error",
+      "call": "console.error('[get-referral-tree] rpc and fallback both failed', { rpcError: error.message, fallbackError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError), })",
+      "classification": "unproven",
+      "anchor": "referral-tree-double-failure"
+    },
+    {
+      "path": "supabase/functions/board-create/index.ts",
+      "method": "warn",
+      "call": "console.warn('[board-create] push skipped: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "board-create-push-config-missing"
+    },
+    {
+      "path": "supabase/functions/board-create/index.ts",
+      "method": "warn",
+      "call": "console.warn('[board-create] push fanout returned not ok', { targetRole, message: parsed.message ?? 'unknown', })",
+      "classification": "unproven",
+      "anchor": "board-create-push-semantic-failure"
+    },
+    {
+      "path": "supabase/functions/board-create/index.ts",
+      "method": "warn",
+      "call": "console.warn('[board-create] push fanout network error', { targetRole, error })",
+      "classification": "unproven",
+      "anchor": "board-create-push-transport-error"
+    },
+    {
+      "path": "supabase/functions/board-create/index.ts",
+      "method": "warn",
+      "call": "console.warn('[board-create] notifications insert failed', notificationError.message)",
+      "classification": "unproven",
+      "anchor": "board-create-notification-insert-error"
+    },
+    {
+      "path": "supabase/functions/board-update/index.ts",
+      "method": "warn",
+      "call": "console.warn('[board-update] push skipped: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "board-update-push-config-missing"
+    },
+    {
+      "path": "supabase/functions/board-update/index.ts",
+      "method": "warn",
+      "call": "console.warn('[board-update] push fanout returned not ok', { targetRole, message: parsed.message ?? 'unknown', })",
+      "classification": "unproven",
+      "anchor": "board-update-push-semantic-failure"
+    },
+    {
+      "path": "supabase/functions/board-update/index.ts",
+      "method": "warn",
+      "call": "console.warn('[board-update] push fanout network error', { targetRole, error })",
+      "classification": "unproven",
+      "anchor": "board-update-push-transport-error"
+    },
+    {
+      "path": "supabase/functions/board-update/index.ts",
+      "method": "warn",
+      "call": "console.warn('[board-update] notifications insert failed', notificationError.message)",
+      "classification": "unproven",
+      "anchor": "board-update-notification-insert-error"
+    },
+    {
+      "path": "supabase/functions/board-attachment-delete/index.ts",
+      "method": "error",
+      "call": "console.error('[board-attachment-delete] storage delete error:', storageError.message)",
+      "classification": "unproven",
+      "anchor": "board-attachment-storage-delete-error"
+    },
+    {
+      "path": "supabase/functions/board-attachment-sign/index.ts",
+      "method": "error",
+      "call": "console.error('[storage_error]', error?.message)",
+      "classification": "unproven",
+      "anchor": "board-attachment-sign-storage-error"
+    },
+    {
+      "path": "supabase/functions/delete-account/index.ts",
+      "method": "warn",
+      "call": "console.warn('[delete-account] fc-documents storage remove failed', storageError.message ?? storageError)",
+      "classification": "unproven",
+      "anchor": "fc-document-storage-remove-error"
+    },
+    {
+      "path": "supabase/functions/delete-account/index.ts",
+      "method": "warn",
+      "call": "console.warn( '[delete-account] board-attachments storage remove failed', boardStorageError.message ?? boardStorageError, )",
+      "classification": "unproven",
+      "anchor": "board-attachment-storage-remove-error"
+    },
+    {
+      "path": "supabase/functions/delete-account/index.ts",
+      "method": "warn",
+      "call": "console.warn('[delete-account] chat-uploads storage remove failed', chatStorageError.message ?? chatStorageError)",
+      "classification": "unproven",
+      "anchor": "chat-upload-storage-remove-error"
+    },
+    {
+      "path": "web/src/app/dashboard/settings/page.tsx",
+      "method": "error",
+      "call": "console.error('[Settings] Account deletion failed', error)",
+      "classification": "unproven",
+      "anchor": "settings-account-delete-error"
+    }
+  ]
+}

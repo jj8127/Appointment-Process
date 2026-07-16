@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase , dbError, redactSensitiveText } from '../_shared/board.ts';
 import { isCanonicalBoardCategorySlug } from '../_shared/board-categories.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 
 type Payload = {
   actor?: {
@@ -71,16 +72,18 @@ async function sendBoardPush(targetRole: BoardPushTargetRole, title: string, bod
       }),
     });
 
-    const raw = await response.text().catch(() => '');
     if (!response.ok) {
-      console.warn('[board-create] push fanout failed', {
-        targetRole,
+      reportEdgeDiagnostic({
+        event: 'board_create.push_fanout',
+        reason: 'upstream_rejected',
         status: response.status,
-        body: raw.slice(0, 300),
+        retryable: response.status >= 500,
+        errorClass: 'upstream',
       });
       return;
     }
 
+    const raw = await response.text().catch(() => '');
     try {
       const parsed = raw ? JSON.parse(raw) as { ok?: boolean; message?: string } : null;
       if (parsed?.ok === false) {

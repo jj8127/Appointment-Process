@@ -12,6 +12,7 @@ import {
   getWebPushRegistrationFeedback,
 } from '@/lib/web-push-config';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
 import {
   Button,
   Checkbox,
@@ -117,10 +118,7 @@ export default function SettingsPage() {
     setLoading(true);
 
     try {
-      console.log('[Settings] Starting account deletion via delete-account function', {
-        residentId,
-        residentMask,
-      });
+      logger.info('[settings] account deletion requested');
 
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; deleted?: boolean; error?: string }>(
         'delete-account',

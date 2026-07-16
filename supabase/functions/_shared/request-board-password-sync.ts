@@ -1,3 +1,9 @@
+import {
+  reportEdgeDiagnostic,
+  type EdgeDiagnosticInput,
+  type EdgeDiagnosticWriter,
+} from './edge-diagnostic.ts';
+
 export type RequestBoardPasswordSyncRole = 'fc' | 'designer' | 'manager';
 export type RequestBoardPasswordSyncInitiatorRole = 'self' | 'admin' | 'manager' | 'system';
 export type RequestBoardPasswordSyncReason = 'login' | 'self-reset' | 'admin-reset' | 'bootstrap';
@@ -50,7 +56,7 @@ type PasswordSyncDeps = {
   createAbortController: () => PasswordSyncAbortController;
   setTimeoutImpl: (handler: () => void, timeoutMs: number) => unknown;
   clearTimeoutImpl: (handle: unknown) => void;
-  warn: (...args: unknown[]) => void;
+  diagnostic: EdgeDiagnosticWriter;
 };
 
 export const buildRequestBoardPasswordSyncBody = (
@@ -76,7 +82,6 @@ export async function syncRequestBoardPasswordWithDeps({
   syncUrl,
   syncToken,
   timeoutMs,
-  logPrefix,
   phone,
   password,
   options,
@@ -85,9 +90,17 @@ export async function syncRequestBoardPasswordWithDeps({
   createAbortController,
   setTimeoutImpl,
   clearTimeoutImpl,
-  warn,
+  diagnostic,
 }: PasswordSyncDeps) {
   if (!syncUrl || !syncToken) return;
+
+  const emitDiagnostic = (input: EdgeDiagnosticInput) => {
+    try {
+      diagnostic(input);
+    } catch {
+      // A diagnostic sink must not alter this best-effort bridge operation.
+    }
+  };
 
   const controller = createAbortController();
   const timeout = setTimeoutImpl(() => controller.abort(), timeoutMs);
@@ -103,17 +116,32 @@ export async function syncRequestBoardPasswordWithDeps({
     });
 
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      warn(`[${logPrefix}] request_board sync failed: ${response.status} ${text.slice(0, 200)}`);
+      emitDiagnostic({
+        event: 'request_board.password_sync',
+        reason: 'upstream_rejected',
+        status: response.status,
+        retryable: response.status >= 500,
+        errorClass: 'upstream',
+      });
       return;
     }
 
     const json = await response.json().catch(() => ({}));
     if (!(typeof json === 'object' && json !== null && 'success' in json && json.success === true)) {
-      warn(`[${logPrefix}] request_board sync error: ${JSON.stringify(json).slice(0, 200)}`);
+      emitDiagnostic({
+        event: 'request_board.password_sync',
+        reason: 'invalid_response',
+        errorClass: 'upstream',
+      });
     }
-  } catch (error) {
-    warn(`[${logPrefix}] request_board sync error:`, error);
+  } catch {
+    const timedOut = controller.signal.aborted === true;
+    emitDiagnostic({
+      event: 'request_board.password_sync',
+      reason: timedOut ? 'timeout' : 'request_failed',
+      retryable: true,
+      errorClass: timedOut ? 'timeout' : 'network',
+    });
   } finally {
     clearTimeoutImpl(timeout);
   }
@@ -125,6 +153,6 @@ export async function syncRequestBoardPassword(params: SyncRequestParams) {
     createAbortController: () => new AbortController(),
     setTimeoutImpl: (handler, timeoutMs) => setTimeout(handler, timeoutMs),
     clearTimeoutImpl: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-    warn: (...args) => console.warn(...args),
+    diagnostic: reportEdgeDiagnostic,
   });
 }

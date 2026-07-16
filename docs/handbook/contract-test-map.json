@@ -3,6 +3,23 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "edge-diagnostic-privacy",
+      "prefixes": [
+        "supabase/functions/_shared/edge-diagnostic.ts",
+        "supabase/functions/_shared/__tests__/edge-diagnostic_test.ts",
+        "scripts/ci/edge-diagnostic-console-baseline.json",
+        "lib/__tests__/diagnostic-console-governance.test.ts",
+        "lib/__tests__/diagnostic-privacy-source.test.ts"
+      ],
+      "requires_any": [
+        "supabase/functions/_shared/__tests__/edge-diagnostic_test.ts",
+        "lib/__tests__/diagnostic-console-governance.test.ts",
+        "lib/__tests__/diagnostic-privacy-source.test.ts",
+        "docs/handbook/shared/security-and-secret-operations.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
       "id": "dependency-and-build-security",
       "prefixes": [
         "package.json",

@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 
 type Payload = {
   residentId?: string;
@@ -468,7 +469,11 @@ serve(async (req: Request) => {
     for (const profileId of linkedProfileIds) {
       const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profileId);
       if (authDeleteError) {
-        console.warn('[delete-account] auth user delete failed', profileId, authDeleteError.message ?? authDeleteError);
+        reportEdgeDiagnostic({
+          event: 'delete_account.auth_cleanup',
+          reason: 'auth_user_delete_failed',
+          errorClass: 'authentication',
+        });
       }
     }
     await ignoreMissingTable(await supabase.from('profiles').delete().eq('fc_id', fcId));
@@ -518,7 +523,11 @@ serve(async (req: Request) => {
         for (const profileId of linkedProfileIds) {
           const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profileId);
           if (authDeleteError) {
-            console.warn('[delete-account] manager shadow auth user delete failed', profileId, authDeleteError.message ?? authDeleteError);
+            reportEdgeDiagnostic({
+              event: 'delete_account.auth_cleanup',
+              reason: 'manager_shadow_auth_user_delete_failed',
+              errorClass: 'authentication',
+            });
           }
         }
         await ignoreMissingTable(await supabase.from('profiles').delete().in('fc_id', managerShadowIds));

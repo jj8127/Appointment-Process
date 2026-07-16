@@ -1,0 +1,163 @@
+export type EdgeDiagnosticErrorClass =
+  | 'network'
+  | 'timeout'
+  | 'upstream'
+  | 'database'
+  | 'authentication';
+
+type EdgeDiagnosticPair =
+  | {
+      event: 'set_password.referral_resolution';
+      reason: 'not_found_or_inactive' | 'inviter_hint_mismatch';
+    }
+  | {
+      event: 'login_with_password.referral_bootstrap';
+      reason:
+        | 'referral_code_auto_issue_failed'
+        | 'manager_shadow_ensure_failed'
+        | 'manager_shadow_lookup_failed';
+    }
+  | {
+      event: 'request_board.password_sync';
+      reason: 'upstream_rejected' | 'invalid_response' | 'request_failed' | 'timeout';
+    }
+  | {
+      event: 'fc_notify.admin_web_push';
+      reason: 'upstream_rejected';
+    }
+  | {
+      event: 'fc_notify.recipient_resolution';
+      reason: 'no_admin_recipients';
+    }
+  | {
+      event: 'board_create.push_fanout';
+      reason: 'upstream_rejected';
+    }
+  | {
+      event: 'board_update.push_fanout';
+      reason: 'upstream_rejected';
+    }
+  | {
+      event: 'board.view_tracking';
+      reason: 'view_tracking_failed';
+    }
+  | {
+      event: 'board.database_operation';
+      reason: 'database_operation_failed';
+    }
+  | {
+      event: 'delete_account.auth_cleanup';
+      reason: 'auth_user_delete_failed' | 'manager_shadow_auth_user_delete_failed';
+    };
+
+type EdgeDiagnosticFields = Readonly<{
+  status?: number;
+  count?: number;
+  retryable?: boolean;
+  errorClass?: EdgeDiagnosticErrorClass;
+}>;
+
+export type EdgeDiagnosticInput = Readonly<EdgeDiagnosticPair & EdgeDiagnosticFields>;
+
+type EdgeDiagnosticAllowedKey = 'event' | 'reason' | 'status' | 'count' | 'retryable' | 'errorClass';
+type ExactEdgeDiagnostic<T extends EdgeDiagnosticInput> = T &
+  Record<Exclude<keyof T, EdgeDiagnosticAllowedKey>, never>;
+
+export type EdgeDiagnosticWriter = <const T extends EdgeDiagnosticInput>(
+  input: ExactEdgeDiagnostic<T>,
+) => void;
+
+export type EdgeDiagnosticRecord = Readonly<{
+  event: EdgeDiagnosticInput['event'] | 'edge_diagnostic.rejected';
+  reason: EdgeDiagnosticInput['reason'] | 'invalid_diagnostic_input';
+  status?: number;
+  count?: number;
+  retryable?: boolean;
+  errorClass?: EdgeDiagnosticErrorClass;
+}>;
+
+const VALID_PAIRS = new Set<string>([
+  'set_password.referral_resolution:not_found_or_inactive',
+  'set_password.referral_resolution:inviter_hint_mismatch',
+  'login_with_password.referral_bootstrap:referral_code_auto_issue_failed',
+  'login_with_password.referral_bootstrap:manager_shadow_ensure_failed',
+  'login_with_password.referral_bootstrap:manager_shadow_lookup_failed',
+  'request_board.password_sync:upstream_rejected',
+  'request_board.password_sync:invalid_response',
+  'request_board.password_sync:request_failed',
+  'request_board.password_sync:timeout',
+  'fc_notify.admin_web_push:upstream_rejected',
+  'fc_notify.recipient_resolution:no_admin_recipients',
+  'board_create.push_fanout:upstream_rejected',
+  'board_update.push_fanout:upstream_rejected',
+  'board.view_tracking:view_tracking_failed',
+  'board.database_operation:database_operation_failed',
+  'delete_account.auth_cleanup:auth_user_delete_failed',
+  'delete_account.auth_cleanup:manager_shadow_auth_user_delete_failed',
+]);
+
+const ERROR_CLASSES = new Set<EdgeDiagnosticErrorClass>([
+  'network',
+  'timeout',
+  'upstream',
+  'database',
+  'authentication',
+]);
+
+const MAX_SAFE_COUNT = 1_000_000;
+
+export function buildEdgeDiagnosticRecord<const T extends EdgeDiagnosticInput>(
+  input: ExactEdgeDiagnostic<T>,
+): EdgeDiagnosticRecord {
+  const candidate = input as unknown as Record<string, unknown>;
+  const event = candidate.event;
+  const reason = candidate.reason;
+
+  if (
+    typeof event !== 'string'
+    || typeof reason !== 'string'
+    || !VALID_PAIRS.has(`${event}:${reason}`)
+  ) {
+    return Object.freeze({
+      event: 'edge_diagnostic.rejected',
+      reason: 'invalid_diagnostic_input',
+    });
+  }
+
+  const record: {
+    event: EdgeDiagnosticRecord['event'];
+    reason: EdgeDiagnosticRecord['reason'];
+    status?: number;
+    count?: number;
+    retryable?: boolean;
+    errorClass?: EdgeDiagnosticErrorClass;
+  } = { event: event as EdgeDiagnosticInput['event'], reason: reason as EdgeDiagnosticInput['reason'] };
+
+  if (Number.isInteger(candidate.status) && Number(candidate.status) >= 100 && Number(candidate.status) <= 599) {
+    record.status = Number(candidate.status);
+  }
+  if (Number.isInteger(candidate.count) && Number(candidate.count) >= 0 && Number(candidate.count) <= MAX_SAFE_COUNT) {
+    record.count = Number(candidate.count);
+  }
+  if (typeof candidate.retryable === 'boolean') {
+    record.retryable = candidate.retryable;
+  }
+  if (typeof candidate.errorClass === 'string' && ERROR_CLASSES.has(candidate.errorClass as EdgeDiagnosticErrorClass)) {
+    record.errorClass = candidate.errorClass as EdgeDiagnosticErrorClass;
+  }
+
+  return Object.freeze(record);
+}
+
+export const reportEdgeDiagnostic: EdgeDiagnosticWriter = (input) => {
+  const record = buildEdgeDiagnosticRecord(input);
+  try {
+    if (record.event === 'board.database_operation') {
+      console.error('[edge-diagnostic]', record);
+      return;
+    }
+    console.warn('[edge-diagnostic]', record);
+  } catch {
+    // Diagnostics are deliberately best effort and must never alter product behavior.
+  }
+};
