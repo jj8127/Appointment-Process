@@ -31,7 +31,7 @@ The repository contains the FC mobile app, admin web app, shared TypeScript cont
 - The listed local commits and closure range are present on the current branch.
 - `quality-full-20260716-015916` passes FC 18/18, including all 46 tracked Edge entrypoints, root and web TypeScript, lint, Jest and coverage, Expo/web builds, Node/ops/Board smoke, Sentry dry-run, and both package audits.
 - The web Node result is 228 PASS / 1 SKIP. The skipped `referral-graph-realdata` case requires actual Supabase data and external credentials, so it is classified `DESTRUCTIVE_OR_EXTERNAL_TEST_BLOCKER`, not a local product failure or remote E2E pass.
-- The unexplained local change in `lib/__tests__/navigation-background-source.test.ts` remains outside the completed commits and must stay unstaged until its provenance is established.
+- One unexplained user-owned protected test remains outside the completed commits and all task edits, staging, and verification until its provenance is established; its identifier is withheld.
 - Credential state is active tracked copy 0, current local untracked copy 6, and confirmed historical tracked exposure. Authorized local cleanup plus external rotation and history/clone assessment remain open; no value, prefix, digest, or raw copy is reproduced here.
 - Authenticated browser evidence, remote migration state, caller-first rollout, remote smoke, rollback observation, and secret revocation/history cleanup remain unproven.
 

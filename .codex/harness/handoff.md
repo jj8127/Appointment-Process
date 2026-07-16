@@ -16,7 +16,7 @@ The release is not approved.
 ## Current repository state to preserve
 
 - Branch and commit history must remain unchanged unless a new contract explicitly authorizes a local commit.
-- `lib/__tests__/navigation-background-source.test.ts` is modified and unstaged; its origin is unresolved.
+- One user-owned protected test is modified and unstaged; its origin is unresolved, and it remains excluded from all task edits, staging, and verification.
 - Credential state is active tracked copy 0, current local untracked copy 6, and confirmed historical tracked exposure. Do not inspect or reproduce those copies during ordinary handoff work.
 - Do not use stash, reset, checkout, clean, broad staging, push, pull request, deployment, remote database mutation, or secret replacement as a convenience step.
 
@@ -37,7 +37,7 @@ The release is not approved.
 4. Apply and verify additive migrations before enabling dependent callers; separately prove signed caller adoption before Edge enforcement.
 5. Keep insurance automation PAUSED until its token and approved manual E2E are restored; the current read-only scan found zero matching scheduled tasks.
 6. Run the real-data graph case only with approved external credentials and disposable/non-shared boundaries.
-7. Determine the provenance and intended disposition of the navigation test change.
+7. Determine the provenance and intended disposition of the user-owned protected test change without reproducing its identifier.
 
 ## Stop conditions
 

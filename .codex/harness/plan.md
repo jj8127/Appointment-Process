@@ -15,7 +15,7 @@ Each slice was path-selectively committed. None proves remote deployment or data
 
 ## Active worktree containment
 
-1. Preserve `lib/__tests__/navigation-background-source.test.ts` as an unstaged, unexplained change.
+1. Preserve one user-owned protected test as an unstaged, unexplained change and exclude it from all task edits, staging, and verification.
 2. Do not read, print, stage, or rewrite the six current untracked credential copies during ordinary product work; handle them only under an authorized bounded cleanup contract.
 3. Keep new work separated by explicit path and hunk selection; never use broad staging.
 4. Store only sanitized receipts and structural manifests in durable evidence.
@@ -50,7 +50,7 @@ Each slice was path-selectively committed. None proves remote deployment or data
 
 ### P1 — Worktree reconciliation
 
-- Determine provenance for the navigation test change.
+- Determine provenance for the user-owned protected test change without reproducing its identifier.
 - Commit it only under a new explicit contract with independent verification, or leave it documented and unstaged.
 
 ## Completion criteria

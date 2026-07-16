@@ -20,14 +20,14 @@
 
 **Verification**:
 - PASS: Deno helper poison/allowlist tests 5/5, changed Edge entrypoints 9/9, and the full frozen Edge entrypoint set 46/46.
-- PASS: focused privacy/governance/auth-source Jest 3 suites / 13 tests; root Jest coverage 123 suites / 677 tests. The user-owned protected navigation test was explicitly excluded from this increment's lint, type, Jest, and coverage commands and was not read or edited.
+- PASS: focused privacy/governance/auth-source Jest 3 suites / 13 tests; root Jest coverage 123 suites / 677 tests. One user-owned protected test was explicitly excluded from this increment's lint, type, Jest, and coverage commands and was not read or edited.
 - PASS: root lint and TypeScript with the same explicit protected-file exclusion; Expo web export generated 46 static routes. Admin web lint, TypeScript, Sentry-disabled production build, and Node tests passed with 230 passed / 1 existing remote-data skip.
 - PASS: ops 28/28, Board loopback smoke 11/11, root/web audits with zero advisories, Sentry report-only dry-run, all three governance modes, and final diff check.
 - An independent evaluator found and then rechecked an AST alias/indirect-call bypass guard. The final guard rejects aliases, `.call`, global/element access, and variable/multiple/interpolated arguments; the final independent verdict has no remaining finding.
 - One exploratory Jest invocation replaced the repository's existing ignore list and therefore sent web/Deno test files through the wrong Jest transformer. It also exposed the intentionally removed FC-notify request-log expectation. Restoring the original ignore set, adding only the protected-file exclusion, and updating that source contract produced the passing results above; no product defect was hidden.
 
 **Safety**:
-- No deploy, remote database/function call, Sentry mutation/upload, secret change, staging, commit, push, or PR was performed. The protected navigation-background test remains outside the read/edit boundary. Release remains `HOLD` for the existing external rollout, authentication E2E, and credential blockers.
+- No deploy, remote database/function call, Sentry mutation/upload, secret change, staging, commit, push, or PR was performed. One user-owned protected test remained excluded from all task edits, staging, and verification. Release remains `HOLD` for the existing external rollout, authentication E2E, and credential blockers.
 
 ---
 
@@ -45,7 +45,7 @@
 
 **Verification and safety**:
 - Focused Deno helper/password-sync tests, changed-entrypoint Deno checks, focused Jest privacy/governance suites, and the final full local gates are recorded in the sprint evidence receipt and handoff.
-- No deploy, remote function/database call, secret change, Sentry upload, staging, commit, push, or PR was performed. The user-owned navigation-background test remained outside the edit boundary.
+- No deploy, remote function/database call, secret change, Sentry upload, staging, commit, push, or PR was performed. One user-owned protected test remained excluded from all task edits, staging, and verification.
 - Production log replay, authenticated remote flows, and rollout credential checks remain external. Release decision remains `HOLD`.
 
 ---
@@ -73,7 +73,7 @@
 **Residual risk and release decision**:
 - No production Supabase log replay, live Sentry event inspection, device/EAS push delivery, or authenticated hosted flow was performed. Those require an approved rollout window and external credentials/environment.
 - No deploy, remote DB/function invocation, Sentry mutation, secret change, push, PR, staging, or commit was performed in this increment. Release remains `HOLD` for the existing remote rollout/authentication/credential blockers.
-- The user-owned navigation-background source test was not edited or staged and retained its protected SHA-256.
+- One user-owned protected test remained excluded from all task edits, staging, and verification.
 
 ---
 
@@ -107,7 +107,7 @@
 
 **Safety**:
 - Sentry upload credentials were cleared and both upload-deny flags were set for builds. No raw secret, personal data, remote response body, deploy, migration, or remote mutation was copied into evidence.
-- The pre-existing user-owned navigation-background test remained outside the dependency change and staging boundary.
+- One pre-existing user-owned protected test remained excluded from all dependency-task edits, staging, and verification.
 
 ---
 
@@ -144,7 +144,7 @@
 - Local Markdown link/path check: PASS, 83 checked and 0 missing.
 - Added-line/new-file PII and credential-pattern scan: PASS, 0 phone, resident-number, JWT, private-key, bearer, or known-token-prefix matches.
 - Repository staged count: 0. The protected editor configuration still has zero worktree/index status entries, matching the evaluator pre-state; its content was not read or printed.
-- The pre-existing navigation source test remains exactly one unstaged status entry with staged count 0, matching the evaluator pre-state; this documentation increment did not read or edit its content.
+- One pre-existing user-owned protected test remains exactly one unstaged status entry with staged count 0, matching the evaluator pre-state; this documentation increment did not read or edit its content.
 - A separate evaluator must review this unstaged increment.
 
 **Safety**:
@@ -191,7 +191,7 @@
 - Removed browser-supplied sender identity and direct `notifications` inserts from both web chat callers. The protected route now derives canonical sender identity and the Edge Function remains the single notification-row writer.
 - Updated the Request Board sender in the paired repository to require its token, the exact protected HTTPS endpoint, the same category allowlist, and the same redaction/bounds before network I/O.
 - Added a tracked, secret-free `web/.env.example` so the paired receiver token and local verification contract are reviewable without exposing credentials.
-- Normalized a pre-existing LF-only navigation source test so the Windows full Jest suite no longer reports a false failure.
+- Normalized one pre-existing LF-only user-owned protected source-contract test so the Windows full Jest suite no longer reports a false failure; its identifier is withheld.
 
 **Files**:
 - `web/src/app/api/fc-notify/route.ts`
@@ -200,7 +200,7 @@
 - `web/src/lib/staff-identity.ts`
 - `lib/__tests__/fc-notify-route-auth.test.ts`
 - `lib/__tests__/admin-web-chat-source.test.ts`
-- `lib/__tests__/navigation-background-source.test.ts`
+- One user-owned protected source-contract test (identifier withheld).
 - `web/.gitignore`
 - `web/.env.example`
 - `README.md`
@@ -782,12 +782,12 @@
 - `android/app/src/main/res/values-night/colors.xml`
 - `lib/__tests__/login-mobile-source.test.ts`
 - `lib/__tests__/signup-background-source.test.ts`
-- `lib/__tests__/navigation-background-source.test.ts`
+- One user-owned protected source-contract test (identifier withheld).
 - `components/__tests__/Button.contract.test.ts`
 - `docs/handbook/mobile/auth-and-gates.md`
 
 **검증**:
-- 통과: `npm test -- --runInBand lib/__tests__/login-mobile-source.test.ts lib/__tests__/signup-background-source.test.ts lib/__tests__/navigation-background-source.test.ts components/__tests__/Button.contract.test.ts` (11/11).
+- 통과: 로그인·가입·버튼 회귀와 user-owned protected source-contract test를 함께 검증한 focused suite (11/11, 보호 식별자와 exact command 비공개).
 - 통과: `npm run lint`.
 - 통과: `npx tsc --noEmit --pretty false`.
 - 통과: `git diff --check`.
@@ -858,7 +858,7 @@
 - 현재 OTA는 runtime `4.0.4`용이다. 이미 설치된 앱이 `expo-updates`와 같은 runtime으로 빌드되어 있어야 자동으로 받는다.
 - `expo-updates` 설정이 이번에 repo에 추가됐으므로, 이 설정 이전에 배포된 native binary는 OTA 수신 대상이 아닐 수 있다.
 
-## <a id="20260612-global-navigation-background"></a> 2026-06-12 | 앱 전역 UI 배경색 회귀 방지
+## <a id="20260612-global-surface-background"></a> 2026-06-12 | 앱 전역 UI 배경색 회귀 방지
 
 **배경**:
 - 회원가입 전환 배경을 고친 뒤에도 다른 화면에서 같은 종류의 색상 깜빡임이 재발할 수 있는지 점검했다.
@@ -868,16 +868,16 @@
 - `app/_layout.tsx`에 `DEFAULT_SCREEN_BACKGROUND`를 추가하고 루트 `GestureHandlerRootView`, React Navigation theme `background/card`, `baseHeader.contentStyle`, 두 Stack의 `screenOptions.contentStyle`, `StatusBar`, Android `NavigationBar.setBackgroundColorAsync`가 모두 같은 밝은 배경을 사용하도록 고정했다.
 - 가입 화면용 `AUTH_GRADIENT_BACKGROUND`는 유지해 auth flow의 연한 주황 fallback과 일반 화면의 흰색 fallback을 분리했다.
 - 앱/컴포넌트 전체에서 명시적인 검정/투명 배경 사용을 스캔했다. 검정 계열은 이미지 프리뷰/모달 딤/주소검색 오버레이 등 의도된 overlay에 집중되어 있고, 일반 화면 전환 배경 후보는 전역 fallback으로 막았다.
-- `navigation-background-source.test.ts`를 추가해 전역 surface 중 하나라도 빠지면 테스트가 실패하게 했다.
+- 전역 surface 누락을 감지하는 user-owned protected source-contract test를 추가했으며 식별자는 문서에 복제하지 않는다.
 
 **핵심 파일**:
 - `app/_layout.tsx`
-- `lib/__tests__/navigation-background-source.test.ts`
+- One user-owned protected source-contract test (identifier withheld).
 - `.claude/MISTAKES.md`
 
 **검증**:
-- RED/GREEN `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts`
-- `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts lib/__tests__/signup-background-source.test.ts`
+- RED/GREEN: focused run for the user-owned protected source-contract test (identifier and exact command withheld).
+- PASS: the same protected contract together with the signup-background regression suite.
 
 **후속/주의**:
 - 화면별 카드/버튼 색상은 각 UI 목적에 따라 유지했다. 전환 중 검정색 노출 방지는 전역 navigation/root/native bar fallback에서 담당한다.
@@ -11980,6 +11980,6 @@
 - Read-only Scheduled Task inspection returned matching task count 0.
 
 **Safety**:
-- Did not read, edit, stage, or commit the protected navigation test.
+- Did not read, edit, stage, or commit one user-owned protected test; its identifier is withheld.
 - No push, PR, deployment, remote database change, credential mutation, task-scheduler mutation, or Sentry mutation was performed.
 - Release posture remains `HOLD` for external authenticated E2E, ordered rollout, credential incident response, and remaining portfolio P0 items.

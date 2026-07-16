@@ -19,7 +19,7 @@ Preserve the completed local security and operations slices, keep current qualit
 - Remove the explicit Codex model option from `scripts/ops/run-insurance-digest-codex.ps1` and guard the default-model contract with a deterministic ops test.
 - Record the read-only scheduled-task result while keeping insurance automation PAUSED.
 - Classify the single real-data skip as `DESTRUCTIVE_OR_EXTERNAL_TEST_BLOCKER`.
-- Keep the unexplained navigation test change outside staged work.
+- Keep the unexplained user-owned protected test change outside staged work and verification.
 - Maintain a release HOLD until every external blocker has authoritative evidence.
 
 ## Out of scope
@@ -48,7 +48,7 @@ Preserve the completed local security and operations slices, keep current qualit
 - Verified additive migrations and ordered caller/Edge rollout.
 - Remote smoke, observation window, and rollback evidence.
 - Approved real-data graph execution in a disposable/external environment, if that evidence is required for release.
-- Proven disposition of `lib/__tests__/navigation-background-source.test.ts`.
+- Proven disposition of one user-owned protected test that remains excluded from all task edits, staging, and verification.
 
 ## Decision rule
 

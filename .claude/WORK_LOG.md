@@ -40,7 +40,7 @@
 | Date | Work | Key files | Detail |
 |---|---|---|---|
 | 07-12 | Sentry-disabled local build hard guard | `web/next.config.ts`, `web/src/lib/sentry-build-policy.ts`, `lib/__tests__/sentry-build-upload-guard.test.ts` | [detail](WORK_DETAIL.md#20260712-sentry-build-upload-guard) |
-| 07-12 | FC notify dual-ingress authentication and Windows full-suite repair | `web/src/app/api/fc-notify/route.ts`, `web/src/lib/fc-notify-proxy-policy.ts`, `web/src/lib/server-session.ts`, `lib/__tests__/fc-notify-route-auth.test.ts`, `lib/__tests__/navigation-background-source.test.ts` | [detail](WORK_DETAIL.md#20260712-fc-notify-dual-ingress) |
+| 07-12 | FC notify dual-ingress authentication and Windows full-suite repair | `web/src/app/api/fc-notify/route.ts`, `web/src/lib/fc-notify-proxy-policy.ts`, `web/src/lib/server-session.ts`, `lib/__tests__/fc-notify-route-auth.test.ts`, one user-owned protected source-contract test (identifier withheld) | [detail](WORK_DETAIL.md#20260712-fc-notify-dual-ingress) |
 | 07-12 | Direct FC notify and 17-function Board signed-session boundary | `supabase/functions/fc-notify/index.ts`, `supabase/functions/_shared/board.ts`, `lib/fc-notify-client.ts`, `lib/board-api.ts`, `web/src/app/api/board/route.ts` | [detail](WORK_DETAIL.md#20260712-direct-edge-board-auth) |
 | 07-12 | Board attachment ownership, storage proof, and atomic post update | `supabase/functions/board-attachment-*`, `supabase/functions/board-update/index.ts`, `supabase/migrations/20260712000001_atomic_board_post_update.sql` | [detail](WORK_DETAIL.md#20260712-board-write-integrity) |
 | 07-12 | Privileged Server Action auth/input hardening and exam commit boundaries | `web/src/app/dashboard/{exam,appointment,docs}`, `web/src/lib/privileged-action-input-policy.ts`, `lib/exam-flow-contract.ts` | [detail](WORK_DETAIL.md#20260712-privileged-actions-exam-boundaries) |
@@ -122,7 +122,7 @@
 | 날짜 | 작업 | 주요 파일 | 상세 |
 |---|---|---|---|
 | 06-12 | 단톡방 알림 서버/앱 JS 반영: `group-chat` Edge Function 재배포, EAS Update production branch 발행, `expo-updates`/runtimeVersion 설정 추적 | `app.json`, `package.json`, `package-lock.json` | [→ 상세](WORK_DETAIL.md#20260612-group-chat-server-js-deploy) |
-| 06-12 | 앱 전역 UI 배경색 회귀 방지: 루트/테마/Stack/baseHeader/StatusBar/Android NavigationBar를 단일 밝은 배경 상수로 고정하고 source-level guard 추가 | `app/_layout.tsx`, `lib/__tests__/navigation-background-source.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260612-global-navigation-background) |
+| 06-12 | 앱 전역 UI 배경색 회귀 방지: 루트/테마/Stack/baseHeader/StatusBar/Android NavigationBar를 단일 밝은 배경 상수로 고정하고 source-level guard 추가 | `app/_layout.tsx`, one user-owned protected source-contract test (identifier withheld), `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260612-global-surface-background) |
 | 06-12 | 회원가입 플로우 화면 전환 중 배경이 검정색으로 보이는 회귀 방지: Stack contentStyle, 루트 fallback, gradient fallback을 가입 단계 전체에 고정 | `app/_layout.tsx`, `app/signup.tsx`, `app/signup-verify.tsx`, `app/signup-password.tsx`, `app/reset-password.tsx` | [→ 상세](WORK_DETAIL.md#20260612-signup-transition-background) |
 | 06-12 | 가람PA 단톡방 푸시 미수신 보정 및 메신저 URL 링크화: FC/본부장/총무/개발자 모바일 토큰 등록, 설계매니저 단톡방 푸시 제외, 채팅 URL 파란 밑줄/탭 이동 적용 | `app/index.tsx`, `app/group-chat.tsx`, `app/chat.tsx`, `components/LinkifiedSelectableText.tsx`, `lib/push-registration.ts`, `supabase/functions/group-chat/index.ts` | [→ 상세](WORK_DETAIL.md#20260612-group-chat-notification-linkify) |
 

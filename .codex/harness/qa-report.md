@@ -66,7 +66,7 @@ The model-independence assertion reads the PowerShell launcher and fails if `-m`
 
 ## Current worktree facts
 
-- `lib/__tests__/navigation-background-source.test.ts` is an unstaged local modification whose provenance is not established.
+- One user-owned protected test is an unstaged local modification whose provenance is not established; it remains excluded from all task edits, staging, and verification, and its identifier is withheld.
 - Credential state is active tracked copy 0, current local untracked copy 6, and confirmed historical tracked exposure. External revoke/rotate and history/clone assessment remain unresolved; contents were not used to create this report.
 - No current receipt proves authenticated browser flows, remote migration state, remote deployment, observation, or rollback.
 

@@ -289,7 +289,7 @@
 
 ## 2026-07-12 | Windows Source Contracts | LF-only fixture comparison made the full suite falsely red
 - Symptom:
-  - The complete Jest suite failed two navigation background assertions even though the expected source was present; the checkout used CRLF while the test embedded LF-only multiline strings.
+  - The complete Jest suite failed two assertions in one user-owned protected source-contract test even though the expected source was present; the checkout used CRLF while the test embedded LF-only multiline strings.
 - Root cause:
   - A source-contract test compared raw file bytes without normalizing line endings first.
 - Why it was missed:
@@ -297,10 +297,10 @@
 - Permanent guardrail:
   - Source-contract tests that compare multiline text must normalize `\r\n?` to `\n` before assertions, or use whitespace-tolerant behavior/AST checks. Full-suite verification remains required after focused security tests.
 - Related files:
-  - `lib/__tests__/navigation-background-source.test.ts`
+  - One user-owned protected source-contract test (identifier withheld).
 - Verification:
   - RED: full `npm test -- --runInBand` failed 2/549 assertions on the Windows checkout.
-  - GREEN: focused navigation source test and then the complete Jest suite.
+  - GREEN: focused run for one user-owned protected source-contract test and then the complete Jest suite; the identifier is withheld.
 
 ## 2026-07-07 | CI Audit Repo Identity | audit tests assumed the local folder name
 - Symptom:
@@ -811,11 +811,11 @@
 - Permanent guardrail:
   - Do not use `LinearGradient` for full-screen mobile auth backgrounds on Android in this repo; use an explicit solid light background (`COLORS.primaryPale`/`#fff1e6`) or another non-gradient fallback-first treatment.
   - When auditing Android dark/black regressions, inspect transparent assets and the surface behind them before replacing image files.
-  - Auth-entry source tests should lock the absence of full-screen gradient-only background contracts on `/login` the same way navigation/signup tests lock light fallbacks elsewhere.
+  - Auth-entry source tests should lock the absence of full-screen gradient-only background contracts on `/login` the same way user-owned protected source-contract tests lock light fallbacks elsewhere; their identifiers are withheld.
 - Related files:
   - `app/login.tsx`
   - `lib/__tests__/signup-background-source.test.ts`
-  - `lib/__tests__/navigation-background-source.test.ts`
+  - One user-owned protected source-contract test (identifier withheld).
 - Verification:
   - Confirmed `assets/images/login.png` is mostly transparent, so the screenshot's black area was not baked into the logo.
   - Confirmed `app/_layout.tsx` and `app.json` already pin app-level backgrounds, StatusBar, and NavigationBar to light colors.
@@ -2747,13 +2747,13 @@
 - Related files: `app/_layout.tsx`, `app/signup.tsx`, `app/signup-verify.tsx`, `app/signup-password.tsx`, `app/reset-password.tsx`, `lib/__tests__/signup-background-source.test.ts`
 - Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/signup-background-source.test.ts`; `npx tsc --noEmit --pretty false`; `npm run lint`; `git diff --check`
 
-## 2026-06-12 | App-Wide Navigation Background Fallback | 화면별 배경만 보고 전역 scene 배경을 놓침
+## 2026-06-12 | App-Wide Scene Surface Fallback | 화면별 배경만 보고 전역 scene 배경을 놓침
 - Symptom: 가입 화면을 고쳐도 다른 헤더/헤더 없는 화면에서 전환 중 UI 배경색이 또 바뀔 수 있다는 위험이 남아 있었다.
 - Root cause: `app/_layout.tsx`의 전역 Stack `screenOptions`는 `headerShown: false`만 지정했고, `baseHeader`, React Navigation theme, root container, StatusBar, Android NavigationBar가 하나의 밝은 background contract로 묶여 있지 않았다.
 - Why it was missed: 개별 화면 root style과 정상 렌더만 확인했고, React Navigation scene container와 Android native navigation bar가 별도 surface라는 점을 전역 회귀 조건으로 두지 않았다.
-- Permanent guardrail: 앱 전체 기본 배경은 `DEFAULT_SCREEN_BACKGROUND` 같은 단일 상수로 루트/테마/Stack/baseHeader/StatusBar/Android NavigationBar에 모두 연결한다. 전역 navigation background source test가 이 연결 중 하나라도 빠지면 실패해야 한다.
-- Related files: `app/_layout.tsx`, `lib/__tests__/navigation-background-source.test.ts`
-- Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts`; `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts lib/__tests__/signup-background-source.test.ts`
+- Permanent guardrail: 앱 전체 기본 배경은 `DEFAULT_SCREEN_BACKGROUND` 같은 단일 상수로 루트/테마/Stack/baseHeader/StatusBar/Android NavigationBar에 모두 연결한다. 관련 user-owned protected source-contract test가 이 연결 중 하나라도 빠지면 실패해야 하며 식별자는 문서에 복제하지 않는다.
+- Related files: `app/_layout.tsx`; one user-owned protected source-contract test (identifier withheld).
+- Verification: RED/GREEN focused run for the user-owned protected source-contract test; PASS for the same protected contract together with the signup-background regression suite. Identifiers and exact commands are withheld.
 
 ## 2026-06-12 | EAS Update Config Drift | OTA 발행 가능 여부를 서버 배포처럼 단순 취급
 - Symptom: 단톡방 알림 앱 JS 반영을 위해 EAS Update를 실행하자 CLI가 `expo-updates`, `updates.url`, `runtimeVersion`을 자동 설치/설정했다.
