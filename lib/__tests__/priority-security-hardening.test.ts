@@ -98,6 +98,15 @@ describe('priority security hardening source contracts', () => {
     expect(serviceSource).toContain("import 'server-only'");
     expect(serviceSource).toContain(".from('device_tokens')");
     expect(serviceSource).toContain(".from('web_push_subscriptions')");
+    expect(serviceSource).not.toContain("{ userId, title, body }");
+    expect(serviceSource).not.toContain('tokens: tokens?.map');
+    expect(serviceSource).not.toContain('const respBody = await resp.text()');
+    expect(serviceSource).not.toContain('body: respBody');
+    expect(serviceSource).not.toContain('Expo push notification failed: ${respBody}');
+    expect(serviceSource).not.toContain("logger.error('[push-notification-service] Push notification error:', error)");
+    expect(serviceSource).toContain("category: 'expo_push'");
+    expect(serviceSource).toContain("reason: 'provider_rejected'");
+    expect(serviceSource).toContain("return { success: false, error: 'Expo push notification failed' }");
     expect(actionSource).toContain('getVerifiedAdminSession');
     expect(actionSource).toContain('sendPushNotificationToResident');
     expect(actionSource).not.toContain(".from('device_tokens')");

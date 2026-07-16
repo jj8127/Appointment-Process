@@ -15,7 +15,8 @@ export async function registerPushToken(
 ) {
   try {
     if (Platform.OS === 'web') return;
-    logger.debug('registerPushToken start', { role, residentId });
+    void residentId;
+    logger.debug('registerPushToken start', { role });
     // Expo Go cannot issue push tokens; use an EAS build
     if (Constants.appOwnership === 'expo') {
       logger.warn('[push] Expo Go cannot issue push tokens. Please use an EAS build.');
@@ -77,7 +78,10 @@ export async function registerPushToken(
       ? { data: providedExpoPushToken }
       : await Notifications.getExpoPushTokenAsync({ projectId });
     const expoToken = token.data;
-    logger.debug('getExpoPushTokenAsync token', { projectId, expoToken, reused: Boolean(providedExpoPushToken) });
+    logger.debug('getExpoPushTokenAsync completed', {
+      projectIdConfigured: Boolean(projectId),
+      reused: Boolean(providedExpoPushToken),
+    });
 
     const sessionToken = await getStoredAppSessionToken();
     if (!sessionToken) {
@@ -96,11 +100,16 @@ export async function registerPushToken(
         headers: { 'x-app-session-token': sessionToken },
       },
     );
-    logger.debug('[push] trusted register resp', { role, residentId, serverRole: data?.role, error: registerError });
+    logger.debug('[push] trusted register completed', {
+      requestedRole: role,
+      serverRole: data?.role,
+      ok: !registerError && data?.ok !== false,
+    });
     if (registerError || data?.ok === false) {
-      throw registerError ?? new Error('device-token-register failed');
+      logger.warn('[push] trusted register failed', { reason: 'registration_failed' });
+      return;
     }
-  } catch (err) {
-    logger.warn('registerPushToken failed', err);
+  } catch {
+    logger.warn('registerPushToken failed', { reason: 'registration_failed' });
   }
 }

@@ -17,10 +17,19 @@ export async function sendPushNotificationToResident(
   userId: string,
   { title, body, data, skipNotificationInsert = false }: PushPayload,
 ) {
-  logger.debug('[sendPushNotificationToResident] start', { userId, title, body });
+  logger.debug('[sendPushNotificationToResident] start', {
+    category: 'push_delivery',
+    reason: 'started',
+    status: 'pending',
+    skipNotificationInsert,
+  });
 
   if (!userId) {
-    logger.warn('[sendPushNotificationToResident] No userId provided');
+    logger.warn('[sendPushNotificationToResident] recipient rejected', {
+      category: 'push_delivery',
+      reason: 'missing_recipient',
+      status: 'rejected',
+    });
     return { success: false, error: 'No user ID provided' };
   }
 
@@ -46,7 +55,11 @@ export async function sendPushNotificationToResident(
     }
 
     if (notifError) {
-      logger.warn('[sendPushNotificationToResident] notifications insert failed:', notifError);
+      logger.warn('[sendPushNotificationToResident] notifications insert failed', {
+        category: 'notification_insert',
+        reason: 'database_write_failed',
+        status: 'failed',
+      });
     }
   }
 
@@ -56,14 +69,18 @@ export async function sendPushNotificationToResident(
     .eq('resident_id', userId);
 
   logger.debug('[sendPushNotificationToResident] tokens query result', {
-    userId,
-    tokenCount: tokens?.length ?? 0,
-    tokens: tokens?.map((token) => token.expo_push_token),
-    error: tokensError,
+    category: 'expo_tokens',
+    reason: tokensError ? 'database_read_failed' : 'query_completed',
+    status: tokensError ? 'failed' : 'ready',
+    tokenCount: tokensError ? 0 : tokens?.length ?? 0,
   });
 
   if (tokensError) {
-    logger.error('[push-notification-service] Error fetching device tokens:', tokensError);
+    logger.error('[push-notification-service] token query failed', {
+      category: 'expo_tokens',
+      reason: 'database_read_failed',
+      status: 'failed',
+    });
     return { success: false, error: 'Failed to fetch device tokens' };
   }
 
@@ -80,7 +97,12 @@ export async function sendPushNotificationToResident(
         channelId: 'alerts',
       }));
 
-      logger.debug('[sendPushNotificationToResident] sending to Expo', { messageCount: messages.length });
+      logger.debug('[sendPushNotificationToResident] sending to Expo', {
+        category: 'expo_push',
+        reason: 'delivery_started',
+        status: 'sending',
+        messageCount: messages.length,
+      });
 
       const resp = await fetch(EXPO_PUSH_URL, {
         method: 'POST',
@@ -91,16 +113,20 @@ export async function sendPushNotificationToResident(
         body: JSON.stringify(messages),
       });
 
-      const respBody = await resp.text();
       logger.debug('[sendPushNotificationToResident] Expo response', {
+        category: 'expo_push',
+        reason: resp.ok ? 'provider_accepted' : 'provider_rejected',
         status: resp.status,
         ok: resp.ok,
-        body: respBody,
       });
 
       if (!resp.ok) {
-        logger.error('[push-notification-service] Expo Push Failed:', respBody);
-        return { success: false, error: `Expo push notification failed: ${respBody}` };
+        logger.error('[push-notification-service] Expo push failed', {
+          category: 'expo_push',
+          reason: 'provider_rejected',
+          status: resp.status,
+        });
+        return { success: false, error: 'Expo push notification failed' };
       }
     }
 
@@ -110,7 +136,11 @@ export async function sendPushNotificationToResident(
       .eq('resident_id', userId);
 
     if (subsError) {
-      logger.error('[push-notification-service] Error fetching web push subscriptions:', subsError);
+      logger.error('[push-notification-service] web push subscription query failed', {
+        category: 'web_push_subscriptions',
+        reason: 'database_read_failed',
+        status: 'failed',
+      });
     } else if (subs && subs.length > 0) {
       const result = await sendWebPush(subs, { title, body, data });
       if (result.expired.length > 0) {
@@ -120,15 +150,22 @@ export async function sendPushNotificationToResident(
           .in('endpoint', result.expired);
 
         if (deleteError) {
-          logger.error('[push-notification-service] Error deleting expired subscriptions:', deleteError);
+          logger.error('[push-notification-service] expired subscription cleanup failed', {
+            category: 'web_push_subscriptions',
+            reason: 'database_delete_failed',
+            status: 'failed',
+          });
         }
       }
     }
 
     return { success: true };
-  } catch (err: unknown) {
-    const error = err as Error;
-    logger.error('[push-notification-service] Push notification error:', error);
-    return { success: false, error: error?.message ?? 'Push notification failed' };
+  } catch {
+    logger.error('[push-notification-service] push notification failed', {
+      category: 'push_delivery',
+      reason: 'unexpected_failure',
+      status: 'failed',
+    });
+    return { success: false, error: 'Push notification failed' };
   }
 }

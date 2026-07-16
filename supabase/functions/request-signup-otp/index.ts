@@ -74,7 +74,10 @@ async function cleanupPartialSignupArtifacts(fcId: string, linkedProfileIds: str
   for (const profileId of linkedProfileIds) {
     const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profileId);
     if (authDeleteError) {
-      console.warn('[request-signup-otp] auth cleanup failed', profileId, authDeleteError.message ?? authDeleteError);
+      console.warn('[request-signup-otp] auth cleanup failed', {
+        reason: 'auth_cleanup_failed',
+        status: authDeleteError.status ?? 'unknown',
+      });
     }
   }
 
@@ -138,8 +141,7 @@ async function sendOtpSms(to: string, code: string) {
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    return { ok: false, status: res.status, message: text || 'SMS 전송 실패' };
+    return { ok: false, status: res.status, message: 'SMS 전송에 실패했습니다.' };
   }
   return { ok: true, status: 200 };
 }
@@ -374,8 +376,8 @@ serve(async (req: Request) => {
 
   if (testSmsMode) {
     // Security: Never expose OTP code in response, even in test mode
-    // Log server-side only for debugging
-    console.log('[TEST MODE] OTP code for', phone, ':', code);
+    // Keep diagnostics useful without disclosing the phone number or OTP.
+    console.info('[request-signup-otp] test delivery simulated');
     return json({ ok: true, sent: true, test_mode: true });
   }
   return json({ ok: true, sent: true });

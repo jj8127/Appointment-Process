@@ -2,10 +2,18 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-07-15
+last_verified: 2026-07-16
 source_of_truth: env contracts + reset-password functions + supabase/functions/_shared/board.ts + web/src/lib/server-session.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
+
+## 2026-07-16 Diagnostic Privacy Contract
+
+- Privacy filtering happens before the first sink. The mobile and admin-web shared loggers sanitize the message, structured payload, and `Error` name/message/stack before any `console.*` serialization or Sentry-adjacent capture call. Sentry `beforeSend` remains defense in depth, not the primary logger boundary.
+- Diagnostic serialization must redact bearer/JWT-like credentials, Korean and international mobile numbers, resident numbers, Expo push tokens, OTP-labelled values/keys, raw upstream or response bodies, filenames, and storage object paths. Non-sensitive classification fields such as fixed `reason`, numeric/provider `status`, and error class name remain intact.
+- Push registration/API, signup OTP, and group-chat provider/database diagnostics use reviewed fixed reason/status fields only. Test mode never prints an OTP or destination identifier, and provider response bodies are not copied into logs or user-facing errors.
+- Direct-console governance is intentionally narrow: only the reviewed sensitive callsites above are source-locked. Broader console cleanup requires separate evidence and must not weaken legitimate structured diagnostics.
+- Local proof uses malicious samples and positive controls through logger/Sentry-adjacent boundaries plus frozen Deno checks. Production Supabase log replay, live Sentry inspection, and device push delivery remain external rollout checks and do not become green from local source tests alone.
 
 ## 2026-07-12 FC Notify Dual-Ingress Secret Contract
 

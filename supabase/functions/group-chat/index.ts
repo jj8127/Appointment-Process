@@ -193,8 +193,8 @@ async function parseJson(req: Request): Promise<Payload | null> {
   }
 }
 
-function dbError(error: { message?: string }, origin?: string | null) {
-  console.error('[group-chat] db error', error?.message);
+function dbError(_error: { message?: string }, origin?: string | null) {
+  console.error('[group-chat] db error', { reason: 'database_operation_failed' });
   return fail('db_error', '단톡방 데이터를 처리하지 못했습니다.', 500, origin);
 }
 
@@ -739,8 +739,7 @@ async function sendExpoPushPayloads(pushPayload: Record<string, unknown>[]) {
       body: JSON.stringify(chunk),
     });
     if (!response.ok) {
-      const raw = await response.text().catch(() => '');
-      console.warn('[group-chat] expo push failed', { status: response.status, body: raw.slice(0, 300) });
+      console.warn('[group-chat] expo push failed', { status: response.status });
     }
   }
 }
@@ -753,14 +752,16 @@ async function insertNotificationsWithFallback(rows: Record<string, unknown>[]) 
   const missingTargetColumn =
     firstTry.error.code === '42703' || String(firstTry.error.message ?? '').includes('target_url');
   if (!missingTargetColumn) {
-    console.warn('[group-chat] notification insert failed', firstTry.error.message);
+    console.warn('[group-chat] notification insert failed', { reason: 'notification_insert_failed' });
     return;
   }
 
   const fallbackRows = rows.map(({ target_url: _targetUrl, ...row }) => row);
   const secondTry = await supabase.from('notifications').insert(fallbackRows);
   if (secondTry.error) {
-    console.warn('[group-chat] notification fallback insert failed', secondTry.error.message);
+    console.warn('[group-chat] notification fallback insert failed', {
+      reason: 'notification_fallback_insert_failed',
+    });
   }
 }
 
@@ -806,7 +807,7 @@ async function notifyRecipients(input: {
     .select('expo_push_token,resident_id,role')
     .in('resident_id', recipientPhones);
   if (tokenError) {
-    console.warn('[group-chat] token query failed', tokenError.message);
+    console.warn('[group-chat] token query failed', { reason: 'token_query_failed' });
     return;
   }
 

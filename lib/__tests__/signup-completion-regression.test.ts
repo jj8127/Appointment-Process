@@ -69,4 +69,17 @@ describe('signup completion regression guards', () => {
       'inviterProfile.signup_completed !== true && inviterProfile.is_manager_referral_shadow !== true',
     );
   });
+
+  it('keeps signup OTP diagnostics free of destinations, codes, and provider bodies', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'supabase', 'functions', 'request-signup-otp', 'index.ts'),
+      'utf8',
+    );
+
+    expect(source).not.toContain("console.log('[TEST MODE] OTP code for'");
+    expect(source).not.toContain('profileId, authDeleteError.message');
+    expect(source).not.toContain('const text = await res.text()');
+    expect(source).toContain("reason: 'auth_cleanup_failed'");
+    expect(source).toContain("console.info('[request-signup-otp] test delivery simulated')");
+  });
 });

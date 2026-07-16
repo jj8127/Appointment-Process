@@ -7,6 +7,33 @@
 
 ---
 
+## <a id="20260716-diagnostic-privacy-boundary"></a> 2026-07-16 | Diagnostic privacy boundary for logger, push, OTP, and group chat
+
+**Validated path and invariant**:
+- Mobile and admin-web callers could pass arbitrary strings, `Error` objects, or structured payloads into the shared logger. The logger serialized them to `console.*` before Sentry's final `beforeSend` sanitizer and also handed the original `Error` to the Sentry-adjacent capture hook.
+- Push registration/API, signup OTP cleanup/test mode, and group-chat provider/database failures also used direct console calls with raw identifiers, tokens, errors, or upstream response bodies. The admin-web server push consumer additionally logged recipient/content/token data and raw Expo response text through the shared logger and returned provider text on failure.
+- Every console/Sentry-adjacent diagnostic must therefore redact bearer/JWT-like credentials, Korean and international mobile numbers, resident numbers, Expo push tokens, OTP values, raw provider bodies, filenames, and storage paths before the first sink. Stable `reason`, `status`, and error class names remain available for triage.
+
+**Changes**:
+- Moved sanitization to the mobile and web logger boundary before formatting, console output, and Sentry capture. Raw `Error` objects are rebuilt from their sanitized name/message/stack rather than forwarded unchanged.
+- Extended the shared mobile/web sanitizer contract for international phone formats including optional domestic prefixes, bearer credentials in `Error.name`/message/stack, Expo tokens, Korean particle-form OTP labels, provider response-body keys, multiword filenames, and labeled extensionless storage object paths.
+- Replaced sensitive direct-console arguments in push, OTP, and group-chat paths with reviewed fixed reason/status diagnostics. Signup test mode no longer prints the destination or OTP, and failed SMS/group-chat provider bodies are not read into logs or client errors.
+- Reduced admin-web server push diagnostics to fixed category/reason/status, booleans, and aggregate counts. It no longer logs recipient/content/token data, raw database errors, or Expo response bodies, and failure results retain the existing `success: false` contract with a stable local error message.
+- Added runtime redaction/positive-control tests plus a narrow source-governance contract for only the reviewed direct-console callsites; unrelated console sites were not mass-refactored.
+
+**Verification**:
+- RED evidence: before implementation, the new focused suites failed on the raw logger payload, international phone, OTP, push token, storage path, provider-body, and four reviewed direct-console boundaries. Independent read-only validation then falsified five bypass classes across both sanitizer copies: raw `Error.name`, multiword filename, optional-prefix international phone, Korean particle-form OTP, and extensionless object path, plus the admin-web server push consumer's raw provider path.
+- GREEN: 8 focused Jest suites / 46 tests PASS, including logger, sanitizer, push registration, signup completion, priority security, and group-chat contracts.
+- GREEN: admin-web sanitizer Node tests 2/2 PASS; root and web TypeScript PASS; targeted root/web ESLint has zero errors; Deno frozen checks for `request-signup-otp` and `group-chat` PASS. The independent evaluator reran all binding reproductions against both sanitizer copies and the real server push source-to-sink path.
+- Final governance and diff checks are recorded in the session handoff; all verification commands set both Sentry upload-deny flags, a non-credential local token, and a loopback Sentry URL.
+
+**Residual risk and release decision**:
+- No production Supabase log replay, live Sentry event inspection, device/EAS push delivery, or authenticated hosted flow was performed. Those require an approved rollout window and external credentials/environment.
+- No deploy, remote DB/function invocation, Sentry mutation, secret change, push, PR, staging, or commit was performed in this increment. Release remains `HOLD` for the existing remote rollout/authentication/credential blockers.
+- The user-owned navigation-background source test was not edited or staged and retained its protected SHA-256.
+
+---
+
 ## <a id="20260716-dependency-security-closeout"></a> 2026-07-16 | Root and admin-web dependency security closeout
 
 **Scope**:

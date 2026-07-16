@@ -30,6 +30,29 @@
 - Verification:
 ```
 
+## 2026-07-16 | Diagnostic privacy | final Sentry sanitization did not protect earlier console sinks
+- Symptom:
+  - Shared mobile/web loggers serialized raw messages, payloads, and `Error` stacks to `console.*` before Sentry's final sanitizer ran.
+  - Direct push, signup OTP, and group-chat diagnostics could print identifiers, provider errors/bodies, push tokens, or test OTP data. The admin-web server push consumer also logged recipient/content/token data and returned raw provider failure text.
+- Root cause:
+  - Privacy filtering existed at Sentry `beforeSend`, but not at the first shared logger sink, direct-console callsites had no reviewed safe-field contract, and no real-consumer test traced provider response text through the shared logger.
+- Why it was missed:
+  - Sanitizer tests exercised Sentry-shaped objects only; they did not assert console output, the Sentry-adjacent capture arguments, `Error.name`, natural-language phone/OTP/filename/object-path variants, raw `Error` reconstruction, or the actual admin-web provider consumer.
+- Permanent guardrail:
+  - Sanitize the message, structured data, and `Error` name/message/stack before formatting or calling either console or Sentry-adjacent capture hooks.
+  - Sensitive provider/OTP/push callsites log only fixed reason/status fields. Never log a destination identifier, OTP, token, raw provider body, filename, or storage path, including in test mode.
+  - Keep runtime negative tests and positive controls for mobile/web sanitizers and logger classification, plus a narrow source contract for the explicitly reviewed direct-console paths. Do not replace this with a broad unrelated console rewrite.
+- Related files:
+  - `lib/logger.ts`, `web/src/lib/logger.ts`
+  - `lib/sentry-sanitize.ts`, `web/src/lib/sentry-sanitize.ts`
+  - `app/api/push+api.ts`, `lib/notifications.ts`
+  - `web/src/lib/push-notification-service.ts`
+  - `supabase/functions/request-signup-otp/index.ts`, `supabase/functions/group-chat/index.ts`
+  - `lib/__tests__/logger.test.ts`, `lib/__tests__/sentry-sanitize.test.ts`, `lib/__tests__/diagnostic-privacy-source.test.ts`, `lib/__tests__/priority-security-hardening.test.ts`, `web/src/lib/sentry-sanitize.test.ts`
+- Verification:
+  - Pre-fix falsification failed on every new sensitive class and reviewed direct-console source boundary; the same tests pass after the fix.
+  - Root/web TypeScript, targeted ESLint, focused Jest/Node suites, and both changed Edge Function Deno checks pass without remote calls or Sentry uploads.
+
 ## 2026-07-16 | Clean dependency reproducibility | hoisting and runtime globals hid export requirements
 - Symptom:
   - A regular development tree passed focused checks, but a clean Node 20 installation first lacked the Expo Babel preset and then failed static rendering because the runtime did not expose WebSocket by default.

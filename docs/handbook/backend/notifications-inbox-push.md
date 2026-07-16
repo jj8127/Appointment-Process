@@ -2,8 +2,17 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-12
-source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts
+last_verified: 2026-07-16
+source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts
+
+## Diagnostic Privacy Notes (2026-07-16)
+
+- Mobile registration diagnostics may retain role, configuration-presence, reuse, success, and fixed failure-reason state. They never include resident identifiers, app-session values, Expo push tokens, or raw invocation errors.
+- The Expo API route never interpolates an invalid destination token or forwards an exception message. Provider failure logs contain only fixed reason/status fields, while the existing ignored/ok/error response envelope remains stable.
+- Group-chat push/database diagnostics never copy recipient phones, device tokens, filenames, storage paths, DB error text, or Expo response bodies. Provider HTTP status and fixed operation reason remain available for triage.
+- The admin-web server push service follows the same rule: start/query/delivery/cleanup logs contain only fixed category, reason, status, booleans, and aggregate counts. It never logs recipient IDs, notification title/body, token values, raw database errors, or Expo response bodies, and failed responses return a stable local message rather than provider text.
+- Shared mobile/web loggers sanitize before console and Sentry-adjacent capture. Final Sentry event filtering is defense in depth and must not be treated as protection for an earlier console sink.
+- Production push replay and hosted log inspection require an approved rollout environment; local source contracts and Deno checks do not prove delivery.
 
 ## Priority Security Notes (2026-07-12)
 

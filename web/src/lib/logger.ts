@@ -1,3 +1,4 @@
+import { sanitizeSentryContext } from './sentry-sanitize';
 import { captureSentryException } from './sentry-monitor';
 
 /**
@@ -20,6 +21,25 @@ interface LogEntry {
   data?: unknown;
   timestamp: string;
 }
+
+const sanitizeLogMessage = (message: string): string => {
+  const sanitized = sanitizeSentryContext(message);
+  return typeof sanitized === 'string' ? sanitized : '[REDACTED_LOG_MESSAGE]';
+};
+
+const toSanitizedError = (value: unknown, fallbackMessage: string): Error => {
+  if (!(value instanceof Error)) return new Error(fallbackMessage);
+
+  const sanitized = sanitizeSentryContext(value) as {
+    name?: unknown;
+    message?: unknown;
+    stack?: unknown;
+  };
+  const error = new Error(typeof sanitized.message === 'string' ? sanitized.message : fallbackMessage);
+  if (typeof sanitized.name === 'string') error.name = sanitized.name;
+  if (typeof sanitized.stack === 'string') error.stack = sanitized.stack;
+  return error;
+};
 
 class Logger {
   private isDevelopment: boolean;
@@ -61,10 +81,12 @@ class Logger {
       return;
     }
 
+    const sanitizedMessage = sanitizeLogMessage(message);
+    const sanitizedData = sanitizeSentryContext(data);
     const entry: LogEntry = {
       level,
-      message,
-      data,
+      message: sanitizedMessage,
+      data: sanitizedData,
       timestamp: new Date().toISOString(),
     };
 
@@ -82,9 +104,9 @@ class Logger {
         break;
       case LogLevel.ERROR:
         console.error(formatted);
-        captureSentryException(data instanceof Error ? data : new Error(message), {
-          loggerMessage: message,
-          loggerData: data,
+        captureSentryException(toSanitizedError(data, sanitizedMessage), {
+          loggerMessage: sanitizedMessage,
+          loggerData: sanitizedData,
         });
         break;
     }
