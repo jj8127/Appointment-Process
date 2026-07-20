@@ -16,6 +16,10 @@ import {
   WEB_APP_SESSION_COOKIE_MAX_AGE_SECONDS,
 } from '@/lib/request-board-app-session';
 import { adminSupabase } from '@/lib/admin-supabase';
+import {
+  ADMIN_WEB_LOGIN_UPSTREAM_TIMEOUT_MS,
+  isAdminWebLoginTimeout,
+} from '@/lib/admin-web-login-timeout';
 import { buildPhoneCandidates } from '@/lib/phone-candidates';
 import { logger } from '@/lib/logger';
 
@@ -69,9 +73,23 @@ export async function POST(req: Request) {
     const supabase = createSupabaseFunctionClient();
     const { data, error } = await supabase.functions.invoke<LoginResponse>('login-with-password', {
       body: { phone, password },
+      timeout: ADMIN_WEB_LOGIN_UPSTREAM_TIMEOUT_MS,
     });
 
     if (error) {
+      if (isAdminWebLoginTimeout(error)) {
+        logger.warn('[api/auth/login] upstream timeout', {
+          name: typeof error.name === 'string' ? error.name : 'UnknownError',
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            code: 'upstream_timeout',
+            message: '로그인 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.',
+          },
+          { status: 504 },
+        );
+      }
       throw error;
     }
 

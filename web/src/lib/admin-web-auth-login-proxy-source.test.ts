@@ -14,5 +14,7 @@ test('admin web login page uses the server proxy instead of calling the Supabase
   assert.doesNotMatch(authPageSource, /supabase\.functions\.invoke/);
 
   assert.match(loginRouteSource, /functions\.invoke<LoginResponse>\(\s*['"]login-with-password['"]/);
+  assert.match(loginRouteSource, /timeout:\s*ADMIN_WEB_LOGIN_UPSTREAM_TIMEOUT_MS/);
+  assert.match(authPageSource, /signal:\s*AbortSignal\.timeout\(ADMIN_WEB_LOGIN_BROWSER_TIMEOUT_MS\)/);
   assert.match(loginRouteSource, /response\.cookies\.set/);
 });

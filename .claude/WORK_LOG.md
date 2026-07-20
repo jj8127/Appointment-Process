@@ -555,3 +555,9 @@
 - Replaced identity-bearing stable home Realtime topics with per-effect non-identifying topics so React development remounts cannot reuse an already-subscribed channel.
 - Added focused lifecycle/privacy regression coverage and preserved per-channel cleanup.
 - See [details](WORK_DETAIL.md#20260720-fc-home-realtime-remount).
+
+## 2026-07-20 Admin web login response deadline
+
+- Confirmed the login button and hydration path were active, then reproduced an unbounded `/api/auth/login` wait while the local Next.js server was unhealthy.
+- Added ordered browser/API timeouts, a structured retryable `504`, and regression coverage without logging credentials or changing Supabase data.
+- See [details](WORK_DETAIL.md#20260720-admin-web-login-timeout).

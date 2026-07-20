@@ -12007,3 +12007,31 @@
 - Did not read, edit, stage, or commit one user-owned protected test; its identifier is withheld.
 - No push, PR, deployment, remote database change, credential mutation, task-scheduler mutation, or Sentry mutation was performed.
 - Release posture remains `HOLD` for external authenticated E2E, ordered rollout, credential incident response, and remaining portfolio P0 items.
+
+---
+
+## <a id="20260720-admin-web-login-timeout"></a> 2026-07-20 | Admin web login response deadline
+
+**Scope**: admin web browser login request and its server-side Supabase Edge Function proxy.
+
+**Diagnosis**:
+- Browser QA proved that the rendered login button was enabled and its empty-submit handler displayed the expected alert.
+- A valid disposable account request then remained pending while the local Next.js development server stopped answering even `/auth`; after a clean restart, the same authentication path completed successfully.
+- A second disposable account completed through `/api/auth/login` with HTTP 200 in about 2.3 seconds, confirming that credentials and the Edge Function contract were valid.
+
+**Changes**:
+- Bounded the Supabase `login-with-password` invocation at 15 seconds using the installed `supabase-js` timeout contract.
+- Bounded the browser proxy request at 20 seconds so a stalled Next.js request returns control to the user.
+- Added structured `504 upstream_timeout` handling, a retryable Korean message, and nested timeout detection for browser and Supabase-wrapped abort errors.
+- Added focused behavior and source-contract tests.
+
+**Verification**:
+- Passed focused login tests: 3/3.
+- Passed the full safe Node/ops suite: 270 passed, 0 failed, 1 existing remote-data skip.
+- Passed targeted ESLint, full web TypeScript, governance, and `git diff --check`.
+- Passed the Sentry-disabled Next.js production build with `/api/auth/login` included as a dynamic route.
+- A production-build browser login reached the role-correct FC referral graph; an independent API login returned HTTP 200 in about 2.7 seconds.
+
+**Safety**:
+- Timeout diagnostics record only error class names; phone numbers, passwords, tokens, and raw upstream bodies are excluded.
+- No deployment, remote database write, migration, credential change, or Sentry upload was performed.

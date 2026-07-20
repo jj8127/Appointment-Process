@@ -3807,3 +3807,20 @@
   - `app/index.tsx`
   - `lib/home-realtime-channel.ts`
   - `lib/__tests__/home-realtime-channel.test.ts`
+
+## 2026-07-20 | Admin Login Request Had No Deadline | stalled API looked like a dead button
+- Symptom:
+  - The admin web login button accepted a click, but a stalled `/api/auth/login` request left the user waiting without a terminal result.
+- Root cause:
+  - Neither the browser proxy request nor the server-side `login-with-password` Edge Function invocation had a bounded timeout.
+  - A cold or unhealthy local Next.js server could therefore make a wired, enabled button appear inert.
+- Permanent guardrail:
+  - Keep the Supabase login invocation timeout shorter than the browser proxy timeout so the API normally returns a structured `504` first.
+  - Treat browser `TimeoutError` and Supabase-wrapped `AbortError` as expected transport failures with a retryable Korean message.
+  - Never log the submitted phone number, password, token, or raw upstream body while diagnosing login transport failures.
+- Related files:
+  - `web/src/app/auth/page.tsx`
+  - `web/src/app/api/auth/login/route.ts`
+  - `web/src/lib/admin-web-login-timeout.ts`
+- Verification:
+  - `node --test web/src/lib/admin-web-login-timeout.test.ts web/src/lib/admin-web-auth-login-proxy-source.test.ts`

@@ -2,6 +2,10 @@
 
 import { useSession } from '@/hooks/use-session';
 import { resolveAdminWebLoginRole } from '@/lib/admin-web-login-role';
+import {
+    ADMIN_WEB_LOGIN_BROWSER_TIMEOUT_MS,
+    isAdminWebLoginTimeout,
+} from '@/lib/admin-web-login-timeout';
 import { logger } from '@/lib/logger';
 import { normalizeStaffType } from '@/lib/staff-identity';
 import {
@@ -35,11 +39,21 @@ function resolveLoginErrorMessage(error: unknown) {
     const name = readErrorField(error, 'name');
     const rawMessage = readErrorField(error, 'message');
     const normalized = rawMessage.toLowerCase();
+    const isTimeout = isAdminWebLoginTimeout(error);
     const isTransportError =
         name === 'FunctionsFetchError' ||
         normalized.includes('failed to send a request to the edge function') ||
         normalized.includes('failed to fetch') ||
         normalized.includes('networkerror');
+
+    if (isTimeout) {
+        return {
+            message: '로그인 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.',
+            expected: true,
+            name,
+            rawMessage,
+        };
+    }
 
     if (isTransportError) {
         return {
@@ -124,6 +138,7 @@ export default function AuthPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ phone: digits, password: passwordInput.trim() }),
+                signal: AbortSignal.timeout(ADMIN_WEB_LOGIN_BROWSER_TIMEOUT_MS),
             });
             const data = await loginResponse.json();
             if (!loginResponse.ok && !data?.message) {
