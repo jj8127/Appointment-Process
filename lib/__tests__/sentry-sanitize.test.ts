@@ -12,6 +12,7 @@ describe('Sentry privacy sanitizer', () => {
         nested: {
           policyholder_ssn: '8801012234567',
           phone: '01012345678',
+          residentId: '01098765432',
         },
       },
     });
@@ -20,6 +21,7 @@ describe('Sentry privacy sanitizer', () => {
     expect(sanitized.extra.customerName).toBe('[REDACTED_NAME]');
     expect(sanitized.extra.nested.policyholder_ssn).toBe('880101-2******');
     expect(sanitized.extra.nested.phone).toBe('010-****-5678');
+    expect(sanitized.extra.nested.residentId).toBe('010-****-5432');
   });
 
   test('redacts authorization, jwt, supabase keys, and file names', () => {

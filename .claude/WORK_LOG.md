@@ -553,7 +553,7 @@
 ## 2026-07-20 FC home Realtime remount repair
 
 - Replaced identity-bearing stable home Realtime topics with per-effect non-identifying topics so React development remounts cannot reuse an already-subscribed channel.
-- Added focused lifecycle/privacy regression coverage and preserved per-channel cleanup.
+- Added focused lifecycle/privacy regression coverage, preserved per-channel cleanup, and corrected `residentId` diagnostics so phone-backed identifiers are masked consistently on mobile and web.
 - See [details](WORK_DETAIL.md#20260720-fc-home-realtime-remount).
 
 ## 2026-07-20 Admin web login response deadline

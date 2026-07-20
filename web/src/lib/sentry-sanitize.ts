@@ -126,7 +126,9 @@ const sanitizeValueForKey = (key: string, value: unknown, depth: number): unknow
   if (keyIncludes(key, OTP_KEY_PARTS)) return '[REDACTED_OTP]';
   if (keyIncludes(key, FILE_KEY_PARTS)) return '[REDACTED_FILE]';
   if (keyIncludes(key, NAME_KEY_PARTS)) return '[REDACTED_NAME]';
-  if (keyIncludes(key, RESIDENT_KEY_PARTS) && typeof value === 'string') return maskResidentNumberString(value);
+  if (keyIncludes(key, RESIDENT_KEY_PARTS) && typeof value === 'string') {
+    return maskPhoneString(maskResidentNumberString(value));
+  }
   if (keyIncludes(key, PHONE_KEY_PARTS) && typeof value === 'string') return maskPhoneString(value);
   return sanitizeSentryContext(value, depth);
 };

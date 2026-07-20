@@ -15,10 +15,12 @@
 - Added a typed helper that creates a non-identifying, unique channel topic for each home Realtime effect setup.
 - Applied it to message, profile, and document subscriptions while keeping row filters and per-channel cleanup unchanged.
 - Added a focused test for same-timestamp uniqueness and source-level prevention of identity-bearing home topics.
+- Updated both structured diagnostic sanitizers so phone-backed `residentId` fields receive phone masking as well as resident-number masking.
 - Documented the Realtime lifecycle contract and repeat-prevention rule.
 
 **Verification**:
 - `npm test -- --runTestsByPath lib/__tests__/home-realtime-channel.test.ts --runInBand`: 2/2 PASS.
+- `npm test -- --runTestsByPath lib/__tests__/sentry-sanitize.test.ts --runInBand`: validates phone-backed `residentId` masking.
 - Targeted ESLint for the home screen, helper, and regression test: PASS.
 - `npx tsc --noEmit --pretty false`: PASS.
 - `node scripts/ci/check-governance.mjs`: PASS.

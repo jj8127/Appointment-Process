@@ -3802,11 +3802,14 @@
 - Permanent guardrail:
   - React effect가 소유하는 Realtime 채널은 각 setup마다 비식별 고유 topic을 생성하고 cleanup은 그 인스턴스만 제거한다.
   - 전화번호, 주민 식별값, 내부 FC id를 channel topic이나 오류 메시지에 포함하지 않는다.
+  - `residentId`는 현재 휴대폰 번호일 수 있으므로 공통 진단 마스커는 주민번호와 전화번호 규칙을 모두 적용한다.
   - `lib/__tests__/home-realtime-channel.test.ts`가 topic 고유성과 홈 source의 식별값 없는 topic 사용을 고정한다.
 - Related files:
   - `app/index.tsx`
   - `lib/home-realtime-channel.ts`
   - `lib/__tests__/home-realtime-channel.test.ts`
+  - `lib/sentry-sanitize.ts`
+  - `web/src/lib/sentry-sanitize.ts`
 
 ## 2026-07-20 | Admin Login Request Had No Deadline | stalled API looked like a dead button
 - Symptom:
