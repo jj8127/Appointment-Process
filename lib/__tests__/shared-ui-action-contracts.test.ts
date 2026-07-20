@@ -68,6 +68,8 @@ describe('shared UI/action primitive audit', () => {
     const adminDashboardSource = readRepoFile('web/src/app/dashboard/page.tsx');
     const adminAppointmentSource = readRepoFile('web/src/app/dashboard/appointment/page.tsx');
     const adminDocsSource = readRepoFile('web/src/app/dashboard/docs/page.tsx');
+    const buttonSource = readRepoFile('components/Button.tsx');
+    const formInputSource = readRepoFile('components/FormInput.tsx');
 
     expect(matrix).toContain('UI action primitives');
     expect(handbook).toContain('Shared UI Action Contracts');
@@ -82,6 +84,11 @@ describe('shared UI/action primitive audit', () => {
     expect(handbook).toContain('showBoardFeedbackAlert');
     expect(handbook).toContain('applyBoardReactionUpdate');
     expect(handbook).toContain('RejectReasonModal');
+    expect(handbook).toContain('react-native-text-child-contract.test.ts');
+    expect(buttonSource).toContain('leftIcon?: React.ReactElement;');
+    expect(buttonSource).toContain('rightIcon?: React.ReactElement;');
+    expect(formInputSource).toContain('leftIcon?: React.ReactElement;');
+    expect(formInputSource).toContain('rightIcon?: React.ReactElement;');
     expect(attachmentActionsSource).toContain('openExternalUrl');
     expect(attachmentActionsSource).toContain('Alert.alert');
     expect(copyActionsSource).toContain('Clipboard.setStringAsync');
@@ -154,6 +161,7 @@ describe('shared UI/action primitive audit', () => {
     expect(sharedRule.requires_any).toEqual(
       expect.arrayContaining([
         'lib/__tests__/shared-ui-action-contracts.test.ts',
+        'lib/__tests__/react-native-text-child-contract.test.ts',
         'docs/handbook/shared-ui-action-contracts.md',
       ]),
     );

@@ -12037,3 +12037,26 @@
 **Safety**:
 - Timeout diagnostics record only error class names; phone numbers, passwords, tokens, and raw upstream bodies are excluded.
 - No deployment, remote database write, migration, credential change, or Sentry upload was performed.
+
+---
+
+## <a id="20260720-react-native-text-child"></a> 2026-07-20 | Android native text-child closure
+
+**Diagnosis**:
+- The device component stack pointed to `sortedCustomers.map` in `app/request-board-create.tsx`.
+- The customer card ended with `</View>            </Pressable>` on one line. Babel transforms that spacing into a string child of `Pressable`, which Android Fabric rejects outside a `Text` host.
+- A RED whole-source contract also identified element-only icon/value slots whose broad `ReactNode` types could admit the same primitive-child failure.
+
+**Changes**:
+- Split the customer-card closing tags onto separate lines.
+- Narrowed `Button` and `FormInput` icon slots plus the dashboard detail value slot to `ReactElement`.
+- Added `react-native-text-child-contract.test.ts`, scanning all mobile TSX under `app`, `components`, and `hooks` for same-line emitted whitespace and inferred primitive children beneath native container hosts.
+
+**Verification**:
+- RED reproduced exactly one emitted whitespace child and five primitive-capable slot paths.
+- GREEN passed the new contract 2/2 and the combined Request Board/shared UI contracts 41/41.
+- Targeted ESLint and root `tsc --noEmit` passed.
+
+**Safety**:
+- Existing dirty changes in `app/_layout.tsx` and `lib/__tests__/navigation-background-source.test.ts` were excluded.
+- No push, deployment, remote database operation, credential change, or Sentry mutation was performed.

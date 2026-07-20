@@ -3827,3 +3827,20 @@
   - `web/src/lib/admin-web-login-timeout.ts`
 - Verification:
   - `node --test web/src/lib/admin-web-login-timeout.test.ts web/src/lib/admin-web-auth-login-proxy-source.test.ts`
+
+## 2026-07-20 | React Native JSX whitespace | same-line closing tags emitted a raw text child
+- Symptom:
+  - Android Fabric reported `Text strings must be rendered within a <Text> component` while rendering the Request Board customer list.
+- Root cause:
+  - `app/request-board-create.tsx` placed `</View>` and `</Pressable>` on the same line with spaces between them. Babel preserved those spaces as a string child of `Pressable`.
+  - Shared icon/value slots also accepted broad `ReactNode` values even though they render directly below native container hosts, allowing a future number or string to reproduce the same failure.
+- Permanent guardrail:
+  - Put adjacent closing JSX tags on separate lines in React Native container trees.
+  - Type element-only slots as `ReactElement`, not `ReactNode`.
+  - Keep `lib/__tests__/react-native-text-child-contract.test.ts` scanning all mobile TSX for emitted same-line whitespace children and inferred string/number children below native containers.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `app/dashboard.tsx`
+  - `components/Button.tsx`
+  - `components/FormInput.tsx`
+  - `lib/__tests__/react-native-text-child-contract.test.ts`

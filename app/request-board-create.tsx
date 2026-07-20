@@ -1394,7 +1394,8 @@ export default function RequestBoardCreateScreen() {
                     )}
                   </Pressable>
                 </View>
-              </View>            </Pressable>
+              </View>
+            </Pressable>
           );
         })}
       </View>

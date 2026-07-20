@@ -41,6 +41,8 @@ When touching governed primitives, update at least one of:
 
 Screen-only implementations are allowed only when the feature is intentionally unique and the exception is documented in the relevant handbook page.
 
+React Native container children must not rely on raw JSX whitespace or primitive values. Put adjacent closing tags on separate lines, type element-only icon/value slots as `ReactElement`, and keep `lib/__tests__/react-native-text-child-contract.test.ts` green across `app`, `components`, and `hooks`.
+
 Messenger attachment opens in `app/chat.tsx` and `app/group-chat.tsx` must use `openMessengerAttachment` from `lib/messenger-attachment-actions.ts`. The helper owns external URL opening through `openExternalUrl`, failure alerts, and logging. Do not call `Linking.openURL` directly from messenger attachment bubbles.
 
 Messenger clipboard writes in `app/chat.tsx`, `app/group-chat.tsx`, and `app/request-board-messenger.tsx` must use `copyTextWithFeedback` from `lib/messenger-copy-actions.ts`. The helper owns `Clipboard.setStringAsync`, empty-copy handling, success/failure alerts, and copy failure logging. Do not call `Clipboard.setStringAsync` directly from messenger surfaces.

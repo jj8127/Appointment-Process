@@ -79,6 +79,7 @@
         "lib/__tests__/fc-notify-route-auth.test.ts",
         "lib/__tests__/privileged-server-action-input-policy.test.ts",
         "lib/__tests__/sentry-build-upload-guard.test.ts",
+        "lib/__tests__/react-native-text-child-contract.test.ts",
         "supabase/functions/_shared/__tests__/request-board-auth.test.ts",
         "docs/handbook/backend/notifications-inbox-push.md",
         "docs/handbook/contract-test-map.json"
@@ -278,6 +279,7 @@
       ],
       "requires_any": [
         "lib/__tests__/shared-ui-action-contracts.test.ts",
+        "lib/__tests__/react-native-text-child-contract.test.ts",
         "lib/__tests__/feature-contract-matrix.test.ts",
         "docs/handbook/shared-ui-action-contracts.md",
         "docs/handbook/feature-contract-matrix.md",

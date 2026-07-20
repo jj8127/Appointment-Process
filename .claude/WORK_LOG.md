@@ -561,3 +561,10 @@
 - Confirmed the login button and hydration path were active, then reproduced an unbounded `/api/auth/login` wait while the local Next.js server was unhealthy.
 - Added ordered browser/API timeouts, a structured retryable `504`, and regression coverage without logging credentials or changing Supabase data.
 - See [details](WORK_DETAIL.md#20260720-admin-web-login-timeout).
+
+## 2026-07-20 Android native text-child closure
+
+- Removed the whitespace-only string child emitted by the Request Board customer card and narrowed shared element-only slots so strings or numbers cannot reach native containers.
+- Added a whole-mobile-source AST/type regression contract covering `app`, `components`, and `hooks`.
+- Focused UI contracts, targeted lint, and root TypeScript pass. Device replay remains a separate runtime confirmation if ADB is unavailable.
+- See [details](WORK_DETAIL.md#20260720-react-native-text-child).

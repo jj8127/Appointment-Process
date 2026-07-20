@@ -7,7 +7,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { FileSystemUploadType, uploadAsync } from 'expo-file-system/legacy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -3507,7 +3507,7 @@ const DetailRow = ({
 }: {
   label: string;
   value?: string;
-  valueNode?: ReactNode;
+  valueNode?: ReactElement;
 }) => (
   <View style={styles.detailRow}>
     <Text style={styles.detailLabel}>{label}</Text>
