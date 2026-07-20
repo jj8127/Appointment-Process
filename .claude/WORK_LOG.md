@@ -549,3 +549,9 @@
 - Closed the admin web TypeScript gate without excluding tests or weakening strictness; lint, production build, and 238 local web tests passed, with one existing remote-data test still intentionally skipped.
 - Added fail-closed runtime decoding for password-reset database rows and recorded the full-gate guardrails in `.claude/MISTAKES.md`.
 - See [details](WORK_DETAIL.md#20260716-full-typescript-gates).
+
+## 2026-07-20 FC home Realtime remount repair
+
+- Replaced identity-bearing stable home Realtime topics with per-effect non-identifying topics so React development remounts cannot reuse an already-subscribed channel.
+- Added focused lifecycle/privacy regression coverage and preserved per-channel cleanup.
+- See [details](WORK_DETAIL.md#20260720-fc-home-realtime-remount).

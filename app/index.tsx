@@ -43,6 +43,7 @@ import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
 import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
 import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
+import { createHomeRealtimeChannelTopic } from '@/lib/home-realtime-channel';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
 import { registerPushToken } from '@/lib/notifications';
@@ -1145,7 +1146,7 @@ export default function Home() {
   useEffect(() => {
     if (role !== 'fc' || !residentId) return;
     const channel = supabase
-      .channel(`home-messages-${residentId}`)
+      .channel(createHomeRealtimeChannelTopic('home-messages'))
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `receiver_id=eq.${residentId}` },
@@ -1168,7 +1169,7 @@ export default function Home() {
   useEffect(() => {
     if (role !== 'fc' || !residentId) return;
     const profileChannel = supabase
-      .channel(`home-profile-${residentId}`)
+      .channel(createHomeRealtimeChannelTopic('home-profile'))
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'fc_profiles', filter: `phone=eq.${residentId}` },
@@ -1185,7 +1186,7 @@ export default function Home() {
   useEffect(() => {
     if (role !== 'fc' || !myFc?.id) return;
     const docChannel = supabase
-      .channel(`home-docs-${myFc.id}`)
+      .channel(createHomeRealtimeChannelTopic('home-documents'))
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'fc_documents', filter: `fc_id=eq.${myFc.id}` },

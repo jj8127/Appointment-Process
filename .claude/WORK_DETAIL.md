@@ -7,6 +7,30 @@
 
 ---
 
+## <a id="20260720-fc-home-realtime-remount"></a> 2026-07-20 | FC home Realtime remount repair
+
+**Scope**: Android FC home Render Error during Supabase Realtime effect remounts.
+
+**Changes**:
+- Added a typed helper that creates a non-identifying, unique channel topic for each home Realtime effect setup.
+- Applied it to message, profile, and document subscriptions while keeping row filters and per-channel cleanup unchanged.
+- Added a focused test for same-timestamp uniqueness and source-level prevention of identity-bearing home topics.
+- Documented the Realtime lifecycle contract and repeat-prevention rule.
+
+**Verification**:
+- `npm test -- --runTestsByPath lib/__tests__/home-realtime-channel.test.ts --runInBand`: 2/2 PASS.
+- Targeted ESLint for the home screen, helper, and regression test: PASS.
+- `npx tsc --noEmit --pretty false`: PASS.
+- `node scripts/ci/check-governance.mjs`: PASS.
+- `git diff --check`: PASS with line-ending warnings only.
+
+**Safety**:
+- No Supabase database, publication, policy, remote configuration, deployment, credential, or Sentry state was changed.
+- Existing unrelated dirty work remains unstaged and untouched.
+- Release posture remains `HOLD`.
+
+---
+
 ## <a id="20260716-residual-diagnostic-privacy-closure"></a> 2026-07-16 | Residual diagnostic privacy closure
 
 **Scope and invariant**:

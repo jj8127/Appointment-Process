@@ -3791,3 +3791,19 @@
 - Verification:
   - `node --test scripts/ops/post-insurance-digest.test.mjs` (15/15)
   - all `scripts/ops/*.test.mjs` (28/28)
+
+## 2026-07-20 | FC Home Realtime Topic Reuse | React effect 재연결이 이미 구독된 채널에 콜백을 추가
+- Symptom:
+  - Android 개발 빌드의 FC 홈에서 `cannot add postgres_changes callbacks ... after subscribe()` Render Error가 발생했다.
+  - 기존 channel topic에 FC 식별값이 포함되어 개발 오류 화면에도 식별값이 노출됐다.
+- Root cause:
+  - `@supabase/realtime-js 2.109.0`은 같은 topic의 기존 채널을 재사용한다.
+  - React 개발 effect cleanup의 비동기 `removeChannel()`이 끝나기 전에 effect가 다시 실행되면 같은 topic이 이미 구독된 채널을 반환했고, 이어지는 `.on('postgres_changes', ...)`가 예외를 던졌다.
+- Permanent guardrail:
+  - React effect가 소유하는 Realtime 채널은 각 setup마다 비식별 고유 topic을 생성하고 cleanup은 그 인스턴스만 제거한다.
+  - 전화번호, 주민 식별값, 내부 FC id를 channel topic이나 오류 메시지에 포함하지 않는다.
+  - `lib/__tests__/home-realtime-channel.test.ts`가 topic 고유성과 홈 source의 식별값 없는 topic 사용을 고정한다.
+- Related files:
+  - `app/index.tsx`
+  - `lib/home-realtime-channel.ts`
+  - `lib/__tests__/home-realtime-channel.test.ts`

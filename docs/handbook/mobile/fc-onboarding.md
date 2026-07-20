@@ -133,3 +133,9 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 - Protected FC notification calls from onboarding screens use `lib/fc-notify-client.ts` instead of invoking `fc-notify` directly. The helper attaches the stored app-session token as `x-app-session-token`; a missing token is a session error before the network call.
 - `latest_notice` remains the explicit public-read exception. Consent, document, profile, and appointment updates keep their existing notification meaning, but the Edge Function derives the caller identity from the signed session rather than trusting screen-supplied actor claims.
+
+## 2026-07-20 FC home Realtime lifecycle
+
+- FC 홈의 메시지·프로필·서류 Realtime 구독은 effect 실행마다 비식별 고유 topic을 사용한다. 전화번호, 주민 식별값, FC id를 channel topic에 넣지 않는다.
+- `@supabase/realtime-js`가 같은 topic의 기존 채널을 재사용하므로, 비동기 `removeChannel()`이 끝나기 전 React 개발 effect가 다시 실행되어도 이미 구독된 채널에 콜백을 추가하지 않아야 한다.
+- 각 effect cleanup은 자신이 만든 채널만 `supabase.removeChannel(channel)`로 정리한다.
