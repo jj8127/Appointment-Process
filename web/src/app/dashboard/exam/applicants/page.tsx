@@ -31,8 +31,10 @@ import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 
 import {
+    buildExamApplicantQuickAffiliationOptions,
     buildExamApplicantRoundFilterOptions,
     buildExamApplicantSubjectFilterOptions,
+    EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE,
     EXAM_APPLICANT_ALL_FILTER_VALUE,
     EXAM_APPLICANT_EXPORT_COLUMNS,
     EXAM_APPLICANT_TABLE_BADGE_STYLES,
@@ -41,6 +43,7 @@ import {
     getExamApplicantCellValue,
     getExamApplicantSubjectKey,
     isExamApplicantRoundFilterValid,
+    matchesExamApplicantQuickAffiliation,
     type ExamApplicantExportColumn,
     type ExamApplicantExportColumnKey,
     type ExamApplicantFilterOption,
@@ -287,7 +290,7 @@ export default function ExamApplicantsPage() {
     const queryClient = useQueryClient();
     const { isReadOnly, hydrated, role } = useSession();
     const [filters, setFilters] = useState<FilterState>({});
-    const [quickAffiliation, setQuickAffiliation] = useState('전체');
+    const [quickAffiliation, setQuickAffiliation] = useState(EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE);
     const [examSubjectFilter, setExamSubjectFilter] = useState(EXAM_APPLICANT_ALL_FILTER_VALUE);
     const [examRoundFilter, setExamRoundFilter] = useState(EXAM_APPLICANT_ALL_FILTER_VALUE);
 
@@ -354,13 +357,7 @@ export default function ExamApplicantsPage() {
     }, [applicants]);
 
     const quickAffiliationOptions = useMemo(() => {
-        if (!applicants) return ['전체'];
-        const raw = applicants
-            .map((item) => item.affiliation || '-')
-            .filter(Boolean)
-            .sort((a, b) => a.localeCompare(b));
-        const unique = Array.from(new Set(raw));
-        return ['전체', ...unique];
+        return buildExamApplicantQuickAffiliationOptions(applicants ?? []);
     }, [applicants]);
 
     const examSubjectFilterOptions = useMemo(
@@ -393,7 +390,7 @@ export default function ExamApplicantsPage() {
     const filteredRows = useMemo(() => {
         if (!applicants) return [];
         return applicants.filter(item => {
-            if (quickAffiliation !== '전체' && item.affiliation !== quickAffiliation) {
+            if (!matchesExamApplicantQuickAffiliation(item.affiliation, quickAffiliation)) {
                 return false;
             }
 
@@ -703,7 +700,7 @@ export default function ExamApplicantsPage() {
                     <Text size="xs" c="dimmed" fw={500}>빠른 분류:</Text>
                     <Tabs
                         value={quickAffiliation}
-                        onChange={(value) => setQuickAffiliation(value ?? '전체')}
+                        onChange={(value) => setQuickAffiliation(value ?? EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE)}
                         variant="pills"
                         radius="xl"
                         color="blue"

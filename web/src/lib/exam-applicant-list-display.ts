@@ -87,6 +87,53 @@ export const EXAM_APPLICANT_TABLE_BADGE_STYLES = {
 
 export const EXAM_APPLICANT_ALL_FILTER_VALUE = '__all__';
 
+export const EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE = '전체';
+
+export const EXAM_APPLICANT_PINNED_QUICK_AFFILIATIONS = [
+  '2본부 박성훈',
+  '6본부 김정수',
+  '9본부 김주용',
+  '10본부 한태균',
+] as const;
+
+const EXAM_APPLICANT_QUICK_AFFILIATION_ALIASES: Record<string, string> = {
+  '6본부 김정수(박선희)': '6본부 김정수',
+  '9본부 이현욱(김주용)': '9본부 김주용',
+};
+
+export function normalizeExamApplicantQuickAffiliation(value?: string | null): string {
+  const normalized = String(value ?? '').replace(/\s+/g, ' ').trim() || '-';
+  return EXAM_APPLICANT_QUICK_AFFILIATION_ALIASES[normalized] ?? normalized;
+}
+
+function quickAffiliationOrder(value: string): number {
+  const match = value.match(/^(\d+)본부(?:\s|$)/);
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+export function buildExamApplicantQuickAffiliationOptions(
+  rows: Array<{ affiliation?: string | null }>,
+): string[] {
+  const affiliations = new Set<string>(EXAM_APPLICANT_PINNED_QUICK_AFFILIATIONS);
+  rows.forEach((row) => affiliations.add(normalizeExamApplicantQuickAffiliation(row.affiliation)));
+
+  return [
+    EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE,
+    ...Array.from(affiliations).sort((a, b) => {
+      const orderDiff = quickAffiliationOrder(a) - quickAffiliationOrder(b);
+      return orderDiff || a.localeCompare(b, 'ko');
+    }),
+  ];
+}
+
+export function matchesExamApplicantQuickAffiliation(
+  affiliation: string | null | undefined,
+  selectedAffiliation: string,
+): boolean {
+  return selectedAffiliation === EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE
+    || normalizeExamApplicantQuickAffiliation(affiliation) === selectedAffiliation;
+}
+
 const KOREAN_WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const SUBJECT_FILTER_ORDER = ['life:base', 'life:third', 'nonlife:base', 'nonlife:third', 'unknown:base', 'unknown:third'];
 

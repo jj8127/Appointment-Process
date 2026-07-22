@@ -26,6 +26,7 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - 신청자 조회/삭제
 - legacy admin 시험 화면과 최신 dashboard 시험 화면이 공존
 - `/dashboard/exam/applicants` 는 상단 소속 quick filter를 제공
+- 소속 quick filter는 현재 신청자 데이터와 별개로 `2본부 박성훈`, `6본부 김정수`, `9본부 김주용`, `10본부 한태균`을 항상 노출한다. 기존 복합 소속값은 짧은 운영 표기로 정규화해 같은 필터로 매칭하고, 본부 번호는 숫자로 정렬한다.
 - `/dashboard/exam/applicants` 는 소속 quick filter 아래에 `시험 종류`와 `시험 회차` 상단 필터를 제공한다. 적용 순서는 `소속 quick filter -> 시험 종류 -> 시험 회차 -> 테이블 헤더 필터`다.
 - 시험 종류/회차 필터 옵션은 `/api/admin/exam-applicants` 응답의 `round_id`, `round_label`, `exam_date`, `exam_type`, `is_third_exam`를 client helper에서 중복 제거해 만든다. 통계 카드와 CSV 다운로드는 새 필터가 반영된 `filteredRows`를 기준으로 한다.
 - 신청자 목록 컬럼/CSV 순서와 badge wrapping은 `web/src/lib/exam-applicant-list-display.ts`의 shared contract를 따른다. `시험 신청일`은 `exam_registrations.created_at`에서 날짜만 표시하며 테이블과 CSV에 함께 포함한다. `/admin/exams/[id]`는 특정 `roundId`를 서버 API로 조회하므로 별도의 상단 회차 필터를 추가하지 않는다.

@@ -9,6 +9,7 @@ import { supabase } from './supabase';
 
 const BASE_URL = getRequestBoardApiBaseUrl();
 const REQUEST_BOARD_FETCH_TIMEOUT_MS = 8000;
+const REQUEST_BOARD_NOTIFICATION_WRITE_TIMEOUT_MS = 30000;
 
 const STORAGE_KEY_TOKEN = 'rb_jwt_token';
 const STORAGE_KEY_USER = 'rb_user';
@@ -407,25 +408,33 @@ export async function rbBridgeLogin(bridgeToken?: string) {
 
 /* ─── HTTP helpers ─── */
 
+type RbFetchOptions = RequestInit & {
+  timeoutMs?: number;
+};
+
 async function rbFetch<T>(
   path: string,
-  options: RequestInit = {},
+  options: RbFetchOptions = {},
   allowRetry = true,
 ): Promise<{ success: boolean; data?: T; error?: string }> {
+  const {
+    timeoutMs = REQUEST_BOARD_FETCH_TIMEOUT_MS,
+    ...requestOptions
+  } = options;
   const token = await getStoredToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options.headers as Record<string, string> ?? {}),
+    ...(requestOptions.headers as Record<string, string> ?? {}),
   };
 
   const url = `${BASE_URL}${path}`;
 
   try {
     const res = await fetchWithTimeout(url, {
-      ...options,
+      ...requestOptions,
       headers,
-    });
+    }, timeoutMs);
 
     // Only clear auth on 401 (token expired/invalid), NOT on 403 (forbidden/role mismatch)
     if (res.status === 401) {
@@ -1157,11 +1166,14 @@ export async function rbCreateRequest(
   return rbFetch<RbRequestDetail>('/api/requests', {
     method: 'POST',
     body: JSON.stringify(requestPayload),
+    timeoutMs: REQUEST_BOARD_NOTIFICATION_WRITE_TIMEOUT_MS,
   });
 }
 
 export async function rbGetRequestList(): Promise<RbRequestListItem[]> {
-  const res = await rbFetch<unknown>('/api/requests?limit=100&page=1&ssnView=full');
+  const res = await rbFetch<unknown>(
+    '/api/requests?limit=100&page=1&ssnView=masked&includeAttachments=false',
+  );
   if (!res.success || res.data == null) return [];
   if (Array.isArray(res.data)) return res.data as RbRequestListItem[];
   const obj = res.data as Record<string, unknown>;

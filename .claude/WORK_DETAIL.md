@@ -7,6 +7,52 @@
 
 ---
 
+## <a id="20260722-request-board-mobile-performance"></a> 2026-07-22 | Mobile Request Board first-render performance
+
+**Scope**: GaramIn Request Board home, request list, and new-request entry latency.
+
+**Changes**:
+- Coalesced overlapping initial/focus/app-active refreshes and retained explicit forced refresh after pull-to-refresh or a successful mutation.
+- Rendered request rows before optional rejected-assignment detail hydration and guarded background results by request sequence.
+- Switched the mobile list to the masked, attachment-free summary contract while leaving request detail unchanged.
+- Made customer selection available before the remaining create-form catalogs finish loading, with an honest compose-step loader.
+
+**Verification**:
+- Focused Request Board Jest suites: 53/53 PASS.
+- Root TypeScript: PASS.
+- Request Board server feature contract and server TypeScript build: PASS.
+- Final lint, governance, harness, diff, and connected-Android checks are recorded in the active handoff.
+
+**Safety**:
+- No deployment, production request, remote database write, credential change, Git publication, or Sentry mutation was performed.
+- Existing unrelated dirty work remains unstaged and untouched. Release remains `HOLD`.
+
+---
+
+## <a id="20260722-request-board-create-timeout"></a> 2026-07-22 | Mobile Request Board create timeout alignment
+
+**Scope**: GaramIn design-request creation against the response-bound GaramLink notification fanout.
+
+**Changes**:
+- Preserved the eight-second default Request Board fetch timeout.
+- Added a 30-second timeout only to `POST /api/requests`, without forwarding the custom option to the native Fetch implementation.
+- Preserved the existing retryable Korean timeout message and did not add automatic write retries.
+- Added focused source-contract coverage and documented the cross-repository timeout-budget guardrail.
+
+**Verification**:
+- Focused Jest API contract: 11/11 PASS.
+- Root TypeScript: PASS.
+- Targeted ESLint and repository governance: PASS.
+- Central harness audit and scoped diff check: PASS.
+- Connected Android reloaded the current Metro 8081 bundle, remained on `MainActivity`, and produced zero fatal/bundle error markers in the bounded check.
+- Production data replay was deliberately excluded because a timed-out create may already be durable and a synthetic replay would mutate shared data.
+
+**Safety**:
+- No deployment, remote database write, credential change, Git publication, or Sentry mutation was performed.
+- Existing unrelated dirty work remains unstaged and untouched. Release remains `HOLD`.
+
+---
+
 ## <a id="20260720-fc-home-realtime-remount"></a> 2026-07-20 | FC home Realtime remount repair
 
 **Scope**: Android FC home Render Error during Supabase Realtime effect remounts.
@@ -12060,3 +12106,64 @@
 **Safety**:
 - Existing dirty changes in `app/_layout.tsx` and `lib/__tests__/navigation-background-source.test.ts` were excluded.
 - No push, deployment, remote database operation, credential change, or Sentry mutation was performed.
+## 2026-07-21 native designer push token role repair
+
+- Scope: Request Board designer native Expo token registration only.
+- Production evidence was read-only and privacy-safe: `device-token-register` returned 500 during the device test, the hosted role constraint allowed only two non-manager roles, and the hosted manager-token aggregate was zero.
+- Root cause: application and schema snapshot required `role='manager'`, but no migration changed the hosted `device_tokens_role_check`.
+- Local change: added `20260721052837_allow_manager_device_tokens.sql`, retained service-role-only access, and added an exact-role source contract plus owning handbook updates.
+- Excluded existing dirty paths: `app/_layout.tsx`, `lib/__tests__/navigation-background-source.test.ts`.
+- Rollout boundary: no production migration, Edge deployment, Vercel deployment, push, PR, Sentry mutation, token output, or external message was performed.
+
+## 2026-07-21 | Native designer token production rollout
+
+- Applied the reviewed `allow_manager_device_tokens` migration to the FC production project.
+- Verified the hosted constraint now permits exactly `admin`, `fc`, and `manager`; migration history records the production application.
+- Restarted the connected Android app without deleting app data. The existing signed session registered one manager token successfully; only aggregate presence was inspected.
+- Notification delivery remains `HOLD` because the paired Request Board sender and FC receiver Vercel token variables are absent from their current Production settings.
+- No Edge deployment, token generation/change, Sentry mutation, push, PR, or contact/token value output was performed.
+
+## <a id="20260721-request-board-rejection-repair"></a> 2026-07-21 | Request Board rejection repair
+
+**Diagnosis**:
+- Production rejection requests failed with PostgREST `PGRST202` because the deployed server called `transition_request_assignment_v1` while the Request Board Production database did not contain that RPC or its migration history entry.
+- After the schema repair, the mobile home quick-card path still provided no success acknowledgement; it only closed the modal and refreshed data.
+
+**Changes**:
+- Applied the existing additive `atomic_request_assignment_transitions_v1` migration to the Request Board Production Supabase project.
+- Verified the function remains `SECURITY INVOKER`, grants execution to `service_role`, denies `anon` and `authenticated`, and has its supporting partial index.
+- Added `Alert.alert('거절 완료', '의뢰를 거절했습니다.')` before the home-card background refresh.
+- Added a focused mobile UI contract asserting the success acknowledgement and its ordering before refresh.
+
+**Verification**:
+- Production migration history and function existence checks passed.
+- The user confirmed designer rejection now completes successfully.
+- `request-board-mobile-ui-contract.test.ts`: 37/37 passed.
+
+**Safety**:
+- No credentials, contact data, rejection reason, or raw production payload was emitted.
+- No Vercel redeployment, Sentry mutation, commit, push, or PR was performed.
+
+---
+
+## <a id="20260721-admin-web-production-alias"></a> 2026-07-21 | Admin web Production alias repair
+
+**Diagnosis**:
+- The current `admin_web` Production deployment was `READY`, and a synthetic non-account login request proved the current client handler entered and exited its loading state.
+- The operator-facing `adminweb-red.vercel.app` hostname still resolved to the 2026-07-08 deployment, while the newly deployed build was attached only to Vercel-generated Production aliases.
+- This stale alias kept the operator on code from before the 2026-07-20 bounded-login repair, making the login action appear inert.
+
+**Operational change**:
+- Repointed `adminweb-red.vercel.app` to the current `admin_web` Production deployment.
+- Did not change auth code, Supabase state, credentials, project environment variables, or Sentry release state.
+
+**Verification**:
+- Vercel resolved both the generated Production hostname and `adminweb-red.vercel.app` to the same current deployment ID with `READY` state.
+- The operator hostname routed an existing valid browser session to `/dashboard`.
+- Aggregate-only DOM checks confirmed all four requested exam-applicant quick-filter labels render on the operator hostname.
+- Focused auth/applicant tests, scoped lint, web TypeScript, governance, diff check, Sentry-disabled production build, and harness audit are recorded in the task QA report.
+
+**Privacy and containment**:
+- No credential values were read or retained.
+- One broad live-dashboard DOM observation produced ephemeral row-level values in tool output; no file or harness artifact retained the raw observation. Subsequent browser verification used only exact-label booleans and aggregate counts.
+- The deployment used one unique web-only `%TEMP%` root, rejected forbidden candidates, and removed the exact root after completion.

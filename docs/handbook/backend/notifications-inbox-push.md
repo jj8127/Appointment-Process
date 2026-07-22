@@ -124,6 +124,7 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 ## 2026-06-05 설계매니저 모바일 알림 제한 메모
 
 - request_board 디자이너 세션의 Expo token은 `device_tokens.role='manager'`로 저장한다. `fc` role로 저장하면 FC 전체 대상 공지/시험 broadcast를 같이 받을 수 있다.
+- 운영 `device_tokens_role_check`도 `admin`, `fc`, `manager`를 정확히 허용해야 한다. 이 전이는 `20260721052837_allow_manager_device_tokens.sql`이 소유하며, schema snapshot만 고치고 migration을 누락하면 설계 매니저 토큰 등록이 500으로 실패한다.
 - `fc-notify`는 토큰 query에서 `role`을 함께 읽고, manager token은 `request_board_*` category 또는 `category='message'` + 구체적인 `target_id`가 있는 직접 채팅일 때만 유지한다.
 - 설계매니저 unread badge는 fc-onboarding unread를 더하지 않고 live request_board unread만 사용한다.
 - 게시판/공지/시험 알림을 추가하거나 수정할 때는 `supabase/functions/_shared/notification-delivery-policy.ts`와 `lib/mobile-unread-notification-count-plan.ts` 테스트를 함께 확인한다.

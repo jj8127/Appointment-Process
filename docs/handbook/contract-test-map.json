@@ -105,6 +105,7 @@
         "lib/__tests__/group-chat-mobile-source.test.ts",
         "lib/__tests__/mobile-chat-source.test.ts",
         "lib/__tests__/admin-web-chat-source.test.ts",
+        "lib/__tests__/request-board-api-contract.test.ts",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/mobile/messenger-and-content.md",
         "docs/handbook/contract-test-map.json"
@@ -198,6 +199,8 @@
         "app/request-board.tsx",
         "app/request-board-requests.tsx",
         "app/request-board-review.tsx",
+        "app/request-board-create.tsx",
+        "lib/request-board-refresh-policy.ts",
         "lib/request-board-list-filters.ts",
         "lib/request-board-home-stats.ts",
         "lib/request-board-review-actions.ts",
@@ -208,6 +211,7 @@
       "requires_any": [
         "lib/__tests__/feature-contract-matrix.test.ts",
         "lib/__tests__/request-board-mobile-ui-contract.test.ts",
+        "lib/__tests__/request-board-refresh-policy.test.ts",
         "lib/__tests__/notification-route.test.ts",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/workflow-state-matrix.md",

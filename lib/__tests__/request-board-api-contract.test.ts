@@ -14,6 +14,26 @@ describe('request board mobile API wrapper contract', () => {
     expect(source).toContain("rbFetch<RbRequestDetail>('/api/requests'");
   });
 
+  it('gives only request creation enough time for response-bound notification fanout', () => {
+    expect(source).toContain('const REQUEST_BOARD_FETCH_TIMEOUT_MS = 8000;');
+    expect(source).toContain('const REQUEST_BOARD_NOTIFICATION_WRITE_TIMEOUT_MS = 30000;');
+
+    const fetchHelper = source.slice(
+      source.indexOf('type RbFetchOptions'),
+      source.indexOf('/* ─── Auth ─── */'),
+    );
+    expect(fetchHelper).toContain('timeoutMs = REQUEST_BOARD_FETCH_TIMEOUT_MS');
+    expect(fetchHelper).toContain('...requestOptions');
+    expect(fetchHelper).toContain('}, timeoutMs);');
+
+    const createRequest = source.slice(
+      source.indexOf('export async function rbCreateRequest'),
+      source.indexOf('export async function rbGetRequestList'),
+    );
+    expect(createRequest).toContain('timeoutMs: REQUEST_BOARD_NOTIFICATION_WRITE_TIMEOUT_MS');
+    expect(source.match(/REQUEST_BOARD_NOTIFICATION_WRITE_TIMEOUT_MS/g)).toHaveLength(2);
+  });
+
   it('keeps mobile customer update/delete aligned with GaramLink customer endpoints', () => {
     expect(source).toContain('export type RbSaveCustomerPayload');
     expect(source).toContain('id?: number;');
@@ -40,8 +60,10 @@ describe('request board mobile API wrapper contract', () => {
     expect(source).toContain('/api/requests/${requestId}/designers/${designerId}/attachments');
   });
 
-  it('keeps mobile request reads unmasked for design work details', () => {
-    expect(source).toContain('/api/requests?limit=100&page=1&ssnView=full');
+  it('keeps list reads lightweight while preserving full design-work detail reads', () => {
+    expect(source).toContain(
+      '/api/requests?limit=100&page=1&ssnView=masked&includeAttachments=false',
+    );
     expect(source).toContain('/api/requests/${id}?ssnView=full');
   });
 

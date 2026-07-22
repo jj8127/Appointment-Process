@@ -366,6 +366,7 @@ alter table public.notifications
 alter table public.device_tokens
   drop constraint if exists device_tokens_role_check;
 alter table public.device_tokens
+  -- Paired migration: 20260721052837_allow_manager_device_tokens.sql
   add constraint device_tokens_role_check check (role in ('admin','fc','manager'));
 
 alter table public.web_push_subscriptions

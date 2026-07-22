@@ -11,6 +11,7 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 - `device_tokens` is service-role-only storage. The schema snapshot must not grant anon/authenticated direct table access or recreate broad direct-client RLS policies.
 - The paired migration for this contract is `supabase/migrations/20260706131220_harden_device_tokens_trusted_path.sql`.
+- The exact `device_tokens` role constraint is owned by `supabase/migrations/20260721052837_allow_manager_device_tokens.sql`; it permits `admin`, `fc`, and Request Board designer scope `manager` without restoring client table access.
 
 ## 2026-07-03 Board Category Schema Snapshot
 

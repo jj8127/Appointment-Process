@@ -2,7 +2,7 @@ doc_id: SHARED-BRIDGE-CONTRACT
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-04-16
+last_verified: 2026-07-22
 source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/functions/sync-request-board-session/index.ts + supabase/functions/refresh-app-session/index.ts + request_board/server/src/routes/auth.ts + lib/request-board-api.ts
 
 # Cross-Repo Bridge Contract
@@ -12,6 +12,18 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 - `lib/request-board-api.ts` must remain the GaramIn bridge boundary for GaramLink requests, messages, direct messages, attachments, and delete actions.
 - Bridge API changes must keep request-board session retry/error classification, trusted `ssnView=full` reads, and messenger interaction parity aligned with request_board server routes.
 - Contract evidence is tracked through `lib/__tests__/request-board-api-contract.test.ts`, `lib/__tests__/request-board-session.test.ts`, `lib/__tests__/feature-contract-matrix.test.ts`, and the request_board feature-contract tests.
+
+### Response-bound notification timeout budget
+
+- The mobile bridge keeps an eight-second default for ordinary calls.
+- A server route that waits for notification fanout before responding must declare a caller-specific timeout budget. `POST /api/requests` uses 30 seconds because it settles bounded new-request channels before returning.
+- Create writes are not automatically retried after timeout because the server may already have committed the primary record.
+
+### Mobile request-list summary contract
+
+- GaramIn request lists use `ssnView=masked&includeAttachments=false`; list rows still include designer decision metadata such as `rejection_reason` but omit request attachments and their signed-URL work.
+- The request_board server keeps `includeAttachments=true` as the compatibility default so existing GaramLink web screens retain their previous response shape.
+- Request detail remains the explicit full-detail path. Optional detail enrichment must not block the mobile list's first render.
 
 ## 2026-07-08 Designer Account Parity
 

@@ -19,6 +19,13 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-07-22
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 07-22 | Bound mobile design-request creation to 30 seconds while preserving the 8-second default and no automatic write retry | `lib/request-board-api.ts`, focused API contract, mobile Request Board handbook | [detail](WORK_DETAIL.md#20260722-request-board-create-timeout) |
+| 07-22 | Removed duplicate Request Board refreshes and first-render blockers from mobile home, list, and create flows | `app/request-board*.tsx`, `lib/request-board-refresh-policy.ts`, bridge API contracts | [detail](WORK_DETAIL.md#20260722-request-board-mobile-performance) |
+
 ## 2026-07-16
 
 | Date | Work | Key files | Detail |
@@ -568,3 +575,40 @@
 - Added a whole-mobile-source AST/type regression contract covering `app`, `components`, and `hooks`.
 - Focused UI contracts, targeted lint, and root TypeScript pass. Device replay remains a separate runtime confirmation if ADB is unavailable.
 - See [details](WORK_DETAIL.md#20260720-react-native-text-child).
+## 2026-07-21 — 설계 매니저 Android 토큰 등록 migration 보완
+
+- 운영 `device_tokens_role_check`가 `manager`를 거부해 등록 함수가 500을 반환하는 schema drift를 읽기 전용으로 확인했다.
+- CLI 생성 migration, exact-role 계약 테스트, push/data handbook를 추가했다. 원격 migration 적용·Edge 배포·Vercel 배포는 수행하지 않았다.
+- 상세: `.claude/WORK_DETAIL.md#2026-07-21-native-designer-push-token-role-repair`
+
+## 2026-07-21 — 설계 매니저 Android 토큰 운영 적용
+
+- 운영 migration을 적용해 `device_tokens_role_check`를 정확히 `admin/fc/manager`로 확장했다.
+- 연결된 실제 Android 앱을 데이터 삭제 없이 재시작했고, manager 토큰 등록 1건을 aggregate로 확인했다.
+- 알림 전달은 Vercel 송신·FC 수신 전용 토큰 부재로 아직 `HOLD`다. 토큰 값은 생성·출력·저장하지 않았다.
+
+## 2026-07-21 Request Board rejection RPC rollout and mobile success feedback
+
+- Applied the missing atomic Request Board assignment-transition RPC migration to Production and verified service-role-only execution with `SECURITY INVOKER`.
+- Confirmed the previously failing designer rejection works after the schema rollout.
+- Added an explicit `거절 완료` acknowledgement to the mobile home quick-card rejection path and regression coverage.
+- See [details](WORK_DETAIL.md#20260721-request-board-rejection-repair).
+
+## 2026-07-21 시험 신청자 빠른 본부 분류 추가
+
+- 신청자 관리의 빠른 분류에 `2본부 박성훈`, `6본부 김정수`,
+  `9본부 김주용`, `10본부 한태균`을 신청자 유무와 관계없이 항상
+  표시하도록 추가했습니다.
+- 기존 복합 소속값인 6·9본부는 요청된 짧은 버튼명으로 표시하면서도
+  실제 신청자를 정상 필터링합니다.
+- 본부 번호를 숫자로 정렬해 `10본부`가 `1본부` 앞에 배치되지 않도록
+  회귀 테스트를 추가했습니다.
+- 대상 Node 테스트 13/13, admin-web TypeScript, scoped ESLint 및 diff check가
+  통과했습니다.
+
+## 2026-07-21 관리자 웹 운영 alias 최신화
+
+- FC 관리자 웹 최신 Production 배포는 `READY`였지만 운영자가 사용하던 `adminweb-red.vercel.app`은 7월 8일의 이전 배포를 가리키고 있었습니다.
+- 운영 alias를 최신 Production 배포로 재연결했고, 기존 인증 세션의 대시보드 진입과 시험 신청자 화면의 네 개 빠른 분류 렌더링을 확인했습니다.
+- 로그인 버튼 코드는 최신 배포에서 요청 중 비활성화와 종료 후 재활성화가 동작해 별도 코드 변경은 하지 않았습니다.
+- 상세: [WORK_DETAIL.md#20260721-admin-web-production-alias](WORK_DETAIL.md#20260721-admin-web-production-alias)

@@ -357,6 +357,16 @@ describe('request-board mobile UI contracts', () => {
     expect(homeSource).not.toContain('모바일에서 거절 처리');
   });
 
+  it('confirms a successful designer rejection from the home quick request card', () => {
+    const handlerStart = homeSource.indexOf('const handleDesignerRejectConfirm = async () =>');
+    const handlerEnd = homeSource.indexOf('const openNotifications = () =>', handlerStart);
+    const handlerBlock = homeSource.slice(handlerStart, handlerEnd);
+
+    expect(handlerBlock).toContain("Alert.alert('거절 완료', '의뢰를 거절했습니다.');");
+    expect(handlerBlock.indexOf("Alert.alert('거절 완료'"))
+      .toBeLessThan(handlerBlock.indexOf('await fetchData({ force: true });'));
+  });
+
   it('does not log out the whole GaramIn session when only request-board reauthentication is needed', () => {
     const autoSyncStart = sessionSource.indexOf('void ensureRequestBoardSession().then');
     const autoSyncEnd = sessionSource.indexOf('return () => {', autoSyncStart);
@@ -393,6 +403,43 @@ describe('request-board mobile UI contracts', () => {
     expect(requestsSource).toContain('styles.rejectionReasonBox');
     expect(requestsSource).toContain('numberOfLines={2}');
     expect(requestsSource).toContain('{designerRejectionSummary.reason}');
+  });
+
+  it('renders request list rows before optional rejection-reason hydration finishes', () => {
+    const fetchBlock = requestsSource.slice(
+      requestsSource.indexOf('const fetchData = useCallback'),
+      requestsSource.indexOf('const handleRefresh = () =>'),
+    );
+    expect(fetchBlock).toContain('setRequests(data);');
+    expect(fetchBlock).toContain('setTimeout(() =>');
+    expect(fetchBlock).toContain('hydrateDesignerRejectionReasons(data)');
+    expect(fetchBlock).toContain('requestSequence === requestSequenceRef.current');
+    expect(fetchBlock).toContain("logger.warn('[requests] optional rejection-reason hydration failed')");
+    expect(fetchBlock.indexOf('setRequests(data);')).toBeLessThan(
+      fetchBlock.indexOf('hydrateDesignerRejectionReasons(data)'),
+    );
+  });
+
+  it('coalesces passive home refreshes but forces pull and post-mutation refreshes', () => {
+    expect(homeSource).toContain('shouldSkipRequestBoardPassiveRefresh');
+    expect(homeSource).toContain('requestBoardRefreshInFlightRef');
+    expect(homeSource).toContain('lastRequestBoardRefreshCompletedAtRef');
+    expect(homeSource).toContain('void fetchData({ force: true });');
+    expect(homeSource.match(/await fetchData\(\{ force: true \}\);/g)).toHaveLength(2);
+  });
+
+  it('opens the customer step before later request catalogs finish loading', () => {
+    const loadBlock = createSource.slice(
+      createSource.indexOf('const loadData = useCallback'),
+      createSource.indexOf('useEffect(() => {', createSource.indexOf('const loadData = useCallback')),
+    );
+    expect(loadBlock).toContain('const customerRowsPromise = rbGetCustomers();');
+    expect(loadBlock).toContain('const catalogRowsPromise = Promise.all([');
+    expect(loadBlock.indexOf('setLoading(false);')).toBeLessThan(
+      loadBlock.indexOf('await catalogRowsPromise'),
+    );
+    expect(createSource).toContain('if (catalogLoading)');
+    expect(createSource).toContain('상품·설계 매니저 정보를 불러오는 중입니다');
   });
 
   it('creates one GaramIn request per selected product-designer cell', () => {

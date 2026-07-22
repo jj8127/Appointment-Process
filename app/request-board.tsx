@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -45,6 +45,7 @@ import {
 } from '@/lib/request-board-home-stats';
 import { canUseRequestBoardAsFc } from '@/lib/request-board-permissions';
 import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
+import { shouldSkipRequestBoardPassiveRefresh } from '@/lib/request-board-refresh-policy';
 import { normalizeDesignerRejectReason } from '@/lib/request-board-review-actions';
 import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { getRequestBoardWebBaseUrl } from '@/lib/request-board-url';
@@ -251,6 +252,8 @@ export default function RequestBoardScreen() {
   const [designerRejectModalVisible, setDesignerRejectModalVisible] = useState(false);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [requestBoardAccessError, setRequestBoardAccessError] = useState<string | null>(null);
+  const requestBoardRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const lastRequestBoardRefreshCompletedAtRef = useRef(0);
   const homeHeaderTitle = buildWelcomeTitle({
     role,
     readOnly,
@@ -299,12 +302,26 @@ export default function RequestBoardScreen() {
   }, [hydrated, role, router]);
 
   /* ─── Data fetch ─── */
-  const fetchData = useCallback(async () => {
-    const inboxRole: 'admin' | 'fc' | null = role;
-    if (!inboxRole) return;
-    setRequestBoardAccessError(null);
+  const fetchData = useCallback((options: { force?: boolean } = {}) => {
+    const activeRefresh = requestBoardRefreshInFlightRef.current;
+    if (activeRefresh) {
+      return activeRefresh;
+    }
+    if (shouldSkipRequestBoardPassiveRefresh({
+      force: options.force,
+      nowMs: Date.now(),
+      lastCompletedAtMs: lastRequestBoardRefreshCompletedAtRef.current,
+    })) {
+      return Promise.resolve();
+    }
 
-    await Promise.allSettled([
+    const inboxRole: 'admin' | 'fc' | null = role;
+    if (!inboxRole) return Promise.resolve();
+
+    const refreshTask = (async () => {
+      setRequestBoardAccessError(null);
+
+      await Promise.allSettled([
       // Notifications from fc-notify
       (async () => {
         try {
@@ -376,8 +393,17 @@ export default function RequestBoardScreen() {
       })(),
     ]);
 
-    setLoading(false);
-    setRefreshing(false);
+      setLoading(false);
+      setRefreshing(false);
+    })();
+
+    requestBoardRefreshInFlightRef.current = refreshTask;
+    return refreshTask.finally(() => {
+      if (requestBoardRefreshInFlightRef.current === refreshTask) {
+        requestBoardRefreshInFlightRef.current = null;
+        lastRequestBoardRefreshCompletedAtRef.current = Date.now();
+      }
+    });
   }, [ensureRequestBoardSession, hasRequestBoardFcReadAccess, includeRequestBoardFcInbox, isRequestBoardDesigner, notificationInboxResidentId, requestBoardRole, role]);
 
   useEffect(() => {
@@ -406,7 +432,7 @@ export default function RequestBoardScreen() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchData();
+    void fetchData({ force: true });
   };
 
   const recentNotifs = notifications.slice(0, 3);
@@ -483,7 +509,7 @@ export default function RequestBoardScreen() {
       if (!result.success) {
         throw new Error(result.error ?? result.message ?? '수락 처리에 실패했습니다.');
       }
-      await fetchData();
+      await fetchData({ force: true });
     } catch (err) {
       logger.warn('[request-board] designer accept failed', err);
       Alert.alert('수락 실패', toRequestBoardSessionErrorMessage(err, '수락 처리에 실패했습니다.'));
@@ -541,7 +567,8 @@ export default function RequestBoardScreen() {
         throw new Error(result.error ?? result.message ?? '거절 처리에 실패했습니다.');
       }
       resetDesignerRejectModal();
-      await fetchData();
+      Alert.alert('거절 완료', '의뢰를 거절했습니다.');
+      await fetchData({ force: true });
     } catch (err) {
       logger.warn('[request-board] designer reject failed', err);
       Alert.alert('거절 실패', toRequestBoardSessionErrorMessage(err, '거절 처리에 실패했습니다.'));

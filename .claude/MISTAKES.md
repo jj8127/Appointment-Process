@@ -3844,3 +3844,90 @@
   - `components/Button.tsx`
   - `components/FormInput.tsx`
   - `lib/__tests__/react-native-text-child-contract.test.ts`
+## 2026-07-21 | Schema rollout | schema snapshot에만 manager token 역할을 추가하고 migration을 누락함
+
+- Symptom:
+  - Android 설계 매니저 로그인 직후 `device-token-register`가 500을 반환하고 네이티브 알림 토큰이 한 건도 등록되지 않았다.
+- Root cause:
+  - `supabase/schema.sql`과 앱/Edge 계약은 `device_tokens.role='manager'`를 사용했지만, 운영 constraint를 변경하는 migration이 없어서 원격 DB는 `admin`, `fc`만 허용했다.
+- Permanent guardrail:
+  - schema snapshot의 기존 constraint를 넓힐 때는 동일 변경을 소유하는 additive migration과 exact-role source contract를 함께 추가한다.
+  - 기기 토큰 등록 E2E에서는 함수 HTTP 성공뿐 아니라 역할별 토큰 row count와 최신 등록 시각을 개인정보 없이 확인한다.
+- Verification:
+  - `lib/__tests__/priority-security-hardening.test.ts`
+  - `supabase/migrations/20260721052837_allow_manager_device_tokens.sql`
+
+## 2026-07-21 | Mobile mutation feedback | successful quick-card rejection had no confirmation
+
+- Symptom:
+  - A designer rejection completed successfully from the Request Board home card, but the modal simply closed and refreshed, leaving the user unsure whether the action succeeded.
+- Root cause:
+  - The home quick-card success branch reset local state and fetched fresh data without showing the success alert already used by the detailed review screen.
+- Permanent guardrail:
+  - Every user-triggered Request Board state transition must expose an explicit success acknowledgement before background refresh work.
+  - Keep source-contract coverage for both failure and success feedback on quick-card mutation paths.
+- Verification:
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+
+## 2026-07-22 | Cross-repo timeout drift | notification fanout outlived the mobile create deadline
+
+- Symptom:
+  - GaramIn reported that GaramLink was delayed while creating a design request, even though the server could already have committed the request.
+- Root cause:
+  - The mobile Request Board wrapper applied one eight-second timeout to every call.
+  - The server had been changed to await bounded web, native, and AlimTalk notification fanout before returning from `POST /api/requests`, but the mobile write timeout contract was not updated with it.
+- Permanent guardrail:
+  - Keep a short default timeout for ordinary mobile calls and an explicit longer bound for response-before-return notification writes.
+  - Never automatically retry request creation after a transport timeout; the primary write may already be durable and an automatic retry can duplicate it.
+  - Any server change that moves notification work before the response must update and test every calling client's timeout budget in the same increment.
+- Verification:
+  - `lib/__tests__/request-board-api-contract.test.ts`
+
+## 2026-07-22 | Mobile request workflow performance | optional work blocked first render
+
+- Symptom:
+  - GaramIn design-request home, list, and create pages felt slow even when the primary data needed for the first screen was already available.
+- Root cause:
+  - Mount, focus, and app-active lifecycle events could start duplicate home refreshes.
+  - The list waited for per-rejected-assignment detail hydration, and its 100-row response requested attachments whose signed URLs were not used by the mobile list.
+  - The create screen kept a full-screen loader until customer, product, designer, and FC-code catalogs all completed.
+- Permanent guardrail:
+  - Coalesce passive lifecycle refreshes, render primary rows before optional enrichment, use an explicit attachment-free summary projection for summary clients, and reveal each workflow step as soon as its own required data is ready.
+  - Keep forced refresh for user intent and successful mutations, sequence-guard background enrichment, and preserve the server's attachment-inclusive default for existing clients.
+- Verification:
+  - `lib/__tests__/request-board-refresh-policy.test.ts`
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+  - `lib/__tests__/request-board-api-contract.test.ts`
+
+## 2026-07-21 | UI 분류 정렬 | 본부명을 문자열로 정렬해 10본부가 1본부 앞에 배치됨
+
+- 증상: 고정 빠른 분류를 추가한 첫 테스트에서 `10본부`가 `1본부`보다
+  먼저 표시됐습니다.
+- 원인: 숫자가 포함된 본부명을 일반 문자열 비교로 정렬했습니다.
+- 영구 방지책: `N본부` 접두사의 숫자를 추출해 수치 정렬하고, 1·2·6·8·9·10
+  순서를 회귀 테스트로 고정합니다.
+- 검증: `web/src/lib/exam-applicant-list-display.test.ts`
+
+## 2026-07-21 | Vercel alias drift | 최신 Production 배포가 운영 주소에 반영되지 않음
+
+- Symptom:
+  - 최신 관리자 웹 배포는 `READY`였지만 운영자가 사용하는 `adminweb-red.vercel.app`에서는 로그인 버튼이 이전처럼 반응하지 않는 것으로 보였다.
+- Root cause:
+  - CLI Production 배포가 Vercel 생성 alias만 갱신했고, 별도 운영 alias는 2026-07-08 배포에 남아 있었다.
+- Permanent guardrail:
+  - 관리자 웹 배포 완료 조건에는 배포 자체의 `READY`뿐 아니라 실제 운영자 hostname이 같은 deployment ID로 해석되는지 확인하는 단계를 포함한다.
+  - 운영 alias가 별도라면 배포 직후 명시적으로 재연결하고, 운영 hostname에서 핵심 화면의 현재 변경 문구를 aggregate-only로 확인한다.
+- Verification:
+  - Vercel deployment lookup for generated Production hostname and `adminweb-red.vercel.app`.
+
+## 2026-07-21 | Browser QA privacy | 광범위 대시보드 DOM 출력에 운영 행 값이 포함됨
+
+- Symptom:
+  - 운영 alias 재연결 뒤 대시보드 진입을 확인하는 과정에서 전체 DOM snapshot 1회가 ephemeral tool output에 출력됐고, 11자리 숫자 패턴 60개가 포함됐다.
+- Root cause:
+  - 인증 성공 여부만 확인하면 되는 단계에서 URL·heading·필수 label 같은 제한된 신호 대신 broad snapshot을 출력했다.
+- Permanent guardrail:
+  - 운영 데이터 화면에서는 DOM snapshot 원문을 출력하지 않는다. snapshot은 메모리에서만 판정하고 URL, boolean, count, opaque hash만 보고한다.
+  - 이번 ephemeral observation의 SHA-256은 `cb9504f911b9bd3af0aaf62e84d7bd6e93c8c6150b671ab89362bc8b071529b5`이며, 영구 파일·하네스·로그 사본은 생성하지 않았다.
+- Verification:
+  - 후속 시험 신청자 확인은 네 개 기대 label의 존재 boolean만 반환했다.

@@ -213,6 +213,32 @@ test('top exam applicant filters build de-duped subject options from current row
   ]);
 });
 
+test('exam applicant quick affiliations pin requested headquarters and match legacy composite labels', async () => {
+  const mod = await import('./exam-applicant-list-display.ts').catch(() => null);
+
+  assert.ok(mod, 'exam applicant list display module should exist');
+  assert.deepStrictEqual(
+    mod.buildExamApplicantQuickAffiliationOptions([
+      { affiliation: '8본부 정승철' },
+      { affiliation: '1본부 서선미' },
+      { affiliation: '6본부 김정수(박선희)' },
+      { affiliation: '9본부 이현욱(김주용)' },
+    ]),
+    [
+      '전체',
+      '1본부 서선미',
+      '2본부 박성훈',
+      '6본부 김정수',
+      '8본부 정승철',
+      '9본부 김주용',
+      '10본부 한태균',
+    ],
+  );
+  assert.equal(mod.matchesExamApplicantQuickAffiliation('6본부 김정수(박선희)', '6본부 김정수'), true);
+  assert.equal(mod.matchesExamApplicantQuickAffiliation('9본부 이현욱(김주용)', '9본부 김주용'), true);
+  assert.equal(mod.matchesExamApplicantQuickAffiliation('1본부 서선미', '2본부 박성훈'), false);
+});
+
 test('top exam applicant round filters narrow by selected subject and format labels', async () => {
   const mod = await import('./exam-applicant-list-display.ts').catch(() => null);
 

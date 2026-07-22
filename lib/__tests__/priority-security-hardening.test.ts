@@ -12,6 +12,14 @@ describe('priority security hardening source contracts', () => {
     const source = readRepoFile('lib/notifications.ts');
     const dashboardSource = readRepoFile('app/dashboard.tsx');
     const migration = readRepoFile('supabase/migrations/20260706131220_harden_device_tokens_trusted_path.sql');
+    const managerRoleMigration = readRepoFile(
+      'supabase/migrations/20260721052837_allow_manager_device_tokens.sql',
+    );
+    const managerRoleMigrationSql = managerRoleMigration
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n');
+    const schema = readRepoFile('supabase/schema.sql');
 
     expect(source).toMatch(/functions\.invoke[\s\S]*'device-token-register'/);
     expect(source).not.toContain(".from('device_tokens')");
@@ -20,6 +28,14 @@ describe('priority security hardening source contracts', () => {
     expect(dashboardSource).not.toContain("functions.invoke('fc-notify'");
     expect(migration).toContain('revoke all on table public.device_tokens from anon');
     expect(migration).toContain('revoke all on table public.device_tokens from authenticated');
+    expect(managerRoleMigration).toContain('drop constraint if exists device_tokens_role_check');
+    expect(managerRoleMigration).toMatch(
+      /add constraint device_tokens_role_check\s+check \(role in \('admin', 'fc', 'manager'\)\)/,
+    );
+    expect(managerRoleMigrationSql).not.toMatch(
+      /\bgrant\b|\bpolicy\b|\binsert\b|\bupdate\b|\bdelete\b/i,
+    );
+    expect(schema).toContain('20260721052837_allow_manager_device_tokens.sql');
   });
 
   it('binds web push subscriptions to a verified server session instead of request body identity', () => {

@@ -606,6 +606,7 @@ export default function RequestBoardCreateScreen() {
 
   const [step, setStep] = useState<StepKey>(() => resolveRequestBoardCreateInitialStep(entry));
   const [loading, setLoading] = useState(true);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [customers, setCustomers] = useState<RbCustomerProfile[]>([]);
   const [products, setProducts] = useState<MobileRequestProduct[]>([]);
@@ -666,19 +667,25 @@ export default function RequestBoardCreateScreen() {
     }
     try {
       setLoading(true);
+      setCatalogLoading(true);
       const sync = await ensureRequestBoardSession();
       if (!sync.ok) {
         throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
       }
 
-      const [customerRows, productRows, designerRows, codeRows] = await Promise.all([
-        rbGetCustomers(),
+      const customerRowsPromise = rbGetCustomers();
+      const catalogRowsPromise = Promise.all([
         rbGetProducts(),
         rbGetDesigners(),
         rbGetFcCodes(),
       ]);
 
+      const customerRows = await customerRowsPromise;
       setCustomers(customerRows);
+      setLoading(false);
+
+      const [productRows, designerRows, codeRows] = await catalogRowsPromise;
+
       setProducts(mapRequestBoardProductsToMobileCatalog(productRows).products);
       setDesigners(designerRows);
       setFcCodes(codeRows);
@@ -690,6 +697,7 @@ export default function RequestBoardCreateScreen() {
         toRequestBoardSessionErrorMessage(err, '설계 요청 데이터를 불러오지 못했습니다.'),
       );
     } finally {
+      setCatalogLoading(false);
       setLoading(false);
     }
   }, [canUseCreateFlow, ensureRequestBoardSession, hydrated]);
@@ -1785,6 +1793,14 @@ export default function RequestBoardCreateScreen() {
 
   const renderComposeStep = () => {
     if (!selectedCustomer) return null;
+    if (catalogLoading) {
+      return (
+        <View style={styles.loading}>
+          <ActivityIndicator color={COLORS.primary} size="large" />
+          <Text style={styles.loadingText}>상품·설계 매니저 정보를 불러오는 중입니다</Text>
+        </View>
+      );
+    }
     return (
       <>
         <View style={styles.summaryCard}>
