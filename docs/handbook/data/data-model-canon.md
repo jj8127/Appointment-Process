@@ -2,10 +2,18 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-06-08
+last_verified: 2026-07-23
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
+
+## 2026-07-23 시험 응시료 입금 증빙 계약
+
+- `exam-payment-proofs`는 비공개 Storage 버킷이며 JPG, PNG, WebP 이미지만 최대 10MB까지 받습니다. `anon`/`authenticated` 직접 정책은 열지 않고, 서명된 앱 세션을 검증한 `exam-payment-proof` Edge Function이 단기 signed upload URL을 발급합니다.
+- `exam_payment_proof_uploads`는 FC, 요청 UUID, 비공개 object path, 파일 메타데이터, 만료 시각, 소비 상태를 기록하는 service-role-only 업로드 장부입니다. `(fc_id, request_id)`는 재시도 멱등성 키이고, 한 시험 신청에는 현재 증빙 한 건만 연결할 수 있습니다.
+- `exam_registrations.payment_proof_attached`와 `payment_proof_policy_version`은 증빙 적용 여부를 기록합니다. 기존 모바일 호환을 위해 기본 버전은 `0`이며, 새 Edge 제출 경로는 반드시 증빙을 확인하고 버전 `1`로 저장합니다.
+- `public.submit_exam_registration_with_payment_proof`는 신청 생성/수정과 업로드 장부 연결·기존 증빙 교체를 한 트랜잭션에서 처리하는 `SECURITY INVOKER` RPC입니다. 실행 권한은 `service_role`에만 있고, FC 소유권·업로드 만료·재사용·신청당 단일 현재 증빙을 DB에서도 검증합니다.
+- 기준 migration은 `supabase/migrations/20260723040446_add_exam_payment_proofs.sql`입니다. 배포 순서는 additive migration과 Edge 확인이 먼저이고, 그 다음 증빙 필수 모바일을 배포합니다. 원격 적용과 관리자 검수 화면은 별도 릴리스 증거가 생길 때까지 완료로 보지 않습니다.
 
 ## 2026-07-06 Device Token Access Contract
 

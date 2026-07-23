@@ -96,3 +96,15 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - FC 시험 신청은 등록 row를 먼저 확정한 뒤 관리자/본인 알림을 `sendExamApplyNotificationsBestEffort`로 병렬 전송한다. 일부 알림 실패는 `failedTargets` 경고로 남기되 이미 저장된 신청을 mutation 실패로 되돌리지 않으며, 사용자가 같은 신청을 중복 재시도하도록 만들지 않는다.
 - 모바일 시험 알림은 `invokeFcNotify`의 app-session 헤더 계약을 사용하고, 관리자 승인 알림은 인증 쿠키가 포함된 `/api/fc-notify` 서버 경계를 사용한다.
 - 관리자 회차 저장은 검증된 admin session과 중앙 payload parser를 거친 뒤 `save_exam_round_atomic` RPC로 회차와 장소를 한 트랜잭션에서 갱신한다. 조회는 read-only admin session을 허용하고, 삭제는 parent round 한 건을 삭제해 FK cascade 계약을 따른다.
+
+## 2026-07-23 응시료 입금 증빙 계약
+
+- `exam-apply`, `exam-apply2`는 응시료 납입일 바로 아래에 이미지 1개를 필수로 받는다. JPG, PNG, WebP만 허용하고 최대 크기는 10MB다.
+- 필수값 누락은 CTA를 침묵시키지 않고 `입금 내역 캡처`를 기존 누락 항목 alert에 포함한다.
+- 화면에는 `입력하신 입금 날짜와 첨부한 입금 내역의 실제 입금 날짜가 다를 경우 시험 신청이 처리되지 않습니다.`를 생명/손해 동일 문구로 표시한다.
+- 미래 날짜는 DatePicker와 서버 검증에서 모두 차단한다.
+- 사진은 private `exam-payment-proofs` bucket에 저장하며 공개 URL을 만들지 않는다. 서명된 앱 세션을 검증한 `exam-payment-proof` Edge Function만 업로드 URL을 발급하고 신청 저장/취소를 수행한다.
+- 신규 신청과 증빙 교체는 `submit_exam_registration_with_payment_proof` RPC에서 신청 row와 증빙 소비 상태를 한 트랜잭션으로 묶는다. 응답 유실 재시도는 같은 `requestId`/upload row를 재사용한다.
+- 기존 증빙이 있는 미확정 신청은 사진을 새로 고르지 않아도 수정할 수 있다. 새 사진을 고르면 성공한 저장 뒤 이전 object를 best effort로 정리한다.
+- 사진 속 실제 날짜의 자동 판독은 이 계약에 포함하지 않는다. 관리자 검토 화면에서 날짜를 대조하는 후속 연동 전까지 운영상 접수 확정은 HOLD다.
+- 호환 배포 순서는 additive migration + 새 Edge Function → 구버전 호환 확인 → 모바일 OTA/앱 → 관리자 증빙 검토 surface다. 기존 알림 복구 릴리스와 섞어 배포하지 않는다.

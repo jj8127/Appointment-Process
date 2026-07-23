@@ -1,11 +1,13 @@
 export type ExamApplicationMissingField =
   | '응시료 납입 일자'
+  | '입금 내역 캡처'
   | '시험 일정'
   | '응시 지역'
   | '응시 과목';
 
 type ExamApplicationSelection = {
   feePaidDate?: Date | null;
+  hasPaymentProof: boolean;
   selectedRoundId?: string | null;
   selectedLocationId?: string | null;
   hasSelectedSubject: boolean;
@@ -18,6 +20,7 @@ const hasValue = (value?: string | null) => {
 
 export function getMissingExamApplicationFields({
   feePaidDate,
+  hasPaymentProof,
   selectedRoundId,
   selectedLocationId,
   hasSelectedSubject,
@@ -25,6 +28,7 @@ export function getMissingExamApplicationFields({
   const missing: ExamApplicationMissingField[] = [];
 
   if (!feePaidDate) missing.push('응시료 납입 일자');
+  if (!hasPaymentProof) missing.push('입금 내역 캡처');
   if (!hasValue(selectedRoundId)) missing.push('시험 일정');
   if (!hasValue(selectedLocationId)) missing.push('응시 지역');
   if (!hasSelectedSubject) missing.push('응시 과목');

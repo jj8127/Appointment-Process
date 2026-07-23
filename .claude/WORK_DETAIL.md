@@ -7,6 +7,31 @@
 
 ---
 
+## <a id="20260723-exam-payment-proof"></a> 2026-07-23 | FC 시험 신청 응시료 입금 증빙
+
+**Scope**: 생명보험·손해보험 FC 시험 신청의 납입일/증빙 필수 입력과 private 저장 경계.
+
+**Changes**:
+- 납입일 아래에 JPG/PNG/WebP 1개, 최대 10MB의 입금 내역 선택·미리보기·교체·삭제 UI를 공용 컴포넌트로 추가했다.
+- 누락 alert에 `입금 내역 캡처`를 포함하고 미래 납입일을 앱/서버 양쪽에서 차단했으며, 요청한 날짜 불일치 주의 문구를 두 화면에 동일하게 표시했다.
+- private `exam-payment-proofs` bucket, service-role-only upload ledger, `payment_proof_attached`/호환 version, atomic submit RPC를 additive migration과 `schema.sql`에 함께 추가했다.
+- 새 `exam-payment-proof` Edge Function이 signed app session을 검증한 뒤 prepare/submit/discard/cancel을 처리한다. 공개 URL, raw identifier log, 클라이언트 직접 신청 write는 사용하지 않는다.
+- request UUID를 재사용해 응답 유실 재시도에서 같은 upload ledger를 사용하고, 교체/취소 뒤 이전 object를 best effort로 정리한다.
+
+**Verification**:
+- Focused Jest: validation/proof/source-contract 15/15 PASS.
+- Edge Node contract/helper/diagnostic tests 12/12 PASS.
+- Root TypeScript, targeted ESLint, new Edge Deno check, governance, diff check: PASS.
+- Full Jest는 124/129 suites, 683/688 tests가 통과했다. 남은 5건은 격리 worktree 경로를 canonical repo로 가정한 inventory 2건, 기존 CRLF-sensitive source lock 2건, 격리 환경에 `web` Sentry package가 없는 1건으로 이번 시험 증빙 변경과 무관하다.
+- Migration local database apply, authenticated device upload, admin proof review UI는 아직 실행하지 않아 release는 `HOLD`.
+
+**Safety**:
+- 최초 구현은 `D:\hanhwa\_codex_exam_payment_proof_20260723`의 `codex/exam-payment-proof-20260723` 브랜치에 격리했다.
+- Request Board, 기존 `fc-notify`/`group-chat`, `admin-action`, 관리자 웹/모바일 신청자 화면, Vercel, EAS/OTA, push를 변경하지 않았다.
+- 통합 후에도 additive migration + 새 Edge → 모바일 테스트 순서를 유지하고 관리자 검토 surface 전에는 운영 릴리스를 보류한다.
+
+---
+
 ## <a id="20260723-temp-id-mobile-push-token-recovery"></a> 2026-07-23 | Temporary-id mobile push token recovery
 
 **Scope**: Admin-web temporary-id issuance notifications sent to the corresponding signed-in GaramIn FC handset.
@@ -59,9 +84,6 @@
 **Safety**:
 - No database, deployment, credential, Sentry, Store, or Git publication state was changed.
 - Existing protected dirty files remain unstaged and untouched.
-
----
-
 ## <a id="20260722-request-board-mobile-performance"></a> 2026-07-22 | Mobile Request Board first-render performance
 
 **Scope**: GaramIn Request Board home, request list, and new-request entry latency.

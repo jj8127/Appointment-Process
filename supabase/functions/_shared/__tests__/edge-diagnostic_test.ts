@@ -77,6 +77,9 @@ test('accepts every reviewed residual-closure event and reason pair', () => {
     { event: 'delete_account.storage_cleanup', reason: 'fc_documents_remove_failed' },
     { event: 'delete_account.storage_cleanup', reason: 'board_attachments_remove_failed' },
     { event: 'delete_account.storage_cleanup', reason: 'chat_uploads_remove_failed' },
+    { event: 'exam_payment_proof.database', reason: 'database_operation_failed' },
+    { event: 'exam_payment_proof.storage', reason: 'signed_upload_url_failed' },
+    { event: 'exam_payment_proof.storage', reason: 'storage_remove_failed' },
   ];
 
   for (const input of reviewedPairs) {

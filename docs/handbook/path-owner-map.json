@@ -49,6 +49,9 @@
         "app/exam-register2.tsx",
         "app/exam-manage.tsx",
         "app/exam-manage2.tsx",
+        "components/ExamPaymentProofField.tsx",
+        "lib/exam-application-validation.ts",
+        "lib/exam-payment-proof",
         "lib/exam-flow-contract.ts",
         "web/src/app/dashboard/exam/",
         "web/src/app/admin/exams/",
@@ -59,6 +62,23 @@
       "requires_any": [
         "docs/handbook/mobile/exam-flows.md",
         "docs/handbook/admin-web/exam-and-referral-ops.md"
+      ]
+    },
+    {
+      "id": "backend-exam-payment-proof",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/exam-payment-proof/",
+        "supabase/functions/_shared/exam-payment-proof.ts",
+        "supabase/functions/_shared/__tests__/exam-payment-proof_test.ts",
+        "supabase/functions/__tests__/exam-payment-proof-contract_test.ts",
+        "supabase/migrations/20260723040446_add_exam_payment_proofs.sql"
+      ],
+      "requires_any": [
+        "docs/handbook/mobile/exam-flows.md",
+        "docs/handbook/data/storage-and-attachments.md",
+        "docs/handbook/data/data-model-canon.md",
+        "docs/handbook/shared/security-and-secret-operations.md"
       ]
     },
     {

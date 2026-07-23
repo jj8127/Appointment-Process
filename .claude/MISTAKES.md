@@ -30,6 +30,27 @@
 - Verification:
 ```
 
+## 2026-07-23 | Custom-session storage | private 증빙을 기존 anon client upload 패턴으로 연결할 위험
+- Symptom:
+  - 응시료 입금 증빙은 private 파일이어야 하지만, 기존 모바일 시험 신청은 custom session을 쓰면서 `exam_registrations`를 anon client에서 직접 저장하고 있었다.
+  - 같은 패턴으로 새 bucket 정책을 열면 다른 사용자의 object path 접근이나 신청/증빙 소유권 위조가 가능하고, DB 실패·신청 취소 시 object가 남을 수 있었다.
+- Root cause:
+  - 앱 세션과 Supabase Auth JWT를 같은 권한 경계로 간주하고, Storage upload·metadata save·registration save·cleanup을 별도 작업으로 취급하려 했다.
+- Why it was missed:
+  - 기존 문서 업로드 코드가 signed upload URL을 사용한다는 사실만 보면 안전해 보이지만, URL 발급 주체의 app-session/FC 소유권 검증과 최종 DB 원자성은 별도 계약이다.
+- Permanent guardrail:
+  - custom-session 모바일의 private 첨부는 anon Storage 정책을 추가하지 않는다. signed app session을 검증한 서버가 upload URL을 발급하고 소유 FC를 고정한다.
+  - 파일 준비에는 멱등 request UUID를 사용하고, 최종 신청과 upload 소비 상태는 하나의 DB 함수에서 확정한다.
+  - 교체·취소·DB 실패마다 object/metadata 보상 경로를 명시하고, 공개 URL·signed URL·storage path를 로그에 남기지 않는다.
+  - additive migration은 구버전 호환 version을 유지하고 caller 전환 뒤 별도 강화 migration으로 필수 정책을 올린다.
+- Related files:
+  - `lib/exam-payment-proof.ts`, `lib/exam-payment-proof-api.ts`
+  - `supabase/functions/exam-payment-proof/index.ts`
+  - `supabase/functions/_shared/exam-payment-proof.ts`
+  - `supabase/migrations/20260723040446_add_exam_payment_proofs.sql`
+- Verification:
+  - private/service-role-only migration source contract, signed-session Edge source contract, Deno check, helper/diagnostic Node tests, 양쪽 화면 source-contract test로 고정했다.
+
 ## 2026-07-16 | Diagnostic privacy | final Sentry sanitization did not protect earlier console sinks
 - Symptom:
   - Shared mobile/web loggers serialized raw messages, payloads, and `Error` stacks to `console.*` before Sentry's final sanitizer ran.

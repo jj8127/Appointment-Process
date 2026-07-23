@@ -95,6 +95,14 @@ type EdgeDiagnosticPair =
       reason: 'database_operation_failed';
     }
   | {
+      event: 'exam_payment_proof.database';
+      reason: 'database_operation_failed';
+    }
+  | {
+      event: 'exam_payment_proof.storage';
+      reason: 'signed_upload_url_failed' | 'storage_remove_failed';
+    }
+  | {
       event: 'delete_account.auth_cleanup';
       reason: 'auth_user_delete_failed' | 'manager_shadow_auth_user_delete_failed';
     }
@@ -169,6 +177,9 @@ const VALID_PAIRS = new Set<string>([
   'board_attachment.storage:signed_upload_url_failed',
   'board.view_tracking:view_tracking_failed',
   'board.database_operation:database_operation_failed',
+  'exam_payment_proof.database:database_operation_failed',
+  'exam_payment_proof.storage:signed_upload_url_failed',
+  'exam_payment_proof.storage:storage_remove_failed',
   'delete_account.auth_cleanup:auth_user_delete_failed',
   'delete_account.auth_cleanup:manager_shadow_auth_user_delete_failed',
   'delete_account.storage_cleanup:fc_documents_remove_failed',

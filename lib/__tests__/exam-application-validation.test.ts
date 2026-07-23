@@ -8,17 +8,25 @@ describe('exam application validation', () => {
     expect(
       getMissingExamApplicationFields({
         feePaidDate: null,
+        hasPaymentProof: false,
         selectedRoundId: null,
         selectedLocationId: null,
         hasSelectedSubject: false,
       }),
-    ).toEqual(['응시료 납입 일자', '시험 일정', '응시 지역', '응시 과목']);
+    ).toEqual([
+      '응시료 납입 일자',
+      '입금 내역 캡처',
+      '시험 일정',
+      '응시 지역',
+      '응시 과목',
+    ]);
   });
 
   it('treats undefined string values as missing selections', () => {
     expect(
       getMissingExamApplicationFields({
         feePaidDate: new Date('2026-06-05T00:00:00.000Z'),
+        hasPaymentProof: true,
         selectedRoundId: 'undefined',
         selectedLocationId: 'null',
         hasSelectedSubject: true,

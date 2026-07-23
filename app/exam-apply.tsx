@@ -2,10 +2,12 @@ import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
+import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { AnimatePresence, MotiView } from 'moti';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -21,6 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { ExamPaymentProofField } from '@/components/ExamPaymentProofField';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
@@ -43,6 +46,19 @@ import {
   sendExamApplyNotificationsBestEffort,
   type ExamNotifyPayload,
 } from '@/lib/exam-flow-contract';
+import {
+  cancelExamApplicationWithPaymentProof,
+  discardExamPaymentProofUpload,
+  prepareExamPaymentProofUpload,
+  submitExamApplicationWithPaymentProof,
+  uploadExamPaymentProof,
+} from '@/lib/exam-payment-proof-api';
+import {
+  EXAM_PAYMENT_PROOF_CAUTION,
+  hasExamPaymentProof,
+  normalizeExamPaymentProofSelection,
+  type ExamPaymentProofSelection,
+} from '@/lib/exam-payment-proof';
 import { LIFE_EXAM_FEE_ROWS } from '@/lib/exam-fees';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
@@ -165,6 +181,7 @@ type MyExamApply = {
   status: string;
   is_third_exam?: boolean | null;
   fee_paid_date?: string | null;
+  payment_proof_attached?: boolean | null;
   created_at: string;
   exam_rounds?: { exam_date: string; round_label: string | null } | null;
   exam_locations?: { location_name: string } | null;
@@ -205,7 +222,7 @@ function getExamRegistrationErrorMessage(error: unknown) {
 }
 
 export default function ExamApplyScreen() {
-  const { role, residentId, displayName, hydrated, readOnly } = useSession();
+  const { role, residentId, displayName, hydrated, readOnly, appSessionToken } = useSession();
   useIdentityGate({ nextPath: examFlowConfig.applyRoute });
   const canApplyExam = canUseFcExamApply({ role, readOnly });
 
@@ -216,6 +233,12 @@ export default function ExamApplyScreen() {
   const [feePaidDate, setFeePaidDate] = useState<Date | null>(null);
   const [showFeePaidPicker, setShowFeePaidPicker] = useState(false);
   const [tempFeePaidDate, setTempFeePaidDate] = useState<Date | null>(null);
+  const [selectedPaymentProof, setSelectedPaymentProof] =
+    useState<ExamPaymentProofSelection | null>(null);
+  const preparedPaymentProofRef = useRef<{
+    requestId: string;
+    uploadId: string;
+  } | null>(null);
   const [selectedApplyId, setSelectedApplyId] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
@@ -273,7 +296,7 @@ export default function ExamApplyScreen() {
       const { data, error } = await supabase
         .from('exam_registrations')
         .select(
-          'id, round_id, location_id, status, is_confirmed, is_third_exam, fee_paid_date, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations(location_name)',
+          'id, round_id, location_id, status, is_confirmed, is_third_exam, fee_paid_date, payment_proof_attached, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations(location_name)',
         )
         .eq('resident_id', residentId)
         .eq('exam_rounds.exam_type', examFlowConfig.examType)
@@ -304,6 +327,7 @@ export default function ExamApplyScreen() {
     [myApplies, selectedRoundId],
   );
   const isConfirmedForRound = !!existingForRound?.is_confirmed;
+  const existingProofAttached = !!existingForRound?.payment_proof_attached;
   const lockMessage = '시험 접수가 완료되어 시험 일정을 수정할 수 없습니다.';
   // Realtime: 내 시험 접수 상태 변경 시 갱신
   useEffect(() => {
@@ -354,6 +378,49 @@ export default function ExamApplyScreen() {
     }
   }, []);
 
+  const discardPreparedPaymentProof = useCallback(async () => {
+    const pending = preparedPaymentProofRef.current;
+    preparedPaymentProofRef.current = null;
+    if (!pending || !appSessionToken) return;
+
+    try {
+      await discardExamPaymentProofUpload(appSessionToken, pending.uploadId);
+    } catch {
+      logger.warn('[exam-apply] pending payment proof cleanup was deferred');
+    }
+  }, [appSessionToken]);
+
+  const pickPaymentProof = useCallback(async () => {
+    if (isConfirmedForRound) {
+      Alert.alert('수정 불가', lockMessage);
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: false,
+      quality: 0.9,
+    });
+    if (result.canceled) return;
+
+    const normalized = normalizeExamPaymentProofSelection(
+      result.assets[0] ?? {},
+      Crypto.randomUUID(),
+    );
+    if (!normalized.ok) {
+      Alert.alert('첨부 불가', normalized.message);
+      return;
+    }
+
+    await discardPreparedPaymentProof();
+    setSelectedPaymentProof(normalized.value);
+  }, [discardPreparedPaymentProof, isConfirmedForRound, lockMessage]);
+
+  const removePaymentProof = useCallback(async () => {
+    await discardPreparedPaymentProof();
+    setSelectedPaymentProof(null);
+  }, [discardPreparedPaymentProof]);
+
   const applyMutation = useMutation({
     mutationFn: async () => {
       if (!residentId) {
@@ -361,6 +428,10 @@ export default function ExamApplyScreen() {
       }
       const missingMessage = formatMissingExamApplicationFields(getMissingExamApplicationFields({
         feePaidDate,
+        hasPaymentProof: hasExamPaymentProof({
+          selectedProof: selectedPaymentProof,
+          existingProofAttached,
+        }),
         selectedRoundId,
         selectedLocationId,
         hasSelectedSubject: wantsLife || wantsThird,
@@ -371,6 +442,9 @@ export default function ExamApplyScreen() {
       const paidDate = feePaidDate;
       if (!paidDate) {
         throw new Error('응시료 납입 일자를 선택해주세요.');
+      }
+      if (!appSessionToken) {
+        throw new Error('시험 신청을 계속하려면 다시 로그인해주세요.');
       }
 
       if (isConfirmedForRound) {
@@ -398,34 +472,35 @@ export default function ExamApplyScreen() {
         throw new Error(INVALID_EXAM_LOCATION_MESSAGE);
       }
 
-      if (existingForRound) {
-        // 선택된 회차에 기존 신청이 있으면 UPDATE
-        const { error } = await supabase
-          .from('exam_registrations')
-          .update({
-            location_id: locationId,
-            status: 'applied',
-            is_confirmed: false,
-            is_third_exam: wantsThird,
-            fee_paid_date: toYmd(paidDate),
-          })
-          .eq('id', existingForRound.id);
-
-        if (error) throw error;
-      } else {
-        // 새 회차 신청 → INSERT
-        const { error } = await supabase.from('exam_registrations').insert({
-          resident_id: residentId,
-          round_id: roundId,
-          location_id: locationId,
-          status: 'applied',
-          is_confirmed: false,
-          is_third_exam: wantsThird,
-          fee_paid_date: toYmd(paidDate),
-        });
-
-        if (error) throw error;
+      let uploadId: string | null = null;
+      if (selectedPaymentProof) {
+        const prepared = await prepareExamPaymentProofUpload(
+          appSessionToken,
+          selectedPaymentProof,
+        );
+        uploadId = prepared.uploadId;
+        preparedPaymentProofRef.current = {
+          requestId: selectedPaymentProof.requestId,
+          uploadId,
+        };
+        if (!prepared.alreadyAttached) {
+          if (!prepared.signedUrl) {
+            throw new Error('입금 내역 사진 업로드를 준비하지 못했습니다.');
+          }
+          await uploadExamPaymentProof(prepared.signedUrl, selectedPaymentProof);
+        }
       }
+
+      await submitExamApplicationWithPaymentProof({
+        appSessionToken,
+        uploadId,
+        roundId,
+        locationId,
+        examType: examFlowType,
+        feePaidDate: toYmd(paidDate),
+        isThirdExam: wantsThird,
+      });
+      preparedPaymentProofRef.current = null;
 
       const locName =
         round.locations?.find((l) => l.id === selectedLocationId)?.location_name ?? '';
@@ -453,6 +528,7 @@ export default function ExamApplyScreen() {
       return { failedTargets };
     },
     onSuccess: ({ failedTargets }) => {
+      setSelectedPaymentProof(null);
       Alert.alert(
         failedTargets.length > 0 ? '신청 완료 · 알림 확인 필요' : '신청 완료',
         failedTargets.length > 0
@@ -479,13 +555,10 @@ export default function ExamApplyScreen() {
       if (target.is_confirmed) {
         throw new Error(lockMessage);
       }
-
-      const { error } = await supabase
-        .from('exam_registrations')
-        .delete()
-        .eq('id', registrationId);
-
-      if (error) throw error;
+      if (!appSessionToken) {
+        throw new Error('시험 신청을 취소하려면 다시 로그인해주세요.');
+      }
+      await cancelExamApplicationWithPaymentProof(appSessionToken, registrationId);
     },
     onSuccess: () => {
       Alert.alert('취소 완료', '시험 신청이 취소되었습니다.');
@@ -558,6 +631,10 @@ export default function ExamApplyScreen() {
 
     const missingMessage = formatMissingExamApplicationFields(getMissingExamApplicationFields({
       feePaidDate,
+      hasPaymentProof: hasExamPaymentProof({
+        selectedProof: selectedPaymentProof,
+        existingProofAttached,
+      }),
       selectedRoundId,
       selectedLocationId,
       hasSelectedSubject: wantsLife || wantsThird,
@@ -600,6 +677,7 @@ export default function ExamApplyScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionHeader}>📅 응시료 납입 안내</Text>
           <Text style={styles.inputHint}>응시료 미입금 시 시험 접수 불가능하며, 납입한 접수비는 반환되지 않습니다.</Text>
+          <Text style={styles.cautionText}>{EXAM_PAYMENT_PROOF_CAUTION}</Text>
           <View style={styles.accountCard}>
             <View style={styles.accountHeaderRow}>
               <Text style={styles.accountLabel}>{feeAccountCopy.label}</Text>
@@ -646,6 +724,7 @@ export default function ExamApplyScreen() {
               mode="date"
               display="default"
               locale="ko-KR"
+              maximumDate={new Date()}
               onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
                 setShowFeePaidPicker(false);
                 if (event.type === 'dismissed') {
@@ -655,6 +734,17 @@ export default function ExamApplyScreen() {
               }}
             />
           )}
+          <ExamPaymentProofField
+            selectedProof={selectedPaymentProof}
+            existingProofAttached={existingProofAttached}
+            disabled={isConfirmedForRound || applyMutation.isPending}
+            onPick={() => {
+              void pickPaymentProof();
+            }}
+            onRemove={() => {
+              void removePaymentProof();
+            }}
+          />
         </View>
 
           {/* Status Card - 내 신청 내역 (드롭다운 방식) */}
@@ -1009,6 +1099,7 @@ export default function ExamApplyScreen() {
                   mode="date"
                   display="inline"
                   locale="ko-KR"
+                  maximumDate={new Date()}
                   onChange={(_, selectedDate) => {
                     if (selectedDate) setTempFeePaidDate(selectedDate);
                   }}
@@ -1317,6 +1408,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   inputHint: { fontSize: 13, color: '#b45309', marginBottom: 10 },
+  cautionText: {
+    backgroundColor: '#fff7ed',
+    borderColor: '#fed7aa',
+    borderRadius: 10,
+    borderWidth: 1,
+    color: '#9a3412',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 19,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
   dateInputText: { fontSize: 15, color: CHARCOAL, fontWeight: '600' },
   dateInputPlaceholder: { color: MUTED, fontWeight: '500' },
   pickerOverlay: {

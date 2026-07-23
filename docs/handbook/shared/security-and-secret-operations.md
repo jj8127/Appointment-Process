@@ -2,10 +2,18 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-07-16
-source_of_truth: env contracts + reset-password functions + supabase/functions/_shared/board.ts + web/src/lib/server-session.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
+last_verified: 2026-07-23
+source_of_truth: env contracts + reset-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + web/src/lib/server-session.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
+
+## 2026-07-23 Exam Payment Proof Private Upload Contract
+
+- 시험 증빙 업로드 권한은 전화번호, FC id, CORS origin만으로 부여하지 않습니다. `exam-payment-proof`는 `x-app-session-token`의 서명을 검증하고 현재 FC/manager 계정과 대상 FC 소유권을 다시 확인한 뒤에만 단기 signed upload URL을 발급합니다.
+- `exam-payment-proofs` 버킷과 `exam_payment_proof_uploads` 장부는 service-role-only입니다. 모바일은 public URL을 만들거나 Storage path를 직접 조합하지 않으며, Edge가 발급한 signed upload token으로만 선택한 JPG/PNG/WebP 파일을 최대 10MB까지 전송합니다.
+- 신청 저장은 `submit_exam_registration_with_payment_proof` RPC 한 번으로 신청과 증빙 연결을 원자 처리합니다. `(fc_id, request_id)` 멱등성 키를 재사용해 응답 유실 재시도가 증빙·신청 중복을 만들지 않게 합니다.
+- 진단은 `exam_payment_proof.database:database_operation_failed`, `exam_payment_proof.storage:signed_upload_url_failed`, `exam_payment_proof.storage:storage_remove_failed`의 고정 쌍만 허용합니다. 원본 오류, signed URL, object path, 파일명, FC 식별자는 로그나 사용자 오류에 포함하지 않습니다.
+- 배포는 additive DB migration과 새 `exam-payment-proof` Edge를 먼저 검증한 다음 새 모바일을 활성화합니다. 이 변경은 진행 중인 Request Board DB/Vercel 순서나 `admin-action` 릴리스에 포함하지 않으며, 운영 DB 적용·관리자 증빙 열람·실기기 확인 전에는 release hold입니다.
 
 ## 2026-07-16 Diagnostic Privacy Contract
 

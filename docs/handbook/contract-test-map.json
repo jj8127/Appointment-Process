@@ -30,6 +30,31 @@
       ]
     },
     {
+      "id": "exam-payment-proof",
+      "prefixes": [
+        "app/exam-apply.tsx",
+        "app/exam-apply2.tsx",
+        "components/ExamPaymentProofField.tsx",
+        "lib/exam-application-validation.ts",
+        "lib/exam-payment-proof",
+        "supabase/functions/exam-payment-proof/",
+        "supabase/functions/_shared/exam-payment-proof.ts",
+        "supabase/functions/_shared/__tests__/exam-payment-proof_test.ts",
+        "supabase/functions/__tests__/exam-payment-proof-contract_test.ts",
+        "supabase/migrations/20260723040446_add_exam_payment_proofs.sql"
+      ],
+      "requires_any": [
+        "lib/__tests__/exam-application-validation.test.ts",
+        "lib/__tests__/exam-payment-proof.test.ts",
+        "lib/__tests__/exam-payment-proof-source-contract.test.ts",
+        "supabase/functions/_shared/__tests__/exam-payment-proof_test.ts",
+        "supabase/functions/__tests__/exam-payment-proof-contract_test.ts",
+        "docs/handbook/mobile/exam-flows.md",
+        "docs/handbook/data/storage-and-attachments.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
       "id": "dependency-and-build-security",
       "prefixes": [
         "package.json",
