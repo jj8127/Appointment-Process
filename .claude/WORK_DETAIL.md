@@ -19,16 +19,20 @@
 - request UUID를 재사용해 응답 유실 재시도에서 같은 upload ledger를 사용하고, 교체/취소 뒤 이전 object를 best effort로 정리한다.
 
 **Verification**:
-- Focused Jest: validation/proof/source-contract 15/15 PASS.
+- 현재 앱 브랜치에 `ab34880`으로 통합했고 Focused Jest 4 suites, 26/26 PASS.
 - Edge Node contract/helper/diagnostic tests 12/12 PASS.
-- Root TypeScript, targeted ESLint, new Edge Deno check, governance, diff check: PASS.
+- Root TypeScript, targeted ESLint, new Edge Deno check, clean-HEAD governance, diff check: PASS.
+- Sentry upload credential을 비운 `npm run build`가 46개 static route를 포함해 PASS.
 - Full Jest는 124/129 suites, 683/688 tests가 통과했다. 남은 5건은 격리 worktree 경로를 canonical repo로 가정한 inventory 2건, 기존 CRLF-sensitive source lock 2건, 격리 환경에 `web` Sentry package가 없는 1건으로 이번 시험 증빙 변경과 무관하다.
-- Migration local database apply, authenticated device upload, admin proof review UI는 아직 실행하지 않아 release는 `HOLD`.
+- FC Supabase에 `20260723040446`만 선택 적용하고 migration history를 일치시켰다. private 10MB bucket, RLS, anon/authenticated table·RPC 권한 없음, service-role RPC 권한을 원격 SQL로 확인했다.
+- 새 `exam-payment-proof`만 Edge version 1로 배포했으며 미인증 요청과 앱 세션 없는 anon 요청 모두 401로 차단되는 것을 확인했다.
+- 실제 로그인된 Android 개발 앱에서 입금일 불일치 주의 문구, 필수 증빙 필드, `사진 선택` 버튼을 확인하고 Android 사진 선택기가 열리는 것까지 PASS. 운영 시험 신청은 생성하지 않았다.
 
 **Safety**:
 - 최초 구현은 `D:\hanhwa\_codex_exam_payment_proof_20260723`의 `codex/exam-payment-proof-20260723` 브랜치에 격리했다.
-- Request Board, 기존 `fc-notify`/`group-chat`, `admin-action`, 관리자 웹/모바일 신청자 화면, Vercel, EAS/OTA, push를 변경하지 않았다.
-- 통합 후에도 additive migration + 새 Edge → 모바일 테스트 순서를 유지하고 관리자 검토 surface 전에는 운영 릴리스를 보류한다.
+- 사용자 요청 뒤 현재 앱 브랜치에 cherry-pick했고, 다른 세션의 Request Board, 기존 `fc-notify`/`group-chat`, `admin-action`, 관리자 웹/모바일 신청자 화면, Vercel, EAS/OTA, push는 변경하거나 배포하지 않았다.
+- unrelated pending migration 때문에 `db push`를 쓰지 않고 대상 SQL 1개만 실행했다. additive migration → 새 Edge → 모바일 테스트 순서를 유지했다.
+- 증빙을 고르거나 실제 신청을 제출하지 않았으므로 운영 신청·Storage object는 생성하지 않았다. 관리자 검토 surface는 별도 후속 범위다.
 
 ---
 

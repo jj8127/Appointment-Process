@@ -30,6 +30,22 @@
 - Verification:
 ```
 
+## 2026-07-23 | Test handoff | 격리 브랜치 기능을 현재 Metro 앱에서 바로 보인다고 간주
+- Symptom:
+  - 입금 증빙 UI 구현은 격리 worktree에만 있었는데 사용자가 canonical `D:\hanhwa\fc-onboarding-app`에서 Android 개발 빌드를 열어 새 UI가 보이지 않았다.
+- Root cause:
+  - 코드 구현 완료와 사용자가 실제로 번들링하는 checkout 통합 완료를 구분하지 않고, 활성 Metro의 source root와 대상 commit을 실기기 확인 전에 대조하지 않았다.
+- Why it was missed:
+  - 격리 worktree의 focused test와 source contract가 통과한 사실을 테스트 가능 상태로 과대 해석했고, `expo run:android` 로그의 실제 cwd를 feature branch와 비교하는 handoff gate가 없었다.
+- Permanent guardrail:
+  - 격리 구현을 사용자에게 테스트 요청하기 전 `활성 Metro cwd → checkout HEAD → feature commit 포함 여부 → 실기기 source marker`를 차례로 확인한다.
+  - 아직 통합되지 않은 기능은 “구현 완료”와 “현재 앱에서 테스트 가능”을 분리해 보고하고, 충돌 소유권을 확인한 뒤 cherry-pick 또는 명시적 빌드 경로를 제공한다.
+- Related files:
+  - `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+  - `app/exam-apply.tsx`, `app/exam-apply2.tsx`
+- Verification:
+  - 현재 앱 HEAD `ab34880`, Android 로그인 세션, 입금 증빙 필드 렌더링, 시스템 사진 선택기 실행을 직접 확인했다.
+
 ## 2026-07-23 | Custom-session storage | private 증빙을 기존 anon client upload 패턴으로 연결할 위험
 - Symptom:
   - 응시료 입금 증빙은 private 파일이어야 하지만, 기존 모바일 시험 신청은 custom session을 쓰면서 `exam_registrations`를 anon client에서 직접 저장하고 있었다.

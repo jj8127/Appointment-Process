@@ -23,7 +23,7 @@
 
 | Date | Work | Key files | Detail |
 |---|---|---|---|
-| 07-23 | FC 생명·손해 시험 신청에 필수 입금 증빙 이미지와 private signed-session 저장 경계를 격리 구현 | `app/exam-apply*.tsx`, `components/ExamPaymentProofField.tsx`, `lib/exam-payment-proof*`, `supabase/functions/exam-payment-proof`, `20260723040446_add_exam_payment_proofs.sql` | [detail](WORK_DETAIL.md#20260723-exam-payment-proof) |
+| 07-23 | FC 생명·손해 시험 신청의 필수 입금일·증빙 UI를 현재 앱에 통합하고 FC 전용 DB/Edge 배포와 실기기 사진 선택기까지 검증 | `app/exam-apply*.tsx`, `components/ExamPaymentProofField.tsx`, `lib/exam-payment-proof*`, `supabase/functions/exam-payment-proof`, `20260723040446_add_exam_payment_proofs.sql` | [detail](WORK_DETAIL.md#20260723-exam-payment-proof) |
 
 ## 2026-07-22
 
