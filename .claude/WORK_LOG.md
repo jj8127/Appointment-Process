@@ -23,6 +23,7 @@
 
 | Date | Work | Key files | Detail |
 |---|---|---|---|
+| 07-23 | Preserved the entered fee-paid date when an FC selects a new exam round in both life/nonlife flows | `app/exam-apply*.tsx`, fee-date source contract, mobile exam handbook | [detail](WORK_DETAIL.md#20260723-exam-fee-date-round-selection) |
 | 07-23 | Added admin/manager exam payment-proof viewing and CSV path plus 30-day session-free signed URL export | `web/src/app/{api/admin,dashboard/exam}/exam-applicants/*`, proof helper/contracts, admin/storage/security handbooks | [detail](WORK_DETAIL.md#20260723-admin-exam-payment-proof) |
 | 07-23 | FC 생명·손해 시험 신청의 필수 입금일·증빙 UI를 현재 앱에 통합하고 FC 전용 DB/Edge 배포와 실기기 사진 선택기까지 검증 | `app/exam-apply*.tsx`, `components/ExamPaymentProofField.tsx`, `lib/exam-payment-proof*`, `supabase/functions/exam-payment-proof`, `20260723040446_add_exam_payment_proofs.sql` | [detail](WORK_DETAIL.md#20260723-exam-payment-proof) |
 

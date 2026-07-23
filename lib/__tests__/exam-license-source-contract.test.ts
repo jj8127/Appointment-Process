@@ -30,6 +30,9 @@ describe('exam application fee paid date source contract', () => {
     expect(myApplyQuery).toContain('fee_paid_date');
     expect(restoreEffect).toContain('existingForRound');
     expect(restoreEffect).toContain('setFeePaidDate(restoredState.feePaidDate)');
+    expect(restoreEffect).toMatch(
+      /if \(existingForRound\) \{[\s\S]*setFeePaidDate\(restoredState\.feePaidDate\)/,
+    );
     expect(source).toContain('getExamApplyRestoredSelectionState');
     expect(source).toContain('formatFeePaidDate(currentApply.fee_paid_date)');
   });

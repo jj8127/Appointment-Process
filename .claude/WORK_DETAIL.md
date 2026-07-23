@@ -36,6 +36,21 @@
 
 ---
 
+## <a id="20260723-exam-fee-date-round-selection"></a> 2026-07-23 | 시험 회차 선택 시 납입일자 유지
+
+**Symptom**: FC가 응시료 납입일자를 먼저 입력한 뒤 시험 일정을 선택하면 입력값이 사라져 다시 입력해야 했다.
+
+**Root cause**: 회차 변경 시 실행되는 기존 신청 복원 effect가, 선택 회차에 기존 신청이 없는 정상 신규 신청에서도 helper의 `feePaidDate: null` 기본값을 form state에 덮어썼다.
+
+**Fix**:
+- 생명/손해 신청 화면 모두 기존 신청 row가 있을 때만 저장된 `fee_paid_date`와 picker 임시값을 복원한다.
+- 기존 신청이 없는 새 회차를 선택하면 고사장/제3보험 선택 초기화는 유지하되 사용자가 입력한 납입일자는 보존한다.
+- 두 화면의 복원 effect에 같은 guard가 존재하는지 source contract로 고정했다.
+
+**Safety**: 신청 API, 증빙 업로드, DB/Edge, 관리자 웹, Request Board, 알림과 배포 경로는 변경하지 않았다.
+
+---
+
 ## <a id="20260723-admin-exam-payment-proof"></a> 2026-07-23 | 관리자 시험 신청 입금 증빙 조회·내보내기
 
 **Scope**: 시험 신청자 목록/상세에서 admin과 manager가 FC 입금 증빙을 보고, 필터 결과 CSV에 증빙 경로와 전달 가능한 URL을 포함한다.

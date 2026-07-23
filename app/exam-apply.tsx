@@ -353,8 +353,10 @@ export default function ExamApplyScreen() {
     });
     setSelectedLocationId(restoredState.selectedLocationId);
     setWantsThird(restoredState.wantsThird);
-    setFeePaidDate(restoredState.feePaidDate);
-    setTempFeePaidDate(restoredState.tempFeePaidDate);
+    if (existingForRound) {
+      setFeePaidDate(restoredState.feePaidDate);
+      setTempFeePaidDate(restoredState.tempFeePaidDate);
+    }
   }, [existingForRound, selectedRound]);
 
   const [refreshing, setRefreshing] = useState(false);

@@ -2,7 +2,7 @@ doc_id: FC-APP-EXAM-FLOWS
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-04-14
+last_verified: 2026-07-23
 source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*.tsx
 
 # Mobile Playbook: Exam Flows
@@ -48,6 +48,7 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - 주민번호 trusted read(`admin-action:getResidentNumbers`)는 보조 정보다. `appSessionToken`이 없거나 full-view 조회가 실패해도 신청자 목록 자체는 계속 보여야 하며, 주민번호 필드만 degrade되어야 한다.
 - 신청자 목록 query가 실패하면 화면은 `검색 결과가 없습니다`로 숨기지 말고 실제 오류를 보여줘야 한다.
 - `exam-apply`, `exam-apply2`는 `응시료 납입 계좌` 복사 버튼을 제공
+- 새 시험 회차를 선택할 때 사용자가 먼저 입력한 응시료 납입일자는 유지한다. 선택 회차에 기존 신청이 있을 때만 저장된 `fee_paid_date`로 덮어쓰며, 기존 신청이 없는 회차의 복원 기본값 `null`로 사용자 입력을 지우지 않는다.
 - Android new architecture/Fabric에서는 `exam-apply*`, `exam-register*`의 main scroll ownership을 plain `ScrollView` 하나로 유지한다. `KeyboardAwareWrapper + RefreshControl + 큰 조건부 렌더` 조합은 `/referral` crash family와 같은 mount instability를 만들 수 있으므로 Android에서는 쓰지 않는다.
 
 ## 2026-06-03 관리자 시험 등록 메모

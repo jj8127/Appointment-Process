@@ -30,6 +30,22 @@
 - Verification:
 ```
 
+## 2026-07-23 | FC 시험 신청 form state | 신규 회차 복원 기본값이 선입력 납입일자를 삭제
+- Symptom:
+  - FC가 응시료 납입일자를 입력한 뒤 시험 회차를 선택하면 날짜가 `null`로 바뀌어 다시 입력해야 했다.
+- Root cause:
+  - 기존 신청 복원 helper의 “신청 없음” 기본값과 사용자가 작성 중인 draft를 같은 상태로 취급했고, 회차 변경 effect가 기본값을 무조건 form state에 반영했다.
+- Why it was missed:
+  - 기존 신청의 저장값 복원만 테스트했고, 신규 신청에서 회차보다 납입일자를 먼저 입력하는 순서의 상태 보존 계약은 없었다.
+- Permanent guardrail:
+  - 회차 변경 시 회차 종속값만 초기화하고, 납입일자 같은 사용자 draft는 대상 회차의 기존 신청 row가 있을 때만 저장값으로 덮어쓴다.
+  - 생명/손해 두 화면의 복원 effect에 동일한 `existingForRound` guard가 있는지 source contract로 검증한다.
+- Related files:
+  - `app/exam-apply.tsx`, `app/exam-apply2.tsx`
+  - `lib/__tests__/exam-license-source-contract.test.ts`
+- Verification:
+  - fee-date/source focused Jest, TypeScript, targeted ESLint, governance와 diff check를 실행한다.
+
 ## 2026-07-23 | Test handoff | 격리 브랜치 기능을 현재 Metro 앱에서 바로 보인다고 간주
 - Symptom:
   - 입금 증빙 UI 구현은 격리 worktree에만 있었는데 사용자가 canonical `D:\hanhwa\fc-onboarding-app`에서 Android 개발 빌드를 열어 새 UI가 보이지 않았다.
