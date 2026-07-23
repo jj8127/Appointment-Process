@@ -32,7 +32,8 @@ describe('mobile direct chat source', () => {
     expect(sendSource).toContain('applyMessages([optimisticMessage, ...messagesRef.current])');
     expect(sendSource).toContain('await invokeFcNotifyForDelivery({');
     expect(sendSource).toContain('if (!notificationDelivery.confirmed)');
-    expect(sendSource).toContain('메시지는 저장됐지만 푸시 알림 전달을 확인하지 못했습니다.');
+    expect(sendSource).toContain("logger.warn('[chat] message notification unconfirmed'");
+    expect(sendSource).not.toContain('메시지 전송 완료 · 알림 확인 필요');
     expect(sendSource).not.toContain("supabase.functions.invoke('fc-notify'");
     expect(sendSource).not.toContain('void invokeFcNotify');
   });
@@ -53,5 +54,15 @@ describe('mobile direct chat source', () => {
     expect(badgeSource).toContain('messageUnreadCount');
     expect(source).toContain('messageBubbleLine');
     expect(optimisticSource).toContain('is_read: false');
+  });
+
+  it('sorts every FC direct-chat target by its latest real message time', () => {
+    const source = readFileSync(chatPath, 'utf8');
+
+    expect(source).toContain("from '@/lib/messenger-room-ordering'");
+    expect(source).toContain('getLastMessageTimestamp({ created_at: manager.last_time })');
+    expect(source).toContain('getLastMessageTimestamp({ created_at: developer.last_time })');
+    expect(source).toContain('getLastMessageTimestamp({ created_at: adminSummary?.last_time })');
+    expect(source).toContain('sortConversationsByLastMessageTime<FcChatTarget>([');
   });
 });

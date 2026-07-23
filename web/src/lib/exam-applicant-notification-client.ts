@@ -22,7 +22,10 @@ export async function notifyFcExamApprovalStatus(
 ): Promise<void> {
   const targetId = (item.phone ?? '').replace(/[^0-9]/g, '');
   if (!targetId) {
-    throw new Error('FC 전화번호를 찾을 수 없습니다.');
+    logger.warn('[exam-applicant] mobile notification skipped', {
+      reason: 'missing_target',
+    });
+    return;
   }
 
   let response: Response;
@@ -45,7 +48,7 @@ export async function notifyFcExamApprovalStatus(
       reason: 'network_error',
       status: 0,
     });
-    throw new Error('FC 모바일 알림 전달을 확인하지 못했습니다.');
+    return;
   }
 
   const responseBody: unknown = await response.json().catch(() => null);
@@ -55,7 +58,7 @@ export async function notifyFcExamApprovalStatus(
       reason: result.reason,
       status: response.status,
     });
-    throw new Error('FC 모바일 알림 전달을 확인하지 못했습니다.');
+    return;
   }
 
   logger.debug('[exam-applicant] mobile notification confirmed', {

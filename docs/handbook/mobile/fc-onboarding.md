@@ -139,3 +139,8 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - FC 홈의 메시지·프로필·서류 Realtime 구독은 effect 실행마다 비식별 고유 topic을 사용한다. 전화번호, 주민 식별값, FC id를 channel topic에 넣지 않는다.
 - `@supabase/realtime-js`가 같은 topic의 기존 채널을 재사용하므로, 비동기 `removeChannel()`이 끝나기 전 React 개발 effect가 다시 실행되어도 이미 구독된 채널에 콜백을 추가하지 않아야 한다.
 - 각 effect cleanup은 자신이 만든 채널만 `supabase.removeChannel(channel)`로 정리한다.
+# 2026-07-24 사용자 성공 피드백과 알림 진단 분리
+
+- FC의 정보 제출·서류 등록·위촉 입력이 저장되면 화면에는 해당 업무의 정상 성공 피드백만 표시한다.
+- 후속 inbox/push 전달 미확인은 저장 성공을 경고 상태로 바꾸지 않으며, `notification_delivery_incomplete` 같은 진단 코드와 개인정보 없는 개발 로그로만 남긴다.
+- 첨부 업로드처럼 사용자가 직접 요청한 핵심 작업 자체가 실패한 경우의 재시도 안내는 계속 표시한다.

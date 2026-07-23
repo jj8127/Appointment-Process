@@ -27,6 +27,8 @@ export type ChatTargetWithUnread = {
   name: string;
   phone: string;
   unread_count: number;
+  last_message?: string | null;
+  last_time?: string | null;
   staff_type?: string | null;
 };
 

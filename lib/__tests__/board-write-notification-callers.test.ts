@@ -91,7 +91,7 @@ describe('board write notification callers', () => {
     });
     expect(getBoardNotificationWarningMessage(null)).toBeNull();
     expect(getBoardNotificationWarningMessage('notification_delivery_incomplete'))
-      .toBe('게시글은 저장되었지만 일부 알림이 전송되지 않았습니다. 알림 상태를 확인해주세요.');
+      .toBeNull();
   });
 
   it('keeps durable board writes successful when attachment delivery is incomplete', () => {
@@ -126,6 +126,7 @@ describe('board write notification callers', () => {
     expect(webSource.indexOf('const createResult = await createBoardPost('))
       .toBeLessThan(webSource.indexOf('await uploadAttachments(createResult.id, null)'));
     expect(webSource).toContain('게시글은 이미 저장되었습니다.');
-    expect(webSource).toContain("color: notificationWarningMessage ? 'yellow' : 'green'");
+    expect(webSource).not.toContain("color: notificationWarningMessage ? 'yellow' : 'green'");
+    expect(webSource).not.toContain('알림 확인 필요');
   });
 });

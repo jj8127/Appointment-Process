@@ -43,6 +43,10 @@ import { confirmMessengerDelete } from '@/lib/messenger-delete-actions';
 import { getDirectMessageUnreadCount } from '@/lib/message-read-receipts';
 import { openMessengerAttachment } from '@/lib/messenger-attachment-actions';
 import {
+  getLastMessageTimestamp,
+  sortConversationsByLastMessageTime,
+} from '@/lib/messenger-room-ordering';
+import {
   aggregatePresence,
   formatPresenceLabel,
   getPresenceColor,
@@ -140,6 +144,7 @@ type FcChatTarget = {
   kind: 'manager' | 'admin' | 'developer';
   presencePhones: string[];
   unreadCount: number;
+  lastTimestamp: number;
 };
 
 type ChatTargetContact = {
@@ -147,6 +152,8 @@ type ChatTargetContact = {
   phone?: string | null;
   staff_type?: string | null;
   unread_count?: number | null;
+  last_message?: string | null;
+  last_time?: string | null;
 };
 
 const sortMessagesDesc = (rows: Message[]) =>
@@ -400,6 +407,7 @@ export default function ChatScreen() {
           kind: 'manager',
           presencePhones: [phone],
           unreadCount: Number((manager as ChatTargetContact & { unread_count?: number }).unread_count ?? 0),
+          lastTimestamp: getLastMessageTimestamp({ created_at: manager.last_time }),
         });
       });
 
@@ -423,6 +431,7 @@ export default function ChatScreen() {
               kind: 'developer' as const,
               presencePhones: [phone],
               unreadCount: Number((developer as ChatTargetContact & { unread_count?: number }).unread_count ?? 0),
+              lastTimestamp: getLastMessageTimestamp({ created_at: developer.last_time }),
             });
           return map;
         }, new Map<string, FcChatTarget>()).values(),
@@ -436,7 +445,13 @@ export default function ChatScreen() {
         ),
       );
 
-      const nextTargets: FcChatTarget[] = [
+      const adminSummary = admins.reduce<ChatTargetContact | null>((latest, admin) => {
+        const candidateTime = getLastMessageTimestamp({ created_at: admin.last_time });
+        const latestTime = getLastMessageTimestamp({ created_at: latest?.last_time });
+        return candidateTime > latestTime ? admin : latest;
+      }, admins[0] ?? null);
+
+      const nextTargets = sortConversationsByLastMessageTime<FcChatTarget>([
         ...deduped,
         ...developerTargets,
         {
@@ -446,8 +461,9 @@ export default function ChatScreen() {
           kind: 'admin',
           presencePhones: adminPresencePhones,
           unreadCount: data.adminUnreadCount,
+          lastTimestamp: getLastMessageTimestamp({ created_at: adminSummary?.last_time }),
         },
-      ];
+      ]);
 
       setFcTargets(nextTargets);
     } catch (error) {
@@ -707,10 +723,6 @@ export default function ChatScreen() {
       logger.warn('[chat] message notification unconfirmed', {
         reason: notificationDelivery.reason,
       });
-      Alert.alert(
-        '메시지 전송 완료 · 알림 확인 필요',
-        '메시지는 저장됐지만 푸시 알림 전달을 확인하지 못했습니다. 상대방에게 직접 확인해주세요.',
-      );
     }
   };
 

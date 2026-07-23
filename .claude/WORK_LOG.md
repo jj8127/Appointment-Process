@@ -19,6 +19,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-07-24
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 2026-07-24 | 시험 신청 RPC 복구, 서류 승인 알림/속도, 직접 채팅 딥링크와 전체 메신저 최신순 정렬 | `supabase/migrations/20260724003500_fix_exam_payment_proof_registration_id_ambiguity.sql`, `web/src/app/api/admin/fc/route.ts`, `supabase/functions/fc-notify/index.ts`, `app/chat.tsx`, `lib/notification-route.ts` | 운영 DB 모호성 수정 반영, 817 tests·두 빌드·Deno·거버넌스 통과 |
+
 ## 2026-07-23
 
 | Date | Work | Key files | Detail |
@@ -671,3 +677,20 @@
 - Closed the repository-wide Deno narrowing regression in `exam-payment-proof`, redeployed its JWT-protected bundle, and passed current FC tests/builds/governance.
 - Authenticated browser and real-handset smoke remain because no logged-in browser session or ADB device was available.
 - See [details](WORK_DETAIL.md#20260723-notification-production-closure).
+## 2026-07-24 Document decision notification latency and exam proof RPC repair
+
+- Every FC document approval/rejection now persists one inbox notification; provider fanout no longer blocks the admin decision response.
+- Payment caution copy was shortened and moved immediately above the payment-date selector in both exam flows.
+- Production exam submission 409 was traced to an ambiguous `registration_id` PL/pgSQL reference and repaired with migration `20260724003500`; safe Edge error messages are now preserved by the app client.
+- See [details](WORK_DETAIL.md#20260724-document-notification-and-exam-proof-repair).
+
+## 2026-07-24 Developer-only delivery diagnostics and exam detail balance
+
+- Removed post-commit notification-delivery warning copy from GaramIn mobile, direct/group chat, Request Board feedback, and FC admin web; bounded warning codes and structured logs remain for developers.
+- Moved the exam payment-proof section into the right-hand reception-status card, below the status summary and above the reception action.
+- Updated source contracts so saved business actions remain successful regardless of provider confirmation while real primary-action failures remain visible.
+- Re-ran all release gates: root Jest 147/147 suites and 818/818 tests, admin-web 289 pass with one intentional skip, both builds/type checks/lints, governance, Deno, and diff checks passed.
+- Independent review found no remaining release blocker after reminder-only actions were restored to truthful delivery-failure feedback.
+- Released `fc-notify` v78 with JWT verification retained and admin web deployment `dpl_FELkt6SaYTY77toMstWoqrkrh1Vx` to Production; the operating `adminweb-red.vercel.app` domain is attached and the bounded runtime-error check was empty.
+- `admin-action`, native/OTA, Request Board repository changes, authenticated browser smoke, and real-handset smoke remained excluded.
+- See [details](WORK_DETAIL.md#20260724-developer-only-notification-diagnostics).

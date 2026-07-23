@@ -4,6 +4,7 @@ import {
   classifyFcNotifyDeliveryFromInvoke,
   type FcNotifyDeliveryResult,
 } from './fc-notify-delivery-result';
+import { logger } from './logger';
 
 export {
   classifyFcNotifyDeliveryFromInvoke,
@@ -102,7 +103,14 @@ export function invokeFcNotify<
 export async function invokeFcNotifyForDelivery<TBody extends FcNotifyBody>(
   body: TBody,
 ): Promise<FcNotifyDeliveryResult> {
-  return classifyFcNotifyDeliveryFromInvoke(
+  const result = await classifyFcNotifyDeliveryFromInvoke(
     () => invokeFcNotify<unknown, TBody>(body),
   );
+  if (!result.confirmed) {
+    logger.warn('[fc-notify] delivery unconfirmed', {
+      action: body.type,
+      reason: result.reason,
+    });
+  }
+  return result;
 }

@@ -7,6 +7,12 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 
 # Backend Runbook: Admin Operations API
 
+## 2026-07-24 서류 승인·반려 알림 응답 계약
+
+- `/api/admin/fc`의 `updateDocStatus`는 승인과 반려 모두 FC 알림함에 한 건을 먼저 저장한다. 일부 서류 승인도 생략하지 않으며, 전체 승인일 때만 다음 단계 링크를 사용한다.
+- 관리자 요청은 알림함 저장 결과까지만 기다리고 Expo·웹 푸시 전달은 Next.js `after()`에서 이어서 처리한다. 따라서 외부 푸시 지연이 서류 승인·반려 응답 시간을 막지 않는다.
+- 응답 이후 전달이 실패해도 이미 저장된 알림함 레코드는 유지되며, 공급자 전달 경로는 알림함 레코드를 중복 삽입하지 않는다.
+
 ## 2026-07-06 Signed Admin Route Contract
 
 - Admin web API authorization must go through the signed server-session helpers. Direct trust in `session_role` or `session_resident` cookies is not allowed for privileged reads or mutations.
@@ -49,5 +55,5 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 - trusted Edge Function은 알림 직전에 `fc_profiles.id=fcId`로 현재 phone을 조회하고, `010`으로 시작하는 11자리 번호만 canonical 대상에 사용합니다. 조회 실패, row 부재, 번호 형식 오류 시 다른 번호로 fallback하거나 inbox/push를 발송하지 않습니다.
 - `/api/admin/fc`가 임시사번 발급 후 알림을 보낼 때도 현재 FC profile phone을 숫자-only 값으로 정규화·검증한 뒤 그 canonical 값만 server push service에 넘깁니다. 형식이 포함된 원본 값을 검증 후 다시 전달하면 안 됩니다.
 - inbox 저장과 `fc-notify` push는 같은 `admin-action.sendNotification` 요청 안에서 처리합니다. `fc-notify` 호출은 service-role trusted boundary에서만 수행하며 10초로 제한합니다.
-- primary workflow mutation은 알림 실패 때문에 되돌리지 않습니다. 알림 대상 조회, inbox 저장, downstream push 중 하나라도 확인되지 않으면 `notification_delivery_incomplete` 고정 warning을 반환하고 앱은 저장 성공과 알림 부분 실패를 구분해 표시합니다.
+- primary workflow mutation은 알림 실패 때문에 되돌리지 않습니다. 알림 대상 조회, inbox 저장, downstream push 중 하나라도 확인되지 않으면 `notification_delivery_incomplete` 같은 고정 진단 코드를 반환할 수 있지만, 앱은 이를 사용자 경고로 표시하지 않고 안전한 개발 로그로만 남깁니다.
 - 응답과 진단 로그에는 canonical phone, token, provider 원문, raw DB 오류를 포함하지 않습니다.

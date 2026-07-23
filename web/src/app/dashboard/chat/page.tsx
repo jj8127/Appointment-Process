@@ -728,10 +728,8 @@ function ChatRoom({
                     body: notifBody,
                 });
             } catch {
-                notifications.show({
-                    title: '메시지 전송 완료',
-                    message: '메시지는 저장됐지만 가람in 푸시 알림 전달을 확인하지 못했습니다.',
-                    color: 'yellow',
+                logger.warn('[chat] message notification unconfirmed', {
+                    reason: 'delivery_error',
                 });
             }
         } catch (err: unknown) {

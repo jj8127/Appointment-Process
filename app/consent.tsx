@@ -149,20 +149,13 @@ export default function AllowanceConsentScreen() {
         throw new Error('정보를 저장하지 못했습니다.');
       }
 
-      const notificationDelivery = await invokeFcNotifyForDelivery({
+      await invokeFcNotifyForDelivery({
         type: 'fc_update',
         fc_id: data.profile.id,
         message: `${data.profile.name ?? ''}님이 보증보험 조회 동의일을 입력했습니다.`,
       });
 
-      if (notificationDelivery.confirmed) {
-        Alert.alert('저장 완료', '보증보험 조회 동의일이 제출되었습니다. 총무가 사전 심사를 준비할 예정입니다.');
-      } else {
-        Alert.alert(
-          '저장 완료 · 알림 확인 필요',
-          '정보는 정상 저장됐지만 담당자 알림 전달을 확인하지 못했습니다. 필요하면 담당자에게 직접 확인해주세요.',
-        );
-      }
+      Alert.alert('저장 완료', '보증보험 조회 동의일이 제출되었습니다. 총무가 사전 심사를 준비할 예정입니다.');
       router.replace('/');
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');

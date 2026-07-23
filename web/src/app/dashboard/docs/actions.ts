@@ -102,7 +102,7 @@ export async function updateDocStatusAction(
                 reason: 'invalid_recipient',
                 status: 'skipped',
             });
-            return '처리는 완료되었지만 알림 수신 대상을 확인할 수 없습니다.';
+            return 'notification_target_unavailable';
         }
         const notificationPhone = phoneResult.value;
 
@@ -113,7 +113,7 @@ export async function updateDocStatusAction(
         });
         return result.success
             ? undefined
-            : '처리는 완료되었지만 알림 전달이 일부 또는 전부 실패했습니다.';
+            : 'notification_delivery_incomplete';
     };
 
     const { data: currentDoc, error: currentDocError } = await adminSupabase

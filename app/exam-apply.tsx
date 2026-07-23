@@ -104,7 +104,7 @@ const CARD_SHADOW = {
 async function notifyExamFlow(payload: ExamNotifyPayload) {
   const result = await invokeFcNotifyForDelivery(payload);
   if (!result.confirmed) {
-    throw new Error('알림 전달을 확인하지 못했습니다.');
+    throw new Error('notification_delivery_incomplete');
   }
 }
 
@@ -529,14 +529,9 @@ export default function ExamApplyScreen() {
       }
       return { failedTargets };
     },
-    onSuccess: ({ failedTargets }) => {
+    onSuccess: () => {
       setSelectedPaymentProof(null);
-      Alert.alert(
-        failedTargets.length > 0 ? '신청 완료 · 알림 확인 필요' : '신청 완료',
-        failedTargets.length > 0
-          ? '시험 신청은 정상적으로 등록됐지만 가람in 알림 전달을 확인하지 못했습니다.'
-          : '시험 신청이 정상적으로 등록되었습니다.',
-      );
+      Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');
       refetchMyApply();
     },
     onSettled: (_data, error) => {
@@ -679,7 +674,6 @@ export default function ExamApplyScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionHeader}>📅 응시료 납입 안내</Text>
           <Text style={styles.inputHint}>응시료 미입금 시 시험 접수 불가능하며, 납입한 접수비는 반환되지 않습니다.</Text>
-          <Text style={styles.cautionText}>{EXAM_PAYMENT_PROOF_CAUTION}</Text>
           <View style={styles.accountCard}>
             <View style={styles.accountHeaderRow}>
               <Text style={styles.accountLabel}>{feeAccountCopy.label}</Text>
@@ -708,6 +702,7 @@ export default function ExamApplyScreen() {
               </View>
             ))}
           </View>
+          <Text style={styles.cautionText}>{EXAM_PAYMENT_PROOF_CAUTION}</Text>
           <Pressable
             style={styles.dateInput}
             onPress={() => {

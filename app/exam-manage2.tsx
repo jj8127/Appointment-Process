@@ -268,7 +268,6 @@ export default function ExamManageNonlifeScreen() {
         });
       } catch {
         logger.warn('[exam-manage2] notification delivery unconfirmed', { isConfirmed: value });
-        Alert.alert('알림 확인 필요', '시험 상태는 저장되었지만 FC 앱 알림 전달은 확인하지 못했습니다.');
       }
     },
     onSettled: (_data, error) => {

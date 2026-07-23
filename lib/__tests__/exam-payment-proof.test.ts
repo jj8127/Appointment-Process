@@ -90,7 +90,7 @@ describe('exam payment proof', () => {
 
   it('keeps the requested caution copy exact', () => {
     expect(EXAM_PAYMENT_PROOF_CAUTION).toBe(
-      '입력하신 입금 날짜와 첨부한 입금 내역의 실제 입금 날짜가 다를 경우 시험 신청이 처리되지 않습니다.',
+      '입금일과 증빙의 입금일이 다르면 신청할 수 없습니다.',
     );
   });
 });

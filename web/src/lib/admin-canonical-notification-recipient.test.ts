@@ -17,15 +17,27 @@ const serverActionSource = readFileSync(
 test('FC notifications resolve the current canonical profile phone on the server', () => {
   assert.match(
     routeSource,
-    /async function sendPushNotificationToCanonicalFc[\s\S]*?\.from\('fc_profiles'\)[\s\S]*?\.select\('phone'\)[\s\S]*?\.eq\('id', fcId\)/,
+    /async function resolveCanonicalFcNotificationRecipient[\s\S]*?\.from\('fc_profiles'\)[\s\S]*?\.select\('phone'\)[\s\S]*?\.eq\('id', fcId\)/,
   );
   assert.match(routeSource, /!\/\^010\\d\{8\}\$\/\.test\(phoneDigits\)/);
+  assert.match(
+    routeSource,
+    /async function sendPushNotificationToCanonicalFc[\s\S]*?resolveCanonicalFcNotificationRecipient\(fcId\)/,
+  );
+  assert.match(
+    routeSource,
+    /async function queuePushNotificationToCanonicalFc[\s\S]*?resolveCanonicalFcNotificationRecipient\(fcId\)/,
+  );
   assert.match(routeSource, /return sendPushNotificationToResident\('', payload\)/);
   assert.match(routeSource, /return sendPushNotificationToResident\(phoneDigits, payload\)/);
   assert.doesNotMatch(routeSource, /return sendPushNotificationToResident\(phone, payload\)/);
 
   const canonicalCalls = routeSource.match(/await sendPushNotificationToCanonicalFc\(fcId,/g) ?? [];
-  assert.equal(canonicalCalls.length, 7);
+  assert.equal(canonicalCalls.length, 5);
+
+  const queuedCanonicalCalls =
+    routeSource.match(/await queuePushNotificationToCanonicalFc\(fcId,/g) ?? [];
+  assert.equal(queuedCanonicalCalls.length, 3);
 
   const directCalls = routeSource.match(/sendPushNotificationToResident\(/g) ?? [];
   assert.equal(directCalls.length, 2);

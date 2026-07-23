@@ -30,11 +30,10 @@ describe('admin web exam and notice notification completion contract', () => {
     expect(saveSource).not.toContain("logger.warn('[saveExamRound] fc-notify returned failure', data)");
   });
 
-  it('surfaces the non-fatal exam notification warning to the operator', () => {
+  it('keeps non-fatal exam notification diagnostics out of operator feedback', () => {
     expect(examPage).toContain('return result;');
-    expect(examPage).toContain('if (result.notificationWarning)');
-    expect(examPage).toContain("title: '알림 전달 확인 필요'");
-    expect(examPage).toContain('message: result.notificationWarning');
+    expect(examPage).not.toContain('if (result.notificationWarning)');
+    expect(examPage).not.toContain("title: '알림 전달 확인 필요'");
   });
 
   it('classifies Expo HTTP and ticket failures and includes web push delivery counts', () => {
@@ -51,7 +50,7 @@ describe('admin web exam and notice notification completion contract', () => {
     expect(noticeAction).not.toContain('body: text');
   });
 
-  it('keeps the notice saved and shows an explicit warning when delivery is incomplete', () => {
+  it('keeps the notice saved and logs delivery diagnostics without a second warning toast', () => {
     const saveStart = noticeAction.indexOf(".from('notices')");
     const notificationStart = noticeAction.indexOf(".from('notifications')", saveStart);
     const returnStart = noticeAction.indexOf('return {\n        success: true', notificationStart);
@@ -62,8 +61,7 @@ describe('admin web exam and notice notification completion contract', () => {
     expect(noticeAction).toContain("message: notificationWarning");
     expect(noticeAction).toContain("'공지사항이 등록되었습니다.'");
     expect(noticeAction).not.toContain('공지사항이 등록 및 발송되었습니다.');
-    expect(noticeCreatePage).toContain('if (result.notificationWarning)');
-    expect(noticeCreatePage).toContain("title: '알림 전달 확인 필요'");
-    expect(noticeCreatePage).toContain('message: result.notificationWarning');
+    expect(noticeCreatePage).not.toContain('if (result.notificationWarning)');
+    expect(noticeCreatePage).not.toContain("title: '알림 전달 확인 필요'");
   });
 });

@@ -4568,17 +4568,17 @@ begin
   end if;
 
   if p_upload_id is not null and v_upload.status = 'pending' then
-    select storage_path
+    select proof.storage_path
       into v_previous_proof_path
-      from public.exam_payment_proof_uploads
-     where registration_id = v_registration.id
-       and status = 'attached'
+      from public.exam_payment_proof_uploads as proof
+     where proof.registration_id = v_registration.id
+       and proof.status = 'attached'
      for update;
 
-    update public.exam_payment_proof_uploads
+    update public.exam_payment_proof_uploads as proof
        set status = 'replaced'
-     where registration_id = v_registration.id
-       and status = 'attached';
+     where proof.registration_id = v_registration.id
+       and proof.status = 'attached';
 
     update public.exam_payment_proof_uploads
        set status = 'attached',

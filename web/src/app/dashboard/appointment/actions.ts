@@ -216,10 +216,10 @@ export async function updateAppointmentAction(
             data: { url: '/appointment' },
         });
         if (!notificationResult.success) {
-            notificationWarning = '처리는 완료되었지만 알림 전달이 일부 또는 전부 실패했습니다.';
+            notificationWarning = 'notification_delivery_incomplete';
         }
     } else {
-        notificationWarning = '처리는 완료되었지만 알림 수신 대상을 확인할 수 없습니다.';
+        notificationWarning = 'notification_target_unavailable';
     }
 
     revalidatePath('/dashboard/appointment');

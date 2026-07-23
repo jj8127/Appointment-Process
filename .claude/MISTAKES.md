@@ -1,5 +1,12 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-07-24 | 메시지 알림에서 발신 대화방 정보 유실
+
+- 문제: 관리자 웹의 `message` 알림은 인증된 발신자 ID/이름을 이미 알고 있었지만 Edge와 웹 푸시가 FC 대상 URL을 일반 `/chat`으로 만들었다. 알림 클릭 시 대상 개발자/총무 대화방 대신 메신저 선택 화면으로 이동했다.
+- 원인: FC→관리자 경로에만 직접 채팅 URL을 만들고 관리자/개발자→FC 경로와 별도 웹 푸시 경로는 같은 계약으로 묶지 않았다.
+- 방지: 모든 직접 메시지 알림은 인증된 발신자에서 `/chat?targetId=...&targetName=...`를 생성하고 sender metadata fallback을 함께 제공한다. Edge·웹 푸시·모바일 라우터를 소스 계약 테스트로 함께 검증한다.
+- 추가 회귀 방지: 대화 목록은 역할별 고정 그룹 순서가 아니라 마지막 실제 메시지 시각을 공통 기준으로 사용하며, 메시지가 없는 대상만 아래에 둔다.
+
 > 반복될 수 있는 실수, 회귀, 드리프트만 기록합니다.  
 > 기능 완료 보고, 일반 변경 내역, TODO는 여기에 쓰지 않습니다.
 
@@ -4252,3 +4259,38 @@
 - Verification:
   - The payment-proof source contract rejects implicit failure checks and requires all six explicit failure discriminants.
   - Focused payment-proof tests and the all-entrypoint Deno gate are rerun.
+## 2026-07-24 | Document decision notifications | 일부 승인은 알림이 없고 외부 푸시가 관리자 응답을 지연함
+
+- Symptom:
+  - FC 서류 반려 알림은 도착했지만 마지막 전 일부 승인에는 알림이 없었고, 승인·미승인 버튼은 외부 푸시 제공자 응답까지 기다려 오래 걸렸다.
+- Root cause:
+  - 승인 알림 조건을 `allApproved`에만 묶었고, 상태 저장·알림함 저장·Expo/web-push 전송을 하나의 동기 요청 경계에 두었다.
+- Permanent guardrail:
+  - 승인과 반려 전이를 모두 명시적으로 테스트하고 각 전이마다 알림함 row를 1건 저장한다.
+  - 상태 변경 응답은 durable inbox 저장까지만 기다리며 provider fanout은 `after()`로 분리하고, provider-only helper는 알림함을 다시 insert하지 않는다.
+- Verification:
+  - `web/src/lib/admin-document-decision-notification-source.test.ts`
+
+## 2026-07-24 | Exam payment-proof RPC | 반환 열과 테이블 열의 같은 이름이 운영 신청을 409로 차단함
+
+- Symptom:
+  - 증빙 업로드는 200으로 끝났지만 신청 저장은 409였고 앱은 실제 원인을 숨긴 채 서버 연결 실패만 표시했다.
+- Root cause:
+  - `returns table (registration_id ...)` 출력 변수와 `exam_payment_proof_uploads.registration_id`를 PL/pgSQL에서 무수식으로 함께 사용해 열 참조가 모호해졌다.
+  - Supabase Functions의 non-2xx 응답 본문은 `error.context`에 있었지만 호출 helper가 `data`만 읽었다.
+- Permanent guardrail:
+  - table-returning PL/pgSQL 함수에서 출력 열과 겹칠 수 있는 모든 테이블 열은 alias로 수식한다.
+  - FunctionsHttpError의 구조화된 안전 메시지를 context에서 복원하는 source contract를 유지한다.
+- Verification:
+  - Production Postgres/Edge timestamp correlation, function-definition/privilege query, `lib/__tests__/exam-payment-proof-source-contract.test.ts`
+## 2026-07-24 | Post-commit notification diagnostics leaked into user success feedback
+
+- Symptom:
+  - Successful saves, approvals, applications, and messages repeatedly showed “알림 확인 필요” or “저장은 완료됐지만 알림 전달을 확인하지 못했습니다.”
+- Root cause:
+  - Provider delivery truth was correctly separated from the durable business write, but the diagnostic result was still mapped to a user-facing partial-success alert at many mobile and admin-web call sites.
+- Permanent guardrail:
+  - Once the primary business mutation is committed, provider/inbox delivery diagnostics stay machine-readable and developer-only unless notification delivery is itself the sole requested business action.
+  - Shared adapters log bounded codes/counts and return no user warning. Source contracts reject the retired warning copy across mobile, admin web, chat, group chat, board, and Request Board flows.
+- Verification:
+  - Full FC Jest, root/web TypeScript and lint, admin-web build, Expo export, governance, and a repository-wide warning-copy search.

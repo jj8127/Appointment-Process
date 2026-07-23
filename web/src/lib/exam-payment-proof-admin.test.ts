@@ -79,7 +79,12 @@ test('canonical list and detail expose proof without a review workflow', () => {
   assert.match(detailSource, /buildExamPaymentProofImagePath\(registrationId\)/);
   assert.doesNotMatch(`${listSource}\n${detailSource}`, /증빙 승인|증빙 거절|OCR|날짜 일치/);
 
-  const examInfoIndex = detailSource.indexOf('>시험 신청 정보<');
+  const rightColumnIndex = detailSource.indexOf('<Grid.Col span={{ base: 12, lg: 4 }}>');
   const proofCardPlacementIndex = detailSource.indexOf('<PaymentProofCard');
-  assert.ok(examInfoIndex >= 0 && proofCardPlacementIndex > examInfoIndex);
+  const receptionActionIndex = detailSource.indexOf('<Box mt="auto">', rightColumnIndex);
+  assert.ok(
+    rightColumnIndex >= 0
+      && proofCardPlacementIndex > rightColumnIndex
+      && receptionActionIndex > proofCardPlacementIndex,
+  );
 });

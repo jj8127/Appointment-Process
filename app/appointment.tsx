@@ -213,7 +213,7 @@ export default function AppointmentScreen() {
         throw new Error('업데이트된 데이터가 없습니다. (전화번호 불일치 가능성)');
       }
 
-      const notificationDelivery = await invokeFcNotifyForDelivery({
+      await invokeFcNotifyForDelivery({
         type: 'fc_update',
         fc_id: data.data.id,
         message: `${data.data.name ?? ''}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
@@ -221,17 +221,10 @@ export default function AppointmentScreen() {
       });
 
       await load();
-      if (notificationDelivery.confirmed) {
-        showToast({
-          message: `${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료일이 제출되었습니다. 총무 승인 후 최종 반영됩니다.`,
-          variant: 'success',
-        });
-      } else {
-        Alert.alert(
-          '저장 완료 · 알림 확인 필요',
-          '정보는 정상 저장됐지만 담당자 알림 전달을 확인하지 못했습니다. 필요하면 담당자에게 직접 확인해주세요.',
-        );
-      }
+      showToast({
+        message: `${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료일이 제출되었습니다. 총무 승인 후 최종 반영됩니다.`,
+        variant: 'success',
+      });
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');
     } finally {

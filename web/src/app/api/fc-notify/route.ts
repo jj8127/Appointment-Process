@@ -62,10 +62,20 @@ async function sendBrowserFcMessageWebPush(payload: BrowserFcNotifyPayload) {
   }
   if (!subscriptions?.length) return;
 
+  const chatParams = new URLSearchParams({ targetId: payload.sender_id });
+  if (payload.sender_name.trim()) {
+    chatParams.set('targetName', payload.sender_name.trim());
+  }
+  const chatUrl = `/chat?${chatParams.toString()}`;
   const result = await sendWebPush(subscriptions, {
     title: '새 메시지',
     body: payload.message,
-    data: { url: '/chat' },
+    data: {
+      url: chatUrl,
+      type: 'message',
+      sender_id: payload.sender_id,
+      sender_name: payload.sender_name,
+    },
   });
 
   if (result.expired.length > 0) {

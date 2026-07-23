@@ -1,4 +1,5 @@
 import type { RbApiResult } from './request-board-api';
+import { logger } from './logger';
 
 export type RequestBoardNotificationFeedback = {
   title: string;
@@ -12,8 +13,10 @@ export function getRequestBoardNotificationFeedback(
     || result.notificationDelivery?.confirmed === false;
   if (!incomplete) return null;
 
-  return {
-    title: '처리 완료 · 알림 확인 필요',
-    message: '요청은 정상 처리됐지만 상대방 알림 전달을 확인하지 못했습니다.',
-  };
+  logger.warn('[request-board] notification delivery unconfirmed', {
+    warning: result.warning ?? null,
+    attempted: result.notificationDelivery?.attempted ?? null,
+    rejected: result.notificationDelivery?.rejected ?? null,
+  });
+  return null;
 }

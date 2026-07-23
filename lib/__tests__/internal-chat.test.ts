@@ -1,7 +1,9 @@
 import { ADMIN_CHAT_ID } from '../messenger-participants';
 import { buildInternalChatViewerPayload } from '../internal-chat-api';
 import {
+  attachChatSummariesToContacts,
   attachUnreadCountsToContacts,
+  buildDirectChatTargetSummaries,
   buildInternalChatList,
   countUnreadBySender,
   isInternalAffiliation,
@@ -200,6 +202,55 @@ describe('attachUnreadCountsToContacts', () => {
       { name: '서선미', phone: '010-1111-2222', unread_count: 4 },
       { name: '개발자', phone: '010-3333-4444', unread_count: 0 },
     ]);
+  });
+});
+
+describe('direct chat target summaries', () => {
+  test('orders each contact from real latest-message metadata and keeps unread counts', () => {
+    const summaries = buildDirectChatTargetSummaries({
+      viewerId: '01099990000',
+      targetIds: ['01011112222', '01033334444', ADMIN_CHAT_ID],
+      messages: [
+        {
+          sender_id: '01011112222',
+          receiver_id: '01099990000',
+          content: 'older unread',
+          created_at: '2026-07-24T01:00:00.000Z',
+          is_read: false,
+        },
+        {
+          sender_id: '01099990000',
+          receiver_id: '01033334444',
+          content: 'newest reply',
+          created_at: '2026-07-24T03:00:00.000Z',
+          is_read: true,
+        },
+        {
+          sender_id: ADMIN_CHAT_ID,
+          receiver_id: '01099990000',
+          content: 'middle unread',
+          created_at: '2026-07-24T02:00:00.000Z',
+          is_read: false,
+        },
+      ],
+    });
+
+    expect(summaries['01033334444']).toEqual({
+      last_message: 'newest reply',
+      last_time: '2026-07-24T03:00:00.000Z',
+      unread_count: 0,
+    });
+    expect(summaries[ADMIN_CHAT_ID].unread_count).toBe(1);
+    expect(summaries['01011112222'].unread_count).toBe(1);
+
+    expect(attachChatSummariesToContacts(
+      [{ name: '개발자', phone: '010-3333-4444' }],
+      summaries,
+    )).toEqual([{
+      name: '개발자',
+      phone: '010-3333-4444',
+      ...summaries['01033334444'],
+    }]);
   });
 });
 

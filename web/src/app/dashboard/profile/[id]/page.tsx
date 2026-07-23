@@ -5,10 +5,7 @@ import { formatPresenceLabel } from '@/lib/presence';
 import { getAdminStepDisplay, getStatusDisplay } from '@/lib/shared';
 import { useResidentNumber } from '@/hooks/use-resident-number';
 import { useSession } from '@/hooks/use-session';
-import {
-    ADMIN_NOTIFICATION_WARNING_TITLE,
-    getAdminNotificationWarning,
-} from '@/lib/admin-notification-warning';
+import { getAdminNotificationWarning } from '@/lib/admin-notification-warning';
 import { resolveAdminTempIdUpdate } from '@/lib/admin-temp-id-update';
 import { RecommenderSelect } from '@/components/RecommenderSelect';
 import type { FcProfile, FcStatus } from '@/types/fc';
@@ -253,10 +250,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             return json;
         },
         onSuccess: (response) => {
-            const notificationWarning = getAdminNotificationWarning(response);
-            notifications.show(notificationWarning
-                ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
-                : { title: '저장 완료', message: '프로필 정보가 수정되었습니다.', color: 'green' });
+            getAdminNotificationWarning(response);
+            notifications.show({ title: '저장 완료', message: '프로필 정보가 수정되었습니다.', color: 'green' });
             setIsEditing(false);
             setClearRecommenderSelection(false);
             setRecommenderOverrideReason('');

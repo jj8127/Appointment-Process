@@ -40,7 +40,8 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('sendOptimisticToServer');
     expect(source).toContain('hasGroupChatPostCommitWarning');
     expect(source).toContain('showGroupChatDeliveryWarning');
-    expect(source).toContain('메시지는 저장됐지만 일부 후속 처리를 확인하지 못했습니다.');
+    expect(source).toContain("logger.warn('[group-chat] post-save delivery unconfirmed')");
+    expect(source).not.toContain('메시지는 저장됐지만 일부 후속 처리를 확인하지 못했습니다.');
     expect(source).not.toContain('result.warning.message');
     expect(source).toContain('send_status');
     expect(source).toContain('DocumentPicker.getDocumentAsync');

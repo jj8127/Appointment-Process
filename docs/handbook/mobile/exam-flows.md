@@ -100,6 +100,10 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 ## 2026-07-23 응시료 입금 증빙 계약
 
+- 입금일 불일치 경고는 생명/손해 화면에서 `입금일과 증빙의 입금일이 다르면 신청할 수 없습니다.`로 통일하고, 응시료 안내 카드 다음이자 입금일 선택 카드 바로 위에 표시합니다.
+- `submit_exam_registration_with_payment_proof`는 반환 열 `registration_id`와 upload table 열 이름이 충돌하지 않도록 모든 upload 열 참조를 table-qualified로 유지합니다.
+- Edge Function이 4xx/5xx 구조화 응답을 반환하면 앱은 `FunctionsHttpError.context`의 안전한 `message`를 표시합니다. 서버가 실제 안내를 보냈는데 일반 연결 실패로 바꾸면 안 됩니다.
+
 - `exam-apply`, `exam-apply2`는 응시료 납입일 바로 아래에 이미지 1개를 필수로 받는다. JPG, PNG, WebP만 허용하고 최대 크기는 10MB다.
 - 필수값 누락은 CTA를 침묵시키지 않고 `입금 내역 캡처`를 기존 누락 항목 alert에 포함한다.
 - 화면에는 `입력하신 입금 날짜와 첨부한 입금 내역의 실제 입금 날짜가 다를 경우 시험 신청이 처리되지 않습니다.`를 생명/손해 동일 문구로 표시한다.

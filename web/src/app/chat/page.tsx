@@ -265,16 +265,6 @@ function ChatContent() {
         const responseBody: unknown = await resp.json().catch(() => null);
         const notificationResult = classifyFcNotificationResult(resp.status, responseBody);
         if (!notificationResult.ok) {
-          upsertLocalMessage({
-            ...inserted,
-            sendStatus: 'sent',
-            errorMessage: '메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.',
-          });
-          notifications.show({
-            title: '메시지 저장 완료',
-            message: '메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.',
-            color: 'yellow',
-          });
           logger.warn('[chat][legacy] mobile notification unconfirmed', {
             reason: notificationResult.reason,
             status: resp.status,
@@ -286,16 +276,6 @@ function ChatContent() {
           });
         }
       } catch {
-        upsertLocalMessage({
-          ...inserted,
-          sendStatus: 'sent',
-          errorMessage: '메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.',
-        });
-        notifications.show({
-          title: '메시지 저장 완료',
-          message: '메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.',
-          color: 'yellow',
-        });
         logger.warn('[chat][legacy] mobile notification unconfirmed', {
           reason: 'network_error',
           status: 0,

@@ -376,14 +376,17 @@ const getPostCommitNotificationAlert = (
   successTitle: string,
   successMessage: string,
   notificationResult?: NotificationAndPushResult | boolean | null,
-) => (typeof notificationResult === 'boolean'
-  ? notificationResult
-  : Boolean(notificationResult && !notificationResult.confirmed))
-  ? {
-      title: `${successTitle} · 알림 확인 필요`,
-      message: `${successMessage}\n\n저장은 완료됐지만 가람in 알림 전달을 확인하지 못했습니다.`,
-    }
-  : { title: successTitle, message: successMessage };
+) => {
+  const unconfirmed = typeof notificationResult === 'boolean'
+    ? notificationResult
+    : Boolean(notificationResult && !notificationResult.confirmed);
+  if (unconfirmed) {
+    logger.warn('[dashboard] post-commit notification delivery unconfirmed', {
+      successTitle,
+    });
+  }
+  return { title: successTitle, message: successMessage };
+};
 
 const fetchFcs = async (
   role: 'admin' | 'fc' | null,
@@ -1446,12 +1449,11 @@ export default function DashboardScreen() {
         '등록 안내',
         '보증 보험 동의를 완료해주세요.',
       );
-      Alert.alert(
-        notificationResult.confirmed ? '알림 전송' : '알림 전달 확인 필요',
-        notificationResult.confirmed
-          ? '진행을 재촉하는 알림을 발송했습니다.'
-          : '알림함 저장 또는 대상 기기의 푸시 전달을 확인하지 못했습니다.',
-      );
+      if (!notificationResult.confirmed) {
+        Alert.alert('전송 실패', '알림을 보내지 못했습니다. 잠시 후 다시 시도해주세요.');
+        return;
+      }
+      Alert.alert('알림 전송', '진행을 재촉하는 알림 요청을 처리했습니다.');
     } catch (err: unknown) {
       const error = err as Error;
       Alert.alert('전송 실패', error?.message ?? '알림 전송 중 문제가 발생했습니다.');

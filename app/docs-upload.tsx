@@ -365,19 +365,16 @@ export default function DocsUploadScreen() {
         );
       }
 
-      const notificationResults = await Promise.all(notificationJobs);
-      const notificationsConfirmed = notificationResults.every((result) => result.confirmed);
+      await Promise.all(notificationJobs);
 
       setUploadingType(null);
       uploadStateCleared = true;
       logger.debug('[upload] success', { objectPath });
       showToast({
-        message: notificationsConfirmed
-          ? uploadedCount === updatedDocs.length && updatedDocs.length > 0
-            ? '모든 필수 서류가 제출되었습니다.'
-            : '파일이 정상적으로 등록되었습니다.'
-          : '알림 확인 필요: 파일은 등록됐지만 관리자 알림 전달을 확인하지 못했습니다.',
-        variant: notificationsConfirmed ? 'success' : 'warning',
+        message: uploadedCount === updatedDocs.length && updatedDocs.length > 0
+          ? '모든 필수 서류가 제출되었습니다.'
+          : '파일이 정상적으로 등록되었습니다.',
+        variant: 'success',
       });
     } catch (err: any) {
       logger.warn('[upload] failed', { bucket: BUCKET, error: err?.message ?? err });

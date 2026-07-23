@@ -130,8 +130,8 @@ function PaymentProofCard({
   const imagePath = buildExamPaymentProofImagePath(registrationId);
 
   return (
-    <Card withBorder radius="lg" padding="xl" shadow="xs">
-      <Group justify="space-between" mb="lg">
+    <Stack gap="md">
+      <Group justify="space-between">
         <div>
           <Title order={4} c={CHARCOAL}>입금 증빙 확인</Title>
           <Text size="sm" c="dimmed">FC가 시험 신청 시 첨부한 입금 내역 사진입니다.</Text>
@@ -178,7 +178,7 @@ function PaymentProofCard({
           </Button>
         </Stack>
       )}
-    </Card>
+    </Stack>
   );
 }
 
@@ -253,18 +253,7 @@ export default function ExamApplicantDetailPage() {
         icon: <IconCheck size={16} />,
       });
 
-      try {
-        await notifyFcExamApprovalStatus(item, true);
-      } catch (notificationError: unknown) {
-        const message = notificationError instanceof Error
-          ? notificationError.message
-          : 'FC 앱 알림 전송에 실패했습니다.';
-        notifications.show({
-          title: '알림 전송 실패',
-          message: `접수 상태는 저장되었지만 FC 앱 알림은 전송하지 못했습니다. (${message})`,
-          color: 'yellow',
-        });
-      }
+      await notifyFcExamApprovalStatus(item, true);
     },
     onError: (mutationError: unknown) => {
       const message = mutationError instanceof Error
@@ -442,11 +431,6 @@ export default function ExamApplicantDetailPage() {
                   </SimpleGrid>
                 </Card>
 
-                <PaymentProofCard
-                  key={applicant.id}
-                  registrationId={applicant.id}
-                  attached={Boolean(applicant.payment_proof_attached)}
-                />
               </Stack>
             </Grid.Col>
 
@@ -479,6 +463,14 @@ export default function ExamApplicantDetailPage() {
                       <Text size="sm" fw={700}>{applicant.fee_paid_date ? '확인' : '미입력'}</Text>
                     </Group>
                   </Stack>
+
+                  <Divider />
+
+                  <PaymentProofCard
+                    key={applicant.id}
+                    registrationId={applicant.id}
+                    attached={Boolean(applicant.payment_proof_attached)}
+                  />
 
                   <Box mt="auto">
                     <Button

@@ -154,19 +154,12 @@ export default function ExamSchedulePage() {
             }
             return result;
         },
-        onSuccess: (result) => {
+        onSuccess: () => {
             notifications.show({
                 title: editingId ? '수정 완료' : '등록 완료',
                 message: `시험 일정이 ${editingId ? '수정' : '등록'}되었습니다.`,
                 color: 'green',
             });
-            if (result.notificationWarning) {
-                notifications.show({
-                    title: '알림 전달 확인 필요',
-                    message: result.notificationWarning,
-                    color: 'orange',
-                });
-            }
             queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
             handleClose();
         },

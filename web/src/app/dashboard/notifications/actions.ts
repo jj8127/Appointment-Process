@@ -276,13 +276,13 @@ export async function createNoticeAction(
     const targetQueriesFailed = Boolean(tokenError || webSubsError);
     let notificationWarning: string | undefined;
     if (notifError && acceptedTargets < 1) {
-        notificationWarning = '공지는 등록됐지만 앱 알림함 기록과 푸시 전달을 확인하지 못했습니다.';
+        notificationWarning = 'notification_persistence_and_delivery_incomplete';
     } else if (notifError) {
-        notificationWarning = '공지는 등록됐지만 앱 알림함 기록을 확인하지 못했습니다.';
+        notificationWarning = 'notification_persistence_incomplete';
     } else if (targetQueriesFailed || acceptedTargets < 1) {
-        notificationWarning = '공지는 등록됐지만 가람in/웹 푸시 알림 전달을 확인하지 못했습니다.';
+        notificationWarning = 'notification_delivery_incomplete';
     } else if (failedTargets > 0) {
-        notificationWarning = '공지는 등록됐지만 일부 기기의 알림 전달을 확인하지 못했습니다.';
+        notificationWarning = 'notification_partial_delivery';
     }
 
     logger.info('[notice] notification delivery summary', {

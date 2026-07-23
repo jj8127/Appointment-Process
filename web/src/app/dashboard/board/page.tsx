@@ -453,14 +453,11 @@ export default function BoardPage() {
         });
         return;
       }
-      const notificationWarningMessage = getBoardNotificationWarningMessage(result.notificationWarning);
+      getBoardNotificationWarningMessage(result.notificationWarning);
       notifications.show({
-        title: notificationWarningMessage
-          ? '게시글 작성 완료 · 알림 확인 필요'
-          : '게시글 작성 완료',
-        message: notificationWarningMessage
-          ?? '게시글이 성공적으로 작성되었습니다.',
-        color: notificationWarningMessage ? 'yellow' : 'green',
+        title: '게시글 작성 완료',
+        message: '게시글이 성공적으로 작성되었습니다.',
+        color: 'green',
       });
       handleCloseComposer(true);
     },
@@ -513,14 +510,11 @@ export default function BoardPage() {
         });
         return;
       }
-      const notificationWarningMessage = getBoardNotificationWarningMessage(result.notificationWarning);
+      getBoardNotificationWarningMessage(result.notificationWarning);
       notifications.show({
-        title: notificationWarningMessage
-          ? '게시글 수정 완료 · 알림 확인 필요'
-          : '게시글 수정 완료',
-        message: notificationWarningMessage
-          ?? '게시글이 성공적으로 수정되었습니다.',
-        color: notificationWarningMessage ? 'yellow' : 'green',
+        title: '게시글 수정 완료',
+        message: '게시글이 성공적으로 수정되었습니다.',
+        color: 'green',
       });
       handleCloseComposer(true);
     },
@@ -933,16 +927,11 @@ export default function BoardPage() {
       const retry = result.retry;
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       queryClient.invalidateQueries({ queryKey: ['board-detail', retry.postId] });
-      const notificationWarningMessage = getBoardNotificationWarningMessage(
-        retry.notificationWarning,
-      );
+      getBoardNotificationWarningMessage(retry.notificationWarning);
       notifications.show({
-        title: notificationWarningMessage
-          ? '첨부 전송 완료 · 알림 확인 필요'
-          : '첨부 전송 완료',
-        message: notificationWarningMessage
-          ?? '이미 저장된 게시글에 첨부파일을 전송했습니다.',
-        color: notificationWarningMessage ? 'yellow' : 'green',
+        title: '첨부 전송 완료',
+        message: '이미 저장된 게시글에 첨부파일을 전송했습니다.',
+        color: 'green',
       });
       handleCloseComposer(true);
     },

@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import {
   applyRecommenderSelection,
@@ -8,7 +8,10 @@ import {
 import { adminSupabase } from '@/lib/admin-supabase';
 import { resolveAdminTempIdUpdate } from '@/lib/admin-temp-id-update';
 import {
+  persistNotificationToResident,
   sendPushNotificationToResident,
+  sendPushNotificationToResidentDevices,
+  type NotificationPersistenceResult,
   type PushPayload,
   type PushNotificationResult,
 } from '@/lib/push-notification-service';
@@ -93,7 +96,7 @@ const DAWICHOK_URL_SIGNAL_STATUSES = new Set([
   'final-link-sent',
 ]);
 
-function notificationResponse(result: PushNotificationResult | null) {
+function notificationResponse(result: { success: boolean } | null) {
   if (!result) return {};
   return {
     notification: result,
@@ -101,10 +104,7 @@ function notificationResponse(result: PushNotificationResult | null) {
   };
 }
 
-async function sendPushNotificationToCanonicalFc(
-  fcId: string,
-  payload: PushPayload,
-): Promise<PushNotificationResult> {
+async function resolveCanonicalFcNotificationRecipient(fcId: string): Promise<string | null> {
   const { data: profile, error } = await adminSupabase
     .from('fc_profiles')
     .select('phone')
@@ -119,10 +119,43 @@ async function sendPushNotificationToCanonicalFc(
       reason: error ? 'database_lookup_failed' : 'invalid_or_missing_recipient',
       status: 'incomplete',
     });
+    return null;
+  }
+
+  return phoneDigits;
+}
+
+async function sendPushNotificationToCanonicalFc(
+  fcId: string,
+  payload: PushPayload,
+): Promise<PushNotificationResult> {
+  const phoneDigits = await resolveCanonicalFcNotificationRecipient(fcId);
+  if (!phoneDigits) {
     return sendPushNotificationToResident('', payload);
   }
 
   return sendPushNotificationToResident(phoneDigits, payload);
+}
+
+async function queuePushNotificationToCanonicalFc(
+  fcId: string,
+  payload: PushPayload,
+): Promise<NotificationPersistenceResult> {
+  const phoneDigits = await resolveCanonicalFcNotificationRecipient(fcId);
+  if (!phoneDigits) {
+    return {
+      success: false,
+      inbox: { attempted: false, logged: false },
+    };
+  }
+
+  const persistence = await persistNotificationToResident(phoneDigits, payload);
+  if (persistence.success) {
+    after(async () => {
+      await sendPushNotificationToResidentDevices(phoneDigits, payload);
+    });
+  }
+  return persistence;
 }
 
 async function getValidatedCookieSession(): Promise<SessionErrorResult | SessionSuccessResult<CookieSession>> {
@@ -1072,26 +1105,34 @@ export async function POST(req: Request) {
 
       const { allApproved } = await syncProfileAfterDocMutation(fcId);
 
-      let notificationResult: PushNotificationResult | null = null;
+      let notificationResult: NotificationPersistenceResult | null = null;
       if (normalizedStatus === 'rejected') {
         const title = '서류 반려 안내';
         const reasonText = trimmedReviewerNote || '사유 없음';
         const body = `제출하신 [${docType}] 서류가 반려되었습니다.\n사유: ${reasonText}`;
-        notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
+        notificationResult = await queuePushNotificationToCanonicalFc(fcId, {
           title,
           body,
           data: { url: '/docs-upload' },
           category: '서류',
         });
-      }
-
-      if (allApproved) {
+      } else if (normalizedStatus === 'approved' && allApproved) {
         const title = '서류 검토 완료';
         const body = '모든 서류가 승인되었습니다. 다위촉 단계로 진행해주세요.';
-        notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
+        notificationResult = await queuePushNotificationToCanonicalFc(fcId, {
           title,
           body,
           data: { url: '/hanwha-commission' },
+          category: '서류',
+        });
+      } else if (normalizedStatus === 'approved') {
+        const title = '서류 승인 안내';
+        const body = `제출하신 [${docType}] 서류가 승인되었습니다.`;
+        notificationResult = await queuePushNotificationToCanonicalFc(fcId, {
+          title,
+          body,
+          data: { url: '/docs-upload' },
+          category: '서류',
         });
       }
 

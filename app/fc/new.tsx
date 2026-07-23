@@ -491,24 +491,17 @@ export default function FcNewScreen() {
     // Invalidate queries to ensure Home gets fresh data
     queryClient.invalidateQueries({ queryKey: ['my-fc-status'] });
 
-    const notificationResult = data?.id
-      ? await sendNotificationAndPush(
+    if (data?.id) {
+      await sendNotificationAndPush(
         'admin',
         null,
         `${values.name}님이 기본정보를 등록했습니다.`,
         `${values.name}님이 기본정보를 생성/수정했습니다.`,
-      )
-      : null;
+      );
+    }
 
     loginAs('fc', phoneDigits, values.name, null, false, false, null, appSessionToken);
-    Alert.alert(
-      notificationResult && !notificationResult.confirmed
-        ? '저장 완료 · 알림 확인 필요'
-        : '저장 완료',
-      notificationResult && !notificationResult.confirmed
-        ? '기본정보는 저장됐지만 관리자 알림 전달을 확인하지 못했습니다. FC 홈 화면으로 이동합니다.'
-        : '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.',
-    );
+    Alert.alert('저장 완료', '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.');
     router.replace('/');
   };
 

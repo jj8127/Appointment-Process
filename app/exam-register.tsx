@@ -372,16 +372,11 @@ export default function ExamRegisterScreen() {
         title: `${examTitle} 일정이 ${actionLabel}되었습니다.`,
         body: '응시를 희망하는 경우 신청해주세요.',
       });
-      const notificationResult = await notifyExamFlow(notificationPayload);
+      await notifyExamFlow(notificationPayload);
       const savedMessage = mode === 'create'
         ? '새 시험 일정이 등록되었습니다.'
         : '시험 일정이 업데이트되었습니다.';
-      Alert.alert(
-        notificationResult.confirmed ? '저장 완료' : '저장 완료 · 알림 확인 필요',
-        notificationResult.confirmed
-          ? savedMessage
-          : `${savedMessage}\n\n가람in 알림 전달을 확인하지 못했습니다.`,
-      );
+      Alert.alert('저장 완료', savedMessage);
     },
     onSettled: (_data, error) => {
       if (error) {

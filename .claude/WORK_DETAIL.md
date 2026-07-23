@@ -1,5 +1,19 @@
 # 작업 상세 로그 (Work Detail)
 
+## 2026-07-24 | 시험 신청 복구·서류 알림·메신저 딥링크 안정화
+
+**Changes**:
+- 운영 시험 신청 RPC의 `registration_id` 모호성 오류를 테이블 별칭으로 제거하고, Edge 오류 본문을 모바일에서 안전하게 표시하도록 보강했다.
+- 서류 승인·반려는 매 건 FC 알림함에 저장하고 외부 푸시는 Next `after()`로 분리해 관리자 응답 지연을 줄였다.
+- 개발자/총무 메시지 알림은 인증된 발신자의 직접 채팅 URL과 sender metadata를 저장·전송한다.
+- FC 직접 채팅 대상에 `last_message`, `last_time`, `unread_count`를 제공하고, FC·관리자 모바일·관리자 웹·설계요청 목록 모두 마지막 실제 메시지 시각 최신순 계약을 확인했다.
+- 시험 입금일 불일치 안내를 짧게 줄이고 날짜 선택 UI 바로 위로 옮겼다.
+
+**Verification**:
+- Focused chat/notification tests 47/47, full Jest 147 suites / 817 tests, root/web TypeScript, scoped lint, Edge Deno check, governance, diff check: PASS.
+- Admin web Next production build and Expo web export: PASS with Sentry upload disabled.
+- Production migration receipt: `20260723153541_fix_exam_payment_proof_registration_id_ambiguity`.
+
 > **상세 이력 누적 파일**입니다.  
 > 최근 1개월 Git 이력(`2026-01-12` ~ `2026-02-11`, 총 44 commits)을 기준으로 재구성했습니다.
 >
@@ -12509,3 +12523,63 @@
 - No Android device was attached through ADB, and both available browser profiles reached the admin-web login page without an authenticated session.
 - Therefore request/approve/reject/message/inbox/push and authenticated admin login/chat/exam/notification smoke remain explicit operator/handset checks; no credential was guessed and no synthetic customer/account was created.
 - Store/OTA/native, hardened `admin-action`, P2 durable outbox, secret changes, and Sentry mutation remain excluded.
+## 20260724-document-notification-and-exam-proof-repair
+
+**User-visible symptoms**
+
+- Document rejection notified the FC, while a non-final approval did not; both decision buttons waited too long.
+- The exam payment warning was verbose and separated from the payment-date selector.
+- Payment-proof upload succeeded, then exam submission displayed a generic server connection failure.
+
+**Diagnosis**
+
+- Production aggregate: 10 recent document approvals, 6 matching approval notifications, 4 without a notification, matching the `allApproved`-only branch.
+- Admin document decisions awaited the complete Expo/web-push provider path after the durable workflow writes.
+- Supabase Edge logs showed payment-proof `prepare` 200 followed by `submit` 409 twice. Matching Postgres logs reported `column reference "registration_id" is ambiguous`; the upload row remained pending and its Storage object existed.
+
+**Changes**
+
+- Added document-specific approval notification copy and kept final approval copy/deep link distinct.
+- Split durable inbox persistence from provider-only delivery and scheduled the latter with Next.js `after()` without a second inbox insert.
+- Shortened and repositioned the shared payment warning in both exam application screens.
+- Added and applied `20260724003500_fix_exam_payment_proof_registration_id_ambiguity.sql`, preserving the security-invoker signature and service-role-only grant.
+- Parsed safe non-2xx Edge messages from the Supabase Functions error context.
+
+<a id="20260724-developer-only-notification-diagnostics"></a>
+## 2026-07-24 | Developer-only notification diagnostics and exam-detail proof placement
+
+**User request**
+
+- Do not show “업무는 완료됐지만 알림 전달을 확인하지 못했습니다” variants to FCs or operators.
+- Keep notification delivery failures available to developers only.
+- Move the payment-proof image from the crowded left column to the right reception-status area.
+
+**Changes**
+
+- `invokeFcNotifyForDelivery`, admin notification adapters, Board, and Request Board adapters now keep bounded delivery evidence in structured logs while returning no user-facing post-commit warning.
+- Removed warning alerts/toasts from mobile workflow submissions, exam flows, direct/group chat, admin-web document/exam/notice/chat/board flows, and reminder actions.
+- Server actions return stable diagnostic codes instead of Korean user copy for incomplete delivery.
+- The exam applicant detail renders `PaymentProofCard` inside the right status card after the reception summary and before the reception button.
+
+**Verification**
+
+- Focused notification/chat/board tests: PASS.
+- Root and admin-web TypeScript: PASS.
+- Scoped root and admin-web ESLint: PASS.
+- Root Jest: 147 suites / 818 tests PASS.
+- Admin-web direct Node tests: 289 PASS / 1 intentional skip / 0 failures.
+- Expo web export, admin-web Production build, governance, Deno check, and diff check: PASS.
+- Independent final review: no new P0/P1/P2 release blocker.
+
+**Production release**
+
+- Published only `fc-notify` v78 with `verify_jwt=true`; `admin-action` and native/OTA remained untouched.
+- Published admin web deployment `dpl_FELkt6SaYTY77toMstWoqrkrh1Vx`; Vercel reported `READY` and attached `adminweb-red.vercel.app`.
+- Production route smoke: `/auth` returned 200, while `/` and `/dashboard/exam/applicants` redirected unauthenticated requests to `/auth`.
+- Vercel reported no grouped runtime errors and no error/fatal logs for the new deployment in the bounded post-release window.
+- Authenticated applicant-detail visual QA and real-handset push/deep-link smoke remain operator checks because no authenticated browser session or attached Android device was available.
+
+**Remote verification**
+
+- Function definition contains qualified `proof.registration_id` and `proof.status`.
+- `security_definer=false`, `service_role EXECUTE=true`, and anon/authenticated execute privileges remain false.

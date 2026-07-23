@@ -162,7 +162,7 @@ export async function saveExamRoundAction(
             roundId: targetRoundId,
             notificationWarning: notificationResult.ok
                 ? undefined
-                : '시험 일정은 저장됐지만 가람in 알림 전달을 확인하지 못했습니다.',
+                : 'notification_delivery_incomplete',
         };
     } catch (err: unknown) {
         logger.error('[saveExamRound] failed', {

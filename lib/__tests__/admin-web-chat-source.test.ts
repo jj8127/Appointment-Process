@@ -11,6 +11,17 @@ const adminPushRoutePath = join(root, 'web', 'src', 'app', 'api', 'admin', 'push
 const fcNotifyFunctionPath = join(root, 'supabase', 'functions', 'fc-notify', 'index.ts');
 
 describe('admin web direct chat list source', () => {
+  it('keeps reminder notification failure visible because delivery is the primary action', () => {
+    const dashboardSource = readFileSync(
+      join(root, 'web', 'src', 'app', 'dashboard', 'page.tsx'),
+      'utf8',
+    );
+
+    expect(dashboardSource).toContain('if (!notificationResult.success)');
+    expect(dashboardSource).toContain("title: '전송 실패'");
+    expect(dashboardSource).not.toContain("title: '전달 확인 필요'");
+  });
+
   it('does not issue per-FC Supabase message queries while building the left chat list', () => {
     const page = readFileSync(chatPagePath, 'utf8');
     const route = readFileSync(chatListRoutePath, 'utf8');
@@ -57,13 +68,10 @@ describe('admin web direct chat list source', () => {
     expect(page).not.toContain(".select('*')");
     expect(sendSource).toContain("setInputText('');");
     expect(sendSource).toContain('await sendFcMessageNotification({');
-    expect(sendSource).toContain("title: '메시지 전송 완료'");
-    expect(sendSource).toContain('메시지는 저장됐지만 가람in 푸시 알림 전달을 확인하지 못했습니다.');
+    expect(sendSource).toContain("logger.warn('[chat] message notification unconfirmed'");
+    expect(sendSource).not.toContain('메시지는 저장됐지만 가람in 푸시 알림 전달을 확인하지 못했습니다.');
     expect(sendSource.indexOf('if (error) throw error;')).toBeLessThan(
       sendSource.indexOf('await sendFcMessageNotification({'),
-    );
-    expect(sendSource.indexOf('await sendFcMessageNotification({')).toBeLessThan(
-      sendSource.indexOf("title: '메시지 전송 완료'"),
     );
     expect(sendSource).not.toContain("await supabase.from('notifications')");
     expect(page).toContain('keepalive: true');
@@ -143,6 +151,16 @@ describe('admin web direct chat list source', () => {
     expect(adminPushRoute).toContain(".in('resident_id', sharedAdminTargets.residentIds)");
   });
 
+  it('keeps FC web-push message clicks on the exact staff conversation', () => {
+    const fcNotifyRoute = readFileSync(fcNotifyRoutePath, 'utf8');
+
+    expect(fcNotifyRoute).toContain("new URLSearchParams({ targetId: payload.sender_id })");
+    expect(fcNotifyRoute).toContain('chatParams.set(\'targetName\', payload.sender_name.trim())');
+    expect(fcNotifyRoute).toContain('url: chatUrl');
+    expect(fcNotifyRoute).toContain("type: 'message'");
+    expect(fcNotifyRoute).toContain('sender_id: payload.sender_id');
+  });
+
   it('keeps concrete admin web push role-bound and reports delivery truth without identifiers', () => {
     const route = readFileSync(adminPushRoutePath, 'utf8');
 
@@ -181,7 +199,8 @@ describe('admin web direct chat list source', () => {
     expect(legacyProxySource).not.toContain('sender_name:');
     expect(legacySendSource).toContain('keepalive: true');
     expect(legacySendSource).toContain('classifyFcNotificationResult(resp.status, responseBody)');
-    expect(legacySendSource).toContain('메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.');
+    expect(legacySendSource).not.toContain('메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.');
+    expect(legacySendSource).toContain("logger.warn('[chat][legacy] mobile notification unconfirmed'");
     expect(legacySendSource).not.toContain('fc-notify proxy response');
     expect(legacySendSource).not.toContain('fc-notify proxy error');
     expect(legacySendSource).not.toContain('responseBody,');

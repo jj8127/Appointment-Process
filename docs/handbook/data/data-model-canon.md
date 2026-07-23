@@ -7,6 +7,12 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
+## 2026-07-24 시험 입금 증빙 신청 RPC 보정
+
+- `public.submit_exam_registration_with_payment_proof`의 반환 컬럼 `registration_id`와 입금 증빙 테이블의 동명 컬럼이 충돌하지 않도록, `exam_payment_proof_uploads` 조회와 갱신에서 테이블 별칭을 명시한다.
+- 이 RPC는 `security invoker`를 유지하고 `service_role`만 실행할 수 있다. `anon`과 `authenticated`에는 실행 권한을 부여하지 않는다.
+- 운영 반영 파일은 `20260724003500_fix_exam_payment_proof_registration_id_ambiguity.sql`이며 `supabase/schema.sql`에도 같은 정의를 유지한다.
+
 ## 2026-07-23 시험 응시료 입금 증빙 계약
 
 - `exam-payment-proofs`는 비공개 Storage 버킷이며 JPG, PNG, WebP 이미지만 최대 10MB까지 받습니다. `anon`/`authenticated` 직접 정책은 열지 않고, 서명된 앱 세션을 검증한 `exam-payment-proof` Edge Function이 단기 signed upload URL을 발급합니다.

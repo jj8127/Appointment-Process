@@ -88,10 +88,7 @@ import {
   formatDashboardSignupDate,
 } from '@/lib/dashboard-table-display';
 import { getWebPushRegistrationFeedback } from '@/lib/web-push-config';
-import {
-  ADMIN_NOTIFICATION_WARNING_TITLE,
-  getAdminNotificationWarning,
-} from '@/lib/admin-notification-warning';
+import { getAdminNotificationWarning } from '@/lib/admin-notification-warning';
 
 import { logger } from '../../lib/logger';
 
@@ -579,10 +576,8 @@ export default function DashboardPage() {
           [isLife ? 'appointment_reject_reason_life' : 'appointment_reject_reason_nonlife']: reason,
           status: 'hanwha-commission-approved',
         });
-        const notificationWarning = getAdminNotificationWarning(result);
-        notifications.show(notificationWarning
-          ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
-          : { title: '처리 완료', message: '생명/손해 위촉 정보를 반려했습니다.', color: 'green' });
+        getAdminNotificationWarning(result);
+        notifications.show({ title: '처리 완료', message: '생명/손해 위촉 정보를 반려했습니다.', color: 'green' });
         queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       }
 
@@ -607,10 +602,8 @@ export default function DashboardPage() {
             ? { ...buildDocWorkflowResetProfileFields(), fc_documents: nextDocs }
             : { fc_documents: nextDocs, status: nextProfileStatus },
         );
-        const notificationWarning = getAdminNotificationWarning(res);
-        notifications.show(notificationWarning
-          ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
-          : { title: '반려 완료', message: '서류가 반려되었습니다.', color: 'green' });
+        getAdminNotificationWarning(res);
+        notifications.show({ title: '반려 완료', message: '서류가 반려되었습니다.', color: 'green' });
         queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       }
 
@@ -767,10 +760,8 @@ export default function DashboardPage() {
         nextProfileUpdates.temp_id = tempIdInput;
       }
       updateSelectedFc(nextProfileUpdates);
-      const notificationWarning = getAdminNotificationWarning(response);
-      notifications.show(notificationWarning
-        ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
-        : { title: '저장 완료', message: '기본 정보가 업데이트되었습니다.', color: 'green' });
+      getAdminNotificationWarning(response);
+      notifications.show({ title: '저장 완료', message: '기본 정보가 업데이트되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
@@ -937,10 +928,8 @@ export default function DashboardPage() {
       return data;
     },
     onSuccess: (response) => {
-      const notificationWarning = getAdminNotificationWarning(response);
-      notifications.show(notificationWarning
-        ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
-        : { title: '요청 완료', message: '서류 목록이 갱신되었습니다.', color: 'blue' });
+      getAdminNotificationWarning(response);
+      notifications.show({ title: '요청 완료', message: '서류 목록이 갱신되었습니다.', color: 'blue' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
@@ -987,10 +976,8 @@ export default function DashboardPage() {
       if (variables?.status) {
         updateSelectedFc({ status: variables.status, ...(variables.extra ?? {}) });
       }
-      const notificationWarning = getAdminNotificationWarning(response);
-      notifications.show(notificationWarning
-        ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
-        : { title: '처리 완료', message: '상태가 변경되었습니다.', color: 'green' });
+      getAdminNotificationWarning(response);
+      notifications.show({ title: '처리 완료', message: '상태가 변경되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
@@ -1113,24 +1100,22 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '다위촉 URL 발송 신호 처리 실패');
       }
+      getAdminNotificationWarning(data);
       return {
         sentAt: typeof data?.dawichok_url_sent_at === 'string' ? data.dawichok_url_sent_at : new Date().toISOString(),
         sentBy: typeof data?.dawichok_url_sent_by === 'string' ? data.dawichok_url_sent_by : null,
-        warning: getAdminNotificationWarning(data),
       };
     },
-    onSuccess: ({ sentAt, sentBy, warning }) => {
+    onSuccess: ({ sentAt, sentBy }) => {
       updateSelectedFc({
         dawichok_url_sent_at: sentAt,
         dawichok_url_sent_by: sentBy,
       });
-      notifications.show(warning
-        ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: warning, color: 'yellow' }
-        : {
-            title: '발송 신호 완료',
-            message: 'FC에게 다위촉 URL 진행 안내를 보냈습니다.',
-            color: 'green',
-          });
+      notifications.show({
+        title: '발송 신호 완료',
+        message: 'FC에게 다위촉 URL 진행 안내를 보냈습니다.',
+        color: 'green',
+      });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => {
@@ -1516,10 +1501,8 @@ export default function DashboardPage() {
           }
         );
         if (result.success) {
-          const notificationWarning = getAdminNotificationWarning(result);
-          notifications.show(notificationWarning
-            ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
-            : { title: '완료', message: result.message, color: 'green' });
+          getAdminNotificationWarning(result);
+          notifications.show({ title: '완료', message: result.message, color: 'green' });
           queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
           if (type === 'schedule' && scheduleValue) {
             updateSelectedFc({
@@ -2705,13 +2688,20 @@ export default function DashboardPage() {
                           body: '관리자가 진행을 요청하였습니다.',
                           data: { url: '/' },
                         });
-                        notifications.show(notificationResult.success
-                          ? { title: '전송 완료', message: '알림을 보냈습니다.', color: 'blue' }
-                          : {
-                              title: '전달 확인 필요',
-                              message: '알림 저장 또는 기기 전달을 완료하지 못했습니다.',
-                              color: 'yellow',
-                            });
+                        if (!notificationResult.success) {
+                          logger.warn('[dashboard] reminder notification unconfirmed');
+                          notifications.show({
+                            title: '전송 실패',
+                            message: '알림을 보내지 못했습니다. 잠시 후 다시 시도해주세요.',
+                            color: 'red',
+                          });
+                          return;
+                        }
+                        notifications.show({
+                          title: '전송 완료',
+                          message: '알림 전송 요청을 처리했습니다.',
+                          color: 'blue',
+                        });
                       }}
                     >
                       재촉 알림
@@ -2845,10 +2835,8 @@ export default function DashboardPage() {
                                                 reason: manualApprovalNote,
                                               });
                                               if (res.success) {
-                                                const notificationWarning = getAdminNotificationWarning(res);
-                                                notifications.show(notificationWarning
-                                                  ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
-                                                  : { title: '승인', message: res.message, color: 'green' });
+                                                getAdminNotificationWarning(res);
+                                                notifications.show({ title: '승인', message: res.message, color: 'green' });
                                                 const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
                                                   doc.doc_type === d.doc_type
                                                     ? { ...doc, status: nextStatus, reviewer_note: manualApprovalNote }

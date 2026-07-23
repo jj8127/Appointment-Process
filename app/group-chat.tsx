@@ -85,10 +85,7 @@ function showGroupChatErrorAlert(error: unknown) {
 }
 
 function showGroupChatDeliveryWarning() {
-  Alert.alert(
-    '메시지 전송 완료',
-    '메시지는 저장됐지만 일부 후속 처리를 확인하지 못했습니다.',
-  );
+  logger.warn('[group-chat] post-save delivery unconfirmed');
 }
 type OptimisticMessageInput = {
   content: string;

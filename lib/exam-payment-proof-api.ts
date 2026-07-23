@@ -24,6 +24,28 @@ type SubmitResult = {
   cleanupWarning: boolean;
 };
 
+async function getFunctionErrorMessage(error: unknown): Promise<string | null> {
+  if (!error || typeof error !== 'object') return null;
+  const context = (error as {
+    context?: {
+      bodyUsed?: boolean;
+      json?: () => Promise<unknown>;
+    };
+  }).context;
+  if (!context || context.bodyUsed || typeof context.json !== 'function') {
+    return null;
+  }
+
+  try {
+    const payload = await context.json() as FunctionEnvelope<unknown> | null;
+    return typeof payload?.message === 'string' && payload.message.trim()
+      ? payload.message.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function invokeExamPaymentProof<T>(
   appSessionToken: string,
   body: Record<string, unknown>,
@@ -44,7 +66,8 @@ async function invokeExamPaymentProof<T>(
   );
 
   if (error || !data?.ok || !data.data) {
-    throw new Error(data?.message ?? '시험 신청 서버에 연결하지 못했습니다.');
+    const serverMessage = data?.message ?? await getFunctionErrorMessage(error);
+    throw new Error(serverMessage ?? '시험 신청 서버에 연결하지 못했습니다.');
   }
   return data.data;
 }

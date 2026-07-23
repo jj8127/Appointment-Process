@@ -7,6 +7,12 @@ source_of_truth: env contracts + reset-password functions + supabase/functions/_
 
 # Security And Secret Operations
 
+## 2026-07-24 Direct-message deep-link boundary
+
+- `fc-notify` derives a direct-message target from the authenticated sender identity. Browser callers still cannot choose `sender_id` or `sender_name`; the protected proxy rebuilds both from the verified session.
+- Message push data may contain only the canonical staff/FC chat actor ID, the bounded display name, the internal relative `/chat?...` route, category, source, and target role metadata. It must not contain session tokens, resident numbers, device tokens, provider responses, or raw database errors.
+- `chat_targets` can return per-target last-message time, preview, and unread count only to the signed FC whose viewer ID matches the app-session token. The Edge query is restricted to conversations between that FC and the already authorized staff target set.
+
 ## 2026-07-23 Exam Payment Proof Private Upload Contract
 
 - 시험 증빙 업로드 권한은 전화번호, FC id, CORS origin만으로 부여하지 않습니다. `exam-payment-proof`는 `x-app-session-token`의 서명을 검증하고 현재 FC/manager 계정과 대상 FC 소유권을 다시 확인한 뒤에만 단기 signed upload URL을 발급합니다.

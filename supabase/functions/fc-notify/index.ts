@@ -1,9 +1,9 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
-  attachUnreadCountsToContacts,
+  attachChatSummariesToContacts,
+  buildDirectChatTargetSummaries,
   buildInternalChatList,
-  countUnreadBySender,
   shouldIncludeInternalChatParticipant,
 } from '../_shared/internal-chat.ts';
 import { filterManagerTokensForNotification } from '../_shared/notification-delivery-policy.ts';
@@ -1119,49 +1119,64 @@ serve(async (req: Request) => {
       ),
     );
 
-    let unreadBySender: Record<string, number> = {};
+    let chatSummaries = buildDirectChatTargetSummaries({
+      viewerId: residentId,
+      targetIds: targetSenderIds,
+      messages: [],
+    });
     if (targetSenderIds.length > 0) {
-      const { data: unreadRows, error: unreadErr } = await supabase
+      const targetFilter = targetSenderIds.join(',');
+      const { data: messageRows, error: messageErr } = await supabase
         .from('messages')
-        .select('sender_id')
-        .eq('receiver_id', residentId)
-        .eq('is_read', false)
-        .in('sender_id', targetSenderIds);
-      if (unreadErr) return err(unreadErr.message, 500);
-      unreadBySender = countUnreadBySender((unreadRows ?? []) as { sender_id?: string | null }[]);
+        .select('sender_id,receiver_id,content,created_at,is_read')
+        .or(
+          `and(sender_id.eq.${residentId},receiver_id.in.(${targetFilter})),`
+          + `and(receiver_id.eq.${residentId},sender_id.in.(${targetFilter}))`,
+        )
+        .order('created_at', { ascending: false });
+      if (messageErr) return err(messageErr.message, 500);
+      chatSummaries = buildDirectChatTargetSummaries({
+        viewerId: residentId,
+        targetIds: targetSenderIds,
+        messages: (messageRows ?? []) as InternalChatMessageRow[],
+      });
     }
 
-    const adminUnreadCount = unreadBySender[ADMIN_CHAT_ID] ?? 0;
+    const adminSummary = chatSummaries[ADMIN_CHAT_ID] ?? {
+      last_message: null,
+      last_time: null,
+      unread_count: 0,
+    };
 
     return ok({
       ok: true,
-      managers: attachUnreadCountsToContacts(
+      managers: attachChatSummariesToContacts(
         (managers ?? [])
           .map((manager) => ({
             name: typeof manager.name === 'string' ? manager.name : '',
             phone: sanitize(manager.phone),
           }))
           .filter((manager) => manager.phone.length > 0),
-        unreadBySender,
+        chatSummaries,
       ),
-      developers: attachUnreadCountsToContacts(
+      developers: attachChatSummariesToContacts(
         ((developers ?? []) as AdminAccountRow[])
           .map((developer) => ({
             name: typeof developer.name === 'string' ? developer.name : '',
             phone: sanitize(developer.phone),
           }))
           .filter((developer) => developer.phone.length > 0),
-        unreadBySender,
+        chatSummaries,
       ),
       admins: ((admins ?? []) as AdminAccountRow[])
         .map((admin) => ({
           name: typeof admin.name === 'string' ? admin.name : '',
           phone: sanitize(admin.phone),
           staff_type: typeof admin.staff_type === 'string' ? admin.staff_type : null,
-          unread_count: adminUnreadCount,
+          ...adminSummary,
         }))
         .filter((admin) => admin.phone.length > 0),
-      admin_unread_count: adminUnreadCount,
+      admin_unread_count: adminSummary.unread_count,
     });
   }
 
@@ -1641,10 +1656,10 @@ serve(async (req: Request) => {
     }
 
     let url = redactSensitiveText(body.type === 'notify' ? body.url ?? '/notifications' : body.url ?? '/chat', '/notifications');
-    if (body.type === 'message' && target_role === 'admin' && !body.url) {
+    if (body.type === 'message' && !body.url && body.sender_id?.trim()) {
       let senderName = body.sender_name?.trim() || '';
 
-      if (!senderName && body.sender_id?.trim()) {
+      if (!senderName && target_role === 'admin') {
         const { data: senderProfile } = await supabase
           .from('fc_profiles')
           .select('name')
@@ -1785,6 +1800,12 @@ serve(async (req: Request) => {
         type: category,
         source: notificationSource,
         resident_id: target_id || null,
+        ...(body.sender_id?.trim()
+          ? {
+              sender_id: body.sender_id.trim(),
+              sender_name: redactSensitiveText(body.sender_name ?? '', ''),
+            }
+          : {}),
       },
       sound: 'default',
       priority: 'high',

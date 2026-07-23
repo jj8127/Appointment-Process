@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { getRequestBoardNotificationFeedback } from '../request-board-notification-feedback';
 
 describe('Request Board notification feedback', () => {
-  it('returns a partial-success message without treating the saved mutation as failed', () => {
+  it('logs incomplete delivery without returning user-facing feedback', () => {
     expect(getRequestBoardNotificationFeedback({
       warning: 'notification_delivery_incomplete',
       notificationDelivery: {
@@ -13,10 +13,7 @@ describe('Request Board notification feedback', () => {
         attempted: 0,
         rejected: 0,
       },
-    })).toEqual({
-      title: '처리 완료 · 알림 확인 필요',
-      message: '요청은 정상 처리됐지만 상대방 알림 전달을 확인하지 못했습니다.',
-    });
+    })).toBeNull();
   });
 
   it('does not show a warning after confirmed delivery', () => {
@@ -30,13 +27,15 @@ describe('Request Board notification feedback', () => {
     })).toBeNull();
   });
 
-  it('surfaces partial delivery from both Request Board lifecycle screens', () => {
+  it('keeps Request Board lifecycle screens compatible with hidden delivery diagnostics', () => {
     const root = join(__dirname, '..', '..');
     const boardSource = readFileSync(join(root, 'app', 'request-board.tsx'), 'utf8');
     const reviewSource = readFileSync(join(root, 'app', 'request-board-review.tsx'), 'utf8');
 
     expect(boardSource).toContain('getRequestBoardNotificationFeedback(result)');
     expect(reviewSource.match(/getRequestBoardNotificationFeedback\(res\)/g)?.length).toBeGreaterThanOrEqual(5);
-    expect(reviewSource).toContain('notificationFeedback?.message');
+    const helperSource = readFileSync(join(root, 'lib', 'request-board-notification-feedback.ts'), 'utf8');
+    expect(helperSource).toContain("logger.warn('[request-board] notification delivery unconfirmed'");
+    expect(helperSource).not.toContain('알림 확인 필요');
   });
 });

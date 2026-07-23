@@ -34,10 +34,7 @@ import { useCallback, useMemo, useState, useTransition } from 'react';
 import { StatusToggle } from '@/components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
-import {
-  ADMIN_NOTIFICATION_WARNING_TITLE,
-  getAdminNotificationWarning,
-} from '@/lib/admin-notification-warning';
+import { getAdminNotificationWarning } from '@/lib/admin-notification-warning';
 import { supabase } from '@/lib/supabase';
 import { updateAppointmentAction } from './actions';
 
@@ -394,10 +391,8 @@ export default function AppointmentPage() {
       );
 
       if (result.success) {
-        const notificationWarning = getAdminNotificationWarning(result);
-        notifications.show(notificationWarning
-          ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
-          : { title: '성공', message: result.message, color: 'green' });
+        getAdminNotificationWarning(result);
+        notifications.show({ title: '성공', message: result.message, color: 'green' });
         setRejectModalOpen(false);
         setRejectTarget(null);
         setRejectReason('');
@@ -463,10 +458,8 @@ export default function AppointmentPage() {
           );
 
           if (result.success) {
-            const notificationWarning = getAdminNotificationWarning(result);
-            notifications.show(notificationWarning
-              ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
-              : { title: '성공', message: result.message, color: 'green' });
+            getAdminNotificationWarning(result);
+            notifications.show({ title: '성공', message: result.message, color: 'green' });
             refetch();
           } else {
             notifications.show({ title: '실패', message: result.error, color: 'red' });

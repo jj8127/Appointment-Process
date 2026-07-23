@@ -107,8 +107,8 @@ test('exam reception notification confirms persistence and a mobile target after
 test('every web reception toggle notifies FCs for both approval and approval release', () => {
   assert.match(listSource, /notifyFcExamApprovalStatus\(item, isConfirmed\)/);
   assert.doesNotMatch(listSource, /if \(!isConfirmed\) return/);
-  assert.match(listSource, /title: '알림 확인 필요'[\s\S]+color: 'yellow'/);
+  assert.doesNotMatch(listSource, /title: '알림 확인 필요'/);
 
   assert.match(roundApplicantSource, /notifyFcExamApprovalStatus\(row, nextConfirmed\)/);
-  assert.match(roundApplicantSource, /title: '알림 확인 필요'[\s\S]+color: 'yellow'/);
+  assert.doesNotMatch(roundApplicantSource, /title: '알림 확인 필요'/);
 });

@@ -2,7 +2,7 @@ doc_id: FC-FEATURE-CONTRACT-MATRIX
 owner_repo: fc-onboarding-app
 owner_area: cross-surface contracts
 audience: developer, operator
-last_verified: 2026-07-23
+last_verified: 2026-07-24
 source_of_truth: code + tests + request_board/docs/handbook/feature-contract-matrix.md
 
 # Feature Contract Matrix
@@ -24,7 +24,12 @@ This matrix defines business behavior that must stay consistent across GaramIn m
 | UI action primitives | Buttons, icon actions, confirms, modals, sheets, copy/link/file actions, and destructive flows must be inventoried and either use shared primitives or document an intentional exception. | `components/Button.tsx`, `components/AppAlertProvider.tsx`, `components/MessengerMessageActionSheet.tsx`, `components/LinkifiedSelectableText.tsx`, `scripts/audit/shared-ui-contract-audit.cjs` | `lib/__tests__/shared-ui-action-contracts.test.ts`, `docs/handbook/shared-ui-action-contracts.md` |
 | Function primitives | Reused formatter, normalizer, mapper, resolver, permission, message grouping, and display helpers must be owned by shared `lib/*` contracts instead of screen-local copies. | `lib/exam-display.ts`, `lib/group-chat-display.ts`, `scripts/audit/shared-function-contract-audit.cjs`, `app/exam-manage*.tsx`, `app/group-chat.tsx` | `lib/__tests__/exam-display.test.ts`, `lib/__tests__/group-chat-function-contracts.test.ts`, `lib/__tests__/shared-function-contracts.test.ts`, `docs/handbook/shared-ui-action-contracts.md` |
 | Sensitive data | Resident numbers, phone numbers, filenames, logs, and Sentry payloads must preserve mask/full-view policy by role and never expose secrets in generic content feeds. | `lib/sentry-sanitize.ts`, `web/src/lib/sentry-sanitize.ts`, `web/src/lib/resident-number-display.ts`, `web/src/app/api/admin/resident-numbers/`, `web/src/hooks/use-resident-number.ts`, `web/src/lib/resident-number-route-handler.ts`, `web/src/lib/resident-number-route-request.ts`, `web/src/lib/resident-number-edge-response.ts`, `web/src/lib/server-resident-numbers.ts` | PII/sentry/resident-number route tests |
+| FC document decisions | Every approval and rejection creates one durable FC inbox notification. Provider delivery runs after the admin response and must not create a second inbox row. Partial approvals link back to document upload; final approval links to the commission step. | `web/src/app/api/admin/fc/route.ts`, `web/src/lib/push-notification-service.ts` | `web/src/lib/admin-document-decision-notification-source.test.ts`, `web/src/lib/admin-canonical-notification-recipient.test.ts` |
 
 ## Governance Rule
 
 `docs/handbook/contract-test-map.json` maps contract-sensitive files to the documents or tests that must change with them. `scripts/ci/check-governance.mjs` enforces that map for changed files, so feature-critical edits must include either updated contract evidence or an intentional map change.
+# 2026-07-24 시험 신청 상세 입금 증빙 배치
+
+- 관리자/본부장 시험 신청 상세의 입금 증빙은 왼쪽 신청 정보 열이 아니라 오른쪽 `접수 상태` 카드의 상태 요약 아래에 표시한다.
+- 반응형 단일 열에서도 상태 요약 → 입금 증빙 → 접수 버튼 순서를 유지한다.

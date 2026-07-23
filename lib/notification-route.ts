@@ -24,6 +24,26 @@ export function normalizeNotificationTargetUrl(url?: string | null): string {
   return trimmed;
 }
 
+export function buildDirectChatNotificationRoute(input: {
+  senderId?: unknown;
+  senderName?: unknown;
+}): string | null {
+  const rawSenderId = String(input.senderId ?? '').trim();
+  const senderId = rawSenderId.toLowerCase() === 'admin'
+    ? 'admin'
+    : rawSenderId.replace(/\D/g, '');
+  if (senderId !== 'admin' && !/^010\d{8}$/.test(senderId)) {
+    return null;
+  }
+
+  const senderName = String(input.senderName ?? '').trim();
+  const params = new URLSearchParams({ targetId: senderId });
+  if (senderName) {
+    params.set('targetName', senderName);
+  }
+  return `/chat?${params.toString()}`;
+}
+
 const isGenericNotificationTarget = (target: string) =>
   target === '/notifications'
   || target === '/request-board'
@@ -117,6 +137,16 @@ export function resolvePushNotificationRoute(content?: {
       category: normalizedCategory,
       targetUrl: rawUrl,
     });
+  }
+
+  if (normalizedCategory === 'message' || normalizedCategory === 'chat_message') {
+    const directChatRoute = buildDirectChatNotificationRoute({
+      senderId: data.sender_id,
+      senderName: data.sender_name,
+    });
+    if (directChatRoute) {
+      return directChatRoute;
+    }
   }
 
   return normalizeNotificationTargetUrl(rawUrl);

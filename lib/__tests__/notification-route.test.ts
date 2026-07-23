@@ -1,4 +1,5 @@
 import {
+  buildDirectChatNotificationRoute,
   normalizeNotificationTargetUrl,
   resolvePushNotificationRoute,
   resolveRequestBoardNotificationRoute,
@@ -54,6 +55,22 @@ describe('notification route helpers', () => {
       category: 'request_board_message',
       targetUrl: '/notifications',
     })).toBe('/messenger?channel=request-board');
+  });
+
+  it('routes direct-message notifications to the exact sender conversation', () => {
+    expect(buildDirectChatNotificationRoute({
+      senderId: '010-1234-5678',
+      senderName: '개발자',
+    })).toBe('/chat?targetId=01012345678&targetName=%EA%B0%9C%EB%B0%9C%EC%9E%90');
+
+    expect(resolvePushNotificationRoute({
+      data: {
+        type: 'message',
+        url: '/chat',
+        sender_id: '01012345678',
+        sender_name: '개발자',
+      },
+    })).toBe('/chat?targetId=01012345678&targetName=%EA%B0%9C%EB%B0%9C%EC%9E%90');
   });
 
   it('routes group chat messages to the group chat screen', () => {

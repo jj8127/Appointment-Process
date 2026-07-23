@@ -197,13 +197,8 @@ export default function AdminNoticeScreen() {
       if (error) throw error;
 
       const noticeUrl = insertedNotice?.id ? `/notice-detail?id=${insertedNotice.id}` : '/notice';
-      const notificationResult = await notifyAllFcs(title.trim(), body.trim(), category.trim(), noticeUrl);
-      Alert.alert(
-        notificationResult.confirmed ? '등록 완료' : '등록 완료 · 알림 확인 필요',
-        notificationResult.confirmed
-          ? '공지사항이 성공적으로 등록되었습니다.'
-          : '공지사항은 등록됐지만 가람in 알림 전달을 확인하지 못했습니다.',
-      );
+      await notifyAllFcs(title.trim(), body.trim(), category.trim(), noticeUrl);
+      Alert.alert('등록 완료', '공지사항이 성공적으로 등록되었습니다.');
       setTitle('');
       setBody('');
       setCategory('공지사항');

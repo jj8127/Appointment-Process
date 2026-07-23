@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 const root = process.cwd();
 const wrapperPath = join(root, 'lib', 'fc-notify-client.ts');
+const edgeFunctionPath = join(root, 'supabase', 'functions', 'fc-notify', 'index.ts');
 
 function collectSourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -42,7 +43,7 @@ describe('fc-notify mobile source ownership', () => {
     expect(source).not.toContain('Authorization:');
   });
 
-  it('surfaces post-commit notification delivery gaps instead of discarding them', () => {
+  it('logs post-commit notification delivery gaps without exposing them to users', () => {
     const readApp = (relativePath: string) =>
       readFileSync(join(root, 'app', relativePath), 'utf8');
     const sources = [
@@ -57,13 +58,18 @@ describe('fc-notify mobile source ownership', () => {
 
     for (const source of sources) {
       expect(source).toContain('invokeFcNotifyForDelivery');
-      expect(source).toContain('알림 확인 필요');
+      expect(source).not.toContain('알림 확인 필요');
     }
 
     const dashboardSource = readApp('dashboard.tsx');
     expect(dashboardSource).toContain("'sendNotification'");
     expect(dashboardSource).toContain('inboxRecorded && push.confirmed');
-    expect(dashboardSource).toContain('알림 확인 필요');
+    expect(dashboardSource).not.toContain('알림 확인 필요');
+    expect(dashboardSource).toContain('if (!notificationResult.confirmed)');
+    expect(dashboardSource).toContain("Alert.alert('전송 실패'");
+    expect(readFileSync(wrapperPath, 'utf8')).toContain(
+      "logger.warn('[fc-notify] delivery unconfirmed'",
+    );
     expect(dashboardSource).not.toContain('ignore notification failures');
     expect(dashboardSource).not.toContain('ignore push failures');
     expect(readApp('docs-upload.tsx')).not.toContain('Promise.allSettled(notificationJobs)');
@@ -86,13 +92,23 @@ describe('fc-notify mobile source ownership', () => {
     expect(source).not.toContain('if (!data?.ok)');
   });
 
+  it('builds direct-chat URLs and sender metadata for every message recipient role', () => {
+    const source = readFileSync(edgeFunctionPath, 'utf8');
+
+    expect(source).toContain("body.type === 'message' && !body.url && body.sender_id?.trim()");
+    expect(source).not.toContain("body.type === 'message' && target_role === 'admin' && !body.url");
+    expect(source).toContain('url = `/chat?targetId=${encodeURIComponent(body.sender_id)}&targetName=${encodeURIComponent(resolvedSenderName)}`');
+    expect(source).toContain('sender_id: body.sender_id.trim()');
+    expect(source).toContain("sender_name: redactSensitiveText(body.sender_name ?? '', '')");
+  });
+
   it('notifies FCs after both approval and approval release status commits', () => {
     for (const path of ['exam-manage.tsx', 'exam-manage2.tsx']) {
       const source = readFileSync(join(root, 'app', path), 'utf8');
 
       expect(source).toContain('isConfirmed: value');
       expect(source).not.toContain('if (!value) return;');
-      expect(source).toContain('알림 확인 필요');
+      expect(source).not.toContain('알림 확인 필요');
       expect(source).toContain("notification delivery unconfirmed', { isConfirmed: value }");
     }
   });

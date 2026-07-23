@@ -42,6 +42,16 @@ describe('exam payment proof field accessibility', () => {
   });
 });
 
+describe('exam payment proof API errors', () => {
+  const source = readSource('lib/exam-payment-proof-api.ts');
+
+  it('preserves the structured Edge response message for non-2xx failures', () => {
+    expect(source).toContain('getFunctionErrorMessage(error)');
+    expect(source).toContain('context.json()');
+    expect(source).toContain("data?.message ?? await getFunctionErrorMessage(error)");
+  });
+});
+
 describe('exam payment proof Edge result narrowing', () => {
   const source = readSource('supabase/functions/exam-payment-proof/index.ts');
 

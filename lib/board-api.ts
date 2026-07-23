@@ -411,7 +411,8 @@ export async function updateBoardPost(actor: BoardActor, payload: {
 
 export function getBoardNotificationWarningMessage(notificationWarning?: string | null) {
   if (!notificationWarning) return null;
-  return '게시글은 저장되었지만 일부 알림이 전송되지 않았습니다. 알림 상태를 확인해주세요.';
+  logger.warn('[board] notification delivery unconfirmed', { notificationWarning });
+  return null;
 }
 
 export async function deleteBoardPost(actor: BoardActor, postId: string) {

@@ -5,6 +5,12 @@ audience: developer, operator
 last_verified: 2026-07-23
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
 
+## Direct-message routing and conversation ordering (2026-07-24)
+
+- Every Garam branch direct-message notification stores and pushes a concrete `/chat?targetId=...&targetName=...` route derived from the authenticated sender. A legacy generic chat URL can be upgraded from the same bounded sender metadata on mobile.
+- FC, admin mobile, admin web, and Request Board conversation lists order rooms by the latest real message timestamp. Conversations without a message stay below active conversations; local screen-open time must not be used as a synthetic recency value.
+- The Edge `chat_targets` response includes `last_message`, `last_time`, and `unread_count` for each authorized staff target. Extra response fields remain backward-compatible with older mobile clients.
+
 ## Diagnostic Privacy Notes (2026-07-16)
 
 - Mobile registration diagnostics may retain role, configuration-presence, reuse, success, and fixed failure-reason state. They never include resident identifiers, app-session values, Expo push tokens, or raw invocation errors.
@@ -83,6 +89,12 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 - 확인 실패 시 발신자에게 “메시지는 저장됐지만 가람in 푸시 알림 전달을 확인하지 못했다”는 부분 실패를 표시합니다. 진단 로그에는 고정 reason/status와 aggregate sent만 남기고 메시지 본문, 수신자 식별자, 토큰, raw provider response는 남기지 않습니다.
 
 ## 2026-07-23 임시사번 발급 모바일 알림 복구
+
+## 2026-07-24 서류 승인·반려 알림과 응답 지연
+
+- 문서 상태 변경은 승인과 반려 모두 FC 알림함 row를 정확히 1건 먼저 저장합니다. 일부 승인도 `서류 승인 안내`를 보내며, 마지막 승인만 `서류 검토 완료`와 `/hanwha-commission` 다음 단계 링크를 사용합니다.
+- 관리자 HTTP 응답은 문서·프로필 변경과 알림함 저장까지만 기다립니다. Expo와 web-push 제공자 전송은 Next.js `after()`에서 같은 canonical FC 수신자에게 이어지며 알림함 row를 다시 insert하지 않습니다.
+- 수신자 확인 또는 알림함 저장이 실패하면 문서 변경은 유지하고 `notification_delivery_incomplete` 경고를 반환합니다.
 
 - 관리자 임시사번 발급은 완료된 FC 프로필의 현재 전화번호를 서버에서 다시 조회하고, 숫자만 남긴 canonical 값으로 inbox/push 수신자를 지정합니다. 형식이 포함된 원본 전화번호를 push helper에 넘기지 않습니다.
 - 업무 mutation과 알림 fanout은 분리된 결과입니다. 임시사번 발급 저장이 끝난 뒤 대상 토큰이 없거나 provider 전송이 불완전하면 발급을 실패로 되돌리지 않고 고정된 부분 실패 경고를 반환합니다.
@@ -163,7 +175,8 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 
 - Transport success is not delivery success. Confirmation requires the intended inbox row to be logged and every attempted Expo ticket to have `status=ok` when mobile delivery is required. Zero-attempt and partial acceptance are incomplete delivery.
 - Expo responses are reduced to attempted/accepted/rejected counts. Raw provider bodies, ticket identifiers, push tokens, recipient identifiers, and message bodies must not appear in responses or logs.
-- Durable business writes and notification fanout are separate outcomes. After a successful write, fanout failure returns a partial-delivery warning and must not produce a retry-inducing overall failure.
+- Durable business writes and notification fanout are separate outcomes. After a successful write, fanout failure may return a machine-readable diagnostic code but must not produce a retry-inducing overall failure.
+- Post-commit delivery diagnostics are developer-only. Mobile and admin-web clients log the bounded code/counts and show the normal business-success feedback; they must not show “알림 확인 필요” or “저장은 완료됐지만…” copy to operators or FCs.
 - FC workflow events for admin review use the shared admin scope (`target_id=null`). A concrete admin target is reserved for direct internal-message category.
 - Group-chat fanout uses the already resolved active membership and matches both normalized phone and role; a later generic role filter must not remove an eligible manager.
 - Reminder checkpoints advance only for recipients whose full provider delivery was accepted, so zero-attempt, partial, rejected, and timed-out recipients remain retryable.

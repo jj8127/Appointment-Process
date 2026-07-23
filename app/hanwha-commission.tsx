@@ -246,21 +246,14 @@ export default function HanwhaCommissionScreen() {
         throw new Error('업데이트된 데이터가 없습니다. (전화번호 불일치 가능성)');
       }
 
-      const notificationDelivery = await invokeFcNotifyForDelivery({
+      await invokeFcNotifyForDelivery({
         type: 'fc_update',
         fc_id: data.data.id,
         message: `${data.data.name ?? ''}님이 다위촉 URL 완료를 보고했습니다. (입력일: ${ymd})`,
         url: '/dashboard',
       });
 
-      if (notificationDelivery.confirmed) {
-        Alert.alert('제출 완료', '다위촉 URL 완료일이 제출되었습니다.\n총무 검토 후 다음 안내를 기다려주세요.');
-      } else {
-        Alert.alert(
-          '저장 완료 · 알림 확인 필요',
-          '정보는 정상 저장됐지만 담당자 알림 전달을 확인하지 못했습니다. 필요하면 담당자에게 직접 확인해주세요.',
-        );
-      }
+      Alert.alert('제출 완료', '다위촉 URL 완료일이 제출되었습니다.\n총무 검토 후 다음 안내를 기다려주세요.');
       await load();
     } catch (error: any) {
       Alert.alert('저장 실패', error?.message ?? '다위촉 URL 정보를 저장하지 못했습니다.');

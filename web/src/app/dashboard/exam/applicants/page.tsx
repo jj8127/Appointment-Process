@@ -548,15 +548,7 @@ export default function ExamApplicantsPage() {
                 color: 'green',
                 icon: <IconRefresh size={16} />,
             });
-            try {
-                await notifyFcExamApprovalStatus(item, isConfirmed);
-            } catch {
-                notifications.show({
-                    title: '알림 확인 필요',
-                    message: '상태는 저장되었지만 FC 앱 알림 전달은 확인하지 못했습니다.',
-                    color: 'yellow',
-                });
-            }
+            await notifyFcExamApprovalStatus(item, isConfirmed);
         },
         onError: (err: unknown) => {
             const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
