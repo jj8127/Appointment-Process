@@ -102,6 +102,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>(initialState);
   const [hydrated, setHydrated] = useState(false);
   const [appSessionToken, setAppSessionTokenState] = useState<string | null>(null);
+  const [pushRegistrationRevision, setPushRegistrationRevision] = useState(0);
   const [requestBoardSyncStatus, setRequestBoardSyncStatus] = useState<RequestBoardSyncStatus>('idle');
   const [requestBoardSyncError, setRequestBoardSyncError] = useState<string | null>(null);
   const requestBoardSyncPromiseRef = useRef<Promise<{ ok: boolean; error?: string; needsRelogin?: boolean }> | null>(null);
@@ -113,9 +114,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   } | null>(null);
 
   const replaceAppSessionToken = useCallback(async (token: string | null) => {
-    setAppSessionTokenState(token);
     try {
       await persistStoredAppSessionToken(token);
+      setAppSessionTokenState(token);
+      setPushRegistrationRevision((current) => current + 1);
     } catch (err) {
       logger.warn('[session] app session token persist failed', err);
     }
@@ -257,10 +259,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                   : restoredRequestBoardRole,
               ),
             });
-            const restoredAppSessionToken =
+            const securedAppSessionToken = await getStoredAppSessionToken();
+            const legacyAppSessionToken =
               typeof parsed.appSessionToken === 'string' && parsed.appSessionToken.trim()
                 ? parsed.appSessionToken
-                : await getStoredAppSessionToken();
+                : null;
+            const restoredAppSessionToken = securedAppSessionToken ?? legacyAppSessionToken;
+            if (!securedAppSessionToken && legacyAppSessionToken) {
+              await persistStoredAppSessionToken(legacyAppSessionToken);
+            }
             setAppSessionTokenState(restoredAppSessionToken ?? null);
           }
         }
@@ -286,7 +293,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             readOnly: state.readOnly,
             isRequestBoardDesigner: state.isRequestBoardDesigner,
             requestBoardRole: state.requestBoardRole,
-            appSessionToken,
           };
           await safeStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
         } else {
@@ -353,7 +359,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           isRequestBoardDesigner,
           requestBoardRole,
         });
-        setAppSessionTokenState(nextAppSessionToken);
+        void replaceAppSessionToken(nextAppSessionToken);
         setRequestBoardSyncStatus('idle');
         setRequestBoardSyncError(null);
       },
@@ -371,14 +377,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    const pushRegistrationKey = buildPushRegistrationAttemptKey({
+    const pushRegistrationBaseKey = buildPushRegistrationAttemptKey({
       hydrated,
       role: state.role,
       residentId: state.residentId,
       requestBoardRole: state.requestBoardRole,
     });
+    const pushRegistrationKey = pushRegistrationBaseKey
+      ? `${pushRegistrationBaseKey}:${pushRegistrationRevision}`
+      : null;
 
-    if (!pushRegistrationKey) return;
+    if (!pushRegistrationKey || !appSessionToken) return;
     const completedForCurrentSession = lastPushRegistrationKeyRef.current === pushRegistrationKey;
     if (
       completedForCurrentSession
@@ -473,6 +482,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [
     hydrated,
+    appSessionToken,
+    pushRegistrationRevision,
     state.role,
     state.residentId,
     state.displayName,

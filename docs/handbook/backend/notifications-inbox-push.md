@@ -87,7 +87,10 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 - 관리자 임시사번 발급은 완료된 FC 프로필의 현재 전화번호를 서버에서 다시 조회하고, 숫자만 남긴 canonical 값으로 inbox/push 수신자를 지정합니다. 형식이 포함된 원본 전화번호를 push helper에 넘기지 않습니다.
 - 업무 mutation과 알림 fanout은 분리된 결과입니다. 임시사번 발급 저장이 끝난 뒤 대상 토큰이 없거나 provider 전송이 불완전하면 발급을 실패로 되돌리지 않고 고정된 부분 실패 경고를 반환합니다.
 - 모바일의 전역 session provider만 `device-token-register`를 소유합니다. 일시 오류에는 bounded retry를 사용하고, 성공·권한 거부·retry 소진 뒤 앱이 foreground로 돌아오면 현재 signed session으로 토큰 상태를 다시 조정합니다.
+- 신규 가입 직후 발급된 `appSessionToken`은 push 등록보다 먼저 secure storage에 저장합니다. 같은 화면상 사용자로 `loginAs`가 다시 호출되더라도 registration revision을 증가시켜 trusted 등록을 다시 실행합니다.
+- 과거 session JSON에 남아 있는 `appSessionToken`은 restore 시 secure storage로 한 번만 이관하고, 새 session JSON에는 토큰을 다시 기록하지 않습니다.
 - 지원하지 않는 platform/client/device는 현재 process에서 terminal로 유지합니다. 토큰 등록·복구 진단에는 전화번호, resident id, 토큰 값, 원문 오류를 남기지 않습니다.
+- 운영 알림 문구는 UTF-8 소스 또는 JSON serializer를 통해 전달합니다. PowerShell 파이프/리다이렉션으로 비ASCII 시험 payload를 만들면 콘솔 code page에서 `?`로 손실될 수 있으므로, 시험 전송은 제품 경로를 사용하거나 Unicode code point를 보존하는 파일/serializer를 사용합니다.
 
 ## 2026-03-28 기준 주의점
 

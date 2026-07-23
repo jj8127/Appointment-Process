@@ -19,20 +19,24 @@
 **Changes**:
 - The canonical admin recipient helper now passes the validated digits-only phone to the server notification service.
 - The global session provider keeps one registration owner and refreshes a successful, permission-denied, or retry-exhausted registration when the app returns to foreground.
+- Newly issued app-session tokens are persisted to secure storage before registration, and a registration revision forces reconciliation even when the visible role and resident identity do not change.
+- Legacy app-session tokens are migrated out of the session JSON into secure storage; newly written session JSON no longer retains the credential.
 - Unsupported platform/client/device outcomes remain terminal, and the existing in-flight coalescing plus bounded retry behavior is preserved.
 - Focused source contracts lock normalized-recipient delivery and foreground token reconciliation.
 
 **Verification**:
-- Root focused Jest: 3 suites / 16 tests PASS.
+- Root focused Jest: 4 suites / 23 tests PASS.
 - Admin-web focused Node tests: 14/14 PASS.
 - Root and admin-web TypeScript: PASS.
 - Targeted root and admin-web ESLint: PASS.
+- After the current development-client bundle was reopened on the connected handset, one current FC-role token was registered. A single bounded provider smoke was accepted and the handset received it.
+- The one-off smoke payload displayed `?` characters because its Korean text crossed a PowerShell stdin encoding boundary. The checked product notification literals were verified as valid UTF-8 Korean and were not changed.
 - Governance and final diff checks are recorded in the task handoff.
 
 **Safety**:
 - Production inspection used aggregate/read-only queries and fixed log metadata; no phone, token, notification body, or raw log was printed in the handoff.
-- No deployment, database mutation, credential change, Sentry mutation, stage, commit, or push was performed.
-- A real handset notification smoke test remains a post-release operator check because local source verification cannot create the missing production token row.
+- The only remote mutation was one explicitly bounded notification smoke after the handset registered its own token. No manual token fabrication, schema change, deployment, credential change, Sentry mutation, stage, commit, or push was performed.
+- The mobile repair is present in the connected development-client bundle only; Store/OTA delivery remains a separate release action.
 
 ---
 

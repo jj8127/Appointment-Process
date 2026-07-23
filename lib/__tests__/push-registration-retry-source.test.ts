@@ -30,4 +30,26 @@ describe('session push registration retry boundary', () => {
     expect(homeSource).not.toContain('registerPushToken(');
     expect(homeSource).not.toContain('pushRegistrationAttemptRef');
   });
+
+  test('migrates legacy session tokens to secure storage and never rewrites them into session JSON', () => {
+    expect(source).toContain('const securedAppSessionToken = await getStoredAppSessionToken();');
+    expect(source).toContain('const restoredAppSessionToken = securedAppSessionToken ?? legacyAppSessionToken;');
+    expect(source).toContain('await persistStoredAppSessionToken(legacyAppSessionToken);');
+
+    const persistStart = source.indexOf('const persist = async () => {');
+    const persistEnd = source.indexOf('persist();', persistStart);
+    const persistSource = source.slice(persistStart, persistEnd);
+    expect(persistSource).not.toContain('appSessionToken,');
+  });
+
+  test('restarts registration after an explicit login even when the visible identity is unchanged', () => {
+    const loginStart = source.indexOf('loginAs: (');
+    const registrationStart = source.indexOf('const pushRegistrationBaseKey');
+    const loginSource = source.slice(loginStart, registrationStart);
+
+    expect(loginSource).toContain('void replaceAppSessionToken(nextAppSessionToken);');
+    expect(source).toContain('setPushRegistrationRevision((current) => current + 1);');
+    expect(source).toContain('`${pushRegistrationBaseKey}:${pushRegistrationRevision}`');
+    expect(source).toContain('if (!pushRegistrationKey || !appSessionToken) return;');
+  });
 });

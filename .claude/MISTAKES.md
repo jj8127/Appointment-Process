@@ -4142,3 +4142,18 @@
   - `diagnostic-console-governance.test.ts`
   - `diagnostic-privacy-source.test.ts`
   - Deno check for `fc-notify` and the shared diagnostic helper
+
+## 2026-07-23 | Push registration raced ahead of secure app-session persistence
+
+- Symptom:
+  - A newly completed FC could actively use GaramIn and receive inbox rows while the server still had no device-token row, so temporary-id and other system pushes had no provider recipient.
+- Root cause:
+  - `loginAs` updated the in-memory session before the signed app-session token was guaranteed in secure storage, while trusted push registration read only the secure token helper.
+  - Repeating `loginAs` for the same visible identity did not change the registration key, so a failed first attempt could remain stale.
+  - Legacy session JSON still retained the credential even after secure token storage was introduced.
+- Permanent guardrail:
+  - Persist the signed app-session token through the secure boundary before triggering trusted registration, and advance a registration revision on every token replacement.
+  - Migrate legacy session-JSON tokens into secure storage during restore and never write them back into new session JSON.
+  - Keep product notification literals in UTF-8 source. Do not use a shell stdin pipeline for non-ASCII smoke payloads unless its encoding is explicitly controlled.
+- Verification:
+  - Secure-token migration and registration-revision source contracts, focused push tests, root TypeScript, scoped lint, governance, and one connected-handset provider smoke.

@@ -36,7 +36,7 @@
 | Date | Work | Key files | Detail |
 |---|---|---|---|
 | 07-23 | Replaced silent fire-and-forget admin direct-chat push dispatch with post-commit keepalive delivery confirmation and partial-failure feedback | `web/src/app/dashboard/chat/page.tsx`, notification result parser/test, notification handbook | [detail](WORK_DETAIL.md#20260723-admin-chat-mobile-push-confirmation) |
-| 07-23 | Reconciled missing FC device tokens on app foreground and normalized temporary-id notification recipients | `hooks/use-session.tsx`, admin FC notification route, focused registration/recipient contracts | [detail](WORK_DETAIL.md#20260723-temp-id-mobile-push-token-recovery) |
+| 07-23 | Reconciled missing FC device tokens on app foreground, persisted signed session tokens before registration, and normalized temporary-id notification recipients | `hooks/use-session.tsx`, admin FC notification route, focused secure-token/registration/recipient contracts | [detail](WORK_DETAIL.md#20260723-temp-id-mobile-push-token-recovery) |
 
 ## 2026-07-16
 

@@ -100,6 +100,7 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 - 위촉 단계 필드(`hanwha_commission_*`, 보험 위촉 제출/승인 날짜)가 늘어날 때는 인증 흐름이 해당 필드를 잘못 덮어쓰지 않는지 같이 점검해야 합니다.
 - 설계매니저/디자이너 세션에서 `hooks/use-session.tsx`가 등록하는 mobile push token은 FC 토큰처럼 취급하면 안 된다. request_board 설계요청과 본인 채팅 알림만 받도록 역할/토큰 scope를 유지한다.
 - `hooks/use-session.tsx`는 mobile push 등록의 단일 owner입니다. transient 실패는 bounded retry하고, 성공·권한 거부·retry 소진 후 foreground 복귀 시 현재 signed session으로 다시 등록해 서버 token row 유실이나 권한 변경을 복구합니다. 지원하지 않는 platform/client/device 결과는 process 동안 terminal로 유지합니다.
+- 신규 가입·로그인에서 받은 `appSessionToken`은 push 등록보다 먼저 secure storage에 저장하고, token replacement마다 registration revision을 증가시켜 동일 role/resident 세션도 trusted 등록을 다시 실행해야 합니다. restore가 legacy session JSON의 토큰을 발견하면 secure storage로 이관한 뒤 새 JSON에는 자격증명을 포함하지 않습니다.
 
 ## 연관 문서
 
