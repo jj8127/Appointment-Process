@@ -23,6 +23,7 @@
 
 | Date | Work | Key files | Detail |
 |---|---|---|---|
+| 2026-07-24 | Removed the final intentional admin-web test skip, aligned the read-only Production referral-graph simulation with the shipped free-physics runtime, and made diagnostics privacy-safe | `web/src/lib/referral-graph-realdata.test.ts`, referral test contract, harness, mistake ledger | [detail](WORK_DETAIL.md#20260724-referral-graph-realdata-release-gate) |
 | 2026-07-24 | 시험 신청 RPC 복구, 서류 승인 알림/속도, 직접 채팅 딥링크와 전체 메신저 최신순 정렬 | `supabase/migrations/20260724003500_fix_exam_payment_proof_registration_id_ambiguity.sql`, `web/src/app/api/admin/fc/route.ts`, `supabase/functions/fc-notify/index.ts`, `app/chat.tsx`, `lib/notification-route.ts` | 운영 DB 모호성 수정 반영, 817 tests·두 빌드·Deno·거버넌스 통과 |
 
 ## 2026-07-23

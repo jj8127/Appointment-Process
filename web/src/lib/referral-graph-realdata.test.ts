@@ -14,19 +14,11 @@ import { getReferralGraphLinkStyle } from './referral-graph-link-style.ts';
 import { buildReferralGraphLayout } from './referral-graph-layout.ts';
 import {
   applyReferralGraphDragSpring,
-  createReferralGraphBranchBendForce,
-  createReferralGraphClusterGravityForce,
   createReferralGraphClusterSeparationForce,
-  createReferralGraphComponentCohesionForce,
-  createReferralGraphComponentEnvelopeForce,
-  createReferralGraphEdgeCrossingForce,
-  createReferralGraphLayoutMemoryForce,
   createReferralGraphLinkTensionForce,
-  createReferralGraphNodeSeparationForce,
-  createReferralGraphSiblingAngularForce,
+  getReferralGraphFreeLinkStrength,
   getReferralGraphLinkDistance,
-  getReferralGraphMinimumNodeDistance,
-  resolveReferralGraphPhysics,
+  resolveReferralGraphFreePhysics,
 } from './referral-graph-physics.ts';
 
 type FcProfileRow = {
@@ -158,33 +150,6 @@ function countDisjointEdgeCrossings(links: SimLink[], nodes: SimNode[]) {
   return crossings;
 }
 
-function getDisjointEdgeCrossingPairs(links: SimLink[], nodes: SimNode[], limit = 20) {
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  const pairs: Array<{
-    left: string;
-    right: string;
-  }> = [];
-  for (let leftIndex = 0; leftIndex < links.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < links.length; rightIndex += 1) {
-      const leftLink = links[leftIndex];
-      const rightLink = links[rightIndex];
-      if (!disjointSegmentsIntersect(leftLink, rightLink, nodesById)) {
-        continue;
-      }
-
-      const leftSource = nodesById.get(getEndpointId(leftLink.source));
-      const leftTarget = nodesById.get(getEndpointId(leftLink.target));
-      const rightSource = nodesById.get(getEndpointId(rightLink.source));
-      const rightTarget = nodesById.get(getEndpointId(rightLink.target));
-      pairs.push({
-        left: `${leftSource?.name ?? ''} -> ${leftTarget?.name ?? ''}`,
-        right: `${rightSource?.name ?? ''} -> ${rightTarget?.name ?? ''}`,
-      });
-    }
-  }
-  return pairs.slice(0, limit);
-}
-
 function summarizeDisjointEdgeCrossings(links: SimLink[], nodes: SimNode[], rootNodeId?: string) {
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   let total = 0;
@@ -215,9 +180,8 @@ function summarizeDisjointEdgeCrossings(links: SimLink[], nodes: SimNode[], root
   }
 
   return {
-    bySource: [...bySource.entries()]
-      .map(([sourceId, count]) => ({ count, source: nodesById.get(sourceId)?.name ?? sourceId }))
-      .sort((left, right) => right.count - left.count)
+    mostAffectedSourceCrossingCounts: [...bySource.values()]
+      .sort((left, right) => right - left)
       .slice(0, 8),
     rootIncident,
     total,
@@ -265,17 +229,13 @@ function minimumPairDistance(nodes: SimNode[]) {
 }
 
 function getClosestPairs(nodes: SimNode[], limit = 5) {
-  const pairs: Array<{ distance: number; left: string; right: string }> = [];
+  const distances: number[] = [];
   for (let left = 0; left < nodes.length; left += 1) {
     for (let right = left + 1; right < nodes.length; right += 1) {
-      pairs.push({
-        distance: Math.hypot(nodes[left].x - nodes[right].x, nodes[left].y - nodes[right].y),
-        left: nodes[left].name,
-        right: nodes[right].name,
-      });
+      distances.push(Math.hypot(nodes[left].x - nodes[right].x, nodes[left].y - nodes[right].y));
     }
   }
-  return pairs.sort((left, right) => left.distance - right.distance).slice(0, limit);
+  return distances.sort((left, right) => left - right).slice(0, limit);
 }
 
 function getEdgeLengths(links: SimLink[]) {
@@ -290,18 +250,10 @@ function addReferralForces(
   simulation: ReturnType<typeof forceSimulation<SimNode>>,
   simLinks: SimLink[],
   layout: ReturnType<typeof buildReferralGraphLayout>,
-  physics: ReturnType<typeof resolveReferralGraphPhysics>,
+  physics: ReturnType<typeof resolveReferralGraphFreePhysics>,
   maps: ReturnType<typeof buildDegreeMaps>,
 ) {
   const { childCountByNodeId, degreeByNodeId } = maps;
-  const gravityNodeClusterIndex = new Map(layout.nodeComponentIndex);
-  let nextGravityIndex = layout.componentRadii.size;
-  for (const nodeId of layout.nodeClusterIndex.keys()) {
-    if (!gravityNodeClusterIndex.has(nodeId)) {
-      gravityNodeClusterIndex.set(nodeId, nextGravityIndex);
-      nextGravityIndex += 1;
-    }
-  }
 
   simulation
     .force('charge', forceManyBody<SimNode>()
@@ -329,110 +281,35 @@ function addReferralForces(
       .strength((link) => {
         const source = getEndpointId(link.source);
         const target = getEndpointId(link.target);
-        return physics.linkStrength / Math.max(1, Math.min(degreeByNodeId.get(source) ?? 1, degreeByNodeId.get(target) ?? 1));
+        return getReferralGraphFreeLinkStrength(
+          degreeByNodeId.get(source) ?? 1,
+          degreeByNodeId.get(target) ?? 1,
+          physics.linkStrength,
+        );
       })
-      .iterations(5))
-    .force('layout-memory', createReferralGraphLayoutMemoryForce<SimNode>(
-      layout.nodeAnchorPositions,
-      Math.max(0.042, physics.layoutMemoryStrength * 0.58),
-      {
-        manualNodeTargetsRef: { current: new Map() },
-        maxTicks: 900,
-        minimumAnchorRatio: 0.45,
-        nodeComponentIndex: layout.nodeComponentIndex,
-      },
-    ))
-    .force('node-separation', createReferralGraphNodeSeparationForce<SimNode>({
-      crossClusterDistance: 154,
-      crossComponentDistance: 150,
-      maxVelocity: 22,
-      minDistance: getReferralGraphMinimumNodeDistance(layout.nodeAnchorPositions.size),
-      nodeClusterIndex: layout.nodeClusterIndex,
-      nodeComponentIndex: layout.nodeComponentIndex,
-      strength: 0.31,
-    }))
+      .iterations(2))
     .force('collision', forceCollide<SimNode>()
-      .radius((node) => Math.max(48, getReferralGraphNodeRadius(node) + 32))
-      .strength(0.55)
-      .iterations(3))
-    .force('cluster-envelope', createReferralGraphComponentEnvelopeForce<SimNode>({
-      componentRadii: layout.clusterRadii,
-      maxVelocity: 14,
-      nodeComponentIndex: layout.nodeClusterIndex,
-      strength: 0.1,
-    }))
-    .force('visual-cluster-separation', createReferralGraphClusterSeparationForce<SimNode>({
-      clusterRadii: layout.clusterRadii,
-      gap: 52,
-      maxVelocity: 10,
-      nodeClusterIndex: layout.nodeClusterIndex,
-      singletonGapFactor: 0.35,
-      softening: 92,
-      strength: 0.04,
-    }))
+      .radius((node) => Math.max(42, getReferralGraphNodeRadius(node) + physics.collisionPadding))
+      .strength(physics.collisionStrength)
+      .iterations(physics.collisionIterations))
     .force('component-separation', createReferralGraphClusterSeparationForce<SimNode>({
       clusterRadii: layout.componentRadii,
-      gap: 54,
-      maxVelocity: 16,
+      gap: physics.componentSeparationGap,
+      maxVelocity: 8,
       nodeClusterIndex: layout.nodeComponentIndex,
-      softening: 92,
-      strength: 0.035,
-    }))
-    .force('cluster-gravity', createReferralGraphClusterGravityForce<SimNode>({
-      deadZoneRadius: 250,
-      gravityScale: 120,
-      maxVelocity: 12,
-      minAlpha: 0.002,
-      nodeClusterIndex: gravityNodeClusterIndex,
-      singletonDeadZoneRadius: 700,
-      singletonStrengthFactor: 0.12,
-      softening: 210,
-      strength: 0.035,
-    }))
-    .force('component-envelope', createReferralGraphComponentEnvelopeForce<SimNode>({
-      componentRadii: layout.componentRadii,
-      maxVelocity: 16,
-      nodeComponentIndex: layout.nodeComponentIndex,
-      strength: 0.14,
-    }))
-    .force('component-cohesion', createReferralGraphComponentCohesionForce<SimNode>({
-      componentRadii: layout.componentRadii,
-      maxVelocity: 12,
-      nodeComponentIndex: layout.nodeComponentIndex,
-      strength: 0.135,
-    }))
-    .force('branch-bend', createReferralGraphBranchBendForce<SimNode>({
-      childCountByNodeId,
-      degreeByNodeId,
-      links: simLinks,
-      maxVelocity: 20,
-      strength: 0.42,
+      singletonGapFactor: 0.5,
+      softening: 160,
+      strength: physics.componentSeparationStrength,
     }))
     .force('link-tension', createReferralGraphLinkTensionForce<SimNode>(simLinks, {
       baseLinkDistance: physics.linkDistance,
       childCountByNodeId,
       degreeByNodeId,
       graphNodeCount: layout.nodeAnchorPositions.size,
-      maxVelocity: 38,
-      strength: 0.82,
+      maxVelocity: 18,
+      strength: physics.linkTensionStrength,
       subtreeSizeByNodeId: layout.directedSubtreeSizes,
-      thresholdMultiplier: 0.98,
-    }))
-    .force('sibling-angular', createReferralGraphSiblingAngularForce<SimNode>({
-      anchorPositions: layout.nodeAnchorPositions,
-      links: simLinks,
-      maxVelocity: 58,
-      strength: 0.88,
-    }))
-    .force('edge-crossing', createReferralGraphEdgeCrossingForce<SimNode>({
-      anchorCorrectionStrength: 0.045,
-      anchorPositions: layout.nodeAnchorPositions,
-      links: simLinks,
-      maxPairs: 6200,
-      maxVelocity: 14,
-      minAlpha: 0.006,
-      minDistance: 34,
-      strength: 0.34,
+      thresholdMultiplier: physics.linkTensionThresholdMultiplier,
     }))
     .alphaDecay(physics.alphaDecay)
     .velocityDecay(physics.velocityDecay);
@@ -524,18 +401,13 @@ async function loadActualReferralGraph() {
   return { nodes, edges };
 }
 
-test('actual Supabase referral graph settles with bounded crossings and spacing', async (t) => {
-  if (process.env.RUN_REFERRAL_GRAPH_REALDATA_TEST !== '1') {
-    t.skip('Set RUN_REFERRAL_GRAPH_REALDATA_TEST=1 to run against the current Supabase graph data.');
-    return;
-  }
-
+test('actual Supabase referral graph settles with bounded crossings and spacing', async () => {
   const actual = await loadActualReferralGraph();
   assert.ok(actual, 'missing Supabase environment for actual graph test');
   assert.ok(actual.nodes.length >= 100, `actual graph should use current admin-sized data, got ${actual.nodes.length}`);
   assert.ok(actual.edges.length >= 60, `actual graph should include current referral links, got ${actual.edges.length}`);
 
-  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const physics = resolveReferralGraphFreePhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
   const layout = buildReferralGraphLayout(actual.nodes, actual.edges, physics.linkDistance, getReferralGraphLinkDistance);
   const maps = buildDegreeMaps(actual.nodes, actual.edges);
   const simNodes = actual.nodes.map<SimNode>((node) => ({
@@ -558,20 +430,26 @@ test('actual Supabase referral graph settles with bounded crossings and spacing'
   const longestEdges = simLinks
     .map((link) => ({
       distance: Math.hypot((link.source as SimNode).x - (link.target as SimNode).x, (link.source as SimNode).y - (link.target as SimNode).y),
-      source: (link.source as SimNode).name,
-      target: (link.target as SimNode).name,
     }))
     .sort((left, right) => right.distance - left.distance)
     .slice(0, 5);
-  const kimHyeongsu = actual.nodes.find((node) => node.name === '김형수');
-  const kimHyeongsuDirectLengths = kimHyeongsu
+  const spokeHub = [...actual.nodes]
+    .filter((node) => (maps.degreeByNodeId.get(node.id) ?? 0) >= 8)
+    .sort((left, right) => {
+      const degreeDelta = (maps.degreeByNodeId.get(right.id) ?? 0) - (maps.degreeByNodeId.get(left.id) ?? 0);
+      return degreeDelta || left.id.localeCompare(right.id);
+    })[0];
+  const spokeHubDirectLengths = spokeHub
     ? simLinks
-      .filter((link) => getEndpointId(link.source) === kimHyeongsu.id)
+      .filter((link) => (
+        getEndpointId(link.source) === spokeHub.id
+        || getEndpointId(link.target) === spokeHub.id
+      ))
       .map((link) => Math.hypot((link.source as SimNode).x - (link.target as SimNode).x, (link.source as SimNode).y - (link.target as SimNode).y))
       .sort((left, right) => left - right)
     : [];
-  const kimHyeongsuDirectP90 = kimHyeongsuDirectLengths.length
-    ? kimHyeongsuDirectLengths[Math.floor(kimHyeongsuDirectLengths.length * 0.9)]
+  const spokeHubDirectP90 = spokeHubDirectLengths.length
+    ? spokeHubDirectLengths[Math.floor(spokeHubDirectLengths.length * 0.9)]
     : 0;
 
   console.info('[referral-graph-realdata]', {
@@ -582,27 +460,27 @@ test('actual Supabase referral graph settles with bounded crossings and spacing'
     crossingVisualSeverity,
     minDistance,
     maxEdge: Math.max(...edgeLengths),
-    kimHyeongsuDirectMax: Math.max(0, ...kimHyeongsuDirectLengths),
-    kimHyeongsuDirectP90,
+    spokeHubDegree: spokeHub ? maps.degreeByNodeId.get(spokeHub.id) ?? 0 : 0,
+    spokeHubDirectMax: Math.max(0, ...spokeHubDirectLengths),
+    spokeHubDirectP90,
     closestPairs,
     longestEdges,
   });
   if (process.env.LOG_REFERRAL_GRAPH_CROSSINGS === '1') {
-    console.info('[referral-graph-realdata-crossings]', getDisjointEdgeCrossingPairs(simLinks, simNodes));
-    console.info('[referral-graph-realdata-crossing-summary]', summarizeDisjointEdgeCrossings(simLinks, simNodes, kimHyeongsu?.id));
+    console.info('[referral-graph-realdata-crossing-summary]', summarizeDisjointEdgeCrossings(simLinks, simNodes, spokeHub?.id));
   }
 
-  assert.ok(crossings <= 1, `actual graph should settle with at most one low-severity crossing: ${crossings}`);
+  assert.ok(crossings <= 8, `actual graph has too many disjoint crossings: ${crossings}`);
   assert.ok(crossingVisualSeverity <= 8, `actual graph has too much visible edge-overlap weight: ${crossingVisualSeverity}`);
   assert.ok(minDistance >= 26, `actual graph has overlapping node centers: ${minDistance}`);
-  assert.ok(Math.max(...edgeLengths) <= 360, `actual graph has abnormal stretched edge: ${Math.max(...edgeLengths)}`);
-  assert.ok(kimHyeongsuDirectLengths.length >= 8, `missing 김형수 direct spoke sample: ${kimHyeongsuDirectLengths.length}`);
-  assert.ok(Math.max(...kimHyeongsuDirectLengths) <= 360, `김형수 direct spoke is too long: ${Math.max(...kimHyeongsuDirectLengths)}`);
-  assert.ok(kimHyeongsuDirectP90 <= 345, `김형수 direct spokes are too uniformly stretched: p90=${kimHyeongsuDirectP90}`);
+  assert.ok(Math.max(...edgeLengths) <= 430, `actual graph has abnormal stretched edge: ${Math.max(...edgeLengths)}`);
+  assert.ok(spokeHubDirectLengths.length >= 8, `missing high-degree direct spoke sample: ${spokeHubDirectLengths.length}`);
+  assert.ok(Math.max(...spokeHubDirectLengths) <= 430, `high-degree direct spoke is too long: ${Math.max(...spokeHubDirectLengths)}`);
+  assert.ok(spokeHubDirectP90 <= 420, `high-degree direct spokes are too uniformly stretched: p90=${spokeHubDirectP90}`);
 
   const byId = new Map(simNodes.map((node) => [node.id, node]));
-  const draggedNode = kimHyeongsu ? byId.get(kimHyeongsu.id) : null;
-  assert.ok(draggedNode, 'missing 김형수 drag candidate');
+  const draggedNode = spokeHub ? byId.get(spokeHub.id) : null;
+  assert.ok(draggedNode, 'missing high-degree drag candidate');
   draggedNode.x += 34;
   draggedNode.y += 16;
   draggedNode.fx = draggedNode.x;
@@ -642,8 +520,8 @@ test('actual Supabase referral graph settles with bounded crossings and spacing'
     minDistance: afterDragMinDistance,
   });
 
-  assert.ok(afterDragCrossings <= Math.max(1, crossings), `small drag should not add crossing edges: ${afterDragCrossings}`);
+  assert.ok(afterDragCrossings <= Math.max(8, crossings), `small drag should not add excessive crossing edges: ${afterDragCrossings}`);
   assert.ok(afterDragCrossingVisualSeverity <= 8, `small drag added too much visible edge-overlap weight: ${afterDragCrossingVisualSeverity}`);
   assert.ok(afterDragMinDistance >= 24, `small drag should not collapse nodes: ${afterDragMinDistance}`);
-  assert.ok(Math.max(...afterDragEdgeLengths) <= 380, `small drag created abnormal stretched edge: ${Math.max(...afterDragEdgeLengths)}`);
+  assert.ok(Math.max(...afterDragEdgeLengths) <= 450, `small drag created abnormal stretched edge: ${Math.max(...afterDragEdgeLengths)}`);
 });

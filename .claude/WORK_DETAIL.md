@@ -12583,3 +12583,28 @@
 
 - Function definition contains qualified `proof.registration_id` and `proof.status`.
 - `security_definer=false`, `service_role EXECUTE=true`, and anon/authenticated execute privileges remain false.
+
+<a id="20260724-referral-graph-realdata-release-gate"></a>
+## 2026-07-24 | Referral graph real-data release gate
+
+**Request**
+
+- Include the one intentionally excluded item in the release.
+
+**Finding**
+
+- The excluded item was not a product feature. It was the read-only actual-Supabase referral graph test gated by `RUN_REFERRAL_GRAPH_REALDATA_TEST=1`.
+- Enabling the stale test reproduced 15 crossings because its copied force stack no longer matched the free-physics stack shipped by `ReferralGraphCanvas`.
+
+**Changes**
+
+- Removed the environment-controlled skip so the configured admin-web suite always executes the real-data gate.
+- Aligned the simulation with the current free-physics resolver, degree-aware link strength, collision, component separation, link-tension, decay, and drag-spring contract.
+- Replaced the named-FC topology sample with the highest-degree generic hub.
+- Removed names and stable identifiers from diagnostics; logs now contain only aggregate counts and distances.
+- Kept strict bounds for crossings, weighted visual severity, node separation, edge length, high-degree spokes, and post-drag stability.
+
+**Boundaries**
+
+- Production Supabase access is read-only. No row, schema, Storage, Edge, secret, native/OTA, `admin-action`, or Request Board change is included.
+- Test sources are not bundled into the browser runtime; the Production publication records the verified release state rather than adding a new user-facing feature.

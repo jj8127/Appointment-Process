@@ -143,7 +143,15 @@
 - 초대링크 exact code 회귀는 같은 딥링크 진입에서 `search-signup-referral`이 exact fast path로 1회만 보이고, signup 화면에서 pending code apply가 중복 spinner/search rerun을 만들지 않는지 함께 남긴다.
 - source repo만 보고 맞춘 계약 정리는 evidence가 아니다. 그런 항목은 notes에 `code review only`로 명시한다.
 
-## 7. 장애 발생 시 추가 절차
+## 7. Production-sized graph simulation gate
+
+- In an environment configured with the admin Supabase URL and service key, `referral-graph-realdata.test.ts` runs by default; it must not be hidden behind an opt-in skip flag.
+- The test must mirror the free-physics force contract used by `ReferralGraphCanvas`, including link distance/strength, collision, component separation, link tension, decay, and drag reheating.
+- Topology samples must be selected by generic graph properties such as degree. Diagnostics may contain aggregate counts and distances only and must not print FC names, phone numbers, or stable account identifiers.
+- Acceptance requires bounded disjoint crossings and weighted visual severity, minimum node spacing, maximum edge/spoke length, and stable results after a small high-degree-node drag.
+- The complete direct Node suite must finish with zero skipped tests before Production publication.
+
+## 8. Failure follow-up
 
 1. `TEST_RUN_RESULT.json`에 `FAIL` 또는 `BLOCKED` 기록
 2. `INCIDENTS.md`에 새 항목 추가

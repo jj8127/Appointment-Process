@@ -4294,3 +4294,30 @@
   - Shared adapters log bounded codes/counts and return no user warning. Source contracts reject the retired warning copy across mobile, admin web, chat, group chat, board, and Request Board flows.
 - Verification:
   - Full FC Jest, root/web TypeScript and lint, admin-web build, Expo export, governance, and a repository-wide warning-copy search.
+
+## 2026-07-24 | Real-data referral graph test drifted from the shipped runtime
+
+- Symptom:
+  - The only intentionally skipped admin-web test failed when enabled, reporting 15 edge crossings even though it simulated a force stack no longer used by `ReferralGraphCanvas`.
+  - Its diagnostics also selected a named FC and printed names for close-node and long-edge samples.
+- Root cause:
+  - The Production-data quality test copied an older physics configuration instead of following the current free-physics runtime contract.
+  - The topology sample and debug output were tied to personally identifying operating data.
+- Permanent guardrail:
+  - A real-data simulation test must use the same exported physics resolver, link-distance/strength helpers, and force composition contract as the shipped graph.
+  - Select topology samples by generic graph properties such as degree, and keep diagnostics aggregate-only; never print names, phone numbers, or stable account identifiers.
+  - Release verification must run the real-data test by default in the configured environment and report zero skipped tests.
+- Verification:
+  - Referral graph focused suite, complete admin-web Node suite, TypeScript, lint, Production build, governance, and privacy-safe source scan.
+
+## 2026-07-24 | Harness registry used an unsupported lifecycle value
+
+- Symptom:
+  - The central harness audit rejected a prior registry entry marked `completed`.
+- Root cause:
+  - The registry was updated without checking the allowed lifecycle enum.
+- Permanent guardrail:
+  - Use only `active`, `paused`, `blocked`, `archived`, or `abandoned` in the central harness registry.
+  - Run the workspace harness audit immediately after every registry lifecycle edit.
+- Verification:
+  - `node D:\hanhwa\codex-toolkit\scripts\audit-harnesses.mjs --check --workspace D:\hanhwa`
