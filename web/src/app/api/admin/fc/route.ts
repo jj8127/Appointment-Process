@@ -122,7 +122,7 @@ async function sendPushNotificationToCanonicalFc(
     return sendPushNotificationToResident('', payload);
   }
 
-  return sendPushNotificationToResident(phone, payload);
+  return sendPushNotificationToResident(phoneDigits, payload);
 }
 
 async function getValidatedCookieSession(): Promise<SessionErrorResult | SessionSuccessResult<CookieSession>> {

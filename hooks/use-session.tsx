@@ -106,6 +106,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [requestBoardSyncError, setRequestBoardSyncError] = useState<string | null>(null);
   const requestBoardSyncPromiseRef = useRef<Promise<{ ok: boolean; error?: string; needsRelogin?: boolean }> | null>(null);
   const lastPushRegistrationKeyRef = useRef<string | null>(null);
+  const pushRegistrationForegroundRefreshKeyRef = useRef<string | null>(null);
   const pushRegistrationPromiseRef = useRef<{
     key: string;
     promise: ReturnType<typeof registerPushToken>;
@@ -378,7 +379,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     });
 
     if (!pushRegistrationKey) return;
-    if (lastPushRegistrationKeyRef.current === pushRegistrationKey) return;
+    const completedForCurrentSession = lastPushRegistrationKeyRef.current === pushRegistrationKey;
+    if (
+      completedForCurrentSession
+      && pushRegistrationForegroundRefreshKeyRef.current !== pushRegistrationKey
+    ) return;
 
     const pushRole: 'admin' | 'fc' | 'manager' =
       state.requestBoardRole === 'designer'
@@ -417,8 +422,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const result = await registrationPromise.promise;
       if (cancelled) return;
 
-      if (result.ok || !result.retryable) {
+      if (result.ok) {
         lastPushRegistrationKeyRef.current = pushRegistrationKey;
+        pushRegistrationForegroundRefreshKeyRef.current = pushRegistrationKey;
+        exhausted = false;
+        return;
+      }
+
+      if (!result.retryable) {
+        lastPushRegistrationKeyRef.current = pushRegistrationKey;
+        pushRegistrationForegroundRefreshKeyRef.current = result.reason === 'permission_denied'
+          ? pushRegistrationKey
+          : null;
         exhausted = false;
         return;
       }
@@ -432,10 +447,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    scheduleAttempt(retryDelaysMs[attempt]);
+    if (!completedForCurrentSession) {
+      scheduleAttempt(retryDelaysMs[attempt]);
+    }
 
     const appStateSubscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState !== 'active' || !exhausted || cancelled) return;
+      const shouldRefreshCompletedRegistration =
+        pushRegistrationForegroundRefreshKeyRef.current === pushRegistrationKey;
+      if (
+        nextState !== 'active'
+        || (!exhausted && !shouldRefreshCompletedRegistration)
+        || cancelled
+      ) return;
+      lastPushRegistrationKeyRef.current = null;
+      pushRegistrationForegroundRefreshKeyRef.current = null;
       attempt = 0;
       exhausted = false;
       scheduleAttempt(0);

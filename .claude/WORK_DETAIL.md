@@ -7,6 +7,35 @@
 
 ---
 
+## <a id="20260723-temp-id-mobile-push-token-recovery"></a> 2026-07-23 | Temporary-id mobile push token recovery
+
+**Scope**: Admin-web temporary-id issuance notifications sent to the corresponding signed-in GaramIn FC handset.
+
+**Evidence**:
+- Read-only Production checks found the latest temporary-id inbox row and a completed FC profile, but zero current device-token rows for that recipient, so Expo delivery could not be attempted.
+- Aggregate checks found no current normalization mismatch among issued temporary ids; passing the unnormalized source value remained a latent contract defect.
+- The recipient had recent GaramIn presence, showing that an active session could remain without a recoverable server token row.
+
+**Changes**:
+- The canonical admin recipient helper now passes the validated digits-only phone to the server notification service.
+- The global session provider keeps one registration owner and refreshes a successful, permission-denied, or retry-exhausted registration when the app returns to foreground.
+- Unsupported platform/client/device outcomes remain terminal, and the existing in-flight coalescing plus bounded retry behavior is preserved.
+- Focused source contracts lock normalized-recipient delivery and foreground token reconciliation.
+
+**Verification**:
+- Root focused Jest: 3 suites / 16 tests PASS.
+- Admin-web focused Node tests: 14/14 PASS.
+- Root and admin-web TypeScript: PASS.
+- Targeted root and admin-web ESLint: PASS.
+- Governance and final diff checks are recorded in the task handoff.
+
+**Safety**:
+- Production inspection used aggregate/read-only queries and fixed log metadata; no phone, token, notification body, or raw log was printed in the handoff.
+- No deployment, database mutation, credential change, Sentry mutation, stage, commit, or push was performed.
+- A real handset notification smoke test remains a post-release operator check because local source verification cannot create the missing production token row.
+
+---
+
 ## <a id="20260722-exam-register-interaction"></a> 2026-07-22 | Admin exam registration interaction repair
 
 **Scope**: GaramIn life and nonlife exam registration screens used by editable admin/general-affairs sessions.

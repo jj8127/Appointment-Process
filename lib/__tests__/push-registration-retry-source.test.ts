@@ -9,16 +9,20 @@ describe('session push registration retry boundary', () => {
 
   test('only marks a session key complete after a confirmed or terminal result', () => {
     const assignment = 'lastPushRegistrationKeyRef.current = pushRegistrationKey;';
-    expect(source.match(new RegExp(assignment.replaceAll('.', '\\.'), 'g'))).toHaveLength(1);
-    expect(source).toContain('if (result.ok || !result.retryable)');
+    expect(source.match(new RegExp(assignment.replaceAll('.', '\\.'), 'g'))).toHaveLength(2);
+    expect(source).toContain('if (result.ok)');
+    expect(source).toContain('if (!result.retryable)');
     expect(source.indexOf(assignment)).toBeGreaterThan(source.indexOf('await registrationPromise.promise'));
   });
 
-  test('bounds automatic retries, coalesces in-flight work, and retries after foregrounding', () => {
+  test('bounds automatic retries, coalesces in-flight work, and refreshes registration after foregrounding', () => {
     expect(source).toContain('const retryDelaysMs = [1000, 2000, 5000, 10000] as const;');
     expect(source).toContain('pushRegistrationPromiseRef.current');
+    expect(source).toContain('pushRegistrationForegroundRefreshKeyRef.current = pushRegistrationKey');
+    expect(source).toContain("result.reason === 'permission_denied'");
     expect(source).toContain("AppState.addEventListener('change'");
-    expect(source).toContain("nextState !== 'active' || !exhausted");
+    expect(source).toContain('shouldRefreshCompletedRegistration');
+    expect(source).toContain('lastPushRegistrationKeyRef.current = null;');
   });
 
   test('keeps one global registration owner instead of a second home-screen attempt loop', () => {

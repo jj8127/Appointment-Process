@@ -21,6 +21,8 @@ test('FC notifications resolve the current canonical profile phone on the server
   );
   assert.match(routeSource, /!\/\^010\\d\{8\}\$\/\.test\(phoneDigits\)/);
   assert.match(routeSource, /return sendPushNotificationToResident\('', payload\)/);
+  assert.match(routeSource, /return sendPushNotificationToResident\(phoneDigits, payload\)/);
+  assert.doesNotMatch(routeSource, /return sendPushNotificationToResident\(phone, payload\)/);
 
   const canonicalCalls = routeSource.match(/await sendPushNotificationToCanonicalFc\(fcId,/g) ?? [];
   assert.equal(canonicalCalls.length, 7);

@@ -4053,13 +4053,16 @@
 
 - Symptom:
   - A signed-in design manager could keep using the app while the server had no usable manager-role device token, so Request Board notifications never reached the handset.
+  - A signed-in FC could also remain active after its trusted-server token row was absent, leaving a temporary-id notification in the inbox with zero Expo delivery attempts.
 - Root cause:
   - Push registration was owned by both the home screen and the global session provider, and the attempt key was treated as complete before registration success was known.
+  - A successful registration or a permission-denied result was treated as complete for the rest of the process lifetime, so foreground resume did not reconcile a missing token or a permission change.
 - Permanent guardrail:
-  - The global session provider is the only push-registration owner. It derives designer sessions as `manager`, records the attempt key only after success or a terminal failure, and uses bounded retries plus an app-foreground retry after exhaustion.
+  - The global session provider is the only push-registration owner. It derives designer sessions as `manager`, records the attempt key only after success or a terminal failure, and uses bounded retries plus app-foreground reconciliation after success, permission denial, or retry exhaustion.
+  - Unsupported platform, client, or device states remain terminal for the current process. Foreground reconciliation must reuse the single in-flight owner and must not print resident identifiers, notification contents, or push tokens.
   - Concrete FC notification token queries remain role-bound. Only concrete `request_board_*` recipients may include both `fc` and `manager` token roles, followed by the manager-delivery policy and exact resident-id scope.
 - Verification:
-  - Push registration source contracts, Request Board session contracts, FC notification role-policy tests, and the Edge Function Deno check.
+  - Push registration retry/source contracts, Request Board session contracts, FC notification role-policy tests, and the Edge Function Deno check.
 
 ## 2026-07-23 | A stale screen identifier was trusted as the notification recipient
 

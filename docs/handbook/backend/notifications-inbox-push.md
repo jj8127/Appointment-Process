@@ -82,6 +82,13 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 - HTTP 2xx만으로 전달 성공을 판단하지 않습니다. 보호 프록시와 downstream `ok`, notification `logged=true`, Expo 대상 `attempted>0`, `accepted=attempted`, `rejected=0`, `sent=accepted`를 모두 확인해야 합니다.
 - 확인 실패 시 발신자에게 “메시지는 저장됐지만 가람in 푸시 알림 전달을 확인하지 못했다”는 부분 실패를 표시합니다. 진단 로그에는 고정 reason/status와 aggregate sent만 남기고 메시지 본문, 수신자 식별자, 토큰, raw provider response는 남기지 않습니다.
 
+## 2026-07-23 임시사번 발급 모바일 알림 복구
+
+- 관리자 임시사번 발급은 완료된 FC 프로필의 현재 전화번호를 서버에서 다시 조회하고, 숫자만 남긴 canonical 값으로 inbox/push 수신자를 지정합니다. 형식이 포함된 원본 전화번호를 push helper에 넘기지 않습니다.
+- 업무 mutation과 알림 fanout은 분리된 결과입니다. 임시사번 발급 저장이 끝난 뒤 대상 토큰이 없거나 provider 전송이 불완전하면 발급을 실패로 되돌리지 않고 고정된 부분 실패 경고를 반환합니다.
+- 모바일의 전역 session provider만 `device-token-register`를 소유합니다. 일시 오류에는 bounded retry를 사용하고, 성공·권한 거부·retry 소진 뒤 앱이 foreground로 돌아오면 현재 signed session으로 토큰 상태를 다시 조정합니다.
+- 지원하지 않는 platform/client/device는 현재 process에서 terminal로 유지합니다. 토큰 등록·복구 진단에는 전화번호, resident id, 토큰 값, 원문 오류를 남기지 않습니다.
+
 ## 2026-03-28 기준 주의점
 
 - 웹 총무/관리자 경로가 `notifications` row를 직접 insert한 뒤 `sendPushNotification()`을 호출할 때는 helper가 다시 row를 만들지 않도록 `skipNotificationInsert`를 사용합니다.
