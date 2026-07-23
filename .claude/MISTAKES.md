@@ -4210,3 +4210,45 @@
   - Keep product notification literals in UTF-8 source. Do not use a shell stdin pipeline for non-ASCII smoke payloads unless its encoding is explicitly controlled.
 - Verification:
   - Secure-token migration and registration-revision source contracts, focused push tests, root TypeScript, scoped lint, governance, and one connected-handset provider smoke.
+
+## 2026-07-23 | Partial Edge deployment left app-session consumers on incompatible keys
+
+- Symptom:
+  - A valid FC account refreshed its app session successfully, but the referral page still displayed an invalid-session error and `get-referral-tree` repeatedly returned 401.
+- Root cause:
+  - The session issuer had been deployed with the dedicated FC app-session key while referral consumers still bundled the older verifier that accepted only the shared Request Board bridge key.
+  - Function version checks alone did not compare the bundled `_shared/request-board-auth.ts` contract across every signer and consumer.
+- Permanent guardrail:
+  - Treat every app-session signer and consumer as one compatibility cohort. Before and after deployment, verify the active bundle uses `FC_APP_SESSION_TOKEN_SECRET` plus `FC_APP_SESSION_TOKEN_PREVIOUS_SECRET` and has no legacy shared-key fallback in the app-session verifier.
+  - Run Deno checks for every function in the cohort and inspect response bodies (`ok: true`), not only HTTP status codes.
+  - Keep the previous dedicated key for the maximum issued-token lifetime when rotating the current key.
+- Verification:
+  - Six referral consumers passed Deno checks and 24 focused referral/session tests.
+  - All six active production bundles are JWT protected and use only the dedicated current/previous app-session verifier.
+  - A read-only production smoke returned `200 / ok: true` for both referral-code and referral-tree requests, and the new-version logs contained only those two 200 responses.
+
+## 2026-07-23 | Source contracts preserved superseded control-flow and build-root text
+
+- Symptom:
+  - The full Jest gate failed after accepted push-registration and Turbopack repairs even though focused behavior, TypeScript, and production builds were green.
+- Root cause:
+  - Source tests asserted one obsolete combined retry condition and an old `web`-only Turbopack-root comment instead of the current observable safety branches and repository-root compiler boundary.
+- Permanent guardrail:
+  - When an accepted repair deliberately splits a branch or changes a compiler boundary, update every source contract in the same change set to assert the durable invariants, not the retired line of code or comment.
+  - Focused tests are not a substitute for the full Jest gate before publication.
+- Verification:
+  - The updated contracts separately require successful registration, terminal non-retryable handling, permission-denied foreground containment, and the repository-root Turbopack configuration.
+  - Focused and full Jest are rerun before commit.
+
+## 2026-07-23 | A new Edge function repeated implicit failure-result narrowing
+
+- Symptom:
+  - Root TypeScript, focused payment-proof tests, and Production builds passed, but the all-function Deno gate found 11 accesses that were not narrowed to the failure side of result unions.
+- Root cause:
+  - The new handler used `if (!result.ok)` even though this Edge compiler configuration requires the explicit `result.ok === false` discriminant used by the repaired referral cohort.
+- Permanent guardrail:
+  - Every Edge result union must use an explicit literal discriminant before reading failure-only fields.
+  - New Edge functions must pass the repository-wide all-entrypoint Deno gate, not only focused Jest and root TypeScript.
+- Verification:
+  - The payment-proof source contract rejects implicit failure checks and requires all six explicit failure discriminants.
+  - Focused payment-proof tests and the all-entrypoint Deno gate are rerun.

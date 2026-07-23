@@ -41,3 +41,14 @@ describe('exam payment proof field accessibility', () => {
     expect(source).toContain('accessibilityLabel="선택한 입금 내역 사진 삭제"');
   });
 });
+
+describe('exam payment proof Edge result narrowing', () => {
+  const source = readSource('supabase/functions/exam-payment-proof/index.ts');
+
+  it('uses explicit failure discriminants for Deno-safe result unions', () => {
+    expect(
+      source.match(/if \((?:validated|sessionResult|actorResult)\.ok === false\)/g),
+    ).toHaveLength(6);
+    expect(source).not.toMatch(/if \(!(?:validated|sessionResult|actorResult)\.ok\)/);
+  });
+});

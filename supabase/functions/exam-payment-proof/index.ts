@@ -128,7 +128,7 @@ async function prepareUpload(
   origin?: string,
 ) {
   const validated = validatePrepareExamPaymentProof(body);
-  if (!validated.ok) {
+  if (validated.ok === false) {
     return failure(validated.code, validated.message, 400, origin);
   }
 
@@ -241,7 +241,7 @@ async function submitApplication(
   origin?: string,
 ) {
   const validated = validateSubmitExamPaymentProof(body);
-  if (!validated.ok) {
+  if (validated.ok === false) {
     return failure(validated.code, validated.message, 400, origin);
   }
 
@@ -371,7 +371,7 @@ async function discardUpload(
   origin?: string,
 ) {
   const validated = validateDiscardExamPaymentProof(body);
-  if (!validated.ok) {
+  if (validated.ok === false) {
     return failure(validated.code, validated.message, 400, origin);
   }
 
@@ -416,7 +416,7 @@ async function cancelApplication(
   origin?: string,
 ) {
   const validated = validateCancelExamApplication(body);
-  if (!validated.ok) {
+  if (validated.ok === false) {
     return failure(validated.code, validated.message, 400, origin);
   }
 
@@ -490,7 +490,7 @@ serve(async (req: Request) => {
   }
 
   const sessionResult = await requireAppSessionFromRequest(req);
-  if (!sessionResult.ok) {
+  if (sessionResult.ok === false) {
     return failure(
       sessionResult.code,
       sessionResult.message,
@@ -500,7 +500,7 @@ serve(async (req: Request) => {
   }
 
   const actorResult = await resolveFcActor(sessionResult.session, origin);
-  if (!actorResult.ok) {
+  if (actorResult.ok === false) {
     return actorResult.response;
   }
 

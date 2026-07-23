@@ -654,3 +654,20 @@
 - 운영 alias를 최신 Production 배포로 재연결했고, 기존 인증 세션의 대시보드 진입과 시험 신청자 화면의 네 개 빠른 분류 렌더링을 확인했습니다.
 - 로그인 버튼 코드는 최신 배포에서 요청 중 비활성화와 종료 후 재활성화가 동작해 별도 코드 변경은 하지 않았습니다.
 - 상세: [WORK_DETAIL.md#20260721-admin-web-production-alias](WORK_DETAIL.md#20260721-admin-web-production-alias)
+
+## 2026-07-23 추천인 페이지 세션 401 운영 복구
+
+- 정상 계정의 세션 갱신은 성공했지만 추천인 코드 페이지의 `get-referral-tree`가 401을 반환하던 원인을 Edge Function 부분 배포로 확정했습니다.
+- 추천인 관련 세션 소비 함수 6개를 동일한 전용 FC app-session current/previous 검증 코드로 재배포했습니다.
+- 배포 전 Deno 검사 6/6과 추천인·세션 회귀 테스트 24/24가 통과했습니다.
+- 운영 읽기 검증에서 `get-my-referral-code`와 `get-referral-tree`가 모두 `200 / ok: true`를 반환했고, 새 버전 로그에도 401이 남지 않았습니다.
+- `admin-action`, 알림 함수, Request Board, DB, Storage, Vercel, OTA/native, Secret 값은 변경하지 않았습니다.
+- 상세: [WORK_DETAIL.md#20260723-referral-app-session-recovery](WORK_DETAIL.md#20260723-referral-app-session-recovery)
+
+## 2026-07-23 Notification production closure
+
+- Deployed the five compatibility-safe FC notification Edge Functions while leaving `admin-action` unchanged.
+- Applied Request Board migration B alone; 151 removable lifecycle duplicates are now zero and the single-writer unique guard is active.
+- Closed the repository-wide Deno narrowing regression in `exam-payment-proof`, redeployed its JWT-protected bundle, and passed current FC tests/builds/governance.
+- Authenticated browser and real-handset smoke remain because no logged-in browser session or ADB device was available.
+- See [details](WORK_DETAIL.md#20260723-notification-production-closure).

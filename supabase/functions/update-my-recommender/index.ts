@@ -146,7 +146,7 @@ serve(async (req: Request) => {
   }
 
   const resolvedSession = await resolveSession(sessionResult.session);
-  if ('error' in resolvedSession) {
+  if (resolvedSession.error) {
     return resolvedSession.error;
   }
 

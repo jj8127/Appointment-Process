@@ -63,7 +63,9 @@ describe('request board session helpers', () => {
     expect(source).toContain("state.requestBoardRole === 'designer'");
     expect(source).toContain("? 'manager'");
     expect(source).toContain('const retryDelaysMs = [1000, 2000, 5000, 10000] as const');
-    expect(source).toContain('if (result.ok || !result.retryable)');
+    expect(source).toContain('if (result.ok) {');
+    expect(source).toContain('if (!result.retryable) {');
+    expect(source).toContain("result.reason === 'permission_denied'");
     expect(source).toContain('lastPushRegistrationKeyRef.current = pushRegistrationKey');
   });
 });

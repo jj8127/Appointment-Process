@@ -47,8 +47,8 @@ describe('fc workflow cross-surface contract', () => {
     expect(webCoreSource).not.toContain("from '@shared/");
     expect(source).not.toMatch(/export const (getAllowanceDisplayState|calcWorkflowStep|hasAllowancePassed)/);
     expect(source).not.toMatch(/const ALLOWANCE_PASSED_STATUSES/);
-    expect(nextConfigSource).toContain('Vercel project Root Directory is `web`');
-    expect(nextConfigSource).toContain('root: path.resolve(__dirname)');
+    expect(nextConfigSource).toContain('imports shared source from the repository root');
+    expect(nextConfigSource).toContain("root: path.resolve(__dirname, '..')");
   });
 
   test.each([

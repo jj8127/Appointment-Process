@@ -895,3 +895,36 @@
   - source-level regression은 active drag force mode, directed follower, unrelated component drift 테스트로 고정한다.
 - notes:
   - live visual QA의 primary metric은 graph unit이 아니라 screen/client pixel이다.
+
+## INC-012 | 2026-07-23 | 추천인 Edge 부분 배포로 갱신된 FC 세션이 401 처리됨
+
+- symptom:
+  - FC가 재로그인해도 추천인 코드 페이지에서 세션이 유효하지 않다는 오류가 반복됐다.
+  - 세션 갱신은 성공했지만 `get-referral-tree`가 401을 반환했다.
+- impact:
+  - 특정 계정 문제가 아니라 새 전용 키로 갱신된 세션을 사용하는 추천인 페이지 전체가 영향을 받을 수 있었다.
+- trigger:
+  - app-session 발급 함수만 전용 FC 키 체계로 먼저 배포되고 추천인 소비 함수들은 구형 공통 인증 번들에 남았다.
+- rootCause:
+  - signer와 consumer를 하나의 호환성 배포 단위로 검증하지 않았다.
+  - 활성 함수 버전만 확인하고 실제 번들에 포함된 `_shared/request-board-auth.ts`의 current/previous 검증 계약을 비교하지 않았다.
+- fix:
+  - 추천인 세션 소비 함수 6개를 동일한 전용 FC current/previous 검증 코드로 재배포했다.
+  - 배포를 막던 두 함수의 `Response | undefined` 타입 추론을 동작 변경 없이 좁혔다.
+- linkedCases:
+  - RF-SELF-03
+  - RF-SEC-02
+- evidence:
+  - Deno check 6/6 PASS.
+  - 추천인·세션 집중 테스트 24/24 PASS.
+  - 운영 번들 6개 모두 JWT 보호, current/previous 검증, app-session legacy fallback 없음.
+  - 운영 읽기 검증: 추천인 코드와 트리 모두 `200 / ok: true`.
+- reproduction:
+  1. 유효한 bridge token으로 app session을 갱신한다.
+  2. 같은 app session으로 `get-my-referral-code`와 `get-referral-tree`를 호출한다.
+  3. 구형 consumer 번들에서는 tree 요청이 401이 되고, 통일된 번들에서는 두 요청 모두 성공한다.
+- regressionCheck:
+  - RF-SELF-03은 자동 세션 갱신 뒤 코드와 트리가 함께 복구되는지 응답 본문까지 확인한다.
+  - 배포 후 각 함수의 실제 공통 인증 번들에서 전용 current/previous 키만 검사한다.
+- notes:
+  - 사용자 재로그인은 해결책이 아니며 서버 배포 정합성 복구가 필요했다.

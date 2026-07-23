@@ -645,12 +645,15 @@
       ],
       "title": "FC/본부장 self-service `/referral`은 direct recommender/tree 계약을 유지하면서 세션 만료 상태를 명확히 표면화한다",
       "status": "PASS",
-      "owner": "Codex role E2E harness",
-      "executedAt": "2026-06-19T05:40:47.607Z",
+      "owner": "Codex production recovery harness",
+      "executedAt": "2026-07-23T08:00:00.000Z",
       "evidence": [
-        "FC referral graph session surfaces permitted referral graph access; staff APIs remain forbidden for FC session."
+        "Six referral Edge consumers passed Deno checks and 24 focused referral/session tests.",
+        "All six active production bundles remained JWT protected and used only the dedicated current/previous app-session verifier.",
+        "Bounded read-only production smoke returned 200 with ok=true for both get-my-referral-code and get-referral-tree; the tree root was present.",
+        "New-version aggregate Edge logs contained one 200 for each affected page request and no 401."
       ],
-      "notes": ""
+      "notes": "INC-012. No database, Storage, secret, mobile release, Vercel, notification Edge, or admin-action mutation."
     }
   ]
 }

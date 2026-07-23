@@ -12468,3 +12468,44 @@
 - Release boundary:
   - No Supabase schema or row mutation is part of this code repair.
   - A Production admin-web deployment restores notification creation behavior; system Push additionally requires the handset to register an FC-role device token.
+
+## 20260723 Referral app-session recovery
+
+- Symptom:
+  - A completed FC account could refresh its app session, but the referral-code page surfaced an invalid-session error.
+  - Production logs showed `refresh-app-session` succeeding while `get-referral-tree` returned 401.
+- Root cause:
+  - `refresh-app-session` minted tokens with the dedicated FC current key.
+  - Referral consumers still bundled an older `_shared/request-board-auth.ts` verifier tied to the legacy shared bridge key.
+- Local containment:
+  - `get-my-invitees` and `update-my-recommender` had existing ambiguous union checks that made Deno infer `Response | undefined`; the checks were narrowed without changing response or authorization behavior.
+  - Six referral functions passed Deno checks. Six focused suites passed 24/24 tests.
+- Production release:
+  - Deployed `get-referral-tree`, `get-my-referral-code`, `get-my-invitees`, `update-my-recommender`, `get-fc-referral-code`, and `search-fc-for-referral`.
+  - Re-read every active bundle through the Supabase management surface. Every function remained JWT protected and verified only the dedicated current/previous app-session key pair.
+- Runtime verification:
+  - A bounded read-only compatibility smoke for the reported account returned `200 / ok: true` from `get-my-referral-code`.
+  - `get-referral-tree` returned `200 / ok: true` with a root present.
+  - New-version aggregate logs contained one 200 for each affected page request and no 401.
+- Exclusions:
+  - No `admin-action`, notification Edge, Request Board, database, Storage, Vercel, Sentry, mobile release, secret mutation, commit, or push.
+
+## <a id="20260723-notification-production-closure"></a> 2026-07-23 | Notification production closure
+
+**Production changes**:
+- Published the compatibility-safe FC Edge cohort with JWT verification retained: `fc-notify` v77, `group-chat` v15, `board-create` v18, `board-update` v18, and `docs-deadline-reminder` v6. `admin-action` remained untouched.
+- Applied only Request Board migration B after the live single-writer server contract passed. The bounded lifecycle duplicate aggregate changed from 151 removable rows / 151 groups to zero, and `notifications_designer_lifecycle_event_unique` is present.
+- The repository-wide Edge gate exposed implicit result narrowing in `exam-payment-proof`; six discriminants were made explicit without changing runtime behavior, focused tests passed, and JWT-protected v4 was published.
+
+**Verification**:
+- FC focused notification tests: 58 PASS; Board loopback handler smoke: 6/6 PASS.
+- Request Board characterization and transition contracts PASS, including lifecycle single-writer ordering and awaited fanout.
+- FC full Jest: 147 suites / 810 tests PASS. Coverage passed 147 suites / 809 tests before the final static payment-proof contract was added; the focused payment-proof rerun passed 13 tests and the repository-wide Edge gate passed 47/47 entrypoints.
+- Expo web build, admin-web lint, TypeScript, and Production build PASS with Sentry uploads disabled.
+- FC and Request Board Vercel projects reported zero grouped runtime errors in the bounded one-hour check.
+- Admin-web npm audit reports zero vulnerabilities. The root audit has zero High/Critical findings and four Moderate advisories in the Expo MCP development-tool chain; the offered fix is a forced breaking `expo-mcp` change and was not mixed into this release.
+
+**Remaining runtime evidence**:
+- No Android device was attached through ADB, and both available browser profiles reached the admin-web login page without an authenticated session.
+- Therefore request/approve/reject/message/inbox/push and authenticated admin login/chat/exam/notification smoke remain explicit operator/handset checks; no credential was guessed and no synthetic customer/account was created.
+- Store/OTA/native, hardened `admin-action`, P2 durable outbox, secret changes, and Sentry mutation remain excluded.

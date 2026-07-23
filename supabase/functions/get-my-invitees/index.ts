@@ -144,7 +144,7 @@ serve(async (req: Request) => {
   }
 
   const resolved = await resolveSelfProfile(sessionResult.session);
-  if ('error' in resolved) {
+  if (resolved.error) {
     return resolved.error;
   }
 
