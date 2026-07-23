@@ -7,6 +7,28 @@
 
 ---
 
+## <a id="20260722-exam-register-interaction"></a> 2026-07-22 | Admin exam registration interaction repair
+
+**Scope**: GaramIn life and nonlife exam registration screens used by editable admin/general-affairs sessions.
+
+**Changes**:
+- Preserved the Fabric-safe single plain `ScrollView` and added keyboard viewport avoidance plus post-open focused-input scrolling.
+- Made the location-add action genuinely disabled for blank input and visibly solid orange when enabled.
+- Centralized newest-first exam-round ordering with deadline and creation-time tie breakers.
+- Applied the same behavior to both life and nonlife registration screens.
+
+**Verification**:
+- Focused exam-flow Jest contract: 10/10 PASS.
+- Targeted ESLint: PASS.
+- Root TypeScript: PASS.
+- Governance, diff, and Android runtime checks are recorded in the final task handoff.
+
+**Safety**:
+- No database, deployment, credential, Sentry, Store, or Git publication state was changed.
+- Existing protected dirty files remain unstaged and untouched.
+
+---
+
 ## <a id="20260722-request-board-mobile-performance"></a> 2026-07-22 | Mobile Request Board first-render performance
 
 **Scope**: GaramIn Request Board home, request list, and new-request entry latency.
@@ -12106,6 +12128,97 @@
 **Safety**:
 - Existing dirty changes in `app/_layout.tsx` and `lib/__tests__/navigation-background-source.test.ts` were excluded.
 - No push, deployment, remote database operation, credential change, or Sentry mutation was performed.
+
+---
+
+## <a id="20260722-admin-web-exam-save-and-login"></a> 2026-07-22 | Admin web exam save and login diagnosis
+
+**Diagnosis**:
+- Vercel grouped the schedule-save failures under PostgREST `PGRST202`: the deployed server action calls `save_exam_round_atomic`, but the FC Production database does not contain that function.
+- Supabase migration history also stops before the local `20260712000002_atomic_exam_round_save.sql`, and a read-only `to_regprocedure` check returned false.
+- Recent login-button attempts reached `/api/auth/login` and returned HTTP 200. The button was enabled and the browser showed no client error; a second tab entered the dashboard with the newly created server session. The remaining regression is the original login tab failing to complete its client-side route transition.
+
+**Changes**:
+- Converted the login card to a native form submission contract and replaced the post-success client route transition with `window.location.replace`, so the browser reloads from the server session source of truth.
+- Mapped missing exam RPC errors to an explicit operational message and reduced server logging to error name/code instead of the raw PostgREST object.
+- Kept the atomic RPC-only save path; no partial multi-statement fallback was introduced.
+
+**Verification and rollout**:
+- Applied the reviewed additive `atomic_exam_round_save` migration to FC Production as hosted version `20260722110641` after explicit operator approval.
+- Verified the function is `SECURITY INVOKER`, executable by `service_role`, denied to `anon`/`authenticated`, and rejects an invalid-input smoke without writing data.
+- Deployed the admin web twice after explicit approval, most recently for newest-first schedule ordering. The latest Production deployment is `dpl_8mQ2kFYbu6tau8Lc3D83xT4JnyxU`, and `adminweb-red.vercel.app` resolves to it.
+- Verified the Production alias is READY, `/auth` returns HTTP 200, and the bounded post-deploy runtime-error query returned no recent errors.
+- Focused auth/exam contracts, web TypeScript, scoped lint, and the Sentry-disabled Production build passed.
+
+**Safety**:
+- No credential value, personal identifier, raw Production row, or raw error body was retained in the report.
+- No Sentry mutation, commit, push, PR, or unrelated database change was performed.
+
+---
+
+## <a id="20260722-admin-exam-applicant-detail"></a> 2026-07-22 | Admin exam applicant detail and list interaction polish
+
+**Scope**: `/dashboard/exam/applicants`, its selected-registration detail route, and the existing privileged applicant API.
+
+**Changes**:
+- Made every applicant row mouse- and keyboard-navigable to `/dashboard/exam/applicants/[id]`, with a cursor-following semi-transparent identity tooltip positioned above the pointer.
+- Added an at-a-glance detail page and admin-only `시험 접수하기` action using the existing PATCH contract and FC approval notification helper; manager sessions remain read-only.
+- Added previous/next applicant navigation in the same stable newest-first order as the list, with disabled boundary buttons and opaque-ID-only routes.
+- Kept historical rows while classifying a selected registration, then narrowed to the requested row before profile/resident-number enrichment so `재신청` remains accurate.
+- Reworked subject/round menus into compact selected states and structured date/round/subject items.
+- Made total/confirmed/pending summary cards accessible reception filters and kept their comparison counts stable while one status is selected.
+- Added distinct completed/pending row colors, immediate state-driven recoloring, stable header keys, and a source contract for all new interactions.
+
+**Verification**:
+- Focused applicant source/display/enrichment Node suites: 21/21 PASS.
+- Admin web TypeScript and scoped ESLint: PASS.
+- Sentry-disabled Next.js Production build: PASS; the dynamic applicant detail route was emitted.
+- Authenticated visual comparison remains blocked in the isolated browser because the local route redirects to `/auth`; user-provided local screenshots supplied iterative visual feedback for the list and tooltip.
+
+**Safety and rollout boundary**:
+- The detail/list increment is local only and was not included in the earlier Production deployment.
+- No Production data mutation, deployment, credential change, Sentry mutation, commit, push, or PR was performed for this increment.
+- Existing unrelated dirty files remain unstaged and preserved. Release posture remains `HOLD` pending authenticated runtime QA and explicit deployment direction.
+
+---
+
+## <a id="20260722-admin-dashboard-metric-filters"></a> 2026-07-22 | Admin dashboard KPI list filters
+
+**Scope**: the three KPI cards and FC list on `/dashboard`.
+
+**Changes**:
+- Converted total, guarantee-insurance approval waiting, and document-review waiting cards into keyboard-accessible filter buttons with explicit selected states.
+- Reused the exact workflow predicates that calculate each KPI, so the filtered FC rows match the displayed count contract.
+- Re-selecting an active waiting card or selecting total returns to the full list. Choosing a workflow tab clears the KPI filter; keyword search remains composable.
+
+**Verification**:
+- Dashboard KPI source contract: 2/2 PASS as part of the combined focused 23/23 Node run.
+- Web TypeScript and scoped TS/TSX ESLint: PASS.
+- Final Sentry-disabled Production build: PASS. Authenticated visual QA remains in the shared task gate.
+
+**Safety**:
+- Client-side filtering only; no API, database, role, credential, Sentry, or remote state changed.
+- This increment is local-only and not deployed.
+
+---
+
+## <a id="20260722-home-messenger-unread-badge"></a> 2026-07-22 | GaramIn home messenger unread badge
+
+**Scope**: the mobile home `메신저` shortcut card.
+
+**Changes**:
+- Reused the existing signed `internal_unread_count` query result already loaded by the home screen.
+- Added a red count badge to the messenger shortcut icon only when unread is nonzero, capped display at `99+`, and included the same count in the accessibility label.
+- Kept the shortcut route and message read-state source unchanged; no duplicate unread fetch was introduced.
+
+**Verification**:
+- Focused home source contract: 2/2 PASS.
+- Root TypeScript and scoped ESLint: PASS.
+- Repository governance: PASS.
+
+**Safety**:
+- No message content, contact identifier, token, or raw unread response is logged or persisted by the badge.
+- Local-only UI change; no deployment, remote mutation, credential change, Sentry mutation, commit, push, or PR.
 ## 2026-07-21 native designer push token role repair
 
 - Scope: Request Board designer native Expo token registration only.
@@ -12167,3 +12280,80 @@
 - No credential values were read or retained.
 - One broad live-dashboard DOM observation produced ephemeral row-level values in tool output; no file or harness artifact retained the raw observation. Subsequent browser verification used only exact-label booleans and aggregate counts.
 - The deployment used one unique web-only `%TEMP%` root, rejected forbidden candidates, and removed the exact root after completion.
+
+---
+
+## <a id="20260723-admin-chat-mobile-push-confirmation"></a> 2026-07-23 | Admin direct-chat mobile push confirmation
+
+**Diagnosis**:
+- Privacy-safe Production aggregates showed a newly saved staff direct message, one recently refreshed FC Expo token for that recipient, and zero matching `message` notification rows.
+- The admin chat UI started `/api/fc-notify` with `void` after the message insert, did not keep the request alive across page lifecycle changes, and treated every HTTP/body result as logging-only. A cancelled or rejected notification therefore looked identical to full success.
+
+**Changes**:
+- Kept the existing optimistic message insert and separated notification delivery into a post-commit boundary.
+- Added `keepalive`, awaited the protected notification proxy, and required outer/downstream success plus `logged=true` and `sent>=1`.
+- Added yellow partial-failure feedback without deleting the committed message or restoring it to the composer.
+- Replaced raw response-object diagnostics with fixed reason/status and aggregate sent fields.
+
+**Verification**:
+- `admin-web-chat-source.test.ts`: 12/12 PASS.
+- `admin-chat-notification-result.test.ts`: 2/2 PASS.
+- Web TypeScript and scoped ESLint: PASS.
+
+**Safety**:
+- No phone, push token, message body, provider response, or raw log was retained.
+- No new test message, Supabase/Vercel deployment, DB change, credential/Sentry mutation, commit, push, or PR was performed.
+- Physical handset presentation remains a user-observed E2E step after a new authorized send; repository release posture remains HOLD.
+
+---
+
+## <a id="20260723-notification-delivery-truthfulness"></a> 2026-07-23 | Notification delivery truthfulness audit and scoped release
+
+**Diagnosis**:
+- `fc-notify` counted queried tokens as sent without checking Expo HTTP status or individual ticket status, and returned raw provider results.
+- Several mobile/web callers treated HTTP 200 or `ok=true` as confirmed delivery even when `logged=false`, `sent=0`, or a transport error occurred.
+- FC workflow events reused the FC phone as an admin recipient, which changed a shared-admin event into a personal target.
+- Group chat resolved active managers as members and then removed their tokens with a generic null-target policy.
+- Some post-commit fanout failures could return an overall failure after the durable write and invite duplicate retries.
+
+**Changes**:
+- Count only explicit Expo `status=ok` tickets, report attempted/accepted/rejected aggregates, and remove raw provider bodies/tickets/tokens from responses and logs.
+- Preserve primary writes while surfacing structured partial-delivery warnings in admin web and mobile flows.
+- Route non-message FC workflow events to the shared admin inbox; keep concrete targeting only for direct message category.
+- Match group-chat tokens against resolved phone+role membership and isolate fanout failures from saved-message success.
+- Keep failed reminder recipients retryable by advancing `docs_deadline_last_notified_at` only after accepted delivery.
+- Propagate board create/update and admin lifecycle notification warnings through their callers.
+
+**Release boundary**:
+- No schema or data migration is required or manufactured.
+- Changed Edge targets: `fc-notify`, `group-chat`, `board-create`, `board-update`, `docs-deadline-reminder`.
+- Admin web Production is the only web deployment target. Mobile Store/OTA/native actions and Request Board repository changes remain excluded.
+- Physical handset presentation remains a post-deploy operator check; global repository release posture is not reclassified by this scoped rollout.
+
+**Safety**:
+- Diagnostics retain only fixed reason/status and aggregate counts.
+- No credential, token, phone, message body, provider response, raw Production row, or Sentry release artifact is retained.
+
+---
+
+## <a id="20260723-release-candidate-stabilization"></a> 2026-07-23 | Release-candidate stabilization gates
+
+**Corrections**:
+- Used exact discriminant checks for `admin-action` authorization and canonical recipient results so all Edge entrypoints type-check under Deno.
+- Replaced a dynamic `fc-notify` console warning with the closed `reportEdgeDiagnostic` contract.
+- Updated stale source contracts to validate the current authenticated notification path, stable Request Board create keys, partial retry behavior, and centralized session push registration.
+- Updated the board-create smoke provider fixture with attempted/accepted/rejected delivery evidence.
+- Set `web.nextConfig.turbopack.root` to the repository root because the admin web imports shared notification code outside `web/`.
+
+**Verification**:
+- FC Jest and coverage: 145 suites / 795 tests PASS.
+- Deno: 46 Edge entrypoints PASS.
+- Board handler smoke: 11/11 PASS.
+- Aggregate Node tests: 315 PASS / 1 intentional skip.
+- Expo web and Next.js admin-web production builds: PASS with Sentry upload disabled.
+- Root/admin-web lint, TypeScript, documentation governance, repository governance, and diff checks: PASS.
+- Root/admin-web npm audit: zero vulnerabilities.
+
+**Boundary**:
+- No deployment, database migration, credential change, Sentry release/upload, Store artifact publication, or external message was performed.
+- The separately requested exam deposit-evidence feature is owned by another session and is not part of this release candidate.

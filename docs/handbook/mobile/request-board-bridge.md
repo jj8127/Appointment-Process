@@ -7,6 +7,13 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 
 # Mobile Playbook: GaramLink Bridge
 
+## 2026-07-23 상태 변경 후 알림 부분 실패 계약
+
+- Request Board의 생성·수락·거절·완료·설계 승인/거절 응답은 `warning`과 제한된 `notificationDelivery` 집계를 보존한다.
+- DB 상태 변경이 성공한 뒤 알림 전달이 확인되지 않으면 화면은 실패나 재시도 가능한 미처리 상태로 되돌리지 않는다. 대신 `처리 완료 · 알림 확인 필요`와 고정 안내를 표시하고 최신 데이터를 다시 조회한다.
+- 부분 실패 안내에서 수신자 식별자, 메시지 원문, 토큰, provider 응답은 노출하지 않는다.
+- POST/PATCH/DELETE는 네트워크 응답 유실만으로 자동 재호출하지 않는다. 첨부 후처리 재시도는 저장된 entity id와 동일한 delivery key/manifest를 사용하며 primary mutation을 반복하지 않는다.
+
 ## 2026-07-03 Messenger Bridge Contract Notes
 
 - `app/request-board-messenger.tsx` must follow the same messenger interaction contract as direct and group chat: link rendering/opening, long-press action menu, copy/delete actions, and numeric unread count display where read-state data exists.

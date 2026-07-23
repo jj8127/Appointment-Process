@@ -24,6 +24,7 @@ import type React from 'react';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import { buildAdminDashboardChatUrl } from '@/lib/admin-chat-url';
+import { classifyFcNotificationResult } from '@/lib/admin-chat-notification-result';
 import { logger } from '@/lib/logger';
 import { getWebStaffChatActorId } from '@/lib/staff-identity';
 type Message = {
@@ -253,6 +254,7 @@ function ChatContent() {
         const resp = await fetch('/api/fc-notify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          keepalive: true,
           body: JSON.stringify({
             type: 'message',
             target_role: recipientRole,
@@ -260,23 +262,44 @@ function ChatContent() {
             message: notiBody,
           }),
         });
-        const data = await resp.json().catch(() => null);
-        if (!resp.ok) {
+        const responseBody: unknown = await resp.json().catch(() => null);
+        const notificationResult = classifyFcNotificationResult(resp.status, responseBody);
+        if (!notificationResult.ok) {
           upsertLocalMessage({
             ...inserted,
             sendStatus: 'sent',
-            errorMessage: `[알림 전송 실패] status ${resp.status} ${data?.error ?? ''}`,
+            errorMessage: '메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.',
+          });
+          notifications.show({
+            title: '메시지 저장 완료',
+            message: '메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.',
+            color: 'yellow',
+          });
+          logger.warn('[chat][legacy] mobile notification unconfirmed', {
+            reason: notificationResult.reason,
+            status: resp.status,
+          });
+        } else {
+          logger.debug('[chat][legacy] mobile notification confirmed', {
+            sent: notificationResult.sent,
+            status: resp.status,
           });
         }
-        logger.debug('[notify] fc-notify proxy response', { status: resp.status, ok: resp.ok, data });
-      } catch (err: unknown) {
-        const error = err as Error;
+      } catch {
         upsertLocalMessage({
           ...inserted,
           sendStatus: 'sent',
-          errorMessage: `[알림 전송 실패] ${error?.message ?? String(err)}`,
+          errorMessage: '메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.',
         });
-        logger.warn('[notify] fc-notify proxy error', err);
+        notifications.show({
+          title: '메시지 저장 완료',
+          message: '메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.',
+          color: 'yellow',
+        });
+        logger.warn('[chat][legacy] mobile notification unconfirmed', {
+          reason: 'network_error',
+          status: 0,
+        });
       }
     } catch (err: unknown) {
       const error = err as Error;

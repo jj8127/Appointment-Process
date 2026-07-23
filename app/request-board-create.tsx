@@ -1,5 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import { randomUUID } from 'expo-crypto';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import {
@@ -61,6 +62,14 @@ import {
   resolveRequestBoardCreateVisibleSteps,
 } from '@/lib/request-board-create-flow';
 import {
+  getRequestBoardNotificationFeedback,
+  type RequestBoardNotificationFeedback,
+} from '@/lib/request-board-notification-feedback';
+import {
+  deliverCreatedRequestAttachments,
+  type PendingRequestAttachmentDelivery,
+} from '@/lib/request-board-attachment-delivery';
+import {
   rbCreateRequest,
   rbDeleteCustomer,
   rbGetCustomers,
@@ -90,6 +99,11 @@ type SortMode = 'name' | 'created';
 
 type PickedAttachment = RbRequestUploadFile & {
   size?: number | null;
+};
+
+type RequestCreateIntent = {
+  fingerprint: string;
+  clientRequestKeys: Record<string, string>;
 };
 
 const EMPTY_CUSTOMER: RbSaveCustomerPayload = {
@@ -625,6 +639,11 @@ export default function RequestBoardCreateScreen() {
   const [attachments, setAttachments] = useState<PickedAttachment[]>([]);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [sentRequestIds, setSentRequestIds] = useState<number[]>([]);
+  const [failedRequestJobCount, setFailedRequestJobCount] = useState(0);
+  const [pendingAttachmentDelivery, setPendingAttachmentDelivery] =
+    useState<PendingRequestAttachmentDelivery | null>(null);
+  const [requestNotificationFeedback, setRequestNotificationFeedback] =
+    useState<RequestBoardNotificationFeedback | null>(null);
   const [composeDraftKey, setComposeDraftKey] = useState(0);
   const [screenKeyboardHeight, setScreenKeyboardHeight] = useState(0);
   const visibleSteps = resolveRequestBoardCreateVisibleSteps(entry, source);
@@ -650,6 +669,7 @@ export default function RequestBoardCreateScreen() {
   const hospitalizationHistoryInputRef = useRef<TextInput>(null);
   const majorDiseasesInputRef = useRef<TextInput>(null);
   const hasLoadedInitialRequestDataRef = useRef(false);
+  const requestCreateIntentRef = useRef<RequestCreateIntent | null>(null);
 
   const canUseCreateFlow = canCreateRequestBoardRequest({
     role,
@@ -935,6 +955,8 @@ export default function RequestBoardCreateScreen() {
     setRequestText('');
     setAttachments([]);
     setSentRequestIds([]);
+    setFailedRequestJobCount(0);
+    requestCreateIntentRef.current = null;
     setComposeDraftKey((value) => value + 1);
     setComposeEntryStep('customer');
     setStep('compose');
@@ -1054,6 +1076,8 @@ export default function RequestBoardCreateScreen() {
       setRequestText('');
       setAttachments([]);
       setSentRequestIds([]);
+      setFailedRequestJobCount(0);
+      requestCreateIntentRef.current = null;
       setComposeDraftKey((value) => value + 1);
       setComposeEntryStep(editingCustomerId ? 'customer' : 'newCustomer');
 
@@ -1120,7 +1144,38 @@ export default function RequestBoardCreateScreen() {
     }
   };
 
-  const submitRequest = async () => {
+  const runAttachmentDelivery = async (
+    pending: PendingRequestAttachmentDelivery,
+  ) => deliverCreatedRequestAttachments(pending, attachments, {
+    uploadAttachments: rbUploadAttachments,
+    getRequestDetail: rbGetRequestDetail,
+    sendMessage: rbSendMessage,
+  });
+
+  const retryAttachmentDelivery = async () => {
+    if (!pendingAttachmentDelivery || submitting) return;
+
+    setSubmitting(true);
+    try {
+      const result = await runAttachmentDelivery(pendingAttachmentDelivery);
+      setPendingAttachmentDelivery(result.pending);
+      Alert.alert(
+        result.complete ? '첨부 전달 완료' : '첨부 전달 확인 필요',
+        result.complete
+          ? '이미 등록된 설계 요청에 첨부파일을 전달했습니다.'
+          : '설계 요청은 이미 등록되어 있습니다. 확인되지 않은 첨부 전달만 다시 시도해주세요.',
+      );
+    } catch {
+      Alert.alert(
+        '첨부 전달 확인 필요',
+        '설계 요청은 이미 등록되어 있습니다. 확인되지 않은 첨부 전달만 다시 시도해주세요.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitRequest = async (retryFailedOnly = false) => {
     if (!selectedCustomer) {
       Alert.alert('고객 선택', '설계를 요청할 고객을 선택해주세요.');
       return;
@@ -1164,19 +1219,60 @@ export default function RequestBoardCreateScreen() {
     const designerCodeSelectionByDesignerId = new Map(
       designerCodeSelections.map((selection) => [selection.designerId, selection]),
     );
-    const requestJobs = selectedProductIds.flatMap((productId) =>
+    const allRequestJobSeeds = selectedProductIds.flatMap((productId) =>
       selectedDesigners.map((designer) => ({
         productId,
         designer,
         designerCodeSelection: designerCodeSelectionByDesignerId.get(designer.id)!,
       })),
     );
+    const requestDraftFingerprint = JSON.stringify({
+      customerId: selectedCustomer.id,
+      customerUpdatedAt: selectedCustomer.updatedAt ?? null,
+      composeDraftKey,
+      requestDetails: requestText.trim(),
+      jobs: allRequestJobSeeds.map(({ productId, designer, designerCodeSelection }) => ({
+        productId,
+        designerId: designer.id,
+        designerCodeSelection,
+      })),
+    });
+    const previousClientRequestKeys =
+      requestCreateIntentRef.current?.fingerprint === requestDraftFingerprint
+        ? requestCreateIntentRef.current.clientRequestKeys
+        : {};
+    const requestJobSeeds = retryFailedOnly
+      ? allRequestJobSeeds.filter(
+        ({ productId, designer }) =>
+          Boolean(previousClientRequestKeys[`${productId}:${designer.id}`]),
+      )
+      : allRequestJobSeeds;
+    if (requestJobSeeds.length === 0) {
+      setFailedRequestJobCount(0);
+      return;
+    }
+    const requestJobs = requestJobSeeds.map((job) => {
+      const jobKey = `${job.productId}:${job.designer.id}`;
+      return {
+        ...job,
+        jobKey,
+        clientRequestKey:
+          previousClientRequestKeys[jobKey] ?? `garamin_request:${randomUUID()}`,
+      };
+    });
+    requestCreateIntentRef.current = {
+      fingerprint: requestDraftFingerprint,
+      clientRequestKeys: Object.fromEntries(
+        requestJobs.map(({ jobKey, clientRequestKey }) => [jobKey, clientRequestKey]),
+      ),
+    };
 
     try {
       setSubmitting(true);
       const settledRequestResults = await Promise.allSettled(
-        requestJobs.map(({ productId, designer, designerCodeSelection }) => {
+        requestJobs.map(({ productId, designer, designerCodeSelection, clientRequestKey }) => {
           const payload = {
+            clientRequestKey,
             customerName: selectedCustomer.name,
             customerSsn: selectedCustomer.ssn,
             customerGender: selectedCustomer.gender,
@@ -1218,54 +1314,68 @@ export default function RequestBoardCreateScreen() {
             result.status === 'fulfilled' && result.value.success && Boolean(result.value.data),
         )
         .map((result) => result.value);
-      const failedRequests = settledRequestResults.flatMap((result) => {
+      const failedRequestResults = settledRequestResults.flatMap((result, index) => {
         if (result.status === 'rejected') {
-          return [result.reason instanceof Error ? result.reason.message : String(result.reason ?? '')];
+          return [{
+            job: requestJobs[index],
+            error: result.reason instanceof Error ? result.reason.message : String(result.reason ?? ''),
+          }];
         }
         if (!result.value.success || !result.value.data) {
-          return [result.value.error ?? '설계 요청을 보내지 못했습니다.'];
+          return [{
+            job: requestJobs[index],
+            error: result.value.error ?? '설계 요청을 보내지 못했습니다.',
+          }];
         }
         return [];
       });
+      const failedRequests = failedRequestResults.map((result) => result.error);
 
       if (fulfilledRequests.length === 0) {
         throw new Error(failedRequests[0] || '설계 요청을 보내지 못했습니다.');
       }
 
+      requestCreateIntentRef.current = failedRequestResults.length > 0
+        ? {
+          fingerprint: requestDraftFingerprint,
+          clientRequestKeys: Object.fromEntries(
+            failedRequestResults.map(({ job }) => [job.jobKey, job.clientRequestKey]),
+          ),
+        }
+        : null;
+      setFailedRequestJobCount(failedRequestResults.length);
       const createdRequestIds = fulfilledRequests.map((result) => result.data!.id);
-      setSentRequestIds(createdRequestIds);
+      setSentRequestIds((previousIds) =>
+        Array.from(new Set([...previousIds, ...createdRequestIds])),
+      );
+      const batchNotificationFeedback = fulfilledRequests
+        .map((result) => getRequestBoardNotificationFeedback(result))
+        .find((feedback): feedback is RequestBoardNotificationFeedback => feedback !== null)
+        ?? null;
+      setRequestNotificationFeedback(batchNotificationFeedback);
 
-      if (failedRequests.length > 0) {
+      if (failedRequests.length > 0 || batchNotificationFeedback) {
         Alert.alert(
-          '일부 설계요청만 전송되었습니다',
-          `${createdRequestIds.length}건은 전송되었고 ${failedRequests.length}건은 실패했습니다. 성공한 의뢰는 중복 방지를 위해 완료 화면에서 확인해주세요.`,
+          batchNotificationFeedback?.title ?? '일부 설계요청만 전송되었습니다',
+          [
+            failedRequests.length > 0
+              ? `${createdRequestIds.length}건은 전송되었고 ${failedRequests.length}건은 실패했습니다. 성공한 의뢰는 중복 방지를 위해 완료 화면에서 확인해주세요.`
+              : null,
+            batchNotificationFeedback?.message ?? null,
+          ].filter(Boolean).join('\n\n'),
         );
       }
 
       if (attachments.length > 0) {
-        const upload = await rbUploadAttachments(attachments);
-        if (upload.success && upload.data && upload.data.length > 0) {
-          const detailResults = await Promise.allSettled(
-            createdRequestIds.map((requestId) => rbGetRequestDetail(requestId)),
-          );
-          const assignments = detailResults.flatMap((result) =>
-            result.status === 'fulfilled' ? (result.value?.request_designers ?? []) : [],
-          );
-          await Promise.allSettled(
-            assignments.map((assignment) =>
-              rbSendMessage(
-                assignment.id,
-                '설계 요청 첨부파일을 전달드립니다.',
-                upload.data,
-              ),
-            ),
-          );
-        } else if (!upload.success) {
-          Alert.alert(
-            '첨부 전송 보류',
-            toRequestBoardSessionErrorMessage(upload.error, '요청은 생성됐지만 첨부 전송에 실패했습니다.'),
-          );
-        }
+        const deliveryResult = await runAttachmentDelivery({
+          requestIds: createdRequestIds,
+          assignmentIds: [],
+          uploadedAttachments: null,
+          deliveryBatchKey: `garamin_attachment:${randomUUID()}`,
+        });
+        setPendingAttachmentDelivery(deliveryResult.pending);
+      } else {
+        setPendingAttachmentDelivery(null);
       }
 
       setStep('sent');
@@ -1941,7 +2051,7 @@ export default function RequestBoardCreateScreen() {
         <View style={[styles.fixedActions, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <Pressable
             style={[styles.cta, (!canSubmit || submitting) && styles.disabledButton]}
-            onPress={submitRequest}
+            onPress={() => void submitRequest()}
             disabled={!canSubmit || submitting}
           >
             {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.ctaText}>설계 요청 보내기</Text>}
@@ -1958,6 +2068,59 @@ export default function RequestBoardCreateScreen() {
       </View>
       <Text style={styles.sentTitle}>설계 요청을 보냈습니다</Text>
       <Text style={styles.sentDesc}>담당 설계매니저가 수락하면 진행 상태와 메신저가 열립니다.</Text>
+      {requestNotificationFeedback ? (
+        <View style={styles.sentWarning}>
+          <Feather name="bell-off" size={18} color={COLORS.warning.dark} />
+          <Text style={styles.sentWarningText}>
+            {requestNotificationFeedback.title}
+            {'\n'}
+            {requestNotificationFeedback.message}
+          </Text>
+        </View>
+      ) : null}
+      {pendingAttachmentDelivery ? (
+        <View style={styles.sentWarning}>
+          <Feather name="alert-triangle" size={18} color={COLORS.warning.dark} />
+          <Text style={styles.sentWarningText}>
+            요청은 정상 등록됐지만 일부 첨부 전달을 확인하지 못했습니다.
+            요청을 다시 만들지 말고 첨부 전달만 다시 시도해주세요.
+          </Text>
+          <Pressable
+            style={[styles.sentRetryButton, submitting && styles.disabledButton]}
+            onPress={retryAttachmentDelivery}
+            disabled={submitting}
+          >
+            {submitting ? (
+              <ActivityIndicator color={COLORS.warning.dark} />
+            ) : (
+              <Text style={styles.sentRetryText}>첨부 전달 다시 시도</Text>
+            )}
+          </Pressable>
+        </View>
+      ) : null}
+      {failedRequestJobCount > 0 ? (
+        <View style={styles.sentWarning}>
+          <Feather name="alert-triangle" size={18} color={COLORS.warning.dark} />
+          <Text style={styles.sentWarningText}>
+            {failedRequestJobCount}건의 설계 요청 전송을 확인하지 못했습니다.
+            성공한 요청은 다시 만들지 않고 실패한 요청만 다시 시도할 수 있습니다.
+          </Text>
+          <Pressable
+            style={[
+              styles.sentRetryButton,
+              (submitting || Boolean(pendingAttachmentDelivery)) && styles.disabledButton,
+            ]}
+            onPress={() => void submitRequest(true)}
+            disabled={submitting || Boolean(pendingAttachmentDelivery)}
+          >
+            {submitting ? (
+              <ActivityIndicator color={COLORS.warning.dark} />
+            ) : (
+              <Text style={styles.sentRetryText}>실패한 요청 다시 시도</Text>
+            )}
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.sentSummary}>
         <Text style={styles.sentLabel}>고객</Text>
         <Text style={styles.sentValue} numberOfLines={2}>{selectedCustomer?.name ?? '-'}</Text>
@@ -2979,6 +3142,39 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm,
     lineHeight: 21,
     textAlign: 'center',
+  },
+  sentWarning: {
+    alignSelf: 'stretch',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.warning.border,
+    backgroundColor: COLORS.warning.light,
+    padding: SPACING.base,
+    gap: SPACING.sm,
+    alignItems: 'center',
+  },
+  sentWarningText: {
+    color: COLORS.warning.dark,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '700',
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  sentRetryButton: {
+    minHeight: 42,
+    alignSelf: 'stretch',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.warning.border,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.base,
+  },
+  sentRetryText: {
+    color: COLORS.warning.dark,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '800',
   },
   sentSummary: {
     alignSelf: 'stretch',

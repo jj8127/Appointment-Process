@@ -80,6 +80,14 @@ function showGroupChatErrorNotification(error: unknown) {
     color: userError.color,
   });
 }
+
+function showGroupChatDeliveryWarning(message: string) {
+  notifications.show({
+    title: '메시지는 저장됐습니다',
+    message,
+    color: 'yellow',
+  });
+}
 const POLL_INTERVAL_MS = 10_000;
 
 type UploadResponse = {
@@ -301,6 +309,9 @@ export default function DashboardGroupChatPage() {
       setReplyTarget(null);
       void groupChatMarkRead(result.message.id);
       scrollToBottom();
+      if (result.warning?.code === 'notification_delivery_partial') {
+        showGroupChatDeliveryWarning(result.warning.message);
+      }
     } catch (error) {
       showGroupChatErrorNotification(error);
     } finally {

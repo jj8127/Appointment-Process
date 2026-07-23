@@ -1,6 +1,8 @@
 import {
   buildAppFcNotifyPayload,
+  getAllowedNotificationTokenRoles,
   isTrustedFcNotifyServiceKey,
+  shouldRequireActiveStaffNotificationTarget,
   type FcNotifyAppActor,
 } from '../../supabase/functions/_shared/fc-notify-auth-policy';
 
@@ -48,7 +50,14 @@ describe('direct Edge fc-notify authentication policy', () => {
   it('derives the regular admin global inbox and rejects forged personal scope', () => {
     expect(buildAppFcNotifyPayload({ type: 'inbox_list', role: 'admin', resident_id: null }, admin)).toEqual({
       ok: true,
-      payload: { type: 'inbox_list', role: 'admin', resident_id: null, limit: 80, include_request_board_fc: false },
+      payload: {
+        type: 'inbox_list',
+        role: 'admin',
+        resident_id: null,
+        limit: 80,
+        include_request_board_fc: false,
+        only_request_board_categories: false,
+      },
     });
 
     expect(buildAppFcNotifyPayload({ type: 'inbox_list', role: 'admin', resident_id: fc.phone }, admin)).toMatchObject({
@@ -79,6 +88,41 @@ describe('direct Edge fc-notify authentication policy', () => {
         viewer_staff_type: null,
         viewer_read_only: true,
         viewer_is_request_board_designer: false,
+      },
+    });
+
+    expect(buildAppFcNotifyPayload({
+      type: 'inbox_list',
+      role: 'admin',
+      resident_id: manager.phone,
+      include_request_board_fc: true,
+      only_request_board_categories: true,
+    }, manager)).toMatchObject({
+      ok: true,
+      payload: {
+        include_request_board_fc: true,
+        only_request_board_categories: true,
+      },
+    });
+
+    expect(buildAppFcNotifyPayload({
+      type: 'inbox_unread_count',
+      role: 'admin',
+      resident_id: manager.phone,
+      include_request_board_fc: true,
+      include_notices: false,
+      only_request_board_categories: true,
+    }, manager)).toEqual({
+      ok: true,
+      payload: {
+        type: 'inbox_unread_count',
+        role: 'admin',
+        resident_id: manager.phone,
+        since: null,
+        include_request_board_fc: true,
+        exclude_request_board_categories: false,
+        include_notices: false,
+        only_request_board_categories: true,
       },
     });
   });
@@ -173,6 +217,79 @@ describe('direct Edge fc-notify authentication policy', () => {
     expect(buildAppFcNotifyPayload({
       type: 'notify', target_role: 'fc', target_id: fc.phone, title: 'x', body: 'y',
     }, fc)).toMatchObject({ ok: false, status: 403 });
+  });
+
+  it('routes FC workflow events to the shared admin inbox while preserving direct-message targeting', () => {
+    expect(buildAppFcNotifyPayload({
+      type: 'notify',
+      target_role: 'admin',
+      target_id: admin.phone,
+      title: 'Workflow update',
+      body: 'Please review',
+      category: 'app_event',
+    }, fc)).toMatchObject({
+      ok: true,
+      payload: { target_role: 'admin', target_id: null, category: 'app_event' },
+    });
+
+    expect(buildAppFcNotifyPayload({
+      type: 'notify',
+      target_role: 'admin',
+      target_id: admin.phone,
+      title: 'Direct message',
+      body: 'Please review',
+      category: 'message',
+    }, fc)).toMatchObject({
+      ok: true,
+      payload: { target_role: 'admin', target_id: admin.phone, category: 'message' },
+    });
+  });
+
+  it('binds concrete token roles to the authorized target role', () => {
+    expect(getAllowedNotificationTokenRoles('admin')).toEqual(['admin', 'manager']);
+    expect(getAllowedNotificationTokenRoles('fc')).toEqual(['fc']);
+    expect(getAllowedNotificationTokenRoles('fc', 'request_board_message')).toEqual(['fc', 'manager']);
+    expect(getAllowedNotificationTokenRoles('fc', 'REQUEST_BOARD_NEW_REQUEST')).toEqual(['fc', 'manager']);
+    expect(getAllowedNotificationTokenRoles('fc', 'message')).toEqual(['fc']);
+  });
+
+  it('requires an active recipient check for concrete FC-to-staff and admin-to-FC direct messages', () => {
+    expect(shouldRequireActiveStaffNotificationTarget({
+      actorSessionRole: 'fc',
+      targetRole: 'admin',
+      category: 'message',
+      targetId: manager.phone,
+    })).toBe(true);
+    expect(shouldRequireActiveStaffNotificationTarget({
+      actorSessionRole: 'fc',
+      targetRole: 'admin',
+      category: 'app_event',
+      targetId: manager.phone,
+    })).toBe(false);
+    expect(shouldRequireActiveStaffNotificationTarget({
+      actorSessionRole: 'fc',
+      targetRole: 'admin',
+      category: 'message',
+      targetId: null,
+    })).toBe(false);
+    expect(shouldRequireActiveStaffNotificationTarget({
+      actorSessionRole: 'admin',
+      targetRole: 'fc',
+      category: 'message',
+      targetId: fc.phone,
+    })).toBe(true);
+    expect(shouldRequireActiveStaffNotificationTarget({
+      actorSessionRole: 'manager',
+      targetRole: 'fc',
+      category: 'message',
+      targetId: fc.phone,
+    })).toBe(false);
+    expect(shouldRequireActiveStaffNotificationTarget({
+      actorSessionRole: 'admin',
+      targetRole: 'fc',
+      category: 'app_event',
+      targetId: fc.phone,
+    })).toBe(false);
   });
 
   it('denies read-only managers and request-board designers from notification writes', () => {

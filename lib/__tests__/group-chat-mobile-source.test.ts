@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 const appRoot = join(__dirname, '..', '..', 'app');
 const componentRoot = join(__dirname, '..', '..', 'components');
+const workspaceRoot = join(__dirname, '..', '..');
 
 function readAppFile(fileName: string) {
   return readFileSync(join(appRoot, fileName), 'utf8');
@@ -37,11 +38,24 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('showGroupChatErrorAlert(error)');
     expect(source).toContain('buildOptimisticMessage');
     expect(source).toContain('sendOptimisticToServer');
+    expect(source).toContain('hasGroupChatPostCommitWarning');
+    expect(source).toContain('showGroupChatDeliveryWarning');
+    expect(source).toContain('메시지는 저장됐지만 일부 후속 처리를 확인하지 못했습니다.');
+    expect(source).not.toContain('result.warning.message');
     expect(source).toContain('send_status');
     expect(source).toContain('DocumentPicker.getDocumentAsync');
     expect(source).toContain('ImagePicker.launchImageLibraryAsync');
     expect(source).toContain('keyboardShouldPersistTaps="handled"');
     expect(source).toContain('supabase.removeChannel(channel)');
+
+    const sendStart = source.indexOf('const sendOptimisticToServer');
+    const sendEnd = source.indexOf('const sendPayload', sendStart);
+    const sendSource = source.slice(sendStart, sendEnd);
+    expect(sendSource.indexOf('applyMessages([')).toBeGreaterThan(-1);
+    expect(sendSource.indexOf('shouldShowDeliveryWarning = hasGroupChatPostCommitWarning(result)'))
+      .toBeGreaterThan(sendSource.indexOf('applyMessages(['));
+    expect(sendSource.indexOf('if (shouldShowDeliveryWarning)'))
+      .toBeGreaterThan(sendSource.indexOf('return;', sendSource.indexOf('catch (error)')));
   });
 
   it('renders internet URLs as tappable, underlined links in group chat messages', () => {
@@ -236,15 +250,14 @@ describe('group chat mobile wiring', () => {
   });
 
   it('registers push tokens from mobile admin sessions too', () => {
-    const source = readAppFile('index.tsx');
-    const pushRegistrationSection = source.slice(
-      source.indexOf('모바일 푸시 토큰 등록'),
-      source.indexOf('const handleLogout'),
-    );
+    const sessionSource = readFileSync(join(workspaceRoot, 'hooks', 'use-session.tsx'), 'utf8');
+    const homeSource = readAppFile('index.tsx');
 
-    expect(pushRegistrationSection).toContain('resolvePushRegistrationDeviceRole');
-    expect(pushRegistrationSection).toContain('buildPushRegistrationAttemptKey');
-    expect(pushRegistrationSection).toContain('role: pushRole');
-    expect(pushRegistrationSection).not.toContain("if (role !== 'fc' || !residentId) return;");
+    expect(sessionSource).toContain('buildPushRegistrationAttemptKey');
+    expect(sessionSource).toContain("const pushRole: 'admin' | 'fc' | 'manager'");
+    expect(sessionSource).toContain("state.requestBoardRole === 'designer'");
+    expect(sessionSource).toContain("registerPushToken(pushRole, state.residentId, state.displayName)");
+    expect(sessionSource).not.toContain("if (role !== 'fc' || !residentId) return;");
+    expect(homeSource).not.toContain('registerPushToken(');
   });
 });

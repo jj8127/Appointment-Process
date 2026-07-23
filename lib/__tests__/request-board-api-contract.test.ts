@@ -34,6 +34,25 @@ describe('request board mobile API wrapper contract', () => {
     expect(source.match(/REQUEST_BOARD_NOTIFICATION_WRITE_TIMEOUT_MS/g)).toHaveLength(2);
   });
 
+  it('replays a retryable request create once with the same client idempotency key', () => {
+    const createPayload = source.slice(
+      source.indexOf('export type RbCreateRequestPayload'),
+      source.indexOf('export type RbRequestAttachmentInput'),
+    );
+    const createRequest = source.slice(
+      source.indexOf('export async function rbCreateRequest'),
+      source.indexOf('export async function rbGetRequestList'),
+    );
+
+    expect(createPayload).toContain('clientRequestKey: string');
+    expect(createRequest).toContain('body: JSON.stringify(requestPayload)');
+    expect(createRequest).toContain("result.code === 'RB_REQUEST_CREATE_STILL_PROCESSING'");
+    expect(createRequest).toContain('(!result.retryable && !isStillProcessing)');
+    expect(createRequest).toContain("replayResult.code !== 'RB_REQUEST_CREATE_STILL_PROCESSING'");
+    expect(createRequest.match(/rbFetch<RbRequestDetail>\('\/api\/requests', requestOptions\)/g))
+      .toHaveLength(3);
+  });
+
   it('keeps mobile customer update/delete aligned with GaramLink customer endpoints', () => {
     expect(source).toContain('export type RbSaveCustomerPayload');
     expect(source).toContain('id?: number;');

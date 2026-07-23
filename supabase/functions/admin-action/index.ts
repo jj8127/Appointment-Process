@@ -6,7 +6,10 @@ import {
   isLegacyAppointmentTerminalStatus,
   hasHanwhaPdfMetadata,
 } from '../_shared/commission.ts';
-import { parseAppSessionToken } from '../_shared/request-board-auth.ts';
+import {
+  parseAppSessionTokenDetailed,
+  type AppSessionStaffType,
+} from '../_shared/request-board-auth.ts';
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -79,7 +82,7 @@ function hasExistingInsuranceStageActivity(profile: {
 }
 
 type ActionRequest = {
-  adminPhone: string;
+  adminPhone?: string | null;
   appSessionToken?: string | null;
   action: string;
   payload: Record<string, any>;
@@ -114,15 +117,21 @@ async function decrypt(value: string, key: CryptoKey) {
   return textDecoder.decode(plain);
 }
 
-async function verifyAdmin(phone: string): Promise<boolean> {
+async function verifyAdmin(
+  phone: string,
+  expectedStaffType: AppSessionStaffType,
+): Promise<boolean> {
   const phoneCandidates = buildResidentIds(phone);
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('admin_accounts')
-    .select('id,active')
+    .select('id,active,staff_type')
     .in('phone', phoneCandidates)
     .eq('active', true)
     .maybeSingle();
-  return !!data?.id;
+  if (error || !data?.id) return false;
+  const canonicalStaffType: AppSessionStaffType =
+    data.staff_type === 'developer' ? 'developer' : 'admin';
+  return canonicalStaffType === expectedStaffType;
 }
 
 async function verifyManager(phone: string): Promise<boolean> {
@@ -150,6 +159,110 @@ async function getFcIdsForPhone(phone: string): Promise<string[]> {
 
 function cleanPhone(input: string | null | undefined): string {
   return String(input ?? '').replace(/[^0-9]/g, '');
+}
+
+const NOTIFICATION_DELIVERY_WARNING = 'notification_delivery_incomplete';
+
+type CanonicalFcNotificationTarget =
+  | { ok: true; phone: string }
+  | { ok: false; reason: 'target_lookup_failed' | 'target_not_found' | 'target_phone_invalid' };
+
+type CanonicalFcPushResult =
+  | { confirmed: true; sent: number }
+  | {
+      confirmed: false;
+      reason:
+        | 'transport_error'
+        | 'invalid_response'
+        | 'downstream_error'
+        | 'not_logged'
+        | 'no_device_target';
+    };
+
+async function resolveCanonicalFcNotificationTarget(
+  fcId: string,
+): Promise<CanonicalFcNotificationTarget> {
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('phone')
+    .eq('id', fcId)
+    .maybeSingle();
+
+  if (error) return { ok: false, reason: 'target_lookup_failed' };
+  if (!data) return { ok: false, reason: 'target_not_found' };
+
+  const phone = cleanPhone(data.phone);
+  if (!/^010\d{8}$/.test(phone)) {
+    return { ok: false, reason: 'target_phone_invalid' };
+  }
+
+  return { ok: true, phone };
+}
+
+function classifyCanonicalFcPushResponse(
+  responseOk: boolean,
+  value: unknown,
+): CanonicalFcPushResult {
+  if (!responseOk || !value || typeof value !== 'object' || Array.isArray(value)) {
+    return {
+      confirmed: false,
+      reason: responseOk ? 'invalid_response' : 'transport_error',
+    };
+  }
+
+  const result = value as Record<string, unknown>;
+  if (result.ok !== true) return { confirmed: false, reason: 'downstream_error' };
+  if (result.logged !== true) return { confirmed: false, reason: 'not_logged' };
+
+  const sent = typeof result.sent === 'number' && Number.isFinite(result.sent)
+    ? Math.max(0, Math.trunc(result.sent))
+    : 0;
+  if (sent < 1) return { confirmed: false, reason: 'no_device_target' };
+
+  return { confirmed: true, sent };
+}
+
+async function sendCanonicalFcPush(input: {
+  phone: string;
+  title: string;
+  body: string;
+  url: string | null;
+}): Promise<CanonicalFcPushResult> {
+  const trustedSupabaseUrl = supabaseUrl;
+  const trustedServiceKey = serviceKey;
+  if (!trustedSupabaseUrl || !trustedServiceKey) {
+    return { confirmed: false, reason: 'transport_error' };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(`${trustedSupabaseUrl}/functions/v1/fc-notify`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${trustedServiceKey}`,
+        'apikey': trustedServiceKey,
+      },
+      body: JSON.stringify({
+        type: 'notify',
+        target_role: 'fc',
+        target_id: input.phone,
+        title: input.title,
+        body: input.body,
+        category: 'app_event',
+        url: input.url ?? undefined,
+        skip_notification_insert: true,
+      }),
+    });
+    const data: unknown = await response.json().catch(() => null);
+    return classifyCanonicalFcPushResponse(response.ok, data);
+  } catch {
+    return { confirmed: false, reason: 'transport_error' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function trimOrNull(input: string | null | undefined): string | null {
@@ -302,51 +415,63 @@ serve(async (req: Request) => {
   }
 
   const { adminPhone, appSessionToken, action, payload } = body;
-  if (!adminPhone || !action) {
-    return fail('adminPhone and action are required');
+  if (!action || !payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return fail('action and payload are required');
   }
 
-  const normalizedAdminPhone = adminPhone.replace(/[^0-9]/g, '');
+  const normalizedBodyPhone = cleanPhone(adminPhone);
   const allowManagerRead = action === 'getResidentNumbers' || action === 'getInviteeReferralCode';
   const allowFcRead = action === 'getResidentNumbers';
   const authHeader = req.headers.get('Authorization') ?? '';
-  const isServiceCaller =
-    authHeader === `Bearer ${serviceKey}` ||
-    authHeader === serviceKey;
+  const isServiceCaller = authHeader === `Bearer ${serviceKey}`;
 
-  let trustedPhone = normalizedAdminPhone;
+  let trustedPhone = normalizedBodyPhone;
   let trustedRole: 'admin' | 'manager' | 'fc' | null = null;
+  let trustedStaffType: AppSessionStaffType | null = null;
   let trustedFcId: string | null = null;
 
-  if (allowManagerRead && !isServiceCaller) {
-    const parsedSession = typeof appSessionToken === 'string' && appSessionToken.trim()
-      ? await parseAppSessionToken(appSessionToken)
-      : null;
-    if (!parsedSession) {
+  if (!isServiceCaller) {
+    if (typeof appSessionToken !== 'string' || !appSessionToken.trim()) {
       return fail('Unauthorized: missing or invalid app session token', 401);
     }
-    trustedPhone = cleanPhone(parsedSession.phone);
-    trustedRole = parsedSession.role;
-    trustedFcId = parsedSession.role === 'fc'
-      ? String(parsedSession.fcId ?? '').trim() || null
+
+    const parsedSession = await parseAppSessionTokenDetailed(appSessionToken.trim());
+    if (parsedSession.ok === false) {
+      return fail(
+        parsedSession.code === 'expired_app_session'
+          ? 'Unauthorized: expired app session token'
+          : 'Unauthorized: missing or invalid app session token',
+        401,
+      );
+    }
+
+    trustedPhone = cleanPhone(parsedSession.payload.phone);
+    trustedRole = parsedSession.payload.role;
+    trustedStaffType = parsedSession.payload.role === 'admin'
+      ? parsedSession.payload.staffType ?? null
       : null;
+    trustedFcId = parsedSession.payload.role === 'fc'
+      ? String(parsedSession.payload.fcId ?? '').trim() || null
+      : null;
+
+    if (!trustedPhone || !normalizedBodyPhone || trustedPhone !== normalizedBodyPhone) {
+      return fail('Unauthorized: actor does not match app session', 403);
+    }
+    if (trustedRole === 'admin' && !trustedStaffType) {
+      return fail('Unauthorized: admin session scope is invalid', 403);
+    }
   }
 
-  const phoneForPrivilegedCheck =
-    allowManagerRead && !isServiceCaller
-      ? trustedPhone
-      : normalizedAdminPhone;
-  const isAdmin = await verifyAdmin(phoneForPrivilegedCheck);
+  const isAdmin = isServiceCaller || (
+    trustedRole === 'admin'
+    && trustedStaffType !== null
+    && await verifyAdmin(trustedPhone, trustedStaffType)
+  );
   const isManager =
     !isAdmin &&
     allowManagerRead &&
-    (
-      trustedRole === 'manager'
-        ? await verifyManager(phoneForPrivilegedCheck)
-        : isServiceCaller
-          ? await verifyManager(phoneForPrivilegedCheck)
-          : false
-    );
+    trustedRole === 'manager' &&
+    await verifyManager(trustedPhone);
   const requesterFcIds = !isAdmin && !isManager && allowFcRead
     ? trustedRole === 'fc'
       ? trustedFcId
@@ -612,7 +737,7 @@ serve(async (req: Request) => {
       }
 
       const sentAt = new Date().toISOString();
-      const sentBy = normalizedAdminPhone;
+      const sentBy = trustedPhone;
       const { error: updateError } = await supabase
         .from('fc_profiles')
         .update({
@@ -1157,21 +1282,32 @@ serve(async (req: Request) => {
 
     // ── sendNotification ──
     if (action === 'sendNotification') {
-      const { phone, title, body: notifBody, role: recipientRole, url } = payload as {
-        phone?: string;
+      const { fcId, title, body: notifBody, url } = payload as {
+        fcId?: string;
         title: string;
         body: string;
-        role?: string;
         url?: string;
       };
-      if (!title || !notifBody) return fail('title and body are required');
+      if (!fcId || !title || !notifBody) return fail('fcId, title, and body are required');
+
+      const target = await resolveCanonicalFcNotificationTarget(fcId);
+      if (target.ok === false) {
+        return json({
+          ok: true,
+          confirmed: false,
+          inboxRecorded: false,
+          push: { confirmed: false, reason: 'invalid_response' },
+          warning: NOTIFICATION_DELIVERY_WARNING,
+          reason: target.reason,
+        });
+      }
 
       const insertPayload = {
         title,
         body: notifBody,
         category: 'app_event',
-        recipient_role: recipientRole ?? 'fc',
-        resident_id: phone ?? null,
+        recipient_role: 'fc',
+        resident_id: target.phone,
       } as const;
 
       let { error: insertError } = await supabase.from('notifications').insert({
@@ -1186,9 +1322,22 @@ serve(async (req: Request) => {
         insertError = fallback.error ?? null;
       }
 
-      if (insertError) throw insertError;
+      const inboxRecorded = !insertError;
+      const push = await sendCanonicalFcPush({
+        phone: target.phone,
+        title,
+        body: notifBody,
+        url: trimOrNull(url),
+      });
+      const confirmed = inboxRecorded && push.confirmed;
 
-      return json({ ok: true });
+      return json({
+        ok: true,
+        confirmed,
+        inboxRecorded,
+        push,
+        warning: confirmed ? null : NOTIFICATION_DELIVERY_WARNING,
+      });
     }
 
     return fail('Unknown action');

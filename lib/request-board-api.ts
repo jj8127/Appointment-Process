@@ -5,6 +5,7 @@
 import { logger } from './logger';
 import { getRequestBoardApiBaseUrl } from './request-board-url';
 import { safeStorage } from './safe-storage';
+import { sensitiveTokenStorage } from './secure-token-storage';
 import { supabase } from './supabase';
 
 const BASE_URL = getRequestBoardApiBaseUrl();
@@ -167,7 +168,7 @@ async function fetchWithTimeout(
 export async function getStoredToken(): Promise<string | null> {
   if (cachedToken) return cachedToken;
   try {
-    cachedToken = await safeStorage.getItem(STORAGE_KEY_TOKEN);
+    cachedToken = await sensitiveTokenStorage.getItem(STORAGE_KEY_TOKEN);
     return cachedToken;
   } catch {
     return null;
@@ -177,7 +178,7 @@ export async function getStoredToken(): Promise<string | null> {
 export async function getStoredBridgeToken(): Promise<string | null> {
   if (cachedBridgeToken) return cachedBridgeToken;
   try {
-    cachedBridgeToken = await safeStorage.getItem(STORAGE_KEY_BRIDGE_TOKEN);
+    cachedBridgeToken = await sensitiveTokenStorage.getItem(STORAGE_KEY_BRIDGE_TOKEN);
     return cachedBridgeToken;
   } catch {
     return null;
@@ -187,7 +188,7 @@ export async function getStoredBridgeToken(): Promise<string | null> {
 export async function getStoredAppSessionToken(): Promise<string | null> {
   if (cachedAppSessionToken) return cachedAppSessionToken;
   try {
-    cachedAppSessionToken = await safeStorage.getItem(STORAGE_KEY_APP_SESSION_TOKEN);
+    cachedAppSessionToken = await sensitiveTokenStorage.getItem(STORAGE_KEY_APP_SESSION_TOKEN);
     return cachedAppSessionToken;
   } catch {
     return null;
@@ -209,32 +210,32 @@ export async function getStoredUser(): Promise<RbUser | null> {
 async function storeAuth(token: string, user: RbUser) {
   cachedToken = token;
   cachedUser = user;
-  await safeStorage.setItem(STORAGE_KEY_TOKEN, token);
+  await sensitiveTokenStorage.setItem(STORAGE_KEY_TOKEN, token);
   await safeStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
 }
 
 export async function setBridgeToken(token: string | null) {
   cachedBridgeToken = token;
   if (token) {
-    await safeStorage.setItem(STORAGE_KEY_BRIDGE_TOKEN, token);
+    await sensitiveTokenStorage.setItem(STORAGE_KEY_BRIDGE_TOKEN, token);
   } else {
-    await safeStorage.removeItem(STORAGE_KEY_BRIDGE_TOKEN);
+    await sensitiveTokenStorage.removeItem(STORAGE_KEY_BRIDGE_TOKEN);
   }
 }
 
 export async function setAppSessionToken(token: string | null) {
   cachedAppSessionToken = token;
   if (token) {
-    await safeStorage.setItem(STORAGE_KEY_APP_SESSION_TOKEN, token);
+    await sensitiveTokenStorage.setItem(STORAGE_KEY_APP_SESSION_TOKEN, token);
   } else {
-    await safeStorage.removeItem(STORAGE_KEY_APP_SESSION_TOKEN);
+    await sensitiveTokenStorage.removeItem(STORAGE_KEY_APP_SESSION_TOKEN);
   }
 }
 
 export async function clearAuth() {
   cachedToken = null;
   cachedUser = null;
-  await safeStorage.removeItem(STORAGE_KEY_TOKEN);
+  await sensitiveTokenStorage.removeItem(STORAGE_KEY_TOKEN);
   await safeStorage.removeItem(STORAGE_KEY_USER);
 }
 
@@ -412,11 +413,36 @@ type RbFetchOptions = RequestInit & {
   timeoutMs?: number;
 };
 
+export type RbNotificationDelivery = {
+  confirmed: boolean;
+  sent: number;
+  attempted: number;
+  rejected: number;
+};
+
+export type RbApiResult<T = unknown> = {
+  success: boolean;
+  data?: T;
+  error?: string;
+  code?: string;
+  message?: string;
+  retryable?: boolean;
+  warning?: 'notification_delivery_incomplete';
+  notificationDelivery?: RbNotificationDelivery;
+};
+
+export function hasIncompleteRequestBoardNotification(
+  result: Pick<RbApiResult, 'warning' | 'notificationDelivery'>,
+): boolean {
+  return result.warning === 'notification_delivery_incomplete'
+    || result.notificationDelivery?.confirmed === false;
+}
+
 async function rbFetch<T>(
   path: string,
   options: RbFetchOptions = {},
   allowRetry = true,
-): Promise<{ success: boolean; data?: T; error?: string }> {
+): Promise<RbApiResult<T>> {
   const {
     timeoutMs = REQUEST_BOARD_FETCH_TIMEOUT_MS,
     ...requestOptions
@@ -456,11 +482,21 @@ async function rbFetch<T>(
 
     if (!res.ok) {
       logger.warn(`[rb-api] HTTP ${res.status}: ${path}`);
+      const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
       try {
         const errJson = await res.json();
-        return { success: false, error: errJson.error ?? `서버 오류 (${res.status})` };
+        return {
+          success: false,
+          error: errJson.error ?? `서버 오류 (${res.status})`,
+          code: typeof errJson.code === 'string' ? errJson.code : undefined,
+          retryable,
+        };
       } catch {
-        return { success: false, error: `서버 오류 (${res.status})` };
+        return {
+          success: false,
+          error: `서버 오류 (${res.status})`,
+          retryable,
+        };
       }
     }
 
@@ -475,6 +511,7 @@ async function rbFetch<T>(
     logger.warn(`[rb-api] network error: ${path}`, err);
     return {
       success: false,
+      retryable: true,
       error: isAbortError(err)
         ? '가람Link 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
         : '서버에 연결할 수 없습니다.',
@@ -595,10 +632,15 @@ export async function rbSendMessage(
   requestDesignerId: number,
   message: string,
   attachments?: RbAttachmentMeta[],
+  deliveryKey?: string,
 ): Promise<{ success: boolean; data?: RbMessage; error?: string }> {
   return rbFetch<RbMessage>(`/api/messages/${requestDesignerId}`, {
     method: 'POST',
-    body: JSON.stringify({ message, ...(attachments?.length ? { attachments } : {}) }),
+    body: JSON.stringify({
+      message,
+      ...(attachments?.length ? { attachments } : {}),
+      ...(deliveryKey ? { deliveryKey } : {}),
+    }),
   });
 }
 
@@ -835,6 +877,7 @@ export type RbSaveCustomerPayload = Omit<RbCustomerProfile, 'id' | 'createdAt' |
 };
 
 export type RbCreateRequestPayload = {
+  clientRequestKey: string;
   customerName: string;
   customerSsn: string;
   customerGender?: string;
@@ -1151,7 +1194,7 @@ export type RbRequestDetail = {
 
 export async function rbCreateRequest(
   payload: RbCreateRequestPayload,
-): Promise<{ success: boolean; data?: RbRequestDetail; error?: string }> {
+): Promise<RbApiResult<RbRequestDetail>> {
   const requestPayload: RbCreateRequestPayload = {
     ...payload,
     recentHospitalization: payload.recentHospitalization,
@@ -1163,11 +1206,32 @@ export async function rbCreateRequest(
   if (!requestPayload.hospitalizationHistory && payload.recentHospitalization) {
     requestPayload.hospitalizationHistory = payload.recentHospitalization;
   }
-  return rbFetch<RbRequestDetail>('/api/requests', {
+  const requestOptions: RbFetchOptions = {
     method: 'POST',
     body: JSON.stringify(requestPayload),
     timeoutMs: REQUEST_BOARD_NOTIFICATION_WRITE_TIMEOUT_MS,
-  });
+  };
+  const result = await rbFetch<RbRequestDetail>('/api/requests', requestOptions);
+  const isStillProcessing = result.code === 'RB_REQUEST_CREATE_STILL_PROCESSING';
+  if (result.success || (!result.retryable && !isStillProcessing)) {
+    return result;
+  }
+
+  // The server deduplicates this replay by clientRequestKey. A bounded replay
+  // recovers a committed create whose first response was lost without creating
+  // another request or repeating notifications.
+  if (isStillProcessing) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  const replayResult = await rbFetch<RbRequestDetail>('/api/requests', requestOptions);
+  if (replayResult.code !== 'RB_REQUEST_CREATE_STILL_PROCESSING') {
+    return replayResult;
+  }
+
+  // A replay can race the original transaction while it is creating child
+  // rows. Poll that explicit server state once; never retry other 409 errors.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  return rbFetch<RbRequestDetail>('/api/requests', requestOptions);
 }
 
 export async function rbGetRequestList(): Promise<RbRequestListItem[]> {
@@ -1190,7 +1254,7 @@ export async function rbGetRequestDetail(id: number): Promise<RbRequestDetail | 
 export async function rbApproveDesign(
   requestId: number,
   designerId: number,
-): Promise<{ success: boolean; error?: string; message?: string }> {
+): Promise<RbApiResult> {
   return rbFetch(`/api/requests/${requestId}/designers/${designerId}/fc-accept`, {
     method: 'POST',
   });
@@ -1200,7 +1264,7 @@ export async function rbRejectDesign(
   requestId: number,
   designerId: number,
   reason: string,
-): Promise<{ success: boolean; error?: string; message?: string }> {
+): Promise<RbApiResult> {
   return rbFetch(`/api/requests/${requestId}/designers/${designerId}/fc-reject`, {
     method: 'POST',
     body: JSON.stringify({ reason }),
@@ -1211,7 +1275,7 @@ export async function rbAcceptRequest(
   requestId: number,
   designerId: number,
   requestDesignerId?: number,
-): Promise<{ success: boolean; data?: RbDesignerAssignment; error?: string; message?: string }> {
+): Promise<RbApiResult<RbDesignerAssignment>> {
   return rbFetch<RbDesignerAssignment>(`/api/requests/${requestId}/designers/${designerId}/accept`, {
     method: 'POST',
     body: JSON.stringify({ requestDesignerId }),
@@ -1223,7 +1287,7 @@ export async function rbRejectRequest(
   designerId: number,
   reason?: string,
   requestDesignerId?: number,
-): Promise<{ success: boolean; data?: RbDesignerAssignment; error?: string; message?: string }> {
+): Promise<RbApiResult<RbDesignerAssignment>> {
   return rbFetch<RbDesignerAssignment>(`/api/requests/${requestId}/designers/${designerId}/reject`, {
     method: 'POST',
     body: JSON.stringify({ reason, requestDesignerId }),
@@ -1239,7 +1303,7 @@ export async function rbCompleteRequest(
     attachments?: RbRequestAttachmentInput[];
     requestDesignerId?: number;
   },
-): Promise<{ success: boolean; data?: RbDesignerAssignment; error?: string; message?: string }> {
+): Promise<RbApiResult<RbDesignerAssignment>> {
   return rbFetch<RbDesignerAssignment>(`/api/requests/${requestId}/designers/${designerId}/complete`, {
     method: 'POST',
     body: JSON.stringify(payload ?? {}),

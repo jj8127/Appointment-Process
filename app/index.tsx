@@ -1,8 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
-import * as Notifications from 'expo-notifications';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -46,13 +44,8 @@ import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
 import { createHomeRealtimeChannelTopic } from '@/lib/home-realtime-channel';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
-import { registerPushToken } from '@/lib/notifications';
 import { resolveHomeLatestNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
-import {
-  buildPushRegistrationAttemptKey,
-  resolvePushRegistrationDeviceRole,
-} from '@/lib/push-registration';
 import {
   HOME_GUIDE_ICON_BACKGROUND,
   HOME_GUIDE_ICON_BORDER,
@@ -569,7 +562,6 @@ export default function Home() {
   const zoneScrollTargets = useRef<Record<number, number>>({});
   const shortcutZoneRefs = useRef<(View | null)[]>([]);
   const shortcutScrollTargets = useRef<Record<number, number>>({});
-  const pushRegistrationAttemptRef = useRef<string | null>(null);
 
   // 투어 시작 시 zone 위치를 미리 캐시 (스크롤 전 측정)
   const cacheZonePositions = useCallback(() => {
@@ -1010,58 +1002,6 @@ export default function Home() {
   // 사용자가 홈 화면의 "기본 정보" 버튼을 눌러 자발적으로 편집 가능
 
   // 모바일 푸시 토큰 등록 (배너 알림 수신용)
-  const PUSH_CHANNEL_ID = 'alerts';
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const attemptKey = buildPushRegistrationAttemptKey({
-        hydrated,
-        role,
-        residentId,
-        requestBoardRole,
-      });
-      const pushRole = resolvePushRegistrationDeviceRole({ role, requestBoardRole });
-      if (!attemptKey || !residentId || !pushRole) return;
-      if (pushRegistrationAttemptRef.current === attemptKey) return;
-
-      try {
-        const { status } = await Notifications.requestPermissionsAsync();
-        if (status !== 'granted') {
-          logger.debug('[push] permission denied');
-          return;
-        }
-        if (Platform.OS === 'android') {
-          await Notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
-            name: '중요 알림',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            sound: 'default',
-            lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          });
-        }
-
-        const { data: token } = await Notifications.getExpoPushTokenAsync({
-          projectId: Constants.expoConfig?.extra?.eas?.projectId,
-        });
-        if (!active || !token) return;
-        if (pushRegistrationAttemptRef.current === attemptKey) return;
-        pushRegistrationAttemptRef.current = attemptKey;
-
-        // 디바이스 중복 방지: 기존 토큰 제거 후 upsert (unique constraint 대응)
-        await registerPushToken(pushRole, residentId, displayName, token);
-        logger.debug('[push] trusted registration requested', { residentId, role: pushRole });
-      } catch (e: unknown) {
-        pushRegistrationAttemptRef.current = null;
-        const error = e as { message?: string };
-        logger.debug('[push] exception', error?.message ?? e);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [hydrated, role, residentId, requestBoardRole, displayName]);
-
   const handleLogout = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (Platform.OS === 'android') {
@@ -1975,6 +1915,8 @@ export default function Home() {
           <View style={styles.actionGrid}>
             {quickLinks.map((item, index) => {
               const key = `${item.href}-${item.stepKey ?? item.title ?? index}`;
+              const isMessengerShortcut = item.href === '/messenger';
+              const messengerUnreadBadge = unreadMsgCount > 99 ? '99+' : String(unreadMsgCount);
               const card = (
                 <AndroidSafeMotiView
                   from={{ opacity: 0, translateY: 20 }}
@@ -1984,6 +1926,12 @@ export default function Home() {
                 >
                   <Pressable
                     style={({ pressed }) => [styles.actionCardGrid, pressed && styles.pressedScale]}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      isMessengerShortcut && unreadMsgCount > 0
+                        ? `${item.title}, 읽지 않은 메시지 ${messengerUnreadBadge}개`
+                        : item.title
+                    }
                     onPress={() => handlePressLink(item.href as any, item.stepKey)}>
                     <View style={styles.iconCircle}>
                       <Feather
@@ -1991,6 +1939,11 @@ export default function Home() {
                         size={22}
                         color={HANWHA_ORANGE}
                       />
+                      {isMessengerShortcut && unreadMsgCount > 0 ? (
+                        <View style={styles.quickLinkUnreadBadge}>
+                          <Text style={styles.quickLinkUnreadBadgeText}>{messengerUnreadBadge}</Text>
+                        </View>
+                      ) : null}
                     </View>
                     <Text style={styles.actionTitleGrid} numberOfLines={1}>{item.title}</Text>
                     <Text style={styles.actionDescGrid} numberOfLines={2}>{item.description}</Text>
@@ -2405,6 +2358,7 @@ const styles = StyleSheet.create({
     minHeight: 120, // Increased height to accommodate larger text
   },
   iconCircle: {
+    position: 'relative',
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -2412,6 +2366,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
+  },
+  quickLinkUnreadBadge: {
+    position: 'absolute',
+    top: -7,
+    right: -9,
+    minWidth: 23,
+    height: 23,
+    paddingHorizontal: 5,
+    borderRadius: 12,
+    backgroundColor: '#EF4444',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickLinkUnreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+    lineHeight: 14,
   },
   actionTitleGrid: {
     fontSize: 17, // 15 -> 17

@@ -49,6 +49,7 @@ import {
 import { getWebStaffChatActorId } from '@/lib/staff-identity';
 
 import { logger } from '@/lib/logger';
+import { classifyAdminChatNotificationResult } from '@/lib/admin-chat-notification-result';
 // --- Constants ---
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -167,27 +168,31 @@ async function sendFcMessageNotification({
     fcPhone,
     body,
 }: SendFcMessageNotificationInput) {
-    try {
-        const resp = await fetch('/api/fc-notify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                type: 'message',
-                target_role: 'fc',
-                target_id: fcPhone,
-                message: body,
-            }),
-        });
-        const data = await resp.json().catch(() => null);
-        logger.debug('[chat][admin->fc] fc-notify proxy response', {
+    const resp = await fetch('/api/fc-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        keepalive: true,
+        body: JSON.stringify({
+            type: 'message',
+            target_role: 'fc',
+            target_id: fcPhone,
+            message: body,
+        }),
+    });
+    const responseBody: unknown = await resp.json().catch(() => null);
+    const result = classifyAdminChatNotificationResult(resp.status, responseBody);
+    if (!result.ok) {
+        logger.warn('[chat][admin->fc] mobile notification unconfirmed', {
+            reason: result.reason,
             status: resp.status,
-            ok: resp.ok,
-            data,
         });
-    } catch (fnErr: unknown) {
-        const msg = fnErr instanceof Error ? fnErr.message : String(fnErr);
-        logger.warn('[chat][admin->fc] fc-notify proxy error', msg);
+        throw new Error('mobile_notification_unconfirmed');
     }
+
+    logger.debug('[chat][admin->fc] mobile notification confirmed', {
+        sent: result.sent,
+        status: resp.status,
+    });
 }
 
 // --- Page Component ---
@@ -717,10 +722,18 @@ function ChatRoom({
             }
 
             const notifBody = trimmed.length > 50 ? `${trimmed.slice(0, 50)}...` : trimmed;
-            void sendFcMessageNotification({
-                fcPhone: fc.phone,
-                body: notifBody,
-            });
+            try {
+                await sendFcMessageNotification({
+                    fcPhone: fc.phone,
+                    body: notifBody,
+                });
+            } catch {
+                notifications.show({
+                    title: '메시지 전송 완료',
+                    message: '메시지는 저장됐지만 가람in 푸시 알림 전달을 확인하지 못했습니다.',
+                    color: 'yellow',
+                });
+            }
         } catch (err: unknown) {
             messagesRef.current = messagesRef.current.filter((message) => message.id !== optimisticId);
             setMessages(messagesRef.current);

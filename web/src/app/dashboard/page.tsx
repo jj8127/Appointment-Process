@@ -77,16 +77,21 @@ import {
   getDocProgress,
   getSummaryStatus
 } from '../../lib/shared';
-import { sendPushNotification } from '../actions';
+import { sendPushNotificationForFc } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
 import { registerWebPushSubscription } from '@/components/WebPushRegistrar';
+import styles from './page.module.css';
 import {
   DASHBOARD_FC_LIST_COLUMN_COUNT,
   DASHBOARD_FC_LIST_COLUMNS,
   formatDashboardSignupDate,
 } from '@/lib/dashboard-table-display';
 import { getWebPushRegistrationFeedback } from '@/lib/web-push-config';
+import {
+  ADMIN_NOTIFICATION_WARNING_TITLE,
+  getAdminNotificationWarning,
+} from '@/lib/admin-notification-warning';
 
 import { logger } from '../../lib/logger';
 
@@ -389,6 +394,7 @@ export default function DashboardPage() {
   const queryClient = useQueryClient();
   const { hydrated, isReadOnly, role, residentId } = useSession();
   const [activeTab, setActiveTab] = useState<string | null>('all');
+  const [metricFilter, setMetricFilter] = useState<'all' | 'pendingAllowance' | 'pendingDocs'>('all');
   const [keyword, setKeyword] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 20;
@@ -573,7 +579,10 @@ export default function DashboardPage() {
           [isLife ? 'appointment_reject_reason_life' : 'appointment_reject_reason_nonlife']: reason,
           status: 'hanwha-commission-approved',
         });
-        notifications.show({ title: '처리 완료', message: '생명/손해 위촉 정보를 반려했습니다.', color: 'green' });
+        const notificationWarning = getAdminNotificationWarning(result);
+        notifications.show(notificationWarning
+          ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
+          : { title: '처리 완료', message: '생명/손해 위촉 정보를 반려했습니다.', color: 'green' });
         queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       }
 
@@ -598,7 +607,10 @@ export default function DashboardPage() {
             ? { ...buildDocWorkflowResetProfileFields(), fc_documents: nextDocs }
             : { fc_documents: nextDocs, status: nextProfileStatus },
         );
-        notifications.show({ title: '반려 완료', message: '서류가 반려되었습니다.', color: 'green' });
+        const notificationWarning = getAdminNotificationWarning(res);
+        notifications.show(notificationWarning
+          ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
+          : { title: '반려 완료', message: '서류가 반려되었습니다.', color: 'green' });
         queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       }
 
@@ -659,6 +671,17 @@ export default function DashboardPage() {
         result = result.filter((fc: FCProfileWithDocuments & { adminStep: number }) => fc.adminStep === stepNum);
       }
     }
+    if (metricFilter === 'pendingAllowance') {
+      result = result.filter((fc: FCProfileWithDocuments & { step: number }) => {
+        const allowanceDisplay = getAllowanceDisplayState(fc);
+        return fc.step === 1 && ['entered', 'prescreen'].includes(allowanceDisplay.key);
+      });
+    } else if (metricFilter === 'pendingDocs') {
+      result = result.filter(
+        (fc: FCProfileWithDocuments & { step: number }) =>
+          fc.step === 2 && getDocProgress(fc).key === 'in-progress',
+      );
+    }
     if (keyword.trim()) {
       const q = keyword.trim().toLowerCase();
       result = result.filter(
@@ -669,7 +692,7 @@ export default function DashboardPage() {
       );
     }
     return result;
-  }, [fcs, activeTab, keyword]);
+  }, [fcs, activeTab, keyword, metricFilter]);
 
   // 페이지네이션 처리
   const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
@@ -682,7 +705,17 @@ export default function DashboardPage() {
   // 탭이나 검색어가 변경되면 첫 페이지로 이동
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTab, keyword]);
+  }, [activeTab, keyword, metricFilter]);
+
+  const handleMetricFilterChange = (nextFilter: 'all' | 'pendingAllowance' | 'pendingDocs') => {
+    setMetricFilter((current) => current === nextFilter && nextFilter !== 'all' ? 'all' : nextFilter);
+    setActiveTab('all');
+  };
+
+  const handleActiveTabChange = (nextTab: string | null) => {
+    setActiveTab(nextTab);
+    setMetricFilter('all');
+  };
 
   const {
     residentNumberDisplay: selectedResidentNumberDisplay,
@@ -710,7 +743,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'updateProfile',
-          payload: { fcId: selectedFc.id, data: payload, phone: selectedFc.phone },
+          payload: { fcId: selectedFc.id, data: payload },
         }),
       });
       const data = await resp.json().catch(() => null);
@@ -721,7 +754,7 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '업데이트 실패');
       }
-      return data as { profile?: Partial<FCProfileWithDocuments> | null } | null;
+      return data as { profile?: Partial<FCProfileWithDocuments> | null; warning?: unknown } | null;
     },
     onSuccess: (response) => {
       const nextProfileUpdates: Partial<FCProfileWithDocuments> = {
@@ -734,7 +767,10 @@ export default function DashboardPage() {
         nextProfileUpdates.temp_id = tempIdInput;
       }
       updateSelectedFc(nextProfileUpdates);
-      notifications.show({ title: '저장 완료', message: '기본 정보가 업데이트되었습니다.', color: 'green' });
+      const notificationWarning = getAdminNotificationWarning(response);
+      notifications.show(notificationWarning
+        ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
+        : { title: '저장 완료', message: '기본 정보가 업데이트되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
@@ -887,7 +923,6 @@ export default function DashboardPage() {
             types: nextTypes,
             deadline: normalizedDeadline,
             currentDeadline: selectedFc.docs_deadline_at ?? null,
-            phone: selectedFc.phone,
           },
         }),
       });
@@ -899,9 +934,13 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '업데이트 실패');
       }
+      return data;
     },
-    onSuccess: () => {
-      notifications.show({ title: '요청 완료', message: '서류 목록이 갱신되었습니다.', color: 'blue' });
+    onSuccess: (response) => {
+      const notificationWarning = getAdminNotificationWarning(response);
+      notifications.show(notificationWarning
+        ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
+        : { title: '요청 완료', message: '서류 목록이 갱신되었습니다.', color: 'blue' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
@@ -931,7 +970,6 @@ export default function DashboardPage() {
             title,
             msg,
             extra,
-            phone: selectedFc.phone,
           },
         }),
       });
@@ -943,12 +981,16 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '상태 업데이트 실패');
       }
+      return data;
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (response, variables) => {
       if (variables?.status) {
         updateSelectedFc({ status: variables.status, ...(variables.extra ?? {}) });
       }
-      notifications.show({ title: '처리 완료', message: '상태가 변경되었습니다.', color: 'green' });
+      const notificationWarning = getAdminNotificationWarning(response);
+      notifications.show(notificationWarning
+        ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
+        : { title: '처리 완료', message: '상태가 변경되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
@@ -1074,18 +1116,21 @@ export default function DashboardPage() {
       return {
         sentAt: typeof data?.dawichok_url_sent_at === 'string' ? data.dawichok_url_sent_at : new Date().toISOString(),
         sentBy: typeof data?.dawichok_url_sent_by === 'string' ? data.dawichok_url_sent_by : null,
+        warning: getAdminNotificationWarning(data),
       };
     },
-    onSuccess: ({ sentAt, sentBy }) => {
+    onSuccess: ({ sentAt, sentBy, warning }) => {
       updateSelectedFc({
         dawichok_url_sent_at: sentAt,
         dawichok_url_sent_by: sentBy,
       });
-      notifications.show({
-        title: '발송 신호 완료',
-        message: 'FC에게 다위촉 URL 진행 안내를 보냈습니다.',
-        color: 'green',
-      });
+      notifications.show(warning
+        ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: warning, color: 'yellow' }
+        : {
+            title: '발송 신호 완료',
+            message: 'FC에게 다위촉 URL 진행 안내를 보냈습니다.',
+            color: 'green',
+          });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => {
@@ -1471,7 +1516,10 @@ export default function DashboardPage() {
           }
         );
         if (result.success) {
-          notifications.show({ title: '완료', message: result.message, color: 'green' });
+          const notificationWarning = getAdminNotificationWarning(result);
+          notifications.show(notificationWarning
+            ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
+            : { title: '완료', message: result.message, color: 'green' });
           queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
           if (type === 'schedule' && scheduleValue) {
             updateSelectedFc({
@@ -2060,7 +2108,19 @@ export default function DashboardPage() {
 
         {/* Metrics Cards */}
         <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-          <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
+          <Card
+            component="button"
+            type="button"
+            padding="lg"
+            radius="md"
+            withBorder
+            shadow="sm"
+            className={styles.metricCard}
+            data-active={metricFilter === 'all' || undefined}
+            data-tone="total"
+            aria-pressed={metricFilter === 'all'}
+            onClick={() => handleMetricFilterChange('all')}
+          >
             <Group justify="space-between" mb="xs">
               <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>총 인원</Text>
               <ThemeIcon variant="light" color="blue" radius="md" size="lg">
@@ -2071,12 +2131,25 @@ export default function DashboardPage() {
               <Text fw={800} size="2.5rem" lh={1}>{metrics.total}</Text>
               <Text c="dimmed" size="sm" mb={6}>명</Text>
             </Group>
-            <Text c="green" size="xs" fw={700} mt="md">
-              가입 완료 FC 현황
-            </Text>
+            <Group justify="space-between" mt="md" gap="xs">
+              <Text c="green" size="xs" fw={700}>가입 완료 FC 현황</Text>
+              {metricFilter === 'all' && <Badge size="xs" variant="light" color="blue">전체 보기</Badge>}
+            </Group>
           </Card>
 
-          <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
+          <Card
+            component="button"
+            type="button"
+            padding="lg"
+            radius="md"
+            withBorder
+            shadow="sm"
+            className={styles.metricCard}
+            data-active={metricFilter === 'pendingAllowance' || undefined}
+            data-tone="allowance"
+            aria-pressed={metricFilter === 'pendingAllowance'}
+            onClick={() => handleMetricFilterChange('pendingAllowance')}
+          >
             <Group justify="space-between" mb="xs">
               <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>보증 보험 동의 승인 대기</Text>
               <ThemeIcon variant="light" color="orange" radius="md" size="lg">
@@ -2087,12 +2160,25 @@ export default function DashboardPage() {
               <Text fw={800} size="2.5rem" lh={1}>{metrics.pendingAllowance}</Text>
               <Text c="dimmed" size="sm" mb={6}>건</Text>
             </Group>
-            <Text c="orange" size="xs" fw={700} mt="md">
-              승인 필요
-            </Text>
+            <Group justify="space-between" mt="md" gap="xs">
+              <Text c="orange" size="xs" fw={700}>승인 필요</Text>
+              {metricFilter === 'pendingAllowance' && <Badge size="xs" color="orange">필터 적용</Badge>}
+            </Group>
           </Card>
 
-          <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
+          <Card
+            component="button"
+            type="button"
+            padding="lg"
+            radius="md"
+            withBorder
+            shadow="sm"
+            className={styles.metricCard}
+            data-active={metricFilter === 'pendingDocs' || undefined}
+            data-tone="documents"
+            aria-pressed={metricFilter === 'pendingDocs'}
+            onClick={() => handleMetricFilterChange('pendingDocs')}
+          >
             <Group justify="space-between" mb="xs">
               <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>서류검토 대기</Text>
               <ThemeIcon variant="light" color="indigo" radius="md" size="lg">
@@ -2103,9 +2189,10 @@ export default function DashboardPage() {
               <Text fw={800} size="2.5rem" lh={1}>{metrics.pendingDocs}</Text>
               <Text c="dimmed" size="sm" mb={6}>건</Text>
             </Group>
-            <Text c="indigo" size="xs" fw={700} mt="md">
-              검토 필요
-            </Text>
+            <Group justify="space-between" mt="md" gap="xs">
+              <Text c="indigo" size="xs" fw={700}>검토 필요</Text>
+              {metricFilter === 'pendingDocs' && <Badge size="xs" color="indigo">필터 적용</Badge>}
+            </Group>
           </Card>
         </SimpleGrid>
 
@@ -2141,7 +2228,7 @@ export default function DashboardPage() {
             <Group justify="space-between">
               <Tabs
                 value={activeTab}
-                onChange={setActiveTab}
+                onChange={handleActiveTabChange}
                 variant="pills"
                 radius="xl"
                 color="dark"
@@ -2612,13 +2699,19 @@ export default function DashboardPage() {
                       leftSection={<IconSend size={16} />}
                       disabled={isReadOnly}
                       onClick={async () => {
-                        // sendPushNotification handles both DB insert and push notification
-                        await sendPushNotification(selectedFc.phone, {
+                        // Resolve the current notification recipient from the stable FC id on the server.
+                        const notificationResult = await sendPushNotificationForFc(selectedFc.id, {
                           title: '진행 요청',
                           body: '관리자가 진행을 요청하였습니다.',
                           data: { url: '/' },
                         });
-                        notifications.show({ title: '전송 완료', message: '알림을 보냈습니다.', color: 'blue' });
+                        notifications.show(notificationResult.success
+                          ? { title: '전송 완료', message: '알림을 보냈습니다.', color: 'blue' }
+                          : {
+                              title: '전달 확인 필요',
+                              message: '알림 저장 또는 기기 전달을 완료하지 못했습니다.',
+                              color: 'yellow',
+                            });
                       }}
                     >
                       재촉 알림
@@ -2752,7 +2845,10 @@ export default function DashboardPage() {
                                                 reason: manualApprovalNote,
                                               });
                                               if (res.success) {
-                                                notifications.show({ title: '승인', message: res.message, color: 'green' });
+                                                const notificationWarning = getAdminNotificationWarning(res);
+                                                notifications.show(notificationWarning
+                                                  ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
+                                                  : { title: '승인', message: res.message, color: 'green' });
                                                 const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
                                                   doc.doc_type === d.doc_type
                                                     ? { ...doc, status: nextStatus, reviewer_note: manualApprovalNote }

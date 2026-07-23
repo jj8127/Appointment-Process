@@ -15,6 +15,7 @@ type UpdateAppointmentState = {
     success: boolean;
     message?: string;
     error?: string;
+    warning?: string;
 };
 
 const HANWHA_APPROVED_STATUSES = ['hanwha-commission-approved', 'appointment-completed', 'final-link-sent'] as const;
@@ -137,10 +138,14 @@ export async function updateAppointmentAction(
     }
 
     const phoneResult = parseFcNotificationPhone(currentProfile.phone);
+    const notificationPhone = phoneResult.ok ? phoneResult.value : null;
     if (!phoneResult.ok) {
-        return { success: false, error: phoneResult.error };
+        logger.warn('[appointment/actions] notification target unavailable', {
+            category: 'push_delivery',
+            reason: 'invalid_recipient',
+            status: 'skipped',
+        });
     }
-    const notificationPhone = phoneResult.value;
 
     if (!hasExistingInsuranceActivity(currentProfile) && !hasHanwhaApprovedPdf(currentProfile)) {
         return { success: false, error: '다위촉 URL 승인과 PDF 등록이 끝난 뒤에만 생명/손해 위촉 단계를 진행할 수 있습니다.' };
@@ -201,28 +206,22 @@ export async function updateAppointmentAction(
         }
     }
 
-    // 3. Insert Notification History
-    const { error: notifError } = await adminSupabase.from('notifications').insert({
-        title: notifTitle,
-        body: notifBody,
-        target_url: '/appointment',
-        recipient_role: 'fc',
-        resident_id: notificationPhone,
-    });
-    if (notifError) logger.error('Notification insert failed:', notifError);
-
-    // 4. Send Push Notification
-    const { success, error: pushError } = await sendPushNotification(notificationPhone, {
-        title: notifTitle,
-        body: notifBody,
-        data: { url: '/appointment' },
-        skipNotificationInsert: true,
-    });
-
-    if (!success) {
-        logger.error('[push][appointment] failed:', pushError);
+    // Notification is a post-commit side effect. Delivery failure must not report
+    // the already-persisted appointment mutation as failed.
+    let notificationWarning: string | undefined;
+    if (notificationPhone) {
+        const notificationResult = await sendPushNotification(notificationPhone, {
+            title: notifTitle,
+            body: notifBody,
+            data: { url: '/appointment' },
+        });
+        if (!notificationResult.success) {
+            notificationWarning = '처리는 완료되었지만 알림 전달이 일부 또는 전부 실패했습니다.';
+        }
+    } else {
+        notificationWarning = '처리는 완료되었지만 알림 수신 대상을 확인할 수 없습니다.';
     }
 
     revalidatePath('/dashboard/appointment');
-    return { success: true, message: '처리 완료' };
+    return { success: true, message: '처리 완료', warning: notificationWarning };
 }

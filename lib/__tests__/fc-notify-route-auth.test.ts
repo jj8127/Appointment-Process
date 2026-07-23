@@ -15,6 +15,7 @@ const root = join(__dirname, '..', '..');
 const routePath = join(root, 'web', 'src', 'app', 'api', 'fc-notify', 'route.ts');
 const serverSessionPath = join(root, 'web', 'src', 'lib', 'server-session.ts');
 const examApplicantsPath = join(root, 'web', 'src', 'app', 'dashboard', 'exam', 'applicants', 'page.tsx');
+const examApplicantNotificationClientPath = join(root, 'web', 'src', 'lib', 'exam-applicant-notification-client.ts');
 
 describe('FC notify proxy ingress authentication', () => {
   it('requires the public route to authenticate browser and Request Board ingress before proxying', () => {
@@ -27,6 +28,10 @@ describe('FC notify proxy ingress authentication', () => {
     expect(route).not.toContain('body: JSON.stringify(body)');
     expect(route).not.toContain('JSON.stringify(rawBody)');
     expect(route).toContain('body: JSON.stringify(payload)');
+    expect(route).toContain('signal: AbortSignal.timeout(FC_NOTIFY_PROXY_TIMEOUT_MS)');
+    expect(route).toContain('ok: response.ok && downstreamOk');
+    expect(route).toContain("reason: timedOut ? 'timeout' : 'network_error'");
+    expect(route).not.toMatch(/catch \{\s*data = text;\s*\}/);
     expect(route).toContain('headers: SECURITY_HEADERS');
     expect(route.indexOf('classifyFcNotifyIngress(rawBody')).toBeLessThan(
       route.indexOf('getVerifiedServerSession({'),
@@ -380,9 +385,13 @@ describe('FC notify proxy ingress authentication', () => {
     })).toMatchObject({ ok: false, status: 403 });
 
     const examApplicants = readFileSync(examApplicantsPath, 'utf8');
-    expect(examApplicants).toContain("fetch('/api/fc-notify'");
-    expect(examApplicants).toContain("type: 'exam_approval_notify'");
+    const examNotificationClient = readFileSync(examApplicantNotificationClientPath, 'utf8');
+    expect(examApplicants).toContain("from '@/lib/exam-applicant-notification-client'");
+    expect(examApplicants).toContain('notifyFcExamApprovalStatus(');
+    expect(examNotificationClient).toContain("fetch('/api/fc-notify'");
+    expect(examNotificationClient).toContain("type: 'exam_approval_notify'");
     expect(examApplicants).not.toContain("functions.invoke('fc-notify'");
+    expect(examNotificationClient).not.toContain("functions.invoke('fc-notify'");
   });
 
   it('preserves the authenticated FC-to-admin message path without trusting browser identity', () => {

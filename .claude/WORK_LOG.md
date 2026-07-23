@@ -25,6 +25,17 @@
 |---|---|---|---|
 | 07-22 | Bound mobile design-request creation to 30 seconds while preserving the 8-second default and no automatic write retry | `lib/request-board-api.ts`, focused API contract, mobile Request Board handbook | [detail](WORK_DETAIL.md#20260722-request-board-create-timeout) |
 | 07-22 | Removed duplicate Request Board refreshes and first-render blockers from mobile home, list, and create flows | `app/request-board*.tsx`, `lib/request-board-refresh-policy.ts`, bridge API contracts | [detail](WORK_DETAIL.md#20260722-request-board-mobile-performance) |
+| 07-22 | Repaired admin exam registration keyboard avoidance, location-add state feedback, and newest-first round ordering | `app/exam-register*.tsx`, `lib/exam-flow-contract.ts`, focused contract | [detail](WORK_DETAIL.md#20260722-exam-register-interaction) |
+| 07-22 | Diagnosed the Production exam-save RPC rollout gap and hardened post-login navigation in the admin web | `web/src/app/auth/page.tsx`, exam schedule action, Vercel/Supabase evidence | [detail](WORK_DETAIL.md#20260722-admin-web-exam-save-and-login) |
+| 07-22 | Added applicant row detail/reception/previous-next flow and refined the applicant table hover, filters, summary cards, header keys, and reception-state colors | `web/src/app/dashboard/exam/applicants/*`, admin applicant API, focused source/display contracts | [detail](WORK_DETAIL.md#20260722-admin-exam-applicant-detail) |
+| 07-22 | Connected dashboard total/allowance/docs KPI cards to accessible FC-list filters with toggle and tab-reset behavior | `web/src/app/dashboard/page.tsx`, dashboard metric source contract, dashboard handbook | [detail](WORK_DETAIL.md#20260722-admin-dashboard-metric-filters) |
+| 07-22 | Added the current internal unread-message count to the GaramIn home messenger shortcut with capped badge and accessible label | `app/index.tsx`, home source contract, mobile messenger handbook | [detail](WORK_DETAIL.md#20260722-home-messenger-unread-badge) |
+
+## 2026-07-23
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 07-23 | Replaced silent fire-and-forget admin direct-chat push dispatch with post-commit keepalive delivery confirmation and partial-failure feedback | `web/src/app/dashboard/chat/page.tsx`, notification result parser/test, notification handbook | [detail](WORK_DETAIL.md#20260723-admin-chat-mobile-push-confirmation) |
 
 ## 2026-07-16
 
@@ -593,6 +604,21 @@
 - Confirmed the previously failing designer rejection works after the schema rollout.
 - Added an explicit `거절 완료` acknowledgement to the mobile home quick-card rejection path and regression coverage.
 - See [details](WORK_DETAIL.md#20260721-request-board-rejection-repair).
+
+## 2026-07-23 Notification delivery truthfulness audit and scoped release
+
+- Audited admin web, GaramIn mobile, and FC Edge notification paths for post-commit false success, provider-ticket rejection, wrong recipient scope, and retry-inducing 500 responses.
+- Added strict accepted-ticket accounting, shared-admin workflow targeting, manager group-chat fanout, visible partial-delivery warnings, and privacy-safe aggregate diagnostics.
+- No schema migration is required; the release lane contains five named Edge Functions plus the admin web artifact. Store/OTA/native rollout remains excluded.
+- See [details](WORK_DETAIL.md#20260723-notification-delivery-truthfulness).
+
+## 2026-07-23 Release-candidate stabilization gates
+
+- Reconciled notification source contracts with the authenticated `admin-action` path, closed dynamic Edge diagnostics through the reviewed diagnostic helper, and fixed the board-create loopback fixture to prove accepted Expo ticket counts.
+- Expanded the FC admin-web Turbopack root to the repository root so shared notification delivery code is included in production builds.
+- Full Jest and coverage runs passed 145 suites / 795 tests; 46 Edge entrypoints passed Deno check; Expo web, admin web, governance, lint, TypeScript, board smoke, and aggregate Node tests passed.
+- All FC root and admin-web npm audit scopes report zero vulnerabilities.
+- See [details](WORK_DETAIL.md#20260723-release-candidate-stabilization).
 
 ## 2026-07-21 시험 신청자 빠른 본부 분류 추가
 

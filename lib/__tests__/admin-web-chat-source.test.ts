@@ -46,7 +46,7 @@ describe('admin web direct chat list source', () => {
     expect(page).toContain('ROOM_POLL_INTERVAL_MS = 15000');
   });
 
-  it('keeps admin direct message sends responsive with narrow message selects and background notifications', () => {
+  it('keeps admin direct message sends optimistic while confirming post-commit mobile notifications', () => {
     const page = readFileSync(chatPagePath, 'utf8');
     const sendStart = page.indexOf('const handleSendMessage');
     const sendEnd = page.indexOf('const handleKeyDown', sendStart);
@@ -56,9 +56,19 @@ describe('admin web direct chat list source', () => {
     expect(page).toContain('.select(MESSAGE_SELECT_COLUMNS)');
     expect(page).not.toContain(".select('*')");
     expect(sendSource).toContain("setInputText('');");
-    expect(sendSource).toContain('void sendFcMessageNotification({');
-    expect(sendSource).not.toContain("await fetch('/api/fc-notify'");
+    expect(sendSource).toContain('await sendFcMessageNotification({');
+    expect(sendSource).toContain("title: '메시지 전송 완료'");
+    expect(sendSource).toContain('메시지는 저장됐지만 가람in 푸시 알림 전달을 확인하지 못했습니다.');
+    expect(sendSource.indexOf('if (error) throw error;')).toBeLessThan(
+      sendSource.indexOf('await sendFcMessageNotification({'),
+    );
+    expect(sendSource.indexOf('await sendFcMessageNotification({')).toBeLessThan(
+      sendSource.indexOf("title: '메시지 전송 완료'"),
+    );
     expect(sendSource).not.toContain("await supabase.from('notifications')");
+    expect(page).toContain('keepalive: true');
+    expect(page).toContain('classifyAdminChatNotificationResult(resp.status, responseBody)');
+    expect(page).not.toContain('data,\n        });');
   });
 
   it('does not lock the direct chat composer while a previous send is still saving', () => {
@@ -126,8 +136,28 @@ describe('admin web direct chat list source', () => {
     expect(adminPushRoute).toContain('normalizeAdminNotificationTargetId');
     expect(adminPushRoute).toContain('fetchSharedAdminResidentIds');
     expect(adminPushRoute).toContain("account.staff_type !== 'developer'");
-    expect(adminPushRoute).toContain("query = query.eq('resident_id', normalizedTargetId)");
-    expect(adminPushRoute).toContain("query = query.in('resident_id', sharedAdminResidentIds)");
+    expect(adminPushRoute).toContain('resolveConcreteTargetRole(normalizedTargetId)');
+    expect(adminPushRoute).toContain(".eq('resident_id', normalizedTargetId)");
+    expect(adminPushRoute).toContain(".eq('role', targetRole.role)");
+    expect(adminPushRoute).toContain(".eq('role', 'admin')");
+    expect(adminPushRoute).toContain(".in('resident_id', sharedAdminTargets.residentIds)");
+  });
+
+  it('keeps concrete admin web push role-bound and reports delivery truth without identifiers', () => {
+    const route = readFileSync(adminPushRoutePath, 'utf8');
+
+    expect(route).toContain(".from('admin_accounts')");
+    expect(route).toContain(".from('manager_accounts')");
+    expect((route.match(/\.eq\('active', true\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(route).toContain('matchingRoles.length === 1');
+    expect(route).toContain("matchingRoles.push('admin')");
+    expect(route).toContain("matchingRoles.push('manager')");
+    expect(route).toContain('ok: !normalizedTargetId');
+    expect(route).toContain('noTarget: true');
+    expect(route).toContain('ok: result.sent > 0 && result.failed === 0');
+    expect(route).not.toContain('error: error.message');
+    expect(route).not.toContain("subscriptions query failed:', error");
+    expect(route).not.toContain("expired subscription cleanup failed:', deleteError");
   });
 
   it('keeps Edge fc-notify as the single browser-message notification writer and derives sender identity server-side', () => {
@@ -140,7 +170,7 @@ describe('admin web direct chat list source', () => {
     const legacySendEnd = legacyChat.indexOf('const sendMessage =', legacySendStart);
     const legacySendSource = legacyChat.slice(legacySendStart, legacySendEnd);
     const legacyProxyStart = legacySendSource.indexOf("fetch('/api/fc-notify'");
-    const legacyProxyEnd = legacySendSource.indexOf('const data =', legacyProxyStart);
+    const legacyProxyEnd = legacySendSource.indexOf('const responseBody:', legacyProxyStart);
     const legacyProxySource = legacySendSource.slice(legacyProxyStart, legacyProxyEnd);
 
     expect(dashboardNotifySource).not.toContain("from('notifications').insert");
@@ -149,6 +179,12 @@ describe('admin web direct chat list source', () => {
     expect(legacySendSource).not.toContain("from('notifications').insert");
     expect(legacyProxySource).not.toContain('sender_id:');
     expect(legacyProxySource).not.toContain('sender_name:');
+    expect(legacySendSource).toContain('keepalive: true');
+    expect(legacySendSource).toContain('classifyFcNotificationResult(resp.status, responseBody)');
+    expect(legacySendSource).toContain('메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.');
+    expect(legacySendSource).not.toContain('fc-notify proxy response');
+    expect(legacySendSource).not.toContain('fc-notify proxy error');
+    expect(legacySendSource).not.toContain('responseBody,');
   });
 
   it('keeps Edge notification inbox and mobile push fanout separated by shared admin vs personal admin targets', () => {

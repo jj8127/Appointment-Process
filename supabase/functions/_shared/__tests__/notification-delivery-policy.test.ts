@@ -28,4 +28,34 @@ describe('notification delivery policy', () => {
       filterManagerTokensForNotification(tokens, { category: 'exam_round', targetId: null }).map((token) => token.expo_push_token),
     ).toEqual(['admin-token', 'fc-token']);
   });
+
+  it('keeps managers only for affiliation-scoped FC lifecycle delivery', () => {
+    expect(
+      filterManagerTokensForNotification(tokens, {
+        category: 'fc_update',
+        targetId: null,
+        allowScopedManagerLifecycle: true,
+      }).map((token) => token.expo_push_token),
+    ).toEqual(['admin-token', 'fc-token', 'manager-token']);
+    expect(
+      filterManagerTokensForNotification(tokens, {
+        category: 'fc_delete',
+        targetId: null,
+        allowScopedManagerLifecycle: true,
+      }).map((token) => token.expo_push_token),
+    ).toEqual(['admin-token', 'fc-token', 'manager-token']);
+    expect(
+      filterManagerTokensForNotification(tokens, {
+        category: 'notice',
+        targetId: null,
+        allowScopedManagerLifecycle: true,
+      }).map((token) => token.expo_push_token),
+    ).toEqual(['admin-token', 'fc-token']);
+    expect(
+      filterManagerTokensForNotification(tokens, {
+        category: 'fc_update',
+        targetId: null,
+      }).map((token) => token.expo_push_token),
+    ).toEqual(['admin-token', 'fc-token']);
+  });
 });

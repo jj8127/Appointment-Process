@@ -19,6 +19,7 @@ export const runtime = 'nodejs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const FC_NOTIFY_PROXY_TIMEOUT_MS = 10_000;
 
 function json(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, {
@@ -85,25 +86,47 @@ async function proxyToFcNotify(payload: BrowserFcNotifyPayload | Record<string, 
     return json({ error: 'FC notification service is not configured' }, 500);
   }
 
-  const response = await fetch(`${supabaseUrl}/functions/v1/fc-notify`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: serviceKey,
-      Authorization: `Bearer ${serviceKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${supabaseUrl}/functions/v1/fc-notify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(FC_NOTIFY_PROXY_TIMEOUT_MS),
+    });
+  } catch (error: unknown) {
+    const timedOut = error instanceof Error && error.name === 'TimeoutError';
+    logger.warn('[api/fc-notify] downstream request failed', {
+      reason: timedOut ? 'timeout' : 'network_error',
+    });
+    return json({
+      ok: false,
+      error: timedOut ? 'FC notification service timed out' : 'FC notification service is unavailable',
+    }, timedOut ? 504 : 502);
+  }
 
   const text = await response.text();
   let data: unknown = null;
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    data = text;
+    data = null;
   }
 
-  return json({ status: response.status, ok: response.ok, data }, response.status);
+  const downstreamOk = data !== null
+    && typeof data === 'object'
+    && !Array.isArray(data)
+    && (data as Record<string, unknown>).ok === true;
+
+  return json({
+    status: response.status,
+    ok: response.ok && downstreamOk,
+    data,
+  }, response.status);
 }
 
 export async function POST(req: Request) {
@@ -185,7 +208,7 @@ export async function POST(req: Request) {
     return await proxyToFcNotify(browserPolicy.payload);
   } catch (error: unknown) {
     logger.error('[api/fc-notify] protected proxy failed', {
-      message: error instanceof Error ? error.message : String(error),
+      reason: error instanceof Error ? error.name : 'unknown_error',
     });
     return json({ error: '\uc694\uccad \ucc98\ub9ac\uc5d0 \uc2e4\ud328\ud588\uc2b5\ub2c8\ub2e4.' }, 500);
   }

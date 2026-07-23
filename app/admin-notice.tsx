@@ -21,7 +21,7 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { invokeFcNotify } from '@/lib/fc-notify-client';
+import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
 
@@ -143,23 +143,15 @@ export default function AdminNoticeScreen() {
 
   // 공지 등록 후 모든 FC에게 알림 + 푸시 전송
   const notifyAllFcs = async (titleText: string, bodyText: string, categoryText?: string, url?: string) => {
-    try {
-      const { data, error } = await invokeFcNotify({
-          type: 'notify',
-          target_role: 'fc',
-          target_id: null,
-          title: `공지: ${titleText}`,
-          body: bodyText,
-          category: categoryText || '공지',
-          url: url ?? '/notice',
-      });
-      if (error) throw error;
-      if (!data?.ok) {
-        throw new Error(data?.message ?? '공지 알림 전송 실패');
-      }
-    } catch (pushErr) {
-      logger.warn('notifyAllFcs push error', { error: pushErr });
-    }
+    return invokeFcNotifyForDelivery({
+      type: 'notify',
+      target_role: 'fc',
+      target_id: null,
+      title: `공지: ${titleText}`,
+      body: bodyText,
+      category: categoryText || '공지',
+      url: url ?? '/notice',
+    });
   };
 
   const submit = async () => {
@@ -205,8 +197,13 @@ export default function AdminNoticeScreen() {
       if (error) throw error;
 
       const noticeUrl = insertedNotice?.id ? `/notice-detail?id=${insertedNotice.id}` : '/notice';
-      await notifyAllFcs(title.trim(), body.trim(), category.trim(), noticeUrl);
-      Alert.alert('등록 완료', '공지사항이 성공적으로 등록되었습니다.');
+      const notificationResult = await notifyAllFcs(title.trim(), body.trim(), category.trim(), noticeUrl);
+      Alert.alert(
+        notificationResult.confirmed ? '등록 완료' : '등록 완료 · 알림 확인 필요',
+        notificationResult.confirmed
+          ? '공지사항이 성공적으로 등록되었습니다.'
+          : '공지사항은 등록됐지만 가람in 알림 전달을 확인하지 못했습니다.',
+      );
       setTitle('');
       setBody('');
       setCategory('공지사항');

@@ -42,7 +42,7 @@ import { useState } from 'react';
 import { z } from 'zod';
 
 import { useSession } from '@/hooks/use-session';
-import { sortExamRoundsByExamDateThenDeadline } from '@/lib/exam-round-sort';
+import { sortExamRoundsNewestFirst } from '@/lib/exam-round-sort';
 
 // --- Constants ---
 const HANWHA_ORANGE = '#f36f21';
@@ -57,6 +57,7 @@ type ExamRound = {
     round_label: string;
     exam_type?: 'life' | 'nonlife' | string;
     notes?: string;
+    created_at?: string;
     locations: { id: string; location_name: string }[];
 };
 
@@ -151,13 +152,21 @@ export default function ExamSchedulePage() {
             if (!result.success) {
                 throw new Error(result.error || '저장 실패');
             }
+            return result;
         },
-        onSuccess: () => {
+        onSuccess: (result) => {
             notifications.show({
                 title: editingId ? '수정 완료' : '등록 완료',
                 message: `시험 일정이 ${editingId ? '수정' : '등록'}되었습니다.`,
                 color: 'green',
             });
+            if (result.notificationWarning) {
+                notifications.show({
+                    title: '알림 전달 확인 필요',
+                    message: result.notificationWarning,
+                    color: 'orange',
+                });
+            }
             queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
             handleClose();
         },
@@ -243,7 +252,7 @@ export default function ExamSchedulePage() {
     // --- Render ---
     const deadlineCutoff = (dateStr: string) => dayjs(dateStr).endOf('day');
 
-    const sortedRounds = sortExamRoundsByExamDateThenDeadline(rounds ?? []);
+    const sortedRounds = sortExamRoundsNewestFirst(rounds ?? []);
 
     const rows = sortedRounds.map((round) => {
         const cutoff = deadlineCutoff(round.registration_deadline);
@@ -447,7 +456,7 @@ export default function ExamSchedulePage() {
                                     </Badge>
                                 </Group>
                                 <Stack gap="xs">
-                                    {rounds?.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).slice(0, 4).map(r => (
+                                    {sortedRounds.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).slice(0, 4).map(r => (
                                         <Paper key={r.id} withBorder p="sm" radius="md" bg="white">
                                             <Text size="sm" fw={700}>{r.round_label}</Text>
                                             <Group gap={6} mt={4}>
@@ -462,7 +471,7 @@ export default function ExamSchedulePage() {
                                             </Group>
                                         </Paper>
                                     ))}
-                                    {!rounds?.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).length && (
+                                    {!sortedRounds.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).length && (
                                         <Text size="xs" c="dimmed">예정된 일정이 없습니다.</Text>
                                     )}
                                 </Stack>

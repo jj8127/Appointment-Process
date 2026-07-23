@@ -1,4 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { logger } from '@/lib/logger';
 import { registerPushToken } from '@/lib/notifications';
 import {
@@ -105,6 +106,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [requestBoardSyncError, setRequestBoardSyncError] = useState<string | null>(null);
   const requestBoardSyncPromiseRef = useRef<Promise<{ ok: boolean; error?: string; needsRelogin?: boolean }> | null>(null);
   const lastPushRegistrationKeyRef = useRef<string | null>(null);
+  const pushRegistrationPromiseRef = useRef<{
+    key: string;
+    promise: ReturnType<typeof registerPushToken>;
+  } | null>(null);
 
   const replaceAppSessionToken = useCallback(async (token: string | null) => {
     setAppSessionTokenState(token);
@@ -380,12 +385,67 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         ? 'manager'
         : (state.role as 'admin' | 'fc');
 
-    const timer = setTimeout(() => {
-      lastPushRegistrationKeyRef.current = pushRegistrationKey;
-      void registerPushToken(pushRole, state.residentId, state.displayName);
-    }, 1000);
+    const retryDelaysMs = [1000, 2000, 5000, 10000] as const;
+    let attempt = 0;
+    let exhausted = false;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    return () => clearTimeout(timer);
+    const scheduleAttempt = (delayMs: number) => {
+      if (cancelled || timer || lastPushRegistrationKeyRef.current === pushRegistrationKey) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void runAttempt();
+      }, delayMs);
+    };
+
+    const runAttempt = async () => {
+      if (cancelled || lastPushRegistrationKeyRef.current === pushRegistrationKey) return;
+
+      let registrationPromise = pushRegistrationPromiseRef.current;
+      if (!registrationPromise || registrationPromise.key !== pushRegistrationKey) {
+        const promise = registerPushToken(pushRole, state.residentId, state.displayName);
+        registrationPromise = { key: pushRegistrationKey, promise };
+        pushRegistrationPromiseRef.current = registrationPromise;
+        void promise.finally(() => {
+          if (pushRegistrationPromiseRef.current?.promise === promise) {
+            pushRegistrationPromiseRef.current = null;
+          }
+        });
+      }
+
+      const result = await registrationPromise.promise;
+      if (cancelled) return;
+
+      if (result.ok || !result.retryable) {
+        lastPushRegistrationKeyRef.current = pushRegistrationKey;
+        exhausted = false;
+        return;
+      }
+
+      attempt += 1;
+      if (attempt < retryDelaysMs.length) {
+        scheduleAttempt(retryDelaysMs[attempt]);
+      } else {
+        exhausted = true;
+        logger.warn('[push] registration retries exhausted', { reason: result.reason });
+      }
+    };
+
+    scheduleAttempt(retryDelaysMs[attempt]);
+
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' || !exhausted || cancelled) return;
+      attempt = 0;
+      exhausted = false;
+      scheduleAttempt(0);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      appStateSubscription.remove();
+    };
   }, [
     hydrated,
     state.role,

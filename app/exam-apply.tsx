@@ -26,7 +26,7 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useSession } from '@/hooks/use-session';
 import { canUseFcExamApply } from '@/lib/exam-role';
-import { invokeFcNotify } from '@/lib/fc-notify-client';
+import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import {
   formatMissingExamApplicationFields,
   getMissingExamApplicationFields,
@@ -34,6 +34,7 @@ import {
 import {
   INVALID_EXAM_LOCATION_MESSAGE,
   buildExamApplyNotificationPayloads,
+  createExamApplyRealtimeChannelTopic,
   getExamApplyRestoredSelectionState,
   getExamFeeAccountCopyText,
   getExamFlowConfig,
@@ -85,10 +86,9 @@ const CARD_SHADOW = {
 };
 
 async function notifyExamFlow(payload: ExamNotifyPayload) {
-  const { data, error } = await invokeFcNotify(payload);
-  if (error) throw error;
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '알림 전송 실패');
+  const result = await invokeFcNotifyForDelivery(payload);
+  if (!result.confirmed) {
+    throw new Error('알림 전달을 확인하지 못했습니다.');
   }
 }
 
@@ -254,6 +254,8 @@ export default function ExamApplyScreen() {
     return new Date() > deadline;
   };
 
+  const hasAvailableRounds = allRounds.some((round) => !isRoundClosed(round));
+
   const selectedRound = useMemo(
     () => allRounds.find((r) => r.id === selectedRoundId) ?? null,
     [allRounds, selectedRoundId],
@@ -307,7 +309,7 @@ export default function ExamApplyScreen() {
   useEffect(() => {
     if (!residentId) return;
     const regChannel = supabase
-      .channel(`${examFlowConfig.applyRealtimeChannelPrefix}-${residentId}`)
+      .channel(createExamApplyRealtimeChannelTopic(examFlowConfig.applyRealtimeChannelPrefix))
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'exam_registrations', filter: `resident_id=eq.${residentId}` },
@@ -315,7 +317,7 @@ export default function ExamApplyScreen() {
       )
       .subscribe();
     return () => {
-      supabase.removeChannel(regChannel);
+      void supabase.removeChannel(regChannel);
     };
   }, [residentId, refetchMyApply]);
 
@@ -448,9 +450,15 @@ export default function ExamApplyScreen() {
           failedTargets,
         });
       }
+      return { failedTargets };
     },
-    onSuccess: () => {
-      Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');
+    onSuccess: ({ failedTargets }) => {
+      Alert.alert(
+        failedTargets.length > 0 ? '신청 완료 · 알림 확인 필요' : '신청 완료',
+        failedTargets.length > 0
+          ? '시험 신청은 정상적으로 등록됐지만 가람in 알림 전달을 확인하지 못했습니다.'
+          : '시험 신청이 정상적으로 등록되었습니다.',
+      );
       refetchMyApply();
     },
     onSettled: (_data, error) => {
@@ -788,6 +796,14 @@ export default function ExamApplyScreen() {
               <BrandedLoadingState variant="exam" layout="section" />
             ) : (
               <View style={styles.listContainer}>
+                {!hasAvailableRounds && (
+                  <View style={styles.availableRoundsEmptyState}>
+                    <Feather name="calendar" size={28} color={MUTED} />
+                    <Text style={styles.availableRoundsEmptyText}>
+                      현재 신청 가능한 시험이 없습니다.
+                    </Text>
+                  </View>
+                )}
                 {allRounds.map((round, idx) => {
                   const isActive = round.id === selectedRoundId;
                   const closed = isRoundClosed(round);
@@ -1145,6 +1161,22 @@ const styles = StyleSheet.create({
   section: { marginBottom: 32 },
   sectionHeader: { fontSize: 20, fontWeight: '800', color: CHARCOAL, marginBottom: 12 }, // 17 -> 20
   listContainer: { gap: 10 },
+  availableRoundsEmptyState: {
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#fff',
+  },
+  availableRoundsEmptyText: {
+    color: MUTED,
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
 
   selectionCard: {
     backgroundColor: '#fff',

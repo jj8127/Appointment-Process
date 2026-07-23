@@ -21,6 +21,8 @@ type WebPushPayload = {
   data?: Record<string, unknown>;
 };
 
+const WEB_PUSH_TIMEOUT_MS = 8_000;
+
 let configInitialized = false;
 let configState: {
   enabled: boolean;
@@ -103,11 +105,7 @@ export async function sendWebPush(
     data: payload.data ?? {},
   });
 
-  const expired: string[] = [];
-  let sent = 0;
-  let failed = 0;
-
-  for (const sub of subscriptions) {
+  const results = await Promise.all(subscriptions.map(async (sub) => {
     try {
       await webpush.sendNotification(
         {
@@ -115,17 +113,32 @@ export async function sendWebPush(
           keys: { p256dh: sub.p256dh, auth: sub.auth },
         },
         message,
+        { timeout: WEB_PUSH_TIMEOUT_MS },
       );
-      sent += 1;
+      return { sent: 1, failed: 0, expiredEndpoint: null as string | null };
     } catch (err: unknown) {
       const error = err as { statusCode?: number };
-      failed += 1;
-      if (error?.statusCode === 404 || error?.statusCode === 410) {
-        expired.push(sub.endpoint);
-      }
-      logger.warn('[web-push] send failed', error?.statusCode ?? err);
+      logger.warn('[web-push] send failed', {
+        category: 'web_push',
+        reason: 'provider_rejected',
+        status: typeof error?.statusCode === 'number' ? error.statusCode : 'unknown',
+      });
+      return {
+        sent: 0,
+        failed: 1,
+        expiredEndpoint:
+          error?.statusCode === 404 || error?.statusCode === 410
+            ? sub.endpoint
+            : null,
+      };
     }
-  }
+  }));
+
+  const sent = results.reduce((total, result) => total + result.sent, 0);
+  const failed = results.reduce((total, result) => total + result.failed, 0);
+  const expired = results
+    .map((result) => result.expiredEndpoint)
+    .filter((endpoint): endpoint is string => Boolean(endpoint));
 
   return { sent, failed, expired };
 }

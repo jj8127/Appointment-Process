@@ -2,8 +2,14 @@ doc_id: FC-HANDBOOK-DEVELOPER-ONBOARDING
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer
-last_verified: 2026-07-16
+last_verified: 2026-07-23
 source_of_truth: package.json + web/package.json + .env.example + web/.env.example
+
+## 2026-07-23 Dependency security gate
+
+- Run `npm audit --omit=dev --audit-level=high` at the repository root and `npm audit --audit-level=high` in `web` before a production release.
+- The admin web pins the patched Next.js patch release and overrides its optional Sharp runtime to the audited compatible release; both the native runtime load and the production web build must pass after any change to that override.
+- Root-only `expo-mcp` advisories are development-tool debt when the production audit is clean. Do not force a breaking MCP downgrade into an application release; record the residual advisory and revisit it when the upstream SDK supports the patched Hono adapter.
 
 # 개발자 온보딩
 

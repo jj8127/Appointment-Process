@@ -53,6 +53,7 @@ import {
   groupChatBootstrap,
   groupChatClearNotice,
   groupChatDeleteMessage,
+  hasGroupChatPostCommitWarning,
   groupChatMarkRead,
   groupChatSend,
   groupChatSetMuted,
@@ -81,6 +82,13 @@ const GROUP_CHAT_REFRESH_INTERVAL_MS = 8_000;
 function showGroupChatErrorAlert(error: unknown) {
   const userError = classifyGroupChatError(error);
   Alert.alert(userError.title, userError.message);
+}
+
+function showGroupChatDeliveryWarning() {
+  Alert.alert(
+    '메시지 전송 완료',
+    '메시지는 저장됐지만 일부 후속 처리를 확인하지 못했습니다.',
+  );
 }
 type OptimisticMessageInput = {
   content: string;
@@ -495,6 +503,7 @@ export default function GroupChatScreen() {
     localMessageId: string,
     input: OptimisticMessageInput & { replyToMessageId?: string | null },
   ) => {
+    let shouldShowDeliveryWarning = false;
     try {
       const result = await groupChatSend({
         content: input.content,
@@ -511,10 +520,16 @@ export default function GroupChatScreen() {
       void groupChatMarkRead(result.message.id).catch((error) => {
         logger.debug('[group-chat] mark read after send failed', error);
       });
+      shouldShowDeliveryWarning = hasGroupChatPostCommitWarning(result);
     } catch (error) {
       updateMessage(localMessageId, { send_status: 'failed' });
       logger.warn('[group-chat] send failed', error);
       showGroupChatErrorAlert(error);
+      return;
+    }
+
+    if (shouldShowDeliveryWarning) {
+      showGroupChatDeliveryWarning();
     }
   }, [applyMessages, updateMessage]);
 

@@ -18,6 +18,10 @@ const normalizeToken = (value?: string | null) =>
     .trim();
 const ADMIN_CHAT_ID = 'admin';
 const sanitizePhoneDigits = (value?: string | null) => String(value ?? '').replace(/[^0-9]/g, '');
+type AdminPushSubscriptionRole = 'admin' | 'manager';
+type ConcreteTargetRoleResult =
+  | { ok: true; role: AdminPushSubscriptionRole }
+  | { ok: false; reason: 'lookup_failed' | 'not_allowed' };
 
 const normalizeAdminNotificationTargetId = (value?: string | null) => {
   const raw = String(value ?? '').trim().toLowerCase();
@@ -25,25 +29,68 @@ const normalizeAdminNotificationTargetId = (value?: string | null) => {
   return sanitizePhoneDigits(raw);
 };
 
-async function fetchSharedAdminResidentIds() {
+async function fetchSharedAdminResidentIds(): Promise<
+  { ok: true; residentIds: string[] } | { ok: false }
+> {
   const { data, error } = await adminClient
     .from('admin_accounts')
     .select('phone,staff_type')
     .eq('active', true);
 
   if (error) {
-    logger.error('[admin/push] shared admin account query failed:', error);
-    return [];
+    logger.error('[admin/push] shared admin account query failed', {
+      reason: 'account_lookup_failed',
+    });
+    return { ok: false };
   }
 
-  return Array.from(
-    new Set(
-      (data ?? [])
-        .filter((account) => account.staff_type !== 'developer')
-        .map((account) => sanitizePhoneDigits(account.phone))
-        .filter((phone) => phone.length > 0),
+  return {
+    ok: true,
+    residentIds: Array.from(
+      new Set(
+        (data ?? [])
+          .filter((account) => account.staff_type !== 'developer')
+          .map((account) => sanitizePhoneDigits(account.phone))
+          .filter((phone) => phone.length > 0),
+      ),
     ),
-  );
+  };
+}
+
+async function resolveConcreteTargetRole(
+  normalizedTargetId: string,
+): Promise<ConcreteTargetRoleResult> {
+  const [adminsResult, managersResult] = await Promise.all([
+    adminClient
+      .from('admin_accounts')
+      .select('phone')
+      .eq('active', true),
+    adminClient
+      .from('manager_accounts')
+      .select('phone')
+      .eq('active', true),
+  ]);
+
+  if (adminsResult.error || managersResult.error) {
+    logger.error('[admin/push] concrete target account query failed', {
+      reason: 'account_lookup_failed',
+    });
+    return { ok: false, reason: 'lookup_failed' };
+  }
+
+  const matchingRoles: AdminPushSubscriptionRole[] = [];
+  if ((adminsResult.data ?? []).some((account) => sanitizePhoneDigits(account.phone) === normalizedTargetId)) {
+    matchingRoles.push('admin');
+  }
+  if ((managersResult.data ?? []).some((account) => sanitizePhoneDigits(account.phone) === normalizedTargetId)) {
+    matchingRoles.push('manager');
+  }
+
+  // An ambiguous cross-role identity is rejected instead of delivering to both
+  // subscription roles for the same phone number.
+  return matchingRoles.length === 1
+    ? { ok: true, role: matchingRoles[0] }
+    : { ok: false, reason: 'not_allowed' };
 }
 
 /**
@@ -93,37 +140,76 @@ export async function POST(req: Request) {
   const normalizedTargetId = normalizeAdminNotificationTargetId(targetId);
   let query = adminClient
     .from('web_push_subscriptions')
-    .select('endpoint,p256dh,auth')
-    .eq('role', 'admin');
+    .select('endpoint,p256dh,auth');
 
   if (normalizedTargetId) {
-    query = query.eq('resident_id', normalizedTargetId);
-  } else {
-    const sharedAdminResidentIds = await fetchSharedAdminResidentIds();
-    if (sharedAdminResidentIds.length === 0) {
-      return NextResponse.json({ ok: true, sent: 0, failed: 0 });
+    if (normalizedTargetId.length !== 11) {
+      return NextResponse.json({ ok: false, error: 'Notification target is not allowed' }, { status: 403 });
     }
-    query = query.in('resident_id', sharedAdminResidentIds);
+
+    const targetRole = await resolveConcreteTargetRole(normalizedTargetId);
+    if (!targetRole.ok) {
+      const status = targetRole.reason === 'lookup_failed' ? 500 : 403;
+      const error = targetRole.reason === 'lookup_failed'
+        ? 'Notification target lookup failed'
+        : 'Notification target is not allowed';
+      return NextResponse.json({ ok: false, error }, { status });
+    }
+
+    query = query
+      .eq('resident_id', normalizedTargetId)
+      .eq('role', targetRole.role);
+  } else {
+    const sharedAdminTargets = await fetchSharedAdminResidentIds();
+    if (!sharedAdminTargets.ok) {
+      return NextResponse.json({ ok: false, error: 'Notification target lookup failed' }, { status: 500 });
+    }
+    if (sharedAdminTargets.residentIds.length === 0) {
+      return NextResponse.json({ ok: true, sent: 0, failed: 0, noTarget: true });
+    }
+    query = query
+      .eq('role', 'admin')
+      .in('resident_id', sharedAdminTargets.residentIds);
   }
 
   const { data: subs, error } = await query;
 
   if (error) {
-    logger.error('[admin/push] subscriptions query failed:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    logger.error('[admin/push] subscriptions query failed', {
+      reason: 'subscription_lookup_failed',
+    });
+    return NextResponse.json({ ok: false, error: 'Subscription lookup failed' }, { status: 500 });
   }
 
   if (!subs || subs.length === 0) {
-    return NextResponse.json({ ok: true, sent: 0 });
+    return NextResponse.json({
+      ok: !normalizedTargetId,
+      sent: 0,
+      failed: 0,
+      noTarget: true,
+    });
   }
 
   const normalizedUrl = normalizeAdminDashboardUrl(url ?? '/dashboard');
 
-  const result = await sendWebPush(subs, {
-    title,
-    body: notifBody,
-    data: { url: normalizedUrl },
-  });
+  let result: Awaited<ReturnType<typeof sendWebPush>>;
+  try {
+    result = await sendWebPush(subs, {
+      title,
+      body: notifBody,
+      data: { url: normalizedUrl },
+    });
+  } catch {
+    logger.warn('[admin/push] delivery failed', {
+      reason: 'provider_request_failed',
+    });
+    return NextResponse.json({
+      ok: false,
+      sent: 0,
+      failed: subs.length,
+      noTarget: false,
+    });
+  }
 
   if (result.expired.length > 0) {
     const { error: deleteError } = await adminClient
@@ -131,10 +217,17 @@ export async function POST(req: Request) {
       .delete()
       .in('endpoint', result.expired);
     if (deleteError) {
-      logger.warn('[admin/push] expired subscription cleanup failed:', deleteError);
+      logger.warn('[admin/push] expired subscription cleanup failed', {
+        reason: 'subscription_cleanup_failed',
+      });
     }
   }
 
   logger.debug('[admin/push] sent', { sent: result.sent, failed: result.failed });
-  return NextResponse.json({ ok: true, sent: result.sent, failed: result.failed });
+  return NextResponse.json({
+    ok: result.sent > 0 && result.failed === 0,
+    sent: result.sent,
+    failed: result.failed,
+    noTarget: false,
+  });
 }

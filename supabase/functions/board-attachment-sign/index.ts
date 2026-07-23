@@ -9,7 +9,10 @@ import {
   sanitizeFileName,
   supabase,
 } from '../_shared/board.ts';
-import { isBoardPostWritableByActor } from '../_shared/board-actor-policy.ts';
+import {
+  isBoardPostWritableByActor,
+  isCanonicalBoardAttachmentPath,
+} from '../_shared/board-actor-policy.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 
 type FileInput = {
@@ -17,6 +20,7 @@ type FileInput = {
   mimeType: string;
   fileSize: number;
   fileType: 'image' | 'file';
+  storagePath?: string;
 };
 
 type Payload = {
@@ -67,6 +71,10 @@ serve(async (req: Request) => {
     || file.mimeType.trim().length > 200
     || !Number.isSafeInteger(file.fileSize)
     || file.fileSize <= 0
+    || (file.storagePath !== undefined && (
+      typeof file.storagePath !== 'string'
+      || !file.storagePath.trim()
+    ))
   ));
   if (invalidFile) {
     return json({ ok: false, code: 'invalid_file', message: 'invalid attachment metadata' }, 400, origin);
@@ -109,10 +117,26 @@ serve(async (req: Request) => {
 
   for (const file of files) {
     const sanitized = sanitizeFileName(file.fileName.trim());
-    const storagePath = `board/${postId}/${crypto.randomUUID()}_${sanitized}`;
+    const requestedStoragePath = file.storagePath?.trim();
+    const storagePath = requestedStoragePath
+      ?? `board/${postId}/${crypto.randomUUID()}_${sanitized}`;
+    if (
+      requestedStoragePath
+      && !isCanonicalBoardAttachmentPath({
+        postId,
+        storagePath: requestedStoragePath,
+        fileName: file.fileName.trim(),
+      })
+    ) {
+      return json({
+        ok: false,
+        code: 'invalid_storage_path',
+        message: 'invalid attachment storage path',
+      }, 400, origin);
+    }
     const { data, error } = await supabase.storage
       .from('board-attachments')
-      .createSignedUploadUrl(storagePath);
+      .createSignedUploadUrl(storagePath, { upsert: true });
     if (error || !data?.signedUrl) {
       reportEdgeDiagnostic({
         event: 'board_attachment.storage',

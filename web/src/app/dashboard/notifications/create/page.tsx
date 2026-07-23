@@ -22,7 +22,7 @@ import { Dropzone, FileWithPath, IMAGE_MIME_TYPE } from '@mantine/dropzone';
 import { useForm, zodResolver } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { createBrowserClient } from '@supabase/ssr';
-import { IconArrowLeft, IconCheck, IconFile, IconPhoto, IconSend, IconUpload, IconX } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowLeft, IconCheck, IconFile, IconPhoto, IconSend, IconUpload, IconX } from '@tabler/icons-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -126,12 +126,21 @@ export default function CreateNoticePage() {
 
                 if (result.success) {
                     notifications.show({
-                        title: '전송 완료',
+                        title: result.notificationWarning ? '등록 완료' : '전송 완료',
                         message: result.message,
                         color: 'teal',
                         icon: <IconCheck size={18} />,
                         autoClose: 3000,
                     });
+                    if (result.notificationWarning) {
+                        notifications.show({
+                            title: '알림 전달 확인 필요',
+                            message: result.notificationWarning,
+                            color: 'orange',
+                            icon: <IconAlertTriangle size={18} />,
+                            autoClose: 8000,
+                        });
+                    }
                     router.push('/dashboard/notifications');
                 } else {
                     notifications.show({

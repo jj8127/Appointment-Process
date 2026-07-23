@@ -67,6 +67,28 @@ export type GroupChatMessage = {
   send_status?: 'sending' | 'failed';
 };
 
+export type GroupChatNotificationSummary = {
+  ok: boolean;
+  status: 'skipped' | 'inbox_only' | 'provider_accepted' | 'partial';
+  recipient_count: number;
+  notification_count: number;
+  push_token_count: number;
+  push_accepted_count: number;
+  push_rejected_count: number;
+};
+
+export type GroupChatSendWarning = {
+  code: 'notification_delivery_partial';
+  message: string;
+};
+
+export type GroupChatSendResponse = {
+  message: GroupChatMessage;
+  read_state?: { updated: boolean };
+  notification?: GroupChatNotificationSummary;
+  warning?: GroupChatSendWarning | null;
+};
+
 export type GroupChatBootstrapResponse = {
   room: GroupChatRoom;
   actor: GroupChatActor;
@@ -259,7 +281,15 @@ export async function groupChatBootstrap(limit = 50) {
 }
 
 export async function groupChatSend(input: Parameters<typeof buildGroupChatSendBody>[0]) {
-  return invokeGroupChat<{ message: GroupChatMessage }>(buildGroupChatSendBody(input));
+  return invokeGroupChat<GroupChatSendResponse>(buildGroupChatSendBody(input));
+}
+
+export function hasGroupChatPostCommitWarning(
+  result: Pick<GroupChatSendResponse, 'read_state' | 'notification' | 'warning'>,
+) {
+  return Boolean(result.warning)
+    || result.read_state?.updated === false
+    || result.notification?.ok === false;
 }
 
 export async function groupChatMarkRead(messageId?: string | null) {

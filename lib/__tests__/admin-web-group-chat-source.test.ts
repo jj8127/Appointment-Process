@@ -52,6 +52,7 @@ describe('admin web group chat wiring', () => {
 
   it('supports the expected web group chat surface behavior', () => {
     const page = readWebFile(join('app', 'dashboard', 'group-chat', 'page.tsx'));
+    const client = readWebFile(join('lib', 'group-chat-client.ts'));
 
     expect(page).toContain('groupChatBootstrap');
     expect(page).toContain('groupChatSend');
@@ -66,6 +67,10 @@ describe('admin web group chat wiring', () => {
     expect(page).toContain('chat-uploads');
     expect(page).toContain('group_chat_messages');
     expect(page).toContain('supabase.removeChannel(channel)');
+    expect(client).toContain('GroupChatNotificationSummary');
+    expect(client).toContain('GroupChatSendWarning');
+    expect(page).toContain("result.warning?.code === 'notification_delivery_partial'");
+    expect(page).toContain('showGroupChatDeliveryWarning(result.warning.message)');
   });
 
   it('requires a signed HttpOnly staff session for admin web server routes', () => {

@@ -38,6 +38,10 @@ import { useMemo, useState } from 'react';
 import { StatusToggle } from '@/components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
+import {
+    ADMIN_NOTIFICATION_WARNING_TITLE,
+    getAdminNotificationWarning,
+} from '@/lib/admin-notification-warning';
 import { supabase } from '@/lib/supabase';
 
 import { logger } from '@/lib/logger';
@@ -180,7 +184,6 @@ export default function DocumentsPage() {
                         docType: doc.doc_type,
                         status,
                         reviewerNote: reason,
-                        phone: doc.fc_profiles?.phone,
                     },
                 }),
             });
@@ -192,16 +195,19 @@ export default function DocumentsPage() {
             return {
                 doc,
                 allApproved: Boolean(result?.allApproved),
+                warning: getAdminNotificationWarning(result),
             };
         },
         onSuccess: (updatedDoc) => {
-            notifications.show({
-                title: '처리 완료',
-                message: updatedDoc.allApproved
-                    ? '모든 서류가 승인되어 다위촉 단계로 넘어갑니다.'
-                    : '상태가 변경되었습니다.',
-                color: 'green',
-            });
+            notifications.show(updatedDoc.warning
+                ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: updatedDoc.warning, color: 'yellow' }
+                : {
+                    title: '처리 완료',
+                    message: updatedDoc.allApproved
+                        ? '모든 서류가 승인되어 다위촉 단계로 넘어갑니다.'
+                        : '상태가 변경되었습니다.',
+                    color: 'green',
+                });
             queryClient.invalidateQueries({ queryKey: ['documents-list'] });
             closeReject();
             closePreview();

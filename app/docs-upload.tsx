@@ -23,7 +23,7 @@ import { useToast } from '@/components/Toast';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { invokeFcNotify } from '@/lib/fc-notify-client';
+import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { logger } from '@/lib/logger';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
@@ -71,21 +71,15 @@ async function sendNotificationAndPush(
   body: string,
   url?: string,
 ) {
-  const { error, data } = await invokeFcNotify({
-      type: 'notify',
-      target_role: role,
-      target_id: residentId,
-      title,
-      body,
-      category: 'app_event',
-      url,
+  return invokeFcNotifyForDelivery({
+    type: 'notify',
+    target_role: role,
+    target_id: residentId,
+    title,
+    body,
+    category: 'app_event',
+    url,
   });
-  if (error) {
-    throw error;
-  }
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '알림 전송 실패');
-  }
 }
 
 export default function DocsUploadScreen() {
@@ -349,10 +343,10 @@ export default function DocsUploadScreen() {
       setDocs(updatedDocs);
 
       const nameLabel = fc.name || 'FC';
-      const notificationJobs: Promise<unknown>[] = [
+      const notificationJobs = [
         sendNotificationAndPush(
           'admin',
-          residentId ?? null,
+          null,
           `${nameLabel}님이 ${type}을 제출했습니다.`,
           `${nameLabel}님이 ${type}을 업로드했습니다.`,
           '/dashboard',
@@ -363,7 +357,7 @@ export default function DocsUploadScreen() {
         notificationJobs.push(
           sendNotificationAndPush(
             'admin',
-            residentId ?? null,
+            null,
             `${nameLabel}님이 모든 서류를 제출했습니다.`,
             `${nameLabel}님이 모든 필수 서류를 업로드했습니다.`,
             '/dashboard',
@@ -371,26 +365,19 @@ export default function DocsUploadScreen() {
         );
       }
 
+      const notificationResults = await Promise.all(notificationJobs);
+      const notificationsConfirmed = notificationResults.every((result) => result.confirmed);
+
       setUploadingType(null);
       uploadStateCleared = true;
       logger.debug('[upload] success', { objectPath });
       showToast({
-        message:
-          uploadedCount === updatedDocs.length && updatedDocs.length > 0
+        message: notificationsConfirmed
+          ? uploadedCount === updatedDocs.length && updatedDocs.length > 0
             ? '모든 필수 서류가 제출되었습니다.'
-            : '파일이 정상적으로 등록되었습니다.',
-        variant: 'success',
-      });
-      void Promise.allSettled(notificationJobs).then((results) => {
-        const rejected = results.filter((result) => result.status === 'rejected');
-        if (rejected.length > 0) {
-          logger.warn('[upload] notification failed', {
-            docType: type,
-            failures: rejected.map((result) =>
-              result.status === 'rejected' ? String(result.reason) : 'unknown',
-            ),
-          });
-        }
+            : '파일이 정상적으로 등록되었습니다.'
+          : '알림 확인 필요: 파일은 등록됐지만 관리자 알림 전달을 확인하지 못했습니다.',
+        variant: notificationsConfirmed ? 'success' : 'warning',
       });
     } catch (err: any) {
       logger.warn('[upload] failed', { bucket: BUCKET, error: err?.message ?? err });

@@ -25,10 +25,23 @@ import {
     UnstyledButton
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconChevronDown, IconDownload, IconRefresh, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import {
+    IconCalendarEvent,
+    IconCheck,
+    IconChevronDown,
+    IconDownload,
+    IconListDetails,
+    IconRefresh,
+    IconSearch,
+    IconTrash,
+    IconX,
+} from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
+import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
+
+import styles from './page.module.css';
 
 import {
     buildExamApplicantQuickAffiliationOptions,
@@ -48,6 +61,7 @@ import {
     type ExamApplicantExportColumnKey,
     type ExamApplicantFilterOption,
 } from '@/lib/exam-applicant-list-display';
+import { notifyFcExamApprovalStatus } from '@/lib/exam-applicant-notification-client';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -213,80 +227,115 @@ interface TopFilterMenuProps {
     options: ExamApplicantFilterOption[];
     value: string;
     onChange: (value: string) => void;
+    kind: 'subject' | 'round';
 }
 
-const TopFilterMenu = ({ title, options, value, onChange }: TopFilterMenuProps) => {
+const TopFilterMenu = ({ title, options, value, onChange, kind }: TopFilterMenuProps) => {
     const selected = options.find((option) => option.value === value) ?? options[0];
     const isActive = value !== EXAM_APPLICANT_ALL_FILTER_VALUE;
+    const dropdownWidth = kind === 'round' ? 440 : 280;
+
+    const renderOption = (option: ExamApplicantFilterOption) => {
+        const isSelected = option.value === value;
+        const isAll = option.value === EXAM_APPLICANT_ALL_FILTER_VALUE;
+
+        if (kind === 'round' && !isAll) {
+            const [date = '날짜 미정', round = '회차 미정', ...subjectParts] = option.label.split(' · ');
+            const subject = subjectParts.join(' · ') || '과목 미정';
+
+            return (
+                <Group gap="sm" wrap="nowrap" align="center" w="100%">
+                    <div className={styles.roundDateBadge}>{date}</div>
+                    <Stack gap={1} style={{ minWidth: 0, flex: 1 }}>
+                        <Text size="sm" fw={700} c={isSelected ? 'orange.8' : CHARCOAL} lineClamp={1}>
+                            {round}
+                        </Text>
+                        <Text size="xs" c="dimmed" lineClamp={1}>{subject}</Text>
+                    </Stack>
+                </Group>
+            );
+        }
+
+        return (
+            <Group gap="sm" wrap="nowrap">
+                {isAll
+                    ? <IconListDetails size={17} stroke={1.8} />
+                    : kind === 'round'
+                        ? <IconCalendarEvent size={17} stroke={1.8} />
+                        : null}
+                <Text size="sm" fw={isSelected ? 700 : 600}>{isAll ? '전체 보기' : option.label}</Text>
+            </Group>
+        );
+    };
 
     return (
-        <Menu shadow="md" width={300} position="bottom-start" withinPortal>
+        <Menu shadow="lg" width={dropdownWidth} position="bottom-start" offset={8} withinPortal>
             <Menu.Target>
                 <Button
-                    variant={isActive ? 'filled' : 'light'}
+                    variant="light"
                     color={isActive ? 'orange' : 'gray'}
                     radius="xl"
-                    size="xs"
+                    size="sm"
                     rightSection={<IconChevronDown size={14} />}
+                    aria-label={`${title} 필터, 현재 ${selected?.label ?? '전체'}`}
                     styles={{
-                        root: { maxWidth: '100%', height: 'auto', minHeight: 30, paddingTop: 6, paddingBottom: 6 },
-                        label: { whiteSpace: 'normal', lineHeight: 1.2, wordBreak: 'keep-all', textAlign: 'left' },
+                        root: {
+                            maxWidth: kind === 'round' ? 310 : 210,
+                            height: 38,
+                            paddingTop: 0,
+                            paddingBottom: 0,
+                            border: `1px solid ${isActive ? '#f7b27d' : '#e5e7eb'}`,
+                            boxShadow: isActive ? '0 2px 8px rgba(243, 115, 33, 0.12)' : 'none',
+                        },
+                        inner: {
+                            height: '100%',
+                            alignItems: 'center',
+                        },
+                        label: {
+                            display: 'flex',
+                            height: '100%',
+                            alignItems: 'center',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            lineHeight: 1.2,
+                            textAlign: 'left',
+                        },
                         section: { flexShrink: 0 },
                     }}
                 >
                     {title}: {selected?.label ?? '전체'}
                 </Button>
             </Menu.Target>
-            <Menu.Dropdown style={{ maxHeight: 320, overflowY: 'auto' }}>
-                {options.map((option) => (
-                    <Menu.Item
-                        key={option.value}
-                        color={option.value === value ? 'orange' : undefined}
-                        onClick={() => onChange(option.value)}
-                    >
-                        {option.label}
-                    </Menu.Item>
-                ))}
+            <Menu.Dropdown className={styles.topFilterDropdown}>
+                <Group justify="space-between" px="sm" py="xs" className={styles.topFilterHeading}>
+                    <Text size="xs" fw={800} c="dimmed">{title} 선택</Text>
+                    <Text size="xs" c="dimmed">{Math.max(options.length - 1, 0)}개</Text>
+                </Group>
+                <Divider />
+                <div className={styles.topFilterOptions}>
+                    {options.map((option) => {
+                        const isSelected = option.value === value;
+                        return (
+                            <Menu.Item
+                                key={option.value}
+                                className={styles.topFilterItem}
+                                data-selected={isSelected || undefined}
+                                rightSection={isSelected ? <IconCheck size={17} stroke={2.4} /> : null}
+                                onClick={() => onChange(option.value)}
+                            >
+                                {renderOption(option)}
+                            </Menu.Item>
+                        );
+                    })}
+                </div>
             </Menu.Dropdown>
         </Menu>
     );
 };
 
-const formatExamApprovalInfo = (item: Applicant) => {
-    const dateLabel = item.exam_date ? dayjs(item.exam_date).format('YYYY-MM-DD') : '시험 일정';
-    const roundLabel = item.round_label && item.round_label !== '-' ? ` (${item.round_label})` : '';
-    const locationLabel = item.location_name && item.location_name !== '미정' ? ` [${item.location_name}]` : '';
-    return `${dateLabel}${roundLabel}${locationLabel}`;
-};
-
-async function notifyFcExamApprovalStatus(item: Applicant, isConfirmed: boolean) {
-    const targetId = (item.phone ?? '').replace(/[^0-9]/g, '');
-    if (!targetId) {
-        throw new Error('FC 전화번호를 찾을 수 없습니다.');
-    }
-
-    const response = await fetch('/api/fc-notify', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            type: 'exam_approval_notify',
-            target_id: targetId,
-            is_confirmed: isConfirmed,
-            exam_info: formatExamApprovalInfo(item),
-            exam_type: item.exam_type,
-        }),
-    });
-    const data: unknown = await response.json().catch(() => null);
-    if (!response.ok || !isRecord(data) || data.ok !== true) {
-        const message = isRecord(data) && typeof data.error === 'string'
-            ? data.error
-            : '시험 승인 알림 전송 실패';
-        throw new Error(message);
-    }
-}
-
 export default function ExamApplicantsPage() {
+    const router = useRouter();
     const queryClient = useQueryClient();
     const { isReadOnly, hydrated, role } = useSession();
     const [filters, setFilters] = useState<FilterState>({});
@@ -387,7 +436,7 @@ export default function ExamApplicantsPage() {
     };
 
     // --- Filter Logic ---
-    const filteredRows = useMemo(() => {
+    const baseFilteredRows = useMemo(() => {
         if (!applicants) return [];
         return applicants.filter(item => {
             if (!matchesExamApplicantQuickAffiliation(item.affiliation, quickAffiliation)) {
@@ -409,6 +458,7 @@ export default function ExamApplicantsPage() {
             }
 
             return Object.entries(filters).every(([field, selectedValues]) => {
+                if (field === 'is_confirmed') return true;
                 if (!selectedValues || selectedValues.length === 0) return true;
                 const val = getRowValue(item, field as RowField);
                 return selectedValues.includes(val);
@@ -416,13 +466,40 @@ export default function ExamApplicantsPage() {
         });
     }, [applicants, effectiveExamRoundFilter, examSubjectFilter, filters, quickAffiliation]);
 
+    const filteredRows = useMemo(() => {
+        const selectedStatuses = filters.is_confirmed ?? [];
+        if (selectedStatuses.length === 0) return baseFilteredRows;
+
+        return baseFilteredRows.filter((item) =>
+            selectedStatuses.includes(formatExamApplicantReceptionStatus(item)),
+        );
+    }, [baseFilteredRows, filters.is_confirmed]);
+
     // --- Stats ---
     const stats = useMemo(() => {
-        const total = filteredRows.length;
-        const confirmed = filteredRows.filter(a => a.is_confirmed).length;
+        const total = baseFilteredRows.length;
+        const confirmed = baseFilteredRows.filter(a => a.is_confirmed).length;
         const pending = total - confirmed;
         return { total, confirmed, pending };
-    }, [filteredRows]);
+    }, [baseFilteredRows]);
+
+    const selectedReceptionStatus = filters.is_confirmed?.length === 1
+        ? filters.is_confirmed[0]
+        : null;
+    const setReceptionStatusFilter = (nextStatus: '접수 완료' | '미접수' | null) => {
+        setFilters((current) => {
+            const next = { ...current };
+            const currentStatus = current.is_confirmed?.length === 1
+                ? current.is_confirmed[0]
+                : null;
+            if (!nextStatus || currentStatus === nextStatus) {
+                delete next.is_confirmed;
+            } else {
+                next.is_confirmed = [nextStatus];
+            }
+            return next;
+        });
+    };
 
     // --- Mutations ---
     const updateStatusMutation = useMutation({
@@ -461,15 +538,12 @@ export default function ExamApplicantsPage() {
                 color: 'green',
                 icon: <IconRefresh size={16} />,
             });
-            if (!isConfirmed) return;
-
             try {
-                await notifyFcExamApprovalStatus(item, true);
-            } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : '시험 승인 알림 전송에 실패했습니다.';
+                await notifyFcExamApprovalStatus(item, isConfirmed);
+            } catch {
                 notifications.show({
-                    title: '알림 전송 실패',
-                    message: `상태는 저장되었지만 FC 앱 알림 전송은 실패했습니다. (${msg})`,
+                    title: '알림 확인 필요',
+                    message: '상태는 저장되었지만 FC 앱 알림 전달은 확인하지 못했습니다.',
                     color: 'yellow',
                 });
             }
@@ -567,14 +641,14 @@ export default function ExamApplicantsPage() {
 
         if (field === 'actions') {
             return (
-            <Table.Th style={headerStyle}>
+            <Table.Th key={field} style={headerStyle}>
                 <Text fw={700} size="sm" c="dimmed" ta="center" style={{ whiteSpace: 'normal', wordBreak: 'keep-all', lineHeight: 1.25 }}>{title}</Text>
             </Table.Th>
             );
         }
 
         return (
-            <Table.Th style={headerStyle}>
+            <Table.Th key={field} style={headerStyle}>
                 <ExcelColumnFilter
                     title={title}
                     field={field}
@@ -721,25 +795,72 @@ export default function ExamApplicantsPage() {
                         options={examSubjectFilterOptions}
                         value={examSubjectFilter}
                         onChange={handleExamSubjectFilterChange}
+                        kind="subject"
                     />
                     <TopFilterMenu
                         title="시험 회차"
                         options={examRoundFilterOptions}
                         value={effectiveExamRoundFilter}
                         onChange={setExamRoundFilter}
+                        kind="round"
                     />
                 </Group>
-                <Group grow>
-                    <Paper p="md" radius="md" withBorder shadow="sm">
-                        <Text size="xs" c="dimmed" fw={700} tt="uppercase">총 신청자 (현재 필터)</Text>
+                <Group grow align="stretch">
+                    <Paper
+                        component="button"
+                        type="button"
+                        p="md"
+                        radius="md"
+                        withBorder
+                        shadow="sm"
+                        className={styles.statCard}
+                        data-active={!selectedReceptionStatus || undefined}
+                        data-tone="total"
+                        aria-pressed={!selectedReceptionStatus}
+                        onClick={() => setReceptionStatusFilter(null)}
+                    >
+                        <Group justify="space-between" gap="xs">
+                            <Text size="xs" c="dimmed" fw={700} tt="uppercase">총 신청자 (현재 필터)</Text>
+                            {!selectedReceptionStatus && <Badge size="xs" variant="light" color="gray">전체 보기</Badge>}
+                        </Group>
                         <Text fw={700} size="xl" mt="xs">{stats.total}명</Text>
                     </Paper>
-                    <Paper p="md" radius="md" withBorder shadow="sm" style={{ borderLeft: `4px solid ${HANWHA_ORANGE}` }}>
-                        <Text size="xs" c="orange" fw={700} tt="uppercase">접수 완료</Text>
+                    <Paper
+                        component="button"
+                        type="button"
+                        p="md"
+                        radius="md"
+                        withBorder
+                        shadow="sm"
+                        className={styles.statCard}
+                        data-active={selectedReceptionStatus === '접수 완료' || undefined}
+                        data-tone="confirmed"
+                        aria-pressed={selectedReceptionStatus === '접수 완료'}
+                        onClick={() => setReceptionStatusFilter('접수 완료')}
+                    >
+                        <Group justify="space-between" gap="xs">
+                            <Text size="xs" c="orange" fw={700} tt="uppercase">접수 완료</Text>
+                            {selectedReceptionStatus === '접수 완료' && <Badge size="xs" color="orange">선택됨</Badge>}
+                        </Group>
                         <Text fw={700} size="xl" mt="xs" c="orange">{stats.confirmed}명</Text>
                     </Paper>
-                    <Paper p="md" radius="md" withBorder shadow="sm">
-                        <Text size="xs" c="dimmed" fw={700} tt="uppercase">미접수</Text>
+                    <Paper
+                        component="button"
+                        type="button"
+                        p="md"
+                        radius="md"
+                        withBorder
+                        shadow="sm"
+                        className={styles.statCard}
+                        data-active={selectedReceptionStatus === '미접수' || undefined}
+                        data-tone="pending"
+                        aria-pressed={selectedReceptionStatus === '미접수'}
+                        onClick={() => setReceptionStatusFilter('미접수')}
+                    >
+                        <Group justify="space-between" gap="xs">
+                            <Text size="xs" c="dimmed" fw={700} tt="uppercase">미접수</Text>
+                            {selectedReceptionStatus === '미접수' && <Badge size="xs" variant="filled" color="dark">선택됨</Badge>}
+                        </Group>
                         <Text fw={700} size="xl" mt="xs">{stats.pending}명</Text>
                     </Paper>
                 </Group>
@@ -780,9 +901,28 @@ export default function ExamApplicantsPage() {
                                     </Table.Td></Table.Tr>
                                 ) : filteredRows.length > 0 ? (
                                     filteredRows.map((item) => (
-                                        <Table.Tr key={item.id}>
+                                        <Tooltip.Floating
+                                            key={item.id}
+                                            label={`${item.affiliation || '소속 미정'} · ${item.name || '이름 미정'}`}
+                                            position="top"
+                                            offset={24}
+                                            classNames={{ tooltip: styles.floatingIdentityTooltip }}
+                                        >
+                                        <Table.Tr
+                                            className={styles.applicantRow}
+                                            data-reception={item.is_confirmed ? 'confirmed' : 'pending'}
+                                            role="link"
+                                            tabIndex={0}
+                                            aria-label={`${item.affiliation || '소속 미정'} ${item.name || '이름 미정'}, ${formatExamApplicantReceptionStatus(item)}, 상세 보기`}
+                                            onClick={() => router.push(`/dashboard/exam/applicants/${encodeURIComponent(item.id)}`)}
+                                            onKeyDown={(event) => {
+                                                if (event.key !== 'Enter' && event.key !== ' ') return;
+                                                event.preventDefault();
+                                                router.push(`/dashboard/exam/applicants/${encodeURIComponent(item.id)}`);
+                                            }}
+                                        >
                                             {EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => renderApplicantCell(item, column))}
-                                            <Table.Td>
+                                            <Table.Td onClick={(event) => event.stopPropagation()}>
                                                 <SegmentedControl
                                                     size="xs"
                                                     radius="xl"
@@ -804,7 +944,7 @@ export default function ExamApplicantsPage() {
                                                     }
                                                 />
                                             </Table.Td>
-                                            <Table.Td>
+                                            <Table.Td onClick={(event) => event.stopPropagation()}>
                                                 <Tooltip label={isReadOnly ? '본부장은 삭제할 수 없습니다.' : '신청자 삭제'}>
                                                     <ActionIcon
                                                         variant="light"
@@ -832,6 +972,7 @@ export default function ExamApplicantsPage() {
                                                 </Tooltip>
                                             </Table.Td>
                                         </Table.Tr>
+                                        </Tooltip.Floating>
                                     ))
                                 ) : (
                                     <Table.Tr><Table.Td colSpan={tableColumnCount} align="center" py={80} c="dimmed">

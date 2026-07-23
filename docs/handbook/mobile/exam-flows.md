@@ -78,6 +78,19 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - Life/nonlife differences should be expressed as config in the shared contract, not as screen-local branching that can drift.
 - Regression evidence: `lib/__tests__/exam-flow-contract.test.ts`.
 
+## 2026-07-22 Admin exam registration interaction contract
+
+- `exam-register` and `exam-register2` keep one plain `ScrollView` as the Android scroll owner. A surrounding `KeyboardAvoidingView` resizes the available viewport, and the focused input is scrolled into view again after the keyboard becomes visible.
+- The location-add action is disabled while the trimmed location name is empty. Once valid text is present, it uses the solid orange accent state so enabled and disabled states are visually distinct.
+- Registered exam rounds are displayed by exam date descending. Registration deadline and creation time provide deterministic descending tie breakers.
+- Life and nonlife registration screens use the shared `sortExamRoundsNewestFirst` policy and must not implement independent ordering rules.
+
+## 2026-07-22 FC exam application availability and Realtime contract
+
+- When no round remains open for application, both application screens show `현재 신청 가능한 시험이 없습니다.` in the schedule selector while retaining recent closed rounds as read-only context.
+- Each application-screen effect creates an opaque, unique Realtime channel topic. Do not put a resident identifier in a topic, and do not reuse a topic while an earlier channel may still be leaving.
+- Register every `postgres_changes` callback before calling `subscribe()`, and remove the exact channel in the effect cleanup.
+
 ## 2026-07-13 저장·알림 원자성 계약
 
 - FC 시험 신청은 등록 row를 먼저 확정한 뒤 관리자/본인 알림을 `sendExamApplyNotificationsBestEffort`로 병렬 전송한다. 일부 알림 실패는 `failedTargets` 경고로 남기되 이미 저장된 신청을 mutation 실패로 되돌리지 않으며, 사용자가 같은 신청을 중복 재시도하도록 만들지 않는다.

@@ -8,6 +8,7 @@ import {
   buildGroupChatPreferencesBody,
   buildGroupChatReactionBody,
   buildGroupChatSendBody,
+  hasGroupChatPostCommitWarning,
   normalizeGroupChatPermissionActorId,
 } from '../group-chat-api';
 
@@ -128,5 +129,42 @@ describe('group chat API payload builders', () => {
     expect(buildGroupChatNoticeClearBody()).toEqual({
       type: 'group_chat_notice_clear',
     });
+  });
+
+  test('classifies all post-commit warnings without message payloads', () => {
+    expect(hasGroupChatPostCommitWarning({
+      notification: {
+        ok: false,
+        status: 'partial',
+        recipient_count: 1,
+        notification_count: 1,
+        push_token_count: 0,
+        push_accepted_count: 0,
+        push_rejected_count: 0,
+      },
+      warning: null,
+    })).toBe(true);
+
+    expect(hasGroupChatPostCommitWarning({
+      read_state: { updated: false },
+      warning: {
+        code: 'notification_delivery_partial',
+        message: 'fixed warning',
+      },
+    })).toBe(true);
+
+    expect(hasGroupChatPostCommitWarning({
+      read_state: { updated: true },
+      notification: {
+        ok: true,
+        status: 'provider_accepted',
+        recipient_count: 1,
+        notification_count: 1,
+        push_token_count: 1,
+        push_accepted_count: 1,
+        push_rejected_count: 0,
+      },
+      warning: null,
+    })).toBe(false);
   });
 });

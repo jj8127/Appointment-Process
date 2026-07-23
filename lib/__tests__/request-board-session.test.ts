@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import {
   canUseRequestBoardSession,
   deriveRequestBoardFlags,
@@ -52,5 +55,15 @@ describe('request board session helpers', () => {
         hasAppSessionToken: false,
       }),
     ).toBe(false);
+  });
+
+  it('registers designer devices as manager tokens from the global session owner with bounded retries', () => {
+    const source = readFileSync(join(__dirname, '..', '..', 'hooks', 'use-session.tsx'), 'utf8');
+
+    expect(source).toContain("state.requestBoardRole === 'designer'");
+    expect(source).toContain("? 'manager'");
+    expect(source).toContain('const retryDelaysMs = [1000, 2000, 5000, 10000] as const');
+    expect(source).toContain('if (result.ok || !result.retryable)');
+    expect(source).toContain('lastPushRegistrationKeyRef.current = pushRegistrationKey');
   });
 });

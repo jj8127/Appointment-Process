@@ -362,8 +362,10 @@ describe('request-board mobile UI contracts', () => {
     const handlerEnd = homeSource.indexOf('const openNotifications = () =>', handlerStart);
     const handlerBlock = homeSource.slice(handlerStart, handlerEnd);
 
-    expect(handlerBlock).toContain("Alert.alert('거절 완료', '의뢰를 거절했습니다.');");
-    expect(handlerBlock.indexOf("Alert.alert('거절 완료'"))
+    expect(handlerBlock).toContain('getRequestBoardNotificationFeedback(result)');
+    expect(handlerBlock).toContain("notificationFeedback?.title ?? '거절 완료'");
+    expect(handlerBlock).toContain("notificationFeedback?.message ?? '의뢰를 거절했습니다.'");
+    expect(handlerBlock.indexOf('Alert.alert('))
       .toBeLessThan(handlerBlock.indexOf('await fetchData({ force: true });'));
   });
 
@@ -444,11 +446,14 @@ describe('request-board mobile UI contracts', () => {
 
   it('creates one GaramIn request per selected product-designer cell', () => {
     const submitRequestBlock = createSource.slice(
-      createSource.indexOf('const submitRequest = async () => {'),
+      createSource.indexOf('const submitRequest = async (retryFailedOnly = false) => {'),
       createSource.indexOf('const renderCustomerStep = () => ('),
     );
 
-    expect(submitRequestBlock).toContain('const requestJobs = selectedProductIds.flatMap');
+    expect(submitRequestBlock).toContain('const allRequestJobSeeds = selectedProductIds.flatMap');
+    expect(submitRequestBlock).toContain('const requestJobSeeds = retryFailedOnly');
+    expect(submitRequestBlock).toContain('const requestJobs = requestJobSeeds.map');
+    expect(submitRequestBlock).toContain('clientRequestKey,');
     expect(submitRequestBlock).toContain('productIds: [productId]');
     expect(submitRequestBlock).toContain('designerIds: [designer.id]');
     expect(submitRequestBlock).toContain('designerCodeSelections: [designerCodeSelection]');
@@ -458,7 +463,7 @@ describe('request-board mobile UI contracts', () => {
 
   it('handles partial multi-request creation without inviting duplicate retry submissions', () => {
     const submitRequestBlock = createSource.slice(
-      createSource.indexOf('const submitRequest = async () => {'),
+      createSource.indexOf('const submitRequest = async (retryFailedOnly = false) => {'),
       createSource.indexOf('const renderCustomerStep = () => ('),
     );
 
@@ -469,9 +474,37 @@ describe('request-board mobile UI contracts', () => {
     expect(submitRequestBlock).not.toContain('const createdResults = await Promise.all(');
   });
 
+  it('keeps saved requests successful and retries only post-commit attachment delivery', () => {
+    const submitRequestBlock = createSource.slice(
+      createSource.indexOf('const submitRequest = async (retryFailedOnly = false) => {'),
+      createSource.indexOf('const renderCustomerStep = () => ('),
+    );
+    const retryBlock = createSource.slice(
+      createSource.indexOf('const retryAttachmentDelivery = async () =>'),
+      createSource.indexOf('const submitRequest = async (retryFailedOnly = false) => {'),
+    );
+
+    expect(submitRequestBlock).toContain('setSentRequestIds((previousIds) =>');
+    expect(submitRequestBlock).toContain('Array.from(new Set([...previousIds, ...createdRequestIds]))');
+    expect(submitRequestBlock).toContain('runAttachmentDelivery({');
+    expect(submitRequestBlock).toContain('requestIds: createdRequestIds');
+    expect(submitRequestBlock).toContain('setPendingAttachmentDelivery(deliveryResult.pending)');
+    expect(submitRequestBlock).toContain('deliveryBatchKey: `garamin_attachment:${randomUUID()}`');
+    expect(retryBlock).toContain('runAttachmentDelivery(pendingAttachmentDelivery)');
+    expect(retryBlock).not.toContain('rbCreateRequest');
+    expect(createSource).toContain('요청을 다시 만들지 말고 첨부 전달만 다시 시도해주세요.');
+  });
+
+  it('keeps request saves successful while surfacing incomplete notification delivery', () => {
+    expect(createSource).toContain('getRequestBoardNotificationFeedback(result)');
+    expect(createSource).toContain('setRequestNotificationFeedback(');
+    expect(createSource).toContain('requestNotificationFeedback.title');
+    expect(createSource).toContain('requestNotificationFeedback.message');
+  });
+
   it('blocks existing customers without driving status before creating a GaramIn request', () => {
     const submitRequestBlock = createSource.slice(
-      createSource.indexOf('const submitRequest = async () => {'),
+      createSource.indexOf('const submitRequest = async (retryFailedOnly = false) => {'),
       createSource.indexOf('const renderCustomerStep = () => ('),
     );
 

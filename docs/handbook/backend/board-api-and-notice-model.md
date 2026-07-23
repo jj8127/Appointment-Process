@@ -2,12 +2,20 @@ doc_id: FC-BACKEND-BOARD-NOTICE
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-16
+last_verified: 2026-07-23
 source_of_truth: supabase/functions/board-* + web/src/app/api/admin/notices/route.ts
 
 contract_guard_2026_07_03: mobile board/notice screens, admin board/notification pages, board Edge Functions, notice API routes, notification route normalization, and automated digest posting are mapped in docs/handbook/contract-test-map.json.
 
 # Backend Runbook: Board API And Notice Model
+
+## 2026-07-23 Post-write notification delivery contract
+
+- `board-create` and `board-update` keep a committed board mutation successful even when the follow-up notification fanout is partially or fully rejected.
+- The Edge response separates the saved result from a bounded `notification` delivery summary and a user-safe warning; raw provider payloads and recipient details are never returned.
+- Each nested `fc-notify` call has a 10-second deadline. A timeout is reported as incomplete notification delivery and never changes the already committed board write into a retryable write failure.
+- Push confirmation requires a logged inbox result and matching non-zero `attempted/accepted/sent` counts with zero rejected tickets. A partial Expo ticket result is not a confirmed fanout.
+- Mobile and admin-web callers surface the warning only after attachment finalization has completed, so retrying a notification failure cannot duplicate a saved post or attachment.
 
 ## 소유 범위
 

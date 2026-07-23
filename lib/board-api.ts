@@ -107,7 +107,51 @@ export type BoardDetail = {
   }[];
 };
 
-type InvokeResult<T> = { ok: boolean; data?: T; message?: string };
+export type BoardPushDeliveryResult = {
+  targetRole: 'admin' | 'fc';
+  ok: boolean;
+  sent: number;
+  logged: boolean;
+  failure?:
+    | 'missing_configuration'
+    | 'upstream_rejected'
+    | 'invalid_response'
+    | 'delivery_unconfirmed'
+    | 'request_failed';
+};
+
+export type BoardWriteNotification = {
+  ok: boolean;
+  inbox: {
+    ok: boolean;
+    attempted: number;
+  };
+  push: {
+    ok: boolean;
+    attempted: number;
+    confirmed: number;
+    targets: BoardPushDeliveryResult[];
+  };
+};
+
+export type BoardWriteResult = {
+  saved: boolean;
+  notification: BoardWriteNotification | null;
+  notificationWarning: string | null;
+};
+
+export type BoardCreateResult = BoardWriteResult & {
+  id: string;
+};
+
+type InvokeResult<T> = {
+  ok: boolean;
+  data?: T;
+  message?: string;
+  saved?: boolean;
+  notification?: BoardWriteNotification;
+  notificationWarning?: string | null;
+};
 
 export type BoardFunctionName =
   | 'board-attachment-delete'
@@ -186,14 +230,14 @@ async function extractFunctionsErrorMessage(error: unknown): Promise<string | nu
   return null;
 }
 
-export async function invokeBoardWithDeps<T>(
+async function invokeBoardResponseWithDeps<T>(
   name: BoardFunctionName,
   body: Record<string, unknown>,
   deps: {
     getStoredAppSessionToken: () => Promise<string | null>;
     invoke: BoardInvokeTransport;
   },
-): Promise<T> {
+): Promise<InvokeResult<T>> {
   const storedAppSessionToken = await deps.getStoredAppSessionToken();
   const appSessionToken = String(storedAppSessionToken ?? '').trim();
   if (!appSessionToken) {
@@ -224,11 +268,68 @@ export async function invokeBoardWithDeps<T>(
   if (!payload?.ok) {
     throw new Error(payload?.message ?? '요청에 실패했습니다.');
   }
+  return payload;
+}
+
+export async function invokeBoardWithDeps<T>(
+  name: BoardFunctionName,
+  body: Record<string, unknown>,
+  deps: {
+    getStoredAppSessionToken: () => Promise<string | null>;
+    invoke: BoardInvokeTransport;
+  },
+): Promise<T> {
+  const payload = await invokeBoardResponseWithDeps<T>(name, body, deps);
   return payload.data as T;
+}
+
+function normalizeBoardWriteResult(payload: InvokeResult<unknown>): BoardWriteResult {
+  const notification = payload.notification ?? null;
+  const explicitWarning = typeof payload.notificationWarning === 'string'
+    && payload.notificationWarning.trim()
+    ? payload.notificationWarning.trim()
+    : null;
+
+  return {
+    // Older compatible Edge responses did not expose `saved`, while `ok: true`
+    // already meant that the durable write completed.
+    saved: payload.saved !== false,
+    notification,
+    notificationWarning: explicitWarning
+      ?? (notification?.ok === false ? 'notification_delivery_incomplete' : null),
+  };
+}
+
+export async function invokeBoardWriteWithDeps<T>(
+  name: 'board-create' | 'board-update',
+  body: Record<string, unknown>,
+  deps: {
+    getStoredAppSessionToken: () => Promise<string | null>;
+    invoke: BoardInvokeTransport;
+  },
+): Promise<{ data: T } & BoardWriteResult> {
+  const payload = await invokeBoardResponseWithDeps<T>(name, body, deps);
+  return {
+    data: payload.data as T,
+    ...normalizeBoardWriteResult(payload),
+  };
 }
 
 async function invokeBoard<T>(name: BoardFunctionName, body: Record<string, unknown>): Promise<T> {
   return invokeBoardWithDeps<T>(name, body, {
+    getStoredAppSessionToken,
+    invoke: async (functionName, options) => {
+      const { data, error } = await supabase.functions.invoke(functionName, options);
+      return { data, error };
+    },
+  });
+}
+
+async function invokeBoardWrite<T>(
+  name: 'board-create' | 'board-update',
+  body: Record<string, unknown>,
+): Promise<{ data: T } & BoardWriteResult> {
+  return invokeBoardWriteWithDeps<T>(name, body, {
     getStoredAppSessionToken,
     invoke: async (functionName, options) => {
       const { data, error } = await supabase.functions.invoke(functionName, options);
@@ -280,8 +381,17 @@ export async function fetchBoardDetail(actor: BoardActor, postId: string) {
   return invokeBoard<BoardDetail>('board-detail', { actor, postId });
 }
 
-export async function createBoardPost(actor: BoardActor, payload: { categoryId: string; title: string; content: string }) {
-  return invokeBoard<{ id: string }>('board-create', { actor, ...payload });
+export async function createBoardPost(
+  actor: BoardActor,
+  payload: { categoryId: string; title: string; content: string },
+): Promise<BoardCreateResult> {
+  const result = await invokeBoardWrite<{ id: string }>('board-create', { actor, ...payload });
+  return {
+    id: result.data.id,
+    saved: result.saved,
+    notification: result.notification,
+    notificationWarning: result.notificationWarning,
+  };
 }
 
 export async function updateBoardPost(actor: BoardActor, payload: {
@@ -290,8 +400,18 @@ export async function updateBoardPost(actor: BoardActor, payload: {
   title?: string;
   content?: string;
   attachmentOrder?: string[];
-}) {
-  return invokeBoard<null>('board-update', { actor, ...payload });
+}): Promise<BoardWriteResult> {
+  const result = await invokeBoardWrite<null>('board-update', { actor, ...payload });
+  return {
+    saved: result.saved,
+    notification: result.notification,
+    notificationWarning: result.notificationWarning,
+  };
+}
+
+export function getBoardNotificationWarningMessage(notificationWarning?: string | null) {
+  if (!notificationWarning) return null;
+  return '게시글은 저장되었지만 일부 알림이 전송되지 않았습니다. 알림 상태를 확인해주세요.';
 }
 
 export async function deleteBoardPost(actor: BoardActor, postId: string) {
@@ -329,7 +449,13 @@ export async function toggleCommentLike(actor: BoardActor, commentId: string) {
 export async function signBoardAttachments(
   actor: BoardActor,
   postId: string,
-  files: { fileName: string; mimeType: string; fileSize: number; fileType: 'image' | 'file' }[],
+  files: {
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    fileType: 'image' | 'file';
+    storagePath?: string;
+  }[],
 ) {
   return invokeBoard<{ storagePath: string; signedUrl: string }[]>('board-attachment-sign', {
     actor,

@@ -22,7 +22,7 @@ describe('mobile direct chat source', () => {
     expect(sendSource).not.toContain(".select('*')");
   });
 
-  it('keeps mobile direct message sends optimistic with background notifications', () => {
+  it('keeps mobile direct message sends optimistic while confirming notification delivery', () => {
     const source = readFileSync(chatPath, 'utf8');
     const sendStart = source.indexOf('const sendPayload = async');
     const sendEnd = source.indexOf('const handleSendText', sendStart);
@@ -30,9 +30,11 @@ describe('mobile direct chat source', () => {
 
     expect(sendSource).toContain('const optimisticMessage = createOptimisticMessage');
     expect(sendSource).toContain('applyMessages([optimisticMessage, ...messagesRef.current])');
-    expect(sendSource).toContain('void invokeFcNotify({');
+    expect(sendSource).toContain('await invokeFcNotifyForDelivery({');
+    expect(sendSource).toContain('if (!notificationDelivery.confirmed)');
+    expect(sendSource).toContain('메시지는 저장됐지만 푸시 알림 전달을 확인하지 못했습니다.');
     expect(sendSource).not.toContain("supabase.functions.invoke('fc-notify'");
-    expect(sendSource).not.toContain('await invokeFcNotify');
+    expect(sendSource).not.toContain('void invokeFcNotify');
   });
 
   it('shows KakaoTalk-style unread recipient counts on sent direct messages', () => {

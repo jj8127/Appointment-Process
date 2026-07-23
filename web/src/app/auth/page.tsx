@@ -23,7 +23,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { IconPhone, IconLock, IconArrowRight } from '@tabler/icons-react';
 
 const HANWHA_ORANGE = '#f36f21';
@@ -183,7 +183,8 @@ export default function AuthPage() {
                 return;
             }
             loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
-            router.replace(nextRole === 'fc' ? '/dashboard/referrals/graph' : '/dashboard');
+            const destination = nextRole === 'fc' ? '/dashboard/referrals/graph' : '/dashboard';
+            window.location.replace(destination);
         } catch (err: unknown) {
             const loginError = resolveLoginErrorMessage(err);
 
@@ -207,6 +208,11 @@ export default function AuthPage() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        void handleLogin();
     };
 
     return (
@@ -257,6 +263,8 @@ export default function AuthPage() {
 
                 {/* Login Card */}
                 <Paper
+                    component="form"
+                    onSubmit={handleSubmit}
                     shadow="xl"
                     p={40}
                     radius="xl"
@@ -296,9 +304,6 @@ export default function AuthPage() {
                             maxLength={11}
                             autoComplete="tel"
                             onChange={(event) => setPhoneInput(event.currentTarget.value.replace(/[^0-9]/g, ''))}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleLogin();
-                            }}
                             styles={{
                                 label: {
                                     fontWeight: 700,
@@ -327,9 +332,6 @@ export default function AuthPage() {
                             radius="md"
                             value={passwordInput}
                             onChange={(event) => setPasswordInput(event.currentTarget.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleLogin();
-                            }}
                             styles={{
                                 label: {
                                     fontWeight: 700,
@@ -354,7 +356,7 @@ export default function AuthPage() {
                             fullWidth
                             size="lg"
                             radius="md"
-                            onClick={handleLogin}
+                            type="submit"
                             loading={loading}
                             rightSection={<IconArrowRight size={20} stroke={2} />}
                             style={{

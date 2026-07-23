@@ -27,6 +27,7 @@ import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity
 import { openExternalUrl } from '@/lib/open-external-url';
 import { formatRequestBoardDrivingStatus } from '@/lib/request-board-driving-status';
 import { canMakeRequestBoardFcDecision } from '@/lib/request-board-permissions';
+import { getRequestBoardNotificationFeedback } from '@/lib/request-board-notification-feedback';
 import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
 import {
   rbAcceptRequest,
@@ -273,7 +274,11 @@ export default function RequestBoardReviewScreen() {
             try {
               const res = await rbApproveDesign(requestId, assignment.designer_id);
               if (res.success) {
-                Alert.alert('승인 완료', '설계가 승인되었습니다.');
+                const notificationFeedback = getRequestBoardNotificationFeedback(res);
+                Alert.alert(
+                  notificationFeedback?.title ?? '승인 완료',
+                  notificationFeedback?.message ?? '설계가 승인되었습니다.',
+                );
                 await fetchData();
               } else {
                 Alert.alert(
@@ -311,7 +316,11 @@ export default function RequestBoardReviewScreen() {
       const res = await rbRejectDesign(requestId, rejectTargetId, trimmed);
       if (res.success) {
         setRejectModalVisible(false);
-        Alert.alert('거절 완료', '설계가 거절되었습니다.');
+        const notificationFeedback = getRequestBoardNotificationFeedback(res);
+        Alert.alert(
+          notificationFeedback?.title ?? '거절 완료',
+          notificationFeedback?.message ?? '설계가 거절되었습니다.',
+        );
         await fetchData();
       } else {
         Alert.alert('오류', toRequestBoardSessionErrorMessage(res.error, '거절 처리 중 오류가 발생했습니다.'));
@@ -341,7 +350,11 @@ export default function RequestBoardReviewScreen() {
           try {
             const res = await rbAcceptRequest(requestId, assignment.designer_id, assignment.id);
             if (res.success) {
-              Alert.alert('수락 완료', '의뢰를 수락했습니다.');
+              const notificationFeedback = getRequestBoardNotificationFeedback(res);
+              Alert.alert(
+                notificationFeedback?.title ?? '수락 완료',
+                notificationFeedback?.message ?? '의뢰를 수락했습니다.',
+              );
               await fetchData();
             } else {
               Alert.alert(
@@ -399,7 +412,11 @@ export default function RequestBoardReviewScreen() {
       );
       if (res.success) {
         resetDesignerRejectModal();
-        Alert.alert('거절 완료', '의뢰를 거절했습니다.');
+        const notificationFeedback = getRequestBoardNotificationFeedback(res);
+        Alert.alert(
+          notificationFeedback?.title ?? '거절 완료',
+          notificationFeedback?.message ?? '의뢰를 거절했습니다.',
+        );
         await fetchData();
       } else {
         Alert.alert(
@@ -534,7 +551,11 @@ export default function RequestBoardReviewScreen() {
                 requestDesignerId: assignment.id,
               });
               if (res.success) {
-                Alert.alert('완료 처리됨', '의뢰가 완료 상태로 전환되었습니다.');
+                const notificationFeedback = getRequestBoardNotificationFeedback(res);
+                Alert.alert(
+                  notificationFeedback?.title ?? '완료 처리됨',
+                  notificationFeedback?.message ?? '의뢰가 완료 상태로 전환되었습니다.',
+                );
                 await fetchData();
               } else {
                 Alert.alert(

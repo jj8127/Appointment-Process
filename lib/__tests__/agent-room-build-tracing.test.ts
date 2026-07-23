@@ -15,5 +15,6 @@ describe('agent room build tracing contract', () => {
     expect(source).toContain('/*turbopackIgnore: true*/ process.cwd()');
     expect(nextConfig).toContain("'/api/agent-room'");
     expect(nextConfig).toContain("outputFileTracingExcludes");
+    expect(nextConfig).toContain("root: path.resolve(__dirname, '..')");
   });
 });

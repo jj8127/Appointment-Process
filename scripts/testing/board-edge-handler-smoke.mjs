@@ -94,7 +94,12 @@ async function fakeSupabaseHandler(request, response) {
   if (pathname === '/functions/v1/fc-notify') {
     const body = await readJson(request);
     scenario.downstreamRequests.push({ method, pathname, headers: request.headers, body });
-    sendJson(response, 200, { ok: true });
+    sendJson(response, 200, {
+      ok: true,
+      logged: true,
+      sent: 1,
+      delivery: { attempted: 1, accepted: 1, rejected: 0 },
+    });
     return;
   }
 
@@ -437,7 +442,14 @@ async function runScenarios() {
     );
 
     assert.equal(result.status, 200);
-    assert.deepEqual(result.body, { ok: true, data: { id: 'post-loopback-1' } });
+    assert.equal(result.body?.ok, true);
+    assert.equal(result.body?.saved, true);
+    assert.deepEqual(result.body?.data, { id: 'post-loopback-1' });
+    assert.equal(result.body?.notification?.ok, true);
+    assert.deepEqual(result.body?.notification?.inbox, { ok: true, attempted: 3 });
+    assert.equal(result.body?.notification?.push?.attempted, 2);
+    assert.equal(result.body?.notification?.push?.confirmed, 2);
+    assert.equal(result.body?.notificationWarning, null);
     assert.equal(actorLookupCount(), 1, 'expected one canonical admin actor lookup');
     assert.equal(dbWriteCount(), 2, 'expected one post write and one notification write');
     assert.equal(scenario.postWrites.length, 1);

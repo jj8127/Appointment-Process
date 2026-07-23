@@ -2,8 +2,8 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-16
-source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts
+last_verified: 2026-07-23
+source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
 
 ## Diagnostic Privacy Notes (2026-07-16)
 
@@ -68,12 +68,19 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 
 - `fc-notify`가 notification persistence와 push fanout의 중심입니다.
 - admin web push는 `/api/admin/push`와 subscription registry를 통해 보조됩니다.
-- request_board bridge unread는 admin/developer session에서 `requestBoardRole='fc'`일 때 함께 합산될 수 있습니다.
+- request_board bridge unread는 개인 식별자가 있는 admin/manager/developer session에서 `requestBoardRole='fc'` 또는 `designer`일 때 해당 개인의 FC-role Request Board inbox를 함께 조회합니다. `designer`는 Request Board category만 집계하고 공지/게시글 알림은 제외합니다.
 - 설계매니저 가람in 모바일 push/unread는 request_board 관련 알림과 본인에게 직접 온 내부 채팅 알림으로 제한합니다. 게시판, 공지, 시험, FC 온보딩 broadcast는 manager 모바일 토큰으로 fanout하지 않습니다.
 - Expo push API는 한 요청에 최대 100개 payload만 허용하므로 `fc-notify`는 mobile push payload를 100개 단위로 chunk 전송합니다.
 - 2026-06-03 현재 카카오톡 delivery adapter는 활성 계약이 아니다. `fc-notify`는 inbox row와 app/web push를 유지하되 `notification_deliveries` 같은 별도 Kakao audit table에 쓰지 않는다.
 - 사용자-facing 알림 제목/분기 문구는 `보증 보험 동의`, `다위촉` 명칭을 사용한다. 내부 `allowance_*`, `hanwha_*` identifier는 기존 DB 호환 때문에 유지될 수 있다.
 - 모바일 푸시 탭, 알림센터 row 탭, admin web push URL은 모두 `lib/notification-route.ts`의 route normalizer를 거쳐야 합니다. 게시판 글 URL은 `/board?postId=...`가 canonical mobile target이며, 이 경로가 게시판 화면의 상세 모달을 엽니다. legacy `/board-detail?postId=...` 및 admin web `/dashboard/board?postId=...`는 같은 모달 진입점으로 정규화합니다.
+
+## 2026-07-23 관리자 웹 직접 채팅 전달 확인
+
+- `/dashboard/chat`은 메시지 row 저장 성공 후 `/api/fc-notify`를 post-commit 단계에서 호출합니다. 알림 실패가 저장된 메시지를 실패로 되돌리거나 입력창에 복원되게 해 중복 전송을 유도하면 안 됩니다.
+- 알림 요청은 브라우저 이탈 중에도 전송이 취소되지 않도록 `keepalive`를 사용하고 완료를 기다립니다. 단, composer 전체를 잠그지 않아 optimistic send 반응성은 유지합니다.
+- HTTP 2xx만으로 전달 성공을 판단하지 않습니다. 보호 프록시와 downstream `ok`, notification `logged=true`, Expo 대상 `attempted>0`, `accepted=attempted`, `rejected=0`, `sent=accepted`를 모두 확인해야 합니다.
+- 확인 실패 시 발신자에게 “메시지는 저장됐지만 가람in 푸시 알림 전달을 확인하지 못했다”는 부분 실패를 표시합니다. 진단 로그에는 고정 reason/status와 aggregate sent만 남기고 메시지 본문, 수신자 식별자, 토큰, raw provider response는 남기지 않습니다.
 
 ## 2026-03-28 기준 주의점
 
@@ -126,6 +133,7 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 - request_board 디자이너 세션의 Expo token은 `device_tokens.role='manager'`로 저장한다. `fc` role로 저장하면 FC 전체 대상 공지/시험 broadcast를 같이 받을 수 있다.
 - 운영 `device_tokens_role_check`도 `admin`, `fc`, `manager`를 정확히 허용해야 한다. 이 전이는 `20260721052837_allow_manager_device_tokens.sql`이 소유하며, schema snapshot만 고치고 migration을 누락하면 설계 매니저 토큰 등록이 500으로 실패한다.
 - `fc-notify`는 토큰 query에서 `role`을 함께 읽고, manager token은 `request_board_*` category 또는 `category='message'` + 구체적인 `target_id`가 있는 직접 채팅일 때만 유지한다.
+- 서명된 앱 세션의 FC→관리자 및 관리자→FC 직접 메시지는 토큰 조회 전에 수신 계정이 현재 활성 상태인지 검증한다. 완료되지 않았거나 탈퇴한 FC의 잔존 토큰에는 내부 메시지를 보내지 않는다.
 - 설계매니저 unread badge는 fc-onboarding unread를 더하지 않고 live request_board unread만 사용한다.
 - 게시판/공지/시험 알림을 추가하거나 수정할 때는 `supabase/functions/_shared/notification-delivery-policy.ts`와 `lib/mobile-unread-notification-count-plan.ts` 테스트를 함께 확인한다.
 
@@ -134,3 +142,18 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 - Web push/Expo fanout implementation belongs in `web/src/lib/push-notification-service.ts` and must remain server-only.
 - `web/src/app/actions.ts` is only an authenticated server-action wrapper around that service. API routes that already verified a signed admin session should call the service directly.
 - Mobile startup registration should reuse an Expo token that was already fetched in the registration effect instead of calling `getExpoPushTokenAsync` twice for the same attempt.
+
+## 2026-07-22 Expo notification handler contract
+
+- Expo SDK 54 notification handlers use `shouldShowBanner` and `shouldShowList`; deprecated `shouldShowAlert` must not be returned from either the root handler or shared notification helper.
+- The source privacy contract checks both handler sites so a future copy does not reintroduce the deprecated field or print raw notification payloads.
+- Admin exam reception notifications continue through the existing signed `/api/fc-notify` server proxy; the selected applicant API does not expose service-role credentials to the client.
+
+## 2026-07-23 Delivery confirmation contract
+
+- Transport success is not delivery success. Confirmation requires the intended inbox row to be logged and every attempted Expo ticket to have `status=ok` when mobile delivery is required. Zero-attempt and partial acceptance are incomplete delivery.
+- Expo responses are reduced to attempted/accepted/rejected counts. Raw provider bodies, ticket identifiers, push tokens, recipient identifiers, and message bodies must not appear in responses or logs.
+- Durable business writes and notification fanout are separate outcomes. After a successful write, fanout failure returns a partial-delivery warning and must not produce a retry-inducing overall failure.
+- FC workflow events for admin review use the shared admin scope (`target_id=null`). A concrete admin target is reserved for direct internal-message category.
+- Group-chat fanout uses the already resolved active membership and matches both normalized phone and role; a later generic role filter must not remove an eligible manager.
+- Reminder checkpoints advance only for recipients whose full provider delivery was accepted, so zero-attempt, partial, rejected, and timed-out recipients remain retryable.

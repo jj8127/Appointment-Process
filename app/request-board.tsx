@@ -39,6 +39,7 @@ import {
 } from '@/lib/request-board-api';
 import { getRequestBoardCustomerManagementRoute } from '@/lib/request-board-create-flow';
 import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
+import { getRequestBoardNotificationFeedback } from '@/lib/request-board-notification-feedback';
 import {
   computeRequestBoardHomeStats,
   type RequestBoardHomeStats,
@@ -283,7 +284,7 @@ export default function RequestBoardScreen() {
     isRequestBoardDesigner,
   });
   const showStats = reqStats.loaded && (hasRequestBoardFcReadAccess || !!isRequestBoardDesigner);
-  const includeRequestBoardFcInbox = role === 'admin' && requestBoardRole === 'fc';
+  const includeRequestBoardFcInbox = role === 'admin' && requestBoardRole !== null;
   const notificationInboxResidentId = useMemo(
     () => resolveNotificationInboxResidentId({
       role,
@@ -335,6 +336,7 @@ export default function RequestBoardScreen() {
               resident_id: notificationInboxResidentId,
               limit: 100,
               include_request_board_fc: includeRequestBoardFcInbox,
+              only_request_board_categories: requestBoardRole === 'designer',
           });
           if (error) throw error;
           if (!data?.ok) throw new Error(data?.message ?? '데이터 로드 실패');
@@ -509,6 +511,10 @@ export default function RequestBoardScreen() {
       if (!result.success) {
         throw new Error(result.error ?? result.message ?? '수락 처리에 실패했습니다.');
       }
+      const notificationFeedback = getRequestBoardNotificationFeedback(result);
+      if (notificationFeedback) {
+        Alert.alert(notificationFeedback.title, notificationFeedback.message);
+      }
       await fetchData({ force: true });
     } catch (err) {
       logger.warn('[request-board] designer accept failed', err);
@@ -567,7 +573,11 @@ export default function RequestBoardScreen() {
         throw new Error(result.error ?? result.message ?? '거절 처리에 실패했습니다.');
       }
       resetDesignerRejectModal();
-      Alert.alert('거절 완료', '의뢰를 거절했습니다.');
+      const notificationFeedback = getRequestBoardNotificationFeedback(result);
+      Alert.alert(
+        notificationFeedback?.title ?? '거절 완료',
+        notificationFeedback?.message ?? '의뢰를 거절했습니다.',
+      );
       await fetchData({ force: true });
     } catch (err) {
       logger.warn('[request-board] designer reject failed', err);

@@ -98,7 +98,7 @@ const isRequestBoardCategory = (category?: string | null): boolean =>
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { role, residentId, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
+  const { role, residentId, hydrated, requestBoardRole, readOnly, staffType } = useSession();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -114,7 +114,8 @@ export default function NotificationsScreen() {
     readOnly,
     staffType,
   });
-  const includeRequestBoardFcInbox = inboxRole === 'admin' && requestBoardRole === 'fc';
+  const isRequestBoardInboxOnly = requestBoardRole === 'designer';
+  const includeRequestBoardFcInbox = inboxRole === 'admin' && requestBoardRole !== null;
   const canDeleteSharedNotices = inboxRole === 'admin' && !readOnly;
   const hiddenNoticeStorageKey =
     inboxRole === 'fc'
@@ -356,6 +357,7 @@ export default function NotificationsScreen() {
         resident_id: inboxResidentId,
         limit: 100,
         include_request_board_fc: includeRequestBoardFcInbox,
+        only_request_board_categories: isRequestBoardInboxOnly,
     });
     if (error) throw error;
     if (!data?.ok) {
@@ -388,7 +390,7 @@ export default function NotificationsScreen() {
       isBroadcast: true,
     }));
 
-    if (!isRequestBoardDesigner) {
+    if (!isRequestBoardInboxOnly) {
       return { pushRows, noticeRows };
     }
 
@@ -404,7 +406,7 @@ export default function NotificationsScreen() {
       ),
       noticeRows: [],
     };
-  }, [includeRequestBoardFcInbox, inboxResidentId, inboxRole, isRequestBoardDesigner]);
+  }, [includeRequestBoardFcInbox, inboxResidentId, inboxRole, isRequestBoardInboxOnly]);
 
   const load = useCallback(async () => {
     if (!hydrated) return;

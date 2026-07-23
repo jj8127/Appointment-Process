@@ -77,7 +77,7 @@ describe('resolveMobileUnreadBridgePlan', () => {
     ).toEqual({
       shouldFetch: true,
       includeLiveRequestBoardUnread: false,
-      includeRequestBoardFcInbox: false,
+      includeRequestBoardFcInbox: true,
       includeNoticeUnread: false,
       onlyRequestBoardCategories: true,
     });
@@ -311,6 +311,31 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
       '[mobile-unread-count] fetch failed',
       expect.objectContaining({ message: 'designer inbox down' }),
     );
+  });
+
+  it('includes the personal request-board FC inbox for manager-backed designer sessions', async () => {
+    const deps = makeUnreadDeps({
+      invokeFcNotify: jest.fn(async () => ({ data: { ok: true, count: 2 }, error: null })),
+    });
+
+    await expect(
+      fetchMobileUnreadNotificationCountWithDeps({
+        role: 'admin',
+        residentId: '01051078127',
+        requestBoardRole: 'designer',
+      }, deps),
+    ).resolves.toBe(2);
+
+    expect(deps.invokeFcNotify).toHaveBeenCalledWith({
+      type: 'inbox_unread_count',
+      role: 'admin',
+      resident_id: '01051078127',
+      since: '2026-05-30T00:00:00.000Z',
+      exclude_request_board_categories: false,
+      include_request_board_fc: true,
+      include_notices: false,
+      only_request_board_categories: true,
+    });
   });
 
   it('counts only visible request_board category notifications for request-board designer sessions', async () => {

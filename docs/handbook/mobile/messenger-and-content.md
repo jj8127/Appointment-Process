@@ -35,6 +35,7 @@ source_of_truth: app/messenger.tsx + app/chat.tsx + app/board*.tsx + app/notice*
 ## 주의점
 
 - internal unread와 GaramLink unread가 함께 보일 수 있음
+- 가람in 홈의 `메신저` 바로가기 카드는 기존 `internal_unread_count` query 값을 아이콘 우측 상단 badge로 표시한다. 0이면 숨기고 100 이상은 `99+`로 제한하며, 접근성 label에도 같은 읽지 않은 메시지 수를 포함한다.
 - 게시판 공지는 legacy notice와 board notice가 동시에 존재할 수 있음
 - `board`와 `admin-board-manage` 목록은 같은 게시글 종류 필터(`전체`, `공지`, `교육 일정`, `일반`, `가람pick`)와 정렬 옵션을 제공해야 하며, 총무/본부장 화면에서 필터 UI가 빠지면 회귀로 본다.
 - optimistic send가 적용된 화면과 아닌 화면을 혼동하지 않음

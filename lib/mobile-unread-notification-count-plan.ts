@@ -29,7 +29,7 @@ export const resolveMobileUnreadBridgePlan = ({
   return {
     shouldFetch,
     includeLiveRequestBoardUnread: false,
-    includeRequestBoardFcInbox: shouldFetch && role === 'admin' && requestBoardRole === 'fc',
+    includeRequestBoardFcInbox: shouldFetch && role === 'admin' && requestBoardRole !== null,
     includeNoticeUnread: shouldFetch && !isRequestBoardDesigner,
     onlyRequestBoardCategories: shouldFetch && isRequestBoardDesigner,
   };

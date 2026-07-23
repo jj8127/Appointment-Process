@@ -1,4 +1,4 @@
-import { invokeFcNotify } from '@/lib/fc-notify-client';
+import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { logger } from '@/lib/logger';
 
 type ExamApprovalNotifyParams = {
@@ -24,7 +24,7 @@ export async function notifyExamApprovalStatus({
   const targetId = normalizeDigits(residentId);
   if (!targetId) {
     logger.warn('[exam-approval-notify] skipped: missing resident id');
-    return false;
+    throw new Error('Exam approval notification target is unavailable.');
   }
 
   const normalizedExamInfo = formatExamInfo(examInfo);
@@ -35,19 +35,21 @@ export async function notifyExamApprovalStatus({
     ? `${normalizedExamInfo} 접수가 승인되었습니다. 시험 신청 화면에서 상태를 확인해주세요.`
     : `${normalizedExamInfo} 접수 완료가 해제되었습니다. 시험 신청 화면에서 상태를 확인해주세요.`;
 
-  const { data, error } = await invokeFcNotify({
-      type: 'notify',
-      target_role: 'fc',
-      target_id: targetId,
-      title,
-      body,
-      category: 'exam_apply',
-      url: examPath,
+  const delivery = await invokeFcNotifyForDelivery({
+    type: 'notify',
+    target_role: 'fc',
+    target_id: targetId,
+    title,
+    body,
+    category: 'exam_apply',
+    url: examPath,
   });
 
-  if (error) throw error;
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '시험 승인 알림 전송 실패');
+  if (!delivery.confirmed) {
+    logger.warn('[exam-approval-notify] delivery unconfirmed', {
+      reason: delivery.reason,
+    });
+    throw new Error('Exam approval notification delivery was not confirmed.');
   }
 
   return true;

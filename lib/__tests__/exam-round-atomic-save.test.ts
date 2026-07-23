@@ -22,6 +22,9 @@ describe('exam round atomic save contract', () => {
     expect(saveSource.indexOf('parseExamRoundSaveInput(payload)')).toBeLessThan(
       saveSource.indexOf("'save_exam_round_atomic'"),
     );
+    expect(saveSource).toContain('examRoundSaveErrorMessage(err)');
+    expect(actionSource).toContain("readErrorCode(err) === 'PGRST202'");
+    expect(actionSource).toContain('운영 DB 설정이 아직 반영되지 않았습니다.');
   });
 
   it('keeps round and location mutations in one database function', () => {

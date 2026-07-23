@@ -5,7 +5,6 @@ import {
   requireAppSessionFromRequest,
   type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
-import { filterManagerTokensForNotification } from '../_shared/notification-delivery-policy.ts';
 import {
   buildGroupChatActor,
   buildGroupChatAppointmentLabel,
@@ -122,8 +121,30 @@ type DeviceTokenRow = {
   role?: string | null;
 };
 
+type GroupChatNotificationSummary = {
+  ok: boolean;
+  status: 'skipped' | 'inbox_only' | 'provider_accepted' | 'partial';
+  recipient_count: number;
+  notification_count: number;
+  push_token_count: number;
+  push_accepted_count: number;
+  push_rejected_count: number;
+};
+
+type ExpoPushSummary = {
+  requested_count: number;
+  accepted_count: number;
+  rejected_count: number;
+};
+
+type NotificationInsertSummary = {
+  inserted_count: number;
+  failed: boolean;
+};
+
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_CHUNK_SIZE = 100;
+const EXPO_PUSH_TIMEOUT_MS = 8_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
 const MAX_MESSAGE_LIMIT = 100;
 const CHAT_UPLOAD_BUCKET = 'chat-uploads';
@@ -730,30 +751,72 @@ async function upsertRead(roomId: string, actorId: string, messageId?: string | 
   if (error) throw error;
 }
 
-async function sendExpoPushPayloads(pushPayload: Record<string, unknown>[]) {
-  for (let index = 0; index < pushPayload.length; index += EXPO_PUSH_CHUNK_SIZE) {
-    const chunk = pushPayload.slice(index, index + EXPO_PUSH_CHUNK_SIZE);
-    const response = await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(chunk),
-    });
-    if (!response.ok) {
-      console.warn('[group-chat] expo push failed', { status: response.status });
-    }
-  }
+function countAcceptedExpoTickets(value: unknown, expectedCount: number) {
+  if (!value || typeof value !== 'object') return 0;
+  const rawData = (value as { data?: unknown }).data;
+  const tickets = Array.isArray(rawData) ? rawData : rawData ? [rawData] : [];
+  const acceptedCount = tickets.filter((ticket) =>
+    ticket && typeof ticket === 'object' && (ticket as { status?: unknown }).status === 'ok'
+  ).length;
+  return Math.min(expectedCount, acceptedCount);
 }
 
-async function insertNotificationsWithFallback(rows: Record<string, unknown>[]) {
-  if (rows.length === 0) return;
+async function sendExpoPushPayloads(pushPayload: Record<string, unknown>[]): Promise<ExpoPushSummary> {
+  const summary: ExpoPushSummary = {
+    requested_count: pushPayload.length,
+    accepted_count: 0,
+    rejected_count: 0,
+  };
+
+  for (let index = 0; index < pushPayload.length; index += EXPO_PUSH_CHUNK_SIZE) {
+    const chunk = pushPayload.slice(index, index + EXPO_PUSH_CHUNK_SIZE);
+    try {
+      const response = await fetch(EXPO_PUSH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(chunk),
+        signal: AbortSignal.timeout(EXPO_PUSH_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        summary.rejected_count += chunk.length;
+        console.warn('[group-chat] expo push failed', {
+          reason: 'provider_http_failed',
+          status: response.status,
+        });
+        continue;
+      }
+
+      const providerPayload = await response.json().catch(() => null);
+      const acceptedCount = countAcceptedExpoTickets(providerPayload, chunk.length);
+      summary.accepted_count += acceptedCount;
+      summary.rejected_count += chunk.length - acceptedCount;
+      if (acceptedCount !== chunk.length) {
+        console.warn('[group-chat] expo push ticket rejected', {
+          reason: 'provider_ticket_rejected',
+          rejected_count: chunk.length - acceptedCount,
+        });
+      }
+    } catch {
+      summary.rejected_count += chunk.length;
+      console.warn('[group-chat] expo push request failed', {
+        reason: 'provider_delivery_not_accepted',
+      });
+    }
+  }
+
+  return summary;
+}
+
+async function insertNotificationsWithFallback(rows: Record<string, unknown>[]): Promise<NotificationInsertSummary> {
+  if (rows.length === 0) return { inserted_count: 0, failed: false };
   const firstTry = await supabase.from('notifications').insert(rows);
-  if (!firstTry.error) return;
+  if (!firstTry.error) return { inserted_count: rows.length, failed: false };
 
   const missingTargetColumn =
     firstTry.error.code === '42703' || String(firstTry.error.message ?? '').includes('target_url');
   if (!missingTargetColumn) {
     console.warn('[group-chat] notification insert failed', { reason: 'notification_insert_failed' });
-    return;
+    return { inserted_count: 0, failed: true };
   }
 
   const fallbackRows = rows.map(({ target_url: _targetUrl, ...row }) => row);
@@ -762,7 +825,36 @@ async function insertNotificationsWithFallback(rows: Record<string, unknown>[]) 
     console.warn('[group-chat] notification fallback insert failed', {
       reason: 'notification_fallback_insert_failed',
     });
+    return { inserted_count: 0, failed: true };
   }
+  return { inserted_count: rows.length, failed: false };
+}
+
+function selectEligibleRecipientTokens(
+  tokenRows: DeviceTokenRow[],
+  recipients: GroupChatMember[],
+): DeviceTokenRow[] {
+  // Group-chat membership is already resolved from active account tables. Match both
+  // phone and role so an eligible manager token is retained without admitting a
+  // request-board-only manager token for a non-member phone.
+  const recipientRolesByPhone = new Map<string, Set<GroupChatRole>>();
+  recipients.forEach((member) => {
+    const phone = sanitizeGroupChatPhone(member.phone);
+    if (!phone) return;
+    const roles = recipientRolesByPhone.get(phone) ?? new Set<GroupChatRole>();
+    roles.add(member.role);
+    recipientRolesByPhone.set(phone, roles);
+  });
+
+  const tokensByValue = new Map<string, DeviceTokenRow>();
+  tokenRows.forEach((row) => {
+    const token = normalizeGroupChatText(row.expo_push_token);
+    const phone = sanitizeGroupChatPhone(row.resident_id);
+    const role = normalizeGroupChatText(row.role).toLowerCase() as GroupChatRole;
+    if (!token || !phone || !recipientRolesByPhone.get(phone)?.has(role)) return;
+    if (!tokensByValue.has(token)) tokensByValue.set(token, row);
+  });
+  return Array.from(tokensByValue.values());
 }
 
 async function notifyRecipients(input: {
@@ -770,7 +862,7 @@ async function notifyRecipients(input: {
   sender: GroupChatActor;
   message: MessageRow;
   members?: GroupChatMember[];
-}) {
+}): Promise<GroupChatNotificationSummary> {
   const members = input.members ?? await listEligibleMembers();
   const { data: preferenceRows, error: preferenceError } = await supabase
     .from('group_chat_preferences')
@@ -789,7 +881,17 @@ async function notifyRecipients(input: {
       recipientMuted: mutedByActor.get(member.actor_id) === true,
     }),
   );
-  if (recipients.length === 0) return;
+  if (recipients.length === 0) {
+    return {
+      ok: true,
+      status: 'skipped',
+      recipient_count: 0,
+      notification_count: 0,
+      push_token_count: 0,
+      push_accepted_count: 0,
+      push_rejected_count: 0,
+    };
+  }
 
   const notificationRows = recipients.map((member) => ({
     recipient_role: toNotificationRecipientRole(member.role),
@@ -799,7 +901,7 @@ async function notifyRecipients(input: {
     category: GROUP_CHAT_NOTIFICATION_CATEGORY,
     target_url: GROUP_CHAT_TARGET_URL,
   }));
-  await insertNotificationsWithFallback(notificationRows);
+  const notificationInsert = await insertNotificationsWithFallback(notificationRows);
 
   const recipientPhones = Array.from(new Set(recipients.map((member) => member.phone)));
   const { data: tokenRows, error: tokenError } = await supabase
@@ -808,14 +910,20 @@ async function notifyRecipients(input: {
     .in('resident_id', recipientPhones);
   if (tokenError) {
     console.warn('[group-chat] token query failed', { reason: 'token_query_failed' });
-    return;
+    return {
+      ok: false,
+      status: 'partial',
+      recipient_count: recipients.length,
+      notification_count: notificationInsert.inserted_count,
+      push_token_count: 0,
+      push_accepted_count: 0,
+      push_rejected_count: 0,
+    };
   }
 
-  const allowedPhones = new Set(recipientPhones);
-  const allowedTokenRows = filterManagerTokensForNotification(
-    ((tokenRows ?? []) as DeviceTokenRow[])
-      .filter((row) => row.expo_push_token && allowedPhones.has(sanitizeGroupChatPhone(row.resident_id))),
-    { category: GROUP_CHAT_NOTIFICATION_CATEGORY, targetId: null },
+  const allowedTokenRows = selectEligibleRecipientTokens(
+    (tokenRows ?? []) as DeviceTokenRow[],
+    recipients,
   );
   const pushPayload = allowedTokenRows
     .map((row) => ({
@@ -831,7 +939,68 @@ async function notifyRecipients(input: {
       },
     }));
 
-  await sendExpoPushPayloads(pushPayload);
+  const provider = await sendExpoPushPayloads(pushPayload);
+  // A persisted inbox notification is useful, but it is not evidence that a
+  // handset push was delivered. When recipients exist, require at least one
+  // accepted Expo ticket before reporting notification delivery as successful.
+  const hasAcceptedPush = provider.accepted_count > 0;
+  const ok = !notificationInsert.failed
+    && hasAcceptedPush
+    && provider.rejected_count === 0;
+  return {
+    ok,
+    status: ok ? 'provider_accepted' : 'partial',
+    recipient_count: recipients.length,
+    notification_count: notificationInsert.inserted_count,
+    push_token_count: provider.requested_count,
+    push_accepted_count: provider.accepted_count,
+    push_rejected_count: provider.rejected_count,
+  };
+}
+
+function notificationFanoutFailureSummary(): GroupChatNotificationSummary {
+  return {
+    ok: false,
+    status: 'partial',
+    recipient_count: 0,
+    notification_count: 0,
+    push_token_count: 0,
+    push_accepted_count: 0,
+    push_rejected_count: 0,
+  };
+}
+
+function notificationWarning(summary: GroupChatNotificationSummary) {
+  if (summary.ok) return null;
+  return {
+    code: 'notification_delivery_partial',
+    message: '메시지는 저장됐지만 일부 알림 전송을 확인하지 못했습니다.',
+  } as const;
+}
+
+function postCommitWarning(input: {
+  readStateUpdated: boolean;
+  notification: GroupChatNotificationSummary;
+}) {
+  const notificationPartial = !input.notification.ok;
+  if (!input.readStateUpdated && notificationPartial) {
+    return {
+      // Preserve the existing notification warning code so current web clients
+      // still surface their single yellow warning while the structured read_state
+      // field and fixed message also disclose the read-state failure.
+      code: 'notification_delivery_partial',
+      message: '메시지는 저장됐지만 읽음 상태와 일부 알림 반영을 확인하지 못했습니다.',
+    } as const;
+  }
+  if (!input.readStateUpdated) {
+    return {
+      // Keep the established warning code so deployed web clients render the
+      // same single yellow post-commit warning without requiring a second toast.
+      code: 'notification_delivery_partial',
+      message: '메시지는 저장됐지만 읽음 상태 반영을 확인하지 못했습니다.',
+    } as const;
+  }
+  return notificationWarning(input.notification);
 }
 
 async function handleBootstrap(actor: GroupChatActor, payload: Extract<Payload, { type: 'group_chat_bootstrap' }>, origin?: string | null) {
@@ -937,12 +1106,34 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
   if (error) return dbError(error, origin);
 
   const message = data as MessageRow;
-  await upsertRead(room.id, actor.id, message.id);
-  const members = await listEligibleMembers();
-  const unreadCount = members.filter((member) => member.actor_id !== actor.id).length;
-  await notifyRecipients({ roomId: room.id, sender: actor, message, members });
+  let readStateUpdated = true;
+  try {
+    await upsertRead(room.id, actor.id, message.id);
+  } catch {
+    readStateUpdated = false;
+    console.warn('[group-chat] post-send read state update failed', {
+      reason: 'read_state_update_failed',
+    });
+  }
+  let unreadCount = 0;
+  let notification = notificationFanoutFailureSummary();
+  try {
+    const members = await listEligibleMembers();
+    unreadCount = members.filter((member) => member.actor_id !== actor.id).length;
+    notification = await notifyRecipients({ roomId: room.id, sender: actor, message, members });
+  } catch {
+    console.warn('[group-chat] notification fanout failed', {
+      reason: 'notification_fanout_failed',
+    });
+  }
 
-  return json({ ok: true, message: serializeMessage(message, unreadCount) }, 200, origin);
+  return json({
+    ok: true,
+    message: serializeMessage(message, unreadCount),
+    read_state: { updated: readStateUpdated },
+    notification,
+    warning: postCommitWarning({ readStateUpdated, notification }),
+  }, 200, origin);
 }
 
 async function handleMarkRead(actor: GroupChatActor, payload: Extract<Payload, { type: 'group_chat_mark_read' }>, origin?: string | null) {

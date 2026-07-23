@@ -7,6 +7,13 @@ export type FcNotifyAppActor = {
   isRequestBoardDesigner: boolean;
 };
 
+export type FcNotifyTargetRole = 'admin' | 'fc';
+export type FcNotifyDeviceTokenRole = 'admin' | 'manager' | 'fc';
+
+const ADMIN_NOTIFICATION_TOKEN_ROLES = ['admin', 'manager'] as const;
+const FC_NOTIFICATION_TOKEN_ROLES = ['fc'] as const;
+const REQUEST_BOARD_FC_NOTIFICATION_TOKEN_ROLES = ['fc', 'manager'] as const;
+
 type PolicySuccess = { ok: true; payload: Record<string, unknown> };
 type PolicyFailure = { ok: false; status: 400 | 401 | 403; error: string };
 export type FcNotifyAppPolicyResult = PolicySuccess | PolicyFailure;
@@ -27,6 +34,36 @@ function deny(error: string, status: 400 | 401 | 403 = 403): PolicyFailure {
 
 function sanitizePhone(value: unknown): string {
   return typeof value === 'string' ? value.replace(/[^0-9]/g, '') : '';
+}
+
+export function getAllowedNotificationTokenRoles(
+  targetRole: FcNotifyTargetRole,
+  category?: string | null,
+): readonly FcNotifyDeviceTokenRole[] {
+  if (targetRole === 'admin') return ADMIN_NOTIFICATION_TOKEN_ROLES;
+
+  // Request Board designers keep the FC inbox contract, but their mobile
+  // device is registered with the concrete manager role. This exception is
+  // limited to Request Board categories; the caller still scopes by the exact
+  // resident id before the existing manager-delivery policy is applied.
+  return String(category ?? '').trim().toLowerCase().startsWith('request_board_')
+    ? REQUEST_BOARD_FC_NOTIFICATION_TOKEN_ROLES
+    : FC_NOTIFICATION_TOKEN_ROLES;
+}
+
+export function shouldRequireActiveStaffNotificationTarget(input: {
+  actorSessionRole: FcNotifyAppActor['sessionRole'];
+  targetRole: FcNotifyTargetRole;
+  category?: string | null;
+  targetId?: string | null;
+}): boolean {
+  const isDirectMessage = String(input.category ?? '').trim().toLowerCase() === 'message'
+    && sanitizePhone(input.targetId).length === 11;
+
+  return isDirectMessage && (
+    (input.actorSessionRole === 'fc' && input.targetRole === 'admin')
+    || (input.actorSessionRole === 'admin' && input.targetRole === 'fc')
+  );
 }
 
 function safeText(value: unknown, maxLength: number, fallback = ''): string {
@@ -160,6 +197,8 @@ function buildInboxPayload(
 
   if (type === 'inbox_list') {
     const limit = Math.max(1, Math.min(Number(body.limit ?? 80) || 80, 200));
+    const onlyRequestBoardCategories =
+      actor.isRequestBoardDesigner || body.only_request_board_categories === true;
     return {
       ok: true,
       payload: {
@@ -168,6 +207,7 @@ function buildInboxPayload(
         resident_id: scope.residentId,
         limit,
         include_request_board_fc: includeRequestBoardFc,
+        only_request_board_categories: onlyRequestBoardCategories,
       },
     };
   }
@@ -183,7 +223,8 @@ function buildInboxPayload(
         include_request_board_fc: includeRequestBoardFc,
         exclude_request_board_categories: body.exclude_request_board_categories === true,
         include_notices: actor.isRequestBoardDesigner ? false : body.include_notices === true,
-        only_request_board_categories: actor.isRequestBoardDesigner,
+        only_request_board_categories:
+          actor.isRequestBoardDesigner || body.only_request_board_categories === true,
       },
     };
   }
@@ -218,9 +259,14 @@ function buildNotifyPayload(
     return deny('Notification target role is not allowed for this session');
   }
 
+  const category = safeText(body.category, 120, 'app_event');
   const rawTarget = String(body.target_id ?? '').trim();
   let targetId: string | null;
-  if (expectedTargetRole === 'admin' && (!rawTarget || rawTarget.toLowerCase() === 'admin')) {
+  if (expectedTargetRole === 'admin' && category !== 'message') {
+    // FC workflow events belong to the shared admin inbox. Only direct chat may
+    // address one concrete staff recipient.
+    targetId = null;
+  } else if (expectedTargetRole === 'admin' && (!rawTarget || rawTarget.toLowerCase() === 'admin')) {
     targetId = null;
   } else if (!rawTarget && actor.sessionRole === 'admin') {
     targetId = null;
@@ -243,7 +289,7 @@ function buildNotifyPayload(
     target_id: targetId,
     title,
     body: message,
-    category: safeText(body.category, 120, 'app_event'),
+    category,
     url,
     sender_id: scope.viewerId,
     sender_name: safeText(actor.displayName, 120, actor.sessionRole === 'fc' ? 'FC' : '관리자'),

@@ -184,6 +184,7 @@ describe('privileged server-action source-to-sink integration contract', () => {
   it('derives appointment and document notification targets from fc_profiles instead of client input', () => {
     const appointment = readRepoFile('web/src/app/dashboard/appointment/actions.ts');
     const docs = readRepoFile('web/src/app/dashboard/docs/actions.ts');
+    const pushService = readRepoFile('web/src/lib/push-notification-service.ts');
     const appointmentPage = readRepoFile('web/src/app/dashboard/appointment/page.tsx');
     const dashboardPage = readRepoFile('web/src/app/dashboard/page.tsx');
     const appointmentAction = extractExportedFunction(appointment, 'updateAppointmentAction');
@@ -196,7 +197,6 @@ describe('privileged server-action source-to-sink integration contract', () => {
     expect(appointment).not.toContain('phone: string;');
     expect(appointment).not.toContain('const { fcId, phone,');
     expect(appointment).toContain('parseFcNotificationPhone(currentProfile.phone)');
-    expect(appointment).toContain('resident_id: notificationPhone');
     expect(appointment).toContain('sendPushNotification(notificationPhone');
 
     expect(docs).toContain('parseDocStatusActionInput(payload)');
@@ -207,8 +207,8 @@ describe('privileged server-action source-to-sink integration contract', () => {
     expect(docs).not.toContain('const { fcId, phone,');
     expect(docs).toContain(".from('fc_profiles')");
     expect(docs).toContain('parseFcNotificationPhone(profile.phone)');
-    expect(docs).toContain('resident_id: notificationPhone');
     expect(docs).toContain('sendPushNotification(notificationPhone');
+    expect(pushService).toContain('resident_id: userId');
 
     const appointmentCalls = [
       ...extractActionCalls(appointmentPage, 'updateAppointmentAction'),

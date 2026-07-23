@@ -249,18 +249,16 @@ export default function ExamManageLifeScreen() {
     },
     onSuccess: async ({ applicant, value }) => {
       queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
-      if (!value) return;
-
       try {
         await notifyExamApprovalStatus({
           residentId: applicant.residentId,
           examInfo: applicant.examInfo,
           examPath: '/exam-apply',
-          isConfirmed: true,
+          isConfirmed: value,
         });
-      } catch (err) {
-        logger.warn('[exam-manage] approval notification failed', err);
-        Alert.alert('알림 전송 실패', '시험 상태는 저장되었지만 FC 앱 알림 전송은 실패했습니다.');
+      } catch {
+        logger.warn('[exam-manage] notification delivery unconfirmed', { isConfirmed: value });
+        Alert.alert('알림 확인 필요', '시험 상태는 저장되었지만 FC 앱 알림 전달은 확인하지 못했습니다.');
       }
     },
     onSettled: (_data, error) => {

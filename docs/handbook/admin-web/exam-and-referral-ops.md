@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-EXAM-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-06-08
+last_verified: 2026-07-22
 source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/src/app/dashboard/referrals/page.tsx + web/src/app/dashboard/referrals/graph/page.tsx + web/src/app/api/admin/referrals/route.ts
 
 # Admin Web Playbook: Exam And Referral Ops
@@ -23,12 +23,18 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 ## 시험 운영
 
 - 라운드 생성/수정/삭제
+- 라운드 생성/수정은 `save_exam_round_atomic` service-role RPC가 운영 DB에 먼저 적용된 뒤에만 활성화한다. PostgREST `PGRST202`는 입력 오류가 아니라 RPC rollout 누락으로 분류하며, 다중 쿼리 fallback으로 우회하지 않는다.
 - 신청자 조회/삭제
 - legacy admin 시험 화면과 최신 dashboard 시험 화면이 공존
 - `/dashboard/exam/applicants` 는 상단 소속 quick filter를 제공
 - 소속 quick filter는 현재 신청자 데이터와 별개로 `2본부 박성훈`, `6본부 김정수`, `9본부 김주용`, `10본부 한태균`을 항상 노출한다. 기존 복합 소속값은 짧은 운영 표기로 정규화해 같은 필터로 매칭하고, 본부 번호는 숫자로 정렬한다.
 - `/dashboard/exam/applicants` 는 소속 quick filter 아래에 `시험 종류`와 `시험 회차` 상단 필터를 제공한다. 적용 순서는 `소속 quick filter -> 시험 종류 -> 시험 회차 -> 테이블 헤더 필터`다.
-- 시험 종류/회차 필터 옵션은 `/api/admin/exam-applicants` 응답의 `round_id`, `round_label`, `exam_date`, `exam_type`, `is_third_exam`를 client helper에서 중복 제거해 만든다. 통계 카드와 CSV 다운로드는 새 필터가 반영된 `filteredRows`를 기준으로 한다.
+- 시험 종류/회차 필터 옵션은 `/api/admin/exam-applicants` 응답의 `round_id`, `round_label`, `exam_date`, `exam_type`, `is_third_exam`를 client helper에서 중복 제거해 만든다. 회차 메뉴는 날짜·회차·과목을 분리해 표시하고 선택 상태를 체크 아이콘과 주황 배경으로 구분한다.
+- 총 신청자/접수 완료/미접수 통계 카드는 버튼이며 접수 상태 필터를 적용한다. 통계 숫자는 소속·시험·헤더 필터까지 적용하되 접수 상태 자체는 제외한 모집단에서 계산해, 접수 카드 선택 후에도 완료/미접수 비교 수치가 흔들리지 않는다. CSV 다운로드는 최종 `filteredRows`를 따른다.
+- 신청자 row는 접수 완료를 옅은 주황, 미접수를 옅은 회색으로 구분하고 상태 변경 직후 같은 색 계약을 따른다. hover 라벨은 마우스를 따라가되 커서보다 위쪽에 반투명 배경으로 표시하며 소속과 이름만 노출한다.
+- 신청자 row 클릭 또는 키보드 Enter/Space는 `/dashboard/exam/applicants/[id]` 상세로 이동한다. 상세는 신청자·시험·접수 상태를 한 화면에 표시하고 admin에게 `시험 접수하기`를 제공한다. manager는 상세를 읽을 수 있지만 접수/삭제 등 쓰기 액션은 계속 비활성이다.
+- 신청자 상세의 `이전 신청자`/`다음 신청자`는 목록과 같은 `created_at DESC, id DESC` 순서를 사용한다. 첫 신청자의 이전 버튼과 마지막 신청자의 다음 버튼은 비활성화하며, 이동 중 개인 식별값을 URL label이나 로그에 추가하지 않는다.
+- 상세 API의 `registrationId` 조회는 선택 row 하나를 찾은 뒤 동일 신청자의 과거 이력을 함께 읽어 `신규신청/재신청`을 계산하고, enrichment 직전에 선택 row로 다시 좁힌다. 선택 row만 먼저 분류해 재신청 이력을 잃지 않는다.
 - 신청자 목록 컬럼/CSV 순서와 badge wrapping은 `web/src/lib/exam-applicant-list-display.ts`의 shared contract를 따른다. `시험 신청일`은 `exam_registrations.created_at`에서 날짜만 표시하며 테이블과 CSV에 함께 포함한다. `/admin/exams/[id]`는 특정 `roundId`를 서버 API로 조회하므로 별도의 상단 회차 필터를 추가하지 않는다.
 - resident number/full view는 운영 역할(admin/manager/developer) 기준으로 읽을 수 있고, `manager`는 모든 쓰기 액션이 비활성
 - `/api/admin/exam-applicants` 는 `exam_registrations.resident_id` 와 `fc_profiles.phone` 를 raw/digits/hyphenated 후보로 매칭한 뒤 `fc_identity_secure` 에서 full resident number를 읽는다.

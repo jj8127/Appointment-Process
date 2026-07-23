@@ -25,7 +25,7 @@ import { FormInput } from '@/components/FormInput';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
-import { invokeFcNotify } from '@/lib/fc-notify-client';
+import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { AGREEMENT_GUIDE_IMAGES } from '@/lib/guide-images';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
@@ -140,23 +140,29 @@ export default function AllowanceConsentScreen() {
         body: { phone, allowance_date: ymd },
       });
       if (error) {
-        logger.error('[consent] fc-consent invoke failed', error);
+        logger.warn('[consent] fc-consent invoke failed');
         throw new Error('정보를 저장하지 못했습니다.');
       }
 
       if (!data?.ok || !data?.profile?.id) {
-        logger.error('[consent] fc-consent response invalid', data);
+        logger.warn('[consent] fc-consent response invalid');
         throw new Error('정보를 저장하지 못했습니다.');
       }
 
-      invokeFcNotify({
-            type: 'fc_update',
-            fc_id: data.profile.id,
-            message: `${data.profile.name ?? ''}님이 보증보험 조회 동의일을 입력했습니다.`,
-        })
-        .catch(() => { });
+      const notificationDelivery = await invokeFcNotifyForDelivery({
+        type: 'fc_update',
+        fc_id: data.profile.id,
+        message: `${data.profile.name ?? ''}님이 보증보험 조회 동의일을 입력했습니다.`,
+      });
 
-      Alert.alert('저장 완료', '보증보험 조회 동의일이 제출되었습니다. 총무가 사전 심사를 준비할 예정입니다.');
+      if (notificationDelivery.confirmed) {
+        Alert.alert('저장 완료', '보증보험 조회 동의일이 제출되었습니다. 총무가 사전 심사를 준비할 예정입니다.');
+      } else {
+        Alert.alert(
+          '저장 완료 · 알림 확인 필요',
+          '정보는 정상 저장됐지만 담당자 알림 전달을 확인하지 못했습니다. 필요하면 담당자에게 직접 확인해주세요.',
+        );
+      }
       router.replace('/');
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');

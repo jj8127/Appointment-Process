@@ -262,6 +262,8 @@
         "supabase/functions/_shared/notification-delivery-policy.ts",
         "supabase/functions/_shared/__tests__/notification-delivery-policy.test.ts",
         "supabase/functions/_shared/fc-notify-auth-policy.ts",
+        "supabase/functions/_shared/expo-push-delivery.ts",
+        "supabase/functions/_shared/__tests__/expo-push-delivery.test.ts",
         "supabase/functions/device-token-register/",
         "supabase/functions/fc-notify/",
         "supabase/functions/__tests__/fc-notify-",

@@ -62,6 +62,11 @@ source_of_truth: env contracts + reset-password functions + supabase/functions/_
   Route unexpected traffic to a loopback-only `SENTRY_URL` and inspect output for upload/release/
   artifact activity; build success does not excuse an external mutation.
 
+## 2026-07-22 Notification diagnostic privacy contract
+
+- Mobile notification handlers must return only the supported display flags and must not log raw notification payloads, tokens, contact values, or navigation data.
+- `lib/__tests__/diagnostic-privacy-source.test.ts` owns the source guard for both the root Expo handler and `lib/notifications.ts`; handler compatibility changes must keep this privacy boundary intact.
+
 ## 2026-07-07 Supabase Functions Lockfile
 
 - `supabase/functions/deno.lock` is a runtime dependency contract for Edge Functions. Changes to it must be reviewed with the function code that caused the lock update, and must not be treated as an unrelated generated artifact.

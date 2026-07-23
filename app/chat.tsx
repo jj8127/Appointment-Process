@@ -34,7 +34,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { goBackOrReplace } from '@/lib/back-navigation';
-import { invokeFcNotify } from '@/lib/fc-notify-client';
+import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { fetchFcChatTargets } from '@/lib/internal-chat-api';
 import { getChatTargetPickerHeaderConfig } from '@/lib/chat-navigation';
 import { logger } from '@/lib/logger';
@@ -692,7 +692,7 @@ export default function ChatScreen() {
     const notiTitle = `${senderName}: ${notiBody}`;
     const notifyUrl = `/chat?targetId=${encodeURIComponent(myId)}&targetName=${encodeURIComponent(senderName)}`;
 
-    void invokeFcNotify({
+    const notificationDelivery = await invokeFcNotifyForDelivery({
         type: 'notify',
         target_role: recipientRole,
         target_id: residentIdForPush,
@@ -702,13 +702,16 @@ export default function ChatScreen() {
         url: notifyUrl,
         sender_id: myId,
         sender_name: senderName,
-    }).then(({ data: notifyData, error: notifyError }) => {
-      if (notifyError || !notifyData?.ok) {
-        logger.warn('Error in message notification', { error: notifyError ?? notifyData?.message });
-      }
-    }).catch((e) => {
-      logger.warn('Error in message notification', { error: e });
     });
+    if (!notificationDelivery.confirmed) {
+      logger.warn('[chat] message notification unconfirmed', {
+        reason: notificationDelivery.reason,
+      });
+      Alert.alert(
+        '메시지 전송 완료 · 알림 확인 필요',
+        '메시지는 저장됐지만 푸시 알림 전달을 확인하지 못했습니다. 상대방에게 직접 확인해주세요.',
+      );
+    }
   };
 
   const handleSendText = () => {

@@ -15,6 +15,7 @@ type UpdateDocStatusState = {
     success: boolean;
     message?: string;
     error?: string;
+    warning?: string;
 };
 
 const NO_FILE_APPROVAL_NOTE = '총무 수동 승인: 파일 미제출';
@@ -93,30 +94,26 @@ export async function updateDocStatusAction(
         title: string;
         body: string;
         targetUrl: '/hanwha-commission' | '/docs-upload';
-    }) => {
+    }): Promise<string | undefined> => {
         const phoneResult = parseFcNotificationPhone(profile.phone);
         if (!phoneResult.ok) {
-            logger.error('[docs/actions] notification skipped because the stored FC phone is invalid', {
-                fcId,
-                error: phoneResult.error,
+            logger.warn('[docs/actions] notification target unavailable', {
+                category: 'push_delivery',
+                reason: 'invalid_recipient',
+                status: 'skipped',
             });
-            return;
+            return '처리는 완료되었지만 알림 수신 대상을 확인할 수 없습니다.';
         }
         const notificationPhone = phoneResult.value;
 
-        await adminSupabase.from('notifications').insert({
-            title,
-            body,
-            target_url: targetUrl,
-            recipient_role: 'fc',
-            resident_id: notificationPhone,
-        });
-        await sendPushNotification(notificationPhone, {
+        const result = await sendPushNotification(notificationPhone, {
             title,
             body,
             data: { url: targetUrl },
-            skipNotificationInsert: true,
         });
+        return result.success
+            ? undefined
+            : '처리는 완료되었지만 알림 전달이 일부 또는 전부 실패했습니다.';
     };
 
     const { data: currentDoc, error: currentDocError } = await adminSupabase
@@ -188,13 +185,15 @@ export async function updateDocStatusAction(
         return { success: false, error: profileError.message };
     }
 
+    let notificationWarning: string | undefined;
+
     if (status === 'approved' && allApproved) {
         message = '모든 서류가 승인되어 다위촉 URL 단계로 자동 전환되었습니다.';
 
         const title = '서류 검토 완료';
         const body = '모든 서류가 승인되었습니다. 다위촉 URL 단계로 진행해주세요.';
 
-        await deliverNotification({
+        notificationWarning = await deliverNotification({
             title,
             body,
             targetUrl: '/hanwha-commission',
@@ -202,7 +201,7 @@ export async function updateDocStatusAction(
     } else if (status === 'rejected') {
         const title = '서류 반려 안내';
         const body = `서류가 반려되었습니다.\n사유: ${trimmedReason}`;
-        await deliverNotification({
+        notificationWarning = await deliverNotification({
             title,
             body,
             targetUrl: '/docs-upload',
@@ -210,5 +209,5 @@ export async function updateDocStatusAction(
     }
 
     revalidatePath('/dashboard');
-    return { success: true, message };
+    return { success: true, message, warning: notificationWarning };
 }

@@ -64,6 +64,28 @@ export type GroupChatNotice = {
   message: GroupChatMessage;
 };
 
+export type GroupChatNotificationSummary = {
+  ok: boolean;
+  status: 'skipped' | 'inbox_only' | 'provider_accepted' | 'partial';
+  recipient_count: number;
+  notification_count: number;
+  push_token_count: number;
+  push_accepted_count: number;
+  push_rejected_count: number;
+};
+
+export type GroupChatSendWarning = {
+  code: 'notification_delivery_partial';
+  message: string;
+};
+
+export type GroupChatSendResponse = {
+  ok: true;
+  message: GroupChatMessage;
+  notification: GroupChatNotificationSummary;
+  warning: GroupChatSendWarning | null;
+};
+
 export type GroupChatBootstrapResponse = {
   ok: true;
   room: GroupChatRoom;
@@ -115,7 +137,7 @@ export async function groupChatSend(input: {
   fileSize?: number | null;
   replyToMessageId?: string | null;
 }) {
-  return invokeGroupChat<{ ok: true; message: GroupChatMessage }>({
+  return invokeGroupChat<GroupChatSendResponse>({
     type: 'group_chat_send',
     content: input.content,
     message_type: input.messageType ?? 'text',

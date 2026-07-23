@@ -34,6 +34,7 @@ import {
   type ExamApplicantExportColumnKey,
   type ExamApplicantListItem,
 } from '@/lib/exam-applicant-list-display';
+import { notifyFcExamApprovalStatus } from '@/lib/exam-applicant-notification-client';
 
 type Row = ExamApplicantListItem & {
   id: string;
@@ -170,6 +171,16 @@ export default function AdminExamManagePage() {
         autoClose: 2000,
         icon: <IconRefresh size={16} />,
       });
+
+      try {
+        await notifyFcExamApprovalStatus(row, nextConfirmed);
+      } catch {
+        notifications.show({
+          title: '알림 확인 필요',
+          message: '상태는 저장되었지만 FC 앱 알림 전달은 확인하지 못했습니다.',
+          color: 'yellow',
+        });
+      }
     } catch (e) {
       const err = e as Error;
       notifications.show({ title: '변경 실패', message: err.message, color: 'red' });

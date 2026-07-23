@@ -69,6 +69,10 @@ Admin web reject reason entry in `web/src/app/dashboard/page.tsx`, `web/src/app/
 
 Admin web document and appointment mutations treat browser payloads as `unknown` and validate them through `web/src/lib/privileged-action-input-policy.ts` after verifying the server session. Client-provided recipient phones are not part of the action contract; server actions derive the canonical FC phone from `fcId` before creating inbox or push notifications. Regression evidence lives in `lib/__tests__/privileged-server-action-input-policy.test.ts`.
 
+## Notification partial-success feedback
+
+Chat, board, document, exam, and notice submission surfaces must distinguish the committed business mutation from its follow-up notification delivery. They await the delivery result, keep an already committed mutation successful, and show a user-safe partial-success warning when no provider accepted the notification. The UI must not expose tokens, recipient identifiers, provider bodies, or raw transport errors, and must not invite users to repeat the committed mutation as a notification retry.
+
 ## Shared Function Contracts
 
 Business formatting, normalization, mapping, grouping, and permission predicates must live in shared helpers once more than one screen depends on the same rule. Screen components may keep event handlers and mutation wiring, but duplicated function-level business rules should be moved into `lib/*` helpers and covered by source guards.

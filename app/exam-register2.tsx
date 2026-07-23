@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  Keyboard,
+  KeyboardAvoidingView,
   LayoutChangeEvent,
   Platform,
   Pressable,
@@ -16,12 +18,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import type { FocusEvent as RNFocusEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
-import { invokeFcNotify } from '@/lib/fc-notify-client';
+import { invokeAdminAction } from '@/lib/admin-action-api';
+import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import {
   buildExamRoundLocationRows,
   hasExamRoundLocationsForSave,
@@ -31,6 +34,7 @@ import {
   getExamFlowConfig,
   getExamRoundCreateFormState,
   getExamRoundEditFormState,
+  sortExamRoundsNewestFirst,
   type ExamNotifyPayload,
 } from '@/lib/exam-flow-contract';
 import { supabase } from '@/lib/supabase';
@@ -46,32 +50,7 @@ const examFlowType = 'nonlife' as const;
 const examFlowConfig = getExamFlowConfig(examFlowType);
 
 async function notifyExamFlow(payload: ExamNotifyPayload) {
-  const { data, error } = await invokeFcNotify(payload);
-  if (error) throw error;
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '알림 전송 실패');
-  }
-}
-
-async function adminAction(
-  adminPhone: string,
-  action: string,
-  payload: Record<string, unknown>,
-): Promise<{ ok: boolean; [key: string]: unknown }> {
-  const normalizedPhone = (adminPhone ?? '').replace(/[^0-9]/g, '');
-  if (!normalizedPhone) {
-    throw new Error('로그인 정보가 없습니다. 다시 로그인해주세요.');
-  }
-  const { data, error } = await supabase.functions.invoke('admin-action', {
-    body: { adminPhone: normalizedPhone, action, payload },
-  });
-  if (error) {
-    throw new Error(error instanceof Error ? error.message : '관리자 처리 중 오류가 발생했습니다.');
-  }
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '관리자 처리 중 오류가 발생했습니다.');
-  }
-  return data as { ok: boolean; [key: string]: unknown };
+  return invokeFcNotifyForDelivery(payload);
 }
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
@@ -122,7 +101,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
 type RoundedButtonProps = {
   label: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'danger';
+  variant?: 'primary' | 'secondary' | 'danger' | 'accent';
   disabled?: boolean;
   fullWidth?: boolean;
 };
@@ -139,7 +118,9 @@ function RoundedButton({
       ? styles.btnPrimary
       : variant === 'secondary'
         ? styles.btnSecondary
-        : styles.btnDanger;
+        : variant === 'accent'
+          ? styles.btnAccent
+          : styles.btnDanger;
 
   const textStyle =
     variant === 'secondary'
@@ -187,9 +168,11 @@ export default function ExamRegisterScreen() {
   const [notesHeight, setNotesHeight] = useState(80);
   const [showForm, setShowForm] = useState(false);
   const isEditMode = Boolean(selectedRoundId);
+  const canAddLocation = canEdit && locationInput.trim().length > 0;
 
   // 애니메이션 값
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const focusedInputTargetRef = useRef<RNFocusEvent['target'] | null>(null);
   const formOffsetYRef = useRef(0);
   const formOpacity = useRef(new Animated.Value(0)).current;
   const formTranslateY = useRef(new Animated.Value(24)).current;
@@ -237,17 +220,7 @@ export default function ExamRegisterScreen() {
     }
   }, [refetch]);
 
-  const sortedRounds = useMemo(
-    () =>
-      (rounds ?? []).slice().sort((a, b) => {
-        const da = a.exam_date ?? '';
-        const db = b.exam_date ?? '';
-        if (da < db) return -1;
-        if (da > db) return 1;
-        return 0;
-      }),
-    [rounds],
-  );
+  const sortedRounds = useMemo(() => sortExamRoundsNewestFirst(rounds ?? []), [rounds]);
 
   const selectedRound = useMemo(
     () => sortedRounds.find((r) => r.id === selectedRoundId) ?? null,
@@ -289,6 +262,34 @@ export default function ExamRegisterScreen() {
       y: Math.max(formOffsetYRef.current - 12, 0),
       animated: true,
     });
+  }, []);
+
+  const scrollFocusedInputIntoView = useCallback(
+    (event: RNFocusEvent) => {
+      if (Platform.OS === 'web') return;
+      focusedInputTargetRef.current = event.target;
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollResponderScrollNativeHandleToKeyboard(
+          event.target,
+          28,
+          true,
+        );
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+    const eventName = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const subscription = Keyboard.addListener(eventName, () => {
+      const target = focusedInputTargetRef.current;
+      if (target == null) return;
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollResponderScrollNativeHandleToKeyboard(target, 28, true);
+      });
+    });
+    return () => subscription.remove();
   }, []);
 
   const requestFormScroll = useCallback(() => {
@@ -341,7 +342,7 @@ export default function ExamRegisterScreen() {
         throw new Error('응시 지역을 1개 이상 입력해주세요.');
       }
 
-      const result = await adminAction(residentId ?? '', 'upsertExamRound', {
+      const result = await invokeAdminAction(residentId ?? '', 'upsertExamRound', {
         roundId: mode === 'update' ? selectedRoundId : null,
         data: payload,
         locations: locationRows,
@@ -354,10 +355,6 @@ export default function ExamRegisterScreen() {
       return { id: savedId };
     },
     onSuccess: async (res, mode) => {
-      Alert.alert(
-        '저장 완료',
-        mode === 'create' ? '새 시험 일정이 등록되었습니다.' : '시험 일정이 업데이트되었습니다.',
-      );
       closeFormWithAnim();
       refetch();
       if (res?.id) {
@@ -374,7 +371,16 @@ export default function ExamRegisterScreen() {
         title: `${examTitle} 일정이 ${actionLabel}되었습니다.`,
         body: '응시를 희망하는 경우 신청해주세요.',
       });
-      void notifyExamFlow(notificationPayload).catch(() => undefined);
+      const notificationResult = await notifyExamFlow(notificationPayload);
+      const savedMessage = mode === 'create'
+        ? '새 시험 일정이 등록되었습니다.'
+        : '시험 일정이 업데이트되었습니다.';
+      Alert.alert(
+        notificationResult.confirmed ? '저장 완료' : '저장 완료 · 알림 확인 필요',
+        notificationResult.confirmed
+          ? savedMessage
+          : `${savedMessage}\n\n가람in 알림 전달을 확인하지 못했습니다.`,
+      );
     },
     onSettled: (_data, error) => {
       if (error) {
@@ -417,7 +423,7 @@ export default function ExamRegisterScreen() {
   const deleteRound = useMutation({
     mutationFn: async (id: string) => {
       assertCanEdit();
-      await adminAction(residentId ?? '', 'deleteExamRound', { roundId: id });
+      await invokeAdminAction(residentId ?? '', 'deleteExamRound', { roundId: id });
     },
     onSuccess: () => {
       refetch();
@@ -691,6 +697,7 @@ export default function ExamRegisterScreen() {
                     setRoundForm((prev) => ({ ...prev, roundLabel: text }))
                   }
                   editable={canEdit}
+                  onFocus={scrollFocusedInputIntoView}
                   style={styles.input}
                 />
 
@@ -703,6 +710,7 @@ export default function ExamRegisterScreen() {
                     setRoundForm((prev) => ({ ...prev, notes: text }))
                   }
                   editable={canEdit}
+                  onFocus={scrollFocusedInputIntoView}
                   style={[styles.input, { height: notesHeight }]}
                   multiline
                   scrollEnabled={false}
@@ -721,6 +729,7 @@ export default function ExamRegisterScreen() {
                       value={locationInput}
                       onChangeText={setLocationInput}
                       editable={canEdit}
+                      onFocus={scrollFocusedInputIntoView}
                       style={styles.input}
                     />
                   </View>
@@ -733,6 +742,7 @@ export default function ExamRegisterScreen() {
                       onChangeText={setLocationOrder}
                       keyboardType="number-pad"
                       editable={canEdit}
+                      onFocus={scrollFocusedInputIntoView}
                       style={styles.input}
                     />
                   </View>
@@ -754,8 +764,8 @@ export default function ExamRegisterScreen() {
                       setLocationInput('');
                       setLocationOrder('0');
                     }}
-                    variant="secondary"
-                    disabled={!canEdit}
+                    variant="accent"
+                    disabled={!canAddLocation}
                   />
                 </View>
                 {draftLocations.length > 0 && (
@@ -812,7 +822,15 @@ export default function ExamRegisterScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      {Platform.OS === 'android' ? screenContent : <KeyboardAwareWrapper>{screenContent}</KeyboardAwareWrapper>}
+      {Platform.OS === 'web' ? screenContent : (
+        <KeyboardAvoidingView
+          style={styles.keyboardAvoiding}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+        >
+          {screenContent}
+        </KeyboardAvoidingView>
+      )}
     </SafeAreaView>
   );
 }
@@ -821,6 +839,9 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: BACKGROUND,
+  },
+  keyboardAvoiding: {
+    flex: 1,
   },
   container: {
     padding: 16,
@@ -1144,6 +1165,9 @@ const styles = StyleSheet.create({
     backgroundColor: CHARCOAL,
   },
   btnSecondary: {
+    backgroundColor: ORANGE,
+  },
+  btnAccent: {
     backgroundColor: ORANGE,
   },
   btnDanger: {

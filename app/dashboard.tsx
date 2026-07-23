@@ -39,7 +39,8 @@ import {
   hasHanwhaApprovedPdf as hasHanwhaApprovedPdfEvidence,
 } from '@/lib/fc-workflow';
 import { useSession } from '@/hooks/use-session';
-import { invokeFcNotify } from '@/lib/fc-notify-client';
+import { invokeAdminAction } from '@/lib/admin-action-api';
+import { type FcNotifyDeliveryResult } from '@/lib/fc-notify-client';
 import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
@@ -312,53 +313,77 @@ const getRecommenderDisplayText = (row: Pick<FcRow, 'recommender' | 'recommender
   return '연결된 추천인 FC: -';
 };
 
-async function adminAction(
-  adminPhone: string,
-  action: string,
-  payload: Record<string, any>,
-  appSessionToken?: string | null,
-): Promise<{ ok: boolean; [key: string]: any }> {
-  const { data, error } = await supabase.functions.invoke('admin-action', {
-    body: { adminPhone, appSessionToken, action, payload },
-  });
-  if (error) {
-    const msg = error instanceof Error ? error.message : 'Edge Function 호출 실패';
-    throw new Error(msg);
-  }
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '처리 중 오류가 발생했습니다.');
-  }
-  return data;
-}
-
 async function sendNotificationAndPush(
   adminPhone: string,
-  role: 'admin' | 'fc',
-  residentId: string | null,
+  fcId: string,
   title: string,
   body: string,
   url?: string,
-) {
-  // Insert notification via Edge Function (bypasses RLS)
-  await adminAction(adminPhone, 'sendNotification', {
-    phone: residentId,
+): Promise<{
+  confirmed: boolean;
+  inboxRecorded: boolean;
+  push: FcNotifyDeliveryResult;
+}> {
+  // The privileged server resolves the latest FC phone from the canonical FC id
+  // immediately before recording the inbox item and dispatching push.
+  const result = await invokeAdminAction<{
+    inboxRecorded?: boolean;
+    push?: {
+      confirmed?: boolean;
+      sent?: number;
+      reason?: string;
+    };
+  }>(adminPhone, 'sendNotification', {
+    fcId,
     title,
     body,
-    role,
     url,
-  }).catch(() => { /* ignore notification failures */ });
+  }).catch(() => null);
+  if (!result) {
+    return {
+      confirmed: false,
+      inboxRecorded: false,
+      push: { confirmed: false, reason: 'transport_error' },
+    };
+  }
+  const inboxRecorded = result.inboxRecorded === true;
+  const rawPush = result.push;
+  const push: FcNotifyDeliveryResult = rawPush?.confirmed === true
+    && typeof rawPush.sent === 'number'
+    && Number.isFinite(rawPush.sent)
+    && rawPush.sent > 0
+    ? { confirmed: true, sent: Math.trunc(rawPush.sent) }
+    : {
+        confirmed: false,
+        reason: rawPush?.reason === 'transport_error'
+          || rawPush?.reason === 'downstream_error'
+          || rawPush?.reason === 'not_logged'
+          || rawPush?.reason === 'no_device_target'
+          ? rawPush.reason
+          : 'invalid_response',
+      };
 
-  await invokeFcNotify({
-      type: 'notify',
-      target_role: role,
-      target_id: residentId,
-      title,
-      body,
-      category: 'app_event',
-      url,
-      skip_notification_insert: true,
-  }).catch(() => { /* ignore push failures */ });
+  return {
+    confirmed: inboxRecorded && push.confirmed,
+    inboxRecorded,
+    push,
+  };
 }
+
+type NotificationAndPushResult = Awaited<ReturnType<typeof sendNotificationAndPush>>;
+
+const getPostCommitNotificationAlert = (
+  successTitle: string,
+  successMessage: string,
+  notificationResult?: NotificationAndPushResult | boolean | null,
+) => (typeof notificationResult === 'boolean'
+  ? notificationResult
+  : Boolean(notificationResult && !notificationResult.confirmed))
+  ? {
+      title: `${successTitle} · 알림 확인 필요`,
+      message: `${successMessage}\n\n저장은 완료됐지만 가람in 알림 전달을 확인하지 못했습니다.`,
+    }
+  : { title: successTitle, message: successMessage };
 
 const fetchFcs = async (
   role: 'admin' | 'fc' | null,
@@ -398,7 +423,7 @@ const fetchFcs = async (
 };
 
 export default function DashboardScreen() {
-  const { role, residentId, hydrated, readOnly, appSessionToken } = useSession();
+  const { role, residentId, hydrated, readOnly } = useSession();
   const router = useRouter();
   const { status } = useLocalSearchParams<{ mode?: string; status?: string }>();
   const [statusFilter, setStatusFilter] = useState<FilterKey>('all');
@@ -499,11 +524,10 @@ export default function DashboardScreen() {
 
   const fetchInviteeReferralCode = useCallback(async (fcId: string) => {
     try {
-      const result = await adminAction(
+      const result = await invokeAdminAction(
         residentId ?? '',
         'getInviteeReferralCode',
         { fcId },
-        appSessionToken,
       );
       const signupReferralCode = typeof result.signupReferralCode === 'string' && result.signupReferralCode.trim()
         ? result.signupReferralCode
@@ -514,7 +538,7 @@ export default function DashboardScreen() {
     } catch {
       setReferralCodes((prev) => ({ ...prev, [fcId]: null }));
     }
-  }, [appSessionToken, residentId]);
+  }, [residentId]);
 
   const fetchResidentNumbers = useCallback(async (
     fcIds: string[],
@@ -541,11 +565,10 @@ export default function DashboardScreen() {
     });
 
     try {
-      const result = await adminAction(
+      const result = await invokeAdminAction(
         residentId ?? '',
         'getResidentNumbers',
         { fcIds: idsToFetch },
-        appSessionToken,
       );
       const residentNumbers =
         result.residentNumbers && typeof result.residentNumbers === 'object'
@@ -572,7 +595,7 @@ export default function DashboardScreen() {
         return next;
       });
     }
-  }, [appSessionToken, residentId, residentNumberEntries]);
+  }, [residentId, residentNumberEntries]);
 
   // Compute unique affiliations (After data is declared)
   const scopedData = useMemo(() => {
@@ -703,7 +726,6 @@ export default function DashboardScreen() {
       tempId,
       prevTemp,
       career,
-      phone,
     }: { id: string; tempId?: string; prevTemp?: string; career?: '신입' | '경력'; phone?: string }) => {
       assertCanEdit();
       const data: Record<string, any> = {};
@@ -716,13 +738,19 @@ export default function DashboardScreen() {
           data.status = 'temp-id-issued';
         }
       }
-      await adminAction(residentId, 'updateProfile', { fcId: id, data });
-      if (phone && tempIdTrim && tempIdTrim !== prevTrim) {
-        await sendNotificationAndPush(residentId, 'fc', phone, '임시번호가 발급 되었습니다.', `임시사번: ${tempIdTrim}`, '/consent');
+      await invokeAdminAction(residentId, 'updateProfile', { fcId: id, data });
+      if (tempIdTrim && tempIdTrim !== prevTrim) {
+        return sendNotificationAndPush(residentId, id, '임시번호가 발급 되었습니다.', `임시사번: ${tempIdTrim}`, '/consent');
       }
+      return null;
     },
-    onSuccess: () => {
-      Alert.alert('저장 완료', '임시번호/경력 정보가 저장되었습니다.');
+    onSuccess: (notificationResult) => {
+      const alert = getPostCommitNotificationAlert(
+        '저장 완료',
+        '임시번호/경력 정보가 저장되었습니다.',
+        notificationResult,
+      );
+      Alert.alert(alert.title, alert.message);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -736,7 +764,7 @@ export default function DashboardScreen() {
   const updateAllowanceDate = useMutation({
     mutationFn: async ({ id, allowanceDate }: { id: string; allowanceDate: string }) => {
       assertCanEdit();
-      const result = await adminAction(residentId, 'updateAllowanceDate', {
+      const result = await invokeAdminAction(residentId, 'updateAllowanceDate', {
         fcId: id,
         allowanceDate,
       });
@@ -760,29 +788,31 @@ export default function DashboardScreen() {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _updateDocs = useMutation({
-    mutationFn: async ({ id, types, phone }: { id: string; types: string[]; phone?: string }) => {
+    mutationFn: async ({ id, types }: { id: string; types: string[]; phone?: string }) => {
       assertCanEdit();
       const uniqueTypes = Array.from(new Set(types));
       const currentDeadline = (data ?? []).find((fc) => fc.id === id)?.docs_deadline_at ?? null;
-      await adminAction(residentId, 'updateDocReqs', {
+      await invokeAdminAction(residentId, 'updateDocReqs', {
         fcId: id,
         types: uniqueTypes,
         deadline: currentDeadline,
         currentDeadline,
       });
-      if (phone) {
-        await sendNotificationAndPush(
-          residentId,
-          'fc',
-          phone,
-          '서류 요청 안내',
-          '필수 서류 요청이 등록되었습니다. 앱에서 확인해 주세요.',
-          '/docs-upload',
-        );
-      }
+      return sendNotificationAndPush(
+        residentId,
+        id,
+        '서류 요청 안내',
+        '필수 서류 요청이 등록되었습니다. 앱에서 확인해 주세요.',
+        '/docs-upload',
+      );
     },
-    onSuccess: () => {
-      Alert.alert('요청 완료', '필수 서류 요청을 저장했습니다.');
+    onSuccess: (notificationResult) => {
+      const alert = getPostCommitNotificationAlert(
+        '요청 완료',
+        '필수 서류 요청을 저장했습니다.',
+        notificationResult,
+      );
+      Alert.alert(alert.title, alert.message);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -797,7 +827,6 @@ export default function DashboardScreen() {
       mutationFn: async ({
         id,
         types,
-        phone,
         deadline,
         currentDeadline,
       }: {
@@ -815,26 +844,28 @@ export default function DashboardScreen() {
           throw new Error('마감일은 YYYY-MM-DD 형식으로 입력해주세요.');
         }
 
-        await adminAction(residentId, 'updateDocReqs', {
+        await invokeAdminAction(residentId, 'updateDocReqs', {
           fcId: id,
           types: uniqueTypes,
           deadline: normalizedDeadline,
           currentDeadline,
         });
 
-        if (phone) {
-          await sendNotificationAndPush(
-            residentId,
-            'fc',
-            phone,
-            '서류 요청 안내',
-            '필수 서류 요청이 수정되었습니다. 새로운 서류를 제출해주세요.',
-            '/docs-upload',
-          );
-        }
+        return sendNotificationAndPush(
+          residentId,
+          id,
+          '서류 요청 안내',
+          '필수 서류 요청이 수정되었습니다. 새로운 서류를 제출해주세요.',
+          '/docs-upload',
+        );
       },
-    onSuccess: () => {
-      Alert.alert('저장 완료', '필수 서류 목록이 수정되었습니다.');
+    onSuccess: (notificationResult) => {
+      const alert = getPostCommitNotificationAlert(
+        '저장 완료',
+        '필수 서류 목록이 수정되었습니다.',
+        notificationResult,
+      );
+      Alert.alert(alert.title, alert.message);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -861,7 +892,7 @@ export default function DashboardScreen() {
         }
       }
       // Fallback: use admin-action Edge Function (bypasses RLS)
-      await adminAction(residentId, 'deleteFc', { fcId: id, phone });
+      await invokeAdminAction(residentId, 'deleteFc', { fcId: id, phone });
     },
     onSuccess: () => {
       Alert.alert('삭제 완료', '선택한 FC 기록이 삭제되었습니다.');
@@ -884,12 +915,15 @@ export default function DashboardScreen() {
       id: string;
       nextStatus: FcProfile['status'];
       extra?: Record<string, any>;
+      deferSuccessAlert?: boolean;
     }) => {
       assertCanEdit();
-      await adminAction(residentId, 'updateStatus', { fcId: id, status: nextStatus, extra });
+      await invokeAdminAction(residentId, 'updateStatus', { fcId: id, status: nextStatus, extra });
     },
-    onSuccess: () => {
-      Alert.alert('처리 완료', '상태가 업데이트되었습니다.');
+    onSuccess: (_, variables) => {
+      if (!variables.deferSuccessAlert) {
+        Alert.alert('처리 완료', '상태가 업데이트되었습니다.');
+      }
       refetch();
     },
     onSettled: (_data, error) => {
@@ -903,7 +937,7 @@ export default function DashboardScreen() {
   const updateHanwhaSubmissionDate = useMutation({
     mutationFn: async ({ id, submittedDate }: { id: string; submittedDate: string }) => {
       assertCanEdit();
-      const result = await adminAction(residentId, 'updateHanwhaSubmissionDate', {
+      const result = await invokeAdminAction(residentId, 'updateHanwhaSubmissionDate', {
         fcId: id,
         submittedDate,
       });
@@ -928,24 +962,29 @@ export default function DashboardScreen() {
   const markDawichokUrlSent = useMutation({
     mutationFn: async ({ fc }: { fc: FcRow }) => {
       assertCanEdit();
-      const result = await adminAction(residentId, 'markDawichokUrlSent', {
+      const result = await invokeAdminAction(residentId, 'markDawichokUrlSent', {
         fcId: fc.id,
       });
-      await sendNotificationAndPush(
+      const notificationResult = await sendNotificationAndPush(
         residentId,
-        'fc',
-        fc.phone,
+        fc.id,
         '다위촉 URL 안내',
         '카카오톡으로 전송된 다위촉 URL을 진행해 주세요.',
         '/hanwha-commission',
-      ).catch(() => undefined);
+      );
       return {
         fcId: fc.id,
         sentAt: String(result.dawichok_url_sent_at ?? new Date().toISOString()),
+        notificationResult,
       };
     },
-    onSuccess: () => {
-      Alert.alert('발송 신호 완료', 'FC에게 다위촉 URL 진행 안내를 보냈습니다.');
+    onSuccess: ({ notificationResult }) => {
+      const alert = getPostCommitNotificationAlert(
+        '발송 신호 완료',
+        'FC에게 다위촉 URL 진행 안내를 보냈습니다.',
+        notificationResult,
+      );
+      Alert.alert(alert.title, alert.message);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -973,7 +1012,7 @@ export default function DashboardScreen() {
       submittedDate?: string | null;
     }) => {
       assertCanEdit();
-      await adminAction(residentId, 'updateHanwhaCommission', {
+      await invokeAdminAction(residentId, 'updateHanwhaCommission', {
         fcId: fc.id,
         decision,
         rejectReason,
@@ -983,29 +1022,37 @@ export default function DashboardScreen() {
       });
 
       if (decision === 'approve') {
-        await sendNotificationAndPush(
+        const notificationResult = await sendNotificationAndPush(
           residentId,
-          'fc',
-          fc.phone,
+          fc.id,
           '다위촉 URL 승인',
           '다위촉 URL이 승인되었습니다. 승인 PDF를 확인해주세요.',
           '/hanwha-commission',
         );
-        return;
+        return { notificationResult };
       }
 
       const body = rejectReason
         ? `다위촉 URL이 반려되었습니다.\n사유: ${rejectReason}`
         : '다위촉 URL이 반려되었습니다. 내용을 확인해주세요.';
-      await sendNotificationAndPush(residentId, 'fc', fc.phone, '다위촉 URL 반려', body, '/hanwha-commission');
+      const notificationResult = await sendNotificationAndPush(
+        residentId,
+        fc.id,
+        '다위촉 URL 반려',
+        body,
+        '/hanwha-commission',
+      );
+      return { notificationResult };
     },
-    onSuccess: (_, vars) => {
-      Alert.alert(
+    onSuccess: ({ notificationResult }, vars) => {
+      const alert = getPostCommitNotificationAlert(
         '처리 완료',
         vars.decision === 'approve'
           ? '다위촉 URL 승인이 저장되었습니다.'
           : '다위촉 URL 반려가 저장되었습니다.',
+        notificationResult,
       );
+      Alert.alert(alert.title, alert.message);
       setHanwhaPdfDrafts((prev) => {
         if (!prev[vars.fc.id]) return prev;
         const next = { ...prev };
@@ -1028,7 +1075,6 @@ export default function DashboardScreen() {
       type,
       date,
       isReject = false,
-      phone,
       rejectReason,
     }: {
       id: string;
@@ -1039,7 +1085,7 @@ export default function DashboardScreen() {
       rejectReason?: string | null;
     }) => {
       assertCanEdit();
-      await adminAction(residentId, 'updateAppointmentDate', {
+      await invokeAdminAction(residentId, 'updateAppointmentDate', {
         fcId: id, type, date, isReject, rejectReason,
       });
 
@@ -1048,15 +1094,21 @@ export default function DashboardScreen() {
         const body = rejectReason
           ? `위촉 완료일이 반려되었습니다.\n사유: ${rejectReason}`
           : '위촉 완료일이 반려되었습니다. 위촉을 다시 진행해주세요.';
-        await sendNotificationAndPush(residentId, 'fc', phone, title, body, '/appointment');
+        return sendNotificationAndPush(residentId, id, title, body, '/appointment');
       } else if (date) {
         const title = type === 'life' ? '생명 위촉이 승인되었습니다.' : '손해 위촉이 승인되었습니다.';
-        await sendNotificationAndPush(residentId, 'fc', phone, title, title, '/');
+        return sendNotificationAndPush(residentId, id, title, title, '/');
       }
+      return null;
     },
-    onSuccess: (_, vars) => {
+    onSuccess: (notificationResult, vars) => {
       const label = vars.type === 'life' ? '생명' : '손해';
-      Alert.alert('처리 완료', `${label} 위촉 정보가 ${vars.isReject ? '반려' : '저장'}되었습니다.`);
+      const alert = getPostCommitNotificationAlert(
+        '처리 완료',
+        `${label} 위촉 정보가 ${vars.isReject ? '반려' : '저장'}되었습니다.`,
+        notificationResult,
+      );
+      Alert.alert(alert.title, alert.message);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -1072,7 +1124,6 @@ export default function DashboardScreen() {
       id,
       life,
       nonlife,
-      phone,
     }: {
       id: string;
       life?: string | null;
@@ -1081,21 +1132,23 @@ export default function DashboardScreen() {
     }) => {
       assertCanEdit();
       logger.debug('[appointment-schedule] mutate', { id, life, nonlife });
-      await adminAction(residentId, 'updateAppointmentSchedule', { fcId: id, life, nonlife });
+      await invokeAdminAction(residentId, 'updateAppointmentSchedule', { fcId: id, life, nonlife });
+      return sendNotificationAndPush(
+        residentId,
+        id,
+        '위촉 차수 안내',
+        '총무가 위촉 차수를 입력했습니다. 위촉을 진행해주세요.',
+        '/appointment',
+      );
     },
-    onSuccess: async (_, vars) => {
+    onSuccess: (notificationResult, vars) => {
       logger.debug('[appointment-schedule] success', vars);
-      Alert.alert('저장 완료', '위촉 예정월이 저장되었습니다.');
-      if (vars.phone) {
-        await sendNotificationAndPush(
-          residentId,
-          'fc',
-          vars.phone,
-          '위촉 차수 안내',
-          '총무가 위촉 차수를 입력했습니다. 위촉을 진행해주세요.',
-          '/appointment',
-        );
-      }
+      const alert = getPostCommitNotificationAlert(
+        '저장 완료',
+        '위촉 예정월이 저장되었습니다.',
+        notificationResult,
+      );
+      Alert.alert(alert.title, alert.message);
       // 최신 데이터 반영
       refetch();
     },
@@ -1113,7 +1166,6 @@ export default function DashboardScreen() {
       fcId,
       docType,
       status,
-      phone,
       reviewerNote,
     }: {
       fcId: string;
@@ -1123,47 +1175,61 @@ export default function DashboardScreen() {
       reviewerNote?: string | null;
     }) => {
       assertCanEdit();
-      const result = await adminAction(residentId, 'updateDocStatus', {
+      const result = await invokeAdminAction(residentId, 'updateDocStatus', {
         fcId, docType, status, reviewerNote,
       });
+      const notificationJobs: Promise<NotificationAndPushResult>[] = [];
       if (result.allApproved) {
-        await sendNotificationAndPush(
+        notificationJobs.push(sendNotificationAndPush(
           residentId,
-          'fc',
-          phone,
+          fcId,
           '서류 검토 완료',
           '모든 서류가 승인되었습니다. 다위촉 URL 단계로 진행해주세요.',
           '/hanwha-commission',
-        );
+        ));
       }
-    },
-    onSuccess: async (_, vars) => {
-      const { status, docType, phone, reviewerNote } = vars;
       if (status === 'approved') {
-        Alert.alert('승인 완료', `${docType} 서류가 승인되었습니다.`);
-        await sendNotificationAndPush(
+        notificationJobs.push(sendNotificationAndPush(
           residentId,
-          'fc',
-          phone,
+          fcId,
           '서류 승인',
           `${docType} 서류가 승인되었습니다.`,
           '/docs-upload',
-        );
+        ));
       } else if (status === 'rejected') {
-        Alert.alert('미승인 처리', `${docType} 서류를 미승인으로 변경했습니다.`);
-        await sendNotificationAndPush(
+        notificationJobs.push(sendNotificationAndPush(
           residentId,
-          'fc',
-          phone,
+          fcId,
           '서류 반려',
           reviewerNote
             ? `${docType} 서류가 미승인 처리되었습니다.\n사유: ${reviewerNote}`
             : `${docType} 서류가 미승인 처리되었습니다. 내용을 확인해주세요.`,
           '/docs-upload',
-        );
-      } else {
-        Alert.alert('승인 해제', `${docType} 서류의 승인이 해제되었습니다.`);
+        ));
       }
+      return Promise.all(notificationJobs);
+    },
+    onSuccess: (notificationResults, vars) => {
+      const { status, docType } = vars;
+      const notificationIncomplete = notificationResults.some((result) => !result.confirmed);
+      let successTitle: string;
+      let successMessage: string;
+      if (status === 'approved') {
+        successTitle = '승인 완료';
+        successMessage = `${docType} 서류가 승인되었습니다.`;
+      } else if (status === 'rejected') {
+        successTitle = '미승인 처리';
+        successMessage = `${docType} 서류를 미승인으로 변경했습니다.`;
+      } else {
+        successTitle = '승인 해제';
+        successMessage = `${docType} 서류의 승인이 해제되었습니다.`;
+      }
+      const alert = getPostCommitNotificationAlert(
+        successTitle,
+        successMessage,
+        notificationIncomplete,
+      );
+      Alert.alert(alert.title, alert.message);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -1200,7 +1266,7 @@ export default function DashboardScreen() {
         style: 'destructive',
         onPress: async () => {
           try {
-            await adminAction(residentId, 'deleteDocFile', { fcId, docType, storagePath });
+            await invokeAdminAction(residentId, 'deleteDocFile', { fcId, docType, storagePath });
             Alert.alert('삭제 완료', '파일을 삭제했습니다.');
             refetch();
           } catch (err: unknown) {
@@ -1374,14 +1440,18 @@ export default function DashboardScreen() {
   const handleSendReminder = async (fc: FcRow) => {
     try {
       setReminderLoading(fc.id);
-      await sendNotificationAndPush(
+      const notificationResult = await sendNotificationAndPush(
         residentId,
-        'fc',
-        fc.phone,
+        fc.id,
         '등록 안내',
         '보증 보험 동의를 완료해주세요.',
       );
-      Alert.alert('알림 전송', '진행을 재촉하는 알림을 발송했습니다.');
+      Alert.alert(
+        notificationResult.confirmed ? '알림 전송' : '알림 전달 확인 필요',
+        notificationResult.confirmed
+          ? '진행을 재촉하는 알림을 발송했습니다.'
+          : '알림함 저장 또는 대상 기기의 푸시 전달을 확인하지 못했습니다.',
+      );
     } catch (err: unknown) {
       const error = err as Error;
       Alert.alert('전송 실패', error?.message ?? '알림 전송 중 문제가 발생했습니다.');
@@ -1445,20 +1515,26 @@ export default function DashboardScreen() {
       await updateStatus.mutateAsync({
         id: rejectTarget.id,
         nextStatus: 'allowance-pending',
+        deferSuccessAlert: true,
         extra: {
           allowance_date: nextAllowanceDate || null,
           allowance_prescreen_requested_at: null,
           allowance_reject_reason: reason,
         },
       });
-      await sendNotificationAndPush(
+      const notificationResult = await sendNotificationAndPush(
         residentId,
-        'fc',
-        rejectTarget.phone,
+        rejectTarget.id,
         '보증 보험 동의 반려',
         `보증 보험 동의가 반려되었습니다.\n사유: ${reason}`,
         '/consent',
       );
+      const alert = getPostCommitNotificationAlert(
+        '처리 완료',
+        '보증 보험 동의 반려가 저장되었습니다.',
+        notificationResult,
+      );
+      Alert.alert(alert.title, alert.message);
       setRejectModalVisible(false);
     } catch (err: unknown) {
       const error = err as Error;
@@ -1832,19 +1908,25 @@ export default function DashboardScreen() {
                     await updateStatus.mutateAsync({
                       id: fc.id,
                       nextStatus: 'allowance-consented',
+                      deferSuccessAlert: true,
                       extra: {
                         allowance_date: currentAllowance || null,
                         allowance_reject_reason: null,
                       },
                     });
-                    await sendNotificationAndPush(
+                    const notificationResult = await sendNotificationAndPush(
                       residentId,
-                      'fc',
-                      fc.phone,
+                      fc.id,
                       '보증 보험 동의 승인',
                       '보증 보험 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
                       '/docs-upload',
                     );
+                    const alert = getPostCommitNotificationAlert(
+                      '처리 완료',
+                      '보증 보험 동의 승인이 저장되었습니다.',
+                      notificationResult,
+                    );
+                    Alert.alert(alert.title, alert.message);
                   } catch (err: unknown) {
                     const error = err as Error;
                     Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');

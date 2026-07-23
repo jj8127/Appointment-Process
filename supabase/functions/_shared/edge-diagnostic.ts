@@ -39,6 +39,10 @@ type EdgeDiagnosticPair =
       reason: 'upstream_rejected' | 'request_failed';
     }
   | {
+      event: 'fc_notify.expo_push';
+      reason: 'request_failed' | 'timeout';
+    }
+  | {
       event: 'fc_notify.recipient_resolution';
       reason: 'no_admin_recipients';
     }
@@ -145,6 +149,8 @@ const VALID_PAIRS = new Set<string>([
   'request_board.password_sync:timeout',
   'fc_notify.admin_web_push:upstream_rejected',
   'fc_notify.admin_web_push:request_failed',
+  'fc_notify.expo_push:request_failed',
+  'fc_notify.expo_push:timeout',
   'fc_notify.recipient_resolution:no_admin_recipients',
   'fc_notify.attachment_cleanup:storage_remove_failed',
   'fc_notify.notification_insert:insert_failed',

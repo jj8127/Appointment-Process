@@ -94,6 +94,31 @@ export function getExamFlowConfig(examType: ExamFlowType): ExamFlowConfig {
   return EXAM_FLOW_CONFIGS[examType];
 }
 
+let examApplyRealtimeChannelSequence = 0;
+
+export function createExamApplyRealtimeChannelTopic(
+  prefix: ExamFlowConfig['applyRealtimeChannelPrefix'],
+): string {
+  examApplyRealtimeChannelSequence += 1;
+  return `${prefix}-${Date.now().toString(36)}-${examApplyRealtimeChannelSequence.toString(36)}`;
+}
+
+export function sortExamRoundsNewestFirst(
+  rounds: readonly ExamRoundWithLocations[],
+): ExamRoundWithLocations[] {
+  return [...rounds].sort((a, b) => {
+    const examDateOrder = String(b.exam_date ?? '').localeCompare(String(a.exam_date ?? ''));
+    if (examDateOrder !== 0) return examDateOrder;
+
+    const deadlineOrder = String(b.registration_deadline ?? '').localeCompare(
+      String(a.registration_deadline ?? ''),
+    );
+    if (deadlineOrder !== 0) return deadlineOrder;
+
+    return String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''));
+  });
+}
+
 export function getExamFeeAccountCopyText(examType: ExamFlowType) {
   const { feeAccount } = getExamFlowConfig(examType);
   return {
@@ -214,7 +239,7 @@ export function buildExamApplyNotificationPayloads({
     admin: {
       type: 'notify',
       target_role: 'admin',
-      target_id: residentId,
+      target_id: null,
       title,
       body,
       category: 'exam_apply',

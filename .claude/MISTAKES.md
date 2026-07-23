@@ -3899,6 +3899,19 @@
   - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
   - `lib/__tests__/request-board-api-contract.test.ts`
 
+## 2026-07-22 | Exam registration mobile UX | resized viewport did not reveal focused inputs
+
+- Symptom:
+  - Admin/general-affairs users could focus lower exam-registration inputs, but Android did not scroll them above the opened keyboard. The location-add action also stayed pale orange while enabled, and older rounds appeared before newer ones.
+- Root cause:
+  - The Fabric-safe Android path correctly avoided the shared keyboard-aware wrapper but had no replacement focused-input scroll after `adjustResize`.
+  - Location-add reused a secondary pale style without tying its disabled state to trimmed input validity.
+  - Both registration screens duplicated an ascending exam-date sort.
+- Permanent guardrail:
+  - Keep one plain Android `ScrollView`, pair it with viewport avoidance and keyboard-after-show focus scrolling, make action color follow real validity, and centralize shared newest-first ordering for both exam types.
+- Verification:
+  - `lib/__tests__/exam-flow-contract.test.ts`
+
 ## 2026-07-21 | UI 분류 정렬 | 본부명을 문자열로 정렬해 10본부가 1본부 앞에 배치됨
 
 - 증상: 고정 빠른 분류를 추가한 첫 테스트에서 `10본부`가 `1본부`보다
@@ -3931,3 +3944,194 @@
   - 이번 ephemeral observation의 SHA-256은 `cb9504f911b9bd3af0aaf62e84d7bd6e93c8c6150b671ab89362bc8b071529b5`이며, 영구 파일·하네스·로그 사본은 생성하지 않았다.
 - Verification:
   - 후속 시험 신청자 확인은 네 개 기대 label의 존재 boolean만 반환했다.
+
+## 2026-07-22 | Browser QA privacy repeat | 인증 입력 DOM snapshot이 필드 내용을 노출함
+
+- Symptom:
+  - 로그인 버튼의 활성 상태만 확인하면 되는 조사에서 인증 화면 전체 DOM snapshot을 출력해 채워진 인증 필드 내용이 ephemeral tool output에 포함됐다.
+- Root cause:
+  - 이전 guardrail을 운영 데이터 테이블에만 좁게 적용하고, 로그인·비밀번호 재설정·OTP 화면도 동일한 민감 화면으로 분류하지 않았다.
+- Permanent guardrail:
+  - 인증 화면에서는 전체 DOM snapshot, visible DOM, screenshot을 출력하지 않는다. locator가 필요하면 접근성 이름만 포함된 새 빈 세션을 사용하고, 이미 값이 채워진 화면에서는 `count`, `isEnabled`, `disabled`, `aria-*`, URL 같은 제한된 속성만 읽는다.
+  - 도구 출력에 포함된 인증 필드 내용은 복사·기록·재사용하지 않으며, 파일·로그·Sentry·보고서에 남기지 않는다.
+- Verification:
+  - 후속 확인은 로그인 버튼의 count/enabled/disabled 속성과 콘솔 오류 개수만 반환했다.
+
+## 2026-07-22 | RPC rollout order | exam caller가 운영 migration보다 먼저 활성화됨
+
+- Symptom:
+  - 관리자 웹 시험 일정 등록이 반복적으로 `PGRST202`로 실패했다.
+- Root cause:
+  - RPC-required admin web artifact가 Production에 활성화됐지만 `20260712000002_atomic_exam_round_save.sql`은 FC 운영 migration history에 없었다.
+- Permanent guardrail:
+  - exam RPC caller 배포 전 `to_regprocedure` 존재, service-role execute grant, anon/authenticated revoke, atomic behavior를 운영에서 확인하고 그 증거가 없으면 기능을 활성화하지 않는다.
+  - 누락 시 다중 쿼리 fallback을 추가하지 않고 additive migration을 먼저 적용한다.
+- Verification:
+  - Vercel error group `PGRST202`, Supabase migration list, read-only function existence query.
+
+## 2026-07-22 | Realtime effect reconnect | 구독 중인 동일 topic을 재사용함
+
+- Symptom:
+  - 시험 신청 화면이 개발 모드 effect 재연결 중 `postgres_changes` callback을 `subscribe()` 이후 추가했다는 Render Error로 중단됐다.
+- Root cause:
+  - 현재 Realtime client는 같은 topic의 채널을 재사용한다. effect cleanup의 비동기 leave가 끝나기 전에 같은 개인 식별 기반 topic으로 재실행되어 이미 joining/joined 상태인 채널에 `.on()`을 호출했다.
+- Permanent guardrail:
+  - effect 실행마다 개인 식별값이 없는 고유한 channel topic을 생성하고, 모든 `.on()`을 `.subscribe()` 전에 등록하며, cleanup에서는 그 실행이 만든 정확한 채널만 제거한다.
+- Verification:
+  - `lib/__tests__/exam-flow-contract.test.ts`
+
+## 2026-07-22 | Applicant detail classification | 선택 row만 먼저 조회해 재신청 이력을 잃음
+
+- Symptom:
+  - 신청자 상세 API가 선택된 registration 하나만 분류기에 전달하면 이전 동일 과목 신청이 있어도 `신규신청`으로 표시될 수 있었다.
+- Root cause:
+  - 목록 최적화를 상세 조회에 그대로 적용하면서 `신규신청/재신청`이 과거 신청 이력을 필요로 하는 파생 상태라는 점을 query scope보다 뒤에서 고려했다.
+- Permanent guardrail:
+  - 선택 registration을 먼저 찾고 동일 신청자의 해당 시점까지 이력을 조회해 분류한 다음, enrichment 직전에 선택 ID로 좁힌다.
+  - 상세 API source contract는 ID lookup, resident history lookup, post-classification ID filter를 함께 고정한다.
+- Verification:
+  - `web/src/lib/exam-applicant-detail-source.test.ts`
+
+## 2026-07-22 | React mapped header keys | helper가 반환한 `<th>`에 stable key가 없음
+
+- Symptom:
+  - 시험 신청자 테이블 렌더링에서 `Each child in a list should have a unique key prop` 경고가 발생했다.
+- Root cause:
+  - `EXAM_APPLICANT_EXPORT_COLUMNS.map()`이 호출하는 `renderHeader`가 fragment가 아닌 `<Table.Th>`를 직접 반환하면서도 key를 소유하지 않았다.
+- Permanent guardrail:
+  - map callback helper가 최상위 React element를 반환하면 helper의 안정적인 식별자(`field`)를 그 element의 `key`로 사용한다.
+  - applicant source contract에서 일반 헤더와 action 헤더 모두 같은 keyed root를 사용하도록 고정한다.
+- Verification:
+  - `web/src/lib/exam-applicant-detail-source.test.ts`
+
+## 2026-07-23 | Admin direct-chat push | fire-and-forget가 저장 성공 뒤 알림 실패를 숨김
+
+- Symptom:
+  - 관리자 웹 채팅에는 메시지가 정상 저장됐지만 가람in 휴대폰 알림이 뜨지 않았고, 관리자 화면에도 전달 실패 신호가 없었다.
+- Root cause:
+  - 메시지 insert 뒤 `/api/fc-notify`를 `void`로 실행해 브라우저 lifecycle 취소 가능성을 남겼고, HTTP/downstream 응답의 `logged`와 `sent`를 검증하지 않았다.
+  - 알림 성공을 메시지 저장 성공과 분리하면서도 post-commit 전달 확인 계약과 부분 실패 UI를 만들지 않았다.
+- Permanent guardrail:
+  - 사용자 메시지 저장 뒤 푸시 fanout은 post-commit으로 완료를 확인하되, 실패해도 저장된 메시지를 rollback하거나 입력창에 복원하지 않는다.
+  - 브라우저 알림 요청은 이탈 내성을 갖고, HTTP 2xx뿐 아니라 프록시/downstream 성공, notification row 저장, 최소 1개 기기 대상을 검증한다.
+  - 진단에는 고정 reason/status와 aggregate count만 남기고 수신자, 본문, 토큰, raw provider response를 기록하지 않는다.
+- Verification:
+  - `lib/__tests__/admin-web-chat-source.test.ts`
+  - `web/src/lib/admin-chat-notification-result.test.ts`
+
+## 2026-07-23 | Notification success was inferred from transport success and subject identity was reused as recipient identity
+
+- Symptom:
+  - Saved messages and workflow updates appeared successful while inbox persistence, device targeting, or provider acceptance had failed.
+  - FC-to-admin workflow events could target the FC phone instead of the shared admin audience, and resolved group-chat managers could be filtered out afterward.
+- Root cause:
+  - Callers and fanout services used HTTP success or token count as delivery truth and did not preserve separate `logged`, attempted, accepted, and rejected states.
+  - Event-subject identifiers and notification-recipient identifiers were treated as interchangeable.
+- Permanent guardrail:
+  - Confirmation-dependent sends must require durable inbox success plus at least one accepted provider ticket; zero target and provider rejection are explicit outcomes.
+  - A primary write is never rolled back or presented as unsaved because a post-commit notification failed; the UI reports partial delivery instead.
+  - Non-message FC workflow events use shared-admin scope (`target_id=null`); only direct message category may use a concrete staff target.
+  - Provider bodies, tickets, tokens, recipient identifiers, and message bodies are never logged or returned as diagnostics.
+- Verification:
+  - Pure provider/delivery classifiers, mobile/web source contracts, group-chat membership contracts, Edge Deno checks, and diagnostic privacy tests.
+
+## 2026-07-23 | Contract tests depended on one working directory and stale success payloads
+
+- Symptom:
+  - The full Node gate failed only when launched from the repository root, while the same source test passed from `web`.
+  - The Board Edge smoke test rejected a valid new response because its fixture and exact payload assertion still modeled the older fire-and-forget notification contract.
+- Root cause:
+  - A source test resolved files from `process.cwd()` instead of its own module location.
+  - The loopback notification fixture returned transport-only success and the smoke assertion did not cover the new saved-versus-delivered fields.
+- Permanent guardrail:
+  - Source tests resolve fixtures relative to `import.meta.url` and must pass from the canonical aggregate gate working directory.
+  - Edge smoke fixtures model confirmed provider delivery, and response assertions explicitly cover `saved`, bounded notification aggregates, and `notificationWarning`.
+- Verification:
+  - Aggregate Node test gate from the repository root and both Board Edge loopback smoke tests.
+
+## 2026-07-23 | Push registration was duplicated and a failed attempt suppressed later retries
+
+- Symptom:
+  - A signed-in design manager could keep using the app while the server had no usable manager-role device token, so Request Board notifications never reached the handset.
+- Root cause:
+  - Push registration was owned by both the home screen and the global session provider, and the attempt key was treated as complete before registration success was known.
+- Permanent guardrail:
+  - The global session provider is the only push-registration owner. It derives designer sessions as `manager`, records the attempt key only after success or a terminal failure, and uses bounded retries plus an app-foreground retry after exhaustion.
+  - Concrete FC notification token queries remain role-bound. Only concrete `request_board_*` recipients may include both `fc` and `manager` token roles, followed by the manager-delivery policy and exact resident-id scope.
+- Verification:
+  - Push registration source contracts, Request Board session contracts, FC notification role-policy tests, and the Edge Function Deno check.
+
+## 2026-07-23 | A stale screen identifier was trusted as the notification recipient
+
+- Symptom:
+  - A successful admin workflow mutation could save correctly but notify an obsolete phone value, leaving the current FC device without an inbox or push event.
+- Root cause:
+  - The mobile caller supplied both the stable FC id and a mutable phone field, and the privileged handler reused the client-provided phone as delivery authority.
+- Permanent guardrail:
+  - Privileged workflow callers send only the stable FC id. Immediately before each notification, the server resolves the latest completed FC profile and validates the canonical phone; lookup or delivery failure becomes a fixed post-commit warning and never falls back to another number.
+  - Boolean workflow notifications cover both transitions (`false -> true` and `true -> false`) instead of assuming that only approval is meaningful.
+- Verification:
+  - Canonical-recipient source tests, Edge Deno checks, workflow transition tests, and admin/mobile type and lint gates.
+
+## 2026-07-23 | Post-commit attachment work was presented as a failed primary mutation
+
+- Symptom:
+  - A saved board post or design request could show a full failure when attachment upload or delivery failed, encouraging the operator to submit the primary mutation again.
+- Root cause:
+  - Durable writes and external attachment side effects shared one success/failure boundary, and retry actions repeated create/update instead of retrying only the failed attachment stage.
+- Permanent guardrail:
+  - Preserve the committed entity id, return a partial-delivery warning, and make retries address only failed attachment work. A post-commit failure must never erase the saved result or call the primary mutation again.
+- Verification:
+  - Mobile/web board source contracts, Request Board attachment delivery tests, TypeScript, lint, and governance checks.
+
+## 2026-07-23 | A privileged Edge mutation trusted a claimed actor identifier
+
+- Symptom:
+  - A caller with the public application credential could claim a known administrator phone in the request body and reach service-role mutations without proving the corresponding signed app session.
+- Root cause:
+  - `admin-action` checked whether the claimed phone existed and was active, but did not bind that identity to a verified session token. Native session credentials were also eligible for plaintext AsyncStorage persistence.
+- Permanent guardrail:
+  - Service-role Edge mutations authorize only an exact service-role bearer or a verified signed app session whose canonical active database actor supplies role, phone, and staff type. Body actor fields are never an authorization source.
+  - Mobile callers use one authenticated invocation helper and fail locally if the signed session token is unavailable. Native auth and bridge tokens use secure storage first, with one-time migration and removal of legacy plaintext values.
+- Verification:
+  - Edge authorization policy tests, canonical actor tests, secure token-storage migration tests, Deno checks, mobile TypeScript/lint, and priority security gates.
+
+## 2026-07-23 | Direct-message and bridged-inbox checks covered only one side of each role mapping
+
+- Symptom:
+  - A stale FC device token could receive an admin direct message after the FC profile was no longer completed.
+  - A manager-backed Request Board designer could receive push delivery but see no matching inbox row or unread badge because the row used the FC wire role while the app session used the admin role.
+- Root cause:
+  - Active-recipient validation covered FC-to-staff messages but not the reverse direction.
+  - The bridge merge recognized only `requestBoardRole='fc'`, even though designer sessions use the same personal FC-role notification rows.
+- Permanent guardrail:
+  - Both direct-message directions validate the canonical active recipient before token lookup.
+  - Any personal admin-role Request Board bridge session may merge only its exact resident-id FC-role rows; designer sessions then restrict the visible/countable set to `request_board_*` categories and exclude notices.
+- Verification:
+  - FC notification auth-policy/source tests, mobile unread planning tests, Deno checks, and notification/request-board screen lint.
+
+## 2026-07-23 | Development type checks did not prove the Turbopack filesystem root
+
+- Symptom:
+  - Admin-web TypeScript passed, but the production build could not resolve shared notification code outside the nested `web` directory.
+- Root cause:
+  - The TypeScript alias covered the repository parent while `turbopack.root` stopped at `web`; production compilation refuses files outside that root.
+- Permanent guardrail:
+  - Nested Next.js apps that import repository-level shared code must root Turbopack at the nearest common repository directory and lock that setting in the build-tracing contract test.
+  - Production build remains a required release gate; lint and TypeScript alone are insufficient.
+- Verification:
+  - `lib/__tests__/agent-room-build-tracing.test.ts`
+  - Sentry-disabled `web` production build
+
+## 2026-07-23 | A new Edge failure diagnostic bypassed the closed diagnostic contract
+
+- Symptom:
+  - The full Jest gate rejected a two-argument `console.warn` added to the Expo push failure path.
+- Root cause:
+  - The change used a locally safe-looking aggregate reason but bypassed the repository's exact single-literal console allowlist and closed diagnostic schema.
+- Permanent guardrail:
+  - Variable Edge diagnostics must use `reportEdgeDiagnostic` with an enumerated event/reason pair; raw or locally structured console arguments remain forbidden.
+- Verification:
+  - `diagnostic-console-governance.test.ts`
+  - `diagnostic-privacy-source.test.ts`
+  - Deno check for `fc-notify` and the shared diagnostic helper

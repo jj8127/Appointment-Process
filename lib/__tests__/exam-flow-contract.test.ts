@@ -6,6 +6,7 @@ import {
   INVALID_EXAM_LOCATION_MESSAGE,
   buildExamApplyNotificationPayloads,
   buildExamRoundNotificationPayload,
+  createExamApplyRealtimeChannelTopic,
   getExamApplyRestoredSelectionState,
   getExamFeeAccountCopyText,
   getExamRoundCreateFormState,
@@ -14,6 +15,7 @@ import {
   getExamFlowConfig,
   isLocationInRound,
   sendExamApplyNotificationsBestEffort,
+  sortExamRoundsNewestFirst,
 } from '../exam-flow-contract';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -48,6 +50,38 @@ const baseRound = {
     },
   ],
 };
+
+describe('exam round list ordering', () => {
+  it('sorts the newest exam date first with deterministic tie breakers', () => {
+    const older = { ...baseRound, id: 'older', exam_date: '2026-07-20' };
+    const newerEarlierDeadline = {
+      ...baseRound,
+      id: 'newer-earlier-deadline',
+      exam_date: '2026-08-20',
+      registration_deadline: '2026-08-01',
+    };
+    const newerLaterDeadline = {
+      ...baseRound,
+      id: 'newer-later-deadline',
+      exam_date: '2026-08-20',
+      registration_deadline: '2026-08-05',
+    };
+
+    expect(sortExamRoundsNewestFirst([older, newerEarlierDeadline, newerLaterDeadline]))
+      .toEqual([newerLaterDeadline, newerEarlierDeadline, older]);
+  });
+});
+
+describe('exam apply realtime channel topics', () => {
+  it('creates opaque unique topics for rapid effect reconnects', () => {
+    const first = createExamApplyRealtimeChannelTopic('exam-apply-life');
+    const second = createExamApplyRealtimeChannelTopic('exam-apply-life');
+
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/^exam-apply-life-[a-z0-9]+-[a-z0-9]+$/);
+    expect(first).not.toContain('resident');
+  });
+});
 
 describe('exam flow contract', () => {
   it('keeps life and nonlife flow differences in config', () => {
@@ -209,7 +243,7 @@ describe('exam flow contract', () => {
       admin: {
         type: 'notify',
         target_role: 'admin',
-        target_id: 'resident-1',
+        target_id: null,
         title: '홍길동님이 2026-07-20 (1차)을 신청하였습니다.',
         body: '홍길동님이 2026-07-20 (1차) (서울)을 신청하였습니다.',
         category: 'exam_apply',
@@ -288,6 +322,7 @@ describe('exam flow contract', () => {
           "from '@/lib/exam-flow-contract'",
           "const examFlowType = 'life' as const;",
           'buildExamApplyNotificationPayloads',
+          'createExamApplyRealtimeChannelTopic',
           'getExamApplyRestoredSelectionState',
           'getExamFeeAccountCopyText',
           'getExamRoundSelectionState',
@@ -299,6 +334,7 @@ describe('exam flow contract', () => {
           "from '@/lib/exam-flow-contract'",
           "const examFlowType = 'nonlife' as const;",
           'buildExamApplyNotificationPayloads',
+          'createExamApplyRealtimeChannelTopic',
           'getExamApplyRestoredSelectionState',
           'getExamFeeAccountCopyText',
           'getExamRoundSelectionState',
@@ -312,6 +348,7 @@ describe('exam flow contract', () => {
           'buildExamRoundNotificationPayload',
           'getExamRoundCreateFormState',
           'getExamRoundEditFormState',
+          'sortExamRoundsNewestFirst',
         ],
       },
       {
@@ -322,6 +359,7 @@ describe('exam flow contract', () => {
           'buildExamRoundNotificationPayload',
           'getExamRoundCreateFormState',
           'getExamRoundEditFormState',
+          'sortExamRoundsNewestFirst',
         ],
       },
     ];
@@ -332,8 +370,24 @@ describe('exam flow contract', () => {
         expect(source).toContain(required);
       }
 
+      if (expectation.file === 'exam-register.tsx' || expectation.file === 'exam-register2.tsx') {
+        expect(source).toContain('KeyboardAvoidingView');
+        expect(source).toContain('scrollResponderScrollNativeHandleToKeyboard');
+        expect(source).toContain("behavior={Platform.OS === 'ios' ? 'padding' : 'height'}");
+        expect(source).toContain('variant="accent"');
+        expect(source).toContain('disabled={!canAddLocation}');
+        expect(source).not.toContain('KeyboardAwareWrapper');
+      }
+
       if (expectation.file === 'exam-apply.tsx' || expectation.file === 'exam-apply2.tsx') {
         expect(source).toContain('sendExamApplyNotificationsBestEffort');
+        expect(source).toContain('const hasAvailableRounds = allRounds.some');
+        expect(source).toContain('!hasAvailableRounds');
+        expect(source).toContain('현재 신청 가능한 시험이 없습니다.');
+        expect(source).toContain(
+          '.channel(createExamApplyRealtimeChannelTopic(examFlowConfig.applyRealtimeChannelPrefix))',
+        );
+        expect(source).not.toContain('${examFlowConfig.applyRealtimeChannelPrefix}-${residentId}');
         expect(source).not.toMatch(
           /await notifyExamFlow\(notificationPayloads\.(admin|fcSelf)\)/,
         );

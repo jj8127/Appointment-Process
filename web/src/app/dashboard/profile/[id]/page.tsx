@@ -5,6 +5,11 @@ import { formatPresenceLabel } from '@/lib/presence';
 import { getAdminStepDisplay, getStatusDisplay } from '@/lib/shared';
 import { useResidentNumber } from '@/hooks/use-resident-number';
 import { useSession } from '@/hooks/use-session';
+import {
+    ADMIN_NOTIFICATION_WARNING_TITLE,
+    getAdminNotificationWarning,
+} from '@/lib/admin-notification-warning';
+import { resolveAdminTempIdUpdate } from '@/lib/admin-temp-id-update';
 import { RecommenderSelect } from '@/components/RecommenderSelect';
 import type { FcProfile, FcStatus } from '@/types/fc';
 import {
@@ -208,7 +213,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     const updateProfileMutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
             const normalizedCareerType = values.career_type.trim();
-            const normalizedTempId = values.temp_id.trim();
+            const tempIdUpdate = resolveAdminTempIdUpdate(profile?.temp_id, values.temp_id);
             const payload: Record<string, unknown> = {
                 name: values.name.trim(),
                 phone: values.phone.trim(),
@@ -218,8 +223,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 email: values.email.trim() || null,
                 career_type: normalizedCareerType === '신입' || normalizedCareerType === '경력' ? normalizedCareerType : null,
             };
-            if (normalizedTempId) {
-                payload.temp_id = normalizedTempId;
+            if (tempIdUpdate.changed) {
+                payload.temp_id = tempIdUpdate.nextTempId;
             }
             if (isRecommenderDirty) {
                 payload.recommenderFcId = clearRecommenderSelection ? null : selectedRecommenderFcId;
@@ -234,7 +239,6 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                     payload: {
                         fcId,
                         data: payload,
-                        phone: profile?.phone ?? payload.phone,
                     },
                 }),
             });
@@ -248,8 +252,11 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             }
             return json;
         },
-        onSuccess: () => {
-            notifications.show({ title: '저장 완료', message: '프로필 정보가 수정되었습니다.', color: 'green' });
+        onSuccess: (response) => {
+            const notificationWarning = getAdminNotificationWarning(response);
+            notifications.show(notificationWarning
+                ? { title: ADMIN_NOTIFICATION_WARNING_TITLE, message: notificationWarning, color: 'yellow' }
+                : { title: '저장 완료', message: '프로필 정보가 수정되었습니다.', color: 'green' });
             setIsEditing(false);
             setClearRecommenderSelection(false);
             setRecommenderOverrideReason('');

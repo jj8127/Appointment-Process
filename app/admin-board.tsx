@@ -6,6 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  BackHandler,
   Image,
   Platform,
   Pressable,
@@ -24,6 +25,10 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import {
+  deliverBoardAttachments,
+  type BoardAttachmentManifest,
+} from '@/lib/board-attachment-delivery';
 import { openExternalUrl } from '@/lib/open-external-url';
 import {
   buildBoardActor,
@@ -32,6 +37,7 @@ import {
   fetchBoardCategories,
   finalizeBoardAttachments,
   formatFileSize,
+  getBoardNotificationWarningMessage,
   deleteBoardAttachments,
   logBoardError,
   signBoardAttachments,
@@ -52,6 +58,13 @@ type LocalAttachment = {
   mimeType: string;
   fileSize: number;
   fileType: 'image' | 'file';
+};
+
+type PendingBoardAttachmentRetry = {
+  postId: string;
+  operation: 'create' | 'update';
+  notificationWarning: string | null;
+  manifest: BoardAttachmentManifest | null;
 };
 
 const isImageAttachment = (attachment: LocalAttachment) => attachment.fileType === 'image';
@@ -100,7 +113,22 @@ export default function AdminBoardScreen() {
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<LocalAttachment[]>([]);
   const [didLoadPost, setDidLoadPost] = useState(false);
+  const [pendingAttachmentRetry, setPendingAttachmentRetry] =
+    useState<PendingBoardAttachmentRetry | null>(null);
   const pickingRef = useRef(false);
+  const canEditComposer = canWrite && !pendingAttachmentRetry;
+
+  useEffect(() => {
+    if (!pendingAttachmentRetry) return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      Alert.alert(
+        '첨부 재시도 필요',
+        '저장된 게시글의 첨부 처리를 먼저 완료해주세요.',
+      );
+      return true;
+    });
+    return () => subscription.remove();
+  }, [pendingAttachmentRetry]);
 
   const existingImages = useMemo(
     () => existingAttachments.filter(isImageAttachment),
@@ -168,9 +196,132 @@ export default function AdminBoardScreen() {
     setDidLoadPost(true);
   }, [actor?.role, detailData, didLoadPost, router]);
 
+  const uploadSelectedAttachments = async (
+    targetPostId: string,
+    pendingManifest: BoardAttachmentManifest | null,
+  ) => {
+    if (!actor) {
+      return { complete: false, manifest: pendingManifest };
+    }
+
+    return deliverBoardAttachments(
+      attachments.map((file, index) => ({
+        source: file,
+        fileName: file.fileName,
+        mimeType: file.mimeType,
+        fileSize: file.fileSize,
+        fileType: file.fileType,
+        sortOrder: existingAttachments.length + index,
+      })),
+      pendingManifest,
+      {
+        sign: (files) => signBoardAttachments(actor, targetPostId, files),
+        upload: async (file, signedUrl, mimeType) => {
+          const response = await fetch(file.uri);
+          const body = Platform.OS === 'web'
+            ? await response.blob()
+            : await response.arrayBuffer();
+          const uploadResponse = await fetch(signedUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': mimeType },
+            body,
+          });
+          if (!uploadResponse.ok) {
+            throw new Error('attachment_upload_incomplete');
+          }
+        },
+        finalize: async (files) => {
+          await finalizeBoardAttachments(actor, targetPostId, files);
+        },
+        areFinalized: async (storagePaths) => {
+          const detail = await fetchBoardDetail(actor, targetPostId);
+          const finalizedPaths = new Set(
+            detail.attachments.map((attachment) => attachment.storagePath),
+          );
+          return storagePaths.every((storagePath) => finalizedPaths.has(storagePath));
+        },
+      },
+    );
+  };
+
+  const finishSavedPost = (
+    operation: 'create' | 'update',
+    notificationWarning: string | null,
+  ) => {
+    const successMessage = operation === 'update'
+      ? '게시글이 수정되었습니다.'
+      : '게시글이 성공적으로 작성되었습니다.';
+    const notificationWarningMessage = getBoardNotificationWarningMessage(notificationWarning);
+    Alert.alert(
+      operation === 'update' ? '게시글 수정 완료' : '게시글 작성 완료',
+      notificationWarningMessage
+        ? `${successMessage}\n\n${notificationWarningMessage}`
+        : successMessage,
+      [
+        {
+          text: '확인',
+          onPress: () => {
+            setTitle('');
+            setContent('');
+            setAttachments([]);
+            setPendingAttachmentRetry(null);
+            router.replace('/admin-board-manage');
+          },
+        },
+      ],
+    );
+  };
+
+  const handleBack = () => {
+    if (pendingAttachmentRetry) {
+      Alert.alert(
+        '첨부 재시도 필요',
+        '저장된 게시글의 첨부 처리를 먼저 완료해주세요.',
+      );
+      return;
+    }
+    router.back();
+  };
+
   const handleSubmit = async () => {
     if (!canWrite) {
       Alert.alert('접근 불가', '관리자만 게시글을 작성할 수 있습니다.');
+      return;
+    }
+    if (pendingAttachmentRetry) {
+      setLoading(true);
+      try {
+        const attachmentResult = await uploadSelectedAttachments(
+          pendingAttachmentRetry.postId,
+          pendingAttachmentRetry.manifest,
+        );
+        if (!attachmentResult.complete) {
+          setPendingAttachmentRetry({
+            ...pendingAttachmentRetry,
+            manifest: attachmentResult.manifest,
+          });
+          Alert.alert(
+            '게시글 저장 완료 · 첨부 확인 필요',
+            '게시글은 이미 저장되어 있습니다. 게시글을 다시 작성하지 말고 첨부만 다시 시도해주세요.',
+          );
+          return;
+        }
+        queryClient.invalidateQueries({ queryKey: ['board-posts'] });
+        queryClient.invalidateQueries({
+          queryKey: ['board-detail', pendingAttachmentRetry.postId],
+        });
+        finishSavedPost(
+          pendingAttachmentRetry.operation,
+          pendingAttachmentRetry.notificationWarning,
+        );
+      } catch {
+        Alert.alert(
+          '게시글 저장 완료 · 첨부 확인 필요',
+          '게시글은 이미 저장되어 있습니다. 게시글을 다시 작성하지 말고 첨부만 다시 시도해주세요.',
+        );
+      } finally {
+        setLoading(false);
+      }
       return;
     }
     if (!title.trim() || !content.trim()) {
@@ -185,75 +336,60 @@ export default function AdminBoardScreen() {
     setLoading(true);
     try {
       if (!actor) throw new Error('로그인이 필요합니다.');
-      const targetPostId = postId
-        ?? (await createBoardPost(actor, {
+      let targetPostId: string;
+      let notificationWarning: string | null = null;
+      const operation = isEditMode ? 'update' : 'create';
+      if (postId) {
+        targetPostId = postId;
+      } else {
+        const createResult = await createBoardPost(actor, {
           categoryId,
           title: title.trim(),
           content: content.trim(),
-        })).id;
+        });
+        targetPostId = createResult.id;
+        notificationWarning = createResult.notificationWarning;
+      }
 
       if (isEditMode) {
-        await updateBoardPost(actor, {
+        const updateResult = await updateBoardPost(actor, {
           postId: targetPostId,
           categoryId,
           title: title.trim(),
           content: content.trim(),
           attachmentOrder: existingAttachments.map((file) => file.id),
         });
+        notificationWarning = updateResult.notificationWarning;
       }
       if (attachments.length > 0) {
-        const signPayload = attachments.map((file) => ({
-          fileName: file.fileName,
-          mimeType: file.mimeType,
-          fileSize: file.fileSize,
-          fileType: file.fileType,
-        }));
-        const signed = await signBoardAttachments(actor, targetPostId, signPayload);
-
-        for (let i = 0; i < signed.length; i += 1) {
-          const target = attachments[i];
-          const upload = signed[i];
-          const response = await fetch(target.uri);
-          const body = Platform.OS === 'web' ? await response.blob() : await response.arrayBuffer();
-          const uploadRes = await fetch(upload.signedUrl, {
-            method: 'PUT',
-            headers: { 'Content-Type': target.mimeType },
-            body,
+        const attachmentResult = await uploadSelectedAttachments(targetPostId, null);
+        if (!attachmentResult.complete) {
+          setPendingAttachmentRetry({
+            postId: targetPostId,
+            operation,
+            notificationWarning,
+            manifest: attachmentResult.manifest,
           });
-          if (!uploadRes.ok) {
-            throw new Error(`${target.fileName} 업로드에 실패했습니다.`);
-          }
+          queryClient.invalidateQueries({ queryKey: ['board-posts'] });
+          queryClient.invalidateQueries({ queryKey: ['board-detail', targetPostId] });
+          const notificationWarningMessage =
+            getBoardNotificationWarningMessage(notificationWarning);
+          Alert.alert(
+            '게시글 저장 완료 · 첨부 확인 필요',
+            [
+              '게시글은 저장되었지만 첨부 전달을 확인하지 못했습니다. 게시글을 다시 작성하지 말고 첨부만 다시 시도해주세요.',
+              notificationWarningMessage,
+            ].filter(Boolean).join('\n\n'),
+          );
+          return;
         }
-
-        await finalizeBoardAttachments(
-          actor,
-          targetPostId,
-          attachments.map((file, index) => ({
-            storagePath: signed[index].storagePath,
-            fileName: file.fileName,
-            fileSize: file.fileSize,
-            mimeType: file.mimeType,
-            fileType: file.fileType,
-            sortOrder: existingAttachments.length + index,
-          })),
-        );
       }
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       if (targetPostId) {
         queryClient.invalidateQueries({ queryKey: ['board-detail', targetPostId] });
       }
 
-      Alert.alert(isEditMode ? '게시글 수정 완료' : '게시글 작성 완료', isEditMode ? '게시글이 수정되었습니다.' : '게시글이 성공적으로 작성되었습니다.', [
-        {
-          text: '확인',
-          onPress: () => {
-            setTitle('');
-            setContent('');
-            setAttachments([]);
-            router.replace('/admin-board-manage');
-          },
-        },
-      ]);
+      finishSavedPost(operation, notificationWarning);
     } catch (err: any) {
       logBoardError('post-create', err);
       Alert.alert('작성 실패', err?.message ?? '오류가 발생했습니다.');
@@ -263,6 +399,7 @@ export default function AdminBoardScreen() {
   };
 
   const addAttachments = (nextFiles: LocalAttachment[]) => {
+    if (!canEditComposer) return;
     setAttachments((prev) => {
       const merged = groupImagesFirst([...prev, ...nextFiles]);
       if (merged.length > MAX_ATTACHMENTS) {
@@ -274,7 +411,7 @@ export default function AdminBoardScreen() {
   };
 
   const pickImages = async () => {
-    if (pickingRef.current || !canWrite) return;
+    if (pickingRef.current || !canEditComposer) return;
     pickingRef.current = true;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -302,7 +439,7 @@ export default function AdminBoardScreen() {
   };
 
   const pickFiles = async () => {
-    if (pickingRef.current || !canWrite) return;
+    if (pickingRef.current || !canEditComposer) return;
     pickingRef.current = true;
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -329,12 +466,13 @@ export default function AdminBoardScreen() {
     }
   };
 
-  const removeAttachment = (id: string) => {
+  const removeAttachment = useCallback((id: string) => {
+    if (!canEditComposer) return;
     setAttachments((prev) => prev.filter((item) => item.id !== id));
-  };
+  }, [canEditComposer]);
 
   const removeExistingAttachment = useCallback((file: LocalAttachment) => {
-    if (!actor || !postId) return;
+    if (!actor || !postId || !canEditComposer) return;
     Alert.alert('첨부 삭제', `'${file.fileName}' 첨부파일을 삭제할까요?`, [
       { text: '취소', style: 'cancel' },
       {
@@ -353,15 +491,17 @@ export default function AdminBoardScreen() {
         },
       },
     ]);
-  }, [actor, postId, queryClient]);
+  }, [actor, canEditComposer, postId, queryClient]);
 
   const handleExistingImageDragEnd = useCallback((orderedImages: LocalAttachment[]) => {
+    if (!canEditComposer) return;
     setExistingAttachments((prev) => replaceImageOrder(prev, orderedImages));
-  }, []);
+  }, [canEditComposer]);
 
   const handleNewImageDragEnd = useCallback((orderedImages: LocalAttachment[]) => {
+    if (!canEditComposer) return;
     setAttachments((prev) => replaceImageOrder(prev, orderedImages));
-  }, []);
+  }, [canEditComposer]);
 
   const renderExistingImageItem = useCallback(
     ({ item, drag, isActive, getIndex }: RenderItemParams<LocalAttachment>) => (
@@ -394,8 +534,9 @@ export default function AdminBoardScreen() {
               styles.attachmentReorderHandle,
               pressed && { opacity: 0.7 },
             ]}
-            onLongPress={drag}
+            onLongPress={canEditComposer ? drag : undefined}
             delayLongPress={180}
+            disabled={!canEditComposer}
           >
             <View style={styles.attachmentOrderBadge}>
               <Text style={styles.attachmentOrderText}>{(getIndex?.() ?? 0) + 1}</Text>
@@ -409,13 +550,13 @@ export default function AdminBoardScreen() {
             pressed && { opacity: 0.6 },
           ]}
           onPress={() => removeExistingAttachment(item)}
-          disabled={isActive}
+          disabled={isActive || !canEditComposer}
         >
           <Feather name="trash-2" size={16} color={MUTED} />
         </Pressable>
       </View>
     ),
-    [existingImages.length, removeExistingAttachment],
+    [canEditComposer, existingImages.length, removeExistingAttachment],
   );
 
   const renderNewImageItem = useCallback(
@@ -441,8 +582,9 @@ export default function AdminBoardScreen() {
               styles.attachmentReorderHandle,
               pressed && { opacity: 0.7 },
             ]}
-            onLongPress={drag}
+            onLongPress={canEditComposer ? drag : undefined}
             delayLongPress={180}
+            disabled={!canEditComposer}
           >
             <View style={styles.attachmentOrderBadge}>
               <Text style={styles.attachmentOrderText}>{(getIndex?.() ?? 0) + 1}</Text>
@@ -456,13 +598,13 @@ export default function AdminBoardScreen() {
             pressed && { opacity: 0.6 },
           ]}
           onPress={() => removeAttachment(item.id)}
-          disabled={isActive}
+          disabled={isActive || !canEditComposer}
         >
           <Feather name="x" size={16} color={MUTED} />
         </Pressable>
       </View>
     ),
-    [newImages.length],
+    [canEditComposer, newImages.length, removeAttachment],
   );
 
   return (
@@ -474,7 +616,7 @@ export default function AdminBoardScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <Pressable
               style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.6 }]}
-              onPress={() => router.back()}
+              onPress={handleBack}
             >
               <Feather name="arrow-left" size={24} color={CHARCOAL} />
             </Pressable>
@@ -489,12 +631,22 @@ export default function AdminBoardScreen() {
                 style={({ pressed }) => [
                   styles.headerSubmitButton,
                   pressed && { opacity: 0.75 },
-                  (loading || !canWrite || !categoryId || !title.trim() || !content.trim()) && styles.headerSubmitButtonDisabled,
+                  (
+                    loading
+                    || !canWrite
+                    || (!pendingAttachmentRetry && (!categoryId || !title.trim() || !content.trim()))
+                  ) && styles.headerSubmitButtonDisabled,
                 ]}
                 onPress={handleSubmit}
-                disabled={loading || !canWrite || !categoryId || !title.trim() || !content.trim()}
+                disabled={
+                  loading
+                  || !canWrite
+                  || (!pendingAttachmentRetry && (!categoryId || !title.trim() || !content.trim()))
+                }
               >
-                <Text style={styles.headerSubmitButtonText}>게시글 수정</Text>
+                <Text style={styles.headerSubmitButtonText}>
+                  {pendingAttachmentRetry ? '첨부 다시 시도' : '게시글 수정'}
+                </Text>
               </Pressable>
             )}
             <RefreshButton />
@@ -505,6 +657,14 @@ export default function AdminBoardScreen() {
           <View style={styles.warningBanner}>
             <Feather name="alert-circle" size={18} color="#f59e0b" />
             <Text style={styles.warningText}>관리자 계정만 게시글을 작성할 수 있습니다.</Text>
+          </View>
+        )}
+        {pendingAttachmentRetry && (
+          <View style={styles.warningBanner}>
+            <Feather name="alert-triangle" size={18} color="#f59e0b" />
+            <Text style={styles.warningText}>
+              게시글은 이미 저장되었습니다. 아래 버튼은 게시글을 다시 만들지 않고 첨부만 다시 전송합니다.
+            </Text>
           </View>
         )}
 
@@ -526,7 +686,7 @@ export default function AdminBoardScreen() {
                       pressed && { opacity: 0.7 },
                     ]}
                     onPress={() => setCategoryId(category.id)}
-                    disabled={!canWrite}
+                    disabled={!canEditComposer}
                   >
                     <Text style={[styles.categoryChipText, isSelected && styles.categoryChipTextActive]}>
                       {category.name}
@@ -542,7 +702,7 @@ export default function AdminBoardScreen() {
             placeholder="게시글 제목을 입력하세요"
             value={title}
             onChangeText={setTitle}
-            editable={!!canWrite}
+            editable={!!canEditComposer}
           />
 
           <View style={styles.field}>
@@ -556,7 +716,7 @@ export default function AdminBoardScreen() {
               multiline
               textAlignVertical="top"
               scrollEnabled={false}
-              editable={!!canWrite}
+              editable={!!canEditComposer}
               onContentSizeChange={(e) => {
                 const nextHeight = Math.max(200, e.nativeEvent.contentSize.height);
                 if (nextHeight !== contentHeight) setContentHeight(nextHeight);
@@ -571,10 +731,10 @@ export default function AdminBoardScreen() {
                 style={({ pressed }) => [
                   styles.attachmentButton,
                   pressed && { opacity: 0.7 },
-                  !canWrite && styles.attachmentButtonDisabled,
+                  !canEditComposer && styles.attachmentButtonDisabled,
                 ]}
                 onPress={pickImages}
-                disabled={!canWrite}
+                disabled={!canEditComposer}
               >
                 <Feather name="image" size={16} color={HANWHA_ORANGE} />
                 <Text style={styles.attachmentButtonText}>이미지</Text>
@@ -583,10 +743,10 @@ export default function AdminBoardScreen() {
                 style={({ pressed }) => [
                   styles.attachmentButton,
                   pressed && { opacity: 0.7 },
-                  !canWrite && styles.attachmentButtonDisabled,
+                  !canEditComposer && styles.attachmentButtonDisabled,
                 ]}
                 onPress={pickFiles}
-                disabled={!canWrite}
+                disabled={!canEditComposer}
               >
                 <Feather name="paperclip" size={16} color={HANWHA_ORANGE} />
                 <Text style={styles.attachmentButtonText}>파일</Text>
@@ -648,6 +808,7 @@ export default function AdminBoardScreen() {
                             pressed && { opacity: 0.6 },
                           ]}
                           onPress={() => removeExistingAttachment(file)}
+                          disabled={!canEditComposer}
                         >
                           <Feather name="trash-2" size={16} color={MUTED} />
                         </Pressable>
@@ -700,6 +861,7 @@ export default function AdminBoardScreen() {
                             pressed && { opacity: 0.6 },
                           ]}
                           onPress={() => removeAttachment(file.id)}
+                          disabled={!canEditComposer}
                         >
                           <Feather name="x" size={16} color={MUTED} />
                         </Pressable>
@@ -715,7 +877,11 @@ export default function AdminBoardScreen() {
 
         <Button
           onPress={handleSubmit}
-          disabled={loading || !canWrite || !categoryId || !title.trim() || !content.trim()}
+          disabled={
+            loading
+            || !canWrite
+            || (!pendingAttachmentRetry && (!categoryId || !title.trim() || !content.trim()))
+          }
           loading={loading}
           variant="primary"
           size="lg"
@@ -725,7 +891,11 @@ export default function AdminBoardScreen() {
           }
           style={{ marginTop: 32 }}
         >
-          {isEditMode ? '게시글 수정' : '게시글 작성'}
+          {pendingAttachmentRetry
+            ? '첨부 다시 시도'
+            : isEditMode
+              ? '게시글 수정'
+              : '게시글 작성'}
         </Button>
 
       </KeyboardAwareWrapper>

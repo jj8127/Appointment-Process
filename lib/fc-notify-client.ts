@@ -1,5 +1,16 @@
 import { getStoredAppSessionToken } from './request-board-api';
 import { supabase } from './supabase';
+import {
+  classifyFcNotifyDeliveryFromInvoke,
+  type FcNotifyDeliveryResult,
+} from './fc-notify-delivery-result';
+
+export {
+  classifyFcNotifyDeliveryFromInvoke,
+  classifyFcNotifyDeliveryResult,
+  type FcNotifyDeliveryResult,
+  type FcNotifyTransportResult,
+} from './fc-notify-delivery-result';
 
 export const FC_NOTIFY_FUNCTION_NAME = 'fc-notify';
 export const FC_NOTIFY_APP_SESSION_HEADER = 'x-app-session-token';
@@ -15,8 +26,10 @@ type FcNotifyOpenBody = FcNotifyBody & {
 
 type FcNotifyDefaultResponse = {
   ok?: boolean;
+  logged?: boolean;
   message?: string;
   notifications?: Record<string, unknown>[];
+  sent?: number;
 };
 
 export type FcNotifyInvokeOptions<TBody extends FcNotifyBody> = {
@@ -84,4 +97,12 @@ export function invokeFcNotify<
     invoke: (_functionName, options) =>
       supabase.functions.invoke<TResponse>(FC_NOTIFY_FUNCTION_NAME, options),
   });
+}
+
+export async function invokeFcNotifyForDelivery<TBody extends FcNotifyBody>(
+  body: TBody,
+): Promise<FcNotifyDeliveryResult> {
+  return classifyFcNotifyDeliveryFromInvoke(
+    () => invokeFcNotify<unknown, TBody>(body),
+  );
 }

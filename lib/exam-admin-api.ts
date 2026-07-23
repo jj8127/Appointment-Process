@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { invokeAdminAction } from '@/lib/admin-action-api';
 
 type DeleteExamRegistrationParams = {
   adminPhone: string;
@@ -22,21 +22,11 @@ export async function deleteExamRegistrationAsAdmin({
     throw new Error('삭제할 시험 신청 정보를 확인할 수 없습니다.');
   }
 
-  const { data, error } = await supabase.functions.invoke('admin-action', {
-    body: {
-      adminPhone: normalizedAdminPhone,
-      action: 'deleteExamRegistration',
-      payload: { registrationId: normalizedRegistrationId },
-    },
-  });
-
-  if (error) {
-    throw error;
-  }
-
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '시험 신청 삭제에 실패했습니다.');
-  }
+  const data = await invokeAdminAction<{ deleted?: boolean }>(
+    normalizedAdminPhone,
+    'deleteExamRegistration',
+    { registrationId: normalizedRegistrationId },
+  );
 
   return Boolean(data.deleted ?? true);
 }

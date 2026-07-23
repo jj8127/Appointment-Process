@@ -9,8 +9,16 @@ import {
 import { filterManagerTokensForNotification } from '../_shared/notification-delivery-policy.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import {
+  classifyExpoPushDelivery,
+  mergeExpoPushDeliverySummaries,
+  toExpoPushDeliveryOutcome,
+  type ExpoPushDeliverySummary,
+} from '../_shared/expo-push-delivery.ts';
+import {
   buildAppFcNotifyPayload,
+  getAllowedNotificationTokenRoles,
   isTrustedFcNotifyServiceKey,
+  shouldRequireActiveStaffNotificationTarget,
   type FcNotifyAppActor,
 } from '../_shared/fc-notify-auth-policy.ts';
 import {
@@ -46,6 +54,7 @@ type Payload =
       resident_id?: string | null;
       limit?: number;
       include_request_board_fc?: boolean;
+      only_request_board_categories?: boolean;
     }
   | {
       type: 'inbox_unread_count';
@@ -162,6 +171,8 @@ type InternalChatMessageRow = {
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_CHUNK_SIZE = 100;
+const EXPO_PUSH_TIMEOUT_MS = 10_000;
+const ADMIN_WEB_PUSH_TIMEOUT_MS = 10_000;
 const BOARD_HOME_CATEGORY_SLUGS = ['notice', 'garam-pick'] as const;
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 const BOARD_ATTACHMENT_SIGN_EXPIRES_SECONDS = 60 * 60 * 6;
@@ -266,7 +277,8 @@ if (!serviceKey) {
   throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
 }
 
-const supabase = createClient(supabaseUrl, serviceKey);
+const requiredServiceKey = serviceKey;
+const supabase = createClient(supabaseUrl, requiredServiceKey);
 
 function getAdminPushEndpoint(rawUrl: string): string | null {
   const trimmed = rawUrl.trim();
@@ -288,10 +300,20 @@ function getAdminPushEndpoint(rawUrl: string): string | null {
 type AdminWebPushResult = {
   ok: boolean;
   status?: number;
-  sent?: number;
-  failed?: number;
+  sent: number;
+  failed: number;
+  noTarget: boolean;
   reason?: string;
 };
+
+const NOTIFICATION_DELIVERY_INCOMPLETE_WARNING = 'notification_delivery_incomplete';
+
+function isTimeoutError(error: unknown): boolean {
+  return error !== null
+    && typeof error === 'object'
+    && 'name' in error
+    && (error as { name?: unknown }).name === 'TimeoutError';
+}
 
 type NotificationSource = 'request_board' | 'fc_onboarding';
 const REQUEST_BOARD_CATEGORY_PREFIX = 'request_board_';
@@ -315,7 +337,8 @@ function buildPushTitleWithSource(title: string, source: NotificationSource): st
 /**
  * Send web push notification to all admin browser subscribers.
  * Calls the Next.js /api/admin/push endpoint.
- * Fire-and-forget: errors are logged but do not block the response.
+ * Delivery is best-effort, but the callback result is classified and exposed so
+ * the caller can distinguish a saved notification from partial delivery.
  */
 async function notifyAdminWebPush(title: string, body: string, url: string, targetId?: string | null) {
   const adminWebUrl = getEnv('ADMIN_WEB_URL');
@@ -323,19 +346,31 @@ async function notifyAdminWebPush(title: string, body: string, url: string, targ
 
   if (!adminWebUrl) {
     console.warn('[fc-notify] admin web push disabled: missing ADMIN_WEB_URL');
-    return { ok: false, reason: 'missing-admin-web-url' } as AdminWebPushResult;
+    return {
+      ok: false,
+      sent: 0,
+      failed: 0,
+      noTarget: false,
+      reason: 'missing-admin-web-url',
+    } as AdminWebPushResult;
   }
 
   const endpoint = getAdminPushEndpoint(adminWebUrl);
   if (!endpoint) {
     console.warn('[fc-notify] admin web push disabled: invalid ADMIN_WEB_URL');
-    return { ok: false, reason: 'invalid-admin-web-url' } as AdminWebPushResult;
+    return {
+      ok: false,
+      sent: 0,
+      failed: 0,
+      noTarget: false,
+      reason: 'invalid-admin-web-url',
+    } as AdminWebPushResult;
   }
 
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${serviceKey}`,
-    'apikey': serviceKey,
+    'Authorization': `Bearer ${requiredServiceKey}`,
+    'apikey': requiredServiceKey,
   };
   if (pushSecret) {
     headers['X-Admin-Push-Secret'] = pushSecret;
@@ -346,6 +381,7 @@ async function notifyAdminWebPush(title: string, body: string, url: string, targ
       method: 'POST',
       headers,
       body: JSON.stringify({ title, body, url, targetId: targetId ?? null }),
+      signal: AbortSignal.timeout(ADMIN_WEB_PUSH_TIMEOUT_MS),
     });
 
     if (!resp.ok) {
@@ -359,6 +395,9 @@ async function notifyAdminWebPush(title: string, body: string, url: string, targ
       return {
         ok: false,
         status: resp.status,
+        sent: 0,
+        failed: 0,
+        noTarget: false,
         reason: `http-${resp.status}`,
       } as AdminWebPushResult;
     }
@@ -371,18 +410,89 @@ async function notifyAdminWebPush(title: string, body: string, url: string, targ
       parsed = null;
     }
 
-    const sent = typeof parsed?.sent === 'number' ? parsed.sent : undefined;
-    const failed = typeof parsed?.failed === 'number' ? parsed.failed : undefined;
-    return { ok: true, status: resp.status, sent, failed } as AdminWebPushResult;
-  } catch {
+    const sent = typeof parsed?.sent === 'number' && Number.isInteger(parsed.sent) && parsed.sent >= 0
+      ? parsed.sent
+      : null;
+    const failed = typeof parsed?.failed === 'number' && Number.isInteger(parsed.failed) && parsed.failed >= 0
+      ? parsed.failed
+      : null;
+    const noTargetValue = parsed?.noTarget;
+    const noTargetFieldIsValid = noTargetValue === undefined || typeof noTargetValue === 'boolean';
+    const responseIsValid = parsed !== null
+      && typeof parsed.ok === 'boolean'
+      && sent !== null
+      && failed !== null
+      && noTargetFieldIsValid;
+
+    if (!responseIsValid) {
+      reportEdgeDiagnostic({
+        event: 'fc_notify.admin_web_push',
+        reason: 'upstream_rejected',
+        status: resp.status,
+        retryable: false,
+        errorClass: 'upstream',
+      });
+      return {
+        ok: false,
+        status: resp.status,
+        sent: 0,
+        failed: 0,
+        noTarget: false,
+        reason: 'invalid-callback-response',
+      } as AdminWebPushResult;
+    }
+
+    const noTarget = noTargetValue === true || (sent === 0 && failed === 0);
+    const callbackReportedSuccess = parsed?.ok === true;
+    const concreteTargetMissed = Boolean(targetId) && sent === 0;
+    const inconsistentNoTarget = noTargetValue === true && (sent > 0 || failed > 0);
+    const callbackAccepted = callbackReportedSuccess
+      && failed === 0
+      && !concreteTargetMissed
+      && !inconsistentNoTarget;
+
+    if (!callbackAccepted) {
+      reportEdgeDiagnostic({
+        event: 'fc_notify.admin_web_push',
+        reason: 'upstream_rejected',
+        status: resp.status,
+        retryable: failed > 0,
+        errorClass: 'upstream',
+      });
+    }
+
+    return {
+      ok: callbackAccepted,
+      status: resp.status,
+      sent,
+      failed,
+      noTarget,
+      ...(!callbackAccepted
+        ? { reason: concreteTargetMissed ? 'no-concrete-web-target' : 'callback-reported-failure' }
+        : {}),
+    } as AdminWebPushResult;
+  } catch (error: unknown) {
+    const timedOut = isTimeoutError(error);
     reportEdgeDiagnostic({
       event: 'fc_notify.admin_web_push',
       reason: 'request_failed',
       retryable: true,
-      errorClass: 'network',
+      errorClass: timedOut ? 'timeout' : 'network',
     });
-    return { ok: false, reason: 'callback-network-error' } as AdminWebPushResult;
+    return {
+      ok: false,
+      sent: 0,
+      failed: 0,
+      noTarget: false,
+      reason: timedOut ? 'callback-timeout' : 'callback-network-error',
+    } as AdminWebPushResult;
   }
+}
+
+function getNotificationDeliveryWarning(adminWebPush: AdminWebPushResult | null): string | null {
+  return adminWebPush?.ok === false
+    ? NOTIFICATION_DELIVERY_INCOMPLETE_WARNING
+    : null;
 }
 
 async function fetchNoticesWithOptionalAttachments(limit = 20): Promise<NoticeRow[]> {
@@ -434,26 +544,42 @@ async function fetchBoardHomeCategories(): Promise<BoardNoticeCategoryRow[]> {
   return (data ?? []) as BoardNoticeCategoryRow[];
 }
 
-async function sendExpoPushPayloads(pushPayload: Array<Record<string, unknown>>) {
-  const chunks: Array<{ status: number; ok: boolean; result: unknown }> = [];
+async function sendExpoPushPayloads(
+  pushPayload: Array<Record<string, unknown>>,
+): Promise<ExpoPushDeliverySummary> {
+  const chunks: ExpoPushDeliverySummary[] = [];
 
   for (let index = 0; index < pushPayload.length; index += EXPO_PUSH_CHUNK_SIZE) {
     const chunk = pushPayload.slice(index, index + EXPO_PUSH_CHUNK_SIZE);
-    const resp = await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(chunk),
-    });
+    try {
+      const resp = await fetch(EXPO_PUSH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(chunk),
+        signal: AbortSignal.timeout(EXPO_PUSH_TIMEOUT_MS),
+      });
 
-    const result = await resp.json().catch(async () => ({ raw: await resp.text().catch(() => '') }));
-    chunks.push({ status: resp.status, ok: resp.ok, result });
+      const responseText = await resp.text().catch(() => '');
+      let responseBody: unknown = null;
+      try {
+        responseBody = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        responseBody = null;
+      }
+      chunks.push(classifyExpoPushDelivery(chunk.length, resp.status, responseBody));
+    } catch (error: unknown) {
+      const timedOut = isTimeoutError(error);
+      reportEdgeDiagnostic({
+        event: 'fc_notify.expo_push',
+        reason: timedOut ? 'timeout' : 'request_failed',
+        retryable: true,
+        errorClass: timedOut ? 'timeout' : 'network',
+      });
+      chunks.push(classifyExpoPushDelivery(chunk.length, 0, null));
+    }
   }
 
-  if (chunks.length === 1) {
-    return chunks[0].result;
-  }
-
-  return { chunks };
+  return mergeExpoPushDeliverySummaries(chunks);
 }
 
 async function createBoardAttachmentSignedUrl(storagePath: string): Promise<string | null> {
@@ -669,6 +795,45 @@ async function fetchSharedAdminPhones(): Promise<string[]> {
         .filter((phone) => phone.length > 0),
     ),
   );
+}
+
+type ActiveStaffTargetValidation = 'allowed' | 'denied' | 'failed';
+
+async function validateActiveStaffNotificationTarget(
+  targetId: string,
+  targetRole: 'admin' | 'fc',
+): Promise<ActiveStaffTargetValidation> {
+  if (targetRole === 'fc') {
+    const { data, error } = await supabase
+      .from('fc_profiles')
+      .select('phone')
+      .eq('phone', targetId)
+      .eq('signup_completed', true)
+      .maybeSingle();
+
+    if (error) return 'failed';
+    return data?.phone && sanitize(data.phone) === targetId ? 'allowed' : 'denied';
+  }
+
+  const [adminsResult, managersResult] = await Promise.all([
+    supabase
+      .from('admin_accounts')
+      .select('phone')
+      .eq('active', true),
+    supabase
+      .from('manager_accounts')
+      .select('phone')
+      .eq('active', true),
+  ]);
+
+  if (adminsResult.error || managersResult.error) return 'failed';
+
+  const isAllowed = [
+    ...((adminsResult.data ?? []) as AdminAccountRow[]),
+    ...((managersResult.data ?? []) as ManagerAccountRow[]),
+  ].some((account) => sanitize(account.phone) === targetId);
+
+  return isAllowed ? 'allowed' : 'denied';
 }
 
 async function resolveFcUpdateAdminRecipientIds(fcAffiliation?: string | null): Promise<string[]> {
@@ -1108,6 +1273,7 @@ serve(async (req: Request) => {
     const residentId = sanitize(body.resident_id);
     const limit = Math.max(1, Math.min(Number(body.limit ?? 80) || 80, 200));
     const includeRequestBoardFc = role === 'admin' && residentId.length > 0 && body.include_request_board_fc === true;
+    const onlyRequestBoardCategories = body.only_request_board_categories === true;
 
     const buildPrimaryNotifQuery = (selectColumns: string) => {
       let query = supabase
@@ -1128,6 +1294,10 @@ serve(async (req: Request) => {
         } else {
           query = query.eq('recipient_role', 'admin').is('resident_id', null);
         }
+      }
+
+      if (onlyRequestBoardCategories) {
+        query = query.ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`);
       }
 
       return query;
@@ -1186,8 +1356,9 @@ serve(async (req: Request) => {
         )
         .slice(0, limit);
 
-      let notices: NoticeRow[] = [];
-      notices = await fetchUnifiedNotices(limit);
+      const notices: NoticeRow[] = onlyRequestBoardCategories
+        ? []
+        : await fetchUnifiedNotices(limit);
 
       return ok({
         ok: true,
@@ -1451,6 +1622,24 @@ serve(async (req: Request) => {
     const notificationSource = resolveNotificationSource(category);
     const pushTitle = buildPushTitleWithSource(title, notificationSource);
 
+    if (
+      appActor
+      && shouldRequireActiveStaffNotificationTarget({
+        actorSessionRole: appActor.sessionRole,
+        targetRole: target_role,
+        category,
+        targetId: target_id,
+      })
+    ) {
+      const targetValidation = await validateActiveStaffNotificationTarget(target_id, target_role);
+      if (targetValidation === 'failed') {
+        return err('Notification target validation failed', 500);
+      }
+      if (targetValidation === 'denied') {
+        return err('Notification target is not allowed', 403);
+      }
+    }
+
     let url = redactSensitiveText(body.type === 'notify' ? body.url ?? '/notifications' : body.url ?? '/chat', '/notifications');
     if (body.type === 'message' && target_role === 'admin' && !body.url) {
       let senderName = body.sender_name?.trim() || '';
@@ -1469,31 +1658,71 @@ serve(async (req: Request) => {
     }
 
     let tokens: TokenRow[] = [];
+    let tokenLoadFailed = false;
 
     if (target_id) {
-      // target_id 지정 시 role과 무관하게 같은 번호의 모든 토큰(fc/admin/manager)을 대상으로 발송
+      // A concrete identity may own multiple app roles. Restrict delivery to the
+      // role requested by the already-authorized notification payload.
       const { data, error } = await supabase
         .from('device_tokens')
         .select('expo_push_token,resident_id,display_name,role')
-        .eq('resident_id', target_id);
-      if (!error && data) tokens = data;
+        .eq('resident_id', target_id)
+        .in('role', [...getAllowedNotificationTokenRoles(target_role, category)]);
+      if (error) {
+        tokenLoadFailed = true;
+        reportEdgeDiagnostic({
+          event: 'fc_notify.device_token_load',
+          reason: 'query_failed',
+          errorClass: 'database',
+        });
+      } else if (data) {
+        tokens = data;
+      }
     } else {
       if (target_role === 'admin') {
-        const sharedAdminPhones = await fetchSharedAdminPhones();
-        if (sharedAdminPhones.length > 0) {
+        let sharedAdminPhones: string[] = [];
+        try {
+          sharedAdminPhones = await fetchSharedAdminPhones();
+        } catch {
+          tokenLoadFailed = true;
+          reportEdgeDiagnostic({
+            event: 'fc_notify.device_token_load',
+            reason: 'query_failed',
+            errorClass: 'database',
+          });
+        }
+        if (!tokenLoadFailed && sharedAdminPhones.length > 0) {
           const { data, error } = await supabase
             .from('device_tokens')
             .select('expo_push_token,resident_id,display_name,role')
             .eq('role', 'admin')
             .in('resident_id', sharedAdminPhones);
-          if (!error && data) tokens = data;
+          if (error) {
+            tokenLoadFailed = true;
+            reportEdgeDiagnostic({
+              event: 'fc_notify.device_token_load',
+              reason: 'query_failed',
+              errorClass: 'database',
+            });
+          } else if (data) {
+            tokens = data;
+          }
         }
       } else {
         const { data, error } = await supabase
           .from('device_tokens')
           .select('expo_push_token,resident_id,display_name,role')
           .eq('role', 'fc');
-        if (!error && data) tokens = data;
+        if (error) {
+          tokenLoadFailed = true;
+          reportEdgeDiagnostic({
+            event: 'fc_notify.device_token_load',
+            reason: 'query_failed',
+            errorClass: 'database',
+          });
+        } else if (data) {
+          tokens = data;
+        }
       }
     }
     tokens = filterManagerTokensForNotification(tokens, { category, targetId: target_id });
@@ -1523,9 +1752,28 @@ serve(async (req: Request) => {
     if (target_role === 'admin') {
       adminWebPush = await notifyAdminWebPush(pushTitle, message, url, target_id || null);
     }
+    const warning = getNotificationDeliveryWarning(adminWebPush);
+
+    if (tokenLoadFailed) {
+      return ok({
+        ok: false,
+        sent: 0,
+        logged: !logError,
+        delivery: { attempted: 0, accepted: 0, rejected: 0 },
+        message: 'Device token lookup failed',
+        web_push: adminWebPush,
+        warning,
+      });
+    }
 
     if (!tokens.length) {
-      return ok({ ok: true, sent: 0, logged: !logError, msg: 'No tokens found', web_push: adminWebPush });
+      return ok({
+        ...toExpoPushDeliveryOutcome({ attempted: 0, accepted: 0, rejected: 0 }),
+        logged: !logError,
+        msg: 'No tokens found',
+        web_push: adminWebPush,
+        warning,
+      });
     }
 
     const pushPayload = tokens.map((t) => ({
@@ -1543,9 +1791,14 @@ serve(async (req: Request) => {
       channelId: 'alerts',
     }));
 
-    const result = await sendExpoPushPayloads(pushPayload);
+    const delivery = await sendExpoPushPayloads(pushPayload);
 
-    return ok({ ok: true, sent: tokens.length, logged: !logError, result, web_push: adminWebPush });
+    return ok({
+      ...toExpoPushDeliveryOutcome(delivery),
+      logged: !logError,
+      web_push: adminWebPush,
+      warning,
+    });
   }
 
   // 기존 fc/admin 업데이트/삭제 로직
@@ -1575,6 +1828,7 @@ serve(async (req: Request) => {
   const targetUrl = getTargetUrl(targetRole, body, message, fcRow.id);
   let tokens: TokenRow[] = [];
   let logError: { message: string } | null = null;
+  let tokenLoadFailed = false;
 
   if (isFcAdminUpdateEvent) {
     let recipientResidentIds: string[] = [];
@@ -1589,8 +1843,10 @@ serve(async (req: Request) => {
       const { data, error } = await supabase
         .from('device_tokens')
         .select('expo_push_token,resident_id,display_name,role')
-        .in('resident_id', recipientResidentIds);
+        .in('resident_id', recipientResidentIds)
+        .in('role', [...getAllowedNotificationTokenRoles(targetRole)]);
       if (error) {
+        tokenLoadFailed = true;
         reportEdgeDiagnostic({
           event: 'fc_notify.device_token_load',
           reason: 'query_failed',
@@ -1637,8 +1893,18 @@ serve(async (req: Request) => {
     const { data, error } = await supabase
       .from('device_tokens')
       .select('expo_push_token,resident_id,display_name,role')
-      .eq('resident_id', targetResidentId);
-    if (!error && data) tokens = data;
+      .eq('resident_id', targetResidentId)
+      .in('role', [...getAllowedNotificationTokenRoles(targetRole)]);
+    if (error) {
+      tokenLoadFailed = true;
+      reportEdgeDiagnostic({
+        event: 'fc_notify.device_token_load',
+        reason: 'query_failed',
+        errorClass: 'database',
+      });
+    } else if (data) {
+      tokens = data;
+    }
 
     logError = await insertNotificationWithFallback({
       title,
@@ -1651,7 +1917,11 @@ serve(async (req: Request) => {
     });
   }
 
-  tokens = filterManagerTokensForNotification(tokens, { category: (body as any).type, targetId: targetResidentId });
+  tokens = filterManagerTokensForNotification(tokens, {
+    category: (body as any).type,
+    targetId: targetResidentId,
+    allowScopedManagerLifecycle: isFcAdminUpdateEvent,
+  });
   tokens = dedupeTokens(tokens);
   if (logError) {
     reportEdgeDiagnostic({
@@ -1666,9 +1936,27 @@ serve(async (req: Request) => {
   if (targetRole === 'admin') {
     adminWebPush = await notifyAdminWebPush(title, message, targetUrl);
   }
+  const warning = getNotificationDeliveryWarning(adminWebPush);
+
+  if (tokenLoadFailed) {
+    return ok({
+      ok: false,
+      sent: 0,
+      logged: !logError,
+      delivery: { attempted: 0, accepted: 0, rejected: 0 },
+      message: 'Device token lookup failed',
+      web_push: adminWebPush,
+      warning,
+    });
+  }
 
   if (!tokens.length) {
-    return ok({ ok: true, sent: 0, logged: !logError, web_push: adminWebPush });
+    return ok({
+      ...toExpoPushDeliveryOutcome({ attempted: 0, accepted: 0, rejected: 0 }),
+      logged: !logError,
+      web_push: adminWebPush,
+      warning,
+    });
   }
 
   const payload = tokens.map((t) => ({
@@ -1686,7 +1974,12 @@ serve(async (req: Request) => {
     channelId: 'alerts',
   }));
 
-  const result = await sendExpoPushPayloads(payload);
+  const delivery = await sendExpoPushPayloads(payload);
 
-  return ok({ ok: true, sent: tokens.length, logged: !logError, result, web_push: adminWebPush });
+  return ok({
+    ...toExpoPushDeliveryOutcome(delivery),
+    logged: !logError,
+    web_push: adminWebPush,
+    warning,
+  });
 });
