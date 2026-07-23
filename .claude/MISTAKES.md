@@ -4114,13 +4114,17 @@
 
 - Symptom:
   - Admin-web TypeScript passed, but the production build could not resolve shared notification code outside the nested `web` directory.
+  - A local production build later passed while the Vercel Git build still failed because the project Root Directory upload excluded the repository-parent module entirely.
 - Root cause:
   - The TypeScript alias covered the repository parent while `turbopack.root` stopped at `web`; production compilation refuses files outside that root.
+  - Turbopack filesystem access and Vercel deployment upload scope were treated as the same boundary even though changing the compiler root cannot upload an excluded file.
 - Permanent guardrail:
-  - Nested Next.js apps that import repository-level shared code must root Turbopack at the nearest common repository directory and lock that setting in the build-tracing contract test.
+  - Runtime imports for a nested Vercel project must resolve to files inside its configured Root Directory unless the remote project explicitly includes outside-root source.
+  - When Edge Functions and Vercel need the same small pure contract, keep deployment-local implementations with focused parity tests instead of adding a runtime import across deployment roots.
   - Production build remains a required release gate; lint and TypeScript alone are insufficient.
 - Verification:
   - `lib/__tests__/agent-room-build-tracing.test.ts`
+  - `web/src/lib/expo-push-delivery.test.ts`
   - Sentry-disabled `web` production build
 
 ## 2026-07-23 | A new Edge failure diagnostic bypassed the closed diagnostic contract

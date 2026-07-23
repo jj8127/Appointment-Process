@@ -12357,3 +12357,17 @@
 **Boundary**:
 - No deployment, database migration, credential change, Sentry release/upload, Store artifact publication, or external message was performed.
 - The separately requested exam deposit-evidence feature is owned by another session and is not part of this release candidate.
+
+<a id="20260723-admin-web-notification-deployment-root"></a>
+## 2026-07-23 Admin web notification deployment-root repair
+
+- Evidence:
+  - The administrator mutation returned success and the FC profile entered the temporary-ID-issued state.
+  - No matching notification history row was created, and the target account had zero FC-role device tokens.
+  - The latest Vercel Git build failed because `web/src/app/dashboard/notifications/actions.ts` imported an Edge shared module outside the configured `web` Root Directory.
+- Change:
+  - Added `web/src/lib/expo-push-delivery.ts` and changed the server action to use the deployment-local module.
+  - Added focused provider-ticket aggregation and deployment-root source contracts.
+- Release boundary:
+  - No Supabase schema or row mutation is part of this code repair.
+  - A Production admin-web deployment restores notification creation behavior; system Push additionally requires the handset to register an FC-role device token.

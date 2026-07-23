@@ -81,6 +81,7 @@
         "lib/__tests__/sentry-build-upload-guard.test.ts",
         "lib/__tests__/react-native-text-child-contract.test.ts",
         "supabase/functions/_shared/__tests__/request-board-auth.test.ts",
+        "web/src/lib/expo-push-delivery.test.ts",
         "docs/handbook/backend/notifications-inbox-push.md",
         "docs/handbook/contract-test-map.json"
       ]
@@ -143,6 +144,7 @@
         "lib/__tests__/board-edge-auth-policy.test.ts",
         "lib/__tests__/board-list-automation-policy.test.ts",
         "lib/__tests__/notification-route.test.ts",
+        "web/src/lib/expo-push-delivery.test.ts",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/backend/board-api-and-notice-model.md",
         "docs/handbook/contract-test-map.json"
@@ -285,6 +287,7 @@
         "lib/__tests__/shared-ui-action-contracts.test.ts",
         "lib/__tests__/react-native-text-child-contract.test.ts",
         "lib/__tests__/feature-contract-matrix.test.ts",
+        "web/src/lib/expo-push-delivery.test.ts",
         "docs/handbook/shared-ui-action-contracts.md",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/contract-test-map.json"

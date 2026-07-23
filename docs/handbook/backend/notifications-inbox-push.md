@@ -157,3 +157,9 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 - FC workflow events for admin review use the shared admin scope (`target_id=null`). A concrete admin target is reserved for direct internal-message category.
 - Group-chat fanout uses the already resolved active membership and matches both normalized phone and role; a later generic role filter must not remove an eligible manager.
 - Reminder checkpoints advance only for recipients whose full provider delivery was accepted, so zero-attempt, partial, rejected, and timed-out recipients remain retryable.
+
+## 2026-07-23 Admin web deployment boundary
+
+- The Vercel project Root Directory is `web`, so admin-web runtime imports must resolve inside `web` even when a repository-parent path works in local TypeScript or Turbopack.
+- The admin notice sender keeps its Expo ticket classifier in `web/src/lib/expo-push-delivery.ts`; Edge Functions retain their deployment-local `_shared` implementation.
+- `web/src/lib/expo-push-delivery.test.ts` locks both the delivery accounting and the absence of a repository-parent runtime import from the notice server action.

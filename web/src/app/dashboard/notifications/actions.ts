@@ -11,7 +11,7 @@ import {
     classifyExpoPushDelivery,
     mergeExpoPushDeliverySummaries,
     type ExpoPushDeliverySummary,
-} from '@shared/supabase/functions/_shared/expo-push-delivery';
+} from '@/lib/expo-push-delivery';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_CHUNK_SIZE = 100;
 const EXTERNAL_PUSH_TIMEOUT_MS = 8_000;

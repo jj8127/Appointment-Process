@@ -620,6 +620,13 @@
 - All FC root and admin-web npm audit scopes report zero vulnerabilities.
 - See [details](WORK_DETAIL.md#20260723-release-candidate-stabilization).
 
+## 2026-07-23 Admin web notification deployment-root repair
+
+- Confirmed the temporary-ID profile mutation succeeded in Production while no inbox notification was created and the target account had no registered FC device token.
+- Replaced the admin notice server action's repository-parent runtime import with a deployment-local, privacy-safe Expo ticket classifier.
+- Added a contract test that rejects Vercel runtime imports outside `web`; Production deploy and handset token registration remain the release verification steps.
+- See [details](WORK_DETAIL.md#20260723-admin-web-notification-deployment-root).
+
 ## 2026-07-21 시험 신청자 빠른 본부 분류 추가
 
 - 신청자 관리의 빠른 분류에 `2본부 박성훈`, `6본부 김정수`,
