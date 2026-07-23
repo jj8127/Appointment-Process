@@ -36,6 +36,29 @@
 
 ---
 
+## <a id="20260723-admin-exam-payment-proof"></a> 2026-07-23 | 관리자 시험 신청 입금 증빙 조회·내보내기
+
+**Scope**: 시험 신청자 목록/상세에서 admin과 manager가 FC 입금 증빙을 보고, 필터 결과 CSV에 증빙 경로와 전달 가능한 URL을 포함한다.
+
+**Changes**:
+- ordinary applicant API에 `payment_proof_attached`만 추가하고 Storage path/signed URL은 포함하지 않았다.
+- canonical 신청자 목록에 `입금 증빙` 컬럼 하나를 추가하고, 상세의 `시험 신청 정보` 바로 아래에 `입금 증빙 확인` 카드를 추가했다.
+- 활성 admin/manager 세션을 확인한 image route가 현재 attached private object만 `no-store`로 stream한다. manager의 접수/삭제 쓰기 제한은 유지했다.
+- CSV 다운로드 시 별도 권한 확인을 거쳐 opaque Storage path와 admin web 세션 없이 열 수 있는 30일 signed URL을 발급한다. bucket은 private 상태를 유지하며 signed URL/path는 DB나 로그에 남기지 않는다.
+- 증빙 승인/거절, OCR, 입력일·사진 날짜 비교 상태나 별도 검토 workflow는 추가하지 않았다.
+
+**Verification**:
+- Focused admin-web Node tests 32/32 PASS.
+- Admin-web TypeScript와 targeted ESLint PASS.
+- 실행 중인 Next dev의 `.next`를 건드리지 않는 별도 출력 디렉터리에서 Next.js 16.2.11 Webpack Production build PASS. 신규 image/export API dynamic route가 build manifest에 포함됐다.
+- Documentation governance, `git diff --check`, 변경 경로 감사와 same-agent privacy/security review PASS.
+
+**Safety**:
+- Request Board, notification/group-chat, `admin-action`, 모바일 신청 화면, schema/migration, Supabase remote, Vercel, EAS/OTA, push를 변경하거나 배포하지 않았다.
+- CSV signed URL은 전달 가능한 bearer capability이며 30일 뒤 만료한다. 일반 applicant API와 진단에는 URL/path를 노출하지 않는다.
+
+---
+
 ## <a id="20260723-temp-id-mobile-push-token-recovery"></a> 2026-07-23 | Temporary-id mobile push token recovery
 
 **Scope**: Admin-web temporary-id issuance notifications sent to the corresponding signed-in GaramIn FC handset.

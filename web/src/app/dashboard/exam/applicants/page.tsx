@@ -31,6 +31,7 @@ import {
     IconChevronDown,
     IconDownload,
     IconListDetails,
+    IconPhoto,
     IconRefresh,
     IconSearch,
     IconTrash,
@@ -62,6 +63,11 @@ import {
     type ExamApplicantFilterOption,
 } from '@/lib/exam-applicant-list-display';
 import { notifyFcExamApprovalStatus } from '@/lib/exam-applicant-notification-client';
+import {
+    buildExamPaymentProofExportLinkMap,
+    buildExamPaymentProofImagePath,
+    type ExamPaymentProofExportLink,
+} from '@/lib/exam-payment-proof-admin';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -88,6 +94,7 @@ type Applicant = {
     exam_date: string | null;
     exam_type?: string | null;
     fee_paid_date?: string | null;
+    payment_proof_attached?: boolean;
     is_confirmed: boolean;
     is_third_exam?: boolean;
     application_type?: string | null;
@@ -108,6 +115,7 @@ type RowField = ExamApplicantExportColumnKey | 'is_confirmed';
 
 type ColumnField =
     | ExamApplicantExportColumnKey
+    | 'payment_proof'
     | 'is_confirmed'
     | 'actions';
 
@@ -342,13 +350,15 @@ export default function ExamApplicantsPage() {
     const [quickAffiliation, setQuickAffiliation] = useState(EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE);
     const [examSubjectFilter, setExamSubjectFilter] = useState(EXAM_APPLICANT_ALL_FILTER_VALUE);
     const [examRoundFilter, setExamRoundFilter] = useState(EXAM_APPLICANT_ALL_FILTER_VALUE);
+    const [isExporting, setIsExporting] = useState(false);
 
-    const tableColumnCount = EXAM_APPLICANT_EXPORT_COLUMNS.length + 2;
+    const tableColumnCount = EXAM_APPLICANT_EXPORT_COLUMNS.length + 3;
+    const proofColumnMinWidth = 120;
     const statusColumnMinWidth = 130;
     const actionsColumnMinWidth = 90;
     const tableMinWidth = EXAM_APPLICANT_EXPORT_COLUMNS.reduce(
         (sum, column) => sum + column.minWidth,
-        statusColumnMinWidth + actionsColumnMinWidth,
+        proofColumnMinWidth + statusColumnMinWidth + actionsColumnMinWidth,
     );
 
     // --- Fetch All Recent Applicants ---
@@ -599,35 +609,95 @@ export default function ExamApplicantsPage() {
     });
 
     // --- CSV Download ---
-    const handleDownloadCsv = () => {
+    const handleDownloadCsv = async () => {
         if (filteredRows.length === 0) {
             notifications.show({ title: '알림', message: '다운로드할 데이터가 없습니다.', color: 'blue' });
             return;
         }
 
-        const headers = EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => column.title);
-        const asExcelText = (value: string) => `="${String(value).replace(/"/g, '""')}"`;
-        const pRows = filteredRows.map((item) =>
-            EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => {
-                const value = getRowValue(item, column.key);
-                return column.key === 'phone' || column.key === 'resident_id'
-                    ? asExcelText(value)
-                    : value;
-            }),
-        );
+        setIsExporting(true);
+        try {
+            const attachedRegistrationIds = filteredRows
+                .filter((item) => item.payment_proof_attached)
+                .map((item) => item.id);
+            let proofLinks = new Map<string, ExamPaymentProofExportLink>();
 
-        const csvContent = [
-            headers.join(','),
-            ...pRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
-        ].join('\n');
+            if (attachedRegistrationIds.length > 0) {
+                const response = await fetch('/api/admin/exam-applicants/payment-proof-export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    cache: 'no-store',
+                    body: JSON.stringify({ registrationIds: attachedRegistrationIds }),
+                });
+                const json: unknown = await response.json().catch(() => null);
+                const rawLinks =
+                    isRecord(json) && Array.isArray(json.links)
+                        ? json.links
+                        : [];
+                const links = rawLinks.filter((value): value is ExamPaymentProofExportLink => (
+                    isRecord(value)
+                    && typeof value.registrationId === 'string'
+                    && typeof value.storagePath === 'string'
+                    && typeof value.signedUrl === 'string'
+                ));
 
-        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `exam_applicants_${dayjs().format('YYYYMMDD')}.csv`;
-        link.click();
-        URL.revokeObjectURL(url);
+                if (
+                    !response.ok
+                    || !isRecord(json)
+                    || json.ok !== true
+                    || links.length !== rawLinks.length
+                    || links.length !== attachedRegistrationIds.length
+                ) {
+                    const message =
+                        isRecord(json) && typeof json.error === 'string'
+                            ? json.error
+                            : '입금 증빙 링크를 발급하지 못했습니다.';
+                    throw new Error(message);
+                }
+                proofLinks = buildExamPaymentProofExportLinkMap(links);
+            }
+
+            const headers = [
+                ...EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => column.title),
+                '입금 증빙 경로',
+                '입금 증빙 URL (30일 유효)',
+            ];
+            const asExcelText = (value: string) => `="${String(value).replace(/"/g, '""')}"`;
+            const pRows = filteredRows.map((item) => {
+                const proofLink = proofLinks.get(item.id);
+                return [
+                    ...EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => {
+                        const value = getRowValue(item, column.key);
+                        return column.key === 'phone' || column.key === 'resident_id'
+                            ? asExcelText(value)
+                            : value;
+                    }),
+                    proofLink?.storagePath ?? '-',
+                    proofLink?.signedUrl ?? '-',
+                ];
+            });
+
+            const csvContent = [
+                headers.join(','),
+                ...pRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
+            ].join('\n');
+
+            const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `exam_applicants_${dayjs().format('YYYYMMDD')}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+        } catch (exportError: unknown) {
+            const message = exportError instanceof Error
+                ? exportError.message
+                : '엑셀 파일을 만들지 못했습니다.';
+            notifications.show({ title: '엑셀 다운로드 실패', message, color: 'red' });
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     const renderHeader = (title: string, field: ColumnField, minWidth?: number) => {
@@ -639,7 +709,7 @@ export default function ExamApplicantsPage() {
             lineHeight: 1.25,
         };
 
-        if (field === 'actions') {
+        if (field === 'actions' || field === 'payment_proof') {
             return (
             <Table.Th key={field} style={headerStyle}>
                 <Text fw={700} size="sm" c="dimmed" ta="center" style={{ whiteSpace: 'normal', wordBreak: 'keep-all', lineHeight: 1.25 }}>{title}</Text>
@@ -757,6 +827,7 @@ export default function ExamApplicantsPage() {
                             variant="filled"
                             color="green"
                             onClick={handleDownloadCsv}
+                            loading={isExporting}
                             radius="md"
                         >
                             엑셀 다운로드
@@ -882,6 +953,7 @@ export default function ExamApplicantsPage() {
                                     {EXAM_APPLICANT_EXPORT_COLUMNS.map((column) =>
                                         renderHeader(column.title, column.key, column.minWidth),
                                     )}
+                                    {renderHeader('입금 증빙', 'payment_proof', proofColumnMinWidth)}
                                     {renderHeader('접수 상태', 'is_confirmed', statusColumnMinWidth)}
                                     {renderHeader('관리', 'actions', actionsColumnMinWidth)}
                                 </Table.Tr>
@@ -922,6 +994,24 @@ export default function ExamApplicantsPage() {
                                             }}
                                         >
                                             {EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => renderApplicantCell(item, column))}
+                                            <Table.Td onClick={(event) => event.stopPropagation()} ta="center">
+                                                {item.payment_proof_attached ? (
+                                                    <Button
+                                                        component="a"
+                                                        href={buildExamPaymentProofImagePath(item.id)}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        size="compact-sm"
+                                                        variant="light"
+                                                        color="orange"
+                                                        leftSection={<IconPhoto size={15} />}
+                                                    >
+                                                        보기
+                                                    </Button>
+                                                ) : (
+                                                    <Text size="sm" c="dimmed" ta="center">없음</Text>
+                                                )}
+                                            </Table.Td>
                                             <Table.Td onClick={(event) => event.stopPropagation()}>
                                                 <SegmentedControl
                                                     size="xs"

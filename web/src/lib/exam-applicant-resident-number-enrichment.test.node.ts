@@ -57,6 +57,7 @@ test('exam applicant base rows keep current response defaults', () => {
       exam_date: null,
       exam_type: null,
       fee_paid_date: null,
+      payment_proof_attached: false,
     },
     {
       id: 'reg-2',
@@ -72,6 +73,7 @@ test('exam applicant base rows keep current response defaults', () => {
       exam_date: '2026-06-01',
       exam_type: 'written',
       fee_paid_date: '2026-05-03',
+      payment_proof_attached: false,
     },
   ]);
 });

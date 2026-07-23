@@ -13,6 +13,7 @@ export type ExamRegistrationRow = {
   is_confirmed: boolean;
   is_third_exam?: boolean | null;
   fee_paid_date?: string | null;
+  payment_proof_attached?: boolean | null;
   exam_locations?: { location_name?: string | null } | null;
   exam_rounds?: { round_label?: string | null; exam_date?: string | null; exam_type?: string | null } | null;
 };
@@ -31,6 +32,7 @@ export type ExamApplicantBaseRow = {
   exam_date: string | null;
   exam_type: string | null;
   fee_paid_date: string | null;
+  payment_proof_attached: boolean;
 };
 
 export type ExamApplicantProfileRow = {
@@ -96,6 +98,7 @@ export function buildExamApplicantBaseRows(rows: ExamRegistrationRow[]): ExamApp
     exam_date: row.exam_rounds?.exam_date ?? null,
     exam_type: row.exam_rounds?.exam_type ?? null,
     fee_paid_date: row.fee_paid_date ?? null,
+    payment_proof_attached: row.payment_proof_attached ?? false,
   }));
 }
 

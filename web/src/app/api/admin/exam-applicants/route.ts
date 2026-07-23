@@ -55,7 +55,7 @@ async function verifyStaffSession(role: 'admin' | 'manager', residentId: string)
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EXAM_REGISTRATION_SELECT = `
-  id, status, created_at, round_id, resident_id, is_confirmed, is_third_exam, fee_paid_date,
+  id, status, created_at, round_id, resident_id, is_confirmed, is_third_exam, fee_paid_date, payment_proof_attached,
   exam_locations!exam_registrations_location_round_fkey ( location_name ),
   exam_rounds ( round_label, exam_date, exam_type )
 `;

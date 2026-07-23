@@ -2,8 +2,8 @@ doc_id: FC-ADMIN-EXAM-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-07-22
-source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/src/app/dashboard/referrals/page.tsx + web/src/app/dashboard/referrals/graph/page.tsx + web/src/app/api/admin/referrals/route.ts
+last_verified: 2026-07-23
+source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/src/app/api/admin/exam-applicants/* + web/src/app/dashboard/referrals/page.tsx + web/src/app/dashboard/referrals/graph/page.tsx + web/src/app/api/admin/referrals/route.ts
 
 # Admin Web Playbook: Exam And Referral Ops
 
@@ -33,9 +33,12 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - 총 신청자/접수 완료/미접수 통계 카드는 버튼이며 접수 상태 필터를 적용한다. 통계 숫자는 소속·시험·헤더 필터까지 적용하되 접수 상태 자체는 제외한 모집단에서 계산해, 접수 카드 선택 후에도 완료/미접수 비교 수치가 흔들리지 않는다. CSV 다운로드는 최종 `filteredRows`를 따른다.
 - 신청자 row는 접수 완료를 옅은 주황, 미접수를 옅은 회색으로 구분하고 상태 변경 직후 같은 색 계약을 따른다. hover 라벨은 마우스를 따라가되 커서보다 위쪽에 반투명 배경으로 표시하며 소속과 이름만 노출한다.
 - 신청자 row 클릭 또는 키보드 Enter/Space는 `/dashboard/exam/applicants/[id]` 상세로 이동한다. 상세는 신청자·시험·접수 상태를 한 화면에 표시하고 admin에게 `시험 접수하기`를 제공한다. manager는 상세를 읽을 수 있지만 접수/삭제 등 쓰기 액션은 계속 비활성이다.
+- `/dashboard/exam/applicants`의 공용 신청자 컬럼 뒤에는 `입금 증빙` 컬럼 하나만 추가한다. 첨부 row의 `보기`는 활성 admin/manager 세션을 확인하는 image route를 새 탭으로 열고, 미첨부 row는 `없음`으로 표시한다.
+- `/dashboard/exam/applicants/[id]`의 `시험 신청 정보` 카드 바로 아래에는 `입금 증빙 확인` 카드를 둔다. 첨부 사진과 원본 열기를 제공하되 승인/거절, OCR, 입금일 비교 상태나 별도 검토 workflow는 만들지 않는다.
+- CSV/Excel 다운로드는 최종 `filteredRows`를 유지하면서 `입금 증빙 경로`와 `입금 증빙 URL (30일 유효)`를 덧붙인다. 다운로드를 시작한 활성 admin/manager만 private Storage path와 30일 signed URL을 발급받을 수 있고, 발급된 URL 자체는 admin web 세션 없이 열 수 있다.
 - 신청자 상세의 `이전 신청자`/`다음 신청자`는 목록과 같은 `created_at DESC, id DESC` 순서를 사용한다. 첫 신청자의 이전 버튼과 마지막 신청자의 다음 버튼은 비활성화하며, 이동 중 개인 식별값을 URL label이나 로그에 추가하지 않는다.
 - 상세 API의 `registrationId` 조회는 선택 row 하나를 찾은 뒤 동일 신청자의 과거 이력을 함께 읽어 `신규신청/재신청`을 계산하고, enrichment 직전에 선택 row로 다시 좁힌다. 선택 row만 먼저 분류해 재신청 이력을 잃지 않는다.
-- 신청자 목록 컬럼/CSV 순서와 badge wrapping은 `web/src/lib/exam-applicant-list-display.ts`의 shared contract를 따른다. `시험 신청일`은 `exam_registrations.created_at`에서 날짜만 표시하며 테이블과 CSV에 함께 포함한다. `/admin/exams/[id]`는 특정 `roundId`를 서버 API로 조회하므로 별도의 상단 회차 필터를 추가하지 않는다.
+- 공용 신청자 목록 컬럼 순서와 badge wrapping은 `web/src/lib/exam-applicant-list-display.ts`의 shared contract를 따른다. canonical dashboard만 공용 컬럼 뒤에 증빙 표시/CSV 필드를 추가한다. `시험 신청일`은 `exam_registrations.created_at`에서 날짜만 표시하며 테이블과 CSV에 함께 포함한다. `/admin/exams/[id]`는 특정 `roundId`를 서버 API로 조회하므로 별도의 상단 회차 필터를 추가하지 않는다.
 - resident number/full view는 운영 역할(admin/manager/developer) 기준으로 읽을 수 있고, `manager`는 모든 쓰기 액션이 비활성
 - `/api/admin/exam-applicants` 는 `exam_registrations.resident_id` 와 `fc_profiles.phone` 를 raw/digits/hyphenated 후보로 매칭한 뒤 `fc_identity_secure` 에서 full resident number를 읽는다.
 - `/dashboard/exam/applicants` 에서 주민등록번호 열이 일괄 `주민번호 조회 실패` 로 보이면 우선 `exam_registrations.resident_id` 와 `fc_profiles.phone` 포맷 drift, 그다음 `fc_identity_secure` 누락을 확인한다.

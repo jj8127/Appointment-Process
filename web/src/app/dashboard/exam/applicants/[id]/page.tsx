@@ -7,6 +7,7 @@ import {
   getExamApplicantCellValue,
 } from '@/lib/exam-applicant-list-display';
 import { notifyFcExamApprovalStatus } from '@/lib/exam-applicant-notification-client';
+import { buildExamPaymentProofImagePath } from '@/lib/exam-payment-proof-admin';
 import {
   Alert,
   ActionIcon,
@@ -19,6 +20,7 @@ import {
   Divider,
   Grid,
   Group,
+  Image,
   Loader,
   Paper,
   SimpleGrid,
@@ -39,13 +41,16 @@ import {
   IconChevronRight,
   IconClipboardCheck,
   IconCreditCard,
+  IconExternalLink,
   IconMapPin,
+  IconPhoto,
   IconPhone,
   IconUser,
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useParams, useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 import styles from './page.module.css';
 
@@ -68,6 +73,7 @@ type Applicant = {
   exam_date: string | null;
   exam_type?: string | null;
   fee_paid_date?: string | null;
+  payment_proof_attached?: boolean;
   is_confirmed: boolean;
   is_third_exam?: boolean;
   application_type?: string | null;
@@ -110,6 +116,69 @@ function DetailItem({
         </Stack>
       </Group>
     </Paper>
+  );
+}
+
+function PaymentProofCard({
+  registrationId,
+  attached,
+}: {
+  registrationId: string;
+  attached: boolean;
+}) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const imagePath = buildExamPaymentProofImagePath(registrationId);
+
+  return (
+    <Card withBorder radius="lg" padding="xl" shadow="xs">
+      <Group justify="space-between" mb="lg">
+        <div>
+          <Title order={4} c={CHARCOAL}>입금 증빙 확인</Title>
+          <Text size="sm" c="dimmed">FC가 시험 신청 시 첨부한 입금 내역 사진입니다.</Text>
+        </div>
+        <ThemeIcon color="orange" variant="light" radius="xl" size="xl">
+          <IconPhoto size={22} />
+        </ThemeIcon>
+      </Group>
+
+      {!attached ? (
+        <Paper withBorder radius="md" p="xl" bg="gray.0">
+          <Stack align="center" gap="xs">
+            <IconPhoto size={34} color="#adb5bd" />
+            <Text size="sm" c="dimmed">첨부된 입금 증빙이 없습니다.</Text>
+          </Stack>
+        </Paper>
+      ) : imageFailed ? (
+        <Alert color="red" title="입금 증빙을 열 수 없습니다." icon={<IconAlertCircle size={18} />}>
+          잠시 후 다시 시도해주세요.
+        </Alert>
+      ) : (
+        <Stack gap="md">
+          <Paper withBorder radius="md" p="sm" bg="gray.0">
+            <Image
+              src={imagePath}
+              alt="입금 증빙 이미지"
+              radius="sm"
+              fit="contain"
+              mah={480}
+              onError={() => setImageFailed(true)}
+            />
+          </Paper>
+          <Button
+            component="a"
+            href={imagePath}
+            target="_blank"
+            rel="noopener noreferrer"
+            variant="light"
+            color="orange"
+            leftSection={<IconExternalLink size={17} />}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            원본 이미지 열기
+          </Button>
+        </Stack>
+      )}
+    </Card>
   );
 }
 
@@ -372,6 +441,12 @@ export default function ExamApplicantDetailPage() {
                     <DetailItem label="응시료 입금일" value={applicant.fee_paid_date || '-'} icon={<IconCreditCard size={18} />} />
                   </SimpleGrid>
                 </Card>
+
+                <PaymentProofCard
+                  key={applicant.id}
+                  registrationId={applicant.id}
+                  attached={Boolean(applicant.payment_proof_attached)}
+                />
               </Stack>
             </Grid.Col>
 
