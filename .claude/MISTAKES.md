@@ -4549,3 +4549,24 @@
   - The transition matrix test now extracts
     `transition_exam_registration`; the separate proxy-application contract
     verifies manager audit and target snapshots in v3.
+
+## 2026-07-25 | Completed FC profiles were not sufficient proxy-target evidence
+
+- Symptom:
+  - The staff proxy exam selector could include completed profiles that also
+    represented a headquarters manager, linked designer, general-affairs
+    operator, administrator, or developer.
+- Root cause:
+  - The initial target contract filtered signup state and manager shadow rows
+    but did not reconcile canonical staff accounts and designer affiliation
+    markers before treating every remaining profile as a pure FC.
+- Permanent guardrail:
+  - Staff-assisted selectors must derive pure-FC eligibility on the server:
+    completed non-shadow profile, no linked-designer affiliation, and no active
+    manager or admin-account phone overlap.
+  - Apply the same rule to direct target-ID validation; client-side hiding is
+    not an authorization boundary. Preserve explicitly documented legacy
+    self-application paths separately.
+- Verification:
+  - Edge source contract, v3 migration/schema parity, Deno contract tests, and
+    production aggregate preflight for the resulting pure-FC population.

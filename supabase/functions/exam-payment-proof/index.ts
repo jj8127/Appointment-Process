@@ -90,6 +90,38 @@ function buildPhoneCandidates(phone: string) {
   ];
 }
 
+function isLinkedDesignerAffiliation(value: unknown) {
+  const affiliation = String(value ?? '').trim();
+  if (!affiliation) return false;
+  return affiliation.toLowerCase().startsWith('request_board_designer:')
+    || affiliation.replace(/\s/g, '').includes('설계매니저');
+}
+
+async function loadActiveNonFcPhones() {
+  const [managerResult, adminResult] = await Promise.all([
+    supabase
+      .from('manager_accounts')
+      .select('phone')
+      .eq('active', true)
+      .limit(2000),
+    supabase
+      .from('admin_accounts')
+      .select('phone')
+      .eq('active', true)
+      .limit(2000),
+  ]);
+  if (managerResult.error || adminResult.error) {
+    return { ok: false as const };
+  }
+
+  const phones = new Set<string>();
+  for (const row of [...(managerResult.data ?? []), ...(adminResult.data ?? [])]) {
+    const phone = cleanPhone(row.phone);
+    if (phone.length === 11) phones.add(phone);
+  }
+  return { ok: true as const, phones };
+}
+
 function failure(
   code: string,
   message: string,
@@ -270,6 +302,25 @@ async function resolveApplicationTarget(
     };
   }
 
+  if (requestedTargetFcId && actor.actorType !== 'fc') {
+    const excludedResult = await loadActiveNonFcPhones();
+    if (excludedResult.ok === false) {
+      return {
+        ok: false as const,
+        response: failure('db_error', '시험 신청 대상 FC를 확인하지 못했습니다.', 500, origin),
+      };
+    }
+    if (
+      isLinkedDesignerAffiliation(data.affiliation)
+      || excludedResult.phones.has(residentId)
+    ) {
+      return {
+        ok: false as const,
+        response: failure('target_not_found', '시험 신청 대상 FC를 확인하지 못했습니다.', 404, origin),
+      };
+    }
+  }
+
   return {
     ok: true as const,
     target: {
@@ -286,6 +337,10 @@ async function listApplicationTargets(actor: ExamApplicationActor, origin?: stri
   if (actor.actorType === 'fc') {
     return failure('forbidden', '대리 신청 권한이 없습니다.', 403, origin);
   }
+  const excludedResult = await loadActiveNonFcPhones();
+  if (excludedResult.ok === false) {
+    return failure('db_error', 'FC 목록을 불러오지 못했습니다.', 500, origin);
+  }
   const { data, error } = await supabase
     .from('fc_profiles')
     .select('id,name,affiliation,phone')
@@ -299,7 +354,14 @@ async function listApplicationTargets(actor: ExamApplicationActor, origin?: stri
   }
   const targets = (data ?? []).flatMap((row) => {
     const residentId = cleanPhone(row.phone);
-    if (!row.id || residentId.length !== 11) return [];
+    if (
+      !row.id
+      || residentId.length !== 11
+      || isLinkedDesignerAffiliation(row.affiliation)
+      || excludedResult.phones.has(residentId)
+    ) {
+      return [];
+    }
     return [{
       fcId: String(row.id),
       residentId,

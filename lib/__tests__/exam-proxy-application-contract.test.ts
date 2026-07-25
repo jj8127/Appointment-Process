@@ -27,6 +27,26 @@ describe('staff proxy exam application contract', () => {
     expect(api).toContain('targetFcId: targetFcId ?? null');
   });
 
+  it('lists and accepts only completed pure FC proxy targets', () => {
+    expect(edge).toContain('isLinkedDesignerAffiliation');
+    expect(edge).toContain("startsWith('request_board_designer:')");
+    expect(edge).toContain("includes('설계매니저')");
+    expect(edge).toContain('loadActiveNonFcPhones');
+    expect(edge).toContain("|| excludedResult.phones.has(residentId)");
+
+    for (const source of [migration, schema]) {
+      expect(source).toContain("p_actor_type = 'fc'");
+      expect(source).toContain(
+        "coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'",
+      );
+      expect(source).toContain(
+        "replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'",
+      );
+      expect(source).toContain('from public.manager_accounts manager_target');
+      expect(source).toContain('from public.admin_accounts staff_target');
+    }
+  });
+
   it('keeps legacy dates but makes v3 date-free and target-month scoped', () => {
     for (const source of [migration, schema]) {
       expect(source).toContain('submit_exam_registration_with_payment_proof_v3');

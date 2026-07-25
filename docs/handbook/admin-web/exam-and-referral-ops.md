@@ -42,6 +42,7 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - resident number/full view는 운영 역할(admin/manager/developer) 기준으로 읽을 수 있고, `manager`는 모든 쓰기 액션이 비활성
 - GaramIn 모바일의 시험 탭에서는 본부장·총무·개발자가 FC를 선택해 신청을 대신 제출할 수 있다. 이 예외는 관리자 웹의 일정/접수 상태 변경 권한을 확장하지 않는다.
 - 대리 신청은 `submit_exam_registration_with_payment_proof_v3`와 append-only decision event를 사용하며, 신규 row의 수기 `fee_paid_date`는 `null`이다. 과거 날짜는 변경하거나 삭제하지 않는다.
+- 대리 신청 대상 목록에는 가입을 완료한 순수 FC만 노출한다. 활성 본부장 계정, 설계매니저 연동 프로필, 활성 총무·관리자·개발자 계정과 겹치는 프로필은 목록과 서버 대상 검증에서 모두 제외한다. 이 제한은 기존 앱의 FC 본인 신청과 본부장 본인 신청 호환 경로에는 적용하지 않는다.
 - `/api/admin/exam-applicants` 는 `exam_registrations.resident_id` 와 `fc_profiles.phone` 를 raw/digits/hyphenated 후보로 매칭한 뒤 `fc_identity_secure` 에서 full resident number를 읽는다.
 - `/dashboard/exam/applicants` 에서 주민등록번호 열이 일괄 `주민번호 조회 실패` 로 보이면 우선 `exam_registrations.resident_id` 와 `fc_profiles.phone` 포맷 drift, 그다음 `fc_identity_secure` 누락을 확인한다.
 - 2026-05-30 기준 `/api/admin/exam-applicants` enrichment는 `web/src/lib/exam-applicant-resident-number-enrichment.ts`가 row defaults, phone candidate matching, `fcIds` de-dupe, full resident-number merge, `주민번호 조회 실패` fallback literal을 고정한다.

@@ -9145,6 +9145,27 @@ begin
        and profile.is_manager_referral_shadow = false
        and regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g')
          = regexp_replace(p_resident_id, '[^0-9]', '', 'g')
+       and (
+         p_actor_type = 'fc'
+         or (
+           coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+           and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+           and not exists (
+             select 1
+               from public.manager_accounts manager_target
+              where manager_target.active = true
+                and regexp_replace(coalesce(manager_target.phone, ''), '[^0-9]', '', 'g')
+                  = regexp_replace(p_resident_id, '[^0-9]', '', 'g')
+           )
+           and not exists (
+             select 1
+               from public.admin_accounts staff_target
+              where staff_target.active = true
+                and regexp_replace(coalesce(staff_target.phone, ''), '[^0-9]', '', 'g')
+                  = regexp_replace(p_resident_id, '[^0-9]', '', 'g')
+           )
+         )
+       )
   ) then
     raise exception using errcode = '42501', message = 'invalid_exam_target';
   end if;
