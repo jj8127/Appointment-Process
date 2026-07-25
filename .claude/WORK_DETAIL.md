@@ -12608,3 +12608,35 @@
 
 - Production Supabase access is read-only. No row, schema, Storage, Edge, secret, native/OTA, `admin-action`, or Request Board change is included.
 - Test sources are not bundled into the browser runtime; the Production publication records the verified release state rather than adding a new user-facing feature.
+
+<a id="20260725-referral-dashboard-query-repair"></a>
+## 2026-07-25 | Referral dashboard query repair
+
+**Incident**
+
+- The production referrals API returned 500 and the page displayed a read-only warning to an authenticated developer.
+- Vercel runtime evidence showed the server failure, and Supabase API logs narrowed it to a 400 response from `referral_events`.
+
+**Root cause**
+
+- The event query placed every FC identifier into both sides of one PostgREST `or` filter. With hundreds of FCs, the request URL exceeded a safe bounded size.
+- While that request was loading or failed, the page defaulted the absent server permission payload to `false`, making an unresolved state look like an authorization denial.
+
+**Changes**
+
+- Split referral-event identifiers into bounded chunks of 40, executed the chunks independently, and merged results by event ID in global newest-first order.
+- Added an explicit permission-display resolver so mutation controls and the read-only notice appear only after the server permission boolean is resolved.
+- Added behavioral and source-contract tests for large identifier sets, duplicate events, ordering, and unresolved developer permissions.
+- Recorded the regression pattern and guardrails in `.claude/MISTAKES.md`.
+
+**Verification**
+
+- Focused Node tests: 8/8 PASS.
+- Admin-web TypeScript: PASS.
+- Scoped ESLint: PASS.
+- Git diff check: PASS.
+
+**Boundary**
+
+- Production Supabase access was read-only; no data or schema change was required.
+- No Vercel deployment was made from the dirty shared worktree because it would also publish unrelated in-progress changes.

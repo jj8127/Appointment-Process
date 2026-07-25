@@ -695,3 +695,11 @@
 - Released `fc-notify` v78 with JWT verification retained and admin web deployment `dpl_FELkt6SaYTY77toMstWoqrkrh1Vx` to Production; the operating `adminweb-red.vercel.app` domain is attached and the bounded runtime-error check was empty.
 - `admin-action`, native/OTA, Request Board repository changes, authenticated browser smoke, and real-handset smoke remained excluded.
 - See [details](WORK_DETAIL.md#20260724-developer-only-notification-diagnostics).
+
+## 2026-07-25 Referral dashboard query repair
+
+- Production logs isolated the referral list failure to one oversized `referral_events` PostgREST filter that repeated all FC IDs in a single URL.
+- The event lookup now uses bounded chunks, then deduplicates and restores global newest-first ordering.
+- The referrals page no longer interprets missing permission data from a failed/loading request as a read-only account.
+- Focused tests (8/8), TypeScript, scoped ESLint, and diff checks passed. No database or production deployment was performed.
+- See [details](WORK_DETAIL.md#20260725-referral-dashboard-query-repair).
