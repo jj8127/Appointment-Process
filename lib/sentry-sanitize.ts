@@ -8,6 +8,12 @@ const SECRET_KEY_PARTS = [
   'service_role',
   'password',
   'supabase',
+  'signedurl',
+  'signed_url',
+  'uploadurl',
+  'upload_url',
+  'downloadurl',
+  'download_url',
 ];
 
 const NAME_KEY_PARTS = [
@@ -21,7 +27,21 @@ const NAME_KEY_PARTS = [
 
 const RESIDENT_KEY_PARTS = ['resident', 'ssn'];
 const PHONE_KEY_PARTS = ['phone', 'mobile', 'tel'];
-const FILE_KEY_PARTS = ['filename', 'file_name', 'filepath', 'file_path', 'attachment', 'storage_path', 'object_key'];
+const FILE_KEY_PARTS = [
+  'filename',
+  'file_name',
+  'filepath',
+  'file_path',
+  'fileuri',
+  'file_uri',
+  'localuri',
+  'local_uri',
+  'sourceuri',
+  'source_uri',
+  'attachment',
+  'storage_path',
+  'object_key',
+];
 const OTP_KEY_PARTS = ['otp', 'otp_code', 'otpcode', 'verification_code', 'verificationcode', 'sms_code', 'smscode'];
 const RAW_BODY_KEY_PARTS = [
   'raw_body',
@@ -71,7 +91,11 @@ const redactSecretString = (value: string): string => {
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
     .replace(/\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g, '[REDACTED]')
     .replace(/\bsb_(?:secret|publishable|anon)_[A-Za-z0-9_-]+\b/g, '[REDACTED]')
-    .replace(/(?:Exponent|Expo)PushToken\[[^\]\r\n]+\]/g, '[REDACTED_PUSH_TOKEN]');
+    .replace(/(?:Exponent|Expo)PushToken\[[^\]\r\n]+\]/g, '[REDACTED_PUSH_TOKEN]')
+    .replace(
+      /([?&](?:token|signature|sig|apikey|access_token)=)[^&\s"'()]+/gi,
+      '$1[REDACTED]',
+    );
 };
 
 const redactOtpString = (value: string): string => {
@@ -83,6 +107,7 @@ const redactOtpString = (value: string): string => {
 
 const redactFileAndStoragePaths = (value: string): string => {
   return value
+    .replace(/(?:file|content):\/\/[^\s"'()]+/gi, '[REDACTED_LOCAL_FILE]')
     .replace(/https?:\/\/[^\s"'()]+\/storage\/v1\/object\/[^\s"'()]+/gi, '[REDACTED_STORAGE_PATH]')
     .replace(
       /((?:storage[\s_-]*(?:path|key)|object[\s_-]*key|저장\s*경로)\s*[:=]\s*)[^\s,;)\]}]+/gi,

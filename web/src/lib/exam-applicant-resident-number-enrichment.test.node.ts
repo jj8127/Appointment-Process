@@ -50,6 +50,7 @@ test('exam applicant base rows keep current response defaults', () => {
       round_id: null,
       resident_id: '01012345678',
       is_confirmed: false,
+      includes_primary_exam: true,
       is_third_exam: false,
       application_type: '신규신청',
       location_name: '미정',
@@ -58,6 +59,8 @@ test('exam applicant base rows keep current response defaults', () => {
       exam_type: null,
       fee_paid_date: null,
       payment_proof_attached: false,
+      rejection_reason: null,
+      rejected_at: null,
     },
     {
       id: 'reg-2',
@@ -66,6 +69,7 @@ test('exam applicant base rows keep current response defaults', () => {
       round_id: 'round-2',
       resident_id: '010-9999-0000',
       is_confirmed: true,
+      includes_primary_exam: true,
       is_third_exam: true,
       application_type: '신규신청',
       location_name: '서울',
@@ -74,6 +78,8 @@ test('exam applicant base rows keep current response defaults', () => {
       exam_type: 'written',
       fee_paid_date: '2026-05-03',
       payment_proof_attached: false,
+      rejection_reason: null,
+      rejected_at: null,
     },
   ]);
 });

@@ -10,6 +10,9 @@ import {
   parseAppSessionTokenDetailed,
   type AppSessionStaffType,
 } from '../_shared/request-board-auth.ts';
+import type { NotificationTargetV1 } from '../_shared/notification-target.ts';
+import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
+import { drainMessengerAttachmentCleanup } from '../_shared/messenger-attachment-service.ts';
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -134,6 +137,24 @@ async function verifyAdmin(
   return canonicalStaffType === expectedStaffType;
 }
 
+async function resolveActiveAdminActor(
+  phone: string,
+  expectedStaffType: AppSessionStaffType,
+): Promise<{ id: string; staffType: AppSessionStaffType } | null> {
+  const phoneCandidates = buildResidentIds(phone);
+  const { data, error } = await supabase
+    .from('admin_accounts')
+    .select('id,active,staff_type')
+    .in('phone', phoneCandidates)
+    .eq('active', true)
+    .maybeSingle();
+  if (error || !data?.id) return null;
+  const staffType: AppSessionStaffType =
+    data.staff_type === 'developer' ? 'developer' : 'admin';
+  if (staffType !== expectedStaffType) return null;
+  return { id: String(data.id), staffType };
+}
+
 async function verifyManager(phone: string): Promise<boolean> {
   const phoneCandidates = buildResidentIds(phone);
   const { data } = await supabase
@@ -164,13 +185,18 @@ function cleanPhone(input: string | null | undefined): string {
 const NOTIFICATION_DELIVERY_WARNING = 'notification_delivery_incomplete';
 
 type CanonicalFcNotificationTarget =
-  | { ok: true; phone: string }
+  | { ok: true; phone: string; actorId: string }
   | { ok: false; reason: 'target_lookup_failed' | 'target_not_found' | 'target_phone_invalid' };
 
 type CanonicalFcPushResult =
-  | { confirmed: true; sent: number }
+  | {
+      confirmed: true;
+      sent: number;
+      pushStatus: 'accepted' | 'no_registered_device';
+    }
   | {
       confirmed: false;
+      pushStatus: 'provider_failed';
       reason:
         | 'transport_error'
         | 'invalid_response'
@@ -184,19 +210,21 @@ async function resolveCanonicalFcNotificationTarget(
 ): Promise<CanonicalFcNotificationTarget> {
   const { data, error } = await supabase
     .from('fc_profiles')
-    .select('phone')
+    .select('id,phone,signup_completed')
     .eq('id', fcId)
     .maybeSingle();
 
   if (error) return { ok: false, reason: 'target_lookup_failed' };
-  if (!data) return { ok: false, reason: 'target_not_found' };
+  if (!data?.id || data.signup_completed !== true) {
+    return { ok: false, reason: 'target_not_found' };
+  }
 
   const phone = cleanPhone(data.phone);
   if (!/^010\d{8}$/.test(phone)) {
     return { ok: false, reason: 'target_phone_invalid' };
   }
 
-  return { ok: true, phone };
+  return { ok: true, phone, actorId: String(data.id) };
 }
 
 function classifyCanonicalFcPushResponse(
@@ -206,20 +234,38 @@ function classifyCanonicalFcPushResponse(
   if (!responseOk || !value || typeof value !== 'object' || Array.isArray(value)) {
     return {
       confirmed: false,
+      pushStatus: 'provider_failed',
       reason: responseOk ? 'invalid_response' : 'transport_error',
     };
   }
 
   const result = value as Record<string, unknown>;
-  if (result.ok !== true) return { confirmed: false, reason: 'downstream_error' };
-  if (result.logged !== true) return { confirmed: false, reason: 'not_logged' };
+  if (result.logged !== true) {
+    return { confirmed: false, pushStatus: 'provider_failed', reason: 'not_logged' };
+  }
+  const delivery = result.delivery && typeof result.delivery === 'object'
+    ? result.delivery as Record<string, unknown>
+    : null;
+  const pushStatus = delivery?.pushStatus;
+  if (
+    pushStatus !== 'accepted'
+    && pushStatus !== 'no_registered_device'
+    && pushStatus !== 'provider_rejected'
+  ) {
+    return { confirmed: false, pushStatus: 'provider_failed', reason: 'invalid_response' };
+  }
 
   const sent = typeof result.sent === 'number' && Number.isFinite(result.sent)
     ? Math.max(0, Math.trunc(result.sent))
     : 0;
-  if (sent < 1) return { confirmed: false, reason: 'no_device_target' };
+  if (pushStatus === 'provider_rejected') {
+    return { confirmed: false, pushStatus: 'provider_failed', reason: 'downstream_error' };
+  }
+  if (pushStatus !== 'no_registered_device' && sent < 1) {
+    return { confirmed: false, pushStatus: 'provider_failed', reason: 'invalid_response' };
+  }
 
-  return { confirmed: true, sent };
+  return { confirmed: true, sent, pushStatus };
 }
 
 async function sendCanonicalFcPush(input: {
@@ -227,11 +273,15 @@ async function sendCanonicalFcPush(input: {
   title: string;
   body: string;
   url: string | null;
+  notificationId: string;
+  recipientActorId: string;
+  target: NotificationTargetV1;
+  category?: string;
 }): Promise<CanonicalFcPushResult> {
   const trustedSupabaseUrl = supabaseUrl;
   const trustedServiceKey = serviceKey;
   if (!trustedSupabaseUrl || !trustedServiceKey) {
-    return { confirmed: false, reason: 'transport_error' };
+    return { confirmed: false, pushStatus: 'provider_failed', reason: 'transport_error' };
   }
 
   const controller = new AbortController();
@@ -251,15 +301,18 @@ async function sendCanonicalFcPush(input: {
         target_id: input.phone,
         title: input.title,
         body: input.body,
-        category: 'app_event',
+        category: input.category ?? 'app_event',
         url: input.url ?? undefined,
+        notification_id: input.notificationId,
+        recipient_actor_id: input.recipientActorId,
+        target: input.target,
         skip_notification_insert: true,
       }),
     });
     const data: unknown = await response.json().catch(() => null);
     return classifyCanonicalFcPushResponse(response.ok, data);
   } catch {
-    return { confirmed: false, reason: 'transport_error' };
+    return { confirmed: false, pushStatus: 'provider_failed', reason: 'transport_error' };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -348,6 +401,17 @@ function extractChatUploadPath(fileUrl: string | null | undefined): string | nul
   const pathOnly = withBucket.split('?')[0] ?? '';
   const normalized = pathOnly.replace(/^\/+/, '');
   return normalized || null;
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((item) => String(item ?? '').trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 function buildDocWorkflowResetPayload() {
@@ -1077,58 +1141,32 @@ serve(async (req: Request) => {
         return fail('exam_type and registration_deadline are required');
       }
 
-      const rowPayload = {
-        exam_type: data.exam_type,
-        exam_date: data.exam_date ?? null,
-        registration_deadline: data.registration_deadline,
-        round_label: data.round_label ?? null,
-        notes: data.notes ?? null,
-      };
-
-      let targetRoundId = roundId ?? null;
-      if (targetRoundId) {
-        const { error: updateErr } = await supabase
-          .from('exam_rounds')
-          .update(rowPayload)
-          .eq('id', targetRoundId);
-        if (updateErr) throw updateErr;
-      } else {
-        const { data: inserted, error: insertErr } = await supabase
-          .from('exam_rounds')
-          .insert(rowPayload)
-          .select('id')
-          .single();
-        if (insertErr) throw insertErr;
-        targetRoundId = inserted.id;
-      }
-
       const safeLocations = (locations ?? [])
         .map((loc) => ({
           location_name: (loc.location_name ?? '').trim(),
           sort_order: Number.isFinite(loc.sort_order as number) ? Number(loc.sort_order) : 0,
         }))
-        .filter((loc) => Boolean(loc.location_name));
+        .filter((loc) => Boolean(loc.location_name))
+        .sort((left, right) =>
+          left.sort_order - right.sort_order
+          || left.location_name.localeCompare(right.location_name)
+        );
 
-      if (safeLocations.length > 0 && targetRoundId) {
-        const { data: currentLocs, error: currentErr } = await supabase
-          .from('exam_locations')
-          .select('location_name')
-          .eq('round_id', targetRoundId);
-        if (currentErr) throw currentErr;
-
-        const existingNames = new Set((currentLocs ?? []).map((row) => row.location_name));
-        const rowsToInsert = safeLocations
-          .filter((loc) => !existingNames.has(loc.location_name))
-          .map((loc) => ({
-            round_id: targetRoundId,
-            location_name: loc.location_name,
-            sort_order: loc.sort_order,
-          }));
-
-        if (rowsToInsert.length > 0) {
-          const { error: locInsertErr } = await supabase.from('exam_locations').insert(rowsToInsert);
-          if (locInsertErr) throw locInsertErr;
-        }
+      const { data: targetRoundId, error: saveError } = await supabase.rpc(
+        'save_exam_round_atomic',
+        {
+          p_round_id: roundId ?? null,
+          p_exam_date: data.exam_date ?? null,
+          p_registration_deadline: data.registration_deadline,
+          p_round_label: data.round_label ?? null,
+          p_exam_type: data.exam_type,
+          p_notes: data.notes ?? null,
+          p_locations: safeLocations.map((location) => location.location_name),
+        },
+      );
+      if (saveError) throw saveError;
+      if (typeof targetRoundId !== 'string' || !targetRoundId) {
+        return fail('exam round save did not return an id', 500);
       }
 
       return json({ ok: true, roundId: targetRoundId });
@@ -1139,7 +1177,14 @@ serve(async (req: Request) => {
       const { roundId } = payload as { roundId: string };
       if (!roundId) return fail('roundId is required');
 
-      await supabase.from('exam_registrations').delete().eq('round_id', roundId);
+      const { count: registrationCount, error: registrationCountError } = await supabase
+        .from('exam_registrations')
+        .select('id', { count: 'exact', head: true })
+        .eq('round_id', roundId);
+      if (registrationCountError) throw registrationCountError;
+      if ((registrationCount ?? 0) > 0) {
+        return fail('Registration-bearing exam rounds cannot be deleted.', 409);
+      }
       await supabase.from('exam_locations').delete().eq('round_id', roundId);
 
       const { error: deleteRoundErr } = await supabase
@@ -1151,133 +1196,210 @@ serve(async (req: Request) => {
       return json({ ok: true });
     }
 
-    // ── deleteExamRegistration ──
-    if (action === 'deleteExamRegistration') {
-      const { registrationId } = payload as { registrationId?: string };
+    // ── transitionExamRegistration / legacy deleteExamRegistration ──
+    if (action === 'transitionExamRegistration' || action === 'deleteExamRegistration') {
+      const {
+        registrationId,
+        transition,
+        reason,
+      } = payload as {
+        registrationId?: string;
+        transition?: 'confirm' | 'unconfirm' | 'reject' | 'cancel_by_admin';
+        reason?: string | null;
+      };
       const normalizedRegistrationId = String(registrationId ?? '').trim();
       if (!normalizedRegistrationId) return fail('registrationId is required');
 
-      const { error, count } = await supabase
-        .from('exam_registrations')
-        .delete({ count: 'exact' })
-        .eq('id', normalizedRegistrationId);
-      if (error) throw error;
+      if (trustedRole !== 'admin' || trustedStaffType === null) {
+        return fail('Unauthorized: an active admin session is required', 403);
+      }
+      const actor = await resolveActiveAdminActor(trustedPhone, trustedStaffType);
+      if (!actor) return fail('Unauthorized: inactive admin actor', 403);
 
-      return json({ ok: true, deleted: Boolean(count && count > 0) });
+      const requestedTransition =
+        action === 'deleteExamRegistration' ? 'cancel_by_admin' : transition;
+      if (!['confirm', 'unconfirm', 'reject', 'cancel_by_admin'].includes(String(requestedTransition ?? ''))) {
+        return fail('invalid exam transition');
+      }
+      const normalizedReason = String(reason ?? '').trim();
+      if (
+        requestedTransition === 'reject'
+        && (normalizedReason.length < 1 || normalizedReason.length > 1000)
+      ) {
+        return fail('reject reason must be between 1 and 1000 characters');
+      }
+
+      const { data, error } = await supabase.rpc('transition_exam_registration', {
+        p_registration_id: normalizedRegistrationId,
+        p_action: requestedTransition,
+        p_actor_type: actor.staffType,
+        p_actor_admin_id: actor.id,
+        p_actor_fc_id: null,
+        p_reason: requestedTransition === 'reject' ? normalizedReason : null,
+      });
+      if (error) {
+        const status = error.message === 'exam_registration_not_found' ? 404 : 409;
+        return fail(error.message || 'exam transition failed', status);
+      }
+
+      const result = Array.isArray(data) ? data[0] : data;
+      const proofPath = String(result?.proof_path ?? '').trim();
+      let cleanupWarning = false;
+      if (proofPath) {
+        const { error: cleanupError } = await supabase.storage
+          .from('exam-payment-proofs')
+          .remove([proofPath]);
+        cleanupWarning = Boolean(cleanupError);
+      }
+
+      const targetPhone = cleanPhone(String(result?.target_resident_id ?? ''));
+      let notificationDelivery: {
+        notificationStored: boolean;
+        pushStatus: 'accepted' | 'no_registered_device' | 'provider_rejected' | 'not_attempted';
+        retryable: boolean;
+        notificationId?: string;
+      } = {
+        notificationStored: false,
+        pushStatus: 'not_attempted',
+        retryable: true,
+      };
+      if (targetPhone) {
+        const targetUrl = result?.exam_type === 'nonlife' ? '/exam-apply2' : '/exam-apply';
+        const examTarget: NotificationTargetV1 = {
+          version: 1,
+          kind: 'exam',
+          examType: result?.exam_type === 'nonlife' ? 'nonlife' : 'life',
+          examRegistrationId: normalizedRegistrationId,
+        };
+        const title = requestedTransition === 'reject'
+          ? '시험 접수가 반려되었습니다.'
+          : requestedTransition === 'confirm'
+            ? '시험 접수가 승인되었습니다.'
+            : requestedTransition === 'unconfirm'
+              ? '시험 접수 승인이 취소되었습니다.'
+              : '시험 접수가 취소되었습니다.';
+        const notificationBody = requestedTransition === 'reject'
+          ? `${title} 사유: ${normalizedReason}`
+          : title;
+        const notificationId = String(result?.notification_id ?? '').trim();
+        const recipientActorId = String(result?.recipient_actor_id ?? '').trim();
+        if (notificationId && recipientActorId) {
+          const { data: persistedNotification, error: persistedLookupError } = await supabase
+            .from('notifications')
+            .select('id,target,recipient_role,recipient_actor_id,resident_id')
+            .eq('id', notificationId)
+            .maybeSingle();
+          const persisted = persistedLookupError
+            ? { ok: false as const, reason: 'notification_lookup_failed' as const }
+            : validatePersistedNotificationForDelivery(persistedNotification, {
+                target: examTarget,
+                recipientRole: 'fc',
+                recipientActorId,
+                residentId: targetPhone,
+              });
+          if (persisted.ok) {
+            const push = await sendCanonicalFcPush({
+              phone: targetPhone,
+              title,
+              body: notificationBody,
+              url: targetUrl,
+              notificationId: persisted.notificationId,
+              recipientActorId,
+              target: examTarget,
+              category: 'exam_apply',
+            });
+            notificationDelivery = {
+              notificationStored: true,
+              pushStatus: push.confirmed ? push.pushStatus : 'provider_rejected',
+              retryable: !push.confirmed,
+              notificationId: persisted.notificationId,
+            };
+          }
+        }
+      }
+
+      return json({
+        ok: true,
+        status: String(result?.status ?? ''),
+        cleanupWarning,
+        delivery: notificationDelivery,
+        warning: notificationDelivery.notificationStored
+          ? null
+          : NOTIFICATION_DELIVERY_WARNING,
+      });
     }
 
     // ── deleteFc ──
     if (action === 'deleteFc') {
-      const { fcId, phone } = payload as { fcId: string; phone?: string | null };
+      const { fcId } = payload as { fcId: string };
       if (!fcId) return fail('fcId is required');
 
-      let resolvedPhone = cleanPhone(phone ?? '') || null;
-      if (!resolvedPhone) {
-        const { data: profile } = await supabase.from('fc_profiles').select('phone').eq('id', fcId).maybeSingle();
-        resolvedPhone = cleanPhone(profile?.phone ?? '') || null;
+      const { data, error } = await supabase.rpc(
+        'delete_account_core_transaction_v1',
+        {
+          p_target_role: 'fc',
+          p_target_id: fcId,
+        },
+      );
+      if (error) return fail(error.message || 'account deletion failed', 409);
+
+      const result = (data ?? {}) as Record<string, unknown>;
+      const proofPaths = readStringArray(result.proof_paths);
+      const documentPaths = readStringArray(result.document_paths);
+      const boardPaths = readStringArray(result.board_attachment_paths);
+      const chatPaths = readStringArray(result.chat_file_urls)
+        .map(extractChatUploadPath)
+        .filter((path): path is string => Boolean(path));
+      const authUserIds = readStringArray(result.auth_user_ids);
+      const cleanupOutboxId = String(result.cleanup_outbox_id ?? '').trim();
+
+      const cleanupResults = await Promise.all([
+        proofPaths.length > 0
+          ? supabase.storage.from('exam-payment-proofs').remove(proofPaths)
+          : Promise.resolve({ error: null }),
+        documentPaths.length > 0
+          ? supabase.storage.from('fc-documents').remove(documentPaths)
+          : Promise.resolve({ error: null }),
+        boardPaths.length > 0
+          ? supabase.storage.from('board-attachments').remove(boardPaths)
+          : Promise.resolve({ error: null }),
+        chatPaths.length > 0
+          ? supabase.storage.from('chat-uploads').remove(chatPaths)
+          : Promise.resolve({ error: null }),
+      ]);
+
+      let authCleanupWarning = false;
+      for (const authUserId of authUserIds) {
+        const { error: authError } = await supabase.auth.admin.deleteUser(authUserId);
+        if (authError) authCleanupWarning = true;
       }
 
-      const residentIds = buildResidentIds(resolvedPhone);
+      const postCommitCleanupFailed =
+        cleanupResults.some((cleanup) => Boolean(cleanup.error))
+        || authCleanupWarning;
+      // Attachment rows enqueue their own durable two-phase cleanup from the
+      // account-delete trigger. Draining is best-effort and never becomes a
+      // user-facing warning because the account transaction already committed.
+      await drainMessengerAttachmentCleanup({
+        supabase,
+        limit: 100,
+      });
+      const { error: outboxError } = cleanupOutboxId
+        ? await supabase.rpc('record_account_deletion_cleanup_attempt_v1', {
+          p_outbox_id: cleanupOutboxId,
+          p_succeeded: !postCommitCleanupFailed,
+          p_error_code: postCommitCleanupFailed
+            ? 'post_commit_cleanup_partial_failure'
+            : null,
+        })
+        : { error: new Error('cleanup_outbox_id_missing') };
 
-      const deleteByResident = async (table: string, column: string) => {
-        if (residentIds.length === 0) return;
-        if (residentIds.length === 1) {
-          await supabase.from(table).delete().eq(column, residentIds[0]);
-          return;
-        }
-        await supabase.from(table).delete().in(column, residentIds);
-      };
-
-      const { data: docs } = await supabase.from('fc_documents').select('storage_path').eq('fc_id', fcId);
-      const pathsToDelete = (docs ?? []).map((d: any) => d.storage_path).filter((p: string) => p && p !== 'deleted');
-      if (pathsToDelete.length > 0) {
-        await supabase.storage.from('fc-documents').remove(pathsToDelete);
-      }
-
-      // 게시판 참여 데이터 삭제
-      await deleteByResident('board_comment_likes', 'resident_id');
-      await deleteByResident('board_post_reactions', 'resident_id');
-      await deleteByResident('board_post_views', 'resident_id');
-      await deleteByResident('board_comments', 'author_resident_id');
-
-      // FC가 작성한 게시글 정리 + 첨부 스토리지 정리
-      if (residentIds.length > 0) {
-        let residentPostsQuery = supabase.from('board_posts').select('id');
-        residentPostsQuery =
-          residentIds.length === 1
-            ? residentPostsQuery.eq('author_resident_id', residentIds[0])
-            : residentPostsQuery.in('author_resident_id', residentIds);
-        const { data: residentPosts } = await residentPostsQuery;
-        const postIds = (residentPosts ?? []).map((row: any) => row.id).filter(Boolean);
-        if (postIds.length > 0) {
-          const { data: boardAttachments } = await supabase
-            .from('board_attachments')
-            .select('storage_path')
-            .in('post_id', postIds);
-          const boardPaths = (boardAttachments ?? [])
-            .map((row: any) => row.storage_path)
-            .filter((p: string) => !!p);
-          if (boardPaths.length > 0) {
-            await supabase.storage.from('board-attachments').remove(boardPaths);
-          }
-          await supabase.from('board_posts').delete().in('id', postIds);
-        }
-      }
-
-      // 채팅 첨부파일 스토리지 정리 (FC 발신 파일)
-      if (residentIds.length > 0) {
-        let chatFileQuery = supabase.from('messages').select('file_url').in('message_type', ['image', 'file']);
-        chatFileQuery =
-          residentIds.length === 1
-            ? chatFileQuery.eq('sender_id', residentIds[0])
-            : chatFileQuery.in('sender_id', residentIds);
-        const { data: chatFileRows } = await chatFileQuery;
-        const chatPaths = Array.from(
-          new Set(
-            (chatFileRows ?? [])
-              .map((row: any) => extractChatUploadPath(row.file_url))
-              .filter((p: string | null): p is string => !!p),
-          ),
-        );
-        if (chatPaths.length > 0) {
-          await supabase.storage.from('chat-uploads').remove(chatPaths);
-        }
-      }
-
-      await supabase.from('fc_documents').delete().eq('fc_id', fcId);
-      await supabase.from('fc_credentials').delete().eq('fc_id', fcId);
-      await supabase.from('fc_identity_secure').delete().eq('fc_id', fcId);
-      await supabase.from('exam_registrations').delete().eq('fc_id', fcId);
-      await supabase.from('notifications').delete().eq('fc_id', fcId);
-
-      await deleteByResident('messages', 'sender_id');
-      await deleteByResident('messages', 'receiver_id');
-      await deleteByResident('exam_registrations', 'resident_id');
-      await deleteByResident('notifications', 'resident_id');
-      await deleteByResident('device_tokens', 'resident_id');
-      await deleteByResident('web_push_subscriptions', 'resident_id');
-
-      // auth/profiles 정리
-      const { data: linkedProfiles } = await supabase.from('profiles').select('id').eq('fc_id', fcId);
-      const linkedProfileIds = (linkedProfiles ?? []).map((row: any) => row.id).filter(Boolean);
-      for (const profileId of linkedProfileIds) {
-        await supabase.auth.admin.deleteUser(profileId);
-      }
-      await supabase.from('profiles').delete().eq('fc_id', fcId);
-
-      if (resolvedPhone) {
-        const maskedPhone = formatPhone(resolvedPhone);
-        // 레거시 폰 문자열 포맷 잔여값 정리 (추가 안전장치)
-        await supabase
-          .from('exam_registrations')
-          .delete()
-          .or(`resident_id.eq.${resolvedPhone},resident_id.eq.${maskedPhone}`);
-      }
-
-      const { error } = await supabase.from('fc_profiles').delete().eq('id', fcId);
-      if (error) throw error;
-
-      return json({ ok: true });
+      return json({
+        ok: true,
+        cleanupWarning:
+          postCommitCleanupFailed
+          || Boolean(outboxError),
+      });
     }
 
     // ── sendNotification ──
@@ -1293,13 +1415,23 @@ serve(async (req: Request) => {
       const target = await resolveCanonicalFcNotificationTarget(fcId);
       if (target.ok === false) {
         return json({
-          ok: true,
+          ok: false,
           confirmed: false,
           inboxRecorded: false,
-          push: { confirmed: false, reason: 'invalid_response' },
-          warning: NOTIFICATION_DELIVERY_WARNING,
+          push: {
+            confirmed: false,
+            pushStatus: 'provider_failed',
+            reason: 'invalid_response',
+          },
+          delivery: {
+            notificationStored: false,
+            pushStatus: 'not_attempted',
+            retryable: false,
+          },
+          warning: null,
           reason: target.reason,
-        });
+          message: 'Notification recipient is invalid',
+        }, target.reason === 'target_lookup_failed' ? 500 : 404);
       }
 
       const insertPayload = {
@@ -1308,36 +1440,68 @@ serve(async (req: Request) => {
         category: 'app_event',
         recipient_role: 'fc',
         resident_id: target.phone,
+        recipient_actor_id: fcId,
+        target: {
+          version: 1,
+          kind: 'fc_profile',
+          fcId,
+        } satisfies NotificationTargetV1,
       } as const;
 
-      let { error: insertError } = await supabase.from('notifications').insert({
-        ...insertPayload,
-        target_url: url ?? null,
-      });
+      const { data: insertedNotification, error: insertError } = await supabase
+        .from('notifications')
+        .insert({
+          ...insertPayload,
+          target_url: url ?? null,
+        })
+        .select('id,target,recipient_role,recipient_actor_id,resident_id')
+        .single();
 
-      const missingTargetColumn =
-        insertError?.code === '42703' || String(insertError?.message ?? '').includes('target_url');
-      if (missingTargetColumn) {
-        const fallback = await supabase.from('notifications').insert(insertPayload);
-        insertError = fallback.error ?? null;
-      }
-
-      const inboxRecorded = !insertError;
-      const push = await sendCanonicalFcPush({
-        phone: target.phone,
-        title,
-        body: notifBody,
-        url: trimOrNull(url),
-      });
-      const confirmed = inboxRecorded && push.confirmed;
+      const persisted = insertError
+        ? { ok: false as const, reason: 'notification_insert_failed' as const }
+        : validatePersistedNotificationForDelivery(insertedNotification, {
+            target: insertPayload.target,
+            recipientRole: 'fc',
+            recipientActorId: target.actorId,
+            residentId: target.phone,
+          });
+      const inboxRecorded = persisted.ok;
+      const push = persisted.ok
+        ? await sendCanonicalFcPush({
+            phone: target.phone,
+            title,
+            body: notifBody,
+            url: trimOrNull(url),
+            notificationId: persisted.notificationId,
+            recipientActorId: target.actorId,
+            target: insertPayload.target,
+          })
+        : {
+            confirmed: false,
+            pushStatus: 'provider_failed',
+            reason: 'not_logged',
+          } as CanonicalFcPushResult;
 
       return json({
-        ok: true,
-        confirmed,
+        ok: inboxRecorded,
+        confirmed: inboxRecorded,
         inboxRecorded,
         push,
-        warning: confirmed ? null : NOTIFICATION_DELIVERY_WARNING,
-      });
+        delivery: {
+          notificationStored: inboxRecorded,
+          pushStatus: !inboxRecorded
+            ? 'not_attempted'
+            : push.confirmed
+              ? push.pushStatus
+              : 'provider_rejected',
+          retryable: !inboxRecorded || !push.confirmed,
+          ...(persisted.ok ? { notificationId: persisted.notificationId } : {}),
+        },
+        warning: inboxRecorded ? null : NOTIFICATION_DELIVERY_WARNING,
+        ...(!inboxRecorded
+          ? { message: 'Notification inbox persistence was not confirmed' }
+          : {}),
+      }, inboxRecorded ? 200 : 500);
     }
 
     return fail('Unknown action');

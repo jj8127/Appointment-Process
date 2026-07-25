@@ -13,9 +13,19 @@ import { getWebStaffSenderName } from '../../web/src/lib/staff-identity';
 
 const root = join(__dirname, '..', '..');
 const routePath = join(root, 'web', 'src', 'app', 'api', 'fc-notify', 'route.ts');
+const fcNotifyEdgePath = join(root, 'supabase', 'functions', 'fc-notify', 'index.ts');
 const serverSessionPath = join(root, 'web', 'src', 'lib', 'server-session.ts');
 const examApplicantsPath = join(root, 'web', 'src', 'app', 'dashboard', 'exam', 'applicants', 'page.tsx');
-const examApplicantNotificationClientPath = join(root, 'web', 'src', 'lib', 'exam-applicant-notification-client.ts');
+const examApplicantsApiPath = join(
+  root,
+  'web',
+  'src',
+  'app',
+  'api',
+  'admin',
+  'exam-applicants',
+  'route.ts',
+);
 
 describe('FC notify proxy ingress authentication', () => {
   it('requires the public route to authenticate browser and Request Board ingress before proxying', () => {
@@ -67,6 +77,7 @@ describe('FC notify proxy ingress authentication', () => {
         body: ' Open the request. SENTRY_READ_AUTH_TOKEN=bridge-secret ',
         category: 'request_board_completed',
         url: '/notifications?source=request-board',
+        target: { version: 1, kind: 'request', requestId: 321 },
         skip_notification_insert: true,
         sender_id: 'forged',
       },
@@ -81,8 +92,30 @@ describe('FC notify proxy ingress authentication', () => {
         title: 'Request updated',
         body: 'Open the request. SENTRY_READ_AUTH_TOKEN=[redacted]',
         category: 'request_board_completed',
-        url: '/notifications?source=request-board',
+        target: { version: 1, kind: 'request', requestId: 321 },
       },
+    });
+    expect(buildRequestBoardNotifyPayload({
+      providedToken: 'shared-secret',
+      expectedToken: 'shared-secret',
+      body: {
+        type: 'notify',
+        target_role: 'fc',
+        target_id: '01012345678',
+        title: 'Request updated',
+        body: 'Open the request.',
+        category: 'request_board_completed',
+        url: '/notifications?source=request-board',
+        target: {
+          version: 1,
+          kind: 'board_post',
+          postId: '00000000-0000-4000-8000-000000000321',
+        },
+      },
+    })).toEqual({
+      ok: false,
+      status: 400,
+      error: 'Invalid Request Board notification target',
     });
   });
 
@@ -114,6 +147,42 @@ describe('FC notify proxy ingress authentication', () => {
     })).toMatchObject({ ok: false, status: 400 });
   });
 
+  it('rejects traversal before URL normalization and never forwards the legacy URL', () => {
+    const target = { version: 1, kind: 'request' as const, requestId: 321 };
+    const base = {
+      type: 'notify',
+      target_role: 'fc',
+      target_id: '01012345678',
+      title: 'Request updated',
+      body: 'Open the request.',
+      category: 'request_board_completed',
+      target,
+    };
+    for (const url of [
+      '/a/../b',
+      '/%2e%2e/b',
+      '/%252e%252e/b',
+      '/a\\..\\b',
+      '//attacker.invalid/b',
+    ]) {
+      expect(buildRequestBoardNotifyPayload({
+        body: { ...base, url },
+        providedToken: 'secret',
+        expectedToken: 'secret',
+      })).toMatchObject({ ok: false, status: 400 });
+    }
+
+    const benign = buildRequestBoardNotifyPayload({
+      body: { ...base, url: '/request/321?source=notification' },
+      providedToken: 'secret',
+      expectedToken: 'secret',
+    });
+    expect(benign).toMatchObject({ ok: true });
+    if (!benign.ok) return;
+    expect(benign.payload).not.toHaveProperty('url');
+    expect(benign.payload.target).toEqual(target);
+  });
+
   it('redacts the complete bridge text before applying notification bounds', () => {
     const result = buildRequestBoardNotifyPayload({
       providedToken: 'shared-secret',
@@ -126,6 +195,7 @@ describe('FC notify proxy ingress authentication', () => {
         body: `${'X'.repeat(1979)} ${'a'.repeat(40)}`,
         category: 'request_board_completed',
         url: '/notifications',
+        target: { version: 1, kind: 'request', requestId: 321 },
       },
     });
 
@@ -194,10 +264,24 @@ describe('FC notify proxy ingress authentication', () => {
 
     expect(buildBrowserFcNotifyPayload({
       session: regularAdmin,
-      body: { type: 'inbox_list', role: 'admin', resident_id: null, limit: 999 },
+      body: {
+        type: 'inbox_list',
+        role: 'admin',
+        resident_id: null,
+        limit: 999,
+        viewer_actor_role: 'fc',
+        viewer_actor_phone: '01099999999',
+      },
     })).toEqual({
       ok: true,
-      payload: { type: 'inbox_list', role: 'admin', resident_id: null, limit: 200 },
+      payload: {
+        type: 'inbox_list',
+        role: 'admin',
+        resident_id: null,
+        limit: 200,
+        viewer_actor_role: 'admin',
+        viewer_actor_phone: '01011112222',
+      },
     });
     expect(buildBrowserFcNotifyPayload({
       session: regularAdmin,
@@ -208,7 +292,14 @@ describe('FC notify proxy ingress authentication', () => {
       body: { type: 'inbox_list', role: 'fc', resident_id: '01033334444' },
     })).toEqual({
       ok: true,
-      payload: { type: 'inbox_list', role: 'fc', resident_id: '01033334444', limit: 80 },
+      payload: {
+        type: 'inbox_list',
+        role: 'fc',
+        resident_id: '01033334444',
+        limit: 80,
+        viewer_actor_role: 'manager',
+        viewer_actor_phone: '01033334444',
+      },
     });
     expect(buildBrowserFcNotifyPayload({
       session: manager,
@@ -357,6 +448,12 @@ describe('FC notify proxy ingress authentication', () => {
         is_confirmed: true,
         exam_info: '2026-07-20 (3회차) [서울]',
         exam_type: 'life',
+        target: {
+          version: 1,
+          kind: 'exam',
+          examType: 'life',
+          examRegistrationId: '00000000-0000-4000-8000-000000000371',
+        },
         title: 'forged',
         category: 'forged',
         url: 'https://attacker.invalid',
@@ -371,8 +468,30 @@ describe('FC notify proxy ingress authentication', () => {
         body: '2026-07-20 (3회차) [서울] 접수가 승인되었습니다. 시험 신청 화면에서 상태를 확인해주세요.',
         category: 'exam_apply',
         url: '/exam-apply',
+        target: {
+          version: 1,
+          kind: 'exam',
+          examType: 'life',
+          examRegistrationId: '00000000-0000-4000-8000-000000000371',
+        },
       },
     });
+    expect(buildBrowserFcNotifyPayload({
+      session: admin,
+      body: {
+        type: 'exam_approval_notify',
+        target_id: '01077778888',
+        is_confirmed: true,
+        exam_info: '2026-07-20',
+        exam_type: 'life',
+        target: {
+          version: 1,
+          kind: 'exam',
+          examType: 'nonlife',
+          examRegistrationId: '00000000-0000-4000-8000-000000000371',
+        },
+      },
+    })).toMatchObject({ ok: false, status: 400 });
     expect(buildBrowserFcNotifyPayload({
       session: { ...admin, role: 'manager', staffType: null },
       body: {
@@ -385,13 +504,16 @@ describe('FC notify proxy ingress authentication', () => {
     })).toMatchObject({ ok: false, status: 403 });
 
     const examApplicants = readFileSync(examApplicantsPath, 'utf8');
-    const examNotificationClient = readFileSync(examApplicantNotificationClientPath, 'utf8');
-    expect(examApplicants).toContain("from '@/lib/exam-applicant-notification-client'");
-    expect(examApplicants).toContain('notifyFcExamApprovalStatus(');
-    expect(examNotificationClient).toContain("fetch('/api/fc-notify'");
-    expect(examNotificationClient).toContain("type: 'exam_approval_notify'");
-    expect(examApplicants).not.toContain("functions.invoke('fc-notify'");
-    expect(examNotificationClient).not.toContain("functions.invoke('fc-notify'");
+    const examApplicantsApi = readFileSync(examApplicantsApiPath, 'utf8');
+    expect(examApplicants).not.toContain('notifyFcExamApprovalStatus(');
+    expect(examApplicantsApi).toContain(".rpc('transition_exam_registration'");
+    expect(examApplicantsApi).toContain("functions.invoke('fc-notify'");
+    expect(examApplicantsApi).toContain('skip_notification_insert: true');
+    const patchHandler = examApplicantsApi
+      .split('export async function PATCH')[1]
+      ?.split('export async function DELETE')[0] ?? '';
+    expect(patchHandler.indexOf(".rpc('transition_exam_registration'"))
+      .toBeLessThan(patchHandler.indexOf('sendExamDecisionPush('));
   });
 
   it('preserves the authenticated FC-to-admin message path without trusting browser identity', () => {
@@ -441,8 +563,21 @@ describe('FC notify proxy ingress authentication', () => {
     })).toMatchObject({ ok: false, status: 403 });
   });
 
-  it('keeps the existing new-message web-push copy', () => {
-    const route = readFileSync(routePath, 'utf8');
-    expect(route).toContain("title: '새 메시지'");
+  it('keeps direct-message inbox, Expo push, and admin web push on the same typed target', () => {
+    const edge = readFileSync(fcNotifyEdgePath, 'utf8');
+
+    expect(edge).toContain("body.title ?? '\\uba54\\uc2dc\\uc9c0'");
+    expect(edge).toContain(
+      "body.body ?? body.message ?? '\\uc0c8\\ub85c\\uc6b4 \\uba54\\uc2dc\\uc9c0\\uac00 \\ub3c4\\ucc29\\ud588\\uc2b5\\ub2c8\\ub2e4.'",
+    );
+    expect(edge).toContain("kind: 'garamin_direct_chat'");
+    expect(edge).toContain('target: notificationTarget');
+    expect(edge).toContain('notificationId');
+    expect(edge).toMatch(
+      /notifyAdminWebPush\(\s*pushTitle,\s*message,\s*url,\s*target_id \|\| null,\s*notificationId,\s*notificationTarget,\s*\)/,
+    );
+    expect(edge).toMatch(
+      /const pushPayload = tokens\.map[\s\S]*?title: pushTitle,[\s\S]*?body: message,[\s\S]*?notificationId,[\s\S]*?target: notificationTarget,/,
+    );
   });
 });

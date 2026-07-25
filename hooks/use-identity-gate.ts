@@ -1,7 +1,12 @@
 import { useEffect } from 'react';
-import { router, usePathname } from 'expo-router';
+import { router, useLocalSearchParams, usePathname } from 'expo-router';
 import { useSession } from '@/hooks/use-session';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
+import {
+  buildNotificationTargetRoute,
+  parseNotificationPushData,
+} from '@/lib/notification-target';
+import { canAcceptIdentityGatedDestination } from '@/lib/identity-gate-state';
 
 type GateOptions = {
   nextPath?: string;
@@ -11,8 +16,24 @@ type GateOptions = {
 export function useIdentityGate(options: GateOptions = {}) {
   const { nextPath, enabled = true } = options;
   const pathname = usePathname();
+  const {
+    notificationId,
+    notificationTarget,
+  } = useLocalSearchParams<{
+    notificationId?: string | string[];
+    notificationTarget?: string | string[];
+  }>();
   const { role, residentId, hydrated, isRequestBoardDesigner } = useSession();
   const { data, isLoading } = useIdentityStatus();
+  const destinationAccepted = canAcceptIdentityGatedDestination({
+    enabled,
+    hydrated,
+    role,
+    residentId,
+    isRequestBoardDesigner,
+    isIdentityLoading: isLoading,
+    identityCompleted: data?.identityCompleted,
+  });
 
   useEffect(() => {
     if (!enabled) return;
@@ -24,12 +45,39 @@ export function useIdentityGate(options: GateOptions = {}) {
       return;
     }
     if (!isLoading && (!data || !data.identityCompleted)) {
+      const handoff = parseNotificationPushData({
+        notificationId:
+          typeof notificationId === 'string' ? notificationId : undefined,
+        target:
+          typeof notificationTarget === 'string'
+            ? notificationTarget
+            : undefined,
+      });
+      const notificationNext = handoff
+        ? buildNotificationTargetRoute({
+            target: handoff.target,
+            notificationId: handoff.notificationId,
+            viewerRole: 'fc',
+          })
+        : null;
       router.replace({
         pathname: '/apply-gate',
-        params: { next: nextPath ?? pathname ?? '/' },
+        params: { next: notificationNext ?? nextPath ?? pathname ?? '/' },
       } as any);
     }
-  }, [enabled, hydrated, role, isRequestBoardDesigner, residentId, isLoading, data, nextPath, pathname]);
+  }, [
+    data,
+    enabled,
+    hydrated,
+    isLoading,
+    isRequestBoardDesigner,
+    nextPath,
+    notificationId,
+    notificationTarget,
+    pathname,
+    residentId,
+    role,
+  ]);
 
-  return { identity: data, isLoading };
+  return { identity: data, isLoading, destinationAccepted };
 }

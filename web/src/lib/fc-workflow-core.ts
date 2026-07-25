@@ -184,6 +184,8 @@ export const calcWorkflowStep = (profile?: WorkflowProfile | null): WorkflowStep
 
 export const calcAdminWorkflowStep = (profile?: WorkflowProfile | null): AdminWorkflowStepNumber => {
   if (!profile) return 0;
+  const { lifeCompleted, nonlifeCompleted } = getCommissionCompletionState(profile);
+  if (lifeCompleted || nonlifeCompleted) return 5;
   const workflowStep = calcWorkflowStep(profile);
   if (!hasIdentityInfo(profile) && workflowStep === 1) return 0;
   return workflowStep;

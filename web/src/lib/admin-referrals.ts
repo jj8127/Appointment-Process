@@ -17,6 +17,11 @@ import { getCommissionCompletionState } from '@/lib/fc-workflow';
 import { buildReferralGraphEdges } from '@/lib/referral-graph-edges';
 import { resolveReferralGraphHighlightType } from '@/lib/referral-graph-highlight';
 import { collectReferralDownlineScopeIds } from '@/lib/referral-graph-scope';
+import { isManagerShadowRecommenderEligible } from '@/lib/recommender-relation-route-handler';
+import {
+  chunkReferralEventFcIds,
+  mergeReferralEventChunks,
+} from '@/lib/admin-referral-event-query';
 
 const CODE_EVENT_TYPES = [
   'code_generated',
@@ -61,6 +66,10 @@ type StaffPhoneRow = {
 
 type ManagerNameRow = {
   name: string | null;
+};
+
+type ManagerPhoneRow = {
+  phone: string | null;
 };
 
 type ReferralCodeRow = {
@@ -109,6 +118,12 @@ type AdminActorContext = {
   actorPhone: string;
   actorRole: 'admin';
   actorStaffType: 'admin' | 'developer';
+};
+
+export type RecommenderRelationActorContext = {
+  actorPhone: string;
+  actorRole: 'admin' | 'manager';
+  actorStaffType: 'admin' | 'developer' | null;
 };
 
 type ReferralAdminPermissions = {
@@ -324,6 +339,23 @@ async function fetchManagerNames() {
   );
 }
 
+async function fetchActiveManagerPhones() {
+  const { data, error } = await adminSupabase
+    .from('manager_accounts')
+    .select('phone')
+    .eq('active', true);
+
+  if (error) {
+    throw error;
+  }
+
+  return new Set(
+    ((data ?? []) as ManagerPhoneRow[])
+      .map((row) => normalizeDigits(row.phone))
+      .filter((phone) => phone.length === 11),
+  );
+}
+
 async function fetchEligibleProfiles() {
   const [{ data, error }, excludedStaffPhones] = await Promise.all([
     adminSupabase
@@ -347,12 +379,13 @@ async function fetchEligibleProfiles() {
 }
 
 async function fetchSearchableRecommenderProfiles() {
-  const [{ data, error }, excludedStaffPhones] = await Promise.all([
+  const [{ data, error }, excludedStaffPhones, activeManagerPhones] = await Promise.all([
     adminSupabase
       .from('fc_profiles')
       .select('id,name,phone,affiliation,is_manager_referral_shadow')
       .order('created_at', { ascending: false }),
     fetchExcludedStaffPhones(),
+    fetchActiveManagerPhones(),
   ]);
 
   if (error) {
@@ -361,6 +394,13 @@ async function fetchSearchableRecommenderProfiles() {
 
   return ((data ?? []) as SearchableRecommenderProfileRow[]).filter((profile) => {
     if (!isSearchableRecommenderProfile(profile)) {
+      return false;
+    }
+    if (!isManagerShadowRecommenderEligible({
+      isManagerReferralShadow: profile.is_manager_referral_shadow === true,
+      normalizedPhone: normalizeDigits(profile.phone),
+      activeManagerPhones,
+    })) {
       return false;
     }
 
@@ -446,18 +486,25 @@ async function fetchReferralEvents(fcIds: string[]) {
     return [] as ReferralEventRow[];
   }
 
-  const { data, error } = await adminSupabase
-    .from('referral_events')
-    .select('id,inviter_fc_id,invitee_fc_id,referral_code,event_type,metadata,created_at')
-    .or(`inviter_fc_id.in.(${fcIds.join(',')}),invitee_fc_id.in.(${fcIds.join(',')})`)
-    .in('event_type', [...CODE_EVENT_TYPES])
-    .order('created_at', { ascending: false });
+  const eventChunks = await Promise.all(
+    chunkReferralEventFcIds(fcIds).map(async (chunk) => {
+      const joinedFcIds = chunk.join(',');
+      const { data, error } = await adminSupabase
+        .from('referral_events')
+        .select('id,inviter_fc_id,invitee_fc_id,referral_code,event_type,metadata,created_at')
+        .or(`inviter_fc_id.in.(${joinedFcIds}),invitee_fc_id.in.(${joinedFcIds})`)
+        .in('event_type', [...CODE_EVENT_TYPES])
+        .order('created_at', { ascending: false });
 
-  if (error) {
-    throw error;
-  }
+      if (error) {
+        throw error;
+      }
 
-  return (data ?? []) as ReferralEventRow[];
+      return (data ?? []) as ReferralEventRow[];
+    }),
+  );
+
+  return mergeReferralEventChunks(eventChunks);
 }
 
 function buildCodeMaps(codes: ReferralCodeRow[]) {
@@ -526,16 +573,9 @@ async function fetchActiveRecommenderCandidates() {
 }
 
 async function fetchRecommenderCandidateById(fcId: string) {
-  const { data, error } = await adminSupabase
-    .from('fc_profiles')
-    .select('id,name,phone,affiliation')
-    .eq('id', fcId)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
-  if (!data?.id) {
+  const profiles = await fetchSearchableRecommenderProfiles();
+  const profile = profiles.find((candidate) => candidate.id === fcId);
+  if (!profile) {
     return null;
   }
 
@@ -545,19 +585,17 @@ async function fetchRecommenderCandidateById(fcId: string) {
   ]);
   const duplicateCounts = buildCandidateDuplicateCounts([
     ...duplicateCandidates.map((candidate) => ({ name: candidate.name })),
-    { name: data.name },
+    { name: profile.name },
   ]);
   const activeCode = codes.find((row) => row.fc_id === fcId && row.is_active)?.code ?? null;
+  if (!activeCode) {
+    return null;
+  }
 
   return toRecommenderCandidate(
-    {
-      id: data.id,
-      name: data.name,
-      phone: data.phone,
-      affiliation: data.affiliation,
-    },
+    profile,
     activeCode,
-    duplicateCounts.get(normalizeName(data.name)) ?? 1,
+    duplicateCounts.get(normalizeName(profile.name)) ?? 1,
   );
 }
 
@@ -700,7 +738,7 @@ function buildUnresolvedLegacyItems(
 }
 
 export async function applyRecommenderSelection(params: {
-  actor: AdminActorContext;
+  actor: RecommenderRelationActorContext;
   inviteeFcId: string;
   inviterFcId: string | null;
   reason: string;
@@ -717,6 +755,9 @@ export async function applyRecommenderSelection(params: {
   }
   if (inviterFcId && inviterFcId === inviteeFcId) {
     throw new Error('자기 자신을 추천인으로 지정할 수 없습니다.');
+  }
+  if (inviterFcId && !(await fetchRecommenderCandidateById(inviterFcId))) {
+    throw new Error('추천인으로 지정할 수 없는 FC입니다.');
   }
 
   const { data, error } = await adminSupabase.rpc('apply_referral_link_state', {

@@ -3,14 +3,14 @@ import { useEffect, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { parseExactlyOneUuidRouteParam } from '@/lib/strict-route-params';
 import { COLORS } from '@/lib/theme';
 
 export default function BoardDetailScreen() {
   const router = useRouter();
   const { postId } = useLocalSearchParams<{ postId?: string }>();
   const postIdValue = useMemo(() => {
-    const value = Array.isArray(postId) ? postId[0] : postId;
-    return typeof value === 'string' ? value.trim() : '';
+    return parseExactlyOneUuidRouteParam(postId) ?? '';
   }, [postId]);
 
   useEffect(() => {

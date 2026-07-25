@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   getBoardNotificationWarningMessage,
   invokeBoardWriteWithDeps,
+  retryBoardNotificationWithDeps,
   type BoardWriteNotification,
 } from '../board-api';
 
@@ -20,6 +21,13 @@ jest.mock('../request-board-api', () => ({
 }));
 
 const repoRoot = join(__dirname, '..', '..');
+const postId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const eventKey = `board-post:${'b'.repeat(64)}`;
+const actor = {
+  role: 'admin' as const,
+  residentId: '01000000000',
+  displayName: '관리자',
+};
 
 describe('board write notification callers', () => {
   it('preserves the durable save and notification partial-result envelope', async () => {
@@ -66,7 +74,9 @@ describe('board write notification callers', () => {
       data: { id: 'post-id' },
       saved: true,
       notification,
-      notificationWarning: 'notification_delivery_incomplete',
+      delivery: null,
+      notificationRetry: null,
+      notificationWarning: null,
     });
   });
 
@@ -87,11 +97,54 @@ describe('board write notification callers', () => {
       data: null,
       saved: true,
       notification: null,
+      delivery: null,
+      notificationRetry: null,
       notificationWarning: null,
     });
     expect(getBoardNotificationWarningMessage(null)).toBeNull();
     expect(getBoardNotificationWarningMessage('notification_delivery_incomplete'))
-      .toBeNull();
+      .toContain('알림을 등록하지 못했습니다');
+  });
+
+  it('returns the same notification-only retry token after persistence still fails', async () => {
+    const invoke = jest.fn(async () => ({
+      data: {
+        ok: false,
+        delivery: {
+          notificationStored: false,
+          pushStatus: 'not_attempted',
+          retryable: true,
+        },
+        notificationRetry: { postId, eventKey },
+        notificationWarning: 'notification_delivery_incomplete',
+      },
+      error: null,
+    }));
+
+    await expect(
+      retryBoardNotificationWithDeps(
+        actor,
+        { postId, eventKey },
+        {
+          getStoredAppSessionToken: async () => 'signed-session',
+          invoke,
+        },
+      ),
+    ).resolves.toEqual({
+      delivery: {
+        notificationStored: false,
+        pushStatus: 'not_attempted',
+        retryable: true,
+      },
+      notificationRetry: { postId, eventKey },
+      notificationWarning: 'notification_delivery_incomplete',
+    });
+    expect(invoke).toHaveBeenCalledWith(
+      'board-notification-retry',
+      expect.objectContaining({
+        body: { actor, postId, eventKey },
+      }),
+    );
   });
 
   it('keeps durable board writes successful when attachment delivery is incomplete', () => {
@@ -103,6 +156,14 @@ describe('board write notification callers', () => {
 
     expect(mobileSource).toContain('notificationWarning = createResult.notificationWarning');
     expect(mobileSource).toContain('notificationWarning = updateResult.notificationWarning');
+    expect(mobileSource).toContain('retryBoardNotification(actor, retry)');
+    expect(mobileSource).toContain('알림 다시 등록');
+    const notificationRetryBlock = mobileSource.slice(
+      mobileSource.indexOf('async function retrySavedPostNotification'),
+      mobileSource.indexOf('function finishSavedPost'),
+    );
+    expect(notificationRetryBlock).not.toContain('createBoardPost(');
+    expect(notificationRetryBlock).not.toContain('updateBoardPost(');
     expect(mobileSource).toContain('setPendingAttachmentRetry({');
     expect(mobileSource).toContain('pendingAttachmentRetry.manifest');
     expect(mobileSource).toContain('manifest: attachmentResult.manifest');

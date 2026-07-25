@@ -1,8 +1,14 @@
 import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { logger } from '@/lib/logger';
+import {
+  isNotificationUuid,
+  type NotificationExamType,
+} from '@/lib/notification-target';
 
 type ExamApprovalNotifyParams = {
   residentId?: string | null;
+  examRegistrationId: string;
+  examType: NotificationExamType;
   examInfo?: string | null;
   examPath: '/exam-apply' | '/exam-apply2';
   isConfirmed: boolean;
@@ -17,6 +23,8 @@ const formatExamInfo = (value?: string | null) => {
 
 export async function notifyExamApprovalStatus({
   residentId,
+  examRegistrationId,
+  examType,
   examInfo,
   examPath,
   isConfirmed,
@@ -24,6 +32,13 @@ export async function notifyExamApprovalStatus({
   const targetId = normalizeDigits(residentId);
   if (!targetId) {
     logger.warn('[exam-approval-notify] skipped: missing resident id');
+    throw new Error('Exam approval notification target is unavailable.');
+  }
+  if (
+    !isNotificationUuid(examRegistrationId)
+    || examPath !== (examType === 'life' ? '/exam-apply' : '/exam-apply2')
+  ) {
+    logger.warn('[exam-approval-notify] skipped: invalid exam target');
     throw new Error('Exam approval notification target is unavailable.');
   }
 
@@ -43,9 +58,21 @@ export async function notifyExamApprovalStatus({
     body,
     category: 'exam_apply',
     url: examPath,
+    target: {
+      version: 1,
+      kind: 'exam',
+      examType,
+      examRegistrationId,
+    },
   });
 
-  if (!delivery.confirmed) {
+  if (
+    !delivery.confirmed
+    && (
+      delivery.reason === 'invalid_recipient'
+      || delivery.notificationStored === false
+    )
+  ) {
     logger.warn('[exam-approval-notify] delivery unconfirmed', {
       reason: delivery.reason,
     });

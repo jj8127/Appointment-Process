@@ -1,4 +1,8 @@
+// @ts-ignore Deno Edge Functions require explicit local TypeScript extensions.
+import { parseNotificationTargetV1 } from './notification-target.ts';
+
 export type FcNotifyAppActor = {
+  actorId: string;
   sessionRole: 'admin' | 'manager' | 'fc';
   phone: string;
   displayName: string | null;
@@ -181,8 +185,35 @@ function cleanIds(value: unknown): string[] {
   ));
 }
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function cleanUuid(value: unknown): string | null {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return UUID_PATTERN.test(normalized) ? normalized : null;
+}
+
+function cleanUuidArray(value: unknown, maximum: number): string[] | null {
+  if (!Array.isArray(value) || value.length > maximum) return null;
+  const values = value.map(cleanUuid);
+  if (values.some((item) => !item)) return null;
+  const normalized = values as string[];
+  return new Set(normalized).size === normalized.length ? normalized : null;
+}
+
+function cleanSha256(value: unknown): string | null {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return /^[0-9a-f]{64}$/.test(normalized) ? normalized : null;
+}
+
 function buildInboxPayload(
-  type: 'inbox_list' | 'inbox_unread_count' | 'inbox_delete',
+  type:
+    | 'inbox_list'
+    | 'inbox_get'
+    | 'inbox_unread_count'
+    | 'inbox_mark_read'
+    | 'inbox_dismiss'
+    | 'inbox_delete',
   body: Record<string, unknown>,
   actor: FcNotifyAppActor,
 ): FcNotifyAppPolicyResult {
@@ -194,6 +225,14 @@ function buildInboxPayload(
   const includeRequestBoardFc = scope.role === 'admin'
     && Boolean(scope.residentId)
     && body.include_request_board_fc === true;
+
+  const viewerRole = actor.sessionRole === 'admin' && actor.staffType === 'developer'
+    ? 'developer'
+    : actor.sessionRole;
+  const viewer = {
+    viewer_actor_id: actor.actorId,
+    viewer_actor_role: viewerRole,
+  };
 
   if (type === 'inbox_list') {
     const limit = Math.max(1, Math.min(Number(body.limit ?? 80) || 80, 200));
@@ -208,6 +247,23 @@ function buildInboxPayload(
         limit,
         include_request_board_fc: includeRequestBoardFc,
         only_request_board_categories: onlyRequestBoardCategories,
+        ...viewer,
+      },
+    };
+  }
+
+  if (type === 'inbox_get') {
+    const notificationId = cleanUuid(body.notification_id);
+    if (!notificationId) return deny('Notification id is invalid', 400);
+    return {
+      ok: true,
+      payload: {
+        type,
+        role: scope.role,
+        resident_id: scope.residentId,
+        notification_id: notificationId,
+        include_request_board_fc: includeRequestBoardFc,
+        ...viewer,
       },
     };
   }
@@ -225,6 +281,23 @@ function buildInboxPayload(
         include_notices: actor.isRequestBoardDesigner ? false : body.include_notices === true,
         only_request_board_categories:
           actor.isRequestBoardDesigner || body.only_request_board_categories === true,
+        ...viewer,
+      },
+    };
+  }
+
+  if (type === 'inbox_mark_read' || type === 'inbox_dismiss') {
+    const notificationIds = cleanIds(body.notification_ids).filter((id) => cleanUuid(id));
+    if (notificationIds.length === 0) return deny('Notification ids are required', 400);
+    return {
+      ok: true,
+      payload: {
+        type,
+        role: scope.role,
+        resident_id: scope.residentId,
+        notification_ids: notificationIds,
+        include_request_board_fc: includeRequestBoardFc,
+        ...viewer,
       },
     };
   }
@@ -242,6 +315,7 @@ function buildInboxPayload(
       notification_ids: cleanIds(body.notification_ids),
       notice_ids: actor.sessionRole === 'admin' ? noticeIds : [],
       include_request_board_fc: includeRequestBoardFc,
+      ...viewer,
     },
   };
 }
@@ -295,8 +369,158 @@ function buildNotifyPayload(
     sender_name: safeText(actor.displayName, 120, actor.sessionRole === 'fc' ? 'FC' : '관리자'),
     skip_notification_insert: actor.sessionRole === 'admin' && body.skip_notification_insert === true,
   };
+  if (body.target !== undefined) {
+    const target = parseNotificationTargetV1(body.target);
+    if (!target) return deny('Notification target is invalid', 400);
+    payload.target = target;
+  }
   if (actor.sessionRole === 'fc' && actor.fcId) payload.fc_id = actor.fcId;
   return { ok: true, payload };
+}
+
+function buildDirectMessagePayload(
+  body: Record<string, unknown>,
+  actor: FcNotifyAppActor,
+): FcNotifyAppPolicyResult {
+  if (
+    actor.isRequestBoardDesigner
+    || (
+      actor.sessionRole === 'admin'
+      && actor.staffType !== 'admin'
+      && actor.staffType !== 'developer'
+    )
+  ) {
+    return deny('Direct messaging is not allowed for this session');
+  }
+
+  const conversationId = cleanUuid(body.conversation_id);
+  if (!conversationId) return deny('Direct conversation id is invalid', 400);
+
+  const viewer = {
+    viewer_actor_id: actor.actorId,
+    viewer_actor_role:
+      actor.sessionRole === 'admin' && actor.staffType === 'developer'
+        ? 'developer'
+        : actor.sessionRole,
+  };
+
+  if (body.type === 'direct_message_list' || body.type === 'direct_message_mark_read') {
+    return {
+      ok: true,
+      payload: {
+        type: body.type,
+        conversation_id: conversationId,
+        ...viewer,
+      },
+    };
+  }
+
+  if (body.type === 'direct_message_send') {
+    const content = safeText(body.content, 4_000);
+    const attachmentIntentIds = body.attachment_intent_ids === undefined
+      ? []
+      : cleanUuidArray(body.attachment_intent_ids, 10);
+    if (!attachmentIntentIds) {
+      return deny('Direct message attachment intents are invalid', 400);
+    }
+    const hasAttachments = attachmentIntentIds.length > 0;
+    const deliveryKey = cleanUuid(body.delivery_key);
+    const payloadFingerprint = cleanSha256(body.payload_fingerprint);
+    if (
+      !content && !hasAttachments
+      || (
+        hasAttachments
+        && (!deliveryKey || !payloadFingerprint)
+      )
+      || (
+        !hasAttachments
+        && (
+          body.delivery_key !== undefined
+          || body.payload_fingerprint !== undefined
+        )
+      )
+    ) {
+      return deny('Direct message content or valid attachments are required', 400);
+    }
+    const clientMessageId = cleanUuid(body.client_message_id);
+    if (body.client_message_id !== undefined && !clientMessageId) {
+      return deny('Direct message idempotency key is invalid', 400);
+    }
+    return {
+      ok: true,
+      payload: {
+        type: body.type,
+        conversation_id: conversationId,
+        content,
+        ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
+        ...(hasAttachments
+          ? {
+            attachment_intent_ids: attachmentIntentIds,
+            delivery_key: deliveryKey,
+            payload_fingerprint: payloadFingerprint,
+          }
+          : {}),
+        ...viewer,
+      },
+    };
+  }
+
+  const messageId = cleanUuid(body.message_id);
+  if (!messageId) return deny('Direct message id is invalid', 400);
+  return {
+    ok: true,
+    payload: {
+      type: 'direct_message_delete',
+      conversation_id: conversationId,
+      message_id: messageId,
+      ...viewer,
+    },
+  };
+}
+
+function buildDirectMessageBroadcastPayload(
+  body: Record<string, unknown>,
+  actor: FcNotifyAppActor,
+): FcNotifyAppPolicyResult {
+  if (
+    actor.sessionRole !== 'admin'
+    || actor.isRequestBoardDesigner
+    || !['admin', 'developer'].includes(String(actor.staffType ?? 'admin'))
+  ) {
+    return deny('Direct broadcast messaging is not allowed for this session');
+  }
+  const conversationIds = cleanUuidArray(body.conversation_ids, 200);
+  const messageIds = cleanUuidArray(body.client_message_ids, 200);
+  const attachmentIntentIds = cleanUuidArray(body.attachment_intent_ids, 10);
+  const deliveryKey = cleanUuid(body.delivery_key);
+  const payloadFingerprint = cleanSha256(body.payload_fingerprint);
+  const content = safeText(body.content, 4_000);
+  if (
+    !conversationIds
+    || !messageIds
+    || conversationIds.length < 1
+    || conversationIds.length !== messageIds.length
+    || !attachmentIntentIds
+    || attachmentIntentIds.length < 1
+    || !deliveryKey
+    || !payloadFingerprint
+  ) {
+    return deny('Direct broadcast attachment payload is invalid', 400);
+  }
+  return {
+    ok: true,
+    payload: {
+      type: 'direct_message_broadcast_send',
+      conversation_ids: conversationIds,
+      client_message_ids: messageIds,
+      content,
+      attachment_intent_ids: attachmentIntentIds,
+      delivery_key: deliveryKey,
+      payload_fingerprint: payloadFingerprint,
+      viewer_actor_id: actor.actorId,
+      viewer_actor_role: actor.staffType === 'developer' ? 'developer' : 'admin',
+    },
+  };
 }
 
 export function buildAppFcNotifyPayload(
@@ -308,8 +532,89 @@ export function buildAppFcNotifyPayload(
   const scope = getActorScope(actor);
   if (scope.phone.length !== 11) return deny('Invalid signed session actor', 401);
 
-  if (body.type === 'inbox_list' || body.type === 'inbox_unread_count' || body.type === 'inbox_delete') {
+  if (body.type === 'notice_get') {
+    if (actor.isRequestBoardDesigner) {
+      return deny('This session cannot read FC notices');
+    }
+    const noticeId = cleanUuid(body.notice_id);
+    if (!noticeId) return deny('Notice id is invalid', 400);
+    return {
+      ok: true,
+      payload: {
+        type: 'notice_get',
+        notice_id: noticeId,
+        viewer_actor_id: actor.actorId,
+        viewer_actor_role:
+          actor.sessionRole === 'admin' && actor.staffType === 'developer'
+            ? 'developer'
+            : actor.sessionRole,
+      },
+    };
+  }
+
+  if (
+    body.type === 'inbox_list'
+    || body.type === 'inbox_get'
+    || body.type === 'inbox_unread_count'
+    || body.type === 'inbox_mark_read'
+    || body.type === 'inbox_dismiss'
+    || body.type === 'inbox_delete'
+  ) {
     return buildInboxPayload(body.type, body, actor);
+  }
+
+  if (body.type === 'resolve_garamin_direct_conversation') {
+    if (actor.sessionRole === 'manager' || actor.isRequestBoardDesigner) {
+      return deny('Direct conversation resolution is not allowed for this session');
+    }
+    const conversationId = cleanUuid(body.conversation_id);
+    const hasConversationId = body.conversation_id !== undefined;
+    const hasTargetId = body.target_id !== undefined;
+    if (hasConversationId === hasTargetId) {
+      return deny('Exactly one direct conversation identifier is required', 400);
+    }
+    if (hasConversationId && !conversationId) {
+      return deny('Direct conversation id is invalid', 400);
+    }
+    let targetId: string | null = null;
+    if (hasTargetId) {
+      const rawTarget = String(body.target_id ?? '').trim();
+      if (actor.sessionRole === 'fc') {
+        if (rawTarget && rawTarget.toLowerCase() !== 'admin') {
+          return deny('FC direct conversations target the shared admin inbox');
+        }
+      } else {
+        const digits = sanitizePhone(rawTarget);
+        if (digits.length !== 11) return deny('Direct conversation target is invalid', 400);
+        targetId = digits;
+      }
+    }
+    return {
+      ok: true,
+      payload: {
+        type: body.type,
+        conversation_id: conversationId,
+        target_id: targetId,
+        viewer_actor_id: actor.actorId,
+        viewer_actor_role:
+          actor.sessionRole === 'admin' && actor.staffType === 'developer'
+            ? 'developer'
+            : actor.sessionRole,
+      },
+    };
+  }
+
+  if (
+    body.type === 'direct_message_list'
+    || body.type === 'direct_message_send'
+    || body.type === 'direct_message_mark_read'
+    || body.type === 'direct_message_delete'
+  ) {
+    return buildDirectMessagePayload(body, actor);
+  }
+
+  if (body.type === 'direct_message_broadcast_send') {
+    return buildDirectMessageBroadcastPayload(body, actor);
   }
 
   if (body.type === 'chat_targets') {

@@ -37,8 +37,47 @@ const supabase = createClient(supabaseUrl, serviceKey);
 const textEncoder = new TextEncoder();
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 10;
-const SMS_BYPASS_ENABLED = (getEnv('SMS_BYPASS_ENABLED') ?? 'true').toLowerCase() === 'true';
-const SMS_BYPASS_CODE = (getEnv('SMS_BYPASS_CODE') ?? getEnv('TEST_SMS_CODE') ?? '123456').trim();
+
+export function resolveSignupSmsBypassConfig(env: Record<string, string | undefined>) {
+  const enabled = (env.SMS_BYPASS_ENABLED ?? '').trim().toLowerCase() === 'true';
+  if (!enabled) {
+    return { enabled: false, code: '' };
+  }
+
+  const isHostedDeployment = Boolean((env.DENO_DEPLOYMENT_ID ?? '').trim());
+  const isProductionEnvironment = [
+    env.NODE_ENV,
+    env.DENO_ENV,
+    env.APP_ENV,
+    env.ENVIRONMENT,
+    env.SUPABASE_ENV,
+    env.VERCEL_ENV,
+  ].some((value) => ['production', 'prod'].includes((value ?? '').trim().toLowerCase()));
+
+  if (isHostedDeployment || isProductionEnvironment) {
+    throw new Error('SMS bypass must not be enabled in production.');
+  }
+
+  const code = (env.SMS_BYPASS_CODE ?? env.TEST_SMS_CODE ?? '').trim();
+  if (!/^\d{6}$/.test(code)) {
+    throw new Error('A six-digit SMS bypass code is required when bypass is enabled.');
+  }
+
+  return { enabled: true, code };
+}
+
+const signupSmsBypassConfig = resolveSignupSmsBypassConfig({
+  SMS_BYPASS_ENABLED: getEnv('SMS_BYPASS_ENABLED'),
+  SMS_BYPASS_CODE: getEnv('SMS_BYPASS_CODE'),
+  TEST_SMS_CODE: getEnv('TEST_SMS_CODE'),
+  DENO_DEPLOYMENT_ID: getEnv('DENO_DEPLOYMENT_ID'),
+  NODE_ENV: getEnv('NODE_ENV'),
+  DENO_ENV: getEnv('DENO_ENV'),
+  APP_ENV: getEnv('APP_ENV'),
+  ENVIRONMENT: getEnv('ENVIRONMENT'),
+  SUPABASE_ENV: getEnv('SUPABASE_ENV'),
+  VERCEL_ENV: getEnv('VERCEL_ENV'),
+});
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -105,7 +144,7 @@ serve(async (req: Request) => {
   if (!profile?.id) {
     return fail('not_found', '등록된 계정을 찾을 수 없습니다.');
   }
-  if (SMS_BYPASS_ENABLED && code === SMS_BYPASS_CODE) {
+  if (signupSmsBypassConfig.enabled && code === signupSmsBypassConfig.code) {
     const { error: bypassError } = await supabase
       .from('fc_profiles')
       .update({

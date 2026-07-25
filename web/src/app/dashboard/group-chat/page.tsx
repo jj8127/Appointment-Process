@@ -1,13 +1,15 @@
 'use client';
 
-import { classifyGroupChatError, GroupChatRequestError } from '@/lib/group-chat-error';
+import { classifyGroupChatError } from '@/lib/group-chat-error';
 
 import { useSession } from '@/hooks/use-session';
+import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import {
   groupChatBootstrap,
   groupChatClearNotice,
   groupChatDeleteMessage,
   groupChatMarkRead,
+  groupChatRetryNotification,
   groupChatSend,
   groupChatSetMemberSendPermission,
   groupChatSetMuted,
@@ -16,13 +18,25 @@ import {
   type GroupChatActor,
   type GroupChatMember,
   type GroupChatMessage,
-  type GroupChatMessageType,
+  type GroupChatNotificationRetry,
   type GroupChatNotice,
   type GroupChatRoom,
 } from '@/lib/group-chat-client';
 import { supabase } from '@/lib/supabase';
 import {
+  openMessengerAttachment,
+  prepareMessengerAttachmentBatch,
+  uploadMessengerAttachmentBatch,
+  type PreparedMessengerAttachmentBatch,
+} from '@/lib/messenger-attachment-client';
+import {
+  MESSENGER_ATTACHMENT_ERROR_COPY,
+  formatMessengerAttachmentSize,
+  validateMessengerAttachmentSelection,
+} from '@/lib/messenger-attachment-policy';
+import {
   ActionIcon,
+  Alert,
   Avatar,
   Badge,
   Box,
@@ -53,7 +67,6 @@ import {
   IconDownload,
   IconFile,
   IconMessageCircle,
-  IconPhoto,
   IconPinned,
   IconPinnedOff,
   IconRefresh,
@@ -64,12 +77,12 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import dayjs from 'dayjs';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
-const CHAT_UPLOAD_BUCKET = 'chat-uploads';
 const GROUP_CHAT_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
 function showGroupChatErrorNotification(error: unknown) {
@@ -81,23 +94,15 @@ function showGroupChatErrorNotification(error: unknown) {
   });
 }
 
-function showGroupChatDeliveryWarning(message: string) {
+function showGroupChatInboxWarning() {
   notifications.show({
-    title: '메시지는 저장됐습니다',
-    message,
+    title: '메시지 저장 완료 · 알림함 등록 실패',
+    message: '요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.',
     color: 'yellow',
   });
 }
-const POLL_INTERVAL_MS = 10_000;
 
-type UploadResponse = {
-  ok?: boolean;
-  code?: string;
-  message?: string;
-  url?: string;
-  fileName?: string;
-  fileSize?: number;
-};
+const POLL_INTERVAL_MS = 10_000;
 
 function sortMessages(messages: GroupChatMessage[]) {
   return [...messages].sort((left, right) => {
@@ -146,6 +151,8 @@ function formatMessageTime(value: string) {
 
 export default function DashboardGroupChatPage() {
   const { hydrated, role } = useSession();
+  const searchParams = useSearchParams();
+  const notificationRoomId = (searchParams.get('roomId') ?? '').trim().toLowerCase();
   const [room, setRoom] = useState<GroupChatRoom | null>(null);
   const [actor, setActor] = useState<GroupChatActor | null>(null);
   const [members, setMembers] = useState<GroupChatMember[]>([]);
@@ -157,13 +164,19 @@ export default function DashboardGroupChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [input, setInput] = useState('');
   const [replyTarget, setReplyTarget] = useState<GroupChatMessage | null>(null);
   const [memberDrawerOpen, setMemberDrawerOpen] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
   const [permissionUpdatingIds, setPermissionUpdatingIds] = useState<Set<string>>(new Set());
   const [noticeUpdating, setNoticeUpdating] = useState(false);
+  const [pendingNotificationRetries, setPendingNotificationRetries] =
+    useState<GroupChatNotificationRetry[]>([]);
+  const [retryingNotificationMessageId, setRetryingNotificationMessageId] =
+    useState<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const pendingAttachmentBatchRef = useRef<PreparedMessengerAttachmentBatch | null>(null);
 
   const canUsePage = hydrated && (role === 'admin' || role === 'manager');
   const canManageMemberSendPermissions = isStaffGroupChatActor(actor);
@@ -286,77 +299,111 @@ export default function DashboardGroupChatPage() {
     ]));
   }, []);
 
-  const handleSend = useCallback(async (content: string, type: GroupChatMessageType = 'text', file?: {
-    url?: string | null;
-    name?: string | null;
-    size?: number | null;
-  }) => {
+  const handleSend = useCallback(async (content: string) => {
     const trimmed = content.trim();
-    if (!inputEnabled || (!trimmed && !file?.url)) return;
+    if (!inputEnabled || (!trimmed && selectedFiles.length === 0) || !room?.id) return;
 
-    setSending(type === 'text');
+    setSending(true);
     try {
+      let attachmentIntentIds: string[] | undefined;
+      let attachmentBatch = pendingAttachmentBatchRef.current;
+      if (selectedFiles.length > 0) {
+        setUploading(true);
+        if (!attachmentBatch) {
+          attachmentBatch = await prepareMessengerAttachmentBatch({
+            files: selectedFiles,
+            context: { kind: 'group', roomId: room.id },
+            content: trimmed,
+          });
+          pendingAttachmentBatchRef.current = attachmentBatch;
+        }
+        const uploaded = await uploadMessengerAttachmentBatch(attachmentBatch);
+        if (uploaded.state === 'committed') {
+          pendingAttachmentBatchRef.current = null;
+          setSelectedFiles([]);
+          setInput('');
+          await loadGroupChat({ keepScroll: true });
+          return;
+        }
+        attachmentIntentIds = uploaded.intentIds;
+      }
       const result = await groupChatSend({
-        content: trimmed || file?.name || '파일',
-        messageType: type,
-        fileUrl: file?.url ?? null,
-        fileName: file?.name ?? null,
-        fileSize: file?.size ?? null,
+        content: trimmed,
+        attachmentIntentIds,
+        deliveryKey: attachmentBatch?.deliveryKey,
+        payloadFingerprint: attachmentBatch?.payloadFingerprint,
         replyToMessageId: replyTarget?.id ?? null,
       });
       mergeMessage(result.message);
+      pendingAttachmentBatchRef.current = null;
+      setSelectedFiles([]);
       setInput('');
       setReplyTarget(null);
       void groupChatMarkRead(result.message.id);
       scrollToBottom();
-      if (result.warning?.code === 'notification_delivery_partial') {
-        showGroupChatDeliveryWarning(result.warning.message);
+      if (result.notification.delivery.notificationStored === false) {
+        if (result.notificationRetry) {
+          setPendingNotificationRetries((current) => [
+            ...current.filter((retry) => retry.messageId !== result.notificationRetry?.messageId),
+            result.notificationRetry!,
+          ]);
+        }
+        showGroupChatInboxWarning();
       }
-    } catch (error) {
-      showGroupChatErrorNotification(error);
-    } finally {
-      setSending(false);
-    }
-  }, [inputEnabled, mergeMessage, replyTarget?.id, scrollToBottom]);
-
-  const uploadAndSend = useCallback(async (file: File | null, forcedType?: GroupChatMessageType) => {
-    if (!file || !inputEnabled) return;
-
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('bucket', CHAT_UPLOAD_BUCKET);
-
-      const response = await fetch('/api/group-chat/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      const payload = (await response.json().catch(() => null)) as UploadResponse | null;
-      if (!response.ok || !payload?.ok || !payload.url) {
-        throw new GroupChatRequestError(payload?.message ?? '파일 업로드에 실패했습니다.', {
-          code: payload?.code,
-          status: response.status,
-          raw: payload,
-        });
-      }
-
-      const messageType = forcedType ?? (file.type.startsWith('image/') ? 'image' : 'file');
-      await handleSend(
-        messageType === 'image' ? '사진을 보냈습니다.' : payload.fileName ?? file.name,
-        messageType,
-        {
-          url: payload.url,
-          name: payload.fileName ?? file.name,
-          size: payload.fileSize ?? file.size,
-        },
-      );
     } catch (error) {
       showGroupChatErrorNotification(error);
     } finally {
       setUploading(false);
+      setSending(false);
     }
-  }, [handleSend, inputEnabled]);
+  }, [
+    inputEnabled,
+    loadGroupChat,
+    mergeMessage,
+    replyTarget?.id,
+    room?.id,
+    scrollToBottom,
+    selectedFiles,
+  ]);
+
+  const handleRetryNotification = useCallback(async (retry: GroupChatNotificationRetry) => {
+    setRetryingNotificationMessageId(retry.messageId);
+    try {
+      const result = await groupChatRetryNotification(retry);
+      if (result.delivery.notificationStored === true) {
+        setPendingNotificationRetries((current) =>
+          current.filter((pending) => pending.messageId !== retry.messageId));
+        notifications.show({
+          title: '알림함 등록 완료',
+          message: '수신자 알림함에 단톡방 메시지 알림을 등록했습니다.',
+          color: 'green',
+        });
+        return;
+      }
+
+      if (result.notificationRetry) {
+        setPendingNotificationRetries((current) => [
+          ...current.filter((pending) => pending.messageId !== retry.messageId),
+          result.notificationRetry!,
+        ]);
+      }
+      showGroupChatInboxWarning();
+    } catch (error) {
+      showGroupChatErrorNotification(error);
+    } finally {
+      setRetryingNotificationMessageId(null);
+    }
+  }, []);
+
+  const addSelectedFiles = useCallback((files: File[]) => {
+    const validation = validateMessengerAttachmentSelection(files, selectedFiles.length);
+    if (!validation.ok) {
+      notifications.show({ title: '파일 첨부 실패', message: validation.error, color: 'red' });
+      return;
+    }
+    pendingAttachmentBatchRef.current = null;
+    setSelectedFiles((current) => [...current, ...files]);
+  }, [selectedFiles.length]);
 
   const handleReaction = useCallback(async (message: GroupChatMessage, reaction: string) => {
     if (message.deleted_at) return;
@@ -446,6 +493,29 @@ export default function DashboardGroupChatPage() {
 
   const renderAttachment = (message: GroupChatMessage) => {
     if (message.deleted_at) return null;
+    if (message.attachments?.length) {
+      return (
+        <Stack gap={4} mt={6}>
+          {message.attachments.map((attachment) => (
+            <Button
+              key={attachment.id}
+              variant="light"
+              color="gray"
+              leftSection={<IconDownload size={16} />}
+              onClick={() => void openMessengerAttachment(attachment.id).catch(() => {
+                notifications.show({
+                  title: '파일 열기 실패',
+                  message: MESSENGER_ATTACHMENT_ERROR_COPY.downloadFailed,
+                  color: 'red',
+                });
+              })}
+            >
+              {attachment.name} · {formatMessengerAttachmentSize(attachment.size)}
+            </Button>
+          ))}
+        </Stack>
+      );
+    }
     if (message.message_type === 'image' && message.file_url) {
       return (
         <Image
@@ -614,6 +684,7 @@ export default function DashboardGroupChatPage() {
 
   return (
     <Container size="xl" py="xl" h="calc(100vh - 80px)">
+      {notificationRoomId && room?.id === notificationRoomId ? <NotificationDestinationReady /> : null}
       <Group justify="space-between" mb="lg" align="flex-start">
         <div>
           <Title order={2} c={CHARCOAL}>가람PA 단톡방</Title>
@@ -649,6 +720,31 @@ export default function DashboardGroupChatPage() {
             {inputEnabled ? '발언 가능' : '발언 제한'}
           </Badge>
         </Group>
+
+        {pendingNotificationRetries.map((retry) => (
+          <Alert
+            key={retry.messageId}
+            color="yellow"
+            title="메시지 저장 완료 · 알림함 등록 실패"
+            mx="lg"
+            mt="sm"
+          >
+            <Group justify="space-between" align="center">
+              <Text size="sm">
+                요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.
+              </Text>
+              <Button
+                size="xs"
+                variant="light"
+                color="yellow"
+                loading={retryingNotificationMessageId === retry.messageId}
+                onClick={() => void handleRetryNotification(retry)}
+              >
+                알림만 다시 시도
+              </Button>
+            </Group>
+          </Alert>
+        ))}
 
         {notice ? (
           <Box px="lg" py="sm" bg="#FFF7ED" style={{ borderTop: '1px solid #FED7AA', borderBottom: '1px solid #FED7AA' }}>
@@ -701,15 +797,38 @@ export default function DashboardGroupChatPage() {
             </Paper>
           ) : null}
 
+          {selectedFiles.length > 0 ? (
+            <Group gap="xs" mb="sm">
+              {selectedFiles.map((file, index) => (
+                <Badge
+                  key={`${file.name}-${file.size}-${index}`}
+                  variant="light"
+                  color="gray"
+                  rightSection={
+                    <ActionIcon
+                      size="xs"
+                      variant="transparent"
+                      color="gray"
+                      onClick={() => {
+                        pendingAttachmentBatchRef.current = null;
+                        setSelectedFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
+                      }}
+                    >
+                      <IconX size={12} />
+                    </ActionIcon>
+                  }
+                >
+                  {file.name}
+                </Badge>
+              ))}
+            </Group>
+          ) : null}
           <Group align="flex-end" wrap="nowrap">
-            <FileButton onChange={(file) => void uploadAndSend(file, 'image')} accept="image/*">
-              {(props) => (
-                <ActionIcon {...props} variant="light" color="gray" size="lg" disabled={!inputEnabled || uploading}>
-                  <IconPhoto size={18} />
-                </ActionIcon>
-              )}
-            </FileButton>
-            <FileButton onChange={(file) => void uploadAndSend(file)} accept="*">
+            <FileButton
+              multiple
+              onChange={(files) => addSelectedFiles(files ?? [])}
+              accept=".jpg,.jpeg,.png,.webp,.gif,.bmp,.heic,.heif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+            >
               {(props) => (
                 <ActionIcon {...props} variant="light" color="gray" size="lg" disabled={!inputEnabled || uploading}>
                   <IconFile size={18} />
@@ -718,7 +837,10 @@ export default function DashboardGroupChatPage() {
             </FileButton>
             <Textarea
               value={input}
-              onChange={(event) => setInput(event.currentTarget.value)}
+              onChange={(event) => {
+                pendingAttachmentBatchRef.current = null;
+                setInput(event.currentTarget.value);
+              }}
               placeholder={inputEnabled ? '메시지를 입력하세요' : '현재 발언 권한이 없습니다.'}
               minRows={1}
               maxRows={4}
@@ -736,7 +858,7 @@ export default function DashboardGroupChatPage() {
               color="orange"
               leftSection={<IconSend size={16} />}
               loading={sending || uploading}
-              disabled={!inputEnabled || !input.trim()}
+              disabled={!inputEnabled || (!input.trim() && selectedFiles.length === 0)}
               onClick={() => void handleSend(input)}
             >
               전송

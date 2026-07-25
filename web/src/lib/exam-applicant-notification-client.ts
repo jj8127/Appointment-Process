@@ -2,6 +2,7 @@ import { classifyFcNotificationResult } from './admin-chat-notification-result';
 import { logger } from './logger';
 
 type ExamApprovalNotificationTarget = {
+  id: string;
   phone: string;
   exam_date: string | null;
   round_label: string;
@@ -20,6 +21,7 @@ export async function notifyFcExamApprovalStatus(
   item: ExamApprovalNotificationTarget,
   isConfirmed: boolean,
 ): Promise<void> {
+  const examType = item.exam_type === 'nonlife' ? 'nonlife' : 'life';
   const targetId = (item.phone ?? '').replace(/[^0-9]/g, '');
   if (!targetId) {
     logger.warn('[exam-applicant] mobile notification skipped', {
@@ -40,7 +42,13 @@ export async function notifyFcExamApprovalStatus(
         target_id: targetId,
         is_confirmed: isConfirmed,
         exam_info: formatExamApprovalInfo(item),
-        exam_type: item.exam_type,
+        exam_type: examType,
+        target: {
+          version: 1,
+          kind: 'exam',
+          examType,
+          examRegistrationId: item.id,
+        },
       }),
     });
   } catch {

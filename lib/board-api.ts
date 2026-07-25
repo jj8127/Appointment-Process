@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
 import { getStoredAppSessionToken } from '@/lib/request-board-api';
+import { isNotificationUuid } from '@/lib/notification-target';
 
 export type BoardActorRole = 'admin' | 'manager' | 'fc';
 export type BoardDisplayRole = 'admin' | 'manager' | 'fc' | 'developer';
@@ -134,9 +135,27 @@ export type BoardWriteNotification = {
   };
 };
 
+export type BoardNotificationDelivery = {
+  notificationStored: boolean;
+  pushStatus:
+    | 'accepted'
+    | 'no_registered_device'
+    | 'provider_rejected'
+    | 'not_attempted';
+  retryable: boolean;
+  notificationIds?: string[];
+};
+
+export type BoardNotificationRetry = {
+  postId: string;
+  eventKey: string;
+};
+
 export type BoardWriteResult = {
   saved: boolean;
   notification: BoardWriteNotification | null;
+  delivery: BoardNotificationDelivery | null;
+  notificationRetry: BoardNotificationRetry | null;
   notificationWarning: string | null;
 };
 
@@ -150,6 +169,8 @@ type InvokeResult<T> = {
   message?: string;
   saved?: boolean;
   notification?: BoardWriteNotification;
+  delivery?: unknown;
+  notificationRetry?: unknown;
   notificationWarning?: string | null;
 };
 
@@ -168,6 +189,7 @@ export type BoardFunctionName =
   | 'board-delete'
   | 'board-detail'
   | 'board-list'
+  | 'board-notification-retry'
   | 'board-pin'
   | 'board-reaction-toggle'
   | 'board-update';
@@ -266,6 +288,14 @@ async function invokeBoardResponseWithDeps<T>(
   }
   const payload = data as InvokeResult<T> | null;
   if (!payload?.ok) {
+    if (
+      name === 'board-notification-retry'
+      && parseBoardNotificationDelivery(payload?.delivery)?.notificationStored
+        === false
+      && parseBoardNotificationRetry(payload?.notificationRetry)
+    ) {
+      return payload as InvokeResult<T>;
+    }
     throw new Error(payload?.message ?? '요청에 실패했습니다.');
   }
   return payload;
@@ -283,8 +313,58 @@ export async function invokeBoardWithDeps<T>(
   return payload.data as T;
 }
 
+function parseBoardNotificationDelivery(
+  value: unknown,
+): BoardNotificationDelivery | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const delivery = value as Record<string, unknown>;
+  const pushStatus = delivery.pushStatus;
+  if (
+    typeof delivery.notificationStored !== 'boolean'
+    || typeof delivery.retryable !== 'boolean'
+    || (
+      pushStatus !== 'accepted'
+      && pushStatus !== 'no_registered_device'
+      && pushStatus !== 'provider_rejected'
+      && pushStatus !== 'not_attempted'
+    )
+  ) {
+    return null;
+  }
+  const notificationIds = Array.isArray(delivery.notificationIds)
+    && delivery.notificationIds.every(isNotificationUuid)
+    ? delivery.notificationIds.map((id) => String(id).toLowerCase())
+    : undefined;
+  return {
+    notificationStored: delivery.notificationStored,
+    pushStatus,
+    retryable: delivery.retryable,
+    ...(notificationIds ? { notificationIds } : {}),
+  };
+}
+
+function parseBoardNotificationRetry(
+  value: unknown,
+): BoardNotificationRetry | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const retry = value as Record<string, unknown>;
+  const postId =
+    typeof retry.postId === 'string' ? retry.postId.toLowerCase() : '';
+  const eventKey =
+    typeof retry.eventKey === 'string' ? retry.eventKey.trim() : '';
+  if (
+    !isNotificationUuid(postId)
+    || !/^board-post:[0-9a-f]{64}$/.test(eventKey)
+  ) {
+    return null;
+  }
+  return { postId, eventKey };
+}
+
 function normalizeBoardWriteResult(payload: InvokeResult<unknown>): BoardWriteResult {
   const notification = payload.notification ?? null;
+  const delivery = parseBoardNotificationDelivery(payload.delivery);
+  const notificationRetry = parseBoardNotificationRetry(payload.notificationRetry);
   const explicitWarning = typeof payload.notificationWarning === 'string'
     && payload.notificationWarning.trim()
     ? payload.notificationWarning.trim()
@@ -295,8 +375,21 @@ function normalizeBoardWriteResult(payload: InvokeResult<unknown>): BoardWriteRe
     // already meant that the durable write completed.
     saved: payload.saved !== false,
     notification,
-    notificationWarning: explicitWarning
-      ?? (notification?.ok === false ? 'notification_delivery_incomplete' : null),
+    delivery,
+    notificationRetry,
+    notificationWarning: delivery
+      ? (
+        delivery.notificationStored
+          ? null
+          : explicitWarning ?? 'notification_delivery_incomplete'
+      )
+      : notification
+      ? (
+        notification.inbox.ok === false
+          ? explicitWarning ?? 'notification_delivery_incomplete'
+          : null
+      )
+      : explicitWarning,
   };
 }
 
@@ -390,6 +483,8 @@ export async function createBoardPost(
     id: result.data.id,
     saved: result.saved,
     notification: result.notification,
+    delivery: result.delivery,
+    notificationRetry: result.notificationRetry,
     notificationWarning: result.notificationWarning,
   };
 }
@@ -405,14 +500,67 @@ export async function updateBoardPost(actor: BoardActor, payload: {
   return {
     saved: result.saved,
     notification: result.notification,
+    delivery: result.delivery,
+    notificationRetry: result.notificationRetry,
     notificationWarning: result.notificationWarning,
   };
+}
+
+export async function retryBoardNotificationWithDeps(
+  actor: BoardActor,
+  retry: BoardNotificationRetry,
+  deps: {
+    getStoredAppSessionToken: () => Promise<string | null>;
+    invoke: BoardInvokeTransport;
+  },
+): Promise<Pick<
+  BoardWriteResult,
+  'delivery' | 'notificationRetry' | 'notificationWarning'
+>> {
+  const postId = retry.postId.toLowerCase();
+  const eventKey = retry.eventKey.trim();
+  if (
+    !isNotificationUuid(postId)
+    || !/^board-post:[0-9a-f]{64}$/.test(eventKey)
+  ) {
+    throw new Error('알림 재시도 정보가 올바르지 않습니다.');
+  }
+  const payload = await invokeBoardResponseWithDeps<null>(
+    'board-notification-retry',
+    { actor, postId, eventKey },
+    deps,
+  );
+  const normalized = normalizeBoardWriteResult(payload);
+  return {
+    delivery: normalized.delivery,
+    notificationRetry: normalized.notificationRetry,
+    notificationWarning: normalized.notificationWarning,
+  };
+}
+
+export async function retryBoardNotification(
+  actor: BoardActor,
+  retry: BoardNotificationRetry,
+) {
+  return retryBoardNotificationWithDeps(actor, retry, {
+    getStoredAppSessionToken,
+    invoke: async (functionName, options) => {
+      const { data, error } = await supabase.functions.invoke(
+        functionName,
+        options,
+      );
+      return { data, error };
+    },
+  });
 }
 
 export function getBoardNotificationWarningMessage(notificationWarning?: string | null) {
   if (!notificationWarning) return null;
   logger.warn('[board] notification delivery unconfirmed', { notificationWarning });
-  return null;
+  if (notificationWarning === 'notification_delivery_incomplete') {
+    return '게시글은 저장됐지만 알림을 등록하지 못했습니다. 게시글을 다시 저장하지 마세요.';
+  }
+  return '게시글은 저장됐지만 알림 등록 상태를 확인하지 못했습니다. 게시글을 다시 저장하지 마세요.';
 }
 
 export async function deleteBoardPost(actor: BoardActor, postId: string) {

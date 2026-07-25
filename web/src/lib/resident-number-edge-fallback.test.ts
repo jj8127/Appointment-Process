@@ -13,6 +13,7 @@ test('builds the admin-action resident-number fallback POST request', () => {
 
   assert.equal(request.url, 'https://project.supabase.co/functions/v1/admin-action');
   assert.equal(request.init.method, 'POST');
+  assert.equal(request.init.cache, 'no-store');
   assert.deepStrictEqual(request.init.headers, {
     'Content-Type': 'application/json',
     apikey: 'service-role-key',

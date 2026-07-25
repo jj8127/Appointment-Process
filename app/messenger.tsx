@@ -15,14 +15,12 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useSession } from '@/hooks/use-session';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import {
-  buildInternalChatViewerPayload,
   fetchInternalUnreadCount,
 } from '@/lib/internal-chat-api';
 import { groupChatBootstrap, type GroupChatMessage } from '@/lib/group-chat-api';
 import { logger } from '@/lib/logger';
 import { getAccountRoleLabel } from '@/lib/staff-identity';
 import { rbGetUnreadCount } from '@/lib/request-board-api';
-import { supabase } from '@/lib/supabase';
 
 type ChannelQuery = 'garam' | 'request-board' | 'group-chat' | null;
 
@@ -30,6 +28,7 @@ const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const REQUEST_BOARD_REFRESH_INTERVAL_MS = 30_000;
+const INTERNAL_CHAT_REFRESH_INTERVAL_MS = 4_000;
 const GROUP_CHAT_PREVIEW_LIMIT = 1;
 
 function parseChannel(value: string | string[] | undefined): ChannelQuery {
@@ -74,11 +73,6 @@ export default function MessengerHubScreen() {
     }),
     [isRequestBoardDesigner, readOnly, residentId, role, staffType],
   );
-  const internalViewerPayload = useMemo(
-    () => buildInternalChatViewerPayload(internalViewerContext),
-    [internalViewerContext],
-  );
-  const myChatId = internalViewerPayload?.viewer_id ?? '';
   const canUseGroupChat = !isRequestBoardDesigner && (role === 'fc' || role === 'admin');
 
   const openGaramMessenger = useCallback(() => {
@@ -205,6 +199,10 @@ export default function MessengerHubScreen() {
         void loadRequestBoardUnreadCount();
         void loadGroupChatSummary();
       }, REQUEST_BOARD_REFRESH_INTERVAL_MS);
+      const internalChatIntervalId = setInterval(
+        () => void loadInternalUnreadCount(),
+        INTERNAL_CHAT_REFRESH_INTERVAL_MS,
+      );
 
       const appStateSubscription = AppState.addEventListener('change', (nextState) => {
         if (nextState === 'active') {
@@ -212,32 +210,12 @@ export default function MessengerHubScreen() {
         }
       });
 
-      const messageChannel = myChatId
-        ? supabase
-            .channel(`messenger-hub-unread-${myChatId}`)
-            .on(
-              'postgres_changes',
-              {
-                event: '*',
-                schema: 'public',
-                table: 'messages',
-                filter: `receiver_id=eq.${myChatId}`,
-              },
-              () => {
-                void loadInternalUnreadCount();
-              },
-            )
-            .subscribe()
-        : null;
-
       return () => {
         clearInterval(intervalId);
+        clearInterval(internalChatIntervalId);
         appStateSubscription.remove();
-        if (messageChannel) {
-          void supabase.removeChannel(messageChannel);
-        }
       };
-    }, [hydrated, loadCounts, loadGroupChatSummary, loadInternalUnreadCount, loadRequestBoardUnreadCount, myChatId, role]),
+    }, [hydrated, loadCounts, loadGroupChatSummary, loadInternalUnreadCount, loadRequestBoardUnreadCount, role]),
   );
 
   useEffect(() => {

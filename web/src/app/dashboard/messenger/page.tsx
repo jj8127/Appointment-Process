@@ -3,7 +3,6 @@
 import { useSession } from '@/hooks/use-session';
 import { resolveRequestBoardMessengerConfig } from '@/lib/request-board-url';
 import { getDashboardRoleLabel, getWebStaffChatActorId, isDeveloperSession } from '@/lib/staff-identity';
-import { supabase } from '@/lib/supabase';
 import {
   Badge,
   Button,
@@ -109,18 +108,8 @@ export default function MessengerHubPage() {
         internalUnreadError = error;
       }
 
-      if (!internalUnreadError && internalUnreadData?.ok) {
-        internalUnreadCount = Number(internalUnreadData.count ?? 0) || 0;
-      } else {
-        const { count: fallbackCount, error: internalUnreadFallbackErr } = await supabase
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('receiver_id', myChatId)
-          .eq('is_read', false);
-
-        if (internalUnreadFallbackErr) throw internalUnreadFallbackErr;
-        internalUnreadCount = fallbackCount ?? 0;
-      }
+      if (internalUnreadError || !internalUnreadData?.ok) throw internalUnreadError ?? new Error('unread_count_failed');
+      internalUnreadCount = Number(internalUnreadData.count ?? 0) || 0;
 
       let groupChatUnreadCount = 0;
       if (role !== 'fc') {

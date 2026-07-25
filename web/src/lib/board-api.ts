@@ -133,9 +133,23 @@ export type BoardWriteNotification = {
   };
 };
 
+export type BoardNotificationDelivery = {
+  notificationStored: boolean;
+  pushStatus: 'accepted' | 'no_registered_device' | 'provider_rejected' | 'not_attempted';
+  retryable: boolean;
+  notificationIds?: string[];
+};
+
+export type BoardNotificationRetry = {
+  postId: string;
+  eventKey: string;
+};
+
 export type BoardWriteResult = {
   saved: boolean;
   notification: BoardWriteNotification | null;
+  delivery: BoardNotificationDelivery | null;
+  notificationRetry: BoardNotificationRetry | null;
   notificationWarning: string | null;
 };
 
@@ -149,12 +163,15 @@ type InvokeResult<T> = {
   message?: string;
   saved?: boolean;
   notification?: BoardWriteNotification;
+  delivery?: BoardNotificationDelivery;
+  notificationRetry?: BoardNotificationRetry | null;
   notificationWarning?: string | null;
 };
 
 async function invokeBoardResponse<T>(
   name: string,
   body: Record<string, unknown>,
+  options?: { acceptNotificationPersistenceFailure?: boolean },
 ): Promise<InvokeResult<T>> {
   const response = await fetch('/api/board', {
     method: 'POST',
@@ -172,7 +189,10 @@ async function invokeBoardResponse<T>(
     throw new Error('게시판 요청을 처리하지 못했습니다.');
   }
 
-  if (!response.ok || !payload?.ok) {
+  const acceptedPersistenceFailure =
+    options?.acceptNotificationPersistenceFailure === true
+    && payload?.delivery?.notificationStored === false;
+  if (!response.ok || (!payload?.ok && !acceptedPersistenceFailure)) {
     const fallback = response.status === 400
       ? '요청이 올바르지 않습니다. 첨부파일 개수/용량을 확인해주세요.'
       : '요청에 실패했습니다.';
@@ -188,6 +208,9 @@ async function invokeBoard<T>(name: string, body: Record<string, unknown>): Prom
 
 function normalizeBoardWriteResult(payload: InvokeResult<unknown>): BoardWriteResult {
   const notification = payload.notification ?? null;
+  const delivery = payload.delivery ?? null;
+  const notificationStored = delivery?.notificationStored
+    ?? (notification ? notification.inbox.ok : null);
   const explicitWarning = typeof payload.notificationWarning === 'string'
     && payload.notificationWarning.trim()
     ? payload.notificationWarning.trim()
@@ -198,8 +221,17 @@ function normalizeBoardWriteResult(payload: InvokeResult<unknown>): BoardWriteRe
     // already meant that the durable write completed.
     saved: payload.saved !== false,
     notification,
-    notificationWarning: explicitWarning
-      ?? (notification?.ok === false ? 'notification_delivery_incomplete' : null),
+    delivery,
+    notificationRetry:
+      notificationStored === false && payload.notificationRetry
+        ? payload.notificationRetry
+        : null,
+    // Push/provider delivery is operationally retried and never turns a
+    // committed post into a partial-failure UI. Only a confirmed inbox
+    // persistence failure is actionable for the writer.
+    notificationWarning: notificationStored === false
+      ? explicitWarning ?? 'notification_persistence_failed'
+      : null,
   };
 }
 
@@ -305,6 +337,8 @@ export async function createBoardPost(
     id: result.data.id,
     saved: result.saved,
     notification: result.notification,
+    delivery: result.delivery,
+    notificationRetry: result.notificationRetry,
     notificationWarning: result.notificationWarning,
   };
 }
@@ -320,14 +354,36 @@ export async function updateBoardPost(actor: BoardActor, payload: {
   return {
     saved: result.saved,
     notification: result.notification,
+    delivery: result.delivery,
+    notificationRetry: result.notificationRetry,
     notificationWarning: result.notificationWarning,
+  };
+}
+
+export async function retryBoardNotification(
+  actor: BoardActor,
+  retry: BoardNotificationRetry,
+): Promise<Pick<
+  BoardWriteResult,
+  'delivery' | 'notificationRetry' | 'notificationWarning'
+>> {
+  const payload = await invokeBoardResponse<null>(
+    'board-notification-retry',
+    { actor, postId: retry.postId, eventKey: retry.eventKey },
+    { acceptNotificationPersistenceFailure: true },
+  );
+  const normalized = normalizeBoardWriteResult(payload);
+  return {
+    delivery: normalized.delivery,
+    notificationRetry: normalized.notificationRetry,
+    notificationWarning: normalized.notificationWarning,
   };
 }
 
 export function getBoardNotificationWarningMessage(notificationWarning?: string | null) {
   if (!notificationWarning) return null;
   logger.warn('[board] notification delivery unconfirmed', { notificationWarning });
-  return null;
+  return '요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.';
 }
 
 export async function deleteBoardPost(actor: BoardActor, postId: string) {

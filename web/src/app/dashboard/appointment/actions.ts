@@ -210,13 +210,21 @@ export async function updateAppointmentAction(
     // the already-persisted appointment mutation as failed.
     let notificationWarning: string | undefined;
     if (notificationPhone) {
-        const notificationResult = await sendPushNotification(notificationPhone, {
+        const notificationResult = await sendPushNotification(notificationPhone, fcId, {
             title: notifTitle,
             body: notifBody,
+            target: { version: 1, kind: 'onboarding_section', fcId, section: 'appointment' },
             data: { url: '/appointment' },
         });
-        if (!notificationResult.success) {
-            notificationWarning = 'notification_delivery_incomplete';
+        if (!('delivery' in notificationResult) || !('failures' in notificationResult)) {
+            notificationWarning = 'notification_target_unavailable';
+        } else if (
+            notificationResult.failures.some((failure) =>
+                failure === 'missing_recipient' || failure === 'recipient_mismatch')
+        ) {
+            notificationWarning = 'notification_target_unavailable';
+        } else if (!notificationResult.delivery.notificationStored) {
+            notificationWarning = 'notification_persistence_incomplete';
         }
     } else {
         notificationWarning = 'notification_target_unavailable';

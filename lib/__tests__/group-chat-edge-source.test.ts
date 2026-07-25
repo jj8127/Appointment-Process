@@ -30,15 +30,20 @@ describe('group chat edge notification fanout', () => {
     expect(source).not.toContain('result: providerPayload');
   });
 
-  it('does not report recipient notification delivery as successful without an accepted push ticket', () => {
+  it('keeps persisted inbox delivery successful while reporting provider acceptance separately', () => {
     const source = readFunctionFile('group-chat/index.ts');
     const notifyStart = source.indexOf('async function notifyRecipients');
     const notifyEnd = source.indexOf('function notificationFanoutFailureSummary', notifyStart);
     const notifySource = source.slice(notifyStart, notifyEnd);
 
     expect(notifySource).toContain('const hasAcceptedPush = provider.accepted_count > 0');
-    expect(notifySource).toContain('&& hasAcceptedPush');
-    expect(notifySource).toContain("status: ok ? 'provider_accepted' : 'partial'");
+    expect(notifySource).toContain('const providerAccepted = hasAcceptedPush');
+    expect(notifySource).toContain('ok: true');
+    expect(notifySource).toContain("status: providerAccepted ? 'provider_accepted' : 'partial'");
+    expect(notifySource).toContain('notificationStored: true');
+    expect(notifySource).toContain(
+      "pushStatus: providerAccepted ? 'accepted' : 'provider_rejected'",
+    );
     expect(notifySource).not.toContain("? (provider.requested_count > 0 ? 'provider_accepted' : 'inbox_only')");
     expect(notifySource).toContain('notification_count: notificationInsert.inserted_count');
   });
@@ -49,13 +54,17 @@ describe('group chat edge notification fanout', () => {
     const sendEnd = source.indexOf('async function handleMarkRead', sendStart);
     const sendSource = source.slice(sendStart, sendEnd);
 
-    expect(sendSource).toContain('const message = data as MessageRow');
-    expect(sendSource).toContain('try {');
+    expect(sendSource).toContain('let message: MessageRow');
+    expect(sendSource).toContain(".eq('id', messageId)");
+    expect(sendSource).toContain('message = result.data as unknown as MessageRow');
+    expect(sendSource).toContain('attachmentCommit = {');
+    expect(sendSource).toContain('if (attachmentCommit?.replayed)');
+    expect(sendSource).toContain('let notification = notificationFanoutFailureSummary()');
     expect(sendSource).toContain("reason: 'notification_fanout_failed'");
     expect(sendSource).toContain('ok: true');
     expect(sendSource).toContain('read_state: { updated: readStateUpdated }');
     expect(sendSource).toContain('notification,');
-    expect(sendSource).toContain('warning: postCommitWarning({ readStateUpdated, notification })');
+    expect(sendSource).toContain('warning: notificationWarning(notification)');
     expect(source).toContain("code: 'notification_delivery_partial'");
   });
 
@@ -64,21 +73,40 @@ describe('group chat edge notification fanout', () => {
     const sendStart = source.indexOf('async function handleSend');
     const sendEnd = source.indexOf('async function handleMarkRead', sendStart);
     const sendSource = source.slice(sendStart, sendEnd);
-    const persistedMessage = sendSource.indexOf('const message = data as MessageRow');
-    const readTry = sendSource.indexOf('try {', persistedMessage);
+    const messageDeclaration = sendSource.indexOf('let message: MessageRow');
+    const attachmentQuery = sendSource.indexOf(".eq('id', messageId)", messageDeclaration);
+    const attachmentAssignment = sendSource.indexOf(
+      'message = result.data as unknown as MessageRow',
+      attachmentQuery,
+    );
+    const textInsert = sendSource.indexOf(".from('group_chat_messages')", attachmentAssignment);
+    const textAssignment = sendSource.indexOf(
+      'message = result.data as unknown as MessageRow',
+      attachmentAssignment + 1,
+    );
+    const readStateDeclaration = sendSource.indexOf('let readStateUpdated = true', textAssignment);
+    const readTry = sendSource.indexOf('try {', readStateDeclaration);
     const readUpdate = sendSource.indexOf('await upsertRead(room.id, actor.id, message.id)', readTry);
     const readFailure = sendSource.indexOf("reason: 'read_state_update_failed'", readUpdate);
     const successResponse = sendSource.lastIndexOf('ok: true');
 
-    expect(persistedMessage).toBeGreaterThan(-1);
-    expect(readTry).toBeGreaterThan(persistedMessage);
+    expect(messageDeclaration).toBeGreaterThan(-1);
+    expect(attachmentQuery).toBeGreaterThan(messageDeclaration);
+    expect(attachmentAssignment).toBeGreaterThan(attachmentQuery);
+    expect(textInsert).toBeGreaterThan(attachmentAssignment);
+    expect(textAssignment).toBeGreaterThan(textInsert);
+    expect(readStateDeclaration).toBeGreaterThan(textAssignment);
+    expect(readTry).toBeGreaterThan(readStateDeclaration);
     expect(readUpdate).toBeGreaterThan(readTry);
     expect(readFailure).toBeGreaterThan(readUpdate);
     expect(successResponse).toBeGreaterThan(readFailure);
     expect(source).not.toContain("code: 'read_state_update_partial'");
     expect(source).not.toContain("code: 'post_commit_partial'");
-    expect(source).toContain('메시지는 저장됐지만 읽음 상태 반영을 확인하지 못했습니다.');
-    expect(sendSource).not.toContain('return dbError(error, origin);\n\n  const message = data as MessageRow;\n  await upsertRead');
+    expect(source).not.toContain('메시지는 저장됐지만 읽음 상태 반영을 확인하지 못했습니다.');
+    expect(source).not.toContain('메시지는 저장됐지만 읽음 상태와 일부 알림 반영을 확인하지 못했습니다.');
+    expect(sendSource).toContain("reason: 'read_state_update_failed'");
+    expect(sendSource).toContain('read_state: { updated: readStateUpdated }');
+    expect(sendSource).toContain('warning: notificationWarning(notification)');
   });
 
   it('bounds Expo requests and classifies timeout or transport aborts as partial delivery', () => {

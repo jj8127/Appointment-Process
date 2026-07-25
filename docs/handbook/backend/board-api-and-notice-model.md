@@ -2,12 +2,22 @@ doc_id: FC-BACKEND-BOARD-NOTICE
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-23
+last_verified: 2026-07-25
 source_of_truth: supabase/functions/board-* + web/src/app/api/admin/notices/route.ts
 
 contract_guard_2026_07_03: mobile board/notice screens, admin board/notification pages, board Edge Functions, notice API routes, notification route normalization, and automated digest posting are mapped in docs/handbook/contract-test-map.json.
 
 # Backend Runbook: Board API And Notice Model
+
+## 2026-07-25 Notification-only retry contract
+
+- `board-create` and `board-update` return `delivery.notificationStored`. Only inbox persistence failure returns `notificationRetry: { postId, eventKey }`; provider rejection and no registered device remain silent sender-side outcomes.
+- Mobile and web retry only `board-notification-retry` with that pair. They never resubmit the create/update mutation, so a delivery retry cannot duplicate a post or repeat an edit.
+- The retry Edge accepts a signed app session for an active `admin` or `manager`. An admin may retry any committed board post; a manager may retry only a manager-authored post owned by the same canonical resident ID. Board automation and FC sessions are not authorized.
+- The server reloads the committed post, re-derives the event key from `postId + updated_at`, and derives the fixed `fc`, `admin`, and `manager` broadcast rows itself. Caller-supplied recipient roles, resident IDs, notification content, and targets are never accepted.
+- Each domain event and recipient role has one `notifications.delivery_key`. A non-partial unique index plus `upsert(... onConflict: 'delivery_key')` makes repeated retry requests return the canonical rows instead of duplicating inbox entries.
+- Inbox rows are verified for UUID, exact role, null exact-recipient fields, typed `board_post` target, and exact delivery key before `fc-notify` is called in provider-only mode.
+- Rollout order is migration first, then `fc-notify`, `board-create`, `board-update`, and `board-notification-retry`, followed by mobile/web clients. Runtime secrets are the existing app-session signing configuration plus `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`; no new secret is introduced.
 
 ## 2026-07-23 Post-write notification delivery contract
 

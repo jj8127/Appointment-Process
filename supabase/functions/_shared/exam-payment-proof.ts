@@ -19,12 +19,13 @@ export type PrepareExamPaymentProofInput = {
 };
 
 export type SubmitExamPaymentProofInput = {
-  action: 'submit';
+  action: 'submit' | 'submit_v2';
   uploadId?: unknown;
   roundId?: unknown;
   locationId?: unknown;
   examType?: unknown;
   feePaidDate?: unknown;
+  includesPrimaryExam?: unknown;
   isThirdExam?: unknown;
 };
 
@@ -132,6 +133,7 @@ export function validateSubmitExamPaymentProof(
   locationId: string;
   examType: ExamType;
   feePaidDate: string;
+  includesPrimaryExam: boolean;
   isThirdExam: boolean;
 }> {
   const uploadIdRaw = cleanString(input.uploadId);
@@ -152,7 +154,13 @@ export function validateSubmitExamPaymentProof(
   if (!isValidYmd(feePaidDate)) {
     return { ok: false, code: 'invalid_fee_paid_date', message: '응시료 납입 일자를 다시 선택해주세요.' };
   }
-  if (typeof input.isThirdExam !== 'boolean') {
+  const includesPrimaryExam =
+    input.action === 'submit' ? true : input.includesPrimaryExam;
+  if (
+    typeof input.isThirdExam !== 'boolean'
+    || typeof includesPrimaryExam !== 'boolean'
+    || (!includesPrimaryExam && !input.isThirdExam)
+  ) {
     return { ok: false, code: 'invalid_subject', message: '응시 과목을 다시 선택해주세요.' };
   }
 
@@ -164,6 +172,7 @@ export function validateSubmitExamPaymentProof(
       locationId,
       examType,
       feePaidDate,
+      includesPrimaryExam,
       isThirdExam: input.isThirdExam,
     },
   };

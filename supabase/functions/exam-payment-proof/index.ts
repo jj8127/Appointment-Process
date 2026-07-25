@@ -251,6 +251,7 @@ async function submitApplication(
     locationId,
     examType,
     feePaidDate,
+    includesPrimaryExam,
     isThirdExam,
   } = validated.value;
 
@@ -310,12 +311,17 @@ async function submitApplication(
   }
 
   const { data, error } = await supabase.rpc(
-    'submit_exam_registration_with_payment_proof',
+    body.action === 'submit_v2'
+      ? 'submit_exam_registration_with_payment_proof_v2'
+      : 'submit_exam_registration_with_payment_proof',
     {
       p_fc_id: actor.fcId,
       p_resident_id: actor.residentId,
       p_round_id: roundId,
       p_location_id: locationId,
+      ...(body.action === 'submit_v2'
+        ? { p_includes_primary_exam: includesPrimaryExam }
+        : {}),
       p_is_third_exam: isThirdExam,
       p_fee_paid_date: feePaidDate,
       p_upload_id: uploadId,
@@ -420,43 +426,28 @@ async function cancelApplication(
     return failure(validated.code, validated.message, 400, origin);
   }
 
-  const { data: registration, error: registrationError } = await supabase
-    .from('exam_registrations')
-    .select('id,is_confirmed')
-    .eq('id', validated.value.registrationId)
-    .eq('resident_id', actor.residentId)
-    .maybeSingle();
-  if (registrationError) {
-    return failure('db_error', '시험 신청을 취소하지 못했습니다.', 500, origin);
-  }
-  if (!registration) {
-    return json({ ok: true, data: { cleanupWarning: false } }, 200, origin);
-  }
-  if (registration.is_confirmed) {
-    return failure('confirmed_exam_registration', '접수가 확정된 신청은 취소할 수 없습니다.', 409, origin);
-  }
-
-  const { data: proof, error: proofError } = await supabase
-    .from('exam_payment_proof_uploads')
-    .select('storage_path')
-    .eq('registration_id', registration.id)
-    .eq('status', 'attached')
-    .maybeSingle();
-  if (proofError) {
-    return failure('db_error', '시험 신청을 취소하지 못했습니다.', 500, origin);
-  }
-
-  const { error: deleteError } = await supabase
-    .from('exam_registrations')
-    .delete()
-    .eq('id', registration.id)
-    .eq('resident_id', actor.residentId);
-  if (deleteError) {
-    return failure('db_error', '시험 신청을 취소하지 못했습니다.', 500, origin);
+  const { data, error } = await supabase.rpc('transition_exam_registration', {
+    p_registration_id: validated.value.registrationId,
+    p_action: 'cancel_by_fc',
+    p_actor_type: 'fc',
+    p_actor_admin_id: null,
+    p_actor_fc_id: actor.fcId,
+    p_reason: null,
+  });
+  if (error) {
+    return failure(
+      'cancel_failed',
+      error.message === 'exam_registration_not_found'
+        ? '취소할 시험 신청 내역이 없습니다.'
+        : '현재 상태에서는 시험 신청을 취소할 수 없습니다.',
+      error.message === 'exam_registration_not_found' ? 404 : 409,
+      origin,
+    );
   }
 
   let cleanupWarning = false;
-  const proofPath = String(proof?.storage_path ?? '').trim();
+  const result = Array.isArray(data) ? data[0] : data;
+  const proofPath = String(result?.proof_path ?? '').trim();
   if (proofPath) {
     const { error: removeError } = await supabase.storage
       .from(EXAM_PAYMENT_PROOF_BUCKET)
@@ -507,7 +498,7 @@ serve(async (req: Request) => {
   if (body.action === 'prepare') {
     return prepareUpload(body, actorResult.actor, origin);
   }
-  if (body.action === 'submit') {
+  if (body.action === 'submit' || body.action === 'submit_v2') {
     return submitApplication(body, actorResult.actor, origin);
   }
   if (body.action === 'discard') {

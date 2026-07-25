@@ -160,6 +160,26 @@ test('buildAdminChatConversationSummaries derives latest messages and unread cou
   });
 });
 
+test('attachment-only direct messages produce a useful conversation preview', () => {
+  const summaries = buildAdminChatConversationSummaries({
+    viewerId: 'admin-1',
+    counterpartPhones: ['01011112222'],
+    messages: [
+      {
+        id: 'message-with-files',
+        sender_id: '01011112222',
+        receiver_id: 'admin-1',
+        content: '',
+        attachment_count: 2,
+        created_at: '2026-07-25T10:00:00.000Z',
+        is_read: false,
+      },
+    ],
+  });
+
+  assert.equal(summaries['01011112222']?.last_message, '파일 2개');
+});
+
 test('buildAdminChatTargets sorts by last message time instead of unread count', () => {
   const targets = buildAdminChatTargets(
     [

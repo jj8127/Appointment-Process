@@ -71,3 +71,22 @@ export async function invokeAdminAction<
     invoke: (functionName, options) => supabase.functions.invoke(functionName, options),
   });
 }
+
+export async function invokeAdminActionRaw(
+  actorPhone: string,
+  action: string,
+  payload: Record<string, unknown>,
+): Promise<AdminActionInvokeResult> {
+  const appSessionToken = String(await getStoredAppSessionToken() ?? '').trim();
+  if (!appSessionToken) {
+    throw new MissingAdminActionSessionError();
+  }
+  return supabase.functions.invoke<Record<string, unknown>>('admin-action', {
+    body: {
+      adminPhone: actorPhone,
+      appSessionToken,
+      action,
+      payload,
+    },
+  });
+}

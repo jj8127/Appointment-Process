@@ -38,7 +38,6 @@ export const resolveMobileUnreadBridgePlan = ({
 type BuildMobileUnreadFcNotifyBodyOptions = {
   role: Exclude<MobileUnreadRole, null>;
   residentId?: string | null;
-  sinceIso: string;
   includeLiveRequestBoardUnread: boolean;
   includeRequestBoardFcInbox: boolean;
   includeNoticeUnread: boolean;
@@ -48,7 +47,6 @@ type BuildMobileUnreadFcNotifyBodyOptions = {
 export const buildMobileUnreadFcNotifyBody = ({
   role,
   residentId,
-  sinceIso,
   includeLiveRequestBoardUnread,
   includeRequestBoardFcInbox,
   includeNoticeUnread,
@@ -57,7 +55,6 @@ export const buildMobileUnreadFcNotifyBody = ({
   type: 'inbox_unread_count',
   role,
   resident_id: residentId ?? null,
-  since: sinceIso,
   exclude_request_board_categories: includeLiveRequestBoardUnread,
   include_request_board_fc: includeRequestBoardFcInbox,
   include_notices: includeNoticeUnread,
@@ -89,10 +86,6 @@ type MobileUnreadFcNotifyResult = {
 };
 
 type MobileUnreadOrchestrationDeps = {
-  getNotificationCheckpoint: (
-    scope: MobileUnreadNotificationCountOptions,
-    options: { initializeIfMissing: false },
-  ) => Promise<Date>;
   invokeFcNotify: (
     body: ReturnType<typeof buildMobileUnreadFcNotifyBody>,
   ) => Promise<MobileUnreadFcNotifyResult>;
@@ -109,17 +102,10 @@ export const fetchMobileUnreadNotificationCountWithDeps = async ({
   if (!bridgePlan.shouldFetch || role === null) return 0;
 
   try {
-    const lastCheckDate = await deps.getNotificationCheckpoint({
-      role,
-      residentId,
-      requestBoardRole,
-    }, { initializeIfMissing: false });
-
     const { data, error } = await deps.invokeFcNotify(
       buildMobileUnreadFcNotifyBody({
         role,
         residentId,
-        sinceIso: lastCheckDate.toISOString(),
         includeLiveRequestBoardUnread: bridgePlan.includeLiveRequestBoardUnread,
         includeRequestBoardFcInbox: bridgePlan.includeRequestBoardFcInbox,
         includeNoticeUnread: bridgePlan.includeNoticeUnread,

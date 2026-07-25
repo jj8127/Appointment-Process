@@ -8,10 +8,6 @@ const roundApplicantSource = readFileSync('web/src/app/admin/exams/[id]/page.tsx
 const apiSource = readFileSync('web/src/app/api/admin/exam-applicants/route.ts', 'utf8');
 const cssSource = readFileSync('web/src/app/dashboard/exam/applicants/page.module.css', 'utf8');
 const detailCssSource = readFileSync('web/src/app/dashboard/exam/applicants/[id]/page.module.css', 'utf8');
-const notificationClientSource = readFileSync(
-  'web/src/lib/exam-applicant-notification-client.ts',
-  'utf8',
-);
 
 test('applicant rows expose hover identity and keyboard-accessible detail navigation', () => {
   assert.match(listSource, /<Tooltip\.Floating/);
@@ -63,8 +59,11 @@ test('applicant rows visually distinguish confirmed and pending reception states
 test('detail route loads only the selected registration and provides the reception action', () => {
   assert.match(detailSource, /registrationId=\$\{encodeURIComponent\(registrationId\)\}/);
   assert.match(detailSource, /시험 접수하기/);
-  assert.match(detailSource, /disabled=\{isReadOnly \|\| applicant\.is_confirmed\}/);
-  assert.match(detailSource, /notifyFcExamApprovalStatus\(item, true\)/);
+  assert.match(
+    detailSource,
+    /disabled=\{[\s\S]*isReadOnly[\s\S]*\|\| applicant\.is_confirmed[\s\S]*\|\| applicant\.status !== 'applied'/,
+  );
+  assert.match(detailSource, /action: 'confirm'/);
   assert.match(detailSource, /본부장 계정은 신청 내용을 확인만 할 수 있습니다/);
 });
 
@@ -91,24 +90,23 @@ test('admin API validates the requested registration and keeps history for appli
   assert.match(apiSource, /allBase\.filter\(\(row\) => row\.id === registrationId\)/);
 });
 
-test('exam reception notification confirms persistence and a mobile target after the status commit', () => {
-  assert.match(notificationClientSource, /keepalive: true/);
+test('every web reception decision uses the atomic service transition without duplicate client notifications', () => {
+  assert.match(apiSource, /\.rpc\('transition_exam_registration'/);
+  assert.match(apiSource, /p_action: requestedAction/);
+  assert.match(apiSource, /skip_notification_insert: true/);
+  assert.match(apiSource, /notification_id: notificationId/);
+  assert.match(apiSource, /recipient_actor_id: recipientActorId/);
+  assert.match(apiSource, /result\.notification_id/);
+  assert.doesNotMatch(apiSource, /\.from\('notifications'\)[\s\S]*?order\('created_at'/);
+  assert.match(apiSource, /const pushWarning = await sendExamDecisionPush/);
   assert.match(
-    notificationClientSource,
-    /classifyFcNotificationResult\(response\.status, responseBody\)/,
+    apiSource,
+    /action\?: 'confirm' \| 'unconfirm' \| 'reject' \| 'cancel_by_admin'/,
   );
-  assert.match(notificationClientSource, /reason: result\.reason/);
-  assert.match(notificationClientSource, /sent: result\.sent/);
-  assert.doesNotMatch(notificationClientSource, /data\.error/);
-  assert.doesNotMatch(notificationClientSource, /responseBody,/);
-  assert.doesNotMatch(notificationClientSource, /catch \(error/);
-});
 
-test('every web reception toggle notifies FCs for both approval and approval release', () => {
-  assert.match(listSource, /notifyFcExamApprovalStatus\(item, isConfirmed\)/);
-  assert.doesNotMatch(listSource, /if \(!isConfirmed\) return/);
-  assert.doesNotMatch(listSource, /title: '알림 확인 필요'/);
+  assert.match(listSource, /action: isConfirmed \? 'confirm' : 'unconfirm'/);
+  assert.doesNotMatch(listSource, /notifyFcExamApprovalStatus/);
 
-  assert.match(roundApplicantSource, /notifyFcExamApprovalStatus\(row, nextConfirmed\)/);
-  assert.doesNotMatch(roundApplicantSource, /title: '알림 확인 필요'/);
+  assert.match(roundApplicantSource, /action: nextConfirmed \? 'confirm' : 'unconfirm'/);
+  assert.doesNotMatch(roundApplicantSource, /notifyFcExamApprovalStatus/);
 });

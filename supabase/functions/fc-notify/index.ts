@@ -26,6 +26,33 @@ import {
   requireAppSessionFromRequest,
   type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
+import {
+  parseNotificationTargetV1,
+  type NotificationTargetV1,
+} from '../_shared/notification-target.ts';
+import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
+import {
+  drainMessengerAttachmentCleanup,
+  finalizeMessengerAttachmentBatch,
+  listMessengerAttachmentsByBatchIds,
+  mapMessengerAttachmentRpcError,
+  MessengerAttachmentServiceError,
+  type MessengerAttachmentMetadata,
+} from '../_shared/messenger-attachment-service.ts';
+import {
+  authorizeNotificationReceipt,
+  authorizeNotificationReceiptSet,
+  classifyNotificationReceiptState,
+  type NotificationOwnershipRow,
+  type NotificationReceiptViewer,
+} from '../_shared/notification-receipt-policy.ts';
+import {
+  buildDirectMessageIdentity,
+  canAccessDirectConversation,
+  canDeleteDirectMessage,
+  isCurrentDirectMessageVisible,
+  isLegacyDirectMessageVisible,
+} from '../_shared/direct-message-policy.ts';
 
 type Payload =
   | { type: 'fc_update'; fc_id: string; message?: string }
@@ -55,6 +82,17 @@ type Payload =
       limit?: number;
       include_request_board_fc?: boolean;
       only_request_board_categories?: boolean;
+      viewer_actor_id?: string;
+      viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
+    }
+  | {
+      type: 'inbox_get';
+      role: 'admin' | 'fc';
+      resident_id?: string | null;
+      notification_id: string;
+      include_request_board_fc?: boolean;
+      viewer_actor_id?: string;
+      viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
     }
   | {
       type: 'inbox_unread_count';
@@ -65,14 +103,66 @@ type Payload =
       exclude_request_board_categories?: boolean;
       include_notices?: boolean;
       only_request_board_categories?: boolean;
+      viewer_actor_id?: string;
+      viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
     }
   | {
-      type: 'inbox_delete';
+      type: 'inbox_mark_read' | 'inbox_dismiss' | 'inbox_delete';
       role: 'admin' | 'fc';
       resident_id?: string | null;
       notification_ids?: string[];
       notice_ids?: string[];
       include_request_board_fc?: boolean;
+      viewer_actor_id?: string;
+      viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
+    }
+  | {
+      type: 'resolve_garamin_direct_conversation';
+      conversation_id?: string | null;
+      target_id?: string | null;
+      viewer_actor_id?: string;
+      viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
+    }
+  | {
+      type: 'direct_message_list' | 'direct_message_mark_read';
+      conversation_id: string;
+      viewer_actor_id?: string;
+      viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
+    }
+  | {
+      type: 'direct_message_send';
+      conversation_id: string;
+      content: string;
+      client_message_id?: string;
+      attachment_intent_ids?: string[];
+      delivery_key?: string;
+      payload_fingerprint?: string;
+      viewer_actor_id?: string;
+      viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
+    }
+  | {
+      type: 'direct_message_broadcast_send';
+      conversation_ids: string[];
+      client_message_ids: string[];
+      content: string;
+      attachment_intent_ids: string[];
+      delivery_key: string;
+      payload_fingerprint: string;
+      viewer_actor_id?: string;
+      viewer_actor_role?: 'admin' | 'developer';
+    }
+  | {
+      type: 'direct_message_delete';
+      conversation_id: string;
+      message_id: string;
+      viewer_actor_id?: string;
+      viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
+    }
+  | {
+      type: 'notice_get';
+      notice_id: string;
+      viewer_actor_id?: string;
+      viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
     }
   | { type: 'latest_notice' }
   | {
@@ -87,6 +177,9 @@ type Payload =
       sender_id?: string;
       sender_name?: string;
       skip_notification_insert?: boolean;
+      target?: NotificationTargetV1;
+      notification_id?: string;
+      recipient_actor_id?: string | null;
     }
   | {
       type: 'message';
@@ -101,6 +194,9 @@ type Payload =
       url?: string;
       fc_id?: string | null;
       skip_notification_insert?: boolean;
+      target?: NotificationTargetV1;
+      notification_id?: string;
+      recipient_actor_id?: string | null;
     };
 
 type TokenRow = {
@@ -128,6 +224,8 @@ type NotificationInsert = {
   resident_id: string | null;
   fc_id?: string | null;
   target_url?: string | null;
+  target: NotificationTargetV1;
+  recipient_actor_id?: string | null;
 };
 type NoticeRow = {
   id: string;
@@ -137,6 +235,7 @@ type NoticeRow = {
   created_at: string;
   images?: string[] | null;
   files?: NoticeFile[] | null;
+  target?: NotificationTargetV1 | null;
 };
 type BoardNoticeCategoryRow = {
   id: string;
@@ -168,6 +267,11 @@ type InternalChatMessageRow = {
   created_at: string | null;
   is_read: boolean | null;
 };
+type InternalChatMessageAttachmentRow = InternalChatMessageRow & {
+  file_name?: string | null;
+  attachment_batch_id?: string | null;
+  deleted_at?: string | null;
+};
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_CHUNK_SIZE = 100;
@@ -177,6 +281,8 @@ const BOARD_HOME_CATEGORY_SLUGS = ['notice', 'garam-pick'] as const;
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 const BOARD_ATTACHMENT_SIGN_EXPIRES_SECONDS = 60 * 60 * 6;
 const ADMIN_CHAT_ID = 'admin';
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AFFILIATION_OPTIONS = [
   '1본부 서선미',
   '2본부 박성훈',
@@ -277,8 +383,98 @@ if (!serviceKey) {
   throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
 }
 
+function getReceiptViewer(body: {
+  viewer_actor_id?: string;
+  viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
+}) {
+  const actorId = String(body.viewer_actor_id ?? '').trim();
+  const role = body.viewer_actor_role;
+  return UUID_PATTERN.test(actorId) && role
+    ? { actorId, role }
+    : null;
+}
+
+async function fetchReceiptMap(
+  notificationIds: string[],
+  viewer: { actorId: string; role: 'fc' | 'manager' | 'admin' | 'developer' },
+) {
+  if (notificationIds.length === 0) return new Map<string, { read_at: string | null; dismissed_at: string | null }>();
+  const { data, error } = await supabase
+    .from('notification_receipts')
+    .select('notification_id,read_at,dismissed_at')
+    .eq('viewer_actor_id', viewer.actorId)
+    .eq('viewer_role', viewer.role)
+    .in('notification_id', notificationIds);
+  if (error) throw error;
+  return new Map(
+    (data ?? []).map((row) => [
+      String(row.notification_id),
+      {
+        read_at: typeof row.read_at === 'string' ? row.read_at : null,
+        dismissed_at: typeof row.dismissed_at === 'string' ? row.dismissed_at : null,
+      },
+    ]),
+  );
+}
+
 const requiredServiceKey = serviceKey;
 const supabase = createClient(supabaseUrl, requiredServiceKey);
+
+async function buildInternalChatSummaryRows(
+  rows: InternalChatMessageAttachmentRow[],
+): Promise<InternalChatMessageRow[]> {
+  const visibleRows = rows.filter((row) => !row.deleted_at);
+  const attachmentsByBatch = await listMessengerAttachmentsByBatchIds({
+    supabase,
+    batchIds: visibleRows.map((row) => row.attachment_batch_id),
+  });
+  return visibleRows.map((row) => {
+    const batchAttachments = row.attachment_batch_id
+      ? attachmentsByBatch.get(row.attachment_batch_id) ?? []
+      : [];
+    const preview = String(row.content ?? '').trim()
+      || String(row.file_name ?? '').trim()
+      || (
+        batchAttachments.length === 1
+          ? batchAttachments[0].name
+          : batchAttachments.length > 1
+            ? `첨부파일 ${batchAttachments.length}개`
+            : ''
+      );
+    return { ...row, content: preview };
+  });
+}
+
+function buildNotificationReceiptViewer(input: {
+  viewer: { actorId: string; role: 'fc' | 'manager' | 'admin' | 'developer' };
+  inboxRole: 'admin' | 'fc';
+  residentId: string;
+  includeRequestBoardFc?: boolean;
+}): NotificationReceiptViewer {
+  return {
+    actorId: input.viewer.actorId,
+    inboxRole: input.inboxRole,
+    residentId: input.residentId || null,
+    includeRequestBoardFc:
+      input.inboxRole === 'admin'
+      && Boolean(input.residentId)
+      && input.includeRequestBoardFc === true,
+  };
+}
+
+function toNotificationOwnershipRow(
+  row: Record<string, unknown>,
+): NotificationOwnershipRow {
+  return {
+    id: String(row.id ?? ''),
+    recipient_actor_id:
+      typeof row.recipient_actor_id === 'string' ? row.recipient_actor_id : null,
+    recipient_role:
+      typeof row.recipient_role === 'string' ? row.recipient_role : null,
+    resident_id: typeof row.resident_id === 'string' ? row.resident_id : null,
+    category: typeof row.category === 'string' ? row.category : null,
+  };
+}
 
 function getAdminPushEndpoint(rawUrl: string): string | null {
   const trimmed = rawUrl.trim();
@@ -304,6 +500,24 @@ type AdminWebPushResult = {
   failed: number;
   noTarget: boolean;
   reason?: string;
+};
+type DirectMessageRow = {
+  id: string;
+  conversation_id: string | null;
+  sender_id: string;
+  receiver_id: string;
+  sender_actor_id: string | null;
+  receiver_actor_id: string | null;
+  content: string;
+  created_at: string;
+  is_read: boolean;
+  message_type: string | null;
+  file_url: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  attachment_batch_id: string | null;
+  deleted_at: string | null;
+  deleted_by_actor_id: string | null;
 };
 
 const NOTIFICATION_DELIVERY_INCOMPLETE_WARNING = 'notification_delivery_incomplete';
@@ -340,7 +554,14 @@ function buildPushTitleWithSource(title: string, source: NotificationSource): st
  * Delivery is best-effort, but the callback result is classified and exposed so
  * the caller can distinguish a saved notification from partial delivery.
  */
-async function notifyAdminWebPush(title: string, body: string, url: string, targetId?: string | null) {
+async function notifyAdminWebPush(
+  title: string,
+  body: string,
+  url: string,
+  targetId: string | null,
+  notificationId: string,
+  target: NotificationTargetV1,
+) {
   const adminWebUrl = getEnv('ADMIN_WEB_URL');
   const pushSecret = getEnv('ADMIN_PUSH_SECRET');
 
@@ -380,7 +601,14 @@ async function notifyAdminWebPush(title: string, body: string, url: string, targ
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ title, body, url, targetId: targetId ?? null }),
+      body: JSON.stringify({
+        title,
+        body,
+        url,
+        targetId: targetId ?? null,
+        notificationId,
+        target,
+      }),
       signal: AbortSignal.timeout(ADMIN_WEB_PUSH_TIMEOUT_MS),
     });
 
@@ -490,9 +718,52 @@ async function notifyAdminWebPush(title: string, body: string, url: string, targ
 }
 
 function getNotificationDeliveryWarning(adminWebPush: AdminWebPushResult | null): string | null {
-  return adminWebPush?.ok === false
-    ? NOTIFICATION_DELIVERY_INCOMPLETE_WARNING
-    : null;
+  // Provider delivery is operational metadata only. Once the canonical inbox
+  // row exists, sender-facing UI must report success regardless of device state.
+  void adminWebPush;
+  return null;
+}
+
+function resolvePushStatus(input: {
+  expoAttempted: number;
+  expoAccepted: number;
+  expoRejected: number;
+  adminWebPush: AdminWebPushResult | null;
+}): 'delivered' | 'queued' | 'no_registered_device' | 'provider_failed' {
+  if (input.adminWebPush?.ok === true && input.adminWebPush.sent > 0) return 'delivered';
+  if (
+    input.expoAttempted > 0
+    && input.expoAccepted === input.expoAttempted
+    && input.expoRejected === 0
+  ) {
+    return 'queued';
+  }
+  if (input.expoAttempted === 0 && (!input.adminWebPush || input.adminWebPush.noTarget)) {
+    return 'no_registered_device';
+  }
+  return 'provider_failed';
+}
+
+function buildDeliveryMetadata(input: {
+  notificationStored: boolean;
+  pushStatus: 'accepted' | 'no_registered_device' | 'provider_rejected' | 'not_attempted';
+  retryable: boolean;
+  notificationId?: string;
+  notificationIds?: string[];
+  attempted?: number;
+  accepted?: number;
+  rejected?: number;
+}) {
+  return {
+    notificationStored: input.notificationStored,
+    pushStatus: input.pushStatus,
+    retryable: input.retryable,
+    ...(input.notificationId ? { notificationId: input.notificationId } : {}),
+    ...(input.notificationIds ? { notificationIds: input.notificationIds } : {}),
+    attempted: input.attempted ?? 0,
+    accepted: input.accepted ?? 0,
+    rejected: input.rejected ?? 0,
+  };
 }
 
 async function fetchNoticesWithOptionalAttachments(limit = 20): Promise<NoticeRow[]> {
@@ -503,7 +774,12 @@ async function fetchNoticesWithOptionalAttachments(limit = 20): Promise<NoticeRo
     .limit(limit);
 
   if (!withAttachments.error) {
-    return (withAttachments.data ?? []) as NoticeRow[];
+    return ((withAttachments.data ?? []) as NoticeRow[]).map((row) => ({
+      ...row,
+      target: UUID_PATTERN.test(row.id)
+        ? { version: 1, kind: 'notice', noticeId: row.id }
+        : null,
+    }));
   }
 
   // Backward compatibility: some environments may not have images/files columns yet.
@@ -519,7 +795,50 @@ async function fetchNoticesWithOptionalAttachments(limit = 20): Promise<NoticeRo
       ...row,
       images: null,
       files: null,
+      target: UUID_PATTERN.test(row.id)
+        ? { version: 1, kind: 'notice', noticeId: row.id }
+        : null,
     }));
+  }
+
+  throw withAttachments.error;
+}
+
+async function fetchNoticeByIdWithOptionalAttachments(
+  noticeId: string,
+): Promise<NoticeRow | null> {
+  const withAttachments = await supabase
+    .from('notices')
+    .select('id,title,body,category,created_at,images,files')
+    .eq('id', noticeId)
+    .maybeSingle();
+
+  if (!withAttachments.error) {
+    const row = withAttachments.data as NoticeRow | null;
+    return row
+      ? {
+          ...row,
+          target: { version: 1, kind: 'notice', noticeId: row.id },
+        }
+      : null;
+  }
+
+  if (withAttachments.error.code === '42703') {
+    const basic = await supabase
+      .from('notices')
+      .select('id,title,body,category,created_at')
+      .eq('id', noticeId)
+      .maybeSingle();
+    if (basic.error) throw basic.error;
+    const row = basic.data as NoticeRow | null;
+    return row
+      ? {
+          ...row,
+          images: null,
+          files: null,
+          target: { version: 1, kind: 'notice', noticeId: row.id },
+        }
+      : null;
   }
 
   throw withAttachments.error;
@@ -635,6 +954,7 @@ async function fetchBoardNoticesWithAttachments(limit = 20): Promise<NoticeRow[]
         created_at: row.created_at,
         images: null,
         files: null,
+        target: { version: 1, kind: 'board_post', postId: row.id },
       }));
     }
     throw attachmentError;
@@ -682,6 +1002,7 @@ async function fetchBoardNoticesWithAttachments(limit = 20): Promise<NoticeRow[]
     created_at: row.created_at,
     images: imageMap.get(row.id) ?? null,
     files: fileMap.get(row.id) ?? null,
+    target: { version: 1, kind: 'board_post', postId: row.id },
   }));
 }
 
@@ -797,6 +1118,20 @@ async function fetchSharedAdminPhones(): Promise<string[]> {
   );
 }
 
+function getLifecycleNotificationTarget(fcId: string, targetUrl: string): NotificationTargetV1 {
+  const sectionByPath: Record<string, 'home' | 'consent' | 'docs_upload' | 'hanwha_commission' | 'appointment'> = {
+    '/consent': 'consent',
+    '/docs-upload': 'docs_upload',
+    '/hanwha-commission': 'hanwha_commission',
+    '/appointment': 'appointment',
+  };
+  const section = sectionByPath[targetUrl]
+    ?? (targetUrl === `/docs-upload?userId=${fcId}` ? 'docs_upload' : null);
+  return section
+    ? { version: 1, kind: 'onboarding_section', fcId, section }
+    : { version: 1, kind: 'fc_profile', fcId };
+}
+
 type ActiveStaffTargetValidation = 'allowed' | 'denied' | 'failed';
 
 async function validateActiveStaffNotificationTarget(
@@ -834,6 +1169,45 @@ async function validateActiveStaffNotificationTarget(
   ].some((account) => sanitize(account.phone) === targetId);
 
   return isAllowed ? 'allowed' : 'denied';
+}
+
+async function resolveNotificationRecipientActorId(
+  targetRole: 'admin' | 'fc',
+  targetId: string | null,
+): Promise<string | null> {
+  if (!targetId) return null;
+  if (targetRole === 'fc') {
+    const { data, error } = await supabase
+      .from('fc_profiles')
+      .select('id')
+      .eq('phone', targetId)
+      .eq('signup_completed', true)
+      .maybeSingle();
+    if (error) throw error;
+    return typeof data?.id === 'string' ? data.id : null;
+  }
+
+  const [adminResult, managerResult] = await Promise.all([
+    supabase
+      .from('admin_accounts')
+      .select('id')
+      .eq('phone', targetId)
+      .eq('active', true),
+    supabase
+      .from('manager_accounts')
+      .select('id')
+      .eq('phone', targetId)
+      .eq('active', true),
+  ]);
+  if (adminResult.error) throw adminResult.error;
+  if (managerResult.error) throw managerResult.error;
+  const candidates = [
+    ...(adminResult.data ?? []),
+    ...(managerResult.data ?? []),
+  ]
+    .map((row) => String(row.id ?? '').trim())
+    .filter((id) => UUID_PATTERN.test(id));
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 async function resolveFcUpdateAdminRecipientIds(fcAffiliation?: string | null): Promise<string[]> {
@@ -897,23 +1271,73 @@ function err(message: string, status = 400) {
   return new Response(message, { status, headers: corsHeaders });
 }
 
+function messengerAttachmentErrorResponse(error: unknown): Response {
+  const mapped = error instanceof MessengerAttachmentServiceError
+    ? error
+    : mapMessengerAttachmentRpcError(error);
+  return ok({
+    ok: false,
+    code: mapped.code,
+    message: 'Attachment processing failed',
+  }, mapped.status);
+}
+
 async function insertNotificationWithFallback(payload: NotificationInsert) {
   const sanitizedPayload = sanitizeNotificationInsert(payload);
-  const withTarget = {
-    ...sanitizedPayload,
-    target_url: sanitizedPayload.target_url ?? null,
-  };
+  const { data, error } = await supabase
+    .from('notifications')
+    .insert({
+      ...sanitizedPayload,
+      target_url: sanitizedPayload.target_url ?? null,
+    })
+    .select('id,target,recipient_role,recipient_actor_id,resident_id')
+    .single();
+  if (error) {
+    return {
+      error,
+      id: null,
+      failureReason: 'notification_insert_failed' as const,
+    };
+  }
+  const validation = validatePersistedNotificationForDelivery(data, {
+    target: sanitizedPayload.target,
+    recipientRole: sanitizedPayload.recipient_role === 'admin' ? 'admin' : 'fc',
+    recipientActorId: sanitizedPayload.recipient_actor_id ?? null,
+    residentId: sanitizedPayload.resident_id,
+  });
+  return validation.ok === true
+    ? { error: null, id: validation.notificationId, failureReason: null }
+    : { error: null, id: null, failureReason: validation.reason };
+}
 
-  const firstTry = await supabase.from('notifications').insert(withTarget);
-  if (!firstTry.error) return null;
-
-  const missingTargetColumn =
-    firstTry.error.code === '42703' || String(firstTry.error.message ?? '').includes('target_url');
-  if (!missingTargetColumn) return firstTry.error;
-
-  const { target_url: _ignored, ...fallbackPayload } = withTarget;
-  const secondTry = await supabase.from('notifications').insert(fallbackPayload);
-  return secondTry.error ?? null;
+async function verifyExistingNotificationForDelivery(input: {
+  notificationId: string;
+  target: NotificationTargetV1;
+  recipientRole: 'admin' | 'fc';
+  recipientActorId: string | null;
+  residentId: string | null;
+}) {
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('id,target,recipient_role,recipient_actor_id,resident_id')
+    .eq('id', input.notificationId)
+    .maybeSingle();
+  if (error) {
+    return {
+      error,
+      id: null,
+      failureReason: 'notification_lookup_failed' as const,
+    };
+  }
+  const validation = validatePersistedNotificationForDelivery(data, {
+    target: input.target,
+    recipientRole: input.recipientRole,
+    recipientActorId: input.recipientActorId,
+    residentId: input.residentId,
+  });
+  return validation.ok === true
+    ? { error: null, id: validation.notificationId, failureReason: null }
+    : { error: null, id: null, failureReason: validation.reason };
 }
 
 async function fetchInternalFcProfiles() {
@@ -946,7 +1370,7 @@ async function resolveFcNotifyAppActor(
   if (session.role === 'admin') {
     const { data, error } = await supabase
       .from('admin_accounts')
-      .select('name,phone,active,staff_type')
+      .select('id,name,phone,active,staff_type')
       .eq('phone', phone)
       .eq('active', true)
       .maybeSingle();
@@ -957,6 +1381,7 @@ async function resolveFcNotifyAppActor(
     return {
       ok: true,
       actor: {
+        actorId: data.id,
         sessionRole: 'admin',
         phone,
         displayName: typeof data.name === 'string' ? data.name.trim() || null : null,
@@ -970,7 +1395,7 @@ async function resolveFcNotifyAppActor(
   if (session.role === 'manager') {
     const { data, error } = await supabase
       .from('manager_accounts')
-      .select('name,phone,active')
+      .select('id,name,phone,active')
       .eq('phone', phone)
       .eq('active', true)
       .maybeSingle();
@@ -981,6 +1406,7 @@ async function resolveFcNotifyAppActor(
     return {
       ok: true,
       actor: {
+        actorId: data.id,
         sessionRole: 'manager',
         phone,
         displayName: typeof data.name === 'string' ? data.name.trim() || null : null,
@@ -1008,7 +1434,8 @@ async function resolveFcNotifyAppActor(
 
   return {
     ok: true,
-    actor: {
+      actor: {
+      actorId: data.id,
       sessionRole: 'fc',
       phone,
       displayName: typeof data.name === 'string' ? data.name.trim() || null : null,
@@ -1016,6 +1443,186 @@ async function resolveFcNotifyAppActor(
       fcId: data.id,
       isRequestBoardDesigner: Boolean(parseDesignerCompanyNameFromAffiliation(data.affiliation)),
     },
+  };
+}
+
+const VIEWER_BOUND_ACTIONS = new Set([
+  'inbox_list',
+  'inbox_get',
+  'inbox_unread_count',
+  'inbox_mark_read',
+  'inbox_dismiss',
+  'inbox_delete',
+  'notice_get',
+  'resolve_garamin_direct_conversation',
+  'direct_message_list',
+  'direct_message_send',
+  'direct_message_broadcast_send',
+  'direct_message_mark_read',
+  'direct_message_delete',
+  'message',
+]);
+
+async function resolveTrustedServiceViewer(
+  body: Record<string, unknown>,
+): Promise<FcNotifyActorResolution> {
+  const phone = sanitize(String(body.viewer_actor_phone ?? ''));
+  const requestedRole = String(body.viewer_actor_role ?? '');
+  if (phone.length !== 11 || !['admin', 'manager', 'fc'].includes(requestedRole)) {
+    return { ok: false, status: 401, message: 'Verified notification viewer is required' };
+  }
+
+  if (requestedRole === 'admin') {
+    const { data, error } = await supabase
+      .from('admin_accounts')
+      .select('id,name,phone,active,staff_type')
+      .eq('phone', phone)
+      .eq('active', true)
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, message: error.message };
+    if (!data?.id || sanitize(data.phone) !== phone) {
+      return { ok: false, status: 403, message: 'Active admin viewer not found' };
+    }
+    return {
+      ok: true,
+      actor: {
+        actorId: data.id,
+        sessionRole: 'admin',
+        phone,
+        displayName: typeof data.name === 'string' ? data.name.trim() || null : null,
+        staffType: data.staff_type === 'developer' ? 'developer' : 'admin',
+        fcId: null,
+        isRequestBoardDesigner: false,
+      },
+    };
+  }
+
+  if (requestedRole === 'manager') {
+    const { data, error } = await supabase
+      .from('manager_accounts')
+      .select('id,name,phone,active')
+      .eq('phone', phone)
+      .eq('active', true)
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, message: error.message };
+    if (!data?.id || sanitize(data.phone) !== phone) {
+      return { ok: false, status: 403, message: 'Active manager viewer not found' };
+    }
+    return {
+      ok: true,
+      actor: {
+        actorId: data.id,
+        sessionRole: 'manager',
+        phone,
+        displayName: typeof data.name === 'string' ? data.name.trim() || null : null,
+        staffType: null,
+        fcId: null,
+        isRequestBoardDesigner: false,
+      },
+    };
+  }
+
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('id,name,phone,affiliation,signup_completed')
+    .eq('phone', phone)
+    .eq('signup_completed', true)
+    .maybeSingle();
+  if (error) return { ok: false, status: 500, message: error.message };
+  if (!data?.id || sanitize(data.phone) !== phone) {
+    return { ok: false, status: 403, message: 'Completed FC viewer not found' };
+  }
+  return {
+    ok: true,
+    actor: {
+      actorId: data.id,
+      sessionRole: 'fc',
+      phone,
+      displayName: typeof data.name === 'string' ? data.name.trim() || null : null,
+      staffType: null,
+      fcId: data.id,
+      isRequestBoardDesigner: Boolean(parseDesignerCompanyNameFromAffiliation(data.affiliation)),
+    },
+  };
+}
+
+type DirectConversationResolution =
+  | {
+      ok: true;
+      id: string;
+      fcId: string;
+      fcPhone: string;
+      fcName: string | null;
+    }
+  | { ok: false; status: 400 | 403 | 404 | 500; message: string };
+
+async function resolveGaraminDirectConversation(input: {
+  actor: FcNotifyAppActor;
+  conversationId?: string | null;
+  targetId?: string | null;
+}): Promise<DirectConversationResolution> {
+  let fcId: string | null = null;
+  if (input.conversationId) {
+    const { data: conversation, error } = await supabase
+      .from('garamin_direct_conversations')
+      .select('id,fc_id')
+      .eq('id', input.conversationId)
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, message: 'Direct conversation lookup failed' };
+    if (!conversation?.id || !conversation.fc_id) {
+      return { ok: false, status: 404, message: 'Direct conversation not found' };
+    }
+    if (input.actor.sessionRole === 'fc' && input.actor.fcId !== conversation.fc_id) {
+      return { ok: false, status: 404, message: 'Direct conversation not found' };
+    }
+    fcId = conversation.fc_id;
+  } else if (input.actor.sessionRole === 'fc') {
+    fcId = input.actor.fcId;
+  } else {
+    const targetPhone = sanitize(input.targetId);
+    if (targetPhone.length !== 11) {
+      return { ok: false, status: 400, message: 'Direct conversation target is invalid' };
+    }
+    const { data: target, error } = await supabase
+      .from('fc_profiles')
+      .select('id')
+      .eq('phone', targetPhone)
+      .eq('signup_completed', true)
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, message: 'Direct conversation target lookup failed' };
+    if (!target?.id) return { ok: false, status: 404, message: 'Direct conversation target not found' };
+    fcId = target.id;
+  }
+
+  if (!fcId) return { ok: false, status: 403, message: 'Direct conversation is not allowed' };
+
+  const { data: profile, error: profileError } = await supabase
+    .from('fc_profiles')
+    .select('id,phone,name,signup_completed')
+    .eq('id', fcId)
+    .eq('signup_completed', true)
+    .maybeSingle();
+  if (profileError) return { ok: false, status: 500, message: 'Direct conversation target lookup failed' };
+  const fcPhone = sanitize(profile?.phone);
+  if (!profile?.id || fcPhone.length !== 11) {
+    return { ok: false, status: 404, message: 'Direct conversation target not found' };
+  }
+
+  const { data: conversation, error: conversationError } = await supabase
+    .from('garamin_direct_conversations')
+    .upsert({ fc_id: fcId }, { onConflict: 'fc_id' })
+    .select('id,fc_id')
+    .single();
+  if (conversationError || !conversation?.id) {
+    return { ok: false, status: 500, message: 'Direct conversation resolution failed' };
+  }
+
+  return {
+    ok: true,
+    id: conversation.id,
+    fcId,
+    fcPhone,
+    fcName: typeof profile.name === 'string' ? profile.name.trim() || null : null,
   };
 }
 
@@ -1047,8 +1654,25 @@ serve(async (req: Request) => {
     body = { type: 'latest_notice' };
     authMode = 'public';
   } else if (isTrustedFcNotifyServiceKey(req.headers.get('apikey'), serviceKey)) {
-    body = rawBody as unknown as Payload;
     authMode = 'service';
+    if (VIEWER_BOUND_ACTIONS.has(String(rawBody.type ?? ''))) {
+      const actorResult = await resolveTrustedServiceViewer(rawBody);
+      if (actorResult.ok === false) {
+        return err(actorResult.message, actorResult.status);
+      }
+      appActor = actorResult.actor;
+      if (rawBody.type === 'message') {
+        body = rawBody as unknown as Payload;
+      } else {
+        const policyResult = buildAppFcNotifyPayload(rawBody, actorResult.actor);
+        if (policyResult.ok === false) {
+          return err(policyResult.error, policyResult.status);
+        }
+        body = policyResult.payload as unknown as Payload;
+      }
+    } else {
+      body = rawBody as unknown as Payload;
+    }
   } else {
     const sessionResult = await requireAppSessionFromRequest(req);
     if (sessionResult.ok === false) {
@@ -1065,6 +1689,811 @@ serve(async (req: Request) => {
     appActor = actorResult.actor;
     body = policyResult.payload as unknown as Payload;
     authMode = 'app';
+  }
+
+  if (body.type === 'resolve_garamin_direct_conversation') {
+    if (!appActor) return err('Verified notification viewer is required', 401);
+    const resolution = await resolveGaraminDirectConversation({
+      actor: appActor,
+      conversationId: body.conversation_id,
+      targetId: body.target_id,
+    });
+    if (resolution.ok === false) return err(resolution.message, resolution.status);
+    return ok({
+      ok: true,
+      conversation: {
+        id: resolution.id,
+        counterparty_id: appActor.sessionRole === 'fc' ? 'admin' : resolution.fcPhone,
+        counterparty_name: appActor.sessionRole === 'fc' ? null : resolution.fcName,
+      },
+    });
+  }
+
+  if (body.type === 'direct_message_broadcast_send') {
+    if (
+      !appActor
+      || appActor.sessionRole !== 'admin'
+      || !['admin', 'developer'].includes(String(appActor.staffType ?? 'admin'))
+    ) {
+      return err('Direct broadcast messaging is not allowed', 403);
+    }
+    const resolutions = await Promise.all(
+      body.conversation_ids.map((conversationId) =>
+        resolveGaraminDirectConversation({
+          actor: appActor!,
+          conversationId,
+        })
+      ),
+    );
+    const failedResolution = resolutions.find((resolution) => resolution.ok === false);
+    if (failedResolution?.ok === false) {
+      return err(failedResolution.message, failedResolution.status);
+    }
+    const directResolutions = resolutions.filter(
+      (resolution): resolution is Extract<DirectConversationResolution, { ok: true }> =>
+        resolution.ok,
+    );
+    if (directResolutions.length !== body.conversation_ids.length) {
+      return err('Direct conversation lookup failed', 500);
+    }
+
+    let finalized: Awaited<ReturnType<typeof finalizeMessengerAttachmentBatch>>;
+    try {
+      finalized = await finalizeMessengerAttachmentBatch({
+        supabase,
+        actor: { id: appActor.actorId, role: 'admin' },
+        deliveryKey: body.delivery_key,
+        payloadFingerprint: body.payload_fingerprint,
+        intentIds: body.attachment_intent_ids,
+      });
+    } catch (error) {
+      return messengerAttachmentErrorResponse(error);
+    }
+    const commit = await supabase.rpc(
+      'commit_garamin_direct_broadcast_with_attachments_v2',
+      {
+        p_message_ids: body.client_message_ids,
+        p_conversation_ids: body.conversation_ids,
+        p_sender_actor_id: appActor.actorId,
+        p_content: body.content,
+        p_delivery_key: body.delivery_key,
+        p_payload_fingerprint: body.payload_fingerprint,
+        p_attachment_intent_ids: body.attachment_intent_ids,
+      },
+    );
+    if (commit.error || !commit.data || typeof commit.data !== 'object') {
+      return messengerAttachmentErrorResponse(commit.error);
+    }
+    const atomic = commit.data as Record<string, unknown>;
+    const resolutionByPhone = new Map(
+      directResolutions.map((resolution) => [resolution.fcPhone, resolution]),
+    );
+    const rawNotifications = Array.isArray(atomic.notifications)
+      ? atomic.notifications
+      : [];
+    const persistedNotifications: Array<{
+      notificationId: string;
+      residentId: string;
+      recipientActorId: string;
+      target: Extract<NotificationTargetV1, { kind: 'garamin_direct_chat' }>;
+    }> = [];
+    for (const rawRow of rawNotifications) {
+      if (!rawRow || typeof rawRow !== 'object' || Array.isArray(rawRow)) continue;
+      const row = rawRow as Record<string, unknown>;
+      const residentId = typeof row.resident_id === 'string' ? row.resident_id.trim() : '';
+      const resolution = resolutionByPhone.get(residentId);
+      if (!resolution) continue;
+      const target: NotificationTargetV1 = {
+        version: 1,
+        kind: 'garamin_direct_chat',
+        conversationId: resolution.id,
+      };
+      const validation = validatePersistedNotificationForDelivery(row, {
+        target,
+        recipientRole: 'fc',
+        recipientActorId: resolution.fcId,
+        residentId,
+      });
+      if (!validation.ok) continue;
+      persistedNotifications.push({
+        notificationId: validation.notificationId,
+        residentId,
+        recipientActorId: resolution.fcId,
+        target,
+      });
+    }
+    if (
+      persistedNotifications.length !== directResolutions.length
+      || persistedNotifications.length !== rawNotifications.length
+    ) {
+      return ok({
+        ok: false,
+        message: 'Direct message notification persistence failed',
+        delivery: buildDeliveryMetadata({
+          notificationStored: false,
+          pushStatus: 'not_attempted',
+          retryable: true,
+        }),
+      }, 500);
+    }
+
+    const messageColumns =
+      'id,conversation_id,sender_id,receiver_id,sender_actor_id,receiver_actor_id,content,created_at,'
+      + 'is_read,message_type,file_url,file_name,file_size,attachment_batch_id,deleted_at,deleted_by_actor_id';
+    const messageResult = await supabase
+      .from('messages')
+      .select(messageColumns)
+      .in('id', body.client_message_ids)
+      .is('deleted_at', null);
+    if (messageResult.error || (messageResult.data?.length ?? 0) !== body.client_message_ids.length) {
+      return ok({
+        ok: false,
+        message: 'Direct message lookup failed',
+        delivery: buildDeliveryMetadata({
+          notificationStored: true,
+          pushStatus: 'not_attempted',
+          retryable: true,
+          notificationIds: persistedNotifications.map((row) => row.notificationId),
+        }),
+      }, 500);
+    }
+    let attachments: MessengerAttachmentMetadata[];
+    try {
+      const attachmentMap = await listMessengerAttachmentsByBatchIds({
+        supabase,
+        batchIds: [finalized.batchId],
+      });
+      attachments = attachmentMap.get(finalized.batchId) ?? [];
+    } catch (error) {
+      return messengerAttachmentErrorResponse(error);
+    }
+    const resolutionById = new Map(
+      directResolutions.map((resolution) => [resolution.id, resolution]),
+    );
+    const normalizedMessages = ((messageResult.data ?? []) as unknown as DirectMessageRow[])
+      .sort((left, right) =>
+        body.client_message_ids.indexOf(left.id) - body.client_message_ids.indexOf(right.id)
+      )
+      .map((row) => ({
+        id: row.id,
+        conversation_id: row.conversation_id,
+        sender_id: row.sender_id,
+        receiver_id: row.receiver_id,
+        content: row.content,
+        created_at: row.created_at,
+        is_read: row.is_read === true,
+        message_type: row.message_type ?? 'text',
+        file_url: row.file_url,
+        file_name: row.file_name,
+        file_size: row.file_size,
+        attachments,
+        counterparty_name: row.conversation_id
+          ? resolutionById.get(row.conversation_id)?.fcName ?? null
+          : null,
+      }));
+    const replayed = finalized.replayed || atomic.replayed === true;
+    const notificationIds = persistedNotifications.map((row) => row.notificationId);
+    if (replayed) {
+      return ok({
+        ok: true,
+        messages: normalizedMessages,
+        attachmentCommit: { batchId: finalized.batchId, replayed: true },
+        delivery: buildDeliveryMetadata({
+          notificationStored: true,
+          pushStatus: 'not_attempted',
+          retryable: false,
+          notificationIds,
+        }),
+      });
+    }
+
+    const recipientPhones = persistedNotifications.map((row) => row.residentId);
+    const tokenResult = await supabase
+      .from('device_tokens')
+      .select('expo_push_token,resident_id,display_name,role')
+      .in('resident_id', recipientPhones);
+    const notificationByResident = new Map(
+      persistedNotifications.map((row) => [row.residentId, row]),
+    );
+    const eligibleTokens = tokenResult.error
+      ? []
+      : dedupeTokens(((tokenResult.data ?? []) as TokenRow[]).filter((token) => {
+        const notification = notificationByResident.get(String(token.resident_id ?? ''));
+        return Boolean(
+          notification
+          && getAllowedNotificationTokenRoles('fc', 'message')
+            .includes(String(token.role ?? '') as 'admin' | 'manager' | 'fc'),
+        );
+      }));
+    const preview = body.content || '첨부파일을 보냈습니다.';
+    const expoDelivery = tokenResult.error
+      ? { attempted: 0, accepted: 0, rejected: 0 }
+      : await sendExpoPushPayloads(eligibleTokens.map((token) => {
+        const notification = notificationByResident.get(String(token.resident_id ?? ''))!;
+        return {
+          to: token.expo_push_token,
+          title: '새 메시지',
+          body: preview.slice(0, 160),
+          data: {
+            url: '/chat',
+            type: 'message',
+            notificationId: notification.notificationId,
+            target: notification.target,
+            conversationId: notification.target.conversationId,
+          },
+          sound: 'default',
+          priority: 'high',
+          channelId: 'alerts',
+        };
+      }));
+    const providerRejected = Boolean(tokenResult.error) || expoDelivery.rejected > 0;
+    const pushStatus = providerRejected
+      ? 'provider_rejected' as const
+      : expoDelivery.accepted > 0
+        ? 'accepted' as const
+        : 'no_registered_device' as const;
+    return ok({
+      ok: true,
+      messages: normalizedMessages,
+      attachmentCommit: { batchId: finalized.batchId, replayed: false },
+      delivery: buildDeliveryMetadata({
+        notificationStored: true,
+        pushStatus,
+        retryable: providerRejected,
+        notificationIds,
+        attempted: expoDelivery.attempted,
+        accepted: expoDelivery.accepted,
+        rejected: expoDelivery.rejected,
+      }),
+    });
+  }
+
+  if (
+    body.type === 'direct_message_list'
+    || body.type === 'direct_message_send'
+    || body.type === 'direct_message_mark_read'
+    || body.type === 'direct_message_delete'
+  ) {
+    if (!appActor) return err('Verified direct message actor is required', 401);
+    const resolution = await resolveGaraminDirectConversation({
+      actor: appActor,
+      conversationId: body.conversation_id,
+    });
+    if (
+      resolution.ok === false
+      || !canAccessDirectConversation(appActor, resolution.fcId)
+    ) {
+      return err(
+        resolution.ok === false ? resolution.message : 'Direct conversation not found',
+        resolution.ok === false ? resolution.status : 404,
+      );
+    }
+
+    const identity = buildDirectMessageIdentity({
+      actor: appActor,
+      fcActorId: resolution.fcId,
+      fcPhone: resolution.fcPhone,
+    });
+    if (!identity) return err('Direct messaging is not allowed', 403);
+
+    const messageColumns =
+      'id,conversation_id,sender_id,receiver_id,sender_actor_id,receiver_actor_id,content,created_at,'
+      + 'is_read,message_type,file_url,file_name,file_size,attachment_batch_id,deleted_at,deleted_by_actor_id';
+    const legacyActorId = appActor.sessionRole === 'fc'
+      ? resolution.fcPhone
+      : appActor.sessionRole === 'manager' || appActor.staffType === 'developer'
+        ? sanitize(appActor.phone)
+        : ADMIN_CHAT_ID;
+    const legacyCounterpartId = appActor.sessionRole === 'fc'
+      ? ADMIN_CHAT_ID
+      : resolution.fcPhone;
+    const normalizeMessage = (
+      row: DirectMessageRow,
+      attachments: MessengerAttachmentMetadata[] = [],
+    ) => ({
+      id: row.id,
+      conversation_id: resolution.id,
+      sender_id: row.sender_id,
+      receiver_id: row.receiver_id,
+      content: row.content,
+      created_at: row.created_at,
+      is_read: row.is_read === true,
+      message_type: row.message_type ?? 'text',
+      file_url: row.file_url,
+      file_name: row.file_name,
+      file_size: row.file_size,
+      attachments,
+    });
+
+    if (body.type === 'direct_message_list') {
+      const [currentResult, legacyResult] = await Promise.all([
+        supabase
+          .from('messages')
+          .select(messageColumns)
+          .eq('conversation_id', resolution.id)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('messages')
+          .select(messageColumns)
+          .is('conversation_id', null)
+          .or(
+            `and(sender_id.eq.${legacyActorId},receiver_id.eq.${legacyCounterpartId}),`
+            + `and(sender_id.eq.${legacyCounterpartId},receiver_id.eq.${legacyActorId})`,
+          )
+          .order('created_at', { ascending: true }),
+      ]);
+      if (currentResult.error || legacyResult.error) {
+        return err('Direct message lookup failed', 500);
+      }
+
+      const currentRows = ((currentResult.data ?? []) as unknown as DirectMessageRow[])
+        .filter((row) =>
+          row.deleted_at === null
+          && (
+            isCurrentDirectMessageVisible({
+              fcActorId: resolution.fcId,
+              fcPhone: resolution.fcPhone,
+              row,
+            })
+            || (
+              !row.sender_actor_id
+              && !row.receiver_actor_id
+              && isLegacyDirectMessageVisible({
+                actor: appActor,
+                fcPhone: resolution.fcPhone,
+                row,
+              })
+            )
+          )
+        );
+      const legacyRows = ((legacyResult.data ?? []) as unknown as DirectMessageRow[])
+        .filter((row) =>
+          row.deleted_at === null
+          && isLegacyDirectMessageVisible({
+            actor: appActor,
+            fcPhone: resolution.fcPhone,
+            row,
+          })
+        );
+      const uniqueRows = Array.from(
+        new Map(
+          [...currentRows, ...legacyRows].map((row) => [row.id, row]),
+        ).values(),
+      ).sort((left, right) => {
+        const created = left.created_at.localeCompare(right.created_at);
+        return created || left.id.localeCompare(right.id);
+      });
+      let attachmentsByBatch: Map<string, MessengerAttachmentMetadata[]>;
+      try {
+        attachmentsByBatch = await listMessengerAttachmentsByBatchIds({
+          supabase,
+          batchIds: uniqueRows.map((row) => row.attachment_batch_id),
+        });
+      } catch (error) {
+        return messengerAttachmentErrorResponse(error);
+      }
+
+      return ok({
+        ok: true,
+        conversation: {
+          id: resolution.id,
+          counterparty_id: appActor.sessionRole === 'fc' ? ADMIN_CHAT_ID : resolution.fcPhone,
+          counterparty_name: appActor.sessionRole === 'fc' ? null : resolution.fcName,
+        },
+        messages: uniqueRows.map((row) =>
+          normalizeMessage(
+            row,
+            row.attachment_batch_id
+              ? attachmentsByBatch.get(row.attachment_batch_id) ?? []
+              : [],
+          )
+        ),
+      });
+    }
+
+    if (body.type === 'direct_message_send') {
+      const messageId = UUID_PATTERN.test(String(body.client_message_id ?? ''))
+        ? String(body.client_message_id).toLowerCase()
+        : crypto.randomUUID();
+      const directTarget: NotificationTargetV1 = {
+        version: 1,
+        kind: 'garamin_direct_chat',
+        conversationId: resolution.id,
+      };
+      const attachmentIntentIds = body.attachment_intent_ids ?? [];
+      const hasAttachments = attachmentIntentIds.length > 0;
+      let attachmentBatchId: string | null = null;
+      let attachmentReplay = false;
+      let atomicResult: unknown;
+      let atomicError: unknown = null;
+      if (hasAttachments) {
+        try {
+          const finalized = await finalizeMessengerAttachmentBatch({
+            supabase,
+            actor: {
+              id: appActor.actorId,
+              role: appActor.sessionRole,
+            },
+            deliveryKey: body.delivery_key!,
+            payloadFingerprint: body.payload_fingerprint!,
+            intentIds: attachmentIntentIds,
+          });
+          attachmentBatchId = finalized.batchId;
+          attachmentReplay = finalized.replayed;
+          const attachmentCommit = await supabase.rpc(
+            'commit_garamin_direct_message_with_attachments_v2',
+            {
+              p_message_id: messageId,
+              p_conversation_id: resolution.id,
+              p_sender_id: identity.senderId,
+              p_receiver_id: identity.receiverId,
+              p_sender_actor_id: identity.senderActorId,
+              p_receiver_actor_id: identity.receiverActorId,
+              p_content: body.content,
+              p_delivery_key: body.delivery_key,
+              p_payload_fingerprint: body.payload_fingerprint,
+              p_attachment_intent_ids: attachmentIntentIds,
+            },
+          );
+          atomicResult = attachmentCommit.data;
+          atomicError = attachmentCommit.error;
+        } catch (error) {
+          return messengerAttachmentErrorResponse(error);
+        }
+      } else {
+        const textCommit = await supabase.rpc(
+          'send_garamin_direct_message_with_notification',
+          {
+            p_message_id: messageId,
+            p_conversation_id: resolution.id,
+            p_sender_id: identity.senderId,
+            p_receiver_id: identity.receiverId,
+            p_sender_actor_id: identity.senderActorId,
+            p_receiver_actor_id: identity.receiverActorId,
+            p_content: body.content,
+          },
+        );
+        atomicResult = textCommit.data;
+        atomicError = textCommit.error;
+      }
+      if (atomicError || !atomicResult || typeof atomicResult !== 'object') {
+        if (hasAttachments && atomicError) {
+          return messengerAttachmentErrorResponse(atomicError);
+        }
+        return ok({
+          ok: false,
+          message: 'Direct message notification persistence failed',
+          delivery: buildDeliveryMetadata({
+            notificationStored: false,
+            pushStatus: 'not_attempted',
+            retryable: true,
+          }),
+        }, 500);
+      }
+      const atomic = atomicResult as Record<string, unknown>;
+      const rawNotifications = Array.isArray(atomic.notifications)
+        ? atomic.notifications
+        : [];
+      const persistedNotifications: Array<{
+        notificationId: string;
+        residentId: string;
+        recipientActorId: string;
+        recipientRole: 'admin' | 'fc';
+      }> = [];
+      for (const rawRow of rawNotifications) {
+        if (!rawRow || typeof rawRow !== 'object' || Array.isArray(rawRow)) continue;
+        const row = rawRow as Record<string, unknown>;
+        const residentId = typeof row.resident_id === 'string' ? row.resident_id.trim() : '';
+        const recipientActorId = typeof row.recipient_actor_id === 'string'
+          ? row.recipient_actor_id.trim()
+          : '';
+        const recipientRole = row.recipient_role === 'admin' ? 'admin' : 'fc';
+        const validation = validatePersistedNotificationForDelivery(row, {
+          target: directTarget,
+          recipientRole,
+          recipientActorId,
+          residentId,
+        });
+        if (!validation.ok || !residentId || !recipientActorId) continue;
+        persistedNotifications.push({
+          notificationId: validation.notificationId,
+          residentId,
+          recipientActorId,
+          recipientRole,
+        });
+      }
+      if (
+        persistedNotifications.length === 0
+        || persistedNotifications.length !== rawNotifications.length
+      ) {
+        return ok({
+          ok: false,
+          message: 'Direct message notification persistence failed',
+          delivery: buildDeliveryMetadata({
+            notificationStored: false,
+            pushStatus: 'not_attempted',
+            retryable: true,
+          }),
+        }, 500);
+      }
+
+      const { data, error } = await supabase
+        .from('messages')
+        .select(messageColumns)
+        .eq('id', messageId)
+        .eq('conversation_id', resolution.id)
+        .maybeSingle();
+      if (error || !data) {
+        return ok({
+          ok: false,
+          message: 'Direct message lookup failed',
+          delivery: buildDeliveryMetadata({
+            notificationStored: true,
+            pushStatus: 'not_attempted',
+            retryable: true,
+            notificationIds: persistedNotifications.map((row) => row.notificationId),
+          }),
+        }, 500);
+      }
+      let messageAttachments: MessengerAttachmentMetadata[] = [];
+      if (attachmentBatchId) {
+        try {
+          const attachmentMap = await listMessengerAttachmentsByBatchIds({
+            supabase,
+            batchIds: [attachmentBatchId],
+          });
+          messageAttachments = attachmentMap.get(attachmentBatchId) ?? [];
+        } catch (attachmentError) {
+          return messengerAttachmentErrorResponse(attachmentError);
+        }
+      }
+      const attachmentWasReplayed = hasAttachments
+        && (attachmentReplay || atomic.replayed === true);
+      if (attachmentWasReplayed) {
+        const notificationIds = persistedNotifications.map((row) => row.notificationId);
+        return ok({
+          ok: true,
+          message: normalizeMessage(data as unknown as DirectMessageRow, messageAttachments),
+          attachmentCommit: {
+            batchId: attachmentBatchId,
+            replayed: true,
+          },
+          delivery: buildDeliveryMetadata({
+            notificationStored: true,
+            pushStatus: 'not_attempted',
+            retryable: false,
+            ...(notificationIds.length === 1
+              ? { notificationId: notificationIds[0] }
+              : { notificationIds }),
+          }),
+        });
+      }
+
+      const recipientPhones = Array.from(
+        new Set(persistedNotifications.map((row) => row.residentId)),
+      );
+      const { data: tokenRows, error: tokenError } = await supabase
+        .from('device_tokens')
+        .select('expo_push_token,resident_id,display_name,role')
+        .in('resident_id', recipientPhones);
+      const notificationByResident = new Map(
+        persistedNotifications.map((row) => [row.residentId, row]),
+      );
+      const eligibleTokens = tokenError
+        ? []
+        : dedupeTokens(((tokenRows ?? []) as TokenRow[]).filter((token) => {
+          const notification = notificationByResident.get(String(token.resident_id ?? ''));
+          return Boolean(
+            notification
+            && getAllowedNotificationTokenRoles(notification.recipientRole, 'message')
+              .includes(String(token.role ?? '') as 'admin' | 'manager' | 'fc'),
+          );
+        }));
+      const pushPayload = eligibleTokens.map((token) => {
+        const notification = notificationByResident.get(String(token.resident_id ?? ''))!;
+        const preview = body.content || '첨부파일을 보냈습니다.';
+        return {
+          to: token.expo_push_token,
+          title: '새 메시지',
+          body: preview.slice(0, 160),
+          data: {
+            url: '/chat',
+            type: 'message',
+            notificationId: notification.notificationId,
+            target: directTarget,
+            conversationId: resolution.id,
+          },
+          sound: 'default',
+          priority: 'high',
+          channelId: 'alerts',
+        };
+      });
+      const adminWebResults = await Promise.all(
+        persistedNotifications
+          .filter((notification) => notification.recipientRole === 'admin')
+          .map((notification) => {
+            const preview = body.content || '첨부파일을 보냈습니다.';
+            return (
+            notifyAdminWebPush(
+              '새 메시지',
+              preview.slice(0, 160),
+              '/chat',
+              notification.residentId,
+              notification.notificationId,
+              directTarget,
+            )
+            );
+          }),
+      );
+      const expoDelivery = tokenError
+        ? { attempted: 0, accepted: 0, rejected: 0 }
+        : await sendExpoPushPayloads(pushPayload);
+      const webAccepted = adminWebResults.reduce(
+        (sum, result) => sum + (result.ok ? result.sent : 0),
+        0,
+      );
+      const providerRejected = Boolean(tokenError)
+        || expoDelivery.rejected > 0
+        || adminWebResults.some((result) => !result.ok && !result.noTarget);
+      const providerAccepted = expoDelivery.accepted > 0 || webAccepted > 0;
+      const pushStatus = providerRejected
+        ? 'provider_rejected' as const
+        : providerAccepted
+          ? 'accepted' as const
+          : 'no_registered_device' as const;
+      const notificationIds = persistedNotifications.map((row) => row.notificationId);
+      return ok({
+        ok: true,
+        message: normalizeMessage(data as unknown as DirectMessageRow, messageAttachments),
+        ...(attachmentBatchId
+          ? {
+            attachmentCommit: {
+              batchId: attachmentBatchId,
+              replayed: attachmentReplay || atomic.replayed === true,
+            },
+          }
+          : {}),
+        delivery: buildDeliveryMetadata({
+          notificationStored: true,
+          pushStatus,
+          retryable: providerRejected,
+          ...(notificationIds.length === 1
+            ? { notificationId: notificationIds[0] }
+            : { notificationIds }),
+          attempted: expoDelivery.attempted,
+          accepted: expoDelivery.accepted + webAccepted,
+          rejected: expoDelivery.rejected,
+        }),
+      });
+    }
+
+    const [currentResult, legacyResult] = await Promise.all([
+      supabase
+        .from('messages')
+        .select(messageColumns)
+        .eq('conversation_id', resolution.id),
+      supabase
+        .from('messages')
+        .select(messageColumns)
+        .is('conversation_id', null)
+        .or(
+          `and(sender_id.eq.${legacyActorId},receiver_id.eq.${legacyCounterpartId}),`
+          + `and(sender_id.eq.${legacyCounterpartId},receiver_id.eq.${legacyActorId})`,
+        ),
+    ]);
+    if (currentResult.error || legacyResult.error) {
+      return err('Direct message ownership lookup failed', 500);
+    }
+
+    const currentRows = ((currentResult.data ?? []) as unknown as DirectMessageRow[])
+      .filter((row) =>
+        row.deleted_at === null
+        && (
+          isCurrentDirectMessageVisible({
+            fcActorId: resolution.fcId,
+            fcPhone: resolution.fcPhone,
+            row,
+          })
+          || (
+            !row.sender_actor_id
+            && !row.receiver_actor_id
+            && isLegacyDirectMessageVisible({
+              actor: appActor,
+              fcPhone: resolution.fcPhone,
+              row,
+            })
+          )
+        )
+      );
+    const legacyRows = ((legacyResult.data ?? []) as unknown as DirectMessageRow[])
+      .filter((row) =>
+        row.deleted_at === null
+        && isLegacyDirectMessageVisible({
+          actor: appActor,
+          fcPhone: resolution.fcPhone,
+          row,
+        })
+      );
+
+    if (body.type === 'direct_message_mark_read') {
+      const incomingIds = Array.from(new Set(
+        [...currentRows, ...legacyRows]
+          .filter((row) => row.receiver_id === identity.senderId && row.is_read !== true)
+          .map((row) => row.id),
+      ));
+      if (incomingIds.length === 0) return ok({ ok: true, updated: 0 });
+      const { data, error } = await supabase
+        .from('messages')
+        .update({ is_read: true })
+        .in('id', incomingIds)
+        .select('id');
+      if (error) return err('Direct message read update failed', 500);
+      return ok({ ok: true, updated: data?.length ?? 0 });
+    }
+
+    const deleteMessageId =
+      body.type === 'direct_message_delete' ? body.message_id : null;
+    const candidate = [...currentRows, ...legacyRows]
+      .find((row) => row.id === deleteMessageId);
+    if (
+      !candidate
+      || !canDeleteDirectMessage({
+        actor: appActor,
+        fcPhone: resolution.fcPhone,
+        row: candidate,
+      })
+    ) {
+      return err('Direct message not found', 404);
+    }
+    if (candidate.attachment_batch_id) {
+      const deletion = await supabase.rpc(
+        'delete_messenger_attachment_delivery_v2',
+        {
+          p_message_kind: 'direct',
+          p_message_id: candidate.id,
+          p_actor_id: appActor.actorId,
+          p_actor_role: appActor.sessionRole,
+          p_group_actor_id: null,
+        },
+      );
+      if (deletion.error) {
+        return messengerAttachmentErrorResponse(deletion.error);
+      }
+      const result = deletion.data && typeof deletion.data === 'object'
+        ? deletion.data as Record<string, unknown>
+        : {};
+      const batchId = typeof result.batchId === 'string'
+        ? result.batchId
+        : candidate.attachment_batch_id;
+      const cleanup = await drainMessengerAttachmentCleanup({
+        supabase,
+        limit: 20,
+        batchId,
+      });
+      return ok({
+        ok: true,
+        deleted: true,
+        cleanup: {
+          scheduled: Number(result.scheduled ?? 0),
+          removed: cleanup.removed,
+          requeued: cleanup.requeued,
+          exhausted: cleanup.exhausted,
+        },
+      });
+    }
+    const { data, error } = await supabase
+      .from('messages')
+      .update({
+        content: '',
+        deleted_at: new Date().toISOString(),
+        deleted_by_actor_id: appActor.actorId,
+      })
+      .eq('id', candidate.id)
+      .is('deleted_at', null)
+      .select('id')
+      .maybeSingle();
+    if (error || !data?.id) return err('Direct message delete failed', 500);
+    return ok({ ok: true, deleted: true });
   }
 
   if (body.type === 'chat_targets') {
@@ -1128,17 +2557,25 @@ serve(async (req: Request) => {
       const targetFilter = targetSenderIds.join(',');
       const { data: messageRows, error: messageErr } = await supabase
         .from('messages')
-        .select('sender_id,receiver_id,content,created_at,is_read')
+        .select('sender_id,receiver_id,content,created_at,is_read,file_name,attachment_batch_id,deleted_at')
         .or(
           `and(sender_id.eq.${residentId},receiver_id.in.(${targetFilter})),`
           + `and(receiver_id.eq.${residentId},sender_id.in.(${targetFilter}))`,
         )
         .order('created_at', { ascending: false });
       if (messageErr) return err(messageErr.message, 500);
+      let summaryRows: InternalChatMessageRow[];
+      try {
+        summaryRows = await buildInternalChatSummaryRows(
+          (messageRows ?? []) as unknown as InternalChatMessageAttachmentRow[],
+        );
+      } catch (error) {
+        return messengerAttachmentErrorResponse(error);
+      }
       chatSummaries = buildDirectChatTargetSummaries({
         viewerId: residentId,
         targetIds: targetSenderIds,
-        messages: (messageRows ?? []) as InternalChatMessageRow[],
+        messages: summaryRows,
       });
     }
 
@@ -1194,7 +2631,7 @@ serve(async (req: Request) => {
         fetchInternalFcProfiles(),
         supabase
           .from('messages')
-          .select('sender_id,receiver_id,content,created_at,is_read')
+          .select('sender_id,receiver_id,content,created_at,is_read,file_name,attachment_batch_id,deleted_at')
           .or(`sender_id.eq.${viewerId},receiver_id.eq.${viewerId}`)
           .order('created_at', { ascending: false }),
       ]);
@@ -1209,11 +2646,14 @@ serve(async (req: Request) => {
         phone: participant.phone,
         affiliation: participant.affiliation,
       }));
+      const summaryRows = await buildInternalChatSummaryRows(
+        (messagesResult.data ?? []) as unknown as InternalChatMessageAttachmentRow[],
+      );
 
       const summary = buildInternalChatList({
         viewerId,
         participants: chatParticipants,
-        messages: (messagesResult.data ?? []) as InternalChatMessageRow[],
+        messages: summaryRows,
         includeAllCompletedFc: body.viewer_read_only === true,
       });
 
@@ -1242,7 +2682,8 @@ serve(async (req: Request) => {
           .from('messages')
           .select('id', { count: 'exact', head: true })
           .eq('receiver_id', viewerId)
-          .eq('is_read', false);
+          .eq('is_read', false)
+          .is('deleted_at', null);
         if (error) return err(error.message, 500);
         return ok({ ok: true, count: count ?? 0 });
       }
@@ -1272,6 +2713,7 @@ serve(async (req: Request) => {
         .select('id', { count: 'exact', head: true })
         .eq('receiver_id', viewerId)
         .eq('is_read', false)
+        .is('deleted_at', null)
         .in('sender_id', scopedSenderIds);
       if (error) return err(error.message, 500);
 
@@ -1284,32 +2726,30 @@ serve(async (req: Request) => {
 
   // 알림센터 목록 조회 (RLS 우회)
   if (body.type === 'inbox_list') {
+    const viewer = getReceiptViewer(body);
+    if (!viewer) return err('Verified notification viewer is required', 401);
     const role = body.role;
     const residentId = sanitize(body.resident_id);
     const limit = Math.max(1, Math.min(Number(body.limit ?? 80) || 80, 200));
     const includeRequestBoardFc = role === 'admin' && residentId.length > 0 && body.include_request_board_fc === true;
     const onlyRequestBoardCategories = body.only_request_board_categories === true;
+    const receiptViewer = buildNotificationReceiptViewer({
+      viewer,
+      inboxRole: role,
+      residentId,
+      includeRequestBoardFc,
+    });
 
     const buildPrimaryNotifQuery = (selectColumns: string) => {
       let query = supabase
         .from('notifications')
         .select(selectColumns)
+        .eq('recipient_role', role)
+        .or(
+          `recipient_actor_id.eq.${viewer.actorId},and(recipient_actor_id.is.null,resident_id.is.null)`,
+        )
         .order('created_at', { ascending: false })
         .limit(limit);
-
-      if (role === 'fc') {
-        if (residentId) {
-          query = query.eq('recipient_role', 'fc').or(`resident_id.eq.${residentId},resident_id.is.null`);
-        } else {
-          query = query.eq('recipient_role', 'fc').is('resident_id', null);
-        }
-      } else {
-        if (residentId) {
-          query = query.eq('recipient_role', 'admin').eq('resident_id', residentId);
-        } else {
-          query = query.eq('recipient_role', 'admin').is('resident_id', null);
-        }
-      }
 
       if (onlyRequestBoardCategories) {
         query = query.ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`);
@@ -1319,24 +2759,29 @@ serve(async (req: Request) => {
     };
 
     const runNotifQuery = async (buildQuery: (selectColumns: string) => any): Promise<Array<Record<string, any>>> => {
-      let result = await buildQuery('id,title,body,category,target_url,created_at,resident_id,recipient_role');
+      const result = await buildQuery(
+        'id,title,body,category,target,target_url,created_at,resident_id,recipient_role,recipient_actor_id',
+      );
       let data = result.data as Array<Record<string, any>> | null;
       let error = result.error as { code?: string } | null;
-
-      if (error?.code === '42703') {
-        const fallback = await buildQuery('id,title,body,category,created_at,resident_id,recipient_role');
-        error = fallback.error as { code?: string } | null;
-        data = ((fallback.data ?? []) as Array<Record<string, any>>).map((row) => ({ ...row, target_url: null }));
-      }
 
       if (error) {
         throw error;
       }
 
-      return (data ?? []).map((row) => ({
-        ...row,
-        target_url: 'target_url' in row ? row.target_url ?? null : null,
-      }));
+      return (data ?? []).map((rawRow) => {
+        const row = rawRow as Record<string, any>;
+        return {
+          ...row,
+          target: parseNotificationTargetV1(row.target),
+          target_url: 'target_url' in row ? row.target_url ?? null : null,
+        };
+      }).filter((row: Record<string, any>) =>
+        authorizeNotificationReceipt(
+          toNotificationOwnershipRow(row),
+          receiptViewer,
+        ).authorized
+      );
     };
 
     try {
@@ -1348,7 +2793,7 @@ serve(async (req: Request) => {
                 .from('notifications')
                 .select(selectColumns)
                 .eq('recipient_role', 'fc')
-                .eq('resident_id', residentId)
+                .eq('recipient_actor_id', viewer.actorId)
                 .ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`)
                 .order('created_at', { ascending: false })
                 .limit(limit),
@@ -1364,7 +2809,20 @@ serve(async (req: Request) => {
           }, new Map<string, Record<string, any>>())
           .values(),
       );
-      const notifications = dedupedNotifications
+      const receiptMap = await fetchReceiptMap(
+        dedupedNotifications.map((item) => String(item.id)),
+        viewer,
+      );
+      const notifications: Array<Record<string, any>> = dedupedNotifications
+        .map((item): Record<string, any> => {
+          const receipt = receiptMap.get(String(item.id));
+          return {
+            ...item,
+            read_at: receipt?.read_at ?? null,
+            dismissed_at: receipt?.dismissed_at ?? null,
+          };
+        })
+        .filter((item) => item.dismissed_at === null)
         .sort(
           (a, b) =>
             new Date(String(b.created_at ?? 0)).getTime() - new Date(String(a.created_at ?? 0)).getTime(),
@@ -1386,14 +2844,66 @@ serve(async (req: Request) => {
     }
   }
 
+  if (body.type === 'inbox_get') {
+    const viewer = getReceiptViewer(body);
+    if (!viewer) return err('Verified notification viewer is required', 401);
+    const residentId = sanitize(body.resident_id);
+    const selectColumns =
+      'id,title,body,category,target,target_url,created_at,resident_id,recipient_role,recipient_actor_id';
+
+    const { data, error } = await supabase
+      .from('notifications')
+      .select(selectColumns)
+      .eq('id', body.notification_id)
+      .maybeSingle();
+    if (error) return err('Notification lookup failed', 500);
+    if (!data) return err('Notification not found', 404);
+
+    const receiptViewer = buildNotificationReceiptViewer({
+      viewer,
+      inboxRole: body.role,
+      residentId,
+      includeRequestBoardFc: body.include_request_board_fc,
+    });
+    const ownership = authorizeNotificationReceipt(
+      toNotificationOwnershipRow(data as Record<string, unknown>),
+      receiptViewer,
+    );
+    if (!ownership.authorized) return err('Notification access denied', 403);
+
+    const receiptMap = await fetchReceiptMap([String(data.id)], viewer).catch(() => null);
+    if (!receiptMap) return err('Notification receipt lookup failed', 500);
+    const receipt = receiptMap.get(String(data.id));
+    if (receipt?.dismissed_at) return err('Notification not found', 404);
+    return ok({
+      ok: true,
+      authorized: true,
+      notification: {
+        ...data,
+        target: parseNotificationTargetV1(data.target),
+        target_url: data.target_url ?? null,
+        read_at: receipt?.read_at ?? null,
+        dismissed_at: receipt?.dismissed_at ?? null,
+      },
+    });
+  }
+
   // 홈 벨 아이콘 unread 개수 조회 (RLS 우회)
   if (body.type === 'inbox_unread_count') {
+    const viewer = getReceiptViewer(body);
+    if (!viewer) return err('Verified notification viewer is required', 401);
     const role = body.role;
     const residentId = sanitize(body.resident_id);
     const includeRequestBoardFc = role === 'admin' && residentId.length > 0 && body.include_request_board_fc === true;
     const excludeRequestBoardCategories = body.exclude_request_board_categories === true;
     const includeNotices = body.include_notices === true;
     const onlyRequestBoardCategories = body.only_request_board_categories === true;
+    const receiptViewer = buildNotificationReceiptViewer({
+      viewer,
+      inboxRole: role,
+      residentId,
+      includeRequestBoardFc,
+    });
 
     const sinceDate = body.since ? new Date(body.since) : new Date(0);
     const sinceIso = Number.isNaN(sinceDate.getTime()) ? new Date(0).toISOString() : sinceDate.toISOString();
@@ -1401,22 +2911,12 @@ serve(async (req: Request) => {
     const buildPrimaryCountQuery = () => {
       let countQuery = supabase
         .from('notifications')
-        .select('id', { count: 'exact', head: true })
+        .select('id,recipient_actor_id,recipient_role,resident_id,category')
+        .eq('recipient_role', role)
+        .or(
+          `recipient_actor_id.eq.${viewer.actorId},and(recipient_actor_id.is.null,resident_id.is.null)`,
+        )
         .gt('created_at', sinceIso);
-
-      if (role === 'fc') {
-        if (residentId) {
-          countQuery = countQuery.eq('recipient_role', 'fc').or(`resident_id.eq.${residentId},resident_id.is.null`);
-        } else {
-          countQuery = countQuery.eq('recipient_role', 'fc').is('resident_id', null);
-        }
-      } else {
-        if (residentId) {
-          countQuery = countQuery.eq('recipient_role', 'admin').eq('resident_id', residentId);
-        } else {
-          countQuery = countQuery.eq('recipient_role', 'admin').is('resident_id', null);
-        }
-      }
 
         if (onlyRequestBoardCategories) {
           countQuery = countQuery.ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`);
@@ -1427,21 +2927,41 @@ serve(async (req: Request) => {
         return countQuery;
       };
 
-    const { count: primaryCount, error: primaryCountErr } = await buildPrimaryCountQuery();
+    const { data: primaryRows, error: primaryCountErr } = await buildPrimaryCountQuery();
     if (primaryCountErr) return err(primaryCountErr.message, 500);
 
-    let requestBoardFcCount = 0;
+    let requestBoardFcRows: Array<Record<string, unknown>> = [];
     if (includeRequestBoardFc && !excludeRequestBoardCategories) {
-      const { count, error } = await supabase
+      const { data, error } = await supabase
         .from('notifications')
-        .select('id', { count: 'exact', head: true })
+        .select('id,recipient_actor_id,recipient_role,resident_id,category')
         .eq('recipient_role', 'fc')
-        .eq('resident_id', residentId)
+        .eq('recipient_actor_id', viewer.actorId)
         .ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`)
         .gt('created_at', sinceIso);
       if (error) return err(error.message, 500);
-      requestBoardFcCount = count ?? 0;
+      requestBoardFcRows = data ?? [];
     }
+
+    const visibleIds = Array.from(new Set(
+      [
+        ...((primaryRows ?? []) as Array<Record<string, unknown>>),
+        ...requestBoardFcRows,
+      ]
+        .filter((row) =>
+          authorizeNotificationReceipt(
+            toNotificationOwnershipRow(row as Record<string, unknown>),
+            receiptViewer,
+          ).authorized
+        )
+        .map((row) => String(row.id)),
+    ));
+    const receiptMap = await fetchReceiptMap(visibleIds, viewer).catch(() => null);
+    if (!receiptMap) return err('Notification receipt lookup failed', 500);
+    const notificationCount = visibleIds.filter((id) => {
+      const receipt = receiptMap.get(id);
+      return !receipt?.read_at && !receipt?.dismissed_at;
+    }).length;
 
     let noticeCount = 0;
     if (includeNotices && !onlyRequestBoardCategories) {
@@ -1453,19 +2973,111 @@ serve(async (req: Request) => {
       noticeCount = notices.filter((notice) => new Date(String(notice.created_at ?? 0)).getTime() > sinceTime).length;
     }
 
-    return ok({ ok: true, count: (primaryCount ?? 0) + requestBoardFcCount + noticeCount });
+    return ok({ ok: true, count: notificationCount + noticeCount });
   }
 
-  // 알림센터 선택 항목 삭제 (RLS 우회)
-  if (body.type === 'inbox_delete') {
-    const role = body.role;
+  if (
+    body.type === 'inbox_mark_read'
+    || body.type === 'inbox_dismiss'
+    || body.type === 'inbox_delete'
+  ) {
+    const viewer = getReceiptViewer(body);
+    if (!viewer) return err('Verified notification viewer is required', 401);
     const residentId = sanitize(body.resident_id);
-    const includeRequestBoardFc = role === 'admin' && residentId.length > 0 && body.include_request_board_fc === true;
-    const notificationIds = Array.isArray(body.notification_ids)
-      ? body.notification_ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
+    const requestedIds = Array.from(new Set(
+      (body.notification_ids ?? []).filter((id) => UUID_PATTERN.test(id)),
+    ));
+    if (requestedIds.length === 0) return err('notification_ids are required', 400);
+
+    const { data: ownershipRows, error: visibilityError } = await supabase
+      .from('notifications')
+      .select('id,recipient_actor_id,recipient_role,resident_id,category')
+      .in('id', requestedIds);
+    if (visibilityError) return err('Notification ownership lookup failed', 500);
+    const loadedRows = ((ownershipRows ?? []) as Array<Record<string, unknown>>)
+      .map(toNotificationOwnershipRow);
+    const receiptViewer = buildNotificationReceiptViewer({
+      viewer,
+      inboxRole: body.role,
+      residentId,
+      includeRequestBoardFc: body.include_request_board_fc,
+    });
+    const ownershipSet = authorizeNotificationReceiptSet(
+      requestedIds,
+      loadedRows,
+      receiptViewer,
+    );
+    if (ownershipSet.authorized === false) {
+      return ownershipSet.status === 404
+        ? err('Notification not found', 404)
+        : err('Notification access denied', 403);
+    }
+
+    const receiptMap = await fetchReceiptMap(requestedIds, viewer).catch(() => null);
+    if (!receiptMap) return err('Notification receipt lookup failed', 500);
+    const timestamp = new Date().toISOString();
+    const isDismiss = body.type === 'inbox_dismiss' || body.type === 'inbox_delete';
+    const receiptAction = isDismiss ? 'dismiss' as const : 'mark_read' as const;
+    const states = requestedIds.map((notificationId) => {
+      const receipt = receiptMap.get(notificationId);
+      return {
+        notificationId,
+        receipt,
+        ...classifyNotificationReceiptState({
+          action: receiptAction,
+          readAt: receipt?.read_at ?? null,
+          dismissedAt: receipt?.dismissed_at ?? null,
+        }),
+      };
+    });
+    const changedStates = states.filter((state) => state.changed);
+    if (changedStates.length > 0) {
+      const receiptRows = changedStates.map(({ notificationId, receipt }) => ({
+        notification_id: notificationId,
+        viewer_actor_id: viewer.actorId,
+        viewer_role: viewer.role,
+        read_at: isDismiss ? receipt?.read_at ?? timestamp : timestamp,
+        ...(isDismiss ? { dismissed_at: timestamp } : {}),
+        updated_at: timestamp,
+      }));
+      const { error: receiptError } = await supabase
+        .from('notification_receipts')
+        .upsert(receiptRows, {
+          onConflict: 'notification_id,viewer_actor_id,viewer_role',
+        });
+      if (receiptError) return err('Notification receipt update failed', 500);
+    }
+    return ok({
+      ok: true,
+      authorized: true,
+      changed: changedStates.length > 0,
+      state: changedStates.length > 0
+        ? isDismiss ? 'dismissed' : 'read'
+        : isDismiss ? 'already_dismissed' : 'already_read',
+      updated: changedStates.length,
+    });
+  }
+
+  // Legacy physical-delete block is unreachable for signed/service-bound
+  // inbox actions; inbox_delete is normalized to a per-viewer dismissal above.
+  // 알림센터 선택 항목 삭제 (RLS 우회)
+  if ((body as { type?: string }).type === 'inbox_delete') {
+    const legacyBody = body as {
+      role: 'admin' | 'fc';
+      resident_id?: string | null;
+      include_request_board_fc?: boolean;
+      notification_ids?: string[];
+      notice_ids?: string[];
+    };
+    const role = legacyBody.role;
+    const residentId = sanitize(legacyBody.resident_id);
+    const includeRequestBoardFc =
+      role === 'admin' && residentId.length > 0 && legacyBody.include_request_board_fc === true;
+    const notificationIds = Array.isArray(legacyBody.notification_ids)
+      ? legacyBody.notification_ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
       : [];
-    const noticeIds = Array.isArray(body.notice_ids)
-      ? body.notice_ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
+    const noticeIds = Array.isArray(legacyBody.notice_ids)
+      ? legacyBody.notice_ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
       : [];
     const regularNoticeIds: string[] = [];
     const boardNoticePostIds: string[] = [];
@@ -1587,6 +3199,22 @@ serve(async (req: Request) => {
   }
 
   // 홈 상단 최신 공지 조회 (RLS 우회)
+  if (body.type === 'notice_get') {
+    const viewer = getReceiptViewer(body);
+    if (!viewer) return err('Verified notification viewer is required', 401);
+    try {
+      const notice = await fetchNoticeByIdWithOptionalAttachments(body.notice_id);
+      if (!notice) return err('Notice not found', 404);
+      return ok({
+        ok: true,
+        authorized: true,
+        notice,
+      });
+    } catch {
+      return err('Notice lookup failed', 500);
+    }
+  }
+
   if (body.type === 'latest_notice') {
     try {
       const notices = await fetchUnifiedNotices(1).catch((error) => {
@@ -1600,6 +3228,7 @@ serve(async (req: Request) => {
           body: notices[0].body,
           category: notices[0].category,
           created_at: notices[0].created_at,
+          target: notices[0].target ?? null,
         }
         : null;
       return ok({ ok: true, notice });
@@ -1636,6 +3265,40 @@ serve(async (req: Request) => {
     );
     const notificationSource = resolveNotificationSource(category);
     const pushTitle = buildPushTitleWithSource(title, notificationSource);
+    let notificationTarget = parseNotificationTargetV1(body.target);
+    let directConversationId: string | null = null;
+    let canonicalFcId = body.fc_id ?? null;
+
+    if (category === 'message') {
+      if (!appActor) return err('Verified message actor is required', 401);
+      const directConversation = await resolveGaraminDirectConversation({
+        actor: appActor,
+        targetId: target_id,
+      });
+      if (directConversation.ok === false) {
+        return err(directConversation.message, directConversation.status);
+      }
+      const canonicalTarget: NotificationTargetV1 = {
+        version: 1,
+        kind: 'garamin_direct_chat',
+        conversationId: directConversation.id,
+      };
+      if (
+        notificationTarget
+        && JSON.stringify(notificationTarget) !== JSON.stringify(canonicalTarget)
+      ) {
+        return err('Notification target does not match the direct conversation', 400);
+      }
+      notificationTarget = canonicalTarget;
+      directConversationId = directConversation.id;
+      canonicalFcId = directConversation.fcId;
+    }
+
+    if (!notificationTarget) return err('A valid typed notification target is required', 400);
+    const suppliedNotificationId = String(body.notification_id ?? '').trim();
+    if (skipNotificationInsert && !UUID_PATTERN.test(suppliedNotificationId)) {
+      return err('notification_id is required when notification insert is skipped', 400);
+    }
 
     if (
       appActor
@@ -1743,38 +3406,111 @@ serve(async (req: Request) => {
     tokens = filterManagerTokensForNotification(tokens, { category, targetId: target_id });
     tokens = dedupeTokens(tokens);
 
-    const logError = skipNotificationInsert
-      ? null
+    let recipientActorId: string | null = null;
+    try {
+      recipientActorId = await resolveNotificationRecipientActorId(target_role, target_id || null);
+    } catch {
+      return err('Notification recipient resolution failed', 500);
+    }
+    const claimedRecipientActorId = String(body.recipient_actor_id ?? '').trim();
+    if (!target_id) {
+      if (claimedRecipientActorId) {
+        return err('Broadcast notifications cannot claim one recipient actor', 400);
+      }
+    } else {
+      if (!recipientActorId) {
+        return err('Notification recipient is not active', 403);
+      }
+      if (authMode === 'service' && !UUID_PATTERN.test(claimedRecipientActorId)) {
+        return err('recipient_actor_id is required for a direct service notification', 400);
+      }
+      if (
+        claimedRecipientActorId
+        && claimedRecipientActorId.toLowerCase() !== recipientActorId.toLowerCase()
+      ) {
+        return err('Notification recipient actor does not match the active target', 403);
+      }
+    }
+
+    const logResult = skipNotificationInsert
+      ? await verifyExistingNotificationForDelivery({
+          notificationId: suppliedNotificationId,
+          target: notificationTarget,
+          recipientRole: target_role,
+          recipientActorId,
+          residentId: target_id || null,
+        })
       : await insertNotificationWithFallback({
           title,
           body: message,
           category,
           recipient_role: target_role,
           resident_id: target_id || null,
-          fc_id: body.fc_id ?? null,
+          recipient_actor_id: recipientActorId,
+          fc_id: canonicalFcId,
+          target: notificationTarget,
           target_url: url,
         });
-    if (logError) {
+    const logError = logResult.error;
+    const notificationId = logResult.id;
+    if (logError || !notificationId) {
       reportEdgeDiagnostic({
         event: 'fc_notify.notification_insert',
         reason: 'insert_failed',
         errorClass: 'database',
+      });
+      return ok({
+        ok: false,
+        confirmed: false,
+        stored: false,
+        push_status: 'provider_failed',
+        sent: 0,
+        logged: false,
+        target: notificationTarget,
+        ...(directConversationId ? { conversationId: directConversationId } : {}),
+        delivery: buildDeliveryMetadata({
+          notificationStored: false,
+          pushStatus: 'not_attempted',
+          retryable: true,
+        }),
+        message: 'Notification inbox persistence was not confirmed',
+        reason: logResult.failureReason ?? 'notification_insert_failed',
+        web_push: null,
+        warning: NOTIFICATION_DELIVERY_INCOMPLETE_WARNING,
       });
     }
 
     let adminWebPush: AdminWebPushResult | null = null;
     // Send web push to admin browser subscribers
     if (target_role === 'admin') {
-      adminWebPush = await notifyAdminWebPush(pushTitle, message, url, target_id || null);
+      adminWebPush = await notifyAdminWebPush(
+        pushTitle,
+        message,
+        url,
+        target_id || null,
+        notificationId,
+        notificationTarget,
+      );
     }
     const warning = getNotificationDeliveryWarning(adminWebPush);
 
     if (tokenLoadFailed) {
       return ok({
-        ok: false,
+        ok: true,
+        confirmed: true,
+        stored: true,
+        push_status: 'provider_failed',
         sent: 0,
-        logged: !logError,
-        delivery: { attempted: 0, accepted: 0, rejected: 0 },
+        logged: true,
+        notificationId,
+        target: notificationTarget,
+        ...(directConversationId ? { conversationId: directConversationId } : {}),
+        delivery: buildDeliveryMetadata({
+          notificationStored: true,
+          pushStatus: 'provider_rejected',
+          retryable: true,
+          notificationId,
+        }),
         message: 'Device token lookup failed',
         web_push: adminWebPush,
         warning,
@@ -1784,8 +3520,29 @@ serve(async (req: Request) => {
     if (!tokens.length) {
       return ok({
         ...toExpoPushDeliveryOutcome({ attempted: 0, accepted: 0, rejected: 0 }),
-        logged: !logError,
+        ok: true,
+        confirmed: true,
+        stored: true,
+        push_status: resolvePushStatus({
+          expoAttempted: 0,
+          expoAccepted: 0,
+          expoRejected: 0,
+          adminWebPush,
+        }),
+        logged: true,
+        notificationId,
+        target: notificationTarget,
+        ...(directConversationId ? { conversationId: directConversationId } : {}),
         msg: 'No tokens found',
+        delivery: buildDeliveryMetadata({
+          notificationStored: true,
+          pushStatus: adminWebPush?.ok === true && adminWebPush.sent > 0
+            ? 'accepted'
+            : 'no_registered_device',
+          retryable: false,
+          notificationId,
+          accepted: adminWebPush?.ok === true ? adminWebPush.sent : 0,
+        }),
         web_push: adminWebPush,
         warning,
       });
@@ -1800,6 +3557,9 @@ serve(async (req: Request) => {
         type: category,
         source: notificationSource,
         resident_id: target_id || null,
+        notificationId,
+        target: notificationTarget,
+        ...(directConversationId ? { conversationId: directConversationId } : {}),
         ...(body.sender_id?.trim()
           ? {
               sender_id: body.sender_id.trim(),
@@ -1816,9 +3576,33 @@ serve(async (req: Request) => {
 
     return ok({
       ...toExpoPushDeliveryOutcome(delivery),
-      logged: !logError,
+      ok: true,
+      confirmed: true,
+      stored: true,
+      push_status: resolvePushStatus({
+        expoAttempted: delivery.attempted,
+        expoAccepted: delivery.accepted,
+        expoRejected: delivery.rejected,
+        adminWebPush,
+      }),
+      logged: true,
+      notificationId,
+      target: notificationTarget,
+      ...(directConversationId ? { conversationId: directConversationId } : {}),
       web_push: adminWebPush,
       warning,
+      delivery: buildDeliveryMetadata({
+        notificationStored: true,
+        pushStatus:
+          delivery.rejected > 0 || adminWebPush?.ok === false
+            ? 'provider_rejected'
+            : 'accepted',
+        retryable: delivery.rejected > 0 || adminWebPush?.ok === false,
+        notificationId,
+        attempted: delivery.attempted,
+        accepted: delivery.accepted + (adminWebPush?.ok === true ? adminWebPush.sent : 0),
+        rejected: delivery.rejected,
+      }),
     });
   }
 
@@ -1847,9 +3631,13 @@ serve(async (req: Request) => {
   const title = buildTitle(fcRow.name, body, (body as any).message);
   const message = (body as any).message ?? title;
   const targetUrl = getTargetUrl(targetRole, body, message, fcRow.id);
+  const lifecycleTarget = getLifecycleNotificationTarget(fcRow.id, targetUrl);
   let tokens: TokenRow[] = [];
   let logError: { message: string } | null = null;
   let tokenLoadFailed = false;
+  let notificationPersistenceFailed = false;
+  let notificationPersistenceReason = 'notification_insert_failed';
+  const notificationIdByRecipient = new Map<string, string>();
 
   if (isFcAdminUpdateEvent) {
     let recipientResidentIds: string[] = [];
@@ -1877,29 +3665,63 @@ serve(async (req: Request) => {
         tokens = data;
       }
 
-      const notificationRows = recipientResidentIds.map((recipientId) => sanitizeNotificationInsert({
-        title,
-        body: message,
-        category: (body as any).type,
-        fc_id: fcRow.id,
-        resident_id: recipientId,
-        recipient_role: 'admin' as const,
-        target_url: targetUrl,
-      }));
+      const notificationRows = [];
+      for (const recipientId of recipientResidentIds) {
+        const recipientActorId = await resolveNotificationRecipientActorId('admin', recipientId);
+        if (!recipientActorId) continue;
+        notificationRows.push(sanitizeNotificationInsert({
+          title,
+          body: message,
+          category: (body as any).type,
+          fc_id: fcRow.id,
+          resident_id: recipientId,
+          recipient_actor_id: recipientActorId,
+          recipient_role: 'admin' as const,
+          target: lifecycleTarget,
+          target_url: targetUrl,
+        }));
+      }
 
-      const firstTry = await supabase.from('notifications').insert(notificationRows);
-      if (firstTry.error) {
-        const missingTargetColumn =
-          firstTry.error.code === '42703'
-          || String(firstTry.error.message ?? '').includes('target_url');
-        if (missingTargetColumn) {
-          const fallbackRows = notificationRows.map(({ target_url: _ignored, ...row }) => row);
-          const fallback = await supabase.from('notifications').insert(fallbackRows);
-          if (fallback.error) {
-            logError = fallback.error;
+      const insertResult = notificationRows.length > 0
+        ? await supabase
+          .from('notifications')
+          .insert(notificationRows)
+          .select('id,resident_id,recipient_role,recipient_actor_id,target')
+        : { data: [], error: null };
+      if (insertResult.error) {
+        logError = insertResult.error;
+        notificationPersistenceFailed = true;
+      } else {
+        const expectedByResident = new Map(
+          notificationRows.map((row) => [String(row.resident_id ?? ''), row]),
+        );
+        for (const row of insertResult.data ?? []) {
+          const residentId = String(row.resident_id ?? '');
+          const expected = expectedByResident.get(residentId);
+          if (!expected) {
+            notificationPersistenceFailed = true;
+            notificationPersistenceReason = 'recipient_mismatch';
+            continue;
           }
-        } else {
-          logError = firstTry.error;
+          const validation = validatePersistedNotificationForDelivery(row, {
+            target: lifecycleTarget,
+            recipientRole: 'admin',
+            recipientActorId: String(expected.recipient_actor_id ?? '') || null,
+            residentId,
+          });
+          if (validation.ok === false) {
+            notificationPersistenceFailed = true;
+            notificationPersistenceReason = validation.reason;
+            continue;
+          }
+          notificationIdByRecipient.set(residentId, validation.notificationId);
+        }
+        if (
+          notificationRows.length !== recipientResidentIds.length
+          || notificationIdByRecipient.size !== notificationRows.length
+        ) {
+          notificationPersistenceFailed = true;
+          notificationPersistenceReason = 'notification_id_mapping_incomplete';
         }
       }
     } else {
@@ -1908,6 +3730,8 @@ serve(async (req: Request) => {
         reason: 'no_admin_recipients',
         count: 0,
       });
+      notificationPersistenceFailed = true;
+      notificationPersistenceReason = 'no_notification_recipients';
     }
   } else {
     if (!targetResidentId) return err('FC phone number not found', 400);
@@ -1927,15 +3751,24 @@ serve(async (req: Request) => {
       tokens = data;
     }
 
-    logError = await insertNotificationWithFallback({
+    const logResult = await insertNotificationWithFallback({
       title,
       body: message,
       category: (body as any).type,
       fc_id: fcRow.id,
       resident_id: targetResidentId,
+      recipient_actor_id: fcRow.id,
       recipient_role: targetRole,
+      target: lifecycleTarget,
       target_url: targetUrl,
     });
+    logError = logResult.error;
+    if (logResult.id) {
+      notificationIdByRecipient.set(targetResidentId, logResult.id);
+    } else {
+      notificationPersistenceFailed = true;
+      notificationPersistenceReason = logResult.failureReason ?? 'notification_insert_failed';
+    }
   }
 
   tokens = filterManagerTokensForNotification(tokens, {
@@ -1944,6 +3777,11 @@ serve(async (req: Request) => {
     allowScopedManagerLifecycle: isFcAdminUpdateEvent,
   });
   tokens = dedupeTokens(tokens);
+  if (isFcAdminUpdateEvent) {
+    tokens = tokens.filter((token) =>
+      notificationIdByRecipient.has(String(token.resident_id ?? ''))
+    );
+  }
   if (logError) {
     reportEdgeDiagnostic({
       event: 'fc_notify.notification_insert',
@@ -1951,20 +3789,68 @@ serve(async (req: Request) => {
       errorClass: 'database',
     });
   }
+  if (notificationPersistenceFailed) {
+    return ok({
+      ok: false,
+      confirmed: false,
+      stored: false,
+      push_status: 'provider_failed',
+      sent: 0,
+      logged: false,
+      target: lifecycleTarget,
+      delivery: buildDeliveryMetadata({
+        notificationStored: false,
+        pushStatus: 'not_attempted',
+        retryable: true,
+      }),
+      message: 'Notification inbox persistence was not confirmed',
+      reason: notificationPersistenceReason,
+      web_push: null,
+      warning: NOTIFICATION_DELIVERY_INCOMPLETE_WARNING,
+    });
+  }
 
   let adminWebPush: AdminWebPushResult | null = null;
   // Send web push to admin browser subscribers for fc_update / fc_delete
   if (targetRole === 'admin') {
-    adminWebPush = await notifyAdminWebPush(title, message, targetUrl);
+    const webPushResults = await Promise.all(
+      Array.from(notificationIdByRecipient.entries()).map(([recipientId, notificationId]) =>
+        notifyAdminWebPush(
+          title,
+          message,
+          targetUrl,
+          recipientId,
+          notificationId,
+          lifecycleTarget,
+        )
+      ),
+    );
+    if (webPushResults.length > 0) {
+      adminWebPush = {
+        ok: webPushResults.every((result) => result.ok),
+        sent: webPushResults.reduce((sum, result) => sum + result.sent, 0),
+        failed: webPushResults.reduce((sum, result) => sum + result.failed, 0),
+        noTarget: webPushResults.every((result) => result.noTarget),
+        reason: webPushResults.find((result) => !result.ok)?.reason,
+      };
+    }
   }
   const warning = getNotificationDeliveryWarning(adminWebPush);
 
   if (tokenLoadFailed) {
     return ok({
-      ok: false,
+      ok: true,
+      confirmed: true,
       sent: 0,
-      logged: !logError,
-      delivery: { attempted: 0, accepted: 0, rejected: 0 },
+      stored: true,
+      push_status: 'provider_failed',
+      logged: true,
+      delivery: buildDeliveryMetadata({
+        notificationStored: true,
+        pushStatus: 'provider_rejected',
+        retryable: true,
+        notificationIds: Array.from(notificationIdByRecipient.values()),
+      }),
       message: 'Device token lookup failed',
       web_push: adminWebPush,
       warning,
@@ -1974,7 +3860,25 @@ serve(async (req: Request) => {
   if (!tokens.length) {
     return ok({
       ...toExpoPushDeliveryOutcome({ attempted: 0, accepted: 0, rejected: 0 }),
-      logged: !logError,
+      ok: true,
+      confirmed: true,
+      stored: true,
+      push_status: resolvePushStatus({
+        expoAttempted: 0,
+        expoAccepted: 0,
+        expoRejected: 0,
+        adminWebPush,
+      }),
+      logged: true,
+      delivery: buildDeliveryMetadata({
+        notificationStored: true,
+        pushStatus: adminWebPush?.ok === true && adminWebPush.sent > 0
+          ? 'accepted'
+          : 'no_registered_device',
+        retryable: false,
+        notificationIds: Array.from(notificationIdByRecipient.values()),
+        accepted: adminWebPush?.ok === true ? adminWebPush.sent : 0,
+      }),
       web_push: adminWebPush,
       warning,
     });
@@ -1989,6 +3893,8 @@ serve(async (req: Request) => {
       resident_id: fcRow.phone ?? fcRow.resident_id_masked,
       name: fcRow.name,
       url: targetUrl,
+      notificationId: notificationIdByRecipient.get(String(t.resident_id ?? '')),
+      target: lifecycleTarget,
     },
     sound: 'default',
     priority: 'high',
@@ -1999,8 +3905,30 @@ serve(async (req: Request) => {
 
   return ok({
     ...toExpoPushDeliveryOutcome(delivery),
-    logged: !logError,
+    ok: true,
+    confirmed: true,
+    stored: true,
+    push_status: resolvePushStatus({
+      expoAttempted: delivery.attempted,
+      expoAccepted: delivery.accepted,
+      expoRejected: delivery.rejected,
+      adminWebPush,
+    }),
+    logged: true,
+    target: lifecycleTarget,
     web_push: adminWebPush,
     warning,
+    delivery: buildDeliveryMetadata({
+      notificationStored: true,
+      pushStatus:
+        delivery.rejected > 0 || adminWebPush?.ok === false
+          ? 'provider_rejected'
+          : 'accepted',
+      retryable: delivery.rejected > 0 || adminWebPush?.ok === false,
+      notificationIds: Array.from(notificationIdByRecipient.values()),
+      attempted: delivery.attempted,
+      accepted: delivery.accepted + (adminWebPush?.ok === true ? adminWebPush.sent : 0),
+      rejected: delivery.rejected,
+    }),
   });
 });

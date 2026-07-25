@@ -2,13 +2,30 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  DASHBOARD_FC_LIST_COLUMNS,
   DASHBOARD_FC_LIST_COLUMN_COUNT,
+  formatDashboardResidentNumberCell,
   formatDashboardSignupDate,
   normalizeDashboardFcListRow,
 } from './dashboard-table-display.ts';
 
-test('dashboard FC list has a signup-date column in the table contract', () => {
-  assert.equal(DASHBOARD_FC_LIST_COLUMN_COUNT, 8);
+test('dashboard FC list places the resident-number column immediately after FC information', () => {
+  assert.equal(DASHBOARD_FC_LIST_COLUMN_COUNT, 9);
+  assert.deepEqual(
+    DASHBOARD_FC_LIST_COLUMNS.slice(0, 3).map(({ key, label }) => ({ key, label })),
+    [
+      { key: 'fc', label: 'FC 정보' },
+      { key: 'residentNumber', label: '주민등록번호' },
+      { key: 'phone', label: '연락처' },
+    ],
+  );
+});
+
+test('resident-number list cells fail closed for every non-ready state', () => {
+  assert.equal(formatDashboardResidentNumberCell({ status: 'loading' }), '조회 중');
+  assert.equal(formatDashboardResidentNumberCell({ status: 'unavailable' }), '조회 불가');
+  assert.equal(formatDashboardResidentNumberCell({ status: 'error' }), '조회 실패');
+  assert.equal(formatDashboardResidentNumberCell(undefined), '조회 실패');
 });
 
 test('uses FC password setup time as the signup date when credentials are joined', () => {

@@ -30,6 +30,16 @@ describe('group chat display/function contracts', () => {
     expect(getGroupChatReplyLabel({ message_type: 'text', content: 'hello' })).toBe('hello');
     expect(getGroupChatReplyLabel({ message_type: 'file', file_name: 'report.pdf', content: '' })).toBe('report.pdf');
     expect(getGroupChatMessageCopyText({ message_type: 'file', file_name: 'report.pdf', content: 'fallback' })).toBe('report.pdf');
+    expect(getGroupChatReplyLabel({
+      message_type: 'file',
+      attachments: [{ name: '첫째.pdf' }, { name: '둘째.pptx' }],
+      content: '',
+    })).toBe('첫째.pdf 외 1개');
+    expect(getGroupChatMessageCopyText({
+      message_type: 'file',
+      attachments: [{ name: '첫째.pdf' }, { name: '둘째.pptx' }],
+      content: '',
+    })).toBe('첫째.pdf\n둘째.pptx');
     expect(getGroupChatMessageCopyText({ message_type: 'text', content: 'copy me' })).toBe('copy me');
   });
 

@@ -66,9 +66,36 @@ test('validates submission selection and date', () => {
         locationId,
         examType: 'life',
         feePaidDate: '2026-07-23',
+        includesPrimaryExam: true,
         isThirdExam: true,
       },
     },
+  );
+
+  const thirdOnly = validateSubmitExamPaymentProof({
+    action: 'submit_v2',
+    uploadId: requestId,
+    roundId,
+    locationId,
+    examType: 'nonlife',
+    feePaidDate: '2026-07-23',
+    includesPrimaryExam: false,
+    isThirdExam: true,
+  });
+  assert.equal(thirdOnly.ok, true);
+
+  assert.equal(
+    validateSubmitExamPaymentProof({
+      action: 'submit_v2',
+      uploadId: requestId,
+      roundId,
+      locationId,
+      examType: 'nonlife',
+      feePaidDate: '2026-07-23',
+      includesPrimaryExam: false,
+      isThirdExam: false,
+    }).ok,
+    false,
   );
 
   assert.equal(

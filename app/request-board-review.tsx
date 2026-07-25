@@ -23,6 +23,11 @@ import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import {
+  hasPresentRouteParam,
+  parseExactlyOnePositiveIntegerRouteParam,
+} from '@/lib/strict-route-params';
 import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { formatRequestBoardDrivingStatus } from '@/lib/request-board-driving-status';
@@ -47,6 +52,7 @@ import {
   normalizeDesignerRejectReason,
 } from '@/lib/request-board-review-actions';
 import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { safeDecodeFileName } from '@/lib/validation';
 
 /* ─── Helpers ─── */
@@ -193,7 +199,11 @@ export default function RequestBoardReviewScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, notificationId, notificationTarget } = useLocalSearchParams<{
+    id: string;
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
   const {
     role,
     readOnly,
@@ -220,7 +230,26 @@ export default function RequestBoardReviewScreen() {
   const [designerRejectReason, setDesignerRejectReason] = useState('');
   const [attachmentUploadDraft, setAttachmentUploadDraft] = useState<AttachmentUploadDraft | null>(null);
 
-  const requestId = id ? parseInt(id, 10) : null;
+  const requestId = parseExactlyOnePositiveIntegerRouteParam(id);
+  const hasInvalidRequestRoute =
+    hasPresentRouteParam(id) && requestId === null;
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasInvalidRequestRoute && requestId
+      ? { version: 1, kind: 'request', requestId }
+      : null,
+    loadState: hasInvalidRequestRoute
+      ? 'error'
+      : fetchError
+      ? 'error'
+      : detail?.id === requestId
+        ? 'success'
+        : loading
+          ? 'loading'
+          : requestId
+            ? 'error'
+            : 'idle',
+  });
 
   const fetchData = useCallback(async () => {
     if (!hydrated) {
@@ -906,6 +935,10 @@ export default function RequestBoardReviewScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>

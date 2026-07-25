@@ -81,6 +81,47 @@ describe('group chat web route helpers', () => {
     );
   });
 
+  it('accepts attachment-only v2 messages only with complete idempotency metadata', () => {
+    const attachmentIntentId = '7d493f2e-21c9-4c86-b94b-43c875555001';
+    const deliveryKey = '7d493f2e-21c9-4c86-b94b-43c875555002';
+    const payloadFingerprint = 'a'.repeat(64);
+    assert.deepEqual(
+      normalizeGroupChatProxyPayload({
+        type: 'group_chat_send',
+        content: '',
+        attachment_intent_ids: [attachmentIntentId],
+        delivery_key: deliveryKey,
+        payload_fingerprint: payloadFingerprint,
+      }),
+      {
+        ok: true,
+        payload: {
+          type: 'group_chat_send',
+          content: '',
+          message_type: 'text',
+          attachment_intent_ids: [attachmentIntentId],
+          delivery_key: deliveryKey,
+          payload_fingerprint: payloadFingerprint,
+        },
+      },
+    );
+
+    assert.deepEqual(
+      normalizeGroupChatProxyPayload({
+        type: 'group_chat_send',
+        content: '',
+        attachment_intent_ids: [attachmentIntentId],
+        delivery_key: 'not-a-uuid',
+        payload_fingerprint: payloadFingerprint,
+      }),
+      {
+        ok: false,
+        status: 400,
+        message: 'Invalid group chat attachment delivery',
+      },
+    );
+  });
+
   it('builds the Edge Function URL and required app-session headers', () => {
     assert.equal(
       getGroupChatFunctionUrl('https://example.supabase.co/'),

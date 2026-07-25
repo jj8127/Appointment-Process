@@ -353,15 +353,411 @@ create table if not exists public.notifications (
   fc_id uuid references public.fc_profiles (id) on delete set null,
   resident_id text,
   recipient_role text check (recipient_role in ('admin','fc','manager')),
+  recipient_actor_id uuid,
   title text not null,
   body text not null,
   category text,
+  target jsonb,
   target_url text,
+  delivery_key text,
   created_at timestamptz not null default now()
 );
 
 alter table public.notifications
-  add column if not exists target_url text;
+  add column if not exists target_url text,
+  add column if not exists target jsonb,
+  add column if not exists recipient_actor_id uuid,
+  add column if not exists delivery_key text;
+
+create or replace function public.is_valid_notification_target_v1(p_target jsonb)
+returns boolean
+language sql
+immutable
+strict
+set search_path = pg_catalog, public
+as $$
+  select
+    jsonb_typeof(p_target) = 'object'
+    and p_target->'version' = '1'::jsonb
+    and case p_target->>'kind'
+      when 'fc_profile' then
+        (select array_agg(key order by key) = array['fcId','kind','version']
+           from jsonb_object_keys(p_target) key)
+        and coalesce(p_target->>'fcId', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      when 'onboarding_section' then
+        (select array_agg(key order by key) = array['fcId','kind','section','version']
+           from jsonb_object_keys(p_target) key)
+        and coalesce(p_target->>'fcId', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        and p_target->>'section' in ('home','consent','docs_upload','hanwha_commission','appointment')
+      when 'board_post' then
+        (select array_agg(key order by key) = array['kind','postId','version']
+           from jsonb_object_keys(p_target) key)
+        and coalesce(p_target->>'postId', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      when 'notice' then
+        (select array_agg(key order by key) = array['kind','noticeId','version']
+           from jsonb_object_keys(p_target) key)
+        and coalesce(p_target->>'noticeId', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      when 'exam' then
+        p_target->>'examType' in ('life','nonlife')
+        and (
+          (
+            (select array_agg(key order by key) =
+                    array['examRegistrationId','examType','kind','version']
+               from jsonb_object_keys(p_target) key)
+            and coalesce(p_target->>'examRegistrationId', '') ~*
+              '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          )
+          or
+          (
+            (select array_agg(key order by key) =
+                    array['examRoundId','examType','kind','version']
+               from jsonb_object_keys(p_target) key)
+            and coalesce(p_target->>'examRoundId', '') ~*
+              '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          )
+        )
+      when 'garamin_direct_chat' then
+        (select array_agg(key order by key) = array['conversationId','kind','version']
+           from jsonb_object_keys(p_target) key)
+        and coalesce(p_target->>'conversationId', '') ~*
+          '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      when 'group_chat' then
+        (select array_agg(key order by key) = array['kind','roomId','version']
+           from jsonb_object_keys(p_target) key)
+        and coalesce(p_target->>'roomId', '') ~*
+          '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      when 'request' then
+        (select array_agg(key order by key) = array['kind','requestId','version']
+           from jsonb_object_keys(p_target) key)
+        and jsonb_typeof(p_target->'requestId') = 'number'
+        and (p_target->>'requestId') ~ '^[1-9][0-9]*$'
+        and (p_target->>'requestId')::numeric <= 9007199254740991
+      when 'request_chat' then
+        (select array_agg(key order by key) = array['kind','requestDesignerId','version']
+           from jsonb_object_keys(p_target) key)
+        and jsonb_typeof(p_target->'requestDesignerId') = 'number'
+        and (p_target->>'requestDesignerId') ~ '^[1-9][0-9]*$'
+        and (p_target->>'requestDesignerId')::numeric <= 9007199254740991
+      when 'request_direct_chat' then
+        (select array_agg(key order by key) = array['directConversationId','kind','version']
+           from jsonb_object_keys(p_target) key)
+        and jsonb_typeof(p_target->'directConversationId') = 'number'
+        and (p_target->>'directConversationId') ~ '^[1-9][0-9]*$'
+        and (p_target->>'directConversationId')::numeric <= 9007199254740991
+      else false
+    end;
+$$;
+
+revoke all on function public.is_valid_notification_target_v1(jsonb)
+  from public, anon, authenticated;
+grant execute on function public.is_valid_notification_target_v1(jsonb)
+  to service_role;
+
+alter table public.notifications
+  drop constraint if exists notifications_target_v1_check;
+alter table public.notifications
+  add constraint notifications_target_v1_check
+  check (target is null or public.is_valid_notification_target_v1(target));
+alter table public.notifications
+  drop constraint if exists notifications_direct_recipient_actor_check;
+alter table public.notifications
+  add constraint notifications_direct_recipient_actor_check
+  check (resident_id is null or recipient_actor_id is not null)
+  not valid;
+
+comment on column public.notifications.target is
+  'Strict notification target v1. target_url is legacy display-only.';
+comment on column public.notifications.recipient_actor_id is
+  'Immutable UUID of an exact recipient. Null means a role-scoped broadcast.';
+comment on column public.notifications.delivery_key is
+  'Server-owned idempotency key for one domain event and one exact recipient.';
+
+create index if not exists idx_notifications_recipient_actor_created
+  on public.notifications (recipient_actor_id, created_at desc);
+create index if not exists idx_notifications_target_gin
+  on public.notifications using gin (target);
+create unique index if not exists idx_notifications_delivery_key_unique
+  on public.notifications (delivery_key);
+
+create table if not exists public.notification_receipts (
+  notification_id uuid not null references public.notifications(id) on delete cascade,
+  viewer_actor_id uuid not null,
+  viewer_role text not null check (viewer_role in ('fc','manager','admin','developer')),
+  read_at timestamptz,
+  dismissed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (notification_id, viewer_actor_id, viewer_role)
+);
+
+create index if not exists idx_notification_receipts_viewer_unread
+  on public.notification_receipts (viewer_actor_id, viewer_role, notification_id)
+  where dismissed_at is null;
+
+create table if not exists public.garamin_direct_conversations (
+  id uuid primary key default gen_random_uuid(),
+  fc_id uuid not null references public.fc_profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (fc_id)
+);
+
+do $$
+declare
+  v_policy record;
+  v_column record;
+begin
+  if to_regclass('public.messages') is not null then
+    execute '
+      alter table public.messages
+        add column if not exists conversation_id uuid,
+        add column if not exists sender_actor_id uuid,
+        add column if not exists receiver_actor_id uuid
+    ';
+    if not exists (
+      select 1 from pg_constraint
+       where conrelid = 'public.messages'::regclass
+         and conname = 'messages_conversation_id_fkey'
+    ) then
+      execute '
+        alter table public.messages
+        add constraint messages_conversation_id_fkey
+        foreign key (conversation_id)
+        references public.garamin_direct_conversations(id)
+        on delete set null
+        not valid
+      ';
+    end if;
+    execute '
+      create index if not exists idx_messages_conversation_created
+      on public.messages (conversation_id, created_at)
+    ';
+    execute '
+      create index if not exists idx_messages_conversation_unread
+      on public.messages (conversation_id, receiver_id, is_read, created_at)
+    ';
+    execute 'alter table public.messages enable row level security';
+    execute '
+      revoke all privileges on table public.messages
+      from public, anon, authenticated, service_role
+    ';
+    for v_column in
+      select column_name
+        from information_schema.columns
+       where table_schema = 'public'
+         and table_name = 'messages'
+    loop
+      execute format(
+        'revoke all privileges (%I) on table public.messages from public, anon, authenticated, service_role',
+        v_column.column_name
+      );
+    end loop;
+    for v_policy in
+      select policyname
+        from pg_policies
+       where schemaname = 'public'
+         and tablename = 'messages'
+    loop
+      execute format('drop policy if exists %I on public.messages', v_policy.policyname);
+    end loop;
+    execute '
+      create policy "messages service role"
+      on public.messages
+      for all
+      to service_role
+      using (true)
+      with check (true)
+    ';
+    execute '
+      grant select, insert, update, delete
+      on table public.messages
+      to service_role
+    ';
+  end if;
+end
+$$;
+
+create or replace function public.send_garamin_direct_message_with_notification(
+  p_message_id uuid,
+  p_conversation_id uuid,
+  p_sender_id text,
+  p_receiver_id text,
+  p_sender_actor_id uuid,
+  p_receiver_actor_id uuid,
+  p_content text
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_fc_id uuid;
+  v_fc_phone text;
+  v_existing_message record;
+  v_notification_rows jsonb;
+begin
+  if p_message_id is null
+     or p_conversation_id is null
+     or p_sender_actor_id is null
+     or coalesce(length(btrim(p_content)), 0) = 0
+     or length(p_content) > 4000 then
+    raise exception 'invalid_direct_message_payload';
+  end if;
+
+  select conversation.fc_id, profile.phone
+    into v_fc_id, v_fc_phone
+    from public.garamin_direct_conversations conversation
+    join public.fc_profiles profile on profile.id = conversation.fc_id
+   where conversation.id = p_conversation_id
+     and profile.signup_completed = true;
+  if v_fc_id is null or v_fc_phone is null then
+    raise exception 'direct_conversation_not_found';
+  end if;
+
+  if p_sender_id = v_fc_phone and p_receiver_id = 'admin' then
+    if p_sender_actor_id <> v_fc_id or p_receiver_actor_id is not null then
+      raise exception 'direct_message_actor_mismatch';
+    end if;
+    if not exists (
+      select 1 from public.admin_accounts account where account.active = true
+    ) then
+      raise exception 'direct_message_recipient_not_found';
+    end if;
+  elsif p_sender_id = 'admin' and p_receiver_id = v_fc_phone then
+    if p_receiver_actor_id <> v_fc_id
+       or not exists (
+         select 1
+           from public.admin_accounts account
+          where account.id = p_sender_actor_id
+            and account.active = true
+       ) then
+      raise exception 'direct_message_actor_mismatch';
+    end if;
+  else
+    raise exception 'direct_message_identity_mismatch';
+  end if;
+
+  insert into public.messages (
+    id,
+    conversation_id,
+    sender_id,
+    receiver_id,
+    sender_actor_id,
+    receiver_actor_id,
+    content,
+    message_type,
+    is_read
+  )
+  values (
+    p_message_id,
+    p_conversation_id,
+    p_sender_id,
+    p_receiver_id,
+    p_sender_actor_id,
+    p_receiver_actor_id,
+    p_content,
+    'text',
+    false
+  )
+  on conflict (id) do nothing;
+
+  select message.*
+    into v_existing_message
+    from public.messages message
+   where message.id = p_message_id;
+  if v_existing_message.id is null
+     or v_existing_message.conversation_id is distinct from p_conversation_id
+     or v_existing_message.sender_id is distinct from p_sender_id
+     or v_existing_message.receiver_id is distinct from p_receiver_id
+     or v_existing_message.sender_actor_id is distinct from p_sender_actor_id
+     or v_existing_message.receiver_actor_id is distinct from p_receiver_actor_id
+     or v_existing_message.content is distinct from p_content
+     or v_existing_message.message_type is distinct from 'text' then
+    raise exception 'direct_message_idempotency_conflict';
+  end if;
+
+  if p_receiver_id = 'admin' then
+    with inserted as (
+      insert into public.notifications (
+        title, body, category, fc_id, resident_id, recipient_actor_id,
+        recipient_role, target, target_url, delivery_key
+      )
+      select
+        '새 메시지',
+        left(p_content, 160),
+        'message',
+        v_fc_id,
+        account.phone,
+        account.id,
+        'admin',
+        jsonb_build_object(
+          'version', 1,
+          'kind', 'garamin_direct_chat',
+          'conversationId', p_conversation_id
+        ),
+        '/chat',
+        'direct_message:' || p_message_id::text || ':' || account.id::text
+      from public.admin_accounts account
+      where account.active = true
+      on conflict (delivery_key) do update
+        set delivery_key = excluded.delivery_key
+      returning id, resident_id, recipient_actor_id, recipient_role, target
+    )
+    select coalesce(
+      jsonb_agg(to_jsonb(inserted) order by inserted.recipient_actor_id),
+      '[]'::jsonb
+    )
+      into v_notification_rows
+      from inserted;
+  else
+    with inserted as (
+      insert into public.notifications (
+        title, body, category, fc_id, resident_id, recipient_actor_id,
+        recipient_role, target, target_url, delivery_key
+      )
+      values (
+        '새 메시지',
+        left(p_content, 160),
+        'message',
+        v_fc_id,
+        v_fc_phone,
+        v_fc_id,
+        'fc',
+        jsonb_build_object(
+          'version', 1,
+          'kind', 'garamin_direct_chat',
+          'conversationId', p_conversation_id
+        ),
+        '/chat',
+        'direct_message:' || p_message_id::text || ':' || v_fc_id::text
+      )
+      on conflict (delivery_key) do update
+        set delivery_key = excluded.delivery_key
+      returning id, resident_id, recipient_actor_id, recipient_role, target
+    )
+    select coalesce(jsonb_agg(to_jsonb(inserted)), '[]'::jsonb)
+      into v_notification_rows
+      from inserted;
+  end if;
+
+  if jsonb_array_length(coalesce(v_notification_rows, '[]'::jsonb)) = 0 then
+    raise exception 'direct_message_notification_not_persisted';
+  end if;
+
+  return jsonb_build_object(
+    'message_id', p_message_id,
+    'notifications', v_notification_rows
+  );
+end;
+$$;
+
+revoke all on function public.send_garamin_direct_message_with_notification(
+  uuid, uuid, text, text, uuid, uuid, text
+) from public, anon, authenticated;
+grant execute on function public.send_garamin_direct_message_with_notification(
+  uuid, uuid, text, text, uuid, uuid, text
+) to service_role;
 
 alter table public.device_tokens
   drop constraint if exists device_tokens_role_check;
@@ -585,6 +981,34 @@ begin
 end;
 $$;
 
+create or replace function public.enforce_profiles_trusted_write()
+returns trigger
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $$
+begin
+  if current_user in ('anon', 'authenticated') then
+    raise insufficient_privilege
+      using message = 'profiles authorization state is server-managed';
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.enforce_profiles_trusted_write()
+  from public, anon, authenticated;
+grant execute on function public.enforce_profiles_trusted_write()
+  to service_role;
+
+comment on function public.enforce_profiles_trusted_write() is
+  'Defense in depth: profile id, role, and fc_id writes are trusted-server state; Data API client roles are rejected.';
+
 drop trigger if exists trg_auth_users_create_profile on auth.users;
 create trigger trg_auth_users_create_profile
 after insert on auth.users
@@ -640,6 +1064,11 @@ create trigger trg_profiles_updated_at
 before update on public.profiles
 for each row execute function public.set_updated_at();
 
+drop trigger if exists trg_profiles_trusted_write on public.profiles;
+create trigger trg_profiles_trusted_write
+before insert or update or delete on public.profiles
+for each row execute function public.enforce_profiles_trusted_write();
+
 drop trigger if exists trg_web_push_subscriptions_updated_at on public.web_push_subscriptions;
 create trigger trg_web_push_subscriptions_updated_at
 before update on public.web_push_subscriptions
@@ -668,6 +1097,8 @@ alter table public.affiliation_manager_mappings enable row level security;
 alter table public.profiles enable row level security;
 alter table public.web_push_subscriptions enable row level security;
 alter table public.notifications enable row level security;
+alter table public.notification_receipts enable row level security;
+alter table public.garamin_direct_conversations enable row level security;
 alter table public.group_chat_rooms enable row level security;
 alter table public.group_chat_messages enable row level security;
 alter table public.group_chat_reads enable row level security;
@@ -2063,29 +2494,10 @@ end;
 $$;
 
 drop policy if exists "profiles select" on public.profiles;
-create policy "profiles select"
-  on public.profiles
-  for select
-  using (public.is_admin() or id = auth.uid());
-
 drop policy if exists "profiles insert" on public.profiles;
-create policy "profiles insert"
-  on public.profiles
-  for insert
-  with check (public.is_admin() or id = auth.uid());
-
 drop policy if exists "profiles update" on public.profiles;
-create policy "profiles update"
-  on public.profiles
-  for update
-  using (public.is_admin() or id = auth.uid())
-  with check (public.is_admin() or id = auth.uid());
-
 drop policy if exists "profiles delete" on public.profiles;
-create policy "profiles delete"
-  on public.profiles
-  for delete
-  using (public.is_admin());
+drop policy if exists "profiles own row select" on public.profiles;
 
 drop policy if exists "fc_profiles select" on public.fc_profiles;
 create policy "fc_profiles select"
@@ -2141,20 +2553,16 @@ create policy "fc_documents update"
   with check (public.is_admin());
 
 drop policy if exists "notifications select" on public.notifications;
-create policy "notifications select"
-  on public.notifications
-  for select
-  using (
-    public.is_admin()
-    or public.is_manager()
-    or public.is_fc()
-  );
-
 drop policy if exists "notifications insert" on public.notifications;
-create policy "notifications insert"
-  on public.notifications
-  for insert
-  with check (public.is_admin());
+
+revoke all privileges on table public.notifications from public, anon, authenticated;
+grant select, insert, update, delete on table public.notifications to service_role;
+
+revoke all privileges on table public.notification_receipts from public, anon, authenticated;
+grant select, insert, update, delete on table public.notification_receipts to service_role;
+
+revoke all privileges on table public.garamin_direct_conversations from public, anon, authenticated;
+grant select, insert, update, delete on table public.garamin_direct_conversations to service_role;
 
 drop policy if exists "group_chat_rooms service role" on public.group_chat_rooms;
 create policy "group_chat_rooms service role"
@@ -2325,29 +2733,9 @@ create policy "exam_locations delete"
   using (public.is_admin());
 
 drop policy if exists "fc_credentials select" on public.fc_credentials;
-create policy "fc_credentials select"
-  on public.fc_credentials
-  for select
-  using (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
-
 drop policy if exists "fc_credentials insert" on public.fc_credentials;
-create policy "fc_credentials insert"
-  on public.fc_credentials
-  for insert
-  with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
-
 drop policy if exists "fc_credentials update" on public.fc_credentials;
-create policy "fc_credentials update"
-  on public.fc_credentials
-  for update
-  using (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()))
-  with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
-
 drop policy if exists "fc_credentials delete" on public.fc_credentials;
-create policy "fc_credentials delete"
-  on public.fc_credentials
-  for delete
-  using (public.is_admin());
 
 drop policy if exists "fc_identity_secure select" on public.fc_identity_secure;
 create policy "fc_identity_secure select"
@@ -2450,29 +2838,97 @@ create policy "referral_events delete"
   using (public.is_admin());
 
 drop policy if exists "admin_accounts select" on public.admin_accounts;
-create policy "admin_accounts select"
-  on public.admin_accounts
-  for select
-  using (public.is_admin());
-
 drop policy if exists "admin_accounts insert" on public.admin_accounts;
-create policy "admin_accounts insert"
-  on public.admin_accounts
-  for insert
-  with check (public.is_admin());
-
 drop policy if exists "admin_accounts update" on public.admin_accounts;
-create policy "admin_accounts update"
-  on public.admin_accounts
-  for update
-  using (public.is_admin())
-  with check (public.is_admin());
-
 drop policy if exists "admin_accounts delete" on public.admin_accounts;
-create policy "admin_accounts delete"
-  on public.admin_accounts
-  for delete
-  using (public.is_admin());
+
+-- Authorization and credential state is not a client-facing Data API surface.
+-- Remove every historical policy, including policies whose names predate this
+-- canonical schema, before installing the single own-profile read policy.
+do $$
+declare
+  policy_row record;
+begin
+  for policy_row in
+    select schemaname, tablename, policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = any (
+        array[
+          'profiles',
+          'fc_credentials',
+          'admin_accounts',
+          'manager_accounts'
+        ]::text[]
+      )
+  loop
+    execute format(
+      'drop policy if exists %I on %I.%I',
+      policy_row.policyname,
+      policy_row.schemaname,
+      policy_row.tablename
+    );
+  end loop;
+end;
+$$;
+
+revoke all privileges on table public.profiles from public, anon, authenticated;
+revoke all privileges on table public.fc_credentials from public, anon, authenticated;
+revoke all privileges on table public.admin_accounts from public, anon, authenticated;
+revoke all privileges on table public.manager_accounts from public, anon, authenticated;
+
+do $$
+declare
+  target_table text;
+  column_list text;
+begin
+  foreach target_table in array array[
+    'profiles',
+    'fc_credentials',
+    'admin_accounts',
+    'manager_accounts'
+  ]
+  loop
+    select string_agg(format('%I', column_name), ', ' order by ordinal_position)
+      into column_list
+    from information_schema.columns
+    where table_schema = 'public'
+      and information_schema.columns.table_name = target_table;
+
+    if column_list is not null then
+      execute format(
+        'revoke all privileges (%s) on table public.%I from public, anon, authenticated',
+        column_list,
+        target_table
+      );
+    end if;
+  end loop;
+end;
+$$;
+
+grant select on table public.profiles to authenticated;
+
+grant select, insert, update, delete
+  on table public.profiles
+  to service_role;
+grant select, insert, update, delete
+  on table public.fc_credentials
+  to service_role;
+grant select, insert, update, delete
+  on table public.admin_accounts
+  to service_role;
+grant select, insert, update, delete
+  on table public.manager_accounts
+  to service_role;
+
+create policy "profiles own row select"
+  on public.profiles
+  for select
+  to authenticated
+  using (
+    (select auth.uid()) is not null
+    and id = (select auth.uid())
+  );
 
 drop policy if exists "affiliation_manager_mappings select" on public.affiliation_manager_mappings;
 create policy "affiliation_manager_mappings select"
@@ -2920,7 +3376,8 @@ create or replace function public.update_board_post_atomic(
   p_attachment_order uuid[]
 ) returns void
 language plpgsql
-set search_path = public
+security invoker
+set search_path = public, pg_temp
 as $$
 declare
   v_current_attachment_count integer;
@@ -2964,14 +3421,16 @@ begin
        and attachment.post_id = p_post_id;
   end if;
 
-  if p_update_category or p_update_title or p_update_content then
-    update public.board_posts
-       set category_id = case when p_update_category then p_category_id else category_id end,
-           title = case when p_update_title then p_title else title end,
-           content = case when p_update_content then p_content else content end,
-           edited_at = now()
-     where id = p_post_id;
-  end if;
+  update public.board_posts
+     set category_id = case when p_update_category then p_category_id else category_id end,
+         title = case when p_update_title then p_title else title end,
+         content = case when p_update_content then p_content else content end,
+         edited_at = case
+           when p_update_category or p_update_title or p_update_content then now()
+           else edited_at
+         end,
+         updated_at = now()
+   where id = p_post_id;
 end;
 $$;
 
@@ -3716,7 +4175,7 @@ as $$
   select * from descendant_rows;
 $$;
 
-create or replace function public.apply_referral_link_state(
+create or replace function public._apply_referral_link_state_unchecked_20260724(
   p_invitee_fc_id uuid,
   p_inviter_fc_id uuid default null,
   p_referral_code_id uuid default null,
@@ -3962,6 +4421,68 @@ begin
     'recommenderLinkSource', next_link_source,
     'recommenderLinkedAt', next_linked_at,
     'eventType', event_type
+  );
+end;
+$$;
+
+create or replace function public.apply_referral_link_state(
+  p_invitee_fc_id uuid,
+  p_inviter_fc_id uuid default null,
+  p_referral_code_id uuid default null,
+  p_referral_code text default null,
+  p_source text default 'self_service',
+  p_actor_phone text default null,
+  p_actor_role text default null,
+  p_actor_staff_type text default null,
+  p_reason text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  inviter_is_manager_shadow boolean := false;
+  normalized_inviter_phone text := null;
+begin
+  if p_inviter_fc_id is not null then
+    perform 1
+    from public.fc_profiles invitee_fc
+    where invitee_fc.id = p_invitee_fc_id
+    for update;
+
+    select
+      inviter_fc.is_manager_referral_shadow,
+      regexp_replace(coalesce(inviter_fc.phone, ''), '[^0-9]', '', 'g')
+    into
+      inviter_is_manager_shadow,
+      normalized_inviter_phone
+    from public.fc_profiles inviter_fc
+    where inviter_fc.id = p_inviter_fc_id
+    for update;
+
+    if inviter_is_manager_shadow is true then
+      perform 1
+      from public.manager_accounts manager_row
+      where regexp_replace(coalesce(manager_row.phone, ''), '[^0-9]', '', 'g') = normalized_inviter_phone
+        and manager_row.active = true
+      for share;
+
+      if not found then
+        raise exception '추천인으로 지정할 수 없는 FC입니다.';
+      end if;
+    end if;
+  end if;
+
+  return public._apply_referral_link_state_unchecked_20260724(
+    p_invitee_fc_id => p_invitee_fc_id,
+    p_inviter_fc_id => p_inviter_fc_id,
+    p_referral_code_id => p_referral_code_id,
+    p_referral_code => p_referral_code,
+    p_source => p_source,
+    p_actor_phone => p_actor_phone,
+    p_actor_role => p_actor_role,
+    p_actor_staff_type => p_actor_staff_type,
+    p_reason => p_reason
   );
 end;
 $$;
@@ -4214,6 +4735,7 @@ revoke all on function public.admin_backfill_referral_codes(integer, text, text,
 revoke all on function public.admin_apply_recommender_override(uuid, uuid, text, text, text, text) from public, anon, authenticated;
 revoke all on function public.get_invitee_referral_code(uuid) from public, anon, authenticated;
 revoke all on function public.get_referral_subtree(uuid, int) from public, anon, authenticated;
+revoke all on function public._apply_referral_link_state_unchecked_20260724(uuid, uuid, uuid, text, text, text, text, text, text) from public, anon, authenticated, service_role;
 revoke all on function public.apply_referral_link_state(uuid, uuid, uuid, text, text, text, text, text, text) from public, anon, authenticated;
 
 grant execute on function public.touch_user_presence(text, text) to service_role;
@@ -4611,3 +5133,3956 @@ grant execute on function public.submit_exam_registration_with_payment_proof(
   date,
   uuid
 ) to service_role;
+
+-- ============================
+-- 시험 월별 묶음 신청 / 상태 결정
+-- Paired migration:
+-- 20260724131931_exam_bundle_monthly_slot_and_decisions.sql
+-- ============================
+
+alter table public.exam_registrations
+  add column if not exists exam_month date,
+  add column if not exists includes_primary_exam boolean not null default true,
+  add column if not exists rejection_reason text,
+  add column if not exists rejected_at timestamptz,
+  add column if not exists rejected_by_admin_id uuid
+    references public.admin_accounts (id) on delete set null,
+  add column if not exists rejected_by_staff_type text;
+
+alter table public.exam_registrations
+  alter column is_third_exam set default false;
+update public.exam_registrations
+   set is_third_exam = false
+ where is_third_exam is null;
+alter table public.exam_registrations
+  alter column is_third_exam set not null;
+
+update public.exam_registrations
+   set is_confirmed = false
+ where is_confirmed is null;
+alter table public.exam_registrations
+  alter column is_confirmed set default false;
+alter table public.exam_registrations
+  alter column is_confirmed set not null;
+
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_status_check;
+alter table public.exam_registrations
+  add constraint exam_registrations_status_check
+  check (
+    status in (
+      'applied', 'confirmed', 'completed', 'no_show', 'rejected',
+      'cancelled_by_fc', 'cancelled_by_admin'
+    )
+  );
+
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_confirmation_status_check;
+alter table public.exam_registrations
+  add constraint exam_registrations_confirmation_status_check
+  check (
+    is_confirmed = (
+      status in ('confirmed', 'completed', 'no_show')
+    )
+  );
+
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_active_month_shape_check;
+alter table public.exam_registrations
+  add constraint exam_registrations_active_month_shape_check
+  check (
+    status not in ('applied', 'confirmed', 'completed', 'no_show')
+    or (
+      exam_month is not null
+      and exam_month = date_trunc('month', exam_month)::date
+      and (
+        fc_id is not null
+        or resident_id like 'deleted-exam:%'
+      )
+    )
+  );
+
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_subject_selection_check;
+alter table public.exam_registrations
+  add constraint exam_registrations_subject_selection_check
+  check (includes_primary_exam or is_third_exam);
+
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_rejection_shape_check;
+alter table public.exam_registrations
+  add constraint exam_registrations_rejection_shape_check
+  check (
+    (
+      status = 'rejected'
+      and rejection_reason is not null
+      and char_length(btrim(rejection_reason)) between 1 and 1000
+      and rejected_at is not null
+      and rejected_by_staff_type in ('admin', 'developer')
+    )
+    or (
+      status <> 'rejected'
+      and rejection_reason is null
+      and rejected_at is null
+      and rejected_by_admin_id is null
+      and rejected_by_staff_type is null
+    )
+  );
+
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_payment_proof_policy_check;
+alter table public.exam_registrations
+  add constraint exam_registrations_payment_proof_policy_check
+  check (
+    payment_proof_policy_version in (0, 1)
+    and (
+      payment_proof_policy_version = 0
+      or payment_proof_attached
+      or status in ('cancelled_by_fc', 'cancelled_by_admin')
+      or resident_id like 'deleted-exam:%'
+    )
+  );
+
+drop index if exists public.idx_exam_registrations_round_resident;
+create unique index if not exists idx_exam_registrations_active_fc_exam_month
+  on public.exam_registrations (fc_id, exam_month)
+  where status in ('applied', 'confirmed', 'completed', 'no_show');
+create index if not exists idx_exam_registrations_resident_history
+  on public.exam_registrations (resident_id, created_at desc, id desc);
+
+create table if not exists public.exam_registration_decision_events (
+  id uuid primary key default gen_random_uuid(),
+  registration_id uuid not null
+    references public.exam_registrations (id) on delete restrict,
+  action text not null
+    check (
+      action in (
+        'submitted', 'updated', 'confirmed', 'unconfirmed', 'rejected',
+        'cancelled_by_fc', 'cancelled_by_admin', 'identity_detached'
+      )
+    ),
+  from_status text,
+  to_status text not null,
+  reason text,
+  actor_type text not null
+    check (actor_type in ('fc', 'admin', 'developer', 'service')),
+  actor_admin_id_snapshot uuid,
+  actor_fc_id_snapshot uuid,
+  created_at timestamptz not null default now(),
+  constraint exam_registration_decision_events_reason_check
+    check (
+      (action = 'rejected' and char_length(btrim(coalesce(reason, ''))) between 1 and 1000)
+      or (action <> 'rejected' and reason is null)
+    )
+);
+
+alter table public.exam_registration_decision_events enable row level security;
+revoke all on table public.exam_registration_decision_events
+  from public, anon, authenticated, service_role;
+revoke update, delete, truncate on table public.exam_registration_decision_events
+  from service_role;
+grant select, insert on table public.exam_registration_decision_events
+  to service_role;
+
+create or replace function public.reject_exam_decision_event_mutation()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+begin
+  raise exception using
+    errcode = '55000',
+    message = 'exam_decision_events_are_append_only';
+end;
+$$;
+
+drop trigger if exists trg_reject_exam_decision_event_mutation
+  on public.exam_registration_decision_events;
+create trigger trg_reject_exam_decision_event_mutation
+before update or delete or truncate on public.exam_registration_decision_events
+for each statement execute function public.reject_exam_decision_event_mutation();
+
+create or replace function public.prevent_exam_history_drift()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+begin
+  if tg_table_name = 'exam_rounds' then
+    if tg_op = 'DELETE' and exists (
+      select 1 from public.exam_registrations where round_id = old.id
+    ) then
+      raise exception using errcode = '55000', message = 'exam_round_has_registrations';
+    end if;
+    if tg_op = 'UPDATE'
+       and (new.exam_date is distinct from old.exam_date or new.exam_type is distinct from old.exam_type)
+       and exists (
+         select 1 from public.exam_registrations where round_id = old.id
+       ) then
+      raise exception using errcode = '55000', message = 'exam_round_history_locked';
+    end if;
+  elsif tg_table_name = 'exam_locations' then
+    if tg_op = 'DELETE' and exists (
+      select 1 from public.exam_registrations where location_id = old.id
+    ) then
+      raise exception using errcode = '55000', message = 'exam_location_has_registrations';
+    end if;
+    if tg_op = 'UPDATE'
+       and new.round_id is distinct from old.round_id
+       and exists (
+         select 1 from public.exam_registrations where location_id = old.id
+       ) then
+      raise exception using errcode = '55000', message = 'exam_location_history_locked';
+    end if;
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+drop trigger if exists trg_prevent_exam_round_history_drift on public.exam_rounds;
+create trigger trg_prevent_exam_round_history_drift
+before update or delete on public.exam_rounds
+for each row execute function public.prevent_exam_history_drift();
+
+drop trigger if exists trg_prevent_exam_location_history_drift on public.exam_locations;
+create trigger trg_prevent_exam_location_history_drift
+before update or delete on public.exam_locations
+for each row execute function public.prevent_exam_history_drift();
+
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_round_id_fkey;
+alter table public.exam_registrations
+  add constraint exam_registrations_round_id_fkey
+  foreign key (round_id) references public.exam_rounds (id) on delete restrict;
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_location_id_fkey;
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_location_round_fkey;
+alter table public.exam_registrations
+  add constraint exam_registrations_location_round_fkey
+  foreign key (location_id, round_id)
+  references public.exam_locations (id, round_id)
+  on delete restrict;
+
+drop policy if exists "exam_registrations insert" on public.exam_registrations;
+drop policy if exists "exam_registrations anon insert" on public.exam_registrations;
+drop policy if exists "exam_registrations update" on public.exam_registrations;
+drop policy if exists "exam_registrations anon update" on public.exam_registrations;
+drop policy if exists "exam_registrations delete" on public.exam_registrations;
+drop policy if exists "exam_registrations anon delete" on public.exam_registrations;
+revoke insert, update, delete on table public.exam_registrations from anon, authenticated;
+
+drop policy if exists "exam_rounds insert" on public.exam_rounds;
+drop policy if exists "exam_rounds anon insert" on public.exam_rounds;
+drop policy if exists "exam_rounds update" on public.exam_rounds;
+drop policy if exists "exam_rounds delete" on public.exam_rounds;
+revoke insert, update, delete on table public.exam_rounds from anon, authenticated;
+
+drop policy if exists "exam_locations insert" on public.exam_locations;
+drop policy if exists "exam_locations anon insert" on public.exam_locations;
+drop policy if exists "exam_locations update" on public.exam_locations;
+drop policy if exists "exam_locations delete" on public.exam_locations;
+revoke insert, update, delete on table public.exam_locations from anon, authenticated;
+
+create or replace function public.submit_exam_registration_with_payment_proof_v2(
+  p_fc_id uuid,
+  p_resident_id text,
+  p_round_id uuid,
+  p_location_id uuid,
+  p_includes_primary_exam boolean,
+  p_is_third_exam boolean,
+  p_fee_paid_date date,
+  p_upload_id uuid default null
+)
+returns table (registration_id uuid, previous_proof_path text)
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_registration public.exam_registrations%rowtype;
+  v_round public.exam_rounds%rowtype;
+  v_upload public.exam_payment_proof_uploads%rowtype;
+  v_exam_month date;
+  v_previous_proof_path text;
+  v_action text;
+begin
+  if p_fc_id is null or nullif(btrim(p_resident_id), '') is null then
+    raise exception using errcode = '22023', message = 'invalid_exam_actor';
+  end if;
+  if not coalesce(p_includes_primary_exam, false)
+     and not coalesce(p_is_third_exam, false) then
+    raise exception using errcode = '23514', message = 'exam_subject_required';
+  end if;
+  if p_fee_paid_date is null or p_fee_paid_date > current_date then
+    raise exception using errcode = '22023', message = 'invalid_fee_paid_date';
+  end if;
+
+  select round_row.* into v_round
+    from public.exam_rounds round_row
+   where round_row.id = p_round_id
+   for share;
+  if v_round.id is null or v_round.exam_date is null then
+    raise exception using errcode = '22023', message = 'invalid_exam_round';
+  end if;
+  if v_round.registration_deadline < current_date then
+    raise exception using errcode = '55000', message = 'exam_round_closed';
+  end if;
+  if not exists (
+    select 1 from public.exam_locations
+     where id = p_location_id and round_id = p_round_id
+  ) then
+    raise exception using errcode = '23503', message = 'invalid_exam_location';
+  end if;
+
+  v_exam_month := date_trunc('month', v_round.exam_date)::date;
+  perform pg_advisory_xact_lock(
+    hashtextextended(p_fc_id::text || ':' || v_exam_month::text, 0)
+  );
+
+  select registration.* into v_registration
+    from public.exam_registrations registration
+   where registration.fc_id = p_fc_id
+     and registration.exam_month = v_exam_month
+     and registration.status in ('applied', 'confirmed', 'completed', 'no_show')
+   order by registration.created_at, registration.id
+   limit 1
+   for update;
+
+  if v_registration.id is not null
+     and (
+       v_registration.round_id <> p_round_id
+       or v_registration.status <> 'applied'
+       or coalesce(v_registration.is_confirmed, false)
+     ) then
+    raise exception using errcode = '23505', message = 'active_exam_month_already_registered';
+  end if;
+
+  if p_upload_id is null then
+    if v_registration.id is null
+       or not coalesce(v_registration.payment_proof_attached, false) then
+      raise exception using errcode = '23514', message = 'payment_proof_required';
+    end if;
+  else
+    select upload.* into v_upload
+      from public.exam_payment_proof_uploads upload
+     where upload.id = p_upload_id and upload.fc_id = p_fc_id
+     for update;
+    if v_upload.id is null then
+      raise exception using errcode = '22023', message = 'payment_proof_not_found';
+    end if;
+    if v_upload.status = 'pending' and v_upload.expires_at <= now() then
+      raise exception using errcode = '55000', message = 'payment_proof_expired';
+    end if;
+    if v_upload.status = 'attached' then
+      if v_registration.id is null or v_upload.registration_id <> v_registration.id then
+        raise exception using errcode = '55000', message = 'payment_proof_already_used';
+      end if;
+    elsif v_upload.status <> 'pending' then
+      raise exception using errcode = '55000', message = 'payment_proof_not_available';
+    end if;
+  end if;
+
+  if v_registration.id is null then
+    insert into public.exam_registrations (
+      resident_id, fc_id, round_id, location_id, exam_month, status,
+      is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date,
+      payment_proof_attached, payment_proof_policy_version
+    ) values (
+      btrim(p_resident_id), p_fc_id, p_round_id, p_location_id, v_exam_month,
+      'applied', false, p_includes_primary_exam, p_is_third_exam,
+      p_fee_paid_date, p_upload_id is not null, 1
+    )
+    returning * into v_registration;
+    v_action := 'submitted';
+  else
+    update public.exam_registrations
+       set resident_id = btrim(p_resident_id),
+           location_id = p_location_id,
+           includes_primary_exam = p_includes_primary_exam,
+           is_third_exam = p_is_third_exam,
+           fee_paid_date = p_fee_paid_date,
+           payment_proof_attached = payment_proof_attached or p_upload_id is not null,
+           payment_proof_policy_version = 1
+     where id = v_registration.id
+    returning * into v_registration;
+    v_action := 'updated';
+  end if;
+
+  if p_upload_id is not null and v_upload.status = 'pending' then
+    select proof.storage_path into v_previous_proof_path
+      from public.exam_payment_proof_uploads proof
+     where proof.registration_id = v_registration.id and proof.status = 'attached'
+     for update;
+    update public.exam_payment_proof_uploads proof
+       set status = 'replaced'
+     where proof.registration_id = v_registration.id and proof.status = 'attached';
+    update public.exam_payment_proof_uploads proof
+       set status = 'attached', registration_id = v_registration.id, consumed_at = now()
+     where proof.id = p_upload_id;
+  end if;
+
+  insert into public.exam_registration_decision_events (
+    registration_id, action, from_status, to_status, actor_type, actor_fc_id_snapshot
+  ) values (
+    v_registration.id, v_action,
+    case when v_action = 'updated' then 'applied' else null end,
+    'applied', 'fc', p_fc_id
+  );
+
+  return query select v_registration.id, v_previous_proof_path;
+end;
+$$;
+
+revoke all on function public.submit_exam_registration_with_payment_proof_v2(
+  uuid, text, uuid, uuid, boolean, boolean, date, uuid
+) from public, anon, authenticated;
+grant execute on function public.submit_exam_registration_with_payment_proof_v2(
+  uuid, text, uuid, uuid, boolean, boolean, date, uuid
+) to service_role;
+
+create or replace function public.submit_exam_registration_with_payment_proof(
+  p_fc_id uuid,
+  p_resident_id text,
+  p_round_id uuid,
+  p_location_id uuid,
+  p_is_third_exam boolean,
+  p_fee_paid_date date,
+  p_upload_id uuid default null
+)
+returns table (registration_id uuid, previous_proof_path text)
+language sql
+security invoker
+set search_path = public, pg_temp
+as $$
+  select * from public.submit_exam_registration_with_payment_proof_v2(
+    p_fc_id, p_resident_id, p_round_id, p_location_id, true,
+    coalesce(p_is_third_exam, false), p_fee_paid_date, p_upload_id
+  );
+$$;
+
+revoke all on function public.submit_exam_registration_with_payment_proof(
+  uuid, text, uuid, uuid, boolean, date, uuid
+) from public, anon, authenticated;
+grant execute on function public.submit_exam_registration_with_payment_proof(
+  uuid, text, uuid, uuid, boolean, date, uuid
+) to service_role;
+
+drop function if exists public.transition_exam_registration(
+  uuid, text, text, uuid, uuid, text
+);
+
+create or replace function public.transition_exam_registration(
+  p_registration_id uuid,
+  p_action text,
+  p_actor_type text,
+  p_actor_admin_id uuid default null,
+  p_actor_fc_id uuid default null,
+  p_reason text default null
+)
+returns table (
+  registration_id uuid,
+  status text,
+  proof_path text,
+  target_resident_id text,
+  exam_type text,
+  notification_id uuid,
+  recipient_actor_id uuid
+)
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_registration public.exam_registrations%rowtype;
+  v_admin public.admin_accounts%rowtype;
+  v_exam_type text;
+  v_from_status text;
+  v_to_status text;
+  v_reason text;
+  v_proof_path text;
+  v_target_url text;
+  v_title text;
+  v_body text;
+  v_notification_id uuid;
+begin
+  select registration, round_row.exam_type
+    into v_registration, v_exam_type
+    from public.exam_registrations registration
+    join public.exam_rounds round_row on round_row.id = registration.round_id
+   where registration.id = p_registration_id
+   for update of registration;
+
+  if v_registration.id is null then
+    raise exception using errcode = 'P0002', message = 'exam_registration_not_found';
+  end if;
+  if v_registration.status in ('completed', 'no_show') then
+    raise exception using errcode = '55000', message = 'terminal_exam_registration';
+  end if;
+
+  if p_action = 'cancel_by_fc' then
+    if p_actor_type <> 'fc'
+       or p_actor_fc_id is null
+       or p_actor_fc_id <> v_registration.fc_id then
+      raise exception using errcode = '42501', message = 'exam_transition_forbidden';
+    end if;
+  else
+    if p_actor_type not in ('admin', 'developer') or p_actor_admin_id is null then
+      raise exception using errcode = '42501', message = 'exam_transition_forbidden';
+    end if;
+    select admin_row.* into v_admin
+      from public.admin_accounts admin_row
+     where admin_row.id = p_actor_admin_id
+       and admin_row.active = true
+       and (
+         (p_actor_type = 'developer' and admin_row.staff_type = 'developer')
+         or (p_actor_type = 'admin' and coalesce(admin_row.staff_type, 'admin') = 'admin')
+       )
+     for share;
+    if v_admin.id is null then
+      raise exception using errcode = '42501', message = 'exam_transition_forbidden';
+    end if;
+  end if;
+
+  v_from_status := v_registration.status;
+  v_reason := nullif(btrim(coalesce(p_reason, '')), '');
+
+  case p_action
+    when 'confirm' then
+      if v_from_status <> 'applied' then
+        raise exception using errcode = '55000', message = 'invalid_exam_transition';
+      end if;
+      v_to_status := 'confirmed';
+    when 'unconfirm' then
+      if v_from_status <> 'confirmed' then
+        raise exception using errcode = '55000', message = 'invalid_exam_transition';
+      end if;
+      v_to_status := 'applied';
+    when 'reject' then
+      if v_from_status not in ('applied', 'confirmed') then
+        raise exception using errcode = '55000', message = 'invalid_exam_transition';
+      end if;
+      if v_reason is null or char_length(v_reason) > 1000 then
+        raise exception using errcode = '22023', message = 'invalid_rejection_reason';
+      end if;
+      v_to_status := 'rejected';
+    when 'cancel_by_fc' then
+      if v_from_status <> 'applied' then
+        raise exception using errcode = '55000', message = 'invalid_exam_transition';
+      end if;
+      v_to_status := 'cancelled_by_fc';
+    when 'cancel_by_admin' then
+      if v_from_status not in ('applied', 'confirmed') then
+        raise exception using errcode = '55000', message = 'invalid_exam_transition';
+      end if;
+      v_to_status := 'cancelled_by_admin';
+    else
+      raise exception using errcode = '22023', message = 'invalid_exam_transition_action';
+  end case;
+
+  if v_to_status in ('cancelled_by_fc', 'cancelled_by_admin') then
+    select proof.storage_path into v_proof_path
+      from public.exam_payment_proof_uploads proof
+     where proof.registration_id = v_registration.id and proof.status = 'attached'
+     for update;
+    update public.exam_payment_proof_uploads proof
+       set status = 'discarded'
+     where proof.registration_id = v_registration.id and proof.status = 'attached';
+  end if;
+
+  update public.exam_registrations registration
+     set status = v_to_status,
+         is_confirmed = v_to_status = 'confirmed',
+         payment_proof_attached = case
+           when v_to_status in ('cancelled_by_fc', 'cancelled_by_admin') then false
+           else registration.payment_proof_attached
+         end,
+         rejection_reason = case when v_to_status = 'rejected' then v_reason else null end,
+         rejected_at = case when v_to_status = 'rejected' then now() else null end,
+         rejected_by_admin_id = case when v_to_status = 'rejected' then p_actor_admin_id else null end,
+         rejected_by_staff_type = case when v_to_status = 'rejected' then p_actor_type else null end
+   where registration.id = v_registration.id;
+
+  insert into public.exam_registration_decision_events (
+    registration_id, action, from_status, to_status, reason,
+    actor_type, actor_admin_id_snapshot, actor_fc_id_snapshot
+  ) values (
+    v_registration.id,
+    case p_action
+      when 'confirm' then 'confirmed'
+      when 'unconfirm' then 'unconfirmed'
+      when 'reject' then 'rejected'
+      when 'cancel_by_fc' then 'cancelled_by_fc'
+      when 'cancel_by_admin' then 'cancelled_by_admin'
+    end,
+    v_from_status,
+    v_to_status,
+    case when p_action = 'reject' then v_reason else null end,
+    p_actor_type,
+    p_actor_admin_id,
+    p_actor_fc_id
+  );
+
+  if p_action <> 'cancel_by_fc' then
+    v_target_url := case when v_exam_type = 'nonlife' then '/exam-apply2' else '/exam-apply' end;
+    v_title := case p_action
+      when 'confirm' then '시험 접수가 승인되었습니다.'
+      when 'unconfirm' then '시험 접수 승인이 취소되었습니다.'
+      when 'reject' then '시험 접수가 반려되었습니다.'
+      else '시험 접수가 취소되었습니다.'
+    end;
+    v_body := case
+      when p_action = 'reject' then v_title || ' 사유: ' || v_reason
+      else v_title
+    end;
+    insert into public.notifications (
+      fc_id, resident_id, recipient_role, recipient_actor_id,
+      title, body, category, target, target_url
+    ) values (
+      v_registration.fc_id, v_registration.resident_id, 'fc', v_registration.fc_id,
+      v_title, v_body, 'exam_apply',
+      jsonb_build_object(
+        'version', 1,
+        'kind', 'exam',
+        'examType', v_exam_type,
+        'examRegistrationId', v_registration.id
+      ),
+      v_target_url
+    )
+    returning id into v_notification_id;
+  end if;
+
+  return query
+  select v_registration.id, v_to_status, v_proof_path,
+         v_registration.resident_id, v_exam_type, v_notification_id,
+         v_registration.fc_id;
+end;
+$$;
+
+revoke all on function public.transition_exam_registration(
+  uuid, text, text, uuid, uuid, text
+) from public, anon, authenticated;
+grant execute on function public.transition_exam_registration(
+  uuid, text, text, uuid, uuid, text
+) to service_role;
+
+create or replace function public.detach_exam_registration_identity_for_account_deletion(
+  p_fc_id uuid
+)
+returns table (proof_path text)
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_registration public.exam_registrations%rowtype;
+  v_to_status text;
+begin
+  if p_fc_id is null then
+    raise exception using errcode = '22023', message = 'fc_id_required';
+  end if;
+
+  return query
+  update public.exam_payment_proof_uploads upload
+     set status = 'discarded'
+   where upload.fc_id = p_fc_id
+     and upload.status in ('pending', 'attached')
+  returning upload.storage_path;
+
+  for v_registration in
+    select registration.*
+     from public.exam_registrations registration
+     where registration.fc_id = p_fc_id
+     order by registration.created_at, registration.id
+     for update
+  loop
+    v_to_status := case
+      when v_registration.status in ('applied', 'confirmed') then 'cancelled_by_fc'
+      else v_registration.status
+    end;
+
+    if v_to_status <> v_registration.status then
+      insert into public.exam_registration_decision_events (
+        registration_id,
+        action,
+        from_status,
+        to_status,
+        reason,
+        actor_type
+      ) values (
+        v_registration.id,
+        'cancelled_by_fc',
+        v_registration.status,
+        v_to_status,
+        null,
+        'service'
+      );
+    end if;
+
+    update public.exam_registrations registration
+       set status = v_to_status,
+           is_confirmed = v_to_status in ('confirmed', 'completed', 'no_show'),
+           payment_proof_attached = false,
+           fc_id = null,
+           resident_id = 'deleted-exam:' || registration.id::text,
+           rejection_reason = case
+             when v_to_status = 'rejected' then registration.rejection_reason
+             else null
+           end,
+           rejected_at = case
+             when v_to_status = 'rejected' then registration.rejected_at
+             else null
+           end,
+           rejected_by_admin_id = case
+             when v_to_status = 'rejected' then registration.rejected_by_admin_id
+             else null
+           end,
+           rejected_by_staff_type = case
+             when v_to_status = 'rejected' then registration.rejected_by_staff_type
+             else null
+           end
+     where registration.id = v_registration.id;
+
+    insert into public.exam_registration_decision_events (
+      registration_id,
+      action,
+      from_status,
+      to_status,
+      reason,
+      actor_type
+    ) values (
+      v_registration.id,
+      'identity_detached',
+      v_to_status,
+      v_to_status,
+      null,
+      'service'
+    );
+  end loop;
+end;
+$$;
+
+revoke all on function public.detach_exam_registration_identity_for_account_deletion(
+  uuid
+) from public, anon, authenticated;
+grant execute on function public.detach_exam_registration_identity_for_account_deletion(
+  uuid
+) to service_role;
+
+create table if not exists public.account_deletion_cleanup_outbox (
+  id uuid primary key default gen_random_uuid(),
+  cleanup_payload jsonb not null
+    check (jsonb_typeof(cleanup_payload) = 'object'),
+  status text not null default 'pending'
+    check (status in ('pending', 'completed', 'exhausted')),
+  attempt_count integer not null default 0
+    check (attempt_count between 0 and 10),
+  last_error_code text
+    check (
+      last_error_code is null
+      or (
+        char_length(last_error_code) between 1 and 64
+        and last_error_code ~ '^[a-z0-9_]+$'
+      )
+    ),
+  next_attempt_at timestamptz not null default now(),
+  completed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.account_deletion_cleanup_outbox enable row level security;
+revoke all on table public.account_deletion_cleanup_outbox
+  from public, anon, authenticated, service_role;
+grant select, insert on table public.account_deletion_cleanup_outbox
+  to service_role;
+
+create index if not exists idx_account_deletion_cleanup_outbox_pending
+  on public.account_deletion_cleanup_outbox (next_attempt_at, created_at)
+  where status = 'pending' and attempt_count < 10;
+
+create or replace function public.record_account_deletion_cleanup_attempt_v1(
+  p_outbox_id uuid,
+  p_succeeded boolean,
+  p_error_code text default null
+)
+returns table (
+  status text,
+  attempt_count integer
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_error_code text;
+begin
+  if auth.role() is distinct from 'service_role' then
+    raise exception using errcode = '42501', message = 'cleanup_outbox_forbidden';
+  end if;
+  if p_outbox_id is null then
+    raise exception using errcode = '22023', message = 'cleanup_outbox_id_required';
+  end if;
+
+  v_error_code := case
+    when coalesce(p_succeeded, false) then null
+    else nullif(
+      left(
+        regexp_replace(lower(btrim(coalesce(p_error_code, ''))), '[^a-z0-9_]', '_', 'g'),
+        64
+      ),
+      ''
+    )
+  end;
+  if not coalesce(p_succeeded, false) and v_error_code is null then
+    v_error_code := 'post_commit_cleanup_failed';
+  end if;
+
+  return query
+  update public.account_deletion_cleanup_outbox outbox
+     set attempt_count = least(outbox.attempt_count + 1, 10),
+         status = case
+           when coalesce(p_succeeded, false) then 'completed'
+           when outbox.attempt_count + 1 >= 10 then 'exhausted'
+           else 'pending'
+         end,
+         last_error_code = v_error_code,
+         next_attempt_at = case
+           when coalesce(p_succeeded, false) then outbox.next_attempt_at
+           else now() + (
+             least(3600, 30 * power(2, least(outbox.attempt_count, 9)))::text
+             || ' seconds'
+           )::interval
+         end,
+         completed_at = case
+           when coalesce(p_succeeded, false) then now()
+           else null
+         end,
+         updated_at = now()
+   where outbox.id = p_outbox_id
+     and outbox.status in ('pending', 'exhausted')
+  returning outbox.status, outbox.attempt_count;
+
+  if not found then
+    raise exception using errcode = 'P0002', message = 'cleanup_outbox_not_pending';
+  end if;
+end;
+$$;
+
+revoke all on function public.record_account_deletion_cleanup_attempt_v1(
+  uuid, boolean, text
+) from public, anon, authenticated;
+grant execute on function public.record_account_deletion_cleanup_attempt_v1(
+  uuid, boolean, text
+) to service_role;
+
+create or replace function public.list_account_deletion_cleanup_pending_v1(
+  p_limit integer default 10
+)
+returns table (
+  outbox_id uuid,
+  cleanup_payload jsonb,
+  attempt_count integer
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if auth.role() is distinct from 'service_role' then
+    raise exception using errcode = '42501', message = 'cleanup_outbox_forbidden';
+  end if;
+
+  return query
+  select
+    outbox.id,
+    outbox.cleanup_payload,
+    outbox.attempt_count
+  from public.account_deletion_cleanup_outbox outbox
+  where outbox.status = 'pending'
+    and outbox.attempt_count < 10
+    and outbox.next_attempt_at <= now()
+  order by outbox.next_attempt_at, outbox.created_at
+  limit least(greatest(coalesce(p_limit, 10), 1), 25);
+end;
+$$;
+
+revoke all on function public.list_account_deletion_cleanup_pending_v1(
+  integer
+) from public, anon, authenticated;
+grant execute on function public.list_account_deletion_cleanup_pending_v1(
+  integer
+) to service_role;
+
+create or replace function public.delete_account_core_transaction_v1(
+  p_target_role text,
+  p_target_id uuid
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_phone text;
+  v_phone_digits text;
+  v_fc_ids uuid[] := array[]::uuid[];
+  v_fc_id uuid;
+  v_proof_paths text[] := array[]::text[];
+  v_new_proof_paths text[] := array[]::text[];
+  v_document_paths text[] := array[]::text[];
+  v_board_paths text[] := array[]::text[];
+  v_chat_file_urls text[] := array[]::text[];
+  v_auth_user_ids uuid[] := array[]::uuid[];
+  v_post_ids uuid[] := array[]::uuid[];
+  v_cleanup_outbox_id uuid;
+  v_deleted_count integer := 0;
+begin
+  if p_target_id is null or p_target_role not in ('fc', 'admin', 'manager') then
+    raise exception using errcode = '22023', message = 'invalid_account_delete_target';
+  end if;
+
+  if p_target_role = 'fc' then
+    select profile.phone
+      into v_phone
+      from public.fc_profiles profile
+     where profile.id = p_target_id
+       and not profile.is_manager_referral_shadow
+     for update;
+    if v_phone is null then
+      raise exception using errcode = 'P0002', message = 'account_delete_target_not_found';
+    end if;
+    v_fc_ids := array[p_target_id];
+  elsif p_target_role = 'admin' then
+    select account.phone
+      into v_phone
+      from public.admin_accounts account
+     where account.id = p_target_id
+     for update;
+    if v_phone is null then
+      raise exception using errcode = 'P0002', message = 'account_delete_target_not_found';
+    end if;
+  else
+    select account.phone
+      into v_phone
+      from public.manager_accounts account
+     where account.id = p_target_id
+     for update;
+    if v_phone is null then
+      raise exception using errcode = 'P0002', message = 'account_delete_target_not_found';
+    end if;
+
+    select coalesce(array_agg(profile.id order by profile.id), array[]::uuid[])
+      into v_fc_ids
+      from public.fc_profiles profile
+     where profile.is_manager_referral_shadow
+       and regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g')
+           = regexp_replace(coalesce(v_phone, ''), '[^0-9]', '', 'g');
+  end if;
+
+  v_phone_digits := nullif(regexp_replace(coalesce(v_phone, ''), '[^0-9]', '', 'g'), '');
+  if v_phone_digits is null then
+    raise exception using errcode = '23514', message = 'account_delete_phone_missing';
+  end if;
+
+  if cardinality(v_fc_ids) > 0 then
+    perform 1
+      from public.fc_profiles profile
+     where profile.id = any(v_fc_ids)
+     for update;
+
+    if exists (
+      select 1
+        from public.exam_registrations registration
+       where registration.resident_id not like 'deleted-exam:%'
+         and (
+           (
+             registration.fc_id = any(v_fc_ids)
+             and nullif(
+               regexp_replace(coalesce(registration.resident_id, ''), '[^0-9]', '', 'g'),
+               ''
+             ) is distinct from v_phone_digits
+           )
+           or (
+             nullif(
+               regexp_replace(coalesce(registration.resident_id, ''), '[^0-9]', '', 'g'),
+               ''
+             ) = v_phone_digits
+             and (
+               registration.fc_id is null
+               or not (registration.fc_id = any(v_fc_ids))
+             )
+           )
+         )
+    ) then
+      raise exception using
+        errcode = '23514',
+        message = 'account_delete_exam_ownership_mismatch';
+    end if;
+
+    select coalesce(array_agg(document.storage_path), array[]::text[])
+      into v_document_paths
+      from public.fc_documents document
+     where document.fc_id = any(v_fc_ids)
+       and document.storage_path is not null
+       and document.storage_path <> 'deleted';
+
+    select coalesce(array_agg(profile.id), array[]::uuid[])
+      into v_auth_user_ids
+      from public.profiles profile
+     where profile.fc_id = any(v_fc_ids);
+
+    foreach v_fc_id in array v_fc_ids
+    loop
+      select coalesce(array_agg(detached.proof_path), array[]::text[])
+        into v_new_proof_paths
+        from public.detach_exam_registration_identity_for_account_deletion(v_fc_id) detached;
+      v_proof_paths := v_proof_paths || v_new_proof_paths;
+    end loop;
+  end if;
+
+  select coalesce(array_agg(post.id), array[]::uuid[])
+    into v_post_ids
+    from public.board_posts post
+   where regexp_replace(coalesce(post.author_resident_id, ''), '[^0-9]', '', 'g')
+         = v_phone_digits;
+
+  select coalesce(array_agg(distinct attachment.storage_path), array[]::text[])
+    into v_board_paths
+    from public.board_attachments attachment
+   where regexp_replace(coalesce(attachment.created_by_resident_id, ''), '[^0-9]', '', 'g')
+         = v_phone_digits
+      or attachment.post_id = any(v_post_ids);
+
+  if to_regclass('public.messages') is not null then
+    execute $dynamic$
+      select coalesce(array_agg(file_url), array[]::text[])
+        from public.messages
+       where message_type in ('image', 'file')
+         and regexp_replace(coalesce(sender_id, ''), '[^0-9]', '', 'g') = $1
+    $dynamic$
+    into v_chat_file_urls
+    using v_phone_digits;
+  end if;
+
+  delete from public.board_comment_likes
+   where regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.board_post_reactions
+   where regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.board_post_views
+   where regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.board_comments
+   where regexp_replace(coalesce(author_resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.board_attachments
+   where regexp_replace(coalesce(created_by_resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.board_posts where id = any(v_post_ids);
+
+  if to_regclass('public.messages') is not null then
+    execute $dynamic$
+      delete from public.messages
+       where regexp_replace(coalesce(sender_id, ''), '[^0-9]', '', 'g') = $1
+          or regexp_replace(coalesce(receiver_id, ''), '[^0-9]', '', 'g') = $1
+    $dynamic$
+    using v_phone_digits;
+  end if;
+
+  delete from public.notifications
+   where (cardinality(v_fc_ids) > 0 and fc_id = any(v_fc_ids))
+      or regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.device_tokens
+   where regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.web_push_subscriptions
+   where regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.user_presence
+   where regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.notices
+   where regexp_replace(coalesce(created_by, ''), '[^0-9]', '', 'g') = v_phone_digits;
+
+  delete from public.referral_events
+   where regexp_replace(coalesce(inviter_phone, ''), '[^0-9]', '', 'g') = v_phone_digits
+      or regexp_replace(coalesce(invitee_phone, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.referral_attributions
+   where regexp_replace(coalesce(inviter_phone, ''), '[^0-9]', '', 'g') = v_phone_digits
+      or regexp_replace(coalesce(invitee_phone, ''), '[^0-9]', '', 'g') = v_phone_digits;
+
+  if p_target_role = 'manager' then
+    delete from public.affiliation_manager_mappings
+     where regexp_replace(coalesce(manager_phone, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  end if;
+
+  if cardinality(v_fc_ids) > 0 then
+    delete from public.profiles where fc_id = any(v_fc_ids);
+    delete from public.fc_profiles where id = any(v_fc_ids);
+  end if;
+
+  if p_target_role = 'admin' then
+    delete from public.admin_accounts where id = p_target_id;
+  elsif p_target_role = 'manager' then
+    delete from public.manager_accounts where id = p_target_id;
+  end if;
+  get diagnostics v_deleted_count = row_count;
+
+  if p_target_role = 'fc' then
+    v_deleted_count := case
+      when exists (select 1 from public.fc_profiles where id = p_target_id) then 0
+      else 1
+    end;
+  end if;
+
+  if v_deleted_count <> 1 then
+    raise exception using errcode = 'P0002', message = 'account_delete_target_not_deleted';
+  end if;
+
+  insert into public.account_deletion_cleanup_outbox (
+    cleanup_payload
+  ) values (
+    jsonb_build_object(
+      'proof_paths', to_jsonb(v_proof_paths),
+      'document_paths', to_jsonb(v_document_paths),
+      'board_attachment_paths', to_jsonb(v_board_paths),
+      'chat_file_urls', to_jsonb(v_chat_file_urls),
+      'auth_user_ids', to_jsonb(v_auth_user_ids)
+    )
+  )
+  returning id into v_cleanup_outbox_id;
+
+  return jsonb_build_object(
+    'deleted', true,
+    'cleanup_outbox_id', v_cleanup_outbox_id,
+    'proof_paths', to_jsonb(v_proof_paths),
+    'document_paths', to_jsonb(v_document_paths),
+    'board_attachment_paths', to_jsonb(v_board_paths),
+    'chat_file_urls', to_jsonb(v_chat_file_urls),
+    'auth_user_ids', to_jsonb(v_auth_user_ids)
+  );
+end;
+$$;
+
+revoke all on function public.delete_account_core_transaction_v1(
+  text, uuid
+) from public, anon, authenticated;
+grant execute on function public.delete_account_core_transaction_v1(
+  text, uuid
+) to service_role;
+
+-- Canonicalize the legacy direct-message table before v2 attachment columns are
+-- added. Existing rows and public legacy file URLs are preserved for read-only
+-- compatibility; all new writes remain service mediated.
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  sender_id text not null,
+  receiver_id text not null,
+  content text not null default '',
+  created_at timestamptz not null default now(),
+  is_read boolean not null default false,
+  message_type text not null default 'text',
+  file_url text,
+  file_name text,
+  file_size bigint,
+  conversation_id uuid references public.garamin_direct_conversations(id) on delete set null,
+  sender_actor_id uuid,
+  receiver_actor_id uuid
+);
+
+alter table public.messages
+  add column if not exists file_url text,
+  add column if not exists file_name text,
+  add column if not exists file_size bigint,
+  add column if not exists deleted_at timestamptz,
+  add column if not exists deleted_by_actor_id uuid;
+
+create table if not exists public.messenger_attachment_delivery_batches (
+  id uuid primary key default gen_random_uuid(),
+  delivery_key uuid not null,
+  payload_fingerprint text not null
+    check (payload_fingerprint ~ '^[0-9a-f]{64}$'),
+  actor_id uuid not null,
+  actor_role text not null
+    check (actor_role in ('fc', 'admin', 'manager')),
+  context_kind text not null
+    check (context_kind in ('direct', 'group', 'direct_broadcast')),
+  conversation_id uuid references public.garamin_direct_conversations(id) on delete set null,
+  room_id uuid references public.group_chat_rooms(id) on delete restrict,
+  conversation_ids uuid[],
+  generation integer not null default 1 check (generation > 0),
+  status text not null default 'pending'
+    check (status in ('pending', 'committed', 'expired', 'revoked', 'deleted')),
+  expires_at timestamptz not null,
+  committed_message_ids uuid[] not null default array[]::uuid[],
+  notification_ids uuid[] not null default array[]::uuid[],
+  committed_at timestamptz,
+  deleted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (actor_id, actor_role, delivery_key),
+  check (
+    (
+      context_kind = 'direct'
+      and (
+        conversation_id is not null
+        or status in ('pending', 'expired', 'revoked', 'deleted')
+      )
+      and room_id is null
+      and conversation_ids is null
+    )
+    or (
+      context_kind = 'group'
+      and room_id is not null
+      and conversation_id is null
+      and conversation_ids is null
+    )
+    or (
+      context_kind = 'direct_broadcast'
+      and conversation_id is null
+      and room_id is null
+      and cardinality(conversation_ids) between 1 and 200
+    )
+  )
+);
+
+create table if not exists public.messenger_attachment_upload_intents (
+  id uuid primary key default gen_random_uuid(),
+  batch_id uuid not null
+    references public.messenger_attachment_delivery_batches(id) on delete cascade,
+  generation integer not null check (generation > 0),
+  client_file_id uuid not null,
+  sort_order smallint not null check (sort_order between 0 and 9),
+  original_name text not null
+    check (
+      char_length(original_name) between 1 and 255
+      and original_name !~ '[[:cntrl:]/\\]'
+    ),
+  declared_mime_type text not null,
+  expected_size bigint not null check (expected_size between 1 and 20971520),
+  expected_sha256 text not null check (expected_sha256 ~ '^[0-9a-f]{64}$'),
+  bucket_id text not null default 'messenger-attachments-v2'
+    check (bucket_id = 'messenger-attachments-v2'),
+  object_path text,
+  status text not null default 'pending'
+    check (status in ('pending', 'validated', 'consumed', 'revoked', 'expired')),
+  inspected_family text,
+  inspected_mime_type text,
+  inspected_size bigint,
+  inspected_sha256 text,
+  expires_at timestamptz not null,
+  validated_at timestamptz,
+  consumed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (batch_id, generation, client_file_id),
+  unique (batch_id, generation, sort_order),
+  check (
+    (
+      status = 'validated'
+      and inspected_family is not null
+      and inspected_mime_type is not null
+      and inspected_size is not null
+      and inspected_sha256 is not null
+      and inspected_size = expected_size
+      and inspected_sha256 = expected_sha256
+      and validated_at is not null
+    )
+    or status <> 'validated'
+  )
+);
+
+create unique index if not exists uq_messenger_attachment_upload_intents_path
+  on public.messenger_attachment_upload_intents (bucket_id, object_path)
+  where object_path is not null;
+
+create table if not exists public.messenger_attachment_objects (
+  id uuid primary key default gen_random_uuid(),
+  batch_id uuid not null
+    references public.messenger_attachment_delivery_batches(id) on delete restrict,
+  sort_order smallint not null check (sort_order between 0 and 9),
+  original_name text not null,
+  mime_type text not null,
+  byte_size bigint not null check (byte_size between 1 and 20971520),
+  sha256 text not null check (sha256 ~ '^[0-9a-f]{64}$'),
+  content_family text not null,
+  bucket_id text check (bucket_id is null or bucket_id = 'messenger-attachments-v2'),
+  storage_path text,
+  reference_count integer not null default 1 check (reference_count >= 0),
+  status text not null default 'active'
+    check (status in ('active', 'tombstoned', 'deleted')),
+  created_at timestamptz not null default now(),
+  tombstoned_at timestamptz,
+  deleted_at timestamptz,
+  unique (batch_id, sort_order)
+);
+
+create unique index if not exists uq_messenger_attachment_objects_path
+  on public.messenger_attachment_objects (bucket_id, storage_path)
+  where storage_path is not null;
+
+create table if not exists public.messenger_message_attachments (
+  batch_id uuid not null
+    references public.messenger_attachment_delivery_batches(id) on delete restrict,
+  attachment_id uuid not null
+    references public.messenger_attachment_objects(id) on delete restrict,
+  sort_order smallint not null check (sort_order between 0 and 9),
+  created_at timestamptz not null default now(),
+  primary key (batch_id, attachment_id),
+  unique (batch_id, sort_order)
+);
+
+create table if not exists public.messenger_attachment_cleanup_outbox (
+  id uuid primary key default gen_random_uuid(),
+  attachment_id uuid,
+  batch_id uuid,
+  bucket_id text,
+  storage_path text,
+  reason_code text not null,
+  sweep_phase text not null check (sweep_phase in ('immediate', 'post_token_expiry')),
+  not_before timestamptz not null default now(),
+  attempt_count integer not null default 0 check (attempt_count >= 0),
+  max_attempts integer not null default 12 check (max_attempts between 1 and 100),
+  status text not null default 'pending'
+    check (status in ('pending', 'processing', 'completed', 'exhausted')),
+  locked_at timestamptz,
+  last_error_code text,
+  completed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (
+    (status in ('pending', 'processing', 'exhausted') and bucket_id is not null and storage_path is not null)
+    or status = 'completed'
+  )
+);
+
+create unique index if not exists uq_messenger_attachment_cleanup_path_phase
+  on public.messenger_attachment_cleanup_outbox (bucket_id, storage_path, sweep_phase)
+  where bucket_id is not null and storage_path is not null;
+
+create index if not exists idx_messenger_attachment_cleanup_due
+  on public.messenger_attachment_cleanup_outbox (status, not_before, created_at)
+  where status in ('pending', 'processing');
+
+create table if not exists public.messenger_attachment_deletion_audit (
+  id uuid primary key default gen_random_uuid(),
+  original_name text not null,
+  byte_size bigint not null,
+  sha256 text not null check (sha256 ~ '^[0-9a-f]{64}$'),
+  reason_code text not null,
+  deleted_at timestamptz not null default now()
+);
+
+alter table public.messages
+  add column if not exists attachment_batch_id uuid
+    references public.messenger_attachment_delivery_batches(id) on delete restrict;
+
+alter table public.group_chat_messages
+  add column if not exists attachment_batch_id uuid
+    references public.messenger_attachment_delivery_batches(id) on delete restrict;
+
+-- The original table-level check allowed only text or a legacy public URL.
+-- Replace that exact generated constraint so an attachment-only v2 message can
+-- carry a private batch reference without a public URL.
+alter table public.group_chat_messages
+  drop constraint if exists group_chat_messages_check;
+alter table public.group_chat_messages
+  add constraint group_chat_messages_content_or_attachment_check check (
+    char_length(trim(content)) > 0
+    or (message_type in ('image', 'file') and file_url is not null)
+    or attachment_batch_id is not null
+  );
+
+create index if not exists idx_messages_attachment_batch
+  on public.messages (attachment_batch_id)
+  where attachment_batch_id is not null;
+create index if not exists idx_group_chat_messages_attachment_batch
+  on public.group_chat_messages (attachment_batch_id)
+  where attachment_batch_id is not null;
+create index if not exists idx_messenger_attachment_batches_actor_pending
+  on public.messenger_attachment_delivery_batches (actor_id, actor_role, expires_at)
+  where status = 'pending';
+create index if not exists idx_messenger_attachment_intents_batch_generation
+  on public.messenger_attachment_upload_intents (batch_id, generation, sort_order);
+create index if not exists idx_messenger_attachment_objects_batch
+  on public.messenger_attachment_objects (batch_id, sort_order);
+
+alter table public.messages enable row level security;
+alter table public.messenger_attachment_delivery_batches enable row level security;
+alter table public.messenger_attachment_upload_intents enable row level security;
+alter table public.messenger_attachment_objects enable row level security;
+alter table public.messenger_message_attachments enable row level security;
+alter table public.messenger_attachment_cleanup_outbox enable row level security;
+alter table public.messenger_attachment_deletion_audit enable row level security;
+
+revoke all privileges on table public.messages
+  from public, anon, authenticated, service_role;
+revoke all privileges on table public.messenger_attachment_delivery_batches
+  from public, anon, authenticated, service_role;
+revoke all privileges on table public.messenger_attachment_upload_intents
+  from public, anon, authenticated, service_role;
+revoke all privileges on table public.messenger_attachment_objects
+  from public, anon, authenticated, service_role;
+revoke all privileges on table public.messenger_message_attachments
+  from public, anon, authenticated, service_role;
+revoke all privileges on table public.messenger_attachment_cleanup_outbox
+  from public, anon, authenticated, service_role;
+revoke all privileges on table public.messenger_attachment_deletion_audit
+  from public, anon, authenticated, service_role;
+
+grant select, insert, update, delete
+  on table public.messages to service_role;
+grant select, insert, update, delete
+  on table public.messenger_attachment_delivery_batches to service_role;
+grant select, insert, update, delete
+  on table public.messenger_attachment_upload_intents to service_role;
+grant select, insert, update, delete
+  on table public.messenger_attachment_objects to service_role;
+grant select, insert, update, delete
+  on table public.messenger_message_attachments to service_role;
+grant select, insert, update, delete
+  on table public.messenger_attachment_cleanup_outbox to service_role;
+grant select, insert, update, delete
+  on table public.messenger_attachment_deletion_audit to service_role;
+
+do $messages_policies$
+declare
+  v_policy record;
+begin
+  for v_policy in
+    select policyname
+      from pg_policies
+     where schemaname = 'public'
+       and tablename = 'messages'
+  loop
+    execute format('drop policy if exists %I on public.messages', v_policy.policyname);
+  end loop;
+end;
+$messages_policies$;
+create policy "messages service role only"
+  on public.messages
+  for all to service_role using (true) with check (true);
+
+drop policy if exists "messenger attachment batches service role"
+  on public.messenger_attachment_delivery_batches;
+create policy "messenger attachment batches service role"
+  on public.messenger_attachment_delivery_batches
+  for all to service_role using (true) with check (true);
+drop policy if exists "messenger attachment intents service role"
+  on public.messenger_attachment_upload_intents;
+create policy "messenger attachment intents service role"
+  on public.messenger_attachment_upload_intents
+  for all to service_role using (true) with check (true);
+drop policy if exists "messenger attachment objects service role"
+  on public.messenger_attachment_objects;
+create policy "messenger attachment objects service role"
+  on public.messenger_attachment_objects
+  for all to service_role using (true) with check (true);
+drop policy if exists "messenger message attachments service role"
+  on public.messenger_message_attachments;
+create policy "messenger message attachments service role"
+  on public.messenger_message_attachments
+  for all to service_role using (true) with check (true);
+drop policy if exists "messenger attachment cleanup service role"
+  on public.messenger_attachment_cleanup_outbox;
+create policy "messenger attachment cleanup service role"
+  on public.messenger_attachment_cleanup_outbox
+  for all to service_role using (true) with check (true);
+drop policy if exists "messenger attachment audit service role"
+  on public.messenger_attachment_deletion_audit;
+create policy "messenger attachment audit service role"
+  on public.messenger_attachment_deletion_audit
+  for all to service_role using (true) with check (true);
+
+insert into storage.buckets (
+  id,
+  name,
+  public,
+  file_size_limit,
+  allowed_mime_types
+)
+values (
+  'messenger-attachments-v2',
+  'messenger-attachments-v2',
+  false,
+  20971520,
+  array[
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'image/bmp',
+    'image/heic',
+    'image/heif',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/plain'
+  ]::text[]
+)
+on conflict (id) do update
+set public = false,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "messenger attachments v2 service read" on storage.objects;
+create policy "messenger attachments v2 service read"
+  on storage.objects for select to service_role
+  using (bucket_id = 'messenger-attachments-v2');
+drop policy if exists "messenger attachments v2 service insert" on storage.objects;
+create policy "messenger attachments v2 service insert"
+  on storage.objects for insert to service_role
+  with check (bucket_id = 'messenger-attachments-v2');
+drop policy if exists "messenger attachments v2 service update" on storage.objects;
+create policy "messenger attachments v2 service update"
+  on storage.objects for update to service_role
+  using (bucket_id = 'messenger-attachments-v2')
+  with check (bucket_id = 'messenger-attachments-v2');
+drop policy if exists "messenger attachments v2 service delete" on storage.objects;
+create policy "messenger attachments v2 service delete"
+  on storage.objects for delete to service_role
+  using (bucket_id = 'messenger-attachments-v2');
+
+create or replace function public.reserve_messenger_attachment_upload_batch_v2(
+  p_actor_id uuid,
+  p_actor_role text,
+  p_delivery_key uuid,
+  p_payload_fingerprint text,
+  p_context jsonb,
+  p_files jsonb
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_expires_at timestamptz := v_now + interval '2 hours';
+  v_context_kind text;
+  v_conversation_id uuid;
+  v_room_id uuid;
+  v_conversation_ids uuid[];
+  v_actor_phone text;
+  v_actor_valid boolean := false;
+  v_batch public.messenger_attachment_delivery_batches%rowtype;
+  v_file jsonb;
+  v_file_count integer;
+  v_file_bytes bigint := 0;
+  v_order integer := 0;
+  v_client_file_id uuid;
+  v_name text;
+  v_size bigint;
+  v_mime text;
+  v_sha256 text;
+  v_extension text;
+  v_expected_mime text;
+  v_canonical_files jsonb := '[]'::jsonb;
+  v_existing_files jsonb;
+  v_active_files bigint;
+  v_active_bytes bigint;
+  v_recent_files bigint;
+  v_recent_batches bigint;
+  v_generation integer;
+  v_intent_id uuid;
+  v_lock_conversation_id uuid;
+  v_context_canonical jsonb;
+  v_result_intents jsonb;
+begin
+  if p_actor_id is null
+     or p_delivery_key is null
+     or p_actor_role not in ('fc', 'admin', 'manager')
+     or p_payload_fingerprint is null
+     or p_payload_fingerprint !~ '^[0-9a-f]{64}$'
+     or p_context is null
+     or jsonb_typeof(p_context) <> 'object'
+     or p_files is null
+     or jsonb_typeof(p_files) <> 'array' then
+    raise exception 'invalid_attachment_intent_request';
+  end if;
+
+  -- Serialize quota accounting per immutable actor. Concurrent signed-intent
+  -- creation cannot race past the active-byte/file or issuance-window limits.
+  perform pg_advisory_xact_lock(
+    hashtextextended(p_actor_role || ':' || p_actor_id::text, 0)
+  );
+
+  if p_actor_role = 'fc' then
+    select profile.phone,
+           profile.signup_completed = true
+           and coalesce(profile.is_manager_referral_shadow, false) = false
+           and coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+           and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+      into v_actor_phone, v_actor_valid
+      from public.fc_profiles profile
+     where profile.id = p_actor_id;
+  elsif p_actor_role = 'manager' then
+    select account.phone, account.active = true
+      into v_actor_phone, v_actor_valid
+      from public.manager_accounts account
+     where account.id = p_actor_id;
+  else
+    select account.phone,
+           account.active = true
+           and coalesce(account.staff_type, 'admin') in ('admin', 'developer')
+      into v_actor_phone, v_actor_valid
+      from public.admin_accounts account
+     where account.id = p_actor_id;
+  end if;
+  if not coalesce(v_actor_valid, false) then
+    raise exception 'attachment_actor_not_active';
+  end if;
+
+  v_context_kind := p_context->>'kind';
+  if v_context_kind = 'direct' then
+    begin
+      v_conversation_id := (p_context->>'conversationId')::uuid;
+    exception when others then
+      raise exception 'invalid_attachment_context';
+    end;
+    perform pg_advisory_xact_lock(
+      hashtextextended(
+        'messenger-direct-context:' || v_conversation_id::text,
+        0
+      )
+    );
+    if not exists (
+         select 1
+           from public.garamin_direct_conversations conversation
+           join public.fc_profiles profile
+             on profile.id = conversation.fc_id
+            and profile.signup_completed = true
+            and coalesce(profile.is_manager_referral_shadow, false) = false
+            and coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+            and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+          where conversation.id = v_conversation_id
+            and (
+              p_actor_role in ('admin', 'manager')
+              or (p_actor_role = 'fc' and conversation.fc_id = p_actor_id)
+            )
+       ) then
+      raise exception 'attachment_context_forbidden';
+    end if;
+    v_context_canonical := jsonb_build_object(
+      'kind', 'direct',
+      'conversationId', v_conversation_id::text
+    );
+  elsif v_context_kind = 'group' then
+    begin
+      v_room_id := (p_context->>'roomId')::uuid;
+    exception when others then
+      raise exception 'invalid_attachment_context';
+    end;
+    if not exists (
+      select 1 from public.group_chat_rooms room
+       where room.id = v_room_id and room.is_active = true
+    ) then
+      raise exception 'attachment_context_not_found';
+    end if;
+    if p_actor_role = 'fc'
+       and not exists (
+         select 1
+           from public.group_chat_member_send_permissions permission
+          where permission.room_id = v_room_id
+            and permission.actor_id = 'fc:' || regexp_replace(v_actor_phone, '[^0-9]', '', 'g')
+            and permission.can_send_messages = true
+       ) then
+      raise exception 'attachment_context_forbidden';
+    end if;
+    v_context_canonical := jsonb_build_object(
+      'kind', 'group',
+      'roomId', v_room_id::text
+    );
+  elsif v_context_kind = 'direct_broadcast' then
+    if p_actor_role <> 'admin'
+       or jsonb_typeof(p_context->'conversationIds') <> 'array'
+       or jsonb_array_length(p_context->'conversationIds') not between 1 and 200 then
+      raise exception 'attachment_context_forbidden';
+    end if;
+    begin
+      select array_agg(value::uuid order by value::uuid)
+        into v_conversation_ids
+        from (
+          select distinct jsonb_array_elements_text(p_context->'conversationIds') as value
+        ) requested;
+    exception when others then
+      raise exception 'invalid_attachment_context';
+    end;
+    for v_lock_conversation_id in
+      select conversation_id
+        from unnest(v_conversation_ids) requested(conversation_id)
+       order by conversation_id
+    loop
+      perform pg_advisory_xact_lock(
+        hashtextextended(
+          'messenger-direct-context:' || v_lock_conversation_id::text,
+          0
+        )
+      );
+    end loop;
+    if cardinality(v_conversation_ids) <> jsonb_array_length(p_context->'conversationIds')
+       or exists (
+         select 1
+           from unnest(v_conversation_ids) requested(conversation_id)
+           left join public.garamin_direct_conversations conversation
+             on conversation.id = requested.conversation_id
+           left join public.fc_profiles profile
+             on profile.id = conversation.fc_id
+            and profile.signup_completed = true
+            and coalesce(profile.is_manager_referral_shadow, false) = false
+            and coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+            and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+          where conversation.id is null or profile.id is null
+       ) then
+      raise exception 'attachment_context_not_found';
+    end if;
+    v_context_canonical := jsonb_build_object(
+      'kind', 'direct_broadcast',
+      'conversationIds', to_jsonb(v_conversation_ids)
+    );
+  else
+    raise exception 'invalid_attachment_context';
+  end if;
+
+  v_file_count := jsonb_array_length(p_files);
+  if v_file_count not between 1 and 10 then
+    raise exception 'invalid_attachment_file_count';
+  end if;
+
+  for v_file in select value from jsonb_array_elements(p_files)
+  loop
+    begin
+      v_client_file_id := (v_file->>'clientFileId')::uuid;
+      v_size := (v_file->>'size')::bigint;
+    exception when others then
+      raise exception 'invalid_attachment_file_metadata';
+    end;
+    v_name := normalize(v_file->>'name', NFC);
+    v_mime := lower(btrim(v_file->>'mimeType'));
+    v_sha256 := lower(btrim(v_file->>'sha256'));
+    v_extension := lower(substring(v_name from '(\.[^.]+)$'));
+    v_expected_mime := case v_extension
+      when '.jpg' then 'image/jpeg'
+      when '.jpeg' then 'image/jpeg'
+      when '.png' then 'image/png'
+      when '.webp' then 'image/webp'
+      when '.gif' then 'image/gif'
+      when '.bmp' then 'image/bmp'
+      when '.heic' then 'image/heic'
+      when '.heif' then 'image/heif'
+      when '.pdf' then 'application/pdf'
+      when '.doc' then 'application/msword'
+      when '.docx' then 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      when '.xls' then 'application/vnd.ms-excel'
+      when '.xlsx' then 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      when '.ppt' then 'application/vnd.ms-powerpoint'
+      when '.pptx' then 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+      when '.txt' then 'text/plain'
+      else null
+    end;
+    if v_name is null
+       or char_length(v_name) not between 1 and 255
+       or v_name ~ '[[:cntrl:]/\\]'
+       or v_size not between 1 and 20971520
+       or v_sha256 !~ '^[0-9a-f]{64}$'
+       or v_expected_mime is null
+       or v_mime <> v_expected_mime then
+      raise exception 'invalid_attachment_file_metadata';
+    end if;
+    if exists (
+      select 1
+        from jsonb_array_elements(v_canonical_files) existing
+       where existing->>'clientFileId' = v_client_file_id::text
+    ) then
+      raise exception 'invalid_attachment_duplicate_file';
+    end if;
+    v_file_bytes := v_file_bytes + v_size;
+    v_canonical_files := v_canonical_files || jsonb_build_array(jsonb_build_object(
+      'clientFileId', v_client_file_id::text,
+      'name', v_name,
+      'size', v_size,
+      'mimeType', v_mime,
+      'sha256', v_sha256,
+      'order', v_order
+    ));
+    v_order := v_order + 1;
+  end loop;
+
+  select *
+    into v_batch
+    from public.messenger_attachment_delivery_batches batch
+   where batch.actor_id = p_actor_id
+     and batch.actor_role = p_actor_role
+     and batch.delivery_key = p_delivery_key
+   for update;
+
+  if v_batch.id is not null then
+    if v_batch.payload_fingerprint is distinct from p_payload_fingerprint
+       or v_batch.context_kind <> v_context_kind
+       or v_batch.conversation_id is distinct from v_conversation_id
+       or v_batch.room_id is distinct from v_room_id
+       or v_batch.conversation_ids is distinct from v_conversation_ids then
+      raise exception 'attachment_idempotency_conflict';
+    end if;
+    select coalesce(
+      jsonb_agg(
+        jsonb_build_object(
+          'clientFileId', intent.client_file_id::text,
+          'name', intent.original_name,
+          'size', intent.expected_size,
+          'mimeType', intent.declared_mime_type,
+          'sha256', intent.expected_sha256,
+          'order', intent.sort_order
+        )
+        order by intent.sort_order
+      ),
+      '[]'::jsonb
+    )
+      into v_existing_files
+      from public.messenger_attachment_upload_intents intent
+     where intent.batch_id = v_batch.id
+       and intent.generation = v_batch.generation;
+    if v_existing_files <> v_canonical_files then
+      raise exception 'attachment_idempotency_conflict';
+    end if;
+    if v_batch.status = 'committed' then
+      return jsonb_build_object(
+        'state', 'committed',
+        'batchId', v_batch.id,
+        'deliveryKey', v_batch.delivery_key,
+        'payloadFingerprint', v_batch.payload_fingerprint,
+        'messageIds', to_jsonb(v_batch.committed_message_ids)
+      );
+    end if;
+    if v_batch.status = 'pending' and v_batch.expires_at > v_now then
+      select coalesce(
+        jsonb_agg(
+          jsonb_build_object(
+            'id', intent.id,
+            'clientFileId', intent.client_file_id,
+            'order', intent.sort_order,
+            'bucket', intent.bucket_id,
+            'path', intent.object_path
+          )
+          order by intent.sort_order
+        ),
+        '[]'::jsonb
+      )
+        into v_result_intents
+        from public.messenger_attachment_upload_intents intent
+       where intent.batch_id = v_batch.id
+         and intent.generation = v_batch.generation
+         and intent.status in ('pending', 'validated');
+      return jsonb_build_object(
+        'state', 'pending',
+        'batchId', v_batch.id,
+        'deliveryKey', v_batch.delivery_key,
+        'payloadFingerprint', v_batch.payload_fingerprint,
+        'expiresAt', v_batch.expires_at,
+        'intents', v_result_intents
+      );
+    end if;
+    if v_batch.status in ('revoked', 'deleted') then
+      raise exception 'attachment_idempotency_conflict';
+    end if;
+
+    insert into public.messenger_attachment_cleanup_outbox (
+      batch_id, bucket_id, storage_path, reason_code, sweep_phase, not_before
+    )
+    select intent.batch_id,
+           intent.bucket_id,
+           intent.object_path,
+           'expired_or_renewed_intent',
+           phase.sweep_phase,
+           case phase.sweep_phase
+             when 'immediate' then v_now
+             else greatest(intent.expires_at, v_now) + interval '5 minutes'
+           end
+      from public.messenger_attachment_upload_intents intent
+      cross join (
+        values ('immediate'::text), ('post_token_expiry'::text)
+      ) phase(sweep_phase)
+     where intent.batch_id = v_batch.id
+       and intent.generation = v_batch.generation
+       and intent.object_path is not null
+    on conflict (bucket_id, storage_path, sweep_phase)
+      where bucket_id is not null and storage_path is not null
+    do update set
+      not_before = least(
+        public.messenger_attachment_cleanup_outbox.not_before,
+        excluded.not_before
+      ),
+      status = case
+        when public.messenger_attachment_cleanup_outbox.status = 'completed'
+          then 'pending'
+        else public.messenger_attachment_cleanup_outbox.status
+      end,
+      completed_at = null,
+      updated_at = v_now;
+
+    update public.messenger_attachment_upload_intents
+       set status = 'expired',
+           object_path = null,
+           updated_at = v_now
+     where batch_id = v_batch.id
+       and generation = v_batch.generation;
+    v_generation := v_batch.generation + 1;
+  else
+    v_generation := 1;
+  end if;
+
+  select count(*), coalesce(sum(intent.expected_size), 0)
+    into v_active_files, v_active_bytes
+    from public.messenger_attachment_upload_intents intent
+    join public.messenger_attachment_delivery_batches batch
+      on batch.id = intent.batch_id
+   where batch.actor_id = p_actor_id
+     and batch.actor_role = p_actor_role
+     and batch.status = 'pending'
+     and batch.expires_at > v_now
+     and (v_batch.id is null or batch.id <> v_batch.id)
+     and intent.status in ('pending', 'validated');
+  if v_active_files + v_file_count > 50
+     or v_active_bytes + v_file_bytes > 209715200 then
+    raise exception 'attachment_active_quota_exceeded';
+  end if;
+
+  select count(*),
+         count(distinct intent.batch_id::text || ':' || intent.generation::text)
+    into v_recent_files, v_recent_batches
+    from public.messenger_attachment_upload_intents intent
+    join public.messenger_attachment_delivery_batches batch
+      on batch.id = intent.batch_id
+   where batch.actor_id = p_actor_id
+     and batch.actor_role = p_actor_role
+     and intent.created_at >= v_now - interval '1 hour';
+  if v_recent_files + v_file_count > 100
+     or v_recent_batches + 1 > 20 then
+    raise exception 'attachment_intent_rate_limited';
+  end if;
+
+  if v_batch.id is null then
+    insert into public.messenger_attachment_delivery_batches (
+      delivery_key,
+      payload_fingerprint,
+      actor_id,
+      actor_role,
+      context_kind,
+      conversation_id,
+      room_id,
+      conversation_ids,
+      generation,
+      status,
+      expires_at,
+      created_at,
+      updated_at
+    )
+    values (
+      p_delivery_key,
+      p_payload_fingerprint,
+      p_actor_id,
+      p_actor_role,
+      v_context_kind,
+      v_conversation_id,
+      v_room_id,
+      v_conversation_ids,
+      v_generation,
+      'pending',
+      v_expires_at,
+      v_now,
+      v_now
+    )
+    returning * into v_batch;
+  else
+    update public.messenger_attachment_delivery_batches
+       set generation = v_generation,
+           status = 'pending',
+           expires_at = v_expires_at,
+           updated_at = v_now
+     where id = v_batch.id
+    returning * into v_batch;
+  end if;
+
+  for v_file in select value from jsonb_array_elements(v_canonical_files)
+  loop
+    v_intent_id := gen_random_uuid();
+    insert into public.messenger_attachment_upload_intents (
+      id,
+      batch_id,
+      generation,
+      client_file_id,
+      sort_order,
+      original_name,
+      declared_mime_type,
+      expected_size,
+      expected_sha256,
+      bucket_id,
+      object_path,
+      status,
+      expires_at,
+      created_at,
+      updated_at
+    )
+    values (
+      v_intent_id,
+      v_batch.id,
+      v_generation,
+      (v_file->>'clientFileId')::uuid,
+      (v_file->>'order')::smallint,
+      v_file->>'name',
+      v_file->>'mimeType',
+      (v_file->>'size')::bigint,
+      v_file->>'sha256',
+      'messenger-attachments-v2',
+      'uploads/' || v_batch.id::text || '/' || v_generation::text || '/' || v_intent_id::text,
+      'pending',
+      v_expires_at,
+      v_now,
+      v_now
+    );
+  end loop;
+
+  select jsonb_agg(
+    jsonb_build_object(
+      'id', intent.id,
+      'clientFileId', intent.client_file_id,
+      'order', intent.sort_order,
+      'bucket', intent.bucket_id,
+      'path', intent.object_path
+    )
+    order by intent.sort_order
+  )
+    into v_result_intents
+    from public.messenger_attachment_upload_intents intent
+   where intent.batch_id = v_batch.id
+     and intent.generation = v_generation;
+
+  return jsonb_build_object(
+    'state', 'pending',
+    'batchId', v_batch.id,
+    'deliveryKey', v_batch.delivery_key,
+    'payloadFingerprint', v_batch.payload_fingerprint,
+    'expiresAt', v_batch.expires_at,
+    'intents', coalesce(v_result_intents, '[]'::jsonb)
+  );
+end;
+$$;
+
+revoke all on function public.reserve_messenger_attachment_upload_batch_v2(
+  uuid, text, uuid, text, jsonb, jsonb
+) from public, anon, authenticated;
+grant execute on function public.reserve_messenger_attachment_upload_batch_v2(
+  uuid, text, uuid, text, jsonb, jsonb
+) to service_role;
+
+create or replace function public.validate_messenger_attachment_intents_v2(
+  p_actor_id uuid,
+  p_actor_role text,
+  p_delivery_key uuid,
+  p_payload_fingerprint text,
+  p_intents jsonb
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_batch public.messenger_attachment_delivery_batches%rowtype;
+  v_expected_count integer;
+  v_item jsonb;
+  v_intent_id uuid;
+  v_size bigint;
+  v_mime text;
+  v_sha256 text;
+  v_family text;
+  v_updated integer := 0;
+begin
+  if p_actor_id is null
+     or p_delivery_key is null
+     or p_actor_role not in ('fc', 'admin', 'manager')
+     or p_payload_fingerprint is null
+     or p_payload_fingerprint !~ '^[0-9a-f]{64}$'
+     or p_intents is null
+     or jsonb_typeof(p_intents) <> 'array'
+     or jsonb_array_length(p_intents) not between 1 and 10 then
+    raise exception 'invalid_attachment_validation_request';
+  end if;
+
+  select *
+    into v_batch
+    from public.messenger_attachment_delivery_batches batch
+   where batch.actor_id = p_actor_id
+     and batch.actor_role = p_actor_role
+     and batch.delivery_key = p_delivery_key
+   for update;
+  if v_batch.id is null then
+    raise exception 'attachment_intent_not_found';
+  end if;
+  if v_batch.payload_fingerprint is distinct from p_payload_fingerprint then
+    raise exception 'attachment_idempotency_conflict';
+  end if;
+  if v_batch.status = 'committed' then
+    return jsonb_build_object(
+      'state', 'committed',
+      'batchId', v_batch.id,
+      'messageIds', to_jsonb(v_batch.committed_message_ids)
+    );
+  end if;
+  if v_batch.status <> 'pending' then
+    raise exception 'attachment_intent_consumed';
+  end if;
+  if v_batch.expires_at <= v_now then
+    raise exception 'attachment_intent_expired';
+  end if;
+
+  select count(*)
+    into v_expected_count
+    from public.messenger_attachment_upload_intents intent
+   where intent.batch_id = v_batch.id
+     and intent.generation = v_batch.generation
+     and intent.status in ('pending', 'validated');
+  if v_expected_count <> jsonb_array_length(p_intents) then
+    raise exception 'attachment_intent_set_mismatch';
+  end if;
+
+  for v_item in select value from jsonb_array_elements(p_intents)
+  loop
+    begin
+      v_intent_id := (v_item->>'id')::uuid;
+      v_size := (v_item->>'size')::bigint;
+    exception when others then
+      raise exception 'invalid_attachment_validation_request';
+    end;
+    v_mime := lower(btrim(v_item->>'mimeType'));
+    v_sha256 := lower(btrim(v_item->>'sha256'));
+    v_family := lower(btrim(v_item->>'family'));
+    update public.messenger_attachment_upload_intents intent
+       set status = 'validated',
+           inspected_family = v_family,
+           inspected_mime_type = v_mime,
+           inspected_size = v_size,
+           inspected_sha256 = v_sha256,
+           validated_at = coalesce(intent.validated_at, v_now),
+           updated_at = v_now
+     where intent.id = v_intent_id
+       and intent.batch_id = v_batch.id
+       and intent.generation = v_batch.generation
+       and intent.status in ('pending', 'validated')
+       and intent.expected_size = v_size
+       and intent.declared_mime_type = v_mime
+       and intent.expected_sha256 = v_sha256
+       and intent.object_path is not null;
+    if not found then
+      raise exception 'attachment_intent_validation_mismatch';
+    end if;
+    v_updated := v_updated + 1;
+  end loop;
+
+  if v_updated <> v_expected_count
+     or (
+       select count(*)
+         from public.messenger_attachment_upload_intents intent
+        where intent.batch_id = v_batch.id
+          and intent.generation = v_batch.generation
+          and intent.status = 'validated'
+     ) <> v_expected_count then
+    raise exception 'attachment_intent_set_mismatch';
+  end if;
+
+  return jsonb_build_object(
+    'state', 'validated',
+    'batchId', v_batch.id,
+    'intentCount', v_updated
+  );
+end;
+$$;
+
+revoke all on function public.validate_messenger_attachment_intents_v2(
+  uuid, text, uuid, text, jsonb
+) from public, anon, authenticated;
+grant execute on function public.validate_messenger_attachment_intents_v2(
+  uuid, text, uuid, text, jsonb
+) to service_role;
+
+create or replace function public.revoke_messenger_attachment_upload_batch_v2(
+  p_actor_id uuid,
+  p_actor_role text,
+  p_delivery_key uuid,
+  p_reason_code text default 'upload_intent_revoked'
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_batch public.messenger_attachment_delivery_batches%rowtype;
+  v_scheduled integer := 0;
+  v_retryable boolean := p_reason_code in (
+    'signed_upload_response_invalid',
+    'signed_upload_url_failed'
+  );
+begin
+  select *
+    into v_batch
+    from public.messenger_attachment_delivery_batches batch
+   where batch.actor_id = p_actor_id
+     and batch.actor_role = p_actor_role
+     and batch.delivery_key = p_delivery_key
+   for update;
+  if v_batch.id is null then
+    return jsonb_build_object('revoked', false, 'scheduled', 0);
+  end if;
+  if v_batch.status = 'committed' then
+    raise exception 'attachment_intent_consumed';
+  end if;
+  if v_batch.status in ('revoked', 'deleted') then
+    return jsonb_build_object('revoked', false, 'scheduled', 0);
+  end if;
+
+  insert into public.messenger_attachment_cleanup_outbox (
+    batch_id, bucket_id, storage_path, reason_code, sweep_phase, not_before
+  )
+  select intent.batch_id,
+         intent.bucket_id,
+         intent.object_path,
+         left(coalesce(nullif(p_reason_code, ''), 'upload_intent_revoked'), 80),
+         phase.sweep_phase,
+         case phase.sweep_phase
+           when 'immediate' then v_now
+           else greatest(intent.expires_at, v_now) + interval '5 minutes'
+         end
+    from public.messenger_attachment_upload_intents intent
+    cross join (
+      values ('immediate'::text), ('post_token_expiry'::text)
+    ) phase(sweep_phase)
+   where intent.batch_id = v_batch.id
+     and intent.generation = v_batch.generation
+     and intent.object_path is not null
+  on conflict (bucket_id, storage_path, sweep_phase)
+    where bucket_id is not null and storage_path is not null
+  do update set
+    not_before = least(
+      public.messenger_attachment_cleanup_outbox.not_before,
+      excluded.not_before
+    ),
+    status = case
+      when public.messenger_attachment_cleanup_outbox.status = 'completed'
+        then 'pending'
+      else public.messenger_attachment_cleanup_outbox.status
+    end,
+    completed_at = null,
+    updated_at = v_now;
+  get diagnostics v_scheduled = row_count;
+
+  update public.messenger_attachment_upload_intents
+     set status = case when v_retryable then 'expired' else 'revoked' end,
+         object_path = null,
+         updated_at = v_now
+   where batch_id = v_batch.id
+     and generation = v_batch.generation;
+  update public.messenger_attachment_delivery_batches
+     set status = case when v_retryable then 'expired' else 'revoked' end,
+         updated_at = v_now
+   where id = v_batch.id;
+
+  return jsonb_build_object(
+    'revoked', not v_retryable,
+    'retryable', v_retryable,
+    'scheduled', v_scheduled
+  );
+end;
+$$;
+
+revoke all on function public.revoke_messenger_attachment_upload_batch_v2(
+  uuid, text, uuid, text
+) from public, anon, authenticated;
+grant execute on function public.revoke_messenger_attachment_upload_batch_v2(
+  uuid, text, uuid, text
+) to service_role;
+
+create or replace function public.materialize_messenger_attachment_batch_v2(
+  p_batch_id uuid,
+  p_reference_count integer
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_batch public.messenger_attachment_delivery_batches%rowtype;
+  v_expected_count integer;
+  v_attachment_rows jsonb;
+  v_now timestamptz := clock_timestamp();
+begin
+  if p_batch_id is null or p_reference_count not between 1 and 200 then
+    raise exception 'invalid_attachment_materialization';
+  end if;
+  select *
+    into v_batch
+    from public.messenger_attachment_delivery_batches batch
+   where batch.id = p_batch_id
+   for update;
+  if v_batch.id is null then
+    raise exception 'attachment_intent_not_found';
+  end if;
+  if v_batch.status = 'committed' then
+    select coalesce(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', attachment.id,
+          'name', attachment.original_name,
+          'size', attachment.byte_size,
+          'mimeType', attachment.mime_type,
+          'sha256', attachment.sha256
+        )
+        order by link.sort_order
+      ),
+      '[]'::jsonb
+    )
+      into v_attachment_rows
+      from public.messenger_message_attachments link
+      join public.messenger_attachment_objects attachment
+        on attachment.id = link.attachment_id
+     where link.batch_id = v_batch.id;
+    return v_attachment_rows;
+  end if;
+  if v_batch.status <> 'pending' or v_batch.expires_at <= v_now then
+    raise exception 'attachment_intent_expired';
+  end if;
+
+  select count(*)
+    into v_expected_count
+    from public.messenger_attachment_upload_intents intent
+   where intent.batch_id = v_batch.id
+     and intent.generation = v_batch.generation
+     and intent.status = 'validated'
+     and intent.object_path is not null;
+  if v_expected_count not between 1 and 10
+     or v_expected_count <> (
+       select count(*)
+         from public.messenger_attachment_upload_intents intent
+        where intent.batch_id = v_batch.id
+          and intent.generation = v_batch.generation
+     ) then
+    raise exception 'attachment_intent_set_mismatch';
+  end if;
+
+  insert into public.messenger_attachment_objects (
+    id,
+    batch_id,
+    sort_order,
+    original_name,
+    mime_type,
+    byte_size,
+    sha256,
+    content_family,
+    bucket_id,
+    storage_path,
+    reference_count,
+    status,
+    created_at
+  )
+  select gen_random_uuid(),
+         intent.batch_id,
+         intent.sort_order,
+         intent.original_name,
+         intent.inspected_mime_type,
+         intent.inspected_size,
+         intent.inspected_sha256,
+         intent.inspected_family,
+         intent.bucket_id,
+         intent.object_path,
+         p_reference_count,
+         'active',
+         v_now
+    from public.messenger_attachment_upload_intents intent
+   where intent.batch_id = v_batch.id
+     and intent.generation = v_batch.generation
+     and intent.status = 'validated'
+   order by intent.sort_order
+  on conflict (batch_id, sort_order) do update
+    set reference_count = excluded.reference_count;
+
+  insert into public.messenger_message_attachments (
+    batch_id,
+    attachment_id,
+    sort_order
+  )
+  select attachment.batch_id, attachment.id, attachment.sort_order
+    from public.messenger_attachment_objects attachment
+   where attachment.batch_id = v_batch.id
+  on conflict (batch_id, attachment_id) do nothing;
+
+  update public.messenger_attachment_upload_intents
+     set status = 'consumed',
+         consumed_at = v_now,
+         object_path = null,
+         updated_at = v_now
+   where batch_id = v_batch.id
+     and generation = v_batch.generation
+     and status = 'validated';
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', attachment.id,
+        'name', attachment.original_name,
+        'size', attachment.byte_size,
+        'mimeType', attachment.mime_type,
+        'sha256', attachment.sha256
+      )
+      order by link.sort_order
+    ),
+    '[]'::jsonb
+  )
+    into v_attachment_rows
+    from public.messenger_message_attachments link
+    join public.messenger_attachment_objects attachment
+      on attachment.id = link.attachment_id
+   where link.batch_id = v_batch.id;
+  return v_attachment_rows;
+end;
+$$;
+
+revoke all on function public.materialize_messenger_attachment_batch_v2(
+  uuid, integer
+) from public, anon, authenticated;
+grant execute on function public.materialize_messenger_attachment_batch_v2(
+  uuid, integer
+) to service_role;
+
+create or replace function public.commit_garamin_direct_message_with_attachments_v2(
+  p_message_id uuid,
+  p_conversation_id uuid,
+  p_sender_id text,
+  p_receiver_id text,
+  p_sender_actor_id uuid,
+  p_receiver_actor_id uuid,
+  p_content text,
+  p_delivery_key uuid,
+  p_payload_fingerprint text,
+  p_attachment_intent_ids uuid[]
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_fc_id uuid;
+  v_fc_phone text;
+  v_actor_role text;
+  v_staff_phone text;
+  v_staff_type text;
+  v_batch public.messenger_attachment_delivery_batches%rowtype;
+  v_existing_message public.messages%rowtype;
+  v_attachments jsonb;
+  v_notifications jsonb;
+  v_notification_ids uuid[];
+begin
+  if p_message_id is null
+     or p_conversation_id is null
+     or p_sender_actor_id is null
+     or p_delivery_key is null
+     or p_payload_fingerprint is null
+     or p_payload_fingerprint !~ '^[0-9a-f]{64}$'
+     or p_attachment_intent_ids is null
+     or cardinality(p_attachment_intent_ids) not between 1 and 10
+     or length(coalesce(p_content, '')) > 4000 then
+    raise exception 'invalid_direct_attachment_message';
+  end if;
+
+  perform pg_advisory_xact_lock(
+    hashtextextended(
+      'messenger-direct-context:' || p_conversation_id::text,
+      0
+    )
+  );
+
+  select conversation.fc_id, profile.phone
+    into v_fc_id, v_fc_phone
+    from public.garamin_direct_conversations conversation
+    join public.fc_profiles profile
+      on profile.id = conversation.fc_id
+     and profile.signup_completed = true
+     and coalesce(profile.is_manager_referral_shadow, false) = false
+     and coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+     and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+   where conversation.id = p_conversation_id;
+  if v_fc_id is null or v_fc_phone is null then
+    raise exception 'direct_conversation_not_found';
+  end if;
+
+  if p_sender_id = v_fc_phone and p_receiver_id = 'admin' then
+    v_actor_role := 'fc';
+    if p_sender_actor_id <> v_fc_id
+       or p_receiver_actor_id is not null
+       or not exists (
+         select 1 from public.fc_profiles profile
+          where profile.id = p_sender_actor_id
+            and profile.signup_completed = true
+            and coalesce(profile.is_manager_referral_shadow, false) = false
+            and coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+            and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+       )
+       or not exists (
+         select 1 from public.admin_accounts account
+          where account.active = true
+            and coalesce(account.staff_type, 'admin') in ('admin', 'developer')
+       ) then
+      raise exception 'direct_message_actor_mismatch';
+    end if;
+  elsif p_receiver_id = v_fc_phone then
+    if p_receiver_actor_id is distinct from v_fc_id then
+      raise exception 'direct_message_actor_mismatch';
+    end if;
+    select account.phone, coalesce(account.staff_type, 'admin')
+      into v_staff_phone, v_staff_type
+      from public.admin_accounts account
+     where account.id = p_sender_actor_id
+       and account.active = true
+       and coalesce(account.staff_type, 'admin') in ('admin', 'developer');
+    if found then
+      v_actor_role := 'admin';
+      if p_sender_id is distinct from (
+        case
+          when v_staff_type = 'developer'
+            then regexp_replace(v_staff_phone, '[^0-9]', '', 'g')
+          else 'admin'
+        end
+      ) then
+        raise exception 'direct_message_actor_mismatch';
+      end if;
+    else
+      v_staff_phone := null;
+      select account.phone
+        into v_staff_phone
+        from public.manager_accounts account
+       where account.id = p_sender_actor_id
+         and account.active = true;
+      if not found
+         or p_sender_id is distinct from regexp_replace(v_staff_phone, '[^0-9]', '', 'g') then
+        raise exception 'direct_message_actor_mismatch';
+      end if;
+      v_actor_role := 'manager';
+    end if;
+  else
+    raise exception 'direct_message_identity_mismatch';
+  end if;
+
+  select *
+    into v_batch
+    from public.messenger_attachment_delivery_batches batch
+   where batch.actor_id = p_sender_actor_id
+     and batch.actor_role = v_actor_role
+     and batch.delivery_key = p_delivery_key
+   for update;
+  if v_batch.id is null then
+    raise exception 'attachment_intent_not_found';
+  end if;
+  if v_batch.payload_fingerprint is distinct from p_payload_fingerprint
+     or v_batch.context_kind <> 'direct'
+     or v_batch.conversation_id <> p_conversation_id then
+    raise exception 'attachment_idempotency_conflict';
+  end if;
+  if (
+    select array_agg(intent.id order by intent.sort_order)
+      from public.messenger_attachment_upload_intents intent
+     where intent.batch_id = v_batch.id
+       and intent.generation = v_batch.generation
+  ) is distinct from p_attachment_intent_ids then
+    raise exception 'attachment_intent_set_mismatch';
+  end if;
+
+  if v_batch.status = 'committed' then
+    select *
+      into v_existing_message
+      from public.messages message
+     where message.id = p_message_id
+       and message.attachment_batch_id = v_batch.id;
+    if v_existing_message.id is null
+       or v_existing_message.conversation_id <> p_conversation_id
+       or v_existing_message.sender_actor_id <> p_sender_actor_id
+       or v_existing_message.receiver_actor_id is distinct from p_receiver_actor_id
+       or v_existing_message.content is distinct from coalesce(p_content, '') then
+      raise exception 'attachment_idempotency_conflict';
+    end if;
+    select coalesce(
+      jsonb_agg(to_jsonb(notification) order by notification.id),
+      '[]'::jsonb
+    )
+      into v_notifications
+      from public.notifications notification
+     where notification.id = any(v_batch.notification_ids);
+    return jsonb_build_object(
+      'message_id', p_message_id,
+      'batch_id', v_batch.id,
+      'replayed', true,
+      'attachments', public.materialize_messenger_attachment_batch_v2(v_batch.id, 1),
+      'notifications', v_notifications
+    );
+  end if;
+  if v_batch.status <> 'pending' or v_batch.expires_at <= v_now then
+    raise exception 'attachment_intent_expired';
+  end if;
+
+  v_attachments := public.materialize_messenger_attachment_batch_v2(v_batch.id, 1);
+
+  insert into public.messages (
+    id,
+    conversation_id,
+    sender_id,
+    receiver_id,
+    sender_actor_id,
+    receiver_actor_id,
+    content,
+    message_type,
+    is_read,
+    attachment_batch_id
+  )
+  values (
+    p_message_id,
+    p_conversation_id,
+    p_sender_id,
+    p_receiver_id,
+    p_sender_actor_id,
+    p_receiver_actor_id,
+    coalesce(p_content, ''),
+    'file',
+    false,
+    v_batch.id
+  )
+  on conflict (id) do nothing;
+  select *
+    into v_existing_message
+    from public.messages message
+   where message.id = p_message_id;
+  if v_existing_message.id is null
+     or v_existing_message.conversation_id <> p_conversation_id
+     or v_existing_message.sender_actor_id <> p_sender_actor_id
+     or v_existing_message.receiver_actor_id is distinct from p_receiver_actor_id
+     or v_existing_message.content is distinct from coalesce(p_content, '')
+     or v_existing_message.attachment_batch_id <> v_batch.id then
+    raise exception 'attachment_idempotency_conflict';
+  end if;
+
+  if p_receiver_id = 'admin' then
+    with inserted as (
+      insert into public.notifications (
+        title, body, category, fc_id, resident_id, recipient_actor_id,
+        recipient_role, target, target_url, delivery_key
+      )
+      select '새 메시지',
+             left(coalesce(nullif(p_content, ''), '첨부파일을 보냈습니다.'), 160),
+             'message',
+             v_fc_id,
+             account.phone,
+             account.id,
+             'admin',
+             jsonb_build_object(
+               'version', 1,
+               'kind', 'garamin_direct_chat',
+               'conversationId', p_conversation_id
+             ),
+             '/chat',
+             'direct_message:' || p_message_id::text || ':' || account.id::text
+        from public.admin_accounts account
+       where account.active = true
+         and coalesce(account.staff_type, 'admin') in ('admin', 'developer')
+      on conflict (delivery_key) do update
+        set delivery_key = excluded.delivery_key
+      returning *
+    )
+    select coalesce(jsonb_agg(to_jsonb(inserted) order by inserted.id), '[]'::jsonb),
+           coalesce(array_agg(inserted.id order by inserted.id), array[]::uuid[])
+      into v_notifications, v_notification_ids
+      from inserted;
+  else
+    with inserted as (
+      insert into public.notifications (
+        title, body, category, fc_id, resident_id, recipient_actor_id,
+        recipient_role, target, target_url, delivery_key
+      )
+      values (
+        '새 메시지',
+        left(coalesce(nullif(p_content, ''), '첨부파일을 보냈습니다.'), 160),
+        'message',
+        v_fc_id,
+        v_fc_phone,
+        v_fc_id,
+        'fc',
+        jsonb_build_object(
+          'version', 1,
+          'kind', 'garamin_direct_chat',
+          'conversationId', p_conversation_id
+        ),
+        '/chat',
+        'direct_message:' || p_message_id::text || ':' || v_fc_id::text
+      )
+      on conflict (delivery_key) do update
+        set delivery_key = excluded.delivery_key
+      returning *
+    )
+    select coalesce(jsonb_agg(to_jsonb(inserted)), '[]'::jsonb),
+           coalesce(array_agg(inserted.id), array[]::uuid[])
+      into v_notifications, v_notification_ids
+      from inserted;
+  end if;
+  if cardinality(v_notification_ids) < 1 then
+    raise exception 'direct_message_notification_not_persisted';
+  end if;
+
+  update public.messenger_attachment_delivery_batches
+     set status = 'committed',
+         committed_message_ids = array[p_message_id],
+         notification_ids = v_notification_ids,
+         committed_at = v_now,
+         updated_at = v_now
+   where id = v_batch.id;
+
+  return jsonb_build_object(
+    'message_id', p_message_id,
+    'batch_id', v_batch.id,
+    'replayed', false,
+    'attachments', v_attachments,
+    'notifications', v_notifications
+  );
+end;
+$$;
+
+revoke all on function public.commit_garamin_direct_message_with_attachments_v2(
+  uuid, uuid, text, text, uuid, uuid, text, uuid, text, uuid[]
+) from public, anon, authenticated;
+grant execute on function public.commit_garamin_direct_message_with_attachments_v2(
+  uuid, uuid, text, text, uuid, uuid, text, uuid, text, uuid[]
+) to service_role;
+
+create or replace function public.commit_group_chat_message_with_attachments_v2(
+  p_message_id uuid,
+  p_room_id uuid,
+  p_sender_immutable_actor_id uuid,
+  p_sender_actor_id text,
+  p_sender_role text,
+  p_sender_phone text,
+  p_sender_name text,
+  p_content text,
+  p_reply_to_message_id uuid,
+  p_reply_to_sender_name text,
+  p_reply_to_content text,
+  p_delivery_key uuid,
+  p_payload_fingerprint text,
+  p_attachment_intent_ids uuid[]
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_batch public.messenger_attachment_delivery_batches%rowtype;
+  v_actor_valid boolean := false;
+  v_actor_phone text;
+  v_existing_message public.group_chat_messages%rowtype;
+  v_attachments jsonb;
+begin
+  if p_message_id is null
+     or p_room_id is null
+     or p_sender_immutable_actor_id is null
+     or p_sender_role not in ('fc', 'manager', 'admin')
+     or p_delivery_key is null
+     or p_payload_fingerprint is null
+     or p_payload_fingerprint !~ '^[0-9a-f]{64}$'
+     or p_attachment_intent_ids is null
+     or cardinality(p_attachment_intent_ids) not between 1 and 10
+     or length(coalesce(p_content, '')) > 4000 then
+    raise exception 'invalid_group_attachment_message';
+  end if;
+
+  if p_sender_role = 'fc' then
+    select profile.phone,
+           profile.signup_completed = true
+           and coalesce(profile.is_manager_referral_shadow, false) = false
+           and coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+           and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+      into v_actor_phone, v_actor_valid
+      from public.fc_profiles profile
+     where profile.id = p_sender_immutable_actor_id;
+  elsif p_sender_role = 'manager' then
+    select account.phone, account.active = true
+      into v_actor_phone, v_actor_valid
+      from public.manager_accounts account
+     where account.id = p_sender_immutable_actor_id;
+  else
+    select account.phone,
+           account.active = true
+           and coalesce(account.staff_type, 'admin') in ('admin', 'developer')
+      into v_actor_phone, v_actor_valid
+      from public.admin_accounts account
+     where account.id = p_sender_immutable_actor_id;
+  end if;
+  if not coalesce(v_actor_valid, false)
+     or regexp_replace(v_actor_phone, '[^0-9]', '', 'g')
+        <> regexp_replace(coalesce(p_sender_phone, ''), '[^0-9]', '', 'g')
+     or p_sender_actor_id is distinct from (
+       p_sender_role || ':' || regexp_replace(v_actor_phone, '[^0-9]', '', 'g')
+     )
+     or not exists (
+       select 1 from public.group_chat_rooms room
+        where room.id = p_room_id and room.is_active = true
+     ) then
+    raise exception 'attachment_context_forbidden';
+  end if;
+  if p_sender_role = 'fc'
+     and not exists (
+       select 1
+         from public.group_chat_member_send_permissions permission
+        where permission.room_id = p_room_id
+          and permission.actor_id = p_sender_actor_id
+          and permission.can_send_messages = true
+     ) then
+    raise exception 'attachment_context_forbidden';
+  end if;
+
+  select *
+    into v_batch
+    from public.messenger_attachment_delivery_batches batch
+   where batch.actor_id = p_sender_immutable_actor_id
+     and batch.actor_role = p_sender_role
+     and batch.delivery_key = p_delivery_key
+   for update;
+  if v_batch.id is null then
+    raise exception 'attachment_intent_not_found';
+  end if;
+  if v_batch.payload_fingerprint is distinct from p_payload_fingerprint
+     or v_batch.context_kind <> 'group'
+     or v_batch.room_id <> p_room_id then
+    raise exception 'attachment_idempotency_conflict';
+  end if;
+  if (
+    select array_agg(intent.id order by intent.sort_order)
+      from public.messenger_attachment_upload_intents intent
+     where intent.batch_id = v_batch.id
+       and intent.generation = v_batch.generation
+  ) is distinct from p_attachment_intent_ids then
+    raise exception 'attachment_intent_set_mismatch';
+  end if;
+
+  if v_batch.status = 'committed' then
+    select *
+      into v_existing_message
+      from public.group_chat_messages message
+     where message.id = p_message_id
+       and message.attachment_batch_id = v_batch.id;
+    if v_existing_message.id is null
+       or v_existing_message.room_id <> p_room_id
+       or v_existing_message.sender_actor_id <> p_sender_actor_id
+       or v_existing_message.content is distinct from coalesce(p_content, '') then
+      raise exception 'attachment_idempotency_conflict';
+    end if;
+    return jsonb_build_object(
+      'message_id', p_message_id,
+      'batch_id', v_batch.id,
+      'replayed', true,
+      'attachments', public.materialize_messenger_attachment_batch_v2(v_batch.id, 1)
+    );
+  end if;
+  if v_batch.status <> 'pending' or v_batch.expires_at <= v_now then
+    raise exception 'attachment_intent_expired';
+  end if;
+
+  v_attachments := public.materialize_messenger_attachment_batch_v2(v_batch.id, 1);
+  insert into public.group_chat_messages (
+    id,
+    room_id,
+    sender_actor_id,
+    sender_role,
+    sender_phone,
+    sender_name,
+    content,
+    message_type,
+    file_url,
+    file_name,
+    file_size,
+    reply_to_message_id,
+    reply_to_sender_name,
+    reply_to_content,
+    attachment_batch_id
+  )
+  values (
+    p_message_id,
+    p_room_id,
+    p_sender_actor_id,
+    p_sender_role,
+    p_sender_phone,
+    nullif(p_sender_name, ''),
+    coalesce(p_content, ''),
+    'file',
+    null,
+    null,
+    null,
+    p_reply_to_message_id,
+    nullif(p_reply_to_sender_name, ''),
+    nullif(p_reply_to_content, ''),
+    v_batch.id
+  )
+  on conflict (id) do nothing;
+
+  select *
+    into v_existing_message
+    from public.group_chat_messages message
+   where message.id = p_message_id;
+  if v_existing_message.id is null
+     or v_existing_message.room_id <> p_room_id
+     or v_existing_message.sender_actor_id <> p_sender_actor_id
+     or v_existing_message.content is distinct from coalesce(p_content, '')
+     or v_existing_message.attachment_batch_id <> v_batch.id then
+    raise exception 'attachment_idempotency_conflict';
+  end if;
+
+  update public.messenger_attachment_delivery_batches
+     set status = 'committed',
+         committed_message_ids = array[p_message_id],
+         committed_at = v_now,
+         updated_at = v_now
+   where id = v_batch.id;
+
+  return jsonb_build_object(
+    'message_id', p_message_id,
+    'batch_id', v_batch.id,
+    'replayed', false,
+    'attachments', v_attachments
+  );
+end;
+$$;
+
+revoke all on function public.commit_group_chat_message_with_attachments_v2(
+  uuid, uuid, uuid, text, text, text, text, text,
+  uuid, text, text, uuid, text, uuid[]
+) from public, anon, authenticated;
+grant execute on function public.commit_group_chat_message_with_attachments_v2(
+  uuid, uuid, uuid, text, text, text, text, text,
+  uuid, text, text, uuid, text, uuid[]
+) to service_role;
+
+create or replace function public.commit_garamin_direct_broadcast_with_attachments_v2(
+  p_message_ids uuid[],
+  p_conversation_ids uuid[],
+  p_sender_actor_id uuid,
+  p_content text,
+  p_delivery_key uuid,
+  p_payload_fingerprint text,
+  p_attachment_intent_ids uuid[]
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_count integer := cardinality(p_conversation_ids);
+  v_batch public.messenger_attachment_delivery_batches%rowtype;
+  v_sorted_conversation_ids uuid[];
+  v_sender_phone text;
+  v_sender_staff_type text;
+  v_sender_id text;
+  v_lock_conversation_id uuid;
+  v_attachments jsonb;
+  v_notifications jsonb;
+  v_notification_ids uuid[];
+begin
+  if p_sender_actor_id is null
+     or p_message_ids is null
+     or p_conversation_ids is null
+     or p_delivery_key is null
+     or p_payload_fingerprint is null
+     or p_payload_fingerprint !~ '^[0-9a-f]{64}$'
+     or p_attachment_intent_ids is null
+     or v_count not between 1 and 200
+     or cardinality(p_message_ids) <> v_count
+     or cardinality(p_attachment_intent_ids) not between 1 and 10
+     or length(coalesce(p_content, '')) > 4000
+     or cardinality(array(select distinct value from unnest(p_conversation_ids) value)) <> v_count
+     or cardinality(array(select distinct value from unnest(p_message_ids) value)) <> v_count
+     or not exists (
+       select 1 from public.admin_accounts account
+        where account.id = p_sender_actor_id
+          and account.active = true
+          and coalesce(account.staff_type, 'admin') in ('admin', 'developer')
+     ) then
+    raise exception 'invalid_direct_broadcast_attachment_message';
+  end if;
+
+  select account.phone, coalesce(account.staff_type, 'admin')
+    into v_sender_phone, v_sender_staff_type
+    from public.admin_accounts account
+   where account.id = p_sender_actor_id
+     and account.active = true
+     and coalesce(account.staff_type, 'admin') in ('admin', 'developer');
+  if not found then
+    raise exception 'invalid_direct_broadcast_attachment_message';
+  end if;
+  v_sender_id := case
+    when v_sender_staff_type = 'developer'
+      then regexp_replace(v_sender_phone, '[^0-9]', '', 'g')
+    else 'admin'
+  end;
+
+  select array_agg(value order by value)
+    into v_sorted_conversation_ids
+    from unnest(p_conversation_ids) value;
+  for v_lock_conversation_id in
+    select conversation_id
+      from unnest(v_sorted_conversation_ids) requested(conversation_id)
+     order by conversation_id
+  loop
+    perform pg_advisory_xact_lock(
+      hashtextextended(
+        'messenger-direct-context:' || v_lock_conversation_id::text,
+        0
+      )
+    );
+  end loop;
+  if exists (
+    select 1
+      from unnest(p_conversation_ids) requested(conversation_id)
+      left join public.garamin_direct_conversations conversation
+        on conversation.id = requested.conversation_id
+      left join public.fc_profiles profile
+        on profile.id = conversation.fc_id
+       and profile.signup_completed = true
+       and coalesce(profile.is_manager_referral_shadow, false) = false
+       and coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+       and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+     where conversation.id is null or profile.id is null
+  ) then
+    raise exception 'attachment_context_not_found';
+  end if;
+
+  select *
+    into v_batch
+    from public.messenger_attachment_delivery_batches batch
+   where batch.actor_id = p_sender_actor_id
+     and batch.actor_role = 'admin'
+     and batch.delivery_key = p_delivery_key
+   for update;
+  if v_batch.id is null then
+    raise exception 'attachment_intent_not_found';
+  end if;
+  if v_batch.payload_fingerprint is distinct from p_payload_fingerprint
+     or v_batch.context_kind <> 'direct_broadcast'
+     or v_batch.conversation_ids is distinct from v_sorted_conversation_ids then
+    raise exception 'attachment_idempotency_conflict';
+  end if;
+  if (
+    select array_agg(intent.id order by intent.sort_order)
+      from public.messenger_attachment_upload_intents intent
+     where intent.batch_id = v_batch.id
+       and intent.generation = v_batch.generation
+  ) is distinct from p_attachment_intent_ids then
+    raise exception 'attachment_intent_set_mismatch';
+  end if;
+
+  if v_batch.status = 'committed' then
+    if v_batch.committed_message_ids is distinct from p_message_ids
+       or (
+         select count(*)
+           from unnest(p_message_ids, p_conversation_ids)
+             as requested(message_id, conversation_id)
+           join public.messages message
+             on message.id = requested.message_id
+            and message.conversation_id = requested.conversation_id
+          where message.attachment_batch_id = v_batch.id
+            and message.sender_actor_id = p_sender_actor_id
+            and message.content is not distinct from coalesce(p_content, '')
+       ) <> v_count then
+      raise exception 'attachment_idempotency_conflict';
+    end if;
+    select coalesce(
+      jsonb_agg(to_jsonb(notification) order by notification.id),
+      '[]'::jsonb
+    )
+      into v_notifications
+      from public.notifications notification
+     where notification.id = any(v_batch.notification_ids);
+    return jsonb_build_object(
+      'message_ids', to_jsonb(p_message_ids),
+      'batch_id', v_batch.id,
+      'replayed', true,
+      'attachments', public.materialize_messenger_attachment_batch_v2(v_batch.id, v_count),
+      'notifications', v_notifications
+    );
+  end if;
+  if v_batch.status <> 'pending' or v_batch.expires_at <= v_now then
+    raise exception 'attachment_intent_expired';
+  end if;
+
+  v_attachments := public.materialize_messenger_attachment_batch_v2(v_batch.id, v_count);
+
+  insert into public.messages (
+    id,
+    conversation_id,
+    sender_id,
+    receiver_id,
+    sender_actor_id,
+    receiver_actor_id,
+    content,
+    message_type,
+    is_read,
+    attachment_batch_id
+  )
+  select requested.message_id,
+         requested.conversation_id,
+         v_sender_id,
+         profile.phone,
+         p_sender_actor_id,
+         profile.id,
+         coalesce(p_content, ''),
+         'file',
+         false,
+         v_batch.id
+    from unnest(p_message_ids, p_conversation_ids)
+      as requested(message_id, conversation_id)
+    join public.garamin_direct_conversations conversation
+      on conversation.id = requested.conversation_id
+    join public.fc_profiles profile
+      on profile.id = conversation.fc_id
+     and profile.signup_completed = true
+     and coalesce(profile.is_manager_referral_shadow, false) = false
+     and coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+     and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+  on conflict (id) do nothing;
+
+  if (
+    select count(*)
+      from unnest(p_message_ids, p_conversation_ids)
+        as requested(message_id, conversation_id)
+      join public.messages message
+        on message.id = requested.message_id
+       and message.conversation_id = requested.conversation_id
+     where message.attachment_batch_id = v_batch.id
+       and message.sender_actor_id = p_sender_actor_id
+       and message.content is not distinct from coalesce(p_content, '')
+  ) <> v_count then
+    raise exception 'attachment_idempotency_conflict';
+  end if;
+
+  with inserted as (
+    insert into public.notifications (
+      title, body, category, fc_id, resident_id, recipient_actor_id,
+      recipient_role, target, target_url, delivery_key
+    )
+    select '새 메시지',
+           left(coalesce(nullif(p_content, ''), '첨부파일을 보냈습니다.'), 160),
+           'message',
+           profile.id,
+           profile.phone,
+           profile.id,
+           'fc',
+           jsonb_build_object(
+             'version', 1,
+             'kind', 'garamin_direct_chat',
+             'conversationId', requested.conversation_id
+           ),
+           '/chat',
+           'direct_message:' || requested.message_id::text || ':' || profile.id::text
+      from unnest(p_message_ids, p_conversation_ids)
+        as requested(message_id, conversation_id)
+      join public.garamin_direct_conversations conversation
+        on conversation.id = requested.conversation_id
+      join public.fc_profiles profile
+        on profile.id = conversation.fc_id
+       and profile.signup_completed = true
+       and coalesce(profile.is_manager_referral_shadow, false) = false
+       and coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+       and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+    on conflict (delivery_key) do update
+      set delivery_key = excluded.delivery_key
+    returning *
+  )
+  select coalesce(jsonb_agg(to_jsonb(inserted) order by inserted.id), '[]'::jsonb),
+         coalesce(array_agg(inserted.id order by inserted.id), array[]::uuid[])
+    into v_notifications, v_notification_ids
+    from inserted;
+  if cardinality(v_notification_ids) <> v_count then
+    raise exception 'direct_message_notification_not_persisted';
+  end if;
+
+  update public.messenger_attachment_delivery_batches
+     set status = 'committed',
+         committed_message_ids = p_message_ids,
+         notification_ids = v_notification_ids,
+         committed_at = v_now,
+         updated_at = v_now
+   where id = v_batch.id;
+
+  return jsonb_build_object(
+    'message_ids', to_jsonb(p_message_ids),
+    'batch_id', v_batch.id,
+    'replayed', false,
+    'attachments', v_attachments,
+    'notifications', v_notifications
+  );
+end;
+$$;
+
+revoke all on function public.commit_garamin_direct_broadcast_with_attachments_v2(
+  uuid[], uuid[], uuid, text, uuid, text, uuid[]
+) from public, anon, authenticated;
+grant execute on function public.commit_garamin_direct_broadcast_with_attachments_v2(
+  uuid[], uuid[], uuid, text, uuid, text, uuid[]
+) to service_role;
+
+create or replace function public.delete_messenger_attachment_delivery_v2(
+  p_message_kind text,
+  p_message_id uuid,
+  p_actor_id uuid,
+  p_actor_role text,
+  p_group_actor_id text default null
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_batch_id uuid;
+  v_deleted_conversation_id uuid;
+  v_scheduled integer := 0;
+  v_remaining integer := 0;
+begin
+  if p_message_id is null
+     or p_actor_id is null
+     or p_actor_role not in ('fc', 'admin', 'manager')
+     or p_message_kind not in ('direct', 'group') then
+    raise exception 'invalid_attachment_delete_request';
+  end if;
+  perform pg_advisory_xact_lock(
+    hashtextextended(p_actor_role || ':' || p_actor_id::text, 0)
+  );
+
+  if p_message_kind = 'direct' then
+    select message.attachment_batch_id, message.conversation_id
+      into v_batch_id, v_deleted_conversation_id
+      from public.messages message
+     where message.id = p_message_id
+       and message.deleted_at is null
+       and message.sender_actor_id = p_actor_id
+     for update;
+  else
+    select message.attachment_batch_id
+      into v_batch_id
+      from public.group_chat_messages message
+     where message.id = p_message_id
+       and message.deleted_at is null
+       and message.sender_actor_id = p_group_actor_id
+       and exists (
+         select 1
+           from public.messenger_attachment_delivery_batches batch
+          where batch.id = message.attachment_batch_id
+            and batch.actor_id = p_actor_id
+            and batch.actor_role = p_actor_role
+       )
+     for update;
+  end if;
+  if v_batch_id is null then
+    raise exception 'attachment_message_not_found';
+  end if;
+
+  perform 1
+    from public.messenger_attachment_delivery_batches batch
+   where batch.id = v_batch_id
+     and batch.actor_id = p_actor_id
+     and batch.actor_role = p_actor_role
+   for update;
+  if not found then
+    raise exception 'attachment_message_not_found';
+  end if;
+
+  if p_message_kind = 'direct' then
+    update public.messages
+       set deleted_at = coalesce(deleted_at, v_now),
+           deleted_by_actor_id = coalesce(deleted_by_actor_id, p_actor_id),
+           content = ''
+     where id = p_message_id
+       and attachment_batch_id = v_batch_id;
+    select count(*)
+      into v_remaining
+      from public.messages message
+     where message.attachment_batch_id = v_batch_id
+       and message.deleted_at is null;
+  else
+    update public.group_chat_messages
+       set deleted_at = coalesce(deleted_at, v_now),
+           deleted_by_actor_id = coalesce(deleted_by_actor_id, p_group_actor_id),
+           content = ''
+     where id = p_message_id
+       and attachment_batch_id = v_batch_id;
+    delete from public.group_chat_notices notice
+     where notice.message_id = p_message_id;
+    select count(*)
+      into v_remaining
+      from public.group_chat_messages message
+     where message.attachment_batch_id = v_batch_id
+       and message.deleted_at is null;
+  end if;
+
+  if v_remaining > 0 then
+    update public.messenger_attachment_delivery_batches
+       set conversation_ids = array_remove(conversation_ids, v_deleted_conversation_id),
+           updated_at = v_now
+     where id = v_batch_id
+       and context_kind = 'direct_broadcast'
+       and v_deleted_conversation_id is not null;
+    update public.messenger_attachment_objects
+       set reference_count = v_remaining
+     where batch_id = v_batch_id
+       and status = 'active';
+    return jsonb_build_object(
+      'deleted', true,
+      'batchId', v_batch_id,
+      'scheduled', 0,
+      'retainedForReferences', v_remaining
+    );
+  end if;
+
+  insert into public.messenger_attachment_deletion_audit (
+    original_name,
+    byte_size,
+    sha256,
+    reason_code,
+    deleted_at
+  )
+  select attachment.original_name,
+         attachment.byte_size,
+         attachment.sha256,
+         'message_deleted',
+         v_now
+    from public.messenger_attachment_objects attachment
+   where attachment.batch_id = v_batch_id;
+
+  insert into public.messenger_attachment_cleanup_outbox (
+    attachment_id,
+    batch_id,
+    bucket_id,
+    storage_path,
+    reason_code,
+    sweep_phase,
+    not_before
+  )
+  select attachment.id,
+         attachment.batch_id,
+         attachment.bucket_id,
+         attachment.storage_path,
+         'message_deleted',
+         phase.sweep_phase,
+         case phase.sweep_phase
+           when 'immediate' then v_now
+           else greatest(batch.expires_at, v_now) + interval '5 minutes'
+         end
+    from public.messenger_attachment_objects attachment
+    join public.messenger_attachment_delivery_batches batch
+      on batch.id = attachment.batch_id
+    cross join (
+      values ('immediate'::text), ('post_token_expiry'::text)
+    ) phase(sweep_phase)
+   where attachment.batch_id = v_batch_id
+     and attachment.storage_path is not null
+  on conflict (bucket_id, storage_path, sweep_phase)
+    where bucket_id is not null and storage_path is not null
+  do update set
+    not_before = least(
+      public.messenger_attachment_cleanup_outbox.not_before,
+      excluded.not_before
+    ),
+    status = case
+      when public.messenger_attachment_cleanup_outbox.status = 'completed'
+        then 'pending'
+      else public.messenger_attachment_cleanup_outbox.status
+    end,
+    completed_at = null,
+    updated_at = v_now;
+  get diagnostics v_scheduled = row_count;
+
+  update public.messenger_attachment_objects
+     set bucket_id = null,
+         storage_path = null,
+         reference_count = 0,
+         status = 'tombstoned',
+         tombstoned_at = coalesce(tombstoned_at, v_now)
+   where batch_id = v_batch_id;
+  update public.messenger_attachment_delivery_batches
+     set status = 'deleted',
+         deleted_at = coalesce(deleted_at, v_now),
+         updated_at = v_now
+   where id = v_batch_id;
+
+  return jsonb_build_object(
+    'deleted', true,
+    'batchId', v_batch_id,
+    'scheduled', v_scheduled
+  );
+end;
+$$;
+
+revoke all on function public.delete_messenger_attachment_delivery_v2(
+  text, uuid, uuid, text, text
+) from public, anon, authenticated;
+grant execute on function public.delete_messenger_attachment_delivery_v2(
+  text, uuid, uuid, text, text
+) to service_role;
+
+create or replace function public.expire_messenger_attachment_intents_v2(
+  p_limit integer default 50
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_batch_id uuid;
+  v_expired integer := 0;
+  v_scheduled integer := 0;
+  v_rows integer;
+begin
+  for v_batch_id in
+    select batch.id
+      from public.messenger_attachment_delivery_batches batch
+     where batch.status = 'pending'
+       and batch.expires_at <= v_now
+     order by batch.expires_at, batch.id
+     for update skip locked
+     limit greatest(1, least(coalesce(p_limit, 50), 200))
+  loop
+    insert into public.messenger_attachment_cleanup_outbox (
+      batch_id, bucket_id, storage_path, reason_code, sweep_phase, not_before
+    )
+    select intent.batch_id,
+           intent.bucket_id,
+           intent.object_path,
+           'expired_intent',
+           phase.sweep_phase,
+           case phase.sweep_phase
+             when 'immediate' then v_now
+             else greatest(intent.expires_at, v_now) + interval '5 minutes'
+           end
+      from public.messenger_attachment_upload_intents intent
+      cross join (
+        values ('immediate'::text), ('post_token_expiry'::text)
+      ) phase(sweep_phase)
+     where intent.batch_id = v_batch_id
+       and intent.object_path is not null
+    on conflict (bucket_id, storage_path, sweep_phase)
+      where bucket_id is not null and storage_path is not null
+    do update set
+      not_before = least(
+        public.messenger_attachment_cleanup_outbox.not_before,
+        excluded.not_before
+      ),
+      status = case
+        when public.messenger_attachment_cleanup_outbox.status = 'completed'
+          then 'pending'
+        else public.messenger_attachment_cleanup_outbox.status
+      end,
+      completed_at = null,
+      updated_at = v_now;
+    get diagnostics v_rows = row_count;
+    v_scheduled := v_scheduled + v_rows;
+
+    update public.messenger_attachment_upload_intents
+       set status = 'expired',
+           object_path = null,
+           updated_at = v_now
+     where batch_id = v_batch_id
+       and status in ('pending', 'validated');
+    update public.messenger_attachment_delivery_batches
+       set status = 'expired',
+           updated_at = v_now
+     where id = v_batch_id;
+    v_expired := v_expired + 1;
+  end loop;
+  return jsonb_build_object('expired', v_expired, 'scheduled', v_scheduled);
+end;
+$$;
+
+revoke all on function public.expire_messenger_attachment_intents_v2(integer)
+  from public, anon, authenticated;
+grant execute on function public.expire_messenger_attachment_intents_v2(integer)
+  to service_role;
+
+create or replace function public.claim_messenger_attachment_cleanup_v2(
+  p_limit integer default 25,
+  p_batch_id uuid default null
+)
+returns table (
+  job_id uuid,
+  bucket_id text,
+  storage_path text,
+  sweep_phase text,
+  attempt_count integer
+)
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+begin
+  return query
+  with candidates as (
+    select outbox.id
+      from public.messenger_attachment_cleanup_outbox outbox
+     where (
+       outbox.status = 'pending'
+       or (
+         outbox.status = 'processing'
+         and outbox.locked_at < clock_timestamp() - interval '5 minutes'
+       )
+     )
+       and outbox.not_before <= clock_timestamp()
+       and (p_batch_id is null or outbox.batch_id = p_batch_id)
+     order by outbox.not_before, outbox.created_at, outbox.id
+     for update skip locked
+     limit greatest(1, least(coalesce(p_limit, 25), 100))
+  ),
+  claimed as (
+    update public.messenger_attachment_cleanup_outbox outbox
+       set status = 'processing',
+           locked_at = clock_timestamp(),
+           attempt_count = outbox.attempt_count + 1,
+           updated_at = clock_timestamp()
+      from candidates
+     where outbox.id = candidates.id
+    returning outbox.id,
+              outbox.bucket_id,
+              outbox.storage_path,
+              outbox.sweep_phase,
+              outbox.attempt_count
+  )
+  select claimed.id,
+         claimed.bucket_id,
+         claimed.storage_path,
+         claimed.sweep_phase,
+         claimed.attempt_count
+    from claimed;
+end;
+$$;
+
+revoke all on function public.claim_messenger_attachment_cleanup_v2(integer, uuid)
+  from public, anon, authenticated;
+grant execute on function public.claim_messenger_attachment_cleanup_v2(integer, uuid)
+  to service_role;
+
+create or replace function public.complete_messenger_attachment_cleanup_v2(
+  p_job_id uuid,
+  p_removed boolean,
+  p_error_code text default null
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_job public.messenger_attachment_cleanup_outbox%rowtype;
+  v_next_status text;
+begin
+  select *
+    into v_job
+    from public.messenger_attachment_cleanup_outbox outbox
+   where outbox.id = p_job_id
+   for update;
+  if v_job.id is null or v_job.status <> 'processing' then
+    raise exception 'attachment_cleanup_job_not_claimed';
+  end if;
+
+  if p_removed then
+    update public.messenger_attachment_cleanup_outbox
+       set status = 'completed',
+           bucket_id = null,
+           storage_path = null,
+           attachment_id = null,
+           batch_id = null,
+           locked_at = null,
+           last_error_code = null,
+           completed_at = v_now,
+           updated_at = v_now
+     where id = v_job.id;
+    if v_job.attachment_id is not null
+       and not exists (
+         select 1
+           from public.messenger_attachment_cleanup_outbox pending
+          where pending.attachment_id = v_job.attachment_id
+            and pending.id <> v_job.id
+            and pending.status <> 'completed'
+       ) then
+      update public.messenger_attachment_objects
+         set status = 'deleted',
+             deleted_at = coalesce(deleted_at, v_now)
+       where id = v_job.attachment_id
+         and status = 'tombstoned';
+    end if;
+    return jsonb_build_object('status', 'completed');
+  end if;
+
+  v_next_status := case
+    when v_job.attempt_count >= v_job.max_attempts then 'exhausted'
+    else 'pending'
+  end;
+  update public.messenger_attachment_cleanup_outbox
+     set status = v_next_status,
+         not_before = case
+           when v_next_status = 'pending'
+             then v_now + make_interval(
+               secs => least(3600, (power(2, least(attempt_count, 11))::integer * 5))
+             )
+           else not_before
+         end,
+         locked_at = null,
+         last_error_code = left(coalesce(nullif(p_error_code, ''), 'storage_remove_failed'), 80),
+         updated_at = v_now
+   where id = v_job.id;
+  return jsonb_build_object('status', v_next_status);
+end;
+$$;
+
+revoke all on function public.complete_messenger_attachment_cleanup_v2(
+  uuid, boolean, text
+) from public, anon, authenticated;
+grant execute on function public.complete_messenger_attachment_cleanup_v2(
+  uuid, boolean, text
+) to service_role;
+
+create or replace function public.requeue_exhausted_messenger_attachment_cleanup_v2(
+  p_limit integer default 25
+)
+returns integer
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_count integer;
+begin
+  with candidates as (
+    select outbox.id
+      from public.messenger_attachment_cleanup_outbox outbox
+     where outbox.status = 'exhausted'
+     order by outbox.updated_at, outbox.id
+     for update skip locked
+     limit greatest(1, least(coalesce(p_limit, 25), 100))
+  )
+  update public.messenger_attachment_cleanup_outbox outbox
+     set status = 'pending',
+         attempt_count = 0,
+         not_before = clock_timestamp(),
+         locked_at = null,
+         last_error_code = null,
+         updated_at = clock_timestamp()
+    from candidates
+   where outbox.id = candidates.id;
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+revoke all on function public.requeue_exhausted_messenger_attachment_cleanup_v2(integer)
+  from public, anon, authenticated;
+grant execute on function public.requeue_exhausted_messenger_attachment_cleanup_v2(integer)
+  to service_role;
+
+create or replace function public.queue_messenger_attachment_actor_cleanup_v2()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_actor_role text;
+  v_batch public.messenger_attachment_delivery_batches%rowtype;
+  v_lock record;
+  v_lock_conversation_id uuid;
+  v_target_conversation_ids uuid[];
+  v_broadcast_batch record;
+  v_reconciled_conversation_ids uuid[];
+  v_remaining integer;
+begin
+  v_actor_role := case tg_table_name
+    when 'fc_profiles' then 'fc'
+    when 'manager_accounts' then 'manager'
+    when 'admin_accounts' then 'admin'
+    else null
+  end;
+  if v_actor_role is null then
+    raise exception 'invalid_attachment_actor_cleanup_trigger';
+  end if;
+  perform pg_advisory_xact_lock(
+    hashtextextended(v_actor_role || ':' || old.id::text, 0)
+  );
+
+  if v_actor_role = 'fc' then
+    select array_agg(conversation.id order by conversation.id)
+      into v_target_conversation_ids
+      from public.garamin_direct_conversations conversation
+     where conversation.fc_id = old.id;
+
+    -- Lock every affected batch owner before taking batch row locks. This keeps
+    -- reserve/commit/delete serialization in the same actor-lock order.
+    for v_lock in
+      select distinct affected.actor_role, affected.actor_id
+        from (
+          select batch.actor_role, batch.actor_id
+            from public.messenger_attachment_delivery_batches batch
+           where batch.context_kind = 'direct'
+             and batch.conversation_id = any(v_target_conversation_ids)
+             and batch.status not in ('deleted', 'revoked')
+          union
+          select batch.actor_role, batch.actor_id
+            from public.messenger_attachment_delivery_batches batch
+           where batch.context_kind = 'direct_broadcast'
+             and batch.conversation_ids && v_target_conversation_ids
+             and batch.status not in ('deleted', 'revoked')
+        ) affected
+       order by affected.actor_role, affected.actor_id
+    loop
+      perform pg_advisory_xact_lock(
+        hashtextextended(v_lock.actor_role || ':' || v_lock.actor_id::text, 0)
+      );
+    end loop;
+
+    -- Reserve and commit take the same context locks after their actor lock.
+    -- Once these are held no new pending/committed delivery can enter a
+    -- conversation that is being cascaded away.
+    for v_lock_conversation_id in
+      select conversation_id
+        from unnest(v_target_conversation_ids) requested(conversation_id)
+       order by conversation_id
+    loop
+      perform pg_advisory_xact_lock(
+        hashtextextended(
+          'messenger-direct-context:' || v_lock_conversation_id::text,
+          0
+        )
+      );
+    end loop;
+
+    -- The legacy account-delete transaction may hard-delete recipient message
+    -- rows before this profile trigger runs. Reconcile broadcast batches from
+    -- their durable conversation context, then derive the surviving reference
+    -- count from whichever undeleted messages remain.
+    for v_broadcast_batch in
+      select batch.id, batch.status
+        from public.messenger_attachment_delivery_batches batch
+       where batch.context_kind = 'direct_broadcast'
+         and batch.conversation_ids && v_target_conversation_ids
+         and batch.status not in ('deleted', 'revoked')
+       order by batch.id
+       for update
+    loop
+      update public.messages
+         set deleted_at = coalesce(deleted_at, v_now),
+             deleted_by_actor_id = coalesce(deleted_by_actor_id, old.id),
+             content = ''
+       where attachment_batch_id = v_broadcast_batch.id
+         and conversation_id = any(v_target_conversation_ids)
+         and deleted_at is null;
+
+      if v_broadcast_batch.status = 'committed' then
+        select array_agg(
+                 distinct message.conversation_id
+                 order by message.conversation_id
+               ),
+               count(*)
+          into v_reconciled_conversation_ids, v_remaining
+          from public.messages message
+         where message.attachment_batch_id = v_broadcast_batch.id
+           and message.conversation_id is not null
+           and message.deleted_at is null;
+        if v_remaining > 0 then
+          update public.messenger_attachment_delivery_batches
+             set conversation_ids = v_reconciled_conversation_ids,
+                 updated_at = v_now
+           where id = v_broadcast_batch.id;
+          update public.messenger_attachment_objects
+             set reference_count = v_remaining
+           where batch_id = v_broadcast_batch.id
+             and status = 'active';
+        end if;
+      end if;
+    end loop;
+  end if;
+
+  for v_batch in
+    select batch.*
+      from public.messenger_attachment_delivery_batches batch
+     where (
+         (
+           batch.actor_id = old.id
+           and batch.actor_role = v_actor_role
+         )
+         or (
+           v_actor_role = 'fc'
+           and batch.context_kind = 'direct'
+           and batch.conversation_id = any(v_target_conversation_ids)
+         )
+         or (
+           v_actor_role = 'fc'
+           and batch.context_kind = 'direct_broadcast'
+           and batch.conversation_ids && v_target_conversation_ids
+           and (
+             batch.status in ('pending', 'expired')
+             or (
+               batch.status = 'committed'
+               and not exists (
+                 select 1
+                   from public.messages message
+                  where message.attachment_batch_id = batch.id
+                    and message.deleted_at is null
+               )
+             )
+           )
+         )
+       )
+       and batch.status not in ('deleted', 'revoked')
+     for update
+  loop
+    update public.messages
+       set deleted_at = coalesce(deleted_at, v_now),
+           deleted_by_actor_id = coalesce(deleted_by_actor_id, old.id),
+           content = ''
+     where attachment_batch_id = v_batch.id
+       and deleted_at is null;
+    update public.group_chat_messages
+       set deleted_at = coalesce(deleted_at, v_now),
+           content = ''
+     where attachment_batch_id = v_batch.id
+       and deleted_at is null;
+    delete from public.group_chat_notices notice
+     where notice.message_id in (
+       select message.id
+         from public.group_chat_messages message
+        where message.attachment_batch_id = v_batch.id
+     );
+
+    insert into public.messenger_attachment_deletion_audit (
+      original_name,
+      byte_size,
+      sha256,
+      reason_code,
+      deleted_at
+    )
+    select attachment.original_name,
+           attachment.byte_size,
+           attachment.sha256,
+           'account_deleted',
+           v_now
+      from public.messenger_attachment_objects attachment
+     where attachment.batch_id = v_batch.id
+       and attachment.status = 'active';
+
+    insert into public.messenger_attachment_cleanup_outbox (
+      attachment_id,
+      batch_id,
+      bucket_id,
+      storage_path,
+      reason_code,
+      sweep_phase,
+      not_before
+    )
+    select candidate.attachment_id,
+           v_batch.id,
+           candidate.bucket_id,
+           candidate.storage_path,
+           'account_deleted',
+           phase.sweep_phase,
+           case phase.sweep_phase
+             when 'immediate' then v_now
+             else greatest(v_batch.expires_at, v_now) + interval '5 minutes'
+           end
+      from (
+        select attachment.id as attachment_id,
+               attachment.bucket_id,
+               attachment.storage_path
+          from public.messenger_attachment_objects attachment
+         where attachment.batch_id = v_batch.id
+           and attachment.storage_path is not null
+        union all
+        select null::uuid,
+               intent.bucket_id,
+               intent.object_path
+          from public.messenger_attachment_upload_intents intent
+         where intent.batch_id = v_batch.id
+           and intent.object_path is not null
+      ) candidate
+      cross join (
+        values ('immediate'::text), ('post_token_expiry'::text)
+      ) phase(sweep_phase)
+    on conflict (bucket_id, storage_path, sweep_phase)
+      where bucket_id is not null and storage_path is not null
+    do update set
+      not_before = least(
+        public.messenger_attachment_cleanup_outbox.not_before,
+        excluded.not_before
+      ),
+      status = case
+        when public.messenger_attachment_cleanup_outbox.status = 'completed'
+          then 'pending'
+        else public.messenger_attachment_cleanup_outbox.status
+      end,
+      completed_at = null,
+      updated_at = v_now;
+
+    update public.messenger_attachment_upload_intents
+       set status = 'revoked',
+           object_path = null,
+           updated_at = v_now
+     where batch_id = v_batch.id
+       and status in ('pending', 'validated', 'expired');
+    update public.messenger_attachment_objects
+       set bucket_id = null,
+           storage_path = null,
+           reference_count = 0,
+           status = 'tombstoned',
+           tombstoned_at = coalesce(tombstoned_at, v_now)
+     where batch_id = v_batch.id
+       and status = 'active';
+    update public.messenger_attachment_delivery_batches
+       set status = 'deleted',
+           deleted_at = coalesce(deleted_at, v_now),
+           updated_at = v_now
+     where id = v_batch.id;
+  end loop;
+  return old;
+end;
+$$;
+
+revoke all on function public.queue_messenger_attachment_actor_cleanup_v2()
+  from public, anon, authenticated, service_role;
+
+drop trigger if exists trg_queue_fc_messenger_attachment_cleanup
+  on public.fc_profiles;
+create trigger trg_queue_fc_messenger_attachment_cleanup
+  before delete on public.fc_profiles
+  for each row execute function public.queue_messenger_attachment_actor_cleanup_v2();
+
+drop trigger if exists trg_queue_manager_messenger_attachment_cleanup
+  on public.manager_accounts;
+create trigger trg_queue_manager_messenger_attachment_cleanup
+  before delete on public.manager_accounts
+  for each row execute function public.queue_messenger_attachment_actor_cleanup_v2();
+
+drop trigger if exists trg_queue_admin_messenger_attachment_cleanup
+  on public.admin_accounts;
+create trigger trg_queue_admin_messenger_attachment_cleanup
+  before delete on public.admin_accounts
+  for each row execute function public.queue_messenger_attachment_actor_cleanup_v2();

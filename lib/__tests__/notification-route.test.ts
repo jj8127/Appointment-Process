@@ -1,99 +1,70 @@
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 import {
-  buildDirectChatNotificationRoute,
-  normalizeNotificationTargetUrl,
-  resolvePushNotificationRoute,
-  resolveRequestBoardNotificationRoute,
-} from '@/lib/notification-route';
+  buildNotificationTargetRoute,
+  parseNotificationPushData,
+} from '@/lib/notification-target';
 
-describe('notification route helpers', () => {
-  it('normalizes admin/web notification URLs to mobile routes', () => {
-    expect(normalizeNotificationTargetUrl('https://garam.example.com/dashboard/chat')).toBe(
-      '/messenger?channel=garam',
-    );
-    expect(normalizeNotificationTargetUrl('/request-board-messenger')).toBe(
-      '/messenger?channel=request-board',
-    );
+const root = join(__dirname, '..', '..');
+
+function collectProductionSources(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === '__tests__') return [];
+      return collectProductionSources(path);
+    }
+    return /\.(?:ts|tsx)$/.test(entry.name) ? [path] : [];
+  });
+}
+
+describe('strict notification routing boundary', () => {
+  it('removes the legacy title/body/category/url guessing resolver', () => {
+    expect(existsSync(join(root, 'lib', 'notification-route.ts'))).toBe(false);
+
+    const offenders = [
+      ...collectProductionSources(join(root, 'app')),
+      ...collectProductionSources(join(root, 'components')),
+      ...collectProductionSources(join(root, 'hooks')),
+      ...collectProductionSources(join(root, 'lib')),
+    ].filter((path) => {
+      const source = readFileSync(path, 'utf8');
+      return (
+        source.includes('resolvePushNotificationRoute')
+        || source.includes('normalizeNotificationTargetUrl')
+        || source.includes('resolveRequestBoardNotificationRoute')
+      );
+    });
+    expect(offenders).toEqual([]);
   });
 
-  it('normalizes board detail URLs to the board modal entry route', () => {
-    expect(normalizeNotificationTargetUrl('/board?postId=post-123')).toBe(
-      '/board?postId=post-123',
-    );
-    expect(normalizeNotificationTargetUrl('/board-detail?postId=post-123')).toBe(
-      '/board?postId=post-123',
-    );
-    expect(normalizeNotificationTargetUrl('/dashboard/board?postId=post-123')).toBe(
-      '/board?postId=post-123',
-    );
-    expect(normalizeNotificationTargetUrl('https://admin.example.com/dashboard/board?postId=post-123')).toBe(
-      '/board?postId=post-123',
-    );
-  });
+  it('routes only an exact typed push target and notification UUID', () => {
+    const notificationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const postId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const parsed = parseNotificationPushData({
+      notificationId,
+      target: { version: 1, kind: 'board_post', postId },
+      title: 'ignored',
+      url: '/dashboard',
+    });
 
-  it('routes push notification taps for board posts to the board modal entry route', () => {
-    expect(resolvePushNotificationRoute({
-      title: '새 게시글',
-      body: '보험소식 브리핑',
-      data: {
-        type: 'board_post',
-        url: 'https://admin.example.com/dashboard/board?postId=post-123',
-      },
-    })).toBe('/board?postId=post-123');
-
-    expect(resolvePushNotificationRoute({
-      title: '새 게시글',
-      body: '보험소식 브리핑',
-      data: {
-        type: 'board_post',
-        url: '/board-detail?postId=post-456',
-      },
-    })).toBe('/board?postId=post-456');
-  });
-
-  it('routes request-board messages to the request-board messenger', () => {
-    expect(resolveRequestBoardNotificationRoute({
-      category: 'request_board_message',
-      targetUrl: '/notifications',
-    })).toBe('/messenger?channel=request-board');
-  });
-
-  it('routes direct-message notifications to the exact sender conversation', () => {
-    expect(buildDirectChatNotificationRoute({
-      senderId: '010-1234-5678',
-      senderName: '개발자',
-    })).toBe('/chat?targetId=01012345678&targetName=%EA%B0%9C%EB%B0%9C%EC%9E%90');
-
-    expect(resolvePushNotificationRoute({
-      data: {
-        type: 'message',
-        url: '/chat',
-        sender_id: '01012345678',
-        sender_name: '개발자',
-      },
-    })).toBe('/chat?targetId=01012345678&targetName=%EA%B0%9C%EB%B0%9C%EC%9E%90');
-  });
-
-  it('routes group chat messages to the group chat screen', () => {
-    expect(resolveRequestBoardNotificationRoute({
-      category: 'group_chat_message',
-      targetUrl: '/notifications',
-    })).toBe('/group-chat');
-    expect(normalizeNotificationTargetUrl('/group-chat')).toBe('/group-chat');
-  });
-
-  it('honors concrete request-board target URLs instead of collapsing to the request-board home', () => {
-    expect(resolveRequestBoardNotificationRoute({
-      category: 'request_board_completed',
-      targetUrl: '/request-board-review?id=42',
-    })).toBe('/request-board-review?id=42');
-  });
-
-  it('routes request-board lifecycle categories to useful list filters when no concrete target exists', () => {
-    expect(resolveRequestBoardNotificationRoute({ category: 'request_board_new_request' })).toBe(
-      '/request-board-requests?filter=pending',
-    );
-    expect(resolveRequestBoardNotificationRoute({ category: 'request_board_completed' })).toBe(
-      '/request-board-requests?filter=completed',
-    );
+    expect(parsed).toEqual({
+      notificationId,
+      target: { version: 1, kind: 'board_post', postId },
+    });
+    expect(
+      buildNotificationTargetRoute({
+        ...parsed!,
+        viewerRole: 'fc',
+      }),
+    ).toContain(`/board?postId=${postId}`);
+    expect(
+      parseNotificationPushData({
+        notificationId,
+        title: 'board post',
+        url: `/board?postId=${postId}`,
+      }),
+    ).toBeNull();
   });
 });

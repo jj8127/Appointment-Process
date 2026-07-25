@@ -34,7 +34,7 @@ import { useCallback, useMemo, useState, useTransition } from 'react';
 import { StatusToggle } from '@/components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
-import { getAdminNotificationWarning } from '@/lib/admin-notification-warning';
+import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { supabase } from '@/lib/supabase';
 import { updateAppointmentAction } from './actions';
 
@@ -391,7 +391,7 @@ export default function AppointmentPage() {
       );
 
       if (result.success) {
-        getAdminNotificationWarning(result);
+        showAdminNotificationWarning(result);
         notifications.show({ title: '성공', message: result.message, color: 'green' });
         setRejectModalOpen(false);
         setRejectTarget(null);
@@ -458,7 +458,7 @@ export default function AppointmentPage() {
           );
 
           if (result.success) {
-            getAdminNotificationWarning(result);
+            showAdminNotificationWarning(result);
             notifications.show({ title: '성공', message: result.message, color: 'green' });
             refetch();
           } else {

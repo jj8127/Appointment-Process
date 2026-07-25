@@ -1,6 +1,11 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 
 import { containsSensitiveText, redactSensitiveText } from './sensitive-text';
+import {
+  parseNotificationTargetV1,
+  parseRequestBoardTargetForFc,
+  type NotificationTargetV1,
+} from './notification-target';
 import { getWebStaffSenderName } from './staff-identity';
 
 export const REQUEST_BOARD_NOTIFY_CATEGORIES = [
@@ -15,7 +20,20 @@ export const REQUEST_BOARD_NOTIFY_CATEGORIES = [
 ] as const;
 
 type RequestBoardNotifyCategory = (typeof REQUEST_BOARD_NOTIFY_CATEGORIES)[number];
-type BrowserAction = 'inbox_list' | 'internal_unread_count' | 'message' | 'exam_approval_notify';
+type BrowserAction =
+  | 'inbox_list'
+  | 'inbox_get'
+  | 'inbox_mark_read'
+  | 'inbox_dismiss'
+  | 'internal_unread_count'
+  | 'message'
+  | 'resolve_garamin_direct_conversation'
+  | 'direct_message_list'
+  | 'direct_message_send'
+  | 'direct_message_broadcast_send'
+  | 'direct_message_mark_read'
+  | 'direct_message_delete'
+  | 'exam_approval_notify';
 type BrowserSessionRole = 'admin' | 'manager' | 'fc';
 type BrowserStaffType = 'admin' | 'developer' | null;
 
@@ -33,7 +51,10 @@ export type RequestBoardNotifyPayload = {
   title: string;
   body: string;
   category: RequestBoardNotifyCategory;
-  url: string;
+  target: Extract<
+    NotificationTargetV1,
+    { kind: 'request' | 'request_chat' | 'request_direct_chat' }
+  >;
 };
 
 export type BrowserFcNotifyPayload =
@@ -42,6 +63,20 @@ export type BrowserFcNotifyPayload =
       role: 'admin' | 'fc';
       resident_id: string | null;
       limit: number;
+      viewer_actor_role: BrowserSessionRole;
+      viewer_actor_phone: string;
+    }
+  | {
+      type: 'inbox_mark_read' | 'inbox_dismiss';
+      notification_ids: string[];
+      viewer_actor_role: BrowserSessionRole;
+      viewer_actor_phone: string;
+    }
+  | {
+      type: 'inbox_get';
+      notification_id: string;
+      viewer_actor_role: BrowserSessionRole;
+      viewer_actor_phone: string;
     }
   | {
       type: 'internal_unread_count';
@@ -60,6 +95,48 @@ export type BrowserFcNotifyPayload =
       sender_name: string;
     }
   | {
+      type: 'resolve_garamin_direct_conversation';
+      target_id: string | null;
+      conversation_id: string | null;
+      viewer_actor_role: BrowserSessionRole;
+      viewer_actor_phone: string;
+    }
+  | {
+      type: 'direct_message_list' | 'direct_message_mark_read';
+      conversation_id: string;
+      viewer_actor_role: BrowserSessionRole;
+      viewer_actor_phone: string;
+    }
+  | {
+      type: 'direct_message_send';
+      conversation_id: string;
+      client_message_id: string;
+      content: string;
+      attachment_intent_ids?: string[];
+      delivery_key?: string;
+      payload_fingerprint?: string;
+      viewer_actor_role: BrowserSessionRole;
+      viewer_actor_phone: string;
+    }
+  | {
+      type: 'direct_message_broadcast_send';
+      conversation_ids: string[];
+      client_message_ids: string[];
+      content: string;
+      attachment_intent_ids?: string[];
+      delivery_key?: string;
+      payload_fingerprint?: string;
+      viewer_actor_role: 'admin';
+      viewer_actor_phone: string;
+    }
+  | {
+      type: 'direct_message_delete';
+      conversation_id: string;
+      message_id: string;
+      viewer_actor_role: BrowserSessionRole;
+      viewer_actor_phone: string;
+    }
+  | {
       type: 'message';
       target_role: 'admin';
       target_id: null;
@@ -75,6 +152,7 @@ export type BrowserFcNotifyPayload =
       body: string;
       category: 'exam_apply';
       url: '/exam-apply' | '/exam-apply2';
+      target: Extract<NotificationTargetV1, { kind: 'exam' }>;
     };
 
 type PolicyFailure = {
@@ -93,8 +171,17 @@ type PolicyResult<T> = PolicySuccess<T> | PolicyFailure;
 const PHONE_PATTERN = /^\d{11}$/;
 const browserActions = new Set<BrowserAction>([
   'inbox_list',
+  'inbox_get',
+  'inbox_mark_read',
+  'inbox_dismiss',
   'internal_unread_count',
   'message',
+  'resolve_garamin_direct_conversation',
+  'direct_message_list',
+  'direct_message_send',
+  'direct_message_broadcast_send',
+  'direct_message_mark_read',
+  'direct_message_delete',
   'exam_approval_notify',
 ]);
 const requestBoardCategories = new Set<string>(REQUEST_BOARD_NOTIFY_CATEGORIES);
@@ -127,6 +214,24 @@ function boundedSafeText(value: unknown, maxLength: number) {
 function normalizeRelativeUrl(value: unknown) {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
+  let decoded = normalized;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (
+      decoded.startsWith('//')
+      || decoded.includes('\\')
+      || /%(?:2e|2f|5c)/i.test(decoded)
+      || decoded.split(/[?#]/, 1)[0].split('/').some((segment) => segment === '.' || segment === '..')
+    ) {
+      return null;
+    }
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      return null;
+    }
+  }
   if (
     !normalized.startsWith('/')
     || normalized.startsWith('//')
@@ -232,12 +337,14 @@ export function buildRequestBoardNotifyPayload(input: {
   const title = boundedSafeText(body.title, 120);
   const message = boundedSafeText(body.body, 2_000);
   const category = typeof body.category === 'string' ? body.category.trim() : '';
-  const url = normalizeRelativeUrl(body.url);
+  const legacyUrl = normalizeRelativeUrl(body.url);
+  const target = parseRequestBoardTargetForFc(body.target);
 
   if (!PHONE_PATTERN.test(targetId)) return fail(400, 'Invalid FC notification target');
   if (!title || !message) return fail(400, 'Invalid notification content');
   if (!requestBoardCategories.has(category)) return fail(403, 'Request Board category is not allowed');
-  if (!url) return fail(400, 'Invalid notification URL');
+  if (!legacyUrl) return fail(400, 'Invalid notification URL');
+  if (!target) return fail(400, 'Invalid Request Board notification target');
 
   return {
     ok: true,
@@ -248,7 +355,7 @@ export function buildRequestBoardNotifyPayload(input: {
       title,
       body: message,
       category: category as RequestBoardNotifyCategory,
-      url,
+      target,
     },
   };
 }
@@ -324,6 +431,266 @@ function buildInboxPayload(
       role,
       resident_id: residentId,
       limit,
+      viewer_actor_role: session.role,
+      viewer_actor_phone: session.residentDigits,
+    },
+  };
+}
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function buildInboxMutationPayload(
+  body: Record<string, unknown>,
+  session: FcNotifyBrowserSession,
+): PolicyResult<BrowserFcNotifyPayload> {
+  if (body.type !== 'inbox_mark_read' && body.type !== 'inbox_dismiss') {
+    return fail(403, 'Inbox mutation is not allowed');
+  }
+  if (!Array.isArray(body.notification_ids) || body.notification_ids.length < 1 || body.notification_ids.length > 200) {
+    return fail(400, 'Invalid notification ids');
+  }
+  const ids = body.notification_ids.map((value) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : '',
+  );
+  if (ids.some((id) => !UUID_PATTERN.test(id)) || new Set(ids).size !== ids.length) {
+    return fail(400, 'Invalid notification ids');
+  }
+  return {
+    ok: true,
+    payload: {
+      type: body.type,
+      notification_ids: ids,
+      viewer_actor_role: session.role,
+      viewer_actor_phone: session.residentDigits,
+    },
+  };
+}
+
+function buildInboxGetPayload(
+  body: Record<string, unknown>,
+  session: FcNotifyBrowserSession,
+): PolicyResult<BrowserFcNotifyPayload> {
+  const notificationId =
+    typeof body.notification_id === 'string' ? body.notification_id.trim().toLowerCase() : '';
+  if (!UUID_PATTERN.test(notificationId)) return fail(400, 'Invalid notification id');
+  return {
+    ok: true,
+    payload: {
+      type: 'inbox_get',
+      notification_id: notificationId,
+      viewer_actor_role: session.role,
+      viewer_actor_phone: session.residentDigits,
+    },
+  };
+}
+
+function buildResolveDirectConversationPayload(
+  body: Record<string, unknown>,
+  session: FcNotifyBrowserSession,
+): PolicyResult<BrowserFcNotifyPayload> {
+  const rawTargetId = typeof body.target_id === 'string' ? body.target_id.trim() : '';
+  const rawConversationId =
+    typeof body.conversation_id === 'string' ? body.conversation_id.trim().toLowerCase() : '';
+  const targetId = rawTargetId ? rawTargetId : null;
+  const conversationId = rawConversationId ? rawConversationId : null;
+
+  if (Boolean(targetId) === Boolean(conversationId)) {
+    return fail(400, 'Provide exactly one direct conversation identifier');
+  }
+  if (targetId && !PHONE_PATTERN.test(targetId)) {
+    return fail(400, 'Invalid FC notification target');
+  }
+  if (conversationId && !UUID_PATTERN.test(conversationId)) {
+    return fail(400, 'Invalid direct conversation id');
+  }
+  if (session.role === 'manager') {
+    return fail(403, 'Read-only managers cannot resolve direct conversations');
+  }
+  return {
+    ok: true,
+    payload: {
+      type: 'resolve_garamin_direct_conversation',
+      target_id: targetId,
+      conversation_id: conversationId,
+      viewer_actor_role: session.role,
+      viewer_actor_phone: session.residentDigits,
+    },
+  };
+}
+
+function buildDirectMessagePayload(
+  body: Record<string, unknown>,
+  session: FcNotifyBrowserSession,
+): PolicyResult<BrowserFcNotifyPayload> {
+  if (session.role === 'manager') {
+    return fail(403, 'Read-only managers cannot access direct conversations');
+  }
+  const conversationId =
+    typeof body.conversation_id === 'string' ? body.conversation_id.trim().toLowerCase() : '';
+  if (!UUID_PATTERN.test(conversationId)) return fail(400, 'Invalid direct conversation id');
+  const actor = {
+    viewer_actor_role: session.role,
+    viewer_actor_phone: session.residentDigits,
+  };
+
+  if (body.type === 'direct_message_list' || body.type === 'direct_message_mark_read') {
+    return {
+      ok: true,
+      payload: {
+        type: body.type,
+        conversation_id: conversationId,
+        ...actor,
+      },
+    };
+  }
+  if (body.type === 'direct_message_send') {
+    const content = boundedSafeText(body.content, 4_000) ?? '';
+    const clientMessageId =
+      typeof body.client_message_id === 'string'
+        ? body.client_message_id.trim().toLowerCase()
+        : '';
+    if (!UUID_PATTERN.test(clientMessageId)) {
+      return fail(400, 'Invalid direct message client id');
+    }
+    const attachmentDelivery = parseAttachmentDelivery(body);
+    if (!attachmentDelivery.ok) return attachmentDelivery;
+    if (!content && attachmentDelivery.attachmentIntentIds.length === 0) {
+      return fail(400, 'Invalid direct message content');
+    }
+    return {
+      ok: true,
+      payload: {
+        type: 'direct_message_send',
+        conversation_id: conversationId,
+        client_message_id: clientMessageId,
+        content,
+        ...(attachmentDelivery.attachmentIntentIds.length
+          ? {
+              attachment_intent_ids: attachmentDelivery.attachmentIntentIds,
+              delivery_key: attachmentDelivery.deliveryKey!,
+              payload_fingerprint: attachmentDelivery.payloadFingerprint!,
+            }
+          : {}),
+        ...actor,
+      },
+    };
+  }
+  if (body.type === 'direct_message_delete') {
+    const messageId =
+      typeof body.message_id === 'string' ? body.message_id.trim().toLowerCase() : '';
+    if (!UUID_PATTERN.test(messageId)) return fail(400, 'Invalid direct message id');
+    return {
+      ok: true,
+      payload: {
+        type: 'direct_message_delete',
+        conversation_id: conversationId,
+        message_id: messageId,
+        ...actor,
+      },
+    };
+  }
+  return fail(403, 'Direct message action is not allowed');
+}
+
+function parseAttachmentDelivery(body: Record<string, unknown>):
+  | {
+      ok: true;
+      attachmentIntentIds: string[];
+      deliveryKey: string | null;
+      payloadFingerprint: string | null;
+    }
+  | PolicyFailure {
+  const rawIds = body.attachment_intent_ids;
+  const hasDeliveryMetadata =
+    body.delivery_key !== undefined || body.payload_fingerprint !== undefined;
+  if (rawIds === undefined) {
+    return hasDeliveryMetadata
+      ? fail(400, 'Attachment delivery metadata requires attachment intents')
+      : {
+          ok: true,
+          attachmentIntentIds: [],
+          deliveryKey: null,
+          payloadFingerprint: null,
+        };
+  }
+  if (!Array.isArray(rawIds) || rawIds.length < 1 || rawIds.length > 10) {
+    return fail(400, 'Invalid attachment intent ids');
+  }
+  const attachmentIntentIds = rawIds.map((value) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : '',
+  );
+  const deliveryKey =
+    typeof body.delivery_key === 'string' ? body.delivery_key.trim().toLowerCase() : '';
+  const payloadFingerprint =
+    typeof body.payload_fingerprint === 'string'
+      ? body.payload_fingerprint.trim().toLowerCase()
+      : '';
+  if (
+    attachmentIntentIds.some((id) => !UUID_PATTERN.test(id))
+    || new Set(attachmentIntentIds).size !== attachmentIntentIds.length
+    || !UUID_PATTERN.test(deliveryKey)
+    || !/^[0-9a-f]{64}$/.test(payloadFingerprint)
+  ) {
+    return fail(400, 'Invalid attachment delivery metadata');
+  }
+  return {
+    ok: true,
+    attachmentIntentIds,
+    deliveryKey,
+    payloadFingerprint,
+  };
+}
+
+function buildDirectMessageBroadcastPayload(
+  body: Record<string, unknown>,
+  session: FcNotifyBrowserSession,
+): PolicyResult<BrowserFcNotifyPayload> {
+  if (session.role !== 'admin') {
+    return fail(403, 'Direct message broadcast is restricted to administrators');
+  }
+  if (!Array.isArray(body.conversation_ids) || !Array.isArray(body.client_message_ids)) {
+    return fail(400, 'Invalid direct message broadcast targets');
+  }
+  const conversationIds = body.conversation_ids.map((value) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : '',
+  );
+  const clientMessageIds = body.client_message_ids.map((value) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : '',
+  );
+  if (
+    conversationIds.length < 1
+    || conversationIds.length > 200
+    || clientMessageIds.length !== conversationIds.length
+    || conversationIds.some((id) => !UUID_PATTERN.test(id))
+    || clientMessageIds.some((id) => !UUID_PATTERN.test(id))
+    || new Set(conversationIds).size !== conversationIds.length
+    || new Set(clientMessageIds).size !== clientMessageIds.length
+  ) {
+    return fail(400, 'Invalid direct message broadcast targets');
+  }
+  const content = boundedSafeText(body.content, 4_000) ?? '';
+  const attachmentDelivery = parseAttachmentDelivery(body);
+  if (!attachmentDelivery.ok) return attachmentDelivery;
+  if (!content && attachmentDelivery.attachmentIntentIds.length === 0) {
+    return fail(400, 'Invalid direct message content');
+  }
+  return {
+    ok: true,
+    payload: {
+      type: 'direct_message_broadcast_send',
+      conversation_ids: conversationIds,
+      client_message_ids: clientMessageIds,
+      content,
+      ...(attachmentDelivery.attachmentIntentIds.length
+        ? {
+            attachment_intent_ids: attachmentDelivery.attachmentIntentIds,
+            delivery_key: attachmentDelivery.deliveryKey!,
+            payload_fingerprint: attachmentDelivery.payloadFingerprint!,
+          }
+        : {}),
+      viewer_actor_role: 'admin',
+      viewer_actor_phone: session.residentDigits,
     },
   };
 }
@@ -457,11 +824,15 @@ function buildExamApprovalNotifyPayload(
   const targetId = typeof body.target_id === 'string' ? body.target_id.trim() : '';
   const examInfo = boundedSafeText(body.exam_info, 300);
   const examType = body.exam_type;
+  const target = parseNotificationTargetV1(body.target);
   if (
     !PHONE_PATTERN.test(targetId)
     || typeof body.is_confirmed !== 'boolean'
     || !examInfo
     || (examType !== 'life' && examType !== 'nonlife')
+    || target?.kind !== 'exam'
+    || !('examRegistrationId' in target)
+    || target.examType !== examType
   ) {
     return fail(400, 'Invalid exam approval notification payload');
   }
@@ -481,6 +852,7 @@ function buildExamApprovalNotifyPayload(
         : `${examInfo} 접수 완료가 해제되었습니다. 시험 신청 화면에서 상태를 확인해주세요.`,
       category: 'exam_apply',
       url: examType === 'nonlife' ? '/exam-apply2' : '/exam-apply',
+      target,
     },
   };
 }
@@ -493,8 +865,26 @@ export function buildBrowserFcNotifyPayload(input: {
   if (!body) return fail(400, 'Invalid request body');
 
   if (body.type === 'inbox_list') return buildInboxPayload(body, input.session);
+  if (body.type === 'inbox_get') return buildInboxGetPayload(body, input.session);
+  if (body.type === 'inbox_mark_read' || body.type === 'inbox_dismiss') {
+    return buildInboxMutationPayload(body, input.session);
+  }
   if (body.type === 'internal_unread_count') return buildUnreadPayload(body, input.session);
   if (body.type === 'message') return buildMessagePayload(body, input.session);
+  if (body.type === 'resolve_garamin_direct_conversation') {
+    return buildResolveDirectConversationPayload(body, input.session);
+  }
+  if (
+    body.type === 'direct_message_list'
+    || body.type === 'direct_message_send'
+    || body.type === 'direct_message_mark_read'
+    || body.type === 'direct_message_delete'
+  ) {
+    return buildDirectMessagePayload(body, input.session);
+  }
+  if (body.type === 'direct_message_broadcast_send') {
+    return buildDirectMessageBroadcastPayload(body, input.session);
+  }
   if (body.type === 'exam_approval_notify') return buildExamApprovalNotifyPayload(body, input.session);
   return fail(403, 'FC notify action is not allowed');
 }

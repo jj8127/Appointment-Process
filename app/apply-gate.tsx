@@ -8,6 +8,12 @@ import { Button } from '@/components/Button';
 import { useSession } from '@/hooks/use-session';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { buildApplyGateIdentityRoute, buildHomeEntryBreadcrumb, normalizeApplyGateNext } from '@/lib/home-entry-flow';
+import {
+  authorizeNotificationOpen,
+  parseNotificationOpenRoute,
+} from '@/lib/notification-open-authorization';
+import { markNotificationNavigationIdle } from '@/lib/notification-navigation-coordinator';
+import { clearPendingNotificationNavigation } from '@/lib/pending-notification-navigation';
 import { addSentryBreadcrumb } from '@/lib/sentry-monitor';
 import { COLORS } from '@/lib/theme';
 
@@ -16,6 +22,22 @@ export default function ApplyGateScreen() {
   const { role, hydrated, isRequestBoardDesigner } = useSession();
   const { data, isLoading } = useIdentityStatus();
   const safeNext = useMemo(() => normalizeApplyGateNext(next), [next]);
+  const forwardToSafeNext = useCallback(async () => {
+    const handoff = parseNotificationOpenRoute(safeNext);
+    if (handoff) {
+      const authorization = await authorizeNotificationOpen(handoff);
+      if (!authorization.ok) {
+        await clearPendingNotificationNavigation({
+          notificationId: handoff.notificationId,
+          target: handoff.target,
+        });
+        markNotificationNavigationIdle();
+        router.replace('/notifications?targetError=unavailable');
+        return;
+      }
+    }
+    router.replace(safeNext as Href);
+  }, [safeNext]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -29,14 +51,22 @@ export default function ApplyGateScreen() {
     }
     if (isRequestBoardDesigner) {
       addSentryBreadcrumb(buildHomeEntryBreadcrumb('apply-gate.forward-completed', { next: safeNext }));
-      router.replace(safeNext as Href);
+      void forwardToSafeNext();
       return;
     }
     if (!isLoading && data?.identityCompleted) {
       addSentryBreadcrumb(buildHomeEntryBreadcrumb('apply-gate.forward-completed', { next: safeNext }));
-      router.replace(safeNext as Href);
+      void forwardToSafeNext();
     }
-  }, [data?.identityCompleted, hydrated, isLoading, isRequestBoardDesigner, role, safeNext]);
+  }, [
+    data?.identityCompleted,
+    forwardToSafeNext,
+    hydrated,
+    isLoading,
+    isRequestBoardDesigner,
+    role,
+    safeNext,
+  ]);
 
   const returnHomeLite = useCallback(() => {
     addSentryBreadcrumb(buildHomeEntryBreadcrumb('apply-gate.return-home'));

@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -37,7 +37,14 @@ import {
   sortExamRoundsNewestFirst,
   type ExamNotifyPayload,
 } from '@/lib/exam-flow-contract';
+import { logger } from '@/lib/logger';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import {
+  hasPresentRouteParam,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
 import { supabase } from '@/lib/supabase';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
 const ORANGE = '#f36f21';
@@ -50,7 +57,13 @@ const examFlowType = 'nonlife' as const;
 const examFlowConfig = getExamFlowConfig(examFlowType);
 
 async function notifyExamFlow(payload: ExamNotifyPayload) {
-  return invokeFcNotifyForDelivery(payload);
+  const result = await invokeFcNotifyForDelivery(payload);
+  if (!result.confirmed && result.reason === 'invalid_recipient') {
+    throw new Error('notification_invalid_recipient');
+  }
+  if (!result.confirmed && result.notificationStored === false) {
+    throw new Error('notification_persistence_failed');
+  }
 }
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
@@ -148,6 +161,12 @@ function RoundedButton({
 
 export default function ExamRegisterScreen() {
   const { role, readOnly, residentId } = useSession();
+  const { roundId, notificationId, notificationTarget } =
+    useLocalSearchParams<{
+      roundId?: string;
+      notificationId?: string;
+      notificationTarget?: string;
+    }>();
   const canEdit = role === 'admin' && !readOnly;
   const assertCanEdit = () => {
     if (!canEdit) {
@@ -188,6 +207,7 @@ export default function ExamRegisterScreen() {
   const {
     data: rounds,
     isLoading,
+    isError,
     isFetching,
     refetch,
   } = useQuery({
@@ -221,6 +241,31 @@ export default function ExamRegisterScreen() {
   }, [refetch]);
 
   const sortedRounds = useMemo(() => sortExamRoundsNewestFirst(rounds ?? []), [rounds]);
+  const routeRoundId = parseExactlyOneUuidRouteParam(roundId);
+  const hasInvalidRoundRoute =
+    hasPresentRouteParam(roundId) && !routeRoundId;
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasInvalidRoundRoute && routeRoundId
+      ? {
+          version: 1,
+          kind: 'exam',
+          examType: 'nonlife',
+          examRoundId: routeRoundId,
+        }
+      : null,
+    loadState: hasInvalidRoundRoute
+      ? 'error'
+      : isError
+      ? 'error'
+      : sortedRounds.some((row) => row.id === routeRoundId)
+        ? 'success'
+        : isLoading
+          ? 'loading'
+          : routeRoundId
+            ? 'error'
+            : 'idle',
+  });
 
   const selectedRound = useMemo(
     () => sortedRounds.find((r) => r.id === selectedRoundId) ?? null,
@@ -321,11 +366,14 @@ export default function ExamRegisterScreen() {
   const saveRound = useMutation({
     mutationFn: async (mode: 'create' | 'update') => {
       assertCanEdit();
+      if (!roundForm.roundLabel.trim()) {
+        throw new Error('시험 차수명을 입력해주세요.');
+      }
       const payload = {
         exam_type: examFlowConfig.examType,
         exam_date: toYmd(examDate),
         registration_deadline: toYmd(deadlineDate),
-        round_label: roundForm.roundLabel.trim() || null,
+        round_label: roundForm.roundLabel.trim(),
         notes: roundForm.notes.trim() || null,
       };
       if (mode === 'update' && !selectedRoundId) {
@@ -368,49 +416,84 @@ export default function ExamRegisterScreen() {
       const actionLabel = mode === 'create' ? '등록' : '수정';
       const notificationPayload = buildExamRoundNotificationPayload({
         examType: examFlowType,
+        examRoundId: res.id,
         title: `${examTitle} 일정이 ${actionLabel}되었습니다.`,
         body: '응시를 희망하는 경우 신청해주세요.',
       });
-      await notifyExamFlow(notificationPayload);
       const savedMessage = mode === 'create'
         ? '새 시험 일정이 등록되었습니다.'
         : '시험 일정이 업데이트되었습니다.';
+      try {
+        await notifyExamFlow(notificationPayload);
+      } catch (notificationError) {
+        logger.warn('[exam-register2] round saved but notification delivery was incomplete', {
+          examType: examFlowType,
+          examRoundId: res.id,
+          error:
+            notificationError instanceof Error
+              ? notificationError.message
+              : String(notificationError),
+        });
+        if (
+          notificationError instanceof Error
+          && notificationError.message === 'notification_invalid_recipient'
+        ) {
+          Alert.alert(
+            '저장 완료 · 알림 대상 오류',
+            `${savedMessage} 알림을 받을 사용자 정보를 확인할 수 없습니다.`,
+          );
+          return;
+        }
+        const retryNotificationDelivery = async () => {
+          try {
+            await notifyExamFlow(notificationPayload);
+            Alert.alert(
+              '알림 등록 완료',
+              '저장된 시험 일정 알림을 등록했습니다.',
+            );
+          } catch (retryError) {
+            if (
+              retryError instanceof Error
+              && retryError.message === 'notification_invalid_recipient'
+            ) {
+              Alert.alert(
+                '알림 대상 오류',
+                '알림을 받을 사용자 정보를 확인할 수 없습니다.',
+              );
+              return;
+            }
+            Alert.alert(
+              '알림 등록 실패',
+              '시험 일정은 저장되었지만 알림을 다시 등록하지 못했습니다.',
+              [
+                { text: '확인' },
+                {
+                  text: '다시 등록',
+                  onPress: () => void retryNotificationDelivery(),
+                },
+              ],
+            );
+          }
+        };
+        Alert.alert(
+          '일정 저장 완료 · 알림 등록 실패',
+          `${savedMessage} FC 알림을 등록하지 못했습니다.`,
+          [
+            { text: '확인' },
+            {
+              text: '알림 다시 등록',
+              onPress: () => void retryNotificationDelivery(),
+            },
+          ],
+        );
+        return;
+      }
       Alert.alert('저장 완료', savedMessage);
     },
     onSettled: (_data, error) => {
       if (error) {
         const message = error instanceof Error ? error.message : '저장 중 오류가 발생했습니다.';
         Alert.alert('저장 실패', message);
-      }
-    },
-  });
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _addLocation = useMutation({
-    mutationFn: async () => {
-      assertCanEdit();
-      if (!selectedRoundId) throw new Error('시험 일정을 먼저 선택해주세요.');
-      const trimmed = locationInput.trim();
-      if (!trimmed) throw new Error('지역명을 입력해주세요.');
-
-      const order = Number(locationOrder) || 0;
-
-      const { error } = await supabase.from('exam_locations').insert({
-        round_id: selectedRoundId,
-        location_name: trimmed,
-        sort_order: order,
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      setLocationInput('');
-      setLocationOrder('0');
-      refetch();
-    },
-    onSettled: (_data, error) => {
-      if (error) {
-        const message = error instanceof Error ? error.message : '지역 추가 중 오류가 발생했습니다.';
-        Alert.alert('지역 추가 실패', message);
       }
     },
   });
@@ -459,7 +542,7 @@ export default function ExamRegisterScreen() {
     requestFormScroll();
   };
 
-  const handleSelectRound = (round: ExamRoundWithLocations) => {
+  const handleSelectRound = useCallback((round: ExamRoundWithLocations) => {
     const editState = getExamRoundEditFormState(round);
     setSelectedRoundId(editState.selectedRoundId);
     setRoundForm(editState.roundForm);
@@ -474,7 +557,13 @@ export default function ExamRegisterScreen() {
       setShowForm(true);
     }
     requestFormScroll();
-  };
+  }, [requestFormScroll, showForm]);
+
+  useEffect(() => {
+    if (!routeRoundId || selectedRoundId === routeRoundId) return;
+    const targetRound = sortedRounds.find((round) => round.id === routeRoundId);
+    if (targetRound) handleSelectRound(targetRound);
+  }, [handleSelectRound, routeRoundId, selectedRoundId, sortedRounds]);
 
   const screenContent = (
     <ScrollView
@@ -817,6 +906,10 @@ export default function ExamRegisterScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       {Platform.OS === 'web' ? screenContent : (
         <KeyboardAvoidingView
           style={styles.keyboardAvoiding}

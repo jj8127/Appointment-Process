@@ -1,5 +1,6 @@
 export type PushDeliveryFailure =
   | 'missing_recipient'
+  | 'recipient_mismatch'
   | 'inbox_write_failed'
   | 'token_query_failed'
   | 'expo_http_failed'

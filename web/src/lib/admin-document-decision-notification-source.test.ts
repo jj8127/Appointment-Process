@@ -39,10 +39,10 @@ test('document decisions persist the inbox before deferring provider delivery', 
   const queueSource = routeSource.slice(queueStart, queueEnd);
 
   assert.ok(queueStart >= 0);
-  assert.match(queueSource, /await persistNotificationToResident\(phoneDigits, payload\)/);
+  assert.match(queueSource, /await persistNotificationToResident\(phoneDigits, payload, fcId\)/);
   assert.match(
     queueSource,
-    /if \(persistence\.success\)[\s\S]*?after\(async \(\) => \{[\s\S]*?sendPushNotificationToResidentDevices\(phoneDigits, payload\)/,
+    /if \(persistence\.success\)[\s\S]*?after\(async \(\) => \{[\s\S]*?sendPushNotificationToResidentDevices\([\s\S]*?phoneDigits,[\s\S]*?payload,[\s\S]*?persistence\.notificationId,[\s\S]*?fcId,/,
   );
 });
 
@@ -53,7 +53,7 @@ test('provider-only delivery cannot insert a duplicate inbox notification', () =
   const providerSource = serviceSource.slice(providerStart, providerEnd);
 
   assert.ok(providerStart >= 0);
-  assert.match(providerSource, /deliverToRegisteredTargets\(userId, payload, delivery\)/);
+  assert.match(providerSource, /deliverToRegisteredTargets\(userId, payload, delivery, notificationId\)/);
   assert.doesNotMatch(providerSource, /persistNotification\(/);
   assert.doesNotMatch(providerSource, /\.from\('notifications'\)/);
 });

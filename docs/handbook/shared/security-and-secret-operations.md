@@ -2,10 +2,22 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-07-23
+last_verified: 2026-07-25
 source_of_truth: env contracts + reset-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
+
+## Board notification retry trust boundary (2026-07-25)
+
+- Clients authenticate with the existing signed app session and submit only `{postId,eventKey}`. The `board-notification-retry` Edge rejects FC and automation callers, checks manager ownership against the committed post, and derives recipient scope and content server-side.
+- Only the Edge uses `SUPABASE_SERVICE_ROLE_KEY` for the service-bound `notifications` upsert and provider-only `fc-notify` call. The key, notification recipients, raw database errors, and provider responses are never returned or logged.
+- Inbox persistence failure emits only the closed `board_notification_retry.notification_insert` diagnostic. Provider rejection and no registered device are bounded delivery metadata and never become a sender warning.
+
+## Group-chat retry token boundary (2026-07-25)
+
+- Group-chat notification retry tokens reuse the existing `FC_APP_SESSION_TOKEN_SECRET` current/previous rotation pair only through a dedicated HMAC context. No new secret or client-visible signing material is introduced.
+- Token verification is timing-safe and is combined with a fresh signed-session actor lookup, canonical room-scoped message lookup, original-sender match, deletion check, and current membership check. Possession of a token alone grants no access.
+- The retry request accepts only message ID and opaque token. Recipient IDs, notification IDs, message content, typed target, and provider payload are server-derived.
 
 ## 2026-07-24 Direct-message deep-link boundary
 

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-const repoRoot = path.resolve(import.meta.dirname, '..', '..', '..');
+const repoRoot = path.resolve(import.meta.dirname!, '..', '..', '..');
 const functionSource = fs.readFileSync(
   path.join(repoRoot, 'supabase', 'functions', 'exam-payment-proof', 'index.ts'),
   'utf8',

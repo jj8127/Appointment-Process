@@ -2,6 +2,7 @@
 
 import { useSession } from '@/hooks/use-session';
 import { DashboardNotificationBell } from '@/components/DashboardNotificationBell';
+import { NotificationReadAcknowledger } from '@/components/NotificationReadAcknowledger';
 import { getDashboardRoleLabel, getDashboardRoleSubLabel } from '@/lib/staff-identity';
 import { AppShell, Avatar, Burger, Group, Menu, NavLink, Text, UnstyledButton, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
@@ -118,6 +119,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       navbar={{ width: navbarWidth, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding="md"
     >
+      <NotificationReadAcknowledger />
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">
           <Group wrap="nowrap">

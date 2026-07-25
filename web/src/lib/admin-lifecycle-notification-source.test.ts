@@ -18,7 +18,9 @@ test('legacy admin notification paths use the structured delivery result', () =>
   assert.doesNotMatch(routeSource, /skipNotificationInsert:\s*true/);
   assert.match(docsSource, /warning:\s*notificationWarning/);
   assert.match(appointmentSource, /warning:\s*notificationWarning/);
-  assert.match(dashboardSource, /notificationResult\.success/);
+  assert.match(dashboardSource, /notificationResult\.inbox/);
+  assert.match(dashboardSource, /notificationResult\.failures/);
+  assert.doesNotMatch(dashboardSource, /if \(!notificationResult\.success\)/);
 });
 
 test('push delivery logs only privacy-safe aggregate fields', () => {
@@ -59,11 +61,35 @@ test('FC inbox persistence and partial delivery accounting remain independent', 
   const serviceSource = readSource('lib/push-notification-service.ts');
 
   assert.match(serviceSource, /recipient_role:\s*'fc'/);
+  assert.match(serviceSource, /recipient_actor_id:\s*recipientActorId/);
+  assert.match(serviceSource, /\.eq\('id', recipientActorId\)/);
+  assert.match(serviceSource, /String\(data\.phone \?\? ''\)\.replace\(\/\\D\/g, ''\) === userId/);
+  assert.match(serviceSource, /addFailure\(delivery, 'recipient_mismatch'\)/);
   assert.match(serviceSource, /delivery\.inbox\.attempted = true/);
   assert.match(serviceSource, /delivery\.inbox\.logged = true/);
   assert.match(serviceSource, /addFailure\(delivery, 'token_query_failed'\)/);
   assert.match(serviceSource, /addFailure\(delivery, 'web_subscription_query_failed'\)/);
   assert.match(serviceSource, /const result = finalizeDeliveryResult\(delivery\)/);
+  assert.match(
+    serviceSource,
+    /if \(delivery\.inbox\.logged && notificationId\) \{[\s\S]*?deliverToRegisteredTargets/,
+  );
+  assert.match(
+    serviceSource,
+    /if \(!notificationId\) \{[\s\S]*?addFailure\(delivery, 'inbox_write_failed'\)[\s\S]*?return result/,
+  );
+});
+
+test('notice broadcasts fail closed when inbox persistence does not return a notification id', () => {
+  const noticeSource = readSource('app/dashboard/notifications/actions.ts');
+  const missingIdGuard = noticeSource.indexOf('if (!notificationId)');
+  const tokenQuery = noticeSource.indexOf(".from('device_tokens')", missingIdGuard);
+  const guardSource = noticeSource.slice(missingIdGuard, tokenQuery);
+
+  assert.ok(missingIdGuard >= 0);
+  assert.match(guardSource, /provider delivery skipped because notification persistence failed/);
+  assert.match(guardSource, /notification_persistence_and_delivery_incomplete/);
+  assert.match(guardSource, /return \{/);
 });
 
 test('post-commit actions return success with a separate notification warning', () => {

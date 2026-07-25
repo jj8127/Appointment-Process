@@ -445,24 +445,26 @@ serve(async (req: Request) => {
     return fail('already_set', '이미 비밀번호가 설정되어 있습니다.');
   }
 
-  if (referralCode && !resolvedReferral) {
-    await insertReferralEvent({
-      supabase,
-      eventType: 'referral_rejected',
-      source: 'manual_entry',
-      referralCode: referralCode || null,
-      inviteeFcId: fcId,
-      inviteePhone: phone,
-      metadata: {
-        captureSource: 'set_password_signup',
-        rejectionReason: referralResolution.rejectionReason ?? 'unresolved_referral',
-      },
-      logLabel: 'set-password',
-    });
+  if (!referralCode || !resolvedReferral) {
+    if (referralCode) {
+      await insertReferralEvent({
+        supabase,
+        eventType: 'referral_rejected',
+        source: 'manual_entry',
+        referralCode,
+        inviteeFcId: fcId,
+        inviteePhone: phone,
+        metadata: {
+          captureSource: 'set_password_signup',
+          rejectionReason: referralResolution.rejectionReason ?? 'unresolved_referral',
+        },
+        logLabel: 'set-password',
+      });
+    }
     return json({
       ok: false,
       code: 'referral_invalid',
-      message: '추천인 정보를 확인하지 못했습니다. 추천인을 다시 선택해주세요.',
+      message: '유효한 추천인을 선택해야 가입을 완료할 수 있습니다.',
     });
   }
 

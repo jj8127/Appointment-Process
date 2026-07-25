@@ -2,10 +2,16 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-07-23
+last_verified: 2026-07-25
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
+
+## Notification delivery idempotency (2026-07-25)
+
+- `notifications.delivery_key` is a nullable server-owned idempotency key with a non-partial unique index. Null remains valid for legacy/non-idempotent sources; a non-null domain event/recipient key can resolve to only one inbox row.
+- Board create/update and notification-only retry use `board-post:<sha256(postId + updated_at)>:<recipientRole>`. The server derives all three broadcast roles and verifies the returned row before provider fanout.
+- `update_board_post_atomic` always advances `board_posts.updated_at`, including attachment-order-only commits, so every committed board update receives a distinct notification event version. The function is `security invoker`, revoked from public/anon/authenticated, and executable only by `service_role`.
 
 ## 2026-07-24 시험 입금 증빙 신청 RPC 보정
 

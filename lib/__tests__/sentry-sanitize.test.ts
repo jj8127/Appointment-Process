@@ -89,4 +89,26 @@ describe('Sentry privacy sanitizer', () => {
       reason: 'upstream_rejected',
     });
   });
+
+  test('redacts messenger signed URLs, upload tokens, and local picker paths', () => {
+    const signedUrl =
+      'https://project.supabase.co/storage/v1/object/upload/sign/messenger-attachments-v2/private/path/file.pdf?token=opaque-upload-token';
+    const localUri = 'file:///data/user/0/app/cache/민감 계약서.pdf';
+    const sanitized = sanitizeSentryContext({
+      breadcrumb: `PUT ${signedUrl}`,
+      signedUrl,
+      uploadToken: 'opaque-upload-token',
+      localUri,
+      network: {
+        url: `${signedUrl}&signature=opaque-signature`,
+      },
+    });
+    const serialized = JSON.stringify(sanitized);
+
+    expect(serialized).not.toContain(signedUrl);
+    expect(serialized).not.toContain('opaque-upload-token');
+    expect(serialized).not.toContain('opaque-signature');
+    expect(serialized).not.toContain(localUri);
+    expect(serialized).not.toContain('민감 계약서.pdf');
+  });
 });

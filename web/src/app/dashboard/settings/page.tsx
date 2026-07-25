@@ -11,7 +11,6 @@ import {
   getWebPushClientConfigState,
   getWebPushRegistrationFeedback,
 } from '@/lib/web-push-config';
-import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
 import {
   Button,
@@ -47,7 +46,7 @@ export default function SettingsPage() {
     [],
   );
 
-  const deleteRole = role === 'admin' ? 'admin' : role === 'manager' ? 'manager' : role === 'fc' ? 'fc' : null;
+  const canDeleteAccount = role === 'fc';
   const displayRole = getDashboardRoleLabel({ role, staffType, isReadOnly });
   const displaySub = useMemo(() => {
     const roleSub = getDashboardRoleSubLabel({ role, staffType, isReadOnly });
@@ -106,7 +105,7 @@ export default function SettingsPage() {
       });
       return;
     }
-    if (!deleteRole) {
+    if (!canDeleteAccount) {
       notifications.show({
         title: '계정 정보 없음',
         message: '현재 로그인 정보를 확인할 수 없습니다.',
@@ -120,17 +119,20 @@ export default function SettingsPage() {
     try {
       logger.info('[settings] account deletion requested');
 
-      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; deleted?: boolean; error?: string }>(
-        'delete-account',
-        {
-          body: { residentId, residentMask, role: deleteRole },
-        },
-      );
-      if (error) {
-        throw new Error(error.message ?? '계정 삭제 함수 호출에 실패했습니다.');
+      const response = await fetch('/api/account-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await response.json().catch(() => null) as {
+        ok?: boolean;
+        deleted?: boolean;
+        code?: string;
+      } | null;
+      if (!response.ok) {
+        throw new Error('계정 삭제 요청에 실패했습니다.');
       }
       if (!data?.ok || !data?.deleted) {
-        throw new Error(data?.error ?? '계정 삭제에 실패했습니다. 다시 시도해주세요.');
+        throw new Error('계정 삭제에 실패했습니다. 다시 시도해주세요.');
       }
 
       notifications.show({
@@ -276,7 +278,7 @@ export default function SettingsPage() {
                   color="red"
                   size="xs"
                   onClick={openModal}
-                  disabled={!deleteRole}
+                  disabled={!canDeleteAccount}
                   styles={{
                     root: {
                       padding: 0,

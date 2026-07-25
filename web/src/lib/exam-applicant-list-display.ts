@@ -1,6 +1,7 @@
 export type ExamApplicantApplicationType = '신규신청' | '재신청';
 
 export type ExamApplicantListItem = {
+  status?: string | null;
   created_at?: string | null;
   round_id?: string | null;
   affiliation: string;
@@ -14,6 +15,7 @@ export type ExamApplicantListItem = {
   exam_type?: string | null;
   fee_paid_date?: string | null;
   is_confirmed: boolean;
+  includes_primary_exam?: boolean;
   is_third_exam?: boolean;
   application_type?: ExamApplicantApplicationType | string | null;
 };
@@ -265,7 +267,12 @@ export function isExamApplicantRoundFilterValid(
   );
 }
 
-export function formatExamApplicantSubject(item: Pick<ExamApplicantListItem, 'exam_type' | 'round_label' | 'is_third_exam'>): string {
+export function formatExamApplicantSubject(
+  item: Pick<
+    ExamApplicantListItem,
+    'exam_type' | 'round_label' | 'includes_primary_exam' | 'is_third_exam'
+  >,
+): string {
   const primarySubject = getExamApplicantPrimarySubject(item);
   const base =
     primarySubject === 'life'
@@ -274,6 +281,9 @@ export function formatExamApplicantSubject(item: Pick<ExamApplicantListItem, 'ex
         ? '손해보험'
         : '미정';
 
+  if (item.includes_primary_exam === false && item.is_third_exam) {
+    return '제3보험';
+  }
   if (!item.is_third_exam) {
     return base;
   }
@@ -298,8 +308,19 @@ export function formatExamApplicantSchedule(item: ExamApplicantListItem): string
   return roundLabel ? `${roundLabel}: ${dateLabel}` : dateLabel;
 }
 
-export function formatExamApplicantReceptionStatus(item: Pick<ExamApplicantListItem, 'is_confirmed'>): string {
-  return item.is_confirmed ? '접수 완료' : '미접수';
+export function formatExamApplicantReceptionStatus(
+  item: Pick<ExamApplicantListItem, 'is_confirmed' | 'status'>,
+): string {
+  const labels: Record<string, string> = {
+    applied: '미접수',
+    confirmed: '접수 완료',
+    completed: '시험 완료',
+    no_show: '미응시',
+    rejected: '반려',
+    cancelled_by_fc: 'FC 취소',
+    cancelled_by_admin: '관리자 취소',
+  };
+  return labels[String(item.status ?? '')] ?? (item.is_confirmed ? '접수 완료' : '미접수');
 }
 
 export function formatExamApplicantFeePaidDate(item: Pick<ExamApplicantListItem, 'fee_paid_date'>): string {

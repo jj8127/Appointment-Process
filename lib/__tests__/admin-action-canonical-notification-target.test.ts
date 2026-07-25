@@ -11,7 +11,7 @@ describe('mobile admin canonical FC notification target', () => {
   it('resolves the current FC phone from the trusted fcId immediately before delivery', () => {
     expect(edgeSource).toContain('resolveCanonicalFcNotificationTarget(fcId)');
     expect(edgeSource).toContain(".from('fc_profiles')");
-    expect(edgeSource).toContain(".select('phone')");
+    expect(edgeSource).toContain(".select('id,phone,signup_completed')");
     expect(edgeSource).toContain(".eq('id', fcId)");
     expect(edgeSource).toContain('/^010\\d{8}$/.test(phone)');
     expect(edgeSource).toContain('resident_id: target.phone');
@@ -19,12 +19,15 @@ describe('mobile admin canonical FC notification target', () => {
     expect(edgeSource).toContain('skip_notification_insert: true');
   });
 
-  it('fails closed with a fixed post-commit warning when the canonical target is unavailable', () => {
+  it('fails closed without misreporting an invalid target as a post-commit delivery warning', () => {
     expect(edgeSource).toContain("const NOTIFICATION_DELIVERY_WARNING = 'notification_delivery_incomplete'");
     expect(edgeSource).toContain("reason: 'target_lookup_failed'");
     expect(edgeSource).toContain("reason: 'target_not_found'");
     expect(edgeSource).toContain("reason: 'target_phone_invalid'");
-    expect(edgeSource).toContain('warning: NOTIFICATION_DELIVERY_WARNING');
+    expect(edgeSource).toContain('warning: null');
+    expect(edgeSource).toContain('notificationStored: false');
+    expect(edgeSource).toContain("pushStatus: 'not_attempted'");
+    expect(edgeSource).toContain('warning: inboxRecorded ? null : NOTIFICATION_DELIVERY_WARNING');
     expect(edgeSource).not.toMatch(/console\.(?:log|warn|error)\([^)]*(?:phone|target|error)/);
   });
 
@@ -39,7 +42,7 @@ describe('mobile admin canonical FC notification target', () => {
   it('sends only the canonical fcId from every dashboard workflow notification call', () => {
     const helperStart = dashboardSource.indexOf('async function sendNotificationAndPush');
     const helperEnd = dashboardSource.indexOf(
-      'type NotificationAndPushResult',
+      'const getPostCommitNotificationAlert',
       helperStart,
     );
     const helper = dashboardSource.slice(helperStart, helperEnd);
@@ -50,11 +53,12 @@ describe('mobile admin canonical FC notification target', () => {
       (match) => match[0],
     );
 
-    expect(helper).toContain("invokeAdminAction<{");
-    expect(helper).toContain(">(adminPhone, 'sendNotification'");
+    expect(helper).toContain('invokeAdminActionRaw(');
+    expect(helper).toContain('adminPhone,');
+    expect(helper).toContain("'sendNotification'");
     expect(helper).toContain('fcId,');
-    expect(helper).toContain('.catch(() => null)');
-    expect(helper).toContain("reason: 'transport_error'");
+    expect(helper).toContain('.catch((error) => ({ data: null, error }))');
+    expect(helper).toContain('classifyFcNotifyDeliveryResult(transport)');
     expect(helper).not.toContain('phone:');
     expect(helper).not.toContain('target_id');
     expect(helper).not.toContain('invokeFcNotifyForDelivery');

@@ -42,6 +42,27 @@ const profile = (overrides: Partial<FcProfile> = {}): FcProfile => ({
 });
 
 describe('workflow step regression', () => {
+  test('fc home uses the admin actor label in exactly eight next-action messages', () => {
+    const source = readFileSync('lib/fc-workflow.ts', 'utf8');
+    const nextActionSource = source.slice(source.indexOf('export const getFcHomeNextAction'));
+    const expectedAdminMessages = [
+      '관리자가 임시사번을 발급중입니다. 기다려주세요.',
+      '관리자가 사전 심사를 준비 중입니다.',
+      '관리자가 필요한 서류를 검토 중입니다. 기다려주세요.',
+      '관리자가 가람in으로 다위촉 URL PDF를 전달 중입니다. 기다려주세요.',
+      '관리자가 위촉 여부를 검토중입니다.',
+      '손해 위촉 완료 여부를 관리자가 검토중입니다.',
+      '생명 위촉 완료 여부를 관리자가 검토중입니다.',
+      '위촉 완료 여부를 관리자가 검토중입니다.',
+    ];
+
+    expect(nextActionSource).not.toContain('총무가');
+    expect(nextActionSource.match(/관리자가/g)).toHaveLength(8);
+    for (const message of expectedAdminMessages) {
+      expect(nextActionSource).toContain(message);
+    }
+  });
+
   test('admin dashboard KPI cards reuse workflow predicates as list filters', () => {
     const source = readFileSync('web/src/app/dashboard/page.tsx', 'utf8');
 
@@ -278,7 +299,7 @@ describe('workflow step regression', () => {
       step: 2,
       key: 'docs',
       route: '/docs-upload',
-      subtitle: '총무가 필요한 서류를 검토 중입니다. 기다려주세요.',
+      subtitle: '관리자가 필요한 서류를 검토 중입니다. 기다려주세요.',
       disabled: false,
     });
   });
@@ -337,7 +358,7 @@ describe('workflow step regression', () => {
       step: 1,
       key: 'consent',
       route: '/consent',
-      subtitle: '총무가 사전 심사를 준비 중입니다.',
+      subtitle: '관리자가 사전 심사를 준비 중입니다.',
       disabled: false,
     });
   });

@@ -123,6 +123,7 @@ export function submitExamApplicationWithPaymentProof({
   locationId,
   examType,
   feePaidDate,
+  includesPrimaryExam,
   isThirdExam,
 }: {
   appSessionToken: string;
@@ -131,15 +132,17 @@ export function submitExamApplicationWithPaymentProof({
   locationId: string;
   examType: ExamFlowType;
   feePaidDate: string;
+  includesPrimaryExam: boolean;
   isThirdExam: boolean;
 }) {
   return invokeExamPaymentProof<SubmitResult>(appSessionToken, {
-    action: 'submit',
+    action: 'submit_v2',
     uploadId,
     roundId,
     locationId,
     examType,
     feePaidDate,
+    includesPrimaryExam,
     isThirdExam,
   });
 }

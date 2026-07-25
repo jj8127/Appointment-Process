@@ -4,7 +4,6 @@ import {
   fetchMobileUnreadNotificationCountWithDeps,
   type MobileUnreadNotificationCountOptions,
 } from './mobile-unread-notification-count-plan';
-import { getNotificationCheckpoint } from './notification-checkpoint';
 import { rbGetNotificationUnreadCount } from './request-board-api';
 
 export async function fetchMobileUnreadNotificationCount({
@@ -17,7 +16,6 @@ export async function fetchMobileUnreadNotificationCount({
     residentId,
     requestBoardRole,
   }, {
-    getNotificationCheckpoint,
     invokeFcNotify: (body) => invokeFcNotify(body),
     getRequestBoardUnreadCount: rbGetNotificationUnreadCount,
     warn: (message, err) => logger.warn(message, err),

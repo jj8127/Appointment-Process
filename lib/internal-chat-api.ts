@@ -1,5 +1,6 @@
 import { logger } from './logger';
 import { sanitizePhone } from './messenger-participants';
+import { isNotificationUuid } from './notification-target';
 import { getStaffChatActorId, type StaffType } from './staff-identity';
 
 type AppRole = 'admin' | 'fc' | null;
@@ -10,6 +11,7 @@ type FcNotifySuccess = {
 };
 
 export type InternalChatListItem = {
+  conversation_id: string;
   fc_id: string;
   name: string;
   phone: string;
@@ -115,10 +117,30 @@ export async function fetchInternalChatList(
     ...payload,
   });
 
-  return {
-    items: Array.isArray(data.items) ? data.items : [],
-    totalUnread: Number(data.total_unread ?? 0),
-  };
+  if (!Array.isArray(data.items)) {
+    throw new Error('internal chat list response is invalid');
+  }
+  const items = data.items.map((item) => {
+    if (
+      !isNotificationUuid(item.conversation_id)
+      || !isNotificationUuid(item.fc_id)
+      || !sanitizePhone(item.phone)
+      || typeof item.name !== 'string'
+      || !Number.isSafeInteger(item.unread_count)
+      || item.unread_count < 0
+    ) {
+      throw new Error('internal chat list item is invalid');
+    }
+    return {
+      ...item,
+      phone: sanitizePhone(item.phone),
+    };
+  });
+  const totalUnread = Number(data.total_unread ?? 0);
+  if (!Number.isSafeInteger(totalUnread) || totalUnread < 0) {
+    throw new Error('internal chat unread count is invalid');
+  }
+  return { items, totalUnread };
 }
 
 export async function fetchInternalUnreadCount(

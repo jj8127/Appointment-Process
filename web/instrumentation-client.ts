@@ -1,6 +1,10 @@
 import * as Sentry from '@sentry/nextjs';
 
-import { sanitizeSentryContext, sanitizeSentryEvent } from './src/lib/sentry-sanitize';
+import {
+  sanitizeSentryContext,
+  sanitizeSentryEvent,
+  shouldDropMessengerAttachmentReplayEvent,
+} from './src/lib/sentry-sanitize';
 import { setSentryCaptureException } from './src/lib/sentry-monitor';
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN?.trim();
@@ -27,8 +31,19 @@ if (dsn) {
       Sentry.replayIntegration({
         maskAllText: true,
         blockAllMedia: true,
+        networkCaptureBodies: false,
+        networkDetailDenyUrls: [
+          '/api/messenger-attachments',
+          /\/storage\/v1\/object\//i,
+        ],
+        beforeAddRecordingEvent(event) {
+          return shouldDropMessengerAttachmentReplayEvent(event) ? null : event;
+        },
       }),
     ],
+    beforeBreadcrumb(breadcrumb) {
+      return sanitizeSentryEvent(breadcrumb);
+    },
     beforeSend(event) {
       return sanitizeSentryEvent(event);
     },

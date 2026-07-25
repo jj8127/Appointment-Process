@@ -8,6 +8,7 @@ import { getVerifiedAdminSession } from '@/lib/server-session';
 
 export async function sendPushNotification(
     userId: string,
+    fcId: string,
     payload: PushPayload
 ) {
     logger.debug('[sendPushNotification] start', {
@@ -21,7 +22,7 @@ export async function sendPushNotification(
         return { success: false, error: sessionCheck.error };
     }
 
-    return sendPushNotificationToResident(userId, payload);
+    return sendPushNotificationToResident(userId, payload, fcId);
 }
 
 export async function sendPushNotificationForFc(
@@ -57,5 +58,5 @@ export async function sendPushNotificationForFc(
         return { success: false, error: 'Notification delivery incomplete' as const };
     }
 
-    return sendPushNotificationToResident(phoneResult.value, payload);
+    return sendPushNotificationToResident(phoneResult.value, payload, fcId);
 }

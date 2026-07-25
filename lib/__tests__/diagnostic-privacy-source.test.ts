@@ -162,6 +162,33 @@ describe('diagnostic privacy source boundary', () => {
     expect(deleteAccount).toContain("event: 'delete_account.auth_cleanup'");
     expect(deleteAccount).toContain("event: 'delete_account.storage_cleanup'");
 
+    const dashboard = read('web/src/app/dashboard/page.tsx');
+    const dashboardDeleteBlock =
+      dashboard.split('const deleteFcMutation = useMutation({')[1]
+        ?.split('const updateHanwhaSubmissionDateMutation')[0] ?? '';
+    expect(dashboardDeleteBlock).not.toMatch(
+      /logger\.(?:debug|info|warn|error)\([\s\S]{0,160}selectedFc\.(?:id|phone)/,
+    );
+    expect(dashboardDeleteBlock).not.toMatch(
+      /logger\.(?:debug|info|warn|error)\([^)]*,\s*\{\s*(?:data|id|phone)\b/,
+    );
+    expect(dashboardDeleteBlock).not.toContain("logger.error('[Web][deleteFc] failed', err)");
+    expect(dashboardDeleteBlock).toContain("errorCode: 'delete_request_failed'");
+    expect(dashboardDeleteBlock).toContain('status: resp.status');
+    expect(dashboardDeleteBlock).toContain('deletedCount: 1');
+    expect(dashboard).not.toMatch(
+      /logger\.(?:debug|info|warn|error)\('\[Web\]\[deleteFc\][\s\S]{0,180}selectedFc[^\n]{0,12}(?:id|phone)/,
+    );
+    expect(dashboard).not.toMatch(
+      /logger\.(?:debug|info|warn|error)\('\[Web\]\[deleteFc\][\s\S]{0,180}\{\s*(?:id|phone|data|error)\b/,
+    );
+
+    const webDeleteRoute = read('web/src/app/api/fc-delete/route.ts');
+    expect(webDeleteRoute).not.toMatch(
+      /logger\.(?:debug|info|warn|error)\([\s\S]{0,160}\b(?:fcId|phone|cleanupOutboxId)\b/,
+    );
+    expect(webDeleteRoute).toContain('pathCount: paths.length');
+
     const settings = read('web/src/app/dashboard/settings/page.tsx');
     expect(settings).not.toContain('Starting account deletion via delete-account function');
     expect(settings).not.toContain("console.error('[Settings] Account deletion failed'");

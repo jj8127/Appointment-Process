@@ -1,5 +1,31 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-07-25 | Notification post-commit state | storage clear and coordinator state diverged
+
+- Symptom:
+  - While notification A was being marked read, newly captured notification B
+    remained in storage but the navigation coordinator was reset to idle.
+  - Group-chat message persistence could succeed while canonical inbox
+    persistence failed, yet the sender received only an operations log and had
+    no notification-only repair.
+- Root cause:
+  - The conditional pending-clear result was ignored before changing coordinator
+    state.
+  - Post-commit UI mixed read-state, provider, and inbox outcomes instead of
+    checking only `delivery.notificationStored`, and completion was declared
+    without an idempotent notification-only retry.
+- Permanent guardrail:
+  - Conditional storage mutation and coordinator state transition are one
+    contract: clear to idle only when the same pending record was removed;
+    otherwise preserve or rehydrate the newer pending state.
+  - Read/unread, login, device, and provider outcomes never create sender
+    warnings. Only canonical inbox persistence failure may warn, and every
+    post-commit warning requires a stable notification-only retry that cannot
+    duplicate the domain write or message.
+- Verification:
+  - Deterministic A-await/B-capture race tests, group-chat persistence/retry
+    tests, full TypeScript, lint, and independent notification evaluation.
+
 ## 2026-07-24 | 메시지 알림에서 발신 대화방 정보 유실
 
 - 문제: 관리자 웹의 `message` 알림은 인증된 발신자 ID/이름을 이미 알고 있었지만 Edge와 웹 푸시가 FC 대상 URL을 일반 `/chat`으로 만들었다. 알림 클릭 시 대상 개발자/총무 대화방 대신 메신저 선택 화면으로 이동했다.
@@ -4088,8 +4114,17 @@
   - Callers and fanout services used HTTP success or token count as delivery truth and did not preserve separate `logged`, attempted, accepted, and rejected states.
   - Event-subject identifiers and notification-recipient identifiers were treated as interchangeable.
 - Permanent guardrail:
-  - Confirmation-dependent sends must require durable inbox success plus at least one accepted provider ticket; zero target and provider rejection are explicit outcomes.
-  - A primary write is never rolled back or presented as unsaved because a post-commit notification failed; the UI reports partial delivery instead.
+  - Sender-visible delivery success is based on durable inbox persistence. Unread,
+    logged-out, no-device, zero accepted push, and provider rejection remain
+    receipt or operations telemetry and never produce a sender warning.
+  - A primary write is never rolled back or presented as unsaved because a
+    post-commit notification failed. Only durable inbox persistence failure may
+    show an exact inbox-registration warning, with an idempotent
+    notification-only retry that cannot duplicate the primary write.
+  - Every committed message source must return a stable notification-only retry
+    token on inbox persistence failure. The retry authenticates the original
+    sender, reloads the committed message and current audience server-side, and
+    upserts recipient delivery keys; it must never call the message mutation.
   - Non-message FC workflow events use shared-admin scope (`target_id=null`); only direct message category may use a concrete staff target.
   - Provider bodies, tickets, tokens, recipient identifiers, and message bodies are never logged or returned as diagnostics.
 - Verification:
@@ -4321,3 +4356,178 @@
   - Run the workspace harness audit immediately after every registry lifecycle edit.
 - Verification:
   - `node D:\hanhwa\codex-toolkit\scripts\audit-harnesses.mjs --check --workspace D:\hanhwa`
+
+## 2026-07-24 | Resident-number list repair temporarily bypassed the encrypted Edge fallback
+
+- Symptom:
+  - The first list-column implementation worked only when the admin web server
+    could decrypt directly and would have recreated the staff lookup failure in
+    deployments that intentionally rely on the encrypted Edge fallback.
+- Root cause:
+  - A new batch projection was implemented as a direct-only read instead of
+    extending the existing trusted fallback cohort.
+- Permanent guardrail:
+  - Every resident-number read surface must call the shared
+    direct-then-encrypted-Edge resolver, accept only full-format values from
+    `fc_identity_secure`, and fail closed per row.
+  - Tests must exercise direct success, encrypted Edge fallback, role denial,
+    stale scope cleanup, and sanitized provider failures.
+- Verification:
+  - Resident-number route, Edge executor/fallback, privacy, and visible-page
+    state suites.
+
+## 2026-07-24 | Recommender relation-only privilege leaked through broad legacy paths
+
+- Symptom:
+  - A dedicated manager/admin/developer relation route existed, but the broad
+    admin FC route could still search or mutate recommender data; inactive
+    manager shadows and formatted phone values also drifted between web and DB
+    eligibility checks.
+- Root cause:
+  - The new narrow exception was added without closing older mutation/search
+    paths or making the active-manager predicate atomic and normalization-
+    equivalent in PostgreSQL.
+- Permanent guardrail:
+  - Recommender changes have exactly one relation-only route with a mandatory
+    reason and server-derived actor metadata. Broad profile routes must reject
+    recommender fields.
+  - Eligibility must lock and recheck active manager ownership in the database,
+    normalize both compared phone values, and revoke unchecked helper access.
+  - Authenticated invite entry must discard signup-only referral state rather
+    than redirecting to a retired FC self-edit flow.
+- Verification:
+  - Referral permission, route policy, active-manager shadow, formatted-phone,
+    and signup completion suites.
+
+## 2026-07-24 | Password sync trusted transport possession without one-time upstream proof
+
+- Symptom:
+  - A shared transport token could accompany caller-supplied role data, and the
+    first signed-assertion revision could be replayed within its TTL.
+- Root cause:
+  - Transport authentication was treated as identity/role authorization, then
+    assertion nonce format was validated without authoritative consumption.
+- Permanent guardrail:
+  - Bind phone, upstream role, purpose, nonce, issued-at, and expiry in a
+    dedicated password-sync assertion; never reuse the bridge-login key.
+  - The receiver must consume only a SHA-256 nonce digest exactly once before
+    any credential or provenance mutation, and compare transport secrets with
+    fixed-length digests plus timing-safe equality.
+  - Manager-known passwords must never cross into Request Board.
+- Verification:
+  - FC assertion/key-rotation and password-sync Node/Deno suites plus Request
+    Board priority security and ACL contracts.
+
+## 2026-07-24 | Messenger schema drift hid anonymous writes and public attachments
+
+- Symptom:
+  - The deployed direct-message table and Storage bucket allowed broad
+    anonymous/authenticated reads or writes, while local canonical schema and
+    migration history did not contain the deployed table shape needed to audit
+    or harden it safely.
+- Root cause:
+  - A client-direct messaging path evolved outside the canonical schema
+    snapshot, and bucket URL-prefix checks were treated as ownership/type
+    validation.
+- Permanent guardrail:
+  - Every deployed messaging table, RLS policy, grant, trigger, bucket setting,
+    and object policy must have a forward migration plus canonical schema
+    representation.
+  - Message clients never write rows or public object URLs directly. Trusted
+    intents bind actor, conversation, canonical private path, delivery key,
+    size, type, hash, and expiry; commit and signed download recheck membership.
+  - Every attachment-bearing commit writes the canonical `file` message type,
+    and clients fail closed unless the returned commit proof, message ID, and
+    attachment count exactly match the request.
+  - Required PL/pgSQL inputs must be rejected with explicit `IS NULL` checks,
+    and identity/idempotency comparisons use `IS DISTINCT FROM`; SQL `CHECK`
+    constraints must not accidentally accept a NULL/unknown result.
+  - Account-deletion triggers must move attachment batches to a terminal state
+    before parent rows cascade, and every attachment foreign key/check must be
+    tested against that terminal transition (including already terminal rows).
+  - Direct attachment reserve/commit/account-delete paths share the lock order
+    actor or owner, then sorted conversation, then batch. Broadcast cleanup
+    reconciles from durable conversation IDs because legacy account deletion
+    can remove message rows before the profile trigger runs.
+  - A durable cleanup outbox is incomplete without an authenticated production
+    scheduler that expires intents and drains both immediate and post-token
+    jobs; scheduler rollout is a release condition, not an optional follow-up.
+  - Storage objects are removed only through the Storage API, never by deleting
+    `storage.objects` metadata directly.
+- Verification:
+  - Read-only production schema/policy drift preflight, migration source
+    contracts, actor/foreign-intent negatives, signed-download authorization,
+    and upload/delete Storage smokes.
+
+## 2026-07-24 | Test bypasses and session signing keys failed open in production paths
+
+- Symptom:
+  - A public password-reset Edge function enabled a fixed SMS bypass when
+    configuration was absent, and staff cookies could be signed with unrelated
+    auth or Supabase service-role keys.
+- Root cause:
+  - Development convenience defaults and key fallbacks were embedded directly
+    in externally reachable production modules without an environment fail-
+    closed boundary or key-domain separation contract.
+- Permanent guardrail:
+  - SMS/OTP bypasses default off, have no fixed fallback code, and throw before
+    handlers or service-role writers in hosted/production runtimes. Explicit
+    bypass is local-development-only and requires a configured six-digit code.
+  - Staff cookies use only dedicated current/previous secrets; auth, NextAuth,
+    bridge, and service-role keys are forbidden fallbacks.
+  - Every public OTP/reset Edge entrypoint must have unset, production-true,
+    normal hash/expiry, and downstream-writer ordering regression coverage.
+- Verification:
+  - Password-reset and signup-OTP security source contracts, affected Edge Deno
+    checks, staff-session rotation tests, web TypeScript, targeted lint, and
+    independent security evaluation.
+
+## 2026-07-25 | Attachment boundary checks diverged across clients, proxy auth, and OOXML parts
+
+- Symptom:
+  - The web attachment proxy supplied both a service key and an app-session
+    token, but the Edge resolver chose the service branch first and rejected
+    normal web users.
+  - Web direct/group clients treated a successful HTTP response as file-send
+    success without proving the attachment commit, canonical `file` message
+    type, and exact attachment count.
+  - OOXML inspection rejected external relationships only in the package root,
+    allowing nested Word/Excel/PowerPoint `*.rels` files to reference external
+    HTTP, SMB, or file targets.
+- Root cause:
+  - Authentication precedence, response validation, and container inspection
+    were implemented at individual surfaces instead of one explicit
+    end-to-end attachment contract.
+- Permanent guardrail:
+  - An explicit app-session header always selects app-session validation; an
+    invalid session must never fall through to service authorization. Service
+    identity claims are accepted only when no app-session header is present.
+  - Every attachment client must fail closed unless the response includes a
+    non-null commit proof, canonical `file` message type, and the exact requested
+    attachment count before clearing the draft.
+  - Inspect every bounded, case-insensitive OOXML `*.rels` entry and reject all
+    normalized `TargetMode=External` relationships while retaining root package
+    type validation.
+- Verification:
+  - Attachment auth precedence/invalid-session tests, shared web commit-response
+    tests across direct/group surfaces, and malicious nested DOCX/XLSX/PPTX
+    relationship tests.
+
+## 2026-07-25 | Referral event filters exceeded PostgREST URL limits and mimicked read-only access
+
+- Symptom:
+  - The referral-code dashboard returned 500 once the FC population grew, while
+    valid developer sessions were shown a read-only warning.
+- Root cause:
+  - One GET filter repeated every FC UUID in both inviter and invitee `in(...)`
+    clauses. Supabase rejected the oversized `referral_events` URL with 400.
+  - The client treated a missing permission payload during that failure as
+    `canMutate: false`, making a data error look like an authorization decision.
+- Permanent guardrail:
+  - Bound PostgREST filter cardinality, merge chunk results by stable event ID,
+    and restore global ordering after the merge.
+  - Render read-only state only after server permissions resolve; loading and
+    query failures must not be presented as role restrictions.
+- Verification:
+  - A 447-FC chunking regression, cross-chunk deduplication/order tests, and
+    developer/manager permission-display tests.

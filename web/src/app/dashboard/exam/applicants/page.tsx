@@ -27,6 +27,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
     IconCalendarEvent,
+    IconBan,
     IconCheck,
     IconChevronDown,
     IconDownload,
@@ -62,12 +63,12 @@ import {
     type ExamApplicantExportColumnKey,
     type ExamApplicantFilterOption,
 } from '@/lib/exam-applicant-list-display';
-import { notifyFcExamApprovalStatus } from '@/lib/exam-applicant-notification-client';
 import {
     buildExamPaymentProofExportLinkMap,
     buildExamPaymentProofImagePath,
     type ExamPaymentProofExportLink,
 } from '@/lib/exam-payment-proof-admin';
+import { RejectReasonModal } from '@/components/RejectReasonModal';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -96,6 +97,7 @@ type Applicant = {
     fee_paid_date?: string | null;
     payment_proof_attached?: boolean;
     is_confirmed: boolean;
+    includes_primary_exam?: boolean;
     is_third_exam?: boolean;
     application_type?: string | null;
 };
@@ -346,6 +348,8 @@ export default function ExamApplicantsPage() {
     const router = useRouter();
     const queryClient = useQueryClient();
     const { isReadOnly, hydrated, role } = useSession();
+    const [rejectTarget, setRejectTarget] = useState<Applicant | null>(null);
+    const [rejectReason, setRejectReason] = useState('');
     const [filters, setFilters] = useState<FilterState>({});
     const [quickAffiliation, setQuickAffiliation] = useState(EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE);
     const [examSubjectFilter, setExamSubjectFilter] = useState(EXAM_APPLICANT_ALL_FILTER_VALUE);
@@ -518,7 +522,10 @@ export default function ExamApplicantsPage() {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ registrationId: item.id, isConfirmed }),
+                body: JSON.stringify({
+                    registrationId: item.id,
+                    action: isConfirmed ? 'confirm' : 'unconfirm',
+                }),
             });
             const json: unknown = await response.json().catch(() => null);
             const nextStatus = isConfirmed ? 'confirmed' : 'applied';
@@ -535,7 +542,7 @@ export default function ExamApplicantsPage() {
             }
             return { item, isConfirmed, nextStatus };
         },
-        onSuccess: async ({ item, isConfirmed, nextStatus }) => {
+        onSuccess: ({ item, isConfirmed, nextStatus }) => {
             queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
                 if (!Array.isArray(old)) return old;
                 return (old as Applicant[]).map((row) =>
@@ -548,7 +555,6 @@ export default function ExamApplicantsPage() {
                 color: 'green',
                 icon: <IconRefresh size={16} />,
             });
-            await notifyFcExamApprovalStatus(item, isConfirmed);
         },
         onError: (err: unknown) => {
             const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
@@ -556,13 +562,64 @@ export default function ExamApplicantsPage() {
         },
     });
 
+    const rejectApplicantMutation = useMutation({
+        mutationFn: async ({ item, reason }: { item: Applicant; reason: string }) => {
+            const response = await fetch('/api/admin/exam-applicants', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    registrationId: item.id,
+                    action: 'reject',
+                    reason,
+                }),
+            });
+            const json: unknown = await response.json().catch(() => null);
+            if (!response.ok || !isRecord(json) || json.ok !== true) {
+                throw new Error(
+                    isRecord(json) && typeof json.error === 'string'
+                        ? json.error
+                        : '시험 신청 반려에 실패했습니다.',
+                );
+            }
+            return item;
+        },
+        onSuccess: (item) => {
+            queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
+                if (!Array.isArray(old)) return old;
+                return (old as Applicant[]).map((row) =>
+                    row.id === item.id
+                        ? { ...row, is_confirmed: false, status: 'rejected' }
+                        : row,
+                );
+            });
+            setRejectTarget(null);
+            setRejectReason('');
+            notifications.show({
+                title: '반려 완료',
+                message: `${item.name} 신청을 반려했습니다.`,
+                color: 'red',
+            });
+        },
+        onError: (error: unknown) => {
+            notifications.show({
+                title: '반려 실패',
+                message: error instanceof Error ? error.message : '반려 처리에 실패했습니다.',
+                color: 'red',
+            });
+        },
+    });
+
     const deleteApplicantMutation = useMutation({
         mutationFn: async (item: Applicant) => {
             const response = await fetch('/api/admin/exam-applicants', {
-                method: 'DELETE',
+                method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ registrationId: item.id }),
+                body: JSON.stringify({
+                    registrationId: item.id,
+                    action: 'cancel_by_admin',
+                }),
             });
 
             const json: unknown = await response.json().catch(() => null);
@@ -571,32 +628,31 @@ export default function ExamApplicantsPage() {
                 const message =
                     isRecord(json) && typeof json.error === 'string'
                         ? json.error
-                        : '시험 신청 삭제에 실패했습니다.';
+                        : '시험 신청 취소에 실패했습니다.';
                 throw new Error(message);
             }
 
-            return {
-                item,
-                deleted: !isRecord(json) || typeof json.deleted !== 'boolean' ? true : json.deleted,
-            };
+            return item;
         },
-        onSuccess: ({ item, deleted }) => {
+        onSuccess: (item) => {
             queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
                 if (!Array.isArray(old)) return old;
-                return (old as Applicant[]).filter((row) => row.id !== item.id);
+                return (old as Applicant[]).map((row) =>
+                    row.id === item.id
+                        ? { ...row, is_confirmed: false, status: 'cancelled_by_admin' }
+                        : row,
+                );
             });
             notifications.show({
-                title: deleted ? '삭제 완료' : '이미 삭제됨',
-                message: deleted
-                    ? `${item.name} 신청 내역을 삭제했습니다.`
-                    : '이미 삭제된 신청 내역입니다.',
-                color: deleted ? 'green' : 'blue',
+                title: '취소 완료',
+                message: `${item.name} 신청을 관리자 취소 처리했습니다.`,
+                color: 'green',
                 icon: <IconTrash size={16} />,
             });
         },
         onError: (err: unknown) => {
             const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
-            notifications.show({ title: '삭제 실패', message: msg, color: 'red' });
+            notifications.show({ title: '취소 실패', message: msg, color: 'red' });
         },
     });
 
@@ -1022,18 +1078,39 @@ export default function ExamApplicantsPage() {
                                                     }}
                                                     disabled={
                                                         isReadOnly ||
+                                                        !['applied', 'confirmed'].includes(item.status) ||
                                                         (updateStatusMutation.isPending && updateStatusMutation.variables?.item.id === item.id)
                                                     }
                                                 />
                                             </Table.Td>
                                             <Table.Td onClick={(event) => event.stopPropagation()}>
-                                                <Tooltip label={isReadOnly ? '본부장은 삭제할 수 없습니다.' : '신청자 삭제'}>
+                                                <Group gap="xs" justify="center" wrap="nowrap">
+                                                <Tooltip label={isReadOnly ? '본부장은 반려할 수 없습니다.' : '시험 신청 반려'}>
+                                                    <ActionIcon
+                                                        variant="light"
+                                                        color="red"
+                                                        size="lg"
+                                                        disabled={
+                                                            isReadOnly
+                                                            || !['applied', 'confirmed'].includes(item.status)
+                                                            || rejectApplicantMutation.isPending
+                                                        }
+                                                        onClick={() => {
+                                                            setRejectTarget(item);
+                                                            setRejectReason('');
+                                                        }}
+                                                    >
+                                                        <IconBan size={16} />
+                                                    </ActionIcon>
+                                                </Tooltip>
+                                                <Tooltip label={isReadOnly ? '본부장은 취소할 수 없습니다.' : '신청 관리자 취소'}>
                                                     <ActionIcon
                                                         variant="light"
                                                         color="red"
                                                         size="lg"
                                                         disabled={
                                                             isReadOnly ||
+                                                            !['applied', 'confirmed'].includes(item.status) ||
                                                             (deleteApplicantMutation.isPending &&
                                                                 deleteApplicantMutation.variables?.id === item.id)
                                                         }
@@ -1043,7 +1120,7 @@ export default function ExamApplicantsPage() {
                                                         }
                                                         onClick={() => {
                                                             if (isReadOnly) return;
-                                                            if (!window.confirm(`${item.name} 신청 내역을 삭제하시겠습니까?`)) {
+                                                            if (!window.confirm(`${item.name} 신청을 관리자 취소 처리하시겠습니까? 이력은 보존됩니다.`)) {
                                                                 return;
                                                             }
                                                             deleteApplicantMutation.mutate(item);
@@ -1052,6 +1129,7 @@ export default function ExamApplicantsPage() {
                                                         <IconTrash size={16} />
                                                     </ActionIcon>
                                                 </Tooltip>
+                                                </Group>
                                             </Table.Td>
                                         </Table.Tr>
                                         </Tooltip.Floating>
@@ -1069,6 +1147,30 @@ export default function ExamApplicantsPage() {
                     </ScrollArea>
                 </Paper>
             </Stack>
+            <RejectReasonModal
+                opened={Boolean(rejectTarget)}
+                onClose={() => {
+                    if (!rejectApplicantMutation.isPending) {
+                        setRejectTarget(null);
+                        setRejectReason('');
+                    }
+                }}
+                title="시험 신청 반려"
+                description="FC에게 전달할 반려 사유를 입력해주세요."
+                placeholder="반려 사유 (1~1000자)"
+                value={rejectReason}
+                onChange={setRejectReason}
+                submitting={rejectApplicantMutation.isPending}
+                submitDisabled={rejectReason.trim().length < 1 || rejectReason.trim().length > 1000}
+                onSubmit={() => {
+                    if (rejectTarget) {
+                        rejectApplicantMutation.mutate({
+                            item: rejectTarget,
+                            reason: rejectReason.trim(),
+                        });
+                    }
+                }}
+            />
         </Container>
     );
 }

@@ -30,6 +30,7 @@ import {
   type BoardAttachmentManifest,
 } from '@/lib/board-attachment-delivery';
 import { openExternalUrl } from '@/lib/open-external-url';
+import { parseExactlyOneUuidRouteParam } from '@/lib/strict-route-params';
 import {
   buildBoardActor,
   createBoardPost,
@@ -40,7 +41,9 @@ import {
   getBoardNotificationWarningMessage,
   deleteBoardAttachments,
   logBoardError,
+  retryBoardNotification,
   signBoardAttachments,
+  type BoardNotificationRetry,
   updateBoardPost,
 } from '@/lib/board-api';
 
@@ -64,6 +67,7 @@ type PendingBoardAttachmentRetry = {
   postId: string;
   operation: 'create' | 'update';
   notificationWarning: string | null;
+  notificationRetry: BoardNotificationRetry | null;
   manifest: BoardAttachmentManifest | null;
 };
 
@@ -91,7 +95,7 @@ const replaceImageOrder = (
 export default function AdminBoardScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ postId?: string }>();
-  const postId = typeof params.postId === 'string' ? params.postId : null;
+  const postId = parseExactlyOneUuidRouteParam(params.postId);
   const { role, displayName, residentId, readOnly } = useSession();
   const queryClient = useQueryClient();
   const keyboardPadding = useKeyboardPadding();
@@ -244,33 +248,85 @@ export default function AdminBoardScreen() {
     );
   };
 
-  const finishSavedPost = (
+  function completeSavedPost() {
+    setTitle('');
+    setContent('');
+    setAttachments([]);
+    setPendingAttachmentRetry(null);
+    router.replace('/admin-board-manage');
+  }
+
+  async function retrySavedPostNotification(
+    operation: 'create' | 'update',
+    retry: BoardNotificationRetry,
+  ) {
+    if (!actor) {
+      Alert.alert('알림 대상 오류', '현재 계정 정보를 확인할 수 없습니다.');
+      return;
+    }
+    try {
+      const result = await retryBoardNotification(actor, retry);
+      if (result.delivery?.notificationStored === true) {
+        Alert.alert(
+          '알림 등록 완료',
+          '저장된 게시글의 알림을 등록했습니다.',
+          [{ text: '확인', onPress: completeSavedPost }],
+        );
+        return;
+      }
+      finishSavedPost(
+        operation,
+        result.notificationWarning ?? 'notification_delivery_incomplete',
+        result.notificationRetry ?? retry,
+      );
+    } catch {
+      Alert.alert(
+        '알림 등록 확인 필요',
+        '게시글은 이미 저장되어 있습니다. 게시글을 다시 저장하지 말고 알림 등록만 다시 확인해 주세요.',
+        [
+          { text: '나중에', onPress: completeSavedPost },
+          {
+            text: '다시 확인',
+            onPress: () => void retrySavedPostNotification(operation, retry),
+          },
+        ],
+      );
+    }
+  }
+
+  function finishSavedPost(
     operation: 'create' | 'update',
     notificationWarning: string | null,
-  ) => {
+    notificationRetry: BoardNotificationRetry | null,
+  ) {
     const successMessage = operation === 'update'
       ? '게시글이 수정되었습니다.'
       : '게시글이 성공적으로 작성되었습니다.';
     const notificationWarningMessage = getBoardNotificationWarningMessage(notificationWarning);
+    const buttons = notificationWarningMessage
+      ? [
+          { text: '나중에', onPress: completeSavedPost },
+          ...(notificationRetry
+            ? [{
+                text: '알림 다시 등록',
+                onPress: () =>
+                  void retrySavedPostNotification(operation, notificationRetry),
+              }]
+            : []),
+        ]
+      : [{ text: '확인', onPress: completeSavedPost }];
     Alert.alert(
-      operation === 'update' ? '게시글 수정 완료' : '게시글 작성 완료',
+      notificationWarningMessage
+        ? '게시글 저장 완료 · 알림 등록 실패'
+        : operation === 'update'
+          ? '게시글 수정 완료'
+          : '게시글 작성 완료',
       notificationWarningMessage
         ? `${successMessage}\n\n${notificationWarningMessage}`
         : successMessage,
-      [
-        {
-          text: '확인',
-          onPress: () => {
-            setTitle('');
-            setContent('');
-            setAttachments([]);
-            setPendingAttachmentRetry(null);
-            router.replace('/admin-board-manage');
-          },
-        },
-      ],
+      buttons,
     );
-  };
+  }
 
   const handleBack = () => {
     if (pendingAttachmentRetry) {
@@ -313,6 +369,7 @@ export default function AdminBoardScreen() {
         finishSavedPost(
           pendingAttachmentRetry.operation,
           pendingAttachmentRetry.notificationWarning,
+          pendingAttachmentRetry.notificationRetry,
         );
       } catch {
         Alert.alert(
@@ -338,6 +395,7 @@ export default function AdminBoardScreen() {
       if (!actor) throw new Error('로그인이 필요합니다.');
       let targetPostId: string;
       let notificationWarning: string | null = null;
+      let notificationRetry: BoardNotificationRetry | null = null;
       const operation = isEditMode ? 'update' : 'create';
       if (postId) {
         targetPostId = postId;
@@ -349,6 +407,7 @@ export default function AdminBoardScreen() {
         });
         targetPostId = createResult.id;
         notificationWarning = createResult.notificationWarning;
+        notificationRetry = createResult.notificationRetry;
       }
 
       if (isEditMode) {
@@ -360,6 +419,7 @@ export default function AdminBoardScreen() {
           attachmentOrder: existingAttachments.map((file) => file.id),
         });
         notificationWarning = updateResult.notificationWarning;
+        notificationRetry = updateResult.notificationRetry;
       }
       if (attachments.length > 0) {
         const attachmentResult = await uploadSelectedAttachments(targetPostId, null);
@@ -368,6 +428,7 @@ export default function AdminBoardScreen() {
             postId: targetPostId,
             operation,
             notificationWarning,
+            notificationRetry,
             manifest: attachmentResult.manifest,
           });
           queryClient.invalidateQueries({ queryKey: ['board-posts'] });
@@ -389,7 +450,7 @@ export default function AdminBoardScreen() {
         queryClient.invalidateQueries({ queryKey: ['board-detail', targetPostId] });
       }
 
-      finishSavedPost(operation, notificationWarning);
+      finishSavedPost(operation, notificationWarning, notificationRetry);
     } catch (err: any) {
       logBoardError('post-create', err);
       Alert.alert('작성 실패', err?.message ?? '오류가 발생했습니다.');

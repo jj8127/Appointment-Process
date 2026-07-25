@@ -10,7 +10,7 @@ describe('admin web exam and notice notification completion contract', () => {
   const noticeAction = readRepoFile('web/src/app/dashboard/notifications/actions.ts');
   const noticeCreatePage = readRepoFile('web/src/app/dashboard/notifications/create/page.tsx');
 
-  it('keeps an exam save successful while requiring a logged, provider-accepted notification', () => {
+  it('keeps an exam save successful once the notification is logged, even without a registered device', () => {
     const saveStart = examAction.indexOf('export async function saveExamRoundAction');
     const fetchStart = examAction.indexOf('export async function fetchExamRoundsAction');
     const saveSource = examAction.slice(saveStart, fetchStart);
@@ -19,13 +19,19 @@ describe('admin web exam and notice notification completion contract', () => {
     expect(examAction).toContain('response.logged !== true');
     expect(examAction).toContain('const accepted = readNonNegativeInteger(delivery?.accepted)');
     expect(examAction).toContain('readNonNegativeInteger(response.sent) !== accepted');
-    expect(examAction).toContain("reason: 'no_accepted_target'");
+    expect(examAction).toContain("getNotificationDeliveryFeedback('no_registered_device')");
+    expect(examAction).not.toContain("reason: 'no_accepted_target'");
     expect(saveSource).toContain('const notificationResult = await notifyExamRoundChanged');
     expect(saveSource.indexOf("'save_exam_round_atomic'")).toBeLessThan(
       saveSource.indexOf('await notifyExamRoundChanged'),
     );
     expect(saveSource).toContain('success: true');
-    expect(saveSource).toContain('notificationWarning: notificationResult.ok');
+    expect(saveSource).toContain(
+      "notificationResult.feedback.severity === 'warning'",
+    );
+    expect(saveSource).toContain(
+      "notificationResult.feedback.severity === 'error'",
+    );
     expect(saveSource).not.toContain("logger.warn('[saveExamRound] fc-notify invoke failed', error)");
     expect(saveSource).not.toContain("logger.warn('[saveExamRound] fc-notify returned failure', data)");
   });

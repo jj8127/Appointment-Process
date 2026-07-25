@@ -8,6 +8,12 @@ const SECRET_KEY_PARTS = [
   'service_role',
   'password',
   'supabase',
+  'signedurl',
+  'signed_url',
+  'uploadurl',
+  'upload_url',
+  'downloadurl',
+  'download_url',
 ];
 
 const NAME_KEY_PARTS = [
@@ -71,7 +77,11 @@ const redactSecretString = (value: string): string => {
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
     .replace(/\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g, '[REDACTED]')
     .replace(/\bsb_(?:secret|publishable|anon)_[A-Za-z0-9_-]+\b/g, '[REDACTED]')
-    .replace(/(?:Exponent|Expo)PushToken\[[^\]\r\n]+\]/g, '[REDACTED_PUSH_TOKEN]');
+    .replace(/(?:Exponent|Expo)PushToken\[[^\]\r\n]+\]/g, '[REDACTED_PUSH_TOKEN]')
+    .replace(
+      /([?&](?:token|signature|x-signature|x-amz-signature|x-goog-signature)=)[^&#\s"'()]+/gi,
+      '$1[REDACTED]',
+    );
 };
 
 const redactOtpString = (value: string): string => {
@@ -160,3 +170,30 @@ export const sanitizeSentryContext = (value: unknown, depth = 0): unknown => {
 };
 
 export const sanitizeSentryEvent = <T>(event: T): T => sanitizeSentryContext(event) as T;
+
+const MESSENGER_ATTACHMENT_NETWORK_MARKERS = [
+  '/api/messenger-attachments',
+  '/storage/v1/object/',
+];
+
+export const shouldDropMessengerAttachmentReplayEvent = (event: unknown): boolean => {
+  if (!event || typeof event !== 'object') return false;
+  const frame = event as {
+    data?: {
+      tag?: unknown;
+      payload?: {
+        op?: unknown;
+        description?: unknown;
+        data?: { url?: unknown };
+      };
+    };
+  };
+  if (frame.data?.tag !== 'performanceSpan') return false;
+  const payload = frame.data.payload;
+  if (payload?.op !== 'resource.fetch' && payload?.op !== 'resource.xhr') return false;
+  const candidates = [payload.description, payload.data?.url];
+  return candidates.some(
+    (value) => typeof value === 'string'
+      && MESSENGER_ATTACHMENT_NETWORK_MARKERS.some((marker) => value.includes(marker)),
+  );
+};

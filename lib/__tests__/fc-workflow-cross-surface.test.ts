@@ -123,4 +123,38 @@ describe('fc workflow cross-surface contract', () => {
       webWorkflow.getCommissionCompletionState(complete as any),
     );
   });
+
+  test.each([
+    { name: 'life completion flag', completion: { life_commission_completed: true } },
+    { name: 'nonlife completion flag', completion: { nonlife_commission_completed: true } },
+    { name: 'life appointment date', completion: { appointment_date_life: '2026-07-05' } },
+    { name: 'nonlife appointment date', completion: { appointment_date_nonlife: '2026-07-05' } },
+  ])(
+    'admin projects step 5 for one completed commission track while shared completion stays strict: $name',
+    ({ completion }) => {
+      const row = profile({
+        status: 'appointment-completed',
+        temp_id: 'TMP-001',
+        identity_completed: true,
+        resident_id_masked: '900101-*******',
+        address: 'Seoul',
+        allowance_date: '2026-07-04',
+        hanwha_commission_date: '2026-07-04',
+        hanwha_commission_pdf_path: 'fc-documents/hanwha.pdf',
+        hanwha_commission_pdf_name: 'hanwha.pdf',
+        fc_documents: approvedDocs,
+        ...completion,
+      });
+
+      expect(mobileWorkflow.calcAdminWorkflowStep(row as any)).toBe(5);
+      expect(webWorkflow.calcAdminWorkflowStep(row as any)).toBe(5);
+      expect(mobileWorkflow.calcWorkflowStep(row as any)).toBe(4);
+      expect(webWorkflow.calcWorkflowStep(row as any)).toBe(4);
+      expect(mobileWorkflow.hasFinalCompletionEvidence(row as any)).toBe(false);
+      expect(webWorkflow.hasFinalCompletionEvidence(row as any)).toBe(false);
+      expect(webWorkflow.resolveAppointmentCompletionStatus(row as any)).toBe('appointment-completed');
+      expect(mobileWorkflow.getCommissionCompletionState(row as any).bothCompleted).toBe(false);
+      expect(webWorkflow.getCommissionCompletionState(row as any).bothCompleted).toBe(false);
+    },
+  );
 });

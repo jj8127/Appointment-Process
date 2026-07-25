@@ -39,11 +39,27 @@ import {
   hasHanwhaApprovedPdf as hasHanwhaApprovedPdfEvidence,
 } from '@/lib/fc-workflow';
 import { useSession } from '@/hooks/use-session';
-import { invokeAdminAction } from '@/lib/admin-action-api';
-import { type FcNotifyDeliveryResult } from '@/lib/fc-notify-client';
+import {
+  invokeAdminAction,
+  invokeAdminActionRaw,
+} from '@/lib/admin-action-api';
+import {
+  classifyFcNotifyDeliveryResult,
+  type FcNotifyDeliveryResult,
+} from '@/lib/fc-notify-client';
 import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { supabase } from '@/lib/supabase';
+import {
+  type NotificationOnboardingSection,
+} from '@/lib/notification-target';
+import {
+  hasPresentRouteParam,
+  parseExactlyOneOnboardingSectionRouteParam,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { FcProfile } from '@/types/fc';
 
 const ALLOW_LAYOUT_ANIM = Platform.OS !== 'android';
@@ -313,79 +329,115 @@ const getRecommenderDisplayText = (row: Pick<FcRow, 'recommender' | 'recommender
   return '연결된 추천인 FC: -';
 };
 
+type NotificationAndPushResult = {
+  confirmed: boolean;
+  inboxRecorded: boolean | null;
+  push: FcNotifyDeliveryResult;
+  retryNotification: () => Promise<NotificationAndPushResult>;
+};
+
 async function sendNotificationAndPush(
   adminPhone: string,
   fcId: string,
   title: string,
   body: string,
   url?: string,
-): Promise<{
-  confirmed: boolean;
-  inboxRecorded: boolean;
-  push: FcNotifyDeliveryResult;
-}> {
+): Promise<NotificationAndPushResult> {
   // The privileged server resolves the latest FC phone from the canonical FC id
   // immediately before recording the inbox item and dispatching push.
-  const result = await invokeAdminAction<{
-    inboxRecorded?: boolean;
-    push?: {
-      confirmed?: boolean;
-      sent?: number;
-      reason?: string;
-    };
-  }>(adminPhone, 'sendNotification', {
-    fcId,
-    title,
-    body,
-    url,
-  }).catch(() => null);
-  if (!result) {
-    return {
-      confirmed: false,
-      inboxRecorded: false,
-      push: { confirmed: false, reason: 'transport_error' },
-    };
-  }
-  const inboxRecorded = result.inboxRecorded === true;
-  const rawPush = result.push;
-  const push: FcNotifyDeliveryResult = rawPush?.confirmed === true
-    && typeof rawPush.sent === 'number'
-    && Number.isFinite(rawPush.sent)
-    && rawPush.sent > 0
-    ? { confirmed: true, sent: Math.trunc(rawPush.sent) }
-    : {
-        confirmed: false,
-        reason: rawPush?.reason === 'transport_error'
-          || rawPush?.reason === 'downstream_error'
-          || rawPush?.reason === 'not_logged'
-          || rawPush?.reason === 'no_device_target'
-          ? rawPush.reason
-          : 'invalid_response',
-      };
+  const transport = await invokeAdminActionRaw(
+    adminPhone,
+    'sendNotification',
+    {
+      fcId,
+      title,
+      body,
+      url,
+    },
+  ).catch((error) => ({ data: null, error }));
+  const push = classifyFcNotifyDeliveryResult(transport);
+  const inboxRecorded = push.confirmed
+    ? true
+    : push.notificationStored === false
+      ? false
+      : null;
 
   return {
-    confirmed: inboxRecorded && push.confirmed,
+    confirmed: push.notificationStored !== false,
     inboxRecorded,
     push,
+    retryNotification: () =>
+      sendNotificationAndPush(adminPhone, fcId, title, body, url),
   };
 }
-
-type NotificationAndPushResult = Awaited<ReturnType<typeof sendNotificationAndPush>>;
 
 const getPostCommitNotificationAlert = (
   successTitle: string,
   successMessage: string,
-  notificationResult?: NotificationAndPushResult | boolean | null,
+  notificationResult?:
+    | NotificationAndPushResult
+    | readonly NotificationAndPushResult[]
+    | null,
 ) => {
-  const unconfirmed = typeof notificationResult === 'boolean'
-    ? notificationResult
-    : Boolean(notificationResult && !notificationResult.confirmed);
-  if (unconfirmed) {
+  const results = notificationResult
+    ? Array.isArray(notificationResult)
+      ? [...notificationResult]
+      : [notificationResult as NotificationAndPushResult]
+    : [];
+  const invalidRecipient = results.some(
+    (result) =>
+      !result.push.confirmed
+      && result.push.reason === 'invalid_recipient',
+  );
+  if (invalidRecipient) {
+    return {
+      title: `${successTitle} · 알림 대상 오류`,
+      message:
+        `${successMessage}\n\n알림을 받을 FC 계정을 확인할 수 없습니다.`,
+      buttons: [{ text: '확인' }],
+    };
+  }
+
+  const retryableResults = results.filter(
+    (result) => result.push.notificationStored === false,
+  );
+  if (retryableResults.length > 0) {
     logger.warn('[dashboard] post-commit notification delivery unconfirmed', {
       successTitle,
     });
+    const retryNotifications = async () => {
+      const retryResults = await Promise.all(
+        retryableResults.map((result) => result.retryNotification()),
+      );
+      const retryAlert = getPostCommitNotificationAlert(
+        successTitle,
+        successMessage,
+        retryResults,
+      );
+      Alert.alert(
+        retryAlert.title,
+        retryAlert.message,
+        retryAlert.buttons,
+      );
+    };
+    return {
+      title: `${successTitle} · 알림 등록 실패`,
+      message:
+        `${successMessage}\n\n처리 내용은 저장됐지만 알림을 등록하지 못했습니다. 저장 내용을 다시 제출하지 말고 알림만 다시 등록해 주세요.`,
+      buttons: [
+        { text: '나중에' },
+        {
+          text: '알림 다시 등록',
+          onPress: () => void retryNotifications(),
+        },
+      ],
+    };
   }
-  return { title: successTitle, message: successMessage };
+  return {
+    title: successTitle,
+    message: successMessage,
+    buttons: [{ text: '확인' }],
+  };
 };
 
 const fetchFcs = async (
@@ -428,7 +480,20 @@ const fetchFcs = async (
 export default function DashboardScreen() {
   const { role, residentId, hydrated, readOnly } = useSession();
   const router = useRouter();
-  const { status } = useLocalSearchParams<{ mode?: string; status?: string }>();
+  const {
+    status,
+    fcId,
+    section,
+    notificationId,
+    notificationTarget,
+  } = useLocalSearchParams<{
+    mode?: string;
+    status?: string;
+    fcId?: string;
+    section?: NotificationOnboardingSection;
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
   const [statusFilter, setStatusFilter] = useState<FilterKey>('all');
   const [affiliationFilter, setAffiliationFilter] = useState<string>('전체'); // New: Affiliation Filter
   const [subFilter, setSubFilter] = useState<'all' | 'no-id' | 'has-id' | 'not-requested' | 'requested'>('all');
@@ -467,7 +532,6 @@ export default function DashboardScreen() {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleteTargetName, setDeleteTargetName] = useState<string | null>(null);
-  const [deleteTargetPhone, setDeleteTargetPhone] = useState<string | null>(null);
   const [deleteCode, setDeleteCode] = useState('');
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -506,6 +570,46 @@ export default function DashboardScreen() {
     queryFn: () => fetchFcs(role, residentId, keyword),
     enabled: !!role,
   });
+  const routeFcId = parseExactlyOneUuidRouteParam(fcId);
+  const routeSection =
+    parseExactlyOneOnboardingSectionRouteParam(section);
+  const hasInvalidDashboardRoute =
+    (hasPresentRouteParam(fcId) && !routeFcId)
+    || (hasPresentRouteParam(section) && !routeSection)
+    || (hasPresentRouteParam(section) && !routeFcId);
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasInvalidDashboardRoute && routeFcId
+      ? routeSection
+        ? {
+            version: 1,
+            kind: 'onboarding_section',
+            fcId: routeFcId,
+            section: routeSection,
+          }
+        : { version: 1, kind: 'fc_profile', fcId: routeFcId }
+      : null,
+    loadState: hasInvalidDashboardRoute
+      ? 'error'
+      : isError
+      ? 'error'
+      : data?.some((row) => row.id === routeFcId)
+        ? 'success'
+        : isLoading
+          ? 'loading'
+          : routeFcId
+            ? 'error'
+            : 'idle',
+  });
+
+  useEffect(() => {
+    if (!routeFcId || !data?.some((row) => row.id === routeFcId)) return;
+    setExpanded((prev) => (
+      prev[routeFcId]
+        ? prev
+        : { ...prev, [routeFcId]: true }
+    ));
+  }, [data, routeFcId]);
 
   // Log query errors
   useEffect(() => {
@@ -753,7 +857,7 @@ export default function DashboardScreen() {
         '임시번호/경력 정보가 저장되었습니다.',
         notificationResult,
       );
-      Alert.alert(alert.title, alert.message);
+      Alert.alert(alert.title, alert.message, alert.buttons);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -815,7 +919,7 @@ export default function DashboardScreen() {
         '필수 서류 요청을 저장했습니다.',
         notificationResult,
       );
-      Alert.alert(alert.title, alert.message);
+      Alert.alert(alert.title, alert.message, alert.buttons);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -868,7 +972,7 @@ export default function DashboardScreen() {
         '필수 서류 목록이 수정되었습니다.',
         notificationResult,
       );
-      Alert.alert(alert.title, alert.message);
+      Alert.alert(alert.title, alert.message, alert.buttons);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -880,22 +984,9 @@ export default function DashboardScreen() {
   });
 
   const deleteFc = useMutation({
-    mutationFn: async ({ id, phone }: { id: string; phone?: string | null }) => {
+    mutationFn: async ({ id }: { id: string }) => {
       assertCanEdit();
-      if (phone) {
-        const { data, error } = await supabase.functions.invoke<{ ok?: boolean; deleted?: boolean; error?: string }>('delete-account', {
-          body: { residentId: phone },
-        });
-        if (error) {
-          logger.warn('[deleteFc] delete-account failed, fallback to admin-action', error.message ?? error);
-        } else if (data?.ok && data?.deleted) {
-          return;
-        } else {
-          logger.warn('[deleteFc] delete-account returned non-deleted result, fallback to admin-action', data);
-        }
-      }
-      // Fallback: use admin-action Edge Function (bypasses RLS)
-      await invokeAdminAction(residentId, 'deleteFc', { fcId: id, phone });
+      await invokeAdminAction(residentId, 'deleteFc', { fcId: id });
     },
     onSuccess: () => {
       Alert.alert('삭제 완료', '선택한 FC 기록이 삭제되었습니다.');
@@ -987,7 +1078,7 @@ export default function DashboardScreen() {
         'FC에게 다위촉 URL 진행 안내를 보냈습니다.',
         notificationResult,
       );
-      Alert.alert(alert.title, alert.message);
+      Alert.alert(alert.title, alert.message, alert.buttons);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -1055,7 +1146,7 @@ export default function DashboardScreen() {
           : '다위촉 URL 반려가 저장되었습니다.',
         notificationResult,
       );
-      Alert.alert(alert.title, alert.message);
+      Alert.alert(alert.title, alert.message, alert.buttons);
       setHanwhaPdfDrafts((prev) => {
         if (!prev[vars.fc.id]) return prev;
         const next = { ...prev };
@@ -1111,7 +1202,7 @@ export default function DashboardScreen() {
         `${label} 위촉 정보가 ${vars.isReject ? '반려' : '저장'}되었습니다.`,
         notificationResult,
       );
-      Alert.alert(alert.title, alert.message);
+      Alert.alert(alert.title, alert.message, alert.buttons);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -1151,7 +1242,7 @@ export default function DashboardScreen() {
         '위촉 예정월이 저장되었습니다.',
         notificationResult,
       );
-      Alert.alert(alert.title, alert.message);
+      Alert.alert(alert.title, alert.message, alert.buttons);
       // 최신 데이터 반영
       refetch();
     },
@@ -1214,7 +1305,6 @@ export default function DashboardScreen() {
     },
     onSuccess: (notificationResults, vars) => {
       const { status, docType } = vars;
-      const notificationIncomplete = notificationResults.some((result) => !result.confirmed);
       let successTitle: string;
       let successMessage: string;
       if (status === 'approved') {
@@ -1230,9 +1320,9 @@ export default function DashboardScreen() {
       const alert = getPostCommitNotificationAlert(
         successTitle,
         successMessage,
-        notificationIncomplete,
+        notificationResults,
       );
-      Alert.alert(alert.title, alert.message);
+      Alert.alert(alert.title, alert.message, alert.buttons);
       refetch();
     },
     onSettled: (_data, error) => {
@@ -1443,20 +1533,64 @@ export default function DashboardScreen() {
   const handleSendReminder = async (fc: FcRow) => {
     try {
       setReminderLoading(fc.id);
-      const notificationResult = await sendNotificationAndPush(
-        residentId,
-        fc.id,
-        '등록 안내',
-        '보증 보험 동의를 완료해주세요.',
-      );
+      const registerReminder = () =>
+        sendNotificationAndPush(
+          residentId,
+          fc.id,
+          '등록 안내',
+          '보증 보험 동의를 완료해주세요.',
+        );
+      const presentReminderResult = (
+        notificationResult: NotificationAndPushResult,
+        isRetry = false,
+      ) => {
+        if (
+          !notificationResult.push.confirmed
+          && notificationResult.push.reason === 'invalid_recipient'
+        ) {
+          Alert.alert(
+            '알림 대상 오류',
+            '알림을 받을 FC 계정을 확인할 수 없습니다.',
+          );
+          return;
+        }
+        if (notificationResult.push.notificationStored === false) {
+          Alert.alert(
+            '알림 등록 실패',
+            '진행 안내 알림을 등록하지 못했습니다.',
+            [
+              { text: '나중에' },
+              {
+                text: '다시 등록',
+                onPress: () => {
+                  void registerReminder().then((retryResult) =>
+                    presentReminderResult(retryResult, true)
+                  );
+                },
+              },
+            ],
+          );
+          return;
+        }
+        Alert.alert(
+          isRetry ? '알림 등록 완료' : '알림 전송',
+          isRetry
+            ? '진행 안내 알림을 등록했습니다.'
+            : '진행을 재촉하는 알림 요청을 처리했습니다.',
+        );
+      };
+      const notificationResult = await registerReminder();
       if (!notificationResult.confirmed) {
-        Alert.alert('전송 실패', '알림을 보내지 못했습니다. 잠시 후 다시 시도해주세요.');
+        presentReminderResult(notificationResult);
         return;
       }
-      Alert.alert('알림 전송', '진행을 재촉하는 알림 요청을 처리했습니다.');
+      presentReminderResult(notificationResult);
     } catch (err: unknown) {
       const error = err as Error;
-      Alert.alert('전송 실패', error?.message ?? '알림 전송 중 문제가 발생했습니다.');
+      Alert.alert(
+        '알림 등록 확인 필요',
+        error?.message ?? '알림 등록 결과를 확인하지 못했습니다.',
+      );
     } finally {
       setReminderLoading(null);
     }
@@ -1465,7 +1599,6 @@ export default function DashboardScreen() {
   const handleDeleteRequest = (fc: FcRow) => {
     setDeleteTargetId(fc.id);
     setDeleteTargetName(fc.name || 'FC');
-    setDeleteTargetPhone(fc.phone || null);
     setDeleteCode('');
     setDeleteModalVisible(true);
   };
@@ -1475,7 +1608,7 @@ export default function DashboardScreen() {
     const code = deleteCode.replace(/\s/g, '');
     if (code === '1111') {
       if (deleteTargetId) {
-        deleteFc.mutate({ id: deleteTargetId, phone: deleteTargetPhone });
+        deleteFc.mutate({ id: deleteTargetId });
       }
       setDeleteModalVisible(false);
     } else {
@@ -1536,7 +1669,7 @@ export default function DashboardScreen() {
         '보증 보험 동의 반려가 저장되었습니다.',
         notificationResult,
       );
-      Alert.alert(alert.title, alert.message);
+      Alert.alert(alert.title, alert.message, alert.buttons);
       setRejectModalVisible(false);
     } catch (err: unknown) {
       const error = err as Error;
@@ -1928,7 +2061,7 @@ export default function DashboardScreen() {
                       '보증 보험 동의 승인이 저장되었습니다.',
                       notificationResult,
                     );
-                    Alert.alert(alert.title, alert.message);
+                    Alert.alert(alert.title, alert.message, alert.buttons);
                   } catch (err: unknown) {
                     const error = err as Error;
                     Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
@@ -3562,6 +3695,10 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       {Platform.OS === 'android' ? (
         <ScrollView
           refreshControl={screenRefreshControl}

@@ -3,8 +3,11 @@ import {
   FC_NOTIFY_APP_SESSION_HEADER,
   FC_NOTIFY_FUNCTION_NAME,
   FcNotifySessionError,
+  invokeFcNotifyForDelivery,
   invokeFcNotifyWithDeps,
 } from '../fc-notify-client';
+import { getStoredAppSessionToken } from '../request-board-api';
+import { supabase } from '../supabase';
 
 jest.mock('../request-board-api', () => ({
   getStoredAppSessionToken: jest.fn(),
@@ -19,6 +22,9 @@ jest.mock('../supabase', () => ({
 }));
 
 describe('fc-notify mobile client authentication contract', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
   it('adds only the custom app-session header for protected actions', () => {
     expect(buildFcNotifyInvokeOptions({ type: 'inbox_list', role: 'fc' }, '  signed-session  ')).toEqual({
       body: { type: 'inbox_list', role: 'fc' },
@@ -83,5 +89,50 @@ describe('fc-notify mobile client authentication contract', () => {
         [FC_NOTIFY_APP_SESSION_HEADER]: 'app-session',
       },
     });
+  });
+
+  it('fails closed before network I/O when a notify payload lacks an exact typed target', async () => {
+    (getStoredAppSessionToken as jest.Mock).mockResolvedValue('app-session');
+
+    await expect(
+      invokeFcNotifyForDelivery({
+        type: 'notify',
+        target_role: 'admin',
+        target_id: null,
+        title: 'title',
+        body: 'body',
+      }),
+    ).resolves.toEqual({
+      confirmed: false,
+      notificationStored: false,
+      reason: 'invalid_recipient',
+    });
+    expect(supabase.functions.invoke).not.toHaveBeenCalled();
+  });
+
+  it('allows a valid typed notify target through the authenticated transport', async () => {
+    (getStoredAppSessionToken as jest.Mock).mockResolvedValue('app-session');
+    (supabase.functions.invoke as jest.Mock).mockResolvedValue({
+      data: { ok: true, logged: true, sent: 1 },
+      error: null,
+    });
+    const fcId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+    await expect(
+      invokeFcNotifyForDelivery({
+        type: 'notify',
+        target_role: 'admin',
+        target_id: null,
+        title: 'title',
+        body: 'body',
+        target: { version: 1, kind: 'fc_profile', fcId },
+      }),
+    ).resolves.toEqual({
+      confirmed: true,
+      notificationStored: true,
+      sent: 1,
+      state: 'stored_and_pushed',
+    });
+    expect(supabase.functions.invoke).toHaveBeenCalledTimes(1);
   });
 });

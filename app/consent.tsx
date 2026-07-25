@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -26,12 +26,15 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
+import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { AGREEMENT_GUIDE_IMAGES } from '@/lib/guide-images';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const formatKoreanDate = (d: Date) =>
@@ -58,7 +61,12 @@ const isConsentLockedStatus = (status: string | null | undefined) =>
 
 export default function AllowanceConsentScreen() {
   const { residentId } = useSession();
-  useIdentityGate({ nextPath: '/consent' });
+  const { notificationId, notificationTarget } = useLocalSearchParams<{
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
+  const { destinationAccepted: identityGateAccepted } =
+    useIdentityGate({ nextPath: '/consent' });
   const [tempId, setTempId] = useState('');
   // TC007: Initialize validation state
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -72,6 +80,10 @@ export default function AllowanceConsentScreen() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imageRatio, setImageRatio] = useState(16 / 9);
   const [refreshing, setRefreshing] = useState(false);
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const [profileLoadState, setProfileLoadState] = useState<
+    'loading' | 'success' | 'error'
+  >('loading');
   const sliderRef = useRef<FlatList>(null);
 
   const maxIndex = AGREEMENT_GUIDE_IMAGES.length - 1;
@@ -80,11 +92,19 @@ export default function AllowanceConsentScreen() {
     const load = async () => {
       const phone = (residentId ?? '').replace(/[^0-9]/g, '');
       if (!phone) return;
-      const { data } = await supabase
+      setProfileLoadState('loading');
+      const { data, error } = await supabase
         .from('fc_profiles')
-        .select('temp_id, allowance_date, career_type, allowance_reject_reason, status')
+        .select('id, temp_id, allowance_date, career_type, allowance_reject_reason, status')
         .eq('phone', phone)
         .maybeSingle();
+      if (error || !data?.id) {
+        setProfileId(null);
+        setProfileLoadState('error');
+        return;
+      }
+      setProfileId(data.id);
+      setProfileLoadState('success');
 
       logger.debug('[DEBUG] Mobile: Fetched FC Profile in Consent:', {
         status: data?.status,
@@ -106,6 +126,19 @@ export default function AllowanceConsentScreen() {
     };
     load();
   }, [residentId]);
+
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: profileId
+      ? {
+          version: 1,
+          kind: 'onboarding_section',
+          fcId: profileId,
+          section: 'consent',
+        }
+      : null,
+    loadState: identityGateAccepted ? profileLoadState : 'loading',
+  });
 
   useEffect(() => {
     if (AGREEMENT_GUIDE_IMAGES[0]) {
@@ -149,14 +182,31 @@ export default function AllowanceConsentScreen() {
         throw new Error('정보를 저장하지 못했습니다.');
       }
 
-      await invokeFcNotifyForDelivery({
-        type: 'fc_update',
-        fc_id: data.profile.id,
-        message: `${data.profile.name ?? ''}님이 보증보험 조회 동의일을 입력했습니다.`,
+      const notifyAdmins = () => invokeFcNotifyForDelivery({
+        type: 'notify',
+        target_role: 'admin',
+        target_id: null,
+        title: '보증보험 조회 동의일 제출',
+        body: `${data.profile.name ?? ''}님이 보증보험 조회 동의일을 입력했습니다.`,
+        category: 'app_event',
+        url: `/dashboard?fcId=${encodeURIComponent(data.profile.id)}&section=consent`,
+        target: {
+          version: 1,
+          kind: 'onboarding_section',
+          fcId: data.profile.id,
+          section: 'consent',
+        },
       });
-
-      Alert.alert('저장 완료', '보증보험 조회 동의일이 제출되었습니다. 총무가 사전 심사를 준비할 예정입니다.');
-      router.replace('/');
+      const notificationDelivery = await notifyAdmins();
+      presentPostCommitNotificationDelivery({
+        delivery: notificationDelivery,
+        retryNotification: notifyAdmins,
+        successTitle: '저장 완료',
+        successMessage:
+          '보증보험 조회 동의일이 제출되었습니다. 관리자가 사전 심사를 준비할 예정입니다.',
+        notificationLabel: '관리자',
+        onDone: () => router.replace('/'),
+      });
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');
     } finally {
@@ -220,6 +270,10 @@ export default function AllowanceConsentScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}

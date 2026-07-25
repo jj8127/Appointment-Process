@@ -5,9 +5,10 @@ import { formatPresenceLabel } from '@/lib/presence';
 import { getAdminStepDisplay, getStatusDisplay } from '@/lib/shared';
 import { useResidentNumber } from '@/hooks/use-resident-number';
 import { useSession } from '@/hooks/use-session';
-import { getAdminNotificationWarning } from '@/lib/admin-notification-warning';
+import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { resolveAdminTempIdUpdate } from '@/lib/admin-temp-id-update';
 import { RecommenderSelect } from '@/components/RecommenderSelect';
+import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import type { FcProfile, FcStatus } from '@/types/fc';
 import {
     ActionIcon,
@@ -115,6 +116,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     const { hydrated, role, isReadOnly } = useSession();
 
     const [isEditing, setIsEditing] = useState(false);
+    const [isEditingRecommender, setIsEditingRecommender] = useState(false);
     const [selectedRecommenderFcId, setSelectedRecommenderFcId] = useState<string | null>(null);
     const [clearRecommenderSelection, setClearRecommenderSelection] = useState(false);
     const [recommenderOverrideReason, setRecommenderOverrideReason] = useState('');
@@ -194,17 +196,17 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             setSelectedRecommenderFcId(profile.recommender_fc_id ?? null);
             setClearRecommenderSelection(false);
             setRecommenderOverrideReason('');
+            setIsEditingRecommender(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [profile]);
 
-    const hasAnyRecommender = Boolean(profile?.recommender_fc_id || form.values.recommender.trim());
+    const hasAnyRecommender = Boolean(profile?.recommender_fc_id || profile?.recommender?.trim());
     const isRecommenderDirty = profile
         ? clearRecommenderSelection
             ? hasAnyRecommender
             : (profile.recommender_fc_id ?? null) !== selectedRecommenderFcId
         : false;
-    const isRecommenderReasonMissing = isRecommenderDirty && !recommenderOverrideReason.trim();
 
     // --- Mutations ---
     const updateProfileMutation = useMutation({
@@ -223,11 +225,6 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             if (tempIdUpdate.changed) {
                 payload.temp_id = tempIdUpdate.nextTempId;
             }
-            if (isRecommenderDirty) {
-                payload.recommenderFcId = clearRecommenderSelection ? null : selectedRecommenderFcId;
-                payload.recommenderOverrideReason = recommenderOverrideReason.trim();
-            }
-
             const resp = await fetch('/api/admin/fc', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -250,16 +247,49 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             return json;
         },
         onSuccess: (response) => {
-            getAdminNotificationWarning(response);
+            showAdminNotificationWarning(response);
             notifications.show({ title: '저장 완료', message: '프로필 정보가 수정되었습니다.', color: 'green' });
             setIsEditing(false);
+            queryClient.invalidateQueries({ queryKey: ['fc-profile', fcId] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+            queryClient.invalidateQueries({ queryKey: ['fc-signup-referral-code', fcId] });
+        },
+        onError: (err: Error) => notifications.show({ title: '저장 실패', message: err.message, color: 'red' }),
+    });
+
+    const updateRecommenderMutation = useMutation({
+        mutationFn: async () => {
+            const response = await fetch('/api/admin/fc/recommender', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    inviteeFcId: fcId,
+                    inviterFcId: clearRecommenderSelection ? null : selectedRecommenderFcId,
+                    reason: recommenderOverrideReason.trim(),
+                }),
+            });
+            const json: unknown = await response.json().catch(() => null);
+            if (!response.ok) {
+                if (isRecord(json) && typeof json.error === 'string' && json.error.trim()) {
+                    throw new Error(json.error);
+                }
+                throw new Error('추천인 관계 저장에 실패했습니다.');
+            }
+            return json;
+        },
+        onSuccess: () => {
+            notifications.show({ title: '저장 완료', message: '추천인 관계가 수정되었습니다.', color: 'green' });
+            setIsEditingRecommender(false);
             setClearRecommenderSelection(false);
             setRecommenderOverrideReason('');
             queryClient.invalidateQueries({ queryKey: ['fc-profile', fcId] });
             queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
             queryClient.invalidateQueries({ queryKey: ['fc-signup-referral-code', fcId] });
         },
-        onError: (err: Error) => notifications.show({ title: '저장 실패', message: err.message, color: 'red' }),
+        onError: (err: Error) => {
+            notifications.show({ title: '저장 실패', message: err.message, color: 'red' });
+        },
     });
 
     const { data: signupReferralCode, isFetching: isSignupReferralCodeFetching } = useQuery({
@@ -307,6 +337,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
 
     // --- Helpers ---
     const canEdit = hydrated && role === 'admin' && !isReadOnly;
+    const canEditRecommender = hydrated && (role === 'admin' || role === 'manager');
 
     const handleSaveInfo = () => {
         if (!canEdit) {
@@ -341,6 +372,29 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         setIsEditing(false);
     }, [form, profile]);
 
+    const handleCancelRecommenderEdit = useCallback(() => {
+        setSelectedRecommenderFcId(profile?.recommender_fc_id ?? null);
+        setClearRecommenderSelection(false);
+        setRecommenderOverrideReason('');
+        setIsEditingRecommender(false);
+    }, [profile]);
+
+    const handleSaveRecommender = () => {
+        if (!canEditRecommender) {
+            notifications.show({ title: '권한 없음', message: '추천인 관계를 수정할 수 없습니다.', color: 'yellow' });
+            return;
+        }
+        if (!isRecommenderDirty) {
+            notifications.show({ title: '변경 없음', message: '변경할 추천인을 선택해주세요.', color: 'yellow' });
+            return;
+        }
+        if (!recommenderOverrideReason.trim()) {
+            notifications.show({ title: '입력 확인', message: '추천인 변경 사유를 입력해주세요.', color: 'yellow' });
+            return;
+        }
+        updateRecommenderMutation.mutate();
+    };
+
     useEffect(() => {
         if (!canEdit && isEditing) {
             handleCancelEdit();
@@ -371,6 +425,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
 
     return (
         <Box bg={BACKGROUND} style={{ minHeight: '100vh' }}>
+            <NotificationDestinationReady />
             {/* Header */}
             <Box bg="white" style={{ borderBottom: '1px solid #e9ecef' }} py="md" px="xl">
                 <Container size="xl" p={0}>
@@ -426,7 +481,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                 {isEditing ? (
                                     <Group gap="xs">
                                 <Button variant="default" size="xs" onClick={handleCancelEdit} disabled={!canEdit}>취소</Button>
-                            <Button color="green" size="xs" leftSection={<IconDeviceFloppy size={14} />} onClick={handleSaveInfo} loading={updateProfileMutation.isPending} disabled={!canEdit || isRecommenderReasonMissing}>저장</Button>
+                            <Button color="green" size="xs" leftSection={<IconDeviceFloppy size={14} />} onClick={handleSaveInfo} loading={updateProfileMutation.isPending} disabled={!canEdit}>저장</Button>
                                     </Group>
                                 ) : (
                                     <Button
@@ -540,7 +595,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                         />
                                     </Grid.Col>
                                     <Grid.Col span={6}>
-                                        {isEditing && canEdit ? (
+                                        {isEditingRecommender && canEditRecommender ? (
                                             <Stack gap={6}>
                                                 <Box style={{ flex: 1 }}>
                                                     <RecommenderSelect
@@ -582,12 +637,33 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                                 {isRecommenderDirty ? (
                                                     <Textarea
                                                         label="추천인 변경 사유"
-                                                        placeholder="운영 수정 사유 입력"
+                                                        placeholder="추천인 관계 변경 사유 입력"
                                                         value={recommenderOverrideReason}
                                                         onChange={(event) => setRecommenderOverrideReason(event.currentTarget.value)}
                                                         minRows={2}
+                                                        required
                                                     />
                                                 ) : null}
+                                                <Group gap="xs">
+                                                    <Button
+                                                        size="xs"
+                                                        variant="default"
+                                                        onClick={handleCancelRecommenderEdit}
+                                                        disabled={updateRecommenderMutation.isPending}
+                                                    >
+                                                        취소
+                                                    </Button>
+                                                    <Button
+                                                        size="xs"
+                                                        color="green"
+                                                        leftSection={<IconDeviceFloppy size={14} />}
+                                                        onClick={handleSaveRecommender}
+                                                        loading={updateRecommenderMutation.isPending}
+                                                        disabled={!isRecommenderDirty || !recommenderOverrideReason.trim()}
+                                                    >
+                                                        추천인 관계 저장
+                                                    </Button>
+                                                </Group>
                                             </Stack>
                                         ) : (
                                             <Stack gap={6}>
@@ -606,6 +682,16 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                                         {isSignupReferralCodeFetching ? '조회 중...' : (signupReferralCode ?? '-')}
                                                     </Text>
                                                 </Text>
+                                                {canEditRecommender ? (
+                                                    <Button
+                                                        size="xs"
+                                                        variant="light"
+                                                        color="orange"
+                                                        onClick={() => setIsEditingRecommender(true)}
+                                                    >
+                                                        추천인 관계 변경
+                                                    </Button>
+                                                ) : null}
                                             </Stack>
                                         )}
                                     </Grid.Col>

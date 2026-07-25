@@ -7,6 +7,9 @@ import {
   buildExamApplyNotificationPayloads,
   buildExamRoundNotificationPayload,
   createExamApplyRealtimeChannelTopic,
+  formatExamRegistrationStatus,
+  formatExamSubjectSelection,
+  getExamMonthKey,
   getExamApplyRestoredSelectionState,
   getExamFeeAccountCopyText,
   getExamRoundCreateFormState,
@@ -14,11 +17,15 @@ import {
   getExamRoundSelectionState,
   getExamFlowConfig,
   isLocationInRound,
+  isExamMonthSlotConsumed,
   sendExamApplyNotificationsBestEffort,
   sortExamRoundsNewestFirst,
+  validateActiveExamOwnershipFixture,
 } from '../exam-flow-contract';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
+const examRegistrationId = '11111111-1111-4111-8111-111111111111';
+const examRoundId = '22222222-2222-4222-8222-222222222222';
 
 const readAppSource = (fileName: string) =>
   readFileSync(path.join(repoRoot, 'app', fileName), 'utf8');
@@ -84,6 +91,81 @@ describe('exam apply realtime channel topics', () => {
 });
 
 describe('exam flow contract', () => {
+  it('keeps one calendar-month slot across life, nonlife, and third subjects', () => {
+    expect(getExamMonthKey('2026-08-31')).toBe('2026-08');
+    expect(getExamMonthKey('invalid')).toBeNull();
+    expect(isExamMonthSlotConsumed('applied')).toBe(true);
+    expect(isExamMonthSlotConsumed('confirmed')).toBe(true);
+    expect(isExamMonthSlotConsumed('completed')).toBe(true);
+    expect(isExamMonthSlotConsumed('no_show')).toBe(true);
+    expect(isExamMonthSlotConsumed('rejected')).toBe(false);
+    expect(isExamMonthSlotConsumed('cancelled_by_fc')).toBe(false);
+    expect(isExamMonthSlotConsumed('cancelled_by_admin')).toBe(false);
+  });
+
+  it('fails closed when an active registration is not owned by the exact FC identity', () => {
+    const profiles = [{ id: 'fc-1', phone: '010-1234-5678' }];
+
+    expect(validateActiveExamOwnershipFixture([
+      {
+        id: 'registration-without-fc',
+        fc_id: null,
+        resident_id: '01012345678',
+        status: 'applied',
+      },
+    ], profiles)).toEqual({
+      ok: false,
+      registrationId: 'registration-without-fc',
+      reason: 'missing_fc',
+    });
+
+    expect(validateActiveExamOwnershipFixture([
+      {
+        id: 'registration-owned-by-other-fc',
+        fc_id: 'fc-1',
+        resident_id: '01099999999',
+        status: 'confirmed',
+      },
+    ], profiles)).toEqual({
+      ok: false,
+      registrationId: 'registration-owned-by-other-fc',
+      reason: 'identity_mismatch',
+    });
+
+    expect(validateActiveExamOwnershipFixture([
+      {
+        id: 'valid-active-registration',
+        fc_id: 'fc-1',
+        resident_id: '01012345678',
+        status: 'completed',
+      },
+      {
+        id: 'inactive-legacy-registration',
+        fc_id: null,
+        resident_id: '01099999999',
+        status: 'rejected',
+      },
+    ], profiles)).toEqual({ ok: true });
+  });
+
+  it('round-trips primary-only, third-only, and combined subject labels', () => {
+    expect(formatExamSubjectSelection({
+      examType: 'nonlife',
+      includesPrimaryExam: true,
+      isThirdExam: false,
+    })).toBe('손해');
+    expect(formatExamSubjectSelection({
+      examType: 'nonlife',
+      includesPrimaryExam: false,
+      isThirdExam: true,
+    })).toBe('제3');
+    expect(formatExamSubjectSelection({
+      examType: 'life',
+      includesPrimaryExam: true,
+      isThirdExam: true,
+    })).toBe('생명, 제3');
+    expect(formatExamRegistrationStatus('rejected')).toBe('반려');
+  });
   it('keeps life and nonlife flow differences in config', () => {
     expect(Object.keys(EXAM_FLOW_CONFIGS)).toEqual(['life', 'nonlife']);
 
@@ -160,9 +242,43 @@ describe('exam flow contract', () => {
       selectedRound: baseRound,
     });
     expect(restored.selectedLocationId).toBe('loc-2');
+    expect(restored.wantsPrimary).toBe(true);
     expect(restored.wantsThird).toBe(true);
     expect(restored.feePaidDate?.toISOString()).toBe('2026-07-09T00:00:00.000Z');
     expect(restored.tempFeePaidDate?.toISOString()).toBe('2026-07-09T00:00:00.000Z');
+
+    expect(
+      getExamApplyRestoredSelectionState({
+        existingForRound: {
+          location_id: 'loc-1',
+          includes_primary_exam: true,
+          is_third_exam: false,
+        },
+        selectedRound: baseRound,
+      }),
+    ).toMatchObject({ wantsPrimary: true, wantsThird: false });
+
+    expect(
+      getExamApplyRestoredSelectionState({
+        existingForRound: {
+          location_id: 'loc-1',
+          includes_primary_exam: false,
+          is_third_exam: true,
+        },
+        selectedRound: baseRound,
+      }),
+    ).toMatchObject({ wantsPrimary: false, wantsThird: true });
+
+    expect(
+      getExamApplyRestoredSelectionState({
+        existingForRound: {
+          location_id: 'loc-1',
+          includes_primary_exam: true,
+          is_third_exam: true,
+        },
+        selectedRound: baseRound,
+      }),
+    ).toMatchObject({ wantsPrimary: true, wantsThird: true });
 
     expect(
       getExamApplyRestoredSelectionState({
@@ -175,6 +291,7 @@ describe('exam flow contract', () => {
       }),
     ).toEqual({
       selectedLocationId: null,
+      wantsPrimary: true,
       wantsThird: false,
       feePaidDate: null,
       tempFeePaidDate: null,
@@ -187,6 +304,7 @@ describe('exam flow contract', () => {
       }),
     ).toEqual({
       selectedLocationId: null,
+      wantsPrimary: true,
       wantsThird: false,
       feePaidDate: null,
       tempFeePaidDate: null,
@@ -234,6 +352,7 @@ describe('exam flow contract', () => {
     expect(
       buildExamApplyNotificationPayloads({
         examType: 'life',
+        examRegistrationId,
         actor: '홍길동',
         residentId: 'resident-1',
         examTitle: '2026-07-20 (1차)',
@@ -248,6 +367,12 @@ describe('exam flow contract', () => {
         body: '홍길동님이 2026-07-20 (1차) (서울)을 신청하였습니다.',
         category: 'exam_apply',
         url: '/exam-manage',
+        target: {
+          version: 1,
+          kind: 'exam',
+          examType: 'life',
+          examRegistrationId,
+        },
       },
       fcSelf: {
         type: 'notify',
@@ -257,12 +382,19 @@ describe('exam flow contract', () => {
         body: '2026-07-20 (1차) (서울) 접수가 완료되었습니다.',
         category: 'exam_apply',
         url: '/exam-apply',
+        target: {
+          version: 1,
+          kind: 'exam',
+          examType: 'life',
+          examRegistrationId,
+        },
       },
     });
 
     expect(
       buildExamApplyNotificationPayloads({
         examType: 'nonlife',
+        examRegistrationId,
         actor: '홍길동',
         residentId: 'resident-1',
         examTitle: '2026-07-20 (1차)',
@@ -279,6 +411,7 @@ describe('exam flow contract', () => {
     expect(
       buildExamRoundNotificationPayload({
         examType: 'nonlife',
+        examRoundId,
         title: '일정이 등록되었습니다.',
         body: '응시를 희망하는 경우 신청해주세요.',
       }),
@@ -290,12 +423,19 @@ describe('exam flow contract', () => {
       body: '응시를 희망하는 경우 신청해주세요.',
       category: 'exam_round',
       url: '/exam-apply2',
+      target: {
+        version: 1,
+        kind: 'exam',
+        examType: 'nonlife',
+        examRoundId,
+      },
     });
   });
 
   it('keeps post-commit notification failures from reclassifying a saved application as failed', async () => {
     const payloads = buildExamApplyNotificationPayloads({
       examType: 'life',
+      examRegistrationId,
       actor: 'FC user',
       residentId: 'resident-1',
       examTitle: '2026-07-20',
@@ -308,7 +448,10 @@ describe('exam flow contract', () => {
 
     await expect(
       sendExamApplyNotificationsBestEffort(payloads, notify),
-    ).resolves.toEqual({ failedTargets: ['admin'] });
+    ).resolves.toEqual({
+      failedTargets: ['admin'],
+      invalidTargets: [],
+    });
     expect(notify).toHaveBeenCalledTimes(2);
     expect(notify).toHaveBeenNthCalledWith(1, payloads.admin);
     expect(notify).toHaveBeenNthCalledWith(2, payloads.fcSelf);

@@ -8,10 +8,13 @@ describe('FC submit notification source', () => {
     'appointment.tsx',
     'consent.tsx',
     'hanwha-commission.tsx',
-  ])('%s awaits notification delivery without exposing a post-commit warning', (fileName) => {
+  ])('%s awaits canonical notification delivery and uses notification-only retry', (fileName) => {
     const source = readFileSync(join(root, 'app', fileName), 'utf8');
 
-    expect(source).toContain('await invokeFcNotifyForDelivery({');
+    expect(source).toContain('const notifyAdmins = () => invokeFcNotifyForDelivery({');
+    expect(source).toContain('const notificationDelivery = await notifyAdmins()');
+    expect(source).toContain('presentPostCommitNotificationDelivery({');
+    expect(source).toContain('retryNotification: notifyAdmins');
     expect(source).not.toContain('알림 확인 필요');
     expect(source).not.toContain('정보는 정상 저장됐지만 담당자 알림 전달을 확인하지 못했습니다.');
     expect(source).not.toContain('.catch(() => undefined)');

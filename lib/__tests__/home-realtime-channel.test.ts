@@ -20,11 +20,21 @@ describe('home realtime channel topics', () => {
   it('keeps FC identifiers out of home channel topic construction', () => {
     const source = readFileSync(join(process.cwd(), 'app', 'index.tsx'), 'utf8');
 
-    expect(source).toContain("createHomeRealtimeChannelTopic('home-messages')");
+    expect(source).not.toContain("createHomeRealtimeChannelTopic('home-messages')");
     expect(source).toContain("createHomeRealtimeChannelTopic('home-profile')");
     expect(source).toContain("createHomeRealtimeChannelTopic('home-documents')");
     expect(source).not.toContain('.channel(`home-messages-${residentId}`)');
     expect(source).not.toContain('.channel(`home-profile-${residentId}`)');
     expect(source).not.toContain('.channel(`home-docs-${myFc.id}`)');
+  });
+
+  it('loads latest direct messages through the service and polls without messages Realtime', () => {
+    const source = readFileSync(join(process.cwd(), 'app', 'index.tsx'), 'utf8');
+
+    expect(source).toContain('resolveGaraminDirectConversation({');
+    expect(source).toContain('fetchGaraminDirectMessages(conversation.id)');
+    expect(source).toContain('const intervalId = setInterval(');
+    expect(source).not.toMatch(/\.from\(\s*['"]messages['"]\s*\)/);
+    expect(source).not.toMatch(/table:\s*['"]messages['"]/);
   });
 });

@@ -14,6 +14,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+const isFullResidentNumber = (value: unknown): value is string =>
+  typeof value === 'string' && /^\d{6}-\d{7}$/.test(value);
+
 export function parseResidentNumberEdgeFallbackResponse({
   responseOk,
   data,
@@ -27,9 +30,15 @@ export function parseResidentNumberEdgeFallbackResponse({
     data.ok === true &&
     isRecord(data.residentNumbers)
   ) {
+    const residentNumbers = Object.fromEntries(
+      Object.entries(data.residentNumbers).map(([fcId, value]) => [
+        fcId,
+        isFullResidentNumber(value) ? value : null,
+      ]),
+    );
     return {
       ok: true,
-      residentNumbers: data.residentNumbers as ResidentNumberMap,
+      residentNumbers,
     };
   }
 

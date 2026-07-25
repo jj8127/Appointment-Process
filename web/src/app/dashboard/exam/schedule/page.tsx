@@ -27,6 +27,7 @@ import { Calendar, DateInput } from '@mantine/dates';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import { notificationFeedbackColor } from '@/lib/notification-delivery-feedback';
 import {
     IconCalendar,
     IconChevronLeft,
@@ -39,9 +40,11 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { z } from 'zod';
 
 import { useSession } from '@/hooks/use-session';
+import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import { sortExamRoundsNewestFirst } from '@/lib/exam-round-sort';
 
 // --- Constants ---
@@ -101,6 +104,8 @@ const validateRoundForm = (values: RoundFormValues) => {
 
 export default function ExamSchedulePage() {
     const queryClient = useQueryClient();
+    const searchParams = useSearchParams();
+    const notificationRoundId = (searchParams.get('roundId') ?? '').trim();
     const { isReadOnly } = useSession();
     const [opened, { open, close }] = useDisclosure(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -154,12 +159,22 @@ export default function ExamSchedulePage() {
             }
             return result;
         },
-        onSuccess: () => {
+        onSuccess: (result) => {
             notifications.show({
                 title: editingId ? '수정 완료' : '등록 완료',
                 message: `시험 일정이 ${editingId ? '수정' : '등록'}되었습니다.`,
                 color: 'green',
             });
+            if (
+                result.notificationDelivery
+                && result.notificationDelivery.severity !== 'success'
+            ) {
+                notifications.show({
+                    title: result.notificationDelivery.title,
+                    message: result.notificationDelivery.message,
+                    color: notificationFeedbackColor(result.notificationDelivery),
+                });
+            }
             queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
             handleClose();
         },
@@ -298,6 +313,9 @@ export default function ExamSchedulePage() {
 
     return (
         <Container size="xl" py="xl">
+            {notificationRoundId && sortedRounds.some((round) => round.id === notificationRoundId)
+                ? <NotificationDestinationReady />
+                : null}
             <Group justify="space-between" mb="lg">
                 <div>
                     <Title order={2} c={CHARCOAL}>시험 일정 관리</Title>

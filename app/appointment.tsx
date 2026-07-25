@@ -1,5 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
@@ -20,14 +21,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { Button } from '@/components/Button';
 import { ScreenHeader } from '@/components/ScreenHeader';
-import { useToast } from '@/components/Toast';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
+import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { APPOINTMENT_GUIDE_IMAGES } from '@/lib/guide-images';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 const { width } = Dimensions.get('window');
 const HANWHA_APPROVED_STATUSES = ['hanwha-commission-approved', 'appointment-completed', 'final-link-sent'] as const;
 
@@ -61,9 +64,13 @@ const resolveFunctionInvokeErrorMessage = async (error: unknown, fallback: strin
 
 export default function AppointmentScreen() {
   const { role, residentId } = useSession();
-  useIdentityGate({ nextPath: '/appointment' });
+  const { notificationId, notificationTarget } = useLocalSearchParams<{
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
+  const { destinationAccepted: identityGateAccepted } =
+    useIdentityGate({ nextPath: '/appointment' });
   const keyboardPadding = useKeyboardPadding();
-  const { showToast } = useToast();
 
   // 예정 월
   const [scheduleLife, setScheduleLife] = useState<string | null>(null);
@@ -97,24 +104,32 @@ export default function AppointmentScreen() {
   const [tempNonLife, setTempNonLife] = useState<Date | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imageRatio, setImageRatio] = useState(16 / 9);
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const [profileLoadState, setProfileLoadState] = useState<
+    'loading' | 'success' | 'error'
+  >('loading');
 
   const load = useCallback(async () => {
     if (!residentId) return;
     const cleanPhone = residentId.replace(/[^0-9]/g, '');
     if (!cleanPhone) return;
     setLoading(true);
+    setProfileLoadState('loading');
     const { data, error } = await supabase
       .from('fc_profiles')
       .select(
-        'status,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife',
+        'id,status,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife',
       )
       .eq('phone', cleanPhone)
       .maybeSingle();
     setLoading(false);
     if (error) {
+      setProfileLoadState('error');
       Alert.alert('불러오기 실패', error.message ?? '정보를 불러오지 못했습니다.');
       return;
     }
+    setProfileId(data?.id ?? null);
+    setProfileLoadState(data?.id ? 'success' : 'error');
 
     setScheduleLife(data?.appointment_schedule_life ?? null);
     setScheduleNonLife(data?.appointment_schedule_nonlife ?? null);
@@ -144,6 +159,18 @@ export default function AppointmentScreen() {
   useEffect(() => {
     load();
   }, [load]);
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: profileId
+      ? {
+          version: 1,
+          kind: 'onboarding_section',
+          fcId: profileId,
+          section: 'appointment',
+        }
+      : null,
+    loadState: identityGateAccepted ? profileLoadState : 'loading',
+  });
 
   useEffect(() => {
     if (APPOINTMENT_GUIDE_IMAGES[0]) {
@@ -209,21 +236,37 @@ export default function AppointmentScreen() {
       if (!data?.ok) {
         throw new Error(data?.message ?? data?.error ?? '정보를 저장하지 못했습니다.');
       }
-      if (!data?.data?.id) {
+      const updatedProfile = data.data;
+      if (!updatedProfile?.id) {
         throw new Error('업데이트된 데이터가 없습니다. (전화번호 불일치 가능성)');
       }
+      const updatedProfileId = updatedProfile.id;
 
-      await invokeFcNotifyForDelivery({
-        type: 'fc_update',
-        fc_id: data.data.id,
-        message: `${data.data.name ?? ''}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
-        url: '/dashboard',
+      const insuranceLabel = type === 'life' ? '생명보험' : '손해보험';
+      const notifyAdmins = () => invokeFcNotifyForDelivery({
+        type: 'notify',
+        target_role: 'admin',
+        target_id: null,
+        title: `${insuranceLabel} 위촉 완료 보고`,
+        body: `${updatedProfile.name ?? ''}님이 ${insuranceLabel} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
+        category: 'app_event',
+        url: `/dashboard?fcId=${encodeURIComponent(updatedProfileId)}&section=appointment`,
+        target: {
+          version: 1,
+          kind: 'onboarding_section',
+          fcId: updatedProfileId,
+          section: 'appointment',
+        },
       });
-
+      const notificationDelivery = await notifyAdmins();
       await load();
-      showToast({
-        message: `${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료일이 제출되었습니다. 총무 승인 후 최종 반영됩니다.`,
-        variant: 'success',
+      presentPostCommitNotificationDelivery({
+        delivery: notificationDelivery,
+        retryNotification: notifyAdmins,
+        successTitle: '저장 완료',
+        successMessage:
+          `${insuranceLabel} 위촉 완료일이 제출되었습니다. 관리자 승인 후 최종 반영됩니다.`,
+        notificationLabel: '관리자',
       });
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');
@@ -377,6 +420,10 @@ export default function AppointmentScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       <ScrollView
         contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}
         contentInsetAdjustmentBehavior="never"

@@ -19,6 +19,7 @@ const expectedBoardFunctions = [
   'board-delete',
   'board-detail',
   'board-list',
+  'board-notification-retry',
   'board-pin',
   'board-reaction-toggle',
   'board-update',
@@ -37,8 +38,10 @@ describe('board Edge signed-session source contract', () => {
         path.join(functionsRoot, functionName, 'index.ts'),
         'utf8',
       );
-      expect(`${functionName}\n${source}`).toContain(
-        `requireActor(req, body, '${functionName}', origin)`,
+      expect(source).toMatch(
+        new RegExp(
+          `requireActor\\(\\s*req,\\s*body,\\s*'${functionName}',\\s*origin,?\\s*\\)`,
+        ),
       );
       expect(`${functionName}\n${source}`).not.toContain('requireActor(body, origin)');
     }

@@ -51,6 +51,12 @@ import { buildBoardPostShareContent } from '@/lib/board-share-link';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import {
+  hasPresentRouteParam,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import {
   BoardDetail,
   BoardListItem,
@@ -239,7 +245,11 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
 export default function BoardScreen() {
   const router = useRouter();
   const appLogout = useAppLogout();
-  const { postId } = useLocalSearchParams<{ postId?: string }>();
+  const { postId, notificationId, notificationTarget } = useLocalSearchParams<{
+    postId?: string;
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
   const navigation = useNavigation();
   const { role, displayName, residentId, readOnly, hydrated, isRequestBoardDesigner, staffType } = useSession();
   const queryClient = useQueryClient();
@@ -291,10 +301,10 @@ export default function BoardScreen() {
   // undefined = not yet set (use server data), null = cleared, BoardReactionKey = selected
   const [myReactionOverride, setMyReactionOverride] = useState<BoardReactionKey | null | undefined>(undefined);
   const routePostId = useMemo(() => {
-    const value = Array.isArray(postId) ? postId[0] : postId;
-    if (typeof value !== 'string') return '';
-    return value.trim();
+    return parseExactlyOneUuidRouteParam(postId) ?? '';
   }, [postId]);
+  const hasInvalidPostRoute =
+    hasPresentRouteParam(postId) && !routePostId;
 
   // Scroll animation for bottom nav
   const lastScrollY = useSharedValue(0);
@@ -399,13 +409,26 @@ export default function BoardScreen() {
     enabled: !!actor,
   });
 
-  const { data: detailData } = useQuery({
+  const { data: detailData, isError: isDetailError } = useQuery({
     queryKey: ['board-detail', selectedPostId],
     queryFn: () => {
       if (!actor || !selectedPostId) return Promise.resolve(null as unknown as BoardDetail);
       return fetchBoardDetail(actor, selectedPostId);
     },
     enabled: !!actor && !!selectedPostId,
+  });
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasInvalidPostRoute && routePostId
+      ? { version: 1, kind: 'board_post', postId: routePostId }
+      : null,
+    loadState: hasInvalidPostRoute
+      ? 'error'
+      : isDetailError
+      ? 'error'
+      : detailData?.post?.id === routePostId
+        ? 'success'
+        : 'loading',
   });
 
   useEffect(() => {
@@ -986,6 +1009,10 @@ export default function BoardScreen() {
         title={homeHeaderTitle}
         onLogout={handleLogout}
         onOpenNotifications={() => router.push('/notifications')}
+      />
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
       />
       <View style={styles.pageTitleWrap}>
         <Text style={styles.title}>게시판</Text>

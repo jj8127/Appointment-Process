@@ -1,4 +1,8 @@
 import type { ExamRoundWithLocations } from '@/types/exam';
+import {
+  isNotificationUuid,
+  type NotificationTarget,
+} from '@/lib/notification-target';
 
 export type ExamFlowType = 'life' | 'nonlife';
 
@@ -62,6 +66,7 @@ export type ExamNotifyPayload = {
   body: string;
   category: 'exam_apply' | 'exam_round';
   url: string;
+  target: Extract<NotificationTarget, { kind: 'exam' }>;
 };
 
 export type ExamApplyNotificationPayloads = {
@@ -86,9 +91,116 @@ export type ExamRoundFormState = {
 
 type ExistingExamApplicationSelection = {
   location_id?: string | null;
+  includes_primary_exam?: boolean | null;
   is_third_exam?: boolean | null;
   fee_paid_date?: string | null;
 } | null;
+
+export const EXAM_MONTH_SLOT_STATUSES = [
+  'applied',
+  'confirmed',
+  'completed',
+  'no_show',
+] as const;
+
+type ActiveExamOwnershipRegistration = {
+  id: string;
+  fc_id?: string | null;
+  resident_id?: string | null;
+  status?: string | null;
+};
+
+type ExamOwnershipProfile = {
+  id: string;
+  phone?: string | null;
+};
+
+export type ActiveExamOwnershipValidation =
+  | { ok: true }
+  | {
+      ok: false;
+      registrationId: string;
+      reason: 'missing_fc' | 'identity_mismatch';
+    };
+
+const normalizeExamOwnershipIdentity = (value?: string | null): string | null => {
+  const digits = String(value ?? '').replace(/[^0-9]/g, '');
+  return digits || null;
+};
+
+export function isExamMonthSlotConsumed(status?: string | null): boolean {
+  return EXAM_MONTH_SLOT_STATUSES.includes(
+    String(status ?? '') as (typeof EXAM_MONTH_SLOT_STATUSES)[number],
+  );
+}
+
+export function validateActiveExamOwnershipFixture(
+  registrations: readonly ActiveExamOwnershipRegistration[],
+  profiles: readonly ExamOwnershipProfile[],
+): ActiveExamOwnershipValidation {
+  const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+
+  for (const registration of registrations) {
+    if (!isExamMonthSlotConsumed(registration.status)) continue;
+    if (!registration.fc_id) {
+      return {
+        ok: false,
+        registrationId: registration.id,
+        reason: 'missing_fc',
+      };
+    }
+
+    const profile = profilesById.get(registration.fc_id);
+    if (
+      !profile
+      || normalizeExamOwnershipIdentity(profile.phone)
+        !== normalizeExamOwnershipIdentity(registration.resident_id)
+    ) {
+      return {
+        ok: false,
+        registrationId: registration.id,
+        reason: 'identity_mismatch',
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
+export function getExamMonthKey(examDate?: string | null): string | null {
+  const normalized = String(examDate ?? '').trim();
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(normalized);
+  return match ? `${match[1]}-${match[2]}` : null;
+}
+
+export function formatExamRegistrationStatus(status?: string | null): string {
+  const labels: Record<string, string> = {
+    applied: '신청 완료',
+    confirmed: '접수 완료',
+    completed: '시험 완료',
+    no_show: '미응시',
+    rejected: '반려',
+    cancelled_by_fc: 'FC 취소',
+    cancelled_by_admin: '관리자 취소',
+  };
+  return labels[String(status ?? '')] ?? '상태 확인 필요';
+}
+
+export function formatExamSubjectSelection({
+  examType,
+  includesPrimaryExam,
+  isThirdExam,
+}: {
+  examType?: string | null;
+  includesPrimaryExam?: boolean | null;
+  isThirdExam?: boolean | null;
+}): string {
+  const primaryLabel = examType === 'nonlife' ? '손해' : '생명';
+  if (includesPrimaryExam && isThirdExam) return `${primaryLabel}, 제3`;
+  if (includesPrimaryExam) return primaryLabel;
+  if (isThirdExam) return '제3';
+  return '-';
+}
 
 export function getExamFlowConfig(examType: ExamFlowType): ExamFlowConfig {
   return EXAM_FLOW_CONFIGS[examType];
@@ -166,6 +278,7 @@ export function getExamApplyRestoredSelectionState({
   if (!existingForRound) {
     return {
       selectedLocationId: null,
+      wantsPrimary: true,
       wantsThird: false,
       feePaidDate: null,
       tempFeePaidDate: null,
@@ -177,6 +290,10 @@ export function getExamApplyRestoredSelectionState({
     selectedLocationId: isLocationInRound(selectedRound, existingForRound.location_id)
       ? existingForRound.location_id ?? null
       : null,
+    wantsPrimary:
+      existingForRound.includes_primary_exam != null
+        ? !!existingForRound.includes_primary_exam
+        : true,
     wantsThird: existingForRound.is_third_exam != null ? !!existingForRound.is_third_exam : false,
     feePaidDate: restoredFeePaidDate,
     tempFeePaidDate: restoredFeePaidDate,
@@ -218,17 +335,22 @@ export function getExamRoundEditFormState(
 
 export function buildExamApplyNotificationPayloads({
   examType,
+  examRegistrationId,
   actor,
   residentId,
   examTitle,
   locationName,
 }: {
   examType: ExamFlowType;
+  examRegistrationId: string;
   actor: string;
   residentId: string;
   examTitle: string;
   locationName?: string | null;
 }): ExamApplyNotificationPayloads {
+  if (!isNotificationUuid(examRegistrationId)) {
+    throw new Error('invalid_exam_registration_notification_target');
+  }
   const config = getExamFlowConfig(examType);
   const title = `${actor}님이 ${examTitle}을 신청하였습니다.`;
   const body = locationName
@@ -244,6 +366,12 @@ export function buildExamApplyNotificationPayloads({
       body,
       category: 'exam_apply',
       url: config.manageRoute,
+      target: {
+        version: 1,
+        kind: 'exam',
+        examType,
+        examRegistrationId,
+      },
     },
     fcSelf: {
       type: 'notify',
@@ -253,6 +381,12 @@ export function buildExamApplyNotificationPayloads({
       body: `${examTitle}${locationName ? ` (${locationName})` : ''} 접수가 완료되었습니다.`,
       category: 'exam_apply',
       url: config.applyRoute,
+      target: {
+        version: 1,
+        kind: 'exam',
+        examType,
+        examRegistrationId,
+      },
     },
   };
 }
@@ -265,31 +399,58 @@ export function buildExamApplyNotificationPayloads({
 export async function sendExamApplyNotificationsBestEffort(
   payloads: ExamApplyNotificationPayloads,
   notify: (payload: ExamNotifyPayload) => Promise<void>,
-): Promise<{ failedTargets: ExamApplyNotificationTarget[] }> {
+  targets: readonly ExamApplyNotificationTarget[] = ['admin', 'fcSelf'],
+): Promise<{
+  failedTargets: ExamApplyNotificationTarget[];
+  invalidTargets: ExamApplyNotificationTarget[];
+}> {
   const entries = [
     ['admin', payloads.admin],
     ['fcSelf', payloads.fcSelf],
-  ] as const;
+  ] as const satisfies readonly (
+    readonly [ExamApplyNotificationTarget, ExamNotifyPayload]
+  )[];
+  const selectedEntries = entries.filter(([target]) => targets.includes(target));
   const results = await Promise.allSettled(
-    entries.map(([, payload]) => Promise.resolve().then(() => notify(payload))),
+    selectedEntries.map(([, payload]) =>
+      Promise.resolve().then(() => notify(payload))
+    ),
   );
 
   return {
     failedTargets: results.flatMap((result, index) =>
-      result.status === 'rejected' ? [entries[index][0]] : [],
+      result.status === 'rejected'
+      && (
+        !(result.reason instanceof Error)
+        || result.reason.message !== 'notification_invalid_recipient'
+      )
+        ? [selectedEntries[index][0]]
+        : [],
+    ),
+    invalidTargets: results.flatMap((result, index) =>
+      result.status === 'rejected'
+      && result.reason instanceof Error
+      && result.reason.message === 'notification_invalid_recipient'
+        ? [selectedEntries[index][0]]
+        : [],
     ),
   };
 }
 
 export function buildExamRoundNotificationPayload({
   examType,
+  examRoundId,
   title,
   body,
 }: {
   examType: ExamFlowType;
+  examRoundId: string;
   title: string;
   body: string;
 }): ExamNotifyPayload {
+  if (!isNotificationUuid(examRoundId)) {
+    throw new Error('invalid_exam_round_notification_target');
+  }
   return {
     type: 'notify',
     target_role: 'fc',
@@ -298,5 +459,11 @@ export function buildExamRoundNotificationPayload({
     body,
     category: 'exam_round',
     url: getExamFlowConfig(examType).applyRoute,
+    target: {
+      version: 1,
+      kind: 'exam',
+      examType,
+      examRoundId,
+    },
   };
 }

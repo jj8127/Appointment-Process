@@ -104,6 +104,7 @@ describe('board Edge actor policy', () => {
     expect(isBoardAutomationActionAllowed('board-create')).toBe(true);
     expect(isBoardAutomationActionAllowed('board-category-create')).toBe(false);
     expect(isBoardAutomationActionAllowed('board-update')).toBe(false);
+    expect(isBoardAutomationActionAllowed('board-notification-retry')).toBe(false);
     expect(isBoardAutomationActionAllowed('board-delete')).toBe(false);
   });
 });

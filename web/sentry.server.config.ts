@@ -14,6 +14,9 @@ if (dsn) {
     release,
     sendDefaultPii: false,
     tracesSampleRate: environment === 'production' ? 0.1 : 1.0,
+    beforeBreadcrumb(breadcrumb) {
+      return sanitizeSentryEvent(breadcrumb);
+    },
     beforeSend(event) {
       return sanitizeSentryEvent(event);
     },

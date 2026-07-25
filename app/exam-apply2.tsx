@@ -5,7 +5,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { AnimatePresence, MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -41,7 +41,11 @@ import {
   getExamApplyRestoredSelectionState,
   getExamFeeAccountCopyText,
   getExamFlowConfig,
+  formatExamRegistrationStatus,
+  formatExamSubjectSelection,
+  getExamMonthKey,
   getExamRoundSelectionState,
+  isExamMonthSlotConsumed,
   isLocationInRound,
   sendExamApplyNotificationsBestEffort,
   type ExamNotifyPayload,
@@ -61,7 +65,15 @@ import {
 } from '@/lib/exam-payment-proof';
 import { NONLIFE_EXAM_FEE_ROWS } from '@/lib/exam-fees';
 import { logger } from '@/lib/logger';
+import { isNotificationUuid } from '@/lib/notification-target';
+import {
+  hasConflictingRouteParams,
+  hasPresentRouteParam,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { supabase } from '@/lib/supabase';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
 const HANWHA_ORANGE = '#f36f21';
@@ -103,8 +115,11 @@ const CARD_SHADOW = {
 
 async function notifyExamFlow(payload: ExamNotifyPayload) {
   const result = await invokeFcNotifyForDelivery(payload);
-  if (!result.confirmed) {
-    throw new Error('notification_delivery_incomplete');
+  if (!result.confirmed && result.reason === 'invalid_recipient') {
+    throw new Error('notification_invalid_recipient');
+  }
+  if (!result.confirmed && result.notificationStored === false) {
+    throw new Error('notification_persistence_failed');
   }
 }
 
@@ -179,11 +194,18 @@ type MyExamApply = {
   round_id: string;
   location_id: string;
   status: string;
+  includes_primary_exam?: boolean | null;
+  rejection_reason?: string | null;
+  rejected_at?: string | null;
   is_third_exam?: boolean | null;
   fee_paid_date?: string | null;
   payment_proof_attached?: boolean | null;
   created_at: string;
-  exam_rounds?: { exam_date: string; round_label: string | null } | null;
+  exam_rounds?: {
+    exam_date: string;
+    round_label: string | null;
+    exam_type: 'life' | 'nonlife';
+  } | null;
   exam_locations?: { location_name: string } | null;
   is_confirmed?: boolean | null;
 };
@@ -218,11 +240,24 @@ function getExamRegistrationErrorMessage(error: unknown) {
 
 export default function ExamApplyScreen() {
   const { role, residentId, displayName, hydrated, readOnly, appSessionToken } = useSession();
-  useIdentityGate({ nextPath: examFlowConfig.applyRoute });
+  const {
+    registrationId,
+    roundId,
+    notificationId,
+    notificationTarget,
+  } = useLocalSearchParams<{
+    registrationId?: string;
+    roundId?: string;
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
+  const { destinationAccepted: identityGateAccepted } =
+    useIdentityGate({ nextPath: examFlowConfig.applyRoute });
   const canApplyExam = canUseFcExamApply({ role, readOnly });
 
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
+  const [wantsNonlife, setWantsNonlife] = useState(true);
   const [wantsThird, setWantsThird] = useState(false);
   const [feePaidDate, setFeePaidDate] = useState<Date | null>(null);
   const [showFeePaidPicker, setShowFeePaidPicker] = useState(false);
@@ -252,6 +287,7 @@ export default function ExamApplyScreen() {
   const {
     data: rounds,
     isLoading,
+    isError: isRoundsError,
     isFetching,
     refetch,
   } = useQuery({
@@ -282,22 +318,25 @@ export default function ExamApplyScreen() {
     [selectedRound],
   );
 
-  const { data: myApplies = [], refetch: refetchMyApply } = useQuery<MyExamApply[]>({
-    queryKey: [examFlowConfig.myApplyQueryKeyPrefix, residentId],
+  const {
+    data: myApplies = [],
+    error: myAppliesError,
+    isLoading: isLoadingMyApplies,
+    isFetching: isFetchingMyApplies,
+    refetch: refetchMyApply,
+  } = useQuery<MyExamApply[]>({
+    queryKey: ['my-exam-apply-history', residentId],
     enabled: canApplyExam && !!residentId,
     queryFn: async (): Promise<MyExamApply[]> => {
       const { data, error } = await supabase
         .from('exam_registrations')
         .select(
-          'id, round_id, location_id, status, is_confirmed, is_third_exam, fee_paid_date, payment_proof_attached, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations(location_name)',
+          'id, round_id, location_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, rejected_at, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations!exam_registrations_location_round_fkey(location_name)',
         )
         .eq('resident_id', residentId)
-        .eq('exam_rounds.exam_type', examFlowConfig.examType)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false });
 
-      if (error && (error as any).code === '42P01') {
-        return [];
-      }
       if (error) throw error;
 
       const normalize = (obj: any) => (Array.isArray(obj) ? obj[0] : obj);
@@ -315,9 +354,83 @@ export default function ExamApplyScreen() {
     if (myApplies.length === 0) return null;
     return myApplies.find((a) => a.id === selectedApplyId) ?? myApplies[0];
   }, [myApplies, selectedApplyId]);
+  const routeRegistrationId = parseExactlyOneUuidRouteParam(registrationId);
+  const routeRoundId = parseExactlyOneUuidRouteParam(roundId);
+  const hasAmbiguousExamRoute =
+    hasConflictingRouteParams(registrationId, roundId)
+    || (hasPresentRouteParam(registrationId) && !routeRegistrationId)
+    || (hasPresentRouteParam(roundId) && !routeRoundId);
+  const exactRouteRegistration = !hasAmbiguousExamRoute
+    ? myApplies.find(
+        (row) =>
+          row.id === routeRegistrationId
+          && row.exam_rounds?.exam_type === examFlowType,
+      )
+    : undefined;
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasAmbiguousExamRoute && routeRegistrationId
+      ? {
+          version: 1,
+          kind: 'exam',
+          examType: 'nonlife',
+          examRegistrationId: routeRegistrationId,
+        }
+      : !hasAmbiguousExamRoute && routeRoundId
+        ? {
+            version: 1,
+            kind: 'exam',
+            examType: 'nonlife',
+            examRoundId: routeRoundId,
+          }
+        : null,
+    loadState: !identityGateAccepted
+      ? 'loading'
+      : hasAmbiguousExamRoute
+      ? 'error'
+      : routeRegistrationId
+      ? myAppliesError
+        ? 'error'
+        : exactRouteRegistration
+          ? 'success'
+          : isLoadingMyApplies
+            ? 'loading'
+            : 'error'
+      : routeRoundId
+        ? isRoundsError
+          ? 'error'
+          : allRounds.some((row) => row.id === routeRoundId)
+            ? 'success'
+            : isLoading
+              ? 'loading'
+              : 'error'
+        : 'idle',
+  });
+
+  useEffect(() => {
+    if (hasAmbiguousExamRoute) return;
+    if (routeRegistrationId) {
+      const registration = exactRouteRegistration;
+      if (!registration) return;
+      setSelectedApplyId(registration.id);
+      setSelectedRoundId(registration.round_id);
+      return;
+    }
+    if (routeRoundId && allRounds.some((row) => row.id === routeRoundId)) {
+      setSelectedRoundId(routeRoundId);
+    }
+  }, [
+    allRounds,
+    exactRouteRegistration,
+    hasAmbiguousExamRoute,
+    routeRegistrationId,
+    routeRoundId,
+  ]);
 
   const existingForRound = useMemo(
-    () => myApplies.find((a) => a.round_id === selectedRoundId) ?? null,
+    () => myApplies.find(
+      (a) => a.round_id === selectedRoundId && isExamMonthSlotConsumed(a.status),
+    ) ?? null,
     [myApplies, selectedRoundId],
   );
   const isConfirmedForRound = !!existingForRound?.is_confirmed;
@@ -346,6 +459,7 @@ export default function ExamApplyScreen() {
       selectedRound,
     });
     setSelectedLocationId(restoredState.selectedLocationId);
+    setWantsNonlife(restoredState.wantsPrimary);
     setWantsThird(restoredState.wantsThird);
     if (existingForRound) {
       setFeePaidDate(restoredState.feePaidDate);
@@ -428,7 +542,7 @@ export default function ExamApplyScreen() {
         }),
         selectedRoundId,
         selectedLocationId,
-        hasSelectedSubject: true,
+        hasSelectedSubject: wantsNonlife || wantsThird,
       }));
       if (missingMessage) {
         throw new Error(missingMessage);
@@ -477,13 +591,14 @@ export default function ExamApplyScreen() {
         }
       }
 
-      await submitExamApplicationWithPaymentProof({
+      const submissionResult = await submitExamApplicationWithPaymentProof({
         appSessionToken,
         uploadId,
         roundId: selectedRoundId!,
         locationId: selectedLocationId!,
         examType: examFlowType,
         feePaidDate: toYmd(paidDate),
+        includesPrimaryExam: wantsNonlife,
         isThirdExam: wantsThird,
       });
       preparedPaymentProofRef.current = null;
@@ -493,28 +608,105 @@ export default function ExamApplyScreen() {
       const examTitle = `${formatDate(round.exam_date)}${round.round_label ? ` (${round.round_label})` : ''
         }`;
       const actor = displayName?.trim() || residentId;
-      const notificationPayloads = buildExamApplyNotificationPayloads({
-        examType: examFlowType,
-        actor,
-        residentId,
-        examTitle,
-        locationName: locName,
-      });
-
-      const { failedTargets } = await sendExamApplyNotificationsBestEffort(
-        notificationPayloads,
-        notifyExamFlow,
-      );
-      if (failedTargets.length > 0) {
+      const registrationId = submissionResult.registrationId;
+      const notificationPayloads = isNotificationUuid(registrationId)
+        ? buildExamApplyNotificationPayloads({
+            examType: examFlowType,
+            examRegistrationId: registrationId,
+            actor,
+            residentId,
+            examTitle,
+            locationName: locName,
+          })
+        : null;
+      const { failedTargets, invalidTargets } = notificationPayloads
+        ? await sendExamApplyNotificationsBestEffort(
+            notificationPayloads,
+            notifyExamFlow,
+          )
+        : {
+            failedTargets: [] as const,
+            invalidTargets: ['admin', 'fcSelf'] as const,
+          };
+      if (failedTargets.length > 0 || invalidTargets.length > 0) {
         logger.warn('[exam-apply2] registration saved but notification delivery was incomplete', {
           examType: examFlowType,
           failedTargets,
+          invalidTargets,
         });
       }
-      return { failedTargets };
+      return {
+        failedTargets: [...failedTargets],
+        invalidTargets: [...invalidTargets],
+        notificationPayloads,
+      };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       setSelectedPaymentProof(null);
+      if (result.invalidTargets.length > 0) {
+        Alert.alert(
+          '신청 완료 · 알림 대상 오류',
+          '시험 신청은 저장되었습니다. 알림을 받을 사용자 정보를 확인할 수 없습니다.',
+        );
+        refetchMyApply();
+        return;
+      }
+      if (result.failedTargets.length > 0) {
+        let retryTargets = result.failedTargets;
+        const retryNotificationDelivery = async () => {
+          if (!result.notificationPayloads) {
+            Alert.alert(
+              '알림 대상 오류',
+              '저장된 시험 신청 식별자를 확인할 수 없어 알림을 등록하지 못했습니다.',
+            );
+            return;
+          }
+          const retryResult = await sendExamApplyNotificationsBestEffort(
+            result.notificationPayloads,
+            notifyExamFlow,
+            retryTargets,
+          );
+          if (retryResult.invalidTargets.length > 0) {
+            Alert.alert(
+              '알림 대상 오류',
+              '알림을 받을 사용자 정보를 확인할 수 없습니다.',
+            );
+            return;
+          }
+          if (retryResult.failedTargets.length === 0) {
+            Alert.alert(
+              '알림 등록 완료',
+              '저장된 시험 신청 알림을 등록했습니다.',
+            );
+            return;
+          }
+          retryTargets = retryResult.failedTargets;
+          Alert.alert(
+            '알림 등록 실패',
+            '시험 신청은 저장되었지만 알림을 다시 등록하지 못했습니다.',
+            [
+              { text: '확인' },
+              {
+                text: '다시 등록',
+                onPress: () => void retryNotificationDelivery(),
+              },
+            ],
+          );
+        };
+        Alert.alert(
+          '신청 완료 · 알림 등록 실패',
+          '시험 신청은 저장되었습니다. 관련 알림을 등록하지 못했습니다.',
+          [
+            { text: '확인' },
+            {
+              text: '알림 다시 등록',
+              onPress: () => void retryNotificationDelivery(),
+            },
+          ],
+        );
+        refetchMyApply();
+        return;
+      }
       Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');
       refetchMyApply();
     },
@@ -575,8 +767,17 @@ export default function ExamApplyScreen() {
   };
 
   const handleRoundSelect = (round: ExamRoundWithLocations) => {
-    const confirmedForThis = myApplies.find((a) => a.round_id === round.id)?.is_confirmed;
-    if (confirmedForThis) {
+    const roundMonth = getExamMonthKey(round.exam_date);
+    const activeForMonth = myApplies.find(
+      (application) =>
+        isExamMonthSlotConsumed(application.status)
+        && getExamMonthKey(application.exam_rounds?.exam_date) === roundMonth,
+    );
+    if (activeForMonth && activeForMonth.round_id !== round.id) {
+      Alert.alert('신청 불가', '같은 달에는 생명·손해·제3 시험을 합쳐 한 번만 신청할 수 있습니다.');
+      return;
+    }
+    if (activeForMonth?.is_confirmed) {
       Alert.alert('수정 불가', lockMessage);
       return;
     }
@@ -737,7 +938,20 @@ export default function ExamApplyScreen() {
               <Text style={styles.statusTitle}>내 신청 내역</Text>
             </View>
 
-            {myApplies.length === 0 ? (
+            {myAppliesError ? (
+              <View style={{ gap: 8, alignItems: 'center' }}>
+                <Text style={styles.emptyText}>신청 내역을 불러오지 못했습니다.</Text>
+                <Pressable
+                  onPress={() => void refetchMyApply()}
+                  disabled={isFetchingMyApplies}
+                  style={{ paddingHorizontal: 12, paddingVertical: 8 }}
+                >
+                  <Text style={{ color: HANWHA_ORANGE, fontWeight: '700' }}>
+                    {isFetchingMyApplies ? '다시 불러오는 중...' : '다시 시도'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : myApplies.length === 0 ? (
               <Text style={styles.emptyText}>아직 신청한 시험이 없습니다.</Text>
             ) : (
               <View style={styles.statusContent}>
@@ -815,7 +1029,11 @@ export default function ExamApplyScreen() {
                     <View style={styles.statusRow}>
                       <Text style={styles.statusLabel}>신청 과목</Text>
                       <Text style={styles.statusValue}>
-                        {currentApply.is_third_exam ? '손해, 제3' : '손해'}
+                        {formatExamSubjectSelection({
+                          examType: currentApply.exam_rounds?.exam_type,
+                          includesPrimaryExam: currentApply.includes_primary_exam,
+                          isThirdExam: currentApply.is_third_exam,
+                        })}
                       </Text>
                     </View>
                     <View style={styles.statusRow}>
@@ -839,16 +1057,24 @@ export default function ExamApplyScreen() {
                               currentApply.is_confirmed ? styles.textConfirmed : styles.textPending,
                             ]}
                           >
-                            {currentApply.is_confirmed ? '접수 완료' : '미접수'}
+                            {formatExamRegistrationStatus(currentApply.status)}
                           </Text>
                         </View>
-                        {!currentApply.is_confirmed && (
+                        {currentApply.status === 'applied' && (
                           <Pressable onPress={() => handleCancelPress(currentApply.id)}>
                             <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>취소</Text>
                           </Pressable>
                         )}
                       </View>
                     </View>
+                    {currentApply.status === 'rejected' && currentApply.rejection_reason ? (
+                      <View style={styles.statusRow}>
+                        <Text style={styles.statusLabel}>반려 사유</Text>
+                        <Text style={[styles.statusValue, { color: '#dc2626' }]}>
+                          {currentApply.rejection_reason}
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
                 )}
               </View>
@@ -872,7 +1098,12 @@ export default function ExamApplyScreen() {
                 {allRounds.map((round, idx) => {
                   const isActive = round.id === selectedRoundId;
                   const closed = isRoundClosed(round);
-                  const alreadyApplied = myApplies.some((a) => a.round_id === round.id);
+                  const roundMonth = getExamMonthKey(round.exam_date);
+                  const alreadyApplied = myApplies.some(
+                    (application) =>
+                      isExamMonthSlotConsumed(application.status)
+                      && getExamMonthKey(application.exam_rounds?.exam_date) === roundMonth,
+                  );
                   return (
                     <MotiView
                       key={round.id}
@@ -987,6 +1218,30 @@ export default function ExamApplyScreen() {
             <Text style={styles.sectionHeader}>✅ 응시 과목</Text>
 
             <Pressable
+              style={[styles.toggleCard, wantsNonlife && styles.toggleCardActive]}
+              onPress={() => {
+                if (isConfirmedForRound) {
+                  Alert.alert('수정 불가', lockMessage);
+                } else {
+                  Haptics.selectionAsync();
+                  setWantsNonlife((value) => !value);
+                }
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Feather
+                  name={wantsNonlife ? 'check-square' : 'square'}
+                  size={24}
+                  color={wantsNonlife ? HANWHA_ORANGE : MUTED}
+                />
+                <View>
+                  <Text style={styles.toggleTitle}>손해보험 시험</Text>
+                  <Text style={styles.toggleDesc}>손해보험 자격 시험을 신청합니다.</Text>
+                </View>
+              </View>
+            </Pressable>
+
+            <Pressable
               style={[styles.toggleCard, wantsThird && styles.toggleCardActive]}
               onPress={() => {
                 if (isConfirmedForRound) {
@@ -1004,8 +1259,8 @@ export default function ExamApplyScreen() {
                   color={wantsThird ? HANWHA_ORANGE : MUTED}
                 />
                 <View>
-                  <Text style={styles.toggleTitle}>제3보험 동시 응시</Text>
-                  <Text style={styles.toggleDesc}>제3보험 자격 시험도 함께 신청합니다.</Text>
+                  <Text style={styles.toggleTitle}>제3보험 시험</Text>
+                  <Text style={styles.toggleDesc}>제3보험 자격 시험을 신청합니다.</Text>
                 </View>
               </View>
             </Pressable>
@@ -1081,6 +1336,10 @@ export default function ExamApplyScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       {Platform.OS === 'android' ? (
         <ScrollView
           contentContainerStyle={styles.container}

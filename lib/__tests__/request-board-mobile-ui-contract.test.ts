@@ -607,6 +607,45 @@ describe('request-board mobile UI contracts', () => {
     expect(reviewSource).toContain('formatDate(file.expiry_date)');
   });
 
+  it('opens and receipts only the exact request or direct conversation from a notification', () => {
+    expect(messengerSource).toContain(
+      'hasConflictingRouteParams(requestDesignerId, directConversationId)',
+    );
+    expect(messengerSource).toContain(
+      'hasPresentRouteParam(requestDesignerId)',
+    );
+    expect(messengerSource).toContain(
+      'hasPresentRouteParam(directConversationId)',
+    );
+    expect(messengerSource).toContain(
+      'const notificationConversationId = hasAmbiguousConversationTarget',
+    );
+    expect(messengerSource).toContain(
+      '? `req-${parsedRequestDesignerId}`',
+    );
+    expect(messengerSource).toContain(
+      '? `dm-${parsedDirectConversationId}`',
+    );
+    expect(messengerSource).toContain(
+      "kind: 'request_chat' as const",
+    );
+    expect(messengerSource).toContain(
+      "kind: 'request_direct_chat' as const",
+    );
+    expect(messengerSource).toContain(
+      'conversation.id === notificationConversationId',
+    );
+    expect(messengerSource).toContain(
+      'setLoadedConversationId(conv.id)',
+    );
+    expect(messengerSource).toContain(
+      'loadedConversationId === notificationConversationId',
+    );
+    expect(messengerSource).toContain(
+      'useNotificationReceiptCompletion',
+    );
+  });
+
   it('collects designer attachment description and expiry metadata before upload', () => {
     expect(reviewSource).toContain('attachmentUploadDraft');
     expect(reviewSource).toContain('expiryDate: expiryDate || null');

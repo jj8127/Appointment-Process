@@ -3,26 +3,35 @@ import 'server-only';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { logger } from '@/lib/logger';
 import {
-  classifyDeliverySummary,
   classifyExpoResponse,
   type PushDeliveryFailure,
 } from '@/lib/push-notification-delivery-result';
 import { sendWebPush } from '@/lib/web-push';
+import type { NotificationTargetV1 } from '@/lib/notification-target';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXTERNAL_PUSH_TIMEOUT_MS = 8_000;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type PushPayload = {
   title: string;
   body: string;
+  target: NotificationTargetV1;
   data?: Record<string, unknown>;
   category?: string;
 };
 
 export type PushNotificationResult = {
   success: boolean;
-  warning: 'partial_failure' | 'no_target' | null;
+  warning: 'notification_persistence_incomplete' | null;
   error?: 'Notification delivery incomplete';
+  delivery: {
+    notificationStored: boolean;
+    pushStatus: 'accepted' | 'no_registered_device' | 'provider_rejected' | 'not_attempted';
+    retryable: boolean;
+    notificationId?: string;
+  };
   inbox: {
     attempted: boolean;
     logged: boolean;
@@ -44,13 +53,23 @@ export type PushNotificationResult = {
 
 export type NotificationPersistenceResult = {
   success: boolean;
+  notificationId: string | null;
+  delivery: {
+    notificationStored: boolean;
+    pushStatus: 'not_attempted';
+    retryable: boolean;
+    notificationId?: string;
+  };
   inbox: {
     attempted: boolean;
     logged: boolean;
   };
 };
 
-type MutablePushNotificationResult = Omit<PushNotificationResult, 'success' | 'warning' | 'error'>;
+type MutablePushNotificationResult = Omit<
+  PushNotificationResult,
+  'success' | 'warning' | 'error' | 'delivery'
+>;
 
 function createDeliveryResult(): MutablePushNotificationResult {
   return {
@@ -68,58 +87,122 @@ function addFailure(result: MutablePushNotificationResult, failure: PushDelivery
   }
 }
 
-function finalizeDeliveryResult(result: MutablePushNotificationResult): PushNotificationResult {
-  const summary = classifyDeliverySummary({
-    failures: result.failures,
-    expoTargets: result.expo.targets,
-    webTargets: result.web.targets,
-  });
+function finalizeDeliveryResult(
+  result: MutablePushNotificationResult,
+  notificationId?: string | null,
+): PushNotificationResult {
+  const notificationStored = result.inbox.logged;
+  const providerFailed = result.failures.some((failure) =>
+    failure === 'token_query_failed'
+    || failure === 'expo_http_failed'
+    || failure === 'expo_invalid_response'
+    || failure === 'expo_ticket_rejected'
+    || failure === 'web_subscription_query_failed'
+    || failure === 'web_delivery_failed'
+    || failure === 'unexpected_failure');
+  const targetCount = result.expo.targets + result.web.targets;
+  const pushStatus = !notificationStored
+    ? 'not_attempted' as const
+    : providerFailed
+      ? 'provider_rejected' as const
+      : targetCount === 0
+        ? 'no_registered_device' as const
+        : 'accepted' as const;
 
   return {
     ...result,
-    ...summary,
-    ...(summary.warning === null ? {} : { error: 'Notification delivery incomplete' as const }),
+    success: notificationStored,
+    warning: notificationStored ? null : 'notification_persistence_incomplete',
+    noTarget: targetCount === 0,
+    delivery: {
+      notificationStored,
+      pushStatus,
+      retryable: !notificationStored,
+      ...(notificationId ? { notificationId } : {}),
+    },
+    ...(notificationStored ? {} : { error: 'Notification delivery incomplete' as const }),
+  };
+}
+
+function buildPersistenceResult(
+  success: boolean,
+  notificationId: string | null,
+  inbox: NotificationPersistenceResult['inbox'],
+  retryable = !success,
+): NotificationPersistenceResult {
+  return {
+    success,
+    notificationId,
+    delivery: {
+      notificationStored: success,
+      pushStatus: 'not_attempted',
+      retryable,
+      ...(notificationId ? { notificationId } : {}),
+    },
+    inbox,
   };
 }
 
 async function persistNotification(
   userId: string,
+  recipientActorId: string,
   {
     title,
     body,
     data,
     category,
+    target,
   }: PushPayload,
   delivery: MutablePushNotificationResult,
-) {
+): Promise<string | null> {
   const targetUrl = typeof data?.url === 'string' ? data.url : null;
   const notificationBase = {
     title,
     body,
     recipient_role: 'fc',
     resident_id: userId,
+    recipient_actor_id: recipientActorId,
     ...(category ? { category } : {}),
   } as const;
 
   delivery.inbox.attempted = true;
-  let { error: notificationError } = await adminSupabase.from('notifications').insert({
+  let { data: inserted, error: notificationError } = await adminSupabase.from('notifications').insert({
     ...notificationBase,
     target_url: targetUrl,
-  });
+    target,
+  }).select('id').single();
 
   const missingTargetColumn =
     notificationError?.code === '42703' ||
     String(notificationError?.message ?? '').includes('target_url');
   if (missingTargetColumn) {
-    const fallback = await adminSupabase.from('notifications').insert(notificationBase);
+    const fallback = await adminSupabase.from('notifications')
+      .insert({ ...notificationBase, target })
+      .select('id')
+      .single();
     notificationError = fallback.error ?? null;
+    inserted = fallback.data;
   }
 
-  if (notificationError) {
+  const notificationId =
+    typeof inserted?.id === 'string' && inserted.id.trim() ? inserted.id.trim() : null;
+  if (notificationError || !notificationId) {
     addFailure(delivery, 'inbox_write_failed');
   } else {
     delivery.inbox.logged = true;
   }
+  return notificationId;
+}
+
+async function isCanonicalFcRecipient(userId: string, recipientActorId: string) {
+  if (!/^010\d{8}$/.test(userId) || !UUID_PATTERN.test(recipientActorId)) return false;
+  const { data, error } = await adminSupabase
+    .from('fc_profiles')
+    .select('id,phone')
+    .eq('id', recipientActorId)
+    .maybeSingle();
+  if (error || !data) return false;
+  return String(data.phone ?? '').replace(/\D/g, '') === userId;
 }
 
 async function deliverToRegisteredTargets(
@@ -128,9 +211,16 @@ async function deliverToRegisteredTargets(
     title,
     body,
     data,
+    target,
   }: PushPayload,
   delivery: MutablePushNotificationResult,
+  notificationId: string | null,
 ) {
+  const exactData = {
+    ...(data ?? {}),
+    target,
+    ...(notificationId ? { notificationId } : {}),
+  };
   try {
     const { data: tokens, error: tokensError } = await adminSupabase
       .from('device_tokens')
@@ -154,7 +244,7 @@ async function deliverToRegisteredTargets(
           to: token,
           title,
           body,
-          data,
+          data: exactData,
           sound: 'default',
           priority: 'high',
           channelId: 'alerts',
@@ -203,7 +293,7 @@ async function deliverToRegisteredTargets(
       delivery.web.targets = subscriptions?.length ?? 0;
       if (subscriptions && subscriptions.length > 0) {
         try {
-          const webResult = await sendWebPush(subscriptions, { title, body, data });
+          const webResult = await sendWebPush(subscriptions, { title, body, data: exactData });
           delivery.web.sent = webResult.sent;
           delivery.web.failed = webResult.failed;
           if (webResult.failed > 0) {
@@ -254,46 +344,72 @@ function logDeliveryResult(result: PushNotificationResult) {
 export async function persistNotificationToResident(
   userId: string,
   payload: PushPayload,
+  recipientActorId: string,
 ): Promise<NotificationPersistenceResult> {
   const delivery = createDeliveryResult();
 
-  if (!userId) {
+  if (!userId || !recipientActorId) {
     addFailure(delivery, 'missing_recipient');
-    return { success: false, inbox: delivery.inbox };
+    return buildPersistenceResult(false, null, delivery.inbox, false);
   }
 
   try {
-    await persistNotification(userId, payload, delivery);
+    if (!await isCanonicalFcRecipient(userId, recipientActorId)) {
+      addFailure(delivery, 'recipient_mismatch');
+      return buildPersistenceResult(false, null, delivery.inbox, false);
+    }
+    const notificationId = await persistNotification(
+      userId,
+      recipientActorId,
+      payload,
+      delivery,
+    );
+    const success = delivery.inbox.logged && delivery.failures.length === 0;
+    logger.info('[push-notification-service] inbox persistence completed', {
+      category: 'notification_inbox',
+      status: success ? 'persisted' : 'incomplete',
+      inboxLogged: delivery.inbox.logged,
+      failures: delivery.failures,
+    });
+    return buildPersistenceResult(success, notificationId, delivery.inbox);
   } catch {
     addFailure(delivery, 'unexpected_failure');
   }
-
-  const success = delivery.inbox.logged && delivery.failures.length === 0;
-  logger.info('[push-notification-service] inbox persistence completed', {
-    category: 'notification_inbox',
-    status: success ? 'persisted' : 'incomplete',
-    inboxLogged: delivery.inbox.logged,
-    failures: delivery.failures,
-  });
-  return { success, inbox: delivery.inbox };
+  return buildPersistenceResult(false, null, delivery.inbox);
 }
 
 export async function sendPushNotificationToResidentDevices(
   userId: string,
   payload: PushPayload,
+  notificationId: string | null,
+  recipientActorId: string,
 ): Promise<PushNotificationResult> {
   const delivery = createDeliveryResult();
 
-  if (!userId) {
+  if (!userId || !recipientActorId) {
     addFailure(delivery, 'missing_recipient');
     const result = finalizeDeliveryResult(delivery);
     logDeliveryResult(result);
     return result;
   }
+  if (!notificationId) {
+    addFailure(delivery, 'inbox_write_failed');
+    const result = finalizeDeliveryResult(delivery);
+    logDeliveryResult(result);
+    return result;
+  }
+  if (!await isCanonicalFcRecipient(userId, recipientActorId)) {
+    addFailure(delivery, 'recipient_mismatch');
+    const result = finalizeDeliveryResult(delivery);
+    logDeliveryResult(result);
+    return result;
+  }
 
-  await deliverToRegisteredTargets(userId, payload, delivery);
+  delivery.inbox.attempted = true;
+  delivery.inbox.logged = true;
+  await deliverToRegisteredTargets(userId, payload, delivery, notificationId);
 
-  const result = finalizeDeliveryResult(delivery);
+  const result = finalizeDeliveryResult(delivery, notificationId);
   logDeliveryResult(result);
   return result;
 }
@@ -301,10 +417,12 @@ export async function sendPushNotificationToResidentDevices(
 export async function sendPushNotificationToResident(
   userId: string,
   payload: PushPayload,
+  recipientActorId: string,
 ): Promise<PushNotificationResult> {
   const delivery = createDeliveryResult();
+  let notificationId: string | null = null;
 
-  if (!userId) {
+  if (!userId || !recipientActorId) {
     addFailure(delivery, 'missing_recipient');
     const result = finalizeDeliveryResult(delivery);
     logDeliveryResult(result);
@@ -312,13 +430,26 @@ export async function sendPushNotificationToResident(
   }
 
   try {
-    await persistNotification(userId, payload, delivery);
+    if (!await isCanonicalFcRecipient(userId, recipientActorId)) {
+      addFailure(delivery, 'recipient_mismatch');
+      const result = finalizeDeliveryResult(delivery);
+      logDeliveryResult(result);
+      return result;
+    }
+    notificationId = await persistNotification(
+      userId,
+      recipientActorId,
+      payload,
+      delivery,
+    );
+    if (delivery.inbox.logged && notificationId) {
+      await deliverToRegisteredTargets(userId, payload, delivery, notificationId);
+    }
   } catch {
     addFailure(delivery, 'unexpected_failure');
   }
-  await deliverToRegisteredTargets(userId, payload, delivery);
 
-  const result = finalizeDeliveryResult(delivery);
+  const result = finalizeDeliveryResult(delivery, notificationId);
   logDeliveryResult(result);
   return result;
 }

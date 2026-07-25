@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { sanitizeSentryContext } from './sentry-sanitize.ts';
+import {
+  sanitizeSentryContext,
+  shouldDropMessengerAttachmentReplayEvent,
+} from './sentry-sanitize.ts';
 
 test('web diagnostics redact sensitive values while preserving status and reason', () => {
   const bearerToken = 'eyJhbGciOiJIUzI1NiJ9.payloadpayload.signaturesignature';
@@ -44,4 +47,42 @@ test('web Error names are sanitized before logger and Sentry consumers receive t
   assert.equal(sanitized.name, 'Bearer [REDACTED]');
   assert.equal(sanitized.message, 'provider unavailable');
   assert.equal(sanitized.stack.includes('error-name-secret'), false);
+});
+
+test('web diagnostics remove messenger attachment signed URLs and tokens', () => {
+  const signedUrl =
+    'https://project.supabase.co/storage/v1/object/upload/sign/messenger-attachments-v2/private/file.pdf?token=secret-upload-token';
+  const sanitized = sanitizeSentryContext({
+    signedUrl,
+    breadcrumb: `upload failed ${signedUrl}`,
+  }) as Record<string, unknown>;
+  const serialized = JSON.stringify(sanitized);
+
+  assert.equal(sanitized.signedUrl, '[REDACTED]');
+  assert.equal(serialized.includes('secret-upload-token'), false);
+  assert.equal(serialized.includes('messenger-attachments-v2/private'), false);
+});
+
+test('web replay drops attachment proxy and signed storage request spans', () => {
+  const event = (description: string) => ({
+    data: {
+      tag: 'performanceSpan',
+      payload: {
+        op: 'resource.fetch',
+        description,
+      },
+    },
+  });
+
+  assert.equal(
+    shouldDropMessengerAttachmentReplayEvent(event('/api/messenger-attachments')),
+    true,
+  );
+  assert.equal(
+    shouldDropMessengerAttachmentReplayEvent(
+      event('https://project.supabase.co/storage/v1/object/upload/sign/private?token=secret'),
+    ),
+    true,
+  );
+  assert.equal(shouldDropMessengerAttachmentReplayEvent(event('/api/fc-notify')), false);
 });

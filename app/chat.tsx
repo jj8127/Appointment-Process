@@ -1,8 +1,7 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
+import { randomUUID } from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -15,6 +14,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -34,14 +34,44 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { goBackOrReplace } from '@/lib/back-navigation';
-import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
+import {
+  deleteGaraminDirectMessage,
+  fetchGaraminDirectMessages,
+  markGaraminDirectMessagesRead,
+  resolveGaraminDirectConversation,
+  sendGaraminDirectMessage,
+  type GaraminDirectMessageSendResult,
+} from '@/lib/direct-message-api';
 import { fetchFcChatTargets } from '@/lib/internal-chat-api';
 import { getChatTargetPickerHeaderConfig } from '@/lib/chat-navigation';
 import { logger } from '@/lib/logger';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import { isNotificationUuid } from '@/lib/notification-target';
+import {
+  hasConflictingRouteParams,
+  hasPresentRouteParam,
+  parseExactlyOneRouteString,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
 import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
 import { confirmMessengerDelete } from '@/lib/messenger-delete-actions';
 import { getDirectMessageUnreadCount } from '@/lib/message-read-receipts';
-import { openMessengerAttachment } from '@/lib/messenger-attachment-actions';
+import {
+  openAuthorizedMessengerAttachment,
+  openMessengerAttachment,
+} from '@/lib/messenger-attachment-actions';
+import {
+  appendMessengerAttachmentCandidates,
+  formatMessengerAttachmentSize,
+  isPreparedMessengerAttachmentBatchForDraft,
+  MESSENGER_ATTACHMENT_MIME_BY_EXTENSION,
+  prepareMessengerAttachmentBatch,
+  removeSelectedMessengerAttachment,
+  uploadMessengerAttachmentBatch,
+  type MessengerAttachmentMetadata,
+  type PreparedMessengerAttachmentBatch,
+  type SelectedMessengerAttachment,
+} from '@/lib/messenger-attachment-api';
 import {
   getLastMessageTimestamp,
   sortConversationsByLastMessageTime,
@@ -61,8 +91,8 @@ import {
 } from '@/lib/messenger-participants';
 import {
   getStaffChatActorId,
-  getStaffChatSenderName,
 } from '@/lib/staff-identity';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -70,10 +100,9 @@ const MUTED = '#6b7280';
 const SOFT_BG = '#F9FAFB';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const PRESENCE_POLL_INTERVAL_MS = 30_000;
-const CHAT_UPLOAD_BUCKET = 'chat-uploads';
+const DIRECT_MESSAGE_POLL_INTERVAL_MS = 4_000;
 const FILE_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.64, 260);
 const LEGACY_SESSION_ERROR = '세션이 오래되었습니다. 로그아웃 후 다시 로그인해주세요.';
-const MESSAGE_SELECT_COLUMNS = 'id,content,sender_id,receiver_id,created_at,is_read,message_type,file_url,file_name,file_size';
 const HEADER_AVATAR_COLORS = [
   '#3B82F6',
   '#10B981',
@@ -121,12 +150,14 @@ type Message = {
   content: string;
   sender_id: string;
   receiver_id: string;
+  conversation_id?: string | null;
   created_at: string;
   is_read: boolean;
   message_type?: 'text' | 'image' | 'file';
   file_url?: string | null;
   file_name?: string | null;
   file_size?: number | null;
+  attachments: MessengerAttachmentMetadata[];
 };
 
 const getMessageCopyText = (message: Message | null | undefined): string => {
@@ -134,6 +165,9 @@ const getMessageCopyText = (message: Message | null | undefined): string => {
 
   const content = String(message.content ?? '').trim();
   if (content) return content;
+  if (message.attachments.length > 0) {
+    return message.attachments.map((attachment) => attachment.name).join('\n');
+  }
   return String(message.file_url ?? '').trim();
 };
 
@@ -191,6 +225,16 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
       || (a.file_url ?? null) !== (b.file_url ?? null)
       || (a.file_name ?? null) !== (b.file_name ?? null)
       || (a.file_size ?? null) !== (b.file_size ?? null)
+      || a.attachments.length !== b.attachments.length
+      || a.attachments.some((attachment, index) => {
+        const other = b.attachments[index];
+        return !other
+          || attachment.id !== other.id
+          || attachment.name !== other.name
+          || attachment.size !== other.size
+          || attachment.mimeType !== other.mimeType
+          || attachment.sha256 !== other.sha256;
+      })
     ) {
       return false;
     }
@@ -200,18 +244,35 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { role, residentId, displayName, readOnly, logout, staffType } = useSession();
-  const { targetId, targetName } = useLocalSearchParams<{
+  const { role, residentId, readOnly, logout, staffType } = useSession();
+  const {
+    targetId,
+    targetName,
+    conversationId,
+    notificationId,
+    notificationTarget,
+  } = useLocalSearchParams<{
     targetId?: string | string[];
     targetName?: string | string[];
+    conversationId?: string | string[];
+    notificationId?: string | string[];
+    notificationTarget?: string | string[];
   }>();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
   const bottomSafeInset = Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 12);
   const pickerListBottomPadding = bottomSafeInset + 24;
   const targetPickerHeader = getChatTargetPickerHeaderConfig();
-  const targetIdValue = Array.isArray(targetId) ? targetId[0] : targetId;
-  const targetNameValue = Array.isArray(targetName) ? targetName[0] : targetName;
+  const targetIdValue = parseExactlyOneRouteString(targetId) ?? undefined;
+  const targetNameValue =
+    parseExactlyOneRouteString(targetName) ?? undefined;
+  const conversationIdValue =
+    parseExactlyOneUuidRouteParam(conversationId) ?? '';
+  const hasAmbiguousConversationParams =
+    hasConflictingRouteParams(targetId, conversationId)
+    || (hasPresentRouteParam(targetId) && !targetIdValue)
+    || (hasPresentRouteParam(conversationId) && !conversationIdValue)
+    || (hasPresentRouteParam(targetName) && !targetNameValue);
 
   const myId = role === 'admin'
     ? getStaffChatActorId({ residentId, readOnly, staffType })
@@ -219,7 +280,17 @@ export default function ChatScreen() {
   const normalizedTargetId = (targetIdValue ?? '').trim().toLowerCase() === ADMIN_CHAT_ID
     ? ADMIN_CHAT_ID
     : sanitizePhone(targetIdValue);
-  const otherId = normalizedTargetId;
+  const [resolvedConversation, setResolvedConversation] = useState<{
+    id: string;
+    counterpartyId: string;
+    counterpartyName: string | null;
+  } | null>(null);
+  const [conversationResolutionState, setConversationResolutionState] =
+    useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [conversationResolutionError, setConversationResolutionError] =
+    useState('');
+  const [conversationRetryKey, setConversationRetryKey] = useState(0);
+  const otherId = resolvedConversation?.counterpartyId ?? normalizedTargetId;
   const [resolvedTargetName, setResolvedTargetName] = useState('');
   const [fcTargets, setFcTargets] = useState<FcChatTarget[]>([]);
   const [targetsLoading, setTargetsLoading] = useState(false);
@@ -228,7 +299,8 @@ export default function ChatScreen() {
   const selectedFcTarget = role === 'fc'
     ? fcTargets.find((target) => target.id === otherId) ?? null
     : null;
-  const showFcTargetPicker = role === 'fc' && !otherId;
+  const showFcTargetPicker =
+    role === 'fc' && !otherId && !conversationIdValue;
   const headerTitle = role === 'admin'
     ? resolvedTargetName || targetIdValue || 'FC'
     : targetNameValue?.trim() || selectedFcTarget?.label || '메신저';
@@ -261,12 +333,20 @@ export default function ChatScreen() {
   );
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messageLoadState, setMessageLoadState] =
+    useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [messageLoadError, setMessageLoadError] = useState('');
   const [actionMessage, setActionMessage] = useState<Message | null>(null);
   const [selectCopyMessage, setSelectCopyMessage] = useState<Message | null>(null);
   const [text, setText] = useState('');
-  const [uploading, setUploading] = useState(false);
+  const [selectedAttachments, setSelectedAttachments] = useState<
+    SelectedMessengerAttachment[]
+  >([]);
+  const [sendingAttachments, setSendingAttachments] = useState(false);
   const pickingRef = useRef(false);
-  const isUploadCancelled = useRef(false);
+  const attachmentBatchRef = useRef<PreparedMessengerAttachmentBatch | null>(
+    null,
+  );
   const flatListRef = useRef<FlatList>(null);
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const messagesRef = useRef<Message[]>([]);
@@ -340,29 +420,29 @@ export default function ChatScreen() {
         content,
         sender_id: myId,
         receiver_id: otherId,
+        conversation_id: resolvedConversation?.id ?? null,
         created_at: new Date().toISOString(),
         is_read: false,
         message_type: type,
         file_url: fileData?.url ?? null,
         file_name: fileData?.name ?? null,
         file_size: fileData?.size ?? null,
+        attachments: [],
       };
     },
-    [myId, otherId],
+    [myId, otherId, resolvedConversation?.id],
   );
 
   const markIncomingAsRead = useCallback(async () => {
-    if (!myId || !otherId) return false;
+    if (!myId || !otherId || !resolvedConversation?.id) return false;
 
-    const { error } = await supabase
-      .from('messages')
-      .update({ is_read: true })
-      .eq('sender_id', otherId)
-      .eq('receiver_id', myId)
-      .eq('is_read', false);
-
-    if (error) {
-      logger.debug('[chat] mark read failed', { error: error.message, myId, otherId });
+    try {
+      await markGaraminDirectMessagesRead(resolvedConversation.id);
+    } catch (error) {
+      logger.debug('[chat] mark read failed', {
+        error: error instanceof Error ? error.message : String(error),
+        conversationId: resolvedConversation.id,
+      });
       return false;
     }
 
@@ -375,7 +455,7 @@ export default function ChatScreen() {
     messagesRef.current = updated;
     setMessages(updated);
     return true;
-  }, [myId, otherId]);
+  }, [myId, otherId, resolvedConversation?.id]);
 
   const loadFcTargets = useCallback(async () => {
     if (role !== 'fc') return;
@@ -475,83 +555,125 @@ export default function ChatScreen() {
     }
   }, [residentId, role]);
 
-  const fetchMessages = useCallback(async () => {
-    if (!myId || !otherId) return;
-    const { data, error } = await supabase
-      .from('messages')
-      .select(MESSAGE_SELECT_COLUMNS)
-      .or(`and(sender_id.eq.${myId},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${myId})`)
-      .order('created_at', { ascending: false });
-    if (error) {
-      logger.debug('[messages] fetch error', { error: error.message });
+  useEffect(() => {
+    const hasConversationRoute = Boolean(conversationIdValue);
+    const hasAmbiguousConversationRoute = Boolean(
+      hasAmbiguousConversationParams
+      || (hasConversationRoute && normalizedTargetId),
+    );
+    if (hasAmbiguousConversationRoute) {
+      setResolvedConversation(null);
+      setConversationResolutionState('error');
+      setConversationResolutionError('대화 대상이 중복되어 열 수 없습니다.');
       return;
     }
-    const filtered = (data ?? []).filter((m) => !deletedIdsRef.current.has(m.id));
-    applyMessages(filtered as Message[]);
-
-    const hasUnreadIncoming = filtered.some(
-      (message) => message.sender_id === otherId && message.receiver_id === myId && !message.is_read,
-    );
-    if (hasUnreadIncoming) {
-      await markIncomingAsRead();
+    if (!hasConversationRoute && !normalizedTargetId) {
+      setResolvedConversation(null);
+      setConversationResolutionState('idle');
+      setConversationResolutionError('');
+      return;
     }
-  }, [applyMessages, markIncomingAsRead, myId, otherId]);
+    if (
+      hasConversationRoute
+      && !isNotificationUuid(conversationIdValue)
+    ) {
+      setResolvedConversation(null);
+      setConversationResolutionState('error');
+      setConversationResolutionError('알림의 대상 대화를 열 수 없습니다.');
+      return;
+    }
 
-  useEffect(() => {
-    if (!myId || !otherId) return;
+    let active = true;
+    setConversationResolutionState('loading');
+    setConversationResolutionError('');
+    setResolvedConversation(null);
 
-    void fetchMessages();
-
-    const channel = supabase
-      .channel(`chat-${myId}-${otherId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
-        (payload) => {
-          if (payload.eventType === 'DELETE') {
-            const deletedId = (payload as any).old?.id;
-            if (deletedId) {
-              deletedIdsRef.current.add(deletedId);
-              const next = messagesRef.current.filter((m) => m.id !== deletedId);
-              messagesRef.current = next;
-              setMessages(next);
-              return;
-            }
-            // old 정보가 없으면 전체 재조회
-            void fetchMessages();
-            return;
-          }
-          const newMsg = payload.new as Message;
-          if (deletedIdsRef.current.has(newMsg.id)) return;
-          const related =
-            (newMsg.sender_id === myId && newMsg.receiver_id === otherId) ||
-            (newMsg.sender_id === otherId && newMsg.receiver_id === myId);
-          if (!related) return;
-
-          if (payload.eventType === 'INSERT') {
-            applyMessages(
-              messagesRef.current.some((m) => m.id === newMsg.id)
-                ? messagesRef.current
-                : [newMsg, ...messagesRef.current],
-            );
-            if (newMsg.sender_id === otherId) {
-              void markIncomingAsRead();
-            }
-          } else if (payload.eventType === 'UPDATE') {
-            applyMessages(messagesRef.current.map((m) => (m.id === newMsg.id ? newMsg : m)));
-          }
-        },
-      )
-      .subscribe();
+    void (async () => {
+      try {
+        const conversation = await resolveGaraminDirectConversation(
+          hasConversationRoute
+            ? { conversationId: conversationIdValue }
+            : {
+                targetId:
+                  role === 'fc' ? null : normalizedTargetId,
+              },
+        );
+        if (!active) return;
+        setResolvedConversation(conversation);
+        if (conversation.counterpartyName) {
+          setResolvedTargetName(conversation.counterpartyName);
+        }
+        setConversationResolutionState('success');
+      } catch {
+        if (!active) return;
+        setConversationResolutionState('error');
+        setConversationResolutionError(
+          '대상 대화를 열 수 없습니다. 다시 시도해 주세요.',
+        );
+      }
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      active = false;
     };
-  }, [applyMessages, fetchMessages, markIncomingAsRead, myId, otherId]);
+  }, [
+    conversationIdValue,
+    conversationRetryKey,
+    normalizedTargetId,
+    role,
+    hasAmbiguousConversationParams,
+  ]);
+
+  const fetchMessages = useCallback(async () => {
+    if (!myId || !otherId || !resolvedConversation?.id) return;
+    setMessageLoadState('loading');
+    setMessageLoadError('');
+    try {
+      const result = await fetchGaraminDirectMessages(
+        resolvedConversation.id,
+      );
+      if (result.conversation.counterpartyId !== otherId) {
+        throw new Error('대화 상대가 일치하지 않습니다.');
+      }
+      const filtered = result.messages.filter(
+        (message) => !deletedIdsRef.current.has(message.id),
+      );
+      applyMessages(filtered);
+
+      const hasUnreadIncoming = filtered.some(
+        (message) =>
+          message.sender_id === otherId
+          && message.receiver_id === myId
+          && !message.is_read,
+      );
+      if (hasUnreadIncoming) {
+        await markIncomingAsRead();
+      }
+      setMessageLoadState('success');
+    } catch (error) {
+      logger.debug('[messages] fetch error', {
+        error: error instanceof Error ? error.message : String(error),
+        conversationId: resolvedConversation.id,
+      });
+      setMessageLoadState('error');
+      setMessageLoadError('대화 내용을 불러오지 못했습니다.');
+    }
+  }, [
+    applyMessages,
+    markIncomingAsRead,
+    myId,
+    otherId,
+    resolvedConversation?.id,
+  ]);
 
   useEffect(() => {
-    if (!myId || !otherId) return;
+    if (!myId || !otherId || !resolvedConversation?.id) return;
 
+    void fetchMessages();
+    const intervalId = setInterval(
+      () => void fetchMessages(),
+      DIRECT_MESSAGE_POLL_INTERVAL_MS,
+    );
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         void fetchMessages();
@@ -559,9 +681,15 @@ export default function ChatScreen() {
     });
 
     return () => {
+      clearInterval(intervalId);
       appStateSub.remove();
     };
-  }, [fetchMessages, myId, otherId]);
+  }, [
+    fetchMessages,
+    myId,
+    otherId,
+    resolvedConversation?.id,
+  ]);
 
   useFocusEffect(
     useCallback(() => {
@@ -573,25 +701,19 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (role !== 'fc' || !myId || !showFcTargetPicker) return;
-
-    const channel = supabase
-      .channel(`chat-target-unread-${myId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'messages',
-          filter: `receiver_id=eq.${myId}`,
-        },
-        () => {
-          void loadFcTargets();
-        },
-      )
-      .subscribe();
+    const intervalId = setInterval(
+      () => void loadFcTargets(),
+      DIRECT_MESSAGE_POLL_INTERVAL_MS,
+    );
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void loadFcTargets();
+      }
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(intervalId);
+      appStateSub.remove();
     };
   }, [loadFcTargets, myId, role, showFcTargetPicker]);
 
@@ -649,228 +771,336 @@ export default function ChatScreen() {
     })();
   }, []);
 
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: isNotificationUuid(conversationIdValue)
+      ? {
+          version: 1,
+          kind: 'garamin_direct_chat',
+          conversationId: conversationIdValue,
+        }
+      : null,
+    loadState:
+      hasAmbiguousConversationParams
+      || Boolean(conversationIdValue && normalizedTargetId)
+      || !isNotificationUuid(conversationIdValue)
+      || conversationResolutionState === 'error'
+      || messageLoadState === 'error'
+        ? 'error'
+        : conversationResolutionState === 'success'
+          && resolvedConversation?.id === conversationIdValue
+          && messageLoadState === 'success'
+          ? 'success'
+          : 'loading',
+  });
+
   const sendPayload = async (
     content: string,
-    type: 'text' | 'image' | 'file' = 'text',
-    fileData?: { url: string; name: string; size?: number },
+    attachments: readonly SelectedMessengerAttachment[],
   ) => {
     if (!myId || !otherId) {
       if (role === 'fc') {
         Alert.alert('대상 선택 필요', '메신저에서 대화할 대상을 먼저 선택해주세요.');
       }
-      return;
+      return false;
     }
-    if (isUploadCancelled.current) return;
+    if (!resolvedConversation?.id) {
+      Alert.alert(
+        '대화 연결 중',
+        '대화 연결이 완료된 뒤 다시 전송해 주세요.',
+      );
+      return false;
+    }
 
-    const optimisticMessage = createOptimisticMessage(content, type, fileData);
+    let attachmentBatch: Awaited<
+      ReturnType<typeof prepareMessengerAttachmentBatch>
+    > | null = null;
+    try {
+      if (attachments.length > 0) {
+        const draft = {
+          files: attachments,
+          context: {
+            kind: 'direct' as const,
+            conversationId: resolvedConversation.id,
+          },
+          content,
+        };
+        attachmentBatch =
+          isPreparedMessengerAttachmentBatchForDraft(
+            attachmentBatchRef.current,
+            draft,
+          )
+            ? attachmentBatchRef.current
+            : await prepareMessengerAttachmentBatch(draft);
+        attachmentBatchRef.current = attachmentBatch;
+      }
+    } catch (error) {
+      Alert.alert(
+        '파일 확인 필요',
+        error instanceof Error ? error.message : '첨부 파일을 확인해 주세요.',
+      );
+      return false;
+    }
+
+    const optimisticContent =
+      content
+      || (attachments.length > 0
+        ? `파일 ${attachments.length}개 전송 중`
+        : '');
+    const optimisticMessage = createOptimisticMessage(
+      optimisticContent,
+      attachments.length > 0 ? 'file' : 'text',
+    );
     if (optimisticMessage) {
       applyMessages([optimisticMessage, ...messagesRef.current]);
     }
 
-    const { data: inserted, error } = await supabase
-      .from('messages')
-      .insert({
-        sender_id: myId,
-        receiver_id: otherId,
+    const clientMessageId = randomUUID();
+    let uploadedIntentIds: string[] | null = null;
+    const sendCommittedMessage = (
+      attachmentIntentIds: readonly string[] | null,
+    ) =>
+      sendGaraminDirectMessage({
+        conversationId: resolvedConversation.id,
+        clientMessageId,
         content,
-        message_type: type,
-        file_url: fileData?.url ?? null,
-        file_name: fileData?.name ?? null,
-        file_size: fileData?.size ?? null,
-      })
-      .select(MESSAGE_SELECT_COLUMNS)
-      .single();
-
-    if (error) {
-      if (optimisticMessage) {
-        applyMessages(messagesRef.current.filter((message) => message.id !== optimisticMessage.id));
+        ...(attachmentBatch && attachmentIntentIds
+          ? {
+              attachmentIntentIds,
+              deliveryKey: attachmentBatch.deliveryKey,
+              payloadFingerprint: attachmentBatch.payloadFingerprint,
+            }
+          : {}),
+      });
+    const commitMessage = async (): Promise<
+      | { state: 'sent'; result: GaraminDirectMessageSendResult }
+      | { state: 'committed' }
+    > => {
+      if (!attachmentBatch) {
+        return { state: 'sent', result: await sendCommittedMessage(null) };
       }
-      logger.warn('sendMessage error', { error: error.message });
-      Alert.alert('전송 실패', '메시지를 보내지 못했습니다.');
-      return;
+      const uploadResult = await uploadMessengerAttachmentBatch(
+        attachmentBatch,
+      );
+      if (uploadResult.state === 'committed') {
+        return { state: 'committed' };
+      }
+      uploadedIntentIds = uploadResult.intentIds;
+      return {
+        state: 'sent',
+        result: await sendCommittedMessage(uploadedIntentIds),
+      };
+    };
+    const commitMessageWithRetry = async (): Promise<
+      Awaited<ReturnType<typeof commitMessage>> | null
+    > => {
+      try {
+        return await commitMessage();
+      } catch (error) {
+        logger.warn('sendMessage error', {
+          error: error instanceof Error ? error.message : String(error),
+          conversationId: resolvedConversation.id,
+          clientMessageId,
+        });
+        return new Promise((resolve) => {
+          Alert.alert(
+            '전송 확인 필요',
+            '메시지 전송 결과를 확인하지 못했습니다. 같은 요청으로 다시 확인하면 중복 전송되지 않습니다.',
+            [
+              { text: '취소', style: 'cancel', onPress: () => resolve(null) },
+              {
+                text: '다시 확인',
+                onPress: () => {
+                  void commitMessageWithRetry().then(resolve);
+                },
+              },
+            ],
+            { cancelable: false },
+          );
+        });
+      }
+    };
+    const commitResult = await commitMessageWithRetry();
+    if (!commitResult) {
+      if (optimisticMessage) {
+        applyMessages(
+          messagesRef.current.filter(
+            (message) => message.id !== optimisticMessage.id,
+          ),
+        );
+      }
+      return false;
     }
-    if (inserted && !deletedIdsRef.current.has(inserted.id)) {
+    if (commitResult.state === 'committed') {
+      if (optimisticMessage) {
+        applyMessages(
+          messagesRef.current.filter(
+            (message) => message.id !== optimisticMessage.id,
+          ),
+        );
+      }
+      await fetchMessages();
+      attachmentBatchRef.current = null;
+      return true;
+    }
+    const sendResult = commitResult.result;
+    const inserted: Message = sendResult.message;
+    if (!deletedIdsRef.current.has(inserted.id)) {
       applyMessages([
-        inserted as Message,
+        inserted,
         ...messagesRef.current.filter((message) =>
           message.id !== optimisticMessage?.id && message.id !== inserted.id
         ),
       ]);
     }
 
-    const isSenderStaff = role === 'admin';
-    const recipientRole: 'admin' | 'fc' = isSenderStaff ? 'fc' : 'admin';
-    const residentIdForPush = otherId || null;
-    const notiBody = type === 'text' ? content : type === 'image' ? '사진을 보냈습니다.' : '파일을 보냈습니다.';
-    const senderName = role === 'admin'
-      ? getStaffChatSenderName({ displayName, residentId, readOnly, staffType })
-      : displayName?.trim() || residentId || 'FC';
-    const notiTitle = `${senderName}: ${notiBody}`;
-    const notifyUrl = `/chat?targetId=${encodeURIComponent(myId)}&targetName=${encodeURIComponent(senderName)}`;
-
-    const notificationDelivery = await invokeFcNotifyForDelivery({
-        type: 'notify',
-        target_role: recipientRole,
-        target_id: residentIdForPush,
-        title: notiTitle,
-        body: notiBody,
-        category: 'message',
-        url: notifyUrl,
-        sender_id: myId,
-        sender_name: senderName,
-    });
-    if (!notificationDelivery.confirmed) {
-      logger.warn('[chat] message notification unconfirmed', {
-        reason: notificationDelivery.reason,
-      });
+    const retryNotificationOnly = async (): Promise<void> => {
+      try {
+        const retryResult = await sendCommittedMessage(uploadedIntentIds);
+        const retryDelivery = retryResult.delivery;
+        if (
+          !retryDelivery.confirmed
+          && retryDelivery.reason === 'invalid_recipient'
+        ) {
+          Alert.alert(
+            '알림 대상 오류',
+            '메시지는 전송됐지만 알림을 받을 사용자를 확인할 수 없습니다.',
+          );
+          return;
+        }
+        if (
+          !retryDelivery.confirmed
+          && retryDelivery.notificationStored === false
+        ) {
+          Alert.alert(
+            '알림 등록 실패',
+            '메시지는 전송됐지만 알림을 다시 등록하지 못했습니다.',
+            [
+              { text: '나중에' },
+              {
+                text: '다시 등록',
+                onPress: () => void retryNotificationOnly(),
+              },
+            ],
+          );
+          return;
+        }
+        Alert.alert('알림 등록 완료', '메시지 알림을 등록했습니다.');
+      } catch (error) {
+        logger.warn('[chat] notification retry result unavailable', {
+          error: error instanceof Error ? error.message : String(error),
+          conversationId: resolvedConversation.id,
+          clientMessageId,
+        });
+        Alert.alert(
+          '알림 등록 확인 필요',
+          '알림 등록 결과를 확인하지 못했습니다. 같은 요청으로 다시 확인해도 메시지는 중복 전송되지 않습니다.',
+          [
+            { text: '나중에' },
+            {
+              text: '다시 확인',
+              onPress: () => void retryNotificationOnly(),
+            },
+          ],
+        );
+      }
+    };
+    const notificationDelivery = sendResult.delivery;
+    if (
+      !notificationDelivery.confirmed
+      && notificationDelivery.reason === 'invalid_recipient'
+    ) {
+      Alert.alert(
+        '메시지 전송 완료 · 알림 대상 오류',
+        '메시지는 전송됐지만 알림을 받을 사용자를 확인할 수 없습니다.',
+      );
+    } else if (
+      !notificationDelivery.confirmed
+      && notificationDelivery.notificationStored === false
+    ) {
+      Alert.alert(
+        '메시지 전송 완료 · 알림 등록 실패',
+        '메시지는 전송됐지만 알림을 등록하지 못했습니다.',
+        [
+          { text: '나중에' },
+          {
+            text: '알림 다시 등록',
+            onPress: () => void retryNotificationOnly(),
+          },
+        ],
+      );
     }
+    attachmentBatchRef.current = null;
+    return true;
   };
 
   const handleSendText = () => {
-    if (!text.trim()) return;
-    isUploadCancelled.current = false;
-    sendPayload(text.trim(), 'text');
-    setText('');
+    const content = text.trim();
+    const attachments = selectedAttachments;
+    if ((!content && attachments.length === 0) || sendingAttachments) return;
+    setSendingAttachments(true);
+    void sendPayload(content, attachments)
+      .then((sent) => {
+        if (!sent) return;
+        setText('');
+        setSelectedAttachments([]);
+      })
+      .finally(() => setSendingAttachments(false));
   };
 
-  const uploadToSupabase = async (uri: string, fileType: string) => {
-    try {
-      isUploadCancelled.current = false;
-      setUploading(true);
-      const ext = uri.split('.').pop()?.toLowerCase() ?? 'bin';
-      const fileName = `chat/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-
-      const uploadMimeType = fileType?.trim() || 'application/octet-stream';
-      if (Platform.OS === 'web') {
-        const localFileResponse = await fetch(uri);
-        if (!localFileResponse.ok) {
-          throw new Error(`파일을 읽지 못했습니다. (${localFileResponse.status})`);
-        }
-        const fileBlob = await localFileResponse.blob();
-        const byteArray = new Uint8Array(await fileBlob.arrayBuffer());
-
-        const { error } = await supabase.storage.from(CHAT_UPLOAD_BUCKET).upload(fileName, byteArray, {
-          contentType: uploadMimeType,
-          upsert: false,
-        });
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.storage
-          .from(CHAT_UPLOAD_BUCKET)
-          .createSignedUploadUrl(fileName);
-        if (error || !data?.signedUrl) {
-          throw error ?? new Error('Signed upload URL 생성 실패');
-        }
-
-        const uploadResult = await FileSystem.uploadAsync(data.signedUrl, uri, {
-          httpMethod: 'PUT',
-          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-          headers: { 'Content-Type': uploadMimeType },
-        });
-
-        if (uploadResult.status < 200 || uploadResult.status >= 300) {
-          throw new Error(`업로드 실패 (status ${uploadResult.status})`);
-        }
-      }
-
-      if (isUploadCancelled.current) return null;
-
-      const { data: urlData } = supabase.storage.from(CHAT_UPLOAD_BUCKET).getPublicUrl(fileName);
-      return urlData.publicUrl;
-    } catch (e) {
-      if (isUploadCancelled.current) return null;
-      logger.error('File upload error', { error: e });
-      Alert.alert('업로드 실패', '파일 업로드 중 오류가 발생했습니다.');
-      return null;
-    } finally {
-      if (!isUploadCancelled.current) setUploading(false);
-    }
-  };
-
-  const pickImage = async () => {
-    if (Platform.OS === 'ios') {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('사진 접근 권한 필요', '설정 > 가람in > 사진 접근을 허용해 주세요.');
-        return;
-      }
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      quality: 0.8,
-    });
-
-    if (!result.canceled) {
-      const asset = result.assets[0];
-      const publicUrl = await uploadToSupabase(asset.uri, asset.mimeType ?? 'image/jpeg');
-      if (publicUrl && !isUploadCancelled.current) {
-        await sendPayload('사진을 보냈습니다.', 'image', {
-          url: publicUrl,
-          name: asset.fileName ?? 'image.jpg',
-          size: asset.fileSize,
-        });
-      }
-    }
-  };
-
-  const pickDocument = async () => {
-    if (pickingRef.current) return;
+  const handleAttachment = async () => {
+    if (pickingRef.current || sendingAttachments) return;
     pickingRef.current = true;
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
+        type: Array.from(
+          new Set(Object.values(MESSENGER_ATTACHMENT_MIME_BY_EXTENSION)),
+        ),
         copyToCacheDirectory: true,
+        multiple: true,
+        base64: false,
       });
-
-      if (!result.canceled) {
-        const file = result.assets[0];
-        const publicUrl = await uploadToSupabase(file.uri, file.mimeType ?? 'application/octet-stream');
-        if (publicUrl && !isUploadCancelled.current) {
-          await sendPayload(file.name, 'file', {
-            url: publicUrl,
-            name: file.name,
-            size: file.size,
-          });
-        }
-      }
-    } catch (e) {
-      logger.debug('Image picker error', { error: e });
+      if (result.canceled) return;
+      const next = await appendMessengerAttachmentCandidates(
+        selectedAttachments,
+        result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.name,
+          size: asset.size,
+          mimeType: asset.mimeType,
+          webFile: asset.file,
+        })),
+      );
+      setSelectedAttachments(next);
+    } catch (error) {
+      Alert.alert(
+        '파일 선택 실패',
+        error instanceof Error ? error.message : '파일을 선택하지 못했습니다.',
+      );
     } finally {
       pickingRef.current = false;
     }
   };
 
-  const handleAttachment = () => {
-    Alert.alert('파일 전송', '어떤 파일을 보내시겠습니까?', [
-      { text: '사진 보관함', onPress: pickImage },
-      { text: '문서 (PDF 등)', onPress: pickDocument },
-      { text: '취소', style: 'cancel' },
-    ]);
-  };
-
-  const handleCancelUpload = () => {
-    isUploadCancelled.current = true;
-    setUploading(false);
-  };
-
   const handleDeleteMessage = (message: Message) => {
-    if (message.sender_id !== myId) return;
+    if (
+      message.sender_id !== myId
+      || !resolvedConversation?.id
+      || !isNotificationUuid(message.id)
+    ) {
+      return;
+    }
     confirmMessengerDelete({
       logScope: 'chat',
       onDelete: async () => {
-        const { data: authRes } = await supabase.auth.getUser();
         logger.debug('[delete] request', {
-          authUserId: authRes?.user?.id,
-          myId,
+          conversationId: resolvedConversation.id,
           msgId: message.id,
-          senderId: message.sender_id,
         });
-        const { error } = await supabase.from('messages').delete().eq('id', message.id);
-        if (error) {
-          logger.debug('[delete] supabase error', { error });
-          throw error;
-        }
+        await deleteGaraminDirectMessage({
+          conversationId: resolvedConversation.id,
+          messageId: message.id,
+        });
 
         logger.debug('[delete] success', { messageId: message.id });
         deletedIdsRef.current.add(message.id);
@@ -937,6 +1167,79 @@ export default function ChatScreen() {
   }, [router, targetPickerHeader.fallbackHref]);
 
   const renderMessageContent = (item: Message, isMe: boolean) => {
+    if (item.attachments.length > 0) {
+      return (
+        <View style={styles.attachmentMessageContent}>
+          {item.content ? (
+            <LinkifiedSelectableText
+              text={item.content}
+              style={[
+                styles.msgText,
+                isMe ? styles.msgTextMe : styles.msgTextOther,
+                { textAlign: 'left', width: '100%' },
+              ]}
+              linkStyle={styles.msgLinkText}
+              linkPressBehavior="open"
+            />
+          ) : null}
+          {item.attachments.map((attachment) => (
+            <TouchableOpacity
+              key={attachment.id}
+              style={[
+                styles.fileCard,
+                isMe ? styles.fileCardMe : styles.fileCardOther,
+              ]}
+              onPress={() => {
+                void openAuthorizedMessengerAttachment(attachment.id, {
+                  logScope: 'chat',
+                });
+              }}
+              activeOpacity={0.82}
+            >
+              <View style={[
+                styles.fileIconBox,
+                isMe ? styles.fileIconBoxMe : styles.fileIconBoxOther,
+              ]}>
+                <Ionicons
+                  name={attachment.mimeType.startsWith('image/')
+                    ? 'image-outline'
+                    : 'document-text'}
+                  size={22}
+                  color={isMe ? '#fff' : HANWHA_ORANGE}
+                />
+              </View>
+              <View style={styles.fileTextWrap}>
+                <Text
+                  style={[
+                    styles.fileName,
+                    isMe ? styles.fileNameMe : styles.fileNameOther,
+                  ]}
+                  numberOfLines={2}
+                  ellipsizeMode="tail"
+                >
+                  {attachment.name}
+                </Text>
+                <Text
+                  style={[
+                    styles.fileHint,
+                    isMe ? styles.fileHintMe : styles.fileHintOther,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {formatMessengerAttachmentSize(attachment.size)} · 탭하여 열기
+                </Text>
+              </View>
+              <Feather
+                name="download"
+                size={15}
+                color={isMe ? 'rgba(255,255,255,0.82)' : '#9CA3AF'}
+              />
+            </TouchableOpacity>
+          ))}
+        </View>
+      );
+    }
+
     if (item.message_type === 'image' && item.file_url) {
       return (
         <TouchableOpacity
@@ -1194,6 +1497,10 @@ export default function ChatScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar style="dark" backgroundColor="#fff" />
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={notificationReceipt.retryMarkRead}
+      />
       <View style={[styles.conversationHeader, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
         <Pressable style={styles.backBtn} onPress={handleBack}>
           <Feather name="arrow-left" size={22} color={CHARCOAL} />
@@ -1239,6 +1546,28 @@ export default function ChatScreen() {
         </View>
         <View style={styles.backBtn} />
       </View>
+      {conversationResolutionState === 'error' || messageLoadState === 'error' ? (
+        <View style={styles.targetIntroCard}>
+          <Text style={styles.targetHelperText}>
+            {conversationResolutionError || messageLoadError}
+          </Text>
+          <Pressable
+            style={({ pressed }) => [
+              styles.retryButton,
+              pressed && { opacity: 0.9 },
+            ]}
+            onPress={() => {
+              if (conversationResolutionState === 'error') {
+                setConversationRetryKey((current) => current + 1);
+                return;
+              }
+              void fetchMessages();
+            }}
+          >
+            <Text style={styles.retryButtonText}>다시 시도</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -1256,23 +1585,6 @@ export default function ChatScreen() {
           keyboardDismissMode="interactive"
         />
 
-        {uploading && (
-          <View
-            style={[
-              styles.uploadingOverlay,
-              {
-                bottom: 68 + bottomSafeInset + (Platform.OS === 'android' ? keyboardPadding : 0),
-              },
-            ]}>
-            <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
-            <Text style={styles.uploadingText}>파일 전송 중...</Text>
-            <TouchableOpacity onPress={handleCancelUpload} style={styles.cancelUploadBtn} activeOpacity={0.8}>
-              <Ionicons name="close-circle" size={20} color="#666" />
-              <Text style={styles.cancelUploadText}>취소</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
         <View
           style={[
             styles.inputWrapper,
@@ -1280,8 +1592,61 @@ export default function ChatScreen() {
               paddingBottom: bottomSafeInset + (Platform.OS === 'android' ? keyboardPadding : 0),
             },
           ]}>
+          {selectedAttachments.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.selectedAttachmentList}
+              keyboardShouldPersistTaps="handled"
+            >
+              {selectedAttachments.map((attachment) => (
+                <View
+                  key={attachment.clientFileId}
+                  style={styles.selectedAttachmentChip}
+                >
+                  <Ionicons
+                    name={attachment.mimeType.startsWith('image/')
+                      ? 'image-outline'
+                      : 'document-text-outline'}
+                    size={17}
+                    color={HANWHA_ORANGE}
+                  />
+                  <View style={styles.selectedAttachmentTextWrap}>
+                    <Text style={styles.selectedAttachmentName} numberOfLines={1}>
+                      {attachment.name}
+                    </Text>
+                    <Text style={styles.selectedAttachmentSize}>
+                      {formatMessengerAttachmentSize(attachment.size)}
+                    </Text>
+                  </View>
+                  <Pressable
+                    hitSlop={8}
+                    disabled={sendingAttachments}
+                    onPress={() => {
+                      setSelectedAttachments((current) =>
+                        removeSelectedMessengerAttachment(
+                          current,
+                          attachment.clientFileId,
+                        )
+                      );
+                    }}
+                  >
+                    <Feather name="x" size={16} color={MUTED} />
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          ) : null}
           <View style={styles.inputContainer}>
-            <TouchableOpacity onPress={handleAttachment} style={styles.attachBtn} activeOpacity={0.7}>
+            <TouchableOpacity
+              onPress={handleAttachment}
+              style={[
+                styles.attachBtn,
+                sendingAttachments && styles.attachBtnDisabled,
+              ]}
+              activeOpacity={0.7}
+              disabled={sendingAttachments}
+            >
               <Feather name="paperclip" size={22} color="#9CA3AF" />
             </TouchableOpacity>
 
@@ -1294,12 +1659,26 @@ export default function ChatScreen() {
               multiline
               textAlignVertical="center"
               scrollEnabled={false}
+              editable={!sendingAttachments}
             />
             <Pressable
               onPress={handleSendText}
-              style={[styles.sendBtn, !text.trim() && styles.sendBtnDisabled]}
-              disabled={!text.trim()}>
-              <Feather name="arrow-up" size={20} color="#fff" />
+              style={[
+                styles.sendBtn,
+                (
+                  sendingAttachments
+                  || (!text.trim() && selectedAttachments.length === 0)
+                ) && styles.sendBtnDisabled,
+              ]}
+              disabled={
+                sendingAttachments
+                || (!text.trim() && selectedAttachments.length === 0)
+              }>
+              {sendingAttachments ? (
+                <BrandedLoadingSpinner size="sm" color="#fff" />
+              ) : (
+                <Feather name="arrow-up" size={20} color="#fff" />
+              )}
             </Pressable>
           </View>
         </View>
@@ -1488,6 +1867,36 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: '#F3F4F6',
   },
+  attachBtnDisabled: { opacity: 0.55 },
+  selectedAttachmentList: {
+    gap: 8,
+    paddingBottom: 10,
+  },
+  selectedAttachmentChip: {
+    width: 210,
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED',
+  },
+  selectedAttachmentTextWrap: { flex: 1, minWidth: 0 },
+  selectedAttachmentName: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    color: CHARCOAL,
+  },
+  selectedAttachmentSize: {
+    marginTop: 2,
+    fontSize: 11,
+    color: MUTED,
+  },
   input: {
     flex: 1,
     minHeight: 40,
@@ -1532,6 +1941,7 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     minWidth: 190,
   },
+  attachmentMessageContent: { gap: 8, minWidth: 190 },
   fileCardMe: {
     backgroundColor: 'rgba(255,255,255,0.14)',
     borderWidth: 1,

@@ -22,15 +22,14 @@ import {
   fetchInternalChatList,
   type InternalChatListItem,
 } from '@/lib/internal-chat-api';
-import { logger } from '@/lib/logger';
 import { formatPresenceLabel, getPresenceColor, normalizePresencePhone } from '@/lib/presence';
-import { supabase } from '@/lib/supabase';
 import { fetchUserPresence, type AppPresenceSnapshot } from '@/lib/user-presence-api';
 
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const HANWHA_ORANGE = '#f36f21';
 const PRESENCE_POLL_INTERVAL_MS = 30_000;
+const CHAT_LIST_POLL_INTERVAL_MS = 4_000;
 const AVATAR_COLORS = [
   '#3B82F6',
   '#10B981',
@@ -80,7 +79,6 @@ export default function AdminMessengerScreen() {
     () => buildInternalChatViewerPayload(viewerContext),
     [viewerContext],
   );
-  const myChatId = viewerPayload?.viewer_id ?? '';
 
   const fetchChatList = useCallback(async () => {
     if (!canViewFcMessenger) {
@@ -165,27 +163,24 @@ export default function AdminMessengerScreen() {
   }, [items]);
 
   useEffect(() => {
-    if (!canViewFcMessenger || !myChatId) return;
-    const channel = supabase
-      .channel(`admin-chat-list-changes-${myChatId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
-        (payload) => {
-          const source = payload.eventType === 'DELETE' ? (payload.old as Record<string, unknown> | null) : (payload.new as Record<string, unknown> | null);
-          const senderId = String(source?.sender_id ?? '').trim();
-          const receiverId = String(source?.receiver_id ?? '').trim();
-          if (senderId !== myChatId && receiverId !== myChatId) {
-            return;
-          }
+    if (!canViewFcMessenger || !viewerPayload) return;
+    const intervalId = setInterval(
+      () => void refetch(),
+      CHAT_LIST_POLL_INTERVAL_MS,
+    );
+    const appStateSubscription = AppState.addEventListener(
+      'change',
+      (nextState) => {
+        if (nextState === 'active') {
           void refetch();
-        },
-      )
-      .subscribe();
+        }
+      },
+    );
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(intervalId);
+      appStateSubscription.remove();
     };
-  }, [canViewFcMessenger, myChatId, refetch]);
+  }, [canViewFcMessenger, refetch, viewerPayload]);
 
   useFocusEffect(
     useCallback(() => {
@@ -219,28 +214,15 @@ export default function AdminMessengerScreen() {
     (item: ChatPreview) => {
       setOptimisticUnreadByPhone((prev) => ({ ...prev, [item.phone]: 0 }));
 
-      void supabase
-        .from('messages')
-        .update({ is_read: true })
-        .eq('sender_id', item.phone)
-        .eq('receiver_id', myChatId)
-        .eq('is_read', false)
-        .then(({ error }) => {
-          if (error) {
-            logger.debug('[admin-messenger] mark read failed', {
-              error: error.message,
-              phone: item.phone,
-              myChatId,
-            });
-          }
-        });
-
       router.push({
         pathname: '/chat',
-        params: { targetId: item.phone, targetName: item.name },
+        params: {
+          conversationId: item.conversation_id,
+          targetName: item.name,
+        },
       });
     },
-    [myChatId, router],
+    [router],
   );
 
   const handleBackPress = useCallback(() => {

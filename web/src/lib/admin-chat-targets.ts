@@ -19,10 +19,12 @@ export type AdminChatMessageSummaryRow = {
   content?: string | null;
   created_at?: string | null;
   is_read?: boolean | null;
+  attachment_count?: number | null;
 };
 
 export type AdminChatTarget = {
   fc_id: string;
+  conversation_id?: string | null;
   name: string;
   phone: string;
   last_message: string | null;
@@ -97,7 +99,9 @@ export function buildAdminChatConversationSummaries(input: {
     const lastTime = summary.last_time ? new Date(summary.last_time).getTime() : Number.NEGATIVE_INFINITY;
 
     if (!summary.last_time || currentTime > lastTime) {
-      summary.last_message = message.content ?? null;
+      const content = String(message.content ?? '').trim();
+      const attachmentCount = Number(message.attachment_count ?? 0);
+      summary.last_message = content || (attachmentCount > 0 ? `파일 ${attachmentCount}개` : null);
       summary.last_time = createdAt;
     }
 

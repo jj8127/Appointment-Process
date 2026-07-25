@@ -115,6 +115,32 @@ async function decryptResidentNumber(value: string, key: CryptoKey): Promise<str
   }
 }
 
+async function readEncryptedResidentNumberRows(
+  fcIds: string[],
+  key: CryptoKey,
+): Promise<ResidentNumberMap> {
+  const residentNumbers: ResidentNumberMap = Object.fromEntries(fcIds.map((fcId) => [fcId, null]));
+  const { data: rows, error } = await adminSupabase
+    .from('fc_identity_secure')
+    .select('fc_id,resident_number_encrypted')
+    .in('fc_id', fcIds);
+
+  if (error) {
+    throw error;
+  }
+
+  for (const row of rows ?? []) {
+    const fcId = String(row.fc_id ?? '').trim();
+    const encrypted = typeof row.resident_number_encrypted === 'string'
+      ? row.resident_number_encrypted
+      : '';
+    if (!fcId || !encrypted) continue;
+    residentNumbers[fcId] = await decryptResidentNumber(encrypted, key);
+  }
+
+  return residentNumbers;
+}
+
 async function inspectDirectResidentNumberRead(
   fcIds: string[],
   logPrefix: string,
@@ -157,28 +183,12 @@ async function inspectDirectResidentNumberRead(
 
   try {
     const key = await importAesKeyForDecrypt(identityKey);
-    const residentNumbers: ResidentNumberMap = Object.fromEntries(fcIds.map((fcId) => [fcId, null]));
     const chunkSize = 100;
+    const residentNumbers: ResidentNumberMap = {};
 
     for (let i = 0; i < fcIds.length; i += chunkSize) {
       const chunk = fcIds.slice(i, i + chunkSize);
-      const { data: rows, error } = await adminSupabase
-        .from('fc_identity_secure')
-        .select('fc_id,resident_number_encrypted')
-        .in('fc_id', chunk);
-
-      if (error) {
-        throw error;
-      }
-
-      for (const row of rows ?? []) {
-        const fcId = String(row.fc_id ?? '').trim();
-        const encrypted = typeof row.resident_number_encrypted === 'string'
-          ? row.resident_number_encrypted
-          : '';
-        if (!fcId || !encrypted) continue;
-        residentNumbers[fcId] = await decryptResidentNumber(encrypted, key);
-      }
+      Object.assign(residentNumbers, await readEncryptedResidentNumberRows(chunk, key));
     }
 
     return {

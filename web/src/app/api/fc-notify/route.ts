@@ -13,7 +13,6 @@ import {
 } from '@/lib/fc-notify-proxy-policy';
 import { logger } from '@/lib/logger';
 import { buildPhoneCandidates, getVerifiedServerSession } from '@/lib/server-session';
-import { sendWebPush } from '@/lib/web-push';
 
 export const runtime = 'nodejs';
 
@@ -45,50 +44,6 @@ async function isEligibleFcTarget(targetId: string) {
 
   if (error) throw error;
   return buildAdminChatTargets(data ?? []).some((target) => target.phone === targetId);
-}
-
-async function sendBrowserFcMessageWebPush(payload: BrowserFcNotifyPayload) {
-  if (payload.type !== 'message' || payload.target_role !== 'fc') return;
-
-  const { data: subscriptions, error } = await adminSupabase
-    .from('web_push_subscriptions')
-    .select('endpoint,p256dh,auth')
-    .eq('role', 'fc')
-    .eq('resident_id', payload.target_id);
-
-  if (error) {
-    logger.warn('[fc-notify] FC web push subscriptions unavailable', { message: error.message });
-    return;
-  }
-  if (!subscriptions?.length) return;
-
-  const chatParams = new URLSearchParams({ targetId: payload.sender_id });
-  if (payload.sender_name.trim()) {
-    chatParams.set('targetName', payload.sender_name.trim());
-  }
-  const chatUrl = `/chat?${chatParams.toString()}`;
-  const result = await sendWebPush(subscriptions, {
-    title: '새 메시지',
-    body: payload.message,
-    data: {
-      url: chatUrl,
-      type: 'message',
-      sender_id: payload.sender_id,
-      sender_name: payload.sender_name,
-    },
-  });
-
-  if (result.expired.length > 0) {
-    const { error: deleteError } = await adminSupabase
-      .from('web_push_subscriptions')
-      .delete()
-      .in('endpoint', result.expired);
-    if (deleteError) {
-      logger.warn('[fc-notify] Failed to delete expired FC subscriptions', {
-        message: deleteError.message,
-      });
-    }
-  }
 }
 
 async function proxyToFcNotify(payload: BrowserFcNotifyPayload | Record<string, unknown>) {
@@ -214,7 +169,6 @@ export async function POST(req: Request) {
       return json({ error: 'FC notification target is not allowed' }, 403);
     }
 
-    await sendBrowserFcMessageWebPush(browserPolicy.payload);
     return await proxyToFcNotify(browserPolicy.payload);
   } catch (error: unknown) {
     logger.error('[api/fc-notify] protected proxy failed', {

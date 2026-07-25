@@ -44,8 +44,47 @@ if (!serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const encoder = new TextEncoder();
-const SMS_BYPASS_ENABLED = (getEnv('SMS_BYPASS_ENABLED') ?? 'true').toLowerCase() === 'true';
-const SMS_BYPASS_CODE = (getEnv('SMS_BYPASS_CODE') ?? getEnv('TEST_SMS_CODE') ?? '123456').trim();
+
+export function resolveSmsBypassConfig(env: Record<string, string | undefined>) {
+  const enabled = (env.SMS_BYPASS_ENABLED ?? '').trim().toLowerCase() === 'true';
+  if (!enabled) {
+    return { enabled: false, code: '' };
+  }
+
+  const isHostedDeployment = Boolean((env.DENO_DEPLOYMENT_ID ?? '').trim());
+  const isProductionEnvironment = [
+    env.NODE_ENV,
+    env.DENO_ENV,
+    env.APP_ENV,
+    env.ENVIRONMENT,
+    env.SUPABASE_ENV,
+    env.VERCEL_ENV,
+  ].some((value) => ['production', 'prod'].includes((value ?? '').trim().toLowerCase()));
+
+  if (isHostedDeployment || isProductionEnvironment) {
+    throw new Error('SMS bypass must not be enabled in production.');
+  }
+
+  const code = (env.SMS_BYPASS_CODE ?? env.TEST_SMS_CODE ?? '').trim();
+  if (!/^\d{6}$/.test(code)) {
+    throw new Error('A six-digit SMS bypass code is required when bypass is enabled.');
+  }
+
+  return { enabled: true, code };
+}
+
+const smsBypassConfig = resolveSmsBypassConfig({
+  SMS_BYPASS_ENABLED: getEnv('SMS_BYPASS_ENABLED'),
+  SMS_BYPASS_CODE: getEnv('SMS_BYPASS_CODE'),
+  TEST_SMS_CODE: getEnv('TEST_SMS_CODE'),
+  DENO_DEPLOYMENT_ID: getEnv('DENO_DEPLOYMENT_ID'),
+  NODE_ENV: getEnv('NODE_ENV'),
+  DENO_ENV: getEnv('DENO_ENV'),
+  APP_ENV: getEnv('APP_ENV'),
+  ENVIRONMENT: getEnv('ENVIRONMENT'),
+  SUPABASE_ENV: getEnv('SUPABASE_ENV'),
+  VERCEL_ENV: getEnv('VERCEL_ENV'),
+});
 const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
 const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
 const requestBoardPasswordSyncTimeoutRaw = Number((getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim());
@@ -155,21 +194,21 @@ serve(async (req: Request) => {
   if (account.kind === 'fc' && !account.signupCompleted) {
     return fail('not_completed', '회원가입이 완료되지 않았습니다.');
   }
-  const bypassToken = SMS_BYPASS_ENABLED && token === SMS_BYPASS_CODE;
-  if (!account.resetTokenHash || !account.resetTokenExpiresAt) {
-    if (!bypassToken) {
+  const bypassToken = smsBypassConfig.enabled && token === smsBypassConfig.code;
+  if (!bypassToken) {
+    const resetTokenHash = account.resetTokenHash;
+    const resetTokenExpiresAt = account.resetTokenExpiresAt;
+    if (!resetTokenHash || !resetTokenExpiresAt) {
       return fail('invalid_token', '인증 코드가 유효하지 않습니다.');
     }
-  }
 
-  if (!bypassToken) {
-    const expiresAt = new Date(account.resetTokenExpiresAt);
+    const expiresAt = new Date(resetTokenExpiresAt);
     if (expiresAt < new Date()) {
       return fail('expired_token', '인증 코드가 만료되었습니다.');
     }
 
     const tokenHash = await sha256Base64(token);
-    if (tokenHash !== account.resetTokenHash) {
+    if (tokenHash !== resetTokenHash) {
       return fail('invalid_token', '인증 코드가 유효하지 않습니다.');
     }
   }

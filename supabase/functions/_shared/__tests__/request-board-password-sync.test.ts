@@ -28,7 +28,7 @@ test('builds request_board password-sync body for FC with affiliation and metada
   );
 });
 
-test('builds request_board password-sync body for manager while preserving manager role', () => {
+test('builds manager password-sync metadata without forwarding the canonical password', () => {
   assert.deepEqual(
     buildRequestBoardPasswordSyncBody('01022223333', 'Manager!1234', {
       role: 'manager',
@@ -36,15 +36,15 @@ test('builds request_board password-sync body for manager while preserving manag
       affiliation: '1본부 서선미',
       initiatorRole: 'manager',
       syncReason: 'self-reset',
-    }),
+    }, 'signed-assertion-placeholder'),
     {
       phone: '01022223333',
-      password: 'Manager!1234',
       role: 'manager',
       name: '서선미',
       affiliation: '1본부 서선미',
       initiatorRole: 'manager',
       syncReason: 'self-reset',
+      authAssertion: 'signed-assertion-placeholder',
     },
   );
 });
@@ -155,6 +155,44 @@ test('skips request_board password sync fetch when url or token is missing', asy
   assert.equal(sideEffects, 0);
 });
 
+test('fails closed before network I/O when the signed assertion is unavailable', async () => {
+  let fetchCount = 0;
+  const diagnostics: EdgeDiagnosticInput[] = [];
+
+  await syncRequestBoardPasswordWithDeps({
+    syncUrl: 'https://request.example/api/auth/sync-password',
+    syncToken: 'transport-token-placeholder',
+    timeoutMs: 1000,
+    logPrefix: 'test',
+    phone: '',
+    password: '',
+    authAssertion: null,
+    options: { role: 'fc' },
+  }, {
+    fetchImpl: async () => {
+      fetchCount += 1;
+      throw new Error('fetch should not run');
+    },
+    createAbortController: () => ({
+      signal: {} as AbortSignal,
+      abort: () => {},
+    }),
+    setTimeoutImpl: () => 'timeout',
+    clearTimeoutImpl: () => {},
+    diagnostic: (input) => {
+      diagnostics.push(input);
+    },
+  });
+
+  assert.equal(fetchCount, 0);
+  assert.deepEqual(diagnostics, [{
+    event: 'request_board.password_sync',
+    reason: 'request_failed',
+    retryable: false,
+    errorClass: 'authentication',
+  }]);
+});
+
 test('sends request_board password sync fetch with current headers, body, signal, and timeout cleanup', async () => {
   const calls: Array<{ input: string; init: Record<string, unknown> }> = [];
   const timeoutMsValues: number[] = [];
@@ -171,6 +209,7 @@ test('sends request_board password sync fetch with current headers, body, signal
     logPrefix: 'reset-password',
     phone: '01012345678',
     password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
     options: {
       role: 'fc',
       name: '홍길동',
@@ -216,13 +255,18 @@ test('sends request_board password sync fetch with current headers, body, signal
   });
   assert.deepEqual(
     JSON.parse(String(calls[0]?.init.body)),
-    buildRequestBoardPasswordSyncBody('01012345678', 'Pass!1234', {
-      role: 'fc',
-      name: '홍길동',
-      affiliation: '1본부',
-      initiatorRole: 'self',
-      syncReason: 'self-reset',
-    }),
+    buildRequestBoardPasswordSyncBody(
+      '01012345678',
+      'Pass!1234',
+      {
+        role: 'fc',
+        name: '홍길동',
+        affiliation: '1본부',
+        initiatorRole: 'self',
+        syncReason: 'self-reset',
+      },
+      'signed-assertion-placeholder',
+    ),
   );
   assert.equal(calls[0]?.init.signal, signal);
   assert.deepEqual(timeoutMsValues, [4321]);
@@ -245,6 +289,7 @@ test('reports only fixed metadata for a non-ok request_board password sync respo
     logPrefix: 'login-with-password',
     phone: '01012345678',
     password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
     options: { role: 'designer', companyName: '농협생명' },
   }, {
     fetchImpl: async () => ({
@@ -294,6 +339,7 @@ test('reports only fixed metadata for an unsuccessful request_board password syn
     logPrefix: 'reset-password',
     phone: '01012345678',
     password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
     options: { role: 'manager', affiliation: '1본부' },
   }, {
     fetchImpl: async () => ({
@@ -333,6 +379,7 @@ test('reports only a coarse class for thrown request_board password sync fetch e
     logPrefix: 'set-password',
     phone: '01012345678',
     password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
     options: { role: 'fc' },
   }, {
     fetchImpl: async () => {
@@ -368,6 +415,7 @@ test('classifies an aborted request_board password sync without serializing its 
     logPrefix: 'set-password',
     phone: '01012345678',
     password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
     options: { role: 'fc' },
   }, {
     fetchImpl: async () => {
@@ -401,6 +449,7 @@ test('does not let an injected diagnostic failure escape password sync', async (
     logPrefix: 'set-password',
     phone: '01012345678',
     password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
     options: { role: 'fc' },
   }, {
     fetchImpl: async () => ({

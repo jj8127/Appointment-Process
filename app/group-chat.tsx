@@ -1,10 +1,13 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
-import { Stack, useFocusEffect, useRouter } from 'expo-router';
+import {
+  Stack,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -16,6 +19,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -46,15 +50,31 @@ import {
   normalizeGroupChatMemberSearch,
   resolveGroupChatSendPermission,
 } from '@/lib/group-chat-display';
-import { openMessengerAttachment } from '@/lib/messenger-attachment-actions';
+import {
+  openAuthorizedMessengerAttachment,
+  openMessengerAttachment,
+} from '@/lib/messenger-attachment-actions';
+import {
+  appendMessengerAttachmentCandidates,
+  formatMessengerAttachmentSize,
+  isPreparedMessengerAttachmentBatchForDraft,
+  MESSENGER_ATTACHMENT_MIME_BY_EXTENSION,
+  prepareMessengerAttachmentBatch,
+  removeSelectedMessengerAttachment,
+  uploadMessengerAttachmentBatch,
+  type PreparedMessengerAttachmentBatch,
+  type SelectedMessengerAttachment,
+} from '@/lib/messenger-attachment-api';
 import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
 import { confirmMessengerDelete } from '@/lib/messenger-delete-actions';
 import {
   groupChatBootstrap,
   groupChatClearNotice,
   groupChatDeleteMessage,
+  getGroupChatNotificationRetry,
   hasGroupChatPostCommitWarning,
   groupChatMarkRead,
+  groupChatRetryNotification,
   groupChatSend,
   groupChatSetMuted,
   groupChatSetMemberSendPermission,
@@ -64,18 +84,24 @@ import {
   type GroupChatMember,
   type GroupChatMessage,
   type GroupChatMessageType,
+  type GroupChatNotificationRetry,
   type GroupChatNotice,
   type GroupChatRoom,
 } from '@/lib/group-chat-api';
 import { logger } from '@/lib/logger';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import {
+  hasPresentRouteParam,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
 import { supabase } from '@/lib/supabase';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { safeDecodeFileName } from '@/lib/validation';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6B7280';
 const SOFT_BG = '#F9FAFB';
-const CHAT_UPLOAD_BUCKET = 'chat-uploads';
 const MESSAGE_LIMIT = 80;
 const GROUP_CHAT_REFRESH_INTERVAL_MS = 8_000;
 
@@ -84,15 +110,45 @@ function showGroupChatErrorAlert(error: unknown) {
   Alert.alert(userError.title, userError.message);
 }
 
-function showGroupChatDeliveryWarning() {
-  logger.warn('[group-chat] post-save delivery unconfirmed');
+function showGroupChatDeliveryWarning(retryNotification?: () => void) {
+  logger.warn('[group-chat] notification inbox persistence failed');
+  Alert.alert(
+    '메시지 전송 완료 · 알림 등록 실패',
+    '메시지는 전송됐지만 수신자 알림함에 등록하지 못했습니다.',
+    retryNotification
+      ? [
+          { text: '확인', style: 'cancel' },
+          { text: '알림만 다시 시도', onPress: retryNotification },
+        ]
+      : [{ text: '확인' }],
+  );
+}
+
+async function retryGroupChatNotificationOnly(
+  retry: GroupChatNotificationRetry,
+) {
+  try {
+    const result = await groupChatRetryNotification(retry);
+    if (hasGroupChatPostCommitWarning(result)) {
+      const nextRetry = getGroupChatNotificationRetry(result);
+      showGroupChatDeliveryWarning(
+        nextRetry
+          ? () => {
+              void retryGroupChatNotificationOnly(nextRetry);
+            }
+          : undefined,
+      );
+      return;
+    }
+    Alert.alert('알림 등록 완료', '수신자 알림함에 알림을 등록했습니다.');
+  } catch (error) {
+    logger.warn('[group-chat] notification-only retry failed', error);
+    showGroupChatErrorAlert(error);
+  }
 }
 type OptimisticMessageInput = {
   content: string;
   messageType: GroupChatMessageType;
-  fileUrl?: string | null;
-  fileName?: string | null;
-  fileSize?: number | null;
 };
 
 type SearchableGroupChatMember = GroupChatMember & {
@@ -186,11 +242,20 @@ const MemberListRow = memo(function MemberListRow({
 
 export default function GroupChatScreen() {
   const router = useRouter();
+  const { roomId, notificationId, notificationTarget } =
+    useLocalSearchParams<{
+      roomId?: string;
+      notificationId?: string;
+      notificationTarget?: string;
+    }>();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
   const flatListRef = useRef<FlatList<GroupChatMessage> | null>(null);
   const pickingRef = useRef(false);
-  const isUploadCancelled = useRef(false);
+  const attachmentBatchRef = useRef<PreparedMessengerAttachmentBatch | null>(
+    null,
+  );
+  const attachmentBatchReplyTargetRef = useRef<string | null>(null);
   const messagesRef = useRef<GroupChatMessage[]>([]);
 
   const [loading, setLoading] = useState(true);
@@ -207,14 +272,38 @@ export default function GroupChatScreen() {
   const [messages, setMessages] = useState<GroupChatMessage[]>([]);
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [selectedAttachments, setSelectedAttachments] = useState<
+    SelectedMessengerAttachment[]
+  >([]);
   const [replyTarget, setReplyTarget] = useState<GroupChatMessage | null>(null);
   const [actionMessage, setActionMessage] = useState<GroupChatMessage | null>(null);
   const [selectCopyMessage, setSelectCopyMessage] = useState<GroupChatMessage | null>(null);
   const [noticeUpdating, setNoticeUpdating] = useState(false);
   const [permissionUpdatingIds, setPermissionUpdatingIds] = useState<Set<string>>(() => new Set());
+  const [roomLoadFailed, setRoomLoadFailed] = useState(false);
 
   const bottomSafeInset = Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 12);
   const roomTitle = room?.title ?? '가람PA 단톡방';
+  const routeRoomId = parseExactlyOneUuidRouteParam(roomId);
+  const hasInvalidRoomRoute =
+    hasPresentRouteParam(roomId) && !routeRoomId;
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasInvalidRoomRoute && routeRoomId
+      ? { version: 1, kind: 'group_chat', roomId: routeRoomId }
+      : null,
+    loadState: hasInvalidRoomRoute
+      ? 'error'
+      : roomLoadFailed
+      ? 'error'
+      : room?.id === routeRoomId
+        ? 'success'
+        : loading
+          ? 'loading'
+          : routeRoomId
+            ? 'error'
+            : 'idle',
+  });
   const canManageMemberSendPermissions = isStaffGroupChatActor(actor);
   const canManageNotice = isStaffGroupChatActor(actor);
   const deferredMemberSearch = useDeferredValue(memberSearch);
@@ -238,6 +327,7 @@ export default function GroupChatScreen() {
 
   const load = useCallback(async (options?: { silent?: boolean }) => {
     try {
+      setRoomLoadFailed(false);
       const data = await groupChatBootstrap(MESSAGE_LIMIT);
       setRoom(data.room);
       setActor(data.actor);
@@ -255,6 +345,7 @@ export default function GroupChatScreen() {
         });
       }
     } catch (error) {
+      setRoomLoadFailed(true);
       logger.warn('[group-chat] load failed', error);
       if (!options?.silent) {
         showGroupChatErrorAlert(error);
@@ -305,6 +396,7 @@ export default function GroupChatScreen() {
           applyMessages([
             {
               ...nextMessage,
+              attachments: nextMessage.attachments ?? [],
               unread_count: existingMessage?.unread_count ?? nextMessage.unread_count ?? 0,
             },
             ...messagesRef.current,
@@ -481,9 +573,10 @@ export default function GroupChatScreen() {
       sender_name: actor.name,
       content: input.content,
       message_type: input.messageType,
-      file_url: input.fileUrl ?? null,
-      file_name: input.fileName ?? null,
-      file_size: input.fileSize ?? null,
+      file_url: null,
+      file_name: null,
+      file_size: null,
+      attachments: [],
       created_at: now,
       unread_count: Math.max(0, memberCount - 1),
       reply_to_message_id: currentReplyTarget?.id ?? null,
@@ -498,18 +591,76 @@ export default function GroupChatScreen() {
 
   const sendOptimisticToServer = useCallback(async (
     localMessageId: string,
-    input: OptimisticMessageInput & { replyToMessageId?: string | null },
+    input: OptimisticMessageInput & {
+      replyToMessageId?: string | null;
+      attachmentBatch?: PreparedMessengerAttachmentBatch | null;
+    },
   ) => {
+    let notificationRetry: GroupChatNotificationRetry | null = null;
     let shouldShowDeliveryWarning = false;
-    try {
+    const commit = async () => {
+      let attachmentIntentIds: string[] | null = null;
+      if (input.attachmentBatch) {
+        const uploadResult = await uploadMessengerAttachmentBatch(
+          input.attachmentBatch,
+        );
+        if (uploadResult.state === 'committed') {
+          return { state: 'committed' as const };
+        }
+        attachmentIntentIds = uploadResult.intentIds;
+      }
       const result = await groupChatSend({
         content: input.content,
         messageType: input.messageType,
-        fileUrl: input.fileUrl,
-        fileName: input.fileName,
-        fileSize: input.fileSize,
         replyToMessageId: input.replyToMessageId,
+        ...(input.attachmentBatch && attachmentIntentIds
+          ? {
+              attachmentIntentIds,
+              deliveryKey: input.attachmentBatch.deliveryKey,
+              payloadFingerprint: input.attachmentBatch.payloadFingerprint,
+            }
+          : {}),
       });
+      return { state: 'sent' as const, result };
+    };
+    const commitWithRetry = async (): Promise<
+      Awaited<ReturnType<typeof commit>> | null
+    > => {
+      try {
+        return await commit();
+      } catch (error) {
+        if (!input.attachmentBatch) throw error;
+        logger.warn('[group-chat] attachment send result unavailable');
+        return new Promise((resolve) => {
+          Alert.alert(
+            '전송 확인 필요',
+            '파일 메시지 전송 결과를 확인하지 못했습니다. 같은 요청으로 다시 확인하면 중복 전송되지 않습니다.',
+            [
+              { text: '취소', style: 'cancel', onPress: () => resolve(null) },
+              {
+                text: '다시 확인',
+                onPress: () => {
+                  void commitWithRetry().then(resolve);
+                },
+              },
+            ],
+            { cancelable: false },
+          );
+        });
+      }
+    };
+    try {
+      const commitResult = await commitWithRetry();
+      if (!commitResult) {
+        removeMessage(localMessageId);
+        return false;
+      }
+      if (commitResult.state === 'committed') {
+        removeMessage(localMessageId);
+        await load({ silent: true });
+        return true;
+      }
+      const { result } = commitResult;
       applyMessages([
         result.message,
         ...messagesRef.current.filter((message) => message.id !== localMessageId),
@@ -517,246 +668,179 @@ export default function GroupChatScreen() {
       void groupChatMarkRead(result.message.id).catch((error) => {
         logger.debug('[group-chat] mark read after send failed', error);
       });
+      if (result.read_state?.updated === false) {
+        logger.warn('[group-chat] post-send read state update failed');
+      }
       shouldShowDeliveryWarning = hasGroupChatPostCommitWarning(result);
+      notificationRetry = getGroupChatNotificationRetry(result);
     } catch (error) {
-      updateMessage(localMessageId, { send_status: 'failed' });
+      if (input.attachmentBatch) {
+        removeMessage(localMessageId);
+      } else {
+        updateMessage(localMessageId, { send_status: 'failed' });
+      }
       logger.warn('[group-chat] send failed', error);
       showGroupChatErrorAlert(error);
-      return;
+      return false;
     }
 
     if (shouldShowDeliveryWarning) {
-      showGroupChatDeliveryWarning();
+      showGroupChatDeliveryWarning(
+        notificationRetry
+          ? () => {
+              void retryGroupChatNotificationOnly(notificationRetry);
+            }
+          : undefined,
+      );
     }
-  }, [applyMessages, updateMessage]);
+    return true;
+  }, [applyMessages, load, removeMessage, updateMessage]);
 
   const sendPayload = useCallback(async (
     content: string,
-    messageType: GroupChatMessageType = 'text',
-    fileData?: { url: string; name?: string | null; size?: number | null },
+    attachments: readonly SelectedMessengerAttachment[],
   ) => {
     if (!canSendMessages) {
       showSendPermissionAlert();
-      return;
+      return false;
+    }
+    if (!room?.id) {
+      Alert.alert('전송 실패', '단톡방 정보를 불러온 뒤 다시 시도해주세요.');
+      return false;
+    }
+
+    let attachmentBatch: PreparedMessengerAttachmentBatch | null = null;
+    try {
+      if (attachments.length > 0) {
+        const replyToMessageId = replyTarget?.id ?? null;
+        const draft = {
+          files: attachments,
+          context: { kind: 'group' as const, roomId: room.id },
+          content,
+        };
+        const canReuseAttachmentBatch =
+          isPreparedMessengerAttachmentBatchForDraft(
+            attachmentBatchRef.current,
+            draft,
+          )
+          && attachmentBatchReplyTargetRef.current === replyToMessageId;
+        attachmentBatch = canReuseAttachmentBatch
+          ? attachmentBatchRef.current
+          : await prepareMessengerAttachmentBatch(draft);
+        attachmentBatchRef.current = attachmentBatch;
+        attachmentBatchReplyTargetRef.current = replyToMessageId;
+      }
+    } catch (error) {
+      Alert.alert(
+        '파일 확인 필요',
+        error instanceof Error ? error.message : '첨부 파일을 확인해 주세요.',
+      );
+      return false;
     }
 
     const optimisticMessage = buildOptimisticMessage({
-      content,
-      messageType,
-      fileUrl: fileData?.url,
-      fileName: fileData?.name,
-      fileSize: fileData?.size,
+      content:
+        content
+        || (attachments.length > 0
+          ? `파일 ${attachments.length}개 전송 중`
+          : ''),
+      messageType: attachments.length > 0 ? 'file' : 'text',
     });
     if (!optimisticMessage) {
       Alert.alert('전송 실패', '단톡방 정보를 불러온 뒤 다시 시도해주세요.');
-      return;
+      return false;
     }
 
     applyMessages([optimisticMessage, ...messagesRef.current]);
-    setReplyTarget(null);
-    await sendOptimisticToServer(optimisticMessage.id, {
+    const sent = await sendOptimisticToServer(optimisticMessage.id, {
       content,
-      messageType,
-      fileUrl: fileData?.url,
-      fileName: fileData?.name,
-      fileSize: fileData?.size,
+      messageType: attachments.length > 0 ? 'file' : 'text',
       replyToMessageId: optimisticMessage.reply_to_message_id,
+      attachmentBatch,
     });
-  }, [applyMessages, buildOptimisticMessage, canSendMessages, sendOptimisticToServer, showSendPermissionAlert]);
+    if (sent) {
+      attachmentBatchRef.current = null;
+      attachmentBatchReplyTargetRef.current = null;
+      setReplyTarget(null);
+    }
+    return sent;
+  }, [
+    applyMessages,
+    buildOptimisticMessage,
+    canSendMessages,
+    room?.id,
+    replyTarget?.id,
+    sendOptimisticToServer,
+    showSendPermissionAlert,
+  ]);
 
   const handleSendText = useCallback(() => {
     const nextText = text.trim();
-    if (!nextText) return;
+    const attachments = selectedAttachments;
+    if ((!nextText && attachments.length === 0) || uploading) return;
     if (!canSendMessages) {
       showSendPermissionAlert();
       return;
     }
-    setText('');
-    isUploadCancelled.current = false;
-    void sendPayload(nextText, 'text');
-  }, [canSendMessages, sendPayload, showSendPermissionAlert, text]);
+    setUploading(true);
+    void sendPayload(nextText, attachments)
+      .then((sent) => {
+        if (!sent) return;
+        setText('');
+        setSelectedAttachments([]);
+      })
+      .finally(() => setUploading(false));
+  }, [
+    canSendMessages,
+    selectedAttachments,
+    sendPayload,
+    showSendPermissionAlert,
+    text,
+    uploading,
+  ]);
 
-  const uploadToSupabase = useCallback(async (uri: string, fileType: string) => {
-    try {
-      isUploadCancelled.current = false;
-      setUploading(true);
-      const ext = uri.split('.').pop()?.toLowerCase() ?? 'bin';
-      const fileName = `group-chat/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-      const uploadMimeType = fileType?.trim() || 'application/octet-stream';
-
-      if (Platform.OS === 'web') {
-        const localFileResponse = await fetch(uri);
-        if (!localFileResponse.ok) {
-          throw new Error(`파일을 읽지 못했습니다. (${localFileResponse.status})`);
-        }
-        const fileBlob = await localFileResponse.blob();
-        const byteArray = new Uint8Array(await fileBlob.arrayBuffer());
-        const { error } = await supabase.storage.from(CHAT_UPLOAD_BUCKET).upload(fileName, byteArray, {
-          contentType: uploadMimeType,
-          upsert: false,
-        });
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.storage
-          .from(CHAT_UPLOAD_BUCKET)
-          .createSignedUploadUrl(fileName);
-        if (error || !data?.signedUrl) {
-          throw error ?? new Error('Signed upload URL 생성 실패');
-        }
-        const uploadResult = await FileSystem.uploadAsync(data.signedUrl, uri, {
-          httpMethod: 'PUT',
-          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-          headers: { 'Content-Type': uploadMimeType },
-        });
-        if (uploadResult.status < 200 || uploadResult.status >= 300) {
-          throw new Error(`업로드 실패 (status ${uploadResult.status})`);
-        }
-      }
-
-      if (isUploadCancelled.current) return null;
-      const { data: urlData } = supabase.storage.from(CHAT_UPLOAD_BUCKET).getPublicUrl(fileName);
-      return urlData.publicUrl;
-    } catch (error) {
-      if (isUploadCancelled.current) return null;
-      logger.error('[group-chat] file upload failed', { error });
-      showGroupChatErrorAlert(error);
-      return null;
-    } finally {
-      if (!isUploadCancelled.current) setUploading(false);
-    }
-  }, []);
-
-  const pickImage = useCallback(async () => {
+  const handleAttachment = useCallback(async () => {
     if (!canSendMessages) {
       showSendPermissionAlert();
       return;
     }
-
-    if (Platform.OS === 'ios') {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('사진 접근 권한 필요', '설정 > 가람in > 사진 접근을 허용해 주세요.');
-        return;
-      }
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      quality: 0.8,
-    });
-
-    if (!result.canceled) {
-      const asset = result.assets[0];
-      const optimisticMessage = buildOptimisticMessage({
-        content: '사진을 보냈습니다.',
-        messageType: 'image',
-        fileUrl: asset.uri,
-        fileName: asset.fileName ?? 'image.jpg',
-        fileSize: asset.fileSize,
-      });
-      if (!optimisticMessage) {
-        Alert.alert('전송 실패', '단톡방 정보를 불러온 뒤 다시 시도해주세요.');
-        return;
-      }
-
-      applyMessages([optimisticMessage, ...messagesRef.current]);
-      setReplyTarget(null);
-      const publicUrl = await uploadToSupabase(asset.uri, asset.mimeType ?? 'image/jpeg');
-      if (!publicUrl) {
-        if (isUploadCancelled.current) {
-          removeMessage(optimisticMessage.id);
-        } else {
-          updateMessage(optimisticMessage.id, { send_status: 'failed' });
-        }
-        return;
-      }
-
-      updateMessage(optimisticMessage.id, { file_url: publicUrl });
-      await sendOptimisticToServer(optimisticMessage.id, {
-        content: '사진을 보냈습니다.',
-        messageType: 'image',
-        fileUrl: publicUrl,
-        fileName: asset.fileName ?? 'image.jpg',
-        fileSize: asset.fileSize,
-        replyToMessageId: optimisticMessage.reply_to_message_id,
-      });
-    }
-  }, [applyMessages, buildOptimisticMessage, canSendMessages, removeMessage, sendOptimisticToServer, showSendPermissionAlert, updateMessage, uploadToSupabase]);
-
-  const pickDocument = useCallback(async () => {
-    if (!canSendMessages) {
-      showSendPermissionAlert();
-      return;
-    }
-
-    if (pickingRef.current) return;
+    if (pickingRef.current || uploading) return;
     pickingRef.current = true;
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
+        type: Array.from(
+          new Set(Object.values(MESSENGER_ATTACHMENT_MIME_BY_EXTENSION)),
+        ),
         copyToCacheDirectory: true,
+        multiple: true,
+        base64: false,
       });
-      if (!result.canceled) {
-        const file = result.assets[0];
-        const optimisticMessage = buildOptimisticMessage({
-          content: file.name,
-          messageType: 'file',
-          fileUrl: file.uri,
-          fileName: file.name,
-          fileSize: file.size,
-        });
-        if (!optimisticMessage) {
-          Alert.alert('전송 실패', '단톡방 정보를 불러온 뒤 다시 시도해주세요.');
-          return;
-        }
-
-        applyMessages([optimisticMessage, ...messagesRef.current]);
-        setReplyTarget(null);
-        const publicUrl = await uploadToSupabase(file.uri, file.mimeType ?? 'application/octet-stream');
-        if (!publicUrl) {
-          if (isUploadCancelled.current) {
-            removeMessage(optimisticMessage.id);
-          } else {
-            updateMessage(optimisticMessage.id, { send_status: 'failed' });
-          }
-          return;
-        }
-
-        updateMessage(optimisticMessage.id, { file_url: publicUrl });
-        await sendOptimisticToServer(optimisticMessage.id, {
-          content: file.name,
-          messageType: 'file',
-          fileUrl: publicUrl,
-          fileName: file.name,
-          fileSize: file.size,
-          replyToMessageId: optimisticMessage.reply_to_message_id,
-        });
-      }
+      if (result.canceled) return;
+      const next = await appendMessengerAttachmentCandidates(
+        selectedAttachments,
+        result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.name,
+          size: asset.size,
+          mimeType: asset.mimeType,
+          webFile: asset.file,
+        })),
+      );
+      setSelectedAttachments(next);
     } catch (error) {
-      logger.debug('[group-chat] document picker failed', { error });
+      Alert.alert(
+        '파일 선택 실패',
+        error instanceof Error ? error.message : '파일을 선택하지 못했습니다.',
+      );
     } finally {
       pickingRef.current = false;
     }
-  }, [applyMessages, buildOptimisticMessage, canSendMessages, removeMessage, sendOptimisticToServer, showSendPermissionAlert, updateMessage, uploadToSupabase]);
-
-  const handleAttachment = useCallback(() => {
-    if (!canSendMessages) {
-      showSendPermissionAlert();
-      return;
-    }
-
-    Alert.alert('파일 전송', '어떤 파일을 보내시겠습니까?', [
-      { text: '사진 보관함', onPress: pickImage },
-      { text: '문서 (PDF 등)', onPress: pickDocument },
-      { text: '취소', style: 'cancel' },
-    ]);
-  }, [canSendMessages, pickDocument, pickImage, showSendPermissionAlert]);
-
-  const handleCancelUpload = useCallback(() => {
-    isUploadCancelled.current = true;
-    setUploading(false);
-  }, []);
+  }, [
+    canSendMessages,
+    selectedAttachments,
+    showSendPermissionAlert,
+    uploading,
+  ]);
 
   const toggleMuted = useCallback(async () => {
     const nextMuted = !muted;
@@ -835,6 +919,81 @@ export default function GroupChatScreen() {
   const renderMessageContent = useCallback((item: GroupChatMessage, isMe: boolean) => {
     if (item.deleted_at) {
       return <Text style={[styles.deletedMessageText, isMe ? styles.deletedMessageTextMe : styles.deletedMessageTextOther]}>삭제된 메시지입니다.</Text>;
+    }
+
+    if ((item.attachments ?? []).length > 0) {
+      return (
+        <View style={styles.attachmentMessageContent}>
+          {item.content ? (
+            <LinkifiedSelectableText
+              text={item.content}
+              style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextOther]}
+              linkStyle={styles.msgLinkText}
+              linkPressBehavior="open"
+              selectable={false}
+            />
+          ) : null}
+          {item.attachments.map((attachment) => (
+            <Pressable
+              key={attachment.id}
+              style={[
+                styles.fileCard,
+                isMe ? styles.fileCardMe : styles.fileCardOther,
+              ]}
+              onPress={() => {
+                void openAuthorizedMessengerAttachment(attachment.id, {
+                  logScope: 'group-chat',
+                });
+              }}
+            >
+              <View style={[
+                styles.fileIconBox,
+                isMe ? styles.fileIconBoxMe : styles.fileIconBoxOther,
+              ]}>
+                <Ionicons
+                  name={attachment.mimeType.startsWith('image/')
+                    ? 'image-outline'
+                    : 'document-text'}
+                  size={22}
+                  color={isMe ? '#fff' : HANWHA_ORANGE}
+                />
+              </View>
+              <View style={styles.fileTextWrap}>
+                <Text
+                  style={[
+                    styles.fileName,
+                    isMe ? styles.fileNameMe : styles.fileNameOther,
+                  ]}
+                  numberOfLines={2}
+                >
+                  {attachment.name}
+                </Text>
+                <Text
+                  style={[
+                    styles.fileHint,
+                    isMe ? styles.fileHintMe : styles.fileHintOther,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {formatMessengerAttachmentSize(attachment.size)} · 탭하여 열기
+                </Text>
+              </View>
+              <View style={[
+                styles.fileDownloadButton,
+                isMe
+                  ? styles.fileDownloadButtonMe
+                  : styles.fileDownloadButtonOther,
+              ]}>
+                <Feather
+                  name="download"
+                  size={16}
+                  color={isMe ? '#fff' : HANWHA_ORANGE}
+                />
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      );
     }
 
     if (item.message_type === 'image' && item.file_url) {
@@ -949,6 +1108,10 @@ export default function GroupChatScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar style="dark" backgroundColor="#fff" />
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
         <Pressable style={styles.headerButton} onPress={() => router.back()}>
           <Feather name="arrow-left" size={22} color={CHARCOAL} />
@@ -1032,11 +1195,7 @@ export default function GroupChatScreen() {
               ]}
             >
               <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
-              <Text style={styles.uploadingText}>파일 전송 중...</Text>
-              <TouchableOpacity onPress={handleCancelUpload} style={styles.cancelUploadBtn} activeOpacity={0.8}>
-                <Ionicons name="close-circle" size={20} color="#666" />
-                <Text style={styles.cancelUploadText}>취소</Text>
-              </TouchableOpacity>
+              <Text style={styles.uploadingText}>메시지 전송 중...</Text>
             </View>
           )}
 
@@ -1068,12 +1227,63 @@ export default function GroupChatScreen() {
                     <Text style={styles.sendPermissionNoticeText}>채팅 권한이 꺼져 있어요</Text>
                   </View>
                 )}
+                {selectedAttachments.length > 0 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.selectedAttachmentList}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {selectedAttachments.map((attachment) => (
+                      <View
+                        key={attachment.clientFileId}
+                        style={styles.selectedAttachmentChip}
+                      >
+                        <Ionicons
+                          name={attachment.mimeType.startsWith('image/')
+                            ? 'image-outline'
+                            : 'document-text-outline'}
+                          size={17}
+                          color={HANWHA_ORANGE}
+                        />
+                        <View style={styles.selectedAttachmentTextWrap}>
+                          <Text
+                            style={styles.selectedAttachmentName}
+                            numberOfLines={1}
+                          >
+                            {attachment.name}
+                          </Text>
+                          <Text style={styles.selectedAttachmentSize}>
+                            {formatMessengerAttachmentSize(attachment.size)}
+                          </Text>
+                        </View>
+                        <Pressable
+                          hitSlop={8}
+                          disabled={uploading}
+                          onPress={() => {
+                            setSelectedAttachments((current) =>
+                              removeSelectedMessengerAttachment(
+                                current,
+                                attachment.clientFileId,
+                              )
+                            );
+                          }}
+                        >
+                          <Feather name="x" size={16} color={MUTED} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : null}
                 <View style={styles.inputContainer}>
               <TouchableOpacity
                 onPress={handleAttachment}
-                style={[styles.attachBtn, !canSendMessages && styles.attachBtnDisabled]}
+                style={[
+                  styles.attachBtn,
+                  (!canSendMessages || uploading) && styles.attachBtnDisabled,
+                ]}
                 activeOpacity={0.7}
-                disabled={!canSendMessages}
+                disabled={!canSendMessages || uploading}
               >
                 <Feather name="paperclip" size={22} color="#9CA3AF" />
               </TouchableOpacity>
@@ -1084,16 +1294,31 @@ export default function GroupChatScreen() {
                 placeholder={canSendMessages ? '메시지를 입력하세요' : '총무 또는 본부장이 채팅을 허용하면 입력할 수 있어요'}
                 placeholderTextColor={MUTED}
                 multiline
-                editable={canSendMessages}
+                editable={canSendMessages && !uploading}
                 textAlignVertical="center"
                 scrollEnabled={false}
               />
               <Pressable
                 onPress={handleSendText}
-                style={[styles.sendBtn, (!canSendMessages || !text.trim()) && styles.sendBtnDisabled]}
-                disabled={!canSendMessages || !text.trim()}
+                style={[
+                  styles.sendBtn,
+                  (
+                    !canSendMessages
+                    || uploading
+                    || (!text.trim() && selectedAttachments.length === 0)
+                  ) && styles.sendBtnDisabled,
+                ]}
+                disabled={
+                  !canSendMessages
+                  || uploading
+                  || (!text.trim() && selectedAttachments.length === 0)
+                }
               >
-                <Feather name="arrow-up" size={20} color="#fff" />
+                {uploading ? (
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
+                ) : (
+                  <Feather name="arrow-up" size={20} color="#fff" />
+                )}
               </Pressable>
             </View>
           </View>
@@ -1345,6 +1570,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  attachmentMessageContent: { gap: 8, minWidth: 190 },
   fileCardMe: { backgroundColor: 'rgba(255,255,255,0.14)' },
   fileCardOther: { backgroundColor: '#FFF7ED' },
   fileIconBox: {
@@ -1414,6 +1640,35 @@ const styles = StyleSheet.create({
   replyTargetName: { fontSize: 12, fontWeight: '900', color: HANWHA_ORANGE },
   replyTargetText: { marginTop: 2, fontSize: 13, color: CHARCOAL },
   inputContainer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  selectedAttachmentList: {
+    gap: 8,
+    paddingBottom: 10,
+  },
+  selectedAttachmentChip: {
+    width: 210,
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED',
+  },
+  selectedAttachmentTextWrap: { flex: 1, minWidth: 0 },
+  selectedAttachmentName: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    color: CHARCOAL,
+  },
+  selectedAttachmentSize: {
+    marginTop: 2,
+    fontSize: 11,
+    color: MUTED,
+  },
   sendPermissionNotice: {
     minHeight: 36,
     marginBottom: 10,

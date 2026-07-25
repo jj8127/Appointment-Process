@@ -38,7 +38,7 @@ import { useMemo, useState } from 'react';
 import { StatusToggle } from '@/components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
-import { getAdminNotificationWarning } from '@/lib/admin-notification-warning';
+import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { supabase } from '@/lib/supabase';
 
 import { logger } from '@/lib/logger';
@@ -189,7 +189,7 @@ export default function DocumentsPage() {
                 const message = result?.error ?? '상태 변경에 실패했습니다.';
                 throw new Error(String(message));
             }
-            getAdminNotificationWarning(result);
+            showAdminNotificationWarning(result);
             return {
                 doc,
                 allApproved: Boolean(result?.allApproved),

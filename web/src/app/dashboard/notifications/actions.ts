@@ -107,17 +107,28 @@ export async function createNoticeAction(
         };
     }
 
-    const targetUrl = insertedNotice?.id ? `/notice-detail?id=${insertedNotice.id}` : '/notice';
+    if (!insertedNotice?.id) {
+        return { success: false, message: '공지 대상을 확인할 수 없습니다.' };
+    }
+    const targetUrl = `/notice-detail?id=${insertedNotice.id}`;
+    const target = { version: 1, kind: 'notice', noticeId: insertedNotice.id } as const;
 
     // 2. Insert Notification History
-    const { error: notifError } = await adminSupabase.from('notifications').insert({
+    const { data: insertedNotification, error: notifError } = await adminSupabase
+      .from('notifications')
+      .insert({
         title,
         body,
         category,
         target_url: targetUrl,
+        target,
         recipient_role: 'fc',
         resident_id: null, // Broadcast
-    });
+      })
+      .select('id')
+      .single();
+    const notificationId =
+      typeof insertedNotification?.id === 'string' ? insertedNotification.id : null;
 
     if (notifError) {
         logger.error('[notice] notification history insert failed', {
@@ -126,6 +137,19 @@ export async function createNoticeAction(
             code: notifError.code ?? 'unknown',
             status: 'failed',
         });
+    }
+    if (!notificationId) {
+        logger.warn('[notice] provider delivery skipped because notification persistence failed', {
+            category: 'notice',
+            reason: 'missing_notification_id',
+            status: 'warning',
+        });
+        revalidatePath('/dashboard/notifications');
+        return {
+            success: true,
+            message: '공지사항은 등록되었지만 알림 기록을 저장하지 못해 푸시를 보내지 않았습니다.',
+            notificationWarning: 'notification_persistence_and_delivery_incomplete',
+        };
     }
 
     // 3. Fetch Tokens
@@ -163,7 +187,12 @@ export async function createNoticeAction(
             to: token,
             title: `공지: ${title}`,
             body: body,
-            data: { type: 'notice', url: targetUrl },
+            data: {
+                type: 'notice',
+                url: targetUrl,
+                target,
+                ...(notificationId ? { notificationId } : {}),
+            },
             sound: 'default',
             priority: 'high',
             channelId: 'alerts',
@@ -241,7 +270,12 @@ export async function createNoticeAction(
             const result = await sendWebPush(uniqueWebSubs, {
                 title: `공지: ${title}`,
                 body,
-                data: { type: 'notice', url: targetUrl },
+                data: {
+                    type: 'notice',
+                    url: targetUrl,
+                    target,
+                    ...(notificationId ? { notificationId } : {}),
+                },
             });
             webPushSent = result.sent;
             webPushFailed = result.failed;

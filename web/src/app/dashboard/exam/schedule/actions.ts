@@ -4,6 +4,11 @@ import { adminSupabase } from '@/lib/admin-supabase';
 import { buildExamRoundNotificationPayload } from '@/lib/exam-round-notification';
 import { logger } from '@/lib/logger';
 import {
+    getNotificationDeliveryFeedback,
+    parseNotificationDeliveryFeedback,
+    type NotificationDeliveryFeedback,
+} from '@/lib/notification-delivery-feedback';
+import {
     parseExamRoundDeleteInput,
     parseExamRoundSaveInput,
 } from '@/lib/privileged-action-input-policy';
@@ -24,14 +29,14 @@ type SaveRoundState = {
     message?: string;
     roundId?: string;
     notificationWarning?: string;
+    notificationDelivery?: NotificationDeliveryFeedback;
 };
 
-type NotificationDeliveryResult =
-    | { ok: true; accepted: number }
-    | {
-        ok: false;
-        reason: 'invoke_failed' | 'invalid_response' | 'not_logged' | 'no_accepted_target';
-    };
+type NotificationDeliveryResult = {
+    ok: boolean;
+    feedback: NotificationDeliveryFeedback;
+    reason?: 'invoke_failed' | 'invalid_response' | 'not_logged';
+};
 
 const errorMessage = (err: unknown, fallback: string) => {
     if (err instanceof Error && err.message) return err.message;
@@ -65,6 +70,7 @@ async function notifyExamRoundChanged(
     title: string,
     body: string,
     examType: 'life' | 'nonlife',
+    examRoundId: string,
 ): Promise<NotificationDeliveryResult> {
     try {
         const { data, error } = await adminSupabase.functions.invoke('fc-notify', {
@@ -72,30 +78,73 @@ async function notifyExamRoundChanged(
                 title,
                 body,
                 examType,
+                examRoundId,
             }),
         });
 
         if (error) {
-            return { ok: false, reason: 'invoke_failed' };
+            return {
+                ok: false,
+                feedback: getNotificationDeliveryFeedback('persistence_failed'),
+                reason: 'invoke_failed',
+            };
         }
 
         const response = asRecord(data);
-        if (!response || response.ok !== true) {
-            return { ok: false, reason: 'invalid_response' };
+        if (!response) {
+            return {
+                ok: false,
+                feedback: getNotificationDeliveryFeedback('persistence_failed'),
+                reason: 'invalid_response',
+            };
+        }
+        const canonicalFeedback = parseNotificationDeliveryFeedback(response);
+        if (canonicalFeedback) {
+            return {
+                ok: canonicalFeedback.severity === 'success'
+                    || canonicalFeedback.severity === 'info',
+                feedback: canonicalFeedback,
+            };
+        }
+        if (response.ok !== true) {
+            return {
+                ok: false,
+                feedback: getNotificationDeliveryFeedback('persistence_failed'),
+                reason: 'invalid_response',
+            };
         }
         if (response.logged !== true) {
-            return { ok: false, reason: 'not_logged' };
+            return {
+                ok: false,
+                feedback: getNotificationDeliveryFeedback('persistence_failed'),
+                reason: 'not_logged',
+            };
         }
 
         const delivery = asRecord(response.delivery);
         const accepted = readNonNegativeInteger(delivery?.accepted);
-        if (accepted < 1 || readNonNegativeInteger(response.sent) !== accepted) {
-            return { ok: false, reason: 'no_accepted_target' };
+        if (accepted < 1) {
+            return {
+                ok: true,
+                feedback: getNotificationDeliveryFeedback('no_registered_device'),
+            };
         }
-
-        return { ok: true, accepted };
+        if (readNonNegativeInteger(response.sent) !== accepted) {
+            return {
+                ok: false,
+                feedback: getNotificationDeliveryFeedback('provider_failed'),
+            };
+        }
+        return {
+            ok: true,
+            feedback: getNotificationDeliveryFeedback('delivered'),
+        };
     } catch {
-        return { ok: false, reason: 'invoke_failed' };
+        return {
+            ok: false,
+            feedback: getNotificationDeliveryFeedback('persistence_failed'),
+            reason: 'invoke_failed',
+        };
     }
 }
 
@@ -147,7 +196,7 @@ export async function saveExamRoundAction(
         const actionText = roundId ? '수정' : '등록';
         const title = `${dateLabel}${round_label ? ` (${round_label})` : ''} 일정 ${actionText}`;
         const body = `시험 일정이 ${actionText}되었습니다.`;
-        const notificationResult = await notifyExamRoundChanged(title, body, exam_type);
+        const notificationResult = await notifyExamRoundChanged(title, body, exam_type, targetRoundId);
         if (!notificationResult.ok) {
             logger.warn('[saveExamRound] notification delivery incomplete', {
                 category: 'exam_round',
@@ -160,9 +209,12 @@ export async function saveExamRoundAction(
             success: true,
             message: '저장 완료',
             roundId: targetRoundId,
-            notificationWarning: notificationResult.ok
-                ? undefined
-                : 'notification_delivery_incomplete',
+            notificationWarning:
+                notificationResult.feedback.severity === 'warning'
+                || notificationResult.feedback.severity === 'error'
+                    ? 'notification_delivery_incomplete'
+                    : undefined,
+            notificationDelivery: notificationResult.feedback,
         };
     } catch (err: unknown) {
         logger.error('[saveExamRound] failed', {

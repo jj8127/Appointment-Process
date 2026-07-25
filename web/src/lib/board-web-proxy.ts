@@ -13,6 +13,7 @@ export const BOARD_FUNCTION_NAMES = [
   'board-delete',
   'board-detail',
   'board-list',
+  'board-notification-retry',
   'board-pin',
   'board-reaction-toggle',
   'board-update',

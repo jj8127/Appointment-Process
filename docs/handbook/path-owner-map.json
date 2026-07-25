@@ -284,9 +284,18 @@
         "supabase/functions/_shared/fc-notify-auth-policy.ts",
         "supabase/functions/_shared/expo-push-delivery.ts",
         "supabase/functions/_shared/__tests__/expo-push-delivery.test.ts",
+        "supabase/functions/_shared/direct-message-policy.ts",
+        "supabase/functions/_shared/__tests__/direct-message-policy_test.ts",
+        "supabase/functions/_shared/notification-receipt-policy.ts",
+        "supabase/functions/_shared/__tests__/notification-receipt-policy_test.ts",
+        "supabase/functions/_shared/notification-target.ts",
+        "supabase/functions/_shared/__tests__/notification-target_test.ts",
+        "supabase/functions/_shared/persisted-notification-delivery.ts",
+        "supabase/functions/_shared/__tests__/persisted-notification-delivery_test.ts",
         "supabase/functions/device-token-register/",
         "supabase/functions/fc-notify/",
         "supabase/functions/__tests__/fc-notify-",
+        "supabase/functions/__tests__/notification-persist-before-push.contract.test.ts",
         "web/src/app/api/admin/push/route.ts",
         "web/src/app/api/web-push/subscribe/route.ts",
         "lib/mobile-unread-notification-count.ts",
@@ -303,6 +312,9 @@
       "severity": "contract",
       "prefixes": [
         "supabase/functions/_shared/group-chat.ts",
+        "supabase/functions/_shared/group-chat-notification-event.ts",
+        "supabase/functions/_shared/__tests__/group-chat-notification-event_test.ts",
+        "supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts",
         "supabase/functions/group-chat/"
       ],
       "requires_any": [
@@ -320,6 +332,8 @@
         "supabase/functions/_shared/board-actor-policy.ts",
         "supabase/functions/_shared/board-categories.ts",
         "supabase/functions/_shared/board-list-policy.ts",
+        "supabase/functions/_shared/board-notification-event.ts",
+        "supabase/functions/_shared/__tests__/board-notification-event_test.ts",
         "supabase/functions/__tests__/board-"
       ],
       "requires_any": [

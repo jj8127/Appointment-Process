@@ -1,13 +1,21 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
-import { normalizeAdminDashboardUrl } from '@/lib/admin-chat-url';
+import { parseNotificationTargetV1 } from '@/lib/notification-target';
 import { sendWebPush } from '@/lib/web-push';
 import { logger } from '@/lib/logger';
 
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+let adminClient: SupabaseClient | null = null;
+const getAdminClient = () => {
+  if (!adminClient) {
+    adminClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    );
+  }
+  return adminClient;
+};
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const normalizeToken = (value?: string | null) =>
   (value ?? '')
@@ -32,7 +40,7 @@ const normalizeAdminNotificationTargetId = (value?: string | null) => {
 async function fetchSharedAdminResidentIds(): Promise<
   { ok: true; residentIds: string[] } | { ok: false }
 > {
-  const { data, error } = await adminClient
+  const { data, error } = await getAdminClient()
     .from('admin_accounts')
     .select('phone,staff_type')
     .eq('active', true);
@@ -61,11 +69,11 @@ async function resolveConcreteTargetRole(
   normalizedTargetId: string,
 ): Promise<ConcreteTargetRoleResult> {
   const [adminsResult, managersResult] = await Promise.all([
-    adminClient
+    getAdminClient()
       .from('admin_accounts')
       .select('phone')
       .eq('active', true),
-    adminClient
+    getAdminClient()
       .from('manager_accounts')
       .select('phone')
       .eq('active', true),
@@ -125,20 +133,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: { title?: string; body?: string; url?: string; targetId?: string | null };
+  let body: {
+    title?: string;
+    body?: string;
+    targetId?: string | null;
+    notificationId?: string;
+    target?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { title, body: notifBody, url, targetId } = body;
-  if (!title || !notifBody) {
-    return NextResponse.json({ error: 'Missing title or body' }, { status: 400 });
+  const { title, body: notifBody, targetId } = body;
+  const notificationId = String(body.notificationId ?? '').trim().toLowerCase();
+  const target = parseNotificationTargetV1(body.target);
+  if (!title || !notifBody || !UUID_PATTERN.test(notificationId) || !target) {
+    return NextResponse.json({ error: 'Missing or invalid notification payload' }, { status: 400 });
   }
 
   const normalizedTargetId = normalizeAdminNotificationTargetId(targetId);
-  let query = adminClient
+  let query = getAdminClient()
     .from('web_push_subscriptions')
     .select('endpoint,p256dh,auth');
 
@@ -190,14 +206,12 @@ export async function POST(req: Request) {
     });
   }
 
-  const normalizedUrl = normalizeAdminDashboardUrl(url ?? '/dashboard');
-
   let result: Awaited<ReturnType<typeof sendWebPush>>;
   try {
     result = await sendWebPush(subs, {
       title,
       body: notifBody,
-      data: { url: normalizedUrl },
+      data: { notificationId, target },
     });
   } catch {
     logger.warn('[admin/push] delivery failed', {
@@ -212,7 +226,7 @@ export async function POST(req: Request) {
   }
 
   if (result.expired.length > 0) {
-    const { error: deleteError } = await adminClient
+    const { error: deleteError } = await getAdminClient()
       .from('web_push_subscriptions')
       .delete()
       .in('endpoint', result.expired);

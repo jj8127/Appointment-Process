@@ -15,89 +15,54 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { useSession } from '@/hooks/use-session';
-import { invokeFcNotify } from '@/lib/fc-notify-client';
+import { fetchAuthorizedNoticeDetail } from '@/lib/notice-detail-api';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import { isNotificationUuid } from '@/lib/notification-target';
+import {
+  hasPresentRouteParam,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { COLORS } from '@/lib/theme';
-
-type AttachedFile = {
-  name: string;
-  url: string;
-  type: string;
-};
-
-type NoticeDetail = {
-  id: string;
-  title: string;
-  body: string;
-  category: string | null;
-  created_at: string;
-  images: string[] | null;
-  files: AttachedFile[] | null;
-};
-
-type InboxNoticePayload = {
-  id: string;
-  title: string;
-  body: string;
-  category?: string | null;
-  created_at?: string | null;
-  images?: unknown;
-  files?: unknown;
-};
-
-type InboxListResponse = {
-  ok?: boolean;
-  message?: string;
-  notices?: InboxNoticePayload[];
-};
-
-const isAttachedFile = (value: unknown): value is AttachedFile => {
-  if (!value || typeof value !== 'object') return false;
-  const row = value as Record<string, unknown>;
-  return typeof row.name === 'string' && typeof row.url === 'string' && typeof row.type === 'string';
-};
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 
 async function fetchNoticeDetail(
   id: string,
   role: 'admin' | 'fc' | null,
-  residentId: string,
-): Promise<NoticeDetail | null> {
-  if (!role) return null;
-
-  const { data, error } = await invokeFcNotify<InboxListResponse>({
-      type: 'inbox_list',
-      role,
-      resident_id: role === 'fc' ? (residentId || null) : null,
-      limit: 200,
-  });
-  if (error) throw error;
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '공지를 불러오지 못했습니다.');
-  }
-
-  const row = (data.notices ?? []).find((notice) => notice.id === id);
-  if (!row) return null;
-
-  return {
-    id: row.id,
-    title: row.title,
-    body: row.body,
-    category: row.category ?? '공지',
-    created_at: row.created_at ?? new Date().toISOString(),
-    images: Array.isArray(row.images) ? row.images.filter((v): v is string => typeof v === 'string') : null,
-    files: Array.isArray(row.files) ? row.files.filter(isAttachedFile) : null,
-  };
+) {
+  if (!role || !isNotificationUuid(id)) return null;
+  return fetchAuthorizedNoticeDetail(id);
 }
 
 export default function NoticeDetailScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
-  const { role, residentId } = useSession();
-  const noticeId = useMemo(() => (Array.isArray(id) ? id[0] : id) ?? '', [id]);
+  const { id, notificationId, notificationTarget } = useLocalSearchParams<{
+    id?: string;
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
+  const { role } = useSession();
+  const noticeId = useMemo(
+    () => parseExactlyOneUuidRouteParam(id) ?? '',
+    [id],
+  );
+  const hasInvalidNoticeRoute =
+    hasPresentRouteParam(id) && !noticeId;
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['notice', 'detail', noticeId, role, residentId],
-    queryFn: () => fetchNoticeDetail(noticeId, role, residentId),
-    enabled: Boolean(noticeId && role),
+    queryKey: ['notice', 'detail', noticeId, role],
+    queryFn: () => fetchNoticeDetail(noticeId, role),
+    enabled: Boolean(isNotificationUuid(noticeId) && role),
+  });
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasInvalidNoticeRoute && noticeId
+      ? { version: 1, kind: 'notice', noticeId }
+      : null,
+    loadState: hasInvalidNoticeRoute || isError || (!isLoading && !data)
+      ? 'error'
+      : data?.id === noticeId
+        ? 'success'
+        : 'loading',
   });
 
   const handleOpenLink = async (url: string) => {
@@ -142,6 +107,10 @@ export default function NoticeDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{data.category || '공지'}</Text>

@@ -25,10 +25,26 @@ describe('admin web group chat wiring', () => {
 
   it('routes group chat notifications to the admin web group chat page', () => {
     const notificationBell = readWebFile(join('components', 'DashboardNotificationBell.tsx'));
+    const notificationTarget = readWebFile(join('lib', 'notification-target.ts'));
+    const groupChatPage = readWebFile(join('app', 'dashboard', 'group-chat', 'page.tsx'));
 
-    expect(notificationBell).toContain("category === 'group_chat_message'");
-    expect(notificationBell).toContain("trimmed.startsWith('/group-chat')");
-    expect(notificationBell).toContain('/dashboard/group-chat');
+    expect(notificationTarget).toContain("case 'group_chat':");
+    expect(notificationTarget).toContain(
+      "hasExactKeys(value, ['version', 'kind', 'roomId']) && isUuid(value.roomId)",
+    );
+    expect(notificationTarget).toContain(
+      'href: `/dashboard/group-chat?roomId=${encodeURIComponent(target.roomId)}`',
+    );
+    expect(notificationBell).toContain('target: parseNotificationTargetV1(item.target)');
+    expect(notificationBell).toContain(
+      'router.push(`/dashboard/notification-open/${encodeURIComponent(item.id)}`)',
+    );
+    expect(notificationBell).not.toContain("category === 'group_chat_message'");
+    expect(notificationBell).not.toContain("trimmed.startsWith('/group-chat')");
+    expect(groupChatPage).toContain("searchParams.get('roomId')");
+    expect(groupChatPage).toContain(
+      'notificationRoomId && room?.id === notificationRoomId ? <NotificationDestinationReady /> : null',
+    );
   });
 
   it('proxies web group chat actions through the existing Edge Function contract', () => {
@@ -64,13 +80,19 @@ describe('admin web group chat wiring', () => {
     expect(page).toContain('if (!options?.silent) showGroupChatErrorNotification(error)');
     expect(page).toContain('replyTarget');
     expect(page).toContain('memberSearch');
-    expect(page).toContain('chat-uploads');
+    expect(page).toContain('prepareMessengerAttachmentBatch');
+    expect(page).toContain('uploadMessengerAttachmentBatch');
+    expect(page).toContain('openMessengerAttachment');
+    expect(page).not.toContain('chat-uploads');
+    expect(page).not.toContain('getPublicUrl');
     expect(page).toContain('group_chat_messages');
     expect(page).toContain('supabase.removeChannel(channel)');
     expect(client).toContain('GroupChatNotificationSummary');
     expect(client).toContain('GroupChatSendWarning');
-    expect(page).toContain("result.warning?.code === 'notification_delivery_partial'");
-    expect(page).toContain('showGroupChatDeliveryWarning(result.warning.message)');
+    expect(page).toContain('result.notification.delivery.notificationStored === false');
+    expect(page).toContain('showGroupChatInboxWarning()');
+    expect(page).not.toContain("result.warning?.code === 'notification_delivery_partial'");
+    expect(page).not.toContain('showGroupChatDeliveryWarning(result.warning.message)');
   });
 
   it('requires a signed HttpOnly staff session for admin web server routes', () => {

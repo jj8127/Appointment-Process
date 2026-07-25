@@ -2,8 +2,26 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-23
+last_verified: 2026-07-25
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
+
+## Board notification retry boundary (2026-07-25)
+
+- Durable inbox persistence is the sender-facing boundary. `notificationStored=false` yields a notification-only retry token; no-device and provider rejection keep `notificationStored=true` and do not show a sender warning.
+- `board-notification-retry` is an authenticated trusted-server path. It resolves the current committed post and recipient broadcasts server-side, uses one unique delivery key per event/role, validates the returned canonical rows, and only then invokes `fc-notify` with `skip_notification_insert=true`.
+- Clients can submit only the committed post ID and opaque event key. They cannot choose a notification ID, audience, exact recipient, target, title, or body, and retries never call a board mutation.
+
+## Group-chat read-state feedback boundary (2026-07-25)
+
+- A post-send read-state update failure remains fixed operations telemetry and `read_state.updated=false`; it never creates a sender-facing warning.
+- The sender warning is reserved for `notificationStored=false`. No-device, provider rejection, unread state, and read-state synchronization do not turn a committed message into a warning or retry of the message write.
+
+## Group-chat notification-only retry boundary (2026-07-25)
+
+- A committed `group_chat_send` returns top-level `delivery` and, only when inbox persistence is false, `notificationRetry: { messageId, retryToken }`. Mobile and web call `group_chat_notification_retry`; they never resubmit the message.
+- The opaque `gcnr1` retry token is HMAC-SHA256 authenticated with the existing current/previous app-session signing secrets and a dedicated domain separator. The stable delivery event key is derived independently from committed room ID, message ID, sender actor ID, and creation time so signing-key rotation cannot duplicate inbox rows.
+- The retry action reloads the canonical room/message, requires the current active actor to be the original sender and a current eligible member, rejects deleted/foreign/tampered state, and derives the current unmuted audience, content, typed target, recipient UUIDs, and delivery keys server-side.
+- Each current recipient is upserted by its unique delivery key and the returned UUID, exact actor/role/resident, target, and delivery key are validated before Expo fanout. Replays reuse inbox rows; partial audience persistence is completed without reinserting the message.
 
 ## Direct-message routing and conversation ordering (2026-07-24)
 

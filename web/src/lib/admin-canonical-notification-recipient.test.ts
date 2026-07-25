@@ -28,8 +28,8 @@ test('FC notifications resolve the current canonical profile phone on the server
     routeSource,
     /async function queuePushNotificationToCanonicalFc[\s\S]*?resolveCanonicalFcNotificationRecipient\(fcId\)/,
   );
-  assert.match(routeSource, /return sendPushNotificationToResident\('', payload\)/);
-  assert.match(routeSource, /return sendPushNotificationToResident\(phoneDigits, payload\)/);
+  assert.match(routeSource, /return sendPushNotificationToResident\('', payload, fcId\)/);
+  assert.match(routeSource, /return sendPushNotificationToResident\(phoneDigits, payload, fcId\)/);
   assert.doesNotMatch(routeSource, /return sendPushNotificationToResident\(phone, payload\)/);
 
   const canonicalCalls = routeSource.match(/await sendPushNotificationToCanonicalFc\(fcId,/g) ?? [];
@@ -116,5 +116,5 @@ test('standalone reminder action resolves the canonical FC phone after session v
   assert.ok(actionSource.indexOf('await getVerifiedAdminSession()') < actionSource.indexOf(".from('fc_profiles')"));
   assert.match(actionSource, /\.eq\('id', fcId\)/);
   assert.match(actionSource, /parseFcNotificationPhone\(profile\.phone\)/);
-  assert.match(actionSource, /sendPushNotificationToResident\(phoneResult\.value, payload\)/);
+  assert.match(actionSource, /sendPushNotificationToResident\(phoneResult\.value, payload, fcId\)/);
 });

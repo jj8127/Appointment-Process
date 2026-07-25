@@ -1,7 +1,6 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
-import { supabase } from '@/lib/supabase';
 import {
   Button,
   Container,
@@ -20,6 +19,7 @@ import { notifications } from '@mantine/notifications';
 import dayjs from 'dayjs';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { notificationFeedbackColor } from '@/lib/notification-delivery-feedback';
 
 type FormState = {
   exam_date: DateValue;
@@ -27,7 +27,6 @@ type FormState = {
   round_label: string;
   notes: string;
   exam_type: 'life' | 'nonlife' | null;
-  status: 'open' | 'closed';
   locations: string[];
 };
 
@@ -40,7 +39,6 @@ export default function ExamNewPage() {
     round_label: '',
     notes: '',
     exam_type: null,
-    status: 'open',
     locations: ['서울', '부산'],
   });
   const [saving, setSaving] = useState(false);
@@ -66,26 +64,28 @@ export default function ExamNewPage() {
         round_label: state.round_label.trim(),
         notes: state.notes,
         exam_type: state.exam_type,
-        status: state.status,
+        locations: state.locations,
+        roundId: null,
       };
-      const { data: round, error } = await supabase.from('exam_rounds').insert(payload).select().single();
-      if (error) throw error;
-      const roundId = round.id as string;
-
-      const toInsert = state.locations
-        .filter((name) => name.trim().length > 0)
-        .map((name, idx) => ({
-          round_id: roundId,
-          location_name: name.trim(),
-          sort_order: idx,
-        }));
-
-      if (toInsert.length > 0) {
-        const { error: locErr } = await supabase.from('exam_locations').insert(toInsert);
-        if (locErr) throw locErr;
+      const { saveExamRoundAction } = await import(
+        '@/app/dashboard/exam/schedule/actions'
+      );
+      const result = await saveExamRoundAction({ success: false }, payload);
+      if (!result.success) {
+        throw new Error(result.error || '시험 일정 등록에 실패했습니다.');
       }
 
       notifications.show({ title: '등록 완료', message: '시험 일정이 등록되었습니다.', color: 'green' });
+      if (
+        result.notificationDelivery
+        && result.notificationDelivery.severity !== 'success'
+      ) {
+        notifications.show({
+          title: result.notificationDelivery.title,
+          message: result.notificationDelivery.message,
+          color: notificationFeedbackColor(result.notificationDelivery),
+        });
+      }
       router.replace('/dashboard/exam/schedule');
     } catch (e) {
       const err = e as Error;
@@ -141,15 +141,6 @@ export default function ExamNewPage() {
               ]}
               value={state.exam_type}
               onChange={(v) => setState((s) => ({ ...s, exam_type: (v as 'life' | 'nonlife') || 'life' }))}
-            />
-            <Select
-              label="상태"
-              data={[
-                { value: 'open', label: '접수 중 (open)' },
-                { value: 'closed', label: '마감 (closed)' },
-              ]}
-              value={state.status}
-              onChange={(v) => setState((s) => ({ ...s, status: (v as 'open' | 'closed') || 'open' }))}
             />
           </Group>
           <TextInput

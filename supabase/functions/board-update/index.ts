@@ -2,6 +2,12 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { buildCorsHeaders, json, parseJson, redactSensitiveText, requireActor, requireRole, supabase, dbError } from '../_shared/board.ts';
 import { isCanonicalBoardCategorySlug } from '../_shared/board-categories.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
+import type { NotificationTargetV1 } from '../_shared/notification-target.ts';
+import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
+import {
+  boardNotificationDeliveryKey,
+  deriveBoardNotificationEventKey,
+} from '../_shared/board-notification-event.ts';
 
 type Payload = {
   actor?: {
@@ -27,6 +33,7 @@ type BoardPushDeliveryCounts = Readonly<{
 type BoardPushDeliveryResult = Readonly<{
   targetRole: BoardPushTargetRole;
   ok: boolean;
+  pushStatus: 'accepted' | 'no_registered_device' | 'provider_rejected';
   sent: number;
   logged: boolean;
   delivery: BoardPushDeliveryCounts;
@@ -70,23 +77,40 @@ function getEnv(name: string): string | undefined {
 }
 
 async function insertNotificationsWithFallback(rows: Record<string, unknown>[]) {
-  const sanitizedRows = rows.map((row) => ({
+  const sanitizedRows: Record<string, unknown>[] = rows.map((row) => ({
     ...row,
     title: redactSensitiveText(String(row.title ?? ''), '알림'),
     body: redactSensitiveText(String(row.body ?? '')),
     category: redactSensitiveText(String(row.category ?? ''), 'board_post'),
     target_url: row.target_url ? redactSensitiveText(String(row.target_url)) : row.target_url,
   }));
-  const firstTry = await supabase.from('notifications').insert(sanitizedRows);
-  if (!firstTry.error) return null;
-
-  const missingTargetColumn =
-    firstTry.error.code === '42703' || String(firstTry.error.message ?? '').includes('target_url');
-  if (!missingTargetColumn) return firstTry.error;
-
-  const fallbackRows = sanitizedRows.map(({ target_url: _ignored, ...row }) => row);
-  const secondTry = await supabase.from('notifications').insert(fallbackRows);
-  return secondTry.error ?? null;
+  const { data, error } = await supabase
+    .from('notifications')
+    .upsert(sanitizedRows, { onConflict: 'delivery_key' })
+    .select('id,recipient_role,recipient_actor_id,resident_id,target,delivery_key');
+  if (error) return { error, rows: [] };
+  const expectedByRole = new Map(
+    sanitizedRows.map((row) => [String(row.recipient_role), row]),
+  );
+  const persistedRows = (data ?? []) as Array<Record<string, unknown>>;
+  const rowsWithCanonicalIds = persistedRows.filter((row) => {
+    const expected = expectedByRole.get(String(row.recipient_role));
+    if (!expected) return false;
+    if (row.delivery_key !== expected.delivery_key) return false;
+    return validatePersistedNotificationForDelivery(row, {
+      target: expected.target as NotificationTargetV1,
+      recipientRole: expected.recipient_role as 'admin' | 'fc' | 'manager',
+      recipientActorId: null,
+      residentId: null,
+    }).ok;
+  });
+  const mappingComplete =
+    rowsWithCanonicalIds.length === sanitizedRows.length
+    && rowsWithCanonicalIds.length === persistedRows.length;
+  return {
+    error: mappingComplete ? null : { message: 'notification_id_mapping_incomplete' },
+    rows: mappingComplete ? rowsWithCanonicalIds : [],
+  };
 }
 
 async function sendBoardPush(
@@ -94,6 +118,8 @@ async function sendBoardPush(
   title: string,
   body: string,
   url: string,
+  target: NotificationTargetV1,
+  notificationId: string,
 ): Promise<BoardPushDeliveryResult> {
   const supabaseUrl = getEnv('SUPABASE_URL')?.trim();
   const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY')?.trim();
@@ -102,6 +128,7 @@ async function sendBoardPush(
     return {
       targetRole,
       ok: false,
+      pushStatus: 'provider_rejected',
       sent: 0,
       logged: false,
       delivery: EMPTY_PUSH_DELIVERY,
@@ -126,6 +153,8 @@ async function sendBoardPush(
         body,
         category: 'board_post',
         url,
+        target,
+        notification_id: notificationId,
         skip_notification_insert: true,
       }),
       signal: AbortSignal.timeout(NOTIFICATION_FETCH_TIMEOUT_MS),
@@ -142,6 +171,7 @@ async function sendBoardPush(
       return {
         targetRole,
         ok: false,
+        pushStatus: 'provider_rejected',
         sent: 0,
         logged: false,
         delivery: EMPTY_PUSH_DELIVERY,
@@ -156,7 +186,13 @@ async function sendBoardPush(
           ok?: unknown;
           logged?: unknown;
           sent?: unknown;
-          delivery?: { attempted?: unknown; accepted?: unknown; rejected?: unknown };
+          delivery?: {
+            notificationStored?: unknown;
+            pushStatus?: unknown;
+            attempted?: unknown;
+            accepted?: unknown;
+            rejected?: unknown;
+          };
         }
         : null;
       const sent = toNonNegativeInteger(parsed?.sent) ?? 0;
@@ -169,10 +205,7 @@ async function sendBoardPush(
         : { attempted, accepted, rejected };
       const confirmed = parsed?.ok === true
         && logged
-        && delivery.attempted > 0
-        && delivery.accepted === delivery.attempted
-        && delivery.rejected === 0
-        && sent === delivery.accepted;
+        && parsed?.delivery?.notificationStored === true;
       if (!confirmed) {
         reportEdgeDiagnostic({
           event: 'board_update.push_fanout',
@@ -184,6 +217,7 @@ async function sendBoardPush(
         return {
           targetRole,
           ok: false,
+          pushStatus: 'provider_rejected',
           sent,
           logged,
           delivery,
@@ -191,7 +225,12 @@ async function sendBoardPush(
         };
       }
 
-      return { targetRole, ok: true, sent, logged, delivery };
+      const pushStatus =
+        parsed?.delivery?.pushStatus === 'accepted'
+        || parsed?.delivery?.pushStatus === 'no_registered_device'
+          ? parsed.delivery.pushStatus
+          : 'provider_rejected';
+      return { targetRole, ok: true, pushStatus, sent, logged, delivery };
     } catch {
       reportEdgeDiagnostic({
         event: 'board_update.push_fanout',
@@ -203,6 +242,7 @@ async function sendBoardPush(
       return {
         targetRole,
         ok: false,
+        pushStatus: 'provider_rejected',
         sent: 0,
         logged: false,
         delivery: EMPTY_PUSH_DELIVERY,
@@ -219,6 +259,7 @@ async function sendBoardPush(
     return {
       targetRole,
       ok: false,
+      pushStatus: 'provider_rejected',
       sent: 0,
       logged: false,
       delivery: EMPTY_PUSH_DELIVERY,
@@ -375,9 +416,34 @@ serve(async (req: Request) => {
   });
   if (updateError) return dbError(updateError, origin);
 
-  const updatedTitle = title ?? redactSensitiveText(String(post.title ?? '게시글'), '게시글');
+  const { data: committedPost, error: committedPostError } = await supabase
+    .from('board_posts')
+    .select('id,title,updated_at')
+    .eq('id', postId)
+    .maybeSingle();
+  if (committedPostError || !committedPost?.id || !committedPost.updated_at) {
+    return json({
+      ok: true,
+      saved: true,
+      notification: null,
+      delivery: {
+        notificationStored: false,
+        pushStatus: 'not_attempted',
+        retryable: false,
+      },
+      notificationRetry: null,
+      notificationWarning: 'notification_delivery_incomplete',
+    }, 200, origin);
+  }
+
+  const updatedTitle = redactSensitiveText(String(committedPost.title ?? ''), '게시글');
   const notificationTitle = '게시글 수정';
   const targetUrl = `/board?postId=${postId}`;
+  const target: NotificationTargetV1 = { version: 1, kind: 'board_post', postId };
+  const eventKey = await deriveBoardNotificationEventKey({
+    postId,
+    updatedAt: committedPost.updated_at,
+  });
   const notificationRows = [
     {
       recipient_role: 'fc',
@@ -385,7 +451,9 @@ serve(async (req: Request) => {
       title: notificationTitle,
       body: updatedTitle,
       category: 'board_post',
+      target,
       target_url: targetUrl,
+      delivery_key: boardNotificationDeliveryKey(eventKey, 'fc'),
     },
     {
       recipient_role: 'admin',
@@ -393,7 +461,9 @@ serve(async (req: Request) => {
       title: notificationTitle,
       body: updatedTitle,
       category: 'board_post',
+      target,
       target_url: targetUrl,
+      delivery_key: boardNotificationDeliveryKey(eventKey, 'admin'),
     },
     {
       recipient_role: 'manager',
@@ -401,11 +471,14 @@ serve(async (req: Request) => {
       title: notificationTitle,
       body: updatedTitle,
       category: 'board_post',
+      target,
       target_url: targetUrl,
+      delivery_key: boardNotificationDeliveryKey(eventKey, 'manager'),
     },
   ];
 
-  const notificationError = await insertNotificationsWithFallback(notificationRows);
+  const notificationInsert = await insertNotificationsWithFallback(notificationRows);
+  const notificationError = notificationInsert.error;
   if (notificationError) {
     reportEdgeDiagnostic({
       event: 'board_update.notification_insert',
@@ -414,15 +487,27 @@ serve(async (req: Request) => {
     });
   }
 
-  const pushTargets = await Promise.all([
-    sendBoardPush('fc', notificationTitle, updatedTitle, targetUrl),
-    sendBoardPush('admin', notificationTitle, updatedTitle, targetUrl),
-  ]);
+  const notificationIdByRole = new Map(
+    notificationInsert.rows.map((row) =>
+      [String(row.recipient_role), String(row.id)] as const
+    ),
+  );
+  const pushTargets = notificationError
+    ? []
+    : await Promise.all([
+        sendBoardPush('fc', notificationTitle, updatedTitle, targetUrl, target, notificationIdByRole.get('fc')!),
+        sendBoardPush('admin', notificationTitle, updatedTitle, targetUrl, target, notificationIdByRole.get('admin')!),
+      ]);
 
   const inboxOk = !notificationError;
-  const pushOk = pushTargets.every((target) => target.ok);
+  const pushOk = inboxOk && pushTargets.every((target) => target.ok);
+  const pushStatus = pushTargets.some((target) => target.pushStatus === 'provider_rejected')
+    ? 'provider_rejected'
+    : pushTargets.some((target) => target.pushStatus === 'accepted')
+      ? 'accepted'
+      : 'no_registered_device';
   const notification = {
-    ok: inboxOk && pushOk,
+    ok: inboxOk,
     inbox: {
       ok: inboxOk,
       attempted: notificationRows.length,
@@ -439,6 +524,17 @@ serve(async (req: Request) => {
     ok: true,
     saved: true,
     notification,
-    notificationWarning: notification.ok ? null : 'notification_delivery_incomplete',
+    delivery: {
+      notificationStored: inboxOk,
+      pushStatus: !inboxOk
+        ? 'not_attempted'
+        : pushStatus,
+      retryable: !inboxOk,
+      ...(inboxOk
+        ? { notificationIds: Array.from(notificationIdByRole.values()) }
+        : {}),
+    },
+    notificationRetry: inboxOk ? null : { postId, eventKey },
+    notificationWarning: inboxOk ? null : 'notification_delivery_incomplete',
   }, 200, origin);
 });

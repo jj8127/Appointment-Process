@@ -106,14 +106,29 @@ export async function updateDocStatusAction(
         }
         const notificationPhone = phoneResult.value;
 
-        const result = await sendPushNotification(notificationPhone, {
+        const result = await sendPushNotification(notificationPhone, fcId, {
             title,
             body,
+            target: {
+                version: 1,
+                kind: 'onboarding_section',
+                fcId,
+                section: targetUrl === '/docs-upload' ? 'docs_upload' : 'hanwha_commission',
+            },
             data: { url: targetUrl },
         });
-        return result.success
+        if (!('delivery' in result) || !('failures' in result)) {
+            return 'notification_target_unavailable';
+        }
+        if (
+            result.failures.some((failure) =>
+                failure === 'missing_recipient' || failure === 'recipient_mismatch')
+        ) {
+            return 'notification_target_unavailable';
+        }
+        return result.delivery.notificationStored
             ? undefined
-            : 'notification_delivery_incomplete';
+            : 'notification_persistence_incomplete';
     };
 
     const { data: currentDoc, error: currentDocError } = await adminSupabase

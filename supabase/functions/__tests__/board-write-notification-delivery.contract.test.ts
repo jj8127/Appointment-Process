@@ -8,22 +8,21 @@ const functionFiles = [
 
 describe('board write notification delivery contract', () => {
   for (const file of functionFiles) {
-    it(`${file} keeps the saved write successful while exposing incomplete notification delivery`, () => {
+    it(`${file} keeps the saved write successful and warns only when inbox persistence fails`, () => {
       const source = readFileSync(join(process.cwd(), file), 'utf8');
 
-      expect(source).toContain('const pushTargets = await Promise.all([');
+      expect(source).toContain('const pushTargets = notificationError');
+      expect(source).toContain(': await Promise.all([');
       expect(source).toContain('signal: AbortSignal.timeout(NOTIFICATION_FETCH_TIMEOUT_MS)');
       expect(source).toContain('const confirmed = parsed?.ok === true');
-      expect(source).toContain('delivery.attempted > 0');
-      expect(source).toContain('delivery.accepted === delivery.attempted');
-      expect(source).toContain('delivery.rejected === 0');
-      expect(source).toContain('sent === delivery.accepted');
+      expect(source).toContain('parsed?.delivery?.notificationStored === true');
+      expect(source).toContain('validatePersistedNotificationForDelivery');
       expect(source).toContain('const inboxOk = !notificationError;');
-      expect(source).toContain('const pushOk = pushTargets.every((target) => target.ok);');
+      expect(source).toContain('const pushOk = inboxOk && pushTargets.every((target) => target.ok);');
       expect(source).toContain('saved: true');
       expect(source).toContain('notification,');
       expect(source).toContain(
-        "notificationWarning: notification.ok ? null : 'notification_delivery_incomplete'",
+        "notificationWarning: inboxOk ? null : 'notification_delivery_incomplete'",
       );
     });
 

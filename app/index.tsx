@@ -28,6 +28,10 @@ import { Skeleton } from '@/components/LoadingSkeleton';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { resolveExamHomeSurface } from '@/lib/exam-role';
 import {
+  fetchGaraminDirectMessages,
+  resolveGaraminDirectConversation,
+} from '@/lib/direct-message-api';
+import {
   calcAdminWorkflowStep,
   calcFcHomeWorkflowStep,
   canOpenFcProfileRegistration,
@@ -46,6 +50,7 @@ import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notifica
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
 import { resolveHomeLatestNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import {
   HOME_GUIDE_ICON_BACKGROUND,
   HOME_GUIDE_ICON_BORDER,
@@ -54,6 +59,7 @@ import {
 } from '@/lib/home-guide-ui';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
 import type { FcProfile } from '@/types/fc';
 
@@ -257,30 +263,16 @@ const fetchLatestAdminMessage = async (residentId: string) => {
     return null;
   }
   try {
-    const { data: authRes } = await supabase.auth.getUser();
-    logger.debug('[Home] latest admin msg start', { supabaseUserId: authRes?.user?.id, residentId });
-
-    const { data, error } = await supabase
-      .from('messages') // 테이블명이 다르면 여기 수정 필요
-      .select('*') // 컬럼 구조 확인용
-      .eq('receiver_id', residentId) // 내가 받은 메시지
-      .neq('sender_id', residentId) // 내가 보낸 것은 제외
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (error) {
-      logger.warn('[Home] latest admin msg error', error);
-      return null;
-    }
-
-    logger.debug('[Home] latest admin msg data', data);
-    const msg = data?.[0];
-    if (!msg) return null;
-    const content =
-      (msg as any).content || (msg as any).text || (msg as any).message || (msg as any).body || '';
-    return { ...msg, content };
+    const conversation = await resolveGaraminDirectConversation({
+      targetId: null,
+    });
+    const result = await fetchGaraminDirectMessages(conversation.id);
+    const latestIncoming = [...result.messages]
+      .reverse()
+      .find((message) => message.receiver_id === residentId);
+    return latestIncoming ?? null;
   } catch (err) {
-    logger.debug('[Home] latest admin msg exception', err);
+    logger.warn('[Home] latest admin msg error', err);
     return null;
   }
 };
@@ -426,7 +418,11 @@ const getLinkIcon = (href: string) => {
 export default function Home() {
   useInAppUpdate(); // Check for Android updates on mount
   const { role, residentId, displayName, logout, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
-  const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const { mode, notificationId, notificationTarget } = useLocalSearchParams<{
+    mode?: string;
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
   const { data: identityStatus, isLoading: identityLoading } = useIdentityStatus();
 
   const insets = useSafeAreaInsets();
@@ -486,11 +482,30 @@ export default function Home() {
   const {
     data: myFc,
     isLoading: statusLoading,
+    isError: statusError,
     refetch: refetchMyFc,
   } = useQuery({
     queryKey: ['my-fc-status', residentId],
     queryFn: () => (residentId ? fetchFcStatus(residentId) : Promise.resolve(null)),
     enabled: role === 'fc' && !!residentId,
+  });
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: myFc?.id
+      ? {
+          version: 1,
+          kind: 'onboarding_section',
+          fcId: myFc.id,
+          section: 'home',
+        }
+      : null,
+    loadState: statusError
+      ? 'error'
+      : myFc?.id
+        ? 'success'
+        : statusLoading
+          ? 'loading'
+          : 'error',
   });
 
   // FC 전용 코치마크
@@ -1082,26 +1097,25 @@ export default function Home() {
     }, [refetchLatestAdminMsg, residentId, role]),
   );
 
-  // 실시간: 새 메시지 도착 시 미리보기 즉시 갱신
+  // 메시지 테이블은 서버 전용이므로 서명된 서비스 조회를 주기적으로 갱신한다.
   useEffect(() => {
     if (role !== 'fc' || !residentId) return;
-    const channel = supabase
-      .channel(createHomeRealtimeChannelTopic('home-messages'))
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `receiver_id=eq.${residentId}` },
-        (payload) => {
-          const newMsg: any = payload.new;
-          const content = newMsg?.content || newMsg?.text || newMsg?.message || newMsg?.body;
-          if (content) {
-            refetchLatestAdminMsg?.();
-          }
-        },
-      )
-      .subscribe();
+    const intervalId = setInterval(
+      () => void refetchLatestAdminMsg?.(),
+      4_000,
+    );
+    const appStateSubscription = AppState.addEventListener(
+      'change',
+      (nextState) => {
+        if (nextState === 'active') {
+          void refetchLatestAdminMsg?.();
+        }
+      },
+    );
 
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(intervalId);
+      appStateSubscription.remove();
     };
   }, [refetchLatestAdminMsg, residentId, role]);
 
@@ -1176,6 +1190,10 @@ export default function Home() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       <Animated.ScrollView
         ref={scrollViewRef}
         refreshControl={

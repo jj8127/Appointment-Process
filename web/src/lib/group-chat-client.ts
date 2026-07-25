@@ -1,4 +1,5 @@
 import { GroupChatRequestError } from '@/lib/group-chat-error';
+import { validateMessengerAttachmentCommitResponse } from './messenger-attachment-commit';
 
 export type GroupChatRole = 'fc' | 'manager' | 'admin';
 export type GroupChatMessageType = 'text' | 'image' | 'file';
@@ -52,6 +53,13 @@ export type GroupChatMessage = {
   deleted_at: string | null;
   deleted_by_actor_id: string | null;
   reactions: GroupChatReactionSummary[];
+  attachments: Array<{
+    id: string;
+    name: string;
+    size: number;
+    mimeType: string;
+    sha256: string;
+  }>;
 };
 
 export type GroupChatNotice = {
@@ -72,6 +80,12 @@ export type GroupChatNotificationSummary = {
   push_token_count: number;
   push_accepted_count: number;
   push_rejected_count: number;
+  delivery: {
+    notificationStored: boolean;
+    pushStatus: 'accepted' | 'no_registered_device' | 'provider_rejected' | 'not_attempted';
+    retryable: boolean;
+    notificationIds?: string[];
+  };
 };
 
 export type GroupChatSendWarning = {
@@ -79,10 +93,26 @@ export type GroupChatSendWarning = {
   message: string;
 };
 
+export type GroupChatNotificationRetry = {
+  messageId: string;
+  retryToken: string;
+};
+
 export type GroupChatSendResponse = {
   ok: true;
   message: GroupChatMessage;
   notification: GroupChatNotificationSummary;
+  delivery: GroupChatNotificationSummary['delivery'];
+  notificationRetry: GroupChatNotificationRetry | null;
+  attachmentCommit?: unknown;
+  warning: GroupChatSendWarning | null;
+};
+
+export type GroupChatNotificationRetryResponse = {
+  ok: true;
+  notification: GroupChatNotificationSummary;
+  delivery: GroupChatNotificationSummary['delivery'];
+  notificationRetry: GroupChatNotificationRetry | null;
   warning: GroupChatSendWarning | null;
 };
 
@@ -136,8 +166,11 @@ export async function groupChatSend(input: {
   fileName?: string | null;
   fileSize?: number | null;
   replyToMessageId?: string | null;
+  attachmentIntentIds?: string[];
+  deliveryKey?: string;
+  payloadFingerprint?: string;
 }) {
-  return invokeGroupChat<GroupChatSendResponse>({
+  const result = await invokeGroupChat<GroupChatSendResponse>({
     type: 'group_chat_send',
     content: input.content,
     message_type: input.messageType ?? 'text',
@@ -145,6 +178,35 @@ export async function groupChatSend(input: {
     ...(input.fileName ? { file_name: input.fileName } : {}),
     ...(typeof input.fileSize === 'number' ? { file_size: input.fileSize } : {}),
     ...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
+    ...(input.attachmentIntentIds?.length
+      ? {
+          attachment_intent_ids: input.attachmentIntentIds,
+          delivery_key: input.deliveryKey,
+          payload_fingerprint: input.payloadFingerprint,
+        }
+      : {}),
+  });
+  if (
+    input.attachmentIntentIds?.length
+    && !validateMessengerAttachmentCommitResponse({
+      attachmentCommit: result.attachmentCommit,
+      message: result.message,
+      expectedAttachmentCount: input.attachmentIntentIds.length,
+    })
+  ) {
+    throw new GroupChatRequestError(
+      '서버가 첨부 파일 저장을 확인하지 못했습니다.',
+      { code: 'invalid_attachment_commit_response' },
+    );
+  }
+  return result;
+}
+
+export async function groupChatRetryNotification(retry: GroupChatNotificationRetry) {
+  return invokeGroupChat<GroupChatNotificationRetryResponse>({
+    type: 'group_chat_notification_retry',
+    message_id: retry.messageId,
+    retry_token: retry.retryToken,
   });
 }
 

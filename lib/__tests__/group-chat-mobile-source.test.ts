@@ -39,13 +39,23 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('buildOptimisticMessage');
     expect(source).toContain('sendOptimisticToServer');
     expect(source).toContain('hasGroupChatPostCommitWarning');
+    expect(source).toContain('getGroupChatNotificationRetry');
+    expect(source).toContain('groupChatRetryNotification');
     expect(source).toContain('showGroupChatDeliveryWarning');
-    expect(source).toContain("logger.warn('[group-chat] post-save delivery unconfirmed')");
-    expect(source).not.toContain('메시지는 저장됐지만 일부 후속 처리를 확인하지 못했습니다.');
+    expect(source).toContain('메시지는 전송됐지만 수신자 알림함에 등록하지 못했습니다.');
+    expect(source).toContain('알림만 다시 시도');
+    expect(source).toContain("logger.warn('[group-chat] post-send read state update failed')");
     expect(source).not.toContain('result.warning.message');
     expect(source).toContain('send_status');
     expect(source).toContain('DocumentPicker.getDocumentAsync');
-    expect(source).toContain('ImagePicker.launchImageLibraryAsync');
+    expect(source).toContain('multiple: true');
+    expect(source).toContain('appendMessengerAttachmentCandidates');
+    expect(source).toContain('prepareMessengerAttachmentBatch');
+    expect(source).toContain('uploadMessengerAttachmentBatch');
+    expect(source).toContain('openAuthorizedMessengerAttachment');
+    expect(source).not.toContain('ImagePicker.launchImageLibraryAsync');
+    expect(source).not.toContain('createSignedUploadUrl');
+    expect(source).not.toContain('getPublicUrl');
     expect(source).toContain('keyboardShouldPersistTaps="handled"');
     expect(source).toContain('supabase.removeChannel(channel)');
 
@@ -55,8 +65,33 @@ describe('group chat mobile wiring', () => {
     expect(sendSource.indexOf('applyMessages([')).toBeGreaterThan(-1);
     expect(sendSource.indexOf('shouldShowDeliveryWarning = hasGroupChatPostCommitWarning(result)'))
       .toBeGreaterThan(sendSource.indexOf('applyMessages(['));
+    expect(sendSource).toContain('notificationRetry = getGroupChatNotificationRetry(result)');
     expect(sendSource.indexOf('if (shouldShowDeliveryWarning)'))
-      .toBeGreaterThan(sendSource.indexOf('return;', sendSource.indexOf('catch (error)')));
+      .toBeGreaterThan(sendSource.indexOf('catch (error)'));
+    const retryStart = source.indexOf('async function retryGroupChatNotificationOnly');
+    const retryEnd = source.indexOf('type OptimisticMessageInput', retryStart);
+    const retrySource = source.slice(retryStart, retryEnd);
+    expect(retrySource).toContain('groupChatRetryNotification(retry)');
+    expect(retrySource).not.toContain('groupChatSend(');
+  });
+
+  it('does not reuse an attachment delivery after the reply target changes', () => {
+    const source = readAppFile('group-chat.tsx');
+    const sendStart = source.indexOf('const sendPayload');
+    const sendEnd = source.indexOf('const handleSendText', sendStart);
+    const sendSource = source.slice(sendStart, sendEnd);
+
+    expect(source).toContain('attachmentBatchReplyTargetRef');
+    expect(sendSource).toContain('const replyToMessageId = replyTarget?.id ?? null');
+    expect(sendSource).toContain(
+      'attachmentBatchReplyTargetRef.current === replyToMessageId',
+    );
+    expect(sendSource).toContain(
+      'attachmentBatchReplyTargetRef.current = replyToMessageId',
+    );
+    expect(sendSource).toContain(
+      'attachmentBatchReplyTargetRef.current = null',
+    );
   });
 
   it('renders internet URLs as tappable, underlined links in group chat messages', () => {
@@ -243,11 +278,40 @@ describe('group chat mobile wiring', () => {
     expect(source).not.toContain('function resolveCanSendMessages');
   });
 
-  it('routes group chat notifications to the group chat screen', () => {
-    const source = readAppFile('notifications.tsx');
+  it('routes each group-chat push by its exact room and notification receipt', () => {
+    const notificationSource = readAppFile('notifications.tsx');
+    const groupChatSource = readAppFile('group-chat.tsx');
+    const targetSource = readFileSync(
+      join(workspaceRoot, 'lib', 'notification-target.ts'),
+      'utf8',
+    );
+    const edgeSource = readFileSync(
+      join(workspaceRoot, 'supabase', 'functions', 'group-chat', 'index.ts'),
+      'utf8',
+    );
 
-    expect(source).toContain("category === 'group_chat_message'");
-    expect(source).toContain("return '/group-chat'");
+    expect(edgeSource).toContain(
+      "target: { version: 1, kind: 'group_chat', roomId: input.roomId }",
+    );
+    expect(edgeSource).toContain(
+      'const notificationId = notificationInsert.ids_by_actor.get(',
+    );
+    expect(edgeSource).not.toContain(
+      'notificationId: notificationInsert.ids_by_actor.get(',
+    );
+    expect(edgeSource).toContain('if (!notificationId) return null');
+    expect(edgeSource).toContain('if (notificationInsert.failed)');
+    expect(edgeSource).toContain('recipient_actor_id: member.immutable_actor_id');
+    expect(groupChatSource).toContain(
+      "expectedTarget: !hasInvalidRoomRoute && routeRoomId\n      ? { version: 1, kind: 'group_chat', roomId: routeRoomId }",
+    );
+    expect(groupChatSource).toContain('room?.id === routeRoomId');
+    expect(groupChatSource).toContain('useNotificationReceiptCompletion');
+    expect(targetSource).toContain(
+      'path = `/group-chat?roomId=${encodeURIComponent(target.roomId)}`',
+    );
+    expect(notificationSource).toContain('parseNotificationTarget(item.target)');
+    expect(notificationSource).not.toContain("category === 'group_chat_message'");
   });
 
   it('registers push tokens from mobile admin sessions too', () => {

@@ -87,10 +87,9 @@ export async function readResidentNumbersFromEdgeFallback({
     logError(`${logPrefix} resident-number edge function failed`, {
       ...runtimeDetails,
       status: resp.status,
-      body: data,
     });
 
-    throw new Error(`Resident-number edge fallback failed after ${directFallbackDescription}: ${parsed.message}`);
+    throw new Error(`Resident-number edge fallback failed after ${directFallbackDescription}.`);
   }
 
   return parsed.residentNumbers;

@@ -23,13 +23,14 @@ import {
   type ReferralSearchResult,
 } from '@/components/ReferralSearchField';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
-import { consumePendingReferralCode, savePendingReferralCode } from '@/lib/referral-deeplink';
+import { consumePendingReferralCode } from '@/lib/referral-deeplink';
 import { useSession } from '@/hooks/use-session';
 import { safeStorage } from '@/lib/safe-storage';
 import {
   buildPendingSignupReferralSelection,
   buildStoredSignupReferral,
   getSignupReferralSelectionError,
+  hasValidStoredSignupReferral,
   runSinglePendingReferralApply,
 } from '@/lib/signup-referral';
 import {
@@ -171,7 +172,7 @@ export default function SignupScreen() {
     if (selectedReferral && referralStatus !== 'valid') {
       Alert.alert(
         '입력 확인',
-        '선택한 추천인을 확인하지 못했습니다. 다시 검색해 선택하거나 입력값을 지워주세요.',
+        '선택한 추천인을 확인하지 못했습니다. 다시 검색해 선택해주세요.',
       );
       return;
     }
@@ -183,6 +184,10 @@ export default function SignupScreen() {
       referralInviterName,
       referralInviterFcId,
     });
+    if (!hasValidStoredSignupReferral(storedReferral)) {
+      Alert.alert('입력 확인', '유효한 추천인을 다시 검색해 선택해주세요.');
+      return;
+    }
     const normalizedLicenseStatuses = normalizeLicenseStatuses(licenseStatuses);
     const commissionStatus = mapLicenseStatusesToCommissionStatus(normalizedLicenseStatuses);
 
@@ -430,13 +435,8 @@ export default function SignupScreen() {
     useCallback(() => {
       if (!hydrated) return;
       if (role) {
-        // 로그인 상태: 대기 중인 추천 코드가 있으면 추천인 코드 페이지로 이동
-        (async () => {
-          const code = await consumePendingReferralCode();
-          if (!code) return;
-          await savePendingReferralCode(code);
-          router.replace({ pathname: '/referral', params: { referralNonce: Date.now().toString() } });
-        })();
+        // 로그인 상태에서는 가입용 추천 코드를 소비하고 폐기한다.
+        void consumePendingReferralCode();
         return;
       }
       void applyPendingReferralCode();
@@ -446,8 +446,7 @@ export default function SignupScreen() {
   useEffect(() => {
     if (!referralNonce || !hydrated) return;
     if (role) {
-      // 로그인 상태: 추천인 코드 페이지로 리다이렉트 (코드는 storage에 유지)
-      router.replace({ pathname: '/referral', params: { referralNonce } });
+      void consumePendingReferralCode();
       return;
     }
     void applyPendingReferralCode();
@@ -559,7 +558,7 @@ export default function SignupScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>추천인 (선택)</Text>
+            <Text style={styles.label}>추천인 (필수)</Text>
             <ReferralSearchField
               inputRef={referralSearchInputRef}
               searchQuery={referralSearchQuery}

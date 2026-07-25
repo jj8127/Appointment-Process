@@ -11,6 +11,7 @@ describe('fc-notify inbox unread count contract', () => {
     expect(source).toContain('body.only_request_board_categories === true');
     expect(source).toContain("countQuery = countQuery.ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`)");
     expect(source).toContain('const notices = await fetchUnifiedNotices(200)');
-    expect(source).toContain('primaryCount ?? 0) + requestBoardFcCount + noticeCount');
+    expect(source).toContain('const notificationCount = visibleIds.filter');
+    expect(source).toContain('return ok({ ok: true, count: notificationCount + noticeCount })');
   });
 });

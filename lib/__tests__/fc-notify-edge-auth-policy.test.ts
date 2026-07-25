@@ -7,6 +7,7 @@ import {
 } from '../../supabase/functions/_shared/fc-notify-auth-policy';
 
 const admin: FcNotifyAppActor = {
+  actorId: '018f4f87-1ad4-7e39-9f5f-a89f2bdd9c11',
   sessionRole: 'admin',
   phone: '01011112222',
   displayName: '관리자',
@@ -57,6 +58,8 @@ describe('direct Edge fc-notify authentication policy', () => {
         limit: 80,
         include_request_board_fc: false,
         only_request_board_categories: false,
+        viewer_actor_id: admin.actorId,
+        viewer_actor_role: 'admin',
       },
     });
 
@@ -123,6 +126,8 @@ describe('direct Edge fc-notify authentication policy', () => {
         exclude_request_board_categories: false,
         include_notices: false,
         only_request_board_categories: true,
+        viewer_actor_id: manager.actorId,
+        viewer_actor_role: 'manager',
       },
     });
   });
@@ -154,6 +159,97 @@ describe('direct Edge fc-notify authentication policy', () => {
       ok: false,
       status: 403,
     });
+  });
+
+  it('binds every direct message action to the signed actor and canonical conversation', () => {
+    const conversationId = '00000000-0000-4000-8000-000000000301';
+    const messageId = '00000000-0000-4000-8000-000000000302';
+
+    expect(buildAppFcNotifyPayload({
+      type: 'direct_message_list',
+      conversation_id: conversationId,
+      viewer_actor_id: '00000000-0000-4000-8000-000000000999',
+      viewer_actor_role: 'admin',
+    }, fc)).toEqual({
+      ok: true,
+      payload: {
+        type: 'direct_message_list',
+        conversation_id: conversationId,
+        viewer_actor_id: fc.actorId,
+        viewer_actor_role: 'fc',
+      },
+    });
+    expect(buildAppFcNotifyPayload({
+      type: 'direct_message_send',
+      conversation_id: conversationId,
+      content: 'Please check SERVICE_API_TOKEN=do-not-expose',
+      sender_id: admin.phone,
+      receiver_id: fc.phone,
+    }, developer)).toEqual({
+      ok: true,
+      payload: {
+        type: 'direct_message_send',
+        conversation_id: conversationId,
+        content: 'Please check SERVICE_API_TOKEN=[redacted]',
+        viewer_actor_id: developer.actorId,
+        viewer_actor_role: 'developer',
+      },
+    });
+    expect(buildAppFcNotifyPayload({
+      type: 'direct_message_mark_read',
+      conversation_id: conversationId,
+    }, admin)).toMatchObject({
+      ok: true,
+      payload: {
+        conversation_id: conversationId,
+        viewer_actor_id: admin.actorId,
+        viewer_actor_role: 'admin',
+      },
+    });
+    expect(buildAppFcNotifyPayload({
+      type: 'direct_message_delete',
+      conversation_id: conversationId,
+      message_id: messageId,
+      sender_actor_id: developer.actorId,
+    }, admin)).toEqual({
+      ok: true,
+      payload: {
+        type: 'direct_message_delete',
+        conversation_id: conversationId,
+        message_id: messageId,
+        viewer_actor_id: admin.actorId,
+        viewer_actor_role: 'admin',
+      },
+    });
+  });
+
+  it('allows canonical manager direct messages while rejecting malformed and designer intents', () => {
+    const conversationId = '00000000-0000-4000-8000-000000000301';
+    expect(buildAppFcNotifyPayload({
+      type: 'direct_message_list',
+      conversation_id: 'not-a-uuid',
+    }, fc)).toMatchObject({ ok: false, status: 400 });
+    expect(buildAppFcNotifyPayload({
+      type: 'direct_message_send',
+      conversation_id: conversationId,
+      content: 'hello',
+      viewer_actor_id: admin.actorId,
+      viewer_actor_role: 'admin',
+    }, manager)).toEqual({
+      ok: true,
+      payload: {
+        type: 'direct_message_send',
+        conversation_id: conversationId,
+        content: 'hello',
+        viewer_actor_id: manager.actorId,
+        viewer_actor_role: 'manager',
+      },
+    });
+    expect(buildAppFcNotifyPayload({
+      type: 'direct_message_send',
+      conversation_id: conversationId,
+      content: 'hello',
+    }, { ...fc, isRequestBoardDesigner: true })).toMatchObject({ ok: false, status: 403 });
   });
 
   it('allows admin-to-FC notify while deriving sender identity and stripping privileged controls', () => {
@@ -356,7 +452,67 @@ describe('direct Edge fc-notify authentication policy', () => {
         notification_ids: ['own-notification'],
         notice_ids: [],
         include_request_board_fc: false,
+        viewer_actor_id: fc.actorId,
+        viewer_actor_role: 'fc',
       },
+    });
+  });
+
+  it('binds inbox get to the signed viewer and never trusts a caller target', () => {
+    const notificationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const result = buildAppFcNotifyPayload({
+      type: 'inbox_get',
+      notification_id: notificationId,
+      target: {
+        version: 1,
+        kind: 'board_post',
+        postId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      },
+      viewer_actor_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    }, fc);
+    expect(result).toEqual({
+      ok: true,
+      payload: {
+        type: 'inbox_get',
+        role: 'fc',
+        resident_id: fc.phone,
+        notification_id: notificationId,
+        include_request_board_fc: false,
+        viewer_actor_id: fc.actorId,
+        viewer_actor_role: 'fc',
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('board_post');
+  });
+
+  it('allows exact notice lookup for active app actors but not request-board designers', () => {
+    const noticeId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    expect(buildAppFcNotifyPayload({
+      type: 'notice_get',
+      notice_id: noticeId,
+      viewer_actor_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    }, fc)).toEqual({
+      ok: true,
+      payload: {
+        type: 'notice_get',
+        notice_id: noticeId,
+        viewer_actor_id: fc.actorId,
+        viewer_actor_role: 'fc',
+      },
+    });
+    expect(buildAppFcNotifyPayload({
+      type: 'notice_get',
+      notice_id: noticeId,
+    }, { ...fc, isRequestBoardDesigner: true })).toMatchObject({
+      ok: false,
+      status: 403,
+    });
+    expect(buildAppFcNotifyPayload({
+      type: 'notice_get',
+      notice_id: 'not-a-uuid',
+    }, fc)).toMatchObject({
+      ok: false,
+      status: 400,
     });
   });
 });

@@ -1,10 +1,14 @@
 const encoder = new TextEncoder();
 
 export type RequestBoardBridgeRole = 'fc' | 'designer' | 'admin' | 'manager';
+export type RequestBoardPasswordSyncRole = Exclude<RequestBoardBridgeRole, 'admin'>;
 export type AppSessionSourceRole = 'fc' | 'admin' | 'manager';
 export type AppSessionStaffType = 'admin' | 'developer';
 
-type SignedTokenKind = 'request_board_bridge' | 'fc_onboarding_session';
+type SignedTokenKind =
+  | 'request_board_bridge'
+  | 'request_board_password_sync'
+  | 'fc_onboarding_session';
 
 type SignedTokenPayloadBase = {
   kind: SignedTokenKind;
@@ -17,6 +21,13 @@ export type BridgeTokenPayload = SignedTokenPayloadBase & {
   kind: 'request_board_bridge';
   role: RequestBoardBridgeRole;
   affiliation?: string | null;
+};
+
+export type RequestBoardPasswordSyncAssertionPayload = SignedTokenPayloadBase & {
+  kind: 'request_board_password_sync';
+  purpose: 'password_sync';
+  role: RequestBoardPasswordSyncRole;
+  nonce: string;
 };
 
 export type AppSessionTokenPayload = SignedTokenPayloadBase & {
@@ -85,6 +96,10 @@ function uniqueSecrets(values: Array<string | undefined | null>) {
 
 function getBridgeSigningSecret() {
   return getTrimmedEnv('REQUEST_BOARD_BRIDGE_TOKEN_SECRET') || getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET);
+}
+
+function getPasswordSyncAssertionSigningSecret() {
+  return getTrimmedEnv('REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET');
 }
 
 function getBridgeVerificationSecrets() {
@@ -236,6 +251,56 @@ export async function createRequestBoardBridgeToken(
     iat: nowSec,
     exp: nowSec + ttlSec,
   };
+
+  return buildSignedToken(payload, secret);
+}
+
+export function buildRequestBoardPasswordSyncAssertionPayload({
+  phone,
+  role,
+  nonce,
+  nowSec,
+  ttlSec,
+}: {
+  phone: string;
+  role: RequestBoardPasswordSyncRole;
+  nonce: string;
+  nowSec: number;
+  ttlSec: number;
+}): RequestBoardPasswordSyncAssertionPayload {
+  const normalizedIdentity = String(phone ?? '').replace(/\D/g, '');
+  return {
+    kind: 'request_board_password_sync',
+    purpose: 'password_sync',
+    phone: normalizedIdentity,
+    role,
+    nonce,
+    iat: nowSec,
+    exp: nowSec + ttlSec,
+  };
+}
+
+export async function createRequestBoardPasswordSyncAssertion(
+  phone: string,
+  role: RequestBoardPasswordSyncRole,
+) {
+  const secret = getPasswordSyncAssertionSigningSecret();
+  if (!secret) return null;
+
+  const ttlRaw = Number(
+    (getEnv('REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_TTL_SEC') ?? '60').trim(),
+  );
+  const ttlSec = Number.isFinite(ttlRaw)
+    ? Math.min(120, Math.max(15, Math.floor(ttlRaw)))
+    : 60;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const payload = buildRequestBoardPasswordSyncAssertionPayload({
+    phone,
+    role,
+    nonce: crypto.randomUUID(),
+    nowSec,
+    ttlSec,
+  });
 
   return buildSignedToken(payload, secret);
 }

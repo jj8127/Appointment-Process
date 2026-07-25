@@ -3,6 +3,7 @@ import {
   type EdgeDiagnosticInput,
   type EdgeDiagnosticWriter,
 } from './edge-diagnostic.ts';
+import { createRequestBoardPasswordSyncAssertion } from './request-board-auth.ts';
 
 export type RequestBoardPasswordSyncRole = 'fc' | 'designer' | 'manager';
 export type RequestBoardPasswordSyncInitiatorRole = 'self' | 'admin' | 'manager' | 'system';
@@ -24,6 +25,7 @@ type SyncRequestParams = {
   logPrefix: string;
   phone: string;
   password: string;
+  authAssertion?: string | null;
   options: RequestBoardPasswordSyncOptions;
 };
 
@@ -63,9 +65,12 @@ export const buildRequestBoardPasswordSyncBody = (
   phone: string,
   password: string,
   options: RequestBoardPasswordSyncOptions,
+  authAssertion?: string | null,
 ) => ({
   phone,
-  password,
+  // Manager identity is bridge-only; do not forward its canonical password
+  // across the Request Board trust boundary.
+  ...(options.role === 'manager' ? {} : { password }),
   role: options.role,
   ...(options.name ? { name: options.name } : {}),
   ...(options.companyName ? { companyName: options.companyName } : {}),
@@ -76,6 +81,7 @@ export const buildRequestBoardPasswordSyncBody = (
   ),
   ...(options.initiatorRole ? { initiatorRole: options.initiatorRole } : {}),
   ...(options.syncReason ? { syncReason: options.syncReason } : {}),
+  ...(authAssertion ? { authAssertion } : {}),
 });
 
 export async function syncRequestBoardPasswordWithDeps({
@@ -84,6 +90,7 @@ export async function syncRequestBoardPasswordWithDeps({
   timeoutMs,
   phone,
   password,
+  authAssertion,
   options,
 }: SyncRequestParams, {
   fetchImpl,
@@ -102,6 +109,16 @@ export async function syncRequestBoardPasswordWithDeps({
     }
   };
 
+  if (!authAssertion) {
+    emitDiagnostic({
+      event: 'request_board.password_sync',
+      reason: 'request_failed',
+      retryable: false,
+      errorClass: 'authentication',
+    });
+    return;
+  }
+
   const controller = createAbortController();
   const timeout = setTimeoutImpl(() => controller.abort(), timeoutMs);
   try {
@@ -111,7 +128,9 @@ export async function syncRequestBoardPasswordWithDeps({
         'Content-Type': 'application/json',
         'x-request-bridge-token': syncToken,
       },
-      body: JSON.stringify(buildRequestBoardPasswordSyncBody(phone, password, options)),
+      body: JSON.stringify(
+        buildRequestBoardPasswordSyncBody(phone, password, options, authAssertion),
+      ),
       signal: controller.signal,
     });
 
@@ -148,7 +167,14 @@ export async function syncRequestBoardPasswordWithDeps({
 }
 
 export async function syncRequestBoardPassword(params: SyncRequestParams) {
-  return syncRequestBoardPasswordWithDeps(params, {
+  const authAssertion = await createRequestBoardPasswordSyncAssertion(
+    params.phone,
+    params.options.role,
+  );
+  return syncRequestBoardPasswordWithDeps({
+    ...params,
+    authAssertion,
+  }, {
     fetchImpl: (input, init) => fetch(input, init),
     createAbortController: () => new AbortController(),
     setTimeoutImpl: (handler, timeoutMs) => setTimeout(handler, timeoutMs),

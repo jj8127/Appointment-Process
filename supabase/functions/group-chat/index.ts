@@ -28,6 +28,23 @@ import {
   type GroupChatMessageType,
   type GroupChatRole,
 } from '../_shared/group-chat.ts';
+import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
+import type { NotificationTargetV1 } from '../_shared/notification-target.ts';
+import {
+  deriveGroupChatNotificationEventKey,
+  groupChatNotificationDeliveryKey,
+  isGroupChatNotificationRetryToken,
+  issueGroupChatNotificationRetryToken,
+  verifyGroupChatNotificationRetryToken,
+} from '../_shared/group-chat-notification-event.ts';
+import {
+  drainMessengerAttachmentCleanup,
+  finalizeMessengerAttachmentBatch,
+  listMessengerAttachmentsByBatchIds,
+  mapMessengerAttachmentRpcError,
+  MessengerAttachmentServiceError,
+  type MessengerAttachmentMetadata,
+} from '../_shared/messenger-attachment-service.ts';
 
 type Payload =
   | { type: 'group_chat_bootstrap'; limit?: number }
@@ -39,6 +56,15 @@ type Payload =
       file_name?: string | null;
       file_size?: number | null;
       reply_to_message_id?: string | null;
+      client_message_id?: string | null;
+      attachment_intent_ids?: string[] | null;
+      delivery_key?: string | null;
+      payload_fingerprint?: string | null;
+    }
+  | {
+      type: 'group_chat_notification_retry';
+      message_id?: string | null;
+      retry_token?: string | null;
     }
   | { type: 'group_chat_mark_read'; message_id?: string | null }
   | { type: 'group_chat_preferences'; muted?: boolean | null }
@@ -67,6 +93,7 @@ type MessageRow = {
   file_url: string | null;
   file_name: string | null;
   file_size: number | null;
+  attachment_batch_id: string | null;
   created_at: string;
   reply_to_message_id: string | null;
   reply_to_sender_name: string | null;
@@ -76,6 +103,7 @@ type MessageRow = {
 };
 
 type GroupChatMember = {
+  immutable_actor_id: string;
   actor_id: string;
   role: GroupChatRole;
   phone: string;
@@ -124,11 +152,19 @@ type DeviceTokenRow = {
 type GroupChatNotificationSummary = {
   ok: boolean;
   status: 'skipped' | 'inbox_only' | 'provider_accepted' | 'partial';
+  stored: boolean;
+  push_status: 'queued' | 'no_registered_device' | 'provider_failed';
   recipient_count: number;
   notification_count: number;
   push_token_count: number;
   push_accepted_count: number;
   push_rejected_count: number;
+  delivery: {
+    notificationStored: boolean;
+    pushStatus: 'accepted' | 'no_registered_device' | 'provider_rejected' | 'not_attempted';
+    retryable: boolean;
+    notificationIds?: string[];
+  };
 };
 
 type ExpoPushSummary = {
@@ -140,6 +176,8 @@ type ExpoPushSummary = {
 type NotificationInsertSummary = {
   inserted_count: number;
   failed: boolean;
+  ids_by_actor: Map<string, string>;
+  failure_reason?: string;
 };
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -147,8 +185,19 @@ const EXPO_PUSH_CHUNK_SIZE = 100;
 const EXPO_PUSH_TIMEOUT_MS = 8_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
 const MAX_MESSAGE_LIMIT = 100;
-const CHAT_UPLOAD_BUCKET = 'chat-uploads';
-const CHAT_UPLOAD_PREFIX = 'group-chat/';
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function groupChatNotificationRetrySecrets() {
+  return Array.from(new Set([
+    getEnv('FC_APP_SESSION_TOKEN_SECRET')?.trim(),
+    getEnv('FC_APP_SESSION_TOKEN_PREVIOUS_SECRET')?.trim(),
+  ].filter((secret): secret is string => Boolean(secret))));
+}
+
+function groupChatNotificationRetrySigningSecret() {
+  return groupChatNotificationRetrySecrets()[0] ?? null;
+}
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '')
   .split(',')
@@ -167,18 +216,6 @@ if (!serviceKey) {
 }
 
 const supabase = createClient(supabaseUrl, serviceKey);
-const chatUploadPublicPrefix = `${supabaseUrl.replace(/\/+$/, '')}/storage/v1/object/public/${CHAT_UPLOAD_BUCKET}/${CHAT_UPLOAD_PREFIX}`;
-
-function isAllowedGroupChatUploadUrl(value: string | null) {
-  if (!value) return false;
-  try {
-    const parsed = new URL(value);
-    return parsed.href.startsWith(chatUploadPublicPrefix);
-  } catch {
-    return false;
-  }
-}
-
 function resolveCorsOrigin(origin?: string | null) {
   if (origin && allowedOrigins.includes(origin)) return origin;
   if (origin?.includes('localhost') || origin?.includes('127.0.0.1')) return origin;
@@ -205,6 +242,18 @@ function fail(code: string, message: string, status = 400, origin?: string | nul
   return json({ ok: false, code, message }, status, origin);
 }
 
+function attachmentFailure(error: unknown, origin?: string | null) {
+  const mapped = error instanceof MessengerAttachmentServiceError
+    ? error
+    : mapMessengerAttachmentRpcError(error);
+  return fail(
+    mapped.code,
+    '첨부파일을 처리하지 못했습니다.',
+    mapped.status,
+    origin,
+  );
+}
+
 async function parseJson(req: Request): Promise<Payload | null> {
   try {
     const parsed = await req.json();
@@ -223,6 +272,7 @@ function serializeMessage(
   row: MessageRow,
   unreadCount = 0,
   reactions: ReturnType<typeof summarizeGroupChatReactions> = [],
+  attachments: MessengerAttachmentMetadata[] = [],
 ) {
   return {
     id: row.id,
@@ -236,6 +286,7 @@ function serializeMessage(
     file_url: row.file_url,
     file_name: row.file_name,
     file_size: row.file_size,
+    attachments,
     created_at: row.created_at,
     unread_count: unreadCount,
     reply_to_message_id: row.reply_to_message_id,
@@ -251,6 +302,7 @@ function serializeNotice(
   row: NoticeRow,
   message: MessageRow,
   reactions: ReturnType<typeof summarizeGroupChatReactions> = [],
+  attachments: MessengerAttachmentMetadata[] = [],
 ) {
   return {
     room_id: row.room_id,
@@ -259,7 +311,7 @@ function serializeNotice(
     created_by_role: row.created_by_role,
     created_at: row.created_at,
     updated_at: row.updated_at,
-    message: serializeMessage(message, 0, reactions),
+    message: serializeMessage(message, 0, reactions, attachments),
   };
 }
 
@@ -411,15 +463,15 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
   const [fcResult, managerResult, adminResult] = await Promise.all([
     supabase
       .from('fc_profiles')
-      .select('name,phone,affiliation,signup_completed,is_manager_referral_shadow,life_commission_completed,nonlife_commission_completed,appointment_date_life,appointment_date_nonlife')
+      .select('id,name,phone,affiliation,signup_completed,is_manager_referral_shadow,life_commission_completed,nonlife_commission_completed,appointment_date_life,appointment_date_nonlife')
       .eq('signup_completed', true),
     supabase
       .from('manager_accounts')
-      .select('name,phone,active')
+      .select('id,name,phone,active')
       .eq('active', true),
     supabase
       .from('admin_accounts')
-      .select('name,phone,active,staff_type')
+      .select('id,name,phone,active,staff_type')
       .eq('active', true),
   ]);
 
@@ -440,6 +492,7 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
     const actor = buildGroupChatActor({ role: 'fc', phone: row.phone, name: row.name });
     if (actor) {
       members.push({
+        immutable_actor_id: row.id,
         actor_id: actor.id,
         role: actor.role,
         phone: actor.phone,
@@ -466,6 +519,7 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
     const actor = buildGroupChatActor({ role: 'manager', phone: row.phone, name: row.name });
     if (actor) {
       members.push({
+        immutable_actor_id: row.id,
         actor_id: actor.id,
         role: actor.role,
         phone: actor.phone,
@@ -482,6 +536,7 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
     const actor = buildGroupChatActor({ role: 'admin', phone: row.phone, name: row.name });
     if (actor) {
       members.push({
+        immutable_actor_id: row.id,
         actor_id: actor.id,
         role: actor.role,
         phone: actor.phone,
@@ -506,7 +561,7 @@ async function getEligibleFcMemberByActorId(actorId: string): Promise<GroupChatM
 
   const { data, error } = await supabase
     .from('fc_profiles')
-    .select('name,phone,affiliation,signup_completed,is_manager_referral_shadow,life_commission_completed,nonlife_commission_completed,appointment_date_life,appointment_date_nonlife')
+    .select('id,name,phone,affiliation,signup_completed,is_manager_referral_shadow,life_commission_completed,nonlife_commission_completed,appointment_date_life,appointment_date_nonlife')
     .eq('phone', phone)
     .maybeSingle();
   if (error) throw error;
@@ -525,6 +580,7 @@ async function getEligibleFcMemberByActorId(actorId: string): Promise<GroupChatM
   if (!actor || actor.id !== actorId) return null;
 
   return {
+    immutable_actor_id: data.id,
     actor_id: actor.id,
     role: actor.role,
     phone: actor.phone,
@@ -604,12 +660,19 @@ async function fetchMessages(roomId: string, limit = DEFAULT_MESSAGE_LIMIT): Pro
   const safeLimit = Math.min(MAX_MESSAGE_LIMIT, Math.max(1, Math.floor(limit)));
   const { data, error } = await supabase
     .from('group_chat_messages')
-    .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
+    .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,attachment_batch_id,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
     .eq('room_id', roomId)
     .order('created_at', { ascending: false })
     .limit(safeLimit);
   if (error) throw error;
   return (data ?? []) as MessageRow[];
+}
+
+async function attachmentMapForMessages(messages: MessageRow[]) {
+  return await listMessengerAttachmentsByBatchIds({
+    supabase,
+    batchIds: messages.map((message) => message.attachment_batch_id),
+  });
 }
 
 async function listReactions(roomId: string, messageIds: string[]): Promise<ReactionRow[]> {
@@ -808,26 +871,61 @@ async function sendExpoPushPayloads(pushPayload: Record<string, unknown>[]): Pro
 }
 
 async function insertNotificationsWithFallback(rows: Record<string, unknown>[]): Promise<NotificationInsertSummary> {
-  if (rows.length === 0) return { inserted_count: 0, failed: false };
-  const firstTry = await supabase.from('notifications').insert(rows);
-  if (!firstTry.error) return { inserted_count: rows.length, failed: false };
-
-  const missingTargetColumn =
-    firstTry.error.code === '42703' || String(firstTry.error.message ?? '').includes('target_url');
-  if (!missingTargetColumn) {
+  if (rows.length === 0) {
+    return { inserted_count: 0, failed: false, ids_by_actor: new Map() };
+  }
+  const result = await supabase
+    .from('notifications')
+    .upsert(rows, { onConflict: 'delivery_key' })
+    .select('id,resident_id,recipient_role,recipient_actor_id,target,delivery_key');
+  if (result.error) {
     console.warn('[group-chat] notification insert failed', { reason: 'notification_insert_failed' });
-    return { inserted_count: 0, failed: true };
+    return {
+      inserted_count: 0,
+      failed: true,
+      ids_by_actor: new Map(),
+      failure_reason: 'notification_insert_failed',
+    };
   }
-
-  const fallbackRows = rows.map(({ target_url: _targetUrl, ...row }) => row);
-  const secondTry = await supabase.from('notifications').insert(fallbackRows);
-  if (secondTry.error) {
-    console.warn('[group-chat] notification fallback insert failed', {
-      reason: 'notification_fallback_insert_failed',
+  const expectedByActor = new Map(
+    rows.map((row) => [String(row.recipient_actor_id ?? ''), row]),
+  );
+  const idsByActor = new Map<string, string>();
+  let failureReason: string | undefined;
+  for (const row of result.data ?? []) {
+    const recipientActorId = String(row.recipient_actor_id ?? '');
+    const expected = expectedByActor.get(recipientActorId);
+    const expectedTarget = expected?.target;
+    if (!expected || !expectedTarget || typeof expectedTarget !== 'object') {
+      failureReason = 'recipient_mismatch';
+      continue;
+    }
+    if (row.delivery_key !== expected.delivery_key || idsByActor.has(recipientActorId)) {
+      failureReason = 'delivery_key_mismatch';
+      continue;
+    }
+    const residentId = String(expected.resident_id ?? '');
+    const validation = validatePersistedNotificationForDelivery(row, {
+      target: expectedTarget as NotificationTargetV1,
+      recipientRole: expected.recipient_role === 'admin' ? 'admin' : 'fc',
+      recipientActorId,
+      residentId,
     });
-    return { inserted_count: 0, failed: true };
+    if (validation.ok === false) {
+      failureReason = validation.reason;
+      continue;
+    }
+    idsByActor.set(recipientActorId, validation.notificationId);
   }
-  return { inserted_count: rows.length, failed: false };
+  const failed = Boolean(failureReason)
+    || (result.data?.length ?? 0) !== rows.length
+    || idsByActor.size !== rows.length;
+  return {
+    inserted_count: result.data?.length ?? 0,
+    failed,
+    ids_by_actor: idsByActor,
+    ...(failed ? { failure_reason: failureReason ?? 'notification_id_mapping_incomplete' } : {}),
+  };
 }
 
 function selectEligibleRecipientTokens(
@@ -859,8 +957,8 @@ function selectEligibleRecipientTokens(
 
 async function notifyRecipients(input: {
   roomId: string;
-  sender: GroupChatActor;
   message: MessageRow;
+  eventKey: string;
   members?: GroupChatMember[];
 }): Promise<GroupChatNotificationSummary> {
   const members = input.members ?? await listEligibleMembers();
@@ -876,7 +974,7 @@ async function notifyRecipients(input: {
 
   const recipients = members.filter((member) =>
     shouldFanoutGroupChatPush({
-      senderActorId: input.sender.id,
+      senderActorId: input.message.sender_actor_id,
       recipientActorId: member.actor_id,
       recipientMuted: mutedByActor.get(member.actor_id) === true,
     }),
@@ -885,23 +983,54 @@ async function notifyRecipients(input: {
     return {
       ok: true,
       status: 'skipped',
+      stored: true,
+      push_status: 'no_registered_device',
       recipient_count: 0,
       notification_count: 0,
       push_token_count: 0,
       push_accepted_count: 0,
       push_rejected_count: 0,
+      delivery: {
+        notificationStored: true,
+        pushStatus: 'no_registered_device',
+        retryable: false,
+      },
     };
   }
 
   const notificationRows = recipients.map((member) => ({
     recipient_role: toNotificationRecipientRole(member.role),
     resident_id: member.phone,
+    recipient_actor_id: member.immutable_actor_id,
     title: GROUP_CHAT_ROOM_TITLE,
-    body: `${input.sender.name ?? '사용자'}: ${buildGroupChatPreview(input.message)}`,
+    body: `${input.message.sender_name ?? '사용자'}: ${buildGroupChatPreview(input.message)}`,
     category: GROUP_CHAT_NOTIFICATION_CATEGORY,
+    target: { version: 1, kind: 'group_chat', roomId: input.roomId },
     target_url: GROUP_CHAT_TARGET_URL,
+    delivery_key: groupChatNotificationDeliveryKey(
+      input.eventKey,
+      member.immutable_actor_id,
+    ),
   }));
   const notificationInsert = await insertNotificationsWithFallback(notificationRows);
+  if (notificationInsert.failed) {
+    return {
+      ok: false,
+      status: 'partial',
+      stored: false,
+      push_status: 'provider_failed',
+      recipient_count: recipients.length,
+      notification_count: notificationInsert.inserted_count,
+      push_token_count: 0,
+      push_accepted_count: 0,
+      push_rejected_count: 0,
+      delivery: {
+        notificationStored: false,
+        pushStatus: 'not_attempted',
+        retryable: true,
+      },
+    };
+  }
 
   const recipientPhones = Array.from(new Set(recipients.map((member) => member.phone)));
   const { data: tokenRows, error: tokenError } = await supabase
@@ -911,13 +1040,21 @@ async function notifyRecipients(input: {
   if (tokenError) {
     console.warn('[group-chat] token query failed', { reason: 'token_query_failed' });
     return {
-      ok: false,
+      ok: true,
       status: 'partial',
+      stored: true,
+      push_status: 'provider_failed',
       recipient_count: recipients.length,
       notification_count: notificationInsert.inserted_count,
       push_token_count: 0,
       push_accepted_count: 0,
       push_rejected_count: 0,
+      delivery: {
+        notificationStored: true,
+        pushStatus: 'provider_rejected',
+        retryable: false,
+        notificationIds: Array.from(notificationInsert.ids_by_actor.values()),
+      },
     };
   }
 
@@ -925,36 +1062,80 @@ async function notifyRecipients(input: {
     (tokenRows ?? []) as DeviceTokenRow[],
     recipients,
   );
-  const pushPayload = allowedTokenRows
-    .map((row) => ({
-      to: row.expo_push_token,
-      sound: 'default',
-      priority: 'high',
-      channelId: 'alerts',
-      title: GROUP_CHAT_ROOM_TITLE,
-      body: `${input.sender.name ?? '사용자'}: ${buildGroupChatPreview(input.message)}`,
-      data: {
-        url: GROUP_CHAT_TARGET_URL,
-        category: GROUP_CHAT_NOTIFICATION_CATEGORY,
+  if (allowedTokenRows.length === 0) {
+    return {
+      ok: true,
+      status: 'inbox_only',
+      stored: true,
+      push_status: 'no_registered_device',
+      recipient_count: recipients.length,
+      notification_count: notificationInsert.inserted_count,
+      push_token_count: 0,
+      push_accepted_count: 0,
+      push_rejected_count: 0,
+      delivery: {
+        notificationStored: true,
+        pushStatus: 'no_registered_device',
+        retryable: false,
+        notificationIds: Array.from(notificationInsert.ids_by_actor.values()),
       },
-    }));
+    };
+  }
+  const recipientByRoleAndPhone = new Map(
+    recipients.map((member) => [
+      `${member.role}:${sanitizeGroupChatPhone(member.phone)}`,
+      member,
+    ]),
+  );
+  const pushPayload = allowedTokenRows
+    .map((row) => {
+      const member = recipientByRoleAndPhone.get(
+        `${normalizeGroupChatText(row.role).toLowerCase()}:${sanitizeGroupChatPhone(row.resident_id)}`,
+      );
+      if (!member) return null;
+      const notificationId = notificationInsert.ids_by_actor.get(
+        member.immutable_actor_id,
+      );
+      if (!notificationId) return null;
+      return {
+        to: row.expo_push_token,
+        sound: 'default',
+        priority: 'high',
+        channelId: 'alerts',
+        title: GROUP_CHAT_ROOM_TITLE,
+        body: `${input.message.sender_name ?? '사용자'}: ${buildGroupChatPreview(input.message)}`,
+        data: {
+          url: GROUP_CHAT_TARGET_URL,
+          category: GROUP_CHAT_NOTIFICATION_CATEGORY,
+          notificationId,
+          target: { version: 1, kind: 'group_chat', roomId: input.roomId },
+        },
+      };
+    })
+    .filter((payload): payload is NonNullable<typeof payload> => payload !== null);
 
   const provider = await sendExpoPushPayloads(pushPayload);
   // A persisted inbox notification is useful, but it is not evidence that a
   // handset push was delivered. When recipients exist, require at least one
   // accepted Expo ticket before reporting notification delivery as successful.
   const hasAcceptedPush = provider.accepted_count > 0;
-  const ok = !notificationInsert.failed
-    && hasAcceptedPush
-    && provider.rejected_count === 0;
+  const providerAccepted = hasAcceptedPush && provider.rejected_count === 0;
   return {
-    ok,
-    status: ok ? 'provider_accepted' : 'partial',
+    ok: true,
+    status: providerAccepted ? 'provider_accepted' : 'partial',
+    stored: true,
+    push_status: providerAccepted ? 'queued' : 'provider_failed',
     recipient_count: recipients.length,
     notification_count: notificationInsert.inserted_count,
     push_token_count: provider.requested_count,
     push_accepted_count: provider.accepted_count,
     push_rejected_count: provider.rejected_count,
+    delivery: {
+      notificationStored: true,
+      pushStatus: providerAccepted ? 'accepted' : 'provider_rejected',
+      retryable: false,
+      notificationIds: Array.from(notificationInsert.ids_by_actor.values()),
+    },
   };
 }
 
@@ -962,45 +1143,27 @@ function notificationFanoutFailureSummary(): GroupChatNotificationSummary {
   return {
     ok: false,
     status: 'partial',
+    stored: false,
+    push_status: 'provider_failed',
     recipient_count: 0,
     notification_count: 0,
     push_token_count: 0,
     push_accepted_count: 0,
     push_rejected_count: 0,
+    delivery: {
+      notificationStored: false,
+      pushStatus: 'not_attempted',
+      retryable: true,
+    },
   };
 }
 
 function notificationWarning(summary: GroupChatNotificationSummary) {
-  if (summary.ok) return null;
+  if (summary.delivery.notificationStored) return null;
   return {
     code: 'notification_delivery_partial',
-    message: '메시지는 저장됐지만 일부 알림 전송을 확인하지 못했습니다.',
+    message: '메시지는 전송됐지만 새 메시지 알림함 등록이 완료되지 않았습니다.',
   } as const;
-}
-
-function postCommitWarning(input: {
-  readStateUpdated: boolean;
-  notification: GroupChatNotificationSummary;
-}) {
-  const notificationPartial = !input.notification.ok;
-  if (!input.readStateUpdated && notificationPartial) {
-    return {
-      // Preserve the existing notification warning code so current web clients
-      // still surface their single yellow warning while the structured read_state
-      // field and fixed message also disclose the read-state failure.
-      code: 'notification_delivery_partial',
-      message: '메시지는 저장됐지만 읽음 상태와 일부 알림 반영을 확인하지 못했습니다.',
-    } as const;
-  }
-  if (!input.readStateUpdated) {
-    return {
-      // Keep the established warning code so deployed web clients render the
-      // same single yellow post-commit warning without requiring a second toast.
-      code: 'notification_delivery_partial',
-      message: '메시지는 저장됐지만 읽음 상태 반영을 확인하지 못했습니다.',
-    } as const;
-  }
-  return notificationWarning(input.notification);
 }
 
 async function handleBootstrap(actor: GroupChatActor, payload: Extract<Payload, { type: 'group_chat_bootstrap' }>, origin?: string | null) {
@@ -1015,6 +1178,7 @@ async function handleBootstrap(actor: GroupChatActor, payload: Extract<Payload, 
   ]);
 
   const unreadCount = await countUnread(room.id, actor.id, readState?.last_read_at ?? null);
+  const attachmentsByBatch = await attachmentMapForMessages(messages);
   const reactions = await listReactions(room.id, messages.map((message) => message.id));
   const reactionsByMessageId = groupReactionsByMessageId(reactions, actor.id);
   const messageUnreadCounts = computeGroupChatMessageUnreadCounts({
@@ -1046,6 +1210,9 @@ async function handleBootstrap(actor: GroupChatActor, payload: Extract<Payload, 
         lastMessage,
         messageUnreadCounts.get(lastMessage.id) ?? 0,
         reactionsByMessageId.get(lastMessage.id) ?? [],
+        lastMessage.attachment_batch_id
+          ? attachmentsByBatch.get(lastMessage.attachment_batch_id) ?? []
+          : [],
       )
       : null,
     messages: messages.map((message) =>
@@ -1053,6 +1220,9 @@ async function handleBootstrap(actor: GroupChatActor, payload: Extract<Payload, 
         message,
         messageUnreadCounts.get(message.id) ?? 0,
         reactionsByMessageId.get(message.id) ?? [],
+        message.attachment_batch_id
+          ? attachmentsByBatch.get(message.attachment_batch_id) ?? []
+          : [],
       ),
     ),
   }, 200, origin);
@@ -1065,47 +1235,194 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
     return fail('send_forbidden', '채팅 권한이 꺼져 있어요. 총무 또는 본부장에게 문의해주세요.', 403, origin);
   }
 
-  const messageType = payload.message_type === 'image' || payload.message_type === 'file' ? payload.message_type : 'text';
   const content = normalizeGroupChatMessageContent(payload.content);
   const fileUrl = normalizeGroupChatText(payload.file_url);
   const fileName = normalizeGroupChatText(payload.file_name);
   const fileSize = Number(payload.file_size ?? 0);
-
-  if (messageType === 'text' && !content) {
+  const attachmentIntentIds = Array.isArray(payload.attachment_intent_ids)
+    ? payload.attachment_intent_ids.map((value) =>
+      normalizeGroupChatText(value).toLowerCase()
+    )
+    : [];
+  const hasAttachments = attachmentIntentIds.length > 0;
+  const deliveryKey = normalizeGroupChatText(payload.delivery_key).toLowerCase();
+  const payloadFingerprint = normalizeGroupChatText(payload.payload_fingerprint).toLowerCase();
+  if (
+    attachmentIntentIds.length > 10
+    || new Set(attachmentIntentIds).size !== attachmentIntentIds.length
+    || attachmentIntentIds.some((id) => !UUID_PATTERN.test(id))
+    || (
+      hasAttachments
+      && (
+        !UUID_PATTERN.test(deliveryKey)
+        || !/^[0-9a-f]{64}$/.test(payloadFingerprint)
+      )
+    )
+    || (
+      !hasAttachments
+      && (
+        Boolean(deliveryKey)
+        || Boolean(payloadFingerprint)
+      )
+    )
+  ) {
+    return fail('invalid_attachment_payload', '첨부파일 요청이 올바르지 않습니다.', 400, origin);
+  }
+  if (!hasAttachments && !content) {
     return fail('invalid_payload', '메시지를 입력해주세요.', 400, origin);
   }
-  if ((messageType === 'image' || messageType === 'file') && !fileUrl) {
-    return fail('invalid_payload', '첨부 파일 정보가 필요합니다.', 400, origin);
-  }
-  if ((messageType === 'image' || messageType === 'file') && !isAllowedGroupChatUploadUrl(fileUrl)) {
-    return fail('invalid_payload', '허용되지 않는 첨부 파일 주소입니다.', 400, origin);
+  if (
+    fileUrl
+    || fileName
+    || (Number.isFinite(fileSize) && fileSize > 0)
+    || (!hasAttachments && (payload.message_type === 'image' || payload.message_type === 'file'))
+  ) {
+    return fail(
+      'legacy_attachment_upload_disabled',
+      '기존 공개 첨부 방식은 더 이상 사용할 수 없습니다.',
+      400,
+      origin,
+    );
   }
 
   const replySnapshot = await getReplySnapshot(room.id, payload.reply_to_message_id);
-
-  const { data, error } = await supabase
-    .from('group_chat_messages')
-    .insert({
-      room_id: room.id,
-      sender_actor_id: actor.id,
-      sender_role: actor.role,
-      sender_phone: actor.phone,
-      sender_name: actor.name,
-      content: content || (messageType === 'image' ? '사진을 보냈습니다.' : fileName || '파일을 보냈습니다.'),
-      message_type: messageType,
-      file_url: fileUrl || null,
-      file_name: fileName || null,
-      file_size: Number.isFinite(fileSize) && fileSize > 0 ? Math.floor(fileSize) : null,
-      reply_to_message_id: replySnapshot?.reply_to_message_id ?? null,
-      reply_to_sender_name: replySnapshot?.reply_to_sender_name ?? null,
-      reply_to_content: replySnapshot?.reply_to_content ?? null,
-    })
-    .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
-    .single();
-
-  if (error) return dbError(error, origin);
-
-  const message = data as MessageRow;
+  let message: MessageRow;
+  let messageAttachments: MessengerAttachmentMetadata[] = [];
+  let attachmentCommit: { batchId: string; replayed: boolean } | null = null;
+  let membersForSend: GroupChatMember[] | null = null;
+  if (hasAttachments) {
+    const clientMessageId = normalizeGroupChatText(payload.client_message_id).toLowerCase();
+    if (payload.client_message_id && !UUID_PATTERN.test(clientMessageId)) {
+      return fail('invalid_message_id', '메시지 식별자가 올바르지 않습니다.', 400, origin);
+    }
+    membersForSend = await listEligibleMembers();
+    const senderMember = membersForSend.find((member) => member.actor_id === actor.id);
+    if (!senderMember) {
+      return fail('forbidden', '단톡방 참여자 정보를 확인할 수 없습니다.', 403, origin);
+    }
+    let finalized: Awaited<ReturnType<typeof finalizeMessengerAttachmentBatch>>;
+    try {
+      finalized = await finalizeMessengerAttachmentBatch({
+        supabase,
+        actor: {
+          id: senderMember.immutable_actor_id,
+          role: actor.role,
+        },
+        deliveryKey,
+        payloadFingerprint,
+        intentIds: attachmentIntentIds,
+      });
+    } catch (error) {
+      return attachmentFailure(error, origin);
+    }
+    const messageId = clientMessageId || crypto.randomUUID();
+    const commit = await supabase.rpc(
+      'commit_group_chat_message_with_attachments_v2',
+      {
+        p_message_id: messageId,
+        p_room_id: room.id,
+        p_sender_immutable_actor_id: senderMember.immutable_actor_id,
+        p_sender_actor_id: actor.id,
+        p_sender_role: actor.role,
+        p_sender_phone: actor.phone,
+        p_sender_name: actor.name ?? '',
+        p_content: content,
+        p_reply_to_message_id: replySnapshot?.reply_to_message_id ?? null,
+        p_reply_to_sender_name: replySnapshot?.reply_to_sender_name ?? null,
+        p_reply_to_content: replySnapshot?.reply_to_content ?? null,
+        p_delivery_key: deliveryKey,
+        p_payload_fingerprint: payloadFingerprint,
+        p_attachment_intent_ids: attachmentIntentIds,
+      },
+    );
+    if (commit.error || !commit.data || typeof commit.data !== 'object') {
+      return attachmentFailure(commit.error, origin);
+    }
+    const committed = commit.data as Record<string, unknown>;
+    const result = await supabase
+      .from('group_chat_messages')
+      .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,attachment_batch_id,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
+      .eq('room_id', room.id)
+      .eq('id', messageId)
+      .maybeSingle();
+    if (result.error || !result.data) {
+      return fail('db_error', '전송한 메시지를 확인하지 못했습니다.', 500, origin);
+    }
+    message = result.data as unknown as MessageRow;
+    try {
+      const attachmentMap = await listMessengerAttachmentsByBatchIds({
+        supabase,
+        batchIds: [finalized.batchId],
+      });
+      messageAttachments = attachmentMap.get(finalized.batchId) ?? [];
+    } catch (error) {
+      return attachmentFailure(error, origin);
+    }
+    attachmentCommit = {
+      batchId: finalized.batchId,
+      replayed: finalized.replayed || committed.replayed === true,
+    };
+  } else {
+    const result = await supabase
+      .from('group_chat_messages')
+      .insert({
+        room_id: room.id,
+        sender_actor_id: actor.id,
+        sender_role: actor.role,
+        sender_phone: actor.phone,
+        sender_name: actor.name,
+        content,
+        message_type: 'text',
+        file_url: null,
+        file_name: null,
+        file_size: null,
+        reply_to_message_id: replySnapshot?.reply_to_message_id ?? null,
+        reply_to_sender_name: replySnapshot?.reply_to_sender_name ?? null,
+        reply_to_content: replySnapshot?.reply_to_content ?? null,
+      })
+      .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,attachment_batch_id,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
+      .single();
+    if (result.error) return dbError(result.error, origin);
+    message = result.data as unknown as MessageRow;
+  }
+  if (attachmentCommit?.replayed) {
+    const delivery: GroupChatNotificationSummary['delivery'] = {
+      notificationStored: true,
+      pushStatus: 'not_attempted',
+      retryable: false,
+    };
+    return json({
+      ok: true,
+      message: serializeMessage(message, 0, [], messageAttachments),
+      attachmentCommit,
+      read_state: { updated: true },
+      notification: {
+        ok: true,
+        status: 'skipped',
+        stored: true,
+        push_status: 'no_registered_device',
+        recipient_count: 0,
+        notification_count: 0,
+        push_token_count: 0,
+        push_accepted_count: 0,
+        push_rejected_count: 0,
+        delivery,
+      },
+      delivery,
+      notificationRetry: null,
+      warning: null,
+    }, 200, origin);
+  }
+  const eventKey = await deriveGroupChatNotificationEventKey({
+    roomId: room.id,
+    messageId: message.id,
+    senderActorId: message.sender_actor_id,
+    createdAt: message.created_at,
+  });
+  const retrySigningSecret = groupChatNotificationRetrySigningSecret();
+  const retryToken = retrySigningSecret
+    ? await issueGroupChatNotificationRetryToken(eventKey, retrySigningSecret)
+    : null;
   let readStateUpdated = true;
   try {
     await upsertRead(room.id, actor.id, message.id);
@@ -1118,9 +1435,14 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
   let unreadCount = 0;
   let notification = notificationFanoutFailureSummary();
   try {
-    const members = await listEligibleMembers();
+    const members = membersForSend ?? await listEligibleMembers();
     unreadCount = members.filter((member) => member.actor_id !== actor.id).length;
-    notification = await notifyRecipients({ roomId: room.id, sender: actor, message, members });
+    notification = await notifyRecipients({
+      roomId: room.id,
+      message,
+      eventKey,
+      members,
+    });
   } catch {
     console.warn('[group-chat] notification fanout failed', {
       reason: 'notification_fanout_failed',
@@ -1129,10 +1451,127 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
 
   return json({
     ok: true,
-    message: serializeMessage(message, unreadCount),
+    message: serializeMessage(message, unreadCount, [], messageAttachments),
+    ...(attachmentCommit ? { attachmentCommit } : {}),
     read_state: { updated: readStateUpdated },
     notification,
-    warning: postCommitWarning({ readStateUpdated, notification }),
+    delivery: notification.delivery,
+    notificationRetry: notification.delivery.notificationStored || !retryToken
+      ? null
+      : { messageId: message.id, retryToken },
+    warning: notificationWarning(notification),
+  }, 200, origin);
+}
+
+async function handleNotificationRetry(
+  actor: GroupChatActor,
+  payload: Extract<Payload, { type: 'group_chat_notification_retry' }>,
+  origin?: string | null,
+) {
+  const messageId = normalizeGroupChatText(payload.message_id).toLowerCase();
+  const retryToken = normalizeGroupChatText(payload.retry_token).toLowerCase();
+  if (
+    !UUID_PATTERN.test(messageId)
+    || !isGroupChatNotificationRetryToken(retryToken)
+  ) {
+    return fail(
+      'invalid_notification_retry',
+      '알림 재시도 요청이 올바르지 않습니다.',
+      400,
+      origin,
+    );
+  }
+
+  const room = await ensureRoom();
+  if (!room.is_active) {
+    return fail('inactive_room', '비활성화된 단톡방입니다.', 403, origin);
+  }
+  const message = await getMessageInRoom(room.id, messageId);
+  if (!message?.id) {
+    return fail('not_found', '메시지를 찾지 못했습니다.', 404, origin);
+  }
+  if (message.deleted_at) {
+    return fail(
+      'deleted_message',
+      '삭제된 메시지의 알림은 다시 보낼 수 없습니다.',
+      409,
+      origin,
+    );
+  }
+  if (message.sender_actor_id !== actor.id) {
+    return fail(
+      'forbidden',
+      '내가 보낸 메시지의 알림만 다시 시도할 수 있습니다.',
+      403,
+      origin,
+    );
+  }
+
+  const eventKey = await deriveGroupChatNotificationEventKey({
+    roomId: room.id,
+    messageId: message.id,
+    senderActorId: message.sender_actor_id,
+    createdAt: message.created_at,
+  });
+  const retrySecrets = groupChatNotificationRetrySecrets();
+  if (retrySecrets.length === 0) {
+    return fail(
+      'notification_retry_unavailable',
+      '알림 재시도를 사용할 수 없습니다.',
+      503,
+      origin,
+    );
+  }
+  const tokenVerified = await verifyGroupChatNotificationRetryToken({
+    eventKey,
+    retryToken,
+    secrets: retrySecrets,
+  });
+  if (!tokenVerified) {
+    return fail(
+      'stale_notification_retry',
+      '알림 재시도 정보가 현재 메시지와 일치하지 않습니다.',
+      409,
+      origin,
+    );
+  }
+  const currentRetryToken = await issueGroupChatNotificationRetryToken(
+    eventKey,
+    retrySecrets[0],
+  );
+
+  const members = await listEligibleMembers();
+  if (!members.some((member) => member.actor_id === actor.id)) {
+    return fail(
+      'forbidden',
+      '현재 단톡방 참여자만 알림을 다시 시도할 수 있습니다.',
+      403,
+      origin,
+    );
+  }
+
+  let notification = notificationFanoutFailureSummary();
+  try {
+    notification = await notifyRecipients({
+      roomId: room.id,
+      message,
+      eventKey,
+      members,
+    });
+  } catch {
+    console.warn('[group-chat] notification retry failed', {
+      reason: 'notification_retry_failed',
+    });
+  }
+
+  return json({
+    ok: true,
+    notification,
+    delivery: notification.delivery,
+    notificationRetry: notification.delivery.notificationStored
+      ? null
+      : { messageId: message.id, retryToken: currentRetryToken },
+    warning: notificationWarning(notification),
   }, 200, origin);
 }
 
@@ -1207,7 +1646,7 @@ async function getMessageInRoom(roomId: string, messageId?: string | null) {
 
   const { data, error } = await supabase
     .from('group_chat_messages')
-    .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
+    .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,attachment_batch_id,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
     .eq('room_id', roomId)
     .eq('id', safeMessageId)
     .maybeSingle();
@@ -1244,7 +1683,10 @@ async function getCurrentNotice(roomId: string, viewerActorId: string) {
     return null;
   }
 
-  const reactions = await listReactions(roomId, [message.id]);
+  const [reactions, attachmentsByBatch] = await Promise.all([
+    listReactions(roomId, [message.id]),
+    attachmentMapForMessages([message]),
+  ]);
   return serializeNotice(
     notice,
     message,
@@ -1252,6 +1694,9 @@ async function getCurrentNotice(roomId: string, viewerActorId: string) {
       viewerActorId,
       reactions,
     }),
+    message.attachment_batch_id
+      ? attachmentsByBatch.get(message.attachment_batch_id) ?? []
+      : [],
   );
 }
 
@@ -1282,7 +1727,10 @@ async function handleNoticeSet(actor: GroupChatActor, payload: Extract<Payload, 
     .single();
   if (error) return dbError(error, origin);
 
-  const reactions = await listReactions(room.id, [message.id]);
+  const [reactions, attachmentsByBatch] = await Promise.all([
+    listReactions(room.id, [message.id]),
+    attachmentMapForMessages([message]),
+  ]);
   return json({
     ok: true,
     notice: serializeNotice(
@@ -1292,6 +1740,9 @@ async function handleNoticeSet(actor: GroupChatActor, payload: Extract<Payload, 
         viewerActorId: actor.id,
         reactions,
       }),
+      message.attachment_batch_id
+        ? attachmentsByBatch.get(message.attachment_batch_id) ?? []
+        : [],
     ),
   }, 200, origin);
 }
@@ -1357,15 +1808,68 @@ async function handleDelete(actor: GroupChatActor, payload: Extract<Payload, { t
     return fail('forbidden', '내가 보낸 메시지만 삭제할 수 있습니다.', 403, origin);
   }
 
+  if (message.attachment_batch_id) {
+    const members = await listEligibleMembers();
+    const senderMember = members.find((member) => member.actor_id === actor.id);
+    if (!senderMember) {
+      return fail('forbidden', '단톡방 참여자 정보를 확인할 수 없습니다.', 403, origin);
+    }
+    const deletion = await supabase.rpc(
+      'delete_messenger_attachment_delivery_v2',
+      {
+        p_message_kind: 'group',
+        p_message_id: message.id,
+        p_actor_id: senderMember.immutable_actor_id,
+        p_actor_role: actor.role,
+        p_group_actor_id: actor.id,
+      },
+    );
+    if (deletion.error) return attachmentFailure(deletion.error, origin);
+    const result = deletion.data && typeof deletion.data === 'object'
+      ? deletion.data as Record<string, unknown>
+      : {};
+    const batchId = typeof result.batchId === 'string'
+      ? result.batchId
+      : message.attachment_batch_id;
+    const cleanup = await drainMessengerAttachmentCleanup({
+      supabase,
+      limit: 20,
+      batchId,
+    });
+    const deletedMessage = await getMessageInRoom(room.id, message.id);
+    if (!deletedMessage) {
+      return fail('db_error', '삭제한 메시지를 확인하지 못했습니다.', 500, origin);
+    }
+    const reactions = await listReactions(room.id, [message.id]);
+    return json({
+      ok: true,
+      message: serializeMessage(
+        deletedMessage,
+        0,
+        summarizeGroupChatReactions({
+          viewerActorId: actor.id,
+          reactions,
+        }),
+      ),
+      cleanup: {
+        scheduled: Number(result.scheduled ?? 0),
+        removed: cleanup.removed,
+        requeued: cleanup.requeued,
+        exhausted: cleanup.exhausted,
+      },
+    }, 200, origin);
+  }
+
   const { data, error } = await supabase
     .from('group_chat_messages')
     .update({
+      content: '',
       deleted_at: new Date().toISOString(),
       deleted_by_actor_id: actor.id,
     })
     .eq('room_id', room.id)
     .eq('id', message.id)
-    .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
+    .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,attachment_batch_id,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
     .single();
   if (error) return dbError(error, origin);
 
@@ -1412,6 +1916,9 @@ serve(async (req: Request) => {
     }
     if (payload.type === 'group_chat_send') {
       return await handleSend(actorResult.actor, payload, origin);
+    }
+    if (payload.type === 'group_chat_notification_retry') {
+      return await handleNotificationRetry(actorResult.actor, payload, origin);
     }
     if (payload.type === 'group_chat_mark_read') {
       return await handleMarkRead(actorResult.actor, payload, origin);

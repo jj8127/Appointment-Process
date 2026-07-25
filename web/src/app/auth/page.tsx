@@ -22,8 +22,8 @@ import {
     Image
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { useRouter } from 'next/navigation';
-import { type FormEvent, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, type FormEvent, useEffect, useState } from 'react';
 import { IconPhone, IconLock, IconArrowRight } from '@tabler/icons-react';
 
 const HANWHA_ORANGE = '#f36f21';
@@ -76,13 +76,15 @@ function resolveLoginErrorMessage(error: unknown) {
     };
 }
 
-export default function AuthPage() {
+function AuthContent() {
     const { loginAs, role, residentId, hydrated } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [mounted, setMounted] = useState(false);
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const shouldResumeNotification = searchParams.get('notificationOpen') === '1';
 
     useEffect(() => {
         setMounted(true);
@@ -90,6 +92,10 @@ export default function AuthPage() {
 
     useEffect(() => {
         if (!hydrated) return;
+        if (shouldResumeNotification && role && residentId) {
+            window.location.replace('/api/notification-open/resume');
+            return;
+        }
         if (role === 'fc' && residentId) {
             router.replace('/dashboard/referrals/graph');
             return;
@@ -97,7 +103,7 @@ export default function AuthPage() {
         if (role === 'admin' || role === 'manager') {
             router.replace('/dashboard');
         }
-    }, [hydrated, residentId, role, router]);
+    }, [hydrated, residentId, role, router, shouldResumeNotification]);
 
     const handleLogin = async () => {
         const code = phoneInput.trim();
@@ -183,7 +189,11 @@ export default function AuthPage() {
                 return;
             }
             loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
-            const destination = nextRole === 'fc' ? '/dashboard/referrals/graph' : '/dashboard';
+            const destination = shouldResumeNotification
+                ? '/api/notification-open/resume'
+                : nextRole === 'fc'
+                    ? '/dashboard/referrals/graph'
+                    : '/dashboard';
             window.location.replace(destination);
         } catch (err: unknown) {
             const loginError = resolveLoginErrorMessage(err);
@@ -424,5 +434,13 @@ export default function AuthPage() {
                 </Text>
             </Container>
         </Box>
+    );
+}
+
+export default function AuthPage() {
+    return (
+        <Suspense fallback={<Box mih="100vh" bg="gray.0" />}>
+            <AuthContent />
+        </Suspense>
     );
 }

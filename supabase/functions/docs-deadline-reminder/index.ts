@@ -5,6 +5,7 @@ import {
   mergeExpoPushDeliverySummaries,
   type ExpoPushDeliverySummary,
 } from '../_shared/expo-push-delivery.ts';
+import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
 
 type FcRow = {
   id: string;
@@ -24,6 +25,13 @@ type NotificationInsert = {
   fc_id?: string | null;
   resident_id?: string | null;
   recipient_role?: string | null;
+  recipient_actor_id?: string | null;
+  target: {
+    version: 1;
+    kind: 'onboarding_section';
+    fcId: string;
+    section: 'docs_upload';
+  };
 };
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -157,37 +165,52 @@ async function insertNotificationWithFallback(payload: NotificationInsert) {
     target_url: payload.target_url ?? null,
   };
 
-  const firstTry = await supabase.from('notifications').insert(withTarget);
-  if (!firstTry.error) return null;
-
-  const missingTargetColumn =
-    firstTry.error.code === '42703' || String(firstTry.error.message ?? '').includes('target_url');
-  if (!missingTargetColumn) return firstTry.error;
-
-  const { target_url: _ignored, ...fallbackPayload } = withTarget;
-  const secondTry = await supabase.from('notifications').insert(fallbackPayload);
-  return secondTry.error ?? null;
+  const { data, error } = await supabase
+    .from('notifications')
+    .insert(withTarget)
+    .select('id,target,recipient_role,recipient_actor_id,resident_id')
+    .single();
+  if (error) return { error, id: null };
+  const validation = validatePersistedNotificationForDelivery(data, {
+    target: payload.target,
+    recipientRole: 'fc',
+    recipientActorId: payload.recipient_actor_id ?? null,
+    residentId: payload.resident_id ?? null,
+  });
+  return validation.ok === true
+    ? { error: null, id: validation.notificationId }
+    : { error: { message: validation.reason }, id: null };
 }
 
 async function hasNotificationForKstDay(input: {
   fcId: string;
   category: string;
   kstDate: string;
+  target: NotificationInsert['target'];
+  residentId: string;
 }) {
   const bounds = getKstDayBounds(input.kstDate);
   const { data, error } = await supabase
     .from('notifications')
-    .select('id')
+    .select('id,target,recipient_role,recipient_actor_id,resident_id')
     .eq('fc_id', input.fcId)
     .eq('category', input.category)
     .gte('created_at', bounds.start)
     .lt('created_at', bounds.end)
     .limit(1);
 
-  return {
-    exists: Array.isArray(data) && data.length > 0,
-    failed: Boolean(error),
-  };
+  if (error) return { exists: false, failed: true, id: null };
+  const row = Array.isArray(data) ? data[0] : null;
+  if (!row) return { exists: false, failed: false, id: null };
+  const validation = validatePersistedNotificationForDelivery(row, {
+    target: input.target,
+    recipientRole: 'fc',
+    recipientActorId: input.fcId,
+    residentId: input.residentId,
+  });
+  return validation.ok === true
+    ? { exists: true, failed: false, id: validation.notificationId }
+    : { exists: false, failed: true, id: null };
 }
 
 function cronAuthorizationFailure(req: Request): Response | null {
@@ -269,30 +292,42 @@ serve(async (req: Request) => {
       body = `서류 마감(${formatDateKorean(row.docs_deadline_at)} 18:00)이 지났습니다. 즉시 관리자에게 문의해주세요.`;
     }
 
+    const reminderTarget = {
+      version: 1,
+      kind: 'onboarding_section',
+      fcId: row.id,
+      section: 'docs_upload',
+    } as const;
     const existingNotification = await hasNotificationForKstDay({
       fcId: row.id,
       category: REMINDER_CATEGORY,
       kstDate: today,
+      target: reminderTarget,
+      residentId,
     });
     if (existingNotification.failed) {
       warningCounts.notification_log_lookup_failed += 1;
       continue;
     }
 
+    let notificationId = existingNotification.id;
     if (!existingNotification.exists) {
-      const logError = await insertNotificationWithFallback({
+      const logResult = await insertNotificationWithFallback({
         title,
         body,
         category: REMINDER_CATEGORY,
         target_url: '/docs-upload',
         fc_id: row.id,
         resident_id: residentId || null,
+        recipient_actor_id: row.id,
         recipient_role: 'fc',
+        target: reminderTarget,
       });
-      if (logError) {
+      if (logResult.error || !logResult.id) {
         warningCounts.notification_log_failed += 1;
         continue;
       }
+      notificationId = logResult.id;
     }
 
     const { data: tokens, error: tokenError } = await supabase
@@ -315,7 +350,11 @@ serve(async (req: Request) => {
       to: t.expo_push_token,
       title,
       body,
-      data: { url: '/docs-upload' },
+      data: {
+        url: '/docs-upload',
+        notificationId,
+        target: reminderTarget,
+      },
       sound: 'default',
       priority: 'high',
       channelId: 'alerts',

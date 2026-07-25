@@ -1,10 +1,6 @@
 import dayjs from 'dayjs';
 import { after, NextResponse } from 'next/server';
 
-import {
-  applyRecommenderSelection,
-  searchRecommenderCandidates,
-} from '@/lib/admin-referrals';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { resolveAdminTempIdUpdate } from '@/lib/admin-temp-id-update';
 import {
@@ -23,6 +19,11 @@ import {
 import { normalizeFcDocumentStoragePath } from '@/lib/admin-fc-doc-storage';
 import { validateHanwhaPdfPayload } from '@/lib/admin-hanwha-pdf-payload';
 import { logger } from '@/lib/logger';
+import { parseNotificationTargetV1 } from '@/lib/notification-target';
+import {
+  hasRetiredLegacyRecommenderMutationFields,
+  isRetiredLegacyRecommenderSearchAction,
+} from '@/lib/recommender-relation-route-handler';
 import { buildPhoneCandidates, getVerifiedServerSession } from '@/lib/server-session';
 
 type AdminAction =
@@ -41,8 +42,7 @@ type AdminAction =
   | 'signDoc'
   | 'sendReminder'
   | 'getInviteeReferralCode'
-  | 'getReferralCode'
-  | 'searchRecommenders';
+  | 'getReferralCode';
 
 type AdminSession = {
   role: 'admin';
@@ -96,11 +96,22 @@ const DAWICHOK_URL_SIGNAL_STATUSES = new Set([
   'final-link-sent',
 ]);
 
-function notificationResponse(result: { success: boolean } | null) {
+function notificationResponse(result: {
+  success: boolean;
+  delivery: {
+    notificationStored: boolean;
+    pushStatus: 'accepted' | 'no_registered_device' | 'provider_rejected' | 'not_attempted';
+    retryable: boolean;
+    notificationId?: string;
+  };
+} | null) {
   if (!result) return {};
   return {
     notification: result,
-    ...(result.success ? {} : { warning: 'notification_delivery_incomplete' }),
+    delivery: result.delivery,
+    ...(result.delivery.notificationStored
+      ? {}
+      : { warning: 'notification_persistence_incomplete' }),
   };
 }
 
@@ -131,10 +142,10 @@ async function sendPushNotificationToCanonicalFc(
 ): Promise<PushNotificationResult> {
   const phoneDigits = await resolveCanonicalFcNotificationRecipient(fcId);
   if (!phoneDigits) {
-    return sendPushNotificationToResident('', payload);
+    return sendPushNotificationToResident('', payload, fcId);
   }
 
-  return sendPushNotificationToResident(phoneDigits, payload);
+  return sendPushNotificationToResident(phoneDigits, payload, fcId);
 }
 
 async function queuePushNotificationToCanonicalFc(
@@ -145,14 +156,25 @@ async function queuePushNotificationToCanonicalFc(
   if (!phoneDigits) {
     return {
       success: false,
+      notificationId: null,
+      delivery: {
+        notificationStored: false,
+        pushStatus: 'not_attempted',
+        retryable: false,
+      },
       inbox: { attempted: false, logged: false },
     };
   }
 
-  const persistence = await persistNotificationToResident(phoneDigits, payload);
+  const persistence = await persistNotificationToResident(phoneDigits, payload, fcId);
   if (persistence.success) {
     after(async () => {
-      await sendPushNotificationToResidentDevices(phoneDigits, payload);
+      await sendPushNotificationToResidentDevices(
+        phoneDigits,
+        payload,
+        persistence.notificationId,
+        fcId,
+      );
     });
   }
   return persistence;
@@ -419,6 +441,10 @@ export async function POST(req: Request) {
   }
 
   try {
+    if (isRetiredLegacyRecommenderSearchAction(action)) {
+      return badRequest('추천인 검색은 추천인 관계 전용 경로에서만 사용할 수 있습니다.');
+    }
+
     if (action === 'createHanwhaPdfUploadUrl' || action === 'deleteHanwhaPdf') {
       const validatedPayload = validateHanwhaPdfPayload(action, payload);
       if (!validatedPayload.ok) {
@@ -512,26 +538,17 @@ export async function POST(req: Request) {
       if (!fcId || !data) return badRequest('fcId and data are required');
       const scopeError = await requireFcProfileScope(adminSession, fcId);
       if (scopeError) return scopeError;
+      if (hasRetiredLegacyRecommenderMutationFields(data)) {
+        return badRequest('추천인 관계는 추천인 관계 전용 경로에서만 수정할 수 있습니다.');
+      }
 
       const updateData = { ...data };
-      const hasStructuredRecommender = Object.prototype.hasOwnProperty.call(updateData, 'recommenderFcId');
-      const nextRecommenderFcId = hasStructuredRecommender
-        ? (String(updateData.recommenderFcId ?? '').trim() || null)
-        : null;
-      const recommenderOverrideReason = String(updateData.recommenderOverrideReason ?? '').trim();
-
-      delete updateData.recommenderFcId;
-      delete updateData.recommenderOverrideReason;
 
       const hasTempIdUpdate = Object.prototype.hasOwnProperty.call(updateData, 'temp_id');
       let tempIdChanged = false;
       let nextTempId: string | null = null;
       if (hasTempIdUpdate && updateData.temp_id != null && typeof updateData.temp_id !== 'string') {
         return badRequest('temp_id must be a string or null');
-      }
-
-      if (Object.prototype.hasOwnProperty.call(updateData, 'recommender')) {
-        return badRequest('추천인은 목록에서 선택해주세요.');
       }
 
       if (hasTempIdUpdate) {
@@ -576,19 +593,6 @@ export async function POST(req: Request) {
         if (updateError) throw updateError;
       }
 
-      if (hasStructuredRecommender) {
-        await applyRecommenderSelection({
-          actor: {
-            actorPhone: adminSession.residentDigits,
-            actorRole: 'admin',
-            actorStaffType: adminSession.staffType,
-          },
-          inviteeFcId: fcId,
-          inviterFcId: nextRecommenderFcId,
-          reason: recommenderOverrideReason,
-        });
-      }
-
       const shouldNotifyTemp = tempIdChanged && Boolean(nextTempId);
       let updatedProfile: Record<string, unknown> | null = null;
       const { data: profile, error: profileError } = await adminSupabase
@@ -609,6 +613,7 @@ export async function POST(req: Request) {
         notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
           title,
           body,
+          target: { version: 1, kind: 'onboarding_section', fcId, section: 'consent' },
           data: { url: '/consent' },
         });
       }
@@ -724,6 +729,18 @@ export async function POST(req: Request) {
         notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
           title: finalTitle,
           body: msg,
+          target: {
+            version: 1,
+            kind: 'onboarding_section',
+            fcId,
+            section: status === 'allowance-consented'
+              ? 'docs_upload'
+              : status === 'docs-approved' || status === 'hanwha-commission-approved'
+                ? 'hanwha_commission'
+                : status === 'temp-id-issued'
+                  ? 'consent'
+                  : 'home',
+          },
           data: { url },
         });
       }
@@ -848,6 +865,12 @@ export async function POST(req: Request) {
       const notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
         title,
         body: msg,
+        target: {
+          version: 1,
+          kind: 'onboarding_section',
+          fcId,
+          section: 'hanwha_commission',
+        },
         data: { url },
       });
 
@@ -1045,6 +1068,7 @@ export async function POST(req: Request) {
       const notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
         title,
         body,
+        target: { version: 1, kind: 'onboarding_section', fcId, section: 'docs_upload' },
         data: { url: '/docs-upload' },
       });
 
@@ -1113,6 +1137,7 @@ export async function POST(req: Request) {
         notificationResult = await queuePushNotificationToCanonicalFc(fcId, {
           title,
           body,
+          target: { version: 1, kind: 'onboarding_section', fcId, section: 'docs_upload' },
           data: { url: '/docs-upload' },
           category: '서류',
         });
@@ -1122,6 +1147,12 @@ export async function POST(req: Request) {
         notificationResult = await queuePushNotificationToCanonicalFc(fcId, {
           title,
           body,
+          target: {
+            version: 1,
+            kind: 'onboarding_section',
+            fcId,
+            section: 'hanwha_commission',
+          },
           data: { url: '/hanwha-commission' },
           category: '서류',
         });
@@ -1131,6 +1162,7 @@ export async function POST(req: Request) {
         notificationResult = await queuePushNotificationToCanonicalFc(fcId, {
           title,
           body,
+          target: { version: 1, kind: 'onboarding_section', fcId, section: 'docs_upload' },
           data: { url: '/docs-upload' },
           category: '서류',
         });
@@ -1184,19 +1216,31 @@ export async function POST(req: Request) {
     }
 
     if (action === 'sendReminder') {
-      const { fcId, title, body, url } = payload as {
+      const { fcId, title, body, url, target: rawTarget } = payload as {
         fcId?: string;
         title?: string;
         body?: string;
         url?: string;
+        target?: unknown;
       };
       if (!fcId || !title || !body) return badRequest('fcId, title, body are required');
       const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
       if (scopeError) return scopeError;
 
+      const target = parseNotificationTargetV1(rawTarget);
+      if (!target) return badRequest('A valid notification target is required');
+      if (
+        ('fcId' in target && target.fcId !== fcId)
+        || target.kind === 'request'
+        || target.kind === 'request_chat'
+        || target.kind === 'request_direct_chat'
+      ) {
+        return badRequest('Notification target does not match the FC');
+      }
       const notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
         title,
         body,
+        target,
         data: { url: url ?? '/notifications' },
       });
 
@@ -1221,22 +1265,6 @@ export async function POST(req: Request) {
         inviteeReferralCode: signupReferralCode,
         referralCode: signupReferralCode,
       });
-    }
-
-    if (action === 'searchRecommenders') {
-      const { query, excludeFcId, selectedFcId } = payload as {
-        query?: string;
-        excludeFcId?: string | null;
-        selectedFcId?: string | null;
-      };
-
-      const result = await searchRecommenderCandidates({
-        query,
-        excludeFcId,
-        selectedFcId,
-      });
-
-      return NextResponse.json({ ok: true, ...result });
     }
 
     return badRequest('Unknown action');

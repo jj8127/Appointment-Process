@@ -5,11 +5,15 @@ import {
   type FcNotifyDeliveryResult,
 } from './fc-notify-delivery-result';
 import { logger } from './logger';
+import { parseNotificationTarget } from './notification-target';
 
 export {
   classifyFcNotifyDeliveryFromInvoke,
   classifyFcNotifyDeliveryResult,
+  combineFcNotifyDeliveryResults,
+  getFcNotifyDeliveryUiKind,
   type FcNotifyDeliveryResult,
+  type FcNotifyDeliveryUiKind,
   type FcNotifyTransportResult,
 } from './fc-notify-delivery-result';
 
@@ -103,6 +107,20 @@ export function invokeFcNotify<
 export async function invokeFcNotifyForDelivery<TBody extends FcNotifyBody>(
   body: TBody,
 ): Promise<FcNotifyDeliveryResult> {
+  if (
+    body.type === 'notify'
+    && !parseNotificationTarget((body as FcNotifyOpenBody).target)
+  ) {
+    logger.warn('[fc-notify] delivery rejected before invoke', {
+      action: body.type,
+      reason: 'invalid_notification_target',
+    });
+    return {
+      confirmed: false,
+      notificationStored: false,
+      reason: 'invalid_recipient',
+    };
+  }
   const result = await classifyFcNotifyDeliveryFromInvoke(
     () => invokeFcNotify<unknown, TBody>(body),
   );

@@ -6,8 +6,9 @@ import {
   formatExamApplicantReceptionStatus,
   getExamApplicantCellValue,
 } from '@/lib/exam-applicant-list-display';
-import { notifyFcExamApprovalStatus } from '@/lib/exam-applicant-notification-client';
 import { buildExamPaymentProofImagePath } from '@/lib/exam-payment-proof-admin';
+import { RejectReasonModal } from '@/components/RejectReasonModal';
+import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import {
   Alert,
   ActionIcon,
@@ -35,6 +36,7 @@ import {
   IconAlertCircle,
   IconArrowLeft,
   IconBuilding,
+  IconBan,
   IconCalendarEvent,
   IconCheck,
   IconChevronLeft,
@@ -75,6 +77,9 @@ type Applicant = {
   fee_paid_date?: string | null;
   payment_proof_attached?: boolean;
   is_confirmed: boolean;
+  includes_primary_exam?: boolean;
+  rejection_reason?: string | null;
+  rejected_at?: string | null;
   is_third_exam?: boolean;
   application_type?: string | null;
 };
@@ -188,6 +193,8 @@ export default function ExamApplicantDetailPage() {
   const registrationId = Array.isArray(params.id) ? params.id[0] : params.id;
   const queryClient = useQueryClient();
   const { hydrated, isReadOnly } = useSession();
+  const [rejectOpened, setRejectOpened] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
 
   const detailQueryKey = ['exam-applicant-detail', registrationId];
   const { data: detailData, isLoading, error } = useQuery({
@@ -229,7 +236,7 @@ export default function ExamApplicantDetailPage() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ registrationId: applicant.id, isConfirmed: true }),
+        body: JSON.stringify({ registrationId: applicant.id, action: 'confirm' }),
       });
       const json: unknown = await response.json().catch(() => null);
       if (!response.ok || !isRecord(json) || json.ok !== true) {
@@ -253,13 +260,54 @@ export default function ExamApplicantDetailPage() {
         icon: <IconCheck size={16} />,
       });
 
-      await notifyFcExamApprovalStatus(item, true);
     },
     onError: (mutationError: unknown) => {
       const message = mutationError instanceof Error
         ? mutationError.message
         : '시험 접수 처리 중 오류가 발생했습니다.';
       notifications.show({ title: '시험 접수 실패', message, color: 'red' });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async () => {
+      if (!applicant) throw new Error('시험 신청 정보를 찾을 수 없습니다.');
+      const response = await fetch('/api/admin/exam-applicants', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          registrationId: applicant.id,
+          action: 'reject',
+          reason: rejectReason.trim(),
+        }),
+      });
+      const json: unknown = await response.json().catch(() => null);
+      if (!response.ok || !isRecord(json) || json.ok !== true) {
+        throw new Error(
+          isRecord(json) && typeof json.error === 'string'
+            ? json.error
+            : '시험 신청 반려에 실패했습니다.',
+        );
+      }
+      return applicant;
+    },
+    onSuccess: (item) => {
+      queryClient.setQueryData<ApplicantDetailData>(detailQueryKey, (current) => ({
+        applicant: { ...item, is_confirmed: false, status: 'rejected' },
+        navigation: current?.navigation ?? { previousId: null, nextId: null },
+      }));
+      queryClient.invalidateQueries({ queryKey: ['exam-applicants-all-recent'] });
+      setRejectOpened(false);
+      setRejectReason('');
+      notifications.show({ title: '반려 완료', message: '시험 신청을 반려했습니다.', color: 'red' });
+    },
+    onError: (mutationError: unknown) => {
+      notifications.show({
+        title: '반려 실패',
+        message: mutationError instanceof Error ? mutationError.message : '반려 처리에 실패했습니다.',
+        color: 'red',
+      });
     },
   });
 
@@ -304,6 +352,7 @@ export default function ExamApplicantDetailPage() {
 
   return (
     <Box bg="gray.0" mih="100vh">
+      <NotificationDestinationReady />
       <Tooltip label="이전 신청자" position="right" disabled={!navigation.previousId}>
         <ActionIcon
           className={`${styles.sideNavigationButton} ${styles.sideNavigationPrevious}`}
@@ -466,6 +515,16 @@ export default function ExamApplicantDetailPage() {
 
                   <Divider />
 
+                  {applicant.status === 'rejected' && applicant.rejection_reason ? (
+                    <Alert
+                      color="red"
+                      title="반려 사유"
+                      icon={<IconAlertCircle size={18} />}
+                    >
+                      {applicant.rejection_reason}
+                    </Alert>
+                  ) : null}
+
                   <PaymentProofCard
                     key={applicant.id}
                     registrationId={applicant.id}
@@ -473,18 +532,37 @@ export default function ExamApplicantDetailPage() {
                   />
 
                   <Box mt="auto">
-                    <Button
-                      fullWidth
-                      size="lg"
-                      radius="md"
-                      color="orange"
-                      leftSection={<IconCheck size={19} />}
-                      loading={receptionMutation.isPending}
-                      disabled={isReadOnly || applicant.is_confirmed}
-                      onClick={() => receptionMutation.mutate()}
-                    >
-                      {applicant.is_confirmed ? '접수 완료' : '시험 접수하기'}
-                    </Button>
+                    <Stack gap="xs">
+                      <Button
+                        fullWidth
+                        size="lg"
+                        radius="md"
+                        color="orange"
+                        leftSection={<IconCheck size={19} />}
+                        loading={receptionMutation.isPending}
+                        disabled={
+                          isReadOnly
+                          || applicant.is_confirmed
+                          || applicant.status !== 'applied'
+                        }
+                        onClick={() => receptionMutation.mutate()}
+                      >
+                        {applicant.is_confirmed ? '접수 완료' : '시험 접수하기'}
+                      </Button>
+                      <Button
+                        fullWidth
+                        variant="light"
+                        color="red"
+                        leftSection={<IconBan size={18} />}
+                        disabled={
+                          isReadOnly
+                          || !['applied', 'confirmed'].includes(applicant.status)
+                        }
+                        onClick={() => setRejectOpened(true)}
+                      >
+                        반려
+                      </Button>
+                    </Stack>
                     {isReadOnly ? (
                       <Text size="xs" c="dimmed" ta="center" mt="sm">
                         본부장 계정은 신청 내용을 확인만 할 수 있습니다.
@@ -495,6 +573,23 @@ export default function ExamApplicantDetailPage() {
               </Card>
             </Grid.Col>
           </Grid>
+          <RejectReasonModal
+            opened={rejectOpened}
+            onClose={() => {
+              if (!rejectMutation.isPending) {
+                setRejectOpened(false);
+                setRejectReason('');
+              }
+            }}
+            title="시험 신청 반려"
+            description="FC에게 전달할 반려 사유를 입력해주세요."
+            placeholder="반려 사유 (1~1000자)"
+            value={rejectReason}
+            onChange={setRejectReason}
+            submitting={rejectMutation.isPending}
+            submitDisabled={rejectReason.trim().length < 1 || rejectReason.trim().length > 1000}
+            onSubmit={() => rejectMutation.mutate()}
+          />
         </Stack>
       </Container>
     </Box>

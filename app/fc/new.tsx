@@ -30,6 +30,7 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
+import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { canOpenFcProfileRegistration } from '@/lib/fc-workflow';
 import { logger } from '@/lib/logger';
 import { safeStorage } from '@/lib/safe-storage';
@@ -158,6 +159,7 @@ async function sendNotificationAndPush(
   residentId: string | null,
   title: string,
   body: string,
+  fcId: string,
 ) {
   return invokeFcNotifyForDelivery({
     type: 'notify',
@@ -167,6 +169,11 @@ async function sendNotificationAndPush(
     body,
     category: 'app_event',
     url: '/dashboard',
+    target: {
+      version: 1,
+      kind: 'fc_profile',
+      fcId,
+    },
   });
 }
 
@@ -491,18 +498,32 @@ export default function FcNewScreen() {
     // Invalidate queries to ensure Home gets fresh data
     queryClient.invalidateQueries({ queryKey: ['my-fc-status'] });
 
-    if (data?.id) {
-      await sendNotificationAndPush(
+    const notifyProfileSaved = data?.id
+      ? () => sendNotificationAndPush(
         'admin',
         null,
         `${values.name}님이 기본정보를 등록했습니다.`,
         `${values.name}님이 기본정보를 생성/수정했습니다.`,
-      );
-    }
+        String(data.id),
+      )
+      : null;
+    const notificationDelivery = notifyProfileSaved
+      ? await notifyProfileSaved()
+      : {
+          confirmed: false as const,
+          notificationStored: false as const,
+          reason: 'invalid_recipient' as const,
+        };
 
     loginAs('fc', phoneDigits, values.name, null, false, false, null, appSessionToken);
-    Alert.alert('저장 완료', '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.');
-    router.replace('/');
+    presentPostCommitNotificationDelivery({
+      delivery: notificationDelivery,
+      retryNotification: notifyProfileSaved ?? (async () => notificationDelivery),
+      successTitle: '저장 완료',
+      successMessage: '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.',
+      notificationLabel: '관리자',
+      onDone: () => router.replace('/'),
+    });
   };
 
   const onError = (errors: any) => {

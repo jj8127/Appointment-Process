@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -32,6 +32,12 @@ import {
 } from '@/components/MessengerMessageActionSheet';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import {
+  hasConflictingRouteParams,
+  hasPresentRouteParam,
+  parseExactlyOnePositiveIntegerRouteParam,
+} from '@/lib/strict-route-params';
 import {
   getLastMessageTimestamp,
   sortConversationsByLastMessageTime,
@@ -69,6 +75,7 @@ import {
   rbUploadAttachments,
 } from '@/lib/request-board-api';
 import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 /* ─── Types ─── */
@@ -307,6 +314,17 @@ const getPresenceColor = (presence: RbPresenceSnapshot | null | undefined): stri
 
 export default function RequestBoardMessengerScreen() {
   const router = useRouter();
+  const {
+    requestDesignerId,
+    directConversationId,
+    notificationId,
+    notificationTarget,
+  } = useLocalSearchParams<{
+    requestDesignerId?: string;
+    directConversationId?: string;
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
   const insets = useSafeAreaInsets();
   const { residentId, ensureRequestBoardSession, requestBoardSyncError } = useSession();
 
@@ -331,12 +349,53 @@ export default function RequestBoardMessengerScreen() {
   const [actionMessage, setActionMessage] = useState<UnifiedMessage | null>(null);
   const [selectCopyMessage, setSelectCopyMessage] = useState<UnifiedMessage | null>(null);
   const [msgLoading, setMsgLoading] = useState(false);
+  const [msgError, setMsgError] = useState('');
+  const [loadedConversationId, setLoadedConversationId] =
+    useState<string | null>(null);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const flatListRef = useRef<FlatList<UnifiedMessage>>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const parsedRequestDesignerId =
+    parseExactlyOnePositiveIntegerRouteParam(requestDesignerId);
+  const parsedDirectConversationId =
+    parseExactlyOnePositiveIntegerRouteParam(directConversationId);
+  const hasValidRequestDesignerId = parsedRequestDesignerId !== null;
+  const hasValidDirectConversationId = parsedDirectConversationId !== null;
+  const hasAmbiguousConversationTarget =
+    hasConflictingRouteParams(requestDesignerId, directConversationId)
+    || (
+      hasPresentRouteParam(requestDesignerId)
+      && !hasValidRequestDesignerId
+    )
+    || (
+      hasPresentRouteParam(directConversationId)
+      && !hasValidDirectConversationId
+    );
+  const notificationConversationId = hasAmbiguousConversationTarget
+    ? null
+    : hasValidRequestDesignerId
+      ? `req-${parsedRequestDesignerId}`
+      : hasValidDirectConversationId
+        ? `dm-${parsedDirectConversationId}`
+        : null;
+  const expectedNotificationTarget = hasAmbiguousConversationTarget
+    ? null
+    : hasValidRequestDesignerId
+      ? {
+          version: 1 as const,
+          kind: 'request_chat' as const,
+          requestDesignerId: parsedRequestDesignerId,
+        }
+      : hasValidDirectConversationId
+        ? {
+            version: 1 as const,
+            kind: 'request_direct_chat' as const,
+            directConversationId: parsedDirectConversationId,
+          }
+        : null;
 
   const mergeMessagesDesc = useCallback((rows: UnifiedMessage[]) => {
     const byId = new Map<number, UnifiedMessage>();
@@ -729,6 +788,8 @@ export default function RequestBoardMessengerScreen() {
   const loadMessages = useCallback(async (conv: UnifiedConversation) => {
     if (!rbUser) return;
     setMsgLoading(true);
+    setMsgError('');
+    setLoadedConversationId(null);
     try {
       let raw: (RbMessage | RbDmMessage)[] = [];
       if (conv.type === 'request') {
@@ -744,12 +805,63 @@ export default function RequestBoardMessengerScreen() {
       );
 
       setMessages(mapped);
+      setLoadedConversationId(conv.id);
     } catch (err) {
       logger.warn('[messenger] load messages failed', err);
+      setMsgError('대화 내용을 불러오지 못했습니다. 다시 시도해 주세요.');
     } finally {
       setMsgLoading(false);
     }
   }, [mapRawMessageToUnified, mergeMessagesDesc, rbUser]);
+
+  useEffect(() => {
+    if (
+      authState !== 'ready'
+      || convLoading
+      || !notificationConversationId
+    ) {
+      return;
+    }
+
+    const targetConversation = conversations.find(
+      (conversation) => conversation.id === notificationConversationId,
+    );
+    if (!targetConversation) {
+      setConvError('알림의 대상 대화를 열 수 없습니다.');
+      return;
+    }
+    if (activeConv?.id === targetConversation.id) {
+      return;
+    }
+
+    setConvError('');
+    setActiveConv(targetConversation);
+    setInputText('');
+    setPendingFiles([]);
+    void loadMessages(targetConversation);
+  }, [
+    activeConv?.id,
+    authState,
+    convLoading,
+    conversations,
+    loadMessages,
+    notificationConversationId,
+  ]);
+
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: expectedNotificationTarget,
+    loadState:
+      !notificationConversationId
+      || hasAmbiguousConversationTarget
+      || convError
+      || msgError
+        ? 'error'
+        : activeConv?.id === notificationConversationId
+          && loadedConversationId === notificationConversationId
+          ? 'success'
+          : 'loading',
+  });
 
   const openConversation = (conv: UnifiedConversation) => {
     setActiveConv(conv);
@@ -1195,6 +1307,10 @@ export default function RequestBoardMessengerScreen() {
     return (
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: false }} />
+        <NotificationReceiptStatusBanner
+          state={notificationReceipt.state}
+          onRetry={notificationReceipt.retryMarkRead}
+        />
 
         {/* Chat Header */}
         <View style={[styles.chatHeader, { paddingTop: Math.max(insets.top, 20) }]}>
@@ -1594,6 +1710,10 @@ export default function RequestBoardMessengerScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={notificationReceipt.retryMarkRead}
+      />
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>

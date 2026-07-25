@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { Stack } from 'expo-router';
+import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -21,13 +21,16 @@ import CompactHeader from '@/components/CompactHeader';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
+import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { hasHanwhaApprovalEvidence, hasHanwhaPdfMetadata } from '@/lib/fc-workflow';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { downloadRemoteFileToUserStorage } from '@/lib/native-file-actions';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import type { FcStatus } from '@/types/fc';
 
 const BUCKET = 'fc-documents';
@@ -83,7 +86,12 @@ const resolveFunctionInvokeErrorMessage = async (error: unknown, fallback: strin
 
 export default function HanwhaCommissionScreen() {
   const { role, residentId } = useSession();
-  useIdentityGate({ nextPath: '/hanwha-commission' });
+  const { notificationId, notificationTarget } = useLocalSearchParams<{
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
+  const { destinationAccepted: identityGateAccepted } =
+    useIdentityGate({ nextPath: '/hanwha-commission' });
   const keyboardPadding = useKeyboardPadding();
 
   const [profile, setProfile] = useState<HanwhaProfile | null>(null);
@@ -95,6 +103,9 @@ export default function HanwhaCommissionScreen() {
   const [showPicker, setShowPicker] = useState(false);
   const [tempDate, setTempDate] = useState<Date | null>(null);
   const [displayDate, setDisplayDate] = useState<Date | null>(null);
+  const [profileLoadState, setProfileLoadState] = useState<
+    'loading' | 'success' | 'error'
+  >('loading');
 
   const load = useCallback(async () => {
     if (!residentId) return;
@@ -102,6 +113,7 @@ export default function HanwhaCommissionScreen() {
     if (!cleanPhone) return;
 
     setLoading(true);
+    setProfileLoadState('loading');
     const { data, error } = await supabase
       .from('fc_profiles')
       .select(
@@ -112,12 +124,14 @@ export default function HanwhaCommissionScreen() {
     setLoading(false);
 
     if (error) {
+      setProfileLoadState('error');
       Alert.alert('불러오기 실패', error.message ?? '정보를 불러오지 못했습니다.');
       return;
     }
 
     const nextProfile = (data ?? null) as HanwhaProfile | null;
     setProfile(nextProfile);
+    setProfileLoadState(nextProfile?.id ? 'success' : 'error');
 
     const approvedDate = nextProfile?.hanwha_commission_date
       ? new Date(nextProfile.hanwha_commission_date)
@@ -131,6 +145,18 @@ export default function HanwhaCommissionScreen() {
   useEffect(() => {
     load();
   }, [load]);
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: profile?.id
+      ? {
+          version: 1,
+          kind: 'onboarding_section',
+          fcId: profile.id,
+          section: 'hanwha_commission',
+        }
+      : null,
+    loadState: identityGateAccepted ? profileLoadState : 'loading',
+  });
 
   const submittedDate = useMemo(
     () => (profile?.hanwha_commission_date_sub ? new Date(profile.hanwha_commission_date_sub) : null),
@@ -242,19 +268,37 @@ export default function HanwhaCommissionScreen() {
       if (!data?.ok) {
         throw new Error(data?.message ?? data?.error ?? '다위촉 URL 정보를 저장하지 못했습니다.');
       }
-      if (!data?.data?.id) {
+      const updatedProfile = data.data;
+      if (!updatedProfile?.id) {
         throw new Error('업데이트된 데이터가 없습니다. (전화번호 불일치 가능성)');
       }
+      const updatedProfileId = updatedProfile.id;
 
-      await invokeFcNotifyForDelivery({
-        type: 'fc_update',
-        fc_id: data.data.id,
-        message: `${data.data.name ?? ''}님이 다위촉 URL 완료를 보고했습니다. (입력일: ${ymd})`,
-        url: '/dashboard',
+      const notifyAdmins = () => invokeFcNotifyForDelivery({
+        type: 'notify',
+        target_role: 'admin',
+        target_id: null,
+        title: '다위촉 URL 완료 보고',
+        body: `${updatedProfile.name ?? ''}님이 다위촉 URL 완료를 보고했습니다. (입력일: ${ymd})`,
+        category: 'app_event',
+        url: `/dashboard?fcId=${encodeURIComponent(updatedProfileId)}&section=hanwha_commission`,
+        target: {
+          version: 1,
+          kind: 'onboarding_section',
+          fcId: updatedProfileId,
+          section: 'hanwha_commission',
+        },
       });
-
-      Alert.alert('제출 완료', '다위촉 URL 완료일이 제출되었습니다.\n총무 검토 후 다음 안내를 기다려주세요.');
+      const notificationDelivery = await notifyAdmins();
       await load();
+      presentPostCommitNotificationDelivery({
+        delivery: notificationDelivery,
+        retryNotification: notifyAdmins,
+        successTitle: '제출 완료',
+        successMessage:
+          '다위촉 URL 완료일이 제출되었습니다. 관리자 검토 후 다음 안내를 기다려주세요.',
+        notificationLabel: '관리자',
+      });
     } catch (error: any) {
       Alert.alert('저장 실패', error?.message ?? '다위촉 URL 정보를 저장하지 못했습니다.');
     } finally {
@@ -337,6 +381,10 @@ export default function HanwhaCommissionScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       <Stack.Screen
         options={{
           headerShown: true,

@@ -1,5 +1,20 @@
 type ResidentNumberMap = Record<string, string | null>;
 
+export type ResidentNumberStaffSession = {
+  role: 'admin' | 'manager' | 'fc';
+  staffType: 'admin' | 'developer' | null;
+};
+
+export function canReadResidentNumbersForStaffSession(
+  session: ResidentNumberStaffSession,
+): boolean {
+  if (session.role === 'manager') return session.staffType === null;
+  if (session.role === 'admin') {
+    return session.staffType === 'admin' || session.staffType === 'developer';
+  }
+  return false;
+}
+
 type ResidentNumberRouteSession =
   | { ok: true; session: { residentDigits: string } }
   | { ok: false; status: number; error: string };
@@ -20,7 +35,7 @@ type ResidentNumberRouteHandlerDeps = {
     limit: number,
     windowMs: number,
   ) => { allowed: boolean };
-  readJson: () => Promise<{ fcIds?: unknown }>;
+  readJson: () => Promise<unknown>;
   normalizeFcIds: (value: unknown) => string[];
   readResidentNumbers: (options: {
     fcIds: string[];
@@ -34,6 +49,7 @@ type ResidentNumberRouteHandlerDeps = {
 const RESIDENT_NUMBER_ROUTE_LOG_PREFIX = '[api/admin/resident-numbers]';
 const RESIDENT_NUMBER_RATE_LIMIT = 30;
 const RESIDENT_NUMBER_RATE_LIMIT_WINDOW_MS = 60_000;
+const RESIDENT_NUMBER_MAX_FC_IDS = 20;
 
 export async function handleResidentNumberRoutePost({
   getSession,
@@ -64,7 +80,7 @@ export async function handleResidentNumberRoutePost({
     };
   }
 
-  let body: { fcIds?: unknown };
+  let body: unknown;
   try {
     body = await readJson();
   } catch (error: unknown) {
@@ -75,7 +91,21 @@ export async function handleResidentNumberRoutePost({
     };
   }
 
-  const fcIds = normalizeFcIds(body.fcIds);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return {
+      body: { error: 'Invalid JSON payload' },
+      status: 400,
+    };
+  }
+
+  const fcIds = normalizeFcIds((body as { fcIds?: unknown }).fcIds);
+  if (fcIds.length > RESIDENT_NUMBER_MAX_FC_IDS) {
+    return {
+      body: { error: '한 번에 최대 20명까지 조회할 수 있습니다.' },
+      status: 400,
+    };
+  }
+
   if (fcIds.length === 0) {
     return {
       body: { ok: true, residentNumbers: {} },

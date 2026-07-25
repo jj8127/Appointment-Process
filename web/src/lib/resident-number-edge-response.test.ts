@@ -40,6 +40,30 @@ test('rejects malformed success bodies even when HTTP response is ok', () => {
   }
 });
 
+test('fails closed for masked, partial, or otherwise invalid row values', () => {
+  assert.deepStrictEqual(
+    parseResidentNumberEdgeFallbackResponse({
+      responseOk: true,
+      data: {
+        ok: true,
+        residentNumbers: {
+          'fc-masked': 'masked-value',
+          'fc-partial': 'partial-value',
+          'fc-missing': null,
+        },
+      },
+    }),
+    {
+      ok: true,
+      residentNumbers: {
+        'fc-masked': null,
+        'fc-partial': null,
+        'fc-missing': null,
+      },
+    },
+  );
+});
+
 test('rejects non-ok HTTP responses even when body looks successful', () => {
   assert.deepStrictEqual(
     parseResidentNumberEdgeFallbackResponse({

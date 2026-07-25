@@ -22,6 +22,17 @@ type DeleteBody = {
 type UpdateBody = {
   registrationId?: string;
   isConfirmed?: boolean;
+  action?: 'confirm' | 'unconfirm' | 'reject' | 'cancel_by_admin';
+  reason?: string | null;
+};
+
+type ExamTransitionResult = {
+  status?: string | null;
+  proof_path?: string | null;
+  target_resident_id?: string | null;
+  exam_type?: string | null;
+  notification_id?: string | null;
+  recipient_actor_id?: string | null;
 };
 
 async function getAdminSession() {
@@ -55,7 +66,7 @@ async function verifyStaffSession(role: 'admin' | 'manager', residentId: string)
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EXAM_REGISTRATION_SELECT = `
-  id, status, created_at, round_id, resident_id, is_confirmed, is_third_exam, fee_paid_date, payment_proof_attached,
+  id, status, created_at, round_id, resident_id, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, rejected_at,
   exam_locations!exam_registrations_location_round_fkey ( location_name ),
   exam_rounds ( round_label, exam_date, exam_type )
 `;
@@ -93,6 +104,74 @@ async function readRegistrationRows(registrationId?: string): Promise<ExamRegist
 
   if (historyError) throw historyError;
   return (history ?? []) as ExamRegistrationRow[];
+}
+
+async function resolveAdminActor(residentId: string) {
+  const staffPhoneCandidates = buildPhoneCandidates(
+    String(residentId ?? '').trim(),
+    String(residentId ?? '').replace(/[^0-9]/g, ''),
+  );
+  const { data, error } = await adminSupabase
+    .from('admin_accounts')
+    .select('id,active,staff_type')
+    .in('phone', staffPhoneCandidates)
+    .eq('active', true)
+    .maybeSingle();
+
+  if (error || !data?.id) return null;
+  return {
+    id: String(data.id),
+    staffType: data.staff_type === 'developer' ? 'developer' as const : 'admin' as const,
+  };
+}
+
+async function sendExamDecisionPush(
+  result: ExamTransitionResult,
+  registrationId: string,
+  action: NonNullable<UpdateBody['action']>,
+  reason: string | null,
+) {
+  const targetId = String(result.target_resident_id ?? '').replace(/[^0-9]/g, '');
+  if (!targetId) return true;
+  const notificationId = String(result.notification_id ?? '').trim().toLowerCase();
+  const recipientActorId = String(result.recipient_actor_id ?? '').trim().toLowerCase();
+  if (!UUID_PATTERN.test(notificationId) || !UUID_PATTERN.test(recipientActorId)) return true;
+
+  const title = action === 'reject'
+    ? '시험 접수가 반려되었습니다.'
+    : action === 'confirm'
+      ? '시험 접수가 승인되었습니다.'
+      : action === 'unconfirm'
+        ? '시험 접수 승인이 취소되었습니다.'
+        : '시험 접수가 취소되었습니다.';
+  const body = action === 'reject' && reason ? `${title} 사유: ${reason}` : title;
+  const url = result.exam_type === 'nonlife' ? '/exam-apply2' : '/exam-apply';
+
+  try {
+    const { error } = await adminSupabase.functions.invoke('fc-notify', {
+      body: {
+        type: 'notify',
+        target_role: 'fc',
+        target_id: targetId,
+        recipient_actor_id: recipientActorId,
+        title,
+        body,
+        category: 'app_event',
+        url,
+        target: {
+          version: 1,
+          kind: 'exam',
+          examType: result.exam_type === 'nonlife' ? 'nonlife' : 'life',
+          examRegistrationId: registrationId,
+        },
+        skip_notification_insert: true,
+        notification_id: notificationId,
+      },
+    });
+    return Boolean(error);
+  } catch {
+    return true;
+  }
 }
 
 async function readApplicantNavigation(registrationId: string) {
@@ -230,31 +309,68 @@ export async function PATCH(req: Request) {
   }
 
   const registrationId = String(body.registrationId ?? '').trim();
-  if (!registrationId || typeof body.isConfirmed !== 'boolean') {
+  const requestedAction = body.action
+    ?? (typeof body.isConfirmed === 'boolean'
+      ? body.isConfirmed ? 'confirm' : 'unconfirm'
+      : null);
+  const reason = String(body.reason ?? '').trim();
+  if (!registrationId || !requestedAction) {
     return NextResponse.json(
-      { error: 'registrationId and isConfirmed are required' },
+      { error: 'registrationId and action are required' },
+      { status: 400, headers: SECURITY_HEADERS },
+    );
+  }
+  if (requestedAction === 'reject' && (reason.length < 1 || reason.length > 1000)) {
+    return NextResponse.json(
+      { error: '반려 사유를 1자 이상 1000자 이하로 입력해주세요.' },
       { status: 400, headers: SECURITY_HEADERS },
     );
   }
 
   try {
-    const isAuthorized = await verifyStaffSession('admin', adminCheck.session.residentId);
-    if (!isAuthorized) {
+    const actor = await resolveAdminActor(adminCheck.session.residentId);
+    if (!actor) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: SECURITY_HEADERS });
     }
 
-    const nextStatus = body.isConfirmed ? 'confirmed' : 'applied';
-    const { error } = await adminSupabase
-      .from('exam_registrations')
-      .update({ is_confirmed: body.isConfirmed, status: nextStatus })
-      .eq('id', registrationId);
+    const { data, error } = await adminSupabase.rpc('transition_exam_registration', {
+      p_registration_id: registrationId,
+      p_action: requestedAction,
+      p_actor_type: actor.staffType,
+      p_actor_admin_id: actor.id,
+      p_actor_fc_id: null,
+      p_reason: requestedAction === 'reject' ? reason : null,
+    });
 
     if (error) {
-      throw error;
+      const status = error.message === 'exam_registration_not_found' ? 404 : 409;
+      return NextResponse.json({ error: error.message }, { status, headers: SECURITY_HEADERS });
     }
+    const result = (Array.isArray(data) ? data[0] : data) as ExamTransitionResult;
+    const proofPath = String(result?.proof_path ?? '').trim();
+    let cleanupWarning = false;
+    if (proofPath) {
+      const { error: cleanupError } = await adminSupabase.storage
+        .from('exam-payment-proofs')
+        .remove([proofPath]);
+      cleanupWarning = Boolean(cleanupError);
+    }
+    const pushWarning = await sendExamDecisionPush(
+      result,
+      registrationId,
+      requestedAction,
+      requestedAction === 'reject' ? reason : null,
+    );
 
     return NextResponse.json(
-      { ok: true, registrationId, isConfirmed: body.isConfirmed, status: nextStatus },
+      {
+        ok: true,
+        registrationId,
+        isConfirmed: result?.status === 'confirmed',
+        status: String(result?.status ?? ''),
+        cleanupWarning,
+        pushWarning,
+      },
       { headers: SECURITY_HEADERS },
     );
   } catch (err: unknown) {
@@ -296,22 +412,38 @@ export async function DELETE(req: Request) {
   }
 
   try {
-    const isAuthorized = await verifyStaffSession('admin', adminPhone);
-    if (!isAuthorized) {
+    const actor = await resolveAdminActor(adminPhone);
+    if (!actor) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: SECURITY_HEADERS });
     }
 
-    const { error, count } = await adminSupabase
-      .from('exam_registrations')
-      .delete({ count: 'exact' })
-      .eq('id', registrationId);
+    const { data, error } = await adminSupabase.rpc('transition_exam_registration', {
+      p_registration_id: registrationId,
+      p_action: 'cancel_by_admin',
+      p_actor_type: actor.staffType,
+      p_actor_admin_id: actor.id,
+      p_actor_fc_id: null,
+      p_reason: null,
+    });
 
     if (error) {
-      throw error;
+      const status = error.message === 'exam_registration_not_found' ? 404 : 409;
+      return NextResponse.json({ error: error.message }, { status, headers: SECURITY_HEADERS });
     }
+    const result = (Array.isArray(data) ? data[0] : data) as ExamTransitionResult;
+    const proofPath = String(result?.proof_path ?? '').trim();
+    if (proofPath) {
+      await adminSupabase.storage.from('exam-payment-proofs').remove([proofPath]);
+    }
+    const pushWarning = await sendExamDecisionPush(result, registrationId, 'cancel_by_admin', null);
 
     return NextResponse.json(
-      { ok: true, deleted: Boolean(count && count > 0) },
+      {
+        ok: true,
+        deleted: false,
+        status: String(result?.status ?? ''),
+        pushWarning,
+      },
       { headers: SECURITY_HEADERS },
     );
   } catch (err: unknown) {

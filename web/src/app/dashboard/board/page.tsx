@@ -1,6 +1,7 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import {
   deliverBoardAttachments,
   type BoardAttachmentManifest,
@@ -9,6 +10,7 @@ import { getBoardAuthorAvatarColor, getBoardAuthorBadgeColor, getBoardAuthorRole
 import {
   BoardDetail,
   BoardListItem,
+  BoardNotificationRetry,
   buildBoardActor,
   createBoardComment,
   createBoardPost,
@@ -21,6 +23,7 @@ import {
   finalizeBoardAttachments,
   formatFileSize,
   getBoardNotificationWarningMessage,
+  retryBoardNotification,
   signBoardAttachments,
   toggleBoardReaction,
   toggleCommentLike,
@@ -132,6 +135,7 @@ type PendingBoardAttachmentRetry = {
   postId: string;
   operation: 'create' | 'update';
   notificationWarning: string | null;
+  notificationRetry: BoardNotificationRetry | null;
   manifest: BoardAttachmentManifest | null;
 };
 const MAX_ATTACHMENTS = 20;
@@ -206,6 +210,8 @@ export default function BoardPage() {
   const [didLoadEdit, setDidLoadEdit] = useState(false);
   const [pendingAttachmentRetry, setPendingAttachmentRetry] =
     useState<PendingBoardAttachmentRetry | null>(null);
+  const [pendingNotificationRetry, setPendingNotificationRetry] =
+    useState<BoardNotificationRetry | null>(null);
 
   const { data: categories = [] } = useQuery({
     queryKey: ['board-categories', actor?.role, actor?.residentId],
@@ -428,17 +434,20 @@ export default function BoardPage() {
       return {
         id: createResult.id,
         notificationWarning: createResult.notificationWarning,
+        notificationRetry: createResult.notificationRetry,
         attachmentIncomplete: !attachmentResult.complete,
         attachmentManifest: attachmentResult.manifest,
       };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
+      setPendingNotificationRetry(result.notificationRetry);
       if (result.attachmentIncomplete) {
         setPendingAttachmentRetry({
           postId: result.id,
           operation: 'create',
           notificationWarning: result.notificationWarning,
+          notificationRetry: result.notificationRetry,
           manifest: result.attachmentManifest,
         });
         const notificationWarningMessage =
@@ -453,7 +462,17 @@ export default function BoardPage() {
         });
         return;
       }
-      getBoardNotificationWarningMessage(result.notificationWarning);
+      const notificationWarningMessage =
+        getBoardNotificationWarningMessage(result.notificationWarning);
+      if (notificationWarningMessage) {
+        notifications.show({
+          title: '게시글 작성 완료 · 알림함 등록 실패',
+          message: notificationWarningMessage,
+          color: 'yellow',
+        });
+        handleCloseComposer(true);
+        return;
+      }
       notifications.show({
         title: '게시글 작성 완료',
         message: '게시글이 성공적으로 작성되었습니다.',
@@ -484,6 +503,7 @@ export default function BoardPage() {
       return {
         id: editingPostId,
         notificationWarning: updateResult.notificationWarning,
+        notificationRetry: updateResult.notificationRetry,
         attachmentIncomplete: !attachmentResult.complete,
         attachmentManifest: attachmentResult.manifest,
       };
@@ -491,11 +511,13 @@ export default function BoardPage() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       queryClient.invalidateQueries({ queryKey: ['board-detail', editingPostId] });
+      setPendingNotificationRetry(result.notificationRetry);
       if (result.attachmentIncomplete) {
         setPendingAttachmentRetry({
           postId: result.id,
           operation: 'update',
           notificationWarning: result.notificationWarning,
+          notificationRetry: result.notificationRetry,
           manifest: result.attachmentManifest,
         });
         const notificationWarningMessage =
@@ -510,7 +532,17 @@ export default function BoardPage() {
         });
         return;
       }
-      getBoardNotificationWarningMessage(result.notificationWarning);
+      const notificationWarningMessage =
+        getBoardNotificationWarningMessage(result.notificationWarning);
+      if (notificationWarningMessage) {
+        notifications.show({
+          title: '게시글 수정 완료 · 알림함 등록 실패',
+          message: notificationWarningMessage,
+          color: 'yellow',
+        });
+        handleCloseComposer(true);
+        return;
+      }
       notifications.show({
         title: '게시글 수정 완료',
         message: '게시글이 성공적으로 수정되었습니다.',
@@ -927,7 +959,17 @@ export default function BoardPage() {
       const retry = result.retry;
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       queryClient.invalidateQueries({ queryKey: ['board-detail', retry.postId] });
-      getBoardNotificationWarningMessage(retry.notificationWarning);
+      const notificationWarningMessage =
+        getBoardNotificationWarningMessage(retry.notificationWarning);
+      if (notificationWarningMessage) {
+        notifications.show({
+          title: '첨부 전송 완료 · 알림함 등록 실패',
+          message: notificationWarningMessage,
+          color: 'yellow',
+        });
+        handleCloseComposer(true);
+        return;
+      }
       notifications.show({
         title: '첨부 전송 완료',
         message: '이미 저장된 게시글에 첨부파일을 전송했습니다.',
@@ -940,6 +982,38 @@ export default function BoardPage() {
         title: '게시글 저장 완료 · 첨부 확인 필요',
         message: '게시글은 이미 저장되어 있습니다. 게시글을 다시 작성하지 말고 첨부만 다시 시도해주세요.',
         color: 'yellow',
+      });
+    },
+  });
+
+  const retryNotificationMutation = useMutation({
+    mutationFn: async () => {
+      if (!actor || !pendingNotificationRetry) {
+        throw new Error('재시도할 게시글 알림이 없습니다.');
+      }
+      return retryBoardNotification(actor, pendingNotificationRetry);
+    },
+    onSuccess: (result) => {
+      setPendingNotificationRetry(result.notificationRetry);
+      if (result.delivery?.notificationStored === true) {
+        notifications.show({
+          title: '알림함 등록 완료',
+          message: '수신자 알림함에 게시글 알림을 등록했습니다.',
+          color: 'green',
+        });
+        return;
+      }
+      notifications.show({
+        title: '알림함 등록 실패',
+        message: '요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.',
+        color: 'yellow',
+      });
+    },
+    onError: (error: Error) => {
+      notifications.show({
+        title: '알림 재시도 실패',
+        message: error.message || '게시글 알림만 다시 시도하지 못했습니다.',
+        color: 'red',
       });
     },
   });
@@ -1212,6 +1286,7 @@ export default function BoardPage() {
 
   return (
     <Container size="lg" py="xl">
+      {routePostId && detailData?.post?.id === routePostId ? <NotificationDestinationReady /> : null}
       <Stack gap="xl">
         {/* 헤더 */}
         <Group justify="space-between" align="flex-start">
@@ -1247,6 +1322,30 @@ export default function BoardPage() {
             variant="light"
           >
             본부장은 게시글을 작성할 수 있으며, 본인 게시글만 수정/삭제할 수 있습니다.
+          </Alert>
+        )}
+
+        {pendingNotificationRetry && (
+          <Alert
+            icon={<IconInfoCircle size={20} />}
+            title="게시글 저장 완료 · 알림함 등록 실패"
+            color="yellow"
+            variant="light"
+          >
+            <Group justify="space-between" align="center">
+              <Text size="sm">
+                요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.
+              </Text>
+              <Button
+                size="xs"
+                variant="light"
+                color="yellow"
+                loading={retryNotificationMutation.isPending}
+                onClick={() => retryNotificationMutation.mutate()}
+              >
+                알림만 다시 시도
+              </Button>
+            </Group>
           </Alert>
         )}
 

@@ -83,6 +83,10 @@ type EdgeDiagnosticPair =
       reason: 'insert_failed';
     }
   | {
+      event: 'board_notification_retry.notification_insert';
+      reason: 'insert_failed';
+    }
+  | {
       event: 'board_attachment.storage';
       reason: 'delete_failed' | 'signed_upload_url_failed';
     }
