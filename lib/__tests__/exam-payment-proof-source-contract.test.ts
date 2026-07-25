@@ -26,8 +26,10 @@ describe.each([
     expect(source).not.toMatch(/from\('exam_registrations'\)\s*\.(insert|update|delete)/);
   });
 
-  it('prevents future payment dates in both native picker variants', () => {
-    expect(source.match(/maximumDate=\{new Date\(\)\}/g)).toHaveLength(2);
+  it('requires proof without asking for a manually entered payment date', () => {
+    expect(source).not.toContain('DateTimePicker');
+    expect(source).not.toContain('feePaidDate: toYmd');
+    expect(source).toContain('targetFcId: applicationTargetFcId');
   });
 });
 

@@ -12,6 +12,7 @@ export type ExamType = 'life' | 'nonlife';
 
 export type PrepareExamPaymentProofInput = {
   action: 'prepare';
+  targetFcId?: unknown;
   requestId?: unknown;
   fileName?: unknown;
   mimeType?: unknown;
@@ -19,7 +20,8 @@ export type PrepareExamPaymentProofInput = {
 };
 
 export type SubmitExamPaymentProofInput = {
-  action: 'submit' | 'submit_v2';
+  action: 'submit' | 'submit_v2' | 'submit_v3';
+  targetFcId?: unknown;
   uploadId?: unknown;
   roundId?: unknown;
   locationId?: unknown;
@@ -31,7 +33,12 @@ export type SubmitExamPaymentProofInput = {
 
 export type DiscardExamPaymentProofInput = {
   action: 'discard';
+  targetFcId?: unknown;
   uploadId?: unknown;
+};
+
+export type ListExamApplicationTargetsInput = {
+  action: 'list_targets';
 };
 
 export type CancelExamApplicationInput = {
@@ -132,7 +139,7 @@ export function validateSubmitExamPaymentProof(
   roundId: string;
   locationId: string;
   examType: ExamType;
-  feePaidDate: string;
+  feePaidDate: string | null;
   includesPrimaryExam: boolean;
   isThirdExam: boolean;
 }> {
@@ -151,7 +158,7 @@ export function validateSubmitExamPaymentProof(
   if (examType !== 'life' && examType !== 'nonlife') {
     return { ok: false, code: 'invalid_exam_type', message: '시험 구분을 확인할 수 없습니다.' };
   }
-  if (!isValidYmd(feePaidDate)) {
+  if (input.action !== 'submit_v3' && !isValidYmd(feePaidDate)) {
     return { ok: false, code: 'invalid_fee_paid_date', message: '응시료 납입 일자를 다시 선택해주세요.' };
   }
   const includesPrimaryExam =
@@ -171,7 +178,7 @@ export function validateSubmitExamPaymentProof(
       roundId,
       locationId,
       examType,
-      feePaidDate,
+      feePaidDate: input.action === 'submit_v3' ? null : feePaidDate,
       includesPrimaryExam,
       isThirdExam: input.isThirdExam,
     },

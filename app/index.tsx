@@ -147,6 +147,8 @@ const quickLinksAdminExam: QuickLink[] = [
   { href: '/exams/nonlife', title: '손해보험 시험', description: '응시일정 · 마감 관리' },
   { href: '/exam-manage', title: '생명/제3 신청자', description: '신청 현황 조회' },
   { href: '/exam-manage2', title: '손해 신청자', description: '신청 현황 조회' },
+  { href: '/exam-apply', title: '생명/제3 대리 신청', description: 'FC를 선택해 시험 접수' },
+  { href: '/exam-apply2', title: '손해 대리 신청', description: 'FC를 선택해 시험 접수' },
 ];
 
 const quickLinksFcBase: QuickLink[] = [
@@ -160,7 +162,6 @@ const quickLinksFcBase: QuickLink[] = [
 
 const quickLinksManagerExam: QuickLink[] = [
   ...quickLinksAdminExam,
-  ...quickLinksFcBase.slice(0, 2),
 ];
 
 const fcHomeSteps = [
@@ -1224,7 +1225,7 @@ export default function Home() {
                 {isManagerExam
                   ? '시험 일정과 신청자 명단을 확인하고 직접 시험도 접수할 수 있어요.'
                   : adminHomeTab === 'exam'
-                  ? '시험 일정 등록과 신청자 관리 메뉴를 모았습니다.'
+                  ? '시험 일정·신청자 관리와 FC 대리 신청 메뉴를 모았습니다.'
                   : '위촉/서류 진행 현황과 주요 업무를 확인하세요.'}
               </Text>
             </View>
@@ -1856,14 +1857,14 @@ export default function Home() {
               {role === 'admin' && isManagerExam
                 ? '시험 관리/신청 바로가기'
                 : role === 'admin' && isAdminExam
-                ? '시험 관리 바로가기'
+                ? '시험 관리/대리 신청 바로가기'
                 : '바로가기'}
             </Text>
             {role === 'admin' && showsExamManagementHome ? (
               <Text style={styles.sectionHint}>
                 {isManagerExam
-                  ? '기존 시험 목록·신청자 명단에 시험 신청 메뉴를 추가했습니다'
-                  : '시험 등록/신청자 관련 메뉴를 모았습니다'}
+                  ? '시험 목록·신청자 명단과 FC 대리 신청 메뉴를 모았습니다'
+                  : '시험 등록·신청자 관리와 FC 대리 신청 메뉴를 모았습니다'}
               </Text>
             ) : null}
           </View>

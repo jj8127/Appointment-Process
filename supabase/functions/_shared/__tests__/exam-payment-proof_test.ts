@@ -84,6 +84,30 @@ test('validates submission selection and date', () => {
   });
   assert.equal(thirdOnly.ok, true);
 
+  assert.deepEqual(
+    validateSubmitExamPaymentProof({
+      action: 'submit_v3',
+      uploadId: requestId,
+      roundId,
+      locationId,
+      examType: 'life',
+      includesPrimaryExam: true,
+      isThirdExam: false,
+    }),
+    {
+      ok: true,
+      value: {
+        uploadId: requestId,
+        roundId,
+        locationId,
+        examType: 'life',
+        feePaidDate: null,
+        includesPrimaryExam: true,
+        isThirdExam: false,
+      },
+    },
+  );
+
   assert.equal(
     validateSubmitExamPaymentProof({
       action: 'submit_v2',

@@ -24,6 +24,14 @@ type SubmitResult = {
   cleanupWarning: boolean;
 };
 
+export type ExamApplicationTarget = {
+  fcId: string;
+  residentId: string;
+  name: string;
+  affiliation: string;
+  phoneLast4: string;
+};
+
 async function getFunctionErrorMessage(error: unknown): Promise<string | null> {
   if (!error || typeof error !== 'object') return null;
   const context = (error as {
@@ -75,6 +83,7 @@ async function invokeExamPaymentProof<T>(
 export function prepareExamPaymentProofUpload(
   appSessionToken: string,
   proof: ExamPaymentProofSelection,
+  targetFcId?: string | null,
 ) {
   return invokeExamPaymentProof<PrepareResult>(appSessionToken, {
     action: 'prepare',
@@ -82,7 +91,16 @@ export function prepareExamPaymentProofUpload(
     fileName: proof.fileName,
     mimeType: proof.mimeType,
     fileSize: proof.fileSize,
+    targetFcId: targetFcId ?? null,
   });
+}
+
+export async function listExamApplicationTargets(appSessionToken: string) {
+  const result = await invokeExamPaymentProof<{ targets: ExamApplicationTarget[] }>(
+    appSessionToken,
+    { action: 'list_targets' },
+  );
+  return result.targets;
 }
 
 export async function uploadExamPaymentProof(
@@ -122,7 +140,7 @@ export function submitExamApplicationWithPaymentProof({
   roundId,
   locationId,
   examType,
-  feePaidDate,
+  targetFcId,
   includesPrimaryExam,
   isThirdExam,
 }: {
@@ -131,17 +149,17 @@ export function submitExamApplicationWithPaymentProof({
   roundId: string;
   locationId: string;
   examType: ExamFlowType;
-  feePaidDate: string;
+  targetFcId?: string | null;
   includesPrimaryExam: boolean;
   isThirdExam: boolean;
 }) {
   return invokeExamPaymentProof<SubmitResult>(appSessionToken, {
-    action: 'submit_v2',
+    action: 'submit_v3',
     uploadId,
     roundId,
     locationId,
     examType,
-    feePaidDate,
+    targetFcId: targetFcId ?? null,
     includesPrimaryExam,
     isThirdExam,
   });
@@ -150,6 +168,7 @@ export function submitExamApplicationWithPaymentProof({
 export async function discardExamPaymentProofUpload(
   appSessionToken: string,
   uploadId: string,
+  targetFcId?: string | null,
 ) {
   const token = appSessionToken.trim();
   if (!token || !uploadId.trim()) return;
@@ -158,6 +177,7 @@ export async function discardExamPaymentProofUpload(
     body: {
       action: 'discard',
       uploadId,
+      targetFcId: targetFcId ?? null,
     },
     headers: {
       'x-app-session-token': token,

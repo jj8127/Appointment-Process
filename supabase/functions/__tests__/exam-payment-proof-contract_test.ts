@@ -20,7 +20,9 @@ const migrationSource = fs.readFileSync(
 
 test('payment proof Edge function requires signed app session and service-side save', () => {
   assert.match(functionSource, /requireAppSessionFromRequest/);
-  assert.match(functionSource, /session\.role !== 'fc' && session\.role !== 'manager'/);
+  assert.match(functionSource, /resolveExamActor/);
+  assert.match(functionSource, /list_targets/);
+  assert.match(functionSource, /submit_exam_registration_with_payment_proof_v3/);
   assert.match(functionSource, /submit_exam_registration_with_payment_proof/);
   assert.doesNotMatch(functionSource, /getPublicUrl/);
 });

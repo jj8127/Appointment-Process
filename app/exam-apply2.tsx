@@ -1,5 +1,4 @@
 import { Feather } from '@expo/vector-icons';
-import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
@@ -10,7 +9,6 @@ import { AnimatePresence, MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -23,12 +21,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { ExamApplicationTargetSelector } from '@/components/ExamApplicationTargetSelector';
 import { ExamPaymentProofField } from '@/components/ExamPaymentProofField';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useSession } from '@/hooks/use-session';
-import { canUseFcExamApply } from '@/lib/exam-role';
+import { canUseFcExamApply, isExamProxyApplicationActor } from '@/lib/exam-role';
 import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import {
   formatMissingExamApplicationFields,
@@ -53,9 +52,11 @@ import {
 import {
   cancelExamApplicationWithPaymentProof,
   discardExamPaymentProofUpload,
+  listExamApplicationTargets,
   prepareExamPaymentProofUpload,
   submitExamApplicationWithPaymentProof,
   uploadExamPaymentProof,
+  type ExamApplicationTarget,
 } from '@/lib/exam-payment-proof-api';
 import {
   EXAM_PAYMENT_PROOF_CAUTION,
@@ -239,7 +240,15 @@ function getExamRegistrationErrorMessage(error: unknown) {
 }
 
 export default function ExamApplyScreen() {
-  const { role, residentId, displayName, hydrated, readOnly, appSessionToken } = useSession();
+  const {
+    role,
+    residentId,
+    displayName,
+    hydrated,
+    readOnly,
+    staffType,
+    appSessionToken,
+  } = useSession();
   const {
     registrationId,
     roundId,
@@ -253,15 +262,14 @@ export default function ExamApplyScreen() {
   }>();
   const { destinationAccepted: identityGateAccepted } =
     useIdentityGate({ nextPath: examFlowConfig.applyRoute });
-  const canApplyExam = canUseFcExamApply({ role, readOnly });
+  const canApplyExam = canUseFcExamApply({ role, readOnly, staffType });
+  const isProxyApplication = isExamProxyApplicationActor({ role, readOnly, staffType });
 
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [wantsNonlife, setWantsNonlife] = useState(true);
   const [wantsThird, setWantsThird] = useState(false);
-  const [feePaidDate, setFeePaidDate] = useState<Date | null>(null);
-  const [showFeePaidPicker, setShowFeePaidPicker] = useState(false);
-  const [tempFeePaidDate, setTempFeePaidDate] = useState<Date | null>(null);
+  const [selectedTarget, setSelectedTarget] = useState<ExamApplicationTarget | null>(null);
   const [selectedPaymentProof, setSelectedPaymentProof] =
     useState<ExamPaymentProofSelection | null>(null);
   const preparedPaymentProofRef = useRef<{
@@ -279,7 +287,7 @@ export default function ExamApplyScreen() {
       return;
     }
     if (!canApplyExam) {
-      Alert.alert('접근 불가', '시험 신청은 FC와 본부장만 사용할 수 있습니다.');
+      Alert.alert('접근 불가', '시험 신청 권한이 없습니다.');
       router.replace('/');
     }
   }, [canApplyExam, role, hydrated]);
@@ -297,6 +305,19 @@ export default function ExamApplyScreen() {
   });
 
   const allRounds = useMemo(() => rounds ?? [], [rounds]);
+  const {
+    data: applicationTargets = [],
+    isLoading: isLoadingApplicationTargets,
+    refetch: refetchApplicationTargets,
+  } = useQuery<ExamApplicationTarget[]>({
+    queryKey: ['exam-application-targets', role, readOnly, staffType],
+    enabled: canApplyExam && isProxyApplication && !!appSessionToken,
+    queryFn: () => listExamApplicationTargets(appSessionToken ?? ''),
+  });
+  const applicationResidentId = isProxyApplication
+    ? selectedTarget?.residentId ?? null
+    : residentId;
+  const applicationTargetFcId = isProxyApplication ? selectedTarget?.fcId ?? null : null;
 
   const isRoundClosed = (round: ExamRoundWithLocations) => {
     const deadline = toDate(round.registration_deadline);
@@ -325,15 +346,15 @@ export default function ExamApplyScreen() {
     isFetching: isFetchingMyApplies,
     refetch: refetchMyApply,
   } = useQuery<MyExamApply[]>({
-    queryKey: ['my-exam-apply-history', residentId],
-    enabled: canApplyExam && !!residentId,
+    queryKey: ['my-exam-apply-history', applicationResidentId],
+    enabled: canApplyExam && !!applicationResidentId,
     queryFn: async (): Promise<MyExamApply[]> => {
       const { data, error } = await supabase
         .from('exam_registrations')
         .select(
           'id, round_id, location_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, rejected_at, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations!exam_registrations_location_round_fkey(location_name)',
         )
-        .eq('resident_id', residentId)
+        .eq('resident_id', applicationResidentId)
         .order('created_at', { ascending: false })
         .order('id', { ascending: false });
 
@@ -438,19 +459,19 @@ export default function ExamApplyScreen() {
   const lockMessage = '시험 접수가 완료되어 시험 일정을 수정할 수 없습니다.';
   // Realtime: 내 시험 접수 상태 변경 시 갱신
   useEffect(() => {
-    if (!residentId) return;
+    if (!applicationResidentId) return;
     const regChannel = supabase
       .channel(createExamApplyRealtimeChannelTopic(examFlowConfig.applyRealtimeChannelPrefix))
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'exam_registrations', filter: `resident_id=eq.${residentId}` },
+        { event: '*', schema: 'public', table: 'exam_registrations', filter: `resident_id=eq.${applicationResidentId}` },
         () => refetchMyApply(),
       )
       .subscribe();
     return () => {
       void supabase.removeChannel(regChannel);
     };
-  }, [residentId, refetchMyApply]);
+  }, [applicationResidentId, refetchMyApply]);
 
   // 선택된 회차에 기존 신청이 있으면 데이터 복원
   useEffect(() => {
@@ -461,20 +482,26 @@ export default function ExamApplyScreen() {
     setSelectedLocationId(restoredState.selectedLocationId);
     setWantsNonlife(restoredState.wantsPrimary);
     setWantsThird(restoredState.wantsThird);
-    if (existingForRound) {
-      setFeePaidDate(restoredState.feePaidDate);
-      setTempFeePaidDate(restoredState.tempFeePaidDate);
-    }
   }, [existingForRound, selectedRound]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refetch(), refetchMyApply()]);
+      await Promise.all([
+        refetch(),
+        ...(applicationResidentId ? [refetchMyApply()] : []),
+        ...(isProxyApplication ? [refetchApplicationTargets()] : []),
+      ]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetch, refetchMyApply]);
+  }, [
+    applicationResidentId,
+    isProxyApplication,
+    refetch,
+    refetchApplicationTargets,
+    refetchMyApply,
+  ]);
 
   const copyFeeAccount = useCallback(async () => {
     try {
@@ -492,11 +519,15 @@ export default function ExamApplyScreen() {
     if (!pending || !appSessionToken) return;
 
     try {
-      await discardExamPaymentProofUpload(appSessionToken, pending.uploadId);
+      await discardExamPaymentProofUpload(
+        appSessionToken,
+        pending.uploadId,
+        applicationTargetFcId,
+      );
     } catch {
       logger.warn('[exam-apply2] pending payment proof cleanup was deferred');
     }
-  }, [appSessionToken]);
+  }, [appSessionToken, applicationTargetFcId]);
 
   const pickPaymentProof = useCallback(async () => {
     if (isConfirmedForRound) {
@@ -529,13 +560,23 @@ export default function ExamApplyScreen() {
     setSelectedPaymentProof(null);
   }, [discardPreparedPaymentProof]);
 
+  const selectApplicationTarget = useCallback(async (target: ExamApplicationTarget) => {
+    if (target.fcId === selectedTarget?.fcId) return;
+    await discardPreparedPaymentProof();
+    setSelectedPaymentProof(null);
+    setSelectedApplyId(null);
+    setSelectedRoundId(null);
+    setSelectedLocationId(null);
+    setSelectedTarget(target);
+  }, [discardPreparedPaymentProof, selectedTarget?.fcId]);
+
   const applyMutation = useMutation({
     mutationFn: async () => {
-      if (!residentId) {
-        throw new Error('본인 식별 정보가 없습니다. 다시 로그인한 뒤 이용해주세요.');
+      if (!applicationResidentId) {
+        throw new Error('시험 신청 대상 FC를 선택해주세요.');
       }
       const missingMessage = formatMissingExamApplicationFields(getMissingExamApplicationFields({
-        feePaidDate,
+        hasApplicationTarget: !isProxyApplication || !!selectedTarget,
         hasPaymentProof: hasExamPaymentProof({
           selectedProof: selectedPaymentProof,
           existingProofAttached,
@@ -546,10 +587,6 @@ export default function ExamApplyScreen() {
       }));
       if (missingMessage) {
         throw new Error(missingMessage);
-      }
-      const paidDate = feePaidDate;
-      if (!paidDate) {
-        throw new Error('응시료 납입 일자를 선택해주세요.');
       }
       if (!appSessionToken) {
         throw new Error('시험 신청을 계속하려면 다시 로그인해주세요.');
@@ -577,6 +614,7 @@ export default function ExamApplyScreen() {
         const prepared = await prepareExamPaymentProofUpload(
           appSessionToken,
           selectedPaymentProof,
+          applicationTargetFcId,
         );
         uploadId = prepared.uploadId;
         preparedPaymentProofRef.current = {
@@ -597,7 +635,7 @@ export default function ExamApplyScreen() {
         roundId: selectedRoundId!,
         locationId: selectedLocationId!,
         examType: examFlowType,
-        feePaidDate: toYmd(paidDate),
+        targetFcId: applicationTargetFcId,
         includesPrimaryExam: wantsNonlife,
         isThirdExam: wantsThird,
       });
@@ -607,14 +645,14 @@ export default function ExamApplyScreen() {
         round.locations?.find((l) => l.id === selectedLocationId)?.location_name ?? '';
       const examTitle = `${formatDate(round.exam_date)}${round.round_label ? ` (${round.round_label})` : ''
         }`;
-      const actor = displayName?.trim() || residentId;
+      const actor = displayName?.trim() || residentId || '담당자';
       const registrationId = submissionResult.registrationId;
       const notificationPayloads = isNotificationUuid(registrationId)
         ? buildExamApplyNotificationPayloads({
             examType: examFlowType,
             examRegistrationId: registrationId,
             actor,
-            residentId,
+            residentId: applicationResidentId,
             examTitle,
             locationName: locName,
           })
@@ -812,7 +850,7 @@ export default function ExamApplyScreen() {
     }
 
     const missingMessage = formatMissingExamApplicationFields(getMissingExamApplicationFields({
-      feePaidDate,
+      hasApplicationTarget: !isProxyApplication || !!selectedTarget,
       hasPaymentProof: hasExamPaymentProof({
         selectedProof: selectedPaymentProof,
         existingProofAttached,
@@ -855,6 +893,20 @@ export default function ExamApplyScreen() {
           />
         </View>
 
+        {isProxyApplication ? (
+          <View style={styles.section}>
+            <ExamApplicationTargetSelector
+              targets={applicationTargets}
+              value={selectedTarget}
+              isLoading={isLoadingApplicationTargets}
+              disabled={applyMutation.isPending}
+              onChange={(target) => {
+                void selectApplicationTarget(target);
+              }}
+            />
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <Text style={styles.sectionHeader}>📅 응시료 납입 안내</Text>
           <Text style={styles.inputHint}>응시료 미입금 시 시험 접수 불가능하며, 납입한 접수비는 반환되지 않습니다.</Text>
@@ -887,34 +939,6 @@ export default function ExamApplyScreen() {
             ))}
           </View>
           <Text style={styles.cautionText}>{EXAM_PAYMENT_PROOF_CAUTION}</Text>
-          <Pressable
-            style={styles.dateInput}
-            onPress={() => {
-              setTempFeePaidDate(feePaidDate ?? new Date());
-              setShowFeePaidPicker(true);
-            }}
-          >
-            <Text style={[styles.dateInputText, !feePaidDate && styles.dateInputPlaceholder]}>
-              {feePaidDate ? formatKoreanDate(feePaidDate) : '날짜를 선택해주세요'}
-            </Text>
-            <Feather name="calendar" size={18} color={MUTED} />
-          </Pressable>
-          {showFeePaidPicker && Platform.OS !== 'ios' && (
-            <DateTimePicker
-              value={feePaidDate ?? new Date()}
-              mode="date"
-              display="default"
-              locale="ko-KR"
-              maximumDate={new Date()}
-              onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
-                setShowFeePaidPicker(false);
-                if (event.type === 'dismissed') {
-                  return;
-                }
-                if (selectedDate) setFeePaidDate(selectedDate);
-              }}
-            />
-          )}
           <ExamPaymentProofField
             selectedProof={selectedPaymentProof}
             existingProofAttached={existingProofAttached}
@@ -935,7 +959,9 @@ export default function ExamApplyScreen() {
           >
             <View style={styles.statusHeader}>
               <Feather name="info" size={16} color={HANWHA_ORANGE} />
-              <Text style={styles.statusTitle}>내 신청 내역</Text>
+              <Text style={styles.statusTitle}>
+                {isProxyApplication ? '선택한 FC 신청 내역' : '내 신청 내역'}
+              </Text>
             </View>
 
             {myAppliesError ? (
@@ -1060,7 +1086,7 @@ export default function ExamApplyScreen() {
                             {formatExamRegistrationStatus(currentApply.status)}
                           </Text>
                         </View>
-                        {currentApply.status === 'applied' && (
+                        {!isProxyApplication && currentApply.status === 'applied' && (
                           <Pressable onPress={() => handleCancelPress(currentApply.id)}>
                             <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>취소</Text>
                           </Pressable>
@@ -1292,46 +1318,7 @@ export default function ExamApplyScreen() {
 
         <View style={{ height: 40 }} />
 
-        {Platform.OS === 'ios' && (
-          <Modal visible={showFeePaidPicker} transparent animationType="slide">
-            <View style={styles.pickerOverlay}>
-              <View style={styles.pickerCard}>
-                <DateTimePicker
-                  value={tempFeePaidDate ?? feePaidDate ?? new Date()}
-                  mode="date"
-                  display="inline"
-                  locale="ko-KR"
-                  maximumDate={new Date()}
-                  onChange={(_, selectedDate) => {
-                    if (selectedDate) setTempFeePaidDate(selectedDate);
-                  }}
-                />
-                <View style={styles.pickerButtons}>
-                  <Pressable
-                    style={[styles.pickerButton, styles.pickerCancel]}
-                    onPress={() => {
-                      setShowFeePaidPicker(false);
-                      setTempFeePaidDate(null);
-                    }}
-                  >
-                    <Text style={styles.pickerCancelText}>취소</Text>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.pickerButton, styles.pickerConfirm]}
-                    onPress={() => {
-                      if (tempFeePaidDate) setFeePaidDate(tempFeePaidDate);
-                      setShowFeePaidPicker(false);
-                      setTempFeePaidDate(null);
-                    }}
-                  >
-                    <Text style={styles.pickerConfirmText}>확인</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </View>
-          </Modal>
-        )}
-    </>
+      </>
   );
 
   return (

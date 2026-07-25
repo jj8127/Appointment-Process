@@ -119,25 +119,26 @@ describe('exam bundle database contract', () => {
 
   it('enforces the transition matrix and rejects manager or actor spoofing in SQL', () => {
     for (const source of [migration, schema]) {
-      expect(source).toContain("p_actor_type <> 'fc'");
-      expect(source).toContain('p_actor_fc_id <> v_registration.fc_id');
-      expect(source).toContain(
+      const transitionSource = canonicalFunction(source, 'transition_exam_registration');
+      expect(transitionSource).toContain("p_actor_type <> 'fc'");
+      expect(transitionSource).toContain('p_actor_fc_id <> v_registration.fc_id');
+      expect(transitionSource).toContain(
         "p_actor_type not in ('admin', 'developer')",
       );
-      expect(source).toContain('admin_row.active = true');
-      expect(source).toContain(
+      expect(transitionSource).toContain('admin_row.active = true');
+      expect(transitionSource).toContain(
         "p_actor_type = 'developer' and admin_row.staff_type = 'developer'",
       );
-      expect(source).toContain(
+      expect(transitionSource).toContain(
         "p_actor_type = 'admin' and coalesce(admin_row.staff_type, 'admin') = 'admin'",
       );
-      expect(source).not.toContain("p_actor_type = 'manager'");
-      expect(source).toContain("v_from_status <> 'applied'");
-      expect(source).toContain("v_from_status <> 'confirmed'");
-      expect(source).toContain(
+      expect(transitionSource).not.toContain("p_actor_type = 'manager'");
+      expect(transitionSource).toContain("v_from_status <> 'applied'");
+      expect(transitionSource).toContain("v_from_status <> 'confirmed'");
+      expect(transitionSource).toContain(
         "v_from_status not in ('applied', 'confirmed')",
       );
-      expect(source).toContain(
+      expect(transitionSource).toContain(
         "v_registration.status in ('completed', 'no_show')",
       );
     }
@@ -198,7 +199,7 @@ describe('exam bundle client and admin source contract', () => {
       'exam_locations!exam_registrations_location_round_fkey(location_name)',
     );
     expect(source).not.toContain(".eq('exam_rounds.exam_type'");
-    expect(source).toContain("queryKey: ['my-exam-apply-history', residentId]");
+    expect(source).toContain("queryKey: ['my-exam-apply-history', applicationResidentId]");
     expect(source).toContain('myAppliesError');
     expect(source).not.toContain("code === '42P01'");
     expect(source).toContain('다시 시도');

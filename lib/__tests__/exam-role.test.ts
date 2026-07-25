@@ -9,8 +9,9 @@ describe('exam role contract', () => {
     expect(canUseFcExamApply({ role: 'admin', readOnly: true })).toBe(true);
   });
 
-  test('keeps writable admin sessions on exam management surface', () => {
-    expect(canUseFcExamApply({ role: 'admin', readOnly: false })).toBe(false);
+  test('allows general-affairs and developer staff to apply for another FC', () => {
+    expect(canUseFcExamApply({ role: 'admin', readOnly: false, staffType: 'admin' })).toBe(true);
+    expect(canUseFcExamApply({ role: 'admin', readOnly: false, staffType: 'developer' })).toBe(true);
     expect(resolveExamHomeSurface({ role: 'admin', readOnly: false, adminHomeTab: 'exam' })).toBe('admin-management');
   });
 

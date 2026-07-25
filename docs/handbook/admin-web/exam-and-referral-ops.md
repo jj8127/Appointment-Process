@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-EXAM-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-07-23
+last_verified: 2026-07-25
 source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/src/app/api/admin/exam-applicants/* + web/src/app/dashboard/referrals/page.tsx + web/src/app/dashboard/referrals/graph/page.tsx + web/src/app/api/admin/referrals/route.ts
 
 # Admin Web Playbook: Exam And Referral Ops
@@ -40,6 +40,8 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - 상세 API의 `registrationId` 조회는 선택 row 하나를 찾은 뒤 동일 신청자의 과거 이력을 함께 읽어 `신규신청/재신청`을 계산하고, enrichment 직전에 선택 row로 다시 좁힌다. 선택 row만 먼저 분류해 재신청 이력을 잃지 않는다.
 - 공용 신청자 목록 컬럼 순서와 badge wrapping은 `web/src/lib/exam-applicant-list-display.ts`의 shared contract를 따른다. canonical dashboard만 공용 컬럼 뒤에 증빙 표시/CSV 필드를 추가한다. `시험 신청일`은 `exam_registrations.created_at`에서 날짜만 표시하며 테이블과 CSV에 함께 포함한다. `/admin/exams/[id]`는 특정 `roundId`를 서버 API로 조회하므로 별도의 상단 회차 필터를 추가하지 않는다.
 - resident number/full view는 운영 역할(admin/manager/developer) 기준으로 읽을 수 있고, `manager`는 모든 쓰기 액션이 비활성
+- GaramIn 모바일의 시험 탭에서는 본부장·총무·개발자가 FC를 선택해 신청을 대신 제출할 수 있다. 이 예외는 관리자 웹의 일정/접수 상태 변경 권한을 확장하지 않는다.
+- 대리 신청은 `submit_exam_registration_with_payment_proof_v3`와 append-only decision event를 사용하며, 신규 row의 수기 `fee_paid_date`는 `null`이다. 과거 날짜는 변경하거나 삭제하지 않는다.
 - `/api/admin/exam-applicants` 는 `exam_registrations.resident_id` 와 `fc_profiles.phone` 를 raw/digits/hyphenated 후보로 매칭한 뒤 `fc_identity_secure` 에서 full resident number를 읽는다.
 - `/dashboard/exam/applicants` 에서 주민등록번호 열이 일괄 `주민번호 조회 실패` 로 보이면 우선 `exam_registrations.resident_id` 와 `fc_profiles.phone` 포맷 drift, 그다음 `fc_identity_secure` 누락을 확인한다.
 - 2026-05-30 기준 `/api/admin/exam-applicants` enrichment는 `web/src/lib/exam-applicant-resident-number-enrichment.ts`가 row defaults, phone candidate matching, `fcIds` de-dupe, full resident-number merge, `주민번호 조회 실패` fallback literal을 고정한다.

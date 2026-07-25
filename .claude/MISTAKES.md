@@ -4531,3 +4531,21 @@
 - Verification:
   - A 447-FC chunking regression, cross-chunk deduplication/order tests, and
     developer/manager permission-display tests.
+
+## 2026-07-25 | Whole-schema negative assertions blocked an additive actor contract
+
+- Symptom:
+  - Adding manager audit support to a new exam-submission RPC failed an older
+    transition test even though manager transitions remained forbidden.
+- Root cause:
+  - The regression asserted that an actor string was absent from the entire
+    schema instead of inspecting the function whose authorization boundary it
+    intended to protect.
+- Permanent guardrail:
+  - Scope security source assertions to the canonical function, policy, or
+    handler under test. Do not use whole-schema negative string assertions when
+    another additive workflow may legitimately use the same role name.
+- Verification:
+  - The transition matrix test now extracts
+    `transition_exam_registration`; the separate proxy-application contract
+    verifies manager audit and target snapshots in v3.

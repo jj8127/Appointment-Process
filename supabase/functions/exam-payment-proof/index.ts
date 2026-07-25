@@ -16,6 +16,7 @@ import {
   validateSubmitExamPaymentProof,
   type DiscardExamPaymentProofInput,
   type CancelExamApplicationInput,
+  type ListExamApplicationTargetsInput,
   type PrepareExamPaymentProofInput,
   type SubmitExamPaymentProofInput,
 } from '../_shared/exam-payment-proof.ts';
@@ -26,12 +27,45 @@ type RequestBody =
   | PrepareExamPaymentProofInput
   | SubmitExamPaymentProofInput
   | DiscardExamPaymentProofInput
-  | CancelExamApplicationInput;
+  | CancelExamApplicationInput
+  | ListExamApplicationTargetsInput;
 
 type AppSession = {
   phone: string;
   role: 'fc' | 'admin' | 'manager';
   fcId?: string;
+  staffType?: 'admin' | 'developer';
+};
+
+type ExamApplicationActor =
+  | {
+      actorType: 'fc';
+      actorPhone: string;
+      actorFcId: string;
+      actorAdminId: null;
+      actorManagerId: null;
+    }
+  | {
+      actorType: 'manager';
+      actorPhone: string;
+      actorFcId: null;
+      actorAdminId: null;
+      actorManagerId: string;
+    }
+  | {
+      actorType: 'admin' | 'developer';
+      actorPhone: string;
+      actorFcId: null;
+      actorAdminId: string;
+      actorManagerId: null;
+    };
+
+type ExamApplicationTarget = {
+  fcId: string;
+  residentId: string;
+  name: string;
+  affiliation: string;
+  phoneLast4: string;
 };
 
 type ProofUploadRow = {
@@ -65,14 +99,7 @@ function failure(
   return json({ ok: false, code, message }, status, origin);
 }
 
-async function resolveFcActor(session: AppSession, origin?: string) {
-  if (session.role !== 'fc' && session.role !== 'manager') {
-    return {
-      ok: false as const,
-      response: failure('forbidden', 'FC 본인 시험 신청만 이용할 수 있습니다.', 403, origin),
-    };
-  }
-
+async function resolveExamActor(session: AppSession, origin?: string) {
   const phone = cleanPhone(session.phone);
   if (phone.length !== 11) {
     return {
@@ -81,12 +108,73 @@ async function resolveFcActor(session: AppSession, origin?: string) {
     };
   }
 
+  if (session.role === 'admin') {
+    const expectedStaffType = session.staffType === 'developer' ? 'developer' : 'admin';
+    const { data, error } = await supabase
+      .from('admin_accounts')
+      .select('id,staff_type')
+      .in('phone', buildPhoneCandidates(phone))
+      .eq('active', true)
+      .limit(2);
+    const matches = (data ?? []).filter(
+      (row) => (row.staff_type === 'developer' ? 'developer' : 'admin') === expectedStaffType,
+    );
+    if (error || matches.length !== 1 || !matches[0]?.id) {
+      return {
+        ok: false as const,
+        response: failure('actor_not_found', '활성 관리자 계정을 확인하지 못했습니다.', 403, origin),
+      };
+    }
+    return {
+      ok: true as const,
+      actor: {
+        actorType: expectedStaffType,
+        actorPhone: phone,
+        actorFcId: null,
+        actorAdminId: String(matches[0].id),
+        actorManagerId: null,
+      } satisfies ExamApplicationActor,
+    };
+  }
+
+  if (session.role === 'manager') {
+    const { data, error } = await supabase
+      .from('manager_accounts')
+      .select('id')
+      .in('phone', buildPhoneCandidates(phone))
+      .eq('active', true)
+      .limit(2);
+    if (error || data?.length !== 1 || !data[0]?.id) {
+      return {
+        ok: false as const,
+        response: failure('actor_not_found', '활성 본부장 계정을 확인하지 못했습니다.', 403, origin),
+      };
+    }
+    return {
+      ok: true as const,
+      actor: {
+        actorType: 'manager',
+        actorPhone: phone,
+        actorFcId: null,
+        actorAdminId: null,
+        actorManagerId: String(data[0].id),
+      } satisfies ExamApplicationActor,
+    };
+  }
+
+  if (session.role !== 'fc') {
+    return {
+      ok: false as const,
+      response: failure('forbidden', '시험 신청 권한이 없습니다.', 403, origin),
+    };
+  }
+
   let query = supabase
     .from('fc_profiles')
     .select('id,phone')
     .limit(2);
 
-  if (session.role === 'fc' && session.fcId) {
+  if (session.fcId) {
     query = query.eq('id', session.fcId);
   } else {
     query = query.in('phone', buildPhoneCandidates(phone));
@@ -116,15 +204,116 @@ async function resolveFcActor(session: AppSession, origin?: string) {
   return {
     ok: true as const,
     actor: {
-      fcId: exactMatches[0].id as string,
-      residentId: phone,
-    },
+      actorType: 'fc',
+      actorPhone: phone,
+      actorFcId: exactMatches[0].id as string,
+      actorAdminId: null,
+      actorManagerId: null,
+    } satisfies ExamApplicationActor,
   };
+}
+
+function cleanTargetFcId(body: RequestBody) {
+  return typeof (body as { targetFcId?: unknown }).targetFcId === 'string'
+    ? String((body as { targetFcId?: string }).targetFcId).trim()
+    : '';
+}
+
+async function resolveApplicationTarget(
+  body: RequestBody,
+  actor: ExamApplicationActor,
+  origin?: string,
+) {
+  const requestedTargetFcId = cleanTargetFcId(body);
+  let targetFcId = actor.actorType === 'fc' ? actor.actorFcId : requestedTargetFcId;
+  if (!targetFcId && actor.actorType === 'manager') {
+    const { data: legacyTarget } = await supabase
+      .from('fc_profiles')
+      .select('id')
+      .in('phone', buildPhoneCandidates(actor.actorPhone))
+      .eq('signup_completed', true)
+      .eq('is_manager_referral_shadow', false)
+      .limit(2);
+    if (legacyTarget?.length === 1 && legacyTarget[0]?.id) {
+      targetFcId = String(legacyTarget[0].id);
+    }
+  }
+  if (!targetFcId) {
+    return {
+      ok: false as const,
+      response: failure('target_required', '시험 신청 대상 FC를 선택해주세요.', 400, origin),
+    };
+  }
+  if (actor.actorType === 'fc' && requestedTargetFcId && requestedTargetFcId !== actor.actorFcId) {
+    return {
+      ok: false as const,
+      response: failure('forbidden_target', '다른 FC의 시험을 신청할 수 없습니다.', 403, origin),
+    };
+  }
+
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('id,name,affiliation,phone,signup_completed,is_manager_referral_shadow')
+    .eq('id', targetFcId)
+    .maybeSingle();
+  const residentId = cleanPhone(data?.phone);
+  if (
+    error
+    || !data?.id
+    || data.signup_completed !== true
+    || data.is_manager_referral_shadow === true
+    || residentId.length !== 11
+  ) {
+    return {
+      ok: false as const,
+      response: failure('target_not_found', '시험 신청 대상 FC를 확인하지 못했습니다.', 404, origin),
+    };
+  }
+
+  return {
+    ok: true as const,
+    target: {
+      fcId: String(data.id),
+      residentId,
+      name: String(data.name ?? '').trim() || '이름 미입력',
+      affiliation: String(data.affiliation ?? '').trim(),
+      phoneLast4: residentId.slice(-4),
+    } satisfies ExamApplicationTarget,
+  };
+}
+
+async function listApplicationTargets(actor: ExamApplicationActor, origin?: string) {
+  if (actor.actorType === 'fc') {
+    return failure('forbidden', '대리 신청 권한이 없습니다.', 403, origin);
+  }
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('id,name,affiliation,phone')
+    .eq('signup_completed', true)
+    .eq('is_manager_referral_shadow', false)
+    .order('name', { ascending: true })
+    .order('created_at', { ascending: true })
+    .limit(2000);
+  if (error) {
+    return failure('db_error', 'FC 목록을 불러오지 못했습니다.', 500, origin);
+  }
+  const targets = (data ?? []).flatMap((row) => {
+    const residentId = cleanPhone(row.phone);
+    if (!row.id || residentId.length !== 11) return [];
+    return [{
+      fcId: String(row.id),
+      residentId,
+      name: String(row.name ?? '').trim() || '이름 미입력',
+      affiliation: String(row.affiliation ?? '').trim(),
+      phoneLast4: residentId.slice(-4),
+    } satisfies ExamApplicationTarget];
+  });
+  return json({ ok: true, data: { targets } }, 200, origin);
 }
 
 async function prepareUpload(
   body: PrepareExamPaymentProofInput,
-  actor: { fcId: string },
+  target: { fcId: string },
   origin?: string,
 ) {
   const validated = validatePrepareExamPaymentProof(body);
@@ -136,7 +325,7 @@ async function prepareUpload(
   const { data: existing, error: existingError } = await supabase
     .from('exam_payment_proof_uploads')
     .select('id,fc_id,storage_path,status,registration_id,expires_at')
-    .eq('fc_id', actor.fcId)
+    .eq('fc_id', target.fcId)
     .eq('request_id', requestId)
     .maybeSingle<ProofUploadRow>();
 
@@ -171,7 +360,7 @@ async function prepareUpload(
 
   let uploadId = existing?.id ?? crypto.randomUUID();
   let storagePath = existing?.storage_path ?? buildExamPaymentProofStoragePath({
-    fcId: actor.fcId,
+    fcId: target.fcId,
     objectId: uploadId,
     mimeType,
   });
@@ -182,7 +371,7 @@ async function prepareUpload(
       .insert({
         id: uploadId,
         request_id: requestId,
-        fc_id: actor.fcId,
+        fc_id: target.fcId,
         storage_path: storagePath,
         original_file_name: fileName,
         mime_type: mimeType,
@@ -237,7 +426,8 @@ async function storageObjectExists(upload: ProofUploadRow) {
 
 async function submitApplication(
   body: SubmitExamPaymentProofInput,
-  actor: { fcId: string; residentId: string },
+  actor: ExamApplicationActor,
+  target: { fcId: string; residentId: string },
   origin?: string,
 ) {
   const validated = validateSubmitExamPaymentProof(body);
@@ -255,7 +445,7 @@ async function submitApplication(
     isThirdExam,
   } = validated.value;
 
-  if (feePaidDate > getKoreanYmd()) {
+  if (feePaidDate && feePaidDate > getKoreanYmd()) {
     return failure(
       'future_fee_paid_date',
       '응시료 납입 일자는 오늘 이후로 선택할 수 없습니다.',
@@ -297,7 +487,7 @@ async function submitApplication(
       .from('exam_payment_proof_uploads')
       .select('id,fc_id,storage_path,status,registration_id,expires_at')
       .eq('id', uploadId)
-      .eq('fc_id', actor.fcId)
+      .eq('fc_id', target.fcId)
       .maybeSingle<ProofUploadRow>();
     if (uploadError) {
       return failure('db_error', '입금 내역을 확인하지 못했습니다.', 500, origin);
@@ -311,20 +501,30 @@ async function submitApplication(
   }
 
   const { data, error } = await supabase.rpc(
-    body.action === 'submit_v2'
-      ? 'submit_exam_registration_with_payment_proof_v2'
-      : 'submit_exam_registration_with_payment_proof',
+    body.action === 'submit_v3'
+      ? 'submit_exam_registration_with_payment_proof_v3'
+      : body.action === 'submit_v2'
+        ? 'submit_exam_registration_with_payment_proof_v2'
+        : 'submit_exam_registration_with_payment_proof',
     {
-      p_fc_id: actor.fcId,
-      p_resident_id: actor.residentId,
+      p_fc_id: target.fcId,
+      p_resident_id: target.residentId,
       p_round_id: roundId,
       p_location_id: locationId,
-      ...(body.action === 'submit_v2'
+      ...(body.action === 'submit_v2' || body.action === 'submit_v3'
         ? { p_includes_primary_exam: includesPrimaryExam }
         : {}),
       p_is_third_exam: isThirdExam,
       p_fee_paid_date: feePaidDate,
       p_upload_id: uploadId,
+      ...(body.action === 'submit_v3'
+        ? {
+            p_actor_type: actor.actorType,
+            p_actor_admin_id: actor.actorAdminId,
+            p_actor_manager_id: actor.actorManagerId,
+            p_actor_fc_id: actor.actorFcId,
+          }
+        : {}),
     },
   );
 
@@ -335,6 +535,10 @@ async function submitApplication(
       payment_proof_expired: '첨부 요청이 만료되었습니다. 사진을 다시 선택해주세요.',
       payment_proof_already_used: '이미 사용된 입금 내역 사진입니다.',
       payment_proof_not_available: '입금 내역 사진을 다시 선택해주세요.',
+      active_exam_month_already_registered:
+        '선택한 FC는 해당 시험 월에 이미 신청 내역이 있습니다.',
+      invalid_exam_actor: '시험 대리 신청 권한을 확인하지 못했습니다.',
+      invalid_exam_target: '시험 신청 대상 FC를 다시 선택해주세요.',
     };
     return failure(
       'submit_failed',
@@ -373,7 +577,7 @@ async function submitApplication(
 
 async function discardUpload(
   body: DiscardExamPaymentProofInput,
-  actor: { fcId: string },
+  target: { fcId: string },
   origin?: string,
 ) {
   const validated = validateDiscardExamPaymentProof(body);
@@ -385,7 +589,7 @@ async function discardUpload(
     .from('exam_payment_proof_uploads')
     .select('id,fc_id,storage_path,status,registration_id,expires_at')
     .eq('id', validated.value.uploadId)
-    .eq('fc_id', actor.fcId)
+    .eq('fc_id', target.fcId)
     .maybeSingle<ProofUploadRow>();
   if (error) {
     return failure('db_error', '첨부 사진을 정리하지 못했습니다.', 500, origin);
@@ -418,12 +622,20 @@ async function discardUpload(
 
 async function cancelApplication(
   body: CancelExamApplicationInput,
-  actor: { fcId: string; residentId: string },
+  actor: ExamApplicationActor,
   origin?: string,
 ) {
   const validated = validateCancelExamApplication(body);
   if (validated.ok === false) {
     return failure(validated.code, validated.message, 400, origin);
+  }
+  if (actor.actorType !== 'fc' || !actor.actorFcId) {
+    return failure(
+      'forbidden',
+      '대리 신청한 시험의 취소는 시험 관리 화면에서 처리해주세요.',
+      403,
+      origin,
+    );
   }
 
   const { data, error } = await supabase.rpc('transition_exam_registration', {
@@ -431,7 +643,7 @@ async function cancelApplication(
     p_action: 'cancel_by_fc',
     p_actor_type: 'fc',
     p_actor_admin_id: null,
-    p_actor_fc_id: actor.fcId,
+    p_actor_fc_id: actor.actorFcId,
     p_reason: null,
   });
   if (error) {
@@ -490,22 +702,31 @@ serve(async (req: Request) => {
     );
   }
 
-  const actorResult = await resolveFcActor(sessionResult.session, origin);
+  const actorResult = await resolveExamActor(sessionResult.session, origin);
   if (actorResult.ok === false) {
     return actorResult.response;
   }
 
-  if (body.action === 'prepare') {
-    return prepareUpload(body, actorResult.actor, origin);
-  }
-  if (body.action === 'submit' || body.action === 'submit_v2') {
-    return submitApplication(body, actorResult.actor, origin);
-  }
-  if (body.action === 'discard') {
-    return discardUpload(body, actorResult.actor, origin);
+  if (body.action === 'list_targets') {
+    return listApplicationTargets(actorResult.actor, origin);
   }
   if (body.action === 'cancel') {
     return cancelApplication(body, actorResult.actor, origin);
+  }
+
+  const targetResult = await resolveApplicationTarget(body, actorResult.actor, origin);
+  if (targetResult.ok === false) {
+    return targetResult.response;
+  }
+
+  if (body.action === 'prepare') {
+    return prepareUpload(body, targetResult.target, origin);
+  }
+  if (body.action === 'submit' || body.action === 'submit_v2' || body.action === 'submit_v3') {
+    return submitApplication(body, actorResult.actor, targetResult.target, origin);
+  }
+  if (body.action === 'discard') {
+    return discardUpload(body, targetResult.target, origin);
   }
   return failure('invalid_action', '지원하지 않는 요청입니다.', 400, origin);
 });
