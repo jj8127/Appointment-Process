@@ -6,6 +6,9 @@ alter table public.exam_registrations
   add column if not exists exam_month date;
 
 alter table public.exam_registrations
+  add column if not exists monthly_slot_policy_version smallint;
+
+alter table public.exam_registrations
   add column if not exists includes_primary_exam boolean;
 
 alter table public.exam_registrations
@@ -25,12 +28,107 @@ update public.exam_registrations
    set includes_primary_exam = true
  where includes_primary_exam is null;
 
+-- Preserve every legacy row. Existing collisions remain valid history, while
+-- rows created after this migration receive policy version 1 and are subject
+-- to the strict FC/month uniqueness index below.
+update public.exam_registrations
+   set monthly_slot_policy_version = 0
+ where monthly_slot_policy_version is null;
+
+-- Repair active ownership only when the normalized phone has exactly one FC
+-- profile match. Ambiguous or unmatched rows still fail closed in preflight.
+with ownership_candidates as (
+  select
+    registration.id as registration_id,
+    (array_agg(profile.id order by profile.id))[1] as profile_id
+ from public.exam_registrations registration
+  join public.fc_profiles profile
+    on nullif(
+      regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g'),
+      ''
+    ) = nullif(
+      regexp_replace(coalesce(registration.resident_id, ''), '[^0-9]', '', 'g'),
+      ''
+    )
+ where registration.status in ('applied', 'confirmed', 'completed', 'no_show')
+   and (
+     registration.fc_id is null
+     or not exists (
+       select 1
+         from public.fc_profiles current_profile
+        where current_profile.id = registration.fc_id
+          and nullif(
+            regexp_replace(coalesce(current_profile.phone, ''), '[^0-9]', '', 'g'),
+            ''
+          ) = nullif(
+            regexp_replace(
+              coalesce(registration.resident_id, ''),
+              '[^0-9]',
+              '',
+              'g'
+            ),
+            ''
+          )
+     )
+   )
+ group by registration.id
+having count(*) = 1
+)
+update public.exam_registrations registration
+   set fc_id = candidate.profile_id
+  from ownership_candidates candidate
+ where registration.id = candidate.registration_id
+   and (
+     registration.fc_id is null
+     or registration.fc_id <> candidate.profile_id
+   );
+
 update public.exam_registrations registration
    set exam_month = date_trunc('month', round_row.exam_date)::date
   from public.exam_rounds round_row
  where round_row.id = registration.round_id
    and round_row.exam_date is not null
    and registration.exam_month is null;
+
+-- Some legacy rounds retained only a month in the label. Recover that month
+-- without inventing an exact exam day; exam_rounds.exam_date remains unchanged.
+with parsed_round_months as (
+  select
+    registration.id as registration_id,
+    round_row.registration_deadline,
+    regexp_match(
+      coalesce(round_row.round_label, ''),
+      '(?:([0-9]{2}|[0-9]{4})년[[:space:]]*)?([0-9]{1,2})월'
+    ) as date_parts
+  from public.exam_registrations registration
+  join public.exam_rounds round_row
+    on round_row.id = registration.round_id
+ where registration.exam_month is null
+),
+resolved_round_months as (
+  select
+    registration_id,
+    case
+      when date_parts[1] is null
+        then extract(year from registration_deadline)::integer
+      when char_length(date_parts[1]) = 2
+        then 2000 + date_parts[1]::integer
+      else date_parts[1]::integer
+    end as exam_year,
+    date_parts[2]::integer as exam_month_number
+  from parsed_round_months
+ where date_parts is not null
+)
+update public.exam_registrations registration
+   set exam_month = make_date(
+     resolved.exam_year,
+     resolved.exam_month_number,
+     1
+   )
+  from resolved_round_months resolved
+ where registration.id = resolved.registration_id
+   and resolved.exam_year between 2000 and 2100
+   and resolved.exam_month_number between 1 and 12;
 
 do $preflight$
 begin
@@ -42,7 +140,7 @@ begin
   ) then
     raise exception using
       errcode = '23514',
-      message = 'exam_bundle_preflight_missing_active_exam_date';
+      message = 'exam_bundle_preflight_missing_active_exam_month';
   end if;
 
   if exists (
@@ -92,8 +190,9 @@ do $collision_preflight$
 begin
   if exists (
     select 1
-      from public.exam_registrations registration
+     from public.exam_registrations registration
      where registration.status in ('applied', 'confirmed', 'completed', 'no_show')
+       and registration.monthly_slot_policy_version = 1
      group by registration.fc_id, registration.exam_month
     having count(*) > 1
   ) then
@@ -109,6 +208,19 @@ alter table public.exam_registrations
 
 alter table public.exam_registrations
   alter column includes_primary_exam set not null;
+
+alter table public.exam_registrations
+  alter column monthly_slot_policy_version set default 1;
+
+alter table public.exam_registrations
+  alter column monthly_slot_policy_version set not null;
+
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_monthly_slot_policy_check;
+
+alter table public.exam_registrations
+  add constraint exam_registrations_monthly_slot_policy_check
+  check (monthly_slot_policy_version in (0, 1));
 
 alter table public.exam_registrations
   alter column is_third_exam set default false;
@@ -220,10 +332,12 @@ alter table public.exam_registrations
   );
 
 drop index if exists public.idx_exam_registrations_round_resident;
+drop index if exists public.idx_exam_registrations_active_fc_exam_month;
 
-create unique index if not exists idx_exam_registrations_active_fc_exam_month
+create unique index idx_exam_registrations_active_fc_exam_month
   on public.exam_registrations (fc_id, exam_month)
-  where status in ('applied', 'confirmed', 'completed', 'no_show');
+  where status in ('applied', 'confirmed', 'completed', 'no_show')
+    and monthly_slot_policy_version = 1;
 
 create index if not exists idx_exam_registrations_resident_history
   on public.exam_registrations (resident_id, created_at desc, id desc);
@@ -633,6 +747,23 @@ grant execute on function public.submit_exam_registration_with_payment_proof(
   uuid, text, uuid, uuid, boolean, date, uuid
 ) to service_role;
 
+-- Production may already have the later typed-notification version when this
+-- migration is reconciled out of timestamp order. Keep that newer seven-column
+-- result contract instead of replacing it with the legacy five-column version.
+do $install_legacy_exam_transition$
+begin
+  if not exists (
+    select 1
+      from pg_proc procedure
+      join pg_namespace namespace
+        on namespace.oid = procedure.pronamespace
+     where namespace.nspname = 'public'
+       and procedure.proname = 'transition_exam_registration'
+       and pg_get_function_identity_arguments(procedure.oid)
+         = 'p_registration_id uuid, p_action text, p_actor_type text, p_actor_admin_id uuid, p_actor_fc_id uuid, p_reason text'
+       and pg_get_function_result(procedure.oid) like '%notification_id uuid%'
+  ) then
+    execute $legacy_exam_transition$
 create or replace function public.transition_exam_registration(
   p_registration_id uuid,
   p_action text,
@@ -664,16 +795,20 @@ declare
   v_title text;
   v_body text;
 begin
-  select registration, round_row.exam_type
-    into v_registration, v_exam_type
+  select registration.*
+    into v_registration
     from public.exam_registrations registration
-    join public.exam_rounds round_row on round_row.id = registration.round_id
    where registration.id = p_registration_id
-   for update of registration;
+   for update;
 
   if v_registration.id is null then
     raise exception using errcode = 'P0002', message = 'exam_registration_not_found';
   end if;
+
+  select round_row.exam_type
+    into v_exam_type
+    from public.exam_rounds round_row
+   where round_row.id = v_registration.round_id;
 
   if v_registration.status in ('completed', 'no_show') then
     raise exception using errcode = '55000', message = 'terminal_exam_registration';
@@ -843,6 +978,10 @@ begin
     v_exam_type;
 end;
 $$;
+$legacy_exam_transition$;
+  end if;
+end
+$install_legacy_exam_transition$;
 
 revoke all on function public.transition_exam_registration(
   uuid, text, text, uuid, uuid, text

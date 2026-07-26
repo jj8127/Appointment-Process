@@ -9,11 +9,24 @@ const migrationPath = path.join(
   '20260724151737_contain_privileged_account_table_acl.sql',
 );
 const migration = readFileSync(migrationPath, 'utf8');
+const helperMigration = readFileSync(
+  path.join(
+    root,
+    'supabase',
+    'migrations',
+    '20260726131500_secure_rls_profile_identity_helpers.sql',
+  ),
+  'utf8',
+);
 const schema = readFileSync(
   path.join(root, 'supabase', 'schema.sql'),
   'utf8',
 );
 const normalizedMigration = migration.replace(/\s+/g, ' ').trim().toLowerCase();
+const normalizedHelperMigration = helperMigration
+  .replace(/\s+/g, ' ')
+  .trim()
+  .toLowerCase();
 const normalizedSchema = schema.replace(/\s+/g, ' ').trim().toLowerCase();
 
 type DataApiRole = 'public' | 'anon' | 'authenticated' | 'service_role';
@@ -244,6 +257,30 @@ describe('privileged account table ACL containment', () => {
       expect(normalizedMigration).toContain(statement);
       expect(normalizedSchema).toContain(statement);
     }
+  });
+
+  it('keeps profile-backed RLS identity helpers executable without restoring table access', () => {
+    for (const helper of ['is_admin', 'is_manager', 'is_fc', 'current_fc_id']) {
+      for (const source of [normalizedHelperMigration, normalizedSchema]) {
+        expect(source).toContain(
+          `create or replace function public.${helper}()`,
+        );
+        expect(source).toMatch(
+          new RegExp(
+            `create or replace function public\\.${helper}\\(\\)[\\s\\S]*?security definer[\\s\\S]*?set search_path = pg_catalog, public`,
+          ),
+        );
+        expect(source).toContain(
+          `revoke all on function public.${helper}() from public;`,
+        );
+        expect(source).toContain(
+          `grant execute on function public.${helper}() to anon, authenticated, service_role;`,
+        );
+      }
+    }
+    expect(normalizedHelperMigration).not.toContain(
+      'grant select on table public.profiles to anon',
+    );
   });
 });
 

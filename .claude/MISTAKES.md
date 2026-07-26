@@ -4570,3 +4570,84 @@
 - Verification:
   - Edge source contract, v3 migration/schema parity, Deno contract tests, and
     production aggregate preflight for the resulting pure-FC population.
+
+## 2026-07-26 | UUID identity backfill used an unsupported aggregate
+
+- Symptom:
+  - The typed-notification production migration stopped at the deterministic
+    legacy actor backfill with `function min(uuid) does not exist`.
+- Root cause:
+  - The query already proved exactly one matching active identity but then used
+    `min(uuid)` to select it. PostgreSQL does not provide that aggregate for
+    UUID values.
+- Permanent guardrail:
+  - After an exact-one cardinality predicate, use a scalar UUID select directly.
+    Do not introduce numeric/text ordering aggregates for UUID identity
+    selection, and retain the duplicate-mapping fail-closed predicate.
+- Verification:
+  - The notification migration source contract rejects UUID `min(...)`, focused
+    Jest coverage passes, and the production migration is retried only after
+    confirming the failed transaction left no recorded migration version.
+
+## 2026-07-26 | PL/pgSQL mixed a row variable with a scalar INTO target
+
+- Symptom:
+  - The typed-notification migration next stopped while compiling
+    `transition_exam_registration` with `record variable cannot be part of
+    multiple-item INTO list`.
+- Root cause:
+  - One query selected a composite registration row and scalar exam type into a
+    `%rowtype` variable plus a text variable. PL/pgSQL does not allow a record
+    variable in a multi-item `INTO` list.
+- Permanent guardrail:
+  - Lock and load the registration row with `SELECT registration.* ... FOR
+    UPDATE`, validate it, then load immutable round metadata in a separate
+    scalar query.
+- Verification:
+  - The base exam migration, typed-notification replacement, and canonical
+    schema share the two-step form, with a regression assertion that rejects
+    the mixed `INTO` pattern.
+
+## 2026-07-26 | Out-of-order reconciliation attempted to downgrade an RPC result contract
+
+- Symptom:
+  - The legacy exam-bundle migration stopped with `cannot change return type of
+    existing function` after the newer typed-notification migration had already
+    installed a seven-column `transition_exam_registration` result.
+- Root cause:
+  - Production migration history required reconciling an older timestamp after
+    a newer migration. The older migration unconditionally used `CREATE OR
+    REPLACE` for the same function signature with only five output columns,
+    which PostgreSQL forbids and would have downgraded the newer contract.
+- Permanent guardrail:
+  - Reconciliation-safe migrations must detect and preserve a newer compatible
+    function contract when historical migrations are applied out of timestamp
+    order. Never replace a newer RPC result shape with a legacy one.
+- Verification:
+  - The legacy transition installer now skips itself when the typed
+    `notification_id` result is present; the failed transaction recorded no
+    partial migration, and the retry is preceded by focused contract tests and
+    a two-migration dry run.
+
+## 2026-07-26 | Profile ACL containment broke RLS helper evaluation
+
+- Symptom:
+  - The mobile admin dashboard failed to load FC rows with
+    `permission denied for table profiles`, and an already-open FC lite home
+    could not re-evaluate a completed identity profile.
+- Root cause:
+  - The containment migration correctly removed anon access to
+    `public.profiles`, but existing `fc_profiles` RLS policies still invoked
+    invoker-security helpers (`is_admin`, `is_manager`, `is_fc`, and
+    `current_fc_id`) that selected from the newly protected table. PostgreSQL
+    may evaluate those policy expressions even when another OR branch permits
+    the request.
+- Permanent guardrail:
+  - Profile-backed RLS identity helpers must be bounded `SECURITY DEFINER`
+    functions with a fixed search path, explicit execute grants, and no ability
+    to return arbitrary profile rows. Do not restore anon table access to make
+    an RLS helper work.
+- Verification:
+  - The production anon role can again select `fc_profiles`, still receives
+    401 for direct `profiles` access, the four helpers are security-definer,
+    and the containment contract covers the migration and canonical schema.

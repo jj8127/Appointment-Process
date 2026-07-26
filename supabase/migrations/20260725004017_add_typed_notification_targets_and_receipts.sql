@@ -550,7 +550,7 @@ grant execute on function public.send_garamin_direct_message_with_notification(
 -- stay null so the service boundary can fail closed.
 update public.notifications notification
    set recipient_actor_id = (
-     select min(profile.id)
+     select profile.id
        from public.fc_profiles profile
       where profile.phone = notification.resident_id
         and profile.signup_completed = true
@@ -567,7 +567,7 @@ update public.notifications notification
 
 update public.notifications notification
    set recipient_actor_id = (
-     select min(account.id)
+     select account.id
        from public.admin_accounts account
       where account.phone = notification.resident_id
         and account.active = true
@@ -584,7 +584,7 @@ update public.notifications notification
 
 update public.notifications notification
    set recipient_actor_id = (
-     select min(account.id)
+     select account.id
        from public.manager_accounts account
       where account.phone = notification.resident_id
         and account.active = true
@@ -683,16 +683,21 @@ declare
   v_body text;
   v_notification_id uuid;
 begin
-  select registration, round_row.exam_type
-    into v_registration, v_exam_type
+  select registration.*
+    into v_registration
     from public.exam_registrations registration
-    join public.exam_rounds round_row on round_row.id = registration.round_id
    where registration.id = p_registration_id
-   for update of registration;
+   for update;
 
   if v_registration.id is null then
     raise exception using errcode = 'P0002', message = 'exam_registration_not_found';
   end if;
+
+  select round_row.exam_type
+    into v_exam_type
+    from public.exam_rounds round_row
+   where round_row.id = v_registration.round_id;
+
   if v_registration.status in ('completed', 'no_show') then
     raise exception using errcode = '55000', message = 'terminal_exam_registration';
   end if;

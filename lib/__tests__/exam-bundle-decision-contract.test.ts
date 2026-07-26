@@ -32,8 +32,8 @@ describe('exam bundle database contract', () => {
     expect(matching).toEqual([migrationName]);
   });
 
-  it('fails closed before adding the active FC-month uniqueness boundary', () => {
-    expect(migration).toContain('exam_bundle_preflight_missing_active_exam_date');
+  it('repairs only deterministic legacy ownership and preserves legacy month collisions', () => {
+    expect(migration).toContain('exam_bundle_preflight_missing_active_exam_month');
     expect(migration).toContain(
       'exam_bundle_preflight_active_fc_ownership_mismatch',
     );
@@ -41,11 +41,22 @@ describe('exam bundle database contract', () => {
     expect(migration).toContain('exam_bundle_preflight_active_month_collision');
     expect(migration).toContain('registration.fc_id is null');
     expect(migration).toContain('profile.id = registration.fc_id');
-    expect(migration).not.toContain('set fc_id = (');
+    expect(migration).toContain('having count(*) = 1');
+    expect(migration).toContain('set fc_id = candidate.profile_id');
+    expect(migration).toContain('regexp_match(');
+    expect(migration).toContain('make_date(');
+    expect(migration).not.toMatch(
+      /update\s+public\.exam_rounds[\s\S]*set\s+exam_date/i,
+    );
+    expect(migration).toContain('monthly_slot_policy_version = 0');
+    expect(migration).toContain(
+      'alter column monthly_slot_policy_version set default 1',
+    );
     expect(migration).toContain('idx_exam_registrations_active_fc_exam_month');
     expect(migration).toContain(
       "where status in ('applied', 'confirmed', 'completed', 'no_show')",
     );
+    expect(migration).toContain('and monthly_slot_policy_version = 1');
     expect(migration).not.toMatch(
       /delete\s+from\s+public\.exam_registrations[\s\S]*preflight/i,
     );
@@ -60,6 +71,12 @@ describe('exam bundle database contract', () => {
       expect(source).toContain('p_includes_primary_exam');
       expect(source).toContain('exam_subject_required');
       expect(source).toContain('active_exam_month_already_registered');
+      expect(source).toMatch(
+        /where registration\.fc_id = p_fc_id[\s\S]*registration\.exam_month = v_exam_month[\s\S]*registration\.status in \('applied', 'confirmed', 'completed', 'no_show'\)/,
+      );
+      expect(source).not.toMatch(
+        /where registration\.fc_id = p_fc_id[\s\S]{0,300}monthly_slot_policy_version/,
+      );
       expect(source).toContain(
         'from public.submit_exam_registration_with_payment_proof_v2',
       );
@@ -113,6 +130,20 @@ describe('exam bundle database contract', () => {
       );
       expect(source).toContain(
         "array['examRoundId','examType','kind','version']",
+      );
+    }
+  });
+
+  it('locks the registration row before loading scalar round metadata', () => {
+    for (const source of [migration, typedNotificationMigration, schema]) {
+      const transitionSource = canonicalFunction(source, 'transition_exam_registration');
+      expect(transitionSource).toContain('select registration.* into v_registration');
+      expect(transitionSource).toContain('for update');
+      expect(transitionSource).toContain(
+        'select round_row.exam_type into v_exam_type',
+      );
+      expect(transitionSource).not.toContain(
+        'into v_registration, v_exam_type',
       );
     }
   });

@@ -48,6 +48,7 @@ describe('direct message trusted service boundary', () => {
     expect(migration).toContain('account.active = true');
     expect(migration).toContain("notification.recipient_role = 'admin'");
     expect(migration).toContain("notification.recipient_role = 'manager'");
+    expect(migration).not.toMatch(/select min\((profile|account)\.id\)/);
     expect(migration).not.toMatch(
       /set recipient_actor_id[\s\S]*?limit 1[\s\S]*?where notification\.recipient_actor_id is null/,
     );

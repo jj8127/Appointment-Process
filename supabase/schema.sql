@@ -1112,7 +1112,8 @@ alter table public.exam_locations enable row level security;
 
 create or replace function public.is_admin() returns boolean
 language sql stable
-set search_path = public
+security definer
+set search_path = pg_catalog, public
 as $$
   select exists (
     select 1 from public.profiles p
@@ -1122,7 +1123,8 @@ $$;
 
 create or replace function public.is_manager() returns boolean
 language sql stable
-set search_path = public
+security definer
+set search_path = pg_catalog, public
 as $$
   select exists (
     select 1 from public.profiles p
@@ -1132,7 +1134,8 @@ $$;
 
 create or replace function public.is_fc() returns boolean
 language sql stable
-set search_path = public
+security definer
+set search_path = pg_catalog, public
 as $$
   select exists (
     select 1 from public.profiles p
@@ -1142,10 +1145,25 @@ $$;
 
 create or replace function public.current_fc_id() returns uuid
 language sql stable
-set search_path = public
+security definer
+set search_path = pg_catalog, public
 as $$
   select p.fc_id from public.profiles p where p.id = auth.uid();
 $$;
+
+revoke all on function public.is_admin() from public;
+revoke all on function public.is_manager() from public;
+revoke all on function public.is_fc() from public;
+revoke all on function public.current_fc_id() from public;
+
+grant execute on function public.is_admin()
+  to anon, authenticated, service_role;
+grant execute on function public.is_manager()
+  to anon, authenticated, service_role;
+grant execute on function public.is_fc()
+  to anon, authenticated, service_role;
+grant execute on function public.current_fc_id()
+  to anon, authenticated, service_role;
 
 create or replace function public.generate_referral_code_candidate() returns text
 language plpgsql
@@ -5142,6 +5160,7 @@ grant execute on function public.submit_exam_registration_with_payment_proof(
 
 alter table public.exam_registrations
   add column if not exists exam_month date,
+  add column if not exists monthly_slot_policy_version smallint not null default 1,
   add column if not exists includes_primary_exam boolean not null default true,
   add column if not exists rejection_reason text,
   add column if not exists rejected_at timestamptz,
@@ -5185,6 +5204,12 @@ alter table public.exam_registrations
       status in ('confirmed', 'completed', 'no_show')
     )
   );
+
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_monthly_slot_policy_check;
+alter table public.exam_registrations
+  add constraint exam_registrations_monthly_slot_policy_check
+  check (monthly_slot_policy_version in (0, 1));
 
 alter table public.exam_registrations
   drop constraint if exists exam_registrations_active_month_shape_check;
@@ -5244,9 +5269,11 @@ alter table public.exam_registrations
   );
 
 drop index if exists public.idx_exam_registrations_round_resident;
-create unique index if not exists idx_exam_registrations_active_fc_exam_month
+drop index if exists public.idx_exam_registrations_active_fc_exam_month;
+create unique index idx_exam_registrations_active_fc_exam_month
   on public.exam_registrations (fc_id, exam_month)
-  where status in ('applied', 'confirmed', 'completed', 'no_show');
+  where status in ('applied', 'confirmed', 'completed', 'no_show')
+    and monthly_slot_policy_version = 1;
 create index if not exists idx_exam_registrations_resident_history
   on public.exam_registrations (resident_id, created_at desc, id desc);
 
@@ -5608,16 +5635,21 @@ declare
   v_body text;
   v_notification_id uuid;
 begin
-  select registration, round_row.exam_type
-    into v_registration, v_exam_type
+  select registration.*
+    into v_registration
     from public.exam_registrations registration
-    join public.exam_rounds round_row on round_row.id = registration.round_id
    where registration.id = p_registration_id
-   for update of registration;
+   for update;
 
   if v_registration.id is null then
     raise exception using errcode = 'P0002', message = 'exam_registration_not_found';
   end if;
+
+  select round_row.exam_type
+    into v_exam_type
+    from public.exam_rounds round_row
+   where round_row.id = v_registration.round_id;
+
   if v_registration.status in ('completed', 'no_show') then
     raise exception using errcode = '55000', message = 'terminal_exam_registration';
   end if;
