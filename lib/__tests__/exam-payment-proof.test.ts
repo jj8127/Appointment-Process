@@ -1,5 +1,4 @@
 import {
-  EXAM_PAYMENT_PROOF_CAUTION,
   EXAM_PAYMENT_PROOF_MAX_BYTES,
   hasExamPaymentProof,
   normalizeExamPaymentProofSelection,
@@ -86,11 +85,5 @@ describe('exam payment proof', () => {
         existingProofAttached: false,
       }),
     ).toBe(true);
-  });
-
-  it('keeps the requested caution copy exact', () => {
-    expect(EXAM_PAYMENT_PROOF_CAUTION).toBe(
-      '입금일과 증빙의 입금일이 다르면 신청할 수 없습니다.',
-    );
   });
 });

@@ -15,7 +15,10 @@ describe.each([
     expect(source).toContain('payment_proof_attached');
     expect(source).toMatch(/hasExamPaymentProof\(\s*\{/);
     expect(source).toContain('<ExamPaymentProofField');
-    expect(source).toContain('EXAM_PAYMENT_PROOF_CAUTION');
+    expect(source).not.toContain('EXAM_PAYMENT_PROOF_CAUTION');
+    expect(source).not.toContain(
+      '입금일과 증빙의 입금일이 다르면 신청할 수 없습니다.',
+    );
   });
 
   it('uses the signed-session server path instead of a direct registration write', () => {

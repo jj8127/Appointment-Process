@@ -33,6 +33,7 @@ import {
   formatMissingExamApplicationFields,
   getMissingExamApplicationFields,
 } from '@/lib/exam-application-validation';
+import { showExamMonthConflictFeedback } from '@/lib/exam-month-conflict-feedback';
 import {
   INVALID_EXAM_LOCATION_MESSAGE,
   buildExamApplyNotificationPayloads,
@@ -59,7 +60,6 @@ import {
   type ExamApplicationTarget,
 } from '@/lib/exam-payment-proof-api';
 import {
-  EXAM_PAYMENT_PROOF_CAUTION,
   hasExamPaymentProof,
   normalizeExamPaymentProofSelection,
   type ExamPaymentProofSelection,
@@ -812,7 +812,7 @@ export default function ExamApplyScreen() {
         && getExamMonthKey(application.exam_rounds?.exam_date) === roundMonth,
     );
     if (activeForMonth && activeForMonth.round_id !== round.id) {
-      Alert.alert('신청 불가', '같은 달에는 생명·손해·제3 시험을 합쳐 한 번만 신청할 수 있습니다.');
+      showExamMonthConflictFeedback();
       return;
     }
     if (activeForMonth?.is_confirmed) {
@@ -938,7 +938,6 @@ export default function ExamApplyScreen() {
               </View>
             ))}
           </View>
-          <Text style={styles.cautionText}>{EXAM_PAYMENT_PROOF_CAUTION}</Text>
           <ExamPaymentProofField
             selectedProof={selectedPaymentProof}
             existingProofAttached={existingProofAttached}
@@ -1596,19 +1595,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   inputHint: { fontSize: 13, color: '#b45309', marginBottom: 10 },
-  cautionText: {
-    backgroundColor: '#fff7ed',
-    borderColor: '#fed7aa',
-    borderRadius: 10,
-    borderWidth: 1,
-    color: '#9a3412',
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 19,
-    marginBottom: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
   dateInputText: { fontSize: 15, color: CHARCOAL, fontWeight: '600' },
   dateInputPlaceholder: { color: MUTED, fontWeight: '500' },
   pickerOverlay: {

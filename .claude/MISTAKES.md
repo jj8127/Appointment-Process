@@ -4651,3 +4651,22 @@
   - The production anon role can again select `fc_profiles`, still receives
     401 for direct `profiles` access, the four helpers are security-definer,
     and the containment contract covers the migration and canonical schema.
+
+## 2026-07-26 | Android month-conflict alert could leave a blocking dim layer
+
+- Symptom:
+  - Selecting another exam in an already occupied month showed the expected
+    rejection message, but on Samsung Android the screen could remain dimmed
+    and stop accepting touches after the dialog disappeared.
+- Root cause:
+  - The local month-slot guard used a native modal `Alert` for a non-destructive
+    selection warning. On the affected Android dialog/window path, the native
+    dim layer could outlive the visible dialog.
+- Permanent guardrail:
+  - Android selection-only conflicts must use non-modal feedback. Reserve
+    native modal dialogs for actions that require an explicit confirmation
+    choice.
+- Verification:
+  - Life and nonlife pages now share an Android `ToastAndroid` month-conflict
+    path, retain the same explanatory copy, and have a source contract that
+    rejects the old modal alert call.

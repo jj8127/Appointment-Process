@@ -5,9 +5,6 @@ export const EXAM_PAYMENT_PROOF_ALLOWED_MIME_TYPES = [
   'image/webp',
 ] as const;
 
-export const EXAM_PAYMENT_PROOF_CAUTION =
-  '입금일과 증빙의 입금일이 다르면 신청할 수 없습니다.';
-
 export type ExamPaymentProofMimeType =
   (typeof EXAM_PAYMENT_PROOF_ALLOWED_MIME_TYPES)[number];
 
