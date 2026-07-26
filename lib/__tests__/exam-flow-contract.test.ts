@@ -17,6 +17,7 @@ import {
   getExamRoundSelectionState,
   getExamFlowConfig,
   isLocationInRound,
+  isExamRegistrationVisibleInHistory,
   isExamMonthSlotConsumed,
   sendExamApplyNotificationsBestEffort,
   sortExamRoundsNewestFirst,
@@ -101,6 +102,16 @@ describe('exam flow contract', () => {
     expect(isExamMonthSlotConsumed('rejected')).toBe(false);
     expect(isExamMonthSlotConsumed('cancelled_by_fc')).toBe(false);
     expect(isExamMonthSlotConsumed('cancelled_by_admin')).toBe(false);
+  });
+
+  it('hides cancelled applications from FC history but retains rejection history', () => {
+    expect(isExamRegistrationVisibleInHistory('applied')).toBe(true);
+    expect(isExamRegistrationVisibleInHistory('confirmed')).toBe(true);
+    expect(isExamRegistrationVisibleInHistory('completed')).toBe(true);
+    expect(isExamRegistrationVisibleInHistory('no_show')).toBe(true);
+    expect(isExamRegistrationVisibleInHistory('rejected')).toBe(true);
+    expect(isExamRegistrationVisibleInHistory('cancelled_by_fc')).toBe(false);
+    expect(isExamRegistrationVisibleInHistory('cancelled_by_admin')).toBe(false);
   });
 
   it('fails closed when an active registration is not owned by the exact FC identity', () => {

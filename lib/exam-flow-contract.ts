@@ -134,6 +134,14 @@ export function isExamMonthSlotConsumed(status?: string | null): boolean {
   );
 }
 
+export function isExamRegistrationVisibleInHistory(
+  status?: string | null,
+): boolean {
+  return !['cancelled_by_fc', 'cancelled_by_admin'].includes(
+    String(status ?? ''),
+  );
+}
+
 export function validateActiveExamOwnershipFixture(
   registrations: readonly ActiveExamOwnershipRegistration[],
   profiles: readonly ExamOwnershipProfile[],

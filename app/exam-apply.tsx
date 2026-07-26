@@ -45,6 +45,7 @@ import {
   formatExamRegistrationStatus,
   getExamMonthKey,
   getExamRoundSelectionState,
+  isExamRegistrationVisibleInHistory,
   isExamMonthSlotConsumed,
   isLocationInRound,
   sendExamApplyNotificationsBestEffort,
@@ -376,10 +377,18 @@ export default function ExamApplyScreen() {
     },
   });
 
+  const visibleMyApplies = useMemo(
+    () => myApplies.filter(
+      (application) =>
+        isExamRegistrationVisibleInHistory(application.status),
+    ),
+    [myApplies],
+  );
   const currentApply = useMemo(() => {
-    if (myApplies.length === 0) return null;
-    return myApplies.find((a) => a.id === selectedApplyId) ?? myApplies[0];
-  }, [myApplies, selectedApplyId]);
+    if (visibleMyApplies.length === 0) return null;
+    return visibleMyApplies.find((a) => a.id === selectedApplyId)
+      ?? visibleMyApplies[0];
+  }, [selectedApplyId, visibleMyApplies]);
   const routeRegistrationId = parseExactlyOneUuidRouteParam(registrationId);
   const routeRoundId = parseExactlyOneUuidRouteParam(roundId);
   const hasAmbiguousExamRoute =
@@ -993,7 +1002,7 @@ export default function ExamApplyScreen() {
                   </Text>
                 </Pressable>
               </View>
-            ) : myApplies.length === 0 ? (
+            ) : visibleMyApplies.length === 0 ? (
               <Text style={styles.emptyText}>아직 신청한 시험이 없습니다.</Text>
             ) : (
               <View style={styles.statusContent}>
@@ -1001,19 +1010,19 @@ export default function ExamApplyScreen() {
                 <Pressable
                   style={[styles.dropdownButton, isDropdownOpen && styles.dropdownButtonActive]}
                   onPress={() => {
-                    if (myApplies.length > 1) {
+                    if (visibleMyApplies.length > 1) {
                       Haptics.selectionAsync();
                       setIsDropdownOpen((prev) => !prev);
                     }
                   }}
-                  disabled={myApplies.length <= 1}
+                  disabled={visibleMyApplies.length <= 1}
                 >
                   <Text style={styles.dropdownButtonText}>
                     {currentApply
                       ? formatExamInfo(currentApply.exam_rounds?.exam_date, currentApply.exam_rounds?.round_label)
                       : '선택된 내역 없음'}
                   </Text>
-                  {myApplies.length > 1 && (
+                  {visibleMyApplies.length > 1 && (
                     <Feather
                       name={isDropdownOpen ? 'chevron-up' : 'chevron-down'}
                       size={18}
@@ -1023,13 +1032,13 @@ export default function ExamApplyScreen() {
                 </Pressable>
 
                 {/* 2. 드롭다운 리스트 (열렸을 때) */}
-                {isDropdownOpen && myApplies.length > 1 && (
+                {isDropdownOpen && visibleMyApplies.length > 1 && (
                   <MotiView
                     from={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     style={styles.dropdownList}
                   >
-                    {myApplies.map((apply) => {
+                    {visibleMyApplies.map((apply) => {
                       const isSelected = currentApply?.id === apply.id;
                       return (
                         <Pressable
