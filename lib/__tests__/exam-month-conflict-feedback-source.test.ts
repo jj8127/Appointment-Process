@@ -18,10 +18,25 @@ describe('exam month conflict feedback source contract', () => {
   });
 
   it.each(['app/exam-apply.tsx', 'app/exam-apply2.tsx'])(
-    'routes %s month conflicts through the shared feedback boundary',
+    'keeps only the applied round checked and disables sibling rounds in %s',
     (relativePath) => {
       const source = read(relativePath);
       expect(source).toContain('showExamMonthConflictFeedback()');
+      expect(source).toContain(
+        'const activeApplicationsForMonth = myApplies.filter(',
+      );
+      expect(source).toContain(
+        'activeApplicationsForMonth.some(',
+      );
+      expect(source).toContain(
+        'activeApplicationsForMonth.length > 0 && !isAppliedRound',
+      );
+      expect(source).toContain('disabled={unavailable}');
+      expect(source).toContain(
+        'blockedByMonth || (closed && !isAppliedRound)',
+      );
+      expect(source).toContain('{isAppliedRound && (');
+      expect(source).not.toContain('{alreadyApplied && (');
       expect(source).not.toContain(
         "Alert.alert('신청 불가', '같은 달에는 생명·손해·제3",
       );

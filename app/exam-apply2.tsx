@@ -1121,14 +1121,24 @@ export default function ExamApplyScreen() {
                   </View>
                 )}
                 {allRounds.map((round, idx) => {
-                  const isActive = round.id === selectedRoundId;
                   const closed = isRoundClosed(round);
                   const roundMonth = getExamMonthKey(round.exam_date);
-                  const alreadyApplied = myApplies.some(
+                  const activeApplicationsForMonth = myApplies.filter(
                     (application) =>
                       isExamMonthSlotConsumed(application.status)
                       && getExamMonthKey(application.exam_rounds?.exam_date) === roundMonth,
                   );
+                  const isAppliedRound = activeApplicationsForMonth.some(
+                    (application) => application.round_id === round.id,
+                  );
+                  const blockedByMonth =
+                    activeApplicationsForMonth.length > 0 && !isAppliedRound;
+                  const unavailable = closed || blockedByMonth;
+                  const visuallyDisabled =
+                    blockedByMonth || (closed && !isAppliedRound);
+                  const isActive =
+                    isAppliedRound
+                    || (round.id === selectedRoundId && !blockedByMonth);
                   return (
                     <MotiView
                       key={round.id}
@@ -1138,10 +1148,15 @@ export default function ExamApplyScreen() {
                     >
                       <Pressable
                         onPress={() => handleRoundSelect(round)}
+                        disabled={unavailable}
+                        accessibilityState={{
+                          disabled: unavailable,
+                          selected: isActive,
+                        }}
                         style={[
                           styles.selectionCard,
                           isActive && styles.selectionCardActive,
-                          closed && styles.selectionCardDisabled,
+                          visuallyDisabled && styles.selectionCardDisabled,
                         ]}
                       >
                         <View style={styles.selectionInfo}>
@@ -1150,13 +1165,13 @@ export default function ExamApplyScreen() {
                               style={[
                                 styles.selectionTitle,
                                 isActive && styles.textActive,
-                                closed && styles.textDisabled,
+                                visuallyDisabled && styles.textDisabled,
                               ]}
                             >
                               {formatDate(round.exam_date)}
                               {round.round_label ? ` (${round.round_label})` : ''}
                             </Text>
-                            {alreadyApplied && (
+                            {isAppliedRound && (
                               <View style={{ backgroundColor: '#DBEAFE', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
                                 <Text style={{ fontSize: 11, color: '#2563EB', fontWeight: '700' }}>신청됨</Text>
                               </View>
@@ -1169,12 +1184,12 @@ export default function ExamApplyScreen() {
                             <Text style={styles.selectionNote}>{round.notes}</Text>
                           ) : null}
                         </View>
-                        {closed ? (
-                          <Feather name="lock" size={20} color={MUTED} />
-                        ) : isActive ? (
+                        {isActive ? (
                           <View style={styles.checkCircle}>
                             <Feather name="check" size={14} color="#fff" />
                           </View>
+                        ) : unavailable ? (
+                          <Feather name="lock" size={20} color={MUTED} />
                         ) : (
                           <View style={styles.radioCircle} />
                         )}
