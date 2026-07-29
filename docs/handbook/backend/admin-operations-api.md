@@ -2,10 +2,28 @@ doc_id: FC-BACKEND-ADMIN-OPS
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-23
+last_verified: 2026-07-29
 source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admin/* + web/src/app/api/fc-delete/route.ts
 
 # Backend Runbook: Admin Operations API
+
+## 2026-07-29 Atomic deletion and privileged identity boundary
+
+- `admin-action:deleteFc`, `/api/fc-delete`, and the public account-deletion
+  Edge path converge on the transactional account-deletion RPC. Relational
+  deletion commits atomically; Storage and Auth cleanup is recorded through
+  the durable cleanup outbox and retried independently.
+- The caller role and actor identity are derived from the signed current
+  session and re-resolved against an active account. Request-body role,
+  telephone, sender, or staff-type hints are never authorization evidence.
+- `/api/admin/resident-numbers` remains a signed admin/manager trusted read.
+  It normalizes raw, digits-only, and hyphenated account phones consistently
+  before resolving the active caller, and never falls back to an anonymous
+  privileged table read.
+- Exam registration mutations use the atomic transition RPC. Reject and
+  administrative cancellation preserve their audit state, and any linked
+  notification is validated against its persisted typed recipient target
+  before push delivery.
 
 ## 2026-07-24 서류 승인·반려 알림 응답 계약
 

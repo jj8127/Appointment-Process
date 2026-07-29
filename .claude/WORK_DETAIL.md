@@ -13146,3 +13146,31 @@
 **Boundary**:
 - No production migration, Edge deployment, native/OTA/store release, or
   message/data mutation was performed.
+
+---
+
+## <a id="20260729-full-range-push-governance"></a> 2026-07-29 | Full-range push governance alignment
+
+**Trigger**:
+- The manual one-commit governance check passed, but the real Git pre-push hook
+  correctly evaluated the full fetched-upstream-to-HEAD range and found owner
+  coverage missing for shared account-deletion and messenger-attachment code.
+
+**Change**:
+- Added exact owner-map prefixes for account-deletion authorization/outbox
+  modules and messenger-attachment policy/service modules with their tests.
+- Updated the admin operations handbook for the signed caller, transactional
+  deletion, cleanup-outbox, resident-number, and exam-transition boundaries.
+- Updated the scheduled-runtime handbook for persisted typed reminder targets
+  and authoritative notification IDs.
+- Added a repeatable full-range governance guardrail to the mistake ledger.
+
+**Verification**:
+- Exact upstream-range pre-push governance: PASS.
+- `docs/handbook/path-owner-map.json` parse and owner-doc synchronization:
+  PASS.
+- Staged diff check, changed-file secret scan, and central harness audit: PASS.
+
+**Boundary**:
+- This alignment changes only repository governance and handbook evidence. It
+  does not deploy code, mutate a database, or publish an application release.

@@ -2,10 +2,21 @@ doc_id: FC-BACKEND-SCHEDULED-RUNTIME
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-23
+last_verified: 2026-07-29
 source_of_truth: supabase/functions/docs-deadline-reminder/index.ts + supabase/functions/user-presence/index.ts + hooks/use-app-presence-heartbeat.ts
 
 # Backend Runbook: Scheduled Jobs And Runtime
+
+## 2026-07-29 Persisted reminder target contract
+
+- `docs-deadline-reminder` persists a typed `onboarding_section/docs_upload`
+  target with the exact FC actor before attempting push delivery.
+- A same-day reminder is reusable only when its persisted recipient role,
+  actor, resident identifier, and typed target all validate. A malformed or
+  mismatched row fails closed instead of authorizing delivery.
+- Expo payloads carry the persisted `notificationId` and the same typed target,
+  so notification-center reads and deep links acknowledge the authoritative
+  inbox row rather than a client-generated identifier.
 
 ## 2026-07-23 Reminder delivery checkpoint
 

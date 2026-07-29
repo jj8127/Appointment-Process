@@ -5018,3 +5018,22 @@
 - Verification:
   - Focused Jest and Deno contracts cover selected-target forwarding,
     cross-target denial, canonical `thread_id`, and attachment authorization.
+
+## 2026-07-29 | A one-commit governance check did not prove the push range
+
+- Symptom:
+  - The manual pre-push command passed for the newest commit, but the real Git
+    hook rejected the nine-commit remote range because earlier shared account
+    deletion and messenger attachment modules had no path-owner rule.
+- Root cause:
+  - Verification without push-ref input defaulted to the previous commit
+    instead of the actual remote tracking ref, so it did not exercise the same
+    change range as the hook.
+- Permanent guardrail:
+  - Before publishing an ahead branch, compare against the fetched upstream and
+    run governance with that exact base/head range. Every new shared backend
+    module and test must be registered in `path-owner-map.json`.
+- Verification:
+  - The account-deletion and messenger-attachment shared modules now map to
+    their owning handbook contracts, and the privileged admin and scheduled-job
+    owner documents record the changed behavior.

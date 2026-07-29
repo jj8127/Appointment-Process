@@ -893,3 +893,15 @@
   deployment was not run.
 - Details:
   [WORK_DETAIL.md#20260729-garamin-direct-target-isolation](WORK_DETAIL.md#20260729-garamin-direct-target-isolation)
+
+## 2026-07-29 Full-range push governance alignment
+
+- Registered the shared account-deletion and messenger-attachment policy,
+  service, and contract-test paths in the handbook ownership map.
+- Updated the privileged admin operations and scheduled reminder contracts for
+  atomic deletion, signed PII access, persisted notification targets, and
+  authoritative notification IDs.
+- The exact fetched-upstream-to-HEAD governance range, staged diff check,
+  owner-map JSON parse, and central harness audit pass.
+- Details:
+  [WORK_DETAIL.md#20260729-full-range-push-governance](WORK_DETAIL.md#20260729-full-range-push-governance)
