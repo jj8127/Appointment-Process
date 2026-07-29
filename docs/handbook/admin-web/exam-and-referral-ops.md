@@ -30,15 +30,15 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - 소속 quick filter는 현재 신청자 데이터와 별개로 `2본부 박성훈`, `6본부 김정수`, `9본부 김주용`, `10본부 한태균`을 항상 노출한다. 기존 복합 소속값은 짧은 운영 표기로 정규화해 같은 필터로 매칭하고, 본부 번호는 숫자로 정렬한다.
 - `/dashboard/exam/applicants` 는 소속 quick filter 아래에 `시험 종류`와 `시험 회차` 상단 필터를 제공한다. 적용 순서는 `소속 quick filter -> 시험 종류 -> 시험 회차 -> 테이블 헤더 필터`다.
 - 시험 종류/회차 필터 옵션은 `/api/admin/exam-applicants` 응답의 `round_id`, `round_label`, `exam_date`, `exam_type`, `is_third_exam`를 client helper에서 중복 제거해 만든다. 회차 메뉴는 날짜·회차·과목을 분리해 표시하고 선택 상태를 체크 아이콘과 주황 배경으로 구분한다.
-- 총 신청자/접수 완료/미접수 통계 카드는 버튼이며 접수 상태 필터를 적용한다. 통계 숫자는 소속·시험·헤더 필터까지 적용하되 접수 상태 자체는 제외한 모집단에서 계산해, 접수 카드 선택 후에도 완료/미접수 비교 수치가 흔들리지 않는다. CSV 다운로드는 최종 `filteredRows`를 따른다.
+- 총 신청자/접수 완료/미접수 통계 카드는 버튼이며 접수 상태 필터를 적용한다. 통계 숫자는 소속·시험·헤더 필터까지 적용하되 접수 상태 자체는 제외한 모집단에서 계산해, 접수 카드 선택 후에도 완료/미접수 비교 수치가 흔들리지 않는다. XLSX 다운로드는 최종 `filteredRows`를 따른다.
 - 신청자 row는 접수 완료를 옅은 주황, 미접수를 옅은 회색으로 구분하고 상태 변경 직후 같은 색 계약을 따른다. hover 라벨은 마우스를 따라가되 커서보다 위쪽에 반투명 배경으로 표시하며 소속과 이름만 노출한다.
 - 신청자 row 클릭 또는 키보드 Enter/Space는 `/dashboard/exam/applicants/[id]` 상세로 이동한다. 상세는 신청자·시험·접수 상태를 한 화면에 표시하고 admin에게 `시험 접수하기`를 제공한다. manager는 상세를 읽을 수 있지만 접수/삭제 등 쓰기 액션은 계속 비활성이다.
 - `/dashboard/exam/applicants`의 공용 신청자 컬럼 뒤에는 `입금 증빙` 컬럼 하나만 추가한다. 첨부 row의 `보기`는 활성 admin/manager 세션을 확인하는 image route를 새 탭으로 열고, 미첨부 row는 `없음`으로 표시한다.
 - `/dashboard/exam/applicants/[id]`의 `시험 신청 정보` 카드 바로 아래에는 `입금 증빙 확인` 카드를 둔다. 첨부 사진과 원본 열기를 제공하되 승인/거절, OCR, 입금일 비교 상태나 별도 검토 workflow는 만들지 않는다.
-- CSV/Excel 다운로드는 최종 `filteredRows`를 유지하면서 `입금 증빙 경로`와 `입금 증빙 URL (30일 유효)`를 덧붙인다. 다운로드를 시작한 활성 admin/manager만 private Storage path와 30일 signed URL을 발급받을 수 있고, 발급된 URL 자체는 admin web 세션 없이 열 수 있다.
+- XLSX 다운로드는 최종 `filteredRows`를 유지하면서 `접수 상태`, `입금 증빙 경로`, `입금 증빙 URL (30일 유효)`를 덧붙인다. `접수 상태`는 `접수 완료` 또는 `미접수`로 표시하고, 완료 행은 전체 열을 옅은 주황색, 미접수 행은 전체 열을 옅은 회색으로 칠해 어느 셀에서도 상태를 구분할 수 있게 한다. 다운로드를 시작한 활성 admin/manager만 private Storage path와 30일 signed URL을 발급받을 수 있고, 발급된 URL 자체는 admin web 세션 없이 열 수 있다. 파일은 제목·요약·고정 헤더·자동 필터·테두리·열 너비·증빙 하이퍼링크를 포함하고, 전화번호와 주민번호는 앞자리 0이 보존되는 텍스트 셀로 저장한다.
 - 신청자 상세의 `이전 신청자`/`다음 신청자`는 목록과 같은 `created_at DESC, id DESC` 순서를 사용한다. 첫 신청자의 이전 버튼과 마지막 신청자의 다음 버튼은 비활성화하며, 이동 중 개인 식별값을 URL label이나 로그에 추가하지 않는다.
 - 상세 API의 `registrationId` 조회는 선택 row 하나를 찾은 뒤 동일 신청자의 과거 이력을 함께 읽어 `신규신청/재신청`을 계산하고, enrichment 직전에 선택 row로 다시 좁힌다. 선택 row만 먼저 분류해 재신청 이력을 잃지 않는다.
-- 공용 신청자 목록 컬럼 순서와 badge wrapping은 `web/src/lib/exam-applicant-list-display.ts`의 shared contract를 따른다. canonical dashboard만 공용 컬럼 뒤에 증빙 표시/CSV 필드를 추가한다. `시험 신청일`은 `exam_registrations.created_at`에서 날짜만 표시하며 테이블과 CSV에 함께 포함한다. `/admin/exams/[id]`는 특정 `roundId`를 서버 API로 조회하므로 별도의 상단 회차 필터를 추가하지 않는다.
+- 공용 신청자 목록 컬럼 순서와 badge wrapping은 `web/src/lib/exam-applicant-list-display.ts`의 shared contract를 따른다. canonical dashboard만 공용 컬럼 뒤에 증빙 표시/XLSX 필드를 추가한다. `시험 신청일`은 `exam_registrations.created_at`에서 날짜만 표시하며 테이블과 XLSX에 함께 포함한다. `/admin/exams/[id]`는 특정 `roundId`를 서버 API로 조회하므로 별도의 상단 회차 필터를 추가하지 않는다.
 - resident number/full view는 운영 역할(admin/manager/developer) 기준으로 읽을 수 있고, `manager`는 모든 쓰기 액션이 비활성
 - GaramIn 모바일의 시험 탭에서는 본부장·총무·개발자가 FC를 선택해 신청을 대신 제출할 수 있다. 이 예외는 관리자 웹의 일정/접수 상태 변경 권한을 확장하지 않는다.
 - 대리 신청은 `submit_exam_registration_with_payment_proof_v3`와 append-only decision event를 사용하며, 신규 row의 수기 `fee_paid_date`는 `null`이다. 과거 날짜는 변경하거나 삭제하지 않는다.

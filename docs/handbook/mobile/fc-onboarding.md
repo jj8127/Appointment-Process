@@ -86,6 +86,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - 시험 신청 화면은 기존 신청을 복원할 때도 `location_id`가 현재 회차의 지역 목록에 없으면 선택 상태를 복원하지 않고, 다시 지역을 고르게 한다
 - Android new architecture/Fabric에서 `fc/new`, `exam-apply`, `exam-apply2`처럼 `RefreshControl`과 큰 조건부 렌더 tree를 함께 가진 화면은 `KeyboardAwareWrapper`를 primary scroll owner로 쓰지 않는다. Android는 plain `ScrollView` + explicit bottom padding을 쓰고, iOS에서만 기존 keyboard-aware wrapper를 유지한다.
 - 홈 가이드 CTA의 재생 표시는 icon font glyph 대신 `guidePlayTriangle` 스타일 삼각형으로 그린다. Android emulator/device에서 Feather glyph baseline drift가 생기면 이 스타일 계약을 유지한다.
+- FC 신규 등록의 소속 선택과 legacy normalization은 `1본부`부터 `10본부`까지 지원한다. 두 자리 본부 번호는 한 자리 정규식으로 잘라 해석하지 않으며, `10본부 [본부장: 한태균]`은 canonical `10본부 한태균`으로 정규화한다.
 
 ## FC 홈/다음 단계 동작
 

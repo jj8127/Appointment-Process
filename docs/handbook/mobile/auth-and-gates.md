@@ -2,7 +2,7 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-07-23
+last_verified: 2026-07-26
 source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-session.tsx
 
 # Mobile Playbook: Auth And Gates
@@ -96,7 +96,12 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 - referral function 실패 응답의 `code`는 문자열, `null`, 또는 누락 상태일 수 있다. 클라이언트는 error classification 때 `null`을 `undefined`로 정규화하되, 사용자 표시 message fallback은 기존 `message -> fallback` 순서를 유지한다.
 - `/referral` 상단은 더 이상 루트까지의 추천인 업라인 chain을 모두 보여주지 않고, direct recommender 1명 카드만 노출한다. 사용자가 입력한 추천코드 기준 사람 한 명만 보이는 것이 현재 UI 계약이다.
 - `app/referral.tsx`의 descendant lazy expand는 같은 `appSessionToken`으로 descendant `fcId`를 다시 조회하므로, 서버 인가도 `self only`가 아니라 `self subtree membership`을 검증해야 화면 contract와 맞는다. `app/referral-tree.tsx`는 legacy 진입을 `/referral`로 보내는 compatibility redirect만 유지한다.
-- 추천인 그래프 웹 shortcut은 모바일 self-service의 보조 링크이며, `EXPO_PUBLIC_ADMIN_WEB_URL`이 있을 때 FC와 본부장 모두 `/dashboard/referrals/graph`로 이동할 수 있어야 한다.
+- 추천인 그래프 CTA는 외부 관리자 웹을 열지 않고 앱 내부 `/referral-graph`로 이동한다. FC와 `admin + readOnly` 본부장만 진입할 수 있고, 실제 Edge token source role은 `fc` 또는 `manager`여야 한다.
+- `/referral-graph`도 `useReferralAppSession`의 current token → bridge refresh → 1회 retry 계약을 공유하며, 양쪽 token 복구 실패 시 relogin CTA를 보여준다. plain admin/developer/designer는 graph data query를 시작하지 않는다.
+- `/referral-revenue-graph`는 FC와 `admin + readOnly` 본부장만 볼 수 있는 로컬
+  샘플 미리보기다. designer/plain admin/developer는 직접 route 진입도 차단하며,
+  샘플 상수만 렌더하므로 app-session refresh, referral query, Supabase 또는
+  네트워크 요청을 시작하지 않는다.
 - 위촉 단계 필드(`hanwha_commission_*`, 보험 위촉 제출/승인 날짜)가 늘어날 때는 인증 흐름이 해당 필드를 잘못 덮어쓰지 않는지 같이 점검해야 합니다.
 - 설계매니저/디자이너 세션에서 `hooks/use-session.tsx`가 등록하는 mobile push token은 FC 토큰처럼 취급하면 안 된다. request_board 설계요청과 본인 채팅 알림만 받도록 역할/토큰 scope를 유지한다.
 - `hooks/use-session.tsx`는 mobile push 등록의 단일 owner입니다. transient 실패는 bounded retry하고, 성공·권한 거부·retry 소진 후 foreground 복귀 시 현재 signed session으로 다시 등록해 서버 token row 유실이나 권한 변경을 복구합니다. 지원하지 않는 platform/client/device 결과는 process 동안 terminal로 유지합니다.

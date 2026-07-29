@@ -4,8 +4,6 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
-  Alert,
-  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -25,15 +23,11 @@ import { useMyReferralCode } from '@/hooks/use-my-referral-code';
 import { isReferralReloginError } from '@/hooks/use-referral-app-session';
 import { useReferralTree } from '@/hooks/use-referral-tree';
 import { useSession } from '@/hooks/use-session';
-import { buildReferralGraphWebUrl } from '@/lib/referral-graph-link';
 import { buildReferralShareText } from '@/lib/referral-share';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/lib/theme';
 
 const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
-const DEFAULT_ADMIN_WEB_URL = 'https://adminweb-red.vercel.app';
-const ADMIN_WEB_URL = (process.env.EXPO_PUBLIC_ADMIN_WEB_URL ?? DEFAULT_ADMIN_WEB_URL).replace(/\/$/, '');
-const REFERRAL_GRAPH_WEB_URL = buildReferralGraphWebUrl(ADMIN_WEB_URL);
 
 function buildShareText(code: string): string {
   return buildReferralShareText({
@@ -112,14 +106,12 @@ export default function ReferralPage() {
   };
 
   const handleOpenGraphView = useCallback(() => {
-    if (!REFERRAL_GRAPH_WEB_URL) {
-      Alert.alert('페이지를 열 수 없습니다', '관리자 웹 주소가 설정되지 않았습니다.');
-      return;
-    }
-    void Linking.openURL(REFERRAL_GRAPH_WEB_URL).catch(() => {
-      Alert.alert('페이지를 열 수 없습니다', '관리자 웹 추천 관계 화면을 열지 못했습니다.');
-    });
-  }, []);
+    router.push('/referral-graph');
+  }, [router]);
+
+  const handleOpenRevenueGraphView = useCallback(() => {
+    router.push('/referral-revenue-graph');
+  }, [router]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -294,17 +286,45 @@ export default function ReferralPage() {
         <Pressable
           style={({ pressed }) => [styles.graphLinkCard, pressed && { opacity: 0.7 }]}
           onPress={handleOpenGraphView}
-          accessibilityRole="link"
-          accessibilityLabel="관리자 웹에서 추천 관계 보기"
+          accessibilityRole="button"
+          accessibilityLabel="모바일 추천 관계 그래프 보기"
         >
           <View style={styles.graphLinkIconWrap}>
             <Feather name="users" size={18} color={COLORS.primary} />
           </View>
           <View style={styles.graphLinkTextWrap}>
-            <Text style={styles.graphLinkTitle}>관리자 웹에서 추천 관계 보기</Text>
-            <Text style={styles.graphLinkDesc}>추천인과 하위 연결을 한눈에 확인합니다</Text>
+            <Text style={styles.graphLinkTitle}>추천 관계 그래프로 보기</Text>
+            <Text style={styles.graphLinkDesc}>앱 안에서 하위 연결을 확대하고 살펴봅니다</Text>
           </View>
-          <Feather name="external-link" size={15} color={COLORS.gray[400]} />
+          <Feather name="chevron-right" size={17} color={COLORS.gray[400]} />
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.graphLinkCard,
+            styles.revenueGraphLinkCard,
+            pressed && { opacity: 0.7 },
+          ]}
+          onPress={handleOpenRevenueGraphView}
+          accessibilityRole="button"
+          accessibilityLabel="샘플 매출 기여 그래프 미리보기"
+          accessibilityHint="가상 조직과 가상 매출로 만든 시뮬레이션 화면을 엽니다"
+        >
+          <View style={[styles.graphLinkIconWrap, styles.revenueGraphLinkIconWrap]}>
+            <Feather name="trending-up" size={18} color="#2563eb" />
+          </View>
+          <View style={styles.graphLinkTextWrap}>
+            <View style={styles.revenueGraphTitleRow}>
+              <Text style={styles.graphLinkTitle}>매출 기여 그래프 미리보기</Text>
+              <View style={styles.sampleBadge}>
+                <Text style={styles.sampleBadgeText}>샘플</Text>
+              </View>
+            </View>
+            <Text style={styles.graphLinkDesc}>
+              1~10단계 가상 매출과 10% 예상 배분을 확인합니다
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={17} color={COLORS.gray[400]} />
         </Pressable>
 
         {referralTreeLoading ? (
@@ -681,6 +701,29 @@ const styles = StyleSheet.create({
   graphLinkTextWrap: { flex: 1, minWidth: 0 },
   graphLinkTitle: { fontSize: 14, fontWeight: '700', color: COLORS.text.primary },
   graphLinkDesc: { fontSize: 11, color: COLORS.text.muted, marginTop: 2 },
+  revenueGraphLinkCard: {
+    marginTop: -SPACING.sm,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#f8fbff',
+  },
+  revenueGraphLinkIconWrap: { backgroundColor: '#dbeafe' },
+  revenueGraphTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  sampleBadge: {
+    borderRadius: RADIUS.full,
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  sampleBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#1d4ed8',
+  },
   bottomContentSpacer: { height: SPACING['4xl'] },
 
   blockedState: {

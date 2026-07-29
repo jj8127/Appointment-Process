@@ -5,6 +5,7 @@ export type MobileUnreadNotificationCountOptions = {
   role: MobileUnreadRole;
   residentId?: string | null;
   requestBoardRole?: MobileUnreadRequestBoardRole;
+  noticeSince?: string | null;
 };
 
 type ResolveMobileUnreadBridgePlanOptions = {
@@ -42,6 +43,7 @@ type BuildMobileUnreadFcNotifyBodyOptions = {
   includeRequestBoardFcInbox: boolean;
   includeNoticeUnread: boolean;
   onlyRequestBoardCategories: boolean;
+  noticeSince?: string | null;
 };
 
 export const buildMobileUnreadFcNotifyBody = ({
@@ -51,6 +53,7 @@ export const buildMobileUnreadFcNotifyBody = ({
   includeRequestBoardFcInbox,
   includeNoticeUnread,
   onlyRequestBoardCategories,
+  noticeSince = null,
 }: BuildMobileUnreadFcNotifyBodyOptions) => ({
   type: 'inbox_unread_count',
   role,
@@ -59,6 +62,7 @@ export const buildMobileUnreadFcNotifyBody = ({
   include_request_board_fc: includeRequestBoardFcInbox,
   include_notices: includeNoticeUnread,
   only_request_board_categories: onlyRequestBoardCategories,
+  ...(includeNoticeUnread && noticeSince ? { notice_since: noticeSince } : {}),
 });
 
 type CombineMobileUnreadCountsOptions = {
@@ -93,36 +97,45 @@ type MobileUnreadOrchestrationDeps = {
   warn: (message: string, error: unknown) => void;
 };
 
-export const fetchMobileUnreadNotificationCountWithDeps = async ({
+export const fetchMobileUnreadNotificationCountWithDepsOrThrow = async ({
   role,
   residentId,
   requestBoardRole = null,
+  noticeSince = null,
 }: MobileUnreadNotificationCountOptions, deps: MobileUnreadOrchestrationDeps): Promise<number> => {
   const bridgePlan = resolveMobileUnreadBridgePlan({ role, requestBoardRole });
   if (!bridgePlan.shouldFetch || role === null) return 0;
 
-  try {
-    const { data, error } = await deps.invokeFcNotify(
-      buildMobileUnreadFcNotifyBody({
-        role,
-        residentId,
-        includeLiveRequestBoardUnread: bridgePlan.includeLiveRequestBoardUnread,
-        includeRequestBoardFcInbox: bridgePlan.includeRequestBoardFcInbox,
-        includeNoticeUnread: bridgePlan.includeNoticeUnread,
-        onlyRequestBoardCategories: bridgePlan.onlyRequestBoardCategories,
-      }),
-    );
-
-    if (error) throw error;
-    if (!data?.ok) throw new Error(data?.message ?? '알림 개수 조회 실패');
-
-    return combineMobileUnreadCounts({
-      fcNotifyCount: data.count,
-      requestBoardUnreadCount: bridgePlan.includeLiveRequestBoardUnread
-        ? await deps.getRequestBoardUnreadCount()
-        : 0,
+  const { data, error } = await deps.invokeFcNotify(
+    buildMobileUnreadFcNotifyBody({
+      role,
+      residentId,
       includeLiveRequestBoardUnread: bridgePlan.includeLiveRequestBoardUnread,
-    });
+      includeRequestBoardFcInbox: bridgePlan.includeRequestBoardFcInbox,
+      includeNoticeUnread: bridgePlan.includeNoticeUnread,
+      onlyRequestBoardCategories: bridgePlan.onlyRequestBoardCategories,
+      noticeSince,
+    }),
+  );
+
+  if (error) throw error;
+  if (!data?.ok) throw new Error(data?.message ?? '알림 개수 조회 실패');
+
+  return combineMobileUnreadCounts({
+    fcNotifyCount: data.count,
+    requestBoardUnreadCount: bridgePlan.includeLiveRequestBoardUnread
+      ? await deps.getRequestBoardUnreadCount()
+      : 0,
+    includeLiveRequestBoardUnread: bridgePlan.includeLiveRequestBoardUnread,
+  });
+};
+
+export const fetchMobileUnreadNotificationCountWithDeps = async (
+  options: MobileUnreadNotificationCountOptions,
+  deps: MobileUnreadOrchestrationDeps,
+): Promise<number> => {
+  try {
+    return await fetchMobileUnreadNotificationCountWithDepsOrThrow(options, deps);
   } catch (err) {
     deps.warn('[mobile-unread-count] fetch failed', err);
     return 0;

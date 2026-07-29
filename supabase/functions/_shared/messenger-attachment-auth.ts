@@ -230,26 +230,87 @@ export async function canActorAccessMessengerAttachmentBatch(input: {
     return room?.is_active === true;
   }
   if (data.context_kind === 'direct') {
-    if (input.actor.role === 'admin' || input.actor.role === 'manager') return true;
-    if (input.actor.role !== 'fc') return false;
-    const { data: conversation } = await input.supabase
-      .from('garamin_direct_conversations')
-      .select('fc_id')
-      .eq('id', data.conversation_id)
+    const { data: messages, error: messageError } = await input.supabase
+      .from('messages')
+      .select('thread_id,sender_actor_id,receiver_actor_id')
+      .eq('attachment_batch_id', batchId)
+      .is('deleted_at', null)
+      .limit(2);
+    if (messageError || !messages?.length) return false;
+    if (input.actor.role === 'fc') {
+      return messages.some((message) =>
+        message.sender_actor_id === input.actor.id
+        || message.receiver_actor_id === input.actor.id
+      );
+    }
+    const threadId = messages[0]?.thread_id;
+    if (!threadId) return false;
+    const { data: thread, error: threadError } = await input.supabase
+      .from('garamin_direct_threads')
+      .select('counterparty_role,counterparty_actor_id')
+      .eq('id', threadId)
       .maybeSingle();
-    return conversation?.fc_id === input.actor.id;
+    if (threadError || !thread) return false;
+    if (input.actor.role === 'manager') {
+      return thread.counterparty_role === 'manager'
+        && thread.counterparty_actor_id === input.actor.id;
+    }
+    if (input.actor.role !== 'admin') return false;
+    const { data: account, error: accountError } = await input.supabase
+      .from('admin_accounts')
+      .select('staff_type,active')
+      .eq('id', input.actor.id)
+      .maybeSingle();
+    if (accountError || account?.active !== true) return false;
+    if (account.staff_type === 'developer') {
+      return thread.counterparty_role === 'developer'
+        && thread.counterparty_actor_id === input.actor.id;
+    }
+    return thread.counterparty_role === 'admin'
+      && thread.counterparty_actor_id === null;
   }
   if (data.context_kind === 'direct_broadcast') {
-    // The GaramIn admin direct-chat inbox is shared across active admins and
-    // developers, so broadcast attachments follow the same read boundary.
-    if (input.actor.role === 'admin') return true;
-    if (input.actor.role !== 'fc' || !Array.isArray(data.conversation_ids)) return false;
-    const { data: conversations } = await input.supabase
-      .from('garamin_direct_conversations')
-      .select('id')
-      .eq('fc_id', input.actor.id)
-      .in('id', data.conversation_ids);
-    return (conversations?.length ?? 0) > 0;
+    const { data: messages, error: messageError } = await input.supabase
+      .from('messages')
+      .select('thread_id,sender_actor_id,receiver_actor_id')
+      .eq('attachment_batch_id', batchId)
+      .is('deleted_at', null)
+      .limit(200);
+    if (messageError || !messages?.length) return false;
+    if (input.actor.role === 'fc') {
+      return messages.some((message) =>
+        message.sender_actor_id === input.actor.id
+        || message.receiver_actor_id === input.actor.id
+      );
+    }
+    const threadIds = Array.from(new Set(
+      messages
+        .map((message) => String(message.thread_id ?? ''))
+        .filter(Boolean),
+    ));
+    if (threadIds.length === 0) return false;
+    const { data: threads, error: threadError } = await input.supabase
+      .from('garamin_direct_threads')
+      .select('id,counterparty_role,counterparty_actor_id')
+      .in('id', threadIds);
+    if (threadError || (threads?.length ?? 0) !== threadIds.length) return false;
+    if (input.actor.role !== 'admin') return false;
+    const { data: account, error: accountError } = await input.supabase
+      .from('admin_accounts')
+      .select('staff_type,active')
+      .eq('id', input.actor.id)
+      .maybeSingle();
+    if (accountError || account?.active !== true) return false;
+    if (account.staff_type === 'developer') {
+      return threads!.every((thread) =>
+        thread.counterparty_role === 'developer'
+        && thread.counterparty_actor_id === input.actor.id
+      );
+    }
+    return threads!.every((thread) =>
+      thread.counterparty_role === 'admin'
+      && thread.counterparty_actor_id === null
+    );
   }
   return false;
 }

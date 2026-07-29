@@ -2,7 +2,7 @@ doc_id: SHARED-BRIDGE-CONTRACT
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-07-22
+last_verified: 2026-07-29
 source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/functions/sync-request-board-session/index.ts + supabase/functions/refresh-app-session/index.ts + request_board/server/src/routes/auth.ts + lib/request-board-api.ts
 
 # Cross-Repo Bridge Contract
@@ -47,14 +47,15 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 
 ## role mapping
 
-| app identity | bridge role |
-| --- | --- |
-| `fc` | `fc` |
-| `manager` | `fc` |
-| `developer` | `fc` |
-| linked designer | `designer` |
-| plain `admin` | direct bridge 대상 아님 |
+| app identity | Request Board signed/source role | persisted/runtime contract |
+| --- | --- | --- |
+| `fc` | `fc` | writable runtime `fc`; password-sync establishes `direct/fc` |
+| `manager` | `manager` | persisted/runtime `fc`, `sourceRole=manager`, `authSource=bridge`, read-only |
+| `developer` | Request Board bridge/password-sync role `fc`; GaramIn app-session identity remains `admin/developer` | writable runtime `fc`; not a manager session |
+| linked designer | `designer` | writable runtime `designer` |
+| plain `admin` | `admin` | direct Request Board actor 대상 아님 |
 
+- signed source role, request_board 표시/runtime role, direct-login eligibility를 같은 의미로 사용하지 않는다. 특히 manager는 runtime `fc`여도 source role이 `manager`이고 직접 로그인할 수 없다.
 - bridge role이 `fc`로 보여도 phone이 `admin_accounts`에 속한 developer/plain admin은 `refresh-app-session` 대상이 아니다. referral self-service 세션 발급은 completed FC 또는 active manager만 허용한다.
 
 ## 운영 실패 패턴
@@ -69,6 +70,7 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 
 - `REQUEST_BOARD_AUTH_BRIDGE_SECRET` / `FC_ONBOARDING_AUTH_BRIDGE_SECRET`
 - `REQUEST_BOARD_PASSWORD_SYNC_TOKEN` / `FC_ONBOARDING_PASSWORD_SYNC_TOKEN`
+- 양쪽 `REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET`
 - `requestBoardRole`
 - `users.affiliation` / app affiliation source
 

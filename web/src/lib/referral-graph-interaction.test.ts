@@ -105,7 +105,7 @@ test('applyReferralGraphDragFollowerTranslation gives descendants elastic moveme
   assert.equal(Math.round((nodesById.get('grand-child')?.y ?? 0) * 100) / 100, -12.18);
 });
 
-test('ReferralGraphCanvas uses velocity-based rubber-band tethers instead of descendant teleporting', () => {
+test('ReferralGraphCanvas moves the grabbed node and direct neighbors as one pointer-controlled group', () => {
   const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
   const dragHandler = source.slice(
     source.indexOf('const handleNodeDrag = useCallback'),
@@ -133,6 +133,13 @@ test('ReferralGraphCanvas uses velocity-based rubber-band tethers instead of des
   assert.doesNotMatch(source, /applyReferralGraphDragFollowerTranslation/);
   assert.doesNotMatch(source, /createReferralGraphDragElasticTetherForce/);
   assert.match(source, /createReferralGraphPointerDragForce/);
+  assert.match(source, /buildReferralGraphPointerDragMembers/);
+  assert.match(source, /adjacency\.get\(node\.id\) \?\? \[\]/);
+  assert.match(source, /controlledDragNodeIdsRef\.current = new Set\(members\.map/);
+  assert.match(source, /captureReferralGraphLinkDistances/);
+  assert.match(source, /dragStartDistanceByLinkKeyRef/);
+  assert.match(source, /createReferralGraphMaxLinkStretchForce/);
+  assert.match(source, /maxStretchMultiplier:\s*1\.2/);
   assert.doesNotMatch(source, /elasticDragTethersRef/);
   assert.match(source, /pointerDragTargetRef/);
   assert.doesNotMatch(source, /buildElasticDragTethers/);
@@ -146,7 +153,8 @@ test('ReferralGraphCanvas uses velocity-based rubber-band tethers instead of des
   assert.doesNotMatch(pointerMoveHandler, /node\.vx = 0/);
   assert.doesNotMatch(pointerMoveHandler, /node\.vy = 0/);
   assert.match(pointerMoveHandler, /pointerDragTargetRef\.current = \{/);
-  assert.match(pointerMoveHandler, /MAX_POINTER_DRAG_IMPULSE/);
+  assert.match(pointerMoveHandler, /members:\s*pointerDragTargetRef\.current\?\.members/);
+  assert.doesNotMatch(pointerMoveHandler, /MAX_POINTER_DRAG_IMPULSE/);
   assert.doesNotMatch(dragHandler, /directChildScale/);
   assert.doesNotMatch(source, /__initialDragPos/);
   assert.doesNotMatch(source, /lastDragGraphPositionRef/);
@@ -172,6 +180,9 @@ test('ReferralGraphCanvas uses velocity-based rubber-band tethers instead of des
   assert.match(finishNodeDragHandler, /stopGraphMotionKeepAlive\(\)/);
   assert.match(source, /window\.setTimeout/);
   assert.match(source, /activeDragNodeDepthsRef\.current = getReferralGraphLocalDragDepths/);
+  assert.match(finishNodeDragHandler, /for \(const nodeId of controlledDragNodeIdsRef\.current\)/);
+  assert.match(finishNodeDragHandler, /controlledNode\.fx = undefined/);
+  assert.match(finishNodeDragHandler, /controlledNode\.fy = undefined/);
 });
 
 test('ReferralGraphCanvas keeps spring, charge, and collision physics alive during active drag', () => {
@@ -194,10 +205,12 @@ test('ReferralGraphCanvas keeps spring, charge, and collision physics alive duri
   assert.match(source, /fg\.d3Force\('component-cohesion', null\)/);
   assert.match(source, /fg\.d3Force\('edge-crossing', null\)/);
   assert.match(source, /createReferralGraphDragLocalityForce<RuntimeGraphNode>/);
-  assert.match(source, /backgroundVelocityScale:\s*0/);
+  assert.match(source, /backgroundVelocityScale:\s*1/);
   assert.match(source, /directNeighborVelocityScale:\s*1/);
   assert.match(source, /secondHopVelocityScale:\s*1/);
   assert.match(source, /createReferralGraphPointerDragForce<RuntimeGraphNode>/);
+  assert.match(source, /fg\.d3Force\('drag-pointer', null\)/);
+  assert.match(source, /fg\.d3Force\('max-link-stretch', null\)/);
   assert.doesNotMatch(source, /createReferralGraphLayoutMemoryForce\(/);
   assert.doesNotMatch(source, /createReferralGraphDragSpringForce\(/);
 });

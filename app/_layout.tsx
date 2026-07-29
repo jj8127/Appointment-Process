@@ -729,6 +729,8 @@ function RootLayout() {
                           <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
                           <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
                           <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
+                          <Stack.Screen name="referral-graph" options={{ ...baseHeader, title: '추천 관계 그래프' }} />
+                          <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '매출 기여 그래프' }} />
                         </Stack>
 
                         <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
@@ -854,6 +856,8 @@ function RootLayout() {
                           <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
                           <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
                           <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
+                          <Stack.Screen name="referral-graph" options={{ ...baseHeader, title: '추천 관계 그래프' }} />
+                          <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '매출 기여 그래프' }} />
                         </Stack>
                         <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
                       </>

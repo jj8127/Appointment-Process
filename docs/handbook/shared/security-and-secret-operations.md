@@ -2,10 +2,16 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-07-25
+last_verified: 2026-07-26
 source_of_truth: env contracts + reset-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
+
+## Native referral graph read boundary (2026-07-26)
+
+- `get-referral-tree`의 additive graph mode는 `x-app-session-token`을 검증한 뒤 token source role `fc` 또는 `manager`만 허용하고, DB에서 다시 확인한 자기 profile id를 root로 고정합니다. 요청 body의 `fcId`, role, phone은 graph scope 근거가 아닙니다.
+- Graph 조회는 service role로 canonical `fc_profiles.recommender_fc_id` downline만 읽고 `permissions.canMutate=false`, `scope='downline'`를 반환합니다. phone, 주민정보, audit payload, 관계 변경 action은 응답과 모바일 상세 화면에 포함하지 않습니다.
+- Graph DB failure는 fixed `db_error` 사용자 응답과 closed `referral_tree.load:rpc_and_fallback_failed` diagnostic으로 끝납니다. raw database message, profile identifier, 추천코드, affiliation은 로그에 전달하지 않습니다.
 
 ## Board notification retry trust boundary (2026-07-25)
 

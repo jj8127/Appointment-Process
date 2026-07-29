@@ -73,6 +73,7 @@ Claude-Code-Usage-Monitor/
 testsprite_tests/
 coverage/
 nul
+/deno.lock
 supabase/.temp/
 
 # Vercel deployment

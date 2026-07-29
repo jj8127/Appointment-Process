@@ -1,9 +1,9 @@
 {
   "meta": {
-    "generatedAt": "2026-06-19T04:53:20.127Z",
+    "generatedAt": "2026-07-26T16:35:00.000Z",
     "source": "docs/referral-system/test-cases.json",
     "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED",
-    "lastExecutedAt": "2026-06-19T05:59:43.128Z",
+    "lastExecutedAt": "2026-07-26T16:35:00.000Z",
     "evidencePolicy": "Sensitive raw tokens, JWTs, SSNs/resident IDs, signed URLs, and push tokens are intentionally omitted."
   },
   "runs": [
@@ -654,6 +654,52 @@
         "New-version aggregate Edge logs contained one 200 for each affected page request and no 401."
       ],
       "notes": "INC-012. No database, Storage, secret, mobile release, Vercel, notification Edge, or admin-action mutation."
+    },
+    {
+      "caseId": "RF-SELF-04",
+      "area": "추천관계",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "FC/본부장 native 추천 관계 그래프는 자기 downline만 조회 전용으로 표시한다",
+      "status": "BLOCKED",
+      "owner": "Codex native referral graph harness",
+      "executedAt": "2026-07-26T15:42:00.000Z",
+      "evidence": [
+        "24 targeted native graph/navigation/privacy contract tests passed.",
+        "Independent final evaluation passed 6 related suites / 27 tests with no remaining actionable finding.",
+        "Repository Jest suite passed: 179 suites, 1080 tests.",
+        "TypeScript, Expo lint, frozen Deno check, diff check, and Android Expo export passed.",
+        "Compatibility preflight passed 5 suites / 22 tests plus targeted Deno and diff checks; an independent review approved the legacy request/response and authentication contract.",
+        "Supabase get-referral-tree v7 is ACTIVE with JWT verification retained, and the authenticated v7 graph request returned HTTP 200.",
+        "Authenticated FC Android rendered 16 nodes / 15 edges; read-only detail, canvas pan, fit/reset, back navigation, the legacy referral-tree screen, and graph reopen passed."
+      ],
+      "notes": "The FC runtime slice passed after the explicitly authorized get-referral-tree v7 deployment. The combined FC/manager case remains BLOCKED for manager-role, trustworthy two-pointer pinch, relogin, and TalkBack evidence. No DB row, schema, migration, Vercel, Sentry, EAS, account, credential, or other Edge Function mutation was performed."
+    },
+    {
+      "caseId": "RF-SELF-05",
+      "area": "추천관계",
+      "priority": "P1",
+      "platform": [
+        "app"
+      ],
+      "title": "FC/본부장 매출 기여 그래프 샘플은 1~10단계만 10% 시뮬레이션에 포함한다",
+      "status": "PASS",
+      "owner": "Codex referral revenue demo harness",
+      "executedAt": "2026-07-27T05:03:00.000Z",
+      "evidence": [
+        "Focused revenue and existing native relationship graph regressions passed 7 suites and 45 tests.",
+        "Repository Jest passed 187 suites and 1126 tests.",
+        "TypeScript, targeted and full Expo lint, governance, diff check, JSON parsing, harness audit, and Android Expo export passed.",
+        "The compact-HUD follow-up leaves only a shallow title/sample header and one settings trigger over the collapsed landscape canvas; three summaries, filters, view actions, legend, and the full sample warning remain available in the scrollable modal panel.",
+        "Authenticated read-only manager Android rendered the circular node-edge graph with all in-node amounts, including filtered context ancestors, plus A11 exclusion and an unobstructed 2400x1080 collapsed playfield.",
+        "Android screenshots verified the compact all-depth state, the filtered state, the three-summary panel, and the fully scrolled warning without node overlap or clipped controls.",
+        "A native rebuild entered the route in 2400x1080 landscape, A1 drag moved the nearby network and settled without overlap, and route exit restored 1080x2400 portrait.",
+        "Independent compact-HUD evaluation passed after context-node amounts, the complete warning, the third sales summary, and active-filter accessibility were fixed; its 4 suites and 28 tests also passed."
+      ],
+      "notes": "This PASS covers only the labelled local fictional preview and deterministic 1-10 depth calculation. Separate FC/plain-admin/designer/TalkBack runtime sessions and a cold-installed offline artifact were not claimed. No production data, API, database, Edge, release, or deployment mutation was performed; the only package addition is Expo SDK-compatible expo-screen-orientation."
     }
   ]
 }

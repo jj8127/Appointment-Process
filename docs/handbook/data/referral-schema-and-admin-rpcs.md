@@ -2,7 +2,7 @@ doc_id: FC-DATA-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-06-04
+last_verified: 2026-07-26
 source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql
 
 # Data Handbook: Referral Schema And Admin RPCs
@@ -17,6 +17,11 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 
 - FC/본부장 self-service current read path는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다.
 - FC/본부장 self-service referral tree path는 `hooks/use-referral-tree.ts -> get-referral-tree -> get_referral_subtree(...)`다.
+- FC/본부장 native referral graph path는 `app/referral-graph.tsx -> hooks/use-referral-graph.ts -> get-referral-tree(mode='graph')`다.
+- `/referral-revenue-graph`는 `data/referral-revenue-demo.ts`의 가상 parent chain만
+  사용하는 로컬 샘플이며 이 문서의 referral schema, RPC, Edge Function 또는
+  실제 사용자 관계를 읽지 않는다. 표시된 1~10단계 10%는 UI 시뮬레이션이지
+  운영 정산 계약이 아니다.
 - FC/본부장 self-service referral session guard는 `hooks/use-referral-app-session.ts -> refresh-app-session`이다.
 - referral tree의 현재 모바일 기본 surface는 `app/referral.tsx` 내부 섹션이며, `app/referral-tree.tsx`는 legacy 진입을 `/referral`로 보내는 compatibility route만 유지한다.
 - 현재 모바일 상단 surface는 ancestor chain 전체가 아니라 `get-referral-tree.ancestors`의 마지막 노드만 direct recommender 카드로 렌더링한다.
@@ -24,6 +29,7 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 - `get-my-referral-code`는 active code뿐 아니라 현재 추천인 표시 cache(`fc_profiles.recommender`)도 같은 trusted 응답으로 반환한다.
 - `app/referral.tsx`는 current recommender를 direct client `fc_profiles` query로 읽지 않고 위 self-service 응답을 사용한다.
 - `get-referral-tree`는 ancestor chain + descendant subtree를 service-role RPC로 읽고, descendant lazy expand도 같은 trusted path를 다시 사용한다.
+- additive graph mode는 signed FC/manager session의 자기 profile id를 root로 고정하고 canonical `recommender_fc_id` downline만 읽는다. body `fcId`는 graph scope를 넓힐 수 없으며 응답에는 phone/audit/mutation 필드를 포함하지 않는다. Graph eligibility는 breadth-first traversal 중 300-node 한도 전에 적용하고 manager referral shadow 관계는 보존한다. 대량 id/child/code 조회는 chunk/fixed-page 처리하며 남은 유효 slot+1에서 탐색을 멈추고, 초과 관계를 `truncated`로 알린다.
 - self-service functions(`get-my-referral-code`, `get-referral-tree`, `search-fc-for-referral`, `update-my-recommender`, legacy `get-fc-referral-code`, `get-my-invitees`)는 missing/expired/invalid app session을 구분해 반환하고, 클라이언트는 bridge token으로 1회 silent refresh 후 재시도한다.
 - `refresh-app-session`은 request_board bridge token을 다시 검증한 뒤 completed FC와 active manager만 새 referral `appSessionToken`을 발급한다. plain admin/developer phone, linked designer, signup 미완료 FC는 `forbidden`이다.
 - backend는 ancestor chain 전체를 계속 반환하더라도, 모바일 UI는 현재 마지막 ancestor 1명만 표시하는 것이 intended contract다.

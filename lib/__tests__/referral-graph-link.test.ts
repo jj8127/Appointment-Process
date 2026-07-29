@@ -20,18 +20,14 @@ describe('referral graph web link helpers', () => {
     );
   });
 
-  it('shows the admin referral relationship link on the referral page for every referral self-service user', () => {
+  it('opens the native referral graph from the referral page', () => {
     const referralPageSource = readFileSync(join(process.cwd(), 'app/referral.tsx'), 'utf8');
 
-    expect(referralPageSource).toContain('buildReferralGraphWebUrl');
-    expect(referralPageSource).toContain("DEFAULT_ADMIN_WEB_URL = 'https://adminweb-red.vercel.app'");
-    expect(referralPageSource).toContain('process.env.EXPO_PUBLIC_ADMIN_WEB_URL ?? DEFAULT_ADMIN_WEB_URL');
-    expect(referralPageSource).toContain('관리자 웹에서 추천 관계 보기');
-    expect(referralPageSource).toContain('추천인과 하위 연결을 한눈에 확인합니다');
-    expect(referralPageSource).toContain("Alert.alert('페이지를 열 수 없습니다'");
-    expect(referralPageSource).not.toContain('REFERRAL_GRAPH_WEB_URL ? (');
-    expect(referralPageSource).not.toContain('추천인 그래프 뷰로 보기');
-    expect(referralPageSource).not.toContain('isManager && !!ADMIN_WEB_URL');
-    expect(referralPageSource).not.toContain('PC 브라우저에서 그래프 뷰로 보기');
+    expect(referralPageSource).toContain("router.push('/referral-graph')");
+    expect(referralPageSource).toContain('추천 관계 그래프로 보기');
+    expect(referralPageSource).toContain('앱 안에서 하위 연결을 확대하고 살펴봅니다');
+    expect(referralPageSource).not.toContain('buildReferralGraphWebUrl');
+    expect(referralPageSource).not.toContain('Linking.openURL');
+    expect(referralPageSource).not.toContain('EXPO_PUBLIC_ADMIN_WEB_URL');
   });
 });

@@ -142,15 +142,57 @@
 17. lazy expand로 읽어온 subtree의 `node_depth`는 subtree root 기준 상대 depth이므로, 화면 캐시에 합치기 전에 현재 `/referral` root 기준 absolute depth로 정규화해야 한다. tree row 들여쓰기/강조 스타일은 transport `node.depth`가 아니라 현재 렌더 depth 규칙을 따라야 한다.
 18. 사용자가 어떤 branch를 펼치면, 이미 보이는 직속 자식 중 `하위가 더 있는데 아직 direct child가 캐시에 없는 노드`는 백그라운드로 1단계만 순차 prefetch할 수 있다. 이 prefetch는 spinner를 점유하거나 현재 expand를 block하면 안 된다.
 19. 상단 direct recommender 카드는 `get-referral-tree`가 성공했는데 ancestor가 없으면 빈 상태를 그대로 보여야 한다. 이 경우 `get-my-referral-code`의 legacy/current recommender cache를 다시 fallback으로 보여 stale 추천인을 노출하면 안 된다.
-20. 본부장 전용 `PC 브라우저에서 그래프 뷰로 보기`는 보조 링크일 뿐이고, FC에게는 노출하지 않는다. 모바일 기본 surface는 그래프가 아니라 self-service tree/drill-down이다.
-21. `app/referral.tsx`는 별도의 flat `초대 상태 목록`을 더 이상 기본 surface로 렌더링하지 않는다. 현재 모바일 self-service 하위 관계 노출은 `내가 추천한 사람들` tree 섹션 하나로 정리한다.
-22. self-service로 추천인을 저장하면 같은 화면의 `get-my-referral-code`와 `get-referral-tree`를 함께 다시 불러와, 현재 추천인 표시와 direct recommender 카드가 재진입 없이 즉시 동기화돼야 한다.
-23. `get-referral-tree`가 일시 실패해도 기존 추천인이 있는 사용자는 같은 `/referral` 화면 안에서 추천인 변경 UI를 계속 열 수 있어야 한다. tree 성공 렌더가 유일한 변경 CTA가 되면 안 된다.
-24. `/referral`의 Android 기본 컨테이너는 `KeyboardAwareScrollView` 같은 third-party keyboard-aware wrapper에 의존하지 않는다. 검색 입력이 화면 상단에 있어도 안정적으로 보이도록 일반 `ScrollView` + 명시적 하단 패딩을 우선 사용하고, render-stability를 키보드 자동 스크롤보다 우선한다.
-25. referral self-service는 앱 전체 로그인 세션과 별개 `appSessionToken`을 사용한다. 사용자가 앱 안에서 로그인된 상태여도 이 토큰이 없거나 만료되면 referral trusted path는 자동 복구 또는 재로그인 안내를 수행해야 한다.
-26. 모바일 client는 referral read/write 전에 저장된 `appSessionToken`을 우선 사용하고, 없거나 만료면 저장된 `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 호출해 새 referral `appSessionToken`을 무중단 재발급한다.
-27. `requestBoardBridgeToken`까지 없거나 만료된 경우에는 `/referral`이 generic `인증이 필요합니다.` 대신 `세션이 만료되었습니다. 다시 로그인해주세요.`와 relogin CTA를 보여야 한다.
-28. `refresh-app-session`은 FC와 본부장(manager source role)만 허용한다. plain admin/developer, linked request_board designer, inactive manager, signup 미완료 FC는 새 referral `appSessionToken`을 발급받을 수 없다.
+20. `/referral`의 `추천 관계 그래프로 보기`는 외부 관리자 웹 URL을 열지 않고 앱 내부 `/referral-graph`로 이동하며 FC와 본부장 self-service 사용자에게 동일하게 노출한다.
+21. `/referral-graph`는 signed app-session의 자기 FC를 root로 고정한 downline-only read surface다. request body의 `fcId`로 다른 root를 선택할 수 없고, plain admin/developer/designer는 허용하지 않는다.
+22. 모바일 graph edge source는 canonical `fc_profiles.recommender_fc_id`뿐이다. 응답에는 전화번호·감사 이벤트를 포함하지 않고 `permissions.canMutate=false`, `scope='downline'`를 명시한다.
+23. 모바일 graph는 deterministic radial layout, pan/pinch, fit/reset, 이름·소속·추천코드 검색, 등록 상태 filter, 선택 node 기준 1~3촌 focus, read-only 상세를 지원한다. node 색 우선순위는 현재 사용자 → 모든 위촉 완료 → 본등록 완료 → 사전등록이며 크기는 전체 하위 인원 수의 로그 스케일을 사용한다. 깊이별 폭과 형제 최소 각도 구간을 반영한 뒤 고정 surface 안으로 비례 압축해, 300 node의 균일·불균형 조직도 모두 최대 확대에서 선택 가능한 간격을 유지한다. 네이티브 view/접근성 tree 보호를 위해 유효 node 최대 300개까지만 breadth-first로 읽고, 한도 전에 직원·설계매니저 제외 규칙을 적용하며, 남은 관계가 있으면 `truncated=true`로 알린다. canonical 관계 경로의 manager referral shadow는 일반 descendant처럼 보존한다. desktop force physics와 node drag는 모바일 첫 delivery 범위가 아니다.
+24. `/referral`의 기존 추천 관계 graph CTA는 그대로 유지하고, 바로 아래에 별도
+    `/referral-revenue-graph` 샘플 미리보기 CTA를 둘 수 있다. 이 화면의 조직·인물·
+    매출은 모두 로컬 가상 데이터이며 실제 referral tree나 사용자 데이터와 결합하지
+    않는다.
+25. 샘플 매출 기여 graph는 raw node의 `depth`를 신뢰하지 않고 `parentId` 체인으로
+    viewer 기준 단계를 파생한다. viewer 아래 1~10단계의 모든 샘플 구성원에
+    `rateBps=1000`을 단순 적용하고, 11단계 이상은 표시할 수 있지만 합계와 예상
+    배분 대상에서는 제외한다. 화면에는 `샘플 데이터`, `실제 조직·매출·정산 내역이
+    아님`, `시뮬레이션`을 명시한다. 그래프 탭은 카드 목록을 선으로 잇는 형태가
+    아니라 기존 추천 관계 그래프와 같은 원형 SVG node/edge network여야 한다.
+    배치는 관리자 웹 `균형` preset의 center gravity, many-body repulsion,
+    degree-aware link spring, link tension, damping, collision 상수를 고정 tick으로
+    결정론적으로 계산하고 마지막 hard collision pass에서 node 겹침을 제거한다.
+    모바일 성능과 번들 크기를 우선하므로 관리자 웹의 `d3-force` runtime, 전체 seed
+    layout, group drag를 그대로 이식하지 않는다. 이 화면의 parity는 원형 node/edge,
+    금액 가시성, 겹침 방지, pan/pinch, node drag 반응과 감쇠 settle까지이며 desktop
+    runtime byte-level 동등성은 범위 밖이다.
+    각 node 원 안에는 사람 식별자와 예상 배분액을 전체 맞춤 상태에서도 항상
+    표시한다. 한 손가락 pan, 두 손가락 pinch zoom, 화면 맞춤, 초기화, node 선택
+    상세를 지원하며, 11단계 제외 node와 연결 edge는 점선·회색 계열로 구분하고,
+    단계 filter가 적용돼도 선택 대상의 viewer 연결 경로를 보존한다. graph mode는
+    stack header와 문서형 summary page를 숨기고 safe area 전체를 canvas로 사용한다.
+    빈 공간 drag는 pan, node 위에서 시작한 drag는 node 고정 이동으로 해석하며,
+    인접·주변 node가 같은 spring·repulsion·collision force로 실시간 반응한다.
+    release 뒤에는 velocity/alpha 감쇠 settle을 계속하다 idle 상태로 종료한다.
+    idle drag/zoom badge는 상시 노출하지 않고 물리 반응 또는 확대·맞춤 직후에만
+    일시적으로 표시한다.
+    native route 진입 기본 방향은 landscape로 잠그고 이탈 시 기존 portrait로
+    복원한다. 기본 landscape에서는 작은 back/title/sample header와 설정 버튼만
+    남겨 graph가 거의 전체 화면을 사용한다. summary·filter·목록·fit/reset·범례와
+    상세 안내는 설정 버튼을 눌렀을 때만 임시 panel로 열리고 바깥 탭·닫기·Android
+    back으로 닫힌다.
+26. 샘플 화면은 FC와 `admin + readOnly` 본부장에게만 노출하고 designer/plain
+    admin/developer는 차단한다. 다만 로컬 상수 외 데이터를 읽지 않으므로
+    app-session refresh, referral API, Supabase client, Edge Function 또는 금융
+    query를 호출하지 않는다.
+27. 샘플 화면의 `10%`와 `1~10단계`는 사용자 검토용 UI 가정이다. 실제 적용 단계,
+    기준 매출, 반올림, 취소·환수, 확정·지급 트리거와 개인정보 공개 범위는 계속
+    미확정이며 실제 연동 전에 이 문서를 다시 갱신해야 한다.
+28. `app/referral.tsx`는 별도의 flat `초대 상태 목록`을 더 이상 기본 surface로 렌더링하지 않는다. 현재 모바일 self-service 하위 관계 노출은 `내가 추천한 사람들` tree 섹션 하나로 정리한다.
+29. self-service로 추천인을 저장하면 같은 화면의 `get-my-referral-code`와 `get-referral-tree`를 함께 다시 불러와, 현재 추천인 표시와 direct recommender 카드가 재진입 없이 즉시 동기화돼야 한다.
+30. `get-referral-tree`가 일시 실패해도 기존 추천인이 있는 사용자는 같은 `/referral` 화면 안에서 추천인 변경 UI를 계속 열 수 있어야 한다. tree 성공 렌더가 유일한 변경 CTA가 되면 안 된다.
+31. `/referral`의 Android 기본 컨테이너는 `KeyboardAwareScrollView` 같은 third-party keyboard-aware wrapper에 의존하지 않는다. 검색 입력이 화면 상단에 있어도 안정적으로 보이도록 일반 `ScrollView` + 명시적 하단 패딩을 우선 사용하고, render-stability를 키보드 자동 스크롤보다 우선한다.
+32. referral self-service는 앱 전체 로그인 세션과 별개 `appSessionToken`을 사용한다. 사용자가 앱 안에서 로그인된 상태여도 이 토큰이 없거나 만료되면 referral trusted path는 자동 복구 또는 재로그인 안내를 수행해야 한다.
+33. 모바일 client는 referral read/write 전에 저장된 `appSessionToken`을 우선 사용하고, 없거나 만료면 저장된 `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 호출해 새 referral `appSessionToken`을 무중단 재발급한다.
+34. `requestBoardBridgeToken`까지 없거나 만료된 경우에는 `/referral`과 `/referral-graph`가 generic `인증이 필요합니다.` 대신 `세션이 만료되었습니다. 다시 로그인해주세요.`와 relogin CTA를 보여야 한다.
+35. `refresh-app-session`은 FC와 본부장(manager source role)만 허용한다. plain admin/developer, linked request_board designer, inactive manager, signup 미완료 FC는 새 referral `appSessionToken`을 발급받을 수 없다.
 
 ## 5. 식별자 규칙
 

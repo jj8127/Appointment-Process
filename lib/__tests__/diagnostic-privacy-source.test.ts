@@ -127,6 +127,15 @@ describe('diagnostic privacy source boundary', () => {
     expect(referralTree).not.toContain('rpc and fallback both failed');
     expect(referralTree).not.toContain('fallbackError instanceof Error');
     expect(referralTree).toContain("event: 'referral_tree.load'");
+    const referralGraphBlock =
+      referralTree.split('async function resolveReferralGraph')[1]
+        ?.split('async function resolveReferralTree')[0] ?? '';
+    expect(referralGraphBlock).toContain("session.role !== 'fc' && session.role !== 'manager'");
+    expect(referralGraphBlock).toContain('const rootFcId = resolved.profile?.id');
+    expect(referralGraphBlock).toContain('allowManagerShadowBootstrap: false');
+    expect(referralGraphBlock).not.toContain('body.fcId');
+    expect(referralGraphBlock).not.toContain('phone:');
+    expect(referralGraphBlock).not.toContain('error.message');
 
     for (const name of ['board-create', 'board-update']) {
       const source = read(`supabase/functions/${name}/index.ts`);

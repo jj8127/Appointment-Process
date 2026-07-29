@@ -126,3 +126,17 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 - `public.update_board_post_atomic`은 게시글 field 변경과 전체 attachment order 검증·재정렬을 한 트랜잭션에서 처리한다. 전달된 attachment id 집합은 해당 post의 현재 전체 집합과 정확히 일치해야 하며 실행 권한은 `service_role`에만 있다.
 - `public.save_exam_round_atomic`은 회차와 장소 목록을 함께 저장한다. 마감일/시험일 순서, 라벨·비고 길이, 시험 유형, 장소 개수·길이·중복을 DB에서도 검증하고, 기존 신청이 참조하는 제거 대상 장소는 보존한다. 이 RPC도 `service_role`만 실행할 수 있다.
+
+## 2026-07-29 가람in 1:1 메신저 대상 분리
+
+- `garamin_direct_conversations`는 기존 앱 호환을 위한 FC당 1개 envelope로
+  유지하고, `garamin_direct_threads`가 `admin | manager | developer` 및
+  immutable actor UUID로 실제 상대를 식별한다.
+- `messages.conversation_id`는 legacy envelope, `messages.thread_id`는 실제
+  target thread를 가리킨다. 새 메시지는 두 값을 함께 저장한다.
+- 대상이 없는 기존 앱 요청은 shared admin thread로 해석한다. 기존
+  `admin` 수신 메시지는 shared에 남고, immutable sender actor가 확인되는
+  과거 manager/developer 답변만 해당 personal thread로 귀속할 수 있다.
+- direct text/file/broadcast RPC와 attachment reservation/download 권한은
+  같은 thread tuple을 검증하며, 모든 새 table/function 권한은
+  `service_role` 전용이다.

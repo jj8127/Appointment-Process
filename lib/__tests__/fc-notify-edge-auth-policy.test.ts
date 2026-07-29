@@ -132,6 +132,39 @@ describe('direct Edge fc-notify authentication policy', () => {
     });
   });
 
+  it('forwards a bounded notice-only checkpoint without changing legacy requests', () => {
+    const noticeSince = '2026-07-27T01:00:00.000Z';
+    expect(buildAppFcNotifyPayload({
+      type: 'inbox_unread_count',
+      role: 'fc',
+      resident_id: fc.phone,
+      include_notices: true,
+      notice_since: noticeSince,
+    }, fc)).toMatchObject({
+      ok: true,
+      payload: {
+        type: 'inbox_unread_count',
+        include_notices: true,
+        notice_since: noticeSince,
+        viewer_actor_id: fc.actorId,
+        viewer_actor_role: 'fc',
+      },
+    });
+
+    expect(buildAppFcNotifyPayload({
+      type: 'inbox_unread_count',
+      role: 'fc',
+      resident_id: fc.phone,
+      include_notices: false,
+      notice_since: noticeSince,
+    }, fc)).toEqual(expect.objectContaining({
+      ok: true,
+      payload: expect.not.objectContaining({
+        notice_since: expect.anything(),
+      }),
+    }));
+  });
+
   it('rejects viewer and inbox actor forgery', () => {
     expect(buildAppFcNotifyPayload({
       type: 'internal_unread_count',

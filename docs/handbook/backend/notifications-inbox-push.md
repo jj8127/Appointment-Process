@@ -2,8 +2,32 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-25
+last_verified: 2026-07-27
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
+
+## Notification-center acknowledgement boundary (2026-07-27)
+
+- A successfully loaded mobile notification center acknowledges every visible
+  notification row whose actor-scoped receipt has no `read_at`. Cards remain in
+  the list; read is not delete or dismiss.
+- Shared notices do not use `notification_receipts`. Their unread contribution
+  is bounded by a separate user-scoped local observation checkpoint supplied as
+  optional `notice_since`. That boundary filters notices only; notification
+  rows remain receipt-backed and must never be hidden by a local checkpoint.
+- The observation boundary is captured before the list request and advances
+  monotonically after the list succeeds. A notice created after that boundary
+  stays unread, and an older concurrent load cannot move the checkpoint back.
+- Bulk read acknowledgement is actor-authorized and idempotent. Failure remains
+  retryable on the next center load and is fixed telemetry only; it does not
+  show a confusing delivery or read-state warning to the user.
+- After acknowledgement, mobile refetches the authoritative unread count and
+  synchronizes the native badge. Older clients may omit `notice_since`; the
+  Edge request remains backward compatible.
+- Inbox pagination applies its visible-item limit only after actor
+  authorization and receipt dismissal filtering. Each audience source advances
+  through raw pages until the visible limit is filled or the source is
+  exhausted, so newer dismissed rows cannot hide older unread rows while the
+  badge still counts them.
 
 ## Board notification retry boundary (2026-07-25)
 

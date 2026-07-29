@@ -6,6 +6,8 @@ import {
   REFERRAL_GRAPH_ENGINE_COOLDOWN,
   applyReferralGraphDragSpring,
   applyReferralGraphLayoutMemory,
+  buildReferralGraphPointerDragMembers,
+  captureReferralGraphLinkDistances,
   createReferralGraphComponentCohesionForce,
   createReferralGraphEdgeCrossingForce,
   createReferralGraphClusterGravityForce,
@@ -16,6 +18,7 @@ import {
   createReferralGraphPointerDragForce,
   createReferralGraphLayoutMemoryForce,
   createReferralGraphLinkTensionForce,
+  createReferralGraphMaxLinkStretchForce,
   createReferralGraphNodeSeparationForce,
   createReferralGraphSiblingAngularForce,
   getReferralGraphFreeLinkStrength,
@@ -239,34 +242,58 @@ test('createReferralGraphDragElasticTetherForce applies the same default spring 
   assert.equal(nodes[1].vy, nodes[2].vy);
 });
 
-test('createReferralGraphPointerDragForce pulls the grabbed node with velocity instead of pinning or teleporting it', () => {
+test('buildReferralGraphPointerDragMembers includes only the grabbed node and direct neighbors', () => {
+  const nodes = new Map([
+    ['root', { id: 'root', x: 10, y: 20 }],
+    ['a-neighbor', { id: 'a-neighbor', x: -20, y: 35 }],
+    ['b-neighbor', { id: 'b-neighbor', x: 50, y: -10 }],
+    ['grand-child', { id: 'grand-child', x: 90, y: -30 }],
+  ]);
+
+  assert.deepEqual(
+    buildReferralGraphPointerDragMembers('root', new Set(['b-neighbor', 'a-neighbor']), nodes),
+    [
+      { nodeId: 'root', offsetX: 0, offsetY: 0 },
+      { nodeId: 'a-neighbor', offsetX: -30, offsetY: 15 },
+      { nodeId: 'b-neighbor', offsetX: 40, offsetY: -30 },
+    ],
+  );
+});
+
+test('createReferralGraphPointerDragForce fixes the grabbed node and direct neighbors to the pointer group', () => {
   const pointerDragTargetRef = {
     current: {
       nodeId: 'root',
       x: 120,
       y: -60,
+      members: [
+        { nodeId: 'root', offsetX: 0, offsetY: 0 },
+        { nodeId: 'neighbor', offsetX: 40, offsetY: 15 },
+      ],
     },
   };
   const nodes = [
-    { id: 'root', x: 0, y: 0, vx: 0, vy: 0 },
+    { id: 'root', x: 0, y: 0, vx: -500, vy: 300, fx: undefined, fy: undefined },
+    { id: 'neighbor', x: 40, y: 15, vx: 400, vy: -200, fx: undefined, fy: undefined },
     { id: 'other', x: 20, y: 20, vx: 0, vy: 0 },
   ];
-  const force = createReferralGraphPointerDragForce(pointerDragTargetRef, {
-    damping: 0,
-    maxVelocity: 50,
-    minAlpha: 1,
-    stiffness: 1,
-  });
+  const force = createReferralGraphPointerDragForce(pointerDragTargetRef);
 
   force.initialize(nodes);
   force(0);
 
-  assert.equal(nodes[0].x, 0);
-  assert.equal(nodes[0].y, 0);
-  assert.ok((nodes[0].vx ?? 0) > 0, `grabbed node should receive pointer-pull velocity, got ${nodes[0].vx}`);
-  assert.ok((nodes[0].vy ?? 0) < 0, `grabbed node should receive pointer-pull velocity, got ${nodes[0].vy}`);
-  assert.equal(nodes[1].vx, 0);
-  assert.equal(nodes[1].vy, 0);
+  assert.deepEqual(
+    { x: nodes[0].x, y: nodes[0].y, vx: nodes[0].vx, vy: nodes[0].vy, fx: nodes[0].fx, fy: nodes[0].fy },
+    { x: 120, y: -60, vx: 0, vy: 0, fx: 120, fy: -60 },
+  );
+  assert.deepEqual(
+    { x: nodes[1].x, y: nodes[1].y, vx: nodes[1].vx, vy: nodes[1].vy, fx: nodes[1].fx, fy: nodes[1].fy },
+    { x: 160, y: -45, vx: 0, vy: 0, fx: 160, fy: -45 },
+  );
+  assert.deepEqual(
+    { x: nodes[2].x, y: nodes[2].y, vx: nodes[2].vx, vy: nodes[2].vy },
+    { x: 20, y: 20, vx: 0, vy: 0 },
+  );
 });
 
 test('resolveReferralGraphFreePhysics keeps extreme slider values bounded for stable motion', () => {
@@ -1048,6 +1075,152 @@ test('createReferralGraphLinkTensionForce keeps active drag branch links under t
   assert.ok(parent.vx > 0, `active dragged source should still receive normal spring tension, got ${parent.vx}`);
   assert.ok(child.vx < 0, `active dragged child edge should still pull the child back, got ${child.vx}`);
   assert.equal(Math.abs(parent.vx), Math.abs(child.vx));
+});
+
+test('createReferralGraphMaxLinkStretchForce caps edge length at 1.2x its drag-start length', () => {
+  const source = { id: 'source', x: 0, y: 0, vx: 0, vy: 0 };
+  const target = { id: 'target', x: 320, y: 0, vx: 0, vy: 0 };
+  const links = [
+    { source: 'source', target: 'target' },
+  ];
+  const force = createReferralGraphMaxLinkStretchForce(links, {
+    activeDraggedNodeIdRef: { current: 'source' },
+    controlledNodeIdsRef: { current: new Set(['source']) },
+    dragStartDistanceByLinkKeyRef: {
+      current: captureReferralGraphLinkDistances(
+        links,
+        new Map([
+          ['source', { ...source, x: 0 }],
+          ['target', { ...target, x: 80 }],
+        ]),
+      ),
+    },
+    maxStretchMultiplier: 1.2,
+  });
+
+  force.initialize([source, target]);
+  force(1);
+
+  const currentDistance = Math.hypot(target.x - source.x, target.y - source.y);
+  assert.ok(currentDistance <= 96 + Number.EPSILON, `edge exceeded drag-start 1.2x cap: ${currentDistance}`);
+});
+
+test('createReferralGraphMaxLinkStretchForce is inactive outside a drag gesture', () => {
+  const source = { id: 'source', x: 0, y: 0, vx: 0, vy: 0 };
+  const target = { id: 'target', x: 320, y: 0, vx: 0, vy: 0 };
+  const links = [
+    { source: 'source', target: 'target' },
+  ];
+  const force = createReferralGraphMaxLinkStretchForce(links, {
+    activeDraggedNodeIdRef: { current: null },
+    controlledNodeIdsRef: { current: new Set() },
+    dragStartDistanceByLinkKeyRef: {
+      current: captureReferralGraphLinkDistances(links, new Map([
+        ['source', source],
+        ['target', { ...target, x: 80 }],
+      ])),
+    },
+    maxStretchMultiplier: 1.2,
+  });
+
+  force.initialize([source, target]);
+  force(1);
+
+  assert.equal(source.vx, 0);
+  assert.equal(target.vx, 0);
+});
+
+test('createReferralGraphMaxLinkStretchForce preserves every pointer-controlled endpoint', () => {
+  const source = { id: 'source', x: -200, y: 0, vx: 0, vy: 0, fx: -200, fy: 0 };
+  const target = { id: 'target', x: 80, y: 0, vx: 0, vy: 0 };
+  const links = [
+    { source: 'source', target: 'target' },
+  ];
+  const force = createReferralGraphMaxLinkStretchForce(links, {
+    activeDraggedNodeIdRef: { current: 'source' },
+    controlledNodeIdsRef: { current: new Set(['source']) },
+    dragStartDistanceByLinkKeyRef: {
+      current: captureReferralGraphLinkDistances(links, new Map([
+        ['source', { id: 'source', x: 0, y: 0, vx: 0, vy: 0 }],
+        ['target', target],
+      ])),
+    },
+    maxStretchMultiplier: 1.2,
+  });
+
+  force.initialize([source, target]);
+  force(1);
+
+  assert.deepEqual(
+    { x: source.x, y: source.y, vx: source.vx, vy: source.vy, fx: source.fx, fy: source.fy },
+    { x: -200, y: 0, vx: 0, vy: 0, fx: -200, fy: 0 },
+  );
+  assert.ok(target.x < 0, `non-controlled neighbor should follow the controlled endpoint, got ${target.x}`);
+  const currentDistance = Math.hypot(target.x - source.x, target.y - source.y);
+  assert.ok(currentDistance <= 96 + Number.EPSILON, `dragged edge exceeded drag-start 1.2x cap: ${currentDistance}`);
+});
+
+test('createReferralGraphMaxLinkStretchForce keeps the grabbed node and direct neighbor rigid while constraining the second hop', () => {
+  const dragged = { id: 'dragged', x: 200, y: 0, vx: 0, vy: 0, fx: 200, fy: 0 };
+  const directNeighbor = { id: 'direct', x: 280, y: 0, vx: 0, vy: 0, fx: 280, fy: 0 };
+  const secondHop = { id: 'second-hop', x: 160, y: 0, vx: 0, vy: 0 };
+  const links = [
+    { source: 'dragged', target: 'direct' },
+    { source: 'direct', target: 'second-hop' },
+  ];
+  const force = createReferralGraphMaxLinkStretchForce(links, {
+    activeDraggedNodeIdRef: { current: 'dragged' },
+    controlledNodeIdsRef: { current: new Set(['dragged', 'direct']) },
+    dragStartDistanceByLinkKeyRef: {
+      current: captureReferralGraphLinkDistances(links, new Map([
+        ['dragged', { id: 'dragged', x: 0, y: 0, vx: 0, vy: 0 }],
+        ['direct', { id: 'direct', x: 80, y: 0, vx: 0, vy: 0 }],
+        ['second-hop', secondHop],
+      ])),
+    },
+    maxStretchMultiplier: 1.2,
+  });
+
+  force.initialize([dragged, directNeighbor, secondHop]);
+  force(1);
+
+  assert.equal(dragged.x, 200);
+  assert.equal(directNeighbor.x, 280);
+  assert.equal(directNeighbor.x - dragged.x, 80);
+  assert.ok(
+    Math.abs(secondHop.x - directNeighbor.x) <= 96 + Number.EPSILON,
+    `second-hop boundary edge exceeded drag-start 1.2x cap: ${Math.abs(secondHop.x - directNeighbor.x)}`,
+  );
+});
+
+test('createReferralGraphMaxLinkStretchForce leaves unrelated components untouched during drag', () => {
+  const dragged = { id: 'dragged', x: 0, y: 0, vx: -200, vy: 0 };
+  const neighbor = { id: 'neighbor', x: 80, y: 0, vx: 0, vy: 0 };
+  const unrelatedSource = { id: 'other-source', x: 0, y: 200, vx: 0, vy: 0 };
+  const unrelatedTarget = { id: 'other-target', x: 320, y: 200, vx: 0, vy: 0 };
+  const links = [
+    { source: 'dragged', target: 'neighbor' },
+    { source: 'other-source', target: 'other-target' },
+  ];
+  const force = createReferralGraphMaxLinkStretchForce(links, {
+    activeDraggedNodeIdRef: { current: 'dragged' },
+    controlledNodeIdsRef: { current: new Set(['dragged']) },
+    dragStartDistanceByLinkKeyRef: {
+      current: captureReferralGraphLinkDistances(links, new Map([
+        ['dragged', dragged],
+        ['neighbor', neighbor],
+        ['other-source', unrelatedSource],
+        ['other-target', { ...unrelatedTarget, x: 80 }],
+      ])),
+    },
+    maxStretchMultiplier: 1.2,
+  });
+
+  force.initialize([dragged, neighbor, unrelatedSource, unrelatedTarget]);
+  force(1);
+
+  assert.equal(unrelatedSource.vx, 0);
+  assert.equal(unrelatedTarget.vx, 0);
 });
 
 test('createReferralGraphBranchBendForce skips active drag branch nodes', () => {

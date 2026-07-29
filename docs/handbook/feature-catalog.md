@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-FEATURE-CATALOG
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer, operator
-last_verified: 2026-03-28
+last_verified: 2026-07-29
 source_of_truth: app/* + web/src/app/* + supabase/functions/*
 
 # 기능 카탈로그
@@ -13,6 +13,7 @@ source_of_truth: app/* + web/src/app/* + supabase/functions/*
 | FC Onboarding | 기본정보, 본인확인, 보증 보험 동의, 서류, 다위촉 URL, 생명/손해 위촉, 완료 | [mobile/fc-onboarding.md](./mobile/fc-onboarding.md) |
 | Exams | 생명/손해 신청, 등록, 관리자 관리 | [mobile/exam-flows.md](./mobile/exam-flows.md) |
 | Admin Ops | FC lifecycle, 공지, 시험, 추천인, PII 조회, FC 삭제 | [admin-web/dashboard-lifecycle.md](./admin-web/dashboard-lifecycle.md) |
+| Admin Distribution | 관리자 웹 PWA 설치, Microsoft Store 패키징·검증 경계 | [admin-web/microsoft-store-pwa.md](./admin-web/microsoft-store-pwa.md) |
 | Messaging/Content | 내부 메신저, 게시판, 알림센터 | [mobile/messenger-and-content.md](./mobile/messenger-and-content.md) |
 | GaramLink Bridge | 세션 복구, unread 합산, request_board 진입 | [mobile/request-board-bridge.md](./mobile/request-board-bridge.md) |
 | Notifications | inbox, Expo push, admin web push, badge | [backend/notifications-inbox-push.md](./backend/notifications-inbox-push.md) |

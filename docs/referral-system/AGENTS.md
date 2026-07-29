@@ -52,6 +52,11 @@
 
 위 항목이 필요해지면 먼저 `SPEC.md`와 `ARCHITECTURE.md`를 갱신한 뒤 구현한다.
 
+예외: `/referral-revenue-graph`는 실제 사용자·조직·매출·정산 데이터와 연결하지
+않고 `샘플 데이터`와 `실제 정산 아님`을 화면에 명시한 로컬 UI
+시뮬레이션만 허용한다. 이 예외는 업라인 보상 정책, 지급 트리거, 금융 원장,
+API 또는 DB 계약을 확정하거나 구현한 것으로 해석하지 않는다.
+
 ## 3. Documentation Rules
 
 ### 3.1 Single Source Of Truth
@@ -140,6 +145,14 @@
 - `안전 자동 정리` batch는 exact-unique(`자동 연결 가능`)만 처리하고, `잘못된 자기추천`/`후보 없음`/`동명이인 후보 다수`는 자동 정리 대상에 넣지 않는다.
 - `/dashboard/referrals/graph`는 추천 관계를 읽기 전용으로 탐색하는 graph surface다. visible edge 기본 소스는 `fc_profiles.recommender_fc_id`이고, `confirmed referral_attributions`는 같은 관계 edge의 상태를 강화하는 보조 증거로만 합친다.
 - `/dashboard/referrals/graph`는 graph 안에서 mutate CTA를 다시 열지 않는다. node drag, 빈 캔버스 pan, fit/reset, node label 가시성은 허용하되 manager는 계속 read-only다.
+- 모바일 `/referral-graph`는 `/referral`에서 앱 내부 route로 진입하는 FC/본부장 전용 read-only surface다. signed app-session의 자기 FC를 root로 고정하고 canonical `fc_profiles.recommender_fc_id` 하위 관계만 노출한다.
+- 모바일 graph 응답과 상세 sheet에는 이름, 소속, 추천코드 상태, 등록/위촉 상태, 하위 인원 수만 허용한다. 전화번호, 감사 이벤트, 관계 변경 CTA, body `fcId` 기반 scope 확장은 금지한다.
+- 모바일 graph의 현재 interaction contract는 deterministic radial layout, 한 손가락 pan, 두 손가락 pinch, fit/reset, 검색/상태/1~3촌 focus, node 상세다. desktop force physics와 node drag는 별도 contract이며 모바일 첫 delivery의 완료 조건으로 간주하지 않는다.
+- 모바일 `/referral-revenue-graph`는 기존 `/referral-graph`와 타입·컴포넌트·데이터
+  흐름을 공유하지 않는 로컬 샘플 surface다. parent chain으로 파생한 viewer 아래
+  1~10단계만 샘플 매출의 10% 예상 배분 대상으로 표시하고 11단계 이상은
+  `대상 제외`로 설명한다. 실제 사용자 이름, 추천 관계, Supabase, Edge Function,
+  네트워크 요청 또는 지급·확정 상태를 연결하는 변경은 새 정책 계약 없이는 금지한다.
 
 ## 7. Current Delivery Plan
 

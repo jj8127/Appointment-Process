@@ -656,8 +656,8 @@ export default function ExamApplicantsPage() {
         },
     });
 
-    // --- CSV Download ---
-    const handleDownloadCsv = async () => {
+    // --- Styled XLSX Download ---
+    const handleDownloadExcel = async () => {
         if (filteredRows.length === 0) {
             notifications.show({ title: '알림', message: '다운로드할 데이터가 없습니다.', color: 'blue' });
             return;
@@ -708,36 +708,35 @@ export default function ExamApplicantsPage() {
 
             const headers = [
                 ...EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => column.title),
+                '접수 상태',
                 '입금 증빙 경로',
                 '입금 증빙 URL (30일 유효)',
             ];
-            const asExcelText = (value: string) => `="${String(value).replace(/"/g, '""')}"`;
-            const pRows = filteredRows.map((item) => {
+            const workbookRows = filteredRows.map((item) => {
                 const proofLink = proofLinks.get(item.id);
-                return [
-                    ...EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => {
-                        const value = getRowValue(item, column.key);
-                        return column.key === 'phone' || column.key === 'resident_id'
-                            ? asExcelText(value)
-                            : value;
-                    }),
-                    proofLink?.storagePath ?? '-',
-                    proofLink?.signedUrl ?? '-',
-                ];
+                return {
+                    values: [
+                        ...EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => {
+                            return getRowValue(item, column.key);
+                        }),
+                        item.is_confirmed ? '접수 완료' : '미접수',
+                        proofLink?.storagePath ?? '-',
+                        proofLink?.signedUrl ?? '-',
+                    ],
+                    isConfirmed: item.is_confirmed,
+                    proofUrl: proofLink?.signedUrl ?? null,
+                };
             });
 
-            const csvContent = [
-                headers.join(','),
-                ...pRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
-            ].join('\n');
-
-            const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `exam_applicants_${dayjs().format('YYYYMMDD')}.csv`;
-            link.click();
-            URL.revokeObjectURL(url);
+            const { downloadExamApplicantWorkbook } = await import(
+                '@/lib/exam-applicant-workbook'
+            );
+            await downloadExamApplicantWorkbook({
+                headers,
+                rows: workbookRows,
+                generatedAt: new Date(),
+                fileName: `exam_applicants_${dayjs().format('YYYYMMDD')}.xlsx`,
+            });
         } catch (exportError: unknown) {
             const message = exportError instanceof Error
                 ? exportError.message
@@ -874,7 +873,7 @@ export default function ExamApplicantsPage() {
                             leftSection={<IconDownload size={16} />}
                             variant="filled"
                             color="green"
-                            onClick={handleDownloadCsv}
+                            onClick={handleDownloadExcel}
                             loading={isExporting}
                             radius="md"
                         >

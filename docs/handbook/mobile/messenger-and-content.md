@@ -58,3 +58,25 @@ source_of_truth: app/messenger.tsx + app/chat.tsx + app/board*.tsx + app/notice*
 - Sent messages must show KakaoTalk-style unread recipient counts on every messenger surface that has read-state data. 1:1 and request-board direct messages use `lib/message-read-receipts.ts`; group chat uses the room `unread_count`; all mobile surfaces must render the final count through `components/MessageUnreadReceiptBadge.tsx` instead of screen-local `messageUnreadCount` text styles.
 - Broader UI/action primitive drift is tracked by `scripts/audit/shared-ui-contract-audit.cjs` and `docs/handbook/shared-ui-action-contracts.md`; new raw alert/button/modal/copy/link behavior in messenger/content surfaces needs contract evidence or a documented exception.
 - Any change to these files must update `docs/handbook/contract-test-map.json` evidence, a messenger contract test, or this handbook page.
+
+## GaramIn direct-message target isolation
+
+- The FC target card is authoritative: `admin` opens the shared general-affairs
+  room, while a manager or developer phone opens a thread bound to that exact
+  active actor.
+- The mobile route must pass the selected target to
+  `resolve_garamin_direct_conversation`; a displayed target name must never be
+  synthesized while the server resolves a different room.
+- `garamin_direct_conversations` remains the one-per-FC compatibility envelope.
+  `garamin_direct_threads` owns the exact target identity, and every new
+  message is stored with both the legacy envelope and canonical `thread_id`.
+- Old clients that omit a target continue in the shared admin room. Existing
+  messages addressed only to the old `admin` alias remain shared; historical
+  replies with an immutable developer/manager sender actor may be preserved in
+  that actor's personal thread.
+- Text, attachment, read, delete, unread-summary, notification and broadcast
+  paths must enforce the same target tuple. Plain admins cannot open personal
+  manager/developer threads, and one developer cannot open another
+  developer's thread.
+- Rollout order is additive DB migration, updated `fc-notify` and
+  `messenger-attachments` Edge Functions, then the new mobile release.

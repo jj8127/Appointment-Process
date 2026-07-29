@@ -105,7 +105,40 @@ completed FC 또는 active manager 로그인 성공
 - branch expand 직후에는 이미 보이는 직속 자식 중 하위가 더 있는 node만 background 1단계 prefetch를 순차 수행해, 다음 expand에서 같은 node를 즉시 열 수 있게 돕는다. prefetch는 현재 탭된 node의 spinner/expand를 block하지 않는다.
 - `/referral`의 primary scroll container는 Android `dispatchGetDisplayList/null child` 계열 crash를 줄이기 위해 `KeyboardAwareScrollView`가 아니라 일반 `ScrollView`를 사용한다. 검색 입력은 화면 상단 배치 + 하단 keyboard padding으로 충분히 보이도록 유지한다.
 - `/referral`은 화면 로그인 세션과 referral self-service `appSessionToken`이 분리돼 있어도, 현재 token 부재/만료 시 저장된 `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 시도하고 실패 시에만 relogin CTA를 보여준다.
-- 본부장 전용 desktop graph shortcut: `app/referral.tsx -> Linking.openURL(EXPO_PUBLIC_ADMIN_WEB_URL + '/dashboard/referrals/graph')`
+- 네이티브 추천 관계 graph: `app/referral.tsx -> app/referral-graph.tsx -> hooks/use-referral-graph.ts -> get-referral-tree(mode='graph')`
+- graph canvas는 `react-native-svg` + Gesture Handler/Reanimated로 deterministic radial layout, pan/pinch, fit/reset, node selection을 처리하고 desktop d3 physics와 런타임 position을 공유하지 않는다. 깊이별 node 수로 반지름을 늘리고 형제마다 최소 각도 구간을 먼저 예약해 넓거나 불균형한 300-node 조직도에서도 최대 확대 터치 간격을 보존한다.
+- 로컬 매출 기여 샘플: `app/referral.tsx -> app/referral-revenue-graph.tsx -> data/referral-revenue-demo.ts -> lib/referral-revenue-demo.ts -> lib/referral-revenue-graph-native.ts -> graph/list/detail`
+- 매출 기여 샘플은 `parentId` chain에서 viewer 기준 depth를 파생하고 1~10단계에만
+  10% 샘플 예상액을 계산한다. 이 흐름에는 query hook, app-session refresh,
+  Supabase client, Edge Function, DB/RPC 또는 기존 `get-referral-tree(mode='graph')`
+  응답이 참여하지 않는다.
+- graph 탭은 `react-native-svg` + Gesture Handler/Reanimated 기반의 원형
+  node/edge canvas다. `lib/referral-revenue-graph-native.ts`는 관리자 웹 balanced
+  free-physics의 중심력·반발력·degree-aware link spring·link tension·감쇠·collision
+  상수를 고정 tick으로 순수 계산한다. radial seed 뒤 hard collision pass를 적용해
+  결과를 결정론적으로 만들고 node 겹침을 제거하며, node 반지름·색상·상태,
+  node 내부 compact 금액과 fit viewport도 함께 계산한다. canvas는 pan/pinch,
+  fit/reset, node hit target과 선택 ring을 담당한다. 같은 canvas gesture는 시작
+  지점 hit-test로 empty-space pan과 node drag를 분기한다. node drag 중에는
+  `stepSampleRevenueInteractivePhysics(...)`를 pointer frame마다 실행하고,
+  release 뒤 `requestAnimationFrame` settle loop가 alpha를 감쇠한다. graph route는
+  stack header를 숨기고 back/title/sample header와 설정 trigger만 canvas 위에
+  상시 overlay한다. summary·filter·list·fit/reset·legend·disclaimer는
+  `Modal` 설정 panel 안에 있으며 panel open 동안 backdrop이 graph gesture를
+  차단한다. idle physics badge는 렌더하지 않고 zoom badge도 fit/pinch 뒤 1.4초만
+  표시한다.
+  이 샘플 canvas는 모바일 성능 경계를 위해 관리자 웹의 `d3-force` package나
+  전체 component/hub seed-layout runtime을 import하지 않는다. 웹의 resolved
+  balanced 상수만 모바일 fixed-tick helper에 반영하며, exact desktop runtime
+  parity보다 작은 번들·예측 가능한 Android SVG 메모리를 우선한다.
+  `expo-screen-orientation`은 route mount에서 `LANDSCAPE`, cleanup에서
+  `PORTRAIT_UP`을 요청한다. 닫힌 landscape HUD는 영구 sidebar/하단 legend 공간을
+  예약하지 않고 compact top inset과 16pt edge inset만 사용한다. 설정 panel은
+  오른쪽에 임시 overlay된다. 카드형 계층 렌더나 `ScrollView` 기반 가짜 graph는
+  이 계약을 충족하지 않는다.
+- `/referral-revenue-graph`의 타입·계산·컴포넌트는 기존 추천 관계 graph와
+  분리한다. 향후 실제 금융 데이터 연결은 별도 원장·권한·trusted API·정책 버전
+  계약을 먼저 정의한 뒤 새 increment로 구현한다.
 - `/referral-tree` route는 legacy 진입 호환용으로 `/referral` redirect만 유지한다.
 
 ### 3.2 Backend / Edge Function Layer
@@ -126,6 +159,8 @@ completed FC 또는 active manager 로그인 성공
 - FC/본부장 referral self-service 세션 재발급 경로: `refresh-app-session`
 - 추천인 current-state 원자적 write 경로: `apply_referral_link_state(...)`
 - `get-referral-tree`는 service-role RPC `get_referral_subtree(root_fc_id uuid, max_depth int)`를 호출해 ancestor chain + descendant subtree를 한 번에 읽는다.
+- `get-referral-tree`의 additive `mode='graph'`는 signed FC/manager app-session의 자기 profile id를 root로 고정하고 canonical descendant closure를 읽는다. request body `fcId`는 graph mode의 scope 근거로 사용하지 않는다.
+- graph mode는 기존 tree response를 변경하지 않고 `{mode,nodes,edges,permissions,truncated}` 계약을 별도로 반환한다. node에는 이름/소속/active code 상태/등록·위촉 완료/하위 집계만 포함하며 전화번호와 audit payload는 반환하지 않는다. Graph 전용 child loader는 직원·설계매니저·유효하지 않은 전화번호를 traversal 한도 전에 거르고 manager referral shadow 관계는 보존한다. PostgREST 조회는 고정 page로 수행하면서 남은 유효 slot+1을 찾으면 멈추고, mobile graph는 300 node 상한 뒤 남은 관계를 `truncated`로 표시한다.
 - ancestor chain은 `fc_profiles.recommender_fc_id`를 그대로 따르며, recommender가 active manager shadow profile로 저장된 경우에도 그 shadow recommender를 포함한다.
 - descendant lazy expand도 같은 trusted path를 사용하며, Edge Function 인가는 `self subtree membership`을 확인한 descendant `fcId`만 허용해야 한다.
 - RPC/Edge Function이 내려주는 descendant `node_depth`는 조회한 subtree root 기준 상대값이다. 현재 모바일 self-service contract에서는 `hooks/use-referral-tree.ts`가 이 값을 현재 화면 root 기준 absolute depth로 정규화한 뒤만 cache/render에 사용한다.
@@ -170,6 +205,7 @@ completed FC 또는 active manager 로그인 성공
 - 추천인 current-state canonical source는 `fc_profiles.recommender_*` snapshot이고, 감사 trail은 `referral_events`다.
 - FC/본부장 self-service 조회는 `get-my-referral-code` Edge Function을 통해 app session token을 검증한 뒤 active code와 현재 추천인 cache를 함께 읽는다.
 - FC/본부장 self-service tree 조회는 `get-referral-tree` Edge Function을 통해 app session token을 검증한 뒤 caller 자기 서브트리 범위의 ancestor/descendant 정보만 읽는다.
+- FC/본부장 native graph 조회도 같은 Edge Function과 session recovery helper를 사용하지만 graph root는 caller 자기 profile로만 고정하고, 응답은 downline read-only로 제한한다.
 - stored `requestBoardBridgeToken`은 request_board JWT 재발급뿐 아니라 referral self-service `appSessionToken` silent refresh의 유일한 복구 자격증명이다.
 - bridge token까지 없거나 만료된 상태에서는 `/referral`이 self-heal loop를 반복하지 않고 relogin CTA를 노출해야 한다.
 - current app self-service tree는 같은 trusted subtree read를 반복 호출하더라도 화면 cache가 absolute depth를 유지해야 한다. UI 들여쓰기/강조 스타일은 current render depth 기준으로 계산하고, subtree transport depth를 style source처럼 재사용하면 안 된다.

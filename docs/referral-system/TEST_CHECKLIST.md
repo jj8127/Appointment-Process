@@ -66,6 +66,21 @@
 - `RF-SELF-01` FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환함
 - `RF-SELF-02` FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 `fc_profiles.recommender_*` snapshot / `referral_events` audit trail을 함께 갱신하고, 저장 직후 같은 화면의 direct recommender/current recommender가 재진입 없이 즉시 갱신됨
 - `RF-SELF-03` FC/본부장 self-service `app/referral.tsx`는 `나를 추천한 사람` 카드에 direct recommender 1명만 노출하고 `내가 추천한 사람들` tree는 canonical `recommender_fc_id` 링크만 반영해야 하며, `depth:2` 초기 로드 뒤 descendant lazy expand가 absolute depth 스타일을 유지하고 1단계 background prefetch로 다음 expand를 보조해야 하며, direct recommender card + subtree drill-down이 caller 자기 서브트리 범위 안에서만 동작하고 tree read 실패 시에도 기존 추천인 사용자는 같은 화면에서 변경 UI를 계속 열 수 있으며 Android production build에서 render crash(`ReactClippingViewManager.addView`, `dispatchGetDisplayList null child`) 없이 진입/편집/새로고침이 가능해야 함
+- `RF-SELF-04` FC/본부장 `/referral-graph`는 외부 웹 URL 없이 네이티브 route로 진입하고, signed 자기 root의 canonical downline만 phone/audit/mutation 없이 표시하며 pan/pinch, fit/reset, 검색/상태/1~3촌 focus, node 상세, relogin 상태를 지원함
+- `RF-SELF-05` FC/본부장 `/referral-revenue-graph` 샘플 미리보기는 실제
+  referral/API/DB 호출 없이 가상 parent chain의 1~10단계 15명만 10% 예상
+  배분 합계에 포함하고 11단계는 `대상 제외`로 표시하며, `샘플 데이터`와
+  `실제 정산 아님`을 그래프·목록·상세에서 명확히 알림. 그래프 탭은 카드형
+  조직도가 아니라 기존 추천 관계 그래프처럼 원형 SVG node와 visible edge를
+  관리자 웹 balanced force 상수로 배치함. 모든 node 원 안에 예상 배분액이 항상
+  보이고 collision pass 뒤 node pair가 겹치지 않으며 pan/pinch, 화면 맞춤,
+  초기화, node 선택 상세를 지원함. graph는 safe-area 전체화면 HUD canvas로 열리고
+  node drag 중 주변 node가 spring/repulsion/collision으로 반응한 뒤 release settle이
+  idle로 끝남. native 진입은 landscape가 기본이며 닫힌 상태에는 compact
+  back/title/sample header와 설정 버튼만 남아 graph가 거의 전체 화면을 사용함.
+  설정 panel에 summary/filter/list/fit/reset/legend/disclaimer가 있고 닫기·바깥 탭·
+  Android back으로 닫히며, 이탈 시 portrait로 복원하고 단계 filter 뒤에도 viewer
+  연결 경로를 보존함
 
 ### 5.2 초대링크
 
@@ -135,10 +150,11 @@
 - login auto-issue 케이스는 로그인 전/후 active code count, code 값 유지 여부, manager shadow profile 보장 여부, 로그인 응답 success 유지 여부를 함께 남긴다.
 - self-service invitee 목록 케이스는 `fc_profiles.recommender_fc_id = caller` 결과와 화면 목록 개수를 대조하고, `recommender_linked_at` snapshot이 노출되는지 확인한다.
 - self-service tree 케이스는 `get-referral-tree` 응답의 `ancestors`, `descendants`, `truncated`와 node expand 후 후속 요청 결과를 함께 남긴다.
+- native graph 케이스는 `{mode:'graph'}` 응답의 `permissions.canMutate=false`, `scope='downline'`, 자기 `rootFcId`, phone/audit 필드 부재를 확인한다. eligibility-before-cap, manager shadow 경로, 300번째 초과 node의 `truncated=true`, `limit=1`에서도 fixed-page인 조회, 299-child star와 296-leaf heavy branch 옆 small sibling 간격, depth 20 surface bounds를 포함한 합성/source contract test와 Android 실제 gesture QA를 분리해 남긴다.
 - depth 2 밖의 deeper node를 펼칠 때는 subtree-relative `node_depth`가 화면 absolute depth로 정규화되어 top-level 강조색이 다시 붙지 않는지, prefetch가 끝난 node는 중복 요청 없이 즉시 열리는지 함께 확인한다.
 - `/referral` 최초 진입이 로그인 세션만 살아 있고 referral `appSessionToken`은 만료된 상태여도, bridge token이 유효하면 조회/저장이 같은 화면에서 자동 복구되는지 확인한다.
 - Android `/referral` 안정성 케이스는 production build에서 첫 진입, edit mode 전환, pull-to-refresh, tree/error 상태 전환을 최소 1회씩 밟고 `null child at index` / `ReactClippingViewManager.addView` 크래시가 없는지 확인한다.
-- 본부장 보조 링크 케이스는 모바일 화면에서 FC 미노출, 본부장 노출, 외부 브라우저 open만 확인하고 graph 자체 사용성 검증은 `RF-ADMIN-07/08`로 분리한다.
+- 모바일 `/referral` 그래프 CTA는 FC/본부장 모두 노출되고 외부 브라우저를 열지 않아야 한다. native 사용성은 `RF-SELF-04`, desktop 관리자 graph 사용성은 `RF-ADMIN-07/08`로 분리한다.
 - 추천코드 검색 입력 회귀는 실제 입력 문자열(`j -> J`, `ab -> AB`, exact 8자리 paste`)과 결과 선택 전/후 화면을 함께 남긴다.
 - 초대링크 exact code 회귀는 같은 딥링크 진입에서 `search-signup-referral`이 exact fast path로 1회만 보이고, signup 화면에서 pending code apply가 중복 spinner/search rerun을 만들지 않는지 함께 남긴다.
 - source repo만 보고 맞춘 계약 정리는 evidence가 아니다. 그런 항목은 notes에 `code review only`로 명시한다.

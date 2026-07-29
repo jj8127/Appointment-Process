@@ -594,8 +594,7 @@ export default function ChatScreen() {
           hasConversationRoute
             ? { conversationId: conversationIdValue }
             : {
-                targetId:
-                  role === 'fc' ? null : normalizedTargetId,
+                targetId: normalizedTargetId || null,
               },
         );
         if (!active) return;

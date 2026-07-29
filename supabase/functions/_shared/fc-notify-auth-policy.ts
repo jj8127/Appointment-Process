@@ -269,6 +269,11 @@ function buildInboxPayload(
   }
 
   if (type === 'inbox_unread_count') {
+    const includeNotices =
+      !actor.isRequestBoardDesigner && body.include_notices === true;
+    const noticeSince = typeof body.notice_since === 'string'
+      ? body.notice_since.slice(0, 64)
+      : null;
     return {
       ok: true,
       payload: {
@@ -278,9 +283,10 @@ function buildInboxPayload(
         since: typeof body.since === 'string' ? body.since.slice(0, 64) : null,
         include_request_board_fc: includeRequestBoardFc,
         exclude_request_board_categories: body.exclude_request_board_categories === true,
-        include_notices: actor.isRequestBoardDesigner ? false : body.include_notices === true,
+        include_notices: includeNotices,
         only_request_board_categories:
           actor.isRequestBoardDesigner || body.only_request_board_categories === true,
+        ...(includeNotices && noticeSince ? { notice_since: noticeSince } : {}),
         ...viewer,
       },
     };

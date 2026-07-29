@@ -1,5 +1,31 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-07-29 | 관리자 웹 PWA | 설치용 서비스워커가 기존 알림 서비스워커를 대체할 뻔함
+
+- Symptom:
+  - PWA 설치 조건을 추가하는 과정에서 기존 `/sw.js`의 push 수신과
+    notification-click 딥링크가 제거된 초안이 만들어졌다.
+  - 배포 전 diff와 기존 알림 source contract 검토에서 발견해 합친 뒤 검증했다.
+- Root cause:
+  - tracked 서비스워커를 신규 PWA 전용 파일처럼 취급했고, 기존 event listener
+    목록과 소유 기능을 먼저 조사하지 않았다.
+- Why it was missed:
+  - manifest·installability 검증에 먼저 집중해 `/sw.js`가 이미 Web Push의 실행
+    경계라는 사실을 초기 편집 전에 확인하지 않았다.
+- Permanent guardrail:
+  - 기존 서비스워커를 변경할 때는 먼저 install, activate, fetch, push,
+    notificationclick listener를 전부 목록화한다.
+  - PWA 오프라인 처리는 기존 알림 로직에 additive하게 합치고, Cache Storage
+    미사용 계약과 push/notificationclick 보존 계약을 같은 focused gate에서
+    실행한다.
+- Related files:
+  - `web/public/sw.js`
+  - `web/src/lib/admin-pwa-contract.test.ts`
+  - `web/src/lib/notification-navigation-source.test.ts`
+- Verification:
+  - 두 focused suite 8/8, web TypeScript, ESLint, Sentry-disabled Next build,
+    최종 서비스워커 source inspection을 실행한다.
+
 ## 2026-07-25 | Notification post-commit state | storage clear and coordinator state diverged
 
 - Symptom:
@@ -4670,3 +4696,325 @@
   - Life and nonlife pages now share an Android `ToastAndroid` month-conflict
     path, retain the same explanatory copy, and have a source contract that
     rejects the old modal alert call.
+
+## 2026-07-26 | Non-terminating PowerShell RNG failure still fed Vercel stdin
+
+- Symptom:
+  - The first staff-session secret setup command called a static cryptographic
+    RNG method unavailable in the installed Windows PowerShell runtime.
+    PowerShell treated the method error as non-terminating and continued to the
+    Vercel environment-variable command.
+- Root cause:
+  - The command did not set `$ErrorActionPreference = 'Stop'` before generating
+    and piping the value, and assumed a newer .NET RNG API was available.
+- Permanent guardrail:
+  - Secret-generation commands must fail closed before any external write.
+    Use `RandomNumberGenerator.Create().GetBytes(...)` for Windows PowerShell
+    compatibility, set terminating-error behavior, verify the external command
+    exit code, and never pass a generated value on the command line.
+- Verification:
+  - The initial value was immediately overwritten before any deployment used
+    it. Production now stores the replacement as a sensitive encrypted value,
+    and the administrator web was deployed only afterward.
+
+## 2026-07-26 | Using layout targets for a drag cap either damaged layout or made the cap ineffective
+
+- Symptom:
+  - An initial interpretation of the drag-stretch request capped the graph's
+    normal dynamic target distance at 1.2 times the global base distance.
+    A visual simulation test then showed neighboring branch leaves entering
+    another hub's local fan.
+  - The follow-up constraint preserved the layout but compared against each
+    edge's dynamic target. Long edges could therefore still stretch far enough
+    that the requested 1.2x bound appeared not to be applied.
+- Root cause:
+  - The requested bound concerned transient edge stretch during dragging, not
+    the density-aware target lengths used to build the settled layout.
+  - A transient interaction multiplier must state and capture its baseline; a
+    computed layout target is not the same as the edge's length at drag start.
+- Permanent guardrail:
+  - Preserve static target-distance heuristics. Apply user interaction bounds
+    after pointer forces, only while a drag is active, and scope corrections to
+    the dragged connected component.
+  - For a drag-relative multiplier, snapshot actual edge lengths at gesture
+    start. Keep the grabbed node and explicitly controlled one-hop nodes rigid,
+    and apply hard-cap corrections only to non-controlled endpoints.
+- Verification:
+  - Focused tests prove drag-start capture, the rigid grabbed-plus-one-hop
+    group, the actual-length 1.2x cap, no-op behavior outside dragging,
+    controlled-endpoint preservation, and isolation of unrelated components.
+
+## 2026-07-26 | Production-only session configuration broke local staff login
+
+- Symptom:
+  - The local Next.js administrator login completed upstream authentication
+    but returned 500 while creating the staff session.
+- Root cause:
+  - The dedicated Production session-secret boundary was correct, but local
+    development had no safe fallback and therefore required an undocumented
+    copy of a remote secret.
+- Permanent guardrail:
+  - Never copy a Production signing key into local development merely for
+    convenience. Development may use a process-local cryptographic value that
+    survives HMR, while Production and tests must continue to fail closed
+    without the dedicated configured secret.
+- Verification:
+  - Focused tests cover the environment boundary and development create/verify
+    flow; TypeScript and scoped lint pass.
+
+## 2026-07-26 | A display cap and uniform graph fixture did not prove bounded mobile graph work
+
+- Symptom:
+  - The first native referral graph pass limited the returned array to 300
+    nodes only after loading and filtering all child rows.
+  - Its 300-node spacing test used a uniform star, while a heavy branch beside
+    small siblings could still compress the small nodes below the selectable
+    distance at maximum zoom.
+- Root cause:
+  - A response-size cap was treated as a query-work cap, and a single balanced
+    topology was treated as sufficient evidence for graph interaction safety.
+- Permanent guardrail:
+  - Apply eligibility during breadth-first traversal, request only the remaining
+    eligible slots plus one, keep raw DB reads page-sized, and preserve an
+    already-detected truncation flag.
+  - Maximum-size graph tests must cover both wide uniform and strongly
+    unbalanced branch shapes. Weighted angular layout must reserve a minimum
+    sweep per sibling before distributing the remaining sweep by subtree size.
+- Verification:
+  - Focused graph/navigation/privacy tests cover the fixed page/limit contract,
+    truncation preservation, a 299-child star, and a 296-leaf heavy branch next
+    to two small siblings. TypeScript and frozen Deno checks pass.
+
+## 2026-07-27 | A successful legacy Edge response still left the new mobile graph unusable
+
+- Symptom:
+  - The authenticated native graph showed its generic retry state even though
+    `get-referral-tree` returned HTTP 200.
+- Root cause:
+  - The active Edge bundle was still v6. It correctly returned the legacy tree
+    shape, but did not yet contain the additive `{mode:'graph'}` response
+    required by the new screen.
+- Permanent guardrail:
+  - Before authenticated runtime QA for a new additive Edge mode, inspect the
+    active function version and source contract, not only the HTTP status.
+  - After an authorized rollout, verify the new version is active, keeps its
+    prior JWT policy, contains both new and legacy response markers, and then
+    exercise both the new screen and the old client path.
+- Verification:
+  - `get-referral-tree` v7 is active with JWT verification retained. Its graph
+    request returned 200 and rendered 16 nodes / 15 edges, while the existing
+    referral-tree screen continued to load without an error.
+
+## 2026-07-27 | Receipt migration left notification-center unread state split
+
+- Symptom:
+  - Opening the GaramIn notification center no longer reduced the unread badge.
+- Root cause:
+  - The receipt migration removed the previous center-view checkpoint without
+    replacing its list-level acknowledgement. Notification rows were marked
+    only after a destination accepted a deep link, and shared notices continued
+    to be counted from the epoch even though they have no receipt row.
+  - The inbox list also applied its raw row limit before loading per-viewer
+    receipts. A full first page of dismissed rows could therefore render an
+    empty center while the unrestricted unread query still counted older rows.
+- Permanent guardrail:
+  - Keep receipt-backed notifications and checkpoint-backed shared notices as
+    separate unread sources. A successful center load bulk-acknowledges only
+    visible notification UUIDs, advances a notice-only observation boundary
+    monotonically, then refetches and synchronizes the authoritative badge.
+  - Never apply the local notice boundary to notification rows, and never turn
+    an acknowledgement failure into a user-facing delivery warning.
+  - Badge reconciliation must use a strict count read. A tolerant helper that
+    maps transport failure to zero can erase a valid badge and hide the retry.
+  - Apply list limits after viewer-specific visibility and dismissal filters.
+    If those filters cannot run in the query, page the raw source until the
+    requested visible limit is filled or the source is exhausted.
+- Verification:
+  - Focused read-state, checkpoint, mobile count, Edge authorization, receipt,
+    pagination, and source-contract tests pass 56/56; TypeScript, scoped lint, and the
+    `fc-notify` Deno check pass.
+
+## 2026-07-27 | Graph semantics were mistaken for the requested graph UI
+
+- Symptom:
+  - The first revenue-contribution preview connected rectangular hierarchy
+    cards with lines and called the result a node-and-edge graph, even though
+    the user explicitly asked for the same visible graph form as the existing
+    referral graph.
+- Root cause:
+  - Acceptance covered graph data semantics and ancestry connectivity but did
+    not translate the named reference screen into primitive-shape, layout, and
+    interaction requirements.
+  - The first visual correction then used a radial approximation and hid
+    amounts at fit scale instead of inspecting the administrator web's actual
+    resolved force constants and preserving the user's required value display.
+- Permanent guardrail:
+  - When a user names an existing screen as the visual reference, acceptance
+    must explicitly cover its defining primitives and interactions. For this
+    surface that means circular SVG nodes, visible SVG edges, the referenced
+    balanced force/collision constants, in-node amounts, no overlap,
+    pan/pinch, fit/reset, and node selection.
+  - If the requested experience is described as game-like, a static settled
+    layout plus canvas pan is not enough. Acceptance must state whether nodes
+    themselves are draggable, how neighboring nodes react during drag, how
+    release settles, and how much of the screen belongs to the canvas.
+  - If landscape is part of the requested experience, verify a native
+    route-scoped orientation lock, the actual rotated window dimensions, a
+    landscape-specific overlay reservation, and portrait restoration on exit.
+    A manually rotated emulator screenshot alone is not sufficient evidence.
+  - Full-screen graph controls need a collapsed-state budget, not only
+    non-overlap checks. Summary, filters, actions, legends, and disclaimers may
+    each fit correctly while collectively taking over the canvas. Keep only
+    navigation, sample identity, and one settings trigger persistent; move the
+    rest into a dismissible panel and capture the closed state as primary QA.
+  - A depth filter may subdue ancestor context through color and edge styling,
+    but must never replace the required in-node amount with a generic `경로`
+    label. Source coverage must reject that conditional substitution.
+  - Moving controls into a compact panel must preserve all three summaries, the
+    complete sample/10% warning, and an accessible announcement of any active
+    filter; visual presence elsewhere on the route is not equivalent.
+  - A source regression must reject card/row/`ScrollView` graph renderers for
+    this canvas instead of treating any connected hierarchy as equivalent.
+  - Visual reference parity does not automatically authorize a byte-for-byte
+    desktop physics port on mobile. Set an explicit bundle, frame-time, and
+    Android backing-bitmap budget before adding a desktop graph dependency.
+    Keep the lightweight fixed-tick approximation when the user prefers its
+    responsiveness; do not add `d3-force`, the full web seed-layout module, or
+    a large logical SVG surface without a measured mobile benefit.
+  - Validate SVG memory in physical pixels, not only logical coordinates. A
+    3200-dp SVG on the 2.625-density emulator attempted an approximately
+    282-MB backing bitmap and crashed Android even though TypeScript, Jest,
+    lint, and static export passed.
+- Verification:
+  - Focused layout and source-contract tests assert circular nodes, edges,
+    gestures, fit/reset, deterministic bounded placement, context-node amounts,
+    complete panel content, and the absence of the prior card/`ScrollView`
+    implementation.
+  - The exact desktop-runtime experiment was withdrawn at the user's request.
+    The prior 1600-surface fixed-tick implementation was restored exactly,
+    `d3-force` and its four installed packages were removed, focused tests
+    passed 26/26, TypeScript and scoped lint passed, and the restored landscape
+    graph rendered on the Android emulator.
+
+## 2026-07-28 | The notification receiver contract tightened without bridge enrichment
+
+- Symptom:
+  - Request Board created designer notifications, but the GaramIn bridge
+    returned HTTP 400 and no matching GaramIn notification row appeared.
+- Root cause:
+  - `fc-notify` correctly required a canonical `recipient_actor_id` for direct
+    service notifications, while the trusted web proxy still forwarded only a
+    phone target.
+- Permanent guardrail:
+  - The GaramIn server resolves an eligible target phone to the canonical
+    profile UUID after bridge authentication and forwards that server-derived
+    value.
+  - The external Request Board body can never supply or override the actor UUID.
+  - Any direct-service receiver contract change requires an end-to-end proxy
+    contract test in the same change.
+- Verification:
+  - Focused proxy/actor-binding tests, web TypeScript/lint, and the production
+    web build.
+
+## 2026-07-28 | Headquarters normalization assumed a single-digit number
+
+- Symptom:
+  - Adding a tenth headquarters would leave several selectors and fallback
+    normalizers unable to recognize its prefix.
+- Root cause:
+  - Headquarters labels were duplicated across mobile, Edge, and web sources,
+    and fallback regular expressions allowed only `[1-9]`.
+- Permanent guardrail:
+  - Every maintained headquarters surface includes the canonical tenth label
+    and accepts the explicit `(10|[1-9])` prefix contract.
+  - A focused source contract covers all duplicated option owners until the
+    affiliation catalog is centralized.
+- Verification:
+  - Focused tenth-headquarters tests, root/web TypeScript, scoped lint, and
+    Deno check.
+
+## 2026-07-28 | CSV was presented as Excel and could not carry the required design
+
+- Symptom:
+  - The exam-applicant download used an `.csv` payload even though the UI called
+    it Excel, so it could not provide persistent headers, filtering, column
+    widths, row emphasis, or safe clickable proof links.
+- Root cause:
+  - The export contract treated spreadsheet compatibility as equivalent to a
+    real workbook and relied on formula-shaped strings to preserve identifiers.
+  - The screen-only `접수 상태` column was excluded from the shared export
+    column list, and the first workbook design did not explicitly compare
+    visible operational columns with exported columns.
+- Permanent guardrail:
+  - Any export that promises spreadsheet formatting must emit a real `.xlsx`
+    workbook, keep phone/resident identifiers as literal text cells, test the
+    generated OOXML, and render a synthetic workbook before handoff.
+  - Audit an added workbook dependency before accepting it; reject a candidate
+    that introduces a vulnerability delta.
+  - Export regression tests must compare screen-only operational columns as
+    well as shared data columns. When row status must remain scannable while
+    horizontally scrolling, apply the status tone to every populated cell in
+    that row and retain an explicit status column.
+- Verification:
+  - The workbook contract test unzips the generated XLSX and asserts frozen
+    panes, auto-filter, styles, HTTPS proof hyperlink relationships, and literal
+    leading-zero text values. It also asserts the explicit reception-status
+    value and both full-row status fills. A synthetic workbook was rendered and
+    inspected visually.
+
+## 2026-07-29 | Workbook source contract depended on the caller's working directory
+
+- Symptom:
+  - The workbook implementation tests passed, but the page-integration source
+    contract failed when invoked from the repository root because it looked for
+    the administrator page under a root-level `src/` directory.
+- Root cause:
+  - The test used a process-relative path even though the package is routinely
+    tested from both the repository root and the `web` directory.
+- Permanent guardrail:
+  - Source-contract tests in nested packages must resolve fixtures and source
+    files relative to `import.meta.url`, not `process.cwd()`.
+- Verification:
+  - The same Node test command passes from the repository root after the path
+    is resolved relative to the test module.
+
+## 2026-07-29 | A ready Production deployment did not move the rolled-back stable alias
+
+- Symptom:
+  - The administrator-web deployment reached `READY`, while the user-facing
+    stable domain still resolved to the previous deployment.
+- Root cause:
+  - Retained rollback state prevented automatic stable-domain reassignment.
+    Deployment readiness alone was treated as insufficient release evidence.
+- Permanent guardrail:
+  - Resolve every stable user-facing domain through the deployment API after
+    each Production rollout and compare its deployment ID with the release
+    receipt.
+  - If necessary, explicitly move only the intended stable alias, then repeat
+    ID resolution and a public-route smoke check.
+- Verification:
+  - `adminweb-red.vercel.app` resolves to
+    `dpl_6iT15wpGGaRxTDJSbB3PJuXDMRmv`, and `/auth` returns HTTP 200.
+
+## 2026-07-29 | A target label was not proof of a target-bound conversation
+
+- Symptom:
+  - An FC opened the “개발자” card, but the message entered the shared
+    administrator room and a non-developer administrator replied.
+- Root cause:
+  - The mobile route discarded every FC target ID, while the database allowed
+    only one direct conversation per FC. UI identity and server room identity
+    were therefore unrelated.
+- Permanent guardrail:
+  - Direct-message targets use additive actor-bound threads, and the server
+    returns the canonical counterparty ID/name that the client verifies before
+    showing or sending messages.
+  - Text, attachment, broadcast, read and delete paths must all authorize the
+    same thread tuple. Legacy target omission maps only to the shared admin
+    thread.
+  - Edge verification must use the repository `deno.json` with `--frozen`;
+    discriminated failure results are narrowed in separate null and
+    `ok === false` branches so the strict checker cannot retain a success arm.
+- Verification:
+  - Focused Jest and Deno contracts cover selected-target forwarding,
+    cross-target denial, canonical `thread_id`, and attachment authorization.

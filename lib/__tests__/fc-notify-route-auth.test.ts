@@ -35,6 +35,9 @@ describe('FC notify proxy ingress authentication', () => {
     expect(route).toContain('verifyRequestBoardBridgeToken');
     expect(route).toContain('buildBrowserFcNotifyPayload');
     expect(route).toContain('buildRequestBoardNotifyPayload');
+    expect(route).toContain('resolveCompletedFcTargetActorId');
+    expect(route).toContain('resolveEligibleAdminChatTargetActorId');
+    expect(route).toContain('recipient_actor_id: recipientActorId');
     expect(route).not.toContain('body: JSON.stringify(body)');
     expect(route).not.toContain('JSON.stringify(rawBody)');
     expect(route).toContain('body: JSON.stringify(payload)');
@@ -47,8 +50,19 @@ describe('FC notify proxy ingress authentication', () => {
       route.indexOf('getVerifiedServerSession({'),
     );
     expect(route.indexOf('buildBrowserFcNotifyPayload({')).toBeLessThan(
-      route.indexOf('isEligibleFcTarget(browserPolicy.payload.target_id)'),
+      route.indexOf('resolveEligibleAdminChatTargetActorId(browserPolicy.payload.target_id)'),
     );
+    expect(route.indexOf('buildRequestBoardNotifyPayload({')).toBeLessThan(
+      route.indexOf('resolveCompletedFcTargetActorId(bridgePolicy.payload.target_id)'),
+    );
+    expect(route.indexOf('resolveCompletedFcTargetActorId(bridgePolicy.payload.target_id)')).toBeLessThan(
+      route.indexOf('recipient_actor_id: recipientActorId'),
+    );
+    const bridgeResolver = route
+      .split('async function resolveCompletedFcTargetActorId')[1]
+      ?.split('async function resolveEligibleAdminChatTargetActorId')[0] ?? '';
+    expect(bridgeResolver).not.toContain('buildAdminChatTargets');
+    expect(bridgeResolver).toContain('matches.length === 1');
   });
 
   it('verifies the Request Board secret in constant time and emits only the narrow notify payload', () => {
@@ -80,6 +94,7 @@ describe('FC notify proxy ingress authentication', () => {
         target: { version: 1, kind: 'request', requestId: 321 },
         skip_notification_insert: true,
         sender_id: 'forged',
+        recipient_actor_id: '00000000-0000-4000-8000-000000000099',
       },
     });
 

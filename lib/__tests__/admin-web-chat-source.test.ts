@@ -173,7 +173,7 @@ describe('admin web direct chat list source', () => {
 
     expect(fcNotifyRoute).toContain('buildBrowserFcNotifyPayload');
     expect(fcNotifyRoute).toContain(".from('fc_profiles')");
-    expect(fcNotifyRoute).toContain('buildAdminChatTargets(data ?? [])');
+    expect(fcNotifyRoute).toContain('buildAdminChatTargets(rows)');
     expect(fcNotifyRoute).toContain("browserPolicy.payload.target_role === 'fc'");
     expect(fcNotifyRoute).not.toContain(".eq('role', 'admin')");
     expect(fcNotifyRoute).not.toContain('fetchSharedAdminResidentIds');

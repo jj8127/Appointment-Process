@@ -97,6 +97,7 @@ const AFFILIATION_OPTIONS = [
   '7본부 이동훈',
   '8본부 정승철',
   '9본부 이현욱(김주용)',
+  '10본부 한태균',
 ];
 
 const LEGACY_AFFILIATION_TO_NEW: Record<string, string> = {
@@ -112,6 +113,7 @@ const LEGACY_AFFILIATION_TO_NEW: Record<string, string> = {
   '8본부 [본부장: 정승철]': '8본부 정승철',
   '9본부 [본부장: 이현욱]': '9본부 이현욱(김주용)',
   '9본부 [본부장: 김주용]': '9본부 이현욱(김주용)',
+  '10본부 [본부장: 한태균]': '10본부 한태균',
   '1팀(서울1) : 서선미 본부장님': '1본부 서선미',
   '2팀(서울2) : 박성훈 본부장님': '2본부 박성훈',
   '3팀(부산1) : 김태희 본부장님': '3본부 김태희',
@@ -134,7 +136,7 @@ const normalizeAffiliationLabel = (value: string): string => {
   const mapped = LEGACY_AFFILIATION_TO_NEW[trimmed];
   if (mapped) return mapped;
 
-  const prefix = trimmed.match(/^([1-9])\s*(본부|팀)/);
+  const prefix = trimmed.match(/^(10|[1-9])\s*(본부|팀)/);
   if (prefix) {
     const index = Number(prefix[1]) - 1;
     return AFFILIATION_OPTIONS[index] ?? trimmed;

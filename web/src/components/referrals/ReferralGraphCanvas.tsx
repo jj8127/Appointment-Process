@@ -16,9 +16,12 @@ import {
 } from '@/lib/referral-graph-interaction';
 import {
   REFERRAL_GRAPH_ENGINE_COOLDOWN,
+  buildReferralGraphPointerDragMembers,
+  captureReferralGraphLinkDistances,
   createReferralGraphClusterSeparationForce,
   createReferralGraphDragLocalityForce,
   createReferralGraphLinkTensionForce,
+  createReferralGraphMaxLinkStretchForce,
   createReferralGraphPointerDragForce,
   getReferralGraphFreeLinkStrength,
   getReferralGraphLinkDistance,
@@ -56,7 +59,6 @@ const LAYOUT_VERSION = 'obsidian-free-v18';
 const RELEASE_SETTLE_ALPHA = 0.18;
 const RELEASE_SETTLE_MS = 2600;
 const MAX_RELEASE_NODE_VELOCITY = 220;
-const MAX_POINTER_DRAG_IMPULSE = 120;
 const RELEASE_POINTER_VELOCITY_TICK_MS = 28;
 const RELEASE_VELOCITY_SCALE = 1.35;
 const GRAPH_MOTION_KEEP_ALIVE_MS = 48;
@@ -415,6 +417,8 @@ export function ReferralGraphCanvas({
   const runtimeNodeMapRef = useRef(new Map<string, RuntimeGraphNode>());
   const draggedNodeIdRef = useRef<string | null>(null);
   const pointerDragTargetRef = useRef<ReferralGraphPointerDragTarget | null>(null);
+  const controlledDragNodeIdsRef = useRef(new Set<string>());
+  const dragStartDistanceByLinkKeyRef = useRef(new Map<string, number>());
   const activeDragNodeDepthsRef = useRef(new Map<string, number>());
   const releaseSettleTimerRef = useRef<number | null>(null);
   const graphMotionKeepAliveFrameRef = useRef<number | null>(null);
@@ -490,6 +494,15 @@ export function ReferralGraphCanvas({
       graphMotionKeepAliveFrameRef.current = null;
     }
     pointerDragTargetRef.current = null;
+    for (const nodeId of controlledDragNodeIdsRef.current) {
+      const node = runtimeNodeMapRef.current.get(nodeId);
+      if (node) {
+        node.fx = undefined;
+        node.fy = undefined;
+      }
+    }
+    controlledDragNodeIdsRef.current.clear();
+    dragStartDistanceByLinkKeyRef.current.clear();
   }, []);
 
   useEffect(() => {
@@ -497,6 +510,8 @@ export function ReferralGraphCanvas({
       runtimeNodeMapRef.current.clear();
       draggedNodeIdRef.current = null;
       pointerDragTargetRef.current = null;
+      controlledDragNodeIdsRef.current.clear();
+      dragStartDistanceByLinkKeyRef.current.clear();
       activeDragNodeDepthsRef.current.clear();
       manualNodeDragStateRef.current = null;
       if (releaseSettleTimerRef.current != null) {
@@ -762,7 +777,8 @@ export function ReferralGraphCanvas({
         canvasRect: getCanvasRect(),
         draggedNodeId: draggedNodeIdRef.current,
         pointerDragTarget: pointerDragTargetRef.current,
-        followerNodeIds: [],
+        followerNodeIds: [...controlledDragNodeIdsRef.current]
+          .filter((nodeId) => nodeId !== draggedNodeIdRef.current),
         nodeDragActive: nodeDragActiveRef.current,
         nodes: [...runtimeNodeMapRef.current.values()].map(toDebugNode),
         viewport: {
@@ -1009,6 +1025,25 @@ export function ReferralGraphCanvas({
         strength: physics.componentSeparationStrength,
       }),
     );
+    fg.d3Force('drag-pointer', null);
+    fg.d3Force('max-link-stretch', null);
+    fg.d3Force(
+      'drag-locality',
+      createReferralGraphDragLocalityForce<RuntimeGraphNode>(
+        draggedNodeIdRef,
+        activeDragNodeDepthsRef,
+        {
+          backgroundMaxVelocity: Number.POSITIVE_INFINITY,
+          backgroundVelocityScale: 1,
+          directNeighborMaxVelocity: Number.POSITIVE_INFINITY,
+          directNeighborPullStrength: 0,
+          directNeighborVelocityScale: 1,
+          secondHopMaxVelocity: Number.POSITIVE_INFINITY,
+          secondHopPullStrength: 0,
+          secondHopVelocityScale: 1,
+        },
+      ),
+    );
     fg.d3Force(
       'drag-pointer',
       createReferralGraphPointerDragForce<RuntimeGraphNode>(
@@ -1016,19 +1051,15 @@ export function ReferralGraphCanvas({
       ),
     );
     fg.d3Force(
-      'drag-locality',
-      createReferralGraphDragLocalityForce<RuntimeGraphNode>(
-        draggedNodeIdRef,
-        activeDragNodeDepthsRef,
+      'max-link-stretch',
+      createReferralGraphMaxLinkStretchForce<RuntimeGraphNode>(
+        graphData.links,
         {
-          backgroundMaxVelocity: 0,
-          backgroundVelocityScale: 0,
-          directNeighborMaxVelocity: Number.POSITIVE_INFINITY,
-          directNeighborPullStrength: 0,
-          directNeighborVelocityScale: 1,
-          secondHopMaxVelocity: Number.POSITIVE_INFINITY,
-          secondHopPullStrength: 0,
-          secondHopVelocityScale: 1,
+          activeDraggedNodeIdRef: draggedNodeIdRef,
+          controlledNodeIdsRef: controlledDragNodeIdsRef,
+          dragStartDistanceByLinkKeyRef,
+          iterations: 16,
+          maxStretchMultiplier: 1.2,
         },
       ),
     );
@@ -1134,8 +1165,33 @@ export function ReferralGraphCanvas({
   const beginNodeDrag = useCallback((node: RuntimeGraphNode) => {
     cancelPanMomentum();
     const isNewDrag = draggedNodeIdRef.current !== node.id || !nodeDragActiveRef.current;
-    node.fx = undefined;
-    node.fy = undefined;
+    if (isNewDrag) {
+      for (const nodeId of controlledDragNodeIdsRef.current) {
+        const previouslyControlledNode = runtimeNodeMapRef.current.get(nodeId);
+        if (previouslyControlledNode) {
+          previouslyControlledNode.fx = undefined;
+          previouslyControlledNode.fy = undefined;
+        }
+      }
+
+      const members = buildReferralGraphPointerDragMembers(
+        node.id,
+        adjacency.get(node.id) ?? [],
+        runtimeNodeMapRef.current,
+      );
+      controlledDragNodeIdsRef.current = new Set(members.map((member) => member.nodeId));
+      dragStartDistanceByLinkKeyRef.current = captureReferralGraphLinkDistances(
+        graphData.links,
+        runtimeNodeMapRef.current,
+      );
+      pointerDragTargetRef.current = {
+        nodeId: node.id,
+        x: pointerDragTargetRef.current?.x ?? node.x ?? 0,
+        y: pointerDragTargetRef.current?.y ?? node.y ?? 0,
+        members,
+      };
+    }
+
     nodeDragActiveRef.current = true;
     draggedNodeIdRef.current = node.id;
     activeDragNodeDepthsRef.current = getReferralGraphLocalDragDepths(node.id, adjacency, 2);
@@ -1149,9 +1205,22 @@ export function ReferralGraphCanvas({
 
     setGraphDragAlphaTarget(physics.dragReheatAlpha, { allowColdStart: true });
     startGraphMotionKeepAlive();
-  }, [adjacency, cancelPanMomentum, physics.dragReheatAlpha, setGraphDragAlphaTarget, startGraphMotionKeepAlive]);
+  }, [adjacency, cancelPanMomentum, graphData.links, physics.dragReheatAlpha, setGraphDragAlphaTarget, startGraphMotionKeepAlive]);
 
   const finishNodeDrag = useCallback((node: RuntimeGraphNode, releaseVelocity: { x: number; y: number } = { x: 0, y: 0 }) => {
+    for (const nodeId of controlledDragNodeIdsRef.current) {
+      const controlledNode = runtimeNodeMapRef.current.get(nodeId);
+      if (!controlledNode) {
+        continue;
+      }
+      controlledNode.fx = undefined;
+      controlledNode.fy = undefined;
+      if (nodeId !== node.id) {
+        controlledNode.vx = 0;
+        controlledNode.vy = 0;
+      }
+    }
+
     if (node.x != null && node.y != null) {
       node.fx = undefined;
       node.fy = undefined;
@@ -1166,6 +1235,8 @@ export function ReferralGraphCanvas({
     nodeDragActiveRef.current = false;
     draggedNodeIdRef.current = null;
     pointerDragTargetRef.current = null;
+    controlledDragNodeIdsRef.current.clear();
+    dragStartDistanceByLinkKeyRef.current.clear();
     activeDragNodeDepthsRef.current.clear();
     suppressClickUntilRef.current = Date.now() + 500;
     setGraphDragAlphaTarget(RELEASE_SETTLE_ALPHA, { allowColdStart: true });
@@ -1355,15 +1426,8 @@ export function ReferralGraphCanvas({
             nodeId: node.id,
             x: nextGraphPosition.x,
             y: nextGraphPosition.y,
+            members: pointerDragTargetRef.current?.members,
           };
-          if (hasRenderableNodePosition(node)) {
-            const pointerImpulse = clampVector({
-              x: (nextGraphPosition.x - node.x) * 0.42,
-              y: (nextGraphPosition.y - node.y) * 0.42,
-            }, MAX_POINTER_DRAG_IMPULSE);
-            node.vx = ((node.vx ?? 0) * 0.58) + pointerImpulse.x;
-            node.vy = ((node.vy ?? 0) * 0.58) + pointerImpulse.y;
-          }
           beginNodeDrag(node);
         }
         event.preventDefault();

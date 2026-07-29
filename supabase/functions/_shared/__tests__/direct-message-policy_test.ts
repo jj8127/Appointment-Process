@@ -51,12 +51,51 @@ const manager: DirectMessageActor = {
   fcId: null,
   isRequestBoardDesigner: false,
 };
+const sharedAdminCounterparty = {
+  role: 'admin' as const,
+  actorId: null,
+  phone: null,
+};
+const developerCounterparty = {
+  role: 'developer' as const,
+  actorId: DEVELOPER_ID,
+  phone: developer.phone,
+};
+const managerCounterparty = {
+  role: 'manager' as const,
+  actorId: MANAGER_ID,
+  phone: manager.phone,
+};
 
-Deno.test('conversation membership rejects foreign FC and accepts canonical staff', () => {
-  assert(canAccessDirectConversation(fc, FC_ID));
-  assertFalse(canAccessDirectConversation(fc, OTHER_FC_ID));
-  assert(canAccessDirectConversation(admin, FC_ID));
-  assert(canAccessDirectConversation(manager, FC_ID));
+Deno.test('conversation membership is bound to the selected staff target', () => {
+  assert(canAccessDirectConversation(fc, {
+    fcActorId: FC_ID,
+    counterparty: developerCounterparty,
+  }));
+  assertFalse(canAccessDirectConversation(fc, {
+    fcActorId: OTHER_FC_ID,
+    counterparty: developerCounterparty,
+  }));
+  assert(canAccessDirectConversation(admin, {
+    fcActorId: FC_ID,
+    counterparty: sharedAdminCounterparty,
+  }));
+  assertFalse(canAccessDirectConversation(admin, {
+    fcActorId: FC_ID,
+    counterparty: developerCounterparty,
+  }));
+  assert(canAccessDirectConversation(developer, {
+    fcActorId: FC_ID,
+    counterparty: developerCounterparty,
+  }));
+  assertFalse(canAccessDirectConversation(manager, {
+    fcActorId: FC_ID,
+    counterparty: developerCounterparty,
+  }));
+  assert(canAccessDirectConversation(manager, {
+    fcActorId: FC_ID,
+    counterparty: managerCounterparty,
+  }));
 });
 
 Deno.test('new message identities are server-derived and actor-bound', () => {
@@ -64,16 +103,18 @@ Deno.test('new message identities are server-derived and actor-bound', () => {
     actor: fc,
     fcActorId: FC_ID,
     fcPhone: fc.phone,
+    counterparty: developerCounterparty,
   }), {
     senderId: fc.phone,
-    receiverId: 'admin',
+    receiverId: developer.phone,
     senderActorId: FC_ID,
-    receiverActorId: null,
+    receiverActorId: DEVELOPER_ID,
   });
   assertEquals(buildDirectMessageIdentity({
     actor: developer,
     fcActorId: FC_ID,
     fcPhone: fc.phone,
+    counterparty: developerCounterparty,
   }), {
     senderId: developer.phone,
     receiverId: fc.phone,
@@ -84,6 +125,7 @@ Deno.test('new message identities are server-derived and actor-bound', () => {
     actor: manager,
     fcActorId: FC_ID,
     fcPhone: fc.phone,
+    counterparty: managerCounterparty,
   }), {
     senderId: manager.phone,
     receiverId: fc.phone,
@@ -96,6 +138,7 @@ Deno.test('current rows require the stable sender/receiver pair and immutable FC
   assert(isCurrentDirectMessageVisible({
     fcActorId: FC_ID,
     fcPhone: fc.phone,
+    counterparty: sharedAdminCounterparty,
     row: {
       sender_id: 'admin',
       receiver_id: fc.phone,
@@ -106,6 +149,7 @@ Deno.test('current rows require the stable sender/receiver pair and immutable FC
   assertFalse(isCurrentDirectMessageVisible({
     fcActorId: FC_ID,
     fcPhone: fc.phone,
+    counterparty: sharedAdminCounterparty,
     row: {
       sender_id: 'admin',
       receiver_id: '01099999999',
@@ -116,11 +160,23 @@ Deno.test('current rows require the stable sender/receiver pair and immutable FC
   assertFalse(isCurrentDirectMessageVisible({
     fcActorId: FC_ID,
     fcPhone: fc.phone,
+    counterparty: sharedAdminCounterparty,
     row: {
       sender_id: fc.phone,
       receiver_id: 'admin',
       sender_actor_id: OTHER_FC_ID,
       receiver_actor_id: null,
+    },
+  }));
+  assert(isCurrentDirectMessageVisible({
+    fcActorId: FC_ID,
+    fcPhone: fc.phone,
+    counterparty: sharedAdminCounterparty,
+    row: {
+      sender_id: developer.phone,
+      receiver_id: fc.phone,
+      sender_actor_id: DEVELOPER_ID,
+      receiver_actor_id: FC_ID,
     },
   }));
 });
@@ -131,9 +187,24 @@ Deno.test('legacy rows are exact-pair visible and ambiguous admin deletion fails
     receiver_id: fc.phone,
     sender_actor_id: null,
   };
-  assert(isLegacyDirectMessageVisible({ actor: fc, fcPhone: fc.phone, row: sharedAdminRow }));
-  assert(isLegacyDirectMessageVisible({ actor: admin, fcPhone: fc.phone, row: sharedAdminRow }));
-  assertFalse(canDeleteDirectMessage({ actor: admin, fcPhone: fc.phone, row: sharedAdminRow }));
+  assert(isLegacyDirectMessageVisible({
+    actor: fc,
+    fcPhone: fc.phone,
+    counterpartyId: 'admin',
+    row: sharedAdminRow,
+  }));
+  assert(isLegacyDirectMessageVisible({
+    actor: admin,
+    fcPhone: fc.phone,
+    counterpartyId: 'admin',
+    row: sharedAdminRow,
+  }));
+  assertFalse(canDeleteDirectMessage({
+    actor: admin,
+    fcPhone: fc.phone,
+    counterpartyId: 'admin',
+    row: sharedAdminRow,
+  }));
 
   const developerLegacyRow = {
     sender_id: developer.phone,
@@ -143,16 +214,19 @@ Deno.test('legacy rows are exact-pair visible and ambiguous admin deletion fails
   assert(isLegacyDirectMessageVisible({
     actor: developer,
     fcPhone: fc.phone,
+    counterpartyId: developer.phone,
     row: developerLegacyRow,
   }));
   assert(canDeleteDirectMessage({
     actor: developer,
     fcPhone: fc.phone,
+    counterpartyId: developer.phone,
     row: developerLegacyRow,
   }));
   assertFalse(isLegacyDirectMessageVisible({
     actor: admin,
     fcPhone: fc.phone,
+    counterpartyId: developer.phone,
     row: developerLegacyRow,
   }));
 });
@@ -163,6 +237,16 @@ Deno.test('immutable sender actor prevents spoofed delete', () => {
     receiver_id: fc.phone,
     sender_actor_id: DEVELOPER_ID,
   };
-  assert(canDeleteDirectMessage({ actor: developer, fcPhone: fc.phone, row }));
-  assertFalse(canDeleteDirectMessage({ actor: admin, fcPhone: fc.phone, row }));
+  assert(canDeleteDirectMessage({
+    actor: developer,
+    fcPhone: fc.phone,
+    counterpartyId: developer.phone,
+    row,
+  }));
+  assertFalse(canDeleteDirectMessage({
+    actor: admin,
+    fcPhone: fc.phone,
+    counterpartyId: developer.phone,
+    row,
+  }));
 });

@@ -33,6 +33,7 @@ source_of_truth: code + handbook/*
 - 개발자 온보딩: [developer-onboarding.md](./developer-onboarding.md)
 - 변경 의무: [change-checklist.md](./change-checklist.md)
 - 릴리스·배포 체크리스트: [../deployment/DEPLOYMENT.md](../deployment/DEPLOYMENT.md)
+- 관리자 웹 Microsoft Store PWA: [admin-web/microsoft-store-pwa.md](./admin-web/microsoft-store-pwa.md)
 - 명령 안전 등급: [../guides/COMMANDS.md](../guides/COMMANDS.md)
 
 ## 문서군

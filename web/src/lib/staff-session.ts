@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const STAFF_SESSION_COOKIE = 'staff_session';
 export const STAFF_SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
@@ -31,8 +31,24 @@ type VerifyStaffSessionOptions = SessionSecretOptions & {
   nowMs?: number;
 };
 
+type StaffSessionDevelopmentGlobal = typeof globalThis & {
+  __staffSessionDevelopmentSecret?: string;
+};
+
+function getDevelopmentStaffSessionSecret() {
+  if (process.env.NODE_ENV !== 'development') {
+    return undefined;
+  }
+
+  const developmentGlobal = globalThis as StaffSessionDevelopmentGlobal;
+  developmentGlobal.__staffSessionDevelopmentSecret ??= randomBytes(32).toString('base64url');
+  return developmentGlobal.__staffSessionDevelopmentSecret;
+}
+
 function getStaffSessionSecrets(explicitSecret?: string, explicitPreviousSecret?: string) {
-  const currentSecret = explicitSecret ?? process.env.STAFF_SESSION_SECRET;
+  const currentSecret = explicitSecret
+    ?? process.env.STAFF_SESSION_SECRET
+    ?? getDevelopmentStaffSessionSecret();
   const previousSecret = explicitPreviousSecret
     ?? (explicitSecret === undefined ? process.env.STAFF_SESSION_PREVIOUS_SECRET : undefined);
 

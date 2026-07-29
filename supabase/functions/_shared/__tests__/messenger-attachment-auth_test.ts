@@ -17,10 +17,13 @@ const FC_ID = "00000000-0000-4000-8000-000000001001";
 const OTHER_FC_ID = "00000000-0000-4000-8000-000000001002";
 const ADMIN_ID = "00000000-0000-4000-8000-000000002001";
 const OTHER_ADMIN_ID = "00000000-0000-4000-8000-000000002002";
+const DEVELOPER_ID = "00000000-0000-4000-8000-000000002003";
 const MANAGER_ID = "00000000-0000-4000-8000-000000003001";
 const BATCH_ID = "00000000-0000-4000-8000-000000004001";
 const CONVERSATION_ID = "00000000-0000-4000-8000-000000005001";
 const OTHER_CONVERSATION_ID = "00000000-0000-4000-8000-000000005002";
+const THREAD_ID = "00000000-0000-4000-8000-000000005101";
+const OTHER_THREAD_ID = "00000000-0000-4000-8000-000000005102";
 const ROOM_ID = "00000000-0000-4000-8000-000000006001";
 
 function matches(
@@ -57,6 +60,15 @@ class FakeQuery implements PromiseLike<QueryResult> {
 
   in(column: string, value: unknown[]) {
     this.filters.push({ kind: "in", column, value });
+    return this;
+  }
+
+  is(column: string, value: unknown) {
+    this.filters.push({ kind: "eq", column, value });
+    return this;
+  }
+
+  limit(_value: number) {
     return this;
   }
 
@@ -150,6 +162,12 @@ const managerActor: MessengerAttachmentActor = {
   role: "manager",
   phone: "01055556666",
   displayName: "본부장",
+};
+const developerActor: MessengerAttachmentActor = {
+  id: DEVELOPER_ID,
+  role: "admin",
+  phone: "01077778888",
+  displayName: "개발자",
 };
 
 Deno.test("trusted service authentication re-resolves an active immutable FC actor", async () => {
@@ -396,15 +414,28 @@ Deno.test("manager/admin/developer identities are active, typed and service-boun
   }
 });
 
-Deno.test("direct attachment access is shared by canonical staff but FC-bound to the exact conversation", async () => {
+Deno.test("direct attachment access follows the exact target thread", async () => {
   const fake = new FakeSupabase();
   fake.rows.messenger_attachment_delivery_batches = [batchRow({
     context_kind: "direct",
     conversation_id: CONVERSATION_ID,
   })];
-  fake.rows.garamin_direct_conversations = [{
-    id: CONVERSATION_ID,
-    fc_id: FC_ID,
+  fake.rows.messages = [{
+    attachment_batch_id: BATCH_ID,
+    thread_id: THREAD_ID,
+    sender_actor_id: FC_ID,
+    receiver_actor_id: null,
+    deleted_at: null,
+  }];
+  fake.rows.garamin_direct_threads = [{
+    id: THREAD_ID,
+    counterparty_role: "admin",
+    counterparty_actor_id: null,
+  }];
+  fake.rows.admin_accounts = [{
+    id: ADMIN_ID,
+    staff_type: "admin",
+    active: true,
   }];
 
   assertEquals(
@@ -437,7 +468,7 @@ Deno.test("direct attachment access is shared by canonical staff but FC-bound to
       actor: managerActor,
       batchId: BATCH_ID,
     }),
-    true,
+    false,
   );
 });
 
@@ -488,7 +519,48 @@ Deno.test("group access requires a committed batch and active room for FC viewer
   );
 });
 
-Deno.test("broadcast access follows the shared admin inbox or an included FC conversation", async () => {
+Deno.test("developer attachment access is bound to the exact developer thread", async () => {
+  const fake = new FakeSupabase();
+  fake.rows.messenger_attachment_delivery_batches = [batchRow({
+    context_kind: "direct",
+    conversation_id: CONVERSATION_ID,
+  })];
+  fake.rows.messages = [{
+    attachment_batch_id: BATCH_ID,
+    thread_id: THREAD_ID,
+    sender_actor_id: FC_ID,
+    receiver_actor_id: DEVELOPER_ID,
+    deleted_at: null,
+  }];
+  fake.rows.garamin_direct_threads = [{
+    id: THREAD_ID,
+    counterparty_role: "developer",
+    counterparty_actor_id: DEVELOPER_ID,
+  }];
+  fake.rows.admin_accounts = [
+    { id: DEVELOPER_ID, staff_type: "developer", active: true },
+    { id: ADMIN_ID, staff_type: "admin", active: true },
+  ];
+
+  assertEquals(
+    await canActorAccessMessengerAttachmentBatch({
+      supabase: asClient(fake),
+      actor: developerActor,
+      batchId: BATCH_ID,
+    }),
+    true,
+  );
+  assertEquals(
+    await canActorAccessMessengerAttachmentBatch({
+      supabase: asClient(fake),
+      actor: adminActor,
+      batchId: BATCH_ID,
+    }),
+    false,
+  );
+});
+
+Deno.test("broadcast access follows its exact shared-admin threads and included FCs", async () => {
   const fake = new FakeSupabase();
   fake.rows.messenger_attachment_delivery_batches = [batchRow({
     actor_id: ADMIN_ID,
@@ -496,9 +568,37 @@ Deno.test("broadcast access follows the shared admin inbox or an included FC con
     conversation_id: null,
     conversation_ids: [CONVERSATION_ID, OTHER_CONVERSATION_ID],
   })];
-  fake.rows.garamin_direct_conversations = [
-    { id: CONVERSATION_ID, fc_id: FC_ID },
-    { id: OTHER_CONVERSATION_ID, fc_id: OTHER_FC_ID },
+  fake.rows.messages = [
+    {
+      attachment_batch_id: BATCH_ID,
+      thread_id: THREAD_ID,
+      sender_actor_id: ADMIN_ID,
+      receiver_actor_id: FC_ID,
+      deleted_at: null,
+    },
+    {
+      attachment_batch_id: BATCH_ID,
+      thread_id: OTHER_THREAD_ID,
+      sender_actor_id: ADMIN_ID,
+      receiver_actor_id: OTHER_FC_ID,
+      deleted_at: null,
+    },
+  ];
+  fake.rows.garamin_direct_threads = [
+    {
+      id: THREAD_ID,
+      counterparty_role: "admin",
+      counterparty_actor_id: null,
+    },
+    {
+      id: OTHER_THREAD_ID,
+      counterparty_role: "admin",
+      counterparty_actor_id: null,
+    },
+  ];
+  fake.rows.admin_accounts = [
+    { id: ADMIN_ID, staff_type: "admin", active: true },
+    { id: OTHER_ADMIN_ID, staff_type: "admin", active: true },
   ];
 
   assertEquals(

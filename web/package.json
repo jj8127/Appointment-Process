@@ -31,6 +31,7 @@
     "react-dom": "19.2.0",
     "react-force-graph-2d": "^1.29.1",
     "web-push": "^3.6.7",
+    "write-excel-file": "^4.1.1",
     "zod": "^4.1.13"
   },
   "devDependencies": {
@@ -40,6 +41,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "^16.2.10",
+    "fflate": "^0.8.2",
     "postcss": "8.5.16",
     "typescript": "^5"
   },

@@ -30,6 +30,25 @@
       ]
     },
     {
+      "id": "mobile-referral-revenue-demo",
+      "prefixes": [
+        "app/referral-revenue-graph.tsx",
+        "components/referral-revenue-graph/",
+        "data/referral-revenue-demo.ts",
+        "lib/referral-revenue-demo.ts",
+        "lib/referral-revenue-graph-native.ts",
+        "types/referral-revenue-graph.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/referral-revenue-demo.test.ts",
+        "lib/__tests__/referral-revenue-graph-native.test.ts",
+        "lib/__tests__/referral-revenue-demo-source.test.ts",
+        "lib/__tests__/referral-revenue-graph-link.test.ts",
+        "docs/referral-system/TEST_CHECKLIST.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
       "id": "exam-payment-proof",
       "prefixes": [
         "app/exam-apply.tsx",
@@ -116,6 +135,30 @@
       ]
     },
     {
+      "id": "notification-center-read-state",
+      "prefixes": [
+        "app/notifications.tsx",
+        "lib/mobile-unread-notification-count.ts",
+        "lib/mobile-unread-notification-count-plan.ts",
+        "lib/notification-center-read-state.ts",
+        "lib/notification-notice-checkpoint.ts",
+        "supabase/functions/fc-notify/",
+        "supabase/functions/_shared/fc-notify-auth-policy.ts",
+        "supabase/functions/_shared/notification-inbox-pagination.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/notification-center-read-state.test.ts",
+        "lib/__tests__/notification-center-read-state-source.test.ts",
+        "lib/__tests__/notification-inbox-pagination.test.ts",
+        "lib/__tests__/notification-notice-checkpoint.test.ts",
+        "lib/__tests__/mobile-unread-notification-count-plan.test.ts",
+        "lib/__tests__/fc-notify-edge-auth-policy.test.ts",
+        "supabase/functions/__tests__/fc-notify-inbox-unread.contract.test.ts",
+        "docs/handbook/backend/notifications-inbox-push.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
       "id": "messenger-interactions",
       "prefixes": [
         "app/chat.tsx",
@@ -123,11 +166,17 @@
         "app/request-board-messenger.tsx",
         "components/MessageUnreadReceiptBadge.tsx",
         "components/LinkifiedSelectableText.tsx",
+        "lib/direct-message-api.ts",
         "lib/group-chat-contract.ts",
+        "supabase/functions/fc-notify/",
         "supabase/functions/group-chat/",
+        "supabase/functions/messenger-attachments/",
+        "supabase/functions/_shared/direct-message-policy.ts",
+        "supabase/functions/_shared/messenger-attachment-auth.ts",
         "supabase/functions/_shared/group-chat-notification-event.ts",
         "supabase/functions/_shared/__tests__/group-chat-notification-event_test.ts",
         "supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts",
+        "supabase/migrations/20260729032148_direct_message_target_isolation.sql",
         "lib/message-read-receipts.ts",
         "lib/internal-chat-api.ts",
         "lib/request-board-api.ts",
@@ -140,6 +189,10 @@
         "lib/__tests__/group-chat-edge-source.test.ts",
         "supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts",
         "supabase/functions/_shared/__tests__/group-chat-notification-event_test.ts",
+        "supabase/functions/_shared/__tests__/direct-message-policy_test.ts",
+        "supabase/functions/_shared/__tests__/messenger-attachment-auth_test.ts",
+        "lib/__tests__/direct-message-target-isolation.test.ts",
+        "lib/__tests__/direct-message-service-boundary.test.ts",
         "lib/__tests__/mobile-chat-source.test.ts",
         "lib/__tests__/admin-web-chat-source.test.ts",
         "lib/__tests__/request-board-api-contract.test.ts",

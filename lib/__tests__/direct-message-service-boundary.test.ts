@@ -64,8 +64,10 @@ describe('direct message trusted service boundary', () => {
     ]) {
       expect(source).toContain(`body.type === '${action}'`);
     }
-    expect(source).toContain('canAccessDirectConversation(appActor, resolution.fcId)');
+    expect(source).toContain('canAccessDirectConversation(input.actor, {');
+    expect(source).toContain('counterparty: counterpartyResult.counterparty');
     expect(source).toContain('buildDirectMessageIdentity({');
+    expect(source).toContain('counterparty: resolution.counterparty');
     expect(source).toContain('sender_id: identity.senderId');
     expect(source).toContain('receiver_id: identity.receiverId');
     expect(source).toContain('sender_actor_id: identity.senderActorId');

@@ -67,12 +67,12 @@ export type ReferralGraphPointerDragTarget = {
   nodeId: string;
   x: number;
   y: number;
+  members?: ReferralGraphPointerDragMember[];
 };
-export type ReferralGraphPointerDragForceOptions = {
-  stiffness: number;
-  damping: number;
-  maxVelocity: number;
-  minAlpha: number;
+export type ReferralGraphPointerDragMember = {
+  nodeId: string;
+  offsetX: number;
+  offsetY: number;
 };
 
 const DEFAULT_DRAG_LOCALITY_FORCE: ReferralGraphDragLocalityForceOptions = {
@@ -92,13 +92,6 @@ const DEFAULT_DRAG_ELASTIC_TETHER_FORCE: ReferralGraphDragElasticTetherForceOpti
   maxVelocity: 220,
   minAlpha: 0.75,
 };
-const DEFAULT_POINTER_DRAG_FORCE: ReferralGraphPointerDragForceOptions = {
-  stiffness: 1.18,
-  damping: 0.66,
-  maxVelocity: 220,
-  minAlpha: 0.9,
-};
-
 type VelocityNode = {
   id: string;
   x?: number;
@@ -405,6 +398,99 @@ export type ReferralGraphLinkTensionOptions = {
   thresholdMultiplier?: number;
 };
 
+export type ReferralGraphMaxLinkStretchOptions = {
+  activeDraggedNodeIdRef?: {
+    current: string | null;
+  };
+  controlledNodeIdsRef: {
+    current: Set<string>;
+  };
+  dragStartDistanceByLinkKeyRef: {
+    current: Map<string, number>;
+  };
+  iterations?: number;
+  maxStretchMultiplier?: number;
+};
+
+export function getReferralGraphLinkKey<T extends ReferralGraphLayoutMemoryNode>(
+  link: ReferralGraphDragSpringLink<T>,
+) {
+  const sourceId = getLinkEndpointId(link.source);
+  const targetId = getLinkEndpointId(link.target);
+  return JSON.stringify(sourceId <= targetId ? [sourceId, targetId] : [targetId, sourceId]);
+}
+
+export function captureReferralGraphLinkDistances<T extends ReferralGraphLayoutMemoryNode>(
+  links: Array<ReferralGraphDragSpringLink<T>>,
+  nodesById: ReadonlyMap<string, T>,
+) {
+  const distances = new Map<string, number>();
+
+  for (const link of links) {
+    const source = resolveLinkedNode(link.source, nodesById);
+    const target = resolveLinkedNode(link.target, nodesById);
+    if (
+      !source
+      || !target
+      || !hasFiniteCoordinate(source.x)
+      || !hasFiniteCoordinate(source.y)
+      || !hasFiniteCoordinate(target.x)
+      || !hasFiniteCoordinate(target.y)
+    ) {
+      continue;
+    }
+
+    const distance = Math.hypot(target.x - source.x, target.y - source.y);
+    if (distance > 0) {
+      distances.set(getReferralGraphLinkKey(link), distance);
+    }
+  }
+
+  return distances;
+}
+
+export function buildReferralGraphPointerDragMembers<T extends VelocityNode>(
+  draggedNodeId: string,
+  directNeighborIds: Iterable<string>,
+  nodesById: ReadonlyMap<string, T>,
+) {
+  const draggedNode = nodesById.get(draggedNodeId);
+  if (
+    !draggedNode
+    || !hasFiniteCoordinate(draggedNode.x)
+    || !hasFiniteCoordinate(draggedNode.y)
+  ) {
+    return [] as ReferralGraphPointerDragMember[];
+  }
+
+  const members: ReferralGraphPointerDragMember[] = [{
+    nodeId: draggedNodeId,
+    offsetX: 0,
+    offsetY: 0,
+  }];
+
+  for (const nodeId of [...directNeighborIds].sort()) {
+    if (nodeId === draggedNodeId) {
+      continue;
+    }
+    const node = nodesById.get(nodeId);
+    if (
+      !node
+      || !hasFiniteCoordinate(node.x)
+      || !hasFiniteCoordinate(node.y)
+    ) {
+      continue;
+    }
+    members.push({
+      nodeId,
+      offsetX: node.x - draggedNode.x,
+      offsetY: node.y - draggedNode.y,
+    });
+  }
+
+  return members;
+}
+
 export type ReferralGraphClusterSeparationOptions = {
   activeDraggedNodeIdRef?: {
     current: string | null;
@@ -630,7 +716,7 @@ export function createReferralGraphDragSpringForce<T extends ReferralGraphLayout
 
 function resolveLinkedNode<T extends ReferralGraphLayoutMemoryNode>(
   value: string | T,
-  nodesById: Map<string, T>,
+  nodesById: ReadonlyMap<string, T>,
 ) {
   return typeof value === 'object' ? value : nodesById.get(value);
 }
@@ -888,34 +974,181 @@ export function createReferralGraphDragElasticTetherForce<T extends VelocityNode
 
 export function createReferralGraphPointerDragForce<T extends VelocityNode>(
   pointerDragTargetRef: { current: ReferralGraphPointerDragTarget | null },
-  options: Partial<ReferralGraphPointerDragForceOptions> = {},
 ): { (alpha: number): void; initialize: (nodes: T[]) => void } {
-  const config = {
-    ...DEFAULT_POINTER_DRAG_FORCE,
-    ...options,
-  };
   let nodesById = new Map<string, T>();
 
-  const force = ((alpha: number) => {
+  const force = (() => {
     const target = pointerDragTargetRef.current;
     if (!target) {
       return;
     }
 
-    const node = nodesById.get(target.nodeId);
-    if (
-      !node
-      || !hasFiniteCoordinate(node.x)
-      || !hasFiniteCoordinate(node.y)
-    ) {
+    const members = target.members?.length
+      ? target.members
+      : [{ nodeId: target.nodeId, offsetX: 0, offsetY: 0 }];
+
+    for (const member of members) {
+      const node = nodesById.get(member.nodeId);
+      if (!node) {
+        continue;
+      }
+
+      const targetX = target.x + member.offsetX;
+      const targetY = target.y + member.offsetY;
+      node.x = targetX;
+      node.y = targetY;
+      node.vx = 0;
+      node.vy = 0;
+      (node as T & { fx?: number | null }).fx = targetX;
+      (node as T & { fy?: number | null }).fy = targetY;
+    }
+  }) as unknown as { (alpha: number): void; initialize: (nodes: T[]) => void };
+
+  force.initialize = (nodes: T[]) => {
+    nodesById = new Map(nodes.map((node) => [node.id, node]));
+  };
+
+  return force;
+}
+
+export function createReferralGraphMaxLinkStretchForce<T extends ReferralGraphLayoutMemoryNode>(
+  links: Array<ReferralGraphDragSpringLink<T>>,
+  options: ReferralGraphMaxLinkStretchOptions,
+): { (alpha: number): void; initialize: (nodes: T[]) => void } {
+  let nodesById = new Map<string, T>();
+
+  const force = (() => {
+    const activeDraggedNodeId = options.activeDraggedNodeIdRef?.current;
+    if (!activeDraggedNodeId) {
       return;
     }
 
-    const effectiveAlpha = Math.max(alpha, config.minAlpha);
-    const spring = config.stiffness * effectiveAlpha;
-    node.vx = ((node.vx ?? 0) * config.damping) + ((target.x - node.x) * spring);
-    node.vy = ((node.vy ?? 0) * config.damping) + ((target.y - node.y) * spring);
-    clampVelocity(node, config.maxVelocity);
+    const maxStretchMultiplier = clamp(options.maxStretchMultiplier ?? 1.2, 1, 2);
+    const iterations = Math.round(clamp(options.iterations ?? 12, 1, 32));
+    const controlledNodeIds = options.controlledNodeIdsRef.current;
+    const dragStartDistanceByLinkKey = options.dragStartDistanceByLinkKeyRef.current;
+    const activeComponentNodeIds = new Set([activeDraggedNodeId]);
+    const pendingNodeIds = [activeDraggedNodeId];
+
+    while (pendingNodeIds.length > 0) {
+      const nodeId = pendingNodeIds.shift();
+      if (!nodeId) {
+        continue;
+      }
+
+      for (const link of links) {
+        const sourceId = getLinkEndpointId(link.source);
+        const targetId = getLinkEndpointId(link.target);
+        const neighborId = sourceId === nodeId
+          ? targetId
+          : targetId === nodeId
+            ? sourceId
+            : null;
+        if (neighborId && !activeComponentNodeIds.has(neighborId)) {
+          activeComponentNodeIds.add(neighborId);
+          pendingNodeIds.push(neighborId);
+        }
+      }
+    }
+
+    for (let iteration = 0; iteration < iterations; iteration += 1) {
+      for (const link of links) {
+        const sourceId = getLinkEndpointId(link.source);
+        const targetId = getLinkEndpointId(link.target);
+        if (
+          !activeComponentNodeIds.has(sourceId)
+          || !activeComponentNodeIds.has(targetId)
+        ) {
+          continue;
+        }
+        const source = resolveLinkedNode(link.source, nodesById);
+        const target = resolveLinkedNode(link.target, nodesById);
+        const dragStartDistance = dragStartDistanceByLinkKey.get(getReferralGraphLinkKey(link));
+
+        if (
+          !source
+          || !target
+          || !dragStartDistance
+          || !hasFiniteCoordinate(source.x)
+          || !hasFiniteCoordinate(source.y)
+          || !hasFiniteCoordinate(target.x)
+          || !hasFiniteCoordinate(target.y)
+        ) {
+          continue;
+        }
+
+        const sourceControlled = controlledNodeIds.has(sourceId);
+        const targetControlled = controlledNodeIds.has(targetId);
+        if (sourceControlled && targetControlled) {
+          continue;
+        }
+
+        const sourceMovable = !sourceControlled && source.fx == null && source.fy == null;
+        const targetMovable = !targetControlled && target.fx == null && target.fy == null;
+        if (!sourceMovable && !targetMovable) {
+          continue;
+        }
+
+        const sourceShare = sourceControlled
+          ? 0
+          : targetControlled
+            ? 1
+            : sourceMovable && targetMovable
+              ? 0.5
+              : sourceMovable
+                ? 1
+                : 0;
+        const targetShare = targetControlled
+          ? 0
+          : sourceControlled
+            ? 1
+            : sourceMovable && targetMovable
+              ? 0.5
+              : targetMovable
+                ? 1
+                : 0;
+        const maxDistance = dragStartDistance * maxStretchMultiplier;
+        const currentDx = target.x - source.x;
+        const currentDy = target.y - source.y;
+        const currentDistance = Math.hypot(currentDx, currentDy);
+        if (currentDistance > maxDistance && currentDistance > 0) {
+          const correction = currentDistance - maxDistance;
+          const unitX = currentDx / currentDistance;
+          const unitY = currentDy / currentDistance;
+
+          if (sourceShare > 0) {
+            source.x += unitX * correction * sourceShare;
+            source.y += unitY * correction * sourceShare;
+          }
+          if (targetShare > 0) {
+            target.x -= unitX * correction * targetShare;
+            target.y -= unitY * correction * targetShare;
+          }
+        }
+
+        const projectedSourceX = source.x + (source.vx ?? 0);
+        const projectedSourceY = source.y + (source.vy ?? 0);
+        const projectedTargetX = target.x + (target.vx ?? 0);
+        const projectedTargetY = target.y + (target.vy ?? 0);
+        const projectedDx = projectedTargetX - projectedSourceX;
+        const projectedDy = projectedTargetY - projectedSourceY;
+        const projectedDistance = Math.hypot(projectedDx, projectedDy);
+        if (projectedDistance > maxDistance && projectedDistance > 0) {
+          const correction = projectedDistance - maxDistance;
+          const unitX = projectedDx / projectedDistance;
+          const unitY = projectedDy / projectedDistance;
+
+          if (sourceShare > 0) {
+            source.vx = (source.vx ?? 0) + (unitX * correction * sourceShare);
+            source.vy = (source.vy ?? 0) + (unitY * correction * sourceShare);
+          }
+          if (targetShare > 0) {
+            target.vx = (target.vx ?? 0) - (unitX * correction * targetShare);
+            target.vy = (target.vy ?? 0) - (unitY * correction * targetShare);
+          }
+        }
+      }
+    }
   }) as unknown as { (alpha: number): void; initialize: (nodes: T[]) => void };
 
   force.initialize = (nodes: T[]) => {

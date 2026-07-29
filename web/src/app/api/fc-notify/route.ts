@@ -33,7 +33,7 @@ function getBrowserRateLimit(action: BrowserFcNotifyPayload['type']) {
   return 120;
 }
 
-async function isEligibleFcTarget(targetId: string) {
+async function loadCompletedFcTargetRows(targetId: string) {
   const phoneCandidates = buildPhoneCandidates(targetId, targetId);
   const { data, error } = await adminSupabase
     .from('fc_profiles')
@@ -43,7 +43,23 @@ async function isEligibleFcTarget(targetId: string) {
     .limit(phoneCandidates.length);
 
   if (error) throw error;
-  return buildAdminChatTargets(data ?? []).some((target) => target.phone === targetId);
+  return data ?? [];
+}
+
+async function resolveCompletedFcTargetActorId(targetId: string): Promise<string | null> {
+  const rows = await loadCompletedFcTargetRows(targetId);
+  const normalizedTargetId = targetId.replace(/[^0-9]/g, '');
+  const matches = rows.filter((row) =>
+    String(row.id ?? '').trim().length > 0
+    && String(row.phone ?? '').replace(/[^0-9]/g, '') === normalizedTargetId
+  );
+
+  return matches.length === 1 ? String(matches[0].id) : null;
+}
+
+async function resolveEligibleAdminChatTargetActorId(targetId: string): Promise<string | null> {
+  const rows = await loadCompletedFcTargetRows(targetId);
+  return buildAdminChatTargets(rows).find((target) => target.phone === targetId)?.fc_id ?? null;
 }
 
 async function proxyToFcNotify(payload: BrowserFcNotifyPayload | Record<string, unknown>) {
@@ -129,7 +145,16 @@ export async function POST(req: Request) {
       );
       if (!rateLimit.allowed) return json({ error: 'Too many requests' }, 429);
 
-      return await proxyToFcNotify(bridgePolicy.payload);
+      const recipientActorId = await resolveCompletedFcTargetActorId(bridgePolicy.payload.target_id);
+      if (!recipientActorId) {
+        return json({ error: 'FC notification target is not allowed' }, 403);
+      }
+
+      const downstreamPayload: Record<string, unknown> = {
+        ...bridgePolicy.payload,
+        recipient_actor_id: recipientActorId,
+      };
+      return await proxyToFcNotify(downstreamPayload);
     }
 
     const originPolicy = verifyBrowserSameOrigin({
@@ -164,7 +189,7 @@ export async function POST(req: Request) {
     if (
       (browserPolicy.payload.type === 'message' || browserPolicy.payload.type === 'notify')
       && browserPolicy.payload.target_role === 'fc'
-      && !await isEligibleFcTarget(browserPolicy.payload.target_id)
+      && !await resolveEligibleAdminChatTargetActorId(browserPolicy.payload.target_id)
     ) {
       return json({ error: 'FC notification target is not allowed' }, 403);
     }

@@ -24,14 +24,18 @@ import { useSession } from '@/hooks/use-session';
 import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { prepareInboxNotificationNavigation } from '@/lib/inbox-notification-navigation';
 import { logger } from '@/lib/logger';
+import { fetchMobileUnreadNotificationCountOrThrow } from '@/lib/mobile-unread-notification-count';
+import { reconcileNotificationCenterReadState } from '@/lib/notification-center-read-state';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
 import { markNotificationNavigationPending } from '@/lib/notification-navigation-coordinator';
+import { advanceNotificationNoticeCheckpoint } from '@/lib/notification-notice-checkpoint';
 import {
   parseNotificationTarget,
   type NotificationTarget,
 } from '@/lib/notification-target';
 import { buildPendingNotificationOwnerBinding } from '@/lib/pending-notification-navigation';
 import { resolveNoticeRoute } from '@/lib/notice-route';
+import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { COLORS } from '@/lib/theme';
 
 type Notice = {
@@ -453,6 +457,7 @@ export default function NotificationsScreen() {
 
   const load = useCallback(async () => {
     if (!hydrated) return;
+    const viewedAt = new Date().toISOString();
     try {
       setLoadError(null);
       const { pushRows, noticeRows } = await fetchInbox();
@@ -469,8 +474,46 @@ export default function NotificationsScreen() {
           const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
           return bTime - aTime;
         });
-        if (!mountedRef.current) return;
-        setNotices(merged);
+      if (!mountedRef.current) return;
+      setNotices(merged);
+
+      if (inboxRole) {
+        await reconcileNotificationCenterReadState({
+          scope: {
+            role: inboxRole,
+            residentId: inboxResidentId,
+            requestBoardRole,
+          },
+          viewedAt,
+          rows: merged,
+        }, {
+          markRead: async (notificationIds) => {
+            const { data, error } = await invokeFcNotify<{
+              ok?: boolean;
+              authorized?: boolean;
+              state?: string;
+            }>({
+              type: 'inbox_mark_read',
+              role: inboxRole,
+              resident_id: inboxResidentId,
+              notification_ids: notificationIds,
+              include_request_board_fc: includeRequestBoardFcInbox,
+            });
+            if (error) throw error;
+            return data ?? {};
+          },
+          advanceNoticeCheckpoint: (scope, timestamp) =>
+            advanceNotificationNoticeCheckpoint(scope, timestamp),
+          fetchUnreadCount: (scope) =>
+            fetchMobileUnreadNotificationCountOrThrow(scope),
+          syncBadge: (unreadCount) =>
+            syncNativeNotificationBadge(unreadCount, {
+              context: 'notifications-screen-load',
+              dismissPresentedWhenZero: true,
+            }),
+          warn: (message, error) => logger.warn(message, error),
+        });
+      }
     } catch (err: unknown) {
       logger.warn('Failed to load notifications', err);
       if (mountedRef.current) {
@@ -481,7 +524,15 @@ export default function NotificationsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-    }, [fetchInbox, hydrated, loadHiddenNoticeIds]);
+    }, [
+      fetchInbox,
+      hydrated,
+      inboxResidentId,
+      inboxRole,
+      includeRequestBoardFcInbox,
+      loadHiddenNoticeIds,
+      requestBoardRole,
+    ]);
 
   useEffect(() => {
     void load();

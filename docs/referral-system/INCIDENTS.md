@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-06-08` 기준 등록된 추천인 이슈는 `23건`이다.
+- `2026-07-27` 기준 등록된 추천인 이슈는 `24건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-024 | 2026-07-27 | 매출 기여 그래프를 추천 관계 그래프와 다른 카드형 계층으로 구현함 | `RF-SELF-05` | fixed |
 | INC-023 | 2026-06-08 | 설정 화면 추천코드 공유가 예전 direct deep-link 문구를 계속 사용함 | `RF-LINK-06` | fixed |
 | INC-022 | 2026-04-26 | 관리자 추천인 그래프 체크리스트 미완료 상태를 완료처럼 보고함 | `RF-ADMIN-08` | monitoring |
 | INC-021 | 2026-04-25 | 관리자 추천인 그래프가 Obsidian 동등성 요청 뒤에도 custom force 누적으로 불안정해짐 | `RF-ADMIN-08` | monitoring |
@@ -69,6 +70,65 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-024 | 2026-07-27 | 매출 기여 그래프를 추천 관계 그래프와 다른 카드형 계층으로 구현함
+
+- symptom:
+  - 사용자가 기존 추천인 그래프처럼 node와 edge가 보이는 graph를 요청했지만,
+    첫 매출 기여 화면은 직사각형 hierarchy card를 세로 선으로 연결했다.
+- impact:
+  - 데이터 구조상 node/edge가 존재해도 사용자가 기대한 원형 network 탐색 경험과
+    달라 실제 UI 검토 목적을 충족하지 못했다.
+- trigger:
+  - Android emulator에서 첫 매출 기여 graph를 직접 확인한 직후.
+- rootCause:
+  - `node와 edge`를 데이터 의미로만 해석하고, 사용자가 지목한 기존 추천 관계
+    graph의 핵심 시각 primitive와 interaction을 acceptance에 넣지 않았다.
+  - corrective radial pass에서도 전체 맞춤 시 금액 label을 숨겼고 관리자 웹의
+    실제 force/collision 수치를 확인하지 않아 요청한 물리 parity를 충족하지 못했다.
+- fix:
+  - graph canvas를 원형 SVG node와 visible SVG edge의 deterministic fixed-tick
+    force network로 교체하고 관리자 웹 balanced physics 상수를 이식했다.
+  - hard collision-resolution pass로 node pair 겹침을 제거하고 각 원 안에 사람
+    식별자와 예상 배분액을 전체 맞춤 상태에서도 항상 표시했다.
+  - graph route를 full-safe-area canvas + translucent HUD로 바꾸고 node drag
+    hit-test, 실시간 interactive force step, release damping settle을 추가했다.
+  - native route 진입 시 landscape를 요청하고, 270pt 왼쪽 HUD와 오른쪽
+    playfield가 겹치지 않도록 fit inset을 분리했으며 이탈 시 portrait를
+    복원하도록 했다.
+  - 후속 사용자 검토에서 permanent HUD 자체가 graph 공간을 과도하게 점유함을
+    확인해, 기본 상태는 compact header와 설정 trigger만 남기고 summary/filter/
+    actions/legend/disclaimer를 dismissible 설정 panel로 이동했다. permanent
+    left/bottom fit reservation과 idle status badge도 제거했다.
+  - 독립 compact-HUD 검토에서 filtered context ancestor의 금액이 `경로`로
+    대체되고, panel에 세 번째 매출 summary와 전체 10% 경고가 누락되며 active
+    filter가 접근성 label에 포함되지 않은 문제를 발견했다. context node의
+    금액을 복원하고 panel/접근성 계약을 모두 보강한 뒤 재평가 PASS를 받았다.
+  - 한 손가락 pan, 두 손가락 pinch zoom, 화면 맞춤, 초기화, node 선택 ring과
+    read-only 상세를 추가했다.
+  - source regression이 `Circle`, `Line`, gesture/fit/reset 계약을 요구하고 이전
+    card/`ScrollView` renderer를 거부하도록 강화했다.
+- linkedCases:
+  - RF-SELF-05
+- evidence:
+  - Focused revenue/relationship graph regressions pass 7 suites / 45 tests.
+  - Compact-HUD source re-evaluation passes 4 suites / 28 tests with no
+    remaining P0/P1/P2 finding.
+  - Android emulator runtime confirms 2400x1080 landscape entry, circular
+    nodes/edges, live drag and settle, in-node amounts without overlap, and
+    1080x2400 portrait restoration on exit.
+  - Final screenshots confirm the collapsed full-canvas state, filtered
+    context-node amounts, three-summary panel, and fully scrolled warning.
+- reproduction:
+  1. `/referral`에서 `매출 기여 그래프 미리보기`를 누른다.
+  2. graph 탭이 직사각형 카드 열이 아니라 원형 node와 edge의 radial network인지 확인한다.
+  3. 기본 landscape 진입과 HUD/playfield 분리, pan/pinch, node drag,
+     `화면 맞춤`, `초기화`, node 선택 상세를 확인한다.
+  4. 화면에서 나간 뒤 주변 앱 화면이 portrait로 복원되는지 확인한다.
+- regressionCheck:
+  - `npx jest --runInBand lib/__tests__/referral-revenue-demo.test.ts lib/__tests__/referral-revenue-graph-native.test.ts lib/__tests__/referral-revenue-demo-source.test.ts lib/__tests__/referral-revenue-graph-link.test.ts`
+- notes:
+  - 기존 `/referral-graph` source와 실제 referral/API/DB 계약은 변경하지 않았다.
 
 ## INC-023 | 2026-06-08 | 설정 화면 추천코드 공유가 예전 direct deep-link 문구를 계속 사용함
 

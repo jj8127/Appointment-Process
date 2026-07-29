@@ -2,6 +2,7 @@ import {
   buildMobileUnreadFcNotifyBody,
   combineMobileUnreadCounts,
   fetchMobileUnreadNotificationCountWithDeps,
+  fetchMobileUnreadNotificationCountWithDepsOrThrow,
   resolveMobileUnreadBridgePlan,
 } from '@/lib/mobile-unread-notification-count-plan';
 
@@ -127,6 +128,7 @@ describe('buildMobileUnreadFcNotifyBody', () => {
         includeRequestBoardFcInbox: false,
         includeNoticeUnread: true,
         onlyRequestBoardCategories: false,
+        noticeSince: '2026-07-27T01:00:00.000Z',
       }),
     ).toEqual({
       type: 'inbox_unread_count',
@@ -136,6 +138,7 @@ describe('buildMobileUnreadFcNotifyBody', () => {
       include_request_board_fc: false,
       include_notices: true,
       only_request_board_categories: false,
+      notice_since: '2026-07-27T01:00:00.000Z',
     });
   });
 });
@@ -187,7 +190,7 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
     expect(deps.warn).not.toHaveBeenCalled();
   });
 
-  it('uses receipt-backed fc-notify unread state without a local checkpoint', async () => {
+  it('keeps receipt-backed rows independent while passing a notice-only checkpoint', async () => {
     const deps = makeUnreadDeps();
 
     await expect(
@@ -195,6 +198,7 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
         role: 'fc',
         residentId: '01051078127',
         requestBoardRole: null,
+        noticeSince: '2026-07-27T01:00:00.000Z',
       }, deps),
     ).resolves.toBe(3);
 
@@ -206,6 +210,7 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
       include_request_board_fc: false,
       include_notices: true,
       only_request_board_categories: false,
+      notice_since: '2026-07-27T01:00:00.000Z',
     });
     expect(deps.getRequestBoardUnreadCount).not.toHaveBeenCalled();
     expect(deps.warn).not.toHaveBeenCalled();
@@ -275,6 +280,22 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
       '[mobile-unread-count] fetch failed',
       expect.objectContaining({ message: 'fc-notify down' }),
     );
+  });
+
+  it('lets strict callers preserve an existing badge when fc-notify is unavailable', async () => {
+    const deps = makeUnreadDeps({
+      invokeFcNotify: jest.fn(async () => ({ data: null, error: new Error('fc-notify down') })),
+    });
+
+    await expect(
+      fetchMobileUnreadNotificationCountWithDepsOrThrow({
+        role: 'fc',
+        residentId: '01051078127',
+        requestBoardRole: null,
+      }, deps),
+    ).rejects.toThrow('fc-notify down');
+
+    expect(deps.warn).not.toHaveBeenCalled();
   });
 
   it('returns zero and logs the current warning when designer fc-notify count fails', async () => {

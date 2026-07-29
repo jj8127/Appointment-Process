@@ -8,6 +8,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import './globals.css';
 import { SessionProvider } from '@/hooks/use-session';
+import { PwaServiceWorkerRegistrar } from '@/components/PwaServiceWorkerRegistrar';
 import { WebPushRegistrar } from '@/components/WebPushRegistrar';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -17,8 +18,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ko" suppressHydrationWarning>
       <head>
         <ColorSchemeScript />
+        <meta name="theme-color" content="#f97316" />
       </head>
       <body>
+        <PwaServiceWorkerRegistrar />
         <MantineProvider
           defaultColorScheme="light"
           theme={{

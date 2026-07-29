@@ -7,6 +7,7 @@ import {
 } from './staff-session.ts';
 
 const SESSION_ENV_KEYS = [
+  'NODE_ENV',
   'STAFF_SESSION_SECRET',
   'STAFF_SESSION_PREVIOUS_SECRET',
   'AUTH_SECRET',
@@ -25,9 +26,9 @@ function withSessionEnv(
   for (const key of SESSION_ENV_KEYS) {
     const value = values[key];
     if (value === undefined) {
-      delete process.env[key];
+      Reflect.deleteProperty(process.env, key);
     } else {
-      process.env[key] = value;
+      Reflect.set(process.env, key, value);
     }
   }
 
@@ -37,9 +38,9 @@ function withSessionEnv(
     for (const key of SESSION_ENV_KEYS) {
       const value = previous[key];
       if (value === undefined) {
-        delete process.env[key];
+        Reflect.deleteProperty(process.env, key);
       } else {
-        process.env[key] = value;
+        Reflect.set(process.env, key, value);
       }
     }
   }
@@ -48,6 +49,7 @@ function withSessionEnv(
 describe('staff session secret boundary', () => {
   it('rejects service-role and other authentication-domain keys without a dedicated staff secret', () => {
     withSessionEnv({
+      NODE_ENV: 'production',
       AUTH_SECRET: 'auth-domain-secret-that-must-not-sign-staff-sessions',
       NEXTAUTH_SECRET: 'nextauth-domain-secret-that-must-not-sign-staff-sessions',
       SUPABASE_SERVICE_ROLE_KEY: 'service-role-key-that-must-not-sign-staff-sessions',
@@ -62,6 +64,23 @@ describe('staff session secret boundary', () => {
       assert.throws(
         () => verifyStaffSessionValue('payload.signature'),
         /Staff session secret is not configured/,
+      );
+    });
+  });
+
+  it('uses one process-local random secret only in development', () => {
+    withSessionEnv({
+      NODE_ENV: 'development',
+    }, () => {
+      const value = createStaffSessionValue({
+        role: 'admin',
+        residentDigits: 'opaque-admin-id',
+        nowMs: 1_000,
+      });
+
+      assert.equal(
+        verifyStaffSessionValue(value, { nowMs: 2_000 })?.residentDigits,
+        'opaque-admin-id',
       );
     });
   });

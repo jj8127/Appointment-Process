@@ -14,6 +14,12 @@ export type DirectMessageIdentity = {
   receiverActorId: string | null;
 };
 
+export type DirectConversationCounterparty = {
+  role: 'admin' | 'manager' | 'developer';
+  actorId: string | null;
+  phone: string | null;
+};
+
 export type DirectMessageRowIdentity = {
   sender_id?: string | null;
   receiver_id?: string | null;
@@ -42,12 +48,33 @@ export function isDirectMessageActorEligible(actor: DirectMessageActor): boolean
 
 export function canAccessDirectConversation(
   actor: DirectMessageActor,
-  conversationFcId: string,
+  input: {
+    fcActorId: string;
+    counterparty: DirectConversationCounterparty;
+  },
 ): boolean {
   if (!isDirectMessageActorEligible(actor)) return false;
-  return actor.sessionRole === 'fc'
-    ? actor.fcId === conversationFcId
-    : true;
+  if (actor.sessionRole === 'fc') {
+    return actor.fcId === input.fcActorId;
+  }
+  if (input.counterparty.role === 'admin') {
+    return (
+      actor.sessionRole === 'admin'
+      && actor.staffType === 'admin'
+      && input.counterparty.actorId === null
+    );
+  }
+  if (input.counterparty.role === 'developer') {
+    return (
+      actor.sessionRole === 'admin'
+      && actor.staffType === 'developer'
+      && input.counterparty.actorId === actor.actorId
+    );
+  }
+  return (
+    actor.sessionRole === 'manager'
+    && input.counterparty.actorId === actor.actorId
+  );
 }
 
 export function getLegacyDirectMessageActorId(actor: DirectMessageActor): string | null {
@@ -68,17 +95,31 @@ export function buildDirectMessageIdentity(input: {
   actor: DirectMessageActor;
   fcActorId: string;
   fcPhone: string;
+  counterparty: DirectConversationCounterparty;
 }): DirectMessageIdentity | null {
-  if (!isDirectMessageActorEligible(input.actor)) return null;
+  if (!canAccessDirectConversation(input.actor, {
+    fcActorId: input.fcActorId,
+    counterparty: input.counterparty,
+  })) return null;
   const fcPhone = digits(input.fcPhone);
   if (fcPhone.length !== 11) return null;
 
   if (input.actor.sessionRole === 'fc') {
+    const receiverId = input.counterparty.role === 'admin'
+      ? ADMIN_CHAT_ID
+      : digits(input.counterparty.phone);
+    if (
+      !receiverId
+      || (
+        input.counterparty.role !== 'admin'
+        && !input.counterparty.actorId
+      )
+    ) return null;
     return {
       senderId: fcPhone,
-      receiverId: ADMIN_CHAT_ID,
+      receiverId,
       senderActorId: input.actor.actorId,
-      receiverActorId: null,
+      receiverActorId: input.counterparty.actorId,
     };
   }
 
@@ -98,15 +139,20 @@ export function buildDirectMessageIdentity(input: {
 export function isLegacyDirectMessageVisible(input: {
   actor: DirectMessageActor;
   fcPhone: string;
+  counterpartyId: string;
   row: DirectMessageRowIdentity;
 }): boolean {
   const actorId = getLegacyDirectMessageActorId(input.actor);
   const fcPhone = digits(input.fcPhone);
+  const counterpartyId = input.counterpartyId === ADMIN_CHAT_ID
+    ? ADMIN_CHAT_ID
+    : digits(input.counterpartyId);
   const senderId = String(input.row.sender_id ?? '').trim();
   const receiverId = String(input.row.receiver_id ?? '').trim();
-  if (!actorId || fcPhone.length !== 11) return false;
+  if (!actorId || !counterpartyId || fcPhone.length !== 11) return false;
 
-  const counterpartId = input.actor.sessionRole === 'fc' ? ADMIN_CHAT_ID : fcPhone;
+  const counterpartId =
+    input.actor.sessionRole === 'fc' ? counterpartyId : fcPhone;
   return (
     (senderId === actorId && receiverId === counterpartId)
     || (senderId === counterpartId && receiverId === actorId)
@@ -116,20 +162,44 @@ export function isLegacyDirectMessageVisible(input: {
 export function isCurrentDirectMessageVisible(input: {
   fcActorId: string;
   fcPhone: string;
+  counterparty: DirectConversationCounterparty;
   row: DirectMessageRowIdentity;
 }): boolean {
   const fcPhone = digits(input.fcPhone);
+  const counterpartyId = input.counterparty.role === 'admin'
+    ? ADMIN_CHAT_ID
+    : digits(input.counterparty.phone);
   const senderId = String(input.row.sender_id ?? '').trim();
   const receiverId = String(input.row.receiver_id ?? '').trim();
   const senderActorId = String(input.row.sender_actor_id ?? '').trim();
   const receiverActorId = String(input.row.receiver_actor_id ?? '').trim();
-  if (fcPhone.length !== 11 || !input.fcActorId || !senderActorId) return false;
+  if (
+    fcPhone.length !== 11
+    || !input.fcActorId
+    || !counterpartyId
+    || !senderActorId
+  ) return false;
 
-  if (senderId === fcPhone && receiverId === ADMIN_CHAT_ID) {
-    return senderActorId === input.fcActorId && !receiverActorId;
+  if (senderId === fcPhone && receiverId === counterpartyId) {
+    return (
+      senderActorId === input.fcActorId
+      && receiverActorId === (input.counterparty.actorId ?? '')
+    );
   }
   if (receiverId === fcPhone) {
-    return receiverActorId === input.fcActorId;
+    const isCounterpartySender =
+      input.counterparty.role === 'admin'
+        ? senderId === ADMIN_CHAT_ID || digits(senderId).length === 11
+        : senderId === counterpartyId;
+    return (
+      receiverActorId === input.fcActorId
+      && isCounterpartySender
+      && (
+        input.counterparty.role === 'admin'
+          ? Boolean(senderActorId)
+          : senderActorId === input.counterparty.actorId
+      )
+    );
   }
   return false;
 }
@@ -137,6 +207,7 @@ export function isCurrentDirectMessageVisible(input: {
 export function canDeleteDirectMessage(input: {
   actor: DirectMessageActor;
   fcPhone: string;
+  counterpartyId: string;
   row: DirectMessageRowIdentity;
 }): boolean {
   const senderActorId = String(input.row.sender_actor_id ?? '').trim();
