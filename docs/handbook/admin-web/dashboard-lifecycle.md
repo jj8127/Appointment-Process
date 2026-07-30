@@ -59,7 +59,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - `/dashboard/profile/[id]`는 브라우저 anon Supabase client로 `fc_profiles`를 직접 읽지 않는다. 상세 기본정보와 `fc_documents`는 `/api/admin/fc`의 read-only `getProfile` action을 통해 service-role 서버 경로에서 조회해야 하며, singular-query `406`을 브라우저가 직접 받는 구현은 회귀로 본다.
 - FC 상세 모달과 `/dashboard/profile/[id]`는 `추천인` 아래에 invitee의 `가입 시 사용한 추천코드`를 함께 표시한다. confirmed attribution의 historical code가 우선이고, 그것이 없을 때만 inviter 현재 활성 코드 또는 구조화 링크 fallback을 사용하며, 모두 없으면 `-`로 유지한다.
 - temp-id, allowance, docs, hanwha, appointment, commission flag가 서로 상태 합성에 영향
-- 대시보드 상단 KPI 카드는 별도 summary table이 아니라 `/api/admin/list`로 받은 FC 배열을 client에서 다시 집계한다. `총 인원`은 디자이너를 제외한 `signup_completed` FC 수이며 하단 문구는 `가입 완료 FC 현황`으로 맞춘다.
+- 대시보드 상단 KPI 카드는 별도 summary table이 아니라 `/api/admin/list`로 받은 FC 배열을 client에서 다시 집계한다. `총 인원`은 디자이너 소속 표식과 활성 `manager_accounts` canonical phone을 모두 제외한 `signup_completed` FC 수이며 하단 문구는 `가입 완료 FC 현황`으로 맞춘다.
 - `/api/admin/list`의 소속 옵션과 legacy normalization은 `1본부`부터 `10본부`까지 지원한다. `10본부 [본부장: 한태균]`은 canonical `10본부 한태균`으로 내려주며, 두 자리 본부 번호를 한 자리 prefix로 오인하지 않는다.
 - 세 KPI 카드는 키보드 접근 가능한 목록 필터다. `보증 보험 동의 승인 대기`와 `서류검토 대기`를 누르면 아래 FC 목록이 카드 집계와 같은 파생 상태로 좁혀지고, 같은 카드를 다시 누르거나 `총 인원`을 누르면 전체로 복귀한다. 단계 탭을 선택하면 카드 필터는 해제되며 검색어는 유지한다.
 - `/dashboard` FC 목록 테이블 컬럼은 `web/src/lib/dashboard-table-display.ts`의 `DASHBOARD_FC_LIST_COLUMNS`를 기준으로 렌더링한다. `가입일`은 `/api/admin/list`가 `fc_credentials.password_set_at`을 우선 사용하고 없으면 `created_at`으로 보정한 `signup_completed_at`을 내려준다.

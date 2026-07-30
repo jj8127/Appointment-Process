@@ -17,6 +17,7 @@ export const DASHBOARD_FC_LIST_COLUMN_COUNT = DASHBOARD_FC_LIST_COLUMNS.length;
 export type DashboardResidentNumberCell =
   | { status: 'loading' }
   | { status: 'ready'; value: string }
+  | { status: 'missing' }
   | { status: 'unavailable' }
   | { status: 'error' };
 
@@ -28,11 +29,12 @@ export const formatDashboardResidentNumberCell = (
       return '조회 중';
     case 'ready':
       return cell.value;
+    case 'missing':
+      return '미입력';
     case 'unavailable':
-      return '조회 불가';
     case 'error':
     default:
-      return '조회 실패';
+      return '조회 불가';
   }
 };
 

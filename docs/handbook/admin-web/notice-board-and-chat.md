@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-NOTICE-BOARD-CHAT
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-06-08
+last_verified: 2026-07-29
 source_of_truth: web/src/app/dashboard/notifications/* + web/src/app/dashboard/board/page.tsx + web/src/app/dashboard/messenger/page.tsx + web/src/app/dashboard/chat/page.tsx
 
 # Admin Web Playbook: Notice, Board, Chat
@@ -27,7 +27,8 @@ source_of_truth: web/src/app/dashboard/notifications/* + web/src/app/dashboard/b
 - 공지 생성/수정/삭제
 - 게시글 확인
 - 운영 메시지 확인
-- web push permission 재등록
+- 헤더 알림센터에서 unread 확인, 읽음 처리, 정확한 대상 화면 이동
+- 브라우저/Windows 알림 권한·테스트·재등록 UI는 제공하지 않음
 
 ## 연관 문서
 

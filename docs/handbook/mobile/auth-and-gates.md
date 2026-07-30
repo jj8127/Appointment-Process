@@ -2,7 +2,7 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-07-26
+last_verified: 2026-07-30
 source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-session.tsx
 
 # Mobile Playbook: Auth And Gates
@@ -106,6 +106,22 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 - 설계매니저/디자이너 세션에서 `hooks/use-session.tsx`가 등록하는 mobile push token은 FC 토큰처럼 취급하면 안 된다. request_board 설계요청과 본인 채팅 알림만 받도록 역할/토큰 scope를 유지한다.
 - `hooks/use-session.tsx`는 mobile push 등록의 단일 owner입니다. transient 실패는 bounded retry하고, 성공·권한 거부·retry 소진 후 foreground 복귀 시 현재 signed session으로 다시 등록해 서버 token row 유실이나 권한 변경을 복구합니다. 지원하지 않는 platform/client/device 결과는 process 동안 terminal로 유지합니다.
 - 신규 가입·로그인에서 받은 `appSessionToken`은 push 등록보다 먼저 secure storage에 저장하고, token replacement마다 registration revision을 증가시켜 동일 role/resident 세션도 trusted 등록을 다시 실행해야 합니다. restore가 legacy session JSON의 토큰을 발견하면 secure storage로 이관한 뒤 새 JSON에는 자격증명을 포함하지 않습니다.
+
+## 2026-07-30 매출 기여 그래프 런타임 계약
+
+- `/referral-revenue-graph`의 네이티브 graph는 기존 `react-native-webview` 안의
+  외부 요청 없는 로컬 HTML 단일 Canvas에서 draw와 physics를 처리한다. node별
+  SVG/native Text를 drag frame마다 다시 그리는 경로를 추가하지 않는다.
+- WebView bridge는 `{type:'select-node', nodeId}`만 허용하고 앱은 현재 로컬 sample
+  node map에 존재하는 ID만 상세 선택으로 수락한다. file/universal file access,
+  mixed content, DOM storage, 외부 navigation은 비활성 상태를 유지한다.
+- node 이름·단계·금액 label은 screen-pixel 크기로 캐시하므로 pinch/fit/reset 중
+  글자 크기가 변하지 않는다. node 원과 edge만 graph scale을 따른다.
+- focus된 graph 및 graph 설정/상세는 landscape다. 목록과 목록 상세는 portrait이며,
+  header/Android back, route blur, unmount에서는 portrait를 먼저 요청한다.
+  orientation 요청은 last-request-wins로 처리해 늦게 끝난 landscape 요청이 이탈 후
+  다시 적용되지 않게 한다.
+- 신규 package, 실제 referral API/DB, 정산 데이터는 이 샘플 경로에 추가하지 않는다.
 
 ## 연관 문서
 

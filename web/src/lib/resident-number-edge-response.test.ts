@@ -21,6 +21,10 @@ test('accepts ok response with object residentNumbers', () => {
         'fc-1': '900101-1234567',
         'fc-2': null,
       },
+      residentNumberStatuses: {
+        'fc-1': 'ready',
+        'fc-2': 'missing',
+      },
     },
   );
 });
@@ -59,6 +63,41 @@ test('fails closed for masked, partial, or otherwise invalid row values', () => 
         'fc-masked': null,
         'fc-partial': null,
         'fc-missing': null,
+      },
+      residentNumberStatuses: {
+        'fc-masked': 'unavailable',
+        'fc-partial': 'unavailable',
+        'fc-missing': 'missing',
+      },
+    },
+  );
+});
+
+test('preserves explicit per-row decrypt failures from the edge function', () => {
+  assert.deepStrictEqual(
+    parseResidentNumberEdgeFallbackResponse({
+      responseOk: true,
+      data: {
+        ok: true,
+        residentNumbers: {
+          'fc-failed': null,
+          'fc-missing': null,
+        },
+        residentNumberStatuses: {
+          'fc-failed': 'unavailable',
+          'fc-missing': 'missing',
+        },
+      },
+    }),
+    {
+      ok: true,
+      residentNumbers: {
+        'fc-failed': null,
+        'fc-missing': null,
+      },
+      residentNumberStatuses: {
+        'fc-failed': 'unavailable',
+        'fc-missing': 'missing',
       },
     },
   );

@@ -1,4 +1,4 @@
-import type { ResidentNumberMap } from '@/lib/resident-number-client';
+import type { ResidentNumberReadResult } from '@/lib/resident-number-client';
 import type { DashboardResidentNumberCell } from '@/lib/dashboard-table-display';
 
 export type ResidentNumberCellMap = Record<string, DashboardResidentNumberCell>;
@@ -51,13 +51,20 @@ export function createVisiblePageResidentNumberScope(options: {
 
 export function resolveVisiblePageResidentNumbers(
   scope: VisiblePageResidentNumberScope,
-  residentNumbers: ResidentNumberMap,
+  result: ResidentNumberReadResult,
 ): ResolvedVisiblePageResidentNumbers {
   return {
     scopeKey: scope.key,
     cells: createCellMap(scope.fcIds, (fcId) => {
-      const value = residentNumbers[fcId];
-      return value ? { status: 'ready', value } : { status: 'unavailable' };
+      const value = result.residentNumbers[fcId];
+      const status = result.residentNumberStatuses[fcId];
+      if (status === 'ready' && value) {
+        return { status: 'ready', value };
+      }
+      if (status === 'missing') {
+        return { status: 'missing' };
+      }
+      return { status: 'unavailable' };
     }),
   };
 }

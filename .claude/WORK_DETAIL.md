@@ -13174,3 +13174,173 @@
 **Boundary**:
 - This alignment changes only repository governance and handbook evidence. It
   does not deploy code, mutate a database, or publish an application release.
+
+---
+
+## <a id="20260729-unused-native-picker-removal"></a> 2026-07-29 | Unused native picker removal
+
+**Diagnosis**:
+- Google Play native crashes reached
+  `RawPropsParser::prepare<RNCAndroidDropdownPickerProps>` and
+  `RawPropsParser::prepare<RNCAndroidDialogPickerProps>`.
+- The application had no picker import or usage, but
+  `@react-native-picker/picker` 2.11.1 remained a direct dependency and Expo
+  autolinking therefore compiled its native descriptors into the app.
+- That package release predates the React Native 0.81 New Architecture compile
+  option repair and was unnecessary application code.
+
+**Change**:
+- Removed the picker from `package.json`, `package-lock.json`, and the local
+  installation.
+- Added a root dependency contract that requires both the direct dependency and
+  lockfile package entry to remain absent.
+- Added the repeatable dependency-regression guardrail to `MISTAKES.md`.
+
+**Verification**:
+- Repository source search: no picker import or component usage.
+- `npm ls @react-native-picker/picker --all`: empty.
+- `npx expo install --check`: dependencies up to date.
+- Expo Android `react-native-config`: no picker module or picker descriptor.
+- Root dependency contract: 7/7 PASS.
+- `npx tsc --noEmit` and `npm run lint`: PASS.
+- Full root Jest: 189 suites / 1,143 tests PASS.
+- Sentry-upload-disabled Android Expo export: PASS, 3,079 modules bundled.
+- `npm audit --audit-level=high` reported pre-existing transitive advisories
+  whose automated fixes require breaking Expo/Jest upgrades; no unrelated
+  `npm audit fix` was applied.
+
+**Boundary**:
+- No New Architecture, screen, ANR, or business-flow code was changed.
+- No EAS/native build, OTA update, Play/App Store submission, deployment,
+  account, database, Edge Function, Sentry, or other remote state was changed.
+
+---
+
+## <a id="20260730-exam-applicant-status-separation"></a> 2026-07-30 | Exam applicant lifecycle-status separation
+
+**Diagnosis**:
+- The applicant API already returned `exam_registrations.status`, but the
+  shared reception formatter translated lifecycle values such as rejected and
+  cancelled into the `접수 상태` column.
+- That conflated the binary administrative reception flag with the
+  registration lifecycle and prevented a dedicated cancelled/rejected field.
+
+**Change**:
+- Kept `접수 상태` binary from `is_confirmed`.
+- Added the shared `신청 상태` field for active, completed, no-show, rejected,
+  FC-cancelled, and administrator-cancelled registrations.
+- Applied the same column and labels to the canonical dashboard table,
+  round-specific administrator table, and filtered XLSX workbook.
+- Changed workbook widths to header-keyed values so the additional column
+  cannot shift unrelated column sizing.
+
+**Verification**:
+- Shared display/workbook tests: 20/20 PASS.
+- Web TypeScript and scoped ESLint: PASS.
+- Sentry-disabled web production build, diff check, governance, and central
+  harness audit: recorded in the task handoff.
+
+**Boundary**:
+- No query, schema, RLS, RPC, Edge Function, account, Storage, deployment,
+  commit, or push change was required.
+
+---
+
+## <a id="20260730-minimal-exam-workbook"></a> 2026-07-30 | Minimal exam-applicant workbook styling
+
+**Change**:
+- Removed the solid orange title band, dark header band, and reception-based
+  whole-row fills from the generated applicant workbook.
+- Kept a white body, light-gray header/summary surfaces, subtle borders, and
+  conservative typography.
+- Restricted semantic color to the orange title, reception-status cell,
+  rejected/completed/cancelled application-status text, and proof hyperlink,
+  plus near-white whole-row fills for confirmed and rejected records only.
+- Preserved workbook values, column order, filters, frozen panes, widths,
+  literal identifier formatting, and signed-link behavior.
+
+**Verification**:
+- Focused workbook tests, web TypeScript, scoped ESLint, Sentry-disabled
+  Production build, diff check, governance, and central harness audit: recorded
+  in the task handoff.
+- The synthetic workbook was imported, inspected, scanned for formula errors,
+  rendered, and visually reviewed with the bundled spreadsheet runtime.
+
+**Boundary**:
+- No API, authorization, database, Storage, deployment, commit, or push change
+  was performed.
+
+---
+
+## <a id="20260730-referral-graph-drag-mobile-canvas-performance"></a> 2026-07-30 | Referral graph drag and mobile revenue-canvas performance
+
+**Requested behavior**:
+- In the administrator referral graph, dragging A must not rigidly translate B.
+  With A-B-C links, B and then C should react progressively through graph
+  physics.
+- The native revenue graph must stop stuttering, keep label size constant while
+  zooming, use landscape only for graph mode, and restore portrait everywhere
+  else.
+
+**Administrator graph change**:
+- Removed the grabbed-node-plus-neighbor rigid drag group. Only the grabbed node
+  receives pointer `fx/fy`; direct and indirect nodes stay unpinned.
+- Kept link, link-tension, charge, and collision active so motion propagates
+  through A-B-C rather than through copied pointer deltas.
+- Preserved release reheat/momentum and projected every affected edge under its
+  drag-start `1.2x` maximum length. Five-node-chain and randomized tree/cycle
+  tests cover the constraint and unrelated-component isolation.
+
+**Native revenue graph change**:
+- Initial optimizations removed derived-data churn and React commits, but
+  measured A1 drags still showed 100% jank: the Android renderer continued
+  rerasterizing moving SVG/native Text nodes.
+- The final native path uses the existing `react-native-webview` dependency with
+  an external-request-free local HTML document and one Canvas draw/physics loop.
+  Mutable numeric arrays handle center, charge, link/tension, damping, and
+  collision without per-node React/SVG frame work. Web keeps the existing SVG
+  fallback.
+- Node labels are cached on offscreen canvases and drawn in screen coordinates,
+  so node circles/edges scale while names, depths, and amounts retain their
+  screen-pixel size.
+- A 6px intent threshold separates tap from drag. Pointer cancellation neither
+  selects nor settles, the last pointer-up coordinate is committed, and the
+  animation frame loop sleeps while idle or route-blurred.
+- The local bridge requires the current revision, a local document URL, focus,
+  and a currently selectable node. CSP, navigation denial, mixed-content/file
+  access denial, and malformed-message rejection remain in place. Android
+  reports the native event URL as the literal `null`; runtime therefore accepts
+  only null/`null`/`about:blank` at the native layer and independently requires
+  the HTML message's `window.location.href` to equal `about:blank`.
+
+**Orientation and navigation**:
+- Focused graph, settings, and graph detail stay landscape.
+- List and list detail switch to portrait. Header/Android back, blur, and
+  unmount request portrait before leaving, including no-history route entry.
+- A last-request-wins coordinator rejects stale async landscape completions.
+
+**Verification**:
+- Independent final review: PASS with no Android-scope P0-P2 finding.
+- Focused revenue regression: 6 suites / 47 tests PASS.
+- Repository regression: 192 suites / 1,165 tests PASS.
+- Root TypeScript/lint, administrator web TypeScript/scoped lint, JSON,
+  diff check, harness audit, and Sentry-disabled Android export: PASS.
+- Workspace governance remains blocked by unrelated dirty notification,
+  resident-number, exam, and dashboard changes that require their own owner
+  documents; this task did not overwrite those in-flight changes.
+- Android 2400x1080 graph runtime: B1 node tap opened the native detail Modal;
+  graph/settings/detail stayed landscape and list/back restored portrait.
+- Warm 900ms A1 drag runs measured 1.94%, 3.92%, and 2.91% janky frames with
+  p50 18/18/24ms, p90 19/25/28ms, and zero slow bitmap uploads. Slow UI-thread
+  events were 0/0/1.
+- Earlier final Canvas runs before the bridge/intent hardening measured
+  0.93-1.85% jank, compared with the original SVG path's 100% jank and
+  650ms p50.
+
+**Boundary**:
+- Data remains labelled fictional local sample data. No package, real referral
+  query, financial data, API, database, Edge Function, deployment, release,
+  commit, or push change was performed.
+- TalkBack swipe fallback remains available through semantic node buttons.
+  Touch-exploration bounds matching the moving visual nodes and iPad split-view
+  orientation are not claimed by this Android emulator verification.

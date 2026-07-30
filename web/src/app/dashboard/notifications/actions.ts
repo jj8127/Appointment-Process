@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { sendWebPush } from '@/lib/web-push';
 import { adminSupabase } from '@/lib/admin-supabase';
 
 import { logger } from '@/lib/logger';
@@ -244,70 +243,9 @@ export async function createNoticeAction(
         });
     }
 
-    const { data: webSubs, error: webSubsError } = await adminSupabase
-        .from('web_push_subscriptions')
-        .select('endpoint,p256dh,auth')
-        .eq('role', 'fc');
-
-    if (webSubsError) {
-        logger.error('[notice] web push target query failed', {
-            category: 'notice',
-            reason: 'database_read_failed',
-            code: webSubsError.code ?? 'unknown',
-            status: 'failed',
-        });
-    }
-
-    const uniqueWebSubs = webSubsError
-        ? []
-        : Array.from(new Map(
-            (webSubs ?? []).map((subscription) => [subscription.endpoint, subscription]),
-        ).values());
-    let webPushSent = 0;
-    let webPushFailed = 0;
-    if (uniqueWebSubs.length > 0) {
-        try {
-            const result = await sendWebPush(uniqueWebSubs, {
-                title: `공지: ${title}`,
-                body,
-                data: {
-                    type: 'notice',
-                    url: targetUrl,
-                    target,
-                    ...(notificationId ? { notificationId } : {}),
-                },
-            });
-            webPushSent = result.sent;
-            webPushFailed = result.failed;
-            if (result.expired.length > 0) {
-                const { error: cleanupError } = await adminSupabase
-                    .from('web_push_subscriptions')
-                    .delete()
-                    .in('endpoint', result.expired);
-                if (cleanupError) {
-                    logger.warn('[notice] expired web push cleanup failed', {
-                        category: 'notice',
-                        reason: 'database_delete_failed',
-                        code: cleanupError.code ?? 'unknown',
-                        status: 'failed',
-                        expiredCount: result.expired.length,
-                    });
-                }
-            }
-        } catch {
-            webPushFailed = uniqueWebSubs.length;
-            logger.warn('[notice] web push delivery failed', {
-                category: 'notice',
-                reason: 'provider_request_failed',
-                status: 'failed',
-                attempted: uniqueWebSubs.length,
-            });
-        }
-    }
-
-    const acceptedTargets = mobileDelivery.accepted + webPushSent;
-    const failedTargets = mobileDelivery.rejected + webPushFailed;
-    const targetQueriesFailed = Boolean(tokenError || webSubsError);
+    const acceptedTargets = mobileDelivery.accepted;
+    const failedTargets = mobileDelivery.rejected;
+    const targetQueriesFailed = Boolean(tokenError);
     let notificationWarning: string | undefined;
     if (notifError && acceptedTargets < 1) {
         notificationWarning = 'notification_persistence_and_delivery_incomplete';
@@ -327,9 +265,6 @@ export async function createNoticeAction(
         mobileAttempted: mobileDelivery.attempted,
         mobileAccepted: mobileDelivery.accepted,
         mobileRejected: mobileDelivery.rejected,
-        webAttempted: uniqueWebSubs.length,
-        webSent: webPushSent,
-        webFailed: webPushFailed,
     });
 
     revalidatePath('/dashboard/notifications');

@@ -1,19 +1,8 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
-import { parseNotificationTargetV1 } from '@/lib/notification-target';
-import { sendWebPush } from '@/lib/web-push';
-import { logger } from '@/lib/logger';
 
-let adminClient: SupabaseClient | null = null;
-const getAdminClient = () => {
-  if (!adminClient) {
-    adminClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    );
-  }
-  return adminClient;
-};
+import { logger } from '@/lib/logger';
+import { parseNotificationTargetV1 } from '@/lib/notification-target';
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -24,90 +13,14 @@ const normalizeToken = (value?: string | null) =>
     .replace(/\\n/g, '')
     .replace(/\r?\n/g, '')
     .trim();
-const ADMIN_CHAT_ID = 'admin';
-const sanitizePhoneDigits = (value?: string | null) => String(value ?? '').replace(/[^0-9]/g, '');
-type AdminPushSubscriptionRole = 'admin' | 'manager';
-type ConcreteTargetRoleResult =
-  | { ok: true; role: AdminPushSubscriptionRole }
-  | { ok: false; reason: 'lookup_failed' | 'not_allowed' };
-
-const normalizeAdminNotificationTargetId = (value?: string | null) => {
-  const raw = String(value ?? '').trim().toLowerCase();
-  if (!raw || raw === ADMIN_CHAT_ID) return '';
-  return sanitizePhoneDigits(raw);
-};
-
-async function fetchSharedAdminResidentIds(): Promise<
-  { ok: true; residentIds: string[] } | { ok: false }
-> {
-  const { data, error } = await getAdminClient()
-    .from('admin_accounts')
-    .select('phone,staff_type')
-    .eq('active', true);
-
-  if (error) {
-    logger.error('[admin/push] shared admin account query failed', {
-      reason: 'account_lookup_failed',
-    });
-    return { ok: false };
-  }
-
-  return {
-    ok: true,
-    residentIds: Array.from(
-      new Set(
-        (data ?? [])
-          .filter((account) => account.staff_type !== 'developer')
-          .map((account) => sanitizePhoneDigits(account.phone))
-          .filter((phone) => phone.length > 0),
-      ),
-    ),
-  };
-}
-
-async function resolveConcreteTargetRole(
-  normalizedTargetId: string,
-): Promise<ConcreteTargetRoleResult> {
-  const [adminsResult, managersResult] = await Promise.all([
-    getAdminClient()
-      .from('admin_accounts')
-      .select('phone')
-      .eq('active', true),
-    getAdminClient()
-      .from('manager_accounts')
-      .select('phone')
-      .eq('active', true),
-  ]);
-
-  if (adminsResult.error || managersResult.error) {
-    logger.error('[admin/push] concrete target account query failed', {
-      reason: 'account_lookup_failed',
-    });
-    return { ok: false, reason: 'lookup_failed' };
-  }
-
-  const matchingRoles: AdminPushSubscriptionRole[] = [];
-  if ((adminsResult.data ?? []).some((account) => sanitizePhoneDigits(account.phone) === normalizedTargetId)) {
-    matchingRoles.push('admin');
-  }
-  if ((managersResult.data ?? []).some((account) => sanitizePhoneDigits(account.phone) === normalizedTargetId)) {
-    matchingRoles.push('manager');
-  }
-
-  // An ambiguous cross-role identity is rejected instead of delivering to both
-  // subscription roles for the same phone number.
-  return matchingRoles.length === 1
-    ? { ok: true, role: matchingRoles[0] }
-    : { ok: false, reason: 'not_allowed' };
-}
 
 /**
- * Protected admin web push endpoint.
- * Called by the fc-notify Edge Function to send web push to all admin browser subscribers.
+ * Compatibility endpoint for older fc-notify deployments.
  *
- * Security: Validated via one of:
- * 1) X-Admin-Push-Secret header
- * 2) Authorization Bearer service-role key (Edge Function to Next.js internal callback)
+ * The administrator product now delivers incoming work only through the
+ * canonical in-app inbox. Authentication and payload validation remain in
+ * place so legacy callers receive a bounded success response without causing
+ * browser or operating-system notification delivery.
  */
 export async function POST(req: Request) {
   const secret = normalizeToken(req.headers.get('X-Admin-Push-Secret'));
@@ -122,126 +35,46 @@ export async function POST(req: Request) {
   const apikeyAuthOk = Boolean(serviceRoleKey && apikey && apikey === serviceRoleKey);
 
   if (!secretAuthOk && !serviceRoleAuthOk && !apikeyAuthOk) {
-    const authMeta = {
+    logger.warn('[admin/push] unauthorized request', {
       hasSecret: Boolean(secret),
       hasBearer: Boolean(bearer),
       hasApikey: Boolean(apikey),
       secretConfigured: Boolean(expectedSecret),
       serviceRoleConfigured: Boolean(serviceRoleKey),
-    };
-    logger.warn('[admin/push] unauthorized request', authMeta);
+    });
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: {
+  let payload: {
     title?: string;
     body?: string;
-    targetId?: string | null;
     notificationId?: string;
     target?: unknown;
   };
   try {
-    body = await req.json();
+    payload = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { title, body: notifBody, targetId } = body;
-  const notificationId = String(body.notificationId ?? '').trim().toLowerCase();
-  const target = parseNotificationTargetV1(body.target);
-  if (!title || !notifBody || !UUID_PATTERN.test(notificationId) || !target) {
-    return NextResponse.json({ error: 'Missing or invalid notification payload' }, { status: 400 });
+  const notificationId = String(payload.notificationId ?? '').trim().toLowerCase();
+  if (
+    !payload.title
+    || !payload.body
+    || !UUID_PATTERN.test(notificationId)
+    || !parseNotificationTargetV1(payload.target)
+  ) {
+    return NextResponse.json(
+      { error: 'Missing or invalid notification payload' },
+      { status: 400 },
+    );
   }
 
-  const normalizedTargetId = normalizeAdminNotificationTargetId(targetId);
-  let query = getAdminClient()
-    .from('web_push_subscriptions')
-    .select('endpoint,p256dh,auth');
-
-  if (normalizedTargetId) {
-    if (normalizedTargetId.length !== 11) {
-      return NextResponse.json({ ok: false, error: 'Notification target is not allowed' }, { status: 403 });
-    }
-
-    const targetRole = await resolveConcreteTargetRole(normalizedTargetId);
-    if (!targetRole.ok) {
-      const status = targetRole.reason === 'lookup_failed' ? 500 : 403;
-      const error = targetRole.reason === 'lookup_failed'
-        ? 'Notification target lookup failed'
-        : 'Notification target is not allowed';
-      return NextResponse.json({ ok: false, error }, { status });
-    }
-
-    query = query
-      .eq('resident_id', normalizedTargetId)
-      .eq('role', targetRole.role);
-  } else {
-    const sharedAdminTargets = await fetchSharedAdminResidentIds();
-    if (!sharedAdminTargets.ok) {
-      return NextResponse.json({ ok: false, error: 'Notification target lookup failed' }, { status: 500 });
-    }
-    if (sharedAdminTargets.residentIds.length === 0) {
-      return NextResponse.json({ ok: true, sent: 0, failed: 0, noTarget: true });
-    }
-    query = query
-      .eq('role', 'admin')
-      .in('resident_id', sharedAdminTargets.residentIds);
-  }
-
-  const { data: subs, error } = await query;
-
-  if (error) {
-    logger.error('[admin/push] subscriptions query failed', {
-      reason: 'subscription_lookup_failed',
-    });
-    return NextResponse.json({ ok: false, error: 'Subscription lookup failed' }, { status: 500 });
-  }
-
-  if (!subs || subs.length === 0) {
-    return NextResponse.json({
-      ok: !normalizedTargetId,
-      sent: 0,
-      failed: 0,
-      noTarget: true,
-    });
-  }
-
-  let result: Awaited<ReturnType<typeof sendWebPush>>;
-  try {
-    result = await sendWebPush(subs, {
-      title,
-      body: notifBody,
-      data: { notificationId, target },
-    });
-  } catch {
-    logger.warn('[admin/push] delivery failed', {
-      reason: 'provider_request_failed',
-    });
-    return NextResponse.json({
-      ok: false,
-      sent: 0,
-      failed: subs.length,
-      noTarget: false,
-    });
-  }
-
-  if (result.expired.length > 0) {
-    const { error: deleteError } = await getAdminClient()
-      .from('web_push_subscriptions')
-      .delete()
-      .in('endpoint', result.expired);
-    if (deleteError) {
-      logger.warn('[admin/push] expired subscription cleanup failed', {
-        reason: 'subscription_cleanup_failed',
-      });
-    }
-  }
-
-  logger.debug('[admin/push] sent', { sent: result.sent, failed: result.failed });
   return NextResponse.json({
-    ok: result.sent > 0 && result.failed === 0,
-    sent: result.sent,
-    failed: result.failed,
-    noTarget: false,
+    ok: true,
+    sent: 0,
+    failed: 0,
+    noTarget: true,
+    mode: 'in_app_only',
   });
 }

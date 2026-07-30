@@ -54,6 +54,7 @@ import {
     EXAM_APPLICANT_EXPORT_COLUMNS,
     EXAM_APPLICANT_TABLE_BADGE_STYLES,
     formatExamApplicantReceptionStatus,
+    getExamApplicantApplicationStatusBadgeColor,
     getExamApplicantRoundFilterValue,
     getExamApplicantCellValue,
     getExamApplicantSubjectKey,
@@ -719,7 +720,7 @@ export default function ExamApplicantsPage() {
                         ...EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => {
                             return getRowValue(item, column.key);
                         }),
-                        item.is_confirmed ? '접수 완료' : '미접수',
+                        formatExamApplicantReceptionStatus(item),
                         proofLink?.storagePath ?? '-',
                         proofLink?.signedUrl ?? '-',
                     ],
@@ -801,6 +802,21 @@ export default function ExamApplicantsPage() {
                     <Badge
                         variant="light"
                         color={value === '재신청' ? 'orange' : 'gray'}
+                        radius="sm"
+                        styles={EXAM_APPLICANT_TABLE_BADGE_STYLES}
+                    >
+                        {value}
+                    </Badge>
+                </Table.Td>
+            );
+        }
+
+        if (column.key === 'application_status') {
+            return (
+                <Table.Td key={column.key} ta="center">
+                    <Badge
+                        variant="light"
+                        color={getExamApplicantApplicationStatusBadgeColor(value)}
                         radius="sm"
                         styles={EXAM_APPLICANT_TABLE_BADGE_STYLES}
                     >

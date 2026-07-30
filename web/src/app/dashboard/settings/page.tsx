@@ -2,15 +2,6 @@
 
 import { useSession } from '@/hooks/use-session';
 import { getDashboardRoleLabel, getDashboardRoleSubLabel } from '@/lib/staff-identity';
-import {
-  getWebPushPermissionState,
-  registerWebPushSubscription,
-  type WebPushPermissionState,
-} from '@/components/WebPushRegistrar';
-import {
-  getWebPushClientConfigState,
-  getWebPushRegistrationFeedback,
-} from '@/lib/web-push-config';
 import { logger } from '@/lib/logger';
 import {
   Button,
@@ -25,9 +16,9 @@ import {
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAlertTriangle, IconBell } from '@tabler/icons-react';
+import { IconAlertTriangle } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 type ConfirmStep = 1 | 2;
 
@@ -39,12 +30,6 @@ export default function SettingsPage() {
   const [step, setStep] = useState<ConfirmStep>(1);
   const [confirmChecked, setConfirmChecked] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [pushLoading, setPushLoading] = useState(false);
-  const [pushPermission, setPushPermission] = useState<WebPushPermissionState>('unsupported');
-  const pushConfig = useMemo(
-    () => getWebPushClientConfigState(process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY),
-    [],
-  );
 
   const canDeleteAccount = role === 'fc';
   const displayRole = getDashboardRoleLabel({ role, staffType, isReadOnly });
@@ -53,35 +38,6 @@ export default function SettingsPage() {
     if (roleSub) return roleSub;
     return residentMask || '전화번호 미등록';
   }, [isReadOnly, residentMask, role, staffType]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    setPushPermission(getWebPushPermissionState());
-  }, [hydrated]);
-
-  const pushStatusText = useMemo(() => {
-    if (!pushConfig.isConfigured) return pushConfig.statusText;
-    if (pushPermission === 'granted') return '알림 허용됨';
-    if (pushPermission === 'denied') return '알림 차단됨';
-    if (pushPermission === 'default') return '아직 설정되지 않음';
-    return '이 브라우저는 웹 푸시를 지원하지 않습니다.';
-  }, [pushConfig, pushPermission]);
-
-  const pushButtonLabel = useMemo(() => {
-    if (!pushConfig.isConfigured) return pushConfig.buttonLabel;
-    if (pushPermission === 'granted') return '웹 알림 재등록';
-    if (pushPermission === 'denied') return '권한 재확인';
-    if (pushPermission === 'default') return '웹 알림 허용';
-    return '지원되지 않음';
-  }, [pushConfig, pushPermission]);
-
-  const pushHelpText = useMemo(() => {
-    if (!pushConfig.isConfigured) return pushConfig.helpText;
-    if (pushPermission === 'denied') {
-      return '브라우저 주소창 사이트 설정에서 알림 권한을 허용해야 수신됩니다.';
-    }
-    return null;
-  }, [pushConfig, pushPermission]);
 
   if (!hydrated) return null;
 
@@ -156,41 +112,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleEnableWebPush = async () => {
-    setPushLoading(true);
-
-    try {
-      const result = await registerWebPushSubscription(role, residentId, { forceResubscribe: true });
-      setPushPermission(result.permission);
-
-      if (result.ok) {
-        notifications.show({
-          title: '웹 알림 설정 완료',
-          message: '브라우저 웹 알림이 정상 등록되었습니다.',
-          color: 'green',
-        });
-        return;
-      }
-
-      const feedback = getWebPushRegistrationFeedback(result.message);
-      notifications.show({
-        title: feedback.title,
-        message: feedback.message,
-        color: feedback.color,
-      });
-    } catch (err: unknown) {
-      const error = err as Error;
-      notifications.show({
-        title: '웹 알림 등록 실패',
-        message: error?.message ?? '오류가 발생했습니다.',
-        color: 'red',
-      });
-    } finally {
-      setPushLoading(false);
-      setPushPermission(getWebPushPermissionState());
-    }
-  };
-
   return (
     <Container size="sm" py="lg">
       <Stack gap="lg">
@@ -231,36 +152,6 @@ export default function SettingsPage() {
                   {displaySub}
                 </Text>
               </Group>
-            </Stack>
-
-            <Divider my="sm" />
-
-            <Stack gap="xs">
-              <Group gap={6}>
-                <IconBell size={16} />
-                <Text size="sm" fw={600}>
-                  웹 알림
-                </Text>
-              </Group>
-              <Text size="xs" c="dimmed">
-                상태: {pushStatusText}
-              </Text>
-              <Group justify="flex-end">
-                <Button
-                  size="xs"
-                  variant="light"
-                  onClick={handleEnableWebPush}
-                  loading={pushLoading}
-                  disabled={pushPermission === 'unsupported' || !pushConfig.isConfigured}
-                >
-                  {pushButtonLabel}
-                </Button>
-              </Group>
-              {pushHelpText && (
-                <Text size="xs" c="dimmed">
-                  {pushHelpText}
-                </Text>
-              )}
             </Stack>
 
             <Divider my="sm" />

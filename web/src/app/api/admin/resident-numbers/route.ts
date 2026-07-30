@@ -5,7 +5,7 @@ import {
   handleResidentNumberRoutePost,
 } from '@/lib/resident-number-route-handler';
 import { normalizeResidentNumberRouteFcIds } from '@/lib/resident-number-route-request';
-import { readResidentNumbersWithFallback } from '@/lib/server-resident-numbers';
+import { readResidentNumbersWithFallbackDetailed } from '@/lib/server-resident-numbers';
 import { getVerifiedServerSession } from '@/lib/server-session';
 import { NextResponse } from 'next/server';
 
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
     readJson: async () => req.json(),
     normalizeFcIds: normalizeResidentNumberRouteFcIds,
     readResidentNumbers: ({ fcIds, staffPhone, logPrefix }) =>
-      readResidentNumbersWithFallback({ fcIds, staffPhone, logPrefix }),
+      readResidentNumbersWithFallbackDetailed({ fcIds, staffPhone, logPrefix }),
     logInvalidJson: () => {
       logger.warn('[api/admin/resident-numbers] invalid json');
     },

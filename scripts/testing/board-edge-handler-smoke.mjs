@@ -20,6 +20,8 @@ const DUMMY_ADMIN_PHONE = '01090000002';
 const DUMMY_FC_PHONE = '01090000003';
 const DUMMY_SECRET_VALUE = 'loopback-sensitive-value-not-production';
 const DUMMY_LONG_HEX = '0123456789abcdef0123456789abcdef01234567';
+const DUMMY_POST_ID = '11111111-1111-4111-8111-111111111111';
+const DUMMY_POST_UPDATED_AT = '2026-07-30T00:00:00.000Z';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(scriptPath), '..', '..');
@@ -98,7 +100,13 @@ async function fakeSupabaseHandler(request, response) {
       ok: true,
       logged: true,
       sent: 1,
-      delivery: { attempted: 1, accepted: 1, rejected: 0 },
+      delivery: {
+        notificationStored: true,
+        pushStatus: 'accepted',
+        attempted: 1,
+        accepted: 1,
+        rejected: 0,
+      },
     });
     return;
   }
@@ -131,13 +139,28 @@ async function fakeSupabaseHandler(request, response) {
 
   if (method === 'POST' && table === 'board_posts') {
     scenario.postWrites.push(body);
-    sendJson(response, 201, { id: 'post-loopback-1' });
+    sendJson(response, 201, {
+      id: DUMMY_POST_ID,
+      updated_at: DUMMY_POST_UPDATED_AT,
+    });
     return;
   }
 
   if (method === 'POST' && table === 'notifications') {
     scenario.notificationWrites.push(body);
-    sendJson(response, 201, undefined);
+    const rows = Array.isArray(body) ? body : [body];
+    sendJson(
+      response,
+      201,
+      rows.map((row, index) => ({
+        id: `22222222-2222-4222-8222-${String(index + 1).padStart(12, '0')}`,
+        delivery_key: row.delivery_key,
+        recipient_actor_id: null,
+        recipient_role: row.recipient_role,
+        resident_id: null,
+        target: row.target,
+      })),
+    );
     return;
   }
 
@@ -444,7 +467,7 @@ async function runScenarios() {
     assert.equal(result.status, 200);
     assert.equal(result.body?.ok, true);
     assert.equal(result.body?.saved, true);
-    assert.deepEqual(result.body?.data, { id: 'post-loopback-1' });
+    assert.deepEqual(result.body?.data, { id: DUMMY_POST_ID });
     assert.equal(result.body?.notification?.ok, true);
     assert.deepEqual(result.body?.notification?.inbox, { ok: true, attempted: 3 });
     assert.equal(result.body?.notification?.push?.attempted, 2);
@@ -475,7 +498,7 @@ async function runScenarios() {
     );
     for (const notification of notifications) {
       assert.equal(notification.body, post.title);
-      assert.equal(notification.target_url, '/board?postId=post-loopback-1');
+      assert.equal(notification.target_url, `/board?postId=${DUMMY_POST_ID}`);
       assert.doesNotMatch(JSON.stringify(notification), new RegExp(DUMMY_SECRET_VALUE));
       assert.doesNotMatch(JSON.stringify(notification), new RegExp(DUMMY_LONG_HEX));
     }
@@ -486,7 +509,7 @@ async function runScenarios() {
     );
     for (const request of scenario.downstreamRequests) {
       assert.equal(request.body.body, post.title);
-      assert.equal(request.body.url, '/board?postId=post-loopback-1');
+      assert.equal(request.body.url, `/board?postId=${DUMMY_POST_ID}`);
       assert.equal(request.body.skip_notification_insert, true);
       assert.equal(request.headers.authorization, `Bearer ${DUMMY_SERVICE_ROLE_KEY}`);
       assert.equal(request.headers.apikey, DUMMY_SERVICE_ROLE_KEY);

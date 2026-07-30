@@ -9,7 +9,7 @@ import '@mantine/notifications/styles.css';
 import './globals.css';
 import { SessionProvider } from '@/hooks/use-session';
 import { PwaServiceWorkerRegistrar } from '@/components/PwaServiceWorkerRegistrar';
-import { WebPushRegistrar } from '@/components/WebPushRegistrar';
+import { SystemNotificationRetirer } from '@/components/SystemNotificationRetirer';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
@@ -32,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Notifications position="top-right" />
           <QueryClientProvider client={queryClient}>
             <SessionProvider>
-              <WebPushRegistrar />
+              <SystemNotificationRetirer />
               {children}
             </SessionProvider>
           </QueryClientProvider>

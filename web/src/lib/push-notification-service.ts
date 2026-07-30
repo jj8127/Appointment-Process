@@ -6,7 +6,6 @@ import {
   classifyExpoResponse,
   type PushDeliveryFailure,
 } from '@/lib/push-notification-delivery-result';
-import { sendWebPush } from '@/lib/web-push';
 import type { NotificationTargetV1 } from '@/lib/notification-target';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -281,45 +280,6 @@ async function deliverToRegisteredTargets(
       }
     }
 
-    const { data: subscriptions, error: subscriptionsError } = await adminSupabase
-      .from('web_push_subscriptions')
-      .select('endpoint,p256dh,auth')
-      .eq('resident_id', userId)
-      .eq('role', 'fc');
-
-    if (subscriptionsError) {
-      addFailure(delivery, 'web_subscription_query_failed');
-    } else {
-      delivery.web.targets = subscriptions?.length ?? 0;
-      if (subscriptions && subscriptions.length > 0) {
-        try {
-          const webResult = await sendWebPush(subscriptions, { title, body, data: exactData });
-          delivery.web.sent = webResult.sent;
-          delivery.web.failed = webResult.failed;
-          if (webResult.failed > 0) {
-            addFailure(delivery, 'web_delivery_failed');
-          }
-
-          if (webResult.expired.length > 0) {
-            const { error: deleteError } = await adminSupabase
-              .from('web_push_subscriptions')
-              .delete()
-              .in('endpoint', webResult.expired);
-
-            if (deleteError) {
-              logger.warn('[push-notification-service] expired subscription cleanup failed', {
-                category: 'web_push_subscriptions',
-                reason: 'database_delete_failed',
-                status: 'failed',
-              });
-            }
-          }
-        } catch {
-          delivery.web.failed = subscriptions.length;
-          addFailure(delivery, 'web_delivery_failed');
-        }
-      }
-    }
   } catch {
     addFailure(delivery, 'unexpected_failure');
   }

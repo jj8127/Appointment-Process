@@ -155,14 +155,16 @@
     `rateBps=1000`을 단순 적용하고, 11단계 이상은 표시할 수 있지만 합계와 예상
     배분 대상에서는 제외한다. 화면에는 `샘플 데이터`, `실제 조직·매출·정산 내역이
     아님`, `시뮬레이션`을 명시한다. 그래프 탭은 카드 목록을 선으로 잇는 형태가
-    아니라 기존 추천 관계 그래프와 같은 원형 SVG node/edge network여야 한다.
+    아니라 기존 추천 관계 그래프와 같은 원형 node/edge network여야 한다.
     배치는 관리자 웹 `균형` preset의 center gravity, many-body repulsion,
     degree-aware link spring, link tension, damping, collision 상수를 고정 tick으로
     결정론적으로 계산하고 마지막 hard collision pass에서 node 겹침을 제거한다.
     모바일 성능과 번들 크기를 우선하므로 관리자 웹의 `d3-force` runtime, 전체 seed
-    layout, group drag를 그대로 이식하지 않는다. 이 화면의 parity는 원형 node/edge,
-    금액 가시성, 겹침 방지, pan/pinch, node drag 반응과 감쇠 settle까지이며 desktop
-    runtime byte-level 동등성은 범위 밖이다.
+    layout, group drag를 그대로 이식하지 않는다. 네이티브에서는 기존에 설치된
+    `react-native-webview` 안의 외부 요청 없는 로컬 HTML 단일 `<canvas>`에서 draw와
+    physics를 처리하고, React/SVG node별 프레임 갱신을 만들지 않는다. 이 화면의
+    parity는 원형 node/edge, 금액 가시성, 겹침 방지, pan/pinch, node drag 반응과
+    감쇠 settle까지이며 desktop runtime byte-level 동등성은 범위 밖이다.
     각 node 원 안에는 사람 식별자와 예상 배분액을 전체 맞춤 상태에서도 항상
     표시한다. 한 손가락 pan, 두 손가락 pinch zoom, 화면 맞춤, 초기화, node 선택
     상세를 지원하며, 11단계 제외 node와 연결 edge는 점선·회색 계열로 구분하고,
@@ -171,9 +173,13 @@
     빈 공간 drag는 pan, node 위에서 시작한 drag는 node 고정 이동으로 해석하며,
     인접·주변 node가 같은 spring·repulsion·collision force로 실시간 반응한다.
     release 뒤에는 velocity/alpha 감쇠 settle을 계속하다 idle 상태로 종료한다.
+    node 이름·단계·금액 label은 screen pixel 크기로 캐시해 그리며 zoom 중에도 글자
+    크기가 변하지 않는다. node 원과 edge만 graph zoom을 따른다.
     idle drag/zoom badge는 상시 노출하지 않고 물리 반응 또는 확대·맞춤 직후에만
     일시적으로 표시한다.
-    native route 진입 기본 방향은 landscape로 잠그고 이탈 시 기존 portrait로
+    native route가 focus된 graph mode일 때만 landscape로 잠근다. graph 설정이나
+    graph node 상세도 landscape를 유지한다. 목록 mode와 목록 상세는 portrait를
+    사용하고, route blur·unmount·header/Android back 시에는 portrait를 먼저
     복원한다. 기본 landscape에서는 작은 back/title/sample header와 설정 버튼만
     남겨 graph가 거의 전체 화면을 사용한다. summary·filter·목록·fit/reset·범례와
     상세 안내는 설정 버튼을 눌렀을 때만 임시 panel로 열리고 바깥 탭·닫기·Android
@@ -339,9 +345,9 @@
   - runtime force는 d3 `charge`/기존 `link`를 기본으로 하고, `link-tension`, `branch-bend`, `sibling-angular`, `node-separation`, `visual-cluster-separation`, `component-separation`, `cluster-envelope`, `component-envelope`, `cluster-gravity`, `component-cohesion`, `drag-spring` 보조 force를 사용한다. `x/y center`, `radial-containment`, `isolated-ring`, `drop-tether`, legacy `component-gravity` 계열은 사용하지 않는다.
   - 중심 보정은 고정 반경 containment가 아니라 cluster 단위 `cluster-gravity`로만 약하게 적용한다. 현재 기준은 `deadZoneRadius=340`, singleton `520`, `gravityScale=120`, `softening=210`, `strength=0.01`, `maxVelocity=4.5`, `minAlpha=0.002`이며, 가장자리에서 클러스터를 꺼내 보는 drag 상호작용을 막으면 안 된다.
   - 링크 길이는 degree/child 여부에 따라 동적으로 계산한다. leaf spoke는 짧게 유지하고, child hub 간 bridge는 leaf보다 길지만 비정상적으로 늘어나지 않도록 `link-tension`과 `drag-spring`이 목표 길이를 복원한다.
-  - node drag 중에는 사용자가 잡은 node를 pointer 위치에 맞추고, directed descendant만 depth-damped follower로 이동시킨다. direct child는 branch가 찢어지지 않을 만큼 강하게 따라오고, deeper descendant는 더 유연하게 따라와 큰 하위조직이 딱딱한 물체처럼 움직이지 않아야 한다. ancestor, sibling, unrelated node는 follower 대상이 아니다.
-  - active drag 중에는 사용자 입력과 layout force가 싸우지 않도록 base link force를 비활성화하고 charge/collision과 custom layout force를 낮추거나 일시 중지한다. `sibling-angular`, `edge-crossing`, cluster/component separation 같은 전역 정렬은 pointer-down 동안 re-layout을 만들지 않아야 하며, release 후 settle mode에서만 다시 작동한다.
-  - release 시 dragged node와 follower의 임시 고정을 해제하되 manual target을 유지해 사용자가 놓은 위치 근처에서 부드럽게 안정화한다. live QA는 graph unit이 아니라 screen/client pixel 기준(pointer 거리, follower 이동, unrelated drift, release 후 거리)으로 판단한다.
+  - node drag 중에는 사용자가 잡은 node 하나만 pointer 위치에 `fx/fy`로 고정한다. direct neighbor와 2-hop 이상 node는 고정하거나 같은 delta로 옮기지 않고, 평소와 같은 link·link-tension·charge·collision force가 A-B-C 순으로 전달돼 거리에 따라 유연하게 반응해야 한다.
+  - active drag 중에도 연결 force를 유지한다. drag 시작 시 각 edge 길이의 `1.2x`를 최대 stretch로 적용해 긴 chain도 끊어지지 않게 하되 unrelated component는 screen pixel 기준으로 안정적이어야 한다.
+  - release 시 dragged node의 `fx/fy`를 해제하고 simulation을 reheat해 기존 velocity와 spring momentum으로 부드럽게 안정화한다. live QA는 graph unit이 아니라 screen/client pixel 기준(pointer 거리, direct/indirect neighbor 이동, unrelated drift, release 후 거리)으로 판단한다.
   - `배치 초기화`는 runtime position을 지우고 현재 필터 기준 deterministic component/star/orphan seed layout으로 다시 시작한다.
   - manager는 graph page 진입과 조회는 가능하지만 계속 read-only다.
 - `backfill_missing_codes`는 수동 실행형 idempotent batch로만 운영하고, 1회 호출당 최대 100명만 처리한다.

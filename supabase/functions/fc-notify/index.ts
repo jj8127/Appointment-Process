@@ -279,7 +279,6 @@ type InternalChatMessageAttachmentRow = InternalChatMessageRow & {
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_CHUNK_SIZE = 100;
 const EXPO_PUSH_TIMEOUT_MS = 10_000;
-const ADMIN_WEB_PUSH_TIMEOUT_MS = 10_000;
 const BOARD_HOME_CATEGORY_SLUGS = ['notice', 'garam-pick'] as const;
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 const BOARD_ATTACHMENT_SIGN_EXPIRES_SECONDS = 60 * 60 * 6;
@@ -481,23 +480,6 @@ function toNotificationOwnershipRow(
   };
 }
 
-function getAdminPushEndpoint(rawUrl: string): string | null {
-  const trimmed = rawUrl.trim();
-  if (!trimmed) return null;
-
-  try {
-    const parsed = new URL(trimmed);
-    return `${parsed.origin}/api/admin/push`;
-  } catch {
-    try {
-      const parsed = new URL(`https://${trimmed}`);
-      return `${parsed.origin}/api/admin/push`;
-    } catch {
-      return null;
-    }
-  }
-}
-
 type AdminWebPushResult = {
   ok: boolean;
   status?: number;
@@ -555,10 +537,12 @@ function buildPushTitleWithSource(title: string, source: NotificationSource): st
 }
 
 /**
- * Send web push notification to all admin browser subscribers.
- * Calls the Next.js /api/admin/push endpoint.
- * Delivery is best-effort, but the callback result is classified and exposed so
- * the caller can distinguish a saved notification from partial delivery.
+ * Compatibility no-op for the retired administrator Web Push channel.
+ *
+ * The canonical inbox row remains the complete administrator delivery
+ * boundary. Returning an accepted no-target result keeps older response
+ * contracts stable without invoking the browser push callback or creating a
+ * sender-facing warning.
  */
 async function notifyAdminWebPush(
   title: string,
@@ -568,159 +552,20 @@ async function notifyAdminWebPush(
   notificationId: string,
   target: NotificationTargetV1,
 ) {
-  const adminWebUrl = getEnv('ADMIN_WEB_URL');
-  const pushSecret = getEnv('ADMIN_PUSH_SECRET');
+  void title;
+  void body;
+  void url;
+  void targetId;
+  void notificationId;
+  void target;
 
-  if (!adminWebUrl) {
-    console.warn('[fc-notify] admin web push disabled: missing ADMIN_WEB_URL');
-    return {
-      ok: false,
-      sent: 0,
-      failed: 0,
-      noTarget: false,
-      reason: 'missing-admin-web-url',
-    } as AdminWebPushResult;
-  }
-
-  const endpoint = getAdminPushEndpoint(adminWebUrl);
-  if (!endpoint) {
-    console.warn('[fc-notify] admin web push disabled: invalid ADMIN_WEB_URL');
-    return {
-      ok: false,
-      sent: 0,
-      failed: 0,
-      noTarget: false,
-      reason: 'invalid-admin-web-url',
-    } as AdminWebPushResult;
-  }
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${requiredServiceKey}`,
-    'apikey': requiredServiceKey,
-  };
-  if (pushSecret) {
-    headers['X-Admin-Push-Secret'] = pushSecret;
-  }
-
-  try {
-    const resp = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        title,
-        body,
-        url,
-        targetId: targetId ?? null,
-        notificationId,
-        target,
-      }),
-      signal: AbortSignal.timeout(ADMIN_WEB_PUSH_TIMEOUT_MS),
-    });
-
-    if (!resp.ok) {
-      reportEdgeDiagnostic({
-        event: 'fc_notify.admin_web_push',
-        reason: 'upstream_rejected',
-        status: resp.status,
-        retryable: resp.status >= 500,
-        errorClass: 'upstream',
-      });
-      return {
-        ok: false,
-        status: resp.status,
-        sent: 0,
-        failed: 0,
-        noTarget: false,
-        reason: `http-${resp.status}`,
-      } as AdminWebPushResult;
-    }
-
-    const text = await resp.text().catch(() => '');
-    let parsed: Record<string, unknown> | null = null;
-    try {
-      parsed = text ? (JSON.parse(text) as Record<string, unknown>) : null;
-    } catch {
-      parsed = null;
-    }
-
-    const sent = typeof parsed?.sent === 'number' && Number.isInteger(parsed.sent) && parsed.sent >= 0
-      ? parsed.sent
-      : null;
-    const failed = typeof parsed?.failed === 'number' && Number.isInteger(parsed.failed) && parsed.failed >= 0
-      ? parsed.failed
-      : null;
-    const noTargetValue = parsed?.noTarget;
-    const noTargetFieldIsValid = noTargetValue === undefined || typeof noTargetValue === 'boolean';
-    const responseIsValid = parsed !== null
-      && typeof parsed.ok === 'boolean'
-      && sent !== null
-      && failed !== null
-      && noTargetFieldIsValid;
-
-    if (!responseIsValid) {
-      reportEdgeDiagnostic({
-        event: 'fc_notify.admin_web_push',
-        reason: 'upstream_rejected',
-        status: resp.status,
-        retryable: false,
-        errorClass: 'upstream',
-      });
-      return {
-        ok: false,
-        status: resp.status,
-        sent: 0,
-        failed: 0,
-        noTarget: false,
-        reason: 'invalid-callback-response',
-      } as AdminWebPushResult;
-    }
-
-    const noTarget = noTargetValue === true || (sent === 0 && failed === 0);
-    const callbackReportedSuccess = parsed?.ok === true;
-    const concreteTargetMissed = Boolean(targetId) && sent === 0;
-    const inconsistentNoTarget = noTargetValue === true && (sent > 0 || failed > 0);
-    const callbackAccepted = callbackReportedSuccess
-      && failed === 0
-      && !concreteTargetMissed
-      && !inconsistentNoTarget;
-
-    if (!callbackAccepted) {
-      reportEdgeDiagnostic({
-        event: 'fc_notify.admin_web_push',
-        reason: 'upstream_rejected',
-        status: resp.status,
-        retryable: failed > 0,
-        errorClass: 'upstream',
-      });
-    }
-
-    return {
-      ok: callbackAccepted,
-      status: resp.status,
-      sent,
-      failed,
-      noTarget,
-      ...(!callbackAccepted
-        ? { reason: concreteTargetMissed ? 'no-concrete-web-target' : 'callback-reported-failure' }
-        : {}),
-    } as AdminWebPushResult;
-  } catch (error: unknown) {
-    const timedOut = isTimeoutError(error);
-    reportEdgeDiagnostic({
-      event: 'fc_notify.admin_web_push',
-      reason: 'request_failed',
-      retryable: true,
-      errorClass: timedOut ? 'timeout' : 'network',
-    });
-    return {
-      ok: false,
-      sent: 0,
-      failed: 0,
-      noTarget: false,
-      reason: timedOut ? 'callback-timeout' : 'callback-network-error',
-    } as AdminWebPushResult;
-  }
+  return {
+    ok: true,
+    sent: 0,
+    failed: 0,
+    noTarget: true,
+    reason: 'in-app-only',
+  } as AdminWebPushResult;
 }
 
 function getNotificationDeliveryWarning(adminWebPush: AdminWebPushResult | null): string | null {

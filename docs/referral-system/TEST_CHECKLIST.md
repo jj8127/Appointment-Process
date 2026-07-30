@@ -71,16 +71,20 @@
   referral/API/DB 호출 없이 가상 parent chain의 1~10단계 15명만 10% 예상
   배분 합계에 포함하고 11단계는 `대상 제외`로 표시하며, `샘플 데이터`와
   `실제 정산 아님`을 그래프·목록·상세에서 명확히 알림. 그래프 탭은 카드형
-  조직도가 아니라 기존 추천 관계 그래프처럼 원형 SVG node와 visible edge를
-  관리자 웹 balanced force 상수로 배치함. 모든 node 원 안에 예상 배분액이 항상
-  보이고 collision pass 뒤 node pair가 겹치지 않으며 pan/pinch, 화면 맞춤,
-  초기화, node 선택 상세를 지원함. graph는 safe-area 전체화면 HUD canvas로 열리고
-  node drag 중 주변 node가 spring/repulsion/collision으로 반응한 뒤 release settle이
-  idle로 끝남. native 진입은 landscape가 기본이며 닫힌 상태에는 compact
-  back/title/sample header와 설정 버튼만 남아 graph가 거의 전체 화면을 사용함.
+  조직도가 아니라 기존 추천 관계 그래프처럼 원형 node와 visible edge를 관리자 웹
+  balanced force 상수로 배치함. 네이티브 draw/physics는 외부 요청 없는 로컬
+  WebView의 단일 HTML Canvas loop에서 처리해 drag frame마다 React/SVG node별
+  redraw를 만들지 않음. 모든 node 원 안에 예상 배분액이 항상 보이고 collision pass
+  뒤 node pair가 겹치지 않으며 pan/pinch, 화면 맞춤, 초기화, node 선택 상세를
+  지원함. graph는 safe-area 전체화면 HUD canvas로 열리고 node drag 중 주변 node가
+  spring/repulsion/collision으로 반응한 뒤 release settle이 idle로 끝남. 확대
+  `100%→200%` 중 node/edge는 확대되지만 이름·단계·금액 글자는 같은 screen-pixel
+  크기를 유지함. focused graph와 graph 설정/상세는 landscape, 목록과 목록 상세는
+  portrait이며 header/Android back, route blur, unmount 뒤 portrait로 복원함.
   설정 panel에 summary/filter/list/fit/reset/legend/disclaimer가 있고 닫기·바깥 탭·
-  Android back으로 닫히며, 이탈 시 portrait로 복원하고 단계 filter 뒤에도 viewer
-  연결 경로를 보존함
+  Android back으로 닫히며 단계 filter 뒤에도 viewer 연결 경로를 보존함. Android
+  gfxinfo 기준 동일 A1 900ms drag를 3회 측정해 각 run의 janky frame이 5% 미만이고
+  slow bitmap upload가 0인지 확인하며 slow UI thread도 함께 기록함
 
 ### 5.2 초대링크
 
@@ -110,7 +114,7 @@
 - `RF-ADMIN-05` `manager`는 추천인 코드 화면/GET은 조회 가능하지만 mutate UI와 `POST` 권한은 없음
 - `RF-ADMIN-06` 레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남김
 - `RF-ADMIN-07` `/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지함
-- `RF-ADMIN-08` graph canvas는 사용자 설정을 `Center force/Repel force/Link force/Link distance` 4개로 유지하되, 추천인 트리 가독성을 위해 dynamic link distance, sibling angular separation, cluster/node separation, envelope, weak cluster gravity, active drag force suppression, directed descendant follower를 사용한다. 금지 항목은 고정 반경 radial containment, isolated ring 강제 배치, drop tether, release velocity 주입, active drag 중 global re-layout이다. parent/hub drag 중 dragged node는 pointer를 따라가고 directed descendant branch는 찢어지지 않아야 하며 unrelated graph는 screen pixel 기준으로 안정적이어야 한다. 빈 공간 pan/reset/기본 node name label 상시 표시, manager read-only, isolated toggle, settings slider 저장/복원을 유지하고, 브라우저 QA는 no overlay/no console error와 nonblank canvas, pointer/follower/unrelated drift screen-pixel 지표를 확인한다.
+- `RF-ADMIN-08` graph canvas는 사용자 설정을 `Center force/Repel force/Link force/Link distance` 4개로 유지하고 dynamic link distance, sibling angular separation, cluster/node separation, envelope와 weak cluster gravity를 사용한다. drag 중에는 pointer가 잡은 node 하나만 `fx/fy`로 고정하고 direct/indirect neighbor는 고정하거나 같은 delta로 옮기지 않는다. A-B-C chain에서 B와 C는 평소 link·link-tension·charge·collision force를 통해 단계적으로 반응하고, drag 시작 edge 길이의 `1.2x` 최대 stretch를 모든 영향 edge가 지키며 unrelated component는 screen pixel 기준으로 안정적이어야 한다. release는 dragged node의 `fx/fy`를 해제하고 simulation을 reheat해 spring momentum을 이어간다. 고정 반경 radial containment, isolated ring 강제 배치, drop tether, rigid neighbor group, directed follower translation, active drag 중 core force 비활성화는 금지한다. 빈 공간 pan/reset/기본 node name label 상시 표시, manager read-only, isolated toggle, settings slider 저장/복원을 유지하고 브라우저 QA는 no overlay/no console error, nonblank canvas, direct/second-hop/unrelated drift와 release 후 움직임을 확인한다.
 - `RF-ADMIN-09` 레거시 추천인 검토 큐는 `자동 연결 가능/동명이인 후보 다수/후보 없음/잘못된 자기추천` 상태를 정확히 분류함
 - `RF-ADMIN-10` `안전 자동 정리`는 exact-unique만 구조화하고 자기추천/후보 없음/동명이인은 남김
 

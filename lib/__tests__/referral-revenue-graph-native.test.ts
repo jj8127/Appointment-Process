@@ -6,6 +6,7 @@ import {
   getSampleRevenueGraphFitViewport,
   getSampleRevenueGraphNodeColor,
   getSampleRevenueGraphNodeRadius,
+  prepareSampleRevenueGraphPhysicsTopology,
   SAMPLE_REVENUE_ADMIN_WEB_PHYSICS,
   SAMPLE_REVENUE_GRAPH_SURFACE_SIZE,
   stepSampleRevenueInteractivePhysics,
@@ -73,7 +74,15 @@ describe('sample revenue native node-edge graph', () => {
   });
 
   it('lets a dragged node push and pull its neighbors with live physics', () => {
-    const positions = buildSampleRevenueGraphLayout(model.nodes, model.edges);
+    const topology = prepareSampleRevenueGraphPhysicsTopology(
+      model.nodes,
+      model.edges,
+    );
+    const positions = buildSampleRevenueGraphLayout(
+      model.nodes,
+      model.edges,
+      topology,
+    );
     const motion = new Map(Array.from(positions, ([id, point]) => [
       id,
       { ...point, vx: 0, vy: 0 },
@@ -87,6 +96,7 @@ describe('sample revenue native node-edge graph', () => {
     const next = stepSampleRevenueInteractivePhysics({
       nodes: model.nodes,
       edges: model.edges,
+      topology,
       motion,
       alpha: 0.24,
       ticks: 3,
@@ -100,6 +110,31 @@ describe('sample revenue native node-edge graph', () => {
       x: neighborStart.x,
       y: neighborStart.y,
     });
+    expect({
+      x: next.get('sample-a2')!.x - neighborStart.x,
+      y: next.get('sample-a2')!.y - neighborStart.y,
+    }).not.toEqual({
+      x: fixedPosition.x - draggedStart.x,
+      y: fixedPosition.y - draggedStart.y,
+    });
+  });
+
+  it('prepares reusable graph topology metadata for interactive frames', () => {
+    const topology = prepareSampleRevenueGraphPhysicsTopology(
+      model.nodes,
+      model.edges,
+    );
+
+    expect(topology.nodes).toHaveLength(model.nodes.length);
+    expect(topology.edges).toHaveLength(model.edges.length);
+    expect(topology.nodes.map(({ node }) => node.id)).toEqual(
+      [...model.nodes]
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .map((node) => node.id),
+    );
+    expect(topology.edges.every((edge) => (
+      Number.isFinite(edge.distance) && Number.isFinite(edge.strength)
+    ))).toBe(true);
   });
 
   it('keeps every visible edge connected to two distinct positions', () => {

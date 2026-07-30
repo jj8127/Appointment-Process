@@ -18,11 +18,11 @@ test('server-side Expo sends have a bounded post-commit request deadline', () =>
   }
 });
 
-test('web push sends run concurrently with a per-request socket timeout', () => {
+test('retired Web Push compatibility path never contacts a provider', () => {
   const source = readSource('lib/web-push.ts');
 
-  assert.match(source, /const WEB_PUSH_TIMEOUT_MS = 8_000/);
-  assert.match(source, /Promise\.all\(subscriptions\.map\(async \(sub\)/);
-  assert.match(source, /\{ timeout: WEB_PUSH_TIMEOUT_MS \}/);
-  assert.doesNotMatch(source, /for \(const sub of subscriptions\)/);
+  assert.match(source, /mode:\s*'in_app_only'/);
+  assert.match(source, /sent:\s*0/);
+  assert.match(source, /failed:\s*0/);
+  assert.doesNotMatch(source, /sendNotification|setVapidDetails|WEB_PUSH_TIMEOUT_MS/);
 });

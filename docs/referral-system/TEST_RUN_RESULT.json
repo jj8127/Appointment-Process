@@ -688,18 +688,17 @@
       "title": "FC/본부장 매출 기여 그래프 샘플은 1~10단계만 10% 시뮬레이션에 포함한다",
       "status": "PASS",
       "owner": "Codex referral revenue demo harness",
-      "executedAt": "2026-07-27T05:03:00.000Z",
+      "executedAt": "2026-07-30T07:00:00.000Z",
       "evidence": [
-        "Focused revenue and existing native relationship graph regressions passed 7 suites and 45 tests.",
-        "Repository Jest passed 187 suites and 1126 tests.",
-        "TypeScript, targeted and full Expo lint, governance, diff check, JSON parsing, harness audit, and Android Expo export passed.",
-        "The compact-HUD follow-up leaves only a shallow title/sample header and one settings trigger over the collapsed landscape canvas; three summaries, filters, view actions, legend, and the full sample warning remain available in the scrollable modal panel.",
-        "Authenticated read-only manager Android rendered the circular node-edge graph with all in-node amounts, including filtered context ancestors, plus A11 exclusion and an unobstructed 2400x1080 collapsed playfield.",
-        "Android screenshots verified the compact all-depth state, the filtered state, the three-summary panel, and the fully scrolled warning without node overlap or clipped controls.",
-        "A native rebuild entered the route in 2400x1080 landscape, A1 drag moved the nearby network and settled without overlap, and route exit restored 1080x2400 portrait.",
-        "Independent compact-HUD evaluation passed after context-node amounts, the complete warning, the third sales summary, and active-filter accessibility were fixed; its 4 suites and 28 tests also passed."
+        "Final focused revenue regression passed 6 suites and 47 tests; repository Jest passed 192 suites and 1165 tests.",
+        "TypeScript, root and scoped web lint, diff check, JSON parsing, harness audit, and the Sentry-upload-disabled Android Expo export passed; workspace governance was blocked only by unrelated dirty notification, resident-number, exam, and dashboard owner-document requirements.",
+        "Administrator A-B-C and five-node chain tests verify grabbed-node-only pointer fixation, progressive live-force response, unrelated-component isolation, release settling, and the drag-start 1.2x edge cap.",
+        "The native revenue renderer uses one external-request-free local WebView Canvas loop with fixed-screen-pixel cached labels and no per-node React/SVG drag-frame redraw.",
+        "Three warmed 900ms A1 emulator drags measured 1.94%, 3.92%, and 2.91% janky frames, with zero slow bitmap uploads.",
+        "Android runtime opened the B1 detail Modal from a Canvas node tap, kept graph/settings/graph-detail landscape, and restored portrait for list/list-detail/back/blur/unmount including cold no-history back.",
+        "Independent interaction, routing, and security review passed with no remaining Android-scope P0/P1/P2 finding."
       ],
-      "notes": "This PASS covers only the labelled local fictional preview and deterministic 1-10 depth calculation. Separate FC/plain-admin/designer/TalkBack runtime sessions and a cold-installed offline artifact were not claimed. No production data, API, database, Edge, release, or deployment mutation was performed; the only package addition is Expo SDK-compatible expo-screen-orientation."
+      "notes": "This PASS covers only the labelled local fictional preview and deterministic 1-10 depth calculation. TalkBack touch-exploration coordinate parity, iPad split-view orientation, and a physical-phone final run were not claimed. No production data, package, API, database, Edge, release, or deployment mutation was performed in the 2026-07-30 follow-up."
     }
   ]
 }

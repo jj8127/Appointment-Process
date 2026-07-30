@@ -591,6 +591,7 @@ serve(async (req: Request) => {
       const key = await importAesKeyForDecrypt(identityKey);
 
       const residentNumbers: Record<string, string | null> = {};
+      const residentNumberStatuses: Record<string, 'ready' | 'missing' | 'unavailable'> = {};
       const chunkSize = 100;
       for (let i = 0; i < uniqueFcIds.length; i += chunkSize) {
         const chunk = uniqueFcIds.slice(i, i + chunkSize);
@@ -604,7 +605,10 @@ serve(async (req: Request) => {
           const fcId = (row as any).fc_id as string;
           const enc = (row as any).resident_number_encrypted as string | null;
           if (!fcId || !enc) {
-            if (fcId) residentNumbers[fcId] = null;
+            if (fcId) {
+              residentNumbers[fcId] = null;
+              residentNumberStatuses[fcId] = 'missing';
+            }
             continue;
           }
 
@@ -613,21 +617,27 @@ serve(async (req: Request) => {
             const digits = plain.replace(/[^0-9]/g, '');
             if (digits.length === 13) {
               residentNumbers[fcId] = `${digits.slice(0, 6)}-${digits.slice(6)}`;
+              residentNumberStatuses[fcId] = 'ready';
             } else {
               residentNumbers[fcId] = null;
+              residentNumberStatuses[fcId] = 'unavailable';
             }
           } catch {
             residentNumbers[fcId] = null;
+            residentNumberStatuses[fcId] = 'unavailable';
           }
         }
       }
 
       // ensure every requested id exists in map
       for (const fcId of uniqueFcIds) {
-        if (!(fcId in residentNumbers)) residentNumbers[fcId] = null;
+        if (!(fcId in residentNumbers)) {
+          residentNumbers[fcId] = null;
+          residentNumberStatuses[fcId] = 'missing';
+        }
       }
 
-      return json({ ok: true, residentNumbers });
+      return json({ ok: true, residentNumbers, residentNumberStatuses });
     }
 
     if (action === 'getInviteeReferralCode') {

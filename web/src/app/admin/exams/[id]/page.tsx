@@ -30,6 +30,7 @@ import {
   EXAM_APPLICANT_EXPORT_COLUMNS,
   EXAM_APPLICANT_TABLE_BADGE_STYLES,
   formatExamApplicantReceptionStatus,
+  getExamApplicantApplicationStatusBadgeColor,
   getExamApplicantCellValue,
   type ExamApplicantExportColumn,
   type ExamApplicantExportColumnKey,
@@ -472,6 +473,21 @@ export default function AdminExamManagePage() {
           <Badge
             variant="light"
             color={value === '재신청' ? 'orange' : 'gray'}
+            radius="sm"
+            styles={EXAM_APPLICANT_TABLE_BADGE_STYLES}
+          >
+            {value}
+          </Badge>
+        </Table.Td>
+      );
+    }
+
+    if (column.key === 'application_status') {
+      return (
+        <Table.Td key={column.key} ta="center">
+          <Badge
+            variant="light"
+            color={getExamApplicantApplicationStatusBadgeColor(value)}
             radius="sm"
             styles={EXAM_APPLICANT_TABLE_BADGE_STYLES}
           >

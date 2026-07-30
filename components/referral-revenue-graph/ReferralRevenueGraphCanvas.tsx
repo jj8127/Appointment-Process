@@ -1,25 +1,34 @@
 import {
+  memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 import {
   LayoutChangeEvent,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
+  useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { Circle, G, Line, Text as SvgText } from 'react-native-svg';
+import type { SharedValue } from 'react-native-reanimated';
+import Svg, {
+  Line,
+  type LineProps,
+} from 'react-native-svg';
 
 import {
   buildSampleRevenueGraphLayout,
@@ -29,6 +38,7 @@ import {
   getSampleRevenueGraphNodeColor,
   getSampleRevenueGraphNodeRadius,
   getSampleRevenueGraphNodeStatusLabel,
+  prepareSampleRevenueGraphPhysicsTopology,
   SAMPLE_REVENUE_GRAPH_MAX_SCALE,
   SAMPLE_REVENUE_GRAPH_MIN_SCALE,
   SAMPLE_REVENUE_GRAPH_SURFACE_SIZE,
@@ -39,6 +49,7 @@ import type {
   SampleRevenueGraphEdge,
   SampleRevenueGraphNode,
 } from '@/types/referral-revenue-graph';
+import { ReferralRevenueGraphWebViewCanvas } from './ReferralRevenueGraphWebViewCanvas';
 
 type Props = {
   nodes: SampleRevenueGraphNode[];
@@ -65,6 +76,14 @@ const clampScale = (value: number) => {
   );
 };
 
+let nextNodeDragContextToken = 0;
+
+const allocateNodeDragContextToken = (context: object) => {
+  void context;
+  nextNodeDragContextToken += 1;
+  return nextNodeDragContextToken;
+};
+
 const getCompactNodeLabel = (node: SampleRevenueGraphNode) => {
   if (node.isViewer) return '나';
   const withoutSamplePrefix = node.name.replace(/^샘플\s+/u, '').trim();
@@ -81,7 +100,355 @@ const createMotionLayout = (
   ]),
 );
 
-export function ReferralRevenueGraphCanvas({
+const AnimatedLine = Animated.createAnimatedComponent(Line);
+
+export type NodeDragSessionState = Readonly<{
+  mounted: boolean;
+  contextToken: number;
+  activeGestureToken: number | null;
+  highestGestureToken: number;
+  settleGestureToken: number | null;
+}>;
+
+type NodeDragSessionEvent =
+  | { type: 'mount'; contextToken: number }
+  | { type: 'unmount' }
+  | {
+    type: 'begin' | 'update' | 'end' | 'cancel' | 'settle';
+    contextToken: number;
+    gestureToken: number;
+  };
+
+type NodeDragSessionTransition = Readonly<{
+  accepted: boolean;
+  state: NodeDragSessionState;
+}>;
+
+export const createNodeDragSessionState = (
+  contextToken: number,
+): NodeDragSessionState => ({
+  mounted: false,
+  contextToken,
+  activeGestureToken: null,
+  highestGestureToken: 0,
+  settleGestureToken: null,
+});
+
+export const transitionNodeDragSession = (
+  state: NodeDragSessionState,
+  event: NodeDragSessionEvent,
+): NodeDragSessionTransition => {
+  if (event.type === 'mount') {
+    return {
+      accepted: true,
+      state: {
+        ...state,
+        mounted: true,
+        contextToken: event.contextToken,
+        activeGestureToken: null,
+        settleGestureToken: null,
+      },
+    };
+  }
+  if (event.type === 'unmount') {
+    return {
+      accepted: true,
+      state: {
+        ...state,
+        mounted: false,
+        activeGestureToken: null,
+        settleGestureToken: null,
+      },
+    };
+  }
+  if (!('gestureToken' in event)) {
+    return { accepted: false, state };
+  }
+
+  const matchesContext = state.mounted
+    && event.contextToken === state.contextToken;
+  if (event.type === 'begin') {
+    if (!matchesContext || event.gestureToken <= state.highestGestureToken) {
+      return { accepted: false, state };
+    }
+    return {
+      accepted: true,
+      state: {
+        ...state,
+        activeGestureToken: event.gestureToken,
+        highestGestureToken: event.gestureToken,
+        settleGestureToken: null,
+      },
+    };
+  }
+
+  if (
+    !matchesContext
+    || event.gestureToken !== state.highestGestureToken
+  ) {
+    return { accepted: false, state };
+  }
+  if (event.type === 'settle') {
+    return {
+      accepted: state.activeGestureToken == null
+        && state.settleGestureToken === event.gestureToken,
+      state,
+    };
+  }
+  if (event.gestureToken !== state.activeGestureToken) {
+    return { accepted: false, state };
+  }
+  if (event.type === 'update') {
+    return { accepted: true, state };
+  }
+  return {
+    accepted: true,
+    state: {
+      ...state,
+      activeGestureToken: null,
+      settleGestureToken: event.type === 'end'
+        ? event.gestureToken
+        : null,
+    },
+  };
+};
+
+const AnimatedRevenueEdge = memo(function AnimatedRevenueEdge({
+  context,
+  coordinates,
+  excluded,
+  safeScale,
+  sourceIndex,
+  targetIndex,
+}: {
+  context: boolean;
+  coordinates: SharedValue<number[]>;
+  excluded: boolean;
+  safeScale: number;
+  sourceIndex: number;
+  targetIndex: number;
+}) {
+  const animatedProps = useAnimatedProps<LineProps>(() => ({
+    x1: coordinates.value[sourceIndex * 2] ?? 0,
+    y1: coordinates.value[sourceIndex * 2 + 1] ?? 0,
+    x2: coordinates.value[targetIndex * 2] ?? 0,
+    y2: coordinates.value[targetIndex * 2 + 1] ?? 0,
+  }), [coordinates, sourceIndex, targetIndex]);
+
+  return (
+    <AnimatedLine
+      animatedProps={animatedProps}
+      stroke={excluded || context ? '#cbd5e1' : '#fdba74'}
+      strokeWidth={Math.max(1.5, 1.35 / safeScale)}
+      strokeLinecap="round"
+      strokeDasharray={excluded ? '5 5' : undefined}
+    />
+  );
+});
+
+const AnimatedRevenueNode = memo(function AnimatedRevenueNode({
+  amountLabel,
+  coordinates,
+  isContext,
+  node,
+  nodeAmountLabel,
+  nodeIndex,
+  radius,
+  safeScale,
+  scale,
+  selected,
+}: {
+  amountLabel: string;
+  coordinates: SharedValue<number[]>;
+  isContext: boolean;
+  node: SampleRevenueGraphNode;
+  nodeAmountLabel: string;
+  nodeIndex: number;
+  radius: number;
+  safeScale: number;
+  scale: SharedValue<number>;
+  selected: boolean;
+}) {
+  const positionStyle = useAnimatedStyle(() => {
+    const x = coordinates.value[nodeIndex * 2] ?? 0;
+    const y = coordinates.value[nodeIndex * 2 + 1] ?? 0;
+    return {
+      transform: [
+        { translateX: x - radius },
+        { translateY: y - radius },
+      ],
+    };
+  }, [coordinates, nodeIndex, radius]);
+  const inverseScaleStyle = useAnimatedStyle(() => ({
+    transform: [{
+      scale: 1 / Math.max(
+        scale.value,
+        SAMPLE_REVENUE_GRAPH_MIN_SCALE,
+      ),
+    }],
+  }), [scale]);
+  const ringInset = 7 / safeScale;
+  const nodeColor = getSampleRevenueGraphNodeColor(node, isContext);
+  const labelColor = isContext ? '#475569' : '#ffffff';
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      renderToHardwareTextureAndroid
+      shouldRasterizeIOS
+      style={[
+        styles.nodeVisual,
+        {
+          width: radius * 2,
+          height: radius * 2,
+          zIndex: selected ? 2 : 1,
+        },
+        positionStyle,
+      ]}
+    >
+      {selected ? (
+        <View
+          style={[
+            styles.nodeSelectionRing,
+            {
+              left: -ringInset,
+              top: -ringInset,
+              width: (radius + ringInset) * 2,
+              height: (radius + ringInset) * 2,
+              borderRadius: radius + ringInset,
+              borderWidth: 3 / safeScale,
+            },
+          ]}
+        />
+      ) : null}
+      <View
+        style={[
+          styles.nodeCircle,
+          {
+            width: radius * 2,
+            height: radius * 2,
+            borderRadius: radius,
+            backgroundColor: nodeColor,
+            borderWidth: 2.4 / safeScale,
+          },
+          !node.eligible && !node.isViewer
+            ? styles.nodeCircleExcluded
+            : null,
+        ]}
+      />
+      <Animated.View
+        style={[
+          styles.nodeLabelStack,
+          inverseScaleStyle,
+        ]}
+      >
+        <Text
+          numberOfLines={1}
+          style={[styles.nodeNameLabel, { color: labelColor }]}
+        >
+          {getCompactNodeLabel(node)}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.nodeAmountLabel, { color: labelColor }]}
+        >
+          {nodeAmountLabel}
+        </Text>
+      </Animated.View>
+      {selected ? (
+        <Animated.View
+          style={[
+            styles.selectedNodeLabel,
+            {
+              top: radius * 2 + (8 / safeScale),
+            },
+            inverseScaleStyle,
+          ]}
+        >
+          <Text
+            numberOfLines={1}
+            style={styles.selectedNodeName}
+          >
+            {node.name}
+          </Text>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.selectedNodeAmount,
+              {
+                color: node.eligible && !isContext
+                  ? '#c2410c'
+                  : '#64748b',
+              },
+            ]}
+          >
+            {amountLabel}
+          </Text>
+        </Animated.View>
+      ) : null}
+    </Animated.View>
+  );
+});
+
+const AnimatedRevenueHitTarget = memo(function AnimatedRevenueHitTarget({
+  coordinates,
+  hitTargetSize,
+  node,
+  nodeIndex,
+  onSelectNode,
+}: {
+  coordinates: SharedValue<number[]>;
+  hitTargetSize: number;
+  node: SampleRevenueGraphNode;
+  nodeIndex: number;
+  onSelectNode: (node: SampleRevenueGraphNode) => void;
+}) {
+  const positionStyle = useAnimatedStyle(() => {
+    const x = coordinates.value[nodeIndex * 2] ?? 0;
+    const y = coordinates.value[nodeIndex * 2 + 1] ?? 0;
+    return {
+      transform: [
+        { translateX: x - hitTargetSize / 2 },
+        { translateY: y - hitTargetSize / 2 },
+      ],
+    };
+  }, [coordinates, hitTargetSize, nodeIndex]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.nodeHitTarget,
+        {
+          width: hitTargetSize,
+          height: hitTargetSize,
+          borderRadius: hitTargetSize / 2,
+        },
+        positionStyle,
+      ]}
+    >
+      <Pressable
+        style={({ pressed }) => [
+          styles.nodeHitTargetPressable,
+          pressed && styles.nodeHitTargetPressed,
+        ]}
+        onPress={() => onSelectNode(node)}
+        accessibilityRole="button"
+        accessibilityLabel={`${node.name}, ${node.depth}단계, ${getSampleRevenueGraphNodeStatusLabel(node)}`}
+        accessibilityHint="두 번 탭하면 샘플 매출과 예상 배분 상세를 엽니다."
+      >
+      </Pressable>
+    </Animated.View>
+  );
+});
+
+export function ReferralRevenueGraphCanvas(props: Props) {
+  if (Platform.OS !== 'web') {
+    return <ReferralRevenueGraphWebViewCanvas {...props} />;
+  }
+  return <ReferralRevenueGraphSvgCanvas {...props} />;
+}
+
+function ReferralRevenueGraphSvgCanvas({
   nodes,
   edges,
   focusedNodeIds,
@@ -92,32 +459,55 @@ export function ReferralRevenueGraphCanvas({
   fitInsets,
   overlayBottomInset = 12,
 }: Props) {
-  const initialPositions = useMemo(
-    () => buildSampleRevenueGraphLayout(nodes, edges),
+  const isFocused = useIsFocused();
+  const topology = useMemo(
+    () => prepareSampleRevenueGraphPhysicsTopology(nodes, edges),
     [edges, nodes],
   );
-  const orderedNodes = useMemo(
-    () => [...nodes].sort((left, right) => left.id.localeCompare(right.id)),
-    [nodes],
+  const initialPositions = useMemo(
+    () => buildSampleRevenueGraphLayout(nodes, edges, topology),
+    [edges, nodes, topology],
   );
-  const [motion, setMotion] = useState<
-    Map<string, SampleRevenueGraphMotionPoint>
-  >(() => createMotionLayout(initialPositions));
-  const motionRef = useRef(motion);
+  const gestureContextToken = useMemo(
+    () => allocateNodeDragContextToken({
+      isFocused,
+      resetRequestId,
+      topology,
+    }),
+    [isFocused, resetRequestId, topology],
+  );
+  const orderedNodes = useMemo(
+    () => topology.nodes.map(({ node }) => node),
+    [topology],
+  );
+  const initialMotion = useMemo(
+    () => createMotionLayout(initialPositions),
+    [initialPositions],
+  );
+  const [renderPositions, setRenderPositions] = useState(
+    () => new Map(initialPositions),
+  );
+  const motionRef = useRef(initialMotion);
   const settleFrameRef = useRef<number | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
+  const dragSessionRef = useRef(
+    createNodeDragSessionState(gestureContextToken),
+  );
+  const pendingDragRef = useRef<{
+    contextToken: number;
+    gestureToken: number;
+    nodeIndex: number;
+    topology: typeof topology;
+    x: number;
+    y: number;
+  } | null>(null);
+  const topologyRef = useRef(topology);
   const zoomTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [physicsActive, setPhysicsActive] = useState(false);
   const [zoomVisible, setZoomVisible] = useState(false);
-  const positions = useMemo(
-    () => new Map(
-      Array.from(motion, ([id, point]) => [
-        id,
-        { x: point.x, y: point.y },
-      ]),
-    ),
-    [motion],
-  );
-  const positionsRef = useRef(positions);
+  const positionsRef = useRef<
+    ReadonlyMap<string, { x: number; y: number }>
+  >(renderPositions);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [displayScale, setDisplayScale] = useState(1);
   const scale = useSharedValue(1);
@@ -129,7 +519,14 @@ export function ReferralRevenueGraphCanvas({
   const pinchStartPanX = useSharedValue(0);
   const pinchStartPanY = useSharedValue(0);
   const draggedNodeIndex = useSharedValue(-1);
-  const motionCoordinates = useSharedValue<number[]>([]);
+  const nodeDragGestureSequence = useSharedValue(0);
+  const nodeDragGestureToken = useSharedValue(0);
+  const motionCoordinates = useSharedValue<number[]>(
+    orderedNodes.flatMap((node) => {
+      const point = initialPositions.get(node.id);
+      return point ? [point.x, point.y] : [0, 0];
+    }),
+  );
 
   const revealZoom = useCallback((nextScale: number) => {
     setDisplayScale(nextScale);
@@ -183,33 +580,85 @@ export function ReferralRevenueGraphCanvas({
     }
   }, []);
 
+  const cancelPendingNodeDrag = useCallback(() => {
+    pendingDragRef.current = null;
+    if (dragFrameRef.current != null) {
+      cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+  }, []);
+
   const commitMotion = useCallback((
     next: Map<string, SampleRevenueGraphMotionPoint>,
   ) => {
     motionRef.current = next;
-    positionsRef.current = new Map(
+    positionsRef.current = next;
+    motionCoordinates.value = orderedNodes.flatMap((node) => {
+      const point = next.get(node.id);
+      return point ? [point.x, point.y] : [0, 0];
+    });
+  }, [motionCoordinates, orderedNodes]);
+
+  const syncRenderPositions = useCallback((
+    next: ReadonlyMap<string, SampleRevenueGraphMotionPoint>,
+  ) => {
+    const snapshot = new Map(
       Array.from(next, ([id, point]) => [
         id,
         { x: point.x, y: point.y },
       ]),
     );
-    motionCoordinates.value = orderedNodes.flatMap((node) => {
-      const point = next.get(node.id);
-      return point ? [point.x, point.y] : [0, 0];
-    });
-    setMotion(next);
-  }, [motionCoordinates, orderedNodes]);
+    positionsRef.current = snapshot;
+    setRenderPositions(snapshot);
+  }, []);
+
+  useLayoutEffect(() => {
+    topologyRef.current = topology;
+    if (!isFocused) {
+      dragSessionRef.current = transitionNodeDragSession(
+        dragSessionRef.current,
+        { type: 'unmount' },
+      ).state;
+      cancelSettle();
+      cancelPendingNodeDrag();
+      syncRenderPositions(motionRef.current);
+      setPhysicsActive(false);
+      return undefined;
+    }
+    dragSessionRef.current = transitionNodeDragSession(
+      dragSessionRef.current,
+      { type: 'mount', contextToken: gestureContextToken },
+    ).state;
+    return () => {
+      dragSessionRef.current = transitionNodeDragSession(
+        dragSessionRef.current,
+        { type: 'unmount' },
+      ).state;
+      cancelSettle();
+      cancelPendingNodeDrag();
+    };
+  }, [
+    cancelPendingNodeDrag,
+    cancelSettle,
+    gestureContextToken,
+    isFocused,
+    syncRenderPositions,
+    topology,
+  ]);
 
   useEffect(() => {
     cancelSettle();
-    const next = createMotionLayout(initialPositions);
-    commitMotion(next);
+    cancelPendingNodeDrag();
+    commitMotion(initialMotion);
+    syncRenderPositions(initialMotion);
     setPhysicsActive(false);
   }, [
+    cancelPendingNodeDrag,
     cancelSettle,
     commitMotion,
-    initialPositions,
+    initialMotion,
     resetRequestId,
+    syncRenderPositions,
   ]);
 
   useEffect(() => {
@@ -222,18 +671,27 @@ export function ReferralRevenueGraphCanvas({
   ]);
 
   useEffect(() => () => {
-    cancelSettle();
     if (zoomTimerRef.current != null) {
       clearTimeout(zoomTimerRef.current);
     }
-  }, [cancelSettle]);
+  }, []);
 
-  const beginNodeDrag = useCallback(() => {
+  const beginNodeDrag = useCallback((
+    contextToken: number,
+    gestureToken: number,
+  ) => {
+    const transition = transitionNodeDragSession(
+      dragSessionRef.current,
+      { type: 'begin', contextToken, gestureToken },
+    );
+    if (!transition.accepted) return;
+    dragSessionRef.current = transition.state;
     cancelSettle();
+    cancelPendingNodeDrag();
     setPhysicsActive(true);
-  }, [cancelSettle]);
+  }, [cancelPendingNodeDrag, cancelSettle]);
 
-  const updateNodeDrag = useCallback((
+  const commitNodeDragSample = useCallback((
     nodeIndex: number,
     x: number,
     y: number,
@@ -243,9 +701,10 @@ export function ReferralRevenueGraphCanvas({
     const next = stepSampleRevenueInteractivePhysics({
       nodes,
       edges,
+      topology,
       motion: motionRef.current,
       alpha: 0.24,
-      ticks: 2,
+      ticks: 1,
       fixedNodeId: node.id,
       fixedPosition: {
         x: Math.min(Math.max(x, 70), SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - 70),
@@ -253,31 +712,149 @@ export function ReferralRevenueGraphCanvas({
       },
     });
     commitMotion(next);
-  }, [commitMotion, edges, nodes, orderedNodes]);
+  }, [commitMotion, edges, nodes, orderedNodes, topology]);
 
-  const endNodeDrag = useCallback(() => {
+  const updateNodeDrag = useCallback((
+    contextToken: number,
+    gestureToken: number,
+    nodeIndex: number,
+    x: number,
+    y: number,
+  ) => {
+    const transition = transitionNodeDragSession(
+      dragSessionRef.current,
+      { type: 'update', contextToken, gestureToken },
+    );
+    if (!transition.accepted) return;
+    pendingDragRef.current = {
+      contextToken,
+      gestureToken,
+      nodeIndex,
+      topology,
+      x,
+      y,
+    };
+    if (dragFrameRef.current != null) return;
+    dragFrameRef.current = requestAnimationFrame(() => {
+      dragFrameRef.current = null;
+      const sample = pendingDragRef.current;
+      pendingDragRef.current = null;
+      if (!sample || sample.topology !== topologyRef.current) {
+        return;
+      }
+      const current = transitionNodeDragSession(
+        dragSessionRef.current,
+        {
+          type: 'update',
+          contextToken: sample.contextToken,
+          gestureToken: sample.gestureToken,
+        },
+      );
+      if (!current.accepted) {
+        return;
+      }
+      commitNodeDragSample(sample.nodeIndex, sample.x, sample.y);
+    });
+  }, [commitNodeDragSample, topology]);
+
+  const endNodeDrag = useCallback((
+    contextToken: number,
+    gestureToken: number,
+  ) => {
+    const transition = transitionNodeDragSession(
+      dragSessionRef.current,
+      { type: 'end', contextToken, gestureToken },
+    );
+    if (!transition.accepted) return;
+    const finalSample = pendingDragRef.current?.contextToken === contextToken
+      && pendingDragRef.current.gestureToken === gestureToken
+      ? pendingDragRef.current
+      : null;
+    dragSessionRef.current = transition.state;
+    cancelPendingNodeDrag();
     cancelSettle();
     let alpha = 0.32;
+    let pendingFinalSample = finalSample?.topology === topology
+      ? finalSample
+      : null;
     setPhysicsActive(true);
     const settle = () => {
-      alpha *= 0.94;
-      const next = stepSampleRevenueInteractivePhysics({
-        nodes,
-        edges,
-        motion: motionRef.current,
-        alpha,
-        ticks: 1,
-      });
+      const current = transitionNodeDragSession(
+        dragSessionRef.current,
+        { type: 'settle', contextToken, gestureToken },
+      );
+      if (!current.accepted || topology !== topologyRef.current) {
+        settleFrameRef.current = null;
+        return;
+      }
+      const finalNode = pendingFinalSample
+        ? orderedNodes[pendingFinalSample.nodeIndex]
+        : null;
+      const next = finalNode && pendingFinalSample
+        ? stepSampleRevenueInteractivePhysics({
+          nodes,
+          edges,
+          topology,
+          motion: motionRef.current,
+          alpha: 0.24,
+          ticks: 1,
+          fixedNodeId: finalNode.id,
+          fixedPosition: {
+            x: Math.min(
+              Math.max(pendingFinalSample.x, 70),
+              SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - 70,
+            ),
+            y: Math.min(
+              Math.max(pendingFinalSample.y, 70),
+              SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - 70,
+            ),
+          },
+        })
+        : stepSampleRevenueInteractivePhysics({
+          nodes,
+          edges,
+          topology,
+          motion: motionRef.current,
+          alpha: alpha *= 0.94,
+          ticks: 1,
+        });
+      pendingFinalSample = null;
       commitMotion(next);
       if (alpha > 0.014) {
         settleFrameRef.current = requestAnimationFrame(settle);
       } else {
         settleFrameRef.current = null;
+        syncRenderPositions(next);
         setPhysicsActive(false);
       }
     };
     settleFrameRef.current = requestAnimationFrame(settle);
-  }, [cancelSettle, commitMotion, edges, nodes]);
+  }, [
+    cancelPendingNodeDrag,
+    cancelSettle,
+    commitMotion,
+    edges,
+    nodes,
+    orderedNodes,
+    syncRenderPositions,
+    topology,
+  ]);
+
+  const cancelNodeDrag = useCallback((
+    contextToken: number,
+    gestureToken: number,
+  ) => {
+    const transition = transitionNodeDragSession(
+      dragSessionRef.current,
+      { type: 'cancel', contextToken, gestureToken },
+    );
+    if (!transition.accepted) return;
+    dragSessionRef.current = transition.state;
+    cancelPendingNodeDrag();
+    cancelSettle();
+    syncRenderPositions(motionRef.current);
+    setPhysicsActive(false);
+  }, [cancelPendingNodeDrag, cancelSettle, syncRenderPositions]);
 
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
@@ -292,6 +869,8 @@ export function ReferralRevenueGraphCanvas({
       .maxPointers(1)
       .minDistance(4)
       .onStart((event) => {
+        nodeDragGestureSequence.value += 1;
+        nodeDragGestureToken.value = nodeDragGestureSequence.value;
         startPanX.value = panX.value;
         startPanY.value = panY.value;
         const currentScale = Math.max(
@@ -329,7 +908,10 @@ export function ReferralRevenueGraphCanvas({
         }
         draggedNodeIndex.value = nearestIndex;
         if (nearestIndex >= 0) {
-          runOnJS(beginNodeDrag)();
+          runOnJS(beginNodeDrag)(
+            gestureContextToken,
+            nodeDragGestureToken.value,
+          );
         }
       })
       .onUpdate((event) => {
@@ -351,6 +933,8 @@ export function ReferralRevenueGraphCanvas({
               - panY.value
             ) / currentScale;
           runOnJS(updateNodeDrag)(
+            gestureContextToken,
+            nodeDragGestureToken.value,
             draggedNodeIndex.value,
             graphX,
             graphY,
@@ -360,19 +944,33 @@ export function ReferralRevenueGraphCanvas({
         panX.value = startPanX.value + event.translationX;
         panY.value = startPanY.value + event.translationY;
       })
-      .onFinalize(() => {
+      .onFinalize((_event, success) => {
         if (draggedNodeIndex.value >= 0) {
-          runOnJS(endNodeDrag)();
+          if (success) {
+            runOnJS(endNodeDrag)(
+              gestureContextToken,
+              nodeDragGestureToken.value,
+            );
+          } else {
+            runOnJS(cancelNodeDrag)(
+              gestureContextToken,
+              nodeDragGestureToken.value,
+            );
+          }
         }
         draggedNodeIndex.value = -1;
       }),
     [
       beginNodeDrag,
+      cancelNodeDrag,
       canvasSize.height,
       canvasSize.width,
       draggedNodeIndex,
       endNodeDrag,
+      gestureContextToken,
       motionCoordinates,
+      nodeDragGestureSequence,
+      nodeDragGestureToken,
       panX,
       panY,
       scale,
@@ -446,13 +1044,13 @@ export function ReferralRevenueGraphCanvas({
   const safeScale = Math.max(displayScale, SAMPLE_REVENUE_GRAPH_MIN_SCALE);
   const minimumScreenRadius = 14 / safeScale;
   const hitTargetSize = 48 / safeScale;
-  const labelFontSize = Math.min(38, 11 / safeScale);
-  const amountFontSize = Math.min(32, 9 / safeScale);
-  const centerFontSize = Math.min(38, 11 / safeScale);
-  const nodeAmountFontSize = Math.min(26, 7 / safeScale);
   const nodeById = useMemo(
     () => new Map(nodes.map((node) => [node.id, node])),
     [nodes],
+  );
+  const nodeIndexById = useMemo(
+    () => new Map(orderedNodes.map((node, index) => [node.id, index])),
+    [orderedNodes],
   );
 
   return (
@@ -480,146 +1078,82 @@ export function ReferralRevenueGraphCanvas({
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
           >
-            <G>
-              {visibleEdges.map((edge) => {
-                const source = positions.get(edge.source);
-                const target = positions.get(edge.target);
-                const targetNode = nodeById.get(edge.target);
-                if (!source || !target || !targetNode) return null;
-                const excluded = !targetNode.eligible && !targetNode.isViewer;
-                const context = Boolean(
-                  focusedNodeIds && !focusedNodeIds.has(edge.target),
-                );
+            {visibleEdges.map((edge) => {
+              const sourceIndex = nodeIndexById.get(edge.source);
+              const targetIndex = nodeIndexById.get(edge.target);
+              const targetNode = nodeById.get(edge.target);
+              if (
+                sourceIndex == null
+                || targetIndex == null
+                || !targetNode
+              ) {
+                return null;
+              }
+              const excluded = !targetNode.eligible && !targetNode.isViewer;
+              const context = Boolean(
+                focusedNodeIds && !focusedNodeIds.has(edge.target),
+              );
 
-                return (
-                  <Line
-                    key={edge.id}
-                    x1={source.x}
-                    y1={source.y}
-                    x2={target.x}
-                    y2={target.y}
-                    stroke={excluded || context ? '#cbd5e1' : '#fdba74'}
-                    strokeWidth={Math.max(1.5, 1.35 / safeScale)}
-                    strokeLinecap="round"
-                    strokeDasharray={excluded ? '5 5' : undefined}
-                  />
-                );
-              })}
-            </G>
-
-            <G>
-              {nodes.map((node) => {
-                const point = positions.get(node.id);
-                if (!point) return null;
-                const isContext = Boolean(
-                  focusedNodeIds && !focusedNodeIds.has(node.id),
-                );
-                const radius = Math.max(
-                  getSampleRevenueGraphNodeRadius(node),
-                  minimumScreenRadius,
-                );
-                const selected = node.id === selectedNodeId;
-                const amountLabel = node.isViewer
-                  ? '기준'
-                  : node.eligible
-                    ? formatCompactSampleRevenueKrw(
-                      node.expectedAllocationKrw,
-                    )
-                    : '대상 제외';
-                const nodeAmountLabel = node.isViewer
-                  ? '기준'
-                  : node.eligible
-                    ? formatSampleRevenueNodeAmount(
-                      node.expectedAllocationKrw,
-                    )
-                    : '제외';
-
-                return (
-                  <G key={node.id}>
-                    {selected ? (
-                      <Circle
-                        cx={point.x}
-                        cy={point.y}
-                        r={radius + 7 / safeScale}
-                        fill="none"
-                        stroke="#2563eb"
-                        strokeWidth={3 / safeScale}
-                      />
-                    ) : null}
-                    <Circle
-                      cx={point.x}
-                      cy={point.y}
-                      r={radius}
-                      fill={getSampleRevenueGraphNodeColor(node, isContext)}
-                      stroke="#ffffff"
-                      strokeWidth={2.4 / safeScale}
-                      strokeDasharray={
-                        !node.eligible && !node.isViewer ? '5 5' : undefined
-                      }
-                    />
-                    <SvgText
-                      x={point.x}
-                      y={point.y - centerFontSize * 0.08}
-                      fill={isContext ? '#475569' : '#ffffff'}
-                      fontSize={centerFontSize}
-                      fontWeight="800"
-                      textAnchor="middle"
-                    >
-                      {getCompactNodeLabel(node)}
-                    </SvgText>
-                    <SvgText
-                      x={point.x}
-                      y={point.y + centerFontSize * 0.82}
-                      fill={isContext ? '#475569' : '#ffffff'}
-                      fontSize={nodeAmountFontSize}
-                      fontWeight="800"
-                      textAnchor="middle"
-                    >
-                      {nodeAmountLabel}
-                    </SvgText>
-                    {selected ? (
-                      <>
-                        <SvgText
-                          x={point.x}
-                          y={point.y + radius + labelFontSize + 5}
-                          fill="#334155"
-                          fontSize={labelFontSize}
-                          fontWeight="800"
-                          textAnchor="middle"
-                        >
-                          {node.name}
-                        </SvgText>
-                        <SvgText
-                          x={point.x}
-                          y={
-                            point.y
-                            + radius
-                            + labelFontSize
-                            + amountFontSize
-                            + 9
-                          }
-                          fill={
-                            node.eligible && !isContext
-                              ? '#c2410c'
-                              : '#64748b'
-                          }
-                          fontSize={amountFontSize}
-                          fontWeight="700"
-                          textAnchor="middle"
-                        >
-                          {amountLabel}
-                        </SvgText>
-                      </>
-                    ) : null}
-                  </G>
-                );
-              })}
-            </G>
+              return (
+                <AnimatedRevenueEdge
+                  key={edge.id}
+                  context={context}
+                  coordinates={motionCoordinates}
+                  excluded={excluded}
+                  safeScale={safeScale}
+                  sourceIndex={sourceIndex}
+                  targetIndex={targetIndex}
+                />
+              );
+            })}
           </Svg>
 
           {nodes.map((node) => {
-            const point = positions.get(node.id);
-            if (!point) return null;
+            const nodeIndex = nodeIndexById.get(node.id);
+            if (nodeIndex == null) return null;
+            const isContext = Boolean(
+              focusedNodeIds && !focusedNodeIds.has(node.id),
+            );
+            const radius = Math.max(
+              getSampleRevenueGraphNodeRadius(node),
+              minimumScreenRadius,
+            );
+            const selected = node.id === selectedNodeId;
+            const amountLabel = node.isViewer
+              ? '기준'
+              : node.eligible
+                ? formatCompactSampleRevenueKrw(
+                  node.expectedAllocationKrw,
+                )
+                : '대상 제외';
+            const nodeAmountLabel = node.isViewer
+              ? '기준'
+              : node.eligible
+                ? formatSampleRevenueNodeAmount(
+                  node.expectedAllocationKrw,
+                )
+                : '제외';
+
+            return (
+              <AnimatedRevenueNode
+                key={node.id}
+                amountLabel={amountLabel}
+                coordinates={motionCoordinates}
+                isContext={isContext}
+                node={node}
+                nodeAmountLabel={nodeAmountLabel}
+                nodeIndex={nodeIndex}
+                radius={radius}
+                safeScale={safeScale}
+                scale={scale}
+                selected={selected}
+              />
+            );
+          })}
+
+          {nodes.map((node) => {
+            const nodeIndex = nodeIndexById.get(node.id);
+            if (nodeIndex == null) return null;
             const isContext = Boolean(
               focusedNodeIds && !focusedNodeIds.has(node.id),
             );
@@ -627,26 +1161,14 @@ export function ReferralRevenueGraphCanvas({
             if (!selectable) return null;
 
             return (
-              <Pressable
+              <AnimatedRevenueHitTarget
                 key={`hit-${node.id}`}
-                style={({ pressed }) => [
-                  styles.nodeHitTarget,
-                  {
-                    width: hitTargetSize,
-                    height: hitTargetSize,
-                    borderRadius: hitTargetSize / 2,
-                    left: point.x - hitTargetSize / 2,
-                    top: point.y - hitTargetSize / 2,
-                  },
-                  pressed && styles.nodeHitTargetPressed,
-                ]}
-                onPress={() => onSelectNode(node)}
-                accessibilityRole="button"
-                accessibilityLabel={`${node.name}, ${node.depth}단계, ${getSampleRevenueGraphNodeStatusLabel(node)}`}
-                accessibilityHint="두 번 탭하면 샘플 매출과 예상 배분 상세를 엽니다."
-              >
-                <Text style={styles.hiddenNodeLabel}>{node.name}</Text>
-              </Pressable>
+                coordinates={motionCoordinates}
+                hitTargetSize={hitTargetSize}
+                node={node}
+                nodeIndex={nodeIndex}
+                onSelectNode={onSelectNode}
+              />
             );
           })}
         </Animated.View>
@@ -702,19 +1224,82 @@ const styles = StyleSheet.create({
     width: SAMPLE_REVENUE_GRAPH_SURFACE_SIZE,
     height: SAMPLE_REVENUE_GRAPH_SURFACE_SIZE,
   },
+  nodeVisual: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    overflow: 'visible',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nodeSelectionRing: {
+    position: 'absolute',
+    borderColor: '#2563eb',
+    backgroundColor: 'transparent',
+  },
+  nodeCircle: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    borderColor: '#ffffff',
+  },
+  nodeCircleExcluded: {
+    borderStyle: 'dashed',
+  },
+  nodeLabelStack: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nodeNameLabel: {
+    fontSize: 11,
+    lineHeight: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  nodeAmountLabel: {
+    fontSize: 7,
+    lineHeight: 9,
+    fontWeight: '800',
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  selectedNodeLabel: {
+    position: 'absolute',
+    left: '50%',
+    width: 180,
+    marginLeft: -90,
+    alignItems: 'center',
+  },
+  selectedNodeName: {
+    color: '#334155',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  selectedNodeAmount: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
   nodeHitTarget: {
     position: 'absolute',
+    left: 0,
+    top: 0,
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+  },
+  nodeHitTargetPressable: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
   nodeHitTargetPressed: {
     backgroundColor: 'rgba(249, 115, 22, 0.16)',
-  },
-  hiddenNodeLabel: {
-    width: 1,
-    height: 1,
-    opacity: 0,
   },
   zoomBadge: {
     position: 'absolute',

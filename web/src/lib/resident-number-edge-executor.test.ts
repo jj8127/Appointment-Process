@@ -53,8 +53,14 @@ test('returns resident numbers from a successful edge fallback response', async 
   });
 
   assert.deepStrictEqual(result, {
-    'fc-1': '900101-1234567',
-    'fc-2': null,
+    residentNumbers: {
+      'fc-1': '900101-1234567',
+      'fc-2': null,
+    },
+    residentNumberStatuses: {
+      'fc-1': 'ready',
+      'fc-2': 'missing',
+    },
   });
   assert.equal(fetchCalls.length, 1);
   assert.equal(fetchCalls[0].url, 'https://project.supabase.co/functions/v1/admin-action');

@@ -34,24 +34,32 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
   }
 
-  const { error } = await adminSupabase
-    .from('web_push_subscriptions')
-    .upsert(
-      {
-        resident_id: sessionCheck.session.residentDigits,
-        role: sessionCheck.session.role,
-        endpoint,
-        p256dh,
-        auth,
-        user_agent: request.headers.get('user-agent') ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'endpoint' },
-    );
+  return NextResponse.json({
+    ok: true,
+    subscribed: false,
+    mode: 'in_app_only',
+  });
+}
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+export async function DELETE() {
+  const sessionCheck = await getVerifiedReadOnlyAdminSession();
+  if (!sessionCheck.ok) {
+    return NextResponse.json({ error: sessionCheck.error }, { status: sessionCheck.status });
   }
 
-  return NextResponse.json({ ok: true });
+  const { error } = await adminSupabase
+    .from('web_push_subscriptions')
+    .delete()
+    .eq('resident_id', sessionCheck.session.residentDigits)
+    .eq('role', sessionCheck.session.role);
+
+  if (error) {
+    return NextResponse.json({ error: 'Subscription retirement failed' }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    retired: true,
+    mode: 'in_app_only',
+  });
 }

@@ -113,7 +113,7 @@ describe('diagnostic privacy source boundary', () => {
     expect(notify).not.toContain('board attachment cleanup failed');
     expect(notify).not.toContain("console.warn('notifications insert failed'");
     expect(notify).not.toContain('device token load failed');
-    expect(notify).toContain("event: 'fc_notify.admin_web_push'");
+    expect(notify).not.toContain("event: 'fc_notify.admin_web_push'");
     expect(notify).toContain("event: 'fc_notify.recipient_resolution'");
     expect(notify).toContain("event: 'fc_notify.attachment_cleanup'");
     expect(notify).toContain("event: 'fc_notify.notification_insert'");

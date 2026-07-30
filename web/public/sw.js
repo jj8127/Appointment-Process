@@ -26,107 +26,26 @@ self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
+async function retireSystemNotifications() {
+  const pushManager = self.registration.pushManager;
+  if (pushManager) {
+    const subscription = await pushManager.getSubscription().catch(() => null);
+    if (subscription) {
+      await subscription.unsubscribe().catch(() => false);
+    }
+  }
+
+  const notifications = await self.registration.getNotifications().catch(() => []);
+  for (const notification of notifications) {
+    notification.close();
+  }
+}
+
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
-});
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-const isUuid = (value) => typeof value === 'string' && UUID_PATTERN.test(value);
-const isPositiveSafeInteger = (value) => Number.isSafeInteger(value) && value > 0;
-const exactKeys = (value, keys) => {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
-};
-
-const isNotificationTargetV1 = (value) => {
-  if (!isRecord(value) || value.version !== 1 || typeof value.kind !== 'string') return false;
-  switch (value.kind) {
-    case 'fc_profile':
-      return exactKeys(value, ['version', 'kind', 'fcId']) && isUuid(value.fcId);
-    case 'onboarding_section':
-      return exactKeys(value, ['version', 'kind', 'fcId', 'section'])
-        && isUuid(value.fcId)
-        && ['home', 'consent', 'docs_upload', 'hanwha_commission', 'appointment'].includes(value.section);
-    case 'board_post':
-      return exactKeys(value, ['version', 'kind', 'postId']) && isUuid(value.postId);
-    case 'notice':
-      return exactKeys(value, ['version', 'kind', 'noticeId']) && isUuid(value.noticeId);
-    case 'exam': {
-      if (value.examType !== 'life' && value.examType !== 'nonlife') return false;
-      return (
-        exactKeys(value, ['version', 'kind', 'examType', 'examRegistrationId'])
-        && isUuid(value.examRegistrationId)
-      ) || (
-        exactKeys(value, ['version', 'kind', 'examType', 'examRoundId'])
-        && isUuid(value.examRoundId)
-      );
-    }
-    case 'garamin_direct_chat':
-      return exactKeys(value, ['version', 'kind', 'conversationId']) && isUuid(value.conversationId);
-    case 'group_chat':
-      return exactKeys(value, ['version', 'kind', 'roomId']) && isUuid(value.roomId);
-    case 'request':
-      return exactKeys(value, ['version', 'kind', 'requestId'])
-        && isPositiveSafeInteger(value.requestId);
-    case 'request_chat':
-      return exactKeys(value, ['version', 'kind', 'requestDesignerId'])
-        && isPositiveSafeInteger(value.requestDesignerId);
-    case 'request_direct_chat':
-      return exactKeys(value, ['version', 'kind', 'directConversationId'])
-        && isPositiveSafeInteger(value.directConversationId);
-    default:
-      return false;
-  }
-};
-
-self.addEventListener('push', (event) => {
-  let data = {};
-  try {
-    data = event.data ? event.data.json() : {};
-  } catch {
-    data = {};
-  }
-  const notificationData = isRecord(data.data) ? data.data : {};
-  event.waitUntil(self.registration.showNotification(
-    typeof data.title === 'string' && data.title.trim() ? data.title : '가람in 알림',
-    {
-      body: typeof data.body === 'string' ? data.body : '',
-      data: {
-        notificationId: isUuid(notificationData.notificationId)
-          ? notificationData.notificationId.toLowerCase()
-          : null,
-        target: isNotificationTargetV1(notificationData.target) ? notificationData.target : null,
-      },
-      icon: '/favicon.ico',
-      badge: '/favicon.ico',
-    },
-  ));
-});
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const data = isRecord(event.notification.data) ? event.notification.data : {};
-  const notificationId = isUuid(data.notificationId) ? data.notificationId.toLowerCase() : null;
-  const targetValid = isNotificationTargetV1(data.target);
-  const targetUrl = notificationId
-    ? `/api/notification-open/prepare?notificationId=${encodeURIComponent(notificationId)}${targetValid ? '' : '&unavailable=1'}`
-    : '/auth';
-  const targetHref = new URL(targetUrl, self.location.origin).href;
-
-  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientList) => {
-    for (const client of clientList) {
-      if (!client.url.startsWith(self.location.origin)) continue;
-      if ('navigate' in client && 'focus' in client) {
-        const navigatedClient = await client.navigate(targetHref);
-        return (navigatedClient || client).focus();
-      }
-    }
-    return self.clients.openWindow ? self.clients.openWindow(targetHref) : undefined;
-  }));
+  event.waitUntil(Promise.all([
+    self.clients.claim(),
+    retireSystemNotifications(),
+  ]));
 });
 
 self.addEventListener('fetch', (event) => {

@@ -17,9 +17,9 @@
     "web/src/app/dashboard/settings/page.tsx"
   ],
   "expectedCounts": {
-    "fixed-non-sensitive": 9,
+    "fixed-non-sensitive": 7,
     "unproven": 0,
-    "total": 9
+    "total": 7
   },
   "sinks": [
     {
@@ -56,20 +56,6 @@
       "call": "console.warn('[set-password] resolveReferralDetails: self-referral detected, skipping')",
       "classification": "fixed-non-sensitive",
       "anchor": "self-referral"
-    },
-    {
-      "path": "supabase/functions/fc-notify/index.ts",
-      "method": "warn",
-      "call": "console.warn('[fc-notify] admin web push disabled: missing ADMIN_WEB_URL')",
-      "classification": "fixed-non-sensitive",
-      "anchor": "admin-web-url-missing"
-    },
-    {
-      "path": "supabase/functions/fc-notify/index.ts",
-      "method": "warn",
-      "call": "console.warn('[fc-notify] admin web push disabled: invalid ADMIN_WEB_URL')",
-      "classification": "fixed-non-sensitive",
-      "anchor": "admin-web-url-invalid"
     },
     {
       "path": "supabase/functions/board-create/index.ts",

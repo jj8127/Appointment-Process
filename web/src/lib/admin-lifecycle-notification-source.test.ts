@@ -36,25 +36,20 @@ test('push delivery logs only privacy-safe aggregate fields', () => {
   assert.doesNotMatch(actionSource, /body:\s*payload\.body/);
   assert.doesNotMatch(serviceSource, /logger\.[^(]+\([^\n]+userId/);
   assert.doesNotMatch(serviceSource, /logger\.[^(]+\([^\n]+(?:title|body)/);
-  assert.doesNotMatch(webPushSource, /error\?\.statusCode \?\? err/);
-  assert.match(webPushSource, /reason:\s*'provider_rejected'/);
+  assert.match(webPushSource, /mode:\s*'in_app_only'/);
+  assert.doesNotMatch(webPushSource, /sendNotification|setVapidDetails|provider_rejected/);
 });
 
-test('resident lifecycle delivery is restricted to FC mobile and web targets', () => {
+test('resident lifecycle delivery is restricted to FC mobile targets', () => {
   const serviceSource = readSource('lib/push-notification-service.ts');
   const deviceQueryStart = serviceSource.indexOf(".from('device_tokens')");
   const deviceQueryEnd = serviceSource.indexOf('if (tokensError)', deviceQueryStart);
-  const webQueryStart = serviceSource.indexOf(".from('web_push_subscriptions')", deviceQueryEnd);
-  const webQueryEnd = serviceSource.indexOf('if (subscriptionsError)', webQueryStart);
   const deviceQuery = serviceSource.slice(deviceQueryStart, deviceQueryEnd);
-  const webQuery = serviceSource.slice(webQueryStart, webQueryEnd);
 
   assert.match(deviceQuery, /\.eq\('resident_id', userId\)/);
   assert.match(deviceQuery, /\.eq\('role', 'fc'\)/);
-  assert.match(webQuery, /\.eq\('resident_id', userId\)/);
-  assert.match(webQuery, /\.eq\('role', 'fc'\)/);
   assert.doesNotMatch(deviceQuery, /\.in\('role'/);
-  assert.doesNotMatch(webQuery, /\.in\('role'/);
+  assert.doesNotMatch(serviceSource, /web_push_subscriptions|sendWebPush/);
 });
 
 test('FC inbox persistence and partial delivery accounting remain independent', () => {
@@ -68,7 +63,7 @@ test('FC inbox persistence and partial delivery accounting remain independent', 
   assert.match(serviceSource, /delivery\.inbox\.attempted = true/);
   assert.match(serviceSource, /delivery\.inbox\.logged = true/);
   assert.match(serviceSource, /addFailure\(delivery, 'token_query_failed'\)/);
-  assert.match(serviceSource, /addFailure\(delivery, 'web_subscription_query_failed'\)/);
+  assert.doesNotMatch(serviceSource, /addFailure\(delivery, 'web_subscription_query_failed'\)/);
   assert.match(serviceSource, /const result = finalizeDeliveryResult\(delivery\)/);
   assert.match(
     serviceSource,

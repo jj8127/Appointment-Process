@@ -16,13 +16,15 @@ test('Bell uses backend receipts and never guesses a destination from text or le
   assert.doesNotMatch(source, /markSeen|seenIdList/);
 });
 
-test('service worker accepts only notificationId plus strict target v1', () => {
+test('service worker remains network-only and retires browser notification state', () => {
   const source = read('public/sw.js');
-  assert.match(source, /isNotificationTargetV1/);
-  assert.match(source, /notificationId/);
-  assert.match(source, /api\/notification-open\/prepare/);
-  assert.doesNotMatch(source, /data\.url|targetName|target_url|normalizeNotificationTargetUrl/);
-  assert.doesNotMatch(source, /startsWith\('http|startsWith\(\"http/);
+  assert.match(source, /pushManager\.getSubscription/);
+  assert.match(source, /subscription\.unsubscribe/);
+  assert.match(source, /registration\.getNotifications/);
+  assert.match(source, /notification\.close/);
+  assert.doesNotMatch(source, /addEventListener\(['"]push['"]/);
+  assert.doesNotMatch(source, /addEventListener\(['"]notificationclick['"]/);
+  assert.doesNotMatch(source, /showNotification/);
 });
 
 test('auth resume uses one signed HttpOnly identifier and no arbitrary returnTo', () => {

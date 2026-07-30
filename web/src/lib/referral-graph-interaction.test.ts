@@ -105,7 +105,7 @@ test('applyReferralGraphDragFollowerTranslation gives descendants elastic moveme
   assert.equal(Math.round((nodesById.get('grand-child')?.y ?? 0) * 100) / 100, -12.18);
 });
 
-test('ReferralGraphCanvas moves the grabbed node and direct neighbors as one pointer-controlled group', () => {
+test('ReferralGraphCanvas pointer-controls only the grabbed node while linked nodes remain force-driven', () => {
   const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
   const dragHandler = source.slice(
     source.indexOf('const handleNodeDrag = useCallback'),
@@ -133,12 +133,13 @@ test('ReferralGraphCanvas moves the grabbed node and direct neighbors as one poi
   assert.doesNotMatch(source, /applyReferralGraphDragFollowerTranslation/);
   assert.doesNotMatch(source, /createReferralGraphDragElasticTetherForce/);
   assert.match(source, /createReferralGraphPointerDragForce/);
-  assert.match(source, /buildReferralGraphPointerDragMembers/);
-  assert.match(source, /adjacency\.get\(node\.id\) \?\? \[\]/);
-  assert.match(source, /controlledDragNodeIdsRef\.current = new Set\(members\.map/);
+  assert.doesNotMatch(source, /buildReferralGraphPointerDragMembers/);
+  assert.doesNotMatch(source, /controlledDragNodeIdsRef/);
+  assert.doesNotMatch(source, /members:\s*\[/);
   assert.match(source, /captureReferralGraphLinkDistances/);
   assert.match(source, /dragStartDistanceByLinkKeyRef/);
   assert.match(source, /createReferralGraphMaxLinkStretchForce/);
+  assert.match(source, /iterations:\s*16/);
   assert.match(source, /maxStretchMultiplier:\s*1\.2/);
   assert.doesNotMatch(source, /elasticDragTethersRef/);
   assert.match(source, /pointerDragTargetRef/);
@@ -153,7 +154,7 @@ test('ReferralGraphCanvas moves the grabbed node and direct neighbors as one poi
   assert.doesNotMatch(pointerMoveHandler, /node\.vx = 0/);
   assert.doesNotMatch(pointerMoveHandler, /node\.vy = 0/);
   assert.match(pointerMoveHandler, /pointerDragTargetRef\.current = \{/);
-  assert.match(pointerMoveHandler, /members:\s*pointerDragTargetRef\.current\?\.members/);
+  assert.doesNotMatch(pointerMoveHandler, /members/);
   assert.doesNotMatch(pointerMoveHandler, /MAX_POINTER_DRAG_IMPULSE/);
   assert.doesNotMatch(dragHandler, /directChildScale/);
   assert.doesNotMatch(source, /__initialDragPos/);
@@ -180,9 +181,8 @@ test('ReferralGraphCanvas moves the grabbed node and direct neighbors as one poi
   assert.match(finishNodeDragHandler, /stopGraphMotionKeepAlive\(\)/);
   assert.match(source, /window\.setTimeout/);
   assert.match(source, /activeDragNodeDepthsRef\.current = getReferralGraphLocalDragDepths/);
-  assert.match(finishNodeDragHandler, /for \(const nodeId of controlledDragNodeIdsRef\.current\)/);
-  assert.match(finishNodeDragHandler, /controlledNode\.fx = undefined/);
-  assert.match(finishNodeDragHandler, /controlledNode\.fy = undefined/);
+  assert.match(finishNodeDragHandler, /node\.fx = undefined/);
+  assert.match(finishNodeDragHandler, /node\.fy = undefined/);
 });
 
 test('ReferralGraphCanvas keeps spring, charge, and collision physics alive during active drag', () => {

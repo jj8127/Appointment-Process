@@ -112,30 +112,35 @@ completed FC 또는 active manager 로그인 성공
   10% 샘플 예상액을 계산한다. 이 흐름에는 query hook, app-session refresh,
   Supabase client, Edge Function, DB/RPC 또는 기존 `get-referral-tree(mode='graph')`
   응답이 참여하지 않는다.
-- graph 탭은 `react-native-svg` + Gesture Handler/Reanimated 기반의 원형
-  node/edge canvas다. `lib/referral-revenue-graph-native.ts`는 관리자 웹 balanced
-  free-physics의 중심력·반발력·degree-aware link spring·link tension·감쇠·collision
-  상수를 고정 tick으로 순수 계산한다. radial seed 뒤 hard collision pass를 적용해
-  결과를 결정론적으로 만들고 node 겹침을 제거하며, node 반지름·색상·상태,
-  node 내부 compact 금액과 fit viewport도 함께 계산한다. canvas는 pan/pinch,
-  fit/reset, node hit target과 선택 ring을 담당한다. 같은 canvas gesture는 시작
-  지점 hit-test로 empty-space pan과 node drag를 분기한다. node drag 중에는
-  `stepSampleRevenueInteractivePhysics(...)`를 pointer frame마다 실행하고,
-  release 뒤 `requestAnimationFrame` settle loop가 alpha를 감쇠한다. graph route는
-  stack header를 숨기고 back/title/sample header와 설정 trigger만 canvas 위에
-  상시 overlay한다. summary·filter·list·fit/reset·legend·disclaimer는
-  `Modal` 설정 panel 안에 있으며 panel open 동안 backdrop이 graph gesture를
-  차단한다. idle physics badge는 렌더하지 않고 zoom badge도 fit/pinch 뒤 1.4초만
-  표시한다.
-  이 샘플 canvas는 모바일 성능 경계를 위해 관리자 웹의 `d3-force` package나
-  전체 component/hub seed-layout runtime을 import하지 않는다. 웹의 resolved
-  balanced 상수만 모바일 fixed-tick helper에 반영하며, exact desktop runtime
-  parity보다 작은 번들·예측 가능한 Android SVG 메모리를 우선한다.
-  `expo-screen-orientation`은 route mount에서 `LANDSCAPE`, cleanup에서
-  `PORTRAIT_UP`을 요청한다. 닫힌 landscape HUD는 영구 sidebar/하단 legend 공간을
-  예약하지 않고 compact top inset과 16pt edge inset만 사용한다. 설정 panel은
-  오른쪽에 임시 overlay된다. 카드형 계층 렌더나 `ScrollView` 기반 가짜 graph는
-  이 계약을 충족하지 않는다.
+- 네이티브 graph 탭은 기존 `react-native-webview`의 외부 요청 없는 로컬 HTML에서
+  단일 `<canvas>` draw loop와 physics loop를 함께 실행한다.
+  `lib/referral-revenue-graph-native.ts`가 관리자 웹 balanced free-physics의
+  중심력·반발력·degree-aware link spring·link tension·감쇠·collision 상수와
+  topology를 준비하고, WebView 내부의 mutable numeric array가 drag/settle frame을
+  처리한다. 이 구조는 React commit과 SVG/native Text의 node별 rasterization을
+  frame path에서 제거한다. 웹 플랫폼에는 기존 SVG/Reanimated renderer를 fallback으로
+  유지한다.
+  canvas는 시작 지점 hit-test로 empty-space pan과 node drag를 분기하고,
+  두 pointer pinch, fit/reset, 선택 ring을 처리한다. node 이름·단계·금액은
+  offscreen canvas에 고정 screen-pixel 크기로 캐시하므로 zoom 중에도 글자 크기는
+  변하지 않는다. release 뒤 `requestAnimationFrame` loop가 alpha와 velocity를
+  감쇠한다.
+  HTML source는 node/edge/physics 상수만 직렬화하며 외부 URL이나 실제 사용자
+  데이터를 읽지 않는다. bridge는 검증된 `{type:'select-node', nodeId}`만 앱으로
+  보내고, React Native 측은 현재 node map에 존재하는 ID만 상세 선택으로 수락한다.
+  file/universal file access, mixed content, DOM storage, 외부 navigation은 허용하지
+  않는다.
+  graph route는 stack header를 숨기고 back/title/sample header와 설정 trigger만
+  canvas 위에 상시 overlay한다. summary·filter·list·fit/reset·legend·disclaimer는
+  `Modal` 설정 panel 안에 있으며 panel open 동안 graph gesture를 차단한다.
+  관리자 웹의 `d3-force` package나 전체 component/hub seed-layout runtime은
+  import하지 않고 resolved balanced 상수만 사용하므로 새 package나 desktop runtime
+  크기를 추가하지 않는다.
+  `expo-screen-orientation`은 focus와 view mode를 함께 본다. focused graph와 graph
+  설정/상세는 `LANDSCAPE`, 목록과 목록 상세는 `PORTRAIT_UP`이며 blur·unmount·
+  header/Android back에서도 portrait를 요청한다. last-request-wins coordinator가
+  늦게 끝난 landscape 요청이 목록/이탈 뒤 다시 적용되는 race를 막는다. 카드형
+  계층 렌더나 `ScrollView` 기반 가짜 graph는 이 계약을 충족하지 않는다.
 - `/referral-revenue-graph`의 타입·계산·컴포넌트는 기존 추천 관계 graph와
   분리한다. 향후 실제 금융 데이터 연결은 별도 원장·권한·trusted API·정책 버전
   계약을 먼저 정의한 뒤 새 increment로 구현한다.

@@ -44,21 +44,30 @@ test('visible-page scope refuses oversized requests before fetch', () => {
   );
 });
 
-test('visible-page resolution keeps full values in scope and fails closed per missing row', () => {
+test('visible-page resolution distinguishes full, missing, and unavailable rows', () => {
   const scope = createVisiblePageResidentNumberScope({
-    fcIds: ['fc-ready', 'fc-missing'],
+    fcIds: ['fc-ready', 'fc-missing', 'fc-unavailable'],
     enabled: true,
     resetKey: 'current',
   });
   const fullValue = `${'1'.repeat(6)}-${'2'.repeat(7)}`;
   const resolved = resolveVisiblePageResidentNumbers(scope, {
-    'fc-ready': fullValue,
-    'fc-missing': null,
+    residentNumbers: {
+      'fc-ready': fullValue,
+      'fc-missing': null,
+      'fc-unavailable': null,
+    },
+    residentNumberStatuses: {
+      'fc-ready': 'ready',
+      'fc-missing': 'missing',
+      'fc-unavailable': 'unavailable',
+    },
   });
 
   assert.deepEqual(selectVisiblePageResidentNumberCells(scope, resolved), {
     'fc-ready': { status: 'ready', value: fullValue },
-    'fc-missing': { status: 'unavailable' },
+    'fc-missing': { status: 'missing' },
+    'fc-unavailable': { status: 'unavailable' },
   });
 });
 

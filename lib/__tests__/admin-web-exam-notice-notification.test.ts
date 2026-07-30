@@ -42,13 +42,13 @@ describe('admin web exam and notice notification completion contract', () => {
     expect(examPage).not.toContain("title: '알림 전달 확인 필요'");
   });
 
-  it('classifies Expo HTTP and ticket failures and includes web push delivery counts', () => {
+  it('classifies Expo HTTP and ticket failures without browser Web Push delivery', () => {
     expect(noticeAction).toContain('classifyExpoPushDelivery(chunk.length, resp.status, responseBody)');
     expect(noticeAction).toContain('mergeExpoPushDeliverySummaries([mobileDelivery, chunkDelivery])');
-    expect(noticeAction).toContain('webPushSent = result.sent');
-    expect(noticeAction).toContain('webPushFailed = result.failed');
-    expect(noticeAction).toContain('const acceptedTargets = mobileDelivery.accepted + webPushSent');
-    expect(noticeAction).toContain('const failedTargets = mobileDelivery.rejected + webPushFailed');
+    expect(noticeAction).toContain('const acceptedTargets = mobileDelivery.accepted');
+    expect(noticeAction).toContain('const failedTargets = mobileDelivery.rejected');
+    expect(noticeAction).not.toContain('sendWebPush');
+    expect(noticeAction).not.toContain('web_push_subscriptions');
     expect(noticeAction).toContain('if (notifError && acceptedTargets < 1)');
     expect(noticeAction).toContain('else if (targetQueriesFailed || acceptedTargets < 1)');
     expect(noticeAction).toContain('else if (failedTargets > 0)');

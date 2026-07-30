@@ -1,4 +1,4 @@
-type ResidentNumberMap = Record<string, string | null>;
+import type { ResidentNumberReadResult } from '@/lib/resident-number-read-contract';
 
 export type ResidentNumberStaffSession = {
   role: 'admin' | 'manager' | 'fc';
@@ -21,7 +21,7 @@ type ResidentNumberRouteSession =
 
 type ResidentNumberRouteResponseBody =
   | { error: string }
-  | { ok: true; residentNumbers: ResidentNumberMap };
+  | ({ ok: true } & ResidentNumberReadResult);
 
 type ResidentNumberRouteResponse = {
   body: ResidentNumberRouteResponseBody;
@@ -41,7 +41,7 @@ type ResidentNumberRouteHandlerDeps = {
     fcIds: string[];
     staffPhone: string;
     logPrefix: string;
-  }) => Promise<ResidentNumberMap>;
+  }) => Promise<ResidentNumberReadResult>;
   logInvalidJson: (error: unknown) => void;
   logReadFailure: (error: unknown) => void;
 };
@@ -108,20 +108,24 @@ export async function handleResidentNumberRoutePost({
 
   if (fcIds.length === 0) {
     return {
-      body: { ok: true, residentNumbers: {} },
+      body: {
+        ok: true,
+        residentNumbers: {},
+        residentNumberStatuses: {},
+      },
       status: 200,
     };
   }
 
   try {
-    const residentNumbers = await readResidentNumbers({
+    const result = await readResidentNumbers({
       fcIds,
       staffPhone: sessionCheck.session.residentDigits,
       logPrefix: RESIDENT_NUMBER_ROUTE_LOG_PREFIX,
     });
 
     return {
-      body: { ok: true, residentNumbers },
+      body: { ok: true, ...result },
       status: 200,
     };
   } catch (error: unknown) {

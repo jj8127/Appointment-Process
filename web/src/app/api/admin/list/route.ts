@@ -1,10 +1,13 @@
 import { adminSupabase } from '@/lib/admin-supabase';
 import { adminRouteAuthErrorResponse, requireAdminOrManagerReadRoute } from '@/lib/admin-route-auth';
+import {
+    buildActiveManagerPhoneSet,
+    isDashboardFcOnlyRow,
+} from '@/lib/dashboard-fc-eligibility';
 import { normalizeDashboardFcListRow } from '@/lib/dashboard-table-display';
 import { logger } from '@/lib/logger';
 import { NextResponse } from 'next/server';
 
-const DESIGNER_MARKER = '설계매니저';
 const AFFILIATION_CANONICAL_OPTIONS = [
     '1본부 서선미',
     '2본부 박성훈',
@@ -70,19 +73,28 @@ export async function GET() {
     }
 
     try {
-        const { data, error } = await adminSupabase
-            .from('fc_profiles')
-            .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_credentials(password_set_at), fc_documents(doc_type,storage_path,file_name,status,reviewer_note)')
-            .eq('signup_completed', true)
-            .order('created_at', { ascending: false });
+        const [
+            { data, error },
+            { data: activeManagerRows, error: activeManagerError },
+        ] = await Promise.all([
+            adminSupabase
+                .from('fc_profiles')
+                .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_credentials(password_set_at), fc_documents(doc_type,storage_path,file_name,status,reviewer_note)')
+                .eq('signup_completed', true)
+                .order('created_at', { ascending: false }),
+            adminSupabase
+                .from('manager_accounts')
+                .select('phone')
+                .eq('active', true),
+        ]);
 
         if (error) throw error;
+        if (activeManagerError) throw activeManagerError;
+
+        const activeManagerPhones = buildActiveManagerPhoneSet(activeManagerRows ?? []);
 
         const fcOnlyData = (data ?? [])
-            .filter((row) => {
-                const affiliation = normalizeWhitespace(row?.affiliation);
-                return !affiliation.includes(DESIGNER_MARKER);
-            })
+            .filter((row) => isDashboardFcOnlyRow(row, activeManagerPhones))
             .map((row) => ({
                 ...normalizeDashboardFcListRow(row),
                 affiliation: normalizeAffiliationLabel(row?.affiliation),

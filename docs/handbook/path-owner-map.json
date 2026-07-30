@@ -165,7 +165,8 @@
         "web/src/app/dashboard/profile/",
         "web/src/app/dashboard/appointment/",
         "web/src/app/api/admin/fc/route.ts",
-        "web/src/app/api/admin/list/route.ts"
+        "web/src/app/api/admin/list/route.ts",
+        "web/src/lib/dashboard-fc-eligibility.ts"
       ],
       "requires_any": [
         "docs/handbook/admin-web/dashboard-lifecycle.md",

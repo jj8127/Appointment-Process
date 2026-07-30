@@ -62,11 +62,12 @@ describe('fc-notify Edge authentication wiring', () => {
     expect(source).not.toContain('allowScopedManagerLifecycle: true');
   });
 
-  it('classifies the admin web callback body and exposes a fixed partial-delivery warning', () => {
-    expect(source).toContain("typeof parsed.ok === 'boolean'");
-    expect(source).toContain("typeof parsed?.sent === 'number'");
-    expect(source).toContain("typeof parsed?.failed === 'number'");
-    expect(source).toContain('Boolean(targetId) && sent === 0');
+  it('keeps the retired admin web callback as an accepted local no-op', () => {
+    expect(source).toContain("reason: 'in-app-only'");
+    expect(source).toContain('noTarget: true');
+    expect(source).not.toContain("typeof parsed.ok === 'boolean'");
+    expect(source).not.toContain("typeof parsed?.sent === 'number'");
+    expect(source).not.toContain('Boolean(targetId) && sent === 0');
     expect(source).toContain("NOTIFICATION_DELIVERY_INCOMPLETE_WARNING = 'notification_delivery_incomplete'");
     expect(source).toContain('getNotificationDeliveryWarning(adminWebPush)');
     expect(source).not.toContain('raw: await resp.text()');
@@ -78,12 +79,11 @@ describe('fc-notify Edge authentication wiring', () => {
     expect(source).not.toContain("return ok({ ok: true, sent: 0, logged: !logError");
   });
 
-  it('bounds both external push requests and classifies timeouts without raw exceptions', () => {
+  it('bounds Expo requests and has no administrator browser callback request', () => {
     expect(source).toContain('EXPO_PUSH_TIMEOUT_MS = 10_000');
-    expect(source).toContain('ADMIN_WEB_PUSH_TIMEOUT_MS = 10_000');
-    expect(source).toContain('signal: AbortSignal.timeout(ADMIN_WEB_PUSH_TIMEOUT_MS)');
     expect(source).toContain('signal: AbortSignal.timeout(EXPO_PUSH_TIMEOUT_MS)');
-    expect(source).toContain("reason: timedOut ? 'callback-timeout' : 'callback-network-error'");
+    expect(source).not.toContain('ADMIN_WEB_PUSH_TIMEOUT_MS');
+    expect(source).not.toContain("reason: timedOut ? 'callback-timeout' : 'callback-network-error'");
     expect(source).toContain("event: 'fc_notify.expo_push'");
     expect(source).toContain("reason: timedOut ? 'timeout' : 'request_failed'");
     expect(source).not.toContain("console.warn('[fc-notify] expo push request failed', error)");

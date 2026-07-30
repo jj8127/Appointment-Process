@@ -167,7 +167,7 @@ describe('admin web direct chat list source', () => {
     expect(notificationBell).not.toContain('recipient_actor_id:');
   });
 
-  it('keeps admin-targeted web push out of the browser FC notify proxy', () => {
+  it('keeps admin browser push retired behind an authenticated compatibility route', () => {
     const fcNotifyRoute = readFileSync(fcNotifyRoutePath, 'utf8');
     const adminPushRoute = readFileSync(adminPushRoutePath, 'utf8');
 
@@ -179,20 +179,15 @@ describe('admin web direct chat list source', () => {
     expect(fcNotifyRoute).not.toContain('fetchSharedAdminResidentIds');
     expect(fcNotifyRoute).not.toContain('fetchAdminWebPushSubscriptions');
     expect(fcNotifyRoute).not.toContain('sendBrowserFcMessageWebPush');
-    expect(adminPushRoute).toContain('normalizeAdminNotificationTargetId');
-    expect(adminPushRoute).toContain('parseNotificationTargetV1(body.target)');
+    expect(adminPushRoute).toContain('parseNotificationTargetV1(payload.target)');
     expect(adminPushRoute).toContain('UUID_PATTERN.test(notificationId)');
-    expect(adminPushRoute).toContain('data: { notificationId, target }');
-    expect(adminPushRoute).toContain('fetchSharedAdminResidentIds');
-    expect(adminPushRoute).toContain("account.staff_type !== 'developer'");
-    expect(adminPushRoute).toContain('resolveConcreteTargetRole(normalizedTargetId)');
-    expect(adminPushRoute).toContain(".eq('resident_id', normalizedTargetId)");
-    expect(adminPushRoute).toContain(".eq('role', targetRole.role)");
-    expect(adminPushRoute).toContain(".eq('role', 'admin')");
-    expect(adminPushRoute).toContain(".in('resident_id', sharedAdminTargets.residentIds)");
+    expect(adminPushRoute).toContain('secretAuthOk');
+    expect(adminPushRoute).toContain("mode: 'in_app_only'");
+    expect(adminPushRoute).not.toContain('web_push_subscriptions');
+    expect(adminPushRoute).not.toContain('sendWebPush');
   });
 
-  it('keeps FC web-push message clicks on the exact staff conversation', () => {
+  it('keeps FC in-app message notifications on the exact staff conversation', () => {
     const dashboardChat = readFileSync(chatPagePath, 'utf8');
     const fcNotifyRoute = readFileSync(fcNotifyRoutePath, 'utf8');
     const edgeFunction = readFileSync(fcNotifyFunctionPath, 'utf8');
@@ -210,21 +205,18 @@ describe('admin web direct chat list source', () => {
     expect(fcNotifyRoute).not.toContain('targetName');
   });
 
-  it('keeps concrete admin web push role-bound and reports delivery truth without identifiers', () => {
+  it('reports the retired administrator Web Push channel as a compatible no-op', () => {
     const route = readFileSync(adminPushRoutePath, 'utf8');
 
-    expect(route).toContain(".from('admin_accounts')");
-    expect(route).toContain(".from('manager_accounts')");
-    expect((route.match(/\.eq\('active', true\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
-    expect(route).toContain('matchingRoles.length === 1');
-    expect(route).toContain("matchingRoles.push('admin')");
-    expect(route).toContain("matchingRoles.push('manager')");
-    expect(route).toContain('ok: !normalizedTargetId');
+    expect(route).toContain('ok: true');
+    expect(route).toContain('sent: 0');
+    expect(route).toContain('failed: 0');
     expect(route).toContain('noTarget: true');
-    expect(route).toContain('ok: result.sent > 0 && result.failed === 0');
+    expect(route).toContain("mode: 'in_app_only'");
+    expect(route).not.toContain(".from('admin_accounts')");
+    expect(route).not.toContain(".from('manager_accounts')");
+    expect(route).not.toContain('web_push_subscriptions');
     expect(route).not.toContain('error: error.message');
-    expect(route).not.toContain("subscriptions query failed:', error");
-    expect(route).not.toContain("expired subscription cleanup failed:', deleteError");
   });
 
   it('keeps Edge fc-notify as the single browser-message notification writer and derives sender identity server-side', () => {

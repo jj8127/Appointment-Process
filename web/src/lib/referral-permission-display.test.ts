@@ -47,7 +47,10 @@ test('keeps a manager read-only after permissions resolve', () => {
 });
 
 test('referral page renders read-only messaging only from the resolved permission state', () => {
-  const source = readFileSync('src/app/dashboard/referrals/page.tsx', 'utf8');
+  const source = readFileSync(
+    new URL('../app/dashboard/referrals/page.tsx', import.meta.url),
+    'utf8',
+  );
 
   assert.match(source, /resolveReferralPermissionDisplay\(\{/);
   assert.match(source, /\{showReadOnlyState \? \(/);

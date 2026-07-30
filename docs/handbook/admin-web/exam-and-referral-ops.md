@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-EXAM-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-07-25
+last_verified: 2026-07-30
 source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/src/app/api/admin/exam-applicants/* + web/src/app/dashboard/referrals/page.tsx + web/src/app/dashboard/referrals/graph/page.tsx + web/src/app/api/admin/referrals/route.ts
 
 # Admin Web Playbook: Exam And Referral Ops
@@ -35,10 +35,11 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - 신청자 row 클릭 또는 키보드 Enter/Space는 `/dashboard/exam/applicants/[id]` 상세로 이동한다. 상세는 신청자·시험·접수 상태를 한 화면에 표시하고 admin에게 `시험 접수하기`를 제공한다. manager는 상세를 읽을 수 있지만 접수/삭제 등 쓰기 액션은 계속 비활성이다.
 - `/dashboard/exam/applicants`의 공용 신청자 컬럼 뒤에는 `입금 증빙` 컬럼 하나만 추가한다. 첨부 row의 `보기`는 활성 admin/manager 세션을 확인하는 image route를 새 탭으로 열고, 미첨부 row는 `없음`으로 표시한다.
 - `/dashboard/exam/applicants/[id]`의 `시험 신청 정보` 카드 바로 아래에는 `입금 증빙 확인` 카드를 둔다. 첨부 사진과 원본 열기를 제공하되 승인/거절, OCR, 입금일 비교 상태나 별도 검토 workflow는 만들지 않는다.
-- XLSX 다운로드는 최종 `filteredRows`를 유지하면서 `접수 상태`, `입금 증빙 경로`, `입금 증빙 URL (30일 유효)`를 덧붙인다. `접수 상태`는 `접수 완료` 또는 `미접수`로 표시하고, 완료 행은 전체 열을 옅은 주황색, 미접수 행은 전체 열을 옅은 회색으로 칠해 어느 셀에서도 상태를 구분할 수 있게 한다. 다운로드를 시작한 활성 admin/manager만 private Storage path와 30일 signed URL을 발급받을 수 있고, 발급된 URL 자체는 admin web 세션 없이 열 수 있다. 파일은 제목·요약·고정 헤더·자동 필터·테두리·열 너비·증빙 하이퍼링크를 포함하고, 전화번호와 주민번호는 앞자리 0이 보존되는 텍스트 셀로 저장한다.
+- XLSX 다운로드는 최종 `filteredRows`를 유지하면서 `접수 상태`, `입금 증빙 경로`, `입금 증빙 URL (30일 유효)`를 덧붙인다. 제목·헤더·본문은 흰색과 연회색 중심의 미니멀한 실무 양식을 따르되, `접수 완료` 행은 아주 옅은 주황색을 전체 열에, `반려` 행은 아주 옅은 빨간색을 전체 열에 적용한다. 그 외 행은 흰색을 유지하고 상태 셀과 증빙 링크만 제한적으로 강조한다. 다운로드를 시작한 활성 admin/manager만 private Storage path와 30일 signed URL을 발급받을 수 있고, 발급된 URL 자체는 admin web 세션 없이 열 수 있다. 파일은 제목·요약·고정 헤더·자동 필터·얇은 테두리·열 너비·증빙 하이퍼링크를 포함하고, 전화번호와 주민번호는 앞자리 0이 보존되는 텍스트 셀로 저장한다.
 - 신청자 상세의 `이전 신청자`/`다음 신청자`는 목록과 같은 `created_at DESC, id DESC` 순서를 사용한다. 첫 신청자의 이전 버튼과 마지막 신청자의 다음 버튼은 비활성화하며, 이동 중 개인 식별값을 URL label이나 로그에 추가하지 않는다.
 - 상세 API의 `registrationId` 조회는 선택 row 하나를 찾은 뒤 동일 신청자의 과거 이력을 함께 읽어 `신규신청/재신청`을 계산하고, enrichment 직전에 선택 row로 다시 좁힌다. 선택 row만 먼저 분류해 재신청 이력을 잃지 않는다.
 - 공용 신청자 목록 컬럼 순서와 badge wrapping은 `web/src/lib/exam-applicant-list-display.ts`의 shared contract를 따른다. canonical dashboard만 공용 컬럼 뒤에 증빙 표시/XLSX 필드를 추가한다. `시험 신청일`은 `exam_registrations.created_at`에서 날짜만 표시하며 테이블과 XLSX에 함께 포함한다. `/admin/exams/[id]`는 특정 `roundId`를 서버 API로 조회하므로 별도의 상단 회차 필터를 추가하지 않는다.
+- 공용 신청자 목록은 `신청 상태`와 `접수 상태`를 분리한다. `신청 상태`는 `exam_registrations.status`를 기준으로 `신청 완료`, `시험 완료`, `미응시`, `반려`, `본인 취소`, `관리자 취소`를 표시하며 알 수 없는 값은 `-`로 닫는다. `접수 상태`는 `is_confirmed`만 기준으로 `접수 완료`/`미접수`를 표시한다. canonical XLSX도 최종 필터 결과에 같은 `신청 상태` 열을 포함한다.
 - resident number/full view는 운영 역할(admin/manager/developer) 기준으로 읽을 수 있고, `manager`는 모든 쓰기 액션이 비활성
 - GaramIn 모바일의 시험 탭에서는 본부장·총무·개발자가 FC를 선택해 신청을 대신 제출할 수 있다. 이 예외는 관리자 웹의 일정/접수 상태 변경 권한을 확장하지 않는다.
 - 대리 신청은 `submit_exam_registration_with_payment_proof_v3`와 append-only decision event를 사용하며, 신규 row의 수기 `fee_paid_date`는 `null`이다. 과거 날짜는 변경하거나 삭제하지 않는다.
@@ -59,7 +60,7 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - 그래프 범례는 색상 기준으로 읽는다: 초록=생명·손해 위촉 모두 완료, 주황=추천코드 사용 중, 노랑 표시=본부장 강조 또는 예전 기록 확인 테두리, 회색=추천코드 없음/중지.
 - Obsidian Graph View를 참고하되 추천인 tree 가독성에 맞춘 hybrid layout 계약을 유지한다. runtime은 d3 `charge`와 기존 `link`에 link tension, branch bend, sibling angular separation, node/cluster separation, weak cluster gravity, drag rope constraint를 보조 force로 더한다.
 - 초기 seed는 component 크기순 중앙 배치, hub child star/pinwheel, 제한된 isolated golden-angle 분포를 제공한다. isolated node 기본 노출과 toggle은 UI 필터 계약이며, runtime에서 강제 outer ring force를 쓰지 않는다.
-- node drag는 pointer 대상 노드만 임시 `fx/fy`로 고정하되 incident edge가 길게 늘어지지 않도록 연결 노드가 rope constraint로 따라온다. release는 `fx/fy` hard pin 해제와 simulation reheat를 수행하고, release velocity나 decaying drop tether를 주입하지 않는다.
+- node drag는 pointer 대상 노드 하나만 임시 `fx/fy`로 고정한다. direct·2-hop 이상 연결 노드는 별도 고정이나 같은-delta 이동 없이 평소 link·link-tension·charge·collision force로 단계적으로 반응하고, drag 시작 edge 길이의 `1.2x` 최대 stretch를 지킨다. release는 `fx/fy` hard pin 해제와 simulation reheat를 수행해 spring momentum을 이어가며 decaying drop tether를 주입하지 않는다.
 - 물리 slider는 `Center force`, `Repel force`, `Link force`, `Link distance` 네 항목이며 범위와 기본값은 Obsidian 의미를 따른다.
 - 기본 이름 label은 숨기지 않고, 추천코드 detail은 선택/검색 상태에서만 확장한다.
 

@@ -16,7 +16,6 @@ import {
 } from '@/lib/referral-graph-interaction';
 import {
   REFERRAL_GRAPH_ENGINE_COOLDOWN,
-  buildReferralGraphPointerDragMembers,
   captureReferralGraphLinkDistances,
   createReferralGraphClusterSeparationForce,
   createReferralGraphDragLocalityForce,
@@ -417,7 +416,6 @@ export function ReferralGraphCanvas({
   const runtimeNodeMapRef = useRef(new Map<string, RuntimeGraphNode>());
   const draggedNodeIdRef = useRef<string | null>(null);
   const pointerDragTargetRef = useRef<ReferralGraphPointerDragTarget | null>(null);
-  const controlledDragNodeIdsRef = useRef(new Set<string>());
   const dragStartDistanceByLinkKeyRef = useRef(new Map<string, number>());
   const activeDragNodeDepthsRef = useRef(new Map<string, number>());
   const releaseSettleTimerRef = useRef<number | null>(null);
@@ -494,14 +492,13 @@ export function ReferralGraphCanvas({
       graphMotionKeepAliveFrameRef.current = null;
     }
     pointerDragTargetRef.current = null;
-    for (const nodeId of controlledDragNodeIdsRef.current) {
-      const node = runtimeNodeMapRef.current.get(nodeId);
-      if (node) {
-        node.fx = undefined;
-        node.fy = undefined;
-      }
+    const draggedNode = draggedNodeIdRef.current
+      ? runtimeNodeMapRef.current.get(draggedNodeIdRef.current)
+      : undefined;
+    if (draggedNode) {
+      draggedNode.fx = undefined;
+      draggedNode.fy = undefined;
     }
-    controlledDragNodeIdsRef.current.clear();
     dragStartDistanceByLinkKeyRef.current.clear();
   }, []);
 
@@ -510,7 +507,6 @@ export function ReferralGraphCanvas({
       runtimeNodeMapRef.current.clear();
       draggedNodeIdRef.current = null;
       pointerDragTargetRef.current = null;
-      controlledDragNodeIdsRef.current.clear();
       dragStartDistanceByLinkKeyRef.current.clear();
       activeDragNodeDepthsRef.current.clear();
       manualNodeDragStateRef.current = null;
@@ -777,8 +773,7 @@ export function ReferralGraphCanvas({
         canvasRect: getCanvasRect(),
         draggedNodeId: draggedNodeIdRef.current,
         pointerDragTarget: pointerDragTargetRef.current,
-        followerNodeIds: [...controlledDragNodeIdsRef.current]
-          .filter((nodeId) => nodeId !== draggedNodeIdRef.current),
+        followerNodeIds: [],
         nodeDragActive: nodeDragActiveRef.current,
         nodes: [...runtimeNodeMapRef.current.values()].map(toDebugNode),
         viewport: {
@@ -1056,7 +1051,6 @@ export function ReferralGraphCanvas({
         graphData.links,
         {
           activeDraggedNodeIdRef: draggedNodeIdRef,
-          controlledNodeIdsRef: controlledDragNodeIdsRef,
           dragStartDistanceByLinkKeyRef,
           iterations: 16,
           maxStretchMultiplier: 1.2,
@@ -1166,20 +1160,14 @@ export function ReferralGraphCanvas({
     cancelPanMomentum();
     const isNewDrag = draggedNodeIdRef.current !== node.id || !nodeDragActiveRef.current;
     if (isNewDrag) {
-      for (const nodeId of controlledDragNodeIdsRef.current) {
-        const previouslyControlledNode = runtimeNodeMapRef.current.get(nodeId);
-        if (previouslyControlledNode) {
-          previouslyControlledNode.fx = undefined;
-          previouslyControlledNode.fy = undefined;
-        }
+      const previousDraggedNode = draggedNodeIdRef.current
+        ? runtimeNodeMapRef.current.get(draggedNodeIdRef.current)
+        : undefined;
+      if (previousDraggedNode) {
+        previousDraggedNode.fx = undefined;
+        previousDraggedNode.fy = undefined;
       }
 
-      const members = buildReferralGraphPointerDragMembers(
-        node.id,
-        adjacency.get(node.id) ?? [],
-        runtimeNodeMapRef.current,
-      );
-      controlledDragNodeIdsRef.current = new Set(members.map((member) => member.nodeId));
       dragStartDistanceByLinkKeyRef.current = captureReferralGraphLinkDistances(
         graphData.links,
         runtimeNodeMapRef.current,
@@ -1188,7 +1176,6 @@ export function ReferralGraphCanvas({
         nodeId: node.id,
         x: pointerDragTargetRef.current?.x ?? node.x ?? 0,
         y: pointerDragTargetRef.current?.y ?? node.y ?? 0,
-        members,
       };
     }
 
@@ -1208,19 +1195,6 @@ export function ReferralGraphCanvas({
   }, [adjacency, cancelPanMomentum, graphData.links, physics.dragReheatAlpha, setGraphDragAlphaTarget, startGraphMotionKeepAlive]);
 
   const finishNodeDrag = useCallback((node: RuntimeGraphNode, releaseVelocity: { x: number; y: number } = { x: 0, y: 0 }) => {
-    for (const nodeId of controlledDragNodeIdsRef.current) {
-      const controlledNode = runtimeNodeMapRef.current.get(nodeId);
-      if (!controlledNode) {
-        continue;
-      }
-      controlledNode.fx = undefined;
-      controlledNode.fy = undefined;
-      if (nodeId !== node.id) {
-        controlledNode.vx = 0;
-        controlledNode.vy = 0;
-      }
-    }
-
     if (node.x != null && node.y != null) {
       node.fx = undefined;
       node.fy = undefined;
@@ -1235,7 +1209,6 @@ export function ReferralGraphCanvas({
     nodeDragActiveRef.current = false;
     draggedNodeIdRef.current = null;
     pointerDragTargetRef.current = null;
-    controlledDragNodeIdsRef.current.clear();
     dragStartDistanceByLinkKeyRef.current.clear();
     activeDragNodeDepthsRef.current.clear();
     suppressClickUntilRef.current = Date.now() + 500;
@@ -1426,7 +1399,6 @@ export function ReferralGraphCanvas({
             nodeId: node.id,
             x: nextGraphPosition.x,
             y: nextGraphPosition.y,
-            members: pointerDragTargetRef.current?.members,
           };
           beginNodeDrag(node);
         }

@@ -5037,3 +5037,189 @@
   - The account-deletion and messenger-attachment shared modules now map to
     their owning handbook contracts, and the privileged admin and scheduled-job
     owner documents record the changed behavior.
+
+## 2026-07-29 | An unused native module remained autolinked and crashed Fabric startup
+
+- Symptom:
+  - Google Play reported Android native `SIGABRT` events while Fabric prepared
+    `RNCAndroidDropdownPickerProps` and `RNCAndroidDialogPickerProps`.
+- Root cause:
+  - The app did not import `@react-native-picker/picker`, but version `2.11.1`
+    remained a direct dependency and was therefore autolinked into every native
+    build. That release predates the React Native 0.81 New Architecture compile
+    option repair.
+- Permanent guardrail:
+  - Do not retain unused native modules as direct dependencies.
+  - The root dependency contract must reject both the manifest declaration and
+    lockfile installation of the picker.
+  - After removing a native dependency, verify Expo autolinking output and
+    perform a clean native build; an OTA update cannot remove compiled code.
+- Verification:
+  - The focused dependency contract, Expo dependency check, autolinking
+    inspection, TypeScript, lint, and Android export must pass without any
+    picker descriptor in the resolved native module graph.
+## 2026-07-30 | Retired Edge warnings remained in the diagnostic allowlist
+
+- Symptom:
+  - The focused notification tests and administrator production build passed,
+    but the full Jest suite failed because two deleted Web Push configuration
+    warnings remained in the exact console baseline.
+- Root cause:
+  - Removing the retired callback path changed the reviewed sink inventory, but
+    its governance allowlist and exact count were not updated in the same edit.
+- Permanent guardrail:
+  - Any removal of an Edge `console.*` sink must update the exact diagnostic
+    allowlist and count, then run the full Jest suite in addition to focused
+    notification contracts.
+- Verification:
+  - `lib/__tests__/diagnostic-console-governance.test.ts`
+  - Full Jest: 189 suites / 1,143 tests pass.
+
+## 2026-07-30 | Missing resident data and decrypt failures shared one null state
+
+- Symptom:
+  - The administrator FC list displayed `조회 불가` both when a resident number
+    had never been entered and when a stored encrypted value could not be read.
+- Root cause:
+  - The direct reader, Edge fallback, API client, and table cell collapsed every
+    non-value result into the same `null` state.
+- Permanent guardrail:
+  - Resident-number list reads must preserve `ready`, `missing`, and
+    `unavailable` as separate per-FC states from storage through the UI.
+  - An explicit absence may display `미입력`; malformed, omitted, decrypt-failed,
+    or request-failed values must fail closed as `조회 불가`.
+- Verification:
+  - Resident-number display, visible-page, Edge response/executor, route, and
+    privacy contract tests.
+  - `deno check supabase/functions/admin-action/index.ts`
+  - Sentry-disabled administrator web production build.
+
+## 2026-07-30 | Registration lifecycle and reception state shared one label
+
+- Symptom:
+  - Rejected and cancelled exam registrations appeared through the reception
+    field instead of a dedicated application-status column, and the XLSX could
+    not expose both meanings independently.
+- Root cause:
+  - A shared formatter used both `status` and `is_confirmed`, collapsing a
+    multi-state registration lifecycle into a binary reception concept.
+- Permanent guardrail:
+  - `exam_registrations.status` owns `신청 상태`; `is_confirmed` alone owns
+    `접수 상태`.
+  - Shared table/export columns and workbook tests must cover FC cancellation,
+    administrator cancellation, rejection, and unknown status values.
+- Verification:
+  - `web/src/lib/exam-applicant-list-display.test.ts`
+  - `web/src/lib/exam-applicant-workbook.test.ts`
+
+## 2026-07-30 | The FC dashboard inferred role from affiliation text alone
+
+- Symptom:
+  - The completed-FC dashboard excluded affiliations containing `설계매니저`
+    but still counted active manager identities whose profile affiliation looked
+    like an FC headquarters.
+- Root cause:
+  - `/api/admin/list` treated a presentation label as the only role boundary
+    even though `manager_accounts` is the authoritative active-manager source.
+- Permanent guardrail:
+  - FC-only directories must exclude both whitespace-normalized designer
+    affiliation markers and canonical phones owned by active manager accounts.
+  - Role exclusion must be tested with a manager identity whose affiliation
+    otherwise looks like a valid FC headquarters.
+- Verification:
+  - `lib/__tests__/dashboard-fc-eligibility.test.ts`
+  - `web/src/app/api/admin/list/route.ts`
+
+## 2026-07-30 | Direct-neighbor drag pins made the referral graph rigid
+
+- Symptom:
+  - Dragging A translated directly connected B in a fixed shape, so B did not
+    behave like C in an A-B-C spring chain.
+- Root cause:
+  - The drag contract treated direct neighbors as controlled drag members
+    instead of leaving every node except the grabbed node in the simulation.
+- Permanent guardrail:
+  - Only the grabbed node may receive pointer `fx/fy`.
+  - Direct and indirect nodes must remain unpinned and react through live link,
+    link-tension, charge, and collision forces.
+  - Tests must include A-B-C, a five-node chain, unrelated components, and the
+    drag-start `1.2x` edge-length cap.
+- Verification:
+  - `web/src/lib/referral-graph-interaction.test.ts`
+  - `web/src/lib/referral-graph-physics.test.ts`
+
+## 2026-07-30 | Removing React state updates did not remove Android graph jank
+
+- Symptom:
+  - The revenue graph still produced 100% janky frames after drag coordinates
+    moved to shared values and later to native node Views.
+- Root cause:
+  - Moving SVG and native Text surfaces continued to rerasterize per node, so
+    removing React commits alone did not remove bitmap/render cost.
+- Permanent guardrail:
+  - Benchmark a real node drag separately from blank-space pan and inspect
+    `Janky frames`, percentiles, `Slow UI thread`, and `Slow bitmap uploads`.
+  - Animated graph labels that exceed the Android renderer budget use one
+    Canvas draw path with cached fixed-pixel text rather than many moving
+    SVG/native Text surfaces.
+- Verification:
+  - `.codex/harness/referral-revenue-demo-20260727/artifacts/revenue-webview-gfxinfo.txt`
+  - `components/referral-revenue-graph/ReferralRevenueGraphWebViewCanvas.tsx`
+
+## 2026-07-30 | Revenue graph back handling assumed navigation history
+
+- Symptom:
+  - A cold direct route could have no stack entry to pop, and list mode's
+    default header bypassed the graph screen's portrait-first fallback.
+- Root cause:
+  - Back navigation used stack history as an implicit prerequisite.
+- Permanent guardrail:
+  - Both graph and list headers call the same portrait-first
+    `goBackOrReplace(router, '/referral')` path.
+  - Test direct/no-history entry in addition to ordinary stack navigation.
+- Verification:
+  - `app/referral-revenue-graph.tsx`
+  - `lib/__tests__/referral-revenue-demo-source.test.ts`
+
+## 2026-07-30 | Android WebView local message URL was the literal null string
+
+- Symptom:
+  - Tapping a revenue node updated the HTML Canvas selection ring but did not
+    open the React Native detail sheet.
+- Root cause:
+  - Static review assumed Android `onMessage.nativeEvent.url` would be
+    `about:blank`; the local `source={{html, baseUrl:'about:blank'}}` runtime
+    delivered the literal string `null`.
+- Permanent guardrail:
+  - Verify bridge-driven behavior on the emulator, not only Canvas-local visual
+    state.
+  - Accept only the observed local native URL set and independently require the
+    revisioned message's `window.location.href` to be `about:blank`.
+- Verification:
+  - Emulator node tap showed `DETAIL_MODAL_PRESENT`.
+  - `lib/__tests__/referral-revenue-demo-source.test.ts`
+
+## 2026-07-30 | Release tests assumed one working directory and a fixed graph size
+
+- Symptom:
+  - The repository-wide release gate failed even though focused web checks
+    passed: two source-contract tests opened `src/...` from the repository
+    root, and the live referral graph kept a small-dataset absolute crossing
+    limit after growing to hundreds of nodes and links.
+  - The board-create smoke fixture also returned only an informal post id even
+    though the production notification event contract derives its key from a
+    UUID and `updated_at`.
+- Root cause:
+  - Test fixtures encoded launch-directory and historical-data assumptions
+    instead of the production interfaces they were intended to verify.
+- Permanent guardrail:
+  - Source-contract tests resolve files from `import.meta.url`.
+  - Live-data visual limits retain strict minimums but scale with edge count;
+    the independently tested pointer-drag edge cap remains exactly `1.2x`.
+  - Post-insert smoke fixtures return the same selected UUID/timestamp fields
+    as PostgREST production responses.
+- Verification:
+  - `web/src/lib/admin-referral-event-query.test.ts`
+  - `web/src/lib/referral-permission-display.test.ts`
+  - `web/src/lib/referral-graph-realdata.test.ts`
+  - `scripts/testing/board-edge-handler-smoke.mjs`

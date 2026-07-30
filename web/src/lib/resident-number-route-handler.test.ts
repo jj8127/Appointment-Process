@@ -49,7 +49,7 @@ test('resident-number route handler returns session failures before later work',
     },
     readResidentNumbers: async () => {
       readCalls += 1;
-      return {};
+      return { residentNumbers: {}, residentNumberStatuses: {} };
     },
     normalizeFcIds,
     logInvalidJson: () => undefined,
@@ -85,7 +85,7 @@ test('resident-number route handler rate-limits before parsing the body', async 
     },
     readResidentNumbers: async () => {
       readCalls += 1;
-      return {};
+      return { residentNumbers: {}, residentNumberStatuses: {} };
     },
     normalizeFcIds,
     logInvalidJson: () => undefined,
@@ -145,7 +145,7 @@ test('resident-number route handler short-circuits empty fcIds without reading r
     readJson: async () => ({ fcIds: [' ', null, undefined, ''] }),
     readResidentNumbers: async () => {
       readCalls += 1;
-      return {};
+      return { residentNumbers: {}, residentNumberStatuses: {} };
     },
     normalizeFcIds,
     logInvalidJson: () => undefined,
@@ -153,7 +153,11 @@ test('resident-number route handler short-circuits empty fcIds without reading r
   });
 
   assert.deepEqual(response, {
-    body: { ok: true, residentNumbers: {} },
+    body: {
+      ok: true,
+      residentNumbers: {},
+      residentNumberStatuses: {},
+    },
     status: 200,
   });
   assert.equal(readCalls, 0);
@@ -172,8 +176,14 @@ test('resident-number route handler reads normalized fcIds with current staff ph
     readResidentNumbers: async (options) => {
       readCalls.push(options);
       return {
-        'fc-1': '900101-1234567',
-        'fc-2': null,
+        residentNumbers: {
+          'fc-1': '900101-1234567',
+          'fc-2': null,
+        },
+        residentNumberStatuses: {
+          'fc-1': 'ready',
+          'fc-2': 'missing',
+        },
       };
     },
     normalizeFcIds,
@@ -187,6 +197,10 @@ test('resident-number route handler reads normalized fcIds with current staff ph
       residentNumbers: {
         'fc-1': '900101-1234567',
         'fc-2': null,
+      },
+      residentNumberStatuses: {
+        'fc-1': 'ready',
+        'fc-2': 'missing',
       },
     },
     status: 200,
@@ -209,7 +223,7 @@ test('resident-number route handler rejects non-object JSON payloads', async () 
     readJson: async () => null,
     readResidentNumbers: async () => {
       readCalls += 1;
-      return {};
+      return { residentNumbers: {}, residentNumberStatuses: {} };
     },
     normalizeFcIds,
     logInvalidJson: () => undefined,
@@ -236,7 +250,7 @@ test('resident-number route handler rejects more than twenty unique FC ids', asy
     }),
     readResidentNumbers: async () => {
       readCalls += 1;
-      return {};
+      return { residentNumbers: {}, residentNumberStatuses: {} };
     },
     normalizeFcIds,
     logInvalidJson: () => undefined,

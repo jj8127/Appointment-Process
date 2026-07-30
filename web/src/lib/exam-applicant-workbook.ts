@@ -23,15 +23,19 @@ const HEADER_ROW = 4;
 const DATA_START_ROW = 5;
 
 const COLORS = {
-  orange: '#f37321',
-  orangeSoft: '#fff1e8',
+  accent: '#e85d04',
+  accentText: '#b45309',
+  accentSoft: '#fff7ed',
+  confirmedRowSoft: '#fffbf7',
   charcoal: '#1f2937',
   muted: '#64748b',
-  pending: '#64748b',
-  pendingSoft: '#f1f5f9',
-  border: '#d7dee8',
+  rejectedRowSoft: '#fff8f8',
+  surface: '#f8fafc',
+  border: '#e2e8f0',
   white: '#ffffff',
   blue: '#2563eb',
+  green: '#166534',
+  red: '#b91c1c',
 } as const;
 
 export type ExamApplicantWorkbookRow = {
@@ -78,6 +82,13 @@ function isSafeHttpsUrl(value: string | null | undefined): value is string {
   } catch {
     return false;
   }
+}
+
+function getApplicationStatusTextColor(value: string): string {
+  if (value === '반려') return COLORS.red;
+  if (value.includes('취소')) return COLORS.muted;
+  if (value === '시험 완료') return COLORS.green;
+  return COLORS.charcoal;
 }
 
 function createTextCell(
@@ -192,8 +203,12 @@ export function buildExamApplicantWorkbookModel({
   const columnCount = headers.length;
   const subjectColumnIndex = headers.indexOf('시험응시 과목');
   const applicationTypeColumnIndex = headers.indexOf('시험 신청 구분');
+  const applicationStatusColumnIndex = headers.indexOf('신청 상태');
   const receptionStatusColumnIndex = headers.indexOf('접수 상태');
   const thirdExamColumnIndex = headers.indexOf('제3보험 포함 여부');
+  if (applicationStatusColumnIndex < 0) {
+    throw new Error('시험 응시자 엑셀에는 신청 상태 열이 필요합니다.');
+  }
   if (receptionStatusColumnIndex < 0) {
     throw new Error('시험 응시자 엑셀에는 접수 상태 열이 필요합니다.');
   }
@@ -218,9 +233,8 @@ export function buildExamApplicantWorkbookModel({
         fontSize: 18,
         fontWeight: 'bold',
         align: 'left',
-        textColor: COLORS.white,
-        backgroundColor: COLORS.orange,
-        borderColor: COLORS.orange,
+        textColor: COLORS.accent,
+        backgroundColor: COLORS.white,
       }),
       ...Array.from({ length: columnCount - 1 }, () => null),
     ],
@@ -232,7 +246,7 @@ export function buildExamApplicantWorkbookModel({
         fontWeight: 'bold',
         align: 'left',
         textColor: COLORS.charcoal,
-        backgroundColor: COLORS.orangeSoft,
+        backgroundColor: COLORS.surface,
       }),
       ...Array.from({ length: columnCount - 1 }, () => null),
     ],
@@ -253,9 +267,9 @@ export function buildExamApplicantWorkbookModel({
       fontWeight: 'bold',
       align: 'center',
       wrap: true,
-      textColor: COLORS.white,
-      backgroundColor: COLORS.charcoal,
-      borderColor: COLORS.charcoal,
+      textColor: COLORS.charcoal,
+      backgroundColor: COLORS.surface,
+      borderColor: COLORS.border,
     })),
   ];
 
@@ -263,9 +277,12 @@ export function buildExamApplicantWorkbookModel({
 
   rows.forEach((row, rowIndex) => {
     const sheetRowNumber = DATA_START_ROW + rowIndex;
-    const backgroundColor = row.isConfirmed
-      ? COLORS.orangeSoft
-      : COLORS.pendingSoft;
+    const applicationStatus = String(row.values[applicationStatusColumnIndex] ?? '');
+    const backgroundColor = applicationStatus === '반려'
+      ? COLORS.rejectedRowSoft
+      : row.isConfirmed
+        ? COLORS.confirmedRowSoft
+        : COLORS.white;
 
     data.push(row.values.map((rawValue, columnIndex) => {
       const value = String(rawValue ?? '-');
@@ -274,6 +291,7 @@ export function buildExamApplicantWorkbookModel({
       const isProofUrl = columnIndex === proofUrlColumn - 1;
       const isSubject = columnIndex === subjectColumnIndex;
       const isApplicationType = columnIndex === applicationTypeColumnIndex;
+      const isApplicationStatus = columnIndex === applicationStatusColumnIndex;
       const isReceptionStatus = columnIndex === receptionStatusColumnIndex;
       const isThirdExam = columnIndex === thirdExamColumnIndex;
       const proofUrl = isSafeHttpsUrl(row.proofUrl) ? row.proofUrl : null;
@@ -283,9 +301,9 @@ export function buildExamApplicantWorkbookModel({
           height: 28,
           align: 'center',
           fontWeight: 'bold',
-          textColor: COLORS.white,
-          backgroundColor: row.isConfirmed ? COLORS.orange : COLORS.pending,
-          borderColor: row.isConfirmed ? COLORS.orange : COLORS.pending,
+          textColor: row.isConfirmed ? COLORS.accentText : COLORS.muted,
+          backgroundColor: row.isConfirmed ? COLORS.accentSoft : COLORS.surface,
+          borderColor: COLORS.border,
         });
       }
 
@@ -308,6 +326,7 @@ export function buildExamApplicantWorkbookModel({
 
       const highlighted = (
         (isApplicationType && value === '재신청')
+        || isApplicationStatus
         || (isThirdExam && value === '포함')
         || (isSubject && value.includes('제3보험'))
       );
@@ -316,7 +335,11 @@ export function buildExamApplicantWorkbookModel({
         height: isAddress ? 34 : 28,
         align: isAddress || isProofPath ? 'left' : 'center',
         wrap: isAddress || isProofPath,
-        textColor: isProofPath ? COLORS.muted : COLORS.charcoal,
+        textColor: isApplicationStatus
+          ? getApplicationStatusTextColor(value)
+          : isProofPath
+            ? COLORS.muted
+            : COLORS.charcoal,
         fontSize: isProofPath ? 9 : 10,
         fontWeight: highlighted ? 'bold' : undefined,
         backgroundColor,
@@ -324,10 +347,26 @@ export function buildExamApplicantWorkbookModel({
     }));
   });
 
-  const widths = [
-    22, 14, 20, 44, 17, 16, 22, 18,
-    16, 22, 18, 22, 18, 18, 18, 38, 24,
-  ];
+  const widthsByHeader: Record<string, number> = {
+    소속: 22,
+    '응시자 이름': 14,
+    '주민등록번호(전체)': 20,
+    주소: 44,
+    전화번호: 17,
+    '시험 신청일': 16,
+    '시험응시 과목': 22,
+    '시험 신청 구분': 18,
+    '신청 상태': 16,
+    '생명보험 응시일자': 22,
+    '생명보험 고사장': 18,
+    '손해보험 응시일자': 22,
+    '손해보험 고사장': 18,
+    '제3보험 포함 여부': 18,
+    '응시료 입금 날짜': 18,
+    '접수 상태': 16,
+    '입금 증빙 경로': 38,
+    '입금 증빙 URL (30일 유효)': 24,
+  };
   const options: SheetOptions<Blob> = {
     sheet: '시험 응시자 명단',
     orientation: 'landscape',
@@ -335,8 +374,8 @@ export function buildExamApplicantWorkbookModel({
     stickyColumnsCount: 2,
     showGridLines: false,
     zoomScale: 0.9,
-    columns: headers.map((_, index) => ({
-      width: widths[index] ?? 18,
+    columns: headers.map((header) => ({
+      width: widthsByHeader[header] ?? 18,
     })),
   };
   const features = [

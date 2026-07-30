@@ -25,8 +25,13 @@ test('administrator service worker stays network-only and never caches authentic
   assert.match(serviceWorkerSource, /event\.respondWith\(fetch\(request\)\)/);
   assert.match(serviceWorkerSource, /request\.mode === 'navigate'/);
   assert.match(serviceWorkerSource, /'Cache-Control': 'no-store'/);
+  assert.match(serviceWorkerSource, /subscription\.unsubscribe/);
+  assert.match(serviceWorkerSource, /registration\.getNotifications/);
   assert.doesNotMatch(serviceWorkerSource, /\bcaches\.(?:open|match|keys|delete)\b/);
   assert.doesNotMatch(serviceWorkerSource, /\bCacheStorage\b/);
+  assert.doesNotMatch(serviceWorkerSource, /addEventListener\(['"]push['"]/);
+  assert.doesNotMatch(serviceWorkerSource, /addEventListener\(['"]notificationclick['"]/);
+  assert.doesNotMatch(serviceWorkerSource, /showNotification/);
 });
 
 test('production secure contexts register the service worker without cached updates', () => {

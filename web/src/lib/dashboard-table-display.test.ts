@@ -21,11 +21,12 @@ test('dashboard FC list places the resident-number column immediately after FC i
   );
 });
 
-test('resident-number list cells fail closed for every non-ready state', () => {
+test('resident-number list cells distinguish missing data from read failures', () => {
   assert.equal(formatDashboardResidentNumberCell({ status: 'loading' }), '조회 중');
+  assert.equal(formatDashboardResidentNumberCell({ status: 'missing' }), '미입력');
   assert.equal(formatDashboardResidentNumberCell({ status: 'unavailable' }), '조회 불가');
-  assert.equal(formatDashboardResidentNumberCell({ status: 'error' }), '조회 실패');
-  assert.equal(formatDashboardResidentNumberCell(undefined), '조회 실패');
+  assert.equal(formatDashboardResidentNumberCell({ status: 'error' }), '조회 불가');
+  assert.equal(formatDashboardResidentNumberCell(undefined), '조회 불가');
 });
 
 test('uses FC password setup time as the signup date when credentials are joined', () => {

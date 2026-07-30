@@ -51,6 +51,11 @@ describe('FC root dependency security contract', () => {
     expect(installedVersion('ws')).toBe('8.21.1');
   });
 
+  it('excludes the unused native picker that crashes RN 0.81 Fabric startup', () => {
+    expect(packageJson.dependencies['@react-native-picker/picker']).toBeUndefined();
+    expect(packageLock.packages['node_modules/@react-native-picker/picker']).toBeUndefined();
+  });
+
   it('keeps Expo MCP outside the production dependency graph', () => {
     expect(packageJson.dependencies['expo-mcp']).toBeUndefined();
     expect(packageJson.devDependencies['expo-mcp']).toBe('~0.2.4');

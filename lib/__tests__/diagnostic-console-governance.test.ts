@@ -136,7 +136,7 @@ describe('reviewed diagnostic console allowlist governance', () => {
     });
   });
 
-  test('allows exactly 9 explicitly reviewed single-literal sinks and no unproven sinks', () => {
+  test('allows exactly 7 explicitly reviewed single-literal sinks and no unproven sinks', () => {
     expect(baseline.description).toMatch(/explicitly reviewed single-literal console diagnostics/i);
     expect(new Set(baseline.auditedFiles).size).toBe(14);
     expect(baseline.sinks).toHaveLength(baseline.expectedCounts.total);
@@ -148,9 +148,9 @@ describe('reviewed diagnostic console allowlist governance', () => {
     );
     expect(baseline.sinks.every((sink) => sink.classification === 'fixed-non-sensitive')).toBe(true);
     expect(baseline.expectedCounts).toEqual({
-      'fixed-non-sensitive': 9,
+      'fixed-non-sensitive': 7,
       unproven: 0,
-      total: 9,
+      total: 7,
     });
 
     const actual = baseline.auditedFiles.flatMap(collectConsoleSinks).map(keyFor).sort();

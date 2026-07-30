@@ -59,6 +59,25 @@ type SimulatedSampleRevenueNode = SampleRevenueGraphPoint & {
   collisionRadius: number;
 };
 
+type SampleRevenueGraphPhysicsNode = {
+  node: SampleRevenueGraphNode;
+  collisionRadius: number;
+};
+
+type SampleRevenueGraphPhysicsEdge = {
+  sourceId: string;
+  targetId: string;
+  distance: number;
+  strength: number;
+};
+
+export type SampleRevenueGraphPhysicsTopology = {
+  nodes: readonly SampleRevenueGraphPhysicsNode[];
+  edges: readonly SampleRevenueGraphPhysicsEdge[];
+  children: ReadonlyMap<string, readonly string[]>;
+  nodeById: ReadonlyMap<string, SampleRevenueGraphNode>;
+};
+
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
@@ -220,13 +239,74 @@ function getAdminWebEquivalentLinkDistance(options: {
   return SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.linkDistance;
 }
 
-function buildRadialSeedLayout(
+export function prepareSampleRevenueGraphPhysicsTopology(
   nodes: readonly SampleRevenueGraphNode[],
   edges: readonly SampleRevenueGraphEdge[],
+): SampleRevenueGraphPhysicsTopology {
+  const { children, nodeById } = buildChildrenMap(nodes, edges);
+  const childCount = new Map(
+    nodes.map((node) => [node.id, children.get(node.id)?.length ?? 0]),
+  );
+  const degree = new Map(nodes.map((node) => [node.id, 0]));
+  for (const edge of edges) {
+    degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1);
+    degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
+  }
+  const subtreeSize = new Map<string, number>();
+  for (const node of nodes) {
+    collectSubtreeSize(node.id, children, subtreeSize);
+  }
+  const orderedNodes = [...nodes].sort(compareNodeIds);
+
+  return {
+    nodes: orderedNodes.map((node) => ({
+      node,
+      collisionRadius: Math.max(
+        42,
+        getSampleRevenueGraphNodeRadius(node)
+          + SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.collisionPadding,
+      ),
+    })),
+    edges: edges
+      .filter(
+        (edge) => nodeById.has(edge.source) && nodeById.has(edge.target),
+      )
+      .map((edge) => {
+        const sourceDegree = degree.get(edge.source) ?? 1;
+        const targetDegree = degree.get(edge.target) ?? 1;
+        return {
+          sourceId: edge.source,
+          targetId: edge.target,
+          distance: getAdminWebEquivalentLinkDistance({
+            sourceId: edge.source,
+            targetId: edge.target,
+            sourceDegree,
+            targetDegree,
+            sourceChildCount: childCount.get(edge.source) ?? 0,
+            targetChildCount: childCount.get(edge.target) ?? 0,
+            sourceSubtreeSize: subtreeSize.get(edge.source) ?? 1,
+            targetSubtreeSize: subtreeSize.get(edge.target) ?? 1,
+            graphNodeCount: nodes.length,
+          }),
+          strength: Math.max(
+            0.06,
+            SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.linkStrength
+              / Math.sqrt(Math.max(1, Math.min(sourceDegree, targetDegree))),
+          ),
+        };
+      }),
+    children,
+    nodeById,
+  };
+}
+
+function buildRadialSeedLayout(
+  topology: SampleRevenueGraphPhysicsTopology,
 ) {
   const positions = new Map<string, SampleRevenueGraphPoint>();
-  if (nodes.length === 0) return positions;
-  const { children, nodeById } = buildChildrenMap(nodes, edges);
+  if (topology.nodes.length === 0) return positions;
+  const { children, nodeById } = topology;
+  const nodes = topology.nodes.map(({ node }) => node);
   const viewer = nodes.find((node) => node.isViewer)
     ?? [...nodes].sort(compareNodeIds)[0];
   positions.set(viewer.id, { x: 0, y: 0 });
@@ -321,63 +401,29 @@ function resolveHardCollisions(simNodes: SimulatedSampleRevenueNode[]) {
 export function buildSampleRevenueGraphLayout(
   nodes: readonly SampleRevenueGraphNode[],
   edges: readonly SampleRevenueGraphEdge[],
+  topology = prepareSampleRevenueGraphPhysicsTopology(nodes, edges),
 ): Map<string, SampleRevenueGraphPoint> {
   if (nodes.length === 0) return new Map();
-  const seed = buildRadialSeedLayout(nodes, edges);
-  const { children } = buildChildrenMap(nodes, edges);
-  const childCount = new Map(
-    nodes.map((node) => [node.id, children.get(node.id)?.length ?? 0]),
-  );
-  const degree = new Map(nodes.map((node) => [node.id, 0]));
-  for (const edge of edges) {
-    degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1);
-    degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
-  }
-  const subtreeSize = new Map<string, number>();
-  for (const node of nodes) {
-    collectSubtreeSize(node.id, children, subtreeSize);
-  }
-  const simNodes = [...nodes].sort(compareNodeIds).map<
-    SimulatedSampleRevenueNode
-  >((node) => ({
-    id: node.id,
-    x: seed.get(node.id)?.x ?? 0,
-    y: seed.get(node.id)?.y ?? 0,
+  const seed = buildRadialSeedLayout(topology);
+  const simNodes = topology.nodes.map<SimulatedSampleRevenueNode>((entry) => ({
+    id: entry.node.id,
+    x: seed.get(entry.node.id)?.x ?? 0,
+    y: seed.get(entry.node.id)?.y ?? 0,
     vx: 0,
     vy: 0,
-    collisionRadius: Math.max(
-      42,
-      getSampleRevenueGraphNodeRadius(node)
-        + SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.collisionPadding,
-    ),
+    collisionRadius: entry.collisionRadius,
   }));
   const simNodeById = new Map(simNodes.map((node) => [node.id, node]));
-  const simEdges = edges
+  const simEdges = topology.edges
     .map((edge) => {
-      const source = simNodeById.get(edge.source);
-      const target = simNodeById.get(edge.target);
+      const source = simNodeById.get(edge.sourceId);
+      const target = simNodeById.get(edge.targetId);
       if (!source || !target) return null;
-      const sourceDegree = degree.get(edge.source) ?? 1;
-      const targetDegree = degree.get(edge.target) ?? 1;
       return {
         source,
         target,
-        distance: getAdminWebEquivalentLinkDistance({
-          sourceId: edge.source,
-          targetId: edge.target,
-          sourceDegree,
-          targetDegree,
-          sourceChildCount: childCount.get(edge.source) ?? 0,
-          targetChildCount: childCount.get(edge.target) ?? 0,
-          sourceSubtreeSize: subtreeSize.get(edge.source) ?? 1,
-          targetSubtreeSize: subtreeSize.get(edge.target) ?? 1,
-          graphNodeCount: nodes.length,
-        }),
-        strength: Math.max(
-          0.06,
-          SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.linkStrength
-            / Math.sqrt(Math.max(1, Math.min(sourceDegree, targetDegree))),
-        ),
+        distance: edge.distance,
+        strength: edge.strength,
       };
     })
     .filter((edge): edge is NonNullable<typeof edge> => edge != null);
@@ -621,6 +667,7 @@ export function formatSampleRevenueNodeAmount(amountKrw: number): string {
 export function stepSampleRevenueInteractivePhysics(options: {
   nodes: readonly SampleRevenueGraphNode[];
   edges: readonly SampleRevenueGraphEdge[];
+  topology?: SampleRevenueGraphPhysicsTopology;
   motion: ReadonlyMap<string, SampleRevenueGraphMotionPoint>;
   alpha: number;
   ticks?: number;
@@ -636,21 +683,10 @@ export function stepSampleRevenueInteractivePhysics(options: {
   } = options;
   const alpha = clamp(options.alpha, 0.001, 1);
   const ticks = Math.max(1, Math.min(6, Math.round(options.ticks ?? 1)));
-  const { children } = buildChildrenMap(nodes, edges);
-  const childCount = new Map(
-    nodes.map((node) => [node.id, children.get(node.id)?.length ?? 0]),
-  );
-  const degree = new Map(nodes.map((node) => [node.id, 0]));
-  for (const edge of edges) {
-    degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1);
-    degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
-  }
-  const subtreeSize = new Map<string, number>();
-  for (const node of nodes) {
-    collectSubtreeSize(node.id, children, subtreeSize);
-  }
-  const runtimeNodes = [...nodes].sort(compareNodeIds).map((node) => {
-    const point = motion.get(node.id)
+  const topology = options.topology
+    ?? prepareSampleRevenueGraphPhysicsTopology(nodes, edges);
+  const runtimeNodes = topology.nodes.map((entry) => {
+    const point = motion.get(entry.node.id)
       ?? {
         x: SAMPLE_REVENUE_GRAPH_SURFACE_CENTER,
         y: SAMPLE_REVENUE_GRAPH_SURFACE_CENTER,
@@ -658,45 +694,25 @@ export function stepSampleRevenueInteractivePhysics(options: {
         vy: 0,
       };
     return {
-      id: node.id,
+      id: entry.node.id,
       x: point.x,
       y: point.y,
       vx: point.vx,
       vy: point.vy,
-      collisionRadius: Math.max(
-        42,
-        getSampleRevenueGraphNodeRadius(node)
-          + SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.collisionPadding,
-      ),
+      collisionRadius: entry.collisionRadius,
     };
   });
   const runtimeById = new Map(runtimeNodes.map((node) => [node.id, node]));
-  const runtimeEdges = edges
+  const runtimeEdges = topology.edges
     .map((edge) => {
-      const source = runtimeById.get(edge.source);
-      const target = runtimeById.get(edge.target);
+      const source = runtimeById.get(edge.sourceId);
+      const target = runtimeById.get(edge.targetId);
       if (!source || !target) return null;
-      const sourceDegree = degree.get(edge.source) ?? 1;
-      const targetDegree = degree.get(edge.target) ?? 1;
       return {
         source,
         target,
-        distance: getAdminWebEquivalentLinkDistance({
-          sourceId: edge.source,
-          targetId: edge.target,
-          sourceDegree,
-          targetDegree,
-          sourceChildCount: childCount.get(edge.source) ?? 0,
-          targetChildCount: childCount.get(edge.target) ?? 0,
-          sourceSubtreeSize: subtreeSize.get(edge.source) ?? 1,
-          targetSubtreeSize: subtreeSize.get(edge.target) ?? 1,
-          graphNodeCount: nodes.length,
-        }),
-        strength: Math.max(
-          0.06,
-          SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.linkStrength
-            / Math.sqrt(Math.max(1, Math.min(sourceDegree, targetDegree))),
-        ),
+        distance: edge.distance,
+        strength: edge.strength,
       };
     })
     .filter((edge): edge is NonNullable<typeof edge> => edge != null);

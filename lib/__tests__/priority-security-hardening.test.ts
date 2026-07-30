@@ -40,12 +40,17 @@ describe('priority security hardening source contracts', () => {
     expect(schema).toContain('20260721052837_allow_manager_device_tokens.sql');
   });
 
-  it('binds web push subscriptions to a verified server session instead of request body identity', () => {
+  it('retires web push subscriptions only for the verified server-session actor', () => {
     const source = readRepoFile('web/src/app/api/web-push/subscribe/route.ts');
 
     expect(source).toContain('getVerifiedReadOnlyAdminSession');
     expect(source).not.toContain('payload.residentId');
     expect(source).not.toContain('payload.role');
+    expect(source).not.toContain('.upsert(');
+    expect(source).toContain('export async function DELETE');
+    expect(source).toContain(".eq('resident_id', sessionCheck.session.residentDigits)");
+    expect(source).toContain(".eq('role', sessionCheck.session.role)");
+    expect(source).toContain("mode: 'in_app_only'");
   });
 
   it('keeps privileged admin web routes behind signed-session helpers', () => {
@@ -116,7 +121,8 @@ describe('priority security hardening source contracts', () => {
 
     expect(serviceSource).toContain("import 'server-only'");
     expect(serviceSource).toContain(".from('device_tokens')");
-    expect(serviceSource).toContain(".from('web_push_subscriptions')");
+    expect(serviceSource).not.toContain(".from('web_push_subscriptions')");
+    expect(serviceSource).not.toContain('sendWebPush');
     expect(serviceSource).not.toContain("{ userId, title, body }");
     expect(serviceSource).not.toContain('tokens: tokens?.map');
     expect(serviceSource).not.toContain('const respBody = await resp.text()');

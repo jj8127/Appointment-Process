@@ -2,7 +2,7 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-27
+last_verified: 2026-07-29
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
 
 ## Notification-center acknowledgement boundary (2026-07-27)
@@ -108,20 +108,26 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 
 - inbox list/unread/delete
 - Expo push
-- admin web push callback
+- admin web push compatibility no-op/subscription retirement
 - latest notice
 - request_board unread merge
 
 ## 핵심 계약
 
 - `fc-notify`가 notification persistence와 push fanout의 중심입니다.
-- admin web push는 `/api/admin/push`와 subscription registry를 통해 보조됩니다.
+- 관리자 웹은 canonical inbox와 헤더 알림센터만 사용합니다. `/api/admin/push`의
+  인증·payload 검증 응답은 구버전 Edge 호환용 no-op이며 브라우저 푸시를 보내지
+  않습니다. subscription POST도 저장하지 않고, DELETE만 현재 검증된 actor 범위를
+  정리합니다.
 - request_board bridge unread는 개인 식별자가 있는 admin/manager/developer session에서 `requestBoardRole='fc'` 또는 `designer`일 때 해당 개인의 FC-role Request Board inbox를 함께 조회합니다. `designer`는 Request Board category만 집계하고 공지/게시글 알림은 제외합니다.
 - 설계매니저 가람in 모바일 push/unread는 request_board 관련 알림과 본인에게 직접 온 내부 채팅 알림으로 제한합니다. 게시판, 공지, 시험, FC 온보딩 broadcast는 manager 모바일 토큰으로 fanout하지 않습니다.
 - Expo push API는 한 요청에 최대 100개 payload만 허용하므로 `fc-notify`는 mobile push payload를 100개 단위로 chunk 전송합니다.
-- 2026-06-03 현재 카카오톡 delivery adapter는 활성 계약이 아니다. `fc-notify`는 inbox row와 app/web push를 유지하되 `notification_deliveries` 같은 별도 Kakao audit table에 쓰지 않는다.
+- 2026-06-03 현재 카카오톡 delivery adapter는 활성 계약이 아니다. `fc-notify`는 inbox row와 모바일 Expo push를 유지하되 `notification_deliveries` 같은 별도 Kakao audit table에 쓰지 않는다.
 - 사용자-facing 알림 제목/분기 문구는 `보증 보험 동의`, `다위촉` 명칭을 사용한다. 내부 `allowance_*`, `hanwha_*` identifier는 기존 DB 호환 때문에 유지될 수 있다.
-- 모바일 푸시 탭, 알림센터 row 탭, admin web push URL은 모두 `lib/notification-route.ts`의 route normalizer를 거쳐야 합니다. 게시판 글 URL은 `/board?postId=...`가 canonical mobile target이며, 이 경로가 게시판 화면의 상세 모달을 엽니다. legacy `/board-detail?postId=...` 및 admin web `/dashboard/board?postId=...`는 같은 모달 진입점으로 정규화합니다.
+- 모바일 푸시 탭과 모바일/관리자 알림센터 row 탭은 모두 canonical typed target
+  경로를 사용합니다. 게시판 글 URL은 `/board?postId=...`가 canonical mobile
+  target이며, legacy `/board-detail?postId=...` 및 admin web
+  `/dashboard/board?postId=...`는 같은 모달 진입점으로 정규화합니다.
 
 ## 2026-07-23 관리자 웹 직접 채팅 전달 확인
 
@@ -135,7 +141,10 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 ## 2026-07-24 서류 승인·반려 알림과 응답 지연
 
 - 문서 상태 변경은 승인과 반려 모두 FC 알림함 row를 정확히 1건 먼저 저장합니다. 일부 승인도 `서류 승인 안내`를 보내며, 마지막 승인만 `서류 검토 완료`와 `/hanwha-commission` 다음 단계 링크를 사용합니다.
-- 관리자 HTTP 응답은 문서·프로필 변경과 알림함 저장까지만 기다립니다. Expo와 web-push 제공자 전송은 Next.js `after()`에서 같은 canonical FC 수신자에게 이어지며 알림함 row를 다시 insert하지 않습니다.
+- 관리자 HTTP 응답은 문서·프로필 변경과 알림함 저장까지만 기다립니다. Expo
+  제공자 전송은 Next.js `after()`에서 같은 canonical FC 수신자에게 이어지며
+  알림함 row를 다시 insert하지 않습니다. 브라우저 Web Push는 조회하거나 보내지
+  않습니다.
 - 수신자 확인 또는 알림함 저장이 실패하면 문서 변경은 유지하고 `notification_delivery_incomplete` 경고를 반환합니다.
 
 - 관리자 임시사번 발급은 완료된 FC 프로필의 현재 전화번호를 서버에서 다시 조회하고, 숫자만 남긴 canonical 값으로 inbox/push 수신자를 지정합니다. 형식이 포함된 원본 전화번호를 push helper에 넘기지 않습니다.
@@ -156,11 +165,11 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 
 - 일반 게시판 글 작성은 `board-create`가 inbox row를 직접 저장하는 예외 경로입니다.
 - 일반 게시판 글 수정은 `board-update`가 같은 board post target URL로 inbox row와 `fc-notify` push fanout을 함께 보냅니다.
-- 이 경로는 row 저장만으로 끝내면 가람in/app/web push가 빠지므로, 같은 change set에서 반드시 `fc-notify` fanout을 함께 호출해야 합니다.
+- 이 경로는 row 저장만으로 끝내면 모바일 Expo fanout이 빠지므로, 같은 change set에서 반드시 `fc-notify` fanout을 함께 호출해야 합니다.
 - direct row insert 이후 `fc-notify`를 다시 부를 때는 `skip_notification_insert=true`를 사용해 중복 알림 row를 만들지 않습니다.
 - 게시판 글 fanout은 최소 두 축이 필요합니다.
   - `target_role='fc'`: FC 앱 푸시
-  - `target_role='admin'`: admin/manager 앱 푸시 + admin web push callback
+  - `target_role='admin'`: admin/manager 앱 푸시 + 관리자 웹 canonical inbox
 - 2026-06-16 기준, push data 또는 inbox row에 web/admin URL 형태(`/dashboard/board?postId=...`)나 legacy mobile URL(`/board-detail?postId=...`)이 들어와도 모바일은 `lib/notification-route.ts`에서 `/board?postId=...`로 변환해야 합니다. `app/_layout.tsx`에서 raw `content.data.url`을 직접 `router.push()`하지 않습니다.
 
 ## 2026-06-05 Codex 보험 브리핑 메모
@@ -181,7 +190,7 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 
 ## 운영 실수
 
-- web push identity row를 권한 원천으로 오해하지 않음
+- 퇴역한 web push subscription row를 권한 원천이나 전달 성공 근거로 사용하지 않음
 - badge 숫자와 앱 unread는 동기화 주기가 다를 수 있음
 - bridge notification이 앱 한쪽에만 보이면 request_board fanout부터 추적
 

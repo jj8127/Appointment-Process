@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import {
-  fetchResidentNumbersFull,
+  fetchResidentNumbersFullWithStatuses,
 } from '@/lib/resident-number-client';
 import {
   createVisiblePageResidentNumberScope,
@@ -48,10 +48,10 @@ export function useVisiblePageResidentNumbers({
 
     const abortController = new AbortController();
 
-    void fetchResidentNumbersFull(scope.fcIds, abortController.signal)
-      .then((residentNumbers) => {
+    void fetchResidentNumbersFullWithStatuses(scope.fcIds, abortController.signal)
+      .then((result) => {
         if (!active) return;
-        setResolved(resolveVisiblePageResidentNumbers(scope, residentNumbers));
+        setResolved(resolveVisiblePageResidentNumbers(scope, result));
       })
       .catch((error: unknown) => {
         if (!active || (error instanceof DOMException && error.name === 'AbortError')) return;

@@ -19,7 +19,12 @@ source_of_truth: web/src/app/manifest.ts + web/public/sw.js + Partner Center pro
 - Next.js metadata route가 `/manifest.webmanifest`를 제공한다.
 - 운영 secure context에서는 로그인이나 알림 권한 요청 전에 `/sw.js`를 등록한다.
 - 서비스워커 등록 자체는 알림 권한을 요청하지 않는다.
-- 기존 Web Push 수신과 알림 클릭 딥링크 로직을 보존한다.
+- 운영 알림은 헤더의 `DashboardNotificationBell` 알림센터에서만 조회·확인·이동한다.
+- 서비스워커는 push/notificationclick listener를 갖지 않으며, 활성화 시 기존 Push
+  subscription과 이미 표시된 브라우저 알림을 best-effort로 닫는다.
+- 로그인한 운영자 클라이언트도 본인 role/resident 범위의 서버 subscription을
+  삭제하고 로컬 Push subscription을 해제한다. 이 정리는 권한을 요청하거나 사용자
+  경고를 표시하지 않는다.
 - 인증 HTML, API 응답, 주민번호, 주소, 첨부파일은 Cache Storage에 저장하지 않는다.
 - 일반 GET은 network-only이고, 탐색 요청이 오프라인일 때만 고정 안내 HTML을 반환한다.
 
@@ -51,7 +56,10 @@ npm run build
 
 - `/manifest.webmanifest`, `/sw.js`, `/store-icon.png`, `/auth`가 200을 반환한다.
 - `/auth` 문서에는 manifest 링크와 theme color가 각각 한 개다.
-- 서비스워커에 push/notificationclick 처리와 network-only fetch가 함께 존재한다.
+- 서비스워커에 push/notificationclick/showNotification 처리가 없고,
+  subscription/표시 알림 정리와 network-only fetch만 존재한다.
 - Cache Storage API 사용이 없다.
 
-운영 배포 후 PWABuilder 검사, 실제 Store identity를 사용한 MSIX 생성, WACK, 비공개 대상 설치·로그인·알림 클릭·로그아웃·오프라인 검증 순으로 진행한다.
+운영 배포 후 PWABuilder 검사, 실제 Store identity를 사용한 MSIX 생성, WACK,
+비공개 대상 설치·로그인·헤더 알림센터 조회·읽음·대상 이동·시스템 알림 미표시·
+로그아웃·오프라인 검증 순으로 진행한다.

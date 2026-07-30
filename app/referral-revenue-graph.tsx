@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { Stack, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -26,6 +26,11 @@ import {
   getSampleRevenueGraphContextNodes,
   sortSampleRevenueNodesByExpectedAmount,
 } from '@/lib/referral-revenue-demo';
+import {
+  createReferralRevenueOrientationCoordinator,
+  getReferralRevenueDesiredOrientation,
+} from '@/lib/referral-revenue-orientation';
+import { goBackOrReplace } from '@/lib/back-navigation';
 import { COLORS, RADIUS, SPACING, TOUCH_TARGET } from '@/lib/theme';
 import type {
   SampleRevenueDepthFilter,
@@ -62,6 +67,17 @@ const COMPACT_PORTRAIT_FIT_INSETS = {
   left: 16,
 };
 
+const orientationCoordinator = createReferralRevenueOrientationCoordinator({
+  lock: (orientation) => ScreenOrientation.lockAsync(
+    orientation === 'landscape'
+      ? ScreenOrientation.OrientationLock.LANDSCAPE
+      : ScreenOrientation.OrientationLock.PORTRAIT_UP,
+  ),
+  supportsLandscape: () => ScreenOrientation.supportsOrientationLockAsync(
+    ScreenOrientation.OrientationLock.LANDSCAPE,
+  ),
+});
+
 export default function ReferralRevenueGraphPage() {
   const router = useRouter();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -81,27 +97,56 @@ export default function ReferralRevenueGraphPage() {
     !isRequestBoardDesigner
     && (role === 'fc' || (role === 'admin' && readOnly));
 
-  useEffect(() => {
-    if (!hydrated || !canView || Platform.OS === 'web') return undefined;
-    let active = true;
-    void ScreenOrientation.supportsOrientationLockAsync(
-      ScreenOrientation.OrientationLock.LANDSCAPE,
-    )
-      .then((supported) => {
-        if (!active || !supported) return;
-        return ScreenOrientation.lockAsync(
-          ScreenOrientation.OrientationLock.LANDSCAPE,
-        );
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-      void ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT_UP,
-      ).catch(() => undefined);
+  const {
+    focusedGraphNodeIds,
+    graphEdges,
+    graphNodes,
+    listNodes,
+  } = useMemo(() => {
+    const nextFilteredNodes = filterSampleRevenueNodesByDepth(
+      model.nodes,
+      depthFilter,
+    );
+    const nextGraphNodes = getSampleRevenueGraphContextNodes(
+      model.nodes,
+      depthFilter,
+    );
+    const nextFocusedGraphNodeIds = depthFilter === 'all'
+      ? undefined
+      : new Set(nextFilteredNodes.map((node) => node.id));
+    const graphNodeIds = new Set(nextGraphNodes.map((node) => node.id));
+    const nextGraphEdges = model.edges.filter(
+      (edge) => (
+        graphNodeIds.has(edge.source) && graphNodeIds.has(edge.target)
+      ),
+    );
+    const nextListNodes = sortSampleRevenueNodesByExpectedAmount(
+      nextFilteredNodes.filter((node) => node.depth > 0),
+    );
+    return {
+      focusedGraphNodeIds: nextFocusedGraphNodeIds,
+      graphEdges: nextGraphEdges,
+      graphNodes: nextGraphNodes,
+      listNodes: nextListNodes,
     };
-  }, [canView, hydrated]);
+  }, [depthFilter]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS === 'web') return undefined;
+      void orientationCoordinator.request(
+        getReferralRevenueDesiredOrientation({
+          canView,
+          hydrated,
+          isFocused: true,
+          viewMode,
+        }),
+      );
+      return () => {
+        void orientationCoordinator.request('portrait');
+      };
+    }, [canView, hydrated, viewMode]),
+  );
 
   if (!hydrated) {
     return (
@@ -130,18 +175,6 @@ export default function ReferralRevenueGraphPage() {
     );
   }
 
-  const filteredNodes = filterSampleRevenueNodesByDepth(model.nodes, depthFilter);
-  const graphNodes = getSampleRevenueGraphContextNodes(model.nodes, depthFilter);
-  const focusedGraphNodeIds = depthFilter === 'all'
-    ? undefined
-    : new Set(filteredNodes.map((node) => node.id));
-  const graphNodeIds = new Set(graphNodes.map((node) => node.id));
-  const graphEdges = model.edges.filter(
-    (edge) => graphNodeIds.has(edge.source) && graphNodeIds.has(edge.target),
-  );
-  const listNodes = sortSampleRevenueNodesByExpectedAmount(
-    filteredNodes.filter((node) => node.depth > 0),
-  );
   const handleGraphReset = () => {
     setDepthFilter('all');
     setSelectedNode(null);
@@ -153,8 +186,17 @@ export default function ReferralRevenueGraphPage() {
     setControlsOpen(false);
   };
   const handleShowList = () => {
+    if (Platform.OS !== 'web') {
+      void orientationCoordinator.request('portrait');
+    }
     setControlsOpen(false);
     setViewMode('list');
+  };
+  const handleBack = () => {
+    if (Platform.OS !== 'web') {
+      void orientationCoordinator.request('portrait');
+    }
+    goBackOrReplace(router, '/referral');
   };
   const renderImmersiveFilterButton = (
     filter: (typeof DEPTH_FILTERS)[number],
@@ -214,7 +256,7 @@ export default function ReferralRevenueGraphPage() {
                   styles.hudIconButton,
                   pressed && styles.pressed,
                 ]}
-                onPress={() => router.back()}
+                onPress={handleBack}
                 accessibilityRole="button"
                 accessibilityLabel="매출 기여 그래프 닫기"
               >
@@ -438,7 +480,21 @@ export default function ReferralRevenueGraphPage() {
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <Stack.Screen
-        options={{ headerShown: true, title: '매출 기여 그래프' }}
+        options={{
+          headerShown: true,
+          title: '매출 기여 그래프',
+          headerBackVisible: false,
+          headerLeft: () => (
+            <Pressable
+              style={styles.hudIconButton}
+              onPress={handleBack}
+              accessibilityRole="button"
+              accessibilityLabel="추천인 코드 화면으로 돌아가기"
+            >
+              <Feather name="arrow-left" size={23} color={COLORS.text.primary} />
+            </Pressable>
+          ),
+        }}
       />
       <ScrollView
         contentContainerStyle={styles.page}

@@ -905,3 +905,57 @@
   owner-map JSON parse, and central harness audit pass.
 - Details:
   [WORK_DETAIL.md#20260729-full-range-push-governance](WORK_DETAIL.md#20260729-full-range-push-governance)
+
+## 2026-07-29 Unused native picker removal
+
+- Removed the unused `@react-native-picker/picker` 2.11.1 dependency that was
+  still autolinked into Android New Architecture builds and matched the
+  Google Play Fabric startup crash signature.
+- Added a dependency contract that rejects reintroducing the manifest or
+  lockfile entry.
+- Android autolinking contains no picker descriptor. Expo dependency check,
+  TypeScript, lint, all 189 Jest suites / 1,143 tests, and a
+  Sentry-upload-disabled Android export pass.
+- No native build, OTA update, store submission, deployment, or remote state
+  change was performed.
+- Details:
+  [WORK_DETAIL.md#20260729-unused-native-picker-removal](WORK_DETAIL.md#20260729-unused-native-picker-removal)
+
+## 2026-07-30 Exam applicant lifecycle-status separation
+
+- Added a shared `신청 상태` column to both administrator applicant tables and
+  the canonical filtered XLSX export.
+- FC self-cancellations, administrator cancellations, and rejections now remain
+  visible independently from the binary reception state.
+- Focused display/workbook tests, web TypeScript, scoped lint, and the
+  Sentry-disabled production build pass. No database or remote deployment was
+  required.
+- Details:
+  [WORK_DETAIL.md#20260730-exam-applicant-status-separation](WORK_DETAIL.md#20260730-exam-applicant-status-separation)
+
+## 2026-07-30 Minimal exam-applicant workbook styling
+
+- Replaced full-width orange/gray row bands and the dark header with a
+  white/light-gray working surface.
+- Added only two restrained whole-row exceptions: near-white orange for
+  confirmed rows and near-white red for rejected rows. Other rows remain white.
+- Preserved filters, frozen panes, widths, identifiers, and hyperlinks.
+- Generated and visually inspected a synthetic XLSX example and PNG preview.
+- Details:
+  [WORK_DETAIL.md#20260730-minimal-exam-workbook](WORK_DETAIL.md#20260730-minimal-exam-workbook)
+
+## 2026-07-30 Referral graph drag and mobile revenue-canvas performance
+
+- Administrator graph dragging now pointer-fixes only the grabbed node; direct
+  and indirect nodes react through live link/charge/collision forces while the
+  drag-start `1.2x` edge cap prevents chain spikes.
+- Native revenue graph draw and physics moved from per-node SVG/native Text
+  updates to one offline local WebView Canvas loop using the already-installed
+  WebView dependency. Cached labels keep a fixed screen-pixel size during zoom.
+- Graph focus/settings/detail use landscape; list/list-detail, back, blur, and
+  unmount restore portrait with last-request-wins coordination.
+- Final emulator drag runs stayed below 5% janky frames, node selection opened
+  the native detail sheet, and focused/full automated regression checks passed.
+- No package, API, database, deployment, or release mutation was performed.
+- Details:
+  [WORK_DETAIL.md#20260730-referral-graph-drag-mobile-canvas-performance](WORK_DETAIL.md#20260730-referral-graph-drag-mobile-canvas-performance)
