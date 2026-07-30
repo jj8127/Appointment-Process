@@ -7,6 +7,19 @@ source_of_truth: env contracts + reset-password functions + supabase/functions/_
 
 # Security And Secret Operations
 
+## 2026-07-30 Administrator web notification and diagnostic boundary
+
+- The administrator web uses its in-app notification center only. On an
+  authenticated session it retires legacy browser subscriptions and displayed
+  system notifications, and it does not expose a new system-notification
+  registration control.
+- `fc-notify` and administrator notification routes log only privacy-safe
+  aggregates. Phone numbers, tokens, provider response bodies, and resident
+  numbers are never diagnostic fields.
+- Durable inbox persistence is independent from device/provider delivery.
+  Missing devices or provider rejection must not be shown to an operator as if
+  the requested notification was never recorded.
+
 ## Native referral graph read boundary (2026-07-26)
 
 - `get-referral-tree`의 additive graph mode는 `x-app-session-token`을 검증한 뒤 token source role `fc` 또는 `manager`만 허용하고, DB에서 다시 확인한 자기 profile id를 root로 고정합니다. 요청 body의 `fcId`, role, phone은 graph scope 근거가 아닙니다.

@@ -5199,6 +5199,22 @@
   - Emulator node tap showed `DETAIL_MODAL_PRESENT`.
   - `lib/__tests__/referral-revenue-demo-source.test.ts`
 
+## 2026-07-30 | Dirty-worktree governance did not prove the committed range
+
+- Symptom:
+  - The pre-commit dirty-worktree governance check passed, but the post-commit
+    upstream-to-HEAD check found missing owner and feature-contract documents.
+- Root cause:
+  - Release readiness relied on a dirty-diff check whose file enumeration is
+    not equivalent to the Git hook's committed-range contract.
+- Permanent guardrail:
+  - Run `npm run governance:pre-push` again after the release commit and before
+    deployment. A pre-commit PASS is supporting evidence, not the final gate.
+- Verification:
+  - `scripts/ci/pre-push-governance.mjs`
+  - `docs/handbook/path-owner-map.json`
+  - `docs/handbook/contract-test-map.json`
+
 ## 2026-07-30 | Release tests assumed one working directory and a fixed graph size
 
 - Symptom:

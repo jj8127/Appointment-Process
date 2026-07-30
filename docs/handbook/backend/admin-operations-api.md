@@ -7,6 +7,17 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 
 # Backend Runbook: Admin Operations API
 
+## 2026-07-30 Resident-number list state contract
+
+- `/api/admin/resident-numbers` resolves each requested FC as `value`,
+  `missing`, or `unavailable`. An absent encrypted value is `missing`; a
+  permission, runtime, or decrypt failure is `unavailable`.
+- Administrator lists render `missing` as `미입력` and `unavailable` as
+  `조회 불가`. They must not describe a missing value as a system failure or a
+  failed read as user non-entry.
+- Direct decrypt and the `admin-action` fallback use the same row contract.
+  Masked or partial values are never accepted as successful full-value reads.
+
 ## 2026-07-29 Atomic deletion and privileged identity boundary
 
 - `admin-action:deleteFc`, `/api/fc-delete`, and the public account-deletion

@@ -7,6 +7,16 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 # Mobile Playbook: Exam Flows
 
+## 2026-07-30 Administrator applicant list and XLSX contract
+
+- Administrator applicant tables and the XLSX export keep binary reception
+  state separate from registration lifecycle state.
+- FC cancellation, administrator cancellation, rejection, no-show, and
+  completion remain distinct in both the screen and export.
+- The workbook exports the current filtered population, preserves leading
+  zeroes in identity fields, and keeps filters, frozen rows, and proof links.
+  Semantic row color is limited to restrained confirmed and rejected states.
+
 ## 목적
 
 - FC의 생명/손해 시험 신청과 관리자 측 시험 일정/신청자 관리를 분리 설명
