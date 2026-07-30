@@ -112,6 +112,20 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 - `/referral-revenue-graph`의 네이티브 graph는 기존 `react-native-webview` 안의
   외부 요청 없는 로컬 HTML 단일 Canvas에서 draw와 physics를 처리한다. node별
   SVG/native Text를 drag frame마다 다시 그리는 경로를 추가하지 않는다.
+- 상호작용 물리는 관리자 웹 추천인 graph에서 실제로 활성인
+  charge·degree-aware link·link tension·collision·alpha/velocity damping 계열을
+  참고한다. 관리자 runtime에서 꺼진 `center/x/y` force는 모바일 전역 중심력으로
+  복원하지 않는다. 모바일은 viewer 중심의 collision-safe landscape radial seed와
+  약한 depth target, bounded viewer anchor/rebase를 사용하며 pointer로 잡은 node
+  하나만 고정한다. 관리자 `d3-force` runtime 전체를 이식하거나 package를 추가하지
+  않는다.
+- 1·3·6·10단계 guide ring은 viewer 중심에서 바깥으로 깊어지는 방향을 나타낸다.
+  회색 edge는 샘플 조직 관계이고 주황 child→parent arrow는 viewer 쪽 10% 샘플 기여
+  계산 방향이다. A11은 회색 점선/no-arrow이며 실제 송금·정산·지급 흐름으로
+  해석하지 않는다. eligible node 선택 경로의 inward pulse는 최대 1.5초 뒤 끝나고
+  event-driven RAF가 idle로 돌아가야 한다.
+- viewer node는 unfiltered 샘플 예상 유입 합계 10,240,000원을 표시하고 eligible
+  node는 자기 예상 배분액을 유지한다. edge에 금액 label을 추가하지 않는다.
 - WebView bridge는 `{type:'select-node', nodeId}`만 허용하고 앱은 현재 로컬 sample
   node map에 존재하는 ID만 상세 선택으로 수락한다. file/universal file access,
   mixed content, DOM storage, 외부 navigation은 비활성 상태를 유지한다.

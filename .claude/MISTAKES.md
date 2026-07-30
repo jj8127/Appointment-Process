@@ -5239,3 +5239,28 @@
   - `web/src/lib/referral-permission-display.test.ts`
   - `web/src/lib/referral-graph-realdata.test.ts`
   - `scripts/testing/board-edge-handler-smoke.mjs`
+
+## 2026-07-30 | Revenue radial tests sampled only guide depths and missed local inversions
+
+- Symptom:
+  - The sample revenue graph had tests for selected 1/3/6/10 guide depths but
+    adjacent parent-child positions could still alternate inward and outward.
+  - A mathematically valid fit also clipped padded content in the actual
+    production 800x360 landscape canvas.
+- Root cause:
+  - Assertions sampled presentation landmarks instead of checking every
+    eligible edge, every node pair, and the actual runtime viewport/insets.
+  - The physics-parity description followed a resolved preset value without
+    first inspecting which administrator forces were active at runtime.
+- Permanent guardrail:
+  - Assert strict outward radial target growth for every eligible parent-child
+    edge, not only depths 1/3/6/10.
+  - Assert all-pair separation using the sum of collision radii plus 5 logical
+    pixels and assert padded containment in the production 800x360
+    viewport/insets.
+  - Inspect the administrator runtime force registry before claiming parity:
+    charge/link/tension/collision/damping are active references, while
+    center/x/y are disabled.
+- Verification:
+  - `lib/__tests__/referral-revenue-graph-native.test.ts`
+  - `lib/__tests__/referral-revenue-demo-source.test.ts`

@@ -71,8 +71,13 @@
   referral/API/DB 호출 없이 가상 parent chain의 1~10단계 15명만 10% 예상
   배분 합계에 포함하고 11단계는 `대상 제외`로 표시하며, `샘플 데이터`와
   `실제 정산 아님`을 그래프·목록·상세에서 명확히 알림. 그래프 탭은 카드형
-  조직도가 아니라 기존 추천 관계 그래프처럼 원형 node와 visible edge를 관리자 웹
-  balanced force 상수로 배치함. 네이티브 draw/physics는 외부 요청 없는 로컬
+  조직도가 아니라 기존 추천 관계 그래프처럼 원형 node와 visible edge를 사용함.
+  관리자 웹의 실제 활성 charge/link/tension/collision/damping 계열을 참고하되,
+  관리자 runtime에서 꺼진 `center/x/y`를 모바일 전역 중심력으로 되살리지 않음.
+  viewer 중심 collision-safe landscape radial seed는 A/B/C branch sector를 분리하고
+  모든 eligible parent→child edge에서 depth 목표 반지름이 증가해야 함. 전체 node
+  pair는 원래 collision 반지름에 5px 여유를 더한 envelope를 만족하고 production
+  800x360 canvas/inset 안에 포함돼야 함. 네이티브 draw/physics는 외부 요청 없는 로컬
   WebView의 단일 HTML Canvas loop에서 처리해 drag frame마다 React/SVG node별
   redraw를 만들지 않음. 모든 node 원 안에 예상 배분액이 항상 보이고 collision pass
   뒤 node pair가 겹치지 않으며 pan/pinch, 화면 맞춤, 초기화, node 선택 상세를
@@ -82,9 +87,15 @@
   크기를 유지함. focused graph와 graph 설정/상세는 landscape, 목록과 목록 상세는
   portrait이며 header/Android back, route blur, unmount 뒤 portrait로 복원함.
   설정 panel에 summary/filter/list/fit/reset/legend/disclaimer가 있고 닫기·바깥 탭·
-  Android back으로 닫히며 단계 filter 뒤에도 viewer 연결 경로를 보존함. Android
-  gfxinfo 기준 동일 A1 900ms drag를 3회 측정해 각 run의 janky frame이 5% 미만이고
-  slow bitmap upload가 0인지 확인하며 slow UI thread도 함께 기록함
+  Android back으로 닫히며 단계 filter 뒤에도 viewer 연결 경로를 보존함. 1·3·6·10
+  단계 guide ring과 child→parent 주황 arrow가 중심에서 바깥으로 퍼지는 depth 및
+  viewer 쪽 샘플 기여 계산 방향을 함께 설명해야 함. 회색 base edge는 관계 구조이고
+  A11 edge는 회색 점선/no-arrow임. viewer node에는 unfiltered 합계 10,240,000원이
+  보이고 edge에는 금액 label이 없어야 함. A10 선택 경로는 정적으로 강조되고 inward
+  pulse는 최대 1.5초 뒤 끝나 RAF가 idle이어야 하며 A11 선택은 arrow/pulse를 만들지
+  않아야 함. Android gfxinfo 기준 동일 eligible node의 warmed 900ms drag를 3회
+  측정해 각 run의 janky frame이 5% 미만이고 slow bitmap upload가 0인지 확인하며
+  slow UI thread도 함께 기록함
 
 ### 5.2 초대링크
 

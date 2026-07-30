@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import vm from 'vm';
 
 const ROOT = path.resolve(__dirname, '../..');
 
@@ -151,9 +152,11 @@ describe('referral revenue demo screen source contract', () => {
     expect(canvas).not.toContain('<AnimatedG');
   });
 
-  it('preserves the exact local node labels through the animated child', () => {
-    expect(canvas).toContain("? '기준'");
-    expect(canvas).toContain(": '대상 제외'");
+  it('preserves viewer totals and local node amounts through the animated child', () => {
+    expect(canvas).toContain(
+      '예상 유입 합계 +${formatCompactSampleRevenueKrw(expectedTotalKrw)}',
+    );
+    expect(canvas).toContain('· 대상 제외');
     expect(canvas).toContain(": '제외'");
     expect(canvas).toContain('amountLabel={amountLabel}');
     expect(canvas).toContain('nodeAmountLabel={nodeAmountLabel}');
@@ -180,7 +183,9 @@ describe('referral revenue demo screen source contract', () => {
     expect(nativeCanvas).toContain("canvas.getContext('2d'");
     expect(nativeCanvas).toContain('requestAnimationFrame(loop)');
     expect(nativeCanvas).toContain('stepPhysics(0.24');
-    expect(nativeCanvas).toContain('settleAlpha *= 0.94');
+    expect(nativeCanvas).toContain(
+      'settleAlpha *= settle.decayMultiplier',
+    );
     expect(nativeCanvas).toContain("cacheContext.font = '800 11px");
     expect(nativeCanvas).toContain("cacheContext.font = '800 7px");
     expect(nativeCanvas).toContain('window.ReactNativeWebView?.postMessage');
@@ -192,6 +197,70 @@ describe('referral revenue demo screen source contract', () => {
     expect(nativeCanvas).toContain(
       'window.__revenueGraph?.setActive(${isFocused})',
     );
+  });
+
+  it('keeps the embedded WebView runtime syntactically executable', () => {
+    const embeddedScript = nativeCanvas
+      .split('<script>')[1]
+      .split('</script>')[0]
+      .replace('${payload}', '{}');
+
+    expect(() => new vm.Script(embeddedScript)).not.toThrow();
+  });
+
+  it('keeps the viewer centered with weak radial guidance over admin-style forces', () => {
+    expect(nativeCanvas).toContain('radialGuidance.viewerAnchorStrength');
+    expect(nativeCanvas).toContain('radialGuidance.viewerAnchorMaxImpulse');
+    expect(nativeCanvas).toContain('radialGuidance.targetStrength');
+    expect(nativeCanvas).toContain('radialGuidance.targetMaxImpulse');
+    expect(nativeCanvas).toContain('viewer?.x ?? center');
+    expect(nativeCanvas).toContain('node.radialOffsetX');
+    expect(nativeCanvas).toContain('node.radialOffsetY');
+    expect(nativeCanvas).toContain('if (fixedIndex < 0 && viewer)');
+    expect(nativeCanvas).toContain('for (const node of nodes)');
+    expect(nativeCanvas).toContain('node.x += offsetX');
+    expect(nativeCanvas).toContain('node.y += offsetY');
+    expect(nativeCanvas).not.toContain(
+      '(center - node.x) * physics.centerStrength',
+    );
+    expect(nativeCanvas).toContain('const rings = config.rings');
+    expect(nativeCanvas).toContain("ring.depth + '단계'");
+    expect(screen).toContain(
+      'expectedTotalKrw={model.summary.expectedAllocationKrw}',
+    );
+    expect(nativeCanvas).toContain(
+      '예상 유입 합계 +${formatCompactSampleRevenueKrw(expectedTotalKrw)}',
+    );
+  });
+
+  it('draws bounded child-to-parent contribution direction without edge amounts', () => {
+    const drawEdges = nativeCanvas
+      .split('for (let edgeIndex = 0; edgeIndex < edges.length; edgeIndex += 1)')[1]
+      .split('for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1)')[0];
+    const loop = nativeCanvas
+      .split('const loop = (now) => {')[1]
+      .split('const nearestNode')[0];
+
+    expect(nativeCanvas).toContain('const parent = nodes[edge.sourceIndex]');
+    expect(nativeCanvas).toContain('const child = nodes[edge.targetIndex]');
+    expect(nativeCanvas).toContain('const dx = parentX - childX');
+    expect(nativeCanvas).toContain('const availableGap = distance');
+    expect(nativeCanvas).toContain('if (availableGap < 2) return null');
+    expect(nativeCanvas).toContain('drawContributionArrow');
+    expect(nativeCanvas).toContain('edge.revenueEligible');
+    expect(nativeCanvas).toContain('selectedPathEdgeIndexes');
+    expect(nativeCanvas).toContain('const flowPulseMaxDuration = 1500');
+    expect(nativeCanvas).toContain('selectedPathEdgeSet.has(edgeIndex)');
+    expect(drawEdges).not.toContain('fillText');
+    expect(loop).toContain('flowPulseVisible');
+    expect(loop).toContain('flowPulseUntil = 0');
+    expect(canvas).toContain('getSampleRevenueContributionPath');
+    expect(canvas).toContain('const AnimatedPath');
+    expect(canvas).toContain('const dx = parentX - childX');
+    expect(canvas).toContain('highlighted={highlightedEdgeIds.has(edge.id)}');
+    expect(canvas).toContain('{!excluded && (');
+    expect(screen).toContain('하위 → 나 기여 방향');
+    expect(screen).toContain('실제 돈의 이동을 의미하지 않습니다');
   });
 
   it('does not start node physics before drag intent or select a cancelled pointer', () => {
@@ -213,7 +282,7 @@ describe('referral revenue demo screen source contract', () => {
     expect(finishPointer).toContain('if (!cancelled && !dragMoved)');
     expect(finishPointer).toContain("(event) => finishPointer(event, true)");
     expect(finishPointer).toContain(
-      'settleAlpha = !cancelled && dragMoved ? 0.32 : 0',
+      'settleAlpha = !cancelled && dragMoved ? settle.initialAlpha : 0',
     );
     expect(finishPointer).toContain('if (!cancelled && dragMoved)');
     expect(finishPointer).toContain(

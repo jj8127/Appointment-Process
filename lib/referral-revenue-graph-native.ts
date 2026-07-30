@@ -6,10 +6,18 @@ import type {
 export const SAMPLE_REVENUE_GRAPH_SURFACE_SIZE = 1600;
 export const SAMPLE_REVENUE_GRAPH_SURFACE_CENTER =
   SAMPLE_REVENUE_GRAPH_SURFACE_SIZE / 2;
-export const SAMPLE_REVENUE_GRAPH_MIN_SCALE = 0.28;
+export const SAMPLE_REVENUE_GRAPH_MIN_SCALE = 0.18;
 export const SAMPLE_REVENUE_GRAPH_MAX_SCALE = 5.5;
 export const SAMPLE_REVENUE_GRAPH_FIT_PADDING = 52;
 
+/**
+ * Auditable copy of the admin graph's resolved balanced-force values.
+ *
+ * Mobile reuses the charge/link/tension/collision and velocity-damping values.
+ * `alphaDecay` and `centerStrength` remain here for comparison only: the admin
+ * runtime disables its global center force, while mobile uses the bounded
+ * interaction schedule and viewer-rooted guidance declared below.
+ */
 export const SAMPLE_REVENUE_ADMIN_WEB_PHYSICS = {
   alphaDecay: 0.016,
   velocityDecay: 0.46,
@@ -26,15 +34,42 @@ export const SAMPLE_REVENUE_ADMIN_WEB_PHYSICS = {
   linkTensionThresholdMultiplier: 1.38,
 } as const;
 
-const FIRST_RING_RADIUS = 150;
-const DEPTH_RING_GAP = 82;
-const DEPTH_SPIRAL_STEP = 0.24;
+export const SAMPLE_REVENUE_MOBILE_SETTLE = {
+  initialAlpha: 0.32,
+  decayMultiplier: 0.94,
+  stopThreshold: 0.014,
+} as const;
+
+const FIRST_RING_RADIUS = 160;
+const DEPTH_RING_GAP = 48;
 const SIBLING_ANGLE_GAP = 0.12;
 const SURFACE_EDGE_MARGIN = 70;
-const FORCE_TICKS = 360;
 const HARD_COLLISION_ITERATIONS = 96;
-const FINAL_LAYOUT_MAX_SPAN = 1_020;
 const COLLISION_SAFETY_GAP = 5;
+const TWO_PI = Math.PI * 2;
+const DEPTH_SECTOR_LANES = [
+  -0.7,
+  0,
+  0.55,
+  -0.35,
+  0.05,
+  0.4,
+  -0.45,
+  -0.2,
+  0.05,
+  -0.4,
+  -0.2,
+] as const;
+const LANDSCAPE_BRANCH_START_ANGLE = 0;
+
+export const SAMPLE_REVENUE_GRAPH_GUIDE_DEPTHS = [1, 3, 6, 10] as const;
+
+export const SAMPLE_REVENUE_RADIAL_GUIDANCE = {
+  targetStrength: 0.012,
+  targetMaxImpulse: 8,
+  viewerAnchorStrength: 0.18,
+  viewerAnchorMaxImpulse: 18,
+} as const;
 
 export type SampleRevenueGraphPoint = {
   x: number;
@@ -52,16 +87,26 @@ export type SampleRevenueGraphMotionPoint = SampleRevenueGraphPoint & {
   vy: number;
 };
 
+export type SampleRevenueGraphRadialTarget = {
+  offsetX: number;
+  offsetY: number;
+  radius: number;
+  angle: number;
+  branchIndex: number;
+};
+
 type SimulatedSampleRevenueNode = SampleRevenueGraphPoint & {
   id: string;
   vx: number;
   vy: number;
   collisionRadius: number;
+  radialTarget: SampleRevenueGraphRadialTarget;
 };
 
 type SampleRevenueGraphPhysicsNode = {
   node: SampleRevenueGraphNode;
   collisionRadius: number;
+  radialTarget: SampleRevenueGraphRadialTarget;
 };
 
 type SampleRevenueGraphPhysicsEdge = {
@@ -76,6 +121,7 @@ export type SampleRevenueGraphPhysicsTopology = {
   edges: readonly SampleRevenueGraphPhysicsEdge[];
   children: ReadonlyMap<string, readonly string[]>;
   nodeById: ReadonlyMap<string, SampleRevenueGraphNode>;
+  viewerId: string | null;
 };
 
 const clamp = (value: number, min: number, max: number) =>
@@ -148,6 +194,118 @@ function hashString(value: string) {
 function deterministicUnitVector(leftId: string, rightId: string) {
   const angle = (hashString(`${leftId}:${rightId}`) / 0xffffffff) * Math.PI * 2;
   return { x: Math.cos(angle), y: Math.sin(angle) };
+}
+
+export function getSampleRevenueGraphRadialTargetRadius(
+  depth: number,
+): number {
+  if (!Number.isFinite(depth) || depth <= 0) return 0;
+  return FIRST_RING_RADIUS + (depth - 1) * DEPTH_RING_GAP;
+}
+
+function normalizeAngle(angle: number) {
+  return ((angle + Math.PI) % TWO_PI + TWO_PI) % TWO_PI - Math.PI;
+}
+
+function createRadialTarget(
+  radius: number,
+  angle: number,
+  branchIndex: number,
+): SampleRevenueGraphRadialTarget {
+  const normalizedAngle = normalizeAngle(angle);
+  return {
+    offsetX: Math.cos(normalizedAngle) * radius,
+    offsetY: Math.sin(normalizedAngle) * radius,
+    radius,
+    angle: normalizedAngle,
+    branchIndex,
+  };
+}
+
+function buildViewerRootedRadialTargets(options: {
+  nodes: readonly SampleRevenueGraphNode[];
+  children: ReadonlyMap<string, readonly string[]>;
+  nodeById: ReadonlyMap<string, SampleRevenueGraphNode>;
+}) {
+  const { nodes, children, nodeById } = options;
+  const orderedNodes = [...nodes].sort(compareNodeIds);
+  const viewer = orderedNodes.find((node) => node.isViewer)
+    ?? orderedNodes.find((node) => node.parentId === null)
+    ?? orderedNodes[0];
+  const radialTargetById = new Map<string, SampleRevenueGraphRadialTarget>();
+  if (!viewer) {
+    return { radialTargetById, viewerId: null };
+  }
+
+  radialTargetById.set(viewer.id, createRadialTarget(0, 0, -1));
+  const visited = new Set<string>([viewer.id]);
+  const rootChildren = children.get(viewer.id) ?? [];
+  const branchCount = Math.max(1, rootChildren.length);
+  const sectorHalfWidth = Math.PI / branchCount;
+  const maxSectorOffset = sectorHalfWidth * 0.82;
+
+  const placeBranch = (
+    nodeId: string,
+    branchIndex: number,
+    inheritedSiblingOffset = 0,
+  ) => {
+    if (visited.has(nodeId)) return;
+    const node = nodeById.get(nodeId);
+    if (!node) return;
+    visited.add(nodeId);
+
+    const branchAngle = LANDSCAPE_BRANCH_START_ANGLE
+      + (TWO_PI * branchIndex) / branchCount;
+    const depth = Math.max(1, node.depth);
+    const depthLane = DEPTH_SECTOR_LANES[
+      (depth - 1) % DEPTH_SECTOR_LANES.length
+    ];
+    const angularOffset = clamp(
+      depthLane + inheritedSiblingOffset,
+      -maxSectorOffset,
+      maxSectorOffset,
+    );
+    radialTargetById.set(
+      nodeId,
+      createRadialTarget(
+        getSampleRevenueGraphRadialTargetRadius(depth),
+        branchAngle + angularOffset,
+        branchIndex,
+      ),
+    );
+
+    const childIds = children.get(nodeId) ?? [];
+    childIds.forEach((childId, childIndex) => {
+      const centeredIndex = childIndex - (childIds.length - 1) / 2;
+      placeBranch(
+        childId,
+        branchIndex,
+        inheritedSiblingOffset * 0.72
+          + centeredIndex * SIBLING_ANGLE_GAP,
+      );
+    });
+  };
+
+  rootChildren.forEach((nodeId, branchIndex) => {
+    placeBranch(nodeId, branchIndex);
+  });
+
+  const unplacedNodes = orderedNodes.filter((node) => !visited.has(node.id));
+  unplacedNodes.forEach((node, index) => {
+    const branchIndex = rootChildren.length + index;
+    const angle = LANDSCAPE_BRANCH_START_ANGLE
+      + (TWO_PI * index) / Math.max(1, unplacedNodes.length);
+    radialTargetById.set(
+      node.id,
+      createRadialTarget(
+        getSampleRevenueGraphRadialTargetRadius(Math.max(1, node.depth)),
+        angle,
+        branchIndex,
+      ),
+    );
+  });
+
+  return { radialTargetById, viewerId: viewer.id };
 }
 
 function getAdminWebEquivalentLinkDistance(options: {
@@ -257,6 +415,11 @@ export function prepareSampleRevenueGraphPhysicsTopology(
     collectSubtreeSize(node.id, children, subtreeSize);
   }
   const orderedNodes = [...nodes].sort(compareNodeIds);
+  const { radialTargetById, viewerId } = buildViewerRootedRadialTargets({
+    nodes: orderedNodes,
+    children,
+    nodeById,
+  });
 
   return {
     nodes: orderedNodes.map((node) => ({
@@ -266,6 +429,8 @@ export function prepareSampleRevenueGraphPhysicsTopology(
         getSampleRevenueGraphNodeRadius(node)
           + SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.collisionPadding,
       ),
+      radialTarget: radialTargetById.get(node.id)
+        ?? createRadialTarget(0, 0, -1),
     })),
     edges: edges
       .filter(
@@ -297,70 +462,26 @@ export function prepareSampleRevenueGraphPhysicsTopology(
       }),
     children,
     nodeById,
+    viewerId,
   };
 }
 
 function buildRadialSeedLayout(
   topology: SampleRevenueGraphPhysicsTopology,
 ) {
-  const positions = new Map<string, SampleRevenueGraphPoint>();
-  if (topology.nodes.length === 0) return positions;
-  const { children, nodeById } = topology;
-  const nodes = topology.nodes.map(({ node }) => node);
-  const viewer = nodes.find((node) => node.isViewer)
-    ?? [...nodes].sort(compareNodeIds)[0];
-  positions.set(viewer.id, { x: 0, y: 0 });
-
-  const rootChildren = children.get(viewer.id) ?? [];
-  const branchCount = Math.max(1, rootChildren.length);
-  const visited = new Set<string>([viewer.id]);
-  const placeBranch = (
-    nodeId: string,
-    branchIndex: number,
-    siblingOffset = 0,
-  ) => {
-    if (visited.has(nodeId)) return;
-    const node = nodeById.get(nodeId);
-    if (!node) return;
-    visited.add(nodeId);
-    const baseAngle = -Math.PI / 2
-      + (Math.PI * 2 * branchIndex) / branchCount;
-    const angle = baseAngle
-      + Math.max(0, node.depth - 1) * DEPTH_SPIRAL_STEP
-      + siblingOffset;
-    const radius = FIRST_RING_RADIUS + node.depth * DEPTH_RING_GAP;
-    positions.set(nodeId, {
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius,
-    });
-    const childIds = children.get(nodeId) ?? [];
-    childIds.forEach((childId, childIndex) => {
-      const centeredIndex = childIndex - (childIds.length - 1) / 2;
-      placeBranch(
-        childId,
-        branchIndex,
-        siblingOffset + centeredIndex * SIBLING_ANGLE_GAP,
-      );
-    });
-  };
-  rootChildren.forEach((nodeId, branchIndex) => {
-    placeBranch(nodeId, branchIndex);
-  });
-  [...nodes]
-    .filter((node) => !positions.has(node.id))
-    .sort(compareNodeIds)
-    .forEach((node, index, unplaced) => {
-      const angle = -Math.PI / 2
-        + (Math.PI * 2 * index) / Math.max(1, unplaced.length);
-      positions.set(node.id, {
-        x: Math.cos(angle) * 620,
-        y: Math.sin(angle) * 620,
-      });
-    });
-  return positions;
+  return new Map(topology.nodes.map(({ node, radialTarget }) => [
+    node.id,
+    {
+      x: radialTarget.offsetX,
+      y: radialTarget.offsetY,
+    },
+  ]));
 }
 
-function resolveHardCollisions(simNodes: SimulatedSampleRevenueNode[]) {
+function resolveHardCollisions(
+  simNodes: SimulatedSampleRevenueNode[],
+  fixedNodeId: string | null,
+) {
   for (let iteration = 0; iteration < HARD_COLLISION_ITERATIONS; iteration += 1) {
     let moved = false;
     for (let leftIndex = 0; leftIndex < simNodes.length; leftIndex += 1) {
@@ -384,17 +505,126 @@ function resolveHardCollisions(simNodes: SimulatedSampleRevenueNode[]) {
           + right.collisionRadius
           + COLLISION_SAFETY_GAP;
         if (distance >= minimumDistance) continue;
-        const correction = (minimumDistance - distance) / 2;
+        const overlap = minimumDistance - distance;
         const unitX = dx / distance;
         const unitY = dy / distance;
-        left.x -= unitX * correction;
-        left.y -= unitY * correction;
-        right.x += unitX * correction;
-        right.y += unitY * correction;
+        if (left.id === fixedNodeId) {
+          right.x += unitX * overlap;
+          right.y += unitY * overlap;
+        } else if (right.id === fixedNodeId) {
+          left.x -= unitX * overlap;
+          left.y -= unitY * overlap;
+        } else {
+          const correction = overlap / 2;
+          left.x -= unitX * correction;
+          left.y -= unitY * correction;
+          right.x += unitX * correction;
+          right.y += unitY * correction;
+        }
         moved = true;
       }
     }
     if (!moved) break;
+  }
+}
+
+function addBoundedGuidanceImpulse(
+  node: SimulatedSampleRevenueNode,
+  deltaX: number,
+  deltaY: number,
+  strength: number,
+  alpha: number,
+  maximumImpulse: number,
+) {
+  const rawImpulseX = deltaX * strength * alpha;
+  const rawImpulseY = deltaY * strength * alpha;
+  const rawMagnitude = Math.hypot(rawImpulseX, rawImpulseY);
+  const scale = rawMagnitude > maximumImpulse
+    ? maximumImpulse / rawMagnitude
+    : 1;
+  node.vx += rawImpulseX * scale;
+  node.vy += rawImpulseY * scale;
+}
+
+function applyViewerRootedRadialGuidance(options: {
+  simNodes: SimulatedSampleRevenueNode[];
+  viewerId: string | null;
+  centerX: number;
+  centerY: number;
+  alpha: number;
+  fixedNodeId: string | null;
+}) {
+  const {
+    simNodes,
+    viewerId,
+    centerX,
+    centerY,
+    alpha,
+    fixedNodeId,
+  } = options;
+  const viewer = viewerId === null
+    ? undefined
+    : simNodes.find((node) => node.id === viewerId);
+  const viewerX = viewer?.x ?? centerX;
+  const viewerY = viewer?.y ?? centerY;
+
+  for (const node of simNodes) {
+    if (node.id === fixedNodeId) continue;
+    if (node.id === viewerId) {
+      addBoundedGuidanceImpulse(
+        node,
+        centerX - node.x,
+        centerY - node.y,
+        SAMPLE_REVENUE_RADIAL_GUIDANCE.viewerAnchorStrength,
+        alpha,
+        SAMPLE_REVENUE_RADIAL_GUIDANCE.viewerAnchorMaxImpulse,
+      );
+      continue;
+    }
+    addBoundedGuidanceImpulse(
+      node,
+      viewerX + node.radialTarget.offsetX - node.x,
+      viewerY + node.radialTarget.offsetY - node.y,
+      SAMPLE_REVENUE_RADIAL_GUIDANCE.targetStrength,
+      alpha,
+      SAMPLE_REVENUE_RADIAL_GUIDANCE.targetMaxImpulse,
+    );
+  }
+}
+
+function rebaseViewerTowardCenter(options: {
+  simNodes: SimulatedSampleRevenueNode[];
+  viewerId: string | null;
+  centerX: number;
+  centerY: number;
+  fixedNodeId: string | null;
+}) {
+  const {
+    simNodes,
+    viewerId,
+    centerX,
+    centerY,
+    fixedNodeId,
+  } = options;
+  if (viewerId === null || fixedNodeId !== null) return;
+  const viewer = simNodes.find((node) => node.id === viewerId);
+  if (!viewer) return;
+
+  const rawOffsetX = (centerX - viewer.x)
+    * SAMPLE_REVENUE_RADIAL_GUIDANCE.viewerAnchorStrength;
+  const rawOffsetY = (centerY - viewer.y)
+    * SAMPLE_REVENUE_RADIAL_GUIDANCE.viewerAnchorStrength;
+  const rawMagnitude = Math.hypot(rawOffsetX, rawOffsetY);
+  const scale = rawMagnitude
+    > SAMPLE_REVENUE_RADIAL_GUIDANCE.viewerAnchorMaxImpulse
+    ? SAMPLE_REVENUE_RADIAL_GUIDANCE.viewerAnchorMaxImpulse / rawMagnitude
+    : 1;
+  const offsetX = rawOffsetX * scale;
+  const offsetY = rawOffsetY * scale;
+
+  for (const node of simNodes) {
+    node.x += offsetX;
+    node.y += offsetY;
   }
 }
 
@@ -412,206 +642,40 @@ export function buildSampleRevenueGraphLayout(
     vx: 0,
     vy: 0,
     collisionRadius: entry.collisionRadius,
+    radialTarget: entry.radialTarget,
   }));
-  const simNodeById = new Map(simNodes.map((node) => [node.id, node]));
-  const simEdges = topology.edges
-    .map((edge) => {
-      const source = simNodeById.get(edge.sourceId);
-      const target = simNodeById.get(edge.targetId);
-      if (!source || !target) return null;
-      return {
-        source,
-        target,
-        distance: edge.distance,
-        strength: edge.strength,
-      };
-    })
-    .filter((edge): edge is NonNullable<typeof edge> => edge != null);
 
-  let alpha = 1;
-  const velocityRetention =
-    1 - SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.velocityDecay;
-  for (let tick = 0; tick < FORCE_TICKS; tick += 1) {
-    alpha += (0 - alpha) * SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.alphaDecay;
+  const viewer = topology.viewerId === null
+    ? simNodes[0]
+    : simNodes.find((node) => node.id === topology.viewerId) ?? simNodes[0];
 
-    for (const node of simNodes) {
-      node.vx += -node.x
-        * SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.centerStrength
-        * alpha;
-      node.vy += -node.y
-        * SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.centerStrength
-        * alpha;
-    }
-
-    for (let leftIndex = 0; leftIndex < simNodes.length; leftIndex += 1) {
-      for (
-        let rightIndex = leftIndex + 1;
-        rightIndex < simNodes.length;
-        rightIndex += 1
-      ) {
-        const left = simNodes[leftIndex];
-        const right = simNodes[rightIndex];
-        let dx = right.x - left.x;
-        let dy = right.y - left.y;
-        let distance = Math.hypot(dx, dy);
-        if (distance < 0.001) {
-          const unit = deterministicUnitVector(left.id, right.id);
-          dx = unit.x;
-          dy = unit.y;
-          distance = 1;
-        }
-        if (distance > SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.chargeDistanceMax) {
-          continue;
-        }
-        const effectiveDistance = Math.max(
-          distance,
-          SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.chargeDistanceMin,
-        );
-        const impulse = Math.abs(
-          SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.chargeStrength,
-        ) * alpha / (effectiveDistance * effectiveDistance);
-        const forceX = dx * impulse;
-        const forceY = dy * impulse;
-        left.vx -= forceX;
-        left.vy -= forceY;
-        right.vx += forceX;
-        right.vy += forceY;
-      }
-    }
-
-    for (
-      let linkIteration = 0;
-      linkIteration < 2;
-      linkIteration += 1
-    ) {
-      for (const edge of simEdges) {
-        let dx = (edge.target.x + edge.target.vx)
-          - (edge.source.x + edge.source.vx);
-        let dy = (edge.target.y + edge.target.vy)
-          - (edge.source.y + edge.source.vy);
-        let distance = Math.hypot(dx, dy);
-        if (distance < 0.001) {
-          const unit = deterministicUnitVector(edge.source.id, edge.target.id);
-          dx = unit.x;
-          dy = unit.y;
-          distance = 1;
-        }
-        const spring = (distance - edge.distance)
-          / distance
-          * alpha
-          * edge.strength;
-        const forceX = dx * spring * 0.5;
-        const forceY = dy * spring * 0.5;
-        edge.source.vx += forceX;
-        edge.source.vy += forceY;
-        edge.target.vx -= forceX;
-        edge.target.vy -= forceY;
-
-        if (
-          distance
-          > edge.distance
-            * SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.linkTensionThresholdMultiplier
-        ) {
-          const tension = (distance - edge.distance)
-            / distance
-            * SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.linkTensionStrength
-            * alpha;
-          edge.source.vx += dx * tension * 0.5;
-          edge.source.vy += dy * tension * 0.5;
-          edge.target.vx -= dx * tension * 0.5;
-          edge.target.vy -= dy * tension * 0.5;
-        }
-      }
-    }
-
-    for (
-      let collisionIteration = 0;
-      collisionIteration
-        < SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.collisionIterations;
-      collisionIteration += 1
-    ) {
-      for (let leftIndex = 0; leftIndex < simNodes.length; leftIndex += 1) {
-        for (
-          let rightIndex = leftIndex + 1;
-          rightIndex < simNodes.length;
-          rightIndex += 1
-        ) {
-          const left = simNodes[leftIndex];
-          const right = simNodes[rightIndex];
-          let dx = (right.x + right.vx) - (left.x + left.vx);
-          let dy = (right.y + right.vy) - (left.y + left.vy);
-          let distance = Math.hypot(dx, dy);
-          if (distance < 0.001) {
-            const unit = deterministicUnitVector(left.id, right.id);
-            dx = unit.x;
-            dy = unit.y;
-            distance = 1;
-          }
-          const minimumDistance = left.collisionRadius
-            + right.collisionRadius
-            + COLLISION_SAFETY_GAP;
-          if (distance >= minimumDistance) continue;
-          const collision = (minimumDistance - distance)
-            / distance
-            * SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.collisionStrength
-            * 0.5;
-          const forceX = dx * collision;
-          const forceY = dy * collision;
-          left.vx -= forceX;
-          left.vy -= forceY;
-          right.vx += forceX;
-          right.vy += forceY;
-        }
-      }
-    }
-
-    for (const node of simNodes) {
-      node.vx *= velocityRetention;
-      node.vy *= velocityRetention;
-      node.x += node.vx;
-      node.y += node.vy;
-    }
-  }
-
-  const minX = Math.min(...simNodes.map((node) => node.x));
-  const maxX = Math.max(...simNodes.map((node) => node.x));
-  const minY = Math.min(...simNodes.map((node) => node.y));
-  const maxY = Math.max(...simNodes.map((node) => node.y));
-  const span = Math.max(1, maxX - minX, maxY - minY);
-  const layoutScale = Math.min(1, FINAL_LAYOUT_MAX_SPAN / span);
-  const centerX = (minX + maxX) / 2;
-  const centerY = (minY + maxY) / 2;
-  for (const node of simNodes) {
-    node.x = (node.x - centerX) * layoutScale;
-    node.y = (node.y - centerY) * layoutScale;
-    node.collisionRadius *= layoutScale;
-  }
-  resolveHardCollisions(simNodes);
-
-  const resolvedMinX = Math.min(...simNodes.map((node) => node.x));
-  const resolvedMaxX = Math.max(...simNodes.map((node) => node.x));
-  const resolvedMinY = Math.min(...simNodes.map((node) => node.y));
-  const resolvedMaxY = Math.max(...simNodes.map((node) => node.y));
-  const resolvedCenterX = (resolvedMinX + resolvedMaxX) / 2;
-  const resolvedCenterY = (resolvedMinY + resolvedMaxY) / 2;
   const availableOffset =
     SAMPLE_REVENUE_GRAPH_SURFACE_CENTER - SURFACE_EDGE_MARGIN;
-  const maxOffset = Math.max(
-    1,
-    ...simNodes.flatMap((node) => [
-      Math.abs(node.x - resolvedCenterX) + node.collisionRadius,
-      Math.abs(node.y - resolvedCenterY) + node.collisionRadius,
-    ]),
-  );
-  const surfaceScale = Math.min(1, availableOffset / maxOffset);
+  for (let pass = 0; pass < 3; pass += 1) {
+    const maxOffset = Math.max(
+      1,
+      ...simNodes.flatMap((node) => [
+        Math.abs(node.x) + node.collisionRadius,
+        Math.abs(node.y) + node.collisionRadius,
+      ]),
+    );
+    const surfaceScale = Math.min(1, availableOffset / maxOffset);
+    if (surfaceScale < 1) {
+      for (const node of simNodes) {
+        if (node.id === viewer?.id) continue;
+        node.x *= surfaceScale;
+        node.y *= surfaceScale;
+      }
+    }
+    resolveHardCollisions(simNodes, viewer?.id ?? null);
+    if (surfaceScale === 1) break;
+  }
 
   return new Map(simNodes.map((node) => [
     node.id,
     {
-      x: SAMPLE_REVENUE_GRAPH_SURFACE_CENTER
-        + (node.x - resolvedCenterX) * surfaceScale,
-      y: SAMPLE_REVENUE_GRAPH_SURFACE_CENTER
-        + (node.y - resolvedCenterY) * surfaceScale,
+      x: SAMPLE_REVENUE_GRAPH_SURFACE_CENTER + node.x,
+      y: SAMPLE_REVENUE_GRAPH_SURFACE_CENTER + node.y,
     },
   ]));
 }
@@ -643,6 +707,45 @@ export function getSampleRevenueGraphNodeStatusLabel(
   if (node.isViewer) return '기준 viewer';
   if (!node.eligible) return '대상 제외';
   return `${node.depth}단계 예상 배분`;
+}
+
+export function getSampleRevenueContributionPath(
+  selectedNodeId: string | null,
+  nodes: readonly SampleRevenueGraphNode[],
+  edges: readonly SampleRevenueGraphEdge[],
+): SampleRevenueGraphEdge[] {
+  if (selectedNodeId === null) return [];
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const selectedNode = nodeById.get(selectedNodeId);
+  if (!selectedNode || selectedNode.isViewer || !selectedNode.eligible) {
+    return [];
+  }
+
+  const parentEdgesByChildId = new Map<string, SampleRevenueGraphEdge[]>();
+  for (const edge of edges) {
+    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) continue;
+    const parentEdges = parentEdgesByChildId.get(edge.target) ?? [];
+    parentEdges.push(edge);
+    parentEdgesByChildId.set(edge.target, parentEdges);
+  }
+
+  const path: SampleRevenueGraphEdge[] = [];
+  const visited = new Set<string>();
+  let childId = selectedNodeId;
+  while (!visited.has(childId)) {
+    visited.add(childId);
+    const child = nodeById.get(childId);
+    if (!child || (!child.isViewer && !child.eligible)) return [];
+    if (child.isViewer) return path;
+
+    const parentEdges = parentEdgesByChildId.get(childId) ?? [];
+    if (parentEdges.length !== 1) return [];
+    const edge = parentEdges[0];
+    path.push(edge);
+    childId = edge.source;
+  }
+
+  return [];
 }
 
 export function formatCompactSampleRevenueKrw(amountKrw: number): string {
@@ -700,6 +803,7 @@ export function stepSampleRevenueInteractivePhysics(options: {
       vx: point.vx,
       vy: point.vy,
       collisionRadius: entry.collisionRadius,
+      radialTarget: entry.radialTarget,
     };
   });
   const runtimeById = new Map(runtimeNodes.map((node) => [node.id, node]));
@@ -720,15 +824,23 @@ export function stepSampleRevenueInteractivePhysics(options: {
     1 - SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.velocityDecay;
 
   for (let tick = 0; tick < ticks; tick += 1) {
-    for (const node of runtimeNodes) {
-      if (node.id === fixedNodeId) continue;
-      node.vx += (
-        SAMPLE_REVENUE_GRAPH_SURFACE_CENTER - node.x
-      ) * SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.centerStrength * alpha;
-      node.vy += (
-        SAMPLE_REVENUE_GRAPH_SURFACE_CENTER - node.y
-      ) * SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.centerStrength * alpha;
+    if (fixedNodeId && fixedPosition) {
+      const fixedNode = runtimeById.get(fixedNodeId);
+      if (fixedNode) {
+        fixedNode.x = fixedPosition.x;
+        fixedNode.y = fixedPosition.y;
+        fixedNode.vx = 0;
+        fixedNode.vy = 0;
+      }
     }
+    applyViewerRootedRadialGuidance({
+      simNodes: runtimeNodes,
+      viewerId: topology.viewerId,
+      centerX: SAMPLE_REVENUE_GRAPH_SURFACE_CENTER,
+      centerY: SAMPLE_REVENUE_GRAPH_SURFACE_CENTER,
+      alpha,
+      fixedNodeId,
+    });
 
     for (let leftIndex = 0; leftIndex < runtimeNodes.length; leftIndex += 1) {
       for (
@@ -876,6 +988,13 @@ export function stepSampleRevenueInteractivePhysics(options: {
         SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - SURFACE_EDGE_MARGIN,
       );
     }
+    rebaseViewerTowardCenter({
+      simNodes: runtimeNodes,
+      viewerId: topology.viewerId,
+      centerX: SAMPLE_REVENUE_GRAPH_SURFACE_CENTER,
+      centerY: SAMPLE_REVENUE_GRAPH_SURFACE_CENTER,
+      fixedNodeId,
+    });
   }
 
   return new Map(runtimeNodes.map((node) => [
@@ -944,16 +1063,27 @@ export function getSampleRevenueGraphFitViewport(options: {
   const bottomInset = Math.max(0, options.insets?.bottom ?? padding);
   const availableWidth = Math.max(1, width - leftInset - rightInset);
   const availableHeight = Math.max(1, height - topInset - bottomInset);
+  const viewer = nodes.find((node) => node.isViewer);
+  const viewerPoint = viewer ? positions.get(viewer.id) : undefined;
+  const centerX = viewerPoint?.x ?? SAMPLE_REVENUE_GRAPH_SURFACE_CENTER;
+  const centerY = viewerPoint?.y ?? SAMPLE_REVENUE_GRAPH_SURFACE_CENTER;
+  const symmetricWidth = Math.max(
+    1,
+    Math.max(maxX - centerX, centerX - minX) * 2,
+  );
+  const symmetricHeight = Math.max(
+    1,
+    Math.max(maxY - centerY, centerY - minY) * 2,
+  );
+  const requiredFitScale = Math.min(
+    availableWidth / symmetricWidth,
+    availableHeight / symmetricHeight,
+  );
   const scale = clamp(
-    Math.min(
-      availableWidth / Math.max(1, maxX - minX),
-      availableHeight / Math.max(1, maxY - minY),
-    ),
+    requiredFitScale,
     SAMPLE_REVENUE_GRAPH_MIN_SCALE,
     SAMPLE_REVENUE_GRAPH_MAX_SCALE,
   );
-  const centerX = (minX + maxX) / 2;
-  const centerY = (minY + maxY) / 2;
   const viewportCenterX = leftInset + availableWidth / 2;
   const viewportCenterY = topInset + availableHeight / 2;
 

@@ -156,23 +156,43 @@
     배분 대상에서는 제외한다. 화면에는 `샘플 데이터`, `실제 조직·매출·정산 내역이
     아님`, `시뮬레이션`을 명시한다. 그래프 탭은 카드 목록을 선으로 잇는 형태가
     아니라 기존 추천 관계 그래프와 같은 원형 node/edge network여야 한다.
-    배치는 관리자 웹 `균형` preset의 center gravity, many-body repulsion,
-    degree-aware link spring, link tension, damping, collision 상수를 고정 tick으로
-    결정론적으로 계산하고 마지막 hard collision pass에서 node 겹침을 제거한다.
-    모바일 성능과 번들 크기를 우선하므로 관리자 웹의 `d3-force` runtime, 전체 seed
-    layout, group drag를 그대로 이식하지 않는다. 네이티브에서는 기존에 설치된
-    `react-native-webview` 안의 외부 요청 없는 로컬 HTML 단일 `<canvas>`에서 draw와
-    physics를 처리하고, React/SVG node별 프레임 갱신을 만들지 않는다. 이 화면의
-    parity는 원형 node/edge, 금액 가시성, 겹침 방지, pan/pinch, node drag 반응과
-    감쇠 settle까지이며 desktop runtime byte-level 동등성은 범위 밖이다.
+    상호작용 물리는 관리자 웹의 실제 활성 force 계열인 many-body repulsion,
+    degree-aware link spring, link tension, collision, alpha decay, velocity damping을
+    기준으로 한다. 다만 관리자 웹의 실제 `alphaDecay=0.016`은 비교 가능한 baseline
+    값으로 보존하고, 모바일 release는 프레임 예산을 제한하기 위해
+    `initialAlpha=0.32`, `decayMultiplier=0.94`, `stopThreshold=0.014`의 별도 settle
+    계약을 사용한다. 따라서 값 단위 runtime parity를 뜻하지 않는다. 관리자 웹
+    `균형` preset이 해석한 `centerStrength=0.024`도 참고 값이지만 실제 runtime은
+    `center`, `x`, `y` force를 명시적으로 끄므로 모바일도
+    모든 node를 가운데로 당기는 전역 중심력을 적용하지 않는다. 대신 viewer를
+    논리 원점에 둔 collision-safe 가로형 방사 seed를 결정론적으로 만들고, A/B/C
+    direct branch를 서로 다른 sector에 배정하며 depth가 증가할수록 목표 반지름을
+    늘린다. 상호작용 중에는 약한 O(n) 방사 목표와 bounded viewer anchor/rebase만
+    추가하고 pointer로 잡힌 node 하나만 고정한다. 모바일 성능과 번들 크기를
+    우선하므로 관리자 웹의 `d3-force` runtime이나 전체 seed-layout을 그대로
+    이식하지 않는다. 네이티브에서는 기존에 설치된 `react-native-webview` 안의 외부
+    요청 없는 로컬 HTML 단일 `<canvas>`에서 draw와 physics를 처리하고, React/SVG
+    node별 프레임 갱신을 만들지 않는다. 이 화면의 parity는 관리자 웹 활성 force
+    계열에 기반한 부드러운 반응, 원형 node/edge, 금액 가시성, 겹침 방지,
+    pan/pinch, node drag 반응과 감쇠 settle까지이며 desktop runtime byte-level
+    동등성은 범위 밖이다.
     각 node 원 안에는 사람 식별자와 예상 배분액을 전체 맞춤 상태에서도 항상
     표시한다. 한 손가락 pan, 두 손가락 pinch zoom, 화면 맞춤, 초기화, node 선택
     상세를 지원하며, 11단계 제외 node와 연결 edge는 점선·회색 계열로 구분하고,
-    단계 filter가 적용돼도 선택 대상의 viewer 연결 경로를 보존한다. graph mode는
+    단계 filter가 적용돼도 선택 대상의 viewer 연결 경로를 보존한다. 회색 edge는
+    샘플 조직 관계이고, eligible edge에는 child에서 parent와 viewer 쪽으로 향하는
+    주황 arrow를 겹쳐 샘플 기여 계산 방향을 표시한다. 11단계 node의 edge는
+    회색 점선이며 arrow가 없다. 선택한 eligible node의 전체 조상 경로는 정적으로
+    강조하고 inward pulse는 최대 1.5초 뒤 종료해 idle RAF를 남기지 않는다. 1·3·6·10
+    단계 guide ring으로 viewer 중심에서 바깥으로 깊어지는 방향을 보조한다. viewer
+    node에는 unfiltered canonical 예상 유입 합계 `10,240,000원`을 표시하고 각
+    eligible node에는 자기 예상 배분액을 유지하며 edge에는 금액을 쓰지 않는다.
+    이 arrow는 실제 송금·정산·지급 흐름이 아니라 샘플 기여 계산 방향이다. graph mode는
     stack header와 문서형 summary page를 숨기고 safe area 전체를 canvas로 사용한다.
     빈 공간 drag는 pan, node 위에서 시작한 drag는 node 고정 이동으로 해석하며,
     인접·주변 node가 같은 spring·repulsion·collision force로 실시간 반응한다.
-    release 뒤에는 velocity/alpha 감쇠 settle을 계속하다 idle 상태로 종료한다.
+    release 뒤에는 위 모바일 전용 alpha schedule과 관리자 기준 velocity damping으로
+    bounded settle을 수행한 뒤 idle 상태로 종료한다.
     node 이름·단계·금액 label은 screen pixel 크기로 캐시해 그리며 zoom 중에도 글자
     크기가 변하지 않는다. node 원과 edge만 graph zoom을 따른다.
     idle drag/zoom badge는 상시 노출하지 않고 물리 반응 또는 확대·맞춤 직후에만

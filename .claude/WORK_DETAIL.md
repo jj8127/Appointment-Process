@@ -13385,3 +13385,78 @@
   was performed.
 - The repository-wide release HOLD remains unchanged outside this explicitly
   authorized administrator-web lane.
+
+---
+
+## <a id="20260730-referral-revenue-radial-direction"></a> 2026-07-30 | Mobile revenue graph radial direction
+
+**Requested behavior**:
+- Make the sample revenue graph visibly spread from the viewer center.
+- Show which direction each lower person's sample contribution reaches the
+  viewer while preserving the responsive, lightweight mobile graph.
+- Use the administrator referral graph's actual physical rules as the
+  reference without restoring the previously withdrawn full d3 runtime port.
+
+**Administrator reference truth**:
+- The live administrator runtime keeps charge, degree-aware link springs, link
+  tension, collision, alpha decay, and velocity damping active.
+- Administrator `alphaDecay=0.016` is retained as a comparison baseline only;
+  mobile bounds post-drag work with its explicit
+  `initialAlpha=0.32`, `decayMultiplier=0.94`, `stopThreshold=0.014` schedule,
+  so value-level alpha runtime parity is not claimed.
+- The resolved balanced preset still exposes `centerStrength=0.024`, but the
+  live canvas explicitly disables `center`, `x`, and `y`. Mobile therefore does
+  not apply one global all-node center pull.
+- The administrator source was reference-only for this increment and was not
+  edited.
+
+**Mobile implementation**:
+- Replaced discarded static pre-simulation work with a deterministic,
+  collision-safe landscape radial seed. The viewer starts at the logical
+  origin, A/B/C direct branches use separate sectors, and descendants receive
+  increasing depth radii.
+- Retained the mobile numeric charge/link/tension/collision/damping loop and
+  added only weak O(n) radial guidance plus a bounded viewer anchor/rebase.
+  Pointer drag fixes only the grabbed node; neighbors react through forces.
+- Fit/reset stays viewer-centered. Pure guards cover every eligible edge's
+  outward radial growth, the global collision envelope plus 5 logical pixels,
+  and production 800x360 viewport/inset containment.
+- Added 1/3/6/10 guide rings. Gray edges remain sample organization structure;
+  eligible orange arrows point child-to-parent toward the viewer. A11 remains
+  excluded with a dashed gray edge and no arrow.
+- Eligible selection keeps the complete ancestry path statically emphasized
+  and runs at most one 1.5-second inward pulse. The event-driven frame loop
+  stops after the final dirty frame. The viewer node shows the unfiltered
+  10,240,000원 sample total; eligible nodes keep their own expected amount and
+  edges have no amount labels.
+- Fixed-screen-pixel cached labels, the offline WebView bridge/security
+  boundary, graph-only landscape, list/back/blur portrait restoration, sample
+  access gate, 10%/1~10 depth rule, and local-only data boundary are unchanged.
+- No `d3-force` import, package addition, API, query, Supabase/Edge/schema
+  change, or administrator graph edit was added.
+
+**Verification**:
+- Focused radial contracts: 4 suites / 45 tests PASS.
+- Full repository Jest: 192 suites / 1,171 tests PASS.
+- `npx tsc --noEmit`, `npm run lint`, scoped ESLint, the pre-documentation
+  `git diff --check`, and a Sentry-upload-disabled Android Expo export: PASS.
+- Emulator: default radial graph landscape; A10 ten-edge path/detail; A11
+  excluded dashed/no-arrow treatment; list portrait; graph return landscape:
+  PASS.
+- Warmed 900ms A4 drag runs: 104 frames / 3 jank (2.88%, p99 19ms);
+  104 / 2 (1.92%, p99 19ms); 107 / 1 (0.93%, p99 21ms). Missed vsync and slow
+  bitmap uploads were zero in all runs.
+- After the A10 pulse completed, a two-second idle gfx window rendered zero
+  frames.
+- Privacy-safe local evidence:
+  `.codex/runtime/referral-radial-final-20260730/`.
+
+**Lifecycle closeout and boundary**:
+- After these owning notes were written, governance, referral JSON parsing,
+  the central harness audit, final diff check, post-clarification Android
+  export, and independent re-evaluation all passed. The evaluator's only P3
+  wording finding was resolved by explicitly separating the administrator
+  alpha baseline from the bounded mobile settle schedule.
+- Release remains HOLD. No real organization, sales, settlement, payout,
+  account, credential, package, API, database, Edge Function, deployment, EAS,
+  OTA, commit, or push state was changed.

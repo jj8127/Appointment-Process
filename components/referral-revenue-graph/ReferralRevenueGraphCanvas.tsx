@@ -28,12 +28,15 @@ import type { SharedValue } from 'react-native-reanimated';
 import Svg, {
   Line,
   type LineProps,
+  Path,
+  type PathProps,
 } from 'react-native-svg';
 
 import {
   buildSampleRevenueGraphLayout,
   formatCompactSampleRevenueKrw,
   formatSampleRevenueNodeAmount,
+  getSampleRevenueContributionPath,
   getSampleRevenueGraphFitViewport,
   getSampleRevenueGraphNodeColor,
   getSampleRevenueGraphNodeRadius,
@@ -42,6 +45,7 @@ import {
   SAMPLE_REVENUE_GRAPH_MAX_SCALE,
   SAMPLE_REVENUE_GRAPH_MIN_SCALE,
   SAMPLE_REVENUE_GRAPH_SURFACE_SIZE,
+  SAMPLE_REVENUE_MOBILE_SETTLE,
   stepSampleRevenueInteractivePhysics,
 } from '@/lib/referral-revenue-graph-native';
 import type { SampleRevenueGraphMotionPoint } from '@/lib/referral-revenue-graph-native';
@@ -54,6 +58,7 @@ import { ReferralRevenueGraphWebViewCanvas } from './ReferralRevenueGraphWebView
 type Props = {
   nodes: SampleRevenueGraphNode[];
   edges: SampleRevenueGraphEdge[];
+  expectedTotalKrw: number;
   focusedNodeIds?: ReadonlySet<string>;
   selectedNodeId: string | null;
   onSelectNode: (node: SampleRevenueGraphNode) => void;
@@ -101,6 +106,7 @@ const createMotionLayout = (
 );
 
 const AnimatedLine = Animated.createAnimatedComponent(Line);
+const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 export type NodeDragSessionState = Readonly<{
   mounted: boolean;
@@ -214,16 +220,22 @@ export const transitionNodeDragSession = (
 };
 
 const AnimatedRevenueEdge = memo(function AnimatedRevenueEdge({
+  childRadius,
   context,
   coordinates,
   excluded,
+  highlighted,
+  parentRadius,
   safeScale,
   sourceIndex,
   targetIndex,
 }: {
+  childRadius: number;
   context: boolean;
   coordinates: SharedValue<number[]>;
   excluded: boolean;
+  highlighted: boolean;
+  parentRadius: number;
   safeScale: number;
   sourceIndex: number;
   targetIndex: number;
@@ -234,15 +246,79 @@ const AnimatedRevenueEdge = memo(function AnimatedRevenueEdge({
     x2: coordinates.value[targetIndex * 2] ?? 0,
     y2: coordinates.value[targetIndex * 2 + 1] ?? 0,
   }), [coordinates, sourceIndex, targetIndex]);
+  const arrowProps = useAnimatedProps<PathProps>(() => {
+    const parentX = coordinates.value[sourceIndex * 2] ?? 0;
+    const parentY = coordinates.value[sourceIndex * 2 + 1] ?? 0;
+    const childX = coordinates.value[targetIndex * 2] ?? 0;
+    const childY = coordinates.value[targetIndex * 2 + 1] ?? 0;
+    const dx = parentX - childX;
+    const dy = parentY - childY;
+    const distance = Math.max(Math.hypot(dx, dy), 0.001);
+    const unitX = dx / distance;
+    const unitY = dy / distance;
+    const availableGap = distance - parentRadius - childRadius;
+    if (availableGap < 2 / safeScale) return { d: '' };
+    const endpointGap = Math.min(
+      2 / safeScale,
+      Math.max(0.5 / safeScale, availableGap * 0.08),
+    );
+    const startX = childX + unitX * (childRadius + endpointGap);
+    const startY = childY + unitY * (childRadius + endpointGap);
+    const tipX = parentX - unitX * (parentRadius + endpointGap);
+    const tipY = parentY - unitY * (parentRadius + endpointGap);
+    const usableLength = Math.hypot(tipX - startX, tipY - startY);
+    if (usableLength < 2 / safeScale) return { d: '' };
+    const arrowLength = Math.min(
+      9 / safeScale,
+      Math.max(2.5 / safeScale, usableLength * 0.7),
+    );
+    const arrowWidth = Math.max(1.75 / safeScale, arrowLength * 0.5);
+    const wingBaseX = tipX - unitX * arrowLength;
+    const wingBaseY = tipY - unitY * arrowLength;
+    const perpendicularX = -unitY;
+    const perpendicularY = unitX;
+
+    return {
+      d: [
+        `M ${startX} ${startY} L ${wingBaseX} ${wingBaseY}`,
+        `M ${tipX} ${tipY}`,
+        `L ${wingBaseX + perpendicularX * arrowWidth}`,
+        `${wingBaseY + perpendicularY * arrowWidth}`,
+        `L ${wingBaseX - perpendicularX * arrowWidth}`,
+        `${wingBaseY - perpendicularY * arrowWidth}`,
+        'Z',
+      ].join(' '),
+    };
+  }, [
+    childRadius,
+    coordinates,
+    parentRadius,
+    safeScale,
+    sourceIndex,
+    targetIndex,
+  ]);
 
   return (
-    <AnimatedLine
-      animatedProps={animatedProps}
-      stroke={excluded || context ? '#cbd5e1' : '#fdba74'}
-      strokeWidth={Math.max(1.5, 1.35 / safeScale)}
-      strokeLinecap="round"
-      strokeDasharray={excluded ? '5 5' : undefined}
-    />
+    <>
+      <AnimatedLine
+        animatedProps={animatedProps}
+        stroke={context ? '#e2e8f0' : '#cbd5e1'}
+        strokeWidth={Math.max(1.5, 1.35 / safeScale)}
+        strokeLinecap="round"
+        strokeDasharray={excluded ? '5 5' : undefined}
+      />
+      {!excluded && (
+        <AnimatedPath
+          animatedProps={arrowProps}
+          fill={highlighted ? '#ea580c' : '#f97316'}
+          opacity={highlighted ? 1 : context ? 0.42 : 0.78}
+          stroke={highlighted ? '#ea580c' : '#f97316'}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={(highlighted ? 2.7 : 1.55) / safeScale}
+        />
+      )}
+    </>
   );
 });
 
@@ -451,6 +527,7 @@ export function ReferralRevenueGraphCanvas(props: Props) {
 function ReferralRevenueGraphSvgCanvas({
   nodes,
   edges,
+  expectedTotalKrw,
   focusedNodeIds,
   selectedNodeId,
   onSelectNode,
@@ -773,7 +850,7 @@ function ReferralRevenueGraphSvgCanvas({
     dragSessionRef.current = transition.state;
     cancelPendingNodeDrag();
     cancelSettle();
-    let alpha = 0.32;
+    let alpha = SAMPLE_REVENUE_MOBILE_SETTLE.initialAlpha;
     let pendingFinalSample = finalSample?.topology === topology
       ? finalSample
       : null;
@@ -815,12 +892,12 @@ function ReferralRevenueGraphSvgCanvas({
           edges,
           topology,
           motion: motionRef.current,
-          alpha: alpha *= 0.94,
+          alpha: alpha *= SAMPLE_REVENUE_MOBILE_SETTLE.decayMultiplier,
           ticks: 1,
         });
       pendingFinalSample = null;
       commitMotion(next);
-      if (alpha > 0.014) {
+      if (alpha > SAMPLE_REVENUE_MOBILE_SETTLE.stopThreshold) {
         settleFrameRef.current = requestAnimationFrame(settle);
       } else {
         settleFrameRef.current = null;
@@ -1048,6 +1125,14 @@ function ReferralRevenueGraphSvgCanvas({
     () => new Map(nodes.map((node) => [node.id, node])),
     [nodes],
   );
+  const highlightedEdgeIds = useMemo(() => {
+    const path = getSampleRevenueContributionPath(
+      selectedNodeId,
+      nodes,
+      visibleEdges,
+    );
+    return new Set(path.map((edge) => edge.id));
+  }, [nodes, selectedNodeId, visibleEdges]);
   const nodeIndexById = useMemo(
     () => new Map(orderedNodes.map((node, index) => [node.id, index])),
     [orderedNodes],
@@ -1081,10 +1166,12 @@ function ReferralRevenueGraphSvgCanvas({
             {visibleEdges.map((edge) => {
               const sourceIndex = nodeIndexById.get(edge.source);
               const targetIndex = nodeIndexById.get(edge.target);
+              const sourceNode = nodeById.get(edge.source);
               const targetNode = nodeById.get(edge.target);
               if (
                 sourceIndex == null
                 || targetIndex == null
+                || !sourceNode
                 || !targetNode
               ) {
                 return null;
@@ -1097,9 +1184,18 @@ function ReferralRevenueGraphSvgCanvas({
               return (
                 <AnimatedRevenueEdge
                   key={edge.id}
+                  childRadius={Math.max(
+                    getSampleRevenueGraphNodeRadius(targetNode),
+                    minimumScreenRadius,
+                  )}
                   context={context}
                   coordinates={motionCoordinates}
                   excluded={excluded}
+                  highlighted={highlightedEdgeIds.has(edge.id)}
+                  parentRadius={Math.max(
+                    getSampleRevenueGraphNodeRadius(sourceNode),
+                    minimumScreenRadius,
+                  )}
                   safeScale={safeScale}
                   sourceIndex={sourceIndex}
                   targetIndex={targetIndex}
@@ -1120,14 +1216,12 @@ function ReferralRevenueGraphSvgCanvas({
             );
             const selected = node.id === selectedNodeId;
             const amountLabel = node.isViewer
-              ? '기준'
+              ? `예상 유입 합계 +${formatCompactSampleRevenueKrw(expectedTotalKrw)}`
               : node.eligible
-                ? formatCompactSampleRevenueKrw(
-                  node.expectedAllocationKrw,
-                )
-                : '대상 제외';
+                ? `매출 ${formatCompactSampleRevenueKrw(node.salesKrw)} → 내 예상 ${formatCompactSampleRevenueKrw(node.expectedAllocationKrw)}`
+                : `매출 ${formatCompactSampleRevenueKrw(node.salesKrw)} · 대상 제외`;
             const nodeAmountLabel = node.isViewer
-              ? '기준'
+              ? `+${formatSampleRevenueNodeAmount(expectedTotalKrw)}`
               : node.eligible
                 ? formatSampleRevenueNodeAmount(
                   node.expectedAllocationKrw,
@@ -1267,8 +1361,8 @@ const styles = StyleSheet.create({
   selectedNodeLabel: {
     position: 'absolute',
     left: '50%',
-    width: 180,
-    marginLeft: -90,
+    width: 228,
+    marginLeft: -114,
     alignItems: 'center',
   },
   selectedNodeName: {

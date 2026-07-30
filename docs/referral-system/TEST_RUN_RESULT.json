@@ -1,9 +1,9 @@
 {
   "meta": {
-    "generatedAt": "2026-07-26T16:35:00.000Z",
+    "generatedAt": "2026-07-30T07:00:00.000Z",
     "source": "docs/referral-system/test-cases.json",
     "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED",
-    "lastExecutedAt": "2026-07-26T16:35:00.000Z",
+    "lastExecutedAt": "2026-07-30T07:00:00.000Z",
     "evidencePolicy": "Sensitive raw tokens, JWTs, SSNs/resident IDs, signed URLs, and push tokens are intentionally omitted."
   },
   "runs": [
@@ -690,15 +690,15 @@
       "owner": "Codex referral revenue demo harness",
       "executedAt": "2026-07-30T07:00:00.000Z",
       "evidence": [
-        "Final focused revenue regression passed 6 suites and 47 tests; repository Jest passed 192 suites and 1165 tests.",
-        "TypeScript, root and scoped web lint, diff check, JSON parsing, harness audit, and the Sentry-upload-disabled Android Expo export passed; workspace governance was blocked only by unrelated dirty notification, resident-number, exam, and dashboard owner-document requirements.",
-        "Administrator A-B-C and five-node chain tests verify grabbed-node-only pointer fixation, progressive live-force response, unrelated-component isolation, release settling, and the drag-start 1.2x edge cap.",
-        "The native revenue renderer uses one external-request-free local WebView Canvas loop with fixed-screen-pixel cached labels and no per-node React/SVG drag-frame redraw.",
-        "Three warmed 900ms A1 emulator drags measured 1.94%, 3.92%, and 2.91% janky frames, with zero slow bitmap uploads.",
-        "Android runtime opened the B1 detail Modal from a Canvas node tap, kept graph/settings/graph-detail landscape, and restored portrait for list/list-detail/back/blur/unmount including cold no-history back.",
-        "Independent interaction, routing, and security review passed with no remaining Android-scope P0/P1/P2 finding."
+        "Radial-direction focused regression passed 4 suites and 45 tests; repository Jest passed 192 suites and 1171 tests.",
+        "TypeScript, Expo lint, scoped ESLint, pre-documentation diff check, and the Sentry-upload-disabled Android Expo export passed.",
+        "The active administrator force registry was checked directly: charge, degree-aware link, link tension, collision, alpha decay, and velocity damping remain the mobile reference family, while the live administrator runtime disables center/x/y.",
+        "Pure and source contracts verify the collision-safe landscape radial seed, viewer anchor/rebase, every eligible edge's outward depth growth, global collision envelope plus 5px, production 800x360 containment, child-to-parent arrows, A11 no-arrow treatment, fixed-pixel labels, and pulse/idle RAF bounds.",
+        "Android runtime rendered the default landscape radial graph, selected A10 with its 10-edge inward contribution path and detail, rendered A11 as excluded with a dashed no-arrow edge, switched the list to portrait, and returned the graph to landscape.",
+        "Three warmed 900ms A4 drags measured 2.88%, 1.92%, and 0.93% janky frames with p99 19ms, 19ms, and 21ms; missed vsync and slow bitmap uploads were zero in all runs.",
+        "After the A10 pulse completed, a 2-second idle gfx window rendered zero frames."
       ],
-      "notes": "This PASS covers only the labelled local fictional preview and deterministic 1-10 depth calculation. TalkBack touch-exploration coordinate parity, iPad split-view orientation, and a physical-phone final run were not claimed. No production data, package, API, database, Edge, release, or deployment mutation was performed in the 2026-07-30 follow-up."
+      "notes": "This PASS covers only the labelled local fictional preview and deterministic 1-10 depth calculation. After owner-note synchronization, governance, referral JSON parsing, the central harness audit, final diff check, post-clarification Android export, and independent re-evaluation passed. TalkBack touch-exploration coordinate parity, iPad split-view orientation, and a physical-phone final run were not claimed. No production data, package, API, database, Edge, release, or deployment mutation was performed in the radial-direction follow-up."
     }
   ]
 }

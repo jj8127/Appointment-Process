@@ -7,14 +7,18 @@ import {
   buildSampleRevenueGraphLayout,
   formatCompactSampleRevenueKrw,
   formatSampleRevenueNodeAmount,
+  getSampleRevenueGraphRadialTargetRadius,
   getSampleRevenueGraphNodeColor,
   getSampleRevenueGraphNodeRadius,
   getSampleRevenueGraphNodeStatusLabel,
   prepareSampleRevenueGraphPhysicsTopology,
   SAMPLE_REVENUE_ADMIN_WEB_PHYSICS,
+  SAMPLE_REVENUE_GRAPH_GUIDE_DEPTHS,
   SAMPLE_REVENUE_GRAPH_MAX_SCALE,
   SAMPLE_REVENUE_GRAPH_MIN_SCALE,
   SAMPLE_REVENUE_GRAPH_SURFACE_SIZE,
+  SAMPLE_REVENUE_MOBILE_SETTLE,
+  SAMPLE_REVENUE_RADIAL_GUIDANCE,
 } from '@/lib/referral-revenue-graph-native';
 import type {
   SampleRevenueGraphEdge,
@@ -24,6 +28,7 @@ import type {
 type Props = {
   nodes: SampleRevenueGraphNode[];
   edges: SampleRevenueGraphEdge[];
+  expectedTotalKrw: number;
   focusedNodeIds?: ReadonlySet<string>;
   selectedNodeId: string | null;
   onSelectNode: (node: SampleRevenueGraphNode) => void;
@@ -56,6 +61,10 @@ type CanvasNode = {
   eligible: boolean;
   viewer: boolean;
   context: boolean;
+  depth: number;
+  radialOffsetX: number;
+  radialOffsetY: number;
+  radialRadius: number;
 };
 
 type CanvasEdge = {
@@ -65,6 +74,13 @@ type CanvasEdge = {
   strength: number;
   stroke: string;
   dashed: boolean;
+  context: boolean;
+  revenueEligible: boolean;
+};
+
+type CanvasRing = {
+  depth: number;
+  radius: number;
 };
 
 const escapeInlineJson = (value: unknown) => JSON.stringify(value)
@@ -83,12 +99,14 @@ const buildCanvasHtml = ({
   bridgeRevision,
   canvasEdges,
   canvasNodes,
+  canvasRings,
   fitInsets,
   overlayBottomInset,
 }: {
   bridgeRevision: string;
   canvasEdges: CanvasEdge[];
   canvasNodes: CanvasNode[];
+  canvasRings: CanvasRing[];
   fitInsets: Props['fitInsets'];
   overlayBottomInset: number;
 }) => {
@@ -96,6 +114,7 @@ const buildCanvasHtml = ({
     bridgeRevision,
     nodes: canvasNodes,
     edges: canvasEdges,
+    rings: canvasRings,
     selectedNodeId: null,
     fitInsets: {
       top: fitInsets?.top ?? 0,
@@ -108,6 +127,8 @@ const buildCanvasHtml = ({
     minScale: SAMPLE_REVENUE_GRAPH_MIN_SCALE,
     maxScale: SAMPLE_REVENUE_GRAPH_MAX_SCALE,
     physics: SAMPLE_REVENUE_ADMIN_WEB_PHYSICS,
+    settle: SAMPLE_REVENUE_MOBILE_SETTLE,
+    radialGuidance: SAMPLE_REVENUE_RADIAL_GUIDANCE,
   });
 
   return `<!doctype html>
@@ -125,7 +146,7 @@ const buildCanvasHtml = ({
   </style>
 </head>
 <body>
-  <canvas id="graph" role="img" aria-label="샘플 매출 기여 노드 엣지 그래프. 빈 공간은 한 손가락으로 이동하고, 노드는 끌어서 움직이며, 두 손가락으로 확대하거나 축소할 수 있습니다."></canvas>
+  <canvas id="graph" role="img" aria-label="샘플 매출 기여 노드 엣지 그래프. 주황 화살표는 하위 구성원에서 부모와 나를 향하는 샘플 기여 계산 방향입니다. 빈 공간은 한 손가락으로 이동하고, 노드는 끌어서 움직이며, 두 손가락으로 확대하거나 축소할 수 있습니다."></canvas>
   <div id="accessibleNodes" class="sr-only"></div>
   <script>
   (() => {
@@ -136,8 +157,21 @@ const buildCanvasHtml = ({
     const initialNodes = config.nodes.map((node) => ({ ...node }));
     const nodes = config.nodes.map((node) => ({ ...node }));
     const edges = config.edges;
+    const rings = config.rings;
     const center = config.surfaceSize / 2;
     const physics = config.physics;
+    // Intentionally shorter than admin d3AlphaDecay: mobile bounds the
+    // post-drag work so the WebView reaches an idle RAF state quickly.
+    const settle = config.settle;
+    const radialGuidance = config.radialGuidance;
+    const viewerIndex = nodes.findIndex((node) => node.viewer);
+    const nodeIndexById = new Map(nodes.map((node, index) => [node.id, index]));
+    const parentEdgeByChildIndex = new Map(
+      edges.map((edge, edgeIndex) => [edge.targetIndex, edgeIndex]),
+    );
+    const prefersReducedMotion = Boolean(
+      window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches,
+    );
     const pointers = new Map();
     const view = { scale: 1, panX: 0, panY: 0 };
     let width = 1;
@@ -158,7 +192,12 @@ const buildCanvasHtml = ({
     let zoomBadgeUntil = 0;
     let frameRequestId = null;
     let runtimeEnabled = true;
+    let selectedPathEdgeIndexes = [];
+    let selectedPathEdgeSet = new Set();
+    let flowPulseStartedAt = 0;
+    let flowPulseUntil = 0;
     const dragActivationDistance = 6;
+    const flowPulseMaxDuration = 1500;
 
     const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
     const graphToScreenX = (x) => width / 2 + view.panX + (x - center) * view.scale;
@@ -191,7 +230,7 @@ const buildCanvasHtml = ({
       },
     ));
     const selectedLabelCaches = nodes.map((node) => createTextCache(
-      180,
+      228,
       38,
       (cacheContext, cacheWidth) => {
         cacheContext.fillStyle = '#334155';
@@ -216,6 +255,74 @@ const buildCanvasHtml = ({
       ctx.closePath();
     };
 
+    const rebuildSelectedPath = () => {
+      selectedPathEdgeIndexes = [];
+      const selectedIndex = typeof selectedNodeId === 'string'
+        ? nodeIndexById.get(selectedNodeId)
+        : undefined;
+      if (
+        selectedIndex == null
+        || !nodes[selectedIndex]
+        || !nodes[selectedIndex].eligible
+      ) {
+        selectedPathEdgeSet = new Set();
+        return;
+      }
+
+      const seen = new Set();
+      let childIndex = selectedIndex;
+      while (childIndex !== viewerIndex && !seen.has(childIndex)) {
+        seen.add(childIndex);
+        const edgeIndex = parentEdgeByChildIndex.get(childIndex);
+        if (edgeIndex == null) {
+          selectedPathEdgeIndexes = [];
+          break;
+        }
+        const edge = edges[edgeIndex];
+        if (!edge?.revenueEligible) {
+          selectedPathEdgeIndexes = [];
+          break;
+        }
+        selectedPathEdgeIndexes.push(edgeIndex);
+        childIndex = edge.sourceIndex;
+      }
+      if (childIndex !== viewerIndex) {
+        selectedPathEdgeIndexes = [];
+      }
+      selectedPathEdgeSet = new Set(selectedPathEdgeIndexes);
+    };
+
+    const selectNode = (nodeId, animate) => {
+      const nextId = typeof nodeId === 'string' && nodeIndexById.has(nodeId)
+        ? nodeId
+        : null;
+      const changed = nextId !== selectedNodeId;
+      selectedNodeId = nextId;
+      rebuildSelectedPath();
+      if (
+        changed
+        && animate
+        && !prefersReducedMotion
+        && selectedPathEdgeIndexes.length > 0
+      ) {
+        const now = performance.now();
+        flowPulseStartedAt = now;
+        flowPulseUntil = now + Math.min(
+          flowPulseMaxDuration,
+          500 + selectedPathEdgeIndexes.length * 90,
+        );
+      } else if (
+        changed
+        || !nextId
+        || prefersReducedMotion
+      ) {
+        flowPulseStartedAt = 0;
+        flowPulseUntil = 0;
+      }
+      dirty = true;
+      requestLoop();
+    };
+
     const fit = () => {
       if (!nodes.length || width <= 1 || height <= 1) return;
       let minX = Infinity;
@@ -232,15 +339,22 @@ const buildCanvasHtml = ({
       const padding = 52;
       const usableWidth = Math.max(1, width - insets.left - insets.right - padding * 2);
       const usableHeight = Math.max(1, height - insets.top - insets.bottom - padding * 2);
-      const spanX = Math.max(1, maxX - minX);
-      const spanY = Math.max(1, maxY - minY);
+      const viewer = nodes[viewerIndex];
+      const graphCenterX = viewer?.x ?? (minX + maxX) / 2;
+      const graphCenterY = viewer?.y ?? (minY + maxY) / 2;
+      const spanX = Math.max(
+        1,
+        Math.max(maxX - graphCenterX, graphCenterX - minX) * 2,
+      );
+      const spanY = Math.max(
+        1,
+        Math.max(maxY - graphCenterY, graphCenterY - minY) * 2,
+      );
       view.scale = clamp(
         Math.min(usableWidth / spanX, usableHeight / spanY),
         config.minScale,
         config.maxScale,
       );
-      const graphCenterX = (minX + maxX) / 2;
-      const graphCenterY = (minY + maxY) / 2;
       const viewportCenterX = insets.left + (width - insets.left - insets.right) / 2;
       const viewportCenterY = insets.top + (height - insets.top - insets.bottom) / 2;
       view.panX = viewportCenterX - width / 2 - (graphCenterX - center) * view.scale;
@@ -270,12 +384,67 @@ const buildCanvasHtml = ({
       return { x: Math.cos(angle), y: Math.sin(angle) };
     };
 
+    const addBoundedGuidanceImpulse = (
+      node,
+      deltaX,
+      deltaY,
+      strength,
+      maximumImpulse,
+      alpha,
+    ) => {
+      const rawImpulseX = deltaX * strength * alpha;
+      const rawImpulseY = deltaY * strength * alpha;
+      const rawMagnitude = Math.hypot(rawImpulseX, rawImpulseY);
+      const impulseScale = rawMagnitude > maximumImpulse
+        ? maximumImpulse / rawMagnitude
+        : 1;
+      node.vx += rawImpulseX * impulseScale;
+      node.vy += rawImpulseY * impulseScale;
+    };
+
     const stepPhysics = (alpha, fixedIndex, fixedPosition) => {
+      if (fixedIndex >= 0 && fixedPosition) {
+        const fixedNode = nodes[fixedIndex];
+        if (fixedNode) {
+          fixedNode.x = clamp(
+            fixedPosition.x,
+            70,
+            config.surfaceSize - 70,
+          );
+          fixedNode.y = clamp(
+            fixedPosition.y,
+            70,
+            config.surfaceSize - 70,
+          );
+          fixedNode.vx = 0;
+          fixedNode.vy = 0;
+        }
+      }
+      const viewer = nodes[viewerIndex];
       for (let index = 0; index < nodes.length; index += 1) {
         if (index === fixedIndex) continue;
         const node = nodes[index];
-        node.vx += (center - node.x) * physics.centerStrength * alpha;
-        node.vy += (center - node.y) * physics.centerStrength * alpha;
+        if (index === viewerIndex) {
+          addBoundedGuidanceImpulse(
+            node,
+            center - node.x,
+            center - node.y,
+            radialGuidance.viewerAnchorStrength,
+            radialGuidance.viewerAnchorMaxImpulse,
+            alpha,
+          );
+          continue;
+        }
+        const targetX = (viewer?.x ?? center) + node.radialOffsetX;
+        const targetY = (viewer?.y ?? center) + node.radialOffsetY;
+        addBoundedGuidanceImpulse(
+          node,
+          targetX - node.x,
+          targetY - node.y,
+          radialGuidance.targetStrength,
+          radialGuidance.targetMaxImpulse,
+          alpha,
+        );
       }
 
       for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
@@ -387,6 +556,97 @@ const buildCanvasHtml = ({
         node.x = clamp(node.x + node.vx, 70, config.surfaceSize - 70);
         node.y = clamp(node.y + node.vy, 70, config.surfaceSize - 70);
       }
+      if (fixedIndex < 0 && viewer) {
+        const rawOffsetX = (center - viewer.x)
+          * radialGuidance.viewerAnchorStrength;
+        const rawOffsetY = (center - viewer.y)
+          * radialGuidance.viewerAnchorStrength;
+        const rawMagnitude = Math.hypot(rawOffsetX, rawOffsetY);
+        const rebaseScale = rawMagnitude
+          > radialGuidance.viewerAnchorMaxImpulse
+          ? radialGuidance.viewerAnchorMaxImpulse / rawMagnitude
+          : 1;
+        const offsetX = rawOffsetX * rebaseScale;
+        const offsetY = rawOffsetY * rebaseScale;
+        for (const node of nodes) {
+          node.x += offsetX;
+          node.y += offsetY;
+        }
+      }
+    };
+
+    const getEdgeGeometry = (edge) => {
+      const parent = nodes[edge.sourceIndex];
+      const child = nodes[edge.targetIndex];
+      if (!parent || !child) return null;
+      const parentX = graphToScreenX(parent.x);
+      const parentY = graphToScreenY(parent.y);
+      const childX = graphToScreenX(child.x);
+      const childY = graphToScreenY(child.y);
+      const dx = parentX - childX;
+      const dy = parentY - childY;
+      const distance = Math.hypot(dx, dy);
+      if (distance < 1) return null;
+      const unitX = dx / distance;
+      const unitY = dy / distance;
+      const parentRadius = Math.max(14, parent.radius * view.scale);
+      const childRadius = Math.max(14, child.radius * view.scale);
+      const availableGap = distance - parentRadius - childRadius;
+      if (availableGap < 2) return null;
+      const endpointGap = Math.min(
+        2,
+        Math.max(0.5, availableGap * 0.08),
+      );
+      const startX = childX + unitX * (childRadius + endpointGap);
+      const startY = childY + unitY * (childRadius + endpointGap);
+      const tipX = parentX - unitX * (parentRadius + endpointGap);
+      const tipY = parentY - unitY * (parentRadius + endpointGap);
+      const usableLength = Math.hypot(tipX - startX, tipY - startY);
+      if (usableLength < 2) return null;
+      const headLength = Math.min(9, Math.max(2.5, usableLength * 0.7));
+      const headWidth = Math.max(1.75, headLength * 0.5);
+      const baseX = tipX - unitX * headLength;
+      const baseY = tipY - unitY * headLength;
+      return {
+        startX,
+        startY,
+        tipX,
+        tipY,
+        baseX,
+        baseY,
+        unitX,
+        unitY,
+        headWidth,
+      };
+    };
+
+    const drawContributionArrow = (geometry, selected, context) => {
+      const color = selected ? '#ea580c' : '#f97316';
+      ctx.save();
+      ctx.globalAlpha = selected ? 1 : context ? 0.42 : 0.78;
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = selected ? 2.7 : 1.55;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(geometry.startX, geometry.startY);
+      ctx.lineTo(geometry.baseX, geometry.baseY);
+      ctx.stroke();
+      const perpendicularX = -geometry.unitY;
+      const perpendicularY = geometry.unitX;
+      ctx.beginPath();
+      ctx.moveTo(geometry.tipX, geometry.tipY);
+      ctx.lineTo(
+        geometry.baseX + perpendicularX * geometry.headWidth,
+        geometry.baseY + perpendicularY * geometry.headWidth,
+      );
+      ctx.lineTo(
+        geometry.baseX - perpendicularX * geometry.headWidth,
+        geometry.baseY - perpendicularY * geometry.headWidth,
+      );
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     };
 
     const draw = (now) => {
@@ -395,7 +655,38 @@ const buildCanvasHtml = ({
       ctx.fillRect(0, 0, width, height);
       ctx.lineCap = 'round';
 
-      for (const edge of edges) {
+      const viewer = nodes[viewerIndex];
+      if (viewer) {
+        const viewerX = graphToScreenX(viewer.x);
+        const viewerY = graphToScreenY(viewer.y);
+        for (const ring of rings) {
+          const screenRadius = ring.radius * view.scale;
+          if (screenRadius < 18) continue;
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(viewerX, viewerY, screenRadius, 0, Math.PI * 2);
+          ctx.strokeStyle = ring.depth === 10
+            ? 'rgba(249,115,22,0.18)'
+            : 'rgba(148,163,184,0.16)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash(ring.depth === 10 ? [4, 5] : [2, 6]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = 'rgba(100,116,139,0.62)';
+          ctx.font = '700 8px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(
+            ring.depth + '단계',
+            viewerX + screenRadius * 0.71,
+            viewerY - screenRadius * 0.71,
+          );
+          ctx.restore();
+        }
+      }
+
+      for (let edgeIndex = 0; edgeIndex < edges.length; edgeIndex += 1) {
+        const edge = edges[edgeIndex];
         const source = nodes[edge.sourceIndex];
         const target = nodes[edge.targetIndex];
         ctx.beginPath();
@@ -405,8 +696,45 @@ const buildCanvasHtml = ({
         ctx.lineWidth = 1.5;
         ctx.setLineDash(edge.dashed ? [5, 5] : []);
         ctx.stroke();
+        if (edge.revenueEligible) {
+          const geometry = getEdgeGeometry(edge);
+          if (geometry) {
+            drawContributionArrow(
+              geometry,
+              selectedPathEdgeSet.has(edgeIndex),
+              edge.context,
+            );
+          }
+        }
       }
       ctx.setLineDash([]);
+
+      if (now < flowPulseUntil && selectedPathEdgeIndexes.length > 0) {
+        const elapsed = now - flowPulseStartedAt;
+        selectedPathEdgeIndexes.forEach((edgeIndex, pathIndex) => {
+          const edge = edges[edgeIndex];
+          const geometry = edge ? getEdgeGeometry(edge) : null;
+          if (!geometry) return;
+          const delayed = elapsed - pathIndex * 70;
+          if (delayed < 0) return;
+          const progress = (delayed % 520) / 520;
+          const pulseX = geometry.startX
+            + (geometry.tipX - geometry.startX) * progress;
+          const pulseY = geometry.startY
+            + (geometry.tipY - geometry.startY) * progress;
+          ctx.save();
+          ctx.shadowColor = 'rgba(249,115,22,0.75)';
+          ctx.shadowBlur = 8;
+          ctx.beginPath();
+          ctx.arc(pulseX, pulseY, 3.5, 0, Math.PI * 2);
+          ctx.fillStyle = '#fff7ed';
+          ctx.fill();
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = '#ea580c';
+          ctx.stroke();
+          ctx.restore();
+        });
+      }
 
       for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) {
         const node = nodes[nodeIndex];
@@ -435,15 +763,15 @@ const buildCanvasHtml = ({
         if (node.id === selectedNodeId) {
           ctx.drawImage(
             selectedLabelCaches[nodeIndex],
-            x - 90,
+            x - 114,
             y + radius + 7,
-            180,
+            228,
             38,
           );
         }
       }
 
-      if (activePhysics || settleAlpha > 0.014) {
+      if (activePhysics || settleAlpha > settle.stopThreshold) {
         const label = '물리 반응 중';
         ctx.font = '800 10px system-ui, sans-serif';
         const badgeWidth = ctx.measureText(label).width + 34;
@@ -488,8 +816,8 @@ const buildCanvasHtml = ({
       if (activePhysics && dragIndex >= 0 && pendingDragPosition) {
         stepPhysics(0.24, dragIndex, pendingDragPosition);
         dirty = true;
-      } else if (settleAlpha > 0.014) {
-        settleAlpha *= 0.94;
+      } else if (settleAlpha > settle.stopThreshold) {
+        settleAlpha *= settle.decayMultiplier;
         stepPhysics(settleAlpha, -1, null);
         dirty = true;
       } else if (settleAlpha !== 0) {
@@ -502,11 +830,22 @@ const buildCanvasHtml = ({
         zoomBadgeUntil = 0;
         dirty = true;
       }
-      if (dirty || zoomBadgeVisible) {
+      const flowPulseVisible = now < flowPulseUntil;
+      if (!flowPulseVisible && flowPulseUntil !== 0) {
+        flowPulseUntil = 0;
+        flowPulseStartedAt = 0;
+        dirty = true;
+      }
+      if (dirty || zoomBadgeVisible || flowPulseVisible) {
         draw(now);
         dirty = false;
       }
-      if (activePhysics || settleAlpha > 0 || zoomBadgeVisible) {
+      if (
+        activePhysics
+        || settleAlpha > 0
+        || zoomBadgeVisible
+        || flowPulseVisible
+      ) {
         requestLoop();
       }
     };
@@ -654,7 +993,7 @@ const buildCanvasHtml = ({
         if (!cancelled && !dragMoved) {
           const node = nodes[releasedDragIndex];
           if (!node.viewer && !node.context) {
-            selectedNodeId = node.id;
+            selectNode(node.id, true);
             window.ReactNativeWebView?.postMessage(JSON.stringify({
               type: 'select-node',
               nodeId: node.id,
@@ -664,7 +1003,7 @@ const buildCanvasHtml = ({
           }
         }
         activePhysics = false;
-        settleAlpha = !cancelled && dragMoved ? 0.32 : 0;
+        settleAlpha = !cancelled && dragMoved ? settle.initialAlpha : 0;
         dragIndex = -1;
         dragPointerId = null;
         pendingDragPosition = null;
@@ -702,9 +1041,7 @@ const buildCanvasHtml = ({
         node.name + ', ' + node.statusLabel + '. 두 번 탭하면 샘플 매출과 예상 배분 상세를 엽니다.',
       );
       button.addEventListener('click', () => {
-        selectedNodeId = node.id;
-        dirty = true;
-        requestLoop();
+        selectNode(node.id, true);
         window.ReactNativeWebView?.postMessage(JSON.stringify({
           type: 'select-node',
           nodeId: node.id,
@@ -723,13 +1060,13 @@ const buildCanvasHtml = ({
         }
         activePhysics = false;
         settleAlpha = 0;
-        selectedNodeId = null;
+        flowPulseStartedAt = 0;
+        flowPulseUntil = 0;
+        selectNode(null, false);
         fit();
       },
       select: (nodeId) => {
-        selectedNodeId = typeof nodeId === 'string' ? nodeId : null;
-        dirty = true;
-        requestLoop();
+        selectNode(nodeId, true);
       },
       zoomTo: (nextScale) => {
         view.scale = clamp(
@@ -751,6 +1088,8 @@ const buildCanvasHtml = ({
           pointers.clear();
           activePhysics = false;
           settleAlpha = 0;
+          flowPulseStartedAt = 0;
+          flowPulseUntil = 0;
           dragIndex = -1;
           dragPointerId = null;
           pendingDragPosition = null;
@@ -776,6 +1115,7 @@ const buildCanvasHtml = ({
 export function ReferralRevenueGraphWebViewCanvas({
   nodes,
   edges,
+  expectedTotalKrw,
   focusedNodeIds,
   selectedNodeId,
   onSelectNode,
@@ -803,7 +1143,7 @@ export function ReferralRevenueGraphWebViewCanvas({
     [topology],
   );
   const canvasNodes = useMemo<CanvasNode[]>(() => (
-    topology.nodes.map(({ node, collisionRadius }) => {
+    topology.nodes.map(({ node, collisionRadius, radialTarget }) => {
       const point = initialPositions.get(node.id)
         ?? {
           x: SAMPLE_REVENUE_GRAPH_SURFACE_SIZE / 2,
@@ -822,15 +1162,15 @@ export function ReferralRevenueGraphWebViewCanvas({
             ? withoutSamplePrefix
             : `${withoutSamplePrefix.slice(0, 2)}…`,
         nodeAmountLabel: node.isViewer
-          ? '기준'
+          ? `+${formatSampleRevenueNodeAmount(expectedTotalKrw)}`
           : node.eligible
             ? formatSampleRevenueNodeAmount(node.expectedAllocationKrw)
             : '제외',
         selectedAmountLabel: node.isViewer
-          ? '기준'
+          ? `예상 유입 합계 +${formatCompactSampleRevenueKrw(expectedTotalKrw)}`
           : node.eligible
-            ? formatCompactSampleRevenueKrw(node.expectedAllocationKrw)
-            : '대상 제외',
+            ? `매출 ${formatCompactSampleRevenueKrw(node.salesKrw)} → 내 예상 ${formatCompactSampleRevenueKrw(node.expectedAllocationKrw)}`
+            : `매출 ${formatCompactSampleRevenueKrw(node.salesKrw)} · 대상 제외`,
         statusLabel: getSampleRevenueGraphNodeStatusLabel(node, context),
         x: point.x,
         y: point.y,
@@ -843,9 +1183,13 @@ export function ReferralRevenueGraphWebViewCanvas({
         eligible: node.eligible,
         viewer: node.isViewer,
         context,
+        depth: node.depth,
+        radialOffsetX: radialTarget.offsetX,
+        radialOffsetY: radialTarget.offsetY,
+        radialRadius: radialTarget.radius,
       };
     })
-  ), [focusedNodeIds, initialPositions, topology]);
+  ), [expectedTotalKrw, focusedNodeIds, initialPositions, topology]);
   const canvasEdges = useMemo<CanvasEdge[]>(() => (
     topology.edges.flatMap((edge) => {
       const sourceIndex = nodeIndexById.get(edge.sourceId);
@@ -867,19 +1211,36 @@ export function ReferralRevenueGraphWebViewCanvas({
         targetIndex,
         distance: edge.distance,
         strength: edge.strength,
-        stroke: excluded || context ? '#cbd5e1' : '#fdba74',
+        stroke: excluded || context ? '#cbd5e1' : '#d6d3d1',
         dashed: excluded,
+        context,
+        revenueEligible: targetNode.eligible,
       }];
     })
   ), [focusedNodeIds, nodeById, nodeIndexById, topology]);
+  const canvasRings = useMemo<CanvasRing[]>(() => {
+    const maxEligibleDepth = nodes.reduce(
+      (maximum, node) => (
+        node.eligible ? Math.max(maximum, node.depth) : maximum
+      ),
+      0,
+    );
+    return SAMPLE_REVENUE_GRAPH_GUIDE_DEPTHS
+      .filter((depth) => depth <= maxEligibleDepth)
+      .map((depth) => ({
+        depth,
+        radius: getSampleRevenueGraphRadialTargetRadius(depth),
+      }));
+  }, [nodes]);
   const bridgeSourceKey = useMemo(
     () => escapeInlineJson({
       canvasEdges,
       canvasNodes,
+      canvasRings,
       fitInsets,
       overlayBottomInset,
     }),
-    [canvasEdges, canvasNodes, fitInsets, overlayBottomInset],
+    [canvasEdges, canvasNodes, canvasRings, fitInsets, overlayBottomInset],
   );
   const bridgeRevision = useMemo(
     () => `${createBridgeRevision()}-${bridgeSourceKey.length}`,
@@ -890,6 +1251,7 @@ export function ReferralRevenueGraphWebViewCanvas({
       bridgeRevision,
       canvasEdges,
       canvasNodes,
+      canvasRings,
       fitInsets,
       overlayBottomInset,
     }),
@@ -897,6 +1259,7 @@ export function ReferralRevenueGraphWebViewCanvas({
       bridgeRevision,
       canvasEdges,
       canvasNodes,
+      canvasRings,
       fitInsets,
       overlayBottomInset,
     ],

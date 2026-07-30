@@ -233,6 +233,7 @@ export default function ReferralRevenueGraphPage() {
           <ReferralRevenueGraphCanvas
             nodes={graphNodes}
             edges={graphEdges}
+            expectedTotalKrw={model.summary.expectedAllocationKrw}
             focusedNodeIds={focusedGraphNodeIds}
             selectedNodeId={selectedNode?.id ?? null}
             onSelectNode={setSelectedNode}
@@ -442,6 +443,10 @@ export default function ReferralRevenueGraphPage() {
                       <Text style={styles.legendText}>예상 배분</Text>
                     </View>
                     <View style={styles.legendItem}>
+                      <Feather name="arrow-left" size={12} color="#f97316" />
+                      <Text style={styles.legendText}>하위 → 나 기여 방향</Text>
+                    </View>
+                    <View style={styles.legendItem}>
                       <View style={[styles.legendDot, styles.excludedLegendDot]} />
                       <Text style={styles.legendText}>대상 제외</Text>
                     </View>
@@ -459,8 +464,9 @@ export default function ReferralRevenueGraphPage() {
                       {'\n'}11단계부터는 대상에서 제외됩니다. 실제
                       조직·매출·정산 내역이 아닙니다.
                       {'\n'}{DISCLAIMER}
-                      {'\n'}선은 조직 관계이고 돈의 이동을 의미하지
-                      않습니다.
+                      {'\n'}회색 선은 샘플 조직 관계입니다. 주황 화살표는
+                      하위 구성원의 10% 샘플 기여 계산 방향입니다. 실제
+                      돈의 이동을 의미하지 않습니다.
                     </Text>
                   </View>
                 </ScrollView>
@@ -625,6 +631,7 @@ export default function ReferralRevenueGraphPage() {
               <ReferralRevenueGraphCanvas
                 nodes={graphNodes}
                 edges={graphEdges}
+                expectedTotalKrw={model.summary.expectedAllocationKrw}
                 focusedNodeIds={focusedGraphNodeIds}
                 selectedNodeId={selectedNode?.id ?? null}
                 onSelectNode={setSelectedNode}
@@ -676,6 +683,10 @@ export default function ReferralRevenueGraphPage() {
                 <Text style={styles.legendText}>1~10단계 대상</Text>
               </View>
               <View style={styles.legendItem}>
+                <Feather name="arrow-left" size={12} color="#f97316" />
+                <Text style={styles.legendText}>하위 → 나 기여 방향</Text>
+              </View>
+              <View style={styles.legendItem}>
                 <View style={[styles.legendDot, styles.excludedLegendDot]} />
                 <Text style={styles.legendText}>대상 제외</Text>
               </View>
@@ -683,7 +694,8 @@ export default function ReferralRevenueGraphPage() {
             <View style={styles.relationshipNotice}>
               <Feather name="git-branch" size={14} color={COLORS.text.muted} />
               <Text style={styles.relationshipNoticeText}>
-                선은 샘플 조직 관계이며 돈의 이동을 의미하지 않습니다.
+                회색 선은 샘플 조직 관계입니다. 주황 화살표는 하위 구성원의
+                10% 샘플 기여 계산 방향이며 실제 돈의 이동을 의미하지 않습니다.
               </Text>
             </View>
           </View>

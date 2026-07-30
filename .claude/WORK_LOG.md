@@ -976,3 +976,23 @@
   release state was changed by this deployment.
 - Details:
   [WORK_DETAIL.md#20260730-administrator-web-production-release](WORK_DETAIL.md#20260730-administrator-web-production-release)
+
+## 2026-07-30 Mobile revenue graph radial direction
+
+- Aligned the mobile sample graph with the administrator graph's actually
+  active charge/link/tension/collision/damping family while retaining the
+  lightweight offline Canvas runtime; administrator-disabled center/x/y forces
+  and the full d3 runtime were not ported.
+- Added a collision-safe viewer-centered landscape radial seed, A/B/C sectors,
+  1/3/6/10 guide rings, child-to-parent orange contribution arrows, A11
+  dashed/no-arrow treatment, center total, and a bounded selected-path pulse
+  that returns to idle.
+- Focused 4-suite/45-test and full 192-suite/1,171-test regressions, TypeScript,
+  lint, Sentry-disabled Android export, landscape/portrait emulator QA, and the
+  three warmed under-5%-jank drag runs passed. Post-documentation governance,
+  JSON parsing, harness audit, final diff check, Android export, and independent
+  re-evaluation also passed; release is HOLD.
+- No package, API, database, real organization or financial data, deployment,
+  EAS, OTA, commit, or push change was performed.
+- Details:
+  [WORK_DETAIL.md#20260730-referral-revenue-radial-direction](WORK_DETAIL.md#20260730-referral-revenue-radial-direction)
