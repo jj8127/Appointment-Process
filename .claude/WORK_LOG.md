@@ -959,3 +959,20 @@
 - No package, API, database, deployment, or release mutation was performed.
 - Details:
   [WORK_DETAIL.md#20260730-referral-graph-drag-mobile-canvas-performance](WORK_DETAIL.md#20260730-referral-graph-drag-mobile-canvas-performance)
+
+## 2026-07-30 Administrator-web production release
+
+- Consolidated the completed administrator/mobile/Edge source changes into
+  local commits `d828cf0` and `8992bff`; no Git push was performed.
+- Deployed administrator commit `8992bff` to Vercel Production deployment
+  `dpl_4J8g5KCfYTu4xusiJaHaRYjYvZje`.
+- Reassigned `adminweb-red.vercel.app` to the new Production deployment.
+- Vercel-plugin smoke checks returned 200 for `/auth`,
+  `/manifest.webmanifest`, and `/sw.js`, and the expected 401 authorization
+  boundary for unauthenticated `/api/admin/exam-applicants`.
+- Vercel-plugin runtime checks found no grouped runtime errors and no
+  error/fatal log entries in the post-release window.
+- No Supabase, Edge Function, Storage, Sentry, native app, GaramLink, or store
+  release state was changed by this deployment.
+- Details:
+  [WORK_DETAIL.md#20260730-administrator-web-production-release](WORK_DETAIL.md#20260730-administrator-web-production-release)

@@ -13344,3 +13344,44 @@
 - TalkBack swipe fallback remains available through semantic node buttons.
   Touch-exploration bounds matching the moving visual nodes and iPad split-view
   orientation are not claimed by this Android emulator verification.
+
+---
+
+## <a id="20260730-administrator-web-production-release"></a> 2026-07-30 | Administrator-web production release
+
+**Source and verification**:
+- Completed source commit:
+  `d828cf07c1cf35d2bf76bfec07aa2f615066fd2e`.
+- Governance/document alignment commit:
+  `8992bff48aac4d2112826c086070c523655a35a0`.
+- Administrator-web node tests: 416/416 PASS.
+- Administrator-web lint, TypeScript, 49-route Production build,
+  `git diff --check`, full-range governance, board-create smoke 6/6, and
+  central harness audit: PASS.
+- Production dependency audit has zero critical findings. Existing
+  high/moderate transitive findings remain outside this release's
+  dependency-removal scope.
+
+**Vercel deployment**:
+- Preview: `dpl_CtHJF829ajoLkTrqvfFA9kMFhXZp`.
+- Production: `dpl_4J8g5KCfYTu4xusiJaHaRYjYvZje`.
+- Stable operator URL: `https://adminweb-red.vercel.app`.
+- The Vercel plugin confirmed the Production deployment is READY and resolves
+  to commit `8992bff48aac4d2112826c086070c523655a35a0`.
+- Plugin URL smoke checks returned 200 for `/auth`,
+  `/manifest.webmanifest`, and `/sw.js`. The unauthenticated
+  `/api/admin/exam-applicants` request returned the expected 401
+  `Invalid session: missing role`.
+- Plugin observability checks found no grouped runtime errors and no
+  error/fatal runtime-log entries in the post-release ten-minute window.
+
+**Boundary**:
+- The linked Vercel CLI uploaded and promoted the exact verified source because
+  the plugin deployment endpoint requires an explicit complete file payload;
+  the Vercel plugin remained authoritative for project/deployment state, URL
+  verification, and runtime observability.
+- No Git push, Supabase migration, Edge Function deployment, Storage mutation,
+  Sentry mutation, mobile build/OTA, GaramLink deployment, or store submission
+  was performed.
+- The repository-wide release HOLD remains unchanged outside this explicitly
+  authorized administrator-web lane.
