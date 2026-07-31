@@ -16,11 +16,77 @@ import {
   SAMPLE_REVENUE_GRAPH_SURFACE_SIZE,
   SAMPLE_REVENUE_MOBILE_SETTLE,
   SAMPLE_REVENUE_RADIAL_GUIDANCE,
+  type SampleRevenueGraphPoint,
   stepSampleRevenueInteractivePhysics,
 } from '@/lib/referral-revenue-graph-native';
 import { buildSampleRevenueGraphModel } from '@/lib/referral-revenue-demo';
+import type { SampleRevenueGraphEdge } from '@/types/referral-revenue-graph';
 
 const model = buildSampleRevenueGraphModel(REFERRAL_REVENUE_DEMO_RAW_NODES);
+
+const normalizeRadians = (angle: number) => (
+  ((angle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2)
+    - Math.PI
+);
+
+function countDisjointEdgeCrossings(
+  positions: ReadonlyMap<string, SampleRevenueGraphPoint>,
+  edges: readonly SampleRevenueGraphEdge[],
+) {
+  const cross = (
+    first: SampleRevenueGraphPoint,
+    second: SampleRevenueGraphPoint,
+    third: SampleRevenueGraphPoint,
+  ) => (
+    (second.x - first.x) * (third.y - first.y)
+      - (second.y - first.y) * (third.x - first.x)
+  );
+  let crossings = 0;
+
+  for (let leftIndex = 0; leftIndex < edges.length; leftIndex += 1) {
+    const left = edges[leftIndex];
+    const leftSource = positions.get(left.source);
+    const leftTarget = positions.get(left.target);
+    if (!leftSource || !leftTarget) continue;
+
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < edges.length;
+      rightIndex += 1
+    ) {
+      const right = edges[rightIndex];
+      if (
+        left.source === right.source
+        || left.source === right.target
+        || left.target === right.source
+        || left.target === right.target
+      ) {
+        continue;
+      }
+      const rightSource = positions.get(right.source);
+      const rightTarget = positions.get(right.target);
+      if (!rightSource || !rightTarget) continue;
+      const leftSides = cross(leftSource, leftTarget, rightSource)
+        * cross(leftSource, leftTarget, rightTarget);
+      const rightSides = cross(rightSource, rightTarget, leftSource)
+        * cross(rightSource, rightTarget, leftTarget);
+      if (leftSides < -1e-6 && rightSides < -1e-6) crossings += 1;
+    }
+  }
+
+  return crossings;
+}
+
+function getChainEdgeDirections(
+  positions: ReadonlyMap<string, SampleRevenueGraphPoint>,
+  nodeIds: readonly string[],
+) {
+  return nodeIds.slice(1).map((nodeId, index) => {
+    const source = positions.get(nodeIds[index])!;
+    const target = positions.get(nodeId)!;
+    return Math.atan2(target.y - source.y, target.x - source.x);
+  });
+}
 
 describe('sample revenue native node-edge graph', () => {
   it('places every node deterministically around the viewer', () => {
@@ -159,6 +225,41 @@ describe('sample revenue native node-edge graph', () => {
     });
   });
 
+  it('does not clamp released graph coordinates to the seed surface', () => {
+    const topology = prepareSampleRevenueGraphPhysicsTopology(
+      model.nodes,
+      model.edges,
+    );
+    const positions = buildSampleRevenueGraphLayout(
+      model.nodes,
+      model.edges,
+      topology,
+    );
+    const translatedMotion = new Map(Array.from(positions, ([id, point]) => [
+      id,
+      {
+        x: point.x + SAMPLE_REVENUE_GRAPH_SURFACE_SIZE * 2,
+        y: point.y - SAMPLE_REVENUE_GRAPH_SURFACE_SIZE * 2,
+        vx: 0,
+        vy: 0,
+      },
+    ]));
+
+    const next = stepSampleRevenueInteractivePhysics({
+      nodes: model.nodes,
+      edges: model.edges,
+      topology,
+      motion: translatedMotion,
+      alpha: 0.001,
+      ticks: 1,
+    });
+
+    expect(Math.min(...Array.from(next.values(), ({ x }) => x)))
+      .toBeGreaterThan(SAMPLE_REVENUE_GRAPH_SURFACE_SIZE);
+    expect(Math.max(...Array.from(next.values(), ({ y }) => y)))
+      .toBeLessThan(0);
+  });
+
   it('smoothly recenters the viewer over the exact release schedule', () => {
     const topology = prepareSampleRevenueGraphPhysicsTopology(
       model.nodes,
@@ -293,19 +394,59 @@ describe('sample revenue native node-edge graph', () => {
     expect(targetById.get('sample-a10')?.branchIndex).toBe(0);
     expect(targetById.get('sample-b3')?.branchIndex).toBe(1);
     expect(targetById.get('sample-c2')?.branchIndex).toBe(2);
-    expect(Math.abs(targetById.get('sample-a10')!.offsetX)).toBeGreaterThan(
-      Math.abs(targetById.get('sample-a10')!.offsetY),
-    );
-    expect(targetById.get('sample-a2')!.offsetY).toBeCloseTo(0);
-    const landscapeBranchOffsets = Array.from(
+    const landscapeBranchAngles = Array.from(
       { length: 11 },
-      (_, index) => targetById.get(`sample-a${index + 1}`)!.offsetX,
+      (_, index) => targetById.get(`sample-a${index + 1}`)!.angle,
     );
-    for (let index = 1; index < landscapeBranchOffsets.length; index += 1) {
-      expect(landscapeBranchOffsets[index]).toBeGreaterThan(
-        landscapeBranchOffsets[index - 1],
-      );
+    const angularSteps = landscapeBranchAngles.slice(1).map(
+      (angle, index) => normalizeRadians(angle - landscapeBranchAngles[index]),
+    );
+    expect(angularSteps.every((step) => step > 0)).toBe(true);
+    expect(Math.max(...angularSteps)).toBeLessThan(Math.PI / 2);
+  });
+
+  it('keeps the canonical seed and normal settle visually untangled', () => {
+    const topology = prepareSampleRevenueGraphPhysicsTopology(
+      model.nodes,
+      model.edges,
+    );
+    const positions = buildSampleRevenueGraphLayout(
+      model.nodes,
+      model.edges,
+      topology,
+    );
+    const aChainIds = [
+      'sample-viewer',
+      ...Array.from({ length: 11 }, (_, index) => `sample-a${index + 1}`),
+    ];
+    const initialDirections = getChainEdgeDirections(positions, aChainIds);
+    const postRootTurns = initialDirections.slice(2).map(
+      (direction, index) => Math.abs(normalizeRadians(
+        direction - initialDirections[index + 1],
+      )),
+    );
+
+    expect(countDisjointEdgeCrossings(positions, model.edges)).toBe(0);
+    expect(Math.max(...postRootTurns)).toBeLessThanOrEqual(Math.PI / 4);
+
+    let settleAlpha = SAMPLE_REVENUE_MOBILE_SETTLE.initialAlpha;
+    let settledMotion = new Map(Array.from(positions, ([id, point]) => [
+      id,
+      { ...point, vx: 0, vy: 0 },
+    ]));
+    while (settleAlpha > SAMPLE_REVENUE_MOBILE_SETTLE.stopThreshold) {
+      settleAlpha *= SAMPLE_REVENUE_MOBILE_SETTLE.decayMultiplier;
+      settledMotion = stepSampleRevenueInteractivePhysics({
+        nodes: model.nodes,
+        edges: model.edges,
+        topology,
+        motion: settledMotion,
+        alpha: settleAlpha,
+        ticks: 1,
+      });
     }
+
+    expect(countDisjointEdgeCrossings(settledMotion, model.edges)).toBe(0);
   });
 
   it('keeps every settled branch edge radially outward with collision room', () => {
@@ -484,6 +625,42 @@ describe('sample revenue native node-edge graph', () => {
         height - insets.bottom + 1e-6,
       );
     }
+  });
+
+  it('fits finite nodes beyond the seed surface without a scale floor', () => {
+    const positions = buildSampleRevenueGraphLayout(model.nodes, model.edges);
+    const farNodeId = 'sample-a11';
+    const farPoint = positions.get(farNodeId)!;
+    const farPositions = new Map(positions);
+    farPositions.set(farNodeId, {
+      x: farPoint.x + 50_000,
+      y: farPoint.y - 40_000,
+    });
+    const width = 800;
+    const height = 360;
+    const insets = { top: 70, right: 16, bottom: 18, left: 16 };
+    const viewport = getSampleRevenueGraphFitViewport({
+      nodes: model.nodes,
+      positions: farPositions,
+      width,
+      height,
+      insets,
+    });
+
+    expect(viewport.scale).toBeGreaterThan(0);
+    expect(viewport.scale).toBeLessThan(SAMPLE_REVENUE_GRAPH_MIN_SCALE);
+    const screenX = width / 2
+      + viewport.panX
+      + (farPositions.get(farNodeId)!.x
+        - SAMPLE_REVENUE_GRAPH_SURFACE_CENTER) * viewport.scale;
+    const screenY = height / 2
+      + viewport.panY
+      + (farPositions.get(farNodeId)!.y
+        - SAMPLE_REVENUE_GRAPH_SURFACE_CENTER) * viewport.scale;
+    expect(screenX).toBeGreaterThanOrEqual(insets.left);
+    expect(screenX).toBeLessThanOrEqual(width - insets.right);
+    expect(screenY).toBeGreaterThanOrEqual(insets.top);
+    expect(screenY).toBeLessThanOrEqual(height - insets.bottom);
   });
 
   it('encodes viewer, eligible, and excluded nodes without sharing a color', () => {

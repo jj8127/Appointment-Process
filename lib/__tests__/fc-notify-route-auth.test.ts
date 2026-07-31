@@ -305,17 +305,7 @@ describe('FC notify proxy ingress authentication', () => {
     expect(buildBrowserFcNotifyPayload({
       session: manager,
       body: { type: 'inbox_list', role: 'fc', resident_id: '01033334444' },
-    })).toEqual({
-      ok: true,
-      payload: {
-        type: 'inbox_list',
-        role: 'fc',
-        resident_id: '01033334444',
-        limit: 80,
-        viewer_actor_role: 'manager',
-        viewer_actor_phone: '01033334444',
-      },
-    });
+    })).toMatchObject({ ok: false, status: 403 });
     expect(buildBrowserFcNotifyPayload({
       session: manager,
       body: {

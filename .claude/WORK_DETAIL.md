@@ -13347,6 +13347,111 @@
 
 ---
 
+## <a id="20260730-referral-graph-untangled-seed-and-leaves"></a> 2026-07-30 | Referral graph untangled seed and terminal leaves
+
+**Requested behavior**:
+- Make the mobile revenue network spread continuously from the viewer instead of
+  folding a chain back and forth, while preserving the lightweight runtime and
+  using the administrator referral graph's actual physics as the reference.
+- Remove the apparent maximum node travel distance.
+- In the dense administrator referral graph, shorten edges whose child endpoint
+  has no children without compressing branch-to-branch hub links.
+
+**Implementation**:
+- Replaced mobile depth-alternating lanes with deterministic subtree ordering and
+  parent-relative forward angular placement. Link target length and collision
+  envelopes determine sibling/chain spacing before the existing charge, link,
+  link-tension, collision, alpha-decay, and velocity-damping loop runs.
+- Kept the administrator runtime truth explicit: edge-crossing, sibling-angular,
+  center, x, and y forces remain disabled; no O(E²) crossing force or d3 port was
+  added to mobile.
+- Eligible contribution edges now render as one orange child-to-parent shaft;
+  excluded edges retain their neutral dashed treatment.
+- Removed the 70~1530 world-coordinate clamp from the WebView, SVG caller, and
+  shared physics. Finite-number guards remain. `화면 맞춤` may scale below the
+  gesture minimum so arbitrarily distant nodes remain recoverable, and reset
+  restores the deterministic seed.
+- Added SVG overflow support for off-surface world positions while labels remain
+  fixed in screen pixels.
+- Split the administrator link-distance resolver's explicit terminal-leaf path.
+  Dense terminal leaf spokes use a deterministic 118~185px band; non-terminal
+  child-hub bridges and the active physics/drag lifecycle are unchanged.
+
+**Measured behavior**:
+- Canonical 17-node mobile sample: initial crossing `0`, 51-frame settle crossing
+  `0`, post-root maximum chain turn `27.2°` (previously about `167°`).
+- Dense administrator fixture: terminal leaf `166~179px`; child-hub bridge
+  remains `354px`. The 471-node read-only settle kept direct-spoke P90 at
+  `419.922/420` and all existing crossing/spacing/edge limits green.
+
+**Verification**:
+- Mobile focused suites: 6 suites / 58 tests PASS.
+- Administrator physics/layout/free/simulation/real-data suites: 125/125 PASS.
+- Root and administrator TypeScript plus scoped/full ESLint: PASS.
+- Independent source/contract review was requested for both mobile and web
+  increments; Android device visual QA was intentionally left for the user's
+  own terminal and is not claimed here.
+
+**Boundary**:
+- No package, production data, API, database, Edge Function, deployment, EAS,
+  OTA, device command, commit, or push belongs to this increment. Release stays
+  `HOLD`.
+
+---
+
+## <a id="20260730-local-admin-referral-graph-recovery"></a> 2026-07-30 | Local administrator referral graph recovery
+
+**Observed failure**:
+- The authenticated local graph route loaded its page shell, but
+  `/api/admin/referrals/graph` returned 500. The server recorded an 18,531-byte
+  request URL and `UND_ERR_HEADERS_OVERFLOW`.
+- The dashboard notification bell simultaneously emitted paired 200/403
+  `/api/fc-notify` responses for the logged-in developer account. A previously
+  registered service worker exposed the failed GET as a secondary FetchEvent
+  error but did not cause either API failure.
+
+**Implementation**:
+- Reused the existing 40-ID bounded chunk helper for referral-code reads,
+  deduplicated rows by ID, and restored global `created_at` descending order.
+  No RPC, schema, or data mutation was introduced.
+- Removed the developer header's rejected second role=`fc` request, then
+  rejected the initially proposed merged payload after independent security
+  review found incompatible actor-ID namespaces and shared-admin broadcast
+  exposure in the deployed Edge contract.
+- Until a coordinated producer/Edge/receipt fix is reviewed and deployed,
+  developer/manager web inbox list/get/mark/dismiss actions fail closed in the
+  Next policy and their web callers do not emit those requests. Regular admin
+  and actual FC signed scopes remain enabled.
+
+**Evidence**:
+- Read-only reproduction: unchunked 534-ID query failed; fourteen <=40-ID reads
+  succeeded and returned 453 referral-code rows.
+- Running Next dev server after the code change:
+  `GET /api/admin/referrals/graph 200` in about 1.31 seconds.
+- Focused bounded-query tests 5/5, web TypeScript, and web lint passed.
+- The developer notification diagnosis matched current Edge logs: every bell
+  refresh produced one success beside the rejected cross-role request.
+- The running dev server established the original paired admin-200/FC-403
+  cause. The final fail-closed version is covered by dedicated policy/caller
+  contracts and was not represented as a deployed Edge fix or fresh browser
+  notification QA.
+- Personal-inbox HOLD tests passed 3/3, the combined web recovery set passed
+  17/17, root notification source/auth tests passed 28/28, and full Jest passed
+  192 suites / 1,176 tests. Root/web TypeScript and web lint passed.
+
+**Boundary**:
+- No database write, migration, RPC, Edge deploy, Vercel deploy, production
+  release, account, credential, or service-worker mutation was performed.
+- Current live read volume is 453 code rows. A future single 40-ID chunk that
+  can exceed the PostgREST row cap still needs stable `created_at,id`
+  pagination; this is a non-blocking scale follow-up, not a current truncation.
+- Re-enabling developer/manager web inboxes requires one coordinated change:
+  canonical Request Board recipient binding, personal-admin broadcast denial,
+  identical list/get/receipt predicates, focused security tests, and Edge
+  deployment. None of those production mutations belongs to this increment.
+
+---
+
 ## <a id="20260730-administrator-web-production-release"></a> 2026-07-30 | Administrator-web production release
 
 **Source and verification**:

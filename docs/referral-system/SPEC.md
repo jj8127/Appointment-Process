@@ -204,6 +204,22 @@
     남겨 graph가 거의 전체 화면을 사용한다. summary·filter·목록·fit/reset·범례와
     상세 안내는 설정 버튼을 눌렀을 때만 임시 panel로 열리고 바깥 탭·닫기·Android
     back으로 닫힌다.
+    초기 배치는 깊이마다 좌우로 반전하는 lane을 사용하지 않는다. 관리자 웹 seed의
+    parent-relative forward 원칙을 경량화해 root child와 subtree 순서를 고정하고,
+    parent/child collision envelope와 resolved link distance로 다음 depth ring의 최소
+    전진 각도를 계산한다. 고정 17-node canonical A/B/C 샘플은 진입·초기화·일반
+    release settle에서 endpoint를 공유하지 않는 edge 교차가 0개여야 하고, A
+    단일-child chain은 첫 root joint 이후 연속 edge 방향 변화가 45도 이하여야 한다.
+    45도는 이 fixture의 회귀 기준이지 runtime 각도 clamp가 아니다. 자식·subtree가
+    많아지면 collision envelope와 필요한 branch sector가 커지면서 각도 간격과 반지름을
+    동적으로 늘리고, 복잡한 그래프의 불가피한 꺾임이나 교차는 허용한다. 이 보장은 매 frame
+    `edge-crossing` force를 추가하지 않고 deterministic seed와 기존 O(n) radial target으로
+    달성한다. eligible 관계는 회색 base line 위에 주황 arrow를 이중으로 그리지 않고
+    child→parent 주황 방향선 하나만 그린다. 제외 관계만 회색 점선/no-arrow를 유지한다.
+    drag와 physics의 graph world 좌표는 초기 1600-unit seed surface로 clamp하지 않는다.
+    유한한 좌표라면 surface 밖까지 이동할 수 있고 link/tension은 복원력일 뿐 위치 상한이
+    아니다. `화면 맞춤`은 일반 pinch 최소 배율보다 작은 scale도 계산해 멀어진 node를
+    다시 담고, `초기화`는 deterministic seed로 복구한다.
 26. 샘플 화면은 FC와 `admin + readOnly` 본부장에게만 노출하고 designer/plain
     admin/developer는 차단한다. 다만 로컬 상수 외 데이터를 읽지 않으므로
     app-session refresh, referral API, Supabase client, Edge Function 또는 금융
@@ -362,9 +378,8 @@
   - layout/physics는 Obsidian Graph View의 읽기 경험을 참고하되, 추천인 트리 특성에 맞춘 hybrid force-directed 배치다. 초기 seed는 deterministic component packing을 사용해 큰 connected component를 중앙에 가깝게 두고, hub direct child는 부모를 원형으로 둘러싸는 star/pinwheel seed를 받으며, isolated node는 과도하게 큰 외곽 원을 만들지 않는 제한된 golden-angle 분포를 사용한다.
   - `연결 없는 사람 숨기기` switch는 orphan toggle처럼 isolated node만 숨기며, 기본값은 전체 관계 파악을 위해 `false`다.
   - 사용자 설정은 `Center force`, `Repel force`, `Link force`, `Link distance` 4개만 노출한다. 저장 key는 `referral-graph-physics-settings-v16`이며 기본값은 center `0.5`, repel `10`, link force `1`, link distance `250`이다.
-  - runtime force는 d3 `charge`/기존 `link`를 기본으로 하고, `link-tension`, `branch-bend`, `sibling-angular`, `node-separation`, `visual-cluster-separation`, `component-separation`, `cluster-envelope`, `component-envelope`, `cluster-gravity`, `component-cohesion`, `drag-spring` 보조 force를 사용한다. `x/y center`, `radial-containment`, `isolated-ring`, `drop-tether`, legacy `component-gravity` 계열은 사용하지 않는다.
-  - 중심 보정은 고정 반경 containment가 아니라 cluster 단위 `cluster-gravity`로만 약하게 적용한다. 현재 기준은 `deadZoneRadius=340`, singleton `520`, `gravityScale=120`, `softening=210`, `strength=0.01`, `maxVelocity=4.5`, `minAlpha=0.002`이며, 가장자리에서 클러스터를 꺼내 보는 drag 상호작용을 막으면 안 된다.
-  - 링크 길이는 degree/child 여부에 따라 동적으로 계산한다. leaf spoke는 짧게 유지하고, child hub 간 bridge는 leaf보다 길지만 비정상적으로 늘어나지 않도록 `link-tension`과 `drag-spring`이 목표 길이를 복원한다.
+  - runtime force는 d3 `charge`/기존 `link`, `link-tension`, `collision`, `component-separation`, pointer drag, `max-link-stretch`, drag-locality를 사용한다. 현재 `branch-bend`, `sibling-angular`, `edge-crossing`, `node-separation`, cluster/component envelope·gravity·cohesion, global `center/x/y`, radial containment, isolated ring, drag spring은 명시적으로 비활성이다.
+  - 링크 길이는 degree/child 여부에 따라 동적으로 계산한다. `sourceHasChildren=true`이고 `targetHasChildren=false`인 terminal leaf spoke는 deterministic `118..185px` band를 사용하며 240-node/24-child fixture에서는 `166..179px`에 머문다. child hub bridge는 기존 긴 branch 간격(같은 fixture `354px`)을 유지하며 leaf 단축 때문에 함께 줄어들면 안 된다. `link-tension`은 release 뒤 목표 길이를 복원하고 active drag의 `max-link-stretch`는 drag-start 길이의 1.2배를 지킨다.
   - node drag 중에는 사용자가 잡은 node 하나만 pointer 위치에 `fx/fy`로 고정한다. direct neighbor와 2-hop 이상 node는 고정하거나 같은 delta로 옮기지 않고, 평소와 같은 link·link-tension·charge·collision force가 A-B-C 순으로 전달돼 거리에 따라 유연하게 반응해야 한다.
   - active drag 중에도 연결 force를 유지한다. drag 시작 시 각 edge 길이의 `1.2x`를 최대 stretch로 적용해 긴 chain도 끊어지지 않게 하되 unrelated component는 screen pixel 기준으로 안정적이어야 한다.
   - release 시 dragged node의 `fx/fy`를 해제하고 simulation을 reheat해 기존 velocity와 spring momentum으로 부드럽게 안정화한다. live QA는 graph unit이 아니라 screen/client pixel 기준(pointer 거리, direct/indirect neighbor 이동, unrelated drift, release 후 거리)으로 판단한다.

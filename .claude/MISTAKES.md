@@ -1,5 +1,89 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-07-31 | Release governance | 커밋 전 pre-push 검사로 커밋 범위를 검증했다고 판단함
+
+- Symptom:
+  - 로컬 `npm run governance:pre-push`는 통과했지만 실제 `git push` hook은 모바일
+    추천 그래프와 알림 bell 변경에 필요한 계약 문서 누락을 차단했다.
+- Root cause:
+  - pre-push 스크립트가 `HEAD`와 원격 기준의 커밋 범위를 검사한다는 점을 놓치고,
+    아직 커밋되지 않은 working tree까지 검증됐다고 판단했다.
+- Permanent guardrail:
+  - 커밋 전에는 path-owner/contract map을 직접 대조하고, 커밋 후 실제
+    `npm run governance:pre-push` 또는 push hook을 다시 실행한다.
+  - hook이 요구하는 문서는 단순 touch가 아니라 변경된 runtime 계약과 회귀 증거를
+    명시하도록 갱신한다.
+- Verification:
+  - referral data handbook과 feature contract matrix에 이번 그래프·알림 계약을
+    기록한 뒤, 보정된 커밋 범위로 governance와 push hook을 다시 실행한다.
+
+## 2026-07-30 | Admin referral query | 수백 개 UUID를 한 PostgREST URL에 넣음
+
+- Symptom:
+  - `/api/admin/referrals/graph`가 로그인 이후 500을 반환했고, Node Undici가
+    `UND_ERR_HEADERS_OVERFLOW`를 기록했다.
+- Root cause:
+  - 소규모 데이터에서 동작하던 `referral_codes.in('fc_id', fcIds)`를 대규모
+    데이터에도 그대로 사용해 요청 URL이 18~21KB까지 커졌다.
+- Permanent guardrail:
+  - 외부 Data API의 대량 ID filter는 bounded chunk helper를 사용하고, chunk 결과의
+    중복 제거와 전역 정렬 의미를 별도 테스트로 고정한다.
+  - synthetic 단위 테스트뿐 아니라 현재 read-only 데이터 규모와 실행 중 dev API
+    응답으로 확장성 경계를 확인한다.
+- Verification:
+  - 534 IDs를 40개씩 나눈 14 read가 성공하고 453 rows를 반환했다.
+  - 수정 후 실행 중 dev server의 graph API가 200을 반환했다.
+
+## 2026-07-30 | Notification inbox contract | 개발자에게 서로 다른 role inbox를 두 번 요청함
+
+- Symptom:
+  - 로컬 dashboard에서 `/api/fc-notify` 200과 403이 한 쌍으로 반복됐다.
+- Root cause:
+  - Web bell과 Next proxy는 developer의 `admin`·`fc` 두 inbox를 허용했지만,
+    Edge auth contract는 developer를 개인 `admin` scope로만 검증했다.
+  - 단일 merged payload로 바꾸는 첫 시도도 안전하지 않았다. Request Board 생산자는
+    `fc_profiles.id`, developer/manager viewer는 별도 account-table ID를 사용해 병합이
+    비었고, 개인 admin query는 shared-admin broadcast까지 허용했다.
+- Permanent guardrail:
+  - 하나의 계층이 허용하는 role 조합만 테스트하지 말고, Next proxy의 최종 payload를
+    Edge auth policy에 넣는 cross-contract 회귀를 유지한다.
+  - canonical cross-role actor binding, 개인 admin broadcast 차단, list/get/receipt 동일
+    predicate를 Edge에서 함께 고치고 배포하기 전에는 developer/manager web inbox를
+    서버에서 fail-closed한다. UI도 해당 요청을 보내지 않는다.
+  - 실제 FC와 일반 admin의 signed scope는 그대로 유지한다.
+- Verification:
+  - 현재 Edge 로그에서 동일 refetch 시각의 200/403 쌍을 확인했다.
+  - personal-inbox HOLD contract 3/3, adjacent web recovery 17/17, root focused
+    28/28, full Jest 192 suites/1,176 tests, web TypeScript/lint로 fail-closed와
+    일반 admin/FC 비회귀를 함께 검증했다.
+
+## 2026-07-30 | Graph layout parity | 활성 force 일치만으로 읽기 쉬운 seed까지 같다고 판단함
+
+- Symptom:
+  - 모바일 매출 그래프가 관리자 웹의 charge/link/tension/collision/damping 계열을
+    사용하면서도, 단일 chain이 깊이마다 반대편으로 접혀 일반 settle 뒤 edge가
+    교차했다.
+  - seed surface의 좌표 clamp 때문에 사용자가 node를 일정 거리 밖으로 끌 수 없었다.
+  - 관리자 dense graph의 terminal leaf spoke도 300px까지 늘어 branch 안으로
+    침범했다.
+- Root cause:
+  - force-family parity와 seed-layout parity를 분리하지 않았고, guide depth만
+    검사해 인접 edge의 방향 반전과 settle 교차를 놓쳤다.
+  - 초기 배치용 surface를 영구 world boundary로 재사용했다.
+  - leaf fanout 압력과 hub-to-hub spacing을 같은 거리 성장식으로 처리했다.
+- Permanent guardrail:
+  - canonical graph의 초기·reset·정상 settle disjoint crossing 수와 연속 chain
+    최대 turn을 fixture 회귀 테스트로 고정하되 runtime 각도 clamp로 사용하지 않는다.
+    dense fanout은 subtree/collision 밀도에 따라 sector와 반지름을 확장한다.
+  - seed surface, camera viewport, world coordinates를 별도 개념으로 유지하고,
+    far-node fit 복구를 함께 시험한다.
+  - terminal leaf와 child-hub bridge의 거리 band를 같은 dense fixture에서 함께
+    검증해 leaf만 짧아지는지 확인한다.
+- Verification:
+  - 모바일 initial/51-frame settle crossing `0/0`, post-root maximum turn `27.2°`.
+  - 관리자 dense terminal leaf `166~179px`, child-hub bridge `354px`.
+  - 관련 모바일 36 tests와 관리자 physics 49 tests 통과.
+
 ## 2026-07-29 | 관리자 웹 PWA | 설치용 서비스워커가 기존 알림 서비스워커를 대체할 뻔함
 
 - Symptom:

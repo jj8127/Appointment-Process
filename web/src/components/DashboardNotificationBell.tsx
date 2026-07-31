@@ -127,32 +127,24 @@ export function DashboardNotificationBell({
     () => ['dashboard-header-notifications-v1', role, residentId, staffType] as const,
     [residentId, role, staffType],
   );
+  const personalInboxHeld = role === 'manager' || staffType === 'developer';
 
   const { data: items = [], isLoading, isRefetching, refetch } = useQuery({
     queryKey,
+    enabled: !personalInboxHeld,
     refetchInterval: 30_000,
     queryFn: async (): Promise<HeaderNotificationItem[]> => {
-      const fetchRole = async (inboxRole: 'admin' | 'fc') => invokeInbox({
-          type: 'inbox_list',
-          role: inboxRole,
-          resident_id: inboxRole === 'fc' || role === 'manager' || staffType === 'developer'
-            ? residentId.replace(/\D/g, '')
-            : null,
-          limit: LIST_LIMIT,
-        });
-      const [primaryInbox, developerFcInbox] = await Promise.all([
-        fetchRole(role === 'fc' ? 'fc' : 'admin'),
-        role === 'admin' && staffType === 'developer' ? fetchRole('fc') : Promise.resolve(null),
-      ]);
-      const deduped = new Map<string, InboxNotificationPayload>();
-      for (const item of [
-        ...(primaryInbox.notifications ?? []),
-        ...(developerFcInbox?.notifications ?? []),
-      ]) {
-        if (!deduped.has(item.id)) deduped.set(item.id, item);
-      }
+      if (personalInboxHeld) return [];
 
-      return Array.from(deduped.values())
+      const inboxRole = role === 'fc' ? 'fc' : 'admin';
+      const inbox = await invokeInbox({
+        type: 'inbox_list',
+        role: inboxRole,
+        resident_id: inboxRole === 'fc' ? residentId.replace(/\D/g, '') : null,
+        limit: LIST_LIMIT,
+      });
+
+      return (inbox.notifications ?? [])
         .filter((item) => !item.dismissed_at && UUID_PATTERN.test(String(item.id ?? '')))
         .map((item) => ({
           id: item.id,
@@ -215,10 +207,11 @@ export function DashboardNotificationBell({
             <Text fw={700} size="sm">알림 센터</Text>
             <Group gap={6} wrap="nowrap">
               <ActionIcon
-                variant="subtle"
-                color="gray"
-                size="sm"
-                onClick={() => void refetch()}
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  disabled={personalInboxHeld}
+                  onClick={() => void refetch()}
                 aria-label="알림 목록 새로고침"
               >
                 {isRefetching ? <Loader size={14} /> : <IconRefresh size={14} stroke={1.8} />}

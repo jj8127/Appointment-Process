@@ -19,6 +19,13 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-07-30
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 07-30 | Removed mobile revenue-graph lane folding and coordinate walls, retained the administrator active force family with a forward subtree seed, and shortened only dense administrator terminal-leaf spokes | `lib/referral-revenue-graph-native.ts`, revenue Canvas renderers/contracts, `web/src/lib/referral-graph-physics.ts` | [detail](WORK_DETAIL.md#20260730-referral-graph-untangled-seed-and-leaves) |
+| 07-30 | Recovered the local administrator referral graph from large-URL 500s and removed the developer double-inbox request; personal staff inboxes now fail closed pending a coordinated Edge scope fix | bounded referral-code reads, notification bell/proxy HOLD contract | [detail](WORK_DETAIL.md#20260730-local-admin-referral-graph-recovery) |
+
 ## 2026-07-29
 
 | Date | Work | Key files | Detail |

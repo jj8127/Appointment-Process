@@ -124,7 +124,11 @@ completed FC 또는 active manager 로그인 성공
   `center`, `x`, `y` force를 명시적으로 비활성화하므로 resolved preset의
   `centerStrength=0.024`를 모바일 전역 중심력으로 적용하지 않는다. 모바일 초기
   위치는 viewer 원점, 분리된 A/B/C branch sector, 깊이별 증가 반지름을 가진
-  collision-safe landscape radial seed다. WebView 내부 mutable numeric array는
+  collision-safe landscape radial seed다. 깊이별 좌우 반전 lane 대신 subtree를
+  stable order로 묶고, parent/child collision 반지름과 resolved link distance로 다음
+  ring의 전진 각도를 계산해 긴 single-child chain이 한 방향으로 완만하게 진행한다.
+  canonical sample은 초기/일반 settle 모두 disjoint edge crossing 0을 유지하며 별도
+  quadratic crossing force는 실행하지 않는다. WebView 내부 mutable numeric array는
   기존 force 계열에 약한 radial target과 bounded viewer anchor/rebase를 더해
   drag/settle frame을 처리하며 pointer-fixed node만 목표 force에서 제외한다. 이
   구조는 React commit과 SVG/native Text의 node별 rasterization을 frame path에서
@@ -132,8 +136,8 @@ completed FC 또는 active manager 로그인 성공
   canvas는 시작 지점 hit-test로 empty-space pan과 node drag를 분기하고,
   두 pointer pinch, fit/reset, 선택 ring을 처리한다. fit/reset은 viewer를 viewport
   중심에 두고 1·3·6·10단계 guide ring이 중심에서 바깥으로 증가하는 depth를
-  설명한다. 회색 base edge는 샘플 조직 관계를 유지하고 eligible edge 위에는
-  child에서 parent 방향의 주황 arrow를 그린다. 11단계 A11 edge는 회색 점선이고
+  설명한다. eligible edge는 중복 회색 base line 없이 child에서 parent 방향의 주황
+  arrow shaft 하나로 그린다. 11단계 A11 edge는 회색 점선이고
   arrow가 없다. eligible node 선택 시 전체 조상 경로를 정적으로 강조하고 inward
   pulse는 최대 1.5초만 실행한 뒤 event-driven RAF를 idle로 돌린다. viewer node는
   unfiltered canonical 합계 10,240,000원을, 각 eligible node는 자기 예상 배분액을
@@ -146,6 +150,10 @@ completed FC 또는 active manager 로그인 성공
   보내고, React Native 측은 현재 node map에 존재하는 ID만 상세 선택으로 수락한다.
   file/universal file access, mixed content, DOM storage, 외부 navigation은 허용하지
   않는다.
+  drag/physics 좌표는 seed surface 경계로 clamp하지 않고 finite guard만 적용한다.
+  pan은 원래대로 무제한이며 fit은 pinch 최소 배율 아래도 허용해 먼 node까지 다시
+  viewport에 담는다. reset은 원래 deterministic seed와 fit을 복원한다. SVG fallback도
+  동일 좌표 계약을 사용하고 edge layer의 overflow를 visible로 둔다.
   graph route는 stack header를 숨기고 back/title/sample header와 설정 trigger만
   canvas 위에 상시 overlay한다. summary·filter·list·fit/reset·legend·disclaimer는
   `Modal` 설정 panel 안에 있으며 panel open 동안 graph gesture를 차단한다.
@@ -198,6 +206,8 @@ completed FC 또는 active manager 로그인 성공
 - 관리자 추천 관계 그래프 API: `GET /api/admin/referrals/graph`
   - eligible FC node + code 상태를 읽는다
   - visible edge는 `fc_profiles.recommender_fc_id`만으로 만든다
+  - 추천코드는 FC ID를 40개 이하 chunk로 나눠 읽고 row ID 중복 제거 후
+    `created_at` 전역 내림차순으로 병합해 대규모 `.in(...)` URL을 만들지 않는다
   - graph route는 read-only이며 mutate path를 열지 않는다
 - 관리자 override API: `admin_apply_recommender_override(...)`
   - 신규 runtime은 내부에서 `apply_referral_link_state(...)` wrapper를 호출한다
@@ -298,6 +308,11 @@ completed FC 또는 active manager 로그인 성공
 - edge는 `recommender_fc_id` 기반 단일 `linked` 관계만 사용한다.
 - free-text `recommender`는 graph edge가 아니라 review queue/legacy badge로만 사용한다.
 - layout state는 세션 로컬이며 node drag, 빈 캔버스 pan, fit/reset, 기본 node label 표시를 지원한다.
+- Canvas가 주입하는 `getReferralGraphLinkDistance`는 childless terminal leaf를
+  `118..185px` deterministic band로 압축한다. 240-node/24-child fixture의 leaf는
+  `166..179px`이고 child-hub bridge는 기존 `354px`를 유지한다. dense hub의 leaf가 인접 branch 영역까지
+  침범하는 것을 줄이되 child-hub bridge와 charge/link-tension/collision/drag force는
+  변경하지 않는다.
 
 ## 9. 장애 추적 최소 로그 기준
 

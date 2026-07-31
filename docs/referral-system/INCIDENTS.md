@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-07-27` 기준 등록된 추천인 이슈는 `24건`이다.
+- `2026-07-30` 기준 등록된 추천인 이슈는 `26건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,8 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-026 | 2026-07-30 | 대규모 추천코드 ID를 한 URL로 조회해 관리자 그래프 API가 헤더 초과 500을 반환함 | `RF-ADMIN-07` | fixed |
+| INC-025 | 2026-07-30 | 모바일 매출 그래프의 반전 seed와 관리자 dense leaf 길이로 그래프가 과도하게 꼬임 | `RF-SELF-05`, `RF-ADMIN-08` | fixed |
 | INC-024 | 2026-07-27 | 매출 기여 그래프를 추천 관계 그래프와 다른 카드형 계층으로 구현함 | `RF-SELF-05` | fixed |
 | INC-023 | 2026-06-08 | 설정 화면 추천코드 공유가 예전 direct deep-link 문구를 계속 사용함 | `RF-LINK-06` | fixed |
 | INC-022 | 2026-04-26 | 관리자 추천인 그래프 체크리스트 미완료 상태를 완료처럼 보고함 | `RF-ADMIN-08` | monitoring |
@@ -70,6 +72,75 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-026 | 2026-07-30 | 대규모 추천코드 ID를 한 URL로 조회해 관리자 그래프 API가 헤더 초과 500을 반환함
+
+- symptom:
+  - 로컬 `/dashboard/referrals/graph`가 반복해서 그래프 조회 실패를 표시하고 `/api/admin/referrals/graph`가 500을 반환했다.
+  - DevTools에는 등록된 service worker의 FetchEvent 실패도 함께 보였지만 이는 500 응답에 따른 2차 증상이었다.
+- impact:
+  - 로그인과 페이지 shell은 정상이어도 실제 추천인 그래프를 볼 수 없었다.
+- trigger:
+  - 추천 대상 FC가 500명대까지 증가한 상태에서 관리자 그래프를 조회했다.
+- rootCause:
+  - `fetchReferralCodes`가 500여 개 UUID를 하나의 PostgREST `.in('fc_id', fcIds)` URL에 넣어 약 18~21KB 요청을 만들었다.
+  - Node Undici가 응답을 처리하기 전에 `UND_ERR_HEADERS_OVERFLOW`를 발생시켰다.
+- fix:
+  - 기존 40-ID bounded chunk helper를 추천코드 조회에도 적용하고, row ID로 중복 제거한 뒤 `created_at` 전역 내림차순으로 병합했다.
+  - 스키마·RPC·데이터 쓰기 없이 서버 읽기 경로만 수정했다.
+- linkedCases:
+  - `RF-ADMIN-07`
+- evidence:
+  - 수정 전 terminal: request URL 18,531자, `UND_ERR_HEADERS_OVERFLOW`, API 500.
+  - read-only 재현: 534 eligible IDs의 unchunked 조회 실패; 40개씩 14 chunk는 모두 성공하고 453 code rows 반환.
+  - 수정 후 실행 중 dev server: `/api/admin/referrals/graph` 200, 약 1.31초.
+  - bounded-query regression 5/5, web TypeScript/lint PASS.
+- reproduction:
+  1. 수백 개 FC ID를 하나의 `referral_codes.in(fc_id, ...)` 요청에 넣는다.
+  2. URL이 런타임 HTTP 헤더 한도를 넘으면 `fetch failed`와 `UND_ERR_HEADERS_OVERFLOW`가 발생한다.
+  3. API route가 일반화된 추천인 그래프 조회 실패 500을 반환한다.
+- regressionCheck:
+  - `web/src/lib/admin-referral-event-query.test.ts`에서 444개 ID가 40개 이하 chunk로 분할되고 중복 row가 전역 최신순으로 병합되는지 검사한다.
+- notes:
+  - `/api/fc-notify`의 403은 개발자 inbox 계약의 별도 문제이며 이 그래프 500이나 service worker가 원인이 아니다.
+
+## INC-025 | 2026-07-30 | 모바일 매출 그래프의 반전 seed와 관리자 dense leaf 길이로 그래프가 과도하게 꼬임
+
+- symptom:
+  - 모바일 매출 그래프의 단일 A 체인이 깊이마다 좌우로 접혀, 초기 배치가 교차하지 않아도 일반 settle 뒤 edge 교차가 생겼다.
+  - 모바일 node를 멀리 끌면 논리 surface 경계인 70~1530 좌표에서 더 움직이지 않았다.
+  - 관리자 추천인 그래프는 인원이 많을 때 자식이 없는 node의 spoke가 300px까지 늘어나 다른 branch 안으로 침범했다.
+- impact:
+  - 관계 데이터가 맞아도 선이 뒤엉켜 잘못 연결된 조직처럼 보였고, 사용자가 node를 원하는 위치까지 정리할 수도 없었다.
+- trigger:
+  - 17-node 매출 샘플의 연속 chain 회전각과 settle 교차를 계측하고, 관리자 dense fanout의 terminal link 길이를 분리 측정했다.
+- rootCause:
+  - 관리자 웹의 활성 force 계열은 참고했지만 모바일 seed에 depth별 좌우 반전 lane을 별도로 넣었고, 기존 테스트는 guide depth만 확인해 인접 edge의 큰 방향 반전을 놓쳤다.
+  - seed용 1600-unit surface를 world 좌표 경계로도 사용했다.
+  - 관리자 terminal leaf 공식이 dense fanout 압력에 따라 일반 branch link처럼 300px 상한까지 커졌다.
+- fix:
+  - 모바일 seed를 stable subtree order와 parent-relative forward angle로 바꾸고 link 길이·collision envelope를 각도 간격에 반영했다. 매 frame O(E²) crossing force는 추가하지 않았다.
+  - eligible edge는 하나의 주황 방향 shaft만 그리며, 유한성 검사는 유지하되 world 좌표 clamp를 제거했다. 멀어진 node는 최소 pinch 배율 아래까지 허용하는 `화면 맞춤`과 `초기화`로 복구한다.
+  - 관리자 terminal leaf만 결정적 118~185px band로 줄이고 child-hub bridge 및 기존 활성 force/drag 동작은 유지했다.
+- linkedCases:
+  - `RF-SELF-05`
+  - `RF-ADMIN-08`
+- evidence:
+  - 모바일 canonical sample: initial crossing 0, 51-frame settle crossing 0, post-root maximum turn 27.2°.
+  - 모바일 focused regression: 2 suites / 36 tests PASS.
+  - 관리자 physics/layout/free/simulation/real-data regression: 125/125 PASS; dense terminal leaf 166~179px, child-hub bridge 354px.
+  - 471-node read-only settle: crossing 18/44, severity 5.302/13.4, min spacing 약 84px, max edge 454.360/468, direct-spoke P90 419.922/420 PASS.
+  - 모바일·관리자 TypeScript 및 대상 ESLint PASS.
+- reproduction:
+  1. 이전 `DEPTH_SECTOR_LANES` seed로 A1~A11의 연속 edge 방향을 계산하면 post-root 최대 회전각이 약 167°가 된다.
+  2. 이전 seed를 51 frame settle하면 disjoint edge crossing이 1개 생긴다.
+  3. 이전 관리자 dense 240-node fixture에서 terminal leaf 목표 길이를 계산하면 모두 300px까지 늘어난다.
+- regressionCheck:
+  - `lib/__tests__/referral-revenue-graph-native.test.ts`에서 initial/settle crossing, 최대 turn, unlimited coordinate, far-node fit을 고정한다.
+  - `lib/__tests__/referral-revenue-demo-source.test.ts`에서 eligible single shaft와 WebView/SVG clamp 제거를 고정한다.
+  - `web/src/lib/referral-graph-physics.test.ts`에서 dense leaf band와 child-hub 기존 길이를 함께 고정한다.
+- notes:
+  - 복잡한 전체 그래프에서 모든 임시 crossing을 금지하지 않는다. 45도는 고정 canonical fixture의 회귀값이지 runtime clamp가 아니다. dense fanout은 subtree/collision 밀도에 따라 sector와 반지름을 넓힌다.
 
 ## INC-024 | 2026-07-27 | 매출 기여 그래프를 추천 관계 그래프와 다른 카드형 계층으로 구현함
 

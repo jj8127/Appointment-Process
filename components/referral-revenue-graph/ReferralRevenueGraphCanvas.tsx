@@ -73,10 +73,15 @@ type Props = {
   overlayBottomInset?: number;
 };
 
-const clampScale = (value: number) => {
+const finitePositiveScale = (value: number) => {
+  'worklet';
+  return Number.isFinite(value) && value > 0 ? value : Number.EPSILON;
+};
+
+const clampScale = (value: number, minimumScale: number) => {
   'worklet';
   return Math.min(
-    Math.max(value, SAMPLE_REVENUE_GRAPH_MIN_SCALE),
+    Math.max(value, finitePositiveScale(minimumScale)),
     SAMPLE_REVENUE_GRAPH_MAX_SCALE,
   );
 };
@@ -300,14 +305,15 @@ const AnimatedRevenueEdge = memo(function AnimatedRevenueEdge({
 
   return (
     <>
-      <AnimatedLine
-        animatedProps={animatedProps}
-        stroke={context ? '#e2e8f0' : '#cbd5e1'}
-        strokeWidth={Math.max(1.5, 1.35 / safeScale)}
-        strokeLinecap="round"
-        strokeDasharray={excluded ? '5 5' : undefined}
-      />
-      {!excluded && (
+      {excluded ? (
+        <AnimatedLine
+          animatedProps={animatedProps}
+          stroke={context ? '#e2e8f0' : '#cbd5e1'}
+          strokeWidth={Math.max(1.5, 1.35 / safeScale)}
+          strokeLinecap="round"
+          strokeDasharray="5 5"
+        />
+      ) : (
         <AnimatedPath
           animatedProps={arrowProps}
           fill={highlighted ? '#ea580c' : '#f97316'}
@@ -359,7 +365,7 @@ const AnimatedRevenueNode = memo(function AnimatedRevenueNode({
     transform: [{
       scale: 1 / Math.max(
         scale.value,
-        SAMPLE_REVENUE_GRAPH_MIN_SCALE,
+        Number.EPSILON,
       ),
     }],
   }), [scale]);
@@ -784,8 +790,8 @@ function ReferralRevenueGraphSvgCanvas({
       ticks: 1,
       fixedNodeId: node.id,
       fixedPosition: {
-        x: Math.min(Math.max(x, 70), SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - 70),
-        y: Math.min(Math.max(y, 70), SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - 70),
+        x,
+        y,
       },
     });
     commitMotion(next);
@@ -877,14 +883,8 @@ function ReferralRevenueGraphSvgCanvas({
           ticks: 1,
           fixedNodeId: finalNode.id,
           fixedPosition: {
-            x: Math.min(
-              Math.max(pendingFinalSample.x, 70),
-              SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - 70,
-            ),
-            y: Math.min(
-              Math.max(pendingFinalSample.y, 70),
-              SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - 70,
-            ),
+            x: pendingFinalSample.x,
+            y: pendingFinalSample.y,
           },
         })
         : stepSampleRevenueInteractivePhysics({
@@ -950,10 +950,7 @@ function ReferralRevenueGraphSvgCanvas({
         nodeDragGestureToken.value = nodeDragGestureSequence.value;
         startPanX.value = panX.value;
         startPanY.value = panY.value;
-        const currentScale = Math.max(
-          scale.value,
-          SAMPLE_REVENUE_GRAPH_MIN_SCALE,
-        );
+        const currentScale = finitePositiveScale(scale.value);
         const graphX = SAMPLE_REVENUE_GRAPH_SURFACE_SIZE / 2
           + (
             event.x
@@ -993,10 +990,7 @@ function ReferralRevenueGraphSvgCanvas({
       })
       .onUpdate((event) => {
         if (draggedNodeIndex.value >= 0) {
-          const currentScale = Math.max(
-            scale.value,
-            SAMPLE_REVENUE_GRAPH_MIN_SCALE,
-          );
+          const currentScale = finitePositiveScale(scale.value);
           const graphX = SAMPLE_REVENUE_GRAPH_SURFACE_SIZE / 2
             + (
               event.x
@@ -1060,13 +1054,21 @@ function ReferralRevenueGraphSvgCanvas({
   const pinchGesture = useMemo(
     () => Gesture.Pinch()
       .onStart(() => {
-        baseScale.value = scale.value;
+        baseScale.value = finitePositiveScale(scale.value);
         pinchStartPanX.value = panX.value;
         pinchStartPanY.value = panY.value;
       })
       .onUpdate((event) => {
-        const nextScale = clampScale(baseScale.value * event.scale);
-        const ratio = nextScale / Math.max(baseScale.value, 0.001);
+        const startScale = finitePositiveScale(baseScale.value);
+        const gestureMinScale = Math.min(
+          SAMPLE_REVENUE_GRAPH_MIN_SCALE,
+          startScale,
+        );
+        const nextScale = clampScale(
+          startScale * event.scale,
+          gestureMinScale,
+        );
+        const ratio = nextScale / startScale;
         const focalOffsetX = event.focalX - canvasSize.width / 2;
         const focalOffsetY = event.focalY - canvasSize.height / 2;
 
@@ -1118,7 +1120,7 @@ function ReferralRevenueGraphSvgCanvas({
     ),
     [edges, visibleNodeIds],
   );
-  const safeScale = Math.max(displayScale, SAMPLE_REVENUE_GRAPH_MIN_SCALE);
+  const safeScale = Math.max(displayScale, Number.EPSILON);
   const minimumScreenRadius = 14 / safeScale;
   const hitTargetSize = 48 / safeScale;
   const nodeById = useMemo(
@@ -1160,6 +1162,7 @@ function ReferralRevenueGraphSvgCanvas({
             width={SAMPLE_REVENUE_GRAPH_SURFACE_SIZE}
             height={SAMPLE_REVENUE_GRAPH_SURFACE_SIZE}
             viewBox={`0 0 ${SAMPLE_REVENUE_GRAPH_SURFACE_SIZE} ${SAMPLE_REVENUE_GRAPH_SURFACE_SIZE}`}
+            style={styles.edgeLayer}
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
           >
@@ -1317,6 +1320,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: SAMPLE_REVENUE_GRAPH_SURFACE_SIZE,
     height: SAMPLE_REVENUE_GRAPH_SURFACE_SIZE,
+  },
+  edgeLayer: {
+    overflow: 'visible',
   },
   nodeVisual: {
     position: 'absolute',

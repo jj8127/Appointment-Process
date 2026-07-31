@@ -152,17 +152,18 @@ describe('admin web direct chat list source', () => {
     expect(page).not.toContain('fc_id: deepLinked');
   });
 
-  it('scopes web header notifications like direct chat: shared admin for staff, personal for developers and managers', () => {
+  it('keeps shared admin and FC inboxes active while personal admin inboxes fail closed', () => {
     const notificationBell = readFileSync(notificationBellPath, 'utf8');
 
-    expect(notificationBell).toContain("const fetchRole = async (inboxRole: 'admin' | 'fc') => invokeInbox({");
+    expect(notificationBell).toContain("const inboxRole = role === 'fc' ? 'fc' : 'admin'");
+    expect(notificationBell).toContain('const inbox = await invokeInbox({');
+    expect(notificationBell).toContain("const personalInboxHeld = role === 'manager' || staffType === 'developer'");
+    expect(notificationBell).toContain('enabled: !personalInboxHeld');
     expect(notificationBell).toContain(
-      "resident_id: inboxRole === 'fc' || role === 'manager' || staffType === 'developer'",
+      "resident_id: inboxRole === 'fc' ? residentId.replace(/\\D/g, '') : null",
     );
-    expect(notificationBell).toContain("fetchRole(role === 'fc' ? 'fc' : 'admin')");
-    expect(notificationBell).toContain(
-      "role === 'admin' && staffType === 'developer' ? fetchRole('fc') : Promise.resolve(null)",
-    );
+    expect(notificationBell).not.toContain('Promise.all');
+    expect(notificationBell).not.toContain('developerFcInbox');
     expect(notificationBell).not.toContain('actor_id:');
     expect(notificationBell).not.toContain('recipient_actor_id:');
   });

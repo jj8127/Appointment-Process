@@ -288,6 +288,15 @@ function hasMismatchedBoolean(
   return hasOwn(body, key) && body[key] !== expected;
 }
 
+function isPersonalAdminInboxHeld(session: FcNotifyBrowserSession) {
+  return session.role === 'manager'
+    || (session.role === 'admin' && session.staffType === 'developer');
+}
+
+function personalAdminInboxHeld() {
+  return fail(403, 'Personal administrator inbox is unavailable until its Edge scope is upgraded');
+}
+
 export function classifyFcNotifyIngress(
   body: unknown,
   bridgeToken: string | null | undefined,
@@ -397,6 +406,8 @@ function buildInboxPayload(
   body: Record<string, unknown>,
   session: FcNotifyBrowserSession,
 ): PolicyResult<BrowserFcNotifyPayload> {
+  if (isPersonalAdminInboxHeld(session)) return personalAdminInboxHeld();
+
   const requestedRole = body.role;
   let role: 'admin' | 'fc';
   let residentId: string | null;
@@ -444,6 +455,8 @@ function buildInboxMutationPayload(
   body: Record<string, unknown>,
   session: FcNotifyBrowserSession,
 ): PolicyResult<BrowserFcNotifyPayload> {
+  if (isPersonalAdminInboxHeld(session)) return personalAdminInboxHeld();
+
   if (body.type !== 'inbox_mark_read' && body.type !== 'inbox_dismiss') {
     return fail(403, 'Inbox mutation is not allowed');
   }
@@ -471,6 +484,8 @@ function buildInboxGetPayload(
   body: Record<string, unknown>,
   session: FcNotifyBrowserSession,
 ): PolicyResult<BrowserFcNotifyPayload> {
+  if (isPersonalAdminInboxHeld(session)) return personalAdminInboxHeld();
+
   const notificationId =
     typeof body.notification_id === 'string' ? body.notification_id.trim().toLowerCase() : '';
   if (!UUID_PATTERN.test(notificationId)) return fail(400, 'Invalid notification id');

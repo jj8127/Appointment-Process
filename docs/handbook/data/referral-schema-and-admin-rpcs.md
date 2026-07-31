@@ -2,7 +2,7 @@ doc_id: FC-DATA-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-07-26
+last_verified: 2026-07-31
 source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql
 
 # Data Handbook: Referral Schema And Admin RPCs
@@ -22,6 +22,11 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
   사용하는 로컬 샘플이며 이 문서의 referral schema, RPC, Edge Function 또는
   실제 사용자 관계를 읽지 않는다. 표시된 1~10단계 10%는 UI 시뮬레이션이지
   운영 정산 계약이 아니다.
+- 이 샘플의 native/WebView canvas는 같은 parent chain을 중심에서 바깥으로 퍼지는
+  subtree seed와 bounded settle schedule로 배치한다. world 좌표는 제한하지 않고,
+  pan/zoom 중 label·금액은 screen-space 고정 크기를 유지하며 contribution edge는
+  child에서 parent 방향을 표시한다. 이는 시각화 계약일 뿐 referral read model을
+  변경하지 않는다.
 - FC/본부장 self-service referral session guard는 `hooks/use-referral-app-session.ts -> refresh-app-session`이다.
 - referral tree의 현재 모바일 기본 surface는 `app/referral.tsx` 내부 섹션이며, `app/referral-tree.tsx`는 legacy 진입을 `/referral`로 보내는 compatibility route만 유지한다.
 - 현재 모바일 상단 surface는 ancestor chain 전체가 아니라 `get-referral-tree.ancestors`의 마지막 노드만 direct recommender 카드로 렌더링한다.

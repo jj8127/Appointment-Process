@@ -62,7 +62,8 @@ describe('referral revenue demo screen source contract', () => {
   it('labels depth and excluded nodes without relying on color', () => {
     expect(combined).toContain('{node.depth}단계');
     expect(combined).toContain('대상 제외');
-    expect(canvas).toContain("strokeDasharray={excluded ? '5 5' : undefined}");
+    expect(canvas).toContain('strokeDasharray="5 5"');
+    expect(canvas).toContain('{excluded ? (');
     expect(screen).toContain('돈의 이동을 의미하지 않습니다');
   });
 
@@ -177,6 +178,47 @@ describe('referral revenue demo screen source contract', () => {
     expect(pinchUpdate).not.toContain('setDisplayScale');
   });
 
+  it('keeps far-fit pointer mapping and pinch gestures continuous', () => {
+    const nativePointerMapping = nativeCanvas
+      .split('const screenToGraph =')[1]
+      .split('const createTextCache')[0];
+    const nativePinch = nativeCanvas
+      .split('const beginPinch = () => {')[1]
+      .split("canvas.addEventListener('pointerdown'")[0];
+    const fallbackPan = canvas
+      .split('const panGesture')[1]
+      .split('const pinchGesture')[0];
+    const fallbackPinch = canvas
+      .split('const pinchGesture')[1]
+      .split('const graphGesture')[0];
+
+    expect(nativePointerMapping).toContain(
+      'const currentScale = finitePositiveScale(view.scale)',
+    );
+    expect(nativePointerMapping).not.toContain('Math.max(view.scale, 0.001)');
+    expect(nativePinch).toContain(
+      'minScale: Math.min(',
+    );
+    expect(nativePinch).toContain('pinch.minScale');
+    expect(nativePinch).not.toContain(
+      'pinch.scale * distance / pinch.distance,\n        config.minScale',
+    );
+    expect(fallbackPan).toContain(
+      'const currentScale = finitePositiveScale(scale.value)',
+    );
+    expect(fallbackPan).not.toContain('SAMPLE_REVENUE_GRAPH_MIN_SCALE');
+    expect(fallbackPinch).toContain(
+      'const startScale = finitePositiveScale(baseScale.value)',
+    );
+    expect(fallbackPinch).toContain(
+      'const gestureMinScale = Math.min(',
+    );
+    expect(fallbackPinch).toContain('const ratio = nextScale / startScale');
+    expect(fallbackPinch).not.toContain(
+      'Math.max(baseScale.value, 0.001)',
+    );
+  });
+
   it('uses one native canvas draw loop instead of per-node Android view redraws', () => {
     expect(canvas).toContain("Platform.OS !== 'web'");
     expect(canvas).toContain('ReferralRevenueGraphWebViewCanvas');
@@ -251,6 +293,8 @@ describe('referral revenue demo screen source contract', () => {
     expect(nativeCanvas).toContain('selectedPathEdgeIndexes');
     expect(nativeCanvas).toContain('const flowPulseMaxDuration = 1500');
     expect(nativeCanvas).toContain('selectedPathEdgeSet.has(edgeIndex)');
+    expect(drawEdges).toContain('if (!edge.revenueEligible)');
+    expect(drawEdges).not.toContain('ctx.stroke();\n        if (edge.revenueEligible)');
     expect(drawEdges).not.toContain('fillText');
     expect(loop).toContain('flowPulseVisible');
     expect(loop).toContain('flowPulseUntil = 0');
@@ -258,7 +302,7 @@ describe('referral revenue demo screen source contract', () => {
     expect(canvas).toContain('const AnimatedPath');
     expect(canvas).toContain('const dx = parentX - childX');
     expect(canvas).toContain('highlighted={highlightedEdgeIds.has(edge.id)}');
-    expect(canvas).toContain('{!excluded && (');
+    expect(canvas).toContain('{excluded ? (');
     expect(screen).toContain('하위 → 나 기여 방향');
     expect(screen).toContain('실제 돈의 이동을 의미하지 않습니다');
   });
@@ -288,6 +332,26 @@ describe('referral revenue demo screen source contract', () => {
     expect(finishPointer).toContain(
       'stepPhysics(0.24, releasedDragIndex, pendingDragPosition)',
     );
+  });
+
+  it('keeps graph world coordinates unbounded while fit and reset stay available', () => {
+    const nativePhysics = nativeCanvas
+      .split('const stepPhysics = (alpha, fixedIndex, fixedPosition) => {')[1]
+      .split('const getEdgeGeometry')[0];
+    const fallbackDrag = canvas
+      .split('const commitNodeDragSample = useCallback')[1]
+      .split('const handleLayout = useCallback')[0];
+
+    expect(nativePhysics).not.toContain('config.surfaceSize - 70');
+    expect(nativePhysics).not.toContain('node.x = clamp(node.x + node.vx');
+    expect(nativePhysics).not.toContain('node.y = clamp(node.y + node.vy');
+    expect(fallbackDrag).not.toContain(
+      'SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - 70',
+    );
+    expect(canvas).toContain('style={styles.edgeLayer}');
+    expect(canvas).toContain("overflow: 'visible'");
+    expect(screen).toContain('handleGraphFit');
+    expect(screen).toContain('handleGraphReset');
   });
 
   it('keeps the local WebView bridge revisioned, selectable, and offline', () => {

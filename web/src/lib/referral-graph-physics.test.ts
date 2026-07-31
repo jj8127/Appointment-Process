@@ -392,7 +392,7 @@ test('getReferralGraphLinkDistance gives short leaf spokes and long hub bridges'
   }) <= 135);
 });
 
-test('getReferralGraphLinkDistance keeps sparse leaves short and lengthens crowded leaf fans only as needed', () => {
+test('getReferralGraphLinkDistance keeps sparse leaves short and caps crowded leaf fans', () => {
   const baseDistance = 250;
 
   const sparseSpoke = getReferralGraphLinkDistance(8, 1, baseDistance, {
@@ -407,10 +407,18 @@ test('getReferralGraphLinkDistance keeps sparse leaves short and lengthens crowd
     sourceChildCount: 18,
     graphNodeCount: 180,
   });
+  const minimumSpoke = getReferralGraphLinkDistance(3, 1, baseDistance, {
+    sourceHasChildren: true,
+    targetHasChildren: false,
+    sourceChildCount: 1,
+    graphNodeCount: 1,
+  });
 
+  assert.ok(minimumSpoke >= 118, `terminal leaf spoke must respect the explicit floor, got ${minimumSpoke}`);
   assert.ok(sparseSpoke <= 150, `sparse terminal leaf spoke should remain short, got ${sparseSpoke}`);
-  assert.ok(crowdedSpoke >= 250, `crowded terminal leaf spoke should reserve fan space, got ${crowdedSpoke}`);
-  assert.ok(crowdedSpoke <= 300, `crowded terminal leaf spoke should stay bounded, got ${crowdedSpoke}`);
+  assert.ok(crowdedSpoke >= 150, `crowded terminal leaf spoke should clear the hub, got ${crowdedSpoke}`);
+  assert.ok(crowdedSpoke <= 185, `crowded terminal leaf spoke should stay compact, got ${crowdedSpoke}`);
+  assert.ok(crowdedSpoke > sparseSpoke, `crowded leaf fan should retain a modest spacing bonus: sparse=${sparseSpoke}, crowded=${crowdedSpoke}`);
 });
 
 test('getReferralGraphLinkDistance staggers terminal leaf lengths by link id within a short range', () => {
@@ -433,9 +441,9 @@ test('getReferralGraphLinkDistance staggers terminal leaf lengths by link id wit
   });
 
   assert.equal(distances[0], repeated, 'terminal leaf jitter must be stable for the same link id');
-  assert.ok(Math.max(...distances) <= 300, `terminal leaf jitter should stay bounded, got ${distances.join(',')}`);
-  assert.ok(Math.min(...distances) >= 220, `crowded terminal leaf jitter should reserve space outside the hub, got ${distances.join(',')}`);
-  assert.ok(Math.max(...distances) - Math.min(...distances) >= 18, `terminal leaves should have slightly varied lengths, got ${distances.join(',')}`);
+  assert.ok(Math.max(...distances) <= 185, `terminal leaf jitter should stay compact, got ${distances.join(',')}`);
+  assert.ok(Math.min(...distances) >= 118, `terminal leaf jitter should respect the collision-safe floor, got ${distances.join(',')}`);
+  assert.ok(Math.max(...distances) - Math.min(...distances) >= 7, `terminal leaves should have slightly varied lengths, got ${distances.join(',')}`);
 });
 
 test('getReferralGraphMinimumNodeDistance grows enough for admin-sized graphs', () => {
@@ -515,7 +523,51 @@ test('getReferralGraphLinkDistance keeps crowded terminal leaf edges shorter tha
   assert.ok(childHub >= terminalLeaf + 25, `child hub edge should be visibly longer: hub=${childHub}, leaf=${terminalLeaf}`);
 });
 
-test('getReferralGraphLinkDistance keeps sparse chain bridges modest while star leaves stay readable', () => {
+test('getReferralGraphLinkDistance compacts dense terminal leaf spokes without shrinking child-hub bridges', () => {
+  const baseDistance = 250;
+  const terminalLeafDistances = Array.from({ length: 24 }, (_, index) => getReferralGraphLinkDistance(
+    24,
+    1,
+    baseDistance,
+    {
+      sourceHasChildren: true,
+      targetHasChildren: false,
+      sourceChildCount: 24,
+      sourceId: 'dense-hub',
+      targetId: `terminal-leaf-${index}`,
+      sourceSubtreeSize: 72,
+      targetSubtreeSize: 1,
+      graphNodeCount: 240,
+    },
+  ));
+  const childHub = getReferralGraphLinkDistance(24, 4, baseDistance, {
+    sourceHasChildren: true,
+    targetHasChildren: true,
+    sourceChildCount: 24,
+    targetChildCount: 3,
+    sourceId: 'dense-hub',
+    targetId: 'child-hub',
+    sourceSubtreeSize: 72,
+    targetSubtreeSize: 12,
+    graphNodeCount: 240,
+  });
+
+  assert.ok(
+    Math.max(...terminalLeafDistances) <= 185,
+    `dense terminal leaves should stay in a compact spoke band, got ${terminalLeafDistances.join(',')}`,
+  );
+  assert.ok(
+    Math.min(...terminalLeafDistances) >= 160,
+    `dense terminal leaves should still clear the hub collision zone, got ${terminalLeafDistances.join(',')}`,
+  );
+  assert.equal(childHub, 354, `child-hub bridge should remain unchanged, got ${childHub}`);
+  assert.ok(
+    childHub >= Math.max(...terminalLeafDistances) + 165,
+    `child-hub bridge should remain visually distinct from leaf spokes: hub=${childHub}, leaves=${terminalLeafDistances.join(',')}`,
+  );
+});
+
+test('getReferralGraphLinkDistance keeps sparse chain bridges modest while star leaves stay compact', () => {
   const baseDistance = 250;
 
   const sparseChainBridge = getReferralGraphLinkDistance(2, 2, baseDistance, {
@@ -537,11 +589,12 @@ test('getReferralGraphLinkDistance keeps sparse chain bridges modest while star 
   });
 
   assert.ok(sparseChainBridge <= 230, `sparse chain bridge should not stretch into a long strand, got ${sparseChainBridge}`);
-  assert.ok(starLeafSpoke >= 165, `star leaf spokes should not collapse into the hub, got ${starLeafSpoke}`);
-  assert.ok(starLeafSpoke >= sparseChainBridge, `high-fanout leaf spokes should not be shorter than sparse chains: bridge=${sparseChainBridge}, leaf=${starLeafSpoke}`);
+  assert.ok(starLeafSpoke >= 118, `star leaf spokes should clear the collision-safe floor, got ${starLeafSpoke}`);
+  assert.ok(starLeafSpoke <= 185, `star leaf spokes should remain in the terminal band, got ${starLeafSpoke}`);
+  assert.ok(starLeafSpoke <= sparseChainBridge - 40, `terminal leaves should be visibly shorter than child bridges: bridge=${sparseChainBridge}, leaf=${starLeafSpoke}`);
 });
 
-test('getReferralGraphLinkDistance keeps one-child relay chains shorter than high-fanout leaf spokes', () => {
+test('getReferralGraphLinkDistance keeps high-fanout terminal leaves shorter than one-child relay bridges', () => {
   const baseDistance = 250;
 
   const relayBridge = getReferralGraphLinkDistance(2, 2, baseDistance, {
@@ -564,8 +617,8 @@ test('getReferralGraphLinkDistance keeps one-child relay chains shorter than hig
 
   assert.ok(relayBridge <= 230, `one-child relay chains should stay compact even with deeper descendants, got ${relayBridge}`);
   assert.ok(
-    highFanoutLeafSpoke >= relayBridge + 20,
-    `many-child hubs should get longer child spokes than sparse chains: chain=${relayBridge}, fanout=${highFanoutLeafSpoke}`,
+    highFanoutLeafSpoke <= relayBridge - 40,
+    `terminal leaves should remain shorter than subtree relay bridges: chain=${relayBridge}, fanout=${highFanoutLeafSpoke}`,
   );
 });
 

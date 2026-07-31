@@ -40,26 +40,16 @@ export const SAMPLE_REVENUE_MOBILE_SETTLE = {
   stopThreshold: 0.014,
 } as const;
 
-const FIRST_RING_RADIUS = 160;
-const DEPTH_RING_GAP = 48;
+const FIRST_RING_RADIUS = 300;
+const DEPTH_RING_GAP = 34;
 const SIBLING_ANGLE_GAP = 0.12;
+const SEED_LINK_DISTANCE_BLEND = 0.35;
+const SEED_LINK_DISTANCE_CAP = 230;
+const MINIMUM_BRANCH_ANGLE_GAP = 0.025;
 const SURFACE_EDGE_MARGIN = 70;
 const HARD_COLLISION_ITERATIONS = 96;
 const COLLISION_SAFETY_GAP = 5;
 const TWO_PI = Math.PI * 2;
-const DEPTH_SECTOR_LANES = [
-  -0.7,
-  0,
-  0.55,
-  -0.35,
-  0.05,
-  0.4,
-  -0.45,
-  -0.2,
-  0.05,
-  -0.4,
-  -0.2,
-] as const;
 const LANDSCAPE_BRANCH_START_ANGLE = 0;
 
 export const SAMPLE_REVENUE_GRAPH_GUIDE_DEPTHS = [1, 3, 6, 10] as const;
@@ -222,12 +212,31 @@ function createRadialTarget(
   };
 }
 
+/**
+ * Lightweight analogue of the administrator graph's forward seed.
+ *
+ * A child advances from its parent into the next viewer-centered depth ring.
+ * Collision envelopes and the resolved link distance determine the smallest
+ * useful forward angle; stable subtree bands are packed once before the live
+ * charge/link/tension/collision loop takes over. This intentionally avoids an
+ * O(E^2) crossing force on every mobile frame.
+ */
 function buildViewerRootedRadialTargets(options: {
   nodes: readonly SampleRevenueGraphNode[];
   children: ReadonlyMap<string, readonly string[]>;
   nodeById: ReadonlyMap<string, SampleRevenueGraphNode>;
+  collisionRadiusById: ReadonlyMap<string, number>;
+  linkDistanceByChildId: ReadonlyMap<string, number>;
+  subtreeSizeById: ReadonlyMap<string, number>;
 }) {
-  const { nodes, children, nodeById } = options;
+  const {
+    nodes,
+    children,
+    nodeById,
+    collisionRadiusById,
+    linkDistanceByChildId,
+    subtreeSizeById,
+  } = options;
   const orderedNodes = [...nodes].sort(compareNodeIds);
   const viewer = orderedNodes.find((node) => node.isViewer)
     ?? orderedNodes.find((node) => node.parentId === null)
@@ -239,70 +248,202 @@ function buildViewerRootedRadialTargets(options: {
 
   radialTargetById.set(viewer.id, createRadialTarget(0, 0, -1));
   const visited = new Set<string>([viewer.id]);
-  const rootChildren = children.get(viewer.id) ?? [];
-  const branchCount = Math.max(1, rootChildren.length);
-  const sectorHalfWidth = Math.PI / branchCount;
-  const maxSectorOffset = sectorHalfWidth * 0.82;
+  type LocalTarget = {
+    nodeId: string;
+    angle: number;
+    radius: number;
+  };
+  type LocalBranch = {
+    branchIndex: number;
+    targets: LocalTarget[];
+    minBound: number;
+    maxBound: number;
+  };
 
-  const placeBranch = (
-    nodeId: string,
-    branchIndex: number,
-    inheritedSiblingOffset = 0,
-  ) => {
-    if (visited.has(nodeId)) return;
-    const node = nodeById.get(nodeId);
-    if (!node) return;
-    visited.add(nodeId);
-
-    const branchAngle = LANDSCAPE_BRANCH_START_ANGLE
-      + (TWO_PI * branchIndex) / branchCount;
-    const depth = Math.max(1, node.depth);
-    const depthLane = DEPTH_SECTOR_LANES[
-      (depth - 1) % DEPTH_SECTOR_LANES.length
-    ];
-    const angularOffset = clamp(
-      depthLane + inheritedSiblingOffset,
-      -maxSectorOffset,
-      maxSectorOffset,
+  const sortBySubtree = (leftId: string, rightId: string) => (
+    (subtreeSizeById.get(rightId) ?? 1)
+      - (subtreeSizeById.get(leftId) ?? 1)
+    || leftId.localeCompare(rightId)
+  );
+  const getAngularHalfWidth = (nodeId: string, radius: number) => {
+    if (radius <= 0) return 0;
+    return Math.asin(clamp(
+      ((collisionRadiusById.get(nodeId) ?? 42) + COLLISION_SAFETY_GAP / 2)
+        / radius,
+      0,
+      0.92,
+    ));
+  };
+  const getForwardAngularStep = (parentId: string, childId: string) => {
+    const parent = nodeById.get(parentId);
+    const child = nodeById.get(childId);
+    if (!parent || !child || parent.isViewer) return 0;
+    const parentRadius = getSampleRevenueGraphRadialTargetRadius(
+      Math.max(1, parent.depth),
     );
-    radialTargetById.set(
-      nodeId,
-      createRadialTarget(
-        getSampleRevenueGraphRadialTargetRadius(depth),
-        branchAngle + angularOffset,
-        branchIndex,
+    const childRadius = getSampleRevenueGraphRadialTargetRadius(
+      Math.max(1, child.depth),
+    );
+    const minimumChord = (collisionRadiusById.get(parentId) ?? 42)
+      + (collisionRadiusById.get(childId) ?? 42)
+      + COLLISION_SAFETY_GAP;
+    const resolvedLinkDistance = Math.max(
+      minimumChord,
+      Math.min(
+        SEED_LINK_DISTANCE_CAP,
+        linkDistanceByChildId.get(childId) ?? minimumChord,
       ),
     );
-
-    const childIds = children.get(nodeId) ?? [];
-    childIds.forEach((childId, childIndex) => {
-      const centeredIndex = childIndex - (childIds.length - 1) / 2;
-      placeBranch(
-        childId,
-        branchIndex,
-        inheritedSiblingOffset * 0.72
-          + centeredIndex * SIBLING_ANGLE_GAP,
+    const preferredChord = minimumChord
+      + (resolvedLinkDistance - minimumChord) * SEED_LINK_DISTANCE_BLEND;
+    const maximumChord = Math.max(
+      minimumChord,
+      parentRadius + childRadius - 0.001,
+    );
+    const chord = clamp(preferredChord, minimumChord, maximumChord);
+    return Math.acos(clamp(
+      (
+        parentRadius * parentRadius
+          + childRadius * childRadius
+          - chord * chord
+      ) / (2 * parentRadius * childRadius),
+      -1,
+      1,
+    ));
+  };
+  const getSiblingGap = (childIds: readonly string[]) => {
+    if (childIds.length < 2) return 0;
+    const maximumCollisionRadius = Math.max(
+      ...childIds.map((childId) => collisionRadiusById.get(childId) ?? 42),
+    );
+    const minimumRadius = Math.min(
+      ...childIds.map((childId) => {
+        const child = nodeById.get(childId);
+        return getSampleRevenueGraphRadialTargetRadius(
+          Math.max(1, child?.depth ?? 1),
+        );
+      }),
+    );
+    return Math.max(
+      SIBLING_ANGLE_GAP,
+      2 * Math.asin(clamp(
+        (maximumCollisionRadius * 2 + COLLISION_SAFETY_GAP)
+          / (2 * minimumRadius),
+        0,
+        0.92,
+      )),
+    );
+  };
+  const branches: LocalBranch[] = [];
+  const buildBranch = (rootId: string, branchIndex: number) => {
+    const targets: LocalTarget[] = [];
+    const place = (nodeId: string, angle: number) => {
+      if (visited.has(nodeId)) return;
+      const node = nodeById.get(nodeId);
+      if (!node) return;
+      visited.add(nodeId);
+      const radius = getSampleRevenueGraphRadialTargetRadius(
+        Math.max(1, node.depth),
       );
+      targets.push({ nodeId, angle, radius });
+
+      const childIds = [...(children.get(nodeId) ?? [])]
+        .filter((childId) => !visited.has(childId))
+        .sort(sortBySubtree);
+      const siblingGap = getSiblingGap(childIds);
+      childIds.forEach((childId, childIndex) => {
+        const centeredIndex = childIndex - (childIds.length - 1) / 2;
+        place(
+          childId,
+          angle
+            + getForwardAngularStep(nodeId, childId)
+            + centeredIndex * siblingGap,
+        );
+      });
+    };
+
+    place(rootId, 0);
+    if (targets.length === 0) return;
+    branches.push({
+      branchIndex,
+      targets,
+      minBound: Math.min(...targets.map((target) => (
+        target.angle - getAngularHalfWidth(target.nodeId, target.radius)
+      ))),
+      maxBound: Math.max(...targets.map((target) => (
+        target.angle + getAngularHalfWidth(target.nodeId, target.radius)
+      ))),
     });
   };
 
+  const rootChildren = [...(children.get(viewer.id) ?? [])]
+    .sort(sortBySubtree);
   rootChildren.forEach((nodeId, branchIndex) => {
-    placeBranch(nodeId, branchIndex);
+    buildBranch(nodeId, branchIndex);
   });
 
-  const unplacedNodes = orderedNodes.filter((node) => !visited.has(node.id));
-  unplacedNodes.forEach((node, index) => {
-    const branchIndex = rootChildren.length + index;
-    const angle = LANDSCAPE_BRANCH_START_ANGLE
-      + (TWO_PI * index) / Math.max(1, unplacedNodes.length);
-    radialTargetById.set(
-      node.id,
-      createRadialTarget(
-        getSampleRevenueGraphRadialTargetRadius(Math.max(1, node.depth)),
-        angle,
-        branchIndex,
-      ),
-    );
+  orderedNodes
+    .filter((node) => !visited.has(node.id))
+    .forEach((node) => {
+      buildBranch(node.id, branches.length);
+    });
+
+  const totalBranchSpan = branches.reduce(
+    (total, branch) => total + branch.maxBound - branch.minBound,
+    0,
+  );
+  const packedGap = branches.length === 0
+    ? 0
+    : totalBranchSpan < TWO_PI
+      ? Math.max(
+        MINIMUM_BRANCH_ANGLE_GAP,
+        (TWO_PI - totalBranchSpan) / branches.length,
+      )
+      : MINIMUM_BRANCH_ANGLE_GAP;
+  const availableSpan = Math.max(
+    0.1,
+    TWO_PI - packedGap * branches.length,
+  );
+  const branchScale = totalBranchSpan > availableSpan
+    ? availableSpan / totalBranchSpan
+    : 1;
+  const packedStarts: number[] = [];
+  let cursor = 0;
+  for (const branch of branches) {
+    packedStarts.push(cursor);
+    cursor += (branch.maxBound - branch.minBound) * branchScale + packedGap;
+  }
+  const landscapeBranchIndex = branches.reduce(
+    (largestIndex, branch, index) => (
+      branch.maxBound - branch.minBound
+        > branches[largestIndex].maxBound - branches[largestIndex].minBound
+        ? index
+        : largestIndex
+    ),
+    0,
+  );
+  const landscapeBranch = branches[landscapeBranchIndex];
+  const landscapeMidpoint = landscapeBranch
+    ? packedStarts[landscapeBranchIndex]
+      + (landscapeBranch.maxBound - landscapeBranch.minBound)
+        * branchScale / 2
+    : 0;
+  const rotation = LANDSCAPE_BRANCH_START_ANGLE - landscapeMidpoint;
+
+  branches.forEach((branch, packedIndex) => {
+    const start = packedStarts[packedIndex];
+    branch.targets.forEach((target) => {
+      radialTargetById.set(
+        target.nodeId,
+        createRadialTarget(
+          target.radius,
+          rotation
+            + start
+            + (target.angle - branch.minBound) * branchScale,
+          branch.branchIndex,
+        ),
+      );
+    });
   });
 
   return { radialTargetById, viewerId: viewer.id };
@@ -415,51 +556,62 @@ export function prepareSampleRevenueGraphPhysicsTopology(
     collectSubtreeSize(node.id, children, subtreeSize);
   }
   const orderedNodes = [...nodes].sort(compareNodeIds);
+  const collisionRadiusById = new Map(orderedNodes.map((node) => [
+    node.id,
+    Math.max(
+      42,
+      getSampleRevenueGraphNodeRadius(node)
+        + SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.collisionPadding,
+    ),
+  ]));
+  const physicsEdges = edges
+    .filter(
+      (edge) => nodeById.has(edge.source) && nodeById.has(edge.target),
+    )
+    .map((edge) => {
+      const sourceDegree = degree.get(edge.source) ?? 1;
+      const targetDegree = degree.get(edge.target) ?? 1;
+      return {
+        sourceId: edge.source,
+        targetId: edge.target,
+        distance: getAdminWebEquivalentLinkDistance({
+          sourceId: edge.source,
+          targetId: edge.target,
+          sourceDegree,
+          targetDegree,
+          sourceChildCount: childCount.get(edge.source) ?? 0,
+          targetChildCount: childCount.get(edge.target) ?? 0,
+          sourceSubtreeSize: subtreeSize.get(edge.source) ?? 1,
+          targetSubtreeSize: subtreeSize.get(edge.target) ?? 1,
+          graphNodeCount: nodes.length,
+        }),
+        strength: Math.max(
+          0.06,
+          SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.linkStrength
+            / Math.sqrt(Math.max(1, Math.min(sourceDegree, targetDegree))),
+        ),
+      };
+    });
+  const linkDistanceByChildId = new Map(
+    physicsEdges.map((edge) => [edge.targetId, edge.distance]),
+  );
   const { radialTargetById, viewerId } = buildViewerRootedRadialTargets({
     nodes: orderedNodes,
     children,
     nodeById,
+    collisionRadiusById,
+    linkDistanceByChildId,
+    subtreeSizeById: subtreeSize,
   });
 
   return {
     nodes: orderedNodes.map((node) => ({
       node,
-      collisionRadius: Math.max(
-        42,
-        getSampleRevenueGraphNodeRadius(node)
-          + SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.collisionPadding,
-      ),
+      collisionRadius: collisionRadiusById.get(node.id) ?? 42,
       radialTarget: radialTargetById.get(node.id)
         ?? createRadialTarget(0, 0, -1),
     })),
-    edges: edges
-      .filter(
-        (edge) => nodeById.has(edge.source) && nodeById.has(edge.target),
-      )
-      .map((edge) => {
-        const sourceDegree = degree.get(edge.source) ?? 1;
-        const targetDegree = degree.get(edge.target) ?? 1;
-        return {
-          sourceId: edge.source,
-          targetId: edge.target,
-          distance: getAdminWebEquivalentLinkDistance({
-            sourceId: edge.source,
-            targetId: edge.target,
-            sourceDegree,
-            targetDegree,
-            sourceChildCount: childCount.get(edge.source) ?? 0,
-            targetChildCount: childCount.get(edge.target) ?? 0,
-            sourceSubtreeSize: subtreeSize.get(edge.source) ?? 1,
-            targetSubtreeSize: subtreeSize.get(edge.target) ?? 1,
-            graphNodeCount: nodes.length,
-          }),
-          strength: Math.max(
-            0.06,
-            SAMPLE_REVENUE_ADMIN_WEB_PHYSICS.linkStrength
-              / Math.sqrt(Math.max(1, Math.min(sourceDegree, targetDegree))),
-          ),
-        };
-      }),
+    edges: physicsEdges,
     children,
     nodeById,
     viewerId,
@@ -977,16 +1129,18 @@ export function stepSampleRevenueInteractivePhysics(options: {
       }
       node.vx *= velocityRetention;
       node.vy *= velocityRetention;
-      node.x = clamp(
-        node.x + node.vx,
-        SURFACE_EDGE_MARGIN,
-        SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - SURFACE_EDGE_MARGIN,
-      );
-      node.y = clamp(
-        node.y + node.vy,
-        SURFACE_EDGE_MARGIN,
-        SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - SURFACE_EDGE_MARGIN,
-      );
+      const nextX = node.x + node.vx;
+      const nextY = node.y + node.vy;
+      if (Number.isFinite(nextX)) {
+        node.x = nextX;
+      } else {
+        node.vx = 0;
+      }
+      if (Number.isFinite(nextY)) {
+        node.y = nextY;
+      } else {
+        node.vy = 0;
+      }
     }
     rebaseViewerTowardCenter({
       simNodes: runtimeNodes,
@@ -1079,10 +1233,9 @@ export function getSampleRevenueGraphFitViewport(options: {
     availableWidth / symmetricWidth,
     availableHeight / symmetricHeight,
   );
-  const scale = clamp(
-    requiredFitScale,
-    SAMPLE_REVENUE_GRAPH_MIN_SCALE,
-    SAMPLE_REVENUE_GRAPH_MAX_SCALE,
+  const scale = Math.max(
+    Number.EPSILON,
+    Math.min(requiredFitScale, SAMPLE_REVENUE_GRAPH_MAX_SCALE),
   );
   const viewportCenterX = leftInset + availableWidth / 2;
   const viewportCenterY = topInset + availableHeight / 2;

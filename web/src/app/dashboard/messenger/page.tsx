@@ -128,9 +128,18 @@ export default function MessengerHubPage() {
         }
       }
 
-      const requestBoardRole: 'admin' | 'fc' =
-        role === 'manager' || isDeveloperSession({ role, isReadOnly, staffType }) ? 'fc' : 'admin';
-      const requestBoardResidentId = requestBoardRole === 'fc' ? sanitize(residentId) : null;
+      const personalInboxHeld =
+        role === 'manager' || isDeveloperSession({ role, isReadOnly, staffType });
+      if (personalInboxHeld) {
+        return {
+          internalUnread: internalUnreadCount,
+          requestBoardUnread: 0,
+          groupChatUnread: groupChatUnreadCount,
+        };
+      }
+
+      const requestBoardRole: 'admin' | 'fc' = role === 'fc' ? 'fc' : 'admin';
+      const requestBoardResidentId = role === 'fc' ? sanitize(residentId) : null;
 
       let data: { ok?: boolean; notifications?: InboxNotification[] } | null = null;
       let error: unknown = null;

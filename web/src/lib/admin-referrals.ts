@@ -468,17 +468,23 @@ async function fetchReferralCodes(fcIds: string[]) {
     return [] as ReferralCodeRow[];
   }
 
-  const { data, error } = await adminSupabase
-    .from('referral_codes')
-    .select('id,fc_id,code,is_active,created_at,disabled_at')
-    .in('fc_id', fcIds)
-    .order('created_at', { ascending: false });
+  const codeChunks = await Promise.all(
+    chunkReferralEventFcIds(fcIds).map(async (chunk) => {
+      const { data, error } = await adminSupabase
+        .from('referral_codes')
+        .select('id,fc_id,code,is_active,created_at,disabled_at')
+        .in('fc_id', chunk)
+        .order('created_at', { ascending: false });
 
-  if (error) {
-    throw error;
-  }
+      if (error) {
+        throw error;
+      }
 
-  return (data ?? []) as ReferralCodeRow[];
+      return (data ?? []) as ReferralCodeRow[];
+    }),
+  );
+
+  return mergeReferralEventChunks(codeChunks);
 }
 
 async function fetchReferralEvents(fcIds: string[]) {

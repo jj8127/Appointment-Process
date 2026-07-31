@@ -298,18 +298,22 @@ export function getReferralGraphLinkDistance(
         250,
         430,
       );
-  } else if (isLeafSpoke || (minDegree <= 1 && maxDegree >= 3)) {
-    const terminalLeafJitter = isLeafSpoke ? getTerminalLeafDistanceJitter(options) : 0;
-    const crowdedLeafDistance = isLeafSpoke
-      ? 112
-        + (Math.pow(Math.max(0, sourceChildCount - 2), 0.82) * 20)
-        + (Math.sqrt(Math.max(1, graphNodeCount)) * 2.2)
-      : 0;
+  } else if (isLeafSpoke) {
+    const terminalLeafJitter = getTerminalLeafDistanceJitter(options) * 0.4;
+    resolvedDistance = clamp(
+      129
+        + (Math.pow(Math.max(0, sourceChildCount - 2), 0.7) * 3)
+        + (Math.sqrt(Math.max(1, graphNodeCount)) * 0.65)
+        - clamp((90 - graphNodeCount) * 0.055, 0, 4)
+        + terminalLeafJitter,
+      118,
+      185,
+    );
+  } else if (minDegree <= 1 && maxDegree >= 3) {
     resolvedDistance = clamp(
       Math.max(
         clampedBase * 0.36,
-        125 + (Math.sqrt(maxChildCount) * 8) + (densityBonus * 0.15) + terminalLeafJitter,
-        crowdedLeafDistance + terminalLeafJitter,
+        125 + (Math.sqrt(maxChildCount) * 8) + (densityBonus * 0.15),
       ),
       118,
       300,

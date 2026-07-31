@@ -200,12 +200,18 @@ const buildCanvasHtml = ({
     const flowPulseMaxDuration = 1500;
 
     const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+    const finitePositiveScale = (value) => (
+      Number.isFinite(value) && value > 0 ? value : Number.EPSILON
+    );
     const graphToScreenX = (x) => width / 2 + view.panX + (x - center) * view.scale;
     const graphToScreenY = (y) => height / 2 + view.panY + (y - center) * view.scale;
-    const screenToGraph = (x, y) => ({
-      x: center + (x - width / 2 - view.panX) / Math.max(view.scale, 0.001),
-      y: center + (y - height / 2 - view.panY) / Math.max(view.scale, 0.001),
-    });
+    const screenToGraph = (x, y) => {
+      const currentScale = finitePositiveScale(view.scale);
+      return {
+        x: center + (x - width / 2 - view.panX) / currentScale,
+        y: center + (y - height / 2 - view.panY) / currentScale,
+      };
+    };
     const createTextCache = (cacheWidth, cacheHeight, drawText) => {
       const cache = document.createElement('canvas');
       const cacheRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
@@ -350,10 +356,9 @@ const buildCanvasHtml = ({
         1,
         Math.max(maxY - graphCenterY, graphCenterY - minY) * 2,
       );
-      view.scale = clamp(
-        Math.min(usableWidth / spanX, usableHeight / spanY),
-        config.minScale,
-        config.maxScale,
+      view.scale = Math.max(
+        Number.EPSILON,
+        Math.min(usableWidth / spanX, usableHeight / spanY, config.maxScale),
       );
       const viewportCenterX = insets.left + (width - insets.left - insets.right) / 2;
       const viewportCenterY = insets.top + (height - insets.top - insets.bottom) / 2;
@@ -406,16 +411,8 @@ const buildCanvasHtml = ({
       if (fixedIndex >= 0 && fixedPosition) {
         const fixedNode = nodes[fixedIndex];
         if (fixedNode) {
-          fixedNode.x = clamp(
-            fixedPosition.x,
-            70,
-            config.surfaceSize - 70,
-          );
-          fixedNode.y = clamp(
-            fixedPosition.y,
-            70,
-            config.surfaceSize - 70,
-          );
+          fixedNode.x = fixedPosition.x;
+          fixedNode.y = fixedPosition.y;
           fixedNode.vx = 0;
           fixedNode.vy = 0;
         }
@@ -545,16 +542,26 @@ const buildCanvasHtml = ({
       for (let index = 0; index < nodes.length; index += 1) {
         const node = nodes[index];
         if (index === fixedIndex && fixedPosition) {
-          node.x = clamp(fixedPosition.x, 70, config.surfaceSize - 70);
-          node.y = clamp(fixedPosition.y, 70, config.surfaceSize - 70);
+          node.x = fixedPosition.x;
+          node.y = fixedPosition.y;
           node.vx = 0;
           node.vy = 0;
           continue;
         }
         node.vx *= velocityRetention;
         node.vy *= velocityRetention;
-        node.x = clamp(node.x + node.vx, 70, config.surfaceSize - 70);
-        node.y = clamp(node.y + node.vy, 70, config.surfaceSize - 70);
+        const nextX = node.x + node.vx;
+        const nextY = node.y + node.vy;
+        if (Number.isFinite(nextX)) {
+          node.x = nextX;
+        } else {
+          node.vx = 0;
+        }
+        if (Number.isFinite(nextY)) {
+          node.y = nextY;
+        } else {
+          node.vy = 0;
+        }
       }
       if (fixedIndex < 0 && viewer) {
         const rawOffsetX = (center - viewer.x)
@@ -687,24 +694,25 @@ const buildCanvasHtml = ({
 
       for (let edgeIndex = 0; edgeIndex < edges.length; edgeIndex += 1) {
         const edge = edges[edgeIndex];
-        const source = nodes[edge.sourceIndex];
-        const target = nodes[edge.targetIndex];
-        ctx.beginPath();
-        ctx.moveTo(graphToScreenX(source.x), graphToScreenY(source.y));
-        ctx.lineTo(graphToScreenX(target.x), graphToScreenY(target.y));
-        ctx.strokeStyle = edge.stroke;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash(edge.dashed ? [5, 5] : []);
-        ctx.stroke();
-        if (edge.revenueEligible) {
-          const geometry = getEdgeGeometry(edge);
-          if (geometry) {
-            drawContributionArrow(
-              geometry,
-              selectedPathEdgeSet.has(edgeIndex),
-              edge.context,
-            );
-          }
+        if (!edge.revenueEligible) {
+          const source = nodes[edge.sourceIndex];
+          const target = nodes[edge.targetIndex];
+          ctx.beginPath();
+          ctx.moveTo(graphToScreenX(source.x), graphToScreenY(source.y));
+          ctx.lineTo(graphToScreenX(target.x), graphToScreenY(target.y));
+          ctx.strokeStyle = edge.stroke;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash(edge.dashed ? [5, 5] : []);
+          ctx.stroke();
+          continue;
+        }
+        const geometry = getEdgeGeometry(edge);
+        if (geometry) {
+          drawContributionArrow(
+            geometry,
+            selectedPathEdgeSet.has(edgeIndex),
+            edge.context,
+          );
         }
       }
       ctx.setLineDash([]);
@@ -874,7 +882,11 @@ const buildCanvasHtml = ({
       const focalY = (first.y + second.y) / 2;
       pinch = {
         distance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y)),
-        scale: view.scale,
+        scale: finitePositiveScale(view.scale),
+        minScale: Math.min(
+          config.minScale,
+          finitePositiveScale(view.scale),
+        ),
         graphAtFocal: screenToGraph(focalX, focalY),
       };
       activePhysics = false;
@@ -894,7 +906,7 @@ const buildCanvasHtml = ({
       const distance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y));
       view.scale = clamp(
         pinch.scale * distance / pinch.distance,
-        config.minScale,
+        pinch.minScale,
         config.maxScale,
       );
       view.panX = focalX - width / 2 - (pinch.graphAtFocal.x - center) * view.scale;

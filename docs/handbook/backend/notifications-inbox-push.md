@@ -120,6 +120,13 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
   않습니다. subscription POST도 저장하지 않고, DELETE만 현재 검증된 actor 범위를
   정리합니다.
 - request_board bridge unread는 개인 식별자가 있는 admin/manager/developer session에서 `requestBoardRole='fc'` 또는 `designer`일 때 해당 개인의 FC-role Request Board inbox를 함께 조회합니다. `designer`는 Request Board category만 집계하고 공지/게시글 알림은 제외합니다.
+- 관리자 웹 developer/manager inbox는 현재 HOLD입니다. Request Board 생산자의
+  `fc_profiles.id`와 staff viewer account ID가 서로 달라 기존 merge가 비고, 개인 admin
+  query가 shared-admin broadcast를 포함하는 Edge 범위 문제가 있기 때문입니다.
+  canonical recipient binding, 개인 broadcast 차단, list/get/receipt 동일 predicate가
+  함께 배포되기 전까지 Next proxy는 이 두 역할의 inbox list/get/mark/dismiss를
+  fail-closed하고 헤더·메신저 UI는 해당 요청을 보내지 않습니다.
+- 일반 admin과 실제 FC session은 기존 signed role/resident 범위를 유지합니다.
 - 설계매니저 가람in 모바일 push/unread는 request_board 관련 알림과 본인에게 직접 온 내부 채팅 알림으로 제한합니다. 게시판, 공지, 시험, FC 온보딩 broadcast는 manager 모바일 토큰으로 fanout하지 않습니다.
 - Expo push API는 한 요청에 최대 100개 payload만 허용하므로 `fc-notify`는 mobile push payload를 100개 단위로 chunk 전송합니다.
 - 2026-06-03 현재 카카오톡 delivery adapter는 활성 계약이 아니다. `fc-notify`는 inbox row와 모바일 Expo push를 유지하되 `notification_deliveries` 같은 별도 Kakao audit table에 쓰지 않는다.

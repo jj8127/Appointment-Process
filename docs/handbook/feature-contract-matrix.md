@@ -2,7 +2,7 @@ doc_id: FC-FEATURE-CONTRACT-MATRIX
 owner_repo: fc-onboarding-app
 owner_area: cross-surface contracts
 audience: developer, operator
-last_verified: 2026-07-24
+last_verified: 2026-07-31
 source_of_truth: code + tests + request_board/docs/handbook/feature-contract-matrix.md
 
 # Feature Contract Matrix
@@ -20,6 +20,10 @@ This matrix defines business behavior that must stay consistent across GaramIn m
   status formatters, including rejected and cancelled records.
 - Resident-number cells share the same `value`, `missing`, and `unavailable`
   contract across the server route, client state, and table.
+- Developer and manager personal notification inboxes remain fail-closed in
+  both the Next proxy and dashboard callers until the Edge actor/broadcast
+  contract is repaired and deployed. Regular administrators and actual FC
+  sessions keep their existing signed scopes.
 
 | Domain | Contract | Primary sources | Regression evidence |
 | --- | --- | --- | --- |
@@ -31,7 +35,7 @@ This matrix defines business behavior that must stay consistent across GaramIn m
 | Exam life/nonlife flow parity | Life and nonlife exam screens may differ by config only. Query keys, routes, realtime channels, fee accounts, selection restore rules, admin round form state, and notification payloads must be derived from `exam-flow-contract`. | `lib/exam-flow-contract.ts`, `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/exam-register.tsx`, `app/exam-register2.tsx` | `lib/__tests__/exam-flow-contract.test.ts`, `lib/__tests__/exam-round-location-payload.test.ts`, `lib/__tests__/exam-fees.test.ts` |
 | Designer visibility | Active designers are visible; operationally inactive designers are hidden from selection/directories unless a documented test/developer exception exists. Developer and explicit test accounts used for support must not be removed by incidental UI filters. | `app/chat.tsx`, `app/request-board-messenger.tsx`, request-board bridge APIs | this matrix + request_board designer visibility contracts |
 | Request status and review | Request status labels, filters, review actions, and notification categories must be derived from the same normalized status contract. | `lib/request-board-*.ts`, `app/request-board*.tsx` | request-board mobile UI/status tests |
-| Notification and unread routing | Notification categories and deep links must resolve to the same destination on mobile, admin web, and GaramLink. Unread counts must share actor/thread identity. | `lib/notification-route.ts`, `lib/notification-checkpoint.ts`, `web/src/components/DashboardNotificationBell.tsx` | notification route/checkpoint tests |
+| Notification and unread routing | Notification categories and deep links must resolve to the same destination on mobile, admin web, and GaramLink. Unread counts must share actor/thread identity. Developer/manager personal admin inbox list, detail, receipt, and UI fetches must fail closed together until the Edge actor and broadcast scopes have one canonical authorization predicate; regular admin and FC scopes must remain active. | `lib/notification-route.ts`, `lib/notification-checkpoint.ts`, `web/src/components/DashboardNotificationBell.tsx`, `web/src/app/dashboard/messenger/page.tsx`, `web/src/lib/fc-notify-proxy-policy.ts` | notification route/checkpoint tests, `web/src/lib/fc-notify-personal-inbox-hold.test.ts`, `lib/__tests__/fc-notify-route-auth.test.ts`, `lib/__tests__/admin-web-chat-source.test.ts` |
 | External links and files | URL opening, file download/opening, and attachment policy must use shared opener/sanitizer helpers; direct `Linking.openURL` exceptions need a contract test. | `lib/open-external-url.ts`, `lib/external-url.ts`, `app/docs-upload.tsx`, `web/src/lib/admin-file-open.ts` | external URL/file opener tests |
 | UI action primitives | Buttons, icon actions, confirms, modals, sheets, copy/link/file actions, and destructive flows must be inventoried and either use shared primitives or document an intentional exception. | `components/Button.tsx`, `components/AppAlertProvider.tsx`, `components/MessengerMessageActionSheet.tsx`, `components/LinkifiedSelectableText.tsx`, `scripts/audit/shared-ui-contract-audit.cjs` | `lib/__tests__/shared-ui-action-contracts.test.ts`, `docs/handbook/shared-ui-action-contracts.md` |
 | Function primitives | Reused formatter, normalizer, mapper, resolver, permission, message grouping, and display helpers must be owned by shared `lib/*` contracts instead of screen-local copies. | `lib/exam-display.ts`, `lib/group-chat-display.ts`, `scripts/audit/shared-function-contract-audit.cjs`, `app/exam-manage*.tsx`, `app/group-chat.tsx` | `lib/__tests__/exam-display.test.ts`, `lib/__tests__/group-chat-function-contracts.test.ts`, `lib/__tests__/shared-function-contracts.test.ts`, `docs/handbook/shared-ui-action-contracts.md` |

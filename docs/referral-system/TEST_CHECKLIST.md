@@ -95,7 +95,14 @@
   pulse는 최대 1.5초 뒤 끝나 RAF가 idle이어야 하며 A11 선택은 arrow/pulse를 만들지
   않아야 함. Android gfxinfo 기준 동일 eligible node의 warmed 900ms drag를 3회
   측정해 각 run의 janky frame이 5% 미만이고 slow bitmap upload가 0인지 확인하며
-  slow UI thread도 함께 기록함
+  slow UI thread도 함께 기록함. 고정 17-node canonical A/B/C seed와 51-frame normal settle의
+  disjoint edge crossing은 각각 0이고, A single-child chain의 첫 root joint 이후 최대
+  turn은 45도 이하이며 깊이별 angular step은 한 방향이어야 함. 이 45도 assertion은
+  fixture 회귀값이고 runtime hard clamp가 아니며, dense fanout은 subtree/collision 기반
+  sector와 반지름 확장을 허용해야 함. drag/release 좌표는
+  `70..1530`으로 clamp되지 않고 surface 밖 유한 좌표를 유지하며, ±50,000 outlier도
+  화면 맞춤으로 pinch 최소 배율 아래까지 축소해 inset 안에 복구돼야 함. eligible
+  edge는 주황 방향선 하나만 렌더하고 회색 base line을 이중으로 겹치지 않아야 함
 
 ### 5.2 초대링크
 
@@ -124,8 +131,8 @@
 - `RF-ADMIN-04` 추천코드 재발급/비활성은 활성 코드와 이벤트 로그를 일관되게 갱신함
 - `RF-ADMIN-05` `manager`는 추천인 코드 화면/GET은 조회 가능하지만 mutate UI와 `POST` 권한은 없음
 - `RF-ADMIN-06` 레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남김
-- `RF-ADMIN-07` `/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지함
-- `RF-ADMIN-08` graph canvas는 사용자 설정을 `Center force/Repel force/Link force/Link distance` 4개로 유지하고 dynamic link distance, sibling angular separation, cluster/node separation, envelope와 weak cluster gravity를 사용한다. drag 중에는 pointer가 잡은 node 하나만 `fx/fy`로 고정하고 direct/indirect neighbor는 고정하거나 같은 delta로 옮기지 않는다. A-B-C chain에서 B와 C는 평소 link·link-tension·charge·collision force를 통해 단계적으로 반응하고, drag 시작 edge 길이의 `1.2x` 최대 stretch를 모든 영향 edge가 지키며 unrelated component는 screen pixel 기준으로 안정적이어야 한다. release는 dragged node의 `fx/fy`를 해제하고 simulation을 reheat해 spring momentum을 이어간다. 고정 반경 radial containment, isolated ring 강제 배치, drop tether, rigid neighbor group, directed follower translation, active drag 중 core force 비활성화는 금지한다. 빈 공간 pan/reset/기본 node name label 상시 표시, manager read-only, isolated toggle, settings slider 저장/복원을 유지하고 브라우저 QA는 no overlay/no console error, nonblank canvas, direct/second-hop/unrelated drift와 release 후 움직임을 확인한다.
+- `RF-ADMIN-07` `/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지함. 수백 개 FC에서도 추천코드 `.in(fc_id, ...)`를 40개 이하 bounded chunk로 나눠 HTTP header overflow 없이 전역 최신순 결과를 반환해야 함
+- `RF-ADMIN-08` graph canvas는 사용자 설정을 `Center force/Repel force/Link force/Link distance` 4개로 유지하고 현재 활성 charge/link/link-tension/collision/component-separation/pointer/max-link-stretch/drag-locality를 사용한다. `branch-bend`, `sibling-angular`, `edge-crossing`, global center/x/y와 cluster/component envelope·gravity·cohesion은 꺼진 상태를 유지한다. childless terminal leaf edge는 deterministic `118..185px` band이고 240-node/24-child fixture에서는 `166..179px`여야 하며, 같은 parent의 child-hub bridge는 기존 `354px`를 유지해야 한다. 실제 471-node settle은 crossing/severity/min-spacing/max-edge/direct-spoke P90 기존 한도를 모두 통과해야 한다. drag 중에는 pointer가 잡은 node 하나만 `fx/fy`로 고정하고 direct/indirect neighbor는 고정하거나 같은 delta로 옮기지 않는다. A-B-C chain에서 B와 C는 평소 link·link-tension·charge·collision force를 통해 단계적으로 반응하고, drag 시작 edge 길이의 `1.2x` 최대 stretch를 모든 영향 edge가 지키며 unrelated component는 screen pixel 기준으로 안정적이어야 한다. release는 dragged node의 `fx/fy`를 해제하고 simulation을 reheat해 spring momentum을 이어간다. 빈 공간 pan/reset/기본 node name label 상시 표시, manager read-only, isolated toggle, settings slider 저장/복원을 유지하고 브라우저 QA는 no overlay/no console error, nonblank canvas, direct/second-hop/unrelated drift와 release 후 움직임을 확인한다.
 - `RF-ADMIN-09` 레거시 추천인 검토 큐는 `자동 연결 가능/동명이인 후보 다수/후보 없음/잘못된 자기추천` 상태를 정확히 분류함
 - `RF-ADMIN-10` `안전 자동 정리`는 exact-unique만 구조화하고 자기추천/후보 없음/동명이인은 남김
 

@@ -369,9 +369,11 @@
       "owner": "Codex role E2E harness",
       "executedAt": "2026-06-19T05:40:47.607Z",
       "evidence": [
-        "Manager and FC referral graph routes loaded; /api/admin/referrals/graph returned 200 for FC; manager UI retained read-only indicators."
+        "Manager and FC referral graph routes loaded; /api/admin/referrals/graph returned 200 for FC; manager UI retained read-only indicators.",
+        "2026-07-30 large-dataset regression splits 444 unique FC IDs into 40-ID referral-code reads, deduplicates rows, and restores global newest-first order; focused query tests passed 5/5.",
+        "The running local Next dev server returned GET /api/admin/referrals/graph 200 in about 1.31 seconds after the chunk fix; the previous 18,531-character request had failed with UND_ERR_HEADERS_OVERFLOW."
       ],
-      "notes": ""
+      "notes": "No schema, RPC, data write, Edge deployment, or production deployment was performed for the bounded-query fix."
     },
     {
       "caseId": "RF-ADMIN-08",
@@ -380,15 +382,16 @@
       "platform": [
         "web"
       ],
-      "title": "graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label, active drag branch stability를 지원한다",
-      "status": "PASS",
+      "title": "graph canvas는 node drag, pan/reset, branch stability와 dense terminal-leaf 간격을 지원한다",
+      "status": "BLOCKED",
       "owner": "Codex role E2E harness",
-      "executedAt": "2026-06-19T05:59:43.128Z",
+      "executedAt": "2026-07-30T16:52:15.068+09:00",
       "evidence": [
         "Graph unit/simulation suite passed 42/42 via npx -y tsx --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-responsive.test.ts from repo root.",
-        "Authenticated admin_web FC graph browser QA passed without storing cookie values: /api/admin/referrals/graph returned 200, /dashboard/referrals/graph rendered a visible 1261x668 canvas, sampled canvas pixels were nonblank, ?? ??? was visible/clickable, a canvas drag was attempted, and console/page error counts stayed 0."
+        "Authenticated admin_web FC graph browser QA passed without storing cookie values: /api/admin/referrals/graph returned 200, /dashboard/referrals/graph rendered a visible 1261x668 canvas, sampled canvas pixels were nonblank, ?? ??? was visible/clickable, a canvas drag was attempted, and console/page error counts stayed 0.",
+        "2026-07-30 administrator regression passed 125 physics/layout/free/simulation/real-data tests: the dense fixture keeps terminal leaf distances at 166-179px while the child-hub bridge remains 354px. The 471-node read-only settle also passed crossing 18/44, severity 5.302/13.4, minimum spacing about 84px, max edge 454.360/468, and direct-spoke P90 419.922/420. TypeScript and full ESLint also passed."
       ],
-      "notes": "Session cookies were used only inside the browser context; cookie values, JWTs, tokens, and signed URLs were not printed or persisted."
+      "notes": "The new leaf-distance source contract is automated and passing, but the changed dense layout has not yet received a fresh authenticated browser visual run; therefore the updated case remains BLOCKED. Session cookies were used only inside the browser context; cookie values, JWTs, tokens, and signed URLs were not printed or persisted."
     },
     {
       "caseId": "RF-ADMIN-09",
@@ -644,7 +647,7 @@
         "backend"
       ],
       "title": "FC/본부장 self-service `/referral`은 direct recommender/tree 계약을 유지하면서 세션 만료 상태를 명확히 표면화한다",
-      "status": "PASS",
+      "status": "BLOCKED",
       "owner": "Codex production recovery harness",
       "executedAt": "2026-07-23T08:00:00.000Z",
       "evidence": [
@@ -688,7 +691,7 @@
       "title": "FC/본부장 매출 기여 그래프 샘플은 1~10단계만 10% 시뮬레이션에 포함한다",
       "status": "PASS",
       "owner": "Codex referral revenue demo harness",
-      "executedAt": "2026-07-30T07:00:00.000Z",
+      "executedAt": "2026-07-30T16:52:15.068+09:00",
       "evidence": [
         "Radial-direction focused regression passed 4 suites and 45 tests; repository Jest passed 192 suites and 1171 tests.",
         "TypeScript, Expo lint, scoped ESLint, pre-documentation diff check, and the Sentry-upload-disabled Android Expo export passed.",
@@ -696,9 +699,10 @@
         "Pure and source contracts verify the collision-safe landscape radial seed, viewer anchor/rebase, every eligible edge's outward depth growth, global collision envelope plus 5px, production 800x360 containment, child-to-parent arrows, A11 no-arrow treatment, fixed-pixel labels, and pulse/idle RAF bounds.",
         "Android runtime rendered the default landscape radial graph, selected A10 with its 10-edge inward contribution path and detail, rendered A11 as excluded with a dashed no-arrow edge, switched the list to portrait, and returned the graph to landscape.",
         "Three warmed 900ms A4 drags measured 2.88%, 1.92%, and 0.93% janky frames with p99 19ms, 19ms, and 21ms; missed vsync and slow bitmap uploads were zero in all runs.",
-        "After the A10 pulse completed, a 2-second idle gfx window rendered zero frames."
+        "After the A10 pulse completed, a 2-second idle gfx window rendered zero frames.",
+        "2026-07-30 untangled-seed regression passed 2 suites / 36 tests: canonical initial and 51-frame settle crossings are 0, post-root maximum turn is 27.2 degrees, released coordinates are unbounded, far-node fit can go below 0.18, and eligible edges use one orange shaft. Root TypeScript and scoped ESLint passed."
       ],
-      "notes": "This PASS covers only the labelled local fictional preview and deterministic 1-10 depth calculation. After owner-note synchronization, governance, referral JSON parsing, the central harness audit, final diff check, post-clarification Android export, and independent re-evaluation passed. TalkBack touch-exploration coordinate parity, iPad split-view orientation, and a physical-phone final run were not claimed. No production data, package, API, database, Edge, release, or deployment mutation was performed in the radial-direction follow-up."
+      "notes": "The prior Android radial preview evidence is retained as historical evidence, but the changed forward seed, unbounded world coordinates, and single-shaft rendering have not yet received a fresh Android visual run. The user will run the device terminal, so the updated case remains BLOCKED until that visual check. No production data, package, API, database, Edge, release, or deployment mutation was performed."
     }
   ]
 }
