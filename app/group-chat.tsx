@@ -187,6 +187,9 @@ export default function GroupChatScreen() {
   const pickingRef = useRef(false);
   const isUploadCancelled = useRef(false);
   const messagesRef = useRef<GroupChatMessage[]>([]);
+  const realtimeChannelInstanceRef = useRef(
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -284,7 +287,7 @@ export default function GroupChatScreen() {
   useEffect(() => {
     if (!room?.id) return undefined;
     const channel = supabase
-      .channel(`group-chat-room-${room.id}`)
+      .channel(`group-chat-room-${room.id}-${realtimeChannelInstanceRef.current}`)
       .on(
         'postgres_changes',
         {

@@ -486,6 +486,7 @@
 | 07-06 | Admin web appointment approval state wording clarification | `web/src/app/dashboard/page.tsx`, `docs/handbook/admin-web/dashboard-lifecycle.md`, `lib/__tests__/admin-web-appointment-approval-clarity.test.ts`, `.claude/MISTAKES.md` | [details](WORK_DETAIL.md#20260706-admin-appointment-approval-clarity) |
 | 07-06 | Signup referral completion ordering and identity home gate hardening | `supabase/functions/set-password/index.ts`, `hooks/use-identity-status.ts`, `lib/identity-completion.ts`, `lib/__tests__/signup-completion-regression.test.ts`, `.claude/MISTAKES.md` | [details](WORK_DETAIL.md#20260706-signup-referral-identity-gate) |
 | 07-06 | Signup referral manager-shadow eligibility alignment | `supabase/functions/validate-referral-code/index.ts`, `supabase/functions/set-password/index.ts`, `lib/__tests__/signup-completion-regression.test.ts`, `docs/handbook/mobile/auth-and-gates.md`, `.claude/MISTAKES.md` | [details](WORK_DETAIL.md#20260706-signup-referral-shadow-eligibility) |
+| 08-04 | Sentry group-chat realtime resubscribe race repair | `app/group-chat.tsx`, `lib/__tests__/group-chat-mobile-source.test.ts` | [details](WORK_DETAIL.md#20260804-sentry-group-chat-realtime-race) |
 
 ## 2026-07-04 Codex update
 

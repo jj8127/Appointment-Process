@@ -11493,3 +11493,21 @@
 
 **Notes**:
 - Resident-number display rules remain full-or-hidden. Masked or partial resident-number display is not a valid fallback for workflows that require the full value.
+
+---
+
+## <a id="20260804-sentry-group-chat-realtime-race"></a> 2026-08-04 | Sentry group-chat realtime resubscribe race repair
+
+**Scope**: Mobile group-chat Supabase Realtime subscription lifecycle for Sentry `REACT-NATIVE-Q` and its related ErrorBoundary report `REACT-NATIVE-P`.
+
+**Changes**:
+- Added a per-screen-instance suffix to the group-chat Realtime topic.
+- Prevented a fast effect restart from retrieving the previous still-subscribed channel while asynchronous cleanup is pending.
+- Extended the existing group-chat mobile contract test with the unique-topic invariant.
+
+**Verification**:
+- Passed the targeted group-chat Jest test, root lint, TypeScript, governance, and `git diff --check`.
+- Passed the Expo web export with all Sentry upload/release endpoints disabled.
+
+**Notes**:
+- No Sentry issue state, release, source map, deployment, secret, or native build was changed.

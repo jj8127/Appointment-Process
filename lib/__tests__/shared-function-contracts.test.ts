@@ -56,4 +56,13 @@ describe('shared function contract audit', () => {
       ]),
     );
   });
+
+  it('keeps group-chat realtime topics unique across screen mounts', () => {
+    const source = readRepoFile('app/group-chat.tsx');
+
+    expect(source).toContain('realtimeChannelInstanceRef');
+    expect(source).toContain(
+      'group-chat-room-${room.id}-${realtimeChannelInstanceRef.current}',
+    );
+  });
 });

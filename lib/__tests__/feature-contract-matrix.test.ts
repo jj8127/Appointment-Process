@@ -73,6 +73,10 @@ describe('cross-surface feature contract matrix', () => {
     expect(requestBoardMessengerSource).toContain('selectCopyMessage');
     expect(requestBoardMessengerSource).toContain('onSelectCopy={');
     expect(requestBoardMessengerSource).toContain('selectable={false}');
+    expect(groupChatSource).toContain('realtimeChannelInstanceRef');
+    expect(groupChatSource).toContain(
+      'group-chat-room-${room.id}-${realtimeChannelInstanceRef.current}',
+    );
     expect(linkifiedSource).toContain('openLinkExternallyWithFeedback');
     expect(linkifiedSource).toContain('showLinkifiedTextOptions');
     expect(linkifiedSource).not.toContain('Clipboard.setStringAsync');
