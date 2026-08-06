@@ -90,6 +90,11 @@ test('admin API validates the requested registration and keeps history for appli
   assert.match(apiSource, /allBase\.filter\(\(row\) => row\.id === registrationId\)/);
 });
 
+test('applicant API explicitly selects the legacy round relationship after the type snapshot FK exists', () => {
+  assert.match(apiSource, /exam_rounds!exam_registrations_round_id_fkey\s*\(\s*round_label, exam_date, exam_type\s*\)/);
+  assert.doesNotMatch(apiSource, /\n\s*exam_rounds\s*\(\s*round_label, exam_date, exam_type\s*\)/);
+});
+
 test('every web reception decision uses the atomic service transition without duplicate client notifications', () => {
   assert.match(apiSource, /\.rpc\('transition_exam_registration'/);
   assert.match(apiSource, /p_action: requestedAction/);
