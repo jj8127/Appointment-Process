@@ -3,6 +3,7 @@ import { Stack, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  InteractionManager,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -239,6 +240,9 @@ export default function RequestBoardFcCodesScreen() {
         if (!res.success) throw new Error(res.error ?? '등록에 실패했습니다.');
       }
       closeEditModal();
+      await new Promise<void>((resolve) => {
+        InteractionManager.runAfterInteractions(resolve);
+      });
       await fetchData();
     } catch (err) {
       setFormError(toRequestBoardSessionErrorMessage(err, '저장에 실패했습니다.'));

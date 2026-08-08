@@ -11493,3 +11493,19 @@
 
 **Notes**:
 - Resident-number display rules remain full-or-hidden. Masked or partial resident-number display is not a valid fallback for workflows that require the full value.
+
+---
+
+## <a id="20260808-fc-code-modal-refresh-ordering"></a> 2026-08-08 | Android FC design-code modal refresh ordering hardening
+
+**Scope**: GaramLink FC design-code creation modal on Android.
+
+**Changes**:
+- Deferred the post-save FC-code list refresh until React Native interactions, including the modal close transition, have completed.
+- Added a mobile UI contract assertion that preserves close-before-refresh ordering.
+
+**Verification**:
+- Targeted Jest, lint, TypeScript, guarded build, governance, and diff checks are recorded in the Sentry repair PR.
+
+**Notes**:
+- This is the smallest source-level mitigation for Sentry `REACT-NATIVE-R`; API payloads and FC-code behavior are unchanged.

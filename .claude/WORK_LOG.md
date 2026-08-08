@@ -499,3 +499,5 @@
 - Hardened device token access behind trusted server/function paths, signed admin web session gates, web-push identity binding, request_board bridge secret split, and admin push service reuse.
 - Reduced duplicate mobile push token registration and cleaned build/lint warning sources in the touched surfaces.
 - See [details](WORK_DETAIL.md#20260706-priority-security-maintenance).
+
+| 08-08 | Android FC design-code modal refresh ordering hardening | `app/request-board-fc-codes.tsx`, `lib/__tests__/request-board-mobile-ui-contract.test.ts` | [details](WORK_DETAIL.md#20260808-fc-code-modal-refresh-ordering) |

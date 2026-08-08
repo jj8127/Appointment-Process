@@ -487,6 +487,21 @@ describe('request-board mobile UI contracts', () => {
     expect(fcCodesSource).toContain('<View style={styles.codeCardActionsRow}>');
   });
 
+  it('waits for the FC code modal transition before refreshing its screen tree', () => {
+    const saveBlock = fcCodesSource.slice(
+      fcCodesSource.indexOf('const handleSave = async () => {'),
+      fcCodesSource.indexOf('const confirmDelete ='),
+    );
+
+    expect(fcCodesSource).toContain('InteractionManager,');
+    expect(saveBlock.indexOf('closeEditModal();')).toBeLessThan(
+      saveBlock.indexOf('InteractionManager.runAfterInteractions(resolve);'),
+    );
+    expect(saveBlock.indexOf('InteractionManager.runAfterInteractions(resolve);')).toBeLessThan(
+      saveBlock.indexOf('await fetchData();'),
+    );
+  });
+
   it('keeps long designer picker names and sent summaries constrained', () => {
     expect(createSource).toContain('styles.managerPickerCopy');
     expect(createSource).toContain('numberOfLines={1}');
