@@ -472,6 +472,47 @@ Deno.test("direct attachment access follows the exact target thread", async () =
   );
 });
 
+Deno.test("personal admin attachment access rejects every other admin actor", async () => {
+  const fake = new FakeSupabase();
+  fake.rows.messenger_attachment_delivery_batches = [batchRow({
+    context_kind: "direct",
+    conversation_id: CONVERSATION_ID,
+  })];
+  fake.rows.messages = [{
+    attachment_batch_id: BATCH_ID,
+    thread_id: THREAD_ID,
+    sender_actor_id: FC_ID,
+    receiver_actor_id: ADMIN_ID,
+    deleted_at: null,
+  }];
+  fake.rows.garamin_direct_threads = [{
+    id: THREAD_ID,
+    counterparty_role: "admin",
+    counterparty_actor_id: ADMIN_ID,
+  }];
+  fake.rows.admin_accounts = [
+    { id: ADMIN_ID, staff_type: "admin", active: true },
+    { id: OTHER_ADMIN_ID, staff_type: "admin", active: true },
+  ];
+
+  assertEquals(
+    await canActorAccessMessengerAttachmentBatch({
+      supabase: asClient(fake),
+      actor: adminActor,
+      batchId: BATCH_ID,
+    }),
+    true,
+  );
+  assertEquals(
+    await canActorAccessMessengerAttachmentBatch({
+      supabase: asClient(fake),
+      actor: { ...adminActor, id: OTHER_ADMIN_ID },
+      batchId: BATCH_ID,
+    }),
+    false,
+  );
+});
+
 Deno.test("group access requires a committed batch and active room for FC viewers", async () => {
   const fake = new FakeSupabase();
   fake.rows.messenger_attachment_delivery_batches = [batchRow({

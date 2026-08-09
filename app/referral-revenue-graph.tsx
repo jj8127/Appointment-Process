@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ReferralRevenueDetailSheet } from '@/components/referral-revenue-graph/ReferralRevenueDetailSheet';
 import { ReferralRevenueGraphCanvas } from '@/components/referral-revenue-graph/ReferralRevenueGraphCanvas';
+import { ReferralRevenueTreeView } from '@/components/referral-revenue-graph/ReferralRevenueTreeView';
 import { REFERRAL_REVENUE_DEMO_RAW_NODES } from '@/data/referral-revenue-demo';
 import { useSession } from '@/hooks/use-session';
 import {
@@ -37,7 +38,7 @@ import type {
   SampleRevenueGraphNode,
 } from '@/types/referral-revenue-graph';
 
-type ViewMode = 'graph' | 'list';
+type ViewMode = 'graph' | 'tree' | 'list';
 
 const isGraphView = (mode: ViewMode) => mode === 'graph';
 
@@ -49,6 +50,32 @@ const DEPTH_FILTERS: { value: SampleRevenueDepthFilter; label: string }[] = [
   { value: '1-3', label: '1~3단계' },
   { value: '4-6', label: '4~6단계' },
   { value: '7-10', label: '7~10단계' },
+];
+
+const VIEW_OPTIONS: {
+  value: ViewMode;
+  label: string;
+  accessibilityLabel: string;
+  icon: 'share-2' | 'git-branch' | 'list';
+}[] = [
+  {
+    value: 'graph',
+    label: '현재 그래프',
+    accessibilityLabel: '현재 그래프 보기',
+    icon: 'share-2',
+  },
+  {
+    value: 'tree',
+    label: '트리',
+    accessibilityLabel: '트리 보기',
+    icon: 'git-branch',
+  },
+  {
+    value: 'list',
+    label: '목록',
+    accessibilityLabel: '목록 보기',
+    icon: 'list',
+  },
 ];
 
 const model = buildSampleRevenueGraphModel(REFERRAL_REVENUE_DEMO_RAW_NODES);
@@ -185,12 +212,12 @@ export default function ReferralRevenueGraphPage() {
     setFitRequestId((value) => value + 1);
     setControlsOpen(false);
   };
-  const handleShowList = () => {
-    if (Platform.OS !== 'web') {
+  const handleViewModeChange = (mode: ViewMode) => {
+    if (Platform.OS !== 'web' && mode !== 'graph') {
       void orientationCoordinator.request('portrait');
     }
     setControlsOpen(false);
-    setViewMode('list');
+    setViewMode(mode);
   };
   const handleBack = () => {
     if (Platform.OS !== 'web') {
@@ -383,14 +410,41 @@ export default function ReferralRevenueGraphPage() {
                     {DEPTH_FILTERS.map(renderImmersiveFilterButton)}
                   </View>
 
-                  <Text style={styles.settingsSectionTitle}>보기</Text>
+                  <Text style={styles.settingsSectionTitle}>보기 방식</Text>
                   <View style={styles.settingsActionRow}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.settingsActionButton,
+                        styles.settingsActionButtonSelected,
+                        pressed && styles.pressed,
+                      ]}
+                      onPress={() => setControlsOpen(false)}
+                      accessibilityRole="tab"
+                      accessibilityLabel="현재 그래프 보기"
+                      accessibilityState={{ selected: true }}
+                    >
+                      <Feather name="share-2" size={17} color={COLORS.primaryDark} />
+                      <Text style={styles.settingsActionText}>현재 그래프</Text>
+                    </Pressable>
                     <Pressable
                       style={({ pressed }) => [
                         styles.settingsActionButton,
                         pressed && styles.pressed,
                       ]}
-                      onPress={handleShowList}
+                      onPress={() => handleViewModeChange('tree')}
+                      accessibilityRole="tab"
+                      accessibilityLabel="트리 보기"
+                      accessibilityState={{ selected: false }}
+                    >
+                      <Feather name="git-branch" size={17} color={COLORS.primaryDark} />
+                      <Text style={styles.settingsActionText}>트리</Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.settingsActionButton,
+                        pressed && styles.pressed,
+                      ]}
+                      onPress={() => handleViewModeChange('list')}
                       accessibilityRole="tab"
                       accessibilityLabel="목록 보기"
                       accessibilityState={{ selected: false }}
@@ -398,6 +452,10 @@ export default function ReferralRevenueGraphPage() {
                       <Feather name="list" size={17} color={COLORS.primaryDark} />
                       <Text style={styles.settingsActionText}>목록</Text>
                     </Pressable>
+                  </View>
+
+                  <Text style={styles.settingsSectionTitle}>그래프 동작</Text>
+                  <View style={styles.settingsActionRow}>
                     <Pressable
                       style={({ pressed }) => [
                         styles.settingsActionButton,
@@ -407,11 +465,7 @@ export default function ReferralRevenueGraphPage() {
                       accessibilityRole="button"
                       accessibilityLabel="매출 기여 그래프 화면 맞춤"
                     >
-                      <Feather
-                        name="maximize"
-                        size={17}
-                        color={COLORS.primaryDark}
-                      />
+                      <Feather name="maximize" size={17} color={COLORS.primaryDark} />
                       <Text style={styles.settingsActionText}>맞춤</Text>
                     </Pressable>
                     <Pressable
@@ -423,11 +477,7 @@ export default function ReferralRevenueGraphPage() {
                       accessibilityRole="button"
                       accessibilityLabel="매출 기여 그래프 초기화"
                     >
-                      <Feather
-                        name="rotate-ccw"
-                        size={17}
-                        color={COLORS.primaryDark}
-                      />
+                      <Feather name="rotate-ccw" size={17} color={COLORS.primaryDark} />
                       <Text style={styles.settingsActionText}>초기화</Text>
                     </Pressable>
                   </View>
@@ -549,23 +599,23 @@ export default function ReferralRevenueGraphPage() {
         </View>
 
         <View style={styles.segmentedControl}>
-          {(['graph', 'list'] as const).map((mode) => {
-            const selected = viewMode === mode;
+          {VIEW_OPTIONS.map((option) => {
+            const selected = viewMode === option.value;
             return (
               <Pressable
-                key={mode}
+                key={option.value}
                 style={({ pressed }) => [
                   styles.segmentButton,
                   selected && styles.segmentButtonSelected,
                   pressed && styles.pressed,
                 ]}
-                onPress={() => setViewMode(mode)}
+                onPress={() => handleViewModeChange(option.value)}
                 accessibilityRole="tab"
-                accessibilityLabel={mode === 'graph' ? '그래프 보기' : '목록 보기'}
+                accessibilityLabel={option.accessibilityLabel}
                 accessibilityState={{ selected }}
               >
                 <Feather
-                  name={mode === 'graph' ? 'share-2' : 'list'}
+                  name={option.icon}
                   size={16}
                   color={selected ? COLORS.primaryDark : COLORS.text.muted}
                 />
@@ -573,7 +623,7 @@ export default function ReferralRevenueGraphPage() {
                   styles.segmentText,
                   selected && styles.segmentTextSelected,
                 ]}>
-                  {mode === 'graph' ? '그래프' : '목록'}
+                  {option.label}
                 </Text>
               </Pressable>
             );
@@ -696,6 +746,36 @@ export default function ReferralRevenueGraphPage() {
               <Text style={styles.relationshipNoticeText}>
                 회색 선은 샘플 조직 관계입니다. 주황 화살표는 하위 구성원의
                 10% 샘플 기여 계산 방향이며 실제 돈의 이동을 의미하지 않습니다.
+              </Text>
+            </View>
+          </View>
+        ) : viewMode === 'tree' ? (
+          <View style={styles.treeSection}>
+            <View style={styles.sectionHeading}>
+              <View>
+                <Text style={styles.sectionTitle}>샘플 기여 트리</Text>
+                <Text style={styles.sectionDescription}>
+                  초기 카드형 계층 보기입니다. 좌우로 밀어 A·B·C 조직을 비교하고,
+                  카드를 누르면 상세 금액을 볼 수 있습니다.
+                </Text>
+                {depthFilter !== 'all' ? (
+                  <Text style={styles.contextDescription}>
+                    흐린 카드는 선택 구간까지 이어지는 연결 경로이며 금액은 그대로 표시됩니다.
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+            <ReferralRevenueTreeView
+              nodes={graphNodes}
+              edges={graphEdges}
+              focusedNodeIds={focusedGraphNodeIds}
+              selectedNodeId={selectedNode?.id ?? null}
+              onSelectNode={setSelectedNode}
+            />
+            <View style={styles.relationshipNotice}>
+              <Feather name="git-branch" size={14} color={COLORS.text.muted} />
+              <Text style={styles.relationshipNoticeText}>
+                선은 샘플 조직의 부모·하위 관계이며 실제 돈의 이동을 의미하지 않습니다.
               </Text>
             </View>
           </View>
@@ -1004,6 +1084,10 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.md,
     backgroundColor: 'rgba(255,255,255,0.94)',
   },
+  settingsActionButtonSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: 'rgba(255,237,213,0.96)',
+  },
   settingsActionText: {
     color: COLORS.primaryDark,
     fontSize: 9,
@@ -1176,6 +1260,14 @@ const styles = StyleSheet.create({
     color: COLORS.primaryDark,
   },
   graphSection: {
+    marginTop: SPACING.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.white,
+  },
+  treeSection: {
     marginTop: SPACING.lg,
     overflow: 'hidden',
     borderWidth: 1,

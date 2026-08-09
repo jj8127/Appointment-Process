@@ -61,7 +61,10 @@ export function canAccessDirectConversation(
     return (
       actor.sessionRole === 'admin'
       && actor.staffType === 'admin'
-      && input.counterparty.actorId === null
+      && (
+        input.counterparty.actorId === null
+        || input.counterparty.actorId === actor.actorId
+      )
     );
   }
   if (input.counterparty.role === 'developer') {
@@ -86,9 +89,7 @@ export function getLegacyDirectMessageActorId(actor: DirectMessageActor): string
   if (actor.sessionRole === 'manager') {
     return digits(actor.phone) || null;
   }
-  return actor.staffType === 'developer'
-    ? digits(actor.phone) || null
-    : ADMIN_CHAT_ID;
+  return digits(actor.phone) || null;
 }
 
 export function buildDirectMessageIdentity(input: {
@@ -106,7 +107,9 @@ export function buildDirectMessageIdentity(input: {
 
   if (input.actor.sessionRole === 'fc') {
     const receiverId = input.counterparty.role === 'admin'
-      ? ADMIN_CHAT_ID
+      ? input.counterparty.actorId === null
+        ? ADMIN_CHAT_ID
+        : digits(input.counterparty.phone)
       : digits(input.counterparty.phone);
     if (
       !receiverId
@@ -124,9 +127,9 @@ export function buildDirectMessageIdentity(input: {
   }
 
   const personalStaffSenderId =
-    input.actor.sessionRole === 'manager' || input.actor.staffType === 'developer'
-      ? digits(input.actor.phone)
-      : ADMIN_CHAT_ID;
+    input.counterparty.role === 'admin' && input.counterparty.actorId === null
+      ? ADMIN_CHAT_ID
+      : digits(input.actor.phone);
   if (!personalStaffSenderId) return null;
   return {
     senderId: personalStaffSenderId,
@@ -142,7 +145,12 @@ export function isLegacyDirectMessageVisible(input: {
   counterpartyId: string;
   row: DirectMessageRowIdentity;
 }): boolean {
-  const actorId = getLegacyDirectMessageActorId(input.actor);
+  const actorId =
+    input.counterpartyId === ADMIN_CHAT_ID
+      && input.actor.sessionRole === 'admin'
+      && input.actor.staffType === 'admin'
+      ? ADMIN_CHAT_ID
+      : getLegacyDirectMessageActorId(input.actor);
   const fcPhone = digits(input.fcPhone);
   const counterpartyId = input.counterpartyId === ADMIN_CHAT_ID
     ? ADMIN_CHAT_ID
@@ -167,7 +175,9 @@ export function isCurrentDirectMessageVisible(input: {
 }): boolean {
   const fcPhone = digits(input.fcPhone);
   const counterpartyId = input.counterparty.role === 'admin'
-    ? ADMIN_CHAT_ID
+    ? input.counterparty.actorId === null
+      ? ADMIN_CHAT_ID
+      : digits(input.counterparty.phone)
     : digits(input.counterparty.phone);
   const senderId = String(input.row.sender_id ?? '').trim();
   const receiverId = String(input.row.receiver_id ?? '').trim();
@@ -188,14 +198,14 @@ export function isCurrentDirectMessageVisible(input: {
   }
   if (receiverId === fcPhone) {
     const isCounterpartySender =
-      input.counterparty.role === 'admin'
+      input.counterparty.role === 'admin' && input.counterparty.actorId === null
         ? senderId === ADMIN_CHAT_ID || digits(senderId).length === 11
         : senderId === counterpartyId;
     return (
       receiverActorId === input.fcActorId
       && isCounterpartySender
       && (
-        input.counterparty.role === 'admin'
+        input.counterparty.role === 'admin' && input.counterparty.actorId === null
           ? Boolean(senderActorId)
           : senderActorId === input.counterparty.actorId
       )
@@ -217,7 +227,11 @@ export function canDeleteDirectMessage(input: {
   // The shared legacy "admin" sentinel cannot identify which administrator
   // authored the row. It is readable as a shared conversation but not
   // deletable by any one staff actor.
-  if (input.actor.sessionRole === 'admin' && input.actor.staffType === 'admin') {
+  if (
+    input.actor.sessionRole === 'admin'
+    && input.actor.staffType === 'admin'
+    && input.counterpartyId === ADMIN_CHAT_ID
+  ) {
     return false;
   }
   return String(input.row.sender_id ?? '').trim() === getLegacyDirectMessageActorId(input.actor);

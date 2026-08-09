@@ -2,7 +2,7 @@ doc_id: FC-FEATURE-CONTRACT-MATRIX
 owner_repo: fc-onboarding-app
 owner_area: cross-surface contracts
 audience: developer, operator
-last_verified: 2026-07-31
+last_verified: 2026-08-03
 source_of_truth: code + tests + request_board/docs/handbook/feature-contract-matrix.md
 
 # Feature Contract Matrix
@@ -41,6 +41,7 @@ This matrix defines business behavior that must stay consistent across GaramIn m
 | Function primitives | Reused formatter, normalizer, mapper, resolver, permission, message grouping, and display helpers must be owned by shared `lib/*` contracts instead of screen-local copies. | `lib/exam-display.ts`, `lib/group-chat-display.ts`, `scripts/audit/shared-function-contract-audit.cjs`, `app/exam-manage*.tsx`, `app/group-chat.tsx` | `lib/__tests__/exam-display.test.ts`, `lib/__tests__/group-chat-function-contracts.test.ts`, `lib/__tests__/shared-function-contracts.test.ts`, `docs/handbook/shared-ui-action-contracts.md` |
 | Sensitive data | Resident numbers, phone numbers, filenames, logs, and Sentry payloads must preserve mask/full-view policy by role and never expose secrets in generic content feeds. | `lib/sentry-sanitize.ts`, `web/src/lib/sentry-sanitize.ts`, `web/src/lib/resident-number-display.ts`, `web/src/app/api/admin/resident-numbers/`, `web/src/hooks/use-resident-number.ts`, `web/src/lib/resident-number-route-handler.ts`, `web/src/lib/resident-number-route-request.ts`, `web/src/lib/resident-number-edge-response.ts`, `web/src/lib/server-resident-numbers.ts` | PII/sentry/resident-number route tests |
 | FC document decisions | Every approval and rejection creates one durable FC inbox notification. Provider delivery runs after the admin response and must not create a second inbox row. Partial approvals link back to document upload; final approval links to the commission step. | `web/src/app/api/admin/fc/route.ts`, `web/src/lib/push-notification-service.ts` | `web/src/lib/admin-document-decision-notification-source.test.ts`, `web/src/lib/admin-canonical-notification-recipient.test.ts` |
+| Referral revenue sample views | `/referral-revenue-graph` starts from the existing circular graph on every fresh mount; the optional portrait tree and list share the same local filtered model and detail sheet, and tree mode unmounts the circular WebView. No view adds real referral, sales, settlement, API, or DB access. | `app/referral-revenue-graph.tsx`, `components/referral-revenue-graph/`, `lib/referral-revenue-tree-layout.ts` | `lib/__tests__/referral-revenue-demo-source.test.ts`, `lib/__tests__/referral-revenue-tree-layout.test.ts`, `lib/__tests__/referral-revenue-orientation.test.ts` |
 
 ## Governance Rule
 

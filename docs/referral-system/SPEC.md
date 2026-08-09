@@ -154,8 +154,9 @@
     viewer 기준 단계를 파생한다. viewer 아래 1~10단계의 모든 샘플 구성원에
     `rateBps=1000`을 단순 적용하고, 11단계 이상은 표시할 수 있지만 합계와 예상
     배분 대상에서는 제외한다. 화면에는 `샘플 데이터`, `실제 조직·매출·정산 내역이
-    아님`, `시뮬레이션`을 명시한다. 그래프 탭은 카드 목록을 선으로 잇는 형태가
-    아니라 기존 추천 관계 그래프와 같은 원형 node/edge network여야 한다.
+    아님`, `시뮬레이션`을 명시한다. 새 화면 진입의 기본 `현재 그래프`는 카드 목록을
+    선으로 잇는 형태가 아니라 기존 추천 관계 그래프와 같은 원형 node/edge
+    network여야 하며, 보기 선택은 저장하지 않는다.
     상호작용 물리는 관리자 웹의 실제 활성 force 계열인 many-body repulsion,
     degree-aware link spring, link tension, collision, alpha decay, velocity damping을
     기준으로 한다. 다만 관리자 웹의 실제 `alphaDecay=0.016`은 비교 가능한 baseline
@@ -198,7 +199,7 @@
     idle drag/zoom badge는 상시 노출하지 않고 물리 반응 또는 확대·맞춤 직후에만
     일시적으로 표시한다.
     native route가 focus된 graph mode일 때만 landscape로 잠근다. graph 설정이나
-    graph node 상세도 landscape를 유지한다. 목록 mode와 목록 상세는 portrait를
+    graph node 상세도 landscape를 유지한다. 트리·목록 mode와 해당 상세는 portrait를
     사용하고, route blur·unmount·header/Android back 시에는 portrait를 먼저
     복원한다. 기본 landscape에서는 작은 back/title/sample header와 설정 버튼만
     남겨 graph가 거의 전체 화면을 사용한다. summary·filter·목록·fit/reset·범례와
@@ -220,6 +221,15 @@
     유한한 좌표라면 surface 밖까지 이동할 수 있고 link/tension은 복원력일 뿐 위치 상한이
     아니다. `화면 맞춤`은 일반 pinch 최소 배율보다 작은 scale도 계산해 멀어진 node를
     다시 담고, `초기화`는 deterministic seed로 복구한다.
+    사용자가 `트리`를 명시적으로 선택하면 원형 WebView/SVG renderer를 숨긴 채
+    유지하지 않고 unmount한 뒤, 초기 시안의 고정 3열 카드 계층을 별도 컴포넌트로
+    표시한다. 트리는 440-wide canvas, 118x66 card, 86px depth 간격과 viewer/B 중앙,
+    A 좌측, C 우측 배치를 사용하며 parent card 하단과 child card 상단을 선으로 잇는다.
+    같은 `graphNodes`, `graphEdges`, `focusedGraphNodeIds`를 사용해 단계 filter의 viewer
+    연결 경로를 유지하고, context card는 흐리게 보이되 현재 금액/status label을
+    보존한다. card 높이는 connector geometry와 같은 66px로 고정하고 시각 text는
+    card 안에서 축소 적응시키되, 접근성 label은 이름·단계·전체 금액·context 상태를
+    생략하지 않는다. 트리도 같은 node 상세·샘플 고지·11단계 제외 계약을 공유한다.
 26. 샘플 화면은 FC와 `admin + readOnly` 본부장에게만 노출하고 designer/plain
     admin/developer는 차단한다. 다만 로컬 상수 외 데이터를 읽지 않으므로
     app-session refresh, referral API, Supabase client, Edge Function 또는 금융

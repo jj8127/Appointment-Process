@@ -633,13 +633,25 @@ describe('request-board mobile UI contracts', () => {
       "kind: 'request_direct_chat' as const",
     );
     expect(messengerSource).toContain(
-      'conversation.id === notificationConversationId',
+      'conversation.conversationIds.includes(parsedRequestDesignerId)',
+    );
+    expect(messengerSource).toContain(
+      'conversations.find(matchesRouteConversationTarget)',
     );
     expect(messengerSource).toContain(
       'setLoadedConversationId(conv.id)',
     );
     expect(messengerSource).toContain(
-      'loadedConversationId === notificationConversationId',
+      'loadedConversationId === activeConv?.id',
+    );
+    expect(messengerSource).toContain(
+      'anchorContextMessagesRef.current',
+    );
+    expect(messengerSource).toContain(
+      'anchorContextAttemptRef.current = null',
+    );
+    expect(messengerSource).toContain(
+      'setAnchorContextRetryKey((current) => current + 1)',
     );
     expect(messengerSource).toContain(
       'useNotificationReceiptCompletion',

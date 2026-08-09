@@ -255,7 +255,7 @@ describe('direct chat target summaries', () => {
 });
 
 describe('buildInternalChatViewerPayload', () => {
-  test('uses the shared admin actor id for writable admin sessions', () => {
+  test('uses the exact admin phone for writable admin sessions', () => {
     expect(
       buildInternalChatViewerPayload({
         role: 'admin',
@@ -265,7 +265,7 @@ describe('buildInternalChatViewerPayload', () => {
         isRequestBoardDesigner: false,
       }),
     ).toEqual({
-      viewer_id: ADMIN_CHAT_ID,
+      viewer_id: '01012345678',
       viewer_role: 'admin',
       viewer_staff_type: 'admin',
       viewer_read_only: false,

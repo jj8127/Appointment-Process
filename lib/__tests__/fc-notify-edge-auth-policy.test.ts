@@ -70,6 +70,40 @@ describe('direct Edge fc-notify authentication policy', () => {
   });
 
   it('derives developer and manager personal admin identities', () => {
+    expect(buildAppFcNotifyPayload({
+      type: 'internal_chat_list',
+      viewer_id: admin.phone,
+      viewer_role: 'admin',
+      viewer_staff_type: 'admin',
+      viewer_read_only: false,
+      viewer_is_request_board_designer: false,
+      limit: 30,
+      cursor: 'eyJsYXRlc3RBdCI6IjIwMjYtMDgtMDhUMDA6MDA6MDAuMDAwWiJ9',
+    }, admin)).toEqual({
+      ok: true,
+      payload: {
+        type: 'internal_chat_list',
+        viewer_id: admin.phone,
+        viewer_role: 'admin',
+        viewer_staff_type: 'admin',
+        viewer_read_only: false,
+        viewer_is_request_board_designer: false,
+        limit: 30,
+        cursor: 'eyJsYXRlc3RBdCI6IjIwMjYtMDgtMDhUMDA6MDA6MDAuMDAwWiJ9',
+      },
+    });
+    expect(buildAppFcNotifyPayload({
+      type: 'internal_chat_list',
+      viewer_id: admin.phone,
+      viewer_role: 'admin',
+      limit: 51,
+    }, admin)).toMatchObject({ ok: false, status: 400 });
+    expect(buildAppFcNotifyPayload({
+      type: 'internal_chat_list',
+      viewer_id: 'admin',
+      viewer_role: 'admin',
+    }, admin)).toMatchObject({ ok: false, status: 403 });
+
     expect(buildAppFcNotifyPayload({ type: 'inbox_list', role: 'admin', resident_id: developer.phone }, developer)).toMatchObject({
       ok: true,
       payload: { role: 'admin', resident_id: developer.phone },

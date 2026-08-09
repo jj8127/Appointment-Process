@@ -689,9 +689,9 @@
         "app"
       ],
       "title": "FC/본부장 매출 기여 그래프 샘플은 1~10단계만 10% 시뮬레이션에 포함한다",
-      "status": "PASS",
+      "status": "BLOCKED",
       "owner": "Codex referral revenue demo harness",
-      "executedAt": "2026-07-30T16:52:15.068+09:00",
+      "executedAt": "2026-08-03T12:06:00.853+09:00",
       "evidence": [
         "Radial-direction focused regression passed 4 suites and 45 tests; repository Jest passed 192 suites and 1171 tests.",
         "TypeScript, Expo lint, scoped ESLint, pre-documentation diff check, and the Sentry-upload-disabled Android Expo export passed.",
@@ -700,9 +700,12 @@
         "Android runtime rendered the default landscape radial graph, selected A10 with its 10-edge inward contribution path and detail, rendered A11 as excluded with a dashed no-arrow edge, switched the list to portrait, and returned the graph to landscape.",
         "Three warmed 900ms A4 drags measured 2.88%, 1.92%, and 0.93% janky frames with p99 19ms, 19ms, and 21ms; missed vsync and slow bitmap uploads were zero in all runs.",
         "After the A10 pulse completed, a 2-second idle gfx window rendered zero frames.",
-        "2026-07-30 untangled-seed regression passed 2 suites / 36 tests: canonical initial and 51-frame settle crossings are 0, post-root maximum turn is 27.2 degrees, released coordinates are unbounded, far-node fit can go below 0.18, and eligible edges use one orange shaft. Root TypeScript and scoped ESLint passed."
+        "2026-07-30 untangled-seed regression passed 2 suites / 36 tests: canonical initial and 51-frame settle crossings are 0, post-root maximum turn is 27.2 degrees, released coordinates are unbounded, far-node fit can go below 0.18, and eligible edges use one orange shaft. Root TypeScript and scoped ESLint passed.",
+        "2026-08-03 selectable-tree focused regression passed 7 suites / 64 tests; full repository Jest passed 193 suites / 1182 tests. TypeScript and scoped ESLint passed.",
+        "Pure/source contracts verify the non-persisted circular graph default, graph/tree/list choices, graph-only landscape, tree/list portrait, conditional circular renderer unmount, fixed 440-wide three-column tree geometry, full context amount accessibility labels, and local-only boundaries.",
+        "Independent UI review found a fixed-height versus Dynamic Type connector risk; cards now use the exact 66px connector height and fit capped text inside while preserving the full accessible label. Independent re-evaluation returned PASS with no remaining actionable P0/P1/P2."
       ],
-      "notes": "The prior Android radial preview evidence is retained as historical evidence, but the changed forward seed, unbounded world coordinates, and single-shaft rendering have not yet received a fresh Android visual run. The user will run the device terminal, so the updated case remains BLOCKED until that visual check. No production data, package, API, database, Edge, release, or deployment mutation was performed."
+      "notes": "The prior circular-graph Android evidence remains historical PASS evidence. The new selectable tree could not receive authenticated browser QA because both local browser profiles had no eligible FC/read-only-manager session, and no Android device was attached. RF-SELF-05 remains BLOCKED until native graph→tree→graph orientation, small-screen nested scrolling, large-text layout, card detail, and TalkBack are observed. No production data, package, API, database, Edge, release, or deployment mutation was performed."
     }
   ]
 }

@@ -58,3 +58,25 @@ export const buildManagerChatLabel = (affiliation?: string | null, managerNameOv
   if (affiliationLabel) return affiliationLabel;
   return '총무팀';
 };
+
+export const getManagerHeadquartersLabels = (affiliation?: string | null): string[] => {
+  const raw = normalizeWhitespace(affiliation);
+  if (!raw) return [];
+
+  const headquarters = new Set<number>();
+  for (const match of raw.matchAll(/(?:^|[^0-9])(10|[1-9])\s*(?:본부|팀)(?=$|[^가-힣0-9])/g)) {
+    const headquartersNumber = Number(match[1]);
+    if (Number.isInteger(headquartersNumber) && headquartersNumber >= 1 && headquartersNumber <= 10) {
+      headquarters.add(headquartersNumber);
+    }
+  }
+
+  return [...headquarters]
+    .sort((left, right) => left - right)
+    .map((headquartersNumber) => `${headquartersNumber}본부`);
+};
+
+export const formatManagerMessengerDetail = (affiliation?: string | null): string => {
+  const headquarters = getManagerHeadquartersLabels(affiliation);
+  return headquarters.length > 0 ? `${headquarters.join('·')} 본부장` : '본부장';
+};

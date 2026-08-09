@@ -342,7 +342,9 @@ const buildCanvasHtml = ({
         maxY = Math.max(maxY, node.y + node.radius);
       }
       const insets = config.fitInsets;
-      const padding = 52;
+      // Keep the full ten-stage sample visible without shrinking the node
+      // spacing so far that fixed-size readable labels collide on phones.
+      const padding = 28;
       const usableWidth = Math.max(1, width - insets.left - insets.right - padding * 2);
       const usableHeight = Math.max(1, height - insets.top - insets.bottom - padding * 2);
       const viewer = nodes[viewerIndex];

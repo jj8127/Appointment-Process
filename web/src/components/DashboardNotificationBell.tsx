@@ -127,20 +127,19 @@ export function DashboardNotificationBell({
     () => ['dashboard-header-notifications-v1', role, residentId, staffType] as const,
     [residentId, role, staffType],
   );
-  const personalInboxHeld = role === 'manager' || staffType === 'developer';
+  const isPersonalAdminInbox = role === 'manager' || staffType === 'developer';
 
   const { data: items = [], isLoading, isRefetching, refetch } = useQuery({
     queryKey,
-    enabled: !personalInboxHeld,
     refetchInterval: 30_000,
     queryFn: async (): Promise<HeaderNotificationItem[]> => {
-      if (personalInboxHeld) return [];
-
       const inboxRole = role === 'fc' ? 'fc' : 'admin';
       const inbox = await invokeInbox({
         type: 'inbox_list',
         role: inboxRole,
-        resident_id: inboxRole === 'fc' ? residentId.replace(/\D/g, '') : null,
+        resident_id: inboxRole === 'fc' || isPersonalAdminInbox
+          ? residentId.replace(/\D/g, '')
+          : null,
         limit: LIST_LIMIT,
       });
 
@@ -210,7 +209,6 @@ export function DashboardNotificationBell({
                   variant="subtle"
                   color="gray"
                   size="sm"
-                  disabled={personalInboxHeld}
                   onClick={() => void refetch()}
                 aria-label="알림 목록 새로고침"
               >

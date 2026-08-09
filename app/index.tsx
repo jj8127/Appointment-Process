@@ -331,41 +331,74 @@ type ExamStats = {
 };
 
 const fetchExamStats = async (): Promise<ExamStats> => {
-  const countByType = async (examType: 'life' | 'nonlife') => {
-    const { data, error } = await supabase
-      .from('exam_registrations')
-      .select('resident_id, is_confirmed, created_at, exam_rounds!inner(exam_type)')
-      .eq('exam_rounds.exam_type', examType)
-      .order('resident_id', { ascending: true })
-      .order('created_at', { ascending: true });
-    if (error) throw error;
+  const normalizeSingle = <T,>(value: T | T[] | null | undefined): T | null => {
+    if (!value) return null;
+    return Array.isArray(value) ? value[0] : value;
+  };
 
-    const rows = data ?? [];
-    const residentIds = Array.from(
-      new Set(rows.map((row: any) => row.resident_id).filter((v: any): v is string => !!v)),
-    );
-    const existingResidents = new Set<string>();
-    if (residentIds.length > 0) {
-      const { data: profiles, error: profileErr } = await supabase
-        .from('fc_profiles')
-        .select('phone')
-        .in('phone', residentIds);
-      if (profileErr) throw profileErr;
-      (profiles ?? []).forEach((p: any) => {
-        if (p.phone) existingResidents.add(p.phone as string);
-      });
+  const countByType = async (examType: 'life' | 'nonlife') => {
+    const isRelationshipError = (error: unknown): boolean => {
+      if (!error || typeof error !== 'object') {
+        return false;
+      }
+      const message = `${(error as { message?: string }).message ?? ''}`.toLowerCase();
+      return message.includes('pgrst201') || message.includes('could not embed');
+    };
+
+    const relationNames = [
+      'exam_registrations_round_exam_type_fkey',
+      'exam_registrations_round_id_fkey',
+      '',
+    ] as const;
+
+    for (const relationName of relationNames) {
+      const relation = relationName
+        ? `exam_rounds!${relationName}(exam_type)`
+        : 'exam_rounds!inner(exam_type)';
+      const { data, error } = await supabase
+        .from('exam_registrations')
+        .select(`resident_id, is_confirmed, created_at, ${relation}`)
+        .order('resident_id', { ascending: true })
+        .order('created_at', { ascending: true });
+
+      if (!error) {
+        const rows = (data ?? []).filter(
+          (row: any) => normalizeSingle(row?.exam_rounds)?.exam_type === examType,
+        );
+        const residentIds = Array.from(
+          new Set(rows.map((row: any) => row.resident_id).filter((v: any): v is string => !!v)),
+        );
+        const existingResidents = new Set<string>();
+        if (residentIds.length > 0) {
+          const { data: profiles, error: profileErr } = await supabase
+            .from('fc_profiles')
+            .select('phone')
+            .in('phone', residentIds);
+          if (profileErr) throw profileErr;
+          (profiles ?? []).forEach((p: any) => {
+            if (p.phone) existingResidents.add(p.phone as string);
+          });
+        }
+
+        const latestByResident = new Map<string, boolean>();
+        rows.forEach((row: any) => {
+          const residentId = row.resident_id;
+          if (!residentId || !existingResidents.has(residentId)) return;
+          latestByResident.set(residentId, Boolean(row.is_confirmed));
+        });
+
+        const total = latestByResident.size;
+        const pending = Array.from(latestByResident.values()).filter((v) => !v).length;
+        return { total, pending };
+      }
+
+      if (!isRelationshipError(error)) {
+        throw error;
+      }
     }
 
-    const latestByResident = new Map<string, boolean>();
-    rows.forEach((row: any) => {
-      const residentId = row.resident_id;
-      if (!residentId || !existingResidents.has(residentId)) return;
-      latestByResident.set(residentId, Boolean(row.is_confirmed));
-    });
+    throw new Error('Unable to load exam registrations.');
 
-    const total = latestByResident.size;
-    const pending = Array.from(latestByResident.values()).filter((v) => !v).length;
-    return { total, pending };
   };
 
   const [life, nonlife] = await Promise.all([countByType('life'), countByType('nonlife')]);

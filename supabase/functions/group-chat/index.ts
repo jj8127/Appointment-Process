@@ -45,9 +45,20 @@ import {
   MessengerAttachmentServiceError,
   type MessengerAttachmentMetadata,
 } from '../_shared/messenger-attachment-service.ts';
+import {
+  compareGroupChatMessageTuple,
+  escapeGroupChatIlikeLiteral,
+  GROUP_CHAT_CONTEXT_SIDE_LIMIT,
+  normalizeGroupChatSearchLimit,
+  normalizeGroupChatSearchQuery,
+  serializeGroupChatSearchResult,
+  type GroupChatSearchMessageRow,
+} from '../_shared/group-chat-search.ts';
 
 type Payload =
   | { type: 'group_chat_bootstrap'; limit?: number }
+  | { type: 'group_chat_search'; q?: unknown; limit?: unknown }
+  | { type: 'group_chat_context'; room_id?: unknown; message_id?: unknown }
   | {
       type: 'group_chat_send';
       content?: string | null;
@@ -118,6 +129,18 @@ type PreferenceRow = {
   muted: boolean | null;
 };
 
+type RoomNotificationPreferenceRow = {
+  actor_id: string;
+  actor_role: string;
+  muted: boolean | null;
+};
+
+type AppPushPreferenceRow = {
+  actor_id: string;
+  actor_role: string;
+  enabled: boolean | null;
+};
+
 type ReactionRow = {
   message_id: string;
   actor_id: string;
@@ -185,6 +208,7 @@ const EXPO_PUSH_CHUNK_SIZE = 100;
 const EXPO_PUSH_TIMEOUT_MS = 8_000;
 const DEFAULT_MESSAGE_LIMIT = 50;
 const MAX_MESSAGE_LIMIT = 100;
+const GROUP_CHAT_APP_PUSH_CATEGORY = 'messages';
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -668,6 +692,172 @@ async function fetchMessages(roomId: string, limit = DEFAULT_MESSAGE_LIMIT): Pro
   return (data ?? []) as MessageRow[];
 }
 
+async function findExistingActiveSearchRoom(
+  requestedRoomId?: string | null,
+): Promise<{ room: RoomRow | null; reason: 'not_found' | 'inactive' | null }> {
+  const { data, error } = await supabase
+    .from('group_chat_rooms')
+    .select('id,slug,title,is_active')
+    .eq('slug', GROUP_CHAT_ROOM_SLUG)
+    .maybeSingle();
+  if (error) throw error;
+
+  const room = data as RoomRow | null;
+  if (!room?.id || (requestedRoomId && room.id !== requestedRoomId)) {
+    return { room: null, reason: 'not_found' };
+  }
+  if (!room.is_active) return { room: null, reason: 'inactive' };
+  return { room, reason: null };
+}
+
+function inaccessibleSearchRoomResponse(
+  reason: 'not_found' | 'inactive' | null,
+  origin?: string | null,
+) {
+  if (reason === 'inactive') {
+    return fail('inactive_room', '비활성화된 단톡방입니다.', 403, origin);
+  }
+  return fail('room_not_found', '접근할 수 있는 단톡방을 찾지 못했습니다.', 404, origin);
+}
+
+async function handleSearch(
+  _actor: GroupChatActor,
+  payload: Extract<Payload, { type: 'group_chat_search' }>,
+  origin?: string | null,
+) {
+  const query = normalizeGroupChatSearchQuery(payload.q);
+  if (!query) {
+    return fail('invalid_search_query', '검색어는 2자 이상 100자 이하로 입력해 주세요.', 400, origin);
+  }
+  const limit = normalizeGroupChatSearchLimit(payload.limit);
+  if (!limit) {
+    return fail('invalid_search_limit', '검색 결과 수는 1개 이상 50개 이하로 지정해 주세요.', 400, origin);
+  }
+
+  // This action is deliberately read-only: unlike bootstrap it never creates
+  // the canonical room when missing, and it never touches read receipts.
+  const authorized = await findExistingActiveSearchRoom();
+  if (!authorized.room) {
+    return inaccessibleSearchRoomResponse(authorized.reason, origin);
+  }
+
+  const literalPattern = `%${escapeGroupChatIlikeLiteral(query)}%`;
+  const { data, error } = await supabase
+    .from('group_chat_messages')
+    .select('id,room_id,sender_name,sender_role,content,created_at,deleted_at')
+    .eq('room_id', authorized.room.id)
+    .is('deleted_at', null)
+    .ilike('content', literalPattern)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(limit);
+  if (error) return dbError(error, origin);
+
+  const rows = (data ?? []) as GroupChatSearchMessageRow[];
+  return json({
+    ok: true,
+    results: rows.map((row) => serializeGroupChatSearchResult({
+      row,
+      query,
+      roomLabel: authorized.room!.title,
+    })),
+    coverage: 'bounded_first_page',
+    nextCursor: null,
+  }, 200, origin);
+}
+
+async function handleContext(
+  actor: GroupChatActor,
+  payload: Extract<Payload, { type: 'group_chat_context' }>,
+  origin?: string | null,
+) {
+  const roomId = typeof payload.room_id === 'string'
+    ? payload.room_id.trim().toLowerCase()
+    : '';
+  const messageId = typeof payload.message_id === 'string'
+    ? payload.message_id.trim().toLowerCase()
+    : '';
+  if (!UUID_PATTERN.test(roomId) || !UUID_PATTERN.test(messageId)) {
+    return fail('invalid_context', '단톡방과 메시지 정보를 확인해 주세요.', 400, origin);
+  }
+
+  const authorized = await findExistingActiveSearchRoom(roomId);
+  if (!authorized.room) {
+    return inaccessibleSearchRoomResponse(authorized.reason, origin);
+  }
+
+  const select = 'id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,attachment_batch_id,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id';
+  const { data: anchorData, error: anchorError } = await supabase
+    .from('group_chat_messages')
+    .select(select)
+    .eq('room_id', authorized.room.id)
+    .eq('id', messageId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (anchorError) return dbError(anchorError, origin);
+  if (!anchorData?.id) {
+    return fail('message_not_found', '메시지를 찾지 못했습니다.', 404, origin);
+  }
+
+  const anchor = anchorData as MessageRow;
+  const tupleBefore = `created_at.lt.${anchor.created_at},and(created_at.eq.${anchor.created_at},id.lt.${anchor.id})`;
+  const tupleAfter = `created_at.gt.${anchor.created_at},and(created_at.eq.${anchor.created_at},id.gt.${anchor.id})`;
+  const sideFetchLimit = GROUP_CHAT_CONTEXT_SIDE_LIMIT + 1;
+  const [beforeResult, afterResult] = await Promise.all([
+    supabase
+      .from('group_chat_messages')
+      .select(select)
+      .eq('room_id', authorized.room.id)
+      .is('deleted_at', null)
+      .or(tupleBefore)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(sideFetchLimit),
+    supabase
+      .from('group_chat_messages')
+      .select(select)
+      .eq('room_id', authorized.room.id)
+      .is('deleted_at', null)
+      .or(tupleAfter)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(sideFetchLimit),
+  ]);
+  if (beforeResult.error) return dbError(beforeResult.error, origin);
+  if (afterResult.error) return dbError(afterResult.error, origin);
+
+  const beforeCandidates = ((beforeResult.data ?? []) as MessageRow[])
+    .filter((row) => compareGroupChatMessageTuple(row, anchor) < 0);
+  const afterCandidates = ((afterResult.data ?? []) as MessageRow[])
+    .filter((row) => compareGroupChatMessageTuple(row, anchor) > 0);
+  const before = beforeCandidates.slice(0, GROUP_CHAT_CONTEXT_SIDE_LIMIT).reverse();
+  const after = afterCandidates.slice(0, GROUP_CHAT_CONTEXT_SIDE_LIMIT);
+  const contextRows = [...before, anchor, ...after];
+  const [attachmentsByBatch, reactionRows] = await Promise.all([
+    attachmentMapForMessages(contextRows),
+    listReactions(authorized.room.id, contextRows.map((row) => row.id)),
+  ]);
+  const reactionsByMessage = groupReactionsByMessageId(reactionRows, actor.id);
+  const messages = contextRows.map((row) => serializeMessage(
+    row,
+    0,
+    reactionsByMessage.get(row.id) ?? [],
+    row.attachment_batch_id
+      ? attachmentsByBatch.get(row.attachment_batch_id) ?? []
+      : [],
+  ));
+
+  return json({
+    ok: true,
+    roomRef: { version: 1, kind: 'group_chat', roomId: authorized.room.id },
+    anchorMessageId: anchor.id,
+    messages,
+    hasBefore: beforeCandidates.length > GROUP_CHAT_CONTEXT_SIDE_LIMIT,
+    hasAfter: afterCandidates.length > GROUP_CHAT_CONTEXT_SIDE_LIMIT,
+    nextCursor: null,
+  }, 200, origin);
+}
+
 async function attachmentMapForMessages(messages: MessageRow[]) {
   return await listMessengerAttachmentsByBatchIds({
     supabase,
@@ -757,7 +947,23 @@ async function getReplySnapshot(roomId: string, messageId?: string | null) {
   };
 }
 
-async function getMuted(roomId: string, actorId: string) {
+async function getMuted(
+  roomId: string,
+  actorId: string,
+  member?: Pick<GroupChatMember, 'immutable_actor_id' | 'role'> | null,
+) {
+  if (member) {
+    const canonical = await supabase
+      .from('messenger_room_notification_preferences')
+      .select('muted')
+      .eq('actor_id', member.immutable_actor_id)
+      .eq('actor_role', member.role)
+      .eq('room_key', groupChatRoomPreferenceKey(roomId))
+      .maybeSingle();
+    if (canonical.error) throw canonical.error;
+    if (canonical.data) return canonical.data.muted === true;
+  }
+
   const { data, error } = await supabase
     .from('group_chat_preferences')
     .select('muted')
@@ -955,28 +1161,149 @@ function selectEligibleRecipientTokens(
   return Array.from(tokensByValue.values());
 }
 
+function appPushPreferenceKey(actorId: string, actorRole: GroupChatRole) {
+  return `${actorRole}:${actorId.toLowerCase()}`;
+}
+
+function groupChatRoomPreferenceKey(roomId: string) {
+  return `garamin:group:${roomId.toLowerCase()}`;
+}
+
+function resolveRecipientRoomMuted(input: {
+  member: GroupChatMember;
+  canonicalMutedByActor: Map<string, boolean>;
+  legacyMutedByActor: Map<string, boolean>;
+}) {
+  const canonicalKey = appPushPreferenceKey(
+    input.member.immutable_actor_id,
+    input.member.role,
+  );
+  if (input.canonicalMutedByActor.has(canonicalKey)) {
+    return input.canonicalMutedByActor.get(canonicalKey) === true;
+  }
+  return input.legacyMutedByActor.get(input.member.actor_id) === true;
+}
+
+function selectNativePushRecipients(
+  recipients: GroupChatMember[],
+  globalPreferences: AppPushPreferenceRow[],
+  categoryPreferences: AppPushPreferenceRow[],
+) {
+  // Missing rows are intentionally ON. Only an exact immutable actor UUID and
+  // effective role tuple with enabled=false suppresses native push delivery.
+  const globallyDisabled = new Set(
+    globalPreferences
+      .filter((row) => row.enabled === false)
+      .map((row) => `${normalizeGroupChatText(row.actor_role).toLowerCase()}:${normalizeGroupChatText(row.actor_id).toLowerCase()}`),
+  );
+  const categoryDisabled = new Set(
+    categoryPreferences
+      .filter((row) => row.enabled === false)
+      .map((row) => `${normalizeGroupChatText(row.actor_role).toLowerCase()}:${normalizeGroupChatText(row.actor_id).toLowerCase()}`),
+  );
+  return recipients.filter((member) => {
+    const key = appPushPreferenceKey(member.immutable_actor_id, member.role);
+    return !globallyDisabled.has(key) && !categoryDisabled.has(key);
+  });
+}
+
+async function resolveNativePushRecipients(recipients: GroupChatMember[]): Promise<
+  | { ok: true; recipients: GroupChatMember[] }
+  | { ok: false }
+> {
+  if (recipients.length === 0) return { ok: true, recipients: [] };
+
+  const actorIds = Array.from(new Set(
+    recipients.map((member) => member.immutable_actor_id),
+  ));
+  const actorRoles = Array.from(new Set(
+    recipients.map((member) => member.role),
+  ));
+  // Trust boundary: these service-only preference tables are read through the
+  // server-held service client. Actor UUIDs and roles come from eligible account
+  // rows above, never from the request body or client metadata.
+  const [globalResult, categoryResult] = await Promise.all([
+    supabase
+      .from('app_push_preferences')
+      .select('actor_id,actor_role,enabled')
+      .in('actor_id', actorIds)
+      .in('actor_role', actorRoles),
+    supabase
+      .from('app_push_category_preferences')
+      .select('actor_id,actor_role,enabled')
+      .in('actor_id', actorIds)
+      .in('actor_role', actorRoles)
+      .eq('category', GROUP_CHAT_APP_PUSH_CATEGORY),
+  ]);
+  if (globalResult.error || categoryResult.error) {
+    console.warn('[group-chat] app push preference query failed', {
+      reason: 'app_push_preference_query_failed',
+    });
+    return { ok: false };
+  }
+
+  return {
+    ok: true,
+    recipients: selectNativePushRecipients(
+      recipients,
+      (globalResult.data ?? []) as AppPushPreferenceRow[],
+      (categoryResult.data ?? []) as AppPushPreferenceRow[],
+    ),
+  };
+}
+
 async function notifyRecipients(input: {
   roomId: string;
   message: MessageRow;
   eventKey: string;
   members?: GroupChatMember[];
+  skipNativePush?: boolean;
 }): Promise<GroupChatNotificationSummary> {
   const members = input.members ?? await listEligibleMembers();
-  const { data: preferenceRows, error: preferenceError } = await supabase
-    .from('group_chat_preferences')
-    .select('actor_id,muted')
-    .eq('room_id', input.roomId);
-  if (preferenceError) throw preferenceError;
+  const immutableActorIds = Array.from(new Set(
+    members.map((member) => member.immutable_actor_id),
+  ));
+  const effectiveActorRoles = Array.from(new Set(
+    members.map((member) => member.role),
+  ));
+  // Canonical room preferences use the immutable actor tuple. The legacy
+  // phone-derived group actor key remains a per-row compatibility fallback.
+  const [canonicalPreferenceResult, legacyPreferenceResult] = await Promise.all([
+    supabase
+      .from('messenger_room_notification_preferences')
+      .select('actor_id,actor_role,muted')
+      .eq('room_key', groupChatRoomPreferenceKey(input.roomId))
+      .in('actor_id', immutableActorIds)
+      .in('actor_role', effectiveActorRoles),
+    supabase
+      .from('group_chat_preferences')
+      .select('actor_id,muted')
+      .eq('room_id', input.roomId),
+  ]);
+  if (canonicalPreferenceResult.error) throw canonicalPreferenceResult.error;
+  if (legacyPreferenceResult.error) throw legacyPreferenceResult.error;
 
-  const mutedByActor = new Map(
-    ((preferenceRows ?? []) as PreferenceRow[]).map((row) => [row.actor_id, row.muted === true]),
+  const canonicalMutedByActor = new Map(
+    ((canonicalPreferenceResult.data ?? []) as RoomNotificationPreferenceRow[])
+      .map((row) => [
+        `${normalizeGroupChatText(row.actor_role).toLowerCase()}:${normalizeGroupChatText(row.actor_id).toLowerCase()}`,
+        row.muted === true,
+      ]),
+  );
+  const legacyMutedByActor = new Map(
+    ((legacyPreferenceResult.data ?? []) as PreferenceRow[])
+      .map((row) => [row.actor_id, row.muted === true]),
   );
 
   const recipients = members.filter((member) =>
     shouldFanoutGroupChatPush({
       senderActorId: input.message.sender_actor_id,
       recipientActorId: member.actor_id,
-      recipientMuted: mutedByActor.get(member.actor_id) === true,
+      recipientMuted: resolveRecipientRoomMuted({
+        member,
+        canonicalMutedByActor,
+        legacyMutedByActor,
+      }),
     }),
   );
   if (recipients.length === 0) {
@@ -1032,7 +1359,68 @@ async function notifyRecipients(input: {
     };
   }
 
-  const recipientPhones = Array.from(new Set(recipients.map((member) => member.phone)));
+  if (input.skipNativePush) {
+    return {
+      ok: true,
+      status: 'inbox_only',
+      stored: true,
+      push_status: 'no_registered_device',
+      recipient_count: recipients.length,
+      notification_count: notificationInsert.inserted_count,
+      push_token_count: 0,
+      push_accepted_count: 0,
+      push_rejected_count: 0,
+      delivery: {
+        notificationStored: true,
+        pushStatus: 'not_attempted',
+        retryable: false,
+        notificationIds: Array.from(notificationInsert.ids_by_actor.values()),
+      },
+    };
+  }
+
+  const nativePushResolution = await resolveNativePushRecipients(recipients);
+  if (!nativePushResolution.ok) {
+    return {
+      ok: true,
+      status: 'partial',
+      stored: true,
+      push_status: 'provider_failed',
+      recipient_count: recipients.length,
+      notification_count: notificationInsert.inserted_count,
+      push_token_count: 0,
+      push_accepted_count: 0,
+      push_rejected_count: 0,
+      delivery: {
+        notificationStored: true,
+        pushStatus: 'provider_rejected',
+        retryable: false,
+        notificationIds: Array.from(notificationInsert.ids_by_actor.values()),
+      },
+    };
+  }
+  const nativePushRecipients = nativePushResolution.recipients;
+  if (nativePushRecipients.length === 0) {
+    return {
+      ok: true,
+      status: 'inbox_only',
+      stored: true,
+      push_status: 'no_registered_device',
+      recipient_count: recipients.length,
+      notification_count: notificationInsert.inserted_count,
+      push_token_count: 0,
+      push_accepted_count: 0,
+      push_rejected_count: 0,
+      delivery: {
+        notificationStored: true,
+        pushStatus: 'no_registered_device',
+        retryable: false,
+        notificationIds: Array.from(notificationInsert.ids_by_actor.values()),
+      },
+    };
+  }
+
+  const recipientPhones = Array.from(new Set(nativePushRecipients.map((member) => member.phone)));
   const { data: tokenRows, error: tokenError } = await supabase
     .from('device_tokens')
     .select('expo_push_token,resident_id,role')
@@ -1060,7 +1448,7 @@ async function notifyRecipients(input: {
 
   const allowedTokenRows = selectEligibleRecipientTokens(
     (tokenRows ?? []) as DeviceTokenRow[],
-    recipients,
+    nativePushRecipients,
   );
   if (allowedTokenRows.length === 0) {
     return {
@@ -1082,7 +1470,7 @@ async function notifyRecipients(input: {
     };
   }
   const recipientByRoleAndPhone = new Map(
-    recipients.map((member) => [
+    nativePushRecipients.map((member) => [
       `${member.role}:${sanitizeGroupChatPhone(member.phone)}`,
       member,
     ]),
@@ -1168,16 +1556,19 @@ function notificationWarning(summary: GroupChatNotificationSummary) {
 
 async function handleBootstrap(actor: GroupChatActor, payload: Extract<Payload, { type: 'group_chat_bootstrap' }>, origin?: string | null) {
   const room = await ensureRoom();
-  const [members, messages, readState, readStates, muted, notice] = await Promise.all([
+  const [members, messages, readState, readStates, notice] = await Promise.all([
     listEligibleMembersWithSendPermissions(room.id),
     fetchMessages(room.id, payload.limit ?? DEFAULT_MESSAGE_LIMIT),
     getReadState(room.id, actor.id),
     listReadStates(room.id),
-    getMuted(room.id, actor.id),
     getCurrentNotice(room.id, actor.id),
   ]);
 
-  const unreadCount = await countUnread(room.id, actor.id, readState?.last_read_at ?? null);
+  const currentMember = members.find((member) => member.actor_id === actor.id) ?? null;
+  const [unreadCount, muted] = await Promise.all([
+    countUnread(room.id, actor.id, readState?.last_read_at ?? null),
+    getMuted(room.id, actor.id, currentMember),
+  ]);
   const attachmentsByBatch = await attachmentMapForMessages(messages);
   const reactions = await listReactions(room.id, messages.map((message) => message.id));
   const reactionsByMessageId = groupReactionsByMessageId(reactions, actor.id);
@@ -1385,34 +1776,6 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
     if (result.error) return dbError(result.error, origin);
     message = result.data as unknown as MessageRow;
   }
-  if (attachmentCommit?.replayed) {
-    const delivery: GroupChatNotificationSummary['delivery'] = {
-      notificationStored: true,
-      pushStatus: 'not_attempted',
-      retryable: false,
-    };
-    return json({
-      ok: true,
-      message: serializeMessage(message, 0, [], messageAttachments),
-      attachmentCommit,
-      read_state: { updated: true },
-      notification: {
-        ok: true,
-        status: 'skipped',
-        stored: true,
-        push_status: 'no_registered_device',
-        recipient_count: 0,
-        notification_count: 0,
-        push_token_count: 0,
-        push_accepted_count: 0,
-        push_rejected_count: 0,
-        delivery,
-      },
-      delivery,
-      notificationRetry: null,
-      warning: null,
-    }, 200, origin);
-  }
   const eventKey = await deriveGroupChatNotificationEventKey({
     roomId: room.id,
     messageId: message.id,
@@ -1442,6 +1805,7 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
       message,
       eventKey,
       members,
+      skipNativePush: attachmentCommit?.replayed === true,
     });
   } catch {
     console.warn('[group-chat] notification fanout failed', {
@@ -1584,16 +1948,51 @@ async function handleMarkRead(actor: GroupChatActor, payload: Extract<Payload, {
 async function handlePreferences(actor: GroupChatActor, payload: Extract<Payload, { type: 'group_chat_preferences' }>, origin?: string | null) {
   const room = await ensureRoom();
   const muted = payload.muted === true;
-  const { error } = await supabase
-    .from('group_chat_preferences')
+  const members = await listEligibleMembers();
+  const member = members.find((candidate) => candidate.actor_id === actor.id);
+  if (!member) {
+    return fail('forbidden', '단톡방 알림 설정을 변경할 수 없습니다.', 403, origin);
+  }
+
+  const roomKey = groupChatRoomPreferenceKey(room.id);
+  // One canonical upsert is the save boundary. A stored false row intentionally
+  // overrides a legacy true row, while bootstrap still falls back to legacy
+  // only for actors that do not have a canonical preference yet.
+  const canonicalResult = await supabase
+    .from('messenger_room_notification_preferences')
     .upsert({
-      room_id: room.id,
-      actor_id: actor.id,
+      actor_id: member.immutable_actor_id,
+      actor_role: member.role,
+      room_key: roomKey,
       muted,
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'room_id,actor_id' });
-  if (error) return dbError(error, origin);
-  return json({ ok: true, muted }, 200, origin);
+    }, { onConflict: 'actor_id,actor_role,room_key' })
+    .select('actor_id,actor_role,room_key,muted')
+    .single();
+  const saved = canonicalResult.data as {
+    actor_id?: unknown;
+    actor_role?: unknown;
+    room_key?: unknown;
+    muted?: unknown;
+  } | null;
+  if (
+    canonicalResult.error
+    || saved?.actor_id !== member.immutable_actor_id
+    || saved.actor_role !== member.role
+    || saved.room_key !== roomKey
+    || typeof saved.muted !== 'boolean'
+  ) {
+    console.warn('[group-chat] canonical room preference write failed', {
+      reason: 'canonical_room_preference_write_failed',
+    });
+    return fail(
+      'preference_write_failed',
+      '단톡방 알림 설정을 저장하지 못했습니다. 다시 시도해 주세요.',
+      500,
+      origin,
+    );
+  }
+  return json({ ok: true, muted: saved.muted }, 200, origin);
 }
 
 async function handleMemberSendPermission(
@@ -1913,6 +2312,12 @@ serve(async (req: Request) => {
   try {
     if (payload.type === 'group_chat_bootstrap') {
       return await handleBootstrap(actorResult.actor, payload, origin);
+    }
+    if (payload.type === 'group_chat_search') {
+      return await handleSearch(actorResult.actor, payload, origin);
+    }
+    if (payload.type === 'group_chat_context') {
+      return await handleContext(actorResult.actor, payload, origin);
     }
     if (payload.type === 'group_chat_send') {
       return await handleSend(actorResult.actor, payload, origin);

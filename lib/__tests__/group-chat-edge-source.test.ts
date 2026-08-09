@@ -58,7 +58,7 @@ describe('group chat edge notification fanout', () => {
     expect(sendSource).toContain(".eq('id', messageId)");
     expect(sendSource).toContain('message = result.data as unknown as MessageRow');
     expect(sendSource).toContain('attachmentCommit = {');
-    expect(sendSource).toContain('if (attachmentCommit?.replayed)');
+    expect(sendSource).toContain('skipNativePush: attachmentCommit?.replayed === true');
     expect(sendSource).toContain('let notification = notificationFanoutFailureSummary()');
     expect(sendSource).toContain("reason: 'notification_fanout_failed'");
     expect(sendSource).toContain('ok: true');

@@ -30,12 +30,15 @@ import {
   MessageSelectCopySheet,
   MessengerMessageActionSheet,
 } from '@/components/MessengerMessageActionSheet';
-import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
+import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
 import { useSession } from '@/hooks/use-session';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
+import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import {
   deleteGaraminDirectMessage,
+  fetchGaraminDirectMessageContext,
   fetchGaraminDirectMessages,
   markGaraminDirectMessagesRead,
   resolveGaraminDirectConversation,
@@ -55,6 +58,16 @@ import {
 } from '@/lib/strict-route-params';
 import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
 import { confirmMessengerDelete } from '@/lib/messenger-delete-actions';
+import {
+  buildMessengerNotificationPreferenceFailure,
+  buildMessengerNotificationPreferenceLoadFailure,
+  type MessengerNotificationPreferenceFailure,
+} from '@/lib/messenger-notification-preferences';
+import {
+  buildMessengerRoomRef,
+  getNotificationPreferences,
+  setRoomMuted,
+} from '@/lib/notification-preferences-api';
 import { getDirectMessageUnreadCount } from '@/lib/message-read-receipts';
 import {
   openAuthorizedMessengerAttachment,
@@ -76,6 +89,7 @@ import {
   getLastMessageTimestamp,
   sortConversationsByLastMessageTime,
 } from '@/lib/messenger-room-ordering';
+import { formatOperationsMessengerName } from '@/lib/messenger-hub-model';
 import {
   aggregatePresence,
   formatPresenceLabel,
@@ -87,6 +101,7 @@ import { supabase } from '@/lib/supabase';
 import { isValidMobilePhone, safeDecodeFileName } from '@/lib/validation';
 import {
   ADMIN_CHAT_ID,
+  formatManagerMessengerDetail,
   sanitizePhone,
 } from '@/lib/messenger-participants';
 import {
@@ -99,8 +114,11 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const SOFT_BG = '#F9FAFB';
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const PRESENCE_POLL_INTERVAL_MS = 30_000;
-const DIRECT_MESSAGE_POLL_INTERVAL_MS = 4_000;
+const ANCHOR_HIGHLIGHT_DURATION_MS = 2_400;
+const ANCHOR_SCROLL_RETRY_DELAY_MS = 120;
+const ANCHOR_SCROLL_RETRY_LIMIT = 3;
+const ANCHOR_CONTEXT_UNAVAILABLE_MESSAGE =
+  '요청한 메시지를 열 수 없습니다. 현재 대화에서 다시 확인해 주세요.';
 const FILE_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.64, 260);
 const LEGACY_SESSION_ERROR = '세션이 오래되었습니다. 로그아웃 후 다시 로그인해주세요.';
 const HEADER_AVATAR_COLORS = [
@@ -158,6 +176,14 @@ type Message = {
   file_name?: string | null;
   file_size?: number | null;
   attachments: MessengerAttachmentMetadata[];
+  sender_label?: string | null;
+  is_context_preview?: boolean;
+};
+
+type AnchorScrollFailureInfo = {
+  index: number;
+  highestMeasuredFrameIndex: number;
+  averageItemLength: number;
 };
 
 const getMessageCopyText = (message: Message | null | undefined): string => {
@@ -184,6 +210,7 @@ type FcChatTarget = {
 type ChatTargetContact = {
   name?: string | null;
   phone?: string | null;
+  affiliation?: string | null;
   staff_type?: string | null;
   unread_count?: number | null;
   last_message?: string | null;
@@ -221,6 +248,8 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
       || a.receiver_id !== b.receiver_id
       || a.created_at !== b.created_at
       || a.is_read !== b.is_read
+      || (a.sender_label ?? null) !== (b.sender_label ?? null)
+      || Boolean(a.is_context_preview) !== Boolean(b.is_context_preview)
       || (a.message_type ?? 'text') !== (b.message_type ?? 'text')
       || (a.file_url ?? null) !== (b.file_url ?? null)
       || (a.file_name ?? null) !== (b.file_name ?? null)
@@ -249,18 +278,25 @@ export default function ChatScreen() {
     targetId,
     targetName,
     conversationId,
+    anchorMessageId,
     notificationId,
     notificationTarget,
   } = useLocalSearchParams<{
     targetId?: string | string[];
     targetName?: string | string[];
     conversationId?: string | string[];
+    anchorMessageId?: string | string[];
     notificationId?: string | string[];
     notificationTarget?: string | string[];
   }>();
   const insets = useSafeAreaInsets();
-  const keyboardPadding = useKeyboardPadding();
+  const keyboardVisible = useKeyboardVisible();
   const bottomSafeInset = Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 12);
+  const composerBottomPadding = getChatComposerBottomPadding({
+    keyboardVisible,
+    platform: Platform.OS,
+    safeAreaBottom: insets.bottom,
+  });
   const pickerListBottomPadding = bottomSafeInset + 24;
   const targetPickerHeader = getChatTargetPickerHeaderConfig();
   const targetIdValue = parseExactlyOneRouteString(targetId) ?? undefined;
@@ -268,6 +304,11 @@ export default function ChatScreen() {
     parseExactlyOneRouteString(targetName) ?? undefined;
   const conversationIdValue =
     parseExactlyOneUuidRouteParam(conversationId) ?? '';
+  const anchorMessageIdValue =
+    parseExactlyOneUuidRouteParam(anchorMessageId) ?? '';
+  const hasInvalidAnchorRouteParam =
+    hasPresentRouteParam(anchorMessageId)
+    && (!anchorMessageIdValue || !conversationIdValue);
   const hasAmbiguousConversationParams =
     hasConflictingRouteParams(targetId, conversationId)
     || (hasPresentRouteParam(targetId) && !targetIdValue)
@@ -303,7 +344,10 @@ export default function ChatScreen() {
     role === 'fc' && !otherId && !conversationIdValue;
   const headerTitle = role === 'admin'
     ? resolvedTargetName || targetIdValue || 'FC'
-    : targetNameValue?.trim() || selectedFcTarget?.label || '메신저';
+    : targetNameValue?.trim()
+      || selectedFcTarget?.label
+      || resolvedConversation?.counterpartyName
+      || '메신저';
   const getPresenceSnapshot = useCallback(
     (phone: string | null | undefined) => presenceByPhone[normalizePresencePhone(phone)] ?? null,
     [presenceByPhone],
@@ -336,6 +380,20 @@ export default function ChatScreen() {
   const [messageLoadState, setMessageLoadState] =
     useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [messageLoadError, setMessageLoadError] = useState('');
+  const [anchorContextError, setAnchorContextError] = useState('');
+  const [anchorContextRetryKey, setAnchorContextRetryKey] = useState(0);
+  const [pendingAnchorMessageId, setPendingAnchorMessageId] = useState('');
+  const [anchorNavigationDismissed, setAnchorNavigationDismissed] = useState(false);
+  const [conversationSettingsVisible, setConversationSettingsVisible] = useState(false);
+  const [roomMuted, setRoomMutedState] = useState(false);
+  const [roomPreferenceLoading, setRoomPreferenceLoading] = useState(false);
+  const [roomPreferenceReady, setRoomPreferenceReady] = useState(false);
+  const [roomPreferenceLoadedKey, setRoomPreferenceLoadedKey] =
+    useState<string | null>(null);
+  const [roomPreferencePending, setRoomPreferencePending] = useState(false);
+  const [roomPreferenceFailure, setRoomPreferenceFailure] =
+    useState<MessengerNotificationPreferenceFailure | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState('');
   const [actionMessage, setActionMessage] = useState<Message | null>(null);
   const [selectCopyMessage, setSelectCopyMessage] = useState<Message | null>(null);
   const [text, setText] = useState('');
@@ -347,9 +405,27 @@ export default function ChatScreen() {
   const attachmentBatchRef = useRef<PreparedMessengerAttachmentBatch | null>(
     null,
   );
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlatList<Message>>(null);
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const messagesRef = useRef<Message[]>([]);
+  const contextMessagesRef = useRef<Message[]>([]);
+  const anchorContextRequestKeyRef = useRef('');
+  const anchorScrollTargetMessageIdRef = useRef('');
+  const anchorScrollRetryCountRef = useRef(0);
+  const anchorScrollGenerationRef = useRef(0);
+  const anchorLastScrollSignatureRef = useRef('');
+  const anchorHistoryStabilizedRef = useRef(false);
+  const anchorScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchorScrollRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchorHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const roomPreferenceSequenceRef = useRef(0);
+  const directMessagePrefetchRef = useRef<{
+    conversationId: string;
+    request: Promise<
+      | { result: Awaited<ReturnType<typeof fetchGaraminDirectMessages>> }
+      | { error: unknown }
+    >;
+  } | null>(null);
 
   const loadPresence = useCallback(async (phones = trackedPresencePhones) => {
     if (phones.length === 0) {
@@ -375,14 +451,10 @@ export default function ChatScreen() {
     void loadPresence(trackedPresencePhones);
   }, [loadPresence, trackedPresencePhones]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     if (trackedPresencePhones.length === 0) {
-      return;
+      return undefined;
     }
-
-    const intervalId = setInterval(() => {
-      void loadPresence(trackedPresencePhones);
-    }, PRESENCE_POLL_INTERVAL_MS);
 
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
@@ -391,10 +463,9 @@ export default function ChatScreen() {
     });
 
     return () => {
-      clearInterval(intervalId);
       subscription.remove();
     };
-  }, [loadPresence, trackedPresencePhones]);
+  }, [loadPresence, trackedPresencePhones]));
 
   const applyMessages = useCallback((rows: Message[]) => {
     const uniqueRows = dedupeMessagesById(rows);
@@ -404,6 +475,28 @@ export default function ChatScreen() {
     setMessages(sorted);
     return true;
   }, []);
+
+  const highlightAnchorMessage = useCallback((messageId: string) => {
+    setHighlightedMessageId(messageId);
+    if (anchorHighlightTimerRef.current) {
+      clearTimeout(anchorHighlightTimerRef.current);
+    }
+    anchorHighlightTimerRef.current = setTimeout(() => {
+      setHighlightedMessageId((current) => current === messageId ? '' : current);
+      anchorHighlightTimerRef.current = null;
+    }, ANCHOR_HIGHLIGHT_DURATION_MS);
+  }, []);
+
+  const activateAnchorMessage = useCallback((messageId: string) => {
+    if (!messagesRef.current.some((message) => message.id === messageId)) {
+      return false;
+    }
+
+    setAnchorContextError('');
+    setPendingAnchorMessageId(messageId);
+    highlightAnchorMessage(messageId);
+    return true;
+  }, [highlightAnchorMessage]);
 
   const createOptimisticMessage = useCallback(
     (
@@ -483,7 +576,7 @@ export default function ChatScreen() {
         managerTargets.push({
           id: phone,
           label: displayName,
-          subtitle: '본부장',
+          subtitle: formatManagerMessengerDetail(manager.affiliation),
           kind: 'manager',
           presencePhones: [phone],
           unreadCount: Number((manager as ChatTargetContact & { unread_count?: number }).unread_count ?? 0),
@@ -516,33 +609,27 @@ export default function ChatScreen() {
           return map;
         }, new Map<string, FcChatTarget>()).values(),
       );
-      const adminPresencePhones = Array.from(
-        new Set(
-          admins
-            .filter((admin) => admin.staff_type !== 'developer')
-            .map((admin) => sanitizePhone(admin.phone))
-            .filter(Boolean),
-        ),
+      const adminTargets = Array.from(
+        admins.reduce((map, admin) => {
+          const phone = sanitizePhone(admin.phone);
+          if (!phone || admin.staff_type === 'developer' || map.has(phone)) return map;
+          map.set(phone, {
+            id: phone,
+            label: formatOperationsMessengerName(admin.name),
+            subtitle: '총무',
+            kind: 'admin' as const,
+            presencePhones: [phone],
+            unreadCount: Number((admin as ChatTargetContact & { unread_count?: number }).unread_count ?? 0),
+            lastTimestamp: getLastMessageTimestamp({ created_at: admin.last_time }),
+          });
+          return map;
+        }, new Map<string, FcChatTarget>()).values(),
       );
-
-      const adminSummary = admins.reduce<ChatTargetContact | null>((latest, admin) => {
-        const candidateTime = getLastMessageTimestamp({ created_at: admin.last_time });
-        const latestTime = getLastMessageTimestamp({ created_at: latest?.last_time });
-        return candidateTime > latestTime ? admin : latest;
-      }, admins[0] ?? null);
 
       const nextTargets = sortConversationsByLastMessageTime<FcChatTarget>([
         ...deduped,
         ...developerTargets,
-        {
-          id: ADMIN_CHAT_ID,
-          label: '총무',
-          subtitle: '총무팀',
-          kind: 'admin',
-          presencePhones: adminPresencePhones,
-          unreadCount: data.adminUnreadCount,
-          lastTimestamp: getLastMessageTimestamp({ created_at: adminSummary?.last_time }),
-        },
+        ...adminTargets,
       ]);
 
       setFcTargets(nextTargets);
@@ -581,6 +668,21 @@ export default function ChatScreen() {
       setConversationResolutionState('error');
       setConversationResolutionError('알림의 대상 대화를 열 수 없습니다.');
       return;
+    }
+
+    if (hasConversationRoute) {
+      const current = directMessagePrefetchRef.current;
+      if (current?.conversationId !== conversationIdValue) {
+        directMessagePrefetchRef.current = {
+          conversationId: conversationIdValue,
+          request: fetchGaraminDirectMessages(conversationIdValue).then(
+            (result) => ({ result }),
+            (error: unknown) => ({ error }),
+          ),
+        };
+      }
+    } else {
+      directMessagePrefetchRef.current = null;
     }
 
     let active = true;
@@ -628,16 +730,25 @@ export default function ChatScreen() {
     setMessageLoadState('loading');
     setMessageLoadError('');
     try {
-      const result = await fetchGaraminDirectMessages(
-        resolvedConversation.id,
-      );
+      const prefetched = directMessagePrefetchRef.current;
+      let result: Awaited<ReturnType<typeof fetchGaraminDirectMessages>>;
+      if (prefetched?.conversationId === resolvedConversation.id) {
+        const response = await prefetched.request;
+        if ('error' in response) throw response.error;
+        result = response.result;
+        if (directMessagePrefetchRef.current === prefetched) {
+          directMessagePrefetchRef.current = null;
+        }
+      } else {
+        result = await fetchGaraminDirectMessages(resolvedConversation.id);
+      }
       if (result.conversation.counterpartyId !== otherId) {
         throw new Error('대화 상대가 일치하지 않습니다.');
       }
       const filtered = result.messages.filter(
         (message) => !deletedIdsRef.current.has(message.id),
       );
-      applyMessages(filtered);
+      applyMessages([...filtered, ...contextMessagesRef.current]);
 
       const hasUnreadIncoming = filtered.some(
         (message) =>
@@ -665,14 +776,287 @@ export default function ChatScreen() {
     resolvedConversation?.id,
   ]);
 
+  const loadAnchorContext = useCallback(async () => {
+    if (hasInvalidAnchorRouteParam) {
+      setAnchorContextError(ANCHOR_CONTEXT_UNAVAILABLE_MESSAGE);
+      return;
+    }
+    if (
+      !anchorMessageIdValue
+      || !myId
+      || !otherId
+      || !resolvedConversation?.id
+    ) return;
+
+    const requestKey = JSON.stringify([
+      resolvedConversation.id,
+      anchorMessageIdValue,
+      myId,
+      otherId,
+      anchorContextRetryKey,
+    ]);
+    if (anchorContextRequestKeyRef.current === requestKey) return;
+    anchorContextRequestKeyRef.current = requestKey;
+    setAnchorContextError('');
+
+    try {
+      const context = await fetchGaraminDirectMessageContext({
+        conversationId: resolvedConversation.id,
+        messageId: anchorMessageIdValue,
+      });
+      if (anchorContextRequestKeyRef.current !== requestKey) return;
+
+      const contextMessages: Message[] = context.messages
+        .filter((message) => !deletedIdsRef.current.has(message.messageId))
+        .map((message) => {
+          const isIncoming = message.senderSide === 'counterparty';
+          return {
+            id: message.messageId,
+            content: message.content,
+            sender_id: isIncoming ? otherId : myId,
+            receiver_id: isIncoming ? myId : otherId,
+            conversation_id: resolvedConversation.id,
+            created_at: message.sentAt,
+            is_read: true,
+            message_type: 'text',
+            file_url: null,
+            file_name: null,
+            file_size: null,
+            attachments: [],
+            sender_label: message.senderLabel,
+            is_context_preview: true,
+          };
+        });
+      if (!contextMessages.some((message) => message.id === context.anchorMessageId)) {
+        if (!activateAnchorMessage(anchorMessageIdValue)) {
+          setAnchorContextError(ANCHOR_CONTEXT_UNAVAILABLE_MESSAGE);
+        }
+        return;
+      }
+
+      contextMessagesRef.current = contextMessages;
+      applyMessages([...messagesRef.current, ...contextMessages]);
+      activateAnchorMessage(context.anchorMessageId);
+    } catch {
+      if (anchorContextRequestKeyRef.current !== requestKey) return;
+      if (!activateAnchorMessage(anchorMessageIdValue)) {
+        setAnchorContextError(ANCHOR_CONTEXT_UNAVAILABLE_MESSAGE);
+      }
+    }
+  }, [
+    activateAnchorMessage,
+    anchorContextRetryKey,
+    anchorMessageIdValue,
+    applyMessages,
+    hasInvalidAnchorRouteParam,
+    myId,
+    otherId,
+    resolvedConversation?.id,
+  ]);
+
   useEffect(() => {
-    if (!myId || !otherId || !resolvedConversation?.id) return;
+    anchorContextRequestKeyRef.current = '';
+    contextMessagesRef.current = [];
+    anchorScrollTargetMessageIdRef.current = '';
+    anchorScrollRetryCountRef.current = 0;
+    anchorScrollGenerationRef.current += 1;
+    anchorLastScrollSignatureRef.current = '';
+    anchorHistoryStabilizedRef.current = false;
+    if (anchorScrollTimerRef.current) {
+      clearTimeout(anchorScrollTimerRef.current);
+      anchorScrollTimerRef.current = null;
+    }
+    if (anchorScrollRetryTimerRef.current) {
+      clearTimeout(anchorScrollRetryTimerRef.current);
+      anchorScrollRetryTimerRef.current = null;
+    }
+    if (anchorHighlightTimerRef.current) {
+      clearTimeout(anchorHighlightTimerRef.current);
+      anchorHighlightTimerRef.current = null;
+    }
+    setPendingAnchorMessageId('');
+    setAnchorNavigationDismissed(false);
+    setHighlightedMessageId('');
+    setAnchorContextError(
+      hasInvalidAnchorRouteParam ? ANCHOR_CONTEXT_UNAVAILABLE_MESSAGE : '',
+    );
+
+    const liveMessages = messagesRef.current.filter(
+      (message) => !message.is_context_preview,
+    );
+    if (liveMessages.length !== messagesRef.current.length) {
+      applyMessages(liveMessages);
+    }
+  }, [
+    anchorMessageIdValue,
+    applyMessages,
+    hasInvalidAnchorRouteParam,
+    resolvedConversation?.id,
+  ]);
+
+  useEffect(() => {
+    if (
+      hasInvalidAnchorRouteParam
+      || !anchorMessageIdValue
+      || !resolvedConversation?.id
+    ) return;
+    void loadAnchorContext();
+  }, [
+    anchorMessageIdValue,
+    hasInvalidAnchorRouteParam,
+    loadAnchorContext,
+    resolvedConversation?.id,
+  ]);
+
+  useEffect(() => {
+    if (
+      anchorNavigationDismissed
+      || hasInvalidAnchorRouteParam
+      || !anchorMessageIdValue
+      || pendingAnchorMessageId === anchorMessageIdValue
+      || !messages.some((message) => message.id === anchorMessageIdValue)
+    ) return;
+
+    // The regular history can already contain the target even when the bounded
+    // context request fails or completes later. Prefer that canonical row.
+    activateAnchorMessage(anchorMessageIdValue);
+  }, [
+    activateAnchorMessage,
+    anchorMessageIdValue,
+    anchorNavigationDismissed,
+    hasInvalidAnchorRouteParam,
+    messages,
+    pendingAnchorMessageId,
+  ]);
+
+  const handleAnchorScrollFailure = useCallback((info: AnchorScrollFailureInfo) => {
+    const targetMessageId = anchorScrollTargetMessageIdRef.current;
+    if (!targetMessageId) return;
+
+    const targetIndex = messagesRef.current.findIndex(
+      (message) => message.id === targetMessageId,
+    );
+    if (targetIndex < 0) return;
+
+    const estimatedOffset = Math.max(0, Math.max(info.averageItemLength, 1) * targetIndex);
+    try {
+      flatListRef.current?.scrollToOffset({
+        offset: estimatedOffset,
+        animated: false,
+      });
+    } catch {
+      logger.debug('[chat] anchor offset fallback unavailable');
+    }
+    if (anchorScrollRetryCountRef.current >= ANCHOR_SCROLL_RETRY_LIMIT) return;
+
+    anchorScrollRetryCountRef.current += 1;
+    const retryAttempt = anchorScrollRetryCountRef.current;
+    const retryGeneration = anchorScrollGenerationRef.current;
+    if (anchorScrollRetryTimerRef.current) {
+      clearTimeout(anchorScrollRetryTimerRef.current);
+    }
+    anchorScrollRetryTimerRef.current = setTimeout(() => {
+      anchorScrollRetryTimerRef.current = null;
+      if (
+        anchorScrollGenerationRef.current !== retryGeneration
+        || anchorScrollTargetMessageIdRef.current !== targetMessageId
+      ) return;
+
+      const retryIndex = messagesRef.current.findIndex(
+        (message) => message.id === targetMessageId,
+      );
+      if (retryIndex < 0) return;
+      try {
+        flatListRef.current?.scrollToIndex({
+          index: retryIndex,
+          animated: true,
+          viewPosition: 0.5,
+        });
+      } catch {
+        logger.debug('[chat] anchor scroll retry unavailable');
+      }
+    }, ANCHOR_SCROLL_RETRY_DELAY_MS * retryAttempt);
+  }, []);
+
+  useEffect(() => {
+    if (
+      anchorNavigationDismissed
+      || anchorHistoryStabilizedRef.current
+      || !pendingAnchorMessageId
+    ) return;
+    const targetIndex = messages.findIndex(
+      (message) => message.id === pendingAnchorMessageId,
+    );
+    if (targetIndex < 0) return;
+
+    const targetMessage = messages[targetIndex];
+    const historyPhase = messageLoadState === 'success' ? 'settled' : 'pending';
+    const scrollSignature = [
+      pendingAnchorMessageId,
+      targetIndex,
+      targetMessage.is_context_preview ? 'context' : 'live',
+      historyPhase,
+    ].join(':');
+    if (anchorLastScrollSignatureRef.current === scrollSignature) return;
+
+    anchorScrollTargetMessageIdRef.current = pendingAnchorMessageId;
+    anchorScrollRetryCountRef.current = 0;
+    anchorScrollGenerationRef.current += 1;
+    const scrollGeneration = anchorScrollGenerationRef.current;
+    if (anchorScrollTimerRef.current) {
+      clearTimeout(anchorScrollTimerRef.current);
+    }
+    anchorScrollTimerRef.current = setTimeout(() => {
+      anchorScrollTimerRef.current = null;
+      if (
+        anchorScrollGenerationRef.current !== scrollGeneration
+        || anchorScrollTargetMessageIdRef.current !== pendingAnchorMessageId
+      ) return;
+
+      const currentTargetIndex = messagesRef.current.findIndex(
+        (message) => message.id === pendingAnchorMessageId,
+      );
+      if (currentTargetIndex < 0) return;
+      anchorLastScrollSignatureRef.current = scrollSignature;
+      highlightAnchorMessage(pendingAnchorMessageId);
+      try {
+        flatListRef.current?.scrollToIndex({
+          index: currentTargetIndex,
+          animated: true,
+          viewPosition: 0.5,
+        });
+      } catch {
+        handleAnchorScrollFailure({
+          index: currentTargetIndex,
+          highestMeasuredFrameIndex: 0,
+          averageItemLength: 80,
+        });
+      } finally {
+        if (historyPhase === 'settled') {
+          anchorHistoryStabilizedRef.current = true;
+        }
+      }
+    }, 0);
+
+    return () => {
+      if (anchorScrollTimerRef.current) {
+        clearTimeout(anchorScrollTimerRef.current);
+        anchorScrollTimerRef.current = null;
+      }
+    };
+  }, [
+    anchorNavigationDismissed,
+    handleAnchorScrollFailure,
+    highlightAnchorMessage,
+    messageLoadState,
+    messages,
+    pendingAnchorMessageId,
+  ]);
+
+  useFocusEffect(useCallback(() => {
+    if (!myId || !otherId || !resolvedConversation?.id) return undefined;
 
     void fetchMessages();
-    const intervalId = setInterval(
-      () => void fetchMessages(),
-      DIRECT_MESSAGE_POLL_INTERVAL_MS,
-    );
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         void fetchMessages();
@@ -680,7 +1064,6 @@ export default function ChatScreen() {
     });
 
     return () => {
-      clearInterval(intervalId);
       appStateSub.remove();
     };
   }, [
@@ -688,33 +1071,20 @@ export default function ChatScreen() {
     myId,
     otherId,
     resolvedConversation?.id,
-  ]);
+  ]));
 
   useFocusEffect(
     useCallback(() => {
       if (role !== 'fc') return undefined;
       void loadFcTargets();
-      return undefined;
+      const appStateSub = AppState.addEventListener('change', (nextState) => {
+        if (nextState === 'active') {
+          void loadFcTargets();
+        }
+      });
+      return () => appStateSub.remove();
     }, [loadFcTargets, role]),
   );
-
-  useEffect(() => {
-    if (role !== 'fc' || !myId || !showFcTargetPicker) return;
-    const intervalId = setInterval(
-      () => void loadFcTargets(),
-      DIRECT_MESSAGE_POLL_INTERVAL_MS,
-    );
-    const appStateSub = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') {
-        void loadFcTargets();
-      }
-    });
-
-    return () => {
-      clearInterval(intervalId);
-      appStateSub.remove();
-    };
-  }, [loadFcTargets, myId, role, showFcTargetPicker]);
 
   useEffect(() => {
     if (role !== 'admin') return;
@@ -754,7 +1124,17 @@ export default function ChatScreen() {
 
   useEffect(() => {
     return () => {
+      anchorContextRequestKeyRef.current = '';
       Keyboard.dismiss();
+      if (anchorScrollTimerRef.current) {
+        clearTimeout(anchorScrollTimerRef.current);
+      }
+      if (anchorScrollRetryTimerRef.current) {
+        clearTimeout(anchorScrollRetryTimerRef.current);
+      }
+      if (anchorHighlightTimerRef.current) {
+        clearTimeout(anchorHighlightTimerRef.current);
+      }
     };
   }, []);
 
@@ -1084,6 +1464,7 @@ export default function ChatScreen() {
   const handleDeleteMessage = (message: Message) => {
     if (
       message.sender_id !== myId
+      || message.is_context_preview
       || !resolvedConversation?.id
       || !isNotificationUuid(message.id)
     ) {
@@ -1103,7 +1484,12 @@ export default function ChatScreen() {
 
         logger.debug('[delete] success', { messageId: message.id });
         deletedIdsRef.current.add(message.id);
-        setMessages((prev) => prev.filter((m) => m.id !== message.id));
+        contextMessagesRef.current = contextMessagesRef.current.filter(
+          (current) => current.id !== message.id,
+        );
+        applyMessages(
+          messagesRef.current.filter((current) => current.id !== message.id),
+        );
       },
     });
   };
@@ -1157,9 +1543,9 @@ export default function ChatScreen() {
     });
   };
 
-  const handleBack = () => {
-    router.back();
-  };
+  const handleBack = useCallback(() => {
+    goBackOrReplace(router, '/messenger');
+  }, [router]);
 
   const handleTargetPickerBack = useCallback(() => {
     goBackOrReplace(router, targetPickerHeader.fallbackHref);
@@ -1302,6 +1688,7 @@ export default function ChatScreen() {
 
   const renderItem = ({ item }: { item: Message }) => {
     const isMe = item.sender_id === myId;
+    const isHighlighted = highlightedMessageId === item.id;
     const unreadReceiptCount = getDirectMessageUnreadCount({
       isOwn: isMe,
       isRead: item.is_read,
@@ -1314,7 +1701,13 @@ export default function ChatScreen() {
     );
 
     return (
-      <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
+      <View
+        style={[
+          styles.msgRow,
+          isMe ? styles.msgRowMe : styles.msgRowOther,
+          isHighlighted && styles.msgRowHighlighted,
+        ]}
+      >
         {!isMe && (
           <View style={styles.avatar}>
             <Feather name="user" size={20} color={MUTED} />
@@ -1322,7 +1715,11 @@ export default function ChatScreen() {
         )}
 
         <View style={[styles.msgContainer, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}>
-          {!isMe && <Text style={styles.senderName}>{headerTitle}</Text>}
+          {!isMe && (
+            <Text style={styles.senderName}>
+              {item.sender_label || headerTitle}
+            </Text>
+          )}
 
           <View style={[styles.messageBubbleLine, isMe ? styles.messageBubbleLineMe : styles.messageBubbleLineOther]}>
             {isMe && messageMeta}
@@ -1421,6 +1818,145 @@ export default function ChatScreen() {
     );
   };
 
+  const directRoomRef = useMemo(() => {
+    if (!resolvedConversation?.id || !isNotificationUuid(resolvedConversation.id)) return null;
+    return buildMessengerRoomRef('direct-thread', resolvedConversation.id);
+  }, [resolvedConversation?.id]);
+  const directSheetRoom = useMemo(() => directRoomRef ? ({
+    version: 1 as const,
+    kind: 'garamin_direct_chat' as const,
+    conversationId: directRoomRef.id,
+  }) : null, [directRoomRef]);
+  const directRoomPreferenceReady = Boolean(
+    directRoomRef
+    && roomPreferenceReady
+    && roomPreferenceLoadedKey === directRoomRef.key,
+  );
+
+  const loadDirectRoomPreference = useCallback(async () => {
+    const roomRef = directRoomRef;
+    if (!roomRef) return;
+    const sequence = ++roomPreferenceSequenceRef.current;
+    setRoomPreferenceLoading(true);
+    setRoomPreferenceReady(false);
+    setRoomPreferenceLoadedKey(null);
+    setRoomPreferenceFailure(null);
+    try {
+      const preferences = await getNotificationPreferences();
+      if (sequence !== roomPreferenceSequenceRef.current) return;
+      setRoomMutedState(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setRoomPreferenceLoadedKey(roomRef.key);
+      setRoomPreferenceReady(true);
+      setRoomPreferenceFailure(null);
+    } catch (error) {
+      if (sequence !== roomPreferenceSequenceRef.current) return;
+      setRoomPreferenceReady(false);
+      setRoomPreferenceLoadedKey(null);
+      setRoomPreferenceFailure(buildMessengerNotificationPreferenceLoadFailure(error));
+    } finally {
+      if (sequence === roomPreferenceSequenceRef.current) {
+        setRoomPreferenceLoading(false);
+      }
+    }
+  }, [directRoomRef]);
+
+  useEffect(() => {
+    roomPreferenceSequenceRef.current += 1;
+    setRoomMutedState(false);
+    setRoomPreferenceLoading(false);
+    setRoomPreferenceReady(false);
+    setRoomPreferenceLoadedKey(null);
+    setRoomPreferencePending(false);
+    setRoomPreferenceFailure(null);
+    if (directRoomRef) void loadDirectRoomPreference();
+    return () => {
+      roomPreferenceSequenceRef.current += 1;
+    };
+  }, [directRoomRef, loadDirectRoomPreference]);
+
+  const saveDirectRoomPreference = useCallback(async (nextMuted: boolean) => {
+    const roomRef = directRoomRef;
+    if (
+      !roomRef
+      || !directRoomPreferenceReady
+      || roomPreferenceLoading
+      || roomPreferencePending
+    ) return;
+    const sequence = ++roomPreferenceSequenceRef.current;
+    const previousMuted = roomMuted;
+    setRoomMutedState(nextMuted);
+    setRoomPreferencePending(true);
+    setRoomPreferenceFailure(null);
+    try {
+      const preferences = await setRoomMuted(roomRef, nextMuted);
+      if (sequence !== roomPreferenceSequenceRef.current) return;
+      setRoomMutedState(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setRoomPreferenceLoadedKey(roomRef.key);
+      setRoomPreferenceReady(true);
+    } catch (error) {
+      if (sequence !== roomPreferenceSequenceRef.current) return;
+      setRoomMutedState(previousMuted);
+      setRoomPreferenceFailure(buildMessengerNotificationPreferenceFailure(nextMuted, error));
+    } finally {
+      if (sequence === roomPreferenceSequenceRef.current) {
+        setRoomPreferencePending(false);
+      }
+    }
+  }, [
+    directRoomPreferenceReady,
+    directRoomRef,
+    roomMuted,
+    roomPreferenceLoading,
+    roomPreferencePending,
+  ]);
+
+  const handleReturnToLatest = useCallback(() => {
+    setAnchorNavigationDismissed(true);
+    setPendingAnchorMessageId('');
+    setHighlightedMessageId('');
+    setAnchorContextError('');
+    anchorContextRequestKeyRef.current = '';
+    anchorScrollTargetMessageIdRef.current = '';
+    anchorScrollRetryCountRef.current = 0;
+    anchorLastScrollSignatureRef.current = '';
+    anchorHistoryStabilizedRef.current = true;
+    anchorScrollGenerationRef.current += 1;
+    if (anchorScrollTimerRef.current) {
+      clearTimeout(anchorScrollTimerRef.current);
+      anchorScrollTimerRef.current = null;
+    }
+    if (anchorScrollRetryTimerRef.current) {
+      clearTimeout(anchorScrollRetryTimerRef.current);
+      anchorScrollRetryTimerRef.current = null;
+    }
+    if (anchorHighlightTimerRef.current) {
+      clearTimeout(anchorHighlightTimerRef.current);
+      anchorHighlightTimerRef.current = null;
+    }
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+
+  const showAnchorReturnToLatest = Boolean(
+    anchorMessageIdValue
+    && !hasInvalidAnchorRouteParam
+    && !anchorNavigationDismissed
+    && resolvedConversation?.id,
+  );
+
+  const visibleLoadError = conversationResolutionState === 'error'
+    ? conversationResolutionError
+    : messageLoadState === 'error'
+      ? messageLoadError
+      : anchorContextError;
+  const canRetryVisibleLoadError =
+    conversationResolutionState === 'error'
+    || messageLoadState === 'error'
+    || Boolean(
+      anchorContextError
+      && anchorMessageIdValue
+      && !hasInvalidAnchorRouteParam,
+    );
+
   if (showFcTargetPicker) {
     return (
       <View style={styles.container}>
@@ -1501,7 +2037,12 @@ export default function ChatScreen() {
         onRetry={notificationReceipt.retryMarkRead}
       />
       <View style={[styles.conversationHeader, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
-        <Pressable style={styles.backBtn} onPress={handleBack}>
+        <Pressable
+          style={styles.backBtn}
+          accessibilityRole="button"
+          accessibilityLabel="메신저 목록으로 돌아가기"
+          onPress={handleBack}
+        >
           <Feather name="arrow-left" size={22} color={CHARCOAL} />
         </Pressable>
         <View style={styles.conversationHeaderCenter}>
@@ -1543,41 +2084,83 @@ export default function ChatScreen() {
             ) : null}
           </View>
         </View>
-        <View style={styles.backBtn} />
+        <Pressable
+          accessibilityLabel="대화방 설정 열기"
+          accessibilityRole="button"
+          disabled={!directRoomRef}
+          hitSlop={4}
+          onPress={() => {
+            setConversationSettingsVisible(true);
+            void loadDirectRoomPreference();
+          }}
+          style={({ pressed }) => [
+            styles.conversationSettingsButton,
+            pressed && styles.conversationSettingsButtonPressed,
+            !directRoomRef && styles.conversationSettingsButtonDisabled,
+          ]}
+        >
+          <Feather name={roomMuted ? 'bell-off' : 'more-horizontal'} size={21} color={roomMuted ? MUTED : CHARCOAL} />
+        </Pressable>
       </View>
-      {conversationResolutionState === 'error' || messageLoadState === 'error' ? (
+      {visibleLoadError ? (
         <View style={styles.targetIntroCard}>
           <Text style={styles.targetHelperText}>
-            {conversationResolutionError || messageLoadError}
+            {visibleLoadError}
           </Text>
+          {canRetryVisibleLoadError ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.retryButton,
+                pressed && { opacity: 0.9 },
+              ]}
+              onPress={() => {
+                if (conversationResolutionState === 'error') {
+                  setConversationRetryKey((current) => current + 1);
+                  return;
+                }
+                if (messageLoadState === 'error') {
+                  void fetchMessages();
+                  return;
+                }
+                setAnchorContextRetryKey((current) => current + 1);
+              }}
+            >
+              <Text style={styles.retryButtonText}>다시 시도</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {showAnchorReturnToLatest ? (
+        <View style={styles.anchorNavigationBanner}>
+          <Text style={styles.anchorNavigationText}>검색한 메시지를 보고 있습니다.</Text>
           <Pressable
+            accessibilityLabel="최신 메시지로 이동"
+            accessibilityRole="button"
+            onPress={handleReturnToLatest}
             style={({ pressed }) => [
-              styles.retryButton,
-              pressed && { opacity: 0.9 },
+              styles.anchorLatestButton,
+              pressed && styles.anchorLatestButtonPressed,
             ]}
-            onPress={() => {
-              if (conversationResolutionState === 'error') {
-                setConversationRetryKey((current) => current + 1);
-                return;
-              }
-              void fetchMessages();
-            }}
           >
-            <Text style={styles.retryButtonText}>다시 시도</Text>
+            <Feather name="arrow-down" size={15} color={HANWHA_ORANGE} />
+            <Text style={styles.anchorLatestButtonText}>최신 메시지로</Text>
           </Pressable>
         </View>
       ) : null}
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 65 : 0}>
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}>
         <FlatList
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
+          extraData={highlightedMessageId}
           inverted
+          onScrollToIndexFailed={handleAnchorScrollFailure}
           contentContainerStyle={styles.listContent}
           style={styles.list}
           keyboardShouldPersistTaps="handled"
@@ -1588,7 +2171,7 @@ export default function ChatScreen() {
           style={[
             styles.inputWrapper,
             {
-              paddingBottom: bottomSafeInset + (Platform.OS === 'android' ? keyboardPadding : 0),
+              paddingBottom: composerBottomPadding,
             },
           ]}>
           {selectedAttachments.length > 0 ? (
@@ -1689,7 +2272,11 @@ export default function ChatScreen() {
         onClose={closeMessageActions}
         onCopy={actionMessage ? handleCopyAction : undefined}
         onSelectCopy={actionMessage ? handleSelectCopyAction : undefined}
-        onDelete={actionMessage?.sender_id === myId ? handleDeleteAction : undefined}
+        onDelete={
+          actionMessage?.sender_id === myId && !actionMessage.is_context_preview
+            ? handleDeleteAction
+            : undefined
+        }
       />
 
       <MessageSelectCopySheet
@@ -1698,6 +2285,31 @@ export default function ChatScreen() {
         onClose={() => setSelectCopyMessage(null)}
         bottomInset={insets.bottom}
       />
+
+      {directSheetRoom ? (
+        <ConversationSettingsSheet
+          disabled={roomPreferenceLoading || !directRoomPreferenceReady}
+          disabledReason={roomPreferenceLoading
+            ? '이 대화의 알림 설정을 불러오는 중입니다.'
+            : !directRoomPreferenceReady
+              ? '알림 설정을 다시 불러와 주세요.'
+              : null}
+          failure={roomPreferenceFailure}
+          muted={roomMuted}
+          onClose={() => setConversationSettingsVisible(false)}
+          onOpenNotificationSettings={() => {
+            setConversationSettingsVisible(false);
+            router.push('/notification-settings' as never);
+          }}
+          onPreferenceChange={(change) => void saveDirectRoomPreference(change.muted)}
+          onRetryLoad={() => void loadDirectRoomPreference()}
+          onRetryPreferenceChange={(change) => void saveDirectRoomPreference(change.muted)}
+          pending={roomPreferencePending}
+          room={directSheetRoom}
+          roomTitle={headerTitle}
+          visible={conversationSettingsVisible}
+        />
+      ) : null}
     </View>
   );
 }
@@ -1805,7 +2417,50 @@ const styles = StyleSheet.create({
   },
   list: { flex: 1 },
   listContent: { paddingVertical: 20, paddingHorizontal: 16, gap: 16 },
+  anchorNavigationBanner: {
+    minHeight: 48,
+    paddingLeft: 16,
+    paddingRight: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    backgroundColor: '#FFF7ED',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FED7AA',
+  },
+  anchorNavigationText: {
+    flex: 1,
+    minWidth: 0,
+    color: MUTED,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  anchorLatestButton: {
+    minHeight: 44,
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderRadius: 10,
+  },
+  anchorLatestButtonPressed: { backgroundColor: '#FFEDD5' },
+  anchorLatestButtonText: { color: HANWHA_ORANGE, fontSize: 12, fontWeight: '700' },
   msgRow: { flexDirection: 'row', marginBottom: 12, width: '100%' },
+  msgRowHighlighted: {
+    backgroundColor: '#FFF1E8',
+    borderRadius: 16,
+  },
+  conversationSettingsButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  conversationSettingsButtonPressed: { backgroundColor: '#F3F4F6' },
+  conversationSettingsButtonDisabled: { opacity: 0.32 },
   msgRowMe: { justifyContent: 'flex-end' },
   msgRowOther: { justifyContent: 'flex-start' },
   avatar: {

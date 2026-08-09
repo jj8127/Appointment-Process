@@ -9,6 +9,9 @@ export type ExamFlowType = 'life' | 'nonlife';
 export const INVALID_EXAM_LOCATION_MESSAGE =
   '선택한 응시 지역이 해당 시험 회차에 속하지 않습니다. 응시 지역을 다시 선택해주세요.';
 
+export const INVALID_EXAM_MONTH_MESSAGE =
+  '시험 월 정보를 확인할 수 없습니다. 관리자에게 문의해주세요.';
+
 type ExamFlowConfig = {
   examType: ExamFlowType;
   applyRoute: '/exam-apply' | '/exam-apply2';
@@ -82,11 +85,18 @@ export type ExamRoundFormState = {
     roundLabel: string;
     notes: string;
   };
-  examDate: Date;
+  examDate: Date | null;
+  examMonth: Date | null;
+  isExamDateTbd: boolean;
   deadlineDate: Date;
   locationInput: string;
   locationOrder: string;
   draftLocations: { id: string; name: string; order: number }[];
+};
+
+export type ExamRoundDatePayload = {
+  exam_date: string | null;
+  exam_month: string;
 };
 
 type ExistingExamApplicationSelection = {
@@ -177,8 +187,86 @@ export function validateActiveExamOwnershipFixture(
 
 export function getExamMonthKey(examDate?: string | null): string | null {
   const normalized = String(examDate ?? '').trim();
-  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(normalized);
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-\d{2}$/.exec(normalized);
   return match ? `${match[1]}-${match[2]}` : null;
+}
+
+type ExamRoundMonthSource = {
+  exam_month?: string | null;
+  exam_date?: string | null;
+  exam_type?: string | null;
+};
+
+type ExamRegistrationMonthSource = {
+  exam_month?: string | null;
+  exam_type?: string | null;
+  exam_rounds?: ExamRoundMonthSource | null;
+};
+
+const getCanonicalExamMonthKey = (examMonth: string): string | null => {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-01$/.exec(examMonth.trim());
+  return match ? `${match[1]}-${match[2]}` : null;
+};
+
+export function getExamRoundMonthKey(
+  round?: ExamRoundMonthSource | null,
+): string | null {
+  if (!round) return null;
+
+  if (round.exam_month !== undefined) {
+    return typeof round.exam_month === 'string'
+      ? getCanonicalExamMonthKey(round.exam_month)
+      : null;
+  }
+
+  return getExamMonthKey(round.exam_date);
+}
+
+export function getExamRegistrationMonthKey(
+  registration?: ExamRegistrationMonthSource | null,
+): string | null {
+  if (!registration) return null;
+
+  if (registration.exam_month !== undefined) {
+    return typeof registration.exam_month === 'string'
+      ? getCanonicalExamMonthKey(registration.exam_month)
+      : null;
+  }
+
+  return getExamRoundMonthKey(registration.exam_rounds);
+}
+
+const parseExamFlowType = (value?: string | null): ExamFlowType | null => {
+  return value === 'life' || value === 'nonlife' ? value : null;
+};
+
+export function getExamRegistrationFlowType(
+  registration?: ExamRegistrationMonthSource | null,
+): ExamFlowType | null {
+  if (!registration) return null;
+
+  if (registration.exam_type !== undefined) {
+    return parseExamFlowType(registration.exam_type);
+  }
+
+  return parseExamFlowType(registration.exam_rounds?.exam_type);
+}
+
+export function isExamRegistrationInRoundMonth(
+  registration: ExamRegistrationMonthSource,
+  round: ExamRoundMonthSource,
+  expectedExamType: ExamFlowType,
+): boolean {
+  if (getExamRegistrationFlowType(registration) !== expectedExamType) {
+    return false;
+  }
+
+  const roundMonth = getExamRoundMonthKey(round);
+  const registrationMonth = getExamRegistrationMonthKey(registration);
+
+  return roundMonth !== null
+    && registrationMonth !== null
+    && registrationMonth === roundMonth;
 }
 
 export function formatExamRegistrationStatus(status?: string | null): string {
@@ -269,6 +357,47 @@ const toFormDate = (value: string | null | undefined, fallback: Date): Date => {
   return parsed ?? new Date(fallback.getTime());
 };
 
+const toLocalYmd = (value: Date): string =>
+  `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(
+    value.getDate(),
+  ).padStart(2, '0')}`;
+
+const toExamMonthStart = (value: Date): Date =>
+  new Date(value.getFullYear(), value.getMonth(), 1);
+
+const toCanonicalExamMonthDate = (value?: string | null): Date | null => {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-01$/.exec(String(value ?? '').trim());
+  if (!match) return null;
+
+  return new Date(Number(match[1]), Number(match[2]) - 1, 1);
+};
+
+export function getExamRoundDatePayload({
+  examDate,
+  examMonth,
+  isExamDateTbd,
+}: Pick<ExamRoundFormState, 'examDate' | 'examMonth' | 'isExamDateTbd'>): ExamRoundDatePayload {
+  if (isExamDateTbd) {
+    if (!examMonth || Number.isNaN(examMonth.getTime())) {
+      throw new Error('시험일 미정 회차는 시험 월을 선택해주세요.');
+    }
+
+    return {
+      exam_date: null,
+      exam_month: toLocalYmd(toExamMonthStart(examMonth)),
+    };
+  }
+
+  if (!examDate || Number.isNaN(examDate.getTime())) {
+    throw new Error('정확한 시험일을 선택해주세요.');
+  }
+
+  return {
+    exam_date: toLocalYmd(examDate),
+    exam_month: toLocalYmd(toExamMonthStart(examDate)),
+  };
+}
+
 export function getExamRoundSelectionState(round: ExamRoundWithLocations) {
   return {
     selectedRoundId: round.id,
@@ -316,6 +445,8 @@ export function getExamRoundCreateFormState(now = new Date()): ExamRoundFormStat
       notes: '',
     },
     examDate: new Date(now.getTime()),
+    examMonth: toExamMonthStart(now),
+    isExamDateTbd: false,
     deadlineDate: new Date(now.getTime()),
     locationInput: '',
     locationOrder: '0',
@@ -327,13 +458,20 @@ export function getExamRoundEditFormState(
   round: ExamRoundWithLocations,
   fallback = new Date(),
 ): ExamRoundFormState {
+  const examDate = toDate(round.exam_date);
+  const isExamDateTbd = round.exam_date === null;
+
   return {
     selectedRoundId: round.id,
     roundForm: {
       roundLabel: round.round_label ?? '',
       notes: round.notes ?? '',
     },
-    examDate: toFormDate(round.exam_date, fallback),
+    examDate,
+    examMonth:
+      toCanonicalExamMonthDate(round.exam_month)
+      ?? (examDate ? toExamMonthStart(examDate) : null),
+    isExamDateTbd,
     deadlineDate: toFormDate(round.registration_deadline, fallback),
     locationInput: '',
     locationOrder: '0',

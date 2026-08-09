@@ -17,10 +17,10 @@ describe('group chat mobile wiring', () => {
   it('exposes the group chat card from the messenger hub', () => {
     const source = readAppFile('messenger.tsx');
 
-    expect(source).toContain('가람PA 단톡방');
     expect(source).toContain("router.push('/group-chat')");
     expect(source).toContain('groupChatBootstrap');
-    expect(source).toContain('canUseGroupChat &&');
+    expect(source).toContain('buildGroupConversation(summary)');
+    expect(source).toContain('if (capabilities.canUseGroupChat)');
     expect(source).not.toContain("staffType !== 'developer'");
   });
 
@@ -53,7 +53,9 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('prepareMessengerAttachmentBatch');
     expect(source).toContain('uploadMessengerAttachmentBatch');
     expect(source).toContain('openAuthorizedMessengerAttachment');
-    expect(source).not.toContain('ImagePicker.launchImageLibraryAsync');
+    expect(source).toContain('ImagePicker.launchImageLibraryAsync');
+    expect(source).toContain('accessibilityLabel="사진 첨부"');
+    expect(source).toContain('selectionLimit: MAX_MESSENGER_ATTACHMENTS - selectedAttachments.length');
     expect(source).not.toContain('createSignedUploadUrl');
     expect(source).not.toContain('getPublicUrl');
     expect(source).toContain('keyboardShouldPersistTaps="handled"');
@@ -73,6 +75,25 @@ describe('group chat mobile wiring', () => {
     const retrySource = source.slice(retryStart, retryEnd);
     expect(retrySource).toContain('groupChatRetryNotification(retry)');
     expect(retrySource).not.toContain('groupChatSend(');
+  });
+
+  it('keeps every mobile chat composer at one keyboard gap across device insets', () => {
+    const groupSource = readAppFile('group-chat.tsx');
+    const directSource = readAppFile('chat.tsx');
+    const requestBoardSource = readAppFile('request-board-messenger.tsx');
+
+    for (const source of [groupSource, directSource, requestBoardSource]) {
+      expect(source).toContain('getChatComposerBottomPadding');
+      expect(source).toContain('keyboardVerticalOffset={0}');
+      expect(source).not.toContain("keyboardVerticalOffset={Platform.OS === 'ios' ? 65 : 0}");
+      expect(source).not.toContain("Platform.OS === 'android' ? keyboardPadding : 0");
+    }
+
+    for (const source of [groupSource, directSource, requestBoardSource]) {
+      expect(source).toContain(
+        "behavior={Platform.OS === 'ios' ? 'padding' : 'height'}",
+      );
+    }
   });
 
   it('does not reuse an attachment delivery after the reply target changes', () => {

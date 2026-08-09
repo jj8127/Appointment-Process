@@ -27,6 +27,9 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
   pan/zoom 중 label·금액은 screen-space 고정 크기를 유지하며 contribution edge는
   child에서 parent 방향을 표시한다. 이는 시각화 계약일 뿐 referral read model을
   변경하지 않는다.
+- 선택형 `트리`도 같은 로컬 parent chain과 계산 결과만 사용하며 별도 query를 만들지
+  않는다. 새 화면은 항상 현재 원형 graph로 시작하고, tree mode에서는 원형 WebView를
+  unmount한 뒤 고정 카드 geometry만 렌더한다.
 - FC/본부장 self-service referral session guard는 `hooks/use-referral-app-session.ts -> refresh-app-session`이다.
 - referral tree의 현재 모바일 기본 surface는 `app/referral.tsx` 내부 섹션이며, `app/referral-tree.tsx`는 legacy 진입을 `/referral`로 보내는 compatibility route만 유지한다.
 - 현재 모바일 상단 surface는 ancestor chain 전체가 아니라 `get-referral-tree.ancestors`의 마지막 노드만 direct recommender 카드로 렌더링한다.

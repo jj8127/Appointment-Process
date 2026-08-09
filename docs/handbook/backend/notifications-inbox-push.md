@@ -72,8 +72,10 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 - Browser outbound payloads are rebuilt from the verified session. Managers cannot send messages;
   admin/developer may target verified completed non-designer FCs, and a signed completed FC may
   target only the shared admin conversation.
-- Request Board callbacks allow only `type=notify`, `target_role=fc`, an 11-digit target, an internal
-  relative URL, and the eight current `request_board_*` lifecycle/message categories. Unknown
+- Request Board callbacks allow only `type=notify`, `recipient_binding=canonical_person_v1`, an
+  11-digit target, an internal relative URL, and the eight current `request_board_*`
+  lifecycle/message categories. The receiver resolves the target phone to one exact active staff
+  account (admin/manager) before falling back to one completed FC account. Unknown
   control fields such as `skip_notification_insert` are not forwarded. Complete title/body values
   are redacted before the shared 120/2000-character bounds are applied.
 - Browser chat callers omit sender id/name and never insert `notifications` directly. The protected
@@ -120,12 +122,16 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
   않습니다. subscription POST도 저장하지 않고, DELETE만 현재 검증된 actor 범위를
   정리합니다.
 - request_board bridge unread는 개인 식별자가 있는 admin/manager/developer session에서 `requestBoardRole='fc'` 또는 `designer`일 때 해당 개인의 FC-role Request Board inbox를 함께 조회합니다. `designer`는 Request Board category만 집계하고 공지/게시글 알림은 제외합니다.
-- 관리자 웹 developer/manager inbox는 현재 HOLD입니다. Request Board 생산자의
-  `fc_profiles.id`와 staff viewer account ID가 서로 달라 기존 merge가 비고, 개인 admin
-  query가 shared-admin broadcast를 포함하는 Edge 범위 문제가 있기 때문입니다.
-  canonical recipient binding, 개인 broadcast 차단, list/get/receipt 동일 predicate가
-  함께 배포되기 전까지 Next proxy는 이 두 역할의 inbox list/get/mark/dismiss를
-  fail-closed하고 헤더·메신저 UI는 해당 요청을 보내지 않습니다.
+- 관리자 웹 developer/manager inbox는 canonical-person recipient binding을 사용합니다.
+  Request Board bridge의 전화번호는 Next proxy에서 하나의 활성 staff actor UUID로
+  해석하고, 개인 admin inbox는 그 UUID가 일치하는 row만 조회합니다. shared-admin
+  broadcast는 개인 inbox에 포함하지 않으며 list/get/mark/dismiss가 같은 receipt
+  predicate를 사용합니다. staff 계정이 중복되어 대상을 하나로 결정할 수 없으면
+  알림 생성을 fail-closed합니다.
+- 롤아웃은 expand/contract 순서를 지킵니다. Request Board producer가 binding을 먼저
+  보내고, Edge를 `REQUIRE_CANONICAL_REQUEST_BOARD_RECIPIENT_BINDING=false` 호환 모드로
+  배포한 뒤 Next proxy/UI와 legacy-row backfill migration을 배포합니다. smoke가 통과한
+  다음 해당 Edge secret을 `true`로 전환해 binding 누락을 차단합니다.
 - 일반 admin과 실제 FC session은 기존 signed role/resident 범위를 유지합니다.
 - 설계매니저 가람in 모바일 push/unread는 request_board 관련 알림과 본인에게 직접 온 내부 채팅 알림으로 제한합니다. 게시판, 공지, 시험, FC 온보딩 broadcast는 manager 모바일 토큰으로 fanout하지 않습니다.
 - Expo push API는 한 요청에 최대 100개 payload만 허용하므로 `fc-notify`는 mobile push payload를 100개 단위로 chunk 전송합니다.

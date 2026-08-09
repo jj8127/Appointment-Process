@@ -27,6 +27,15 @@ test('payment proof Edge function requires signed app session and service-side s
   assert.doesNotMatch(functionSource, /getPublicUrl/);
 });
 
+test('payment proof history view is scoped to one current FC registration', () => {
+  assert.match(functionSource, /body\.action === 'view'/);
+  assert.match(functionSource, /\.eq\('registration_id', validated\.value\.registrationId\)/);
+  assert.match(functionSource, /\.eq\('fc_id', target\.fcId\)/);
+  assert.match(functionSource, /\.eq\('status', 'attached'\)/);
+  assert.match(functionSource, /createSignedUrl/);
+  assert.match(functionSource, /EXAM_PAYMENT_PROOF_VIEW_EXPIRES_IN_SECONDS/);
+});
+
 test('payment proof schema is private and service-role only', () => {
   assert.match(migrationSource, /'exam-payment-proofs'[\s\S]*false/);
   assert.match(migrationSource, /to service_role/);

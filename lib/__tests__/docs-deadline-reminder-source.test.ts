@@ -74,6 +74,30 @@ describe('docs deadline reminder delivery confirmation', () => {
     expect(source).toContain('notification_log_lookup_failed');
   });
 
+  it('applies exact FC operations preferences after inbox persistence and before Expo', () => {
+    const conditionalInsert = source.indexOf('if (!existingNotification.exists)');
+    const preferenceCheck = source.indexOf(
+      'const preference = await loadReminderExpoEligibility(row.id)',
+      conditionalInsert,
+    );
+    const tokenLookup = source.indexOf(".from('device_tokens')", preferenceCheck);
+    const preferenceBranch = source.slice(preferenceCheck, tokenLookup);
+
+    expect(source).toContain("from '../_shared/general-push-preference-policy.ts'");
+    expect(source).toContain(".from('app_push_preferences')");
+    expect(source).toContain(".from('app_push_category_preferences')");
+    expect(source).toContain(".eq('actor_id', actorId)");
+    expect(source).toContain(".eq('actor_role', 'fc')");
+    expect(source).toContain(".eq('category', REMINDER_PUSH_CATEGORY)");
+    expect(source).toContain("const REMINDER_PUSH_CATEGORY = 'operations' as const");
+    expect(preferenceCheck).toBeGreaterThan(conditionalInsert);
+    expect(tokenLookup).toBeGreaterThan(preferenceCheck);
+    expect(preferenceBranch).toContain('if (!preference.enabled)');
+    expect(preferenceBranch).toContain('warningCounts.preference_lookup_failed += 1');
+    expect(preferenceBranch).toContain(".update({ docs_deadline_last_notified_at: today })");
+    expect(preferenceBranch).toContain('continue;');
+  });
+
   it('reports only privacy-safe aggregate warnings for provider and persistence failures', () => {
     expect(source).toContain('provider_delivery_not_accepted');
     expect(source).toContain('provider_ticket_rejected');

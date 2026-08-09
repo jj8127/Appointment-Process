@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 import { logger } from './logger';
 import { getStoredAppSessionToken } from './request-board-api';
@@ -21,11 +21,63 @@ export type PushTokenRegistrationResult =
         | 'registration_failed';
     };
 
+export type PushPermissionStatus = 'granted' | 'denied' | 'undetermined' | 'unavailable';
+
+export type PushTokenUnregisterResult =
+  | { ok: true; retryable: false; reason: 'unregistered' }
+  | { ok: false; retryable: boolean; reason: 'session_unavailable' | 'unregister_failed' };
+
+export async function getPushPermissionStatus(): Promise<PushPermissionStatus> {
+  if (Platform.OS === 'web') return 'unavailable';
+  try {
+    const Notifications = await import('expo-notifications');
+    const { status } = await Notifications.getPermissionsAsync();
+    return status === 'granted' || status === 'denied' || status === 'undetermined'
+      ? status
+      : 'undetermined';
+  } catch {
+    return 'unavailable';
+  }
+}
+
+export async function openPushNotificationSettings() {
+  if (Platform.OS === 'web') return false;
+  try {
+    await Linking.openSettings();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function unregisterAllPushTokens(): Promise<PushTokenUnregisterResult> {
+  const sessionToken = await getStoredAppSessionToken();
+  if (!sessionToken) {
+    return { ok: false, retryable: true, reason: 'session_unavailable' };
+  }
+  try {
+    const { data, error } = await supabase.functions.invoke<{ ok?: boolean }>(
+      'device-token-register',
+      {
+        method: 'DELETE',
+        body: { disableAll: true },
+        headers: { 'x-app-session-token': sessionToken },
+      },
+    );
+    return !error && data?.ok === true
+      ? { ok: true, retryable: false, reason: 'unregistered' }
+      : { ok: false, retryable: true, reason: 'unregister_failed' };
+  } catch {
+    return { ok: false, retryable: true, reason: 'unregister_failed' };
+  }
+}
+
 export async function registerPushToken(
   role: 'admin' | 'fc' | 'manager',
   residentId: string,
   displayName: string,
   providedExpoPushToken?: string,
+  options: { requestPermission?: boolean } = {},
 ): Promise<PushTokenRegistrationResult> {
   try {
     if (Platform.OS === 'web') {
@@ -80,7 +132,7 @@ export async function registerPushToken(
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     logger.debug('push permission existingStatus', existingStatus);
     let finalStatus = existingStatus;
-    if (existingStatus !== 'granted') {
+    if (existingStatus !== 'granted' && options.requestPermission === true) {
       const { status } = await Notifications.requestPermissionsAsync();
       logger.debug('push permission requested status', status);
       finalStatus = status;

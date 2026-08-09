@@ -22,8 +22,9 @@ describe('exam application historical fee paid date source contract', () => {
 
     expect(applyType).toContain('fee_paid_date?: string | null;');
     expect(myApplyQuery).toContain(
-      "queryKey: ['my-exam-apply-history', applicationResidentId]",
+      "queryKey: ['my-exam-apply-history', examFlowType, applicationResidentId]",
     );
+    expect(myApplyQuery).toContain('exam_registrations_round_exam_type_fkey');
     expect(myApplyQuery).toContain('fee_paid_date');
     expect(myApplyQuery).toContain(
       'exam_locations!exam_registrations_location_round_fkey(location_name)',

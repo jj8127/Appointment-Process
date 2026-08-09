@@ -225,14 +225,16 @@ describe('exam bundle client and admin source contract', () => {
   it.each([
     ['life', lifeApply],
     ['nonlife', nonlifeApply],
-  ])('%s history uses the explicit FK and does not hide the other primary type', (_type, source) => {
+  ])('%s history fetches the explicit type snapshot before client flow scoping', (_type, source) => {
     expect(source).toContain(
       'exam_locations!exam_registrations_location_round_fkey(location_name)',
     );
     expect(source).not.toContain(".eq('exam_rounds.exam_type'");
-    expect(source).toContain("queryKey: ['my-exam-apply-history', applicationResidentId]");
+    expect(source).toContain("queryKey: ['my-exam-apply-history', examFlowType, applicationResidentId]");
     expect(source).toContain('myAppliesError');
-    expect(source).not.toContain("code === '42P01'");
+    expect(source).toContain('const isCurrentFlow = useCallback(');
+    expect(source).toContain('return flowType === null || flowType === examFlowType;');
+    expect(source).toContain('exam_registrations_round_exam_type_fkey');
     expect(source).toContain('다시 시도');
     expect(source).toContain('formatExamSubjectSelection');
   });
@@ -281,7 +283,9 @@ describe('exam bundle client and admin source contract', () => {
       expect(source).not.toContain(".from('exam_locations').insert");
       expect(source).toContain("role === 'admin' && !readOnly");
     }
-    expect(adminEdge).toContain(".rpc(\n        'save_exam_round_atomic'");
+    expect(adminEdge).toContain(".rpc(\n        'save_exam_round_atomic_v2'");
+    expect(adminEdge).toContain('p_exam_month: examMonth');
+    expect(adminEdge).not.toContain(".rpc(\n        'save_exam_round_atomic'");
     expect(adminEdge).not.toContain(".from('exam_rounds')\n          .insert");
 
     expect(webNewRound).toContain('saveExamRoundAction');

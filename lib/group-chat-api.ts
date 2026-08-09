@@ -140,6 +140,37 @@ export type GroupChatBootstrapResponse = {
   notice: GroupChatNotice | null;
 };
 
+export type GroupChatRoomRef = {
+  version: 1;
+  kind: 'group_chat';
+  roomId: string;
+};
+
+export type GroupChatSearchResult = {
+  source: 'garamin_group';
+  ref: GroupChatRoomRef;
+  messageId: string;
+  sentAt: string;
+  excerpt: string;
+  roomLabel: string;
+  senderLabel: string;
+};
+
+export type GroupChatSearchResponse = {
+  results: GroupChatSearchResult[];
+  coverage: 'bounded_first_page';
+  nextCursor: null;
+};
+
+export type GroupChatContextResponse = {
+  roomRef: GroupChatRoomRef;
+  anchorMessageId: string;
+  messages: GroupChatMessage[];
+  hasBefore: boolean;
+  hasAfter: boolean;
+  nextCursor: null;
+};
+
 type GroupChatSuccess = {
   ok: true;
   message?: string;
@@ -224,6 +255,47 @@ export function buildGroupChatSendBody(input: {
           payload_fingerprint: payloadFingerprint,
         }
       : {}),
+  };
+}
+
+function normalizedGroupChatSearchQuery(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const query = value.trim().replace(/\s+/gu, ' ');
+  const length = Array.from(query).length;
+  return length >= 2 && length <= 100 ? query : null;
+}
+
+export function buildGroupChatSearchBody(query: string, limit = 50) {
+  const normalizedQuery = normalizedGroupChatSearchQuery(query);
+  if (
+    !normalizedQuery
+    || !Number.isInteger(limit)
+    || limit < 1
+    || limit > 50
+  ) {
+    throw new GroupChatRequestError('검색어 또는 검색 결과 수가 올바르지 않습니다.', {
+      code: 'invalid_group_chat_search',
+    });
+  }
+  return {
+    type: 'group_chat_search' as const,
+    q: normalizedQuery,
+    limit,
+  };
+}
+
+export function buildGroupChatContextBody(roomId: string, messageId: string) {
+  const normalizedRoomId = String(roomId).trim().toLowerCase();
+  const normalizedMessageId = String(messageId).trim().toLowerCase();
+  if (!isNotificationUuid(normalizedRoomId) || !isNotificationUuid(normalizedMessageId)) {
+    throw new GroupChatRequestError('단톡방 또는 메시지 정보가 올바르지 않습니다.', {
+      code: 'invalid_group_chat_context',
+    });
+  }
+  return {
+    type: 'group_chat_context' as const,
+    room_id: normalizedRoomId,
+    message_id: normalizedMessageId,
   };
 }
 
@@ -394,6 +466,193 @@ async function invokeGroupChat<T>(body: Record<string, unknown>): Promise<T> {
   return data as T;
 }
 
+function exactRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const actualKeys = Object.keys(record).sort();
+  const expectedKeys = [...keys].sort();
+  if (
+    actualKeys.length !== expectedKeys.length
+    || actualKeys.some((key, index) => key !== expectedKeys[index])
+  ) {
+    return null;
+  }
+  return record;
+}
+
+function parseGroupChatRoomRef(value: unknown): GroupChatRoomRef | null {
+  const ref = exactRecord(value, ['version', 'kind', 'roomId']);
+  if (
+    !ref
+    || ref.version !== 1
+    || ref.kind !== 'group_chat'
+    || !isNotificationUuid(ref.roomId)
+  ) {
+    return null;
+  }
+  return { version: 1, kind: 'group_chat', roomId: ref.roomId.toLowerCase() };
+}
+
+function parseGroupChatSearchResult(value: unknown): GroupChatSearchResult | null {
+  const result = exactRecord(value, [
+    'source',
+    'ref',
+    'messageId',
+    'sentAt',
+    'excerpt',
+    'roomLabel',
+    'senderLabel',
+  ]);
+  if (!result || result.source !== 'garamin_group') return null;
+  const ref = parseGroupChatRoomRef(result.ref);
+  if (
+    !ref
+    || !isNotificationUuid(result.messageId)
+    || typeof result.sentAt !== 'string'
+    || !Number.isFinite(Date.parse(result.sentAt))
+    || typeof result.excerpt !== 'string'
+    || Array.from(result.excerpt).length > 240
+    || typeof result.roomLabel !== 'string'
+    || !result.roomLabel.trim()
+    || typeof result.senderLabel !== 'string'
+    || !result.senderLabel.trim()
+  ) {
+    return null;
+  }
+  return {
+    source: 'garamin_group',
+    ref,
+    messageId: result.messageId.toLowerCase(),
+    sentAt: result.sentAt,
+    excerpt: result.excerpt,
+    roomLabel: result.roomLabel,
+    senderLabel: result.senderLabel,
+  };
+}
+
+function compareSearchResultTuple(left: GroupChatSearchResult, right: GroupChatSearchResult) {
+  const timeComparison = Date.parse(left.sentAt) - Date.parse(right.sentAt);
+  return timeComparison !== 0 ? timeComparison : left.messageId.localeCompare(right.messageId);
+}
+
+function parseSearchResultList(
+  value: unknown,
+  maxLength: number,
+): GroupChatSearchResult[] | null {
+  if (!Array.isArray(value) || value.length > maxLength) return null;
+  const parsed = value.map(parseGroupChatSearchResult);
+  if (parsed.some((item) => item === null)) return null;
+  const results = parsed as GroupChatSearchResult[];
+  if (new Set(results.map((item) => item.messageId)).size !== results.length) return null;
+  return results;
+}
+
+function parseGroupChatContextMessage(value: unknown): GroupChatMessage | null {
+  const message = exactRecord(value, [
+    'id', 'room_id', 'sender_actor_id', 'sender_role', 'sender_phone', 'sender_name',
+    'content', 'message_type', 'file_url', 'file_name', 'file_size', 'attachments',
+    'created_at', 'unread_count', 'reply_to_message_id', 'reply_to_sender_name',
+    'reply_to_content', 'deleted_at', 'deleted_by_actor_id', 'reactions',
+  ]);
+  if (
+    !message
+    || !isNotificationUuid(message.id)
+    || !isNotificationUuid(message.room_id)
+    || typeof message.sender_actor_id !== 'string'
+    || !['admin', 'manager', 'fc'].includes(String(message.sender_role))
+    || typeof message.sender_phone !== 'string'
+    || (message.sender_name !== null && typeof message.sender_name !== 'string')
+    || typeof message.content !== 'string'
+    || !['text', 'image', 'file'].includes(String(message.message_type))
+    || typeof message.created_at !== 'string'
+    || !Number.isFinite(Date.parse(message.created_at))
+    || typeof message.unread_count !== 'number'
+    || !Array.isArray(message.attachments)
+    || !Array.isArray(message.reactions)
+  ) return null;
+  return hydrateGroupChatMessage(message as unknown as GroupChatMessage);
+}
+
+function invalidGroupChatSearchResponse(): never {
+  throw new GroupChatRequestError('단톡방 검색 응답이 올바르지 않습니다.', {
+    code: 'invalid_group_chat_search_response',
+  });
+}
+
+export function parseGroupChatSearchResponse(value: unknown): GroupChatSearchResponse {
+  const response = exactRecord(value, ['ok', 'results', 'coverage', 'nextCursor']);
+  if (
+    !response
+    || response.ok !== true
+    || response.coverage !== 'bounded_first_page'
+    || response.nextCursor !== null
+  ) {
+    return invalidGroupChatSearchResponse();
+  }
+  const results = parseSearchResultList(response.results, 50);
+  if (!results) return invalidGroupChatSearchResponse();
+  for (let index = 1; index < results.length; index += 1) {
+    if (compareSearchResultTuple(results[index - 1], results[index]) < 0) {
+      return invalidGroupChatSearchResponse();
+    }
+  }
+  return { results, coverage: 'bounded_first_page', nextCursor: null };
+}
+
+export function parseGroupChatContextResponse(value: unknown): GroupChatContextResponse {
+  const response = exactRecord(value, [
+    'ok',
+    'roomRef',
+    'anchorMessageId',
+    'messages',
+    'hasBefore',
+    'hasAfter',
+    'nextCursor',
+  ]);
+  if (
+    !response
+    || response.ok !== true
+    || !isNotificationUuid(response.anchorMessageId)
+    || typeof response.hasBefore !== 'boolean'
+    || typeof response.hasAfter !== 'boolean'
+    || response.nextCursor !== null
+  ) {
+    return invalidGroupChatSearchResponse();
+  }
+  const roomRef = parseGroupChatRoomRef(response.roomRef);
+  const messages = Array.isArray(response.messages) && response.messages.length <= 41
+    ? response.messages.map(parseGroupChatContextMessage)
+    : null;
+  const anchorMessageId = response.anchorMessageId.toLowerCase();
+  const anchorIndex = messages?.findIndex((item) => item?.id === anchorMessageId) ?? -1;
+  if (
+    !roomRef
+    || !messages
+    || anchorIndex < 0
+    || anchorIndex > 20
+    || messages.length - anchorIndex - 1 > 20
+    || messages.some((item) => item === null || item.room_id !== roomRef.roomId)
+  ) {
+    return invalidGroupChatSearchResponse();
+  }
+  for (let index = 1; index < messages.length; index += 1) {
+    const previous = messages[index - 1]!;
+    const current = messages[index]!;
+    const timeComparison = Date.parse(previous.created_at) - Date.parse(current.created_at);
+    if (timeComparison > 0 || (timeComparison === 0 && previous.id.localeCompare(current.id) > 0)) {
+      return invalidGroupChatSearchResponse();
+    }
+  }
+  return {
+    roomRef,
+    anchorMessageId,
+    messages: messages as GroupChatMessage[],
+    hasBefore: response.hasBefore,
+    hasAfter: response.hasAfter,
+    nextCursor: null,
+  };
+}
+
 function hydrateGroupChatMessage(
   message: GroupChatMessage,
 ): GroupChatMessage {
@@ -442,6 +701,20 @@ export async function groupChatBootstrap(limit = 50) {
     messages: result.messages.map(hydrateGroupChatMessage),
     notice: hydrateGroupChatNotice(result.notice),
   };
+}
+
+export async function groupChatSearch(query: string, limit = 50) {
+  const result = await invokeGroupChat<Record<string, unknown>>(
+    buildGroupChatSearchBody(query, limit),
+  );
+  return parseGroupChatSearchResponse(result);
+}
+
+export async function groupChatContext(roomId: string, messageId: string) {
+  const result = await invokeGroupChat<Record<string, unknown>>(
+    buildGroupChatContextBody(roomId, messageId),
+  );
+  return parseGroupChatContextResponse(result);
 }
 
 export async function groupChatSend(input: Parameters<typeof buildGroupChatSendBody>[0]) {

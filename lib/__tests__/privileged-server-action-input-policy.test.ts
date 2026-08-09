@@ -32,6 +32,7 @@ describe('privileged server-action runtime input policy', () => {
     const validInput = {
       roundId: ROUND_ID,
       exam_date: '2026-07-31',
+      exam_month: '2026-07-01',
       registration_deadline: '2026-07-20',
       round_label: '  7월 생명보험 1차  ',
       exam_type: 'life',
@@ -48,6 +49,7 @@ describe('privileged server-action runtime input policy', () => {
         value: {
           roundId: ROUND_ID,
           exam_date: '2026-07-31',
+          exam_month: '2026-07-01',
           registration_deadline: '2026-07-20',
           round_label: '7월 생명보험 1차',
           exam_type: 'life',
@@ -60,10 +62,40 @@ describe('privileged server-action runtime input policy', () => {
       }
     });
 
+    it('derives the month for a legacy exact-date caller that omits exam_month', () => {
+      const parsed = parseExamRoundSaveInput({
+        ...validInput,
+        exam_month: undefined,
+      });
+
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) {
+        expect(parsed.value.exam_month).toBe('2026-07-01');
+      }
+    });
+
+    it('accepts an explicit canonical month for a TBD round', () => {
+      const parsed = parseExamRoundSaveInput({
+        ...validInput,
+        exam_date: null,
+        exam_month: '2026-09-01',
+      });
+
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) {
+        expect(parsed.value.exam_date).toBeNull();
+        expect(parsed.value.exam_month).toBe('2026-09-01');
+      }
+    });
+
     it.each([
       ['non-object', null],
       ['invalid round UUID', { ...validInput, roundId: 'round-1' }],
       ['impossible exam date', { ...validInput, exam_date: '2026-02-30' }],
+      ['impossible exam month', { ...validInput, exam_month: '2026-13-01' }],
+      ['non-month-start exam month', { ...validInput, exam_month: '2026-07-02' }],
+      ['month that contradicts the exact date', { ...validInput, exam_month: '2026-08-01' }],
+      ['TBD without an explicit month', { ...validInput, exam_date: null, exam_month: undefined }],
       ['invalid deadline', { ...validInput, registration_deadline: '07/20/2026' }],
       ['deadline after exam date', { ...validInput, exam_date: '2026-07-20', registration_deadline: '2026-07-21' }],
       ['invalid exam type', { ...validInput, exam_type: 'all' }],
@@ -174,11 +206,30 @@ describe('privileged server-action source-to-sink integration contract', () => {
     expect(saveSource.indexOf('parseExamRoundSaveInput(payload)')).toBeLessThan(saveSource.indexOf('adminSupabase'));
     expect(saveSource).toMatch(/if \(!sessionCheck\.ok\) \{[\s\S]{0,300}return \{ success: false, error: sessionCheck\.error \};/);
     expect(saveSource).not.toContain('actionLabel');
+    expect(saveSource).toContain("'save_exam_round_atomic_v2'");
+    expect(saveSource).toContain('p_exam_month: exam_month');
     expect(saveSource).toContain("const actionText = roundId ? '수정' : '등록'");
     expect(deleteSource.indexOf('parseExamRoundDeleteInput(payload)')).toBeGreaterThanOrEqual(0);
     expect(deleteSource.indexOf('await getVerifiedAdminSession()')).toBeLessThan(deleteSource.indexOf('parseExamRoundDeleteInput(payload)'));
     expect(deleteSource.indexOf('parseExamRoundDeleteInput(payload)')).toBeLessThan(deleteSource.indexOf('adminSupabase'));
     expect(deleteSource).toMatch(/if \(!sessionCheck\.ok\) \{[\s\S]{0,300}return \{ success: false, error: sessionCheck\.error \};/);
+  });
+
+  it('keeps the canonical schedule form and fetch shape month-aware', () => {
+    const actionSource = readRepoFile('web/src/app/dashboard/exam/schedule/actions.ts');
+    const pageSource = readRepoFile('web/src/app/dashboard/exam/schedule/page.tsx');
+    const fetchSource = extractExportedFunction(actionSource, 'fetchExamRoundsAction');
+
+    expect(fetchSource).toContain('exam_month: string;');
+    expect(fetchSource).toContain('exam_month: row.exam_month');
+    expect(pageSource).toContain('MonthPickerInput');
+    expect(pageSource).toContain('label="시험 월"');
+    expect(pageSource).toContain("path: ['exam_month']");
+    expect(pageSource).toContain("path: ['exam_date']");
+    expect(pageSource).toContain('exam_month: round.exam_month');
+    expect(pageSource).toContain('exam_month: normalizedExamMonth');
+    expect(pageSource).toContain('A month snapshot is not an exact exam date.');
+    expect(pageSource).not.toContain('const nextExamDate = form.values.exam_month');
   });
 
   it('derives appointment and document notification targets from fc_profiles instead of client input', () => {

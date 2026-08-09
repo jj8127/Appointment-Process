@@ -35,9 +35,9 @@ describe('FC notify proxy ingress authentication', () => {
     expect(route).toContain('verifyRequestBoardBridgeToken');
     expect(route).toContain('buildBrowserFcNotifyPayload');
     expect(route).toContain('buildRequestBoardNotifyPayload');
-    expect(route).toContain('resolveCompletedFcTargetActorId');
+    expect(route).toContain('resolveCanonicalRequestBoardRecipient');
     expect(route).toContain('resolveEligibleAdminChatTargetActorId');
-    expect(route).toContain('recipient_actor_id: recipientActorId');
+    expect(route).toContain('recipient_actor_id: recipient.actorId');
     expect(route).not.toContain('body: JSON.stringify(body)');
     expect(route).not.toContain('JSON.stringify(rawBody)');
     expect(route).toContain('body: JSON.stringify(payload)');
@@ -53,16 +53,18 @@ describe('FC notify proxy ingress authentication', () => {
       route.indexOf('resolveEligibleAdminChatTargetActorId(browserPolicy.payload.target_id)'),
     );
     expect(route.indexOf('buildRequestBoardNotifyPayload({')).toBeLessThan(
-      route.indexOf('resolveCompletedFcTargetActorId(bridgePolicy.payload.target_id)'),
+      route.indexOf('resolveCanonicalRequestBoardRecipient(bridgePolicy.payload.target_id)'),
     );
-    expect(route.indexOf('resolveCompletedFcTargetActorId(bridgePolicy.payload.target_id)')).toBeLessThan(
-      route.indexOf('recipient_actor_id: recipientActorId'),
+    expect(route.indexOf('resolveCanonicalRequestBoardRecipient(bridgePolicy.payload.target_id)')).toBeLessThan(
+      route.indexOf('recipient_actor_id: recipient.actorId'),
     );
     const bridgeResolver = route
-      .split('async function resolveCompletedFcTargetActorId')[1]
+      .split('async function resolveCanonicalRequestBoardRecipient')[1]
       ?.split('async function resolveEligibleAdminChatTargetActorId')[0] ?? '';
     expect(bridgeResolver).not.toContain('buildAdminChatTargets');
-    expect(bridgeResolver).toContain('matches.length === 1');
+    expect(bridgeResolver).toContain("targetRole: 'admin'");
+    expect(bridgeResolver).toContain("targetRole: 'fc'");
+    expect(bridgeResolver).toContain('staffActorIds.length > 1');
   });
 
   it('verifies the Request Board secret in constant time and emits only the narrow notify payload', () => {
@@ -86,6 +88,7 @@ describe('FC notify proxy ingress authentication', () => {
       body: {
         type: 'notify',
         target_role: 'fc',
+        recipient_binding: 'canonical_person_v1',
         target_id: '01012345678',
         title: ' Request updated ',
         body: ' Open the request. SENTRY_READ_AUTH_TOKEN=bridge-secret ',
@@ -103,6 +106,7 @@ describe('FC notify proxy ingress authentication', () => {
       payload: {
         type: 'notify',
         target_role: 'fc',
+        recipient_binding: 'canonical_person_v1',
         target_id: '01012345678',
         title: 'Request updated',
         body: 'Open the request. SENTRY_READ_AUTH_TOKEN=[redacted]',
@@ -116,6 +120,7 @@ describe('FC notify proxy ingress authentication', () => {
       body: {
         type: 'notify',
         target_role: 'fc',
+        recipient_binding: 'canonical_person_v1',
         target_id: '01012345678',
         title: 'Request updated',
         body: 'Open the request.',
@@ -138,6 +143,7 @@ describe('FC notify proxy ingress authentication', () => {
     const base = {
       type: 'notify',
       target_role: 'fc',
+      recipient_binding: 'canonical_person_v1',
       target_id: '01012345678',
       title: 'Request updated',
       body: 'Open the request.',
@@ -160,6 +166,15 @@ describe('FC notify proxy ingress authentication', () => {
       providedToken: 'secret',
       expectedToken: 'secret',
     })).toMatchObject({ ok: false, status: 400 });
+    expect(buildRequestBoardNotifyPayload({
+      body: { ...base, recipient_binding: undefined },
+      providedToken: 'secret',
+      expectedToken: 'secret',
+    })).toEqual({
+      ok: false,
+      status: 400,
+      error: 'Invalid Request Board recipient binding',
+    });
   });
 
   it('rejects traversal before URL normalization and never forwards the legacy URL', () => {
@@ -167,6 +182,7 @@ describe('FC notify proxy ingress authentication', () => {
     const base = {
       type: 'notify',
       target_role: 'fc',
+      recipient_binding: 'canonical_person_v1',
       target_id: '01012345678',
       title: 'Request updated',
       body: 'Open the request.',
@@ -205,6 +221,7 @@ describe('FC notify proxy ingress authentication', () => {
       body: {
         type: 'notify',
         target_role: 'fc',
+        recipient_binding: 'canonical_person_v1',
         target_id: '01012345678',
         title: 'Request updated',
         body: `${'X'.repeat(1979)} ${'a'.repeat(40)}`,
@@ -351,10 +368,12 @@ describe('FC notify proxy ingress authentication', () => {
     expect(valid).toEqual({
       ok: true,
       payload: {
-        type: 'message',
+        type: 'notify',
         target_role: 'fc',
         target_id: '01077778888',
-        message: 'Hello',
+        title: 'message',
+        body: 'Hello',
+        category: 'message',
         sender_id: '01055556666',
         sender_name: 'Developer One',
       },
@@ -372,7 +391,7 @@ describe('FC notify proxy ingress authentication', () => {
     })).toMatchObject({
       ok: true,
       payload: {
-        message: 'Please check SERVICE_API_TOKEN=[redacted]',
+        body: 'Please check SERVICE_API_TOKEN=[redacted]',
       },
     });
     const longMessage = buildBrowserFcNotifyPayload({
@@ -385,8 +404,8 @@ describe('FC notify proxy ingress authentication', () => {
       },
     });
     expect(longMessage.ok).toBe(true);
-    if (longMessage.ok && longMessage.payload.type === 'message') {
-      expect(longMessage.payload.message).toHaveLength(4_000);
+    if (longMessage.ok && longMessage.payload.type === 'notify') {
+      expect(longMessage.payload.body).toHaveLength(4_000);
     }
     expect(buildBrowserFcNotifyPayload({
       session: developer,
@@ -547,10 +566,12 @@ describe('FC notify proxy ingress authentication', () => {
     })).toEqual({
       ok: true,
       payload: {
-        type: 'message',
+        type: 'notify',
         target_role: 'admin',
         target_id: null,
-        message: 'Need help',
+        title: 'message',
+        body: 'Need help',
+        category: 'message',
         sender_id: fc.residentDigits,
         sender_name: fc.displayName,
       },

@@ -167,6 +167,7 @@ export async function saveExamRoundAction(
     const {
         roundId,
         exam_date,
+        exam_month,
         registration_deadline,
         round_label,
         exam_type,
@@ -176,10 +177,11 @@ export async function saveExamRoundAction(
 
     try {
         const { data: targetRoundId, error: saveError } = await adminSupabase.rpc(
-            'save_exam_round_atomic',
+            'save_exam_round_atomic_v2',
             {
                 p_round_id: roundId,
                 p_exam_date: exam_date,
+                p_exam_month: exam_month,
                 p_registration_deadline: registration_deadline,
                 p_round_label: round_label,
                 p_exam_type: exam_type,
@@ -230,6 +232,7 @@ export async function fetchExamRoundsAction(): Promise<{
     data?: Array<{
         id: string;
         exam_date: string | null;
+        exam_month: string;
         registration_deadline: string;
         round_label: string;
         exam_type?: string;
@@ -258,6 +261,7 @@ export async function fetchExamRoundsAction(): Promise<{
         type RoundRow = {
             id: string;
             exam_date: string | null;
+            exam_month: string;
             registration_deadline: string;
             round_label: string;
             exam_type?: string;
@@ -270,6 +274,7 @@ export async function fetchExamRoundsAction(): Promise<{
             return {
                 id: row.id,
                 exam_date: row.exam_date,
+                exam_month: row.exam_month,
                 registration_deadline: row.registration_deadline,
                 round_label: row.round_label,
                 exam_type: row.exam_type,

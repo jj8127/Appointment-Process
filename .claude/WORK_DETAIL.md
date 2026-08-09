@@ -1,5 +1,33 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20260808-mobile-exam-payment-proof-history"></a> 2026-08-08 | Mobile exam payment-proof history preview
+
+**Scope**:
+- 생명·손해 시험 신청 화면의 선택된 신청 내역에서 해당 신청에 첨부한 입금 증빙 이미지를 확인한다.
+- private bucket, signed app session, 대상 FC 소유권 경계를 유지한다.
+
+**Changes**:
+- `payment_proof_attached=true`인 신청 상세에만 `입금 내역 보기`를 표시하고, 공용 전체 화면 이미지 미리보기를 사용한다.
+- 앱은 버튼을 누를 때만 신청 ID와 선택 대상 FC를 전송한다. Edge는 actor와 대상 FC를 다시 확인하고 `registration_id`, `fc_id`, `status=attached`가 모두 일치하는 현재 증빙에 5분 signed URL을 발급한다.
+- storage path·원본 파일명·signed URL을 DB, 로그, 로컬 저장소에 추가하지 않았다. 스키마/RLS, 승인·OCR·다운로드, 배포 범위는 변경하지 않았다.
+
+**Verification**:
+- 모바일 Jest 2 suites / 17 tests, Edge Node contract 4/4, shared Deno test 4/4, Edge Deno check, focused TypeScript: PASS.
+- Targeted ESLint는 오류 0건이며 기존 `Array<T>` 경고 2건만 유지된다.
+- 전체 root TypeScript는 기존 `app/index.tsx:334` 이후 JSX parse 오류로 차단되어 이 증분의 PASS 근거로 사용하지 않았다.
+- Targeted diff check와 workspace harness audit은 PASS했다. repository-wide governance는 이번 범위 밖의 기존 messenger/notification/home dirty path에 owner-map·문서 갱신이 없어 차단됐다.
+
+**Release posture**:
+- `exam-payment-proof`만 프로젝트 `ubeginyxaotcamuqpmud`에 JWT 검증을 유지한 v13으로 배포했고 `ACTIVE` 상태를 확인했다. 원격 번들에서 `view`, signed URL 생성, `registration_id + fc_id + attached` 결합을 다시 확인했다.
+- 미인증 호출과 앱 세션 없는 anon 호출은 각각 `401`로 차단됐으며 최근 Edge 로그에 런타임 예외가 없다. 모바일 코드 배포와 실제 계정 Android 미리보기 E2E는 아직 수행하지 않았으므로 전체 릴리스는 `HOLD`다.
+- EAS/OTA/Store, DB/schema/RLS, credential, Sentry, Git publication 상태는 변경하지 않았다.
+
+## <a id="20260808-harness-minimization"></a> 2026-08-08 | Harness minimization
+
+- Reduced canonical instructions to non-discoverable invariants, action boundaries, and minimum checks.
+- Removed broad project tool allows and privacy-risky redundant graph evidence; reconciled lifecycle/index state.
+- Toolkit validation, harness audit, JSON parsing, and diff checks passed. No external action ran; release remains `HOLD`.
+
 ## <a id="20260729-admin-web-store-pwa"></a> 2026-07-29 | 관리자 웹 Microsoft Store PWA 준비
 
 **Scope**:
@@ -1454,7 +1482,7 @@
   - follower count: 76
   - unrelated active-drag drift: 14.088px
   - settle 후 release point 거리: 9.66px
-- 증적: `.codex/harness/referral-graph-live-before.png`, `.codex/harness/referral-graph-live-during.png`, `.codex/harness/referral-graph-live-after.png`, `.codex/harness/referral-graph-live-settled.png`
+- 전후·드래그·안정화 시각 확인 완료; 중복 캡처는 개인정보 검토 후 제거했다.
 
 **미실행/제약**:
 - 실제 사용자가 직접 브라우저/디바이스에서 느끼는 주관적 체감 검증은 별도 피드백으로 받을 수 있다. 이번 변경은 자동 테스트, production build, 실제 브라우저 CDP drag 지표와 screenshot으로 검증했다.
@@ -1914,7 +1942,7 @@
 - 통과: `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test web/src/lib/referral-graph-realdata.test.ts`
   - 실제 데이터: `nodes=192`, `edges=108`, `crossings=0`, `crossingVisualSeverity=0`.
 - 통과: local dev browser smoke에서 `/dashboard/referrals/graph` 200, graph API 200.
-- 캡쳐: `.codex/harness/referral-graph-descendant-size.png`
+- 시각 확인 완료; 중복 캡처는 개인정보 검토 후 제거했다.
 - 통과: `git diff --check`
   - LF/CRLF working-copy warnings only.
 - 배포 준비: 첫 `vercel deploy --prod`는 로컬 generated output까지 업로드되어 파일 수 제한/대용량 archive 오류가 발생했고, root `.vercelignore`만으로는 rootDirectory=`web` 업로드 필터가 바뀌지 않아 `web/.vercelignore`까지 추가했다.
@@ -3200,7 +3228,7 @@
 - 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-highlight.test.ts`
 - 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
 - 통과: `cd web && npm run build`
-- 통과: Chrome DevTools Protocol browser QA on `http://localhost:3000/dashboard/referrals/graph` with intercepted synthetic graph API, screenshot `.codex/harness/referral-graph-obsidian-v7-browser-qa.png`
+- 통과: Chrome DevTools Protocol browser QA with an intercepted synthetic graph API; the redundant screenshot was removed after privacy review.
 
 ---
 
@@ -3233,7 +3261,7 @@
 - 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-layout.test.ts`
 - 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
 - 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts`
-- 통과: Chrome DevTools Protocol synthetic browser QA on `http://localhost:3000/dashboard/referrals/graph` with nested branch graph API, screenshot `.codex/harness/referral-graph-nested-branch-auto-fit-qa.png`
+- 통과: Chrome DevTools Protocol synthetic browser QA with a nested branch graph API; the redundant screenshot was removed after privacy review.
 
 ---
 
@@ -3296,7 +3324,7 @@
 - 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
 - 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts`
 - 통과: `cd web && npm run build`
-- 통과: Playwright synthetic browser QA on `http://localhost:3000/dashboard/referrals/graph` with parent-child ring graph API, screenshot `.codex/harness/referral-graph-child-rings-browser-qa.png`
+- 통과: Playwright synthetic browser QA with a parent-child ring graph API; the redundant screenshot was removed after privacy review.
 
 ---
 
@@ -3359,7 +3387,7 @@
 - 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
 - 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts`
 - 통과: `cd web && npm run build`
-- 통과: Playwright synthetic browser QA on `http://localhost:3000/dashboard/referrals/graph` with dummy admin cookies + intercepted graph API, screenshot `.codex/harness/referral-graph-physics-browser-qa.png`
+- 통과: Playwright synthetic browser QA with dummy admin cookies and an intercepted graph API; the redundant screenshot was removed after privacy review.
 - 통과: `git diff --check`
 - 통과: `node scripts/ci/check-governance.mjs`
 
@@ -3435,11 +3463,11 @@
   - isolated hide switch default off
   - search, fit, drag, reset smoke
   - node click Drawer smoke
-  - screenshot: `.codex/harness/referral-graph-radial-qa.png`
+  - radial visual QA passed; the redundant screenshot was removed after privacy review.
   - synthetic visual smoke: `nonBackground=32195`, `orangeNode=3501`, `labelInk=7977`
-  - screenshot: `.codex/harness/referral-graph-obsidian-overview-qa.png`
+  - overview visual QA passed; the redundant screenshot was removed after privacy review.
   - real graph no-overlap check: `154` nodes, `77` edges, `18` connected components, minimum connected-component envelope margin `20`
-  - screenshot: `.codex/harness/referral-graph-no-overlap-qa.png`
+  - no-overlap visual QA passed; the redundant screenshot was removed after privacy review.
 - 참고: latest drag-link refinement는 unit/lint/build로 재검증했다. 이 환경에서 fresh automated browser drag replay는 사용할 수 없었다.
 
 ---
@@ -13565,3 +13593,204 @@
 - Release remains HOLD. No real organization, sales, settlement, payout,
   account, credential, package, API, database, Edge Function, deployment, EAS,
   OTA, commit, or push state was changed.
+
+<a id="20260803-referral-revenue-selectable-tree"></a>
+## 2026-08-03 | 매출 기여 현재 그래프 기본 + 선택형 트리 복원
+
+**요청과 이력 확인**:
+- 사용자는 현재 원형 매출 그래프를 기본값으로 유지하면서, 초기 버전의 트리형
+  표현도 선택해 볼 수 있게 해 달라고 요청했다.
+- Git 첫 커밋에는 이미 원형 renderer만 남아 있었다. pre-commit 작업 기록에서 삭제
+  직전 234-line card renderer를 확인했고, 440-wide canvas, 118x66 card, 86px row,
+  viewer/B 중앙·A 좌측·C 우측, parent-bottom→child-top line이라는 원 geometry를
+  복구 기준으로 삼았다. 실제 과거 사용자 데이터나 로그 원문은 제품 문서에 복사하지
+  않았다.
+
+**구현**:
+- `ViewMode`를 `graph | tree | list`로 확장하되 `useState<ViewMode>('graph')`를
+  유지하고 view 선택을 저장하지 않았다. fresh mount 기본값은 계속 기존 원형 graph다.
+- live graph 설정과 portrait segmented control에 `현재 그래프`, `트리`, `목록`을
+  명시했다. graph만 landscape를 요청하고 tree/list는 portrait를 요청한다.
+- `ReferralRevenueTreeView.tsx`와 pure tree layout helper를 추가했다. 트리는 기존
+  `graphNodes`, `graphEdges`, `focusedGraphNodeIds`, selected node/detail sheet를 공유해
+  계산·filter·11단계 제외·샘플 고지 의미가 달라지지 않는다.
+- tree mode는 기존 circular WebView/SVG를 hidden 상태로 두지 않고 조건 분기로
+  unmount한다. 기존 원형 Canvas/WebView/physics source는 수정하지 않았다.
+- context ancestor는 흐리게 보이고 선택할 수 없지만 금액/status는 그대로 보이며,
+  접근성 label은 이름·단계·전체 금액·context 상태를 포함한다.
+
+**검증과 발견 사항**:
+- focused revenue regression: 7 suites / 64 tests PASS.
+- full repository Jest: 193 suites / 1,182 tests PASS.
+- root TypeScript와 scoped ESLint PASS.
+- pure layout test는 A/B/C column, A11 depth, 1080px canvas height,
+  parent-bottom→child-top connector를 고정한다. source test는 graph default/no
+  persistence, three-mode selection, locality, circular renderer isolation, context amount,
+  orientation을 고정한다.
+- 독립 UI evaluator가 Dynamic Type에서 `minHeight` card가 66px connector보다 커질 수
+  있는 P1을 발견했다. card를 connector와 같은 fixed 66px로 바꾸고 이름·단계·금액에
+  bounded fit을 적용했으며, 전체 내용은 접근성 label에 보존했다.
+- 로컬 Expo web은 bundle/route 로드까지 성공했지만 사용 가능한 두 browser profile에
+  FC/read-only-manager session이 없어 access gate 뒤 UI를 확인하지 못했다. Android
+  device도 연결되지 않았다. 따라서 small-screen nested scroll, graph→tree→graph native
+  orientation, large-text visual, card detail, TalkBack은 미검증으로 남긴다.
+
+**문서·안전 경계**:
+- referral SPEC/architecture/checklist/case/result/incident, handbook owner/contract maps,
+  auth/data contracts, feature matrix, harness, mistake ledger를 default graph와 optional
+  tree 계약에 맞췄다.
+- RF-SELF-05와 릴리스는 native visual/accessibility 증거가 생길 때까지 `BLOCKED` /
+  `HOLD`다.
+- package, real referral/sales/settlement data, API, Supabase/Edge, schema, migration,
+  Sentry state, deployment, EAS, OTA, commit, push, PR은 변경하지 않았다.
+
+<a id="20260804-mobile-chat-keyboard-gap"></a>
+## 2026-08-04 | 모바일 채팅 입력창 키보드 간격 통일
+
+**요청과 원인**:
+- 기종에 따라 채팅 입력창이 키보드에 붙거나 큰 빈 공간을 남겼다. 제보 화면은 `가람PA 단톡방`의 iOS 경로였다.
+- 직접/그룹 채팅은 custom header가 keyboard avoider 밖에 있는데도 iOS `keyboardVerticalOffset=65`를 더했고, 키보드가 열린 뒤에도 기기별 safe-area padding을 유지했다.
+- Android manifest는 이미 `adjustResize`인데 직접/그룹 채팅이 키보드 전체 높이를 입력창 padding으로 다시 더했다. GaramLink bridge 채팅도 별도 Android `height` 회피와 safe-area 규칙을 사용했다.
+
+**구현**:
+- `lib/chat-keyboard-layout.ts`에서 키보드가 열리면 8px, 닫히면 iOS 12px/Android 20px 최소값과 실제 safe-area 중 큰 값을 반환하도록 공통화했다.
+- 직접 채팅, 가람PA 단톡방, GaramLink bridge 채팅을 공통 계산으로 연결했다.
+- 세 화면 모두 iOS keyboard vertical offset을 0으로 고정하고 Android는 OS `adjustResize`만 사용해 키보드 높이 이중 적용을 제거했다.
+
+**검증과 경계**:
+- RED/GREEN `lib/__tests__/group-chat-mobile-source.test.ts`로 세 화면의 공통 wiring과 제거된 이중 보정을 고정했다.
+- `lib/__tests__/chat-keyboard-layout.test.ts`에서 iOS/Android safe-area 0/12/21/34가 열린 키보드에서 모두 같은 8px로 수렴하고, 닫힌 뒤 platform inset이 복원됨을 검증했다.
+- 관련 Jest 4 suites / 34 tests, root TypeScript, scoped ESLint, governance, `git diff --check`, Sentry-disabled Expo web export가 통과했다.
+- Windows 작업 환경에서는 iOS 실기기 시각 검증을 실행하지 못했다. 네이티브 빌드/OTA와 실제 기기 설치는 별도 승인 후 검증 범위로 남긴다.
+- API, 메시지, 계정, Supabase/Edge, schema, migration, Sentry, 배포, EAS, OTA, commit, push 상태는 변경하지 않았다.
+
+<a id="20260804-exam-tbd-per-type-slots"></a>
+## 2026-08-04 | 시험일 미정 복원과 생보·손보 종목별 신청 슬롯
+
+**요청과 원인**:
+- 손해보험 신청에서 `날짜 미정` 회차를 선택할 수 없었고, 같은 달 생명보험 신청이 있으면 손해보험 신청까지 막혔다.
+- 앱은 nullable `exam_date`를 월 키로 비교해 서로 다른 TBD 회차의 `null`을 같은 달로 오인했고, submit RPC는 정확일이 null인 회차를 거절했다.
+- DB의 기존 active unique 키와 RPC 조회는 보험 종목을 구분하지 않았다. 최종 사용자 정정에 따라 제3보험도 생보/손보 종목별 경계를 따르며 cross-type 월 제한을 두지 않는다.
+
+**구현**:
+- `exam_rounds.exam_month`를 월초 canonical 값으로 추가하고 날짜·기존 신청·엄격한 legacy label 순으로 fail-closed 백필한다. 정확일은 계속 nullable이다.
+- `exam_registrations.exam_type`을 참조 회차에서 백필하고 composite FK로 drift를 차단한다. active unique 키는 `(fc_id, exam_month, exam_type)` 하나이며 주시험/제3보험 조합 모두 동일하게 적용된다.
+- submit v2/v3는 잠근 회차의 month/type만 신뢰하고 같은 종목의 active bundle만 찾는다. proof, actor, audit, location, deadline, advisory-lock 계약은 유지했다.
+- 관리자 웹의 TBD 모드에 필수 `시험 월` 입력을 추가했고, 모바일 두 화면은 canonical month 및 type snapshot으로 이력·현재 신청·충돌을 종목별 처리한다.
+- 신청 이력이 있는 TBD 회차는 같은 월 안에서 null → 정확일 확정만 허용하며 월·종목·이미 확정된 날짜의 재작성을 막는다.
+
+**검증과 경계**:
+- Targeted Jest 10 suites / 121 tests, root TypeScript, web lint/TypeScript/Sentry-disabled production build, governance, `git diff --check`가 통과했다. 시험 변경 완료 시점의 full Jest도 195 suites / 1,204 tests PASS였다.
+- 이후 동시 진행 중인 messenger-hub 변경이 합쳐진 최신 shared-worktree full Jest는 199 suites 중 198, 1,227 tests 중 1,226이 통과했고, 이번 범위 밖 `group-chat-mobile-source`의 구 literal 기대 1건만 실패했다. 해당 사용자 소유 메신저 파일/test는 이 시험 작업에서 수정하지 않았다.
+- 독립 검토에서 발견한 딥링크 월 충돌 우회, TBD 해제 시 월 1일 자동 확정, 구 RPC 문서/test drift를 수정하고 재평가해 source PASS(P0/P1/P2 0건)를 받았다. 명시적 null month/type snapshot도 legacy fallback 없이 fail closed하도록 강화했다.
+- Docker 기반 로컬 Supabase가 준비되지 않아 실제 migration apply와 인증된 E2E는 실행하지 못했다. source test는 실제 Postgres 실행 증거를 대체하지 않는다.
+- 운영 적용 순서는 DB migration → 관리자 웹 → 호환되는 앱 OTA/네이티브 릴리스다. 운영 DB, Edge/web, OTA/native, commit, push, PR은 변경하지 않았다.
+
+**P1 재감사 후속 조치**:
+- 모바일 `exam-register`, `exam-register2`가 `exam_month`를 조회하고 nullable exact date, canonical month, TBD 여부를 별도 form state로 유지하도록 바꿨다. 기존 TBD를 열어 그대로 저장하면 `exam_date = null`과 기존 월을 보내며, TBD를 해제하면 실제 날짜 선택 전 저장을 거부한다.
+- `admin-action:upsertExamRound`는 strict YMD/month-start/date-month 검증 후 `save_exam_round_atomic_v2`만 호출한다. 정확일을 보내는 구 caller는 월 파생 호환을 유지하지만, 기존 TBD 회차를 명시적 month 없이 수정하는 요청은 RPC 전에 거절한다. legacy SQL wrapper도 같은 implicit 전환을 막는다.
+- migration active-slot preflight에서 탈퇴·분리 이력인 `fc_id IS NULL` row를 applicant collision grouping에서 제외했다. schema canonical block, `SECURITY INVOKER`, public/anon/authenticated revoke, service-role-only grant는 그대로 유지했다.
+- 두 신청 화면은 history query를 `staleTime: 0`, `refetchOnMount: 'always'`로 두고 loading/fetching/error 동안 회차 선택, round deep link, notification receipt 완료, 최종 CTA를 fail closed한다. 최종 제출은 history를 강제 refetch하고 fresh same-type/month/confirmation/proof 결과를 mutation 입력까지 전달한다.
+- route hydration은 actor, 생명/손해 flow, registration/round target key별로 한 번만 소비해 Realtime/refetch가 사용자 선택이나 충돌 안내를 다시 실행하지 않게 했다.
+- `DEPLOYMENT.md`는 구 `20260712000002`/legacy writer 확인만으로는 불충분하다고 명시하고, `20260804081357`, exact v2 regprocedure, invoker/ACL, TBD/exact/invalid/zero-partial-write transaction을 DB → 검증 → admin web+Edge → 인증 smoke → mobile 순서의 필수 gate로 고정했다.
+
+**P1 후속 검증과 경계**:
+- Targeted Jest 12 suites / 127 tests, full Jest 219 suites / 1,377 tests PASS.
+- Root/web TypeScript와 lint, Sentry-upload-disabled root Expo export 및 web production build, `admin-action` Deno check, JSON parse, `git diff --check`, central harness audit PASS.
+- 독립 evaluator가 mobile, history, Edge/SQL/rollout을 재감사해 P0/P1/P2 0건, SOURCE PASS를 판정했다.
+- `node scripts/ci/check-governance.mjs --require-handbook-sync`의 시험 `admin-action` handbook 요구는 해소됐다. 최신 shared worktree에서는 별도 messenger/push 신규 파일의 owner-map/handbook 누락만 남아 전체 명령은 실패한다.
+- `npx --no-install supabase status`는 Docker Desktop Linux engine 미실행으로 실패했다. 실제 migration apply, catalog ACL 확인, 대표 transaction, 인증 mobile→Edge→Postgres E2E 전까지 rollout과 release는 HOLD다.
+- 운영 DB, Edge/web, OTA/native, commit, push, PR은 변경하지 않았다.
+
+<a id="20260805-android-messenger-parity"></a>
+## 2026-08-05 | Android 메신저 역할 표기와 대화방 알림 종
+
+**원인과 구현**:
+- Android에서 확인한 화면은 `request_board` 웹이 아니라 `fc-onboarding-app/app/messenger.tsx`였다. 사람 행은 raw affiliation과 출처를 함께 렌더링해 `본부장 · 가람in`이 남아 있었다.
+- 사람 목록에서는 출처 접미사를 제거하고, `가람Link` 소속 설계 매니저를 `회사명 설계 매니저`로 정규화했다.
+- 대화 목록의 각 canonical room에는 알림 상태를 바꾸는 종 버튼을 추가했다. 가람in은 Edge preference, 가람Link는 Request Board room-preference API로 저장하며 실패 시 재시도 안내를 표시한다.
+- GaramLink preference read 실패는 주소록/대화 데이터 실패와 별개이므로 공통 목록 경고에서 제외했다. 설정/저장 실패 자체를 성공으로 처리하지 않는다.
+
+**검증과 경계**:
+- `messenger-v2-hub-model`, `messenger-v2-hub-source`, `messenger-v2-notification-settings-source`, `notification-preferences-api` 4 suites / 29 tests PASS, scoped ESLint 및 `git diff --check` PASS.
+- 전체 TypeScript는 이번 경로 밖의 `messenger-search`, `request-board-messenger`, 기존 fc-notify test 오류로 red다. 현 변경 파일에서 새 TypeScript 진단은 확인되지 않았다.
+- Request Board 방별 preference endpoint/migration은 별도 coordinated rollout이 필요하므로 실제 Android GaramLink 토글은 해당 endpoint가 배포·인증 smoke되기 전까지 HOLD다. 배포, DB, Edge, OTA/native release는 변경하지 않았다.
+
+<a id="20260808-messenger-v2-low-latency"></a>
+## 2026-08-08 | Messenger V2 카카오톡형 저지연 허브
+
+**원인과 계약**:
+- 모바일은 숨긴 사람/대화 리스트를 모두 갱신하면서 inline row callback을 매
+  render마다 만들었다. 이후 활성 리스트만 mount하도록 좁혔지만 실기기에서 탭마다
+  리스트 재생성 비용이 드러났다. 초기 shell은 내부 목록 응답을 기다렸다.
+- GaramIn `chat_targets`/`internal_chat_list`와 GaramLink request/direct 목록은
+  허용된 모든 방의 메시지 전체를 Edge/Node로 읽어 latest/unread를 JS로 집계했다.
+- 중앙 하네스에 cached paint 200ms, 탭/아코디언 100ms, summary API p95 1초
+  목표와 actor/권한/legacy/pagination HOLD 조건을 고정했다.
+
+**구현**:
+- `get_internal_messenger_summaries_v1`, `list_internal_chat_page_v1`, GaramLink
+  request/direct summary RPC는 삭제 행을 제외하고 latest와 unread만 반환한다.
+  RPC는 `SECURITY INVOKER`, 고정 search path, public/anon/authenticated revoke,
+  service-role-only grant를 사용한다.
+- GaramIn 내부 목록과 GaramLink는 30-row keyset page를 제공한다.
+  기존 complete-list caller는 모든 page를 따르고, hub는 첫 page 후 scroll end에서
+  다음 page를 merge한다.
+- 허브 snapshot은 actor/permission scope별 process memory에만 보관한다. scope가
+  바뀌면 이전 async response를 거절한다. 네트워크 loading은 list-local이다. 두
+  virtualized list는 고정 pane에 한 번 mount해 탭마다 재생성하지 않고, inactive pane의
+  입력·접근성·pagination을 막는다. 사람 accordion은 기본 접힘이고 row는
+  memo/stable callback 경계를 쓴다.
+
+**검증과 경계**:
+- Mobile focused Jest 4 suites / 29 tests, scoped ESLint, FC `deno check` PASS.
+- Request Board summary 6/6, Messenger V2 24/24, direct-role 6/6, server TypeScript
+  build PASS. Root TypeScript는 이번 범위 밖 `app/index.tsx`의 기존 JSX parse 오류로
+  실패했다.
+- Docker/local Supabase가 없어 migration apply, catalog ACL, EXPLAIN/BUFFERS는
+  `BLOCKED_ENVIRONMENT`다. 운영 summary API p95도 미측정이다.
+- 고정 30/60초 timer polling은 제거하고 focus/foreground refresh에 2분 cooldown을
+  적용했다. 수동 pull-to-refresh는 즉시 실행되며, 느린 source state commit은
+  `startTransition`으로 내려 탭/accordion 입력을 우선한다. 사용자가 연결된 Android
+  앱에서 interaction latency 해결을 확인했다.
+- Realtime Broadcast와 durable encrypted local DB는 후속이다. 원격 DB, Edge/서버
+  배포, OTA/native, commit, push, PR은 변경하지 않았고 release는 HOLD다.
+
+<a id="20260809-google-play-422"></a>
+## 2026-08-09 | GaramIn Google Play production 4.2.2 verification
+
+**Observed state**:
+- EAS Android production build `5e733d21-ec62-4591-8213-9bb28acf6373` is `FINISHED` with app version `4.2.2`, versionCode `71`, runtime `4.2.2`, production channel, and Store distribution.
+- Google Play Console production shows `Active`, latest release `4.2.2 (71)`, and `Google Play에 제공됨`.
+- Console publish time is 2026-08-09 01:48 KST and the publishing overview reports no unpublished changes.
+
+**Release decision**:
+- The requested build is already live; submitting the same AAB again would duplicate versionCode `71` and is prohibited.
+- No duplicate upload, new release, rollout mutation, database/Edge/Vercel change, or Git push was performed during verification.
+
+<a id="20260808-messenger-latency-trace"></a>
+## 2026-08-08 | Messenger V2 Android latency 진단과 계측 취소
+
+**관찰과 구현**:
+- Android 로그는 GaramLink 대화 목록 완료만 보여 주고 시작 시각/구간별 duration은
+  없었다. 연결된 `requestboard-steel.vercel.app`은 room-preference GET에 404를
+  반환해 아직 additive endpoint가 배포되지 않은 legacy server임도 확인됐다.
+- room-preference GET 404는 첫 응답에서 legacy capability로 기억해 빈 preference
+  목록으로 호환하고, 이후 polling과 PATCH HTTP 요청을 반복하지 않는다. 새 서버의
+  정상 endpoint 응답은 기존 동작을 유지한다.
+- 수집된 기기 로그에서 legacy backend의 513행 응답과 30/60초 timer refresh가
+  겹치며 큰 state commit을 반복하는 것이 확인됐다. timer polling을 제거하고
+  focus/foreground 2분 cooldown, manual refresh, transition-priority source commit,
+  retained list pane, 기본 접힌 accordion으로 교정했다.
+- 무선 ADB wrapper는 TCP serial을 Expo `--device` 이름으로 전달하지 않고
+  `ANDROID_SERIAL`로만 고정한다.
+- 사용자가 Android 앱에서 latency 해결을 확인한 뒤 로그 출력 작업 취소를
+  결정했다. 임시 PERF logger, JS trace helper/test, native touch hook, collector와
+  package script를 모두 제거했다.
+
+**검증과 경계**:
+- 로그 제거 전후 hub/cache/logger/legacy compatibility focused tests와 scoped
+  ESLint를 통과했고, Android Kotlin compile 및 debug APK build/install도 통과했다.
+  Root TypeScript는 범위 밖 `app/index.tsx` 기존 JSX parse 오류로 차단됐다.
+- interaction latency는 사용자 실기기 확인으로 해결됐다. 원격 서버/DB/Edge/OTA는
+  변경하지 않았으며 backend summary 성능 검증과 rollout은 별도 HOLD다.

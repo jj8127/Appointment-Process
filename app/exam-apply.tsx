@@ -23,6 +23,7 @@ import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { ExamApplicationTargetSelector } from '@/components/ExamApplicationTargetSelector';
 import { ExamPaymentProofField } from '@/components/ExamPaymentProofField';
+import { ExamPaymentProofHistoryButton } from '@/components/ExamPaymentProofHistoryButton';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
@@ -36,6 +37,7 @@ import {
 import { showExamMonthConflictFeedback } from '@/lib/exam-month-conflict-feedback';
 import {
   INVALID_EXAM_LOCATION_MESSAGE,
+  INVALID_EXAM_MONTH_MESSAGE,
   buildExamApplyNotificationPayloads,
   createExamApplyRealtimeChannelTopic,
   getExamApplyRestoredSelectionState,
@@ -45,6 +47,9 @@ import {
   formatExamRegistrationStatus,
   getExamMonthKey,
   getExamRoundSelectionState,
+  getExamRoundMonthKey,
+  getExamRegistrationFlowType,
+  isExamRegistrationInRoundMonth,
   isExamRegistrationVisibleInHistory,
   isExamMonthSlotConsumed,
   isLocationInRound,
@@ -77,6 +82,10 @@ import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { supabase } from '@/lib/supabase';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
+import {
+  getExamApplicationHistoryGuardState,
+  getExamApplicationRouteHydrationKey,
+} from '@/lib/exam-apply-history-guard';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -129,11 +138,18 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - ROUND_DEADLINE_RETENTION_DAYS);
 
-  const { data, error } = await supabase
-    .from('exam_rounds')
-    .select(
-      `
+  const selectRounds = async (
+    options: {
+      includeExamMonth: boolean;
+      includeExamTypeSelect: boolean;
+      includeExamTypeFilter: boolean;
+    },
+  ): Promise<{ data: any[] | null; error: unknown }> => {
+    const select = options.includeExamMonth
+      ? `
       id,
+      exam_type,
+      exam_month,
       exam_date,
       registration_deadline,
       round_label,
@@ -148,35 +164,139 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
         created_at,
         updated_at
       )
-    `,
-    )
-    .eq('exam_type', examFlowConfig.examType)
-    .gte('registration_deadline', toYmd(cutoffDate))
-    .order('exam_date', { ascending: true })
-    .order('registration_deadline', { ascending: true })
-    .order('sort_order', { foreignTable: 'exam_locations', ascending: true });
+    `
+      : `
+      id,
+      ${options.includeExamTypeSelect ? 'exam_type,' : ''}
+      exam_date,
+      registration_deadline,
+      round_label,
+      notes,
+      created_at,
+      updated_at,
+      exam_locations (
+        id,
+        round_id,
+        location_name,
+        sort_order,
+        created_at,
+        updated_at
+      )
+    `;
 
-  if (error) {
-    logger.debug('fetchRounds error', { error });
-    throw error;
+    const request = supabase
+      .from('exam_rounds')
+      .select(select)
+      .gte('registration_deadline', toYmd(cutoffDate))
+      .order('exam_date', { ascending: true })
+      .order('registration_deadline', { ascending: true })
+      .order('sort_order', { foreignTable: 'exam_locations', ascending: true });
+
+    if (options.includeExamTypeFilter && options.includeExamTypeSelect) {
+      request.eq('exam_type', examFlowConfig.examType);
+    }
+
+    return request;
+  };
+
+  const attempts: {
+    includeExamMonth: boolean;
+    includeExamTypeSelect: boolean;
+    includeExamTypeFilter: boolean;
+  }[] = [
+    { includeExamMonth: true, includeExamTypeSelect: true, includeExamTypeFilter: true },
+    { includeExamMonth: false, includeExamTypeSelect: true, includeExamTypeFilter: true },
+    { includeExamMonth: false, includeExamTypeSelect: true, includeExamTypeFilter: false },
+    { includeExamMonth: false, includeExamTypeSelect: false, includeExamTypeFilter: false },
+    { includeExamMonth: true, includeExamTypeSelect: false, includeExamTypeFilter: false },
+  ];
+
+  let lastError: unknown = null;
+
+  for (const attempt of attempts) {
+    const result = await selectRounds(attempt);
+    if (!result.error) {
+      return (
+        result.data?.map((row: any) => ({
+          id: row.id,
+          exam_month: attempt.includeExamMonth ? row.exam_month : null,
+          exam_date: row.exam_date,
+          registration_deadline: row.registration_deadline,
+          round_label: row.round_label,
+          notes: row.notes,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          locations: (row.exam_locations ?? []).sort(
+            (a: any, b: any) =>
+              (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+              a.location_name.localeCompare(b.location_name),
+          ),
+        })) ?? []
+      );
+    }
+
+    if (!isSupabaseSchemaCompatibilityError(result.error)) {
+      logger.debug('fetchRounds error', { error: result.error });
+      throw result.error;
+    }
+
+    lastError = result.error;
+    logger.debug('fetchRounds fallback query failed', { attempt, error: result.error });
   }
 
-  return (
-    data?.map((row: any) => ({
-      id: row.id,
-      exam_date: row.exam_date,
-      registration_deadline: row.registration_deadline,
-      round_label: row.round_label,
-      notes: row.notes,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-      locations: (row.exam_locations ?? []).sort(
-        (a: any, b: any) =>
-          (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
-          a.location_name.localeCompare(b.location_name),
-      ),
-    })) ?? []
-  );
+  logger.debug('fetchRounds all fallback queries failed', { error: lastError });
+  throw lastError;
+};
+
+const isSupabaseSchemaCompatibilityError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const typed = error as {
+    code?: string;
+    message?: string;
+    details?: string;
+    hint?: string;
+  };
+
+  if (typed.code === '42703' || typed.code === '42P01') {
+    return true;
+  }
+
+  const message = `${typed.message ?? ''} ${typed.details ?? ''} ${typed.hint ?? ''}`.toLowerCase();
+  return message.includes('does not exist') || message.includes('column') && message.includes('does not exist');
+};
+
+const getKoreanRoundLabelMonth = (round: ExamRoundWithLocations): string | null => {
+  const label = `${round.round_label ?? ''}`.trim();
+  const labelMonthMatch = /(?:(\d{4})\s*년\s*)?([1-9]|1[0-2])월/.exec(label);
+  if (!labelMonthMatch) return null;
+
+  const month = Number(labelMonthMatch[2]);
+  if (Number.isNaN(month) || month < 1 || month > 12) return null;
+
+  const yearFromLabel = Number(labelMonthMatch[1]);
+  const yearFromDeadline = new Date(round.registration_deadline ?? '').getFullYear();
+  const year = Number.isNaN(yearFromLabel) ? yearFromDeadline : yearFromLabel;
+  if (Number.isNaN(year) || year < 2000) return null;
+
+  return `${year}-${String(month).padStart(2, '0')}`;
+};
+
+const getRoundMonthKeyWithFallback = (round: ExamRoundWithLocations): string | null => {
+  const canonicalMonth = getExamRoundMonthKey(round);
+  if (canonicalMonth) return canonicalMonth;
+  const labelMonth = getKoreanRoundLabelMonth(round);
+  if (labelMonth) return labelMonth;
+  return getExamMonthKey(round.exam_date) || getExamMonthKey(round.registration_deadline);
+};
+
+const getRoundForMonthComparison = (
+  round: ExamRoundWithLocations,
+): ExamRoundWithLocations & { exam_month?: string | null } => {
+  const monthKey = getRoundMonthKeyWithFallback(round);
+  return monthKey ? { ...round, exam_month: `${monthKey}-01` } : round;
 };
 
 const toDate = (value?: string | null) => {
@@ -209,6 +329,8 @@ type MyExamApply = {
     exam_type: 'life' | 'nonlife';
   } | null;
   exam_locations?: { location_name: string } | null;
+  exam_month?: string | null;
+  exam_type?: 'life' | 'nonlife' | null;
   is_confirmed?: boolean | null;
 };
 
@@ -282,6 +404,7 @@ export default function ExamApplyScreen() {
     requestId: string;
     uploadId: string;
   } | null>(null);
+  const consumedRouteHydrationKeysRef = useRef(new Set<string>());
   const [selectedApplyId, setSelectedApplyId] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
@@ -334,8 +457,6 @@ export default function ExamApplyScreen() {
     return new Date() > deadline;
   };
 
-  const hasAvailableRounds = allRounds.some((round) => !isRoundClosed(round));
-
   const selectedRound = useMemo(
     () => allRounds.find((r) => r.id === selectedRoundId) ?? null,
     [allRounds, selectedRoundId],
@@ -345,6 +466,10 @@ export default function ExamApplyScreen() {
     () => (selectedRound ? isRoundClosed(selectedRound) : false),
     [selectedRound],
   );
+  const hasAvailableRounds = useMemo(
+    () => allRounds.some((round) => !isRoundClosed(round)),
+    [allRounds],
+  );
 
   const {
     data: myApplies = [],
@@ -353,36 +478,140 @@ export default function ExamApplyScreen() {
     isFetching: isFetchingMyApplies,
     refetch: refetchMyApply,
   } = useQuery<MyExamApply[]>({
-    queryKey: ['my-exam-apply-history', applicationResidentId],
+    queryKey: ['my-exam-apply-history', examFlowType, applicationResidentId],
     enabled: canApplyExam && !!applicationResidentId,
+    staleTime: 0,
+    refetchOnMount: 'always',
     queryFn: async (): Promise<MyExamApply[]> => {
-      const { data, error } = await supabase
-        .from('exam_registrations')
-        .select(
-          'id, round_id, location_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, rejected_at, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations!exam_registrations_location_round_fkey(location_name)',
-        )
-        .eq('resident_id', applicationResidentId)
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false });
+      type QueryAttempt = {
+        includeExamMonth: boolean;
+        includeNestedExamType: boolean;
+        includeFlowFilter: boolean;
+      };
+      type QueryResult = { data: any[] | null; error: unknown };
 
-      if (error) throw error;
+      const selectWithMonth = async (options: QueryAttempt): Promise<QueryResult> => {
+        const relationNames = [
+          'exam_registrations_round_exam_type_fkey',
+          'exam_registrations_round_id_fkey',
+          '',
+        ] as const;
+        const nestedColumns = [
+          'exam_date',
+          'round_label',
+          options.includeNestedExamType || options.includeFlowFilter ? 'exam_type' : null,
+          options.includeExamMonth ? 'exam_month' : null,
+        ].filter(Boolean).join(', ');
+
+        for (const relationName of relationNames) {
+          const examRoundJoin = relationName
+            ? `exam_rounds!${relationName}(${nestedColumns})`
+            : `exam_rounds!inner(${nestedColumns})`;
+        const select = `id, round_id, location_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, rejected_at, created_at, ${options.includeExamMonth ? 'exam_month, ' : ''}${examRoundJoin}, exam_locations!exam_registrations_location_round_fkey(location_name)`;
+        const query = supabase
+          .from('exam_registrations')
+          .select(select)
+          .eq('resident_id', applicationResidentId);
+
+        const result = await query
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false });
+
+        if (!result.error) {
+          let rows = result.data ?? [];
+          if (options.includeFlowFilter) {
+            rows = rows.filter((row: any) => {
+              const examRounds = normalizeSingle(row.exam_rounds);
+              const rowExamType =
+                row.exam_type === 'life' || row.exam_type === 'nonlife'
+                  ? row.exam_type
+                  : examRounds?.exam_type;
+              return rowExamType === examFlowType;
+            });
+          }
+          return { data: rows, error: null } satisfies QueryResult;
+        }
+
+          if (!isSupabaseSchemaCompatibilityError(result.error)) {
+            throw result.error;
+          }
+        }
+
+        return { data: null, error: {
+          message: 'No compatible exam_round relationship found for exam_registrations query.',
+        } as { message: string } };
+      };
+
+      const attempts: QueryAttempt[] = [
+        { includeExamMonth: true, includeNestedExamType: true, includeFlowFilter: true },
+        { includeExamMonth: false, includeNestedExamType: true, includeFlowFilter: true },
+        { includeExamMonth: false, includeNestedExamType: true, includeFlowFilter: false },
+        { includeExamMonth: true, includeNestedExamType: true, includeFlowFilter: false },
+        { includeExamMonth: false, includeNestedExamType: false, includeFlowFilter: false },
+        { includeExamMonth: true, includeNestedExamType: false, includeFlowFilter: false },
+      ];
+
+      let data: any[] | null = null;
+      let error: unknown = null;
+
+      for (const attempt of attempts) {
+        const result = await selectWithMonth(attempt);
+        if (!result.error) {
+          data = result.data;
+          error = null;
+          break;
+        }
+        error = result.error;
+      }
+
+      if (error) {
+        logger.debug('myApply query error', { error });
+        throw error;
+      }
 
       return (data ?? [])
         .filter((d: any) => d.exam_rounds)
-        .map((d: any) => ({
-          ...d,
-          exam_rounds: normalizeSingle(d.exam_rounds),
-          exam_locations: normalizeSingle(d.exam_locations),
-        })) as MyExamApply[];
+        .map((d: any) => {
+          const examRounds = normalizeSingle(d.exam_rounds);
+          const examTypeValue =
+            d.exam_type === 'life' || d.exam_type === 'nonlife'
+              ? d.exam_type
+              : examRounds?.exam_type;
+          return {
+            ...d,
+            exam_type: examTypeValue ?? null,
+            exam_rounds: examRounds,
+            exam_locations: normalizeSingle(d.exam_locations),
+          } as MyExamApply;
+        });
     },
   });
+
+  const myApplyHistoryGuardState = getExamApplicationHistoryGuardState({
+    enabled: canApplyExam && !!applicationResidentId,
+    isLoading: isLoadingMyApplies,
+    isFetching: isFetchingMyApplies,
+    hasError: !!myAppliesError,
+  });
+  const isMyApplyHistoryLoading = myApplyHistoryGuardState === 'loading';
+  const hasMyApplyHistoryError = myApplyHistoryGuardState === 'error';
+  const isMyApplyHistoryBlocked =
+    myApplyHistoryGuardState === 'loading' || myApplyHistoryGuardState === 'error';
+  const isCurrentFlow = useCallback(
+    (application: MyExamApply) => {
+      const flowType = getExamRegistrationFlowType(application);
+      return flowType === null || flowType === examFlowType;
+    },
+    [],
+  );
 
   const visibleMyApplies = useMemo(
     () => myApplies.filter(
       (application) =>
-        isExamRegistrationVisibleInHistory(application.status),
+        isExamRegistrationVisibleInHistory(application.status)
+        && isCurrentFlow(application),
     ),
-    [myApplies],
+    [myApplies, isCurrentFlow],
   );
   const currentApply = useMemo(() => {
     if (visibleMyApplies.length === 0) return null;
@@ -399,9 +628,17 @@ export default function ExamApplyScreen() {
     ? myApplies.find(
         (row) =>
           row.id === routeRegistrationId
-          && row.exam_rounds?.exam_type === examFlowType,
+          && isCurrentFlow(row),
       )
     : undefined;
+  const routeHydrationKey = hasAmbiguousExamRoute
+    ? null
+    : getExamApplicationRouteHydrationKey({
+        actorId: applicationResidentId,
+        examType: examFlowType,
+        registrationId: routeRegistrationId,
+        roundId: routeRoundId,
+      });
   const notificationReceipt = useNotificationReceiptCompletion({
     params: { notificationId, notificationTarget },
     expectedTarget: !hasAmbiguousExamRoute && routeRegistrationId
@@ -417,8 +654,8 @@ export default function ExamApplyScreen() {
             kind: 'exam',
             examType: 'life',
             examRoundId: routeRoundId,
-          }
-        : null,
+        }
+      : null,
     loadState: !identityGateAccepted
       ? 'loading'
       : hasAmbiguousExamRoute
@@ -437,36 +674,56 @@ export default function ExamApplyScreen() {
           : allRounds.some((row) => row.id === routeRoundId)
             ? 'success'
             : isLoading
-              ? 'loading'
-              : 'error'
+        ? 'loading'
+        : 'error'
       : 'idle',
   });
 
   useEffect(() => {
+    if (!routeHydrationKey) return;
+    if (consumedRouteHydrationKeysRef.current.has(routeHydrationKey)) return;
     if (hasAmbiguousExamRoute) return;
     if (routeRegistrationId) {
       const registration = exactRouteRegistration;
       if (!registration) return;
+      if (myApplyHistoryGuardState !== 'ready') return;
+      consumedRouteHydrationKeysRef.current.add(routeHydrationKey);
       setSelectedApplyId(registration.id);
       setSelectedRoundId(registration.round_id);
       return;
     }
-    if (routeRoundId && allRounds.some((row) => row.id === routeRoundId)) {
+    if (
+      routeRoundId
+      && myApplyHistoryGuardState !== 'error'
+      && !isLoading
+      && !isFetching
+      && !isRoundsError
+      && allRounds.some((row) => row.id === routeRoundId)
+    ) {
+      consumedRouteHydrationKeysRef.current.add(routeHydrationKey);
       setSelectedRoundId(routeRoundId);
     }
   }, [
     allRounds,
     exactRouteRegistration,
     hasAmbiguousExamRoute,
+    isLoading,
+    isFetching,
+    isRoundsError,
+    myApplyHistoryGuardState,
+    routeHydrationKey,
     routeRegistrationId,
     routeRoundId,
   ]);
 
   const existingForRound = useMemo(
     () => myApplies.find(
-      (a) => a.round_id === selectedRoundId && isExamMonthSlotConsumed(a.status),
+      (a) =>
+        isCurrentFlow(a)
+        && isExamMonthSlotConsumed(a.status)
+        && a.round_id === selectedRoundId,
     ) ?? null,
-    [myApplies, selectedRoundId],
+    [isCurrentFlow, myApplies, selectedRoundId],
   );
   const isConfirmedForRound = !!existingForRound?.is_confirmed;
   const existingProofAttached = !!existingForRound?.payment_proof_attached;
@@ -587,7 +844,9 @@ export default function ExamApplyScreen() {
   }, [discardPreparedPaymentProof, selectedTarget?.fcId]);
 
   const applyMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ existingProofAttachedForSubmit }: {
+      existingProofAttachedForSubmit: boolean;
+    }) => {
       if (!applicationResidentId) {
         throw new Error('시험 신청 대상 FC를 선택해주세요.');
       }
@@ -595,7 +854,7 @@ export default function ExamApplyScreen() {
         hasApplicationTarget: !isProxyApplication || !!selectedTarget,
         hasPaymentProof: hasExamPaymentProof({
           selectedProof: selectedPaymentProof,
-          existingProofAttached,
+          existingProofAttached: existingProofAttachedForSubmit,
         }),
         selectedRoundId,
         selectedLocationId,
@@ -829,11 +1088,16 @@ export default function ExamApplyScreen() {
   };
 
   const handleRoundSelect = (round: ExamRoundWithLocations) => {
-    const roundMonth = getExamMonthKey(round.exam_date);
+    const roundForMonthComparison = getRoundForMonthComparison(round);
+    if (getExamRoundMonthKey(roundForMonthComparison) === null) {
+      Alert.alert('신청 불가', INVALID_EXAM_MONTH_MESSAGE);
+      return;
+    }
     const activeForMonth = myApplies.find(
       (application) =>
         isExamMonthSlotConsumed(application.status)
-        && getExamMonthKey(application.exam_rounds?.exam_date) === roundMonth,
+        && isCurrentFlow(application)
+        && isExamRegistrationInRoundMonth(application, roundForMonthComparison, examFlowType),
     );
     if (activeForMonth && activeForMonth.round_id !== round.id) {
       showExamMonthConflictFeedback();
@@ -862,8 +1126,12 @@ export default function ExamApplyScreen() {
     setSelectedLocationId(id);
   };
 
-  const handleApplyPress = () => {
+  const handleApplyPress = async () => {
     if (applyMutation.isPending) return;
+    if (isMyApplyHistoryBlocked) {
+      Alert.alert('알림', '신청 내역을 다시 불러온 뒤 시도해주세요.');
+      return;
+    }
     if (isConfirmedForRound) {
       Alert.alert('알림', lockMessage);
       return;
@@ -872,12 +1140,48 @@ export default function ExamApplyScreen() {
       Alert.alert('알림', '마감된 일정입니다. 다른 시험 일정을 선택해주세요.');
       return;
     }
+    if (
+      selectedRound
+      && getExamRoundMonthKey(getRoundForMonthComparison(selectedRound)) === null
+    ) {
+      Alert.alert('신청 불가', INVALID_EXAM_MONTH_MESSAGE);
+      return;
+    }
+
+    const freshHistoryResult = await refetchMyApply();
+    if (freshHistoryResult.error || !freshHistoryResult.data) {
+      Alert.alert('알림', '신청 내역을 다시 불러온 뒤 시도해주세요.');
+      return;
+    }
+    const freshMyApplies = freshHistoryResult.data;
+    const freshExistingForRound = freshMyApplies.find(
+      (application) =>
+        isCurrentFlow(application)
+        && isExamMonthSlotConsumed(application.status)
+        && application.round_id === selectedRoundId,
+    );
+    const activeForSelectedMonth = selectedRound
+      ? freshMyApplies.find(
+          (application) =>
+            isCurrentFlow(application)
+            && isExamMonthSlotConsumed(application.status)
+            && isExamRegistrationInRoundMonth(
+              application,
+              getRoundForMonthComparison(selectedRound),
+              examFlowType,
+            ),
+        )
+      : undefined;
+    if (activeForSelectedMonth && activeForSelectedMonth.round_id !== selectedRoundId) {
+      showExamMonthConflictFeedback();
+      return;
+    }
 
     const missingMessage = formatMissingExamApplicationFields(getMissingExamApplicationFields({
       hasApplicationTarget: !isProxyApplication || !!selectedTarget,
       hasPaymentProof: hasExamPaymentProof({
         selectedProof: selectedPaymentProof,
-        existingProofAttached,
+        existingProofAttached: !!freshExistingForRound?.payment_proof_attached,
       }),
       selectedRoundId,
       selectedLocationId,
@@ -888,7 +1192,9 @@ export default function ExamApplyScreen() {
       return;
     }
 
-    applyMutation.mutate();
+    applyMutation.mutate({
+      existingProofAttachedForSubmit: !!freshExistingForRound?.payment_proof_attached,
+    });
   };
 
   if (!hydrated) {
@@ -989,7 +1295,9 @@ export default function ExamApplyScreen() {
               </Text>
             </View>
 
-            {myAppliesError ? (
+            {isMyApplyHistoryLoading ? (
+              <BrandedLoadingState variant="exam" layout="section" />
+            ) : hasMyApplyHistoryError ? (
               <View style={{ gap: 8, alignItems: 'center' }}>
                 <Text style={styles.emptyText}>신청 내역을 불러오지 못했습니다.</Text>
                 <Pressable
@@ -1096,6 +1404,17 @@ export default function ExamApplyScreen() {
                         {formatFeePaidDate(currentApply.fee_paid_date)}
                       </Text>
                     </View>
+                    {currentApply.payment_proof_attached ? (
+                      <View style={styles.statusRow}>
+                        <Text style={styles.statusLabel}>입금 내역</Text>
+                        <ExamPaymentProofHistoryButton
+                          key={currentApply.id}
+                          appSessionToken={appSessionToken}
+                          registrationId={currentApply.id}
+                          targetFcId={applicationTargetFcId}
+                        />
+                      </View>
+                    ) : null}
                     <View style={styles.statusRow}>
                       <Text style={styles.statusLabel}>상태</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -1140,32 +1459,46 @@ export default function ExamApplyScreen() {
             <Text style={styles.sectionHeader}>📅 시험 일정 선택</Text>
             {isLoading || isFetching ? (
               <BrandedLoadingState variant="exam" layout="section" />
+            ) : isRoundsError ? (
+              <View style={{ gap: 8, alignItems: 'center' }}>
+                <Text style={styles.emptyText}>시험 일정을 불러오지 못했습니다.</Text>
+                <Pressable
+                  onPress={() => void refetch()}
+                  disabled={isFetching}
+                  style={{ paddingHorizontal: 12, paddingVertical: 8 }}
+                >
+                  <Text style={{ color: HANWHA_ORANGE, fontWeight: '700' }}>
+                    {isFetching ? '다시 불러오는 중...' : '다시 시도'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : !hasAvailableRounds ? (
+              <View style={styles.availableRoundsEmptyState}>
+                <Feather name="calendar" size={28} color={MUTED} />
+                <Text style={styles.availableRoundsEmptyText}>현재 신청 가능한 시험이 없습니다.</Text>
+              </View>
             ) : (
               <View style={styles.listContainer}>
-                {!hasAvailableRounds && (
-                  <View style={styles.availableRoundsEmptyState}>
-                    <Feather name="calendar" size={28} color={MUTED} />
-                    <Text style={styles.availableRoundsEmptyText}>
-                      현재 신청 가능한 시험이 없습니다.
-                    </Text>
-                  </View>
-                )}
                 {allRounds.map((round, idx) => {
                   const closed = isRoundClosed(round);
-                  const roundMonth = getExamMonthKey(round.exam_date);
+                  const roundMonth = getRoundForMonthComparison(round);
+                  const unresolvedMonth = getExamRoundMonthKey(roundMonth) === null;
                   const activeApplicationsForMonth = myApplies.filter(
                     (application) =>
                       isExamMonthSlotConsumed(application.status)
-                      && getExamMonthKey(application.exam_rounds?.exam_date) === roundMonth,
+                      && isCurrentFlow(application)
+                      && isExamRegistrationInRoundMonth(application, roundMonth, examFlowType),
                   );
                   const isAppliedRound = activeApplicationsForMonth.some(
                     (application) => application.round_id === round.id,
                   );
                   const blockedByMonth =
-                    activeApplicationsForMonth.length > 0 && !isAppliedRound;
-                  const unavailable = closed || blockedByMonth;
+                    !unresolvedMonth
+                    && activeApplicationsForMonth.length > 0
+                    && !isAppliedRound;
+                  const unavailable = unresolvedMonth || closed || blockedByMonth;
                   const visuallyDisabled =
-                    blockedByMonth || (closed && !isAppliedRound);
+                    unresolvedMonth || blockedByMonth || (closed && !isAppliedRound);
                   const isActive =
                     isAppliedRound
                     || (round.id === selectedRoundId && !blockedByMonth);
@@ -1342,13 +1675,13 @@ export default function ExamApplyScreen() {
             <View style={styles.actionButtons}>
               <Pressable
                 onPress={handleApplyPress}
-                disabled={applyMutation.isPending}
+                disabled={applyMutation.isPending || isMyApplyHistoryBlocked}
                 style={({ pressed }) => [styles.submitBtnWrapper, pressed && styles.pressedScale]}
               >
                 <View
                   style={[
                     styles.submitBtn,
-                    applyMutation.isPending || isConfirmedForRound
+                        applyMutation.isPending || isMyApplyHistoryBlocked || isConfirmedForRound
                       ? styles.submitBtnDisabled
                       : styles.submitBtnActive,
                   ]}

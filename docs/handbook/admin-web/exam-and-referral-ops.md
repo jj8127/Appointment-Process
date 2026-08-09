@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-EXAM-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-07-30
+last_verified: 2026-08-04
 source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/src/app/api/admin/exam-applicants/* + web/src/app/dashboard/referrals/page.tsx + web/src/app/dashboard/referrals/graph/page.tsx + web/src/app/api/admin/referrals/route.ts
 
 # Admin Web Playbook: Exam And Referral Ops
@@ -23,7 +23,7 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 ## 시험 운영
 
 - 라운드 생성/수정/삭제
-- 라운드 생성/수정은 `save_exam_round_atomic` service-role RPC가 운영 DB에 먼저 적용된 뒤에만 활성화한다. PostgREST `PGRST202`는 입력 오류가 아니라 RPC rollout 누락으로 분류하며, 다중 쿼리 fallback으로 우회하지 않는다.
+- 라운드 생성/수정은 canonical `save_exam_round_atomic_v2` service-role RPC가 운영 DB에 먼저 적용된 뒤에만 활성화한다. 구 `save_exam_round_atomic`은 정확일 caller 호환 wrapper로만 유지한다. PostgREST `PGRST202`는 입력 오류가 아니라 RPC rollout 누락으로 분류하며, 다중 쿼리 fallback으로 우회하지 않는다.
 - 신청자 조회/삭제
 - legacy admin 시험 화면과 최신 dashboard 시험 화면이 공존
 - `/dashboard/exam/applicants` 는 상단 소속 quick filter를 제공
@@ -63,6 +63,16 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - node drag는 pointer 대상 노드 하나만 임시 `fx/fy`로 고정한다. direct·2-hop 이상 연결 노드는 별도 고정이나 같은-delta 이동 없이 평소 link·link-tension·charge·collision force로 단계적으로 반응하고, drag 시작 edge 길이의 `1.2x` 최대 stretch를 지킨다. release는 `fx/fy` hard pin 해제와 simulation reheat를 수행해 spring momentum을 이어가며 decaying drop tether를 주입하지 않는다.
 - 물리 slider는 `Center force`, `Repel force`, `Link force`, `Link distance` 네 항목이며 범위와 기본값은 Obsidian 의미를 따른다.
 - 기본 이름 label은 숨기지 않고, 추천코드 detail은 선택/검색 상태에서만 확장한다.
+
+## 2026-08-04 시험일 미정 회차 운영
+
+- `/dashboard/exam/schedule`에서 `시험일 미정`을 선택하면 `시험 월`을 반드시 선택한다. 정확일을 사용하면 월은 해당 날짜의 월초로 자동 파생한다.
+- 서버 input policy는 실존하는 월초 날짜만 받고, 정확일과 월이 충돌하면 저장을 거부한다. 정확일만 보내는 legacy caller는 월을 자동 파생하지만, 신규 TBD payload는 명시적 월 없이 저장할 수 없다.
+- 회차·장소 저장은 `save_exam_round_atomic_v2` service-role RPC를 사용한다. DB migration이 운영에 먼저 적용되지 않은 상태에서 이 writer를 배포하지 않으며, `PGRST202`를 다중 query fallback으로 우회하지 않는다.
+- 기존 TBD 회차를 수정할 때는 저장된 `exam_month`를 form에 hydrate한다. 정확일을 추후 확정하는 경우 신청 이력이 있으면 기존 월 안의 날짜만 허용된다.
+- 모바일 관리자도 같은 writer 계약을 사용한다. 새 요청은 canonical `exam_month`를 명시하고 `admin-action`은 `save_exam_round_atomic_v2`만 호출한다.
+- 구 모바일의 exact-date 요청은 검증된 날짜에서 월을 파생해 호환할 수 있지만, 기존 `exam_date = null` 회차를 명시적 month 없이 수정하는 요청은 오늘 날짜 implicit 확정을 막기 위해 RPC 전에 거절한다.
+- caller 활성화 전 `20260804081357_exam_round_month_for_tbd.sql`, exact v2 signature, service-role-only ACL, TBD/exact/invalid/rollback 대표 transaction을 배포 runbook에서 확인한다. 구 migration과 legacy writer 확인만으로는 활성화할 수 없다.
 
 ## 연관 문서
 

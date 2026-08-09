@@ -65,20 +65,36 @@ describe('FC root dependency security contract', () => {
     });
     expect(packageLock.packages['node_modules/@modelcontextprotocol/sdk']).toMatchObject({
       dev: true,
-      version: '1.29.0',
+      version: '1.30.0',
     });
   });
 
-  it('pins patched transitives only below their owning dependency paths', () => {
+  it('pins compatible patched transitives without changing the Expo runtime line', () => {
     expect(packageJson.overrides).toEqual({
       expo: {
         'node-forge': '1.4.0',
-        postcss: '8.5.19',
-        tar: '7.5.20',
+        postcss: '8.5.26',
+        tar: '7.5.22',
+        undici: '6.28.0',
         uuid: '11.1.1',
       },
       'expo-mcp': {
-        '@modelcontextprotocol/sdk': '1.29.0',
+        '@modelcontextprotocol/sdk': '1.30.0',
+      },
+      '@hono/node-server': '2.1.0',
+      hono: '4.13.1',
+      'ip-address': '10.4.0',
+      'fast-uri': '3.1.5',
+      'js-yaml': '4.3.1',
+      nanoid: '3.3.18',
+      'minimatch@3.1.5': {
+        'brace-expansion': '1.1.18',
+      },
+      'minimatch@9.0.9': {
+        'brace-expansion': '2.1.4',
+      },
+      'minimatch@10.2.5': {
+        'brace-expansion': '5.0.9',
       },
       'expo-updates': {
         'node-forge': '1.4.0',
@@ -98,9 +114,15 @@ describe('FC root dependency security contract', () => {
     });
 
     expect({
+      '@hono/node-server': installedVersion('@hono/node-server'),
       '@modelcontextprotocol/sdk': installedVersion('@modelcontextprotocol/sdk'),
       axios: installedVersion('axios'),
+      'fast-uri': installedVersion('fast-uri'),
       handlebars: installedVersion('handlebars'),
+      hono: installedVersion('hono'),
+      'ip-address': installedVersion('ip-address'),
+      'js-yaml': installedVersion('js-yaml'),
+      nanoid: installedVersion('nanoid'),
       'node-forge': installedVersion('node-forge'),
       postcss: installedVersion('postcss'),
       'react-native-device-info': installedVersion('react-native-device-info'),
@@ -110,18 +132,26 @@ describe('FC root dependency security contract', () => {
         ]?.version,
       'shell-quote': installedVersion('shell-quote'),
       tar: installedVersion('tar'),
+      undici: installedVersion('undici'),
       underscore: installedVersion('underscore'),
       uuid: installedVersion('uuid'),
     }).toEqual({
-      '@modelcontextprotocol/sdk': '1.29.0',
+      '@hono/node-server': '2.1.0',
+      '@modelcontextprotocol/sdk': '1.30.0',
       axios: '1.18.1',
+      'fast-uri': '3.1.5',
       handlebars: '4.7.9',
+      hono: '4.13.1',
+      'ip-address': '10.4.0',
+      'js-yaml': '4.3.1',
+      nanoid: '3.3.18',
       'node-forge': '1.4.0',
-      postcss: '8.5.19',
+      postcss: '8.5.26',
       'react-native-device-info': '10.3.0',
       'react-native-siren/react-native-device-info': '8.7.1',
       'shell-quote': '1.10.0',
-      tar: '7.5.20',
+      tar: '7.5.22',
+      undici: '6.28.0',
       underscore: '1.13.8',
       uuid: '11.1.1',
     });

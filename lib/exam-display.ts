@@ -41,6 +41,25 @@ export function formatExamYmd(value?: string | null) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+export function formatExamRegistrationSubjectLabel({
+  examType,
+  includesPrimaryExam,
+  isThirdExam,
+}: {
+  examType?: ExamRoundRefLike['exam_type'];
+  includesPrimaryExam?: boolean | null;
+  isThirdExam?: boolean | null;
+}): string {
+  const primaryLabel = examType === 'nonlife' ? '손해' : examType === 'life' ? '생명' : null;
+  const hasPrimary = includesPrimaryExam === true;
+  const hasThird = isThirdExam === true;
+
+  if (hasPrimary && hasThird) return `${primaryLabel ?? '주시험'}/제3보`;
+  if (hasPrimary) return primaryLabel ?? '주시험';
+  if (hasThird) return '제3보';
+  return '-';
+}
+
 export function buildExamInfo(reg: ExamRegistrationDisplayLike): string {
   const round = normalizeExamSingle(reg.exam_rounds);
   const loc = normalizeExamSingle(reg.exam_locations);

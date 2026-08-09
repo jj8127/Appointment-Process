@@ -16,10 +16,14 @@ describe('referral revenue demo screen source contract', () => {
   const nativeCanvas = read(
     'components/referral-revenue-graph/ReferralRevenueGraphWebViewCanvas.tsx',
   );
+  const tree = read(
+    'components/referral-revenue-graph/ReferralRevenueTreeView.tsx',
+  );
+  const treeLayout = read('lib/referral-revenue-tree-layout.ts');
   const detail = read(
     'components/referral-revenue-graph/ReferralRevenueDetailSheet.tsx',
   );
-  const combined = `${screen}\n${canvas}\n${detail}`;
+  const combined = `${screen}\n${canvas}\n${tree}\n${treeLayout}\n${detail}`;
 
   it('stays completely local and independent from the real referral graph', () => {
     expect(combined).not.toMatch(/\bfetch\s*\(/);
@@ -55,7 +59,11 @@ describe('referral revenue demo screen source contract', () => {
     expect(screen).toContain('accessibilityState={{ selected }}');
     expect(screen).toContain('accessibilityRole="button"');
     expect(screen).toContain('TOUCH_TARGET.min');
-    expect(canvas).toContain('accessibilityLabel');
+    expect(canvas).toContain('accessible={false}');
+    expect(canvas).toContain('importantForAccessibility="no"');
+    expect(canvas).toContain('accessibilityRole="summary"');
+    expect(canvas).toContain('accessibilityLabel={`${node.name}');
+    expect(nativeCanvas).toContain('const padding = 28;');
     expect(detail).toContain('accessibilityViewIsModal');
   });
 
@@ -74,6 +82,51 @@ describe('referral revenue demo screen source contract', () => {
     expect(canvas).not.toMatch(
       /isContext\s*\?\s*['"](?:연결 경로|경로)['"]/u,
     );
+  });
+
+  it('keeps the current circular graph as the non-persisted default view', () => {
+    expect(screen).toContain("type ViewMode = 'graph' | 'tree' | 'list'");
+    expect(screen).toContain("useState<ViewMode>('graph')");
+    expect(screen).not.toContain("useState<ViewMode>('tree')");
+    expect(screen).not.toMatch(/AsyncStorage|localStorage|persistView/i);
+    expect(screen).toContain("if (viewMode === 'graph')");
+    expect(screen).toContain('<ReferralRevenueGraphCanvas');
+    expect(screen).toContain("viewMode === 'tree' ? (");
+    expect(screen).toContain('<ReferralRevenueTreeView');
+  });
+
+  it('offers accessible current-graph, tree, and list choices', () => {
+    expect(screen).toContain("label: '현재 그래프'");
+    expect(screen).toContain("accessibilityLabel: '현재 그래프 보기'");
+    expect(screen).toContain("accessibilityLabel: '트리 보기'");
+    expect(screen).toContain("accessibilityLabel: '목록 보기'");
+    expect(screen).toContain("handleViewModeChange('tree')");
+    expect(screen).toContain('VIEW_OPTIONS.map');
+    expect(screen).toContain('accessibilityState={{ selected }}');
+  });
+
+  it('restores the initial card tree as an isolated local renderer', () => {
+    expect(tree).toContain('SAMPLE_REVENUE_TREE_CANVAS_WIDTH');
+    expect(tree).toContain('<ScrollView');
+    expect(tree).toContain('<Svg');
+    expect(tree).toContain('<Line');
+    expect(tree).toContain('getSampleRevenueTreeConnector');
+    expect(tree).toContain("strokeDasharray={excluded ? '5 5' : undefined}");
+    expect(tree).toContain('disabled={isViewer || isContext}');
+    expect(tree).toContain('onPress={() => onSelectNode(node)}');
+    expect(tree).toContain('selectedNodeId === node.id');
+    expect(tree).toContain('`${amountLabel}, 연결 경로`');
+    expect(tree).toContain(
+      'height: Math.max(SAMPLE_REVENUE_TREE_NODE_HEIGHT, TOUCH_TARGET.min)',
+    );
+    expect(tree).not.toContain(
+      'minHeight: Math.max(SAMPLE_REVENUE_TREE_NODE_HEIGHT, TOUCH_TARGET.min)',
+    );
+    expect(tree).toContain('adjustsFontSizeToFit');
+    expect(tree).toContain('maxFontSizeMultiplier={1.2}');
+    expect(tree).not.toMatch(/isContext\s*\?\s*['"]연결 경로['"]/u);
+    expect(canvas).not.toContain('ReferralRevenueTreeView');
+    expect(canvas).not.toContain('<ScrollView');
   });
 
   it('renders a referral-graph-style interactive node-edge network', () => {

@@ -5,6 +5,7 @@ import {
   mergeExpoPushDeliverySummaries,
   type ExpoPushDeliverySummary,
 } from '../_shared/expo-push-delivery.ts';
+import { isGeneralExpoPushEnabled } from '../_shared/general-push-preference-policy.ts';
 import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
 
 type FcRow = {
@@ -42,6 +43,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const DEADLINE_HOUR_KST = 18;
 const REMINDER_DAYS = new Set([3, 1, 0, -1]);
 const REMINDER_CATEGORY = 'docs-deadline';
+const REMINDER_PUSH_CATEGORY = 'operations' as const;
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -108,6 +110,7 @@ type ReminderWarningCounts = {
   notification_log_lookup_failed: number;
   notification_log_failed: number;
   token_lookup_failed: number;
+  preference_lookup_failed: number;
   no_registered_tokens: number;
   provider_delivery_not_accepted: number;
   provider_ticket_rejected: number;
@@ -118,6 +121,7 @@ const createWarningCounts = (): ReminderWarningCounts => ({
   notification_log_lookup_failed: 0,
   notification_log_failed: 0,
   token_lookup_failed: 0,
+  preference_lookup_failed: 0,
   no_registered_tokens: 0,
   provider_delivery_not_accepted: 0,
   provider_ticket_rejected: 0,
@@ -211,6 +215,42 @@ async function hasNotificationForKstDay(input: {
   return validation.ok === true
     ? { exists: true, failed: false, id: validation.notificationId }
     : { exists: false, failed: true, id: null };
+}
+
+async function loadReminderExpoEligibility(actorId: string): Promise<{
+  enabled: boolean;
+  lookupFailed: boolean;
+}> {
+  try {
+    const [globalResult, categoryResult] = await Promise.all([
+      supabase
+        .from('app_push_preferences')
+        .select('actor_id,actor_role,enabled')
+        .eq('actor_id', actorId)
+        .eq('actor_role', 'fc')
+        .maybeSingle(),
+      supabase
+        .from('app_push_category_preferences')
+        .select('actor_id,actor_role,category,enabled')
+        .eq('actor_id', actorId)
+        .eq('actor_role', 'fc')
+        .eq('category', REMINDER_PUSH_CATEGORY)
+        .maybeSingle(),
+    ]);
+    const lookupFailed = Boolean(globalResult.error || categoryResult.error);
+    return {
+      lookupFailed,
+      enabled: isGeneralExpoPushEnabled({
+        actor: { id: actorId, role: 'fc' },
+        category: REMINDER_PUSH_CATEGORY,
+        lookupFailed,
+        globalRows: globalResult.data ? [globalResult.data] : [],
+        categoryRows: categoryResult.data ? [categoryResult.data] : [],
+      }),
+    };
+  } catch {
+    return { enabled: false, lookupFailed: true };
+  }
 }
 
 function cronAuthorizationFailure(req: Request): Response | null {
@@ -328,6 +368,23 @@ serve(async (req: Request) => {
         continue;
       }
       notificationId = logResult.id;
+    }
+
+    const preference = await loadReminderExpoEligibility(row.id);
+    if (!preference.enabled) {
+      if (preference.lookupFailed) {
+        warningCounts.preference_lookup_failed += 1;
+        continue;
+      }
+
+      const { error: updateError } = await supabase
+        .from('fc_profiles')
+        .update({ docs_deadline_last_notified_at: today })
+        .eq('id', row.id);
+      if (updateError) {
+        warningCounts.deadline_update_failed += 1;
+      }
+      continue;
     }
 
     const { data: tokens, error: tokenError } = await supabase

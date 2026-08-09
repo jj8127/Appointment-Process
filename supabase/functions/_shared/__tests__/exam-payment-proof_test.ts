@@ -8,6 +8,7 @@ import {
   validateDiscardExamPaymentProof,
   validatePrepareExamPaymentProof,
   validateSubmitExamPaymentProof,
+  validateViewExamPaymentProof,
 } from '../exam-payment-proof.ts';
 
 const requestId = '11111111-1111-4111-8111-111111111111';
@@ -152,6 +153,14 @@ test('validates discard identity and Korean calendar day', () => {
   assert.equal(
     validateCancelExamApplication({ action: 'cancel', registrationId: roundId }).ok,
     true,
+  );
+  assert.deepEqual(
+    validateViewExamPaymentProof({ action: 'view', registrationId: roundId }),
+    { ok: true, value: { registrationId: roundId } },
+  );
+  assert.equal(
+    validateViewExamPaymentProof({ action: 'view', registrationId: 'not-a-uuid' }).ok,
+    false,
   );
   assert.equal(
     getKoreanYmd(new Date('2026-07-22T15:30:00.000Z')),

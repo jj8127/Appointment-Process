@@ -14,6 +14,7 @@ jest.mock('expo-constants', () => ({
 
 jest.mock('react-native', () => ({
   Platform: { OS: 'android' },
+  Linking: { openSettings: jest.fn() },
 }));
 
 jest.mock('expo-device', () => ({ isDevice: true }));
@@ -44,7 +45,11 @@ jest.mock('../supabase', () => ({
 
 // The module must load after Jest installs its native-module mocks.
 // eslint-disable-next-line import/first
-import { registerPushToken } from '../notifications';
+import {
+  getPushPermissionStatus,
+  registerPushToken,
+  unregisterAllPushTokens,
+} from '../notifications';
 
 describe('registerPushToken', () => {
   beforeEach(() => {
@@ -74,7 +79,7 @@ describe('registerPushToken', () => {
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
-  test('treats permission denial as terminal for the current session key', async () => {
+  test('never prompts unless permission request is explicitly enabled', async () => {
     getPermissionsAsyncMock.mockResolvedValue({ status: 'denied' });
     requestPermissionsAsyncMock.mockResolvedValue({ status: 'denied' });
 
@@ -83,7 +88,42 @@ describe('registerPushToken', () => {
       retryable: false,
       reason: 'permission_denied',
     });
+    expect(requestPermissionsAsyncMock).not.toHaveBeenCalled();
     expect(getExpoPushTokenAsyncMock).not.toHaveBeenCalled();
+  });
+
+  test('requests permission only for an explicit master-ON action', async () => {
+    getPermissionsAsyncMock.mockResolvedValue({ status: 'undetermined' });
+    requestPermissionsAsyncMock.mockResolvedValue({ status: 'granted' });
+
+    await expect(registerPushToken(
+      'fc',
+      '01000000000',
+      'Test User',
+      undefined,
+      { requestPermission: true },
+    )).resolves.toEqual({ ok: true, retryable: false, reason: 'registered' });
+    expect(requestPermissionsAsyncMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('reports current permission without requesting it', async () => {
+    getPermissionsAsyncMock.mockResolvedValue({ status: 'undetermined' });
+    await expect(getPushPermissionStatus()).resolves.toBe('undetermined');
+    expect(requestPermissionsAsyncMock).not.toHaveBeenCalled();
+  });
+
+  test('unregisters every token for the signed actor through the trusted function', async () => {
+    invokeMock.mockResolvedValue({ data: { ok: true }, error: null });
+    await expect(unregisterAllPushTokens()).resolves.toEqual({
+      ok: true,
+      retryable: false,
+      reason: 'unregistered',
+    });
+    expect(invokeMock).toHaveBeenCalledWith('device-token-register', expect.objectContaining({
+      method: 'DELETE',
+      body: { disableAll: true },
+      headers: { 'x-app-session-token': 'session-token' },
+    }));
   });
 
   test('returns a retryable result when trusted registration fails', async () => {

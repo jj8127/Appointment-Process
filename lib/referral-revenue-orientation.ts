@@ -4,7 +4,7 @@ export type ReferralRevenueOrientationState = {
   canView: boolean;
   hydrated: boolean;
   isFocused: boolean;
-  viewMode: 'graph' | 'list';
+  viewMode: 'graph' | 'tree' | 'list';
 };
 
 export type ReferralRevenueOrientationAdapter = {

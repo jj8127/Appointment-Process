@@ -16,11 +16,12 @@ describe('exam round atomic save contract', () => {
     const fetchStart = actionSource.indexOf('export async function fetchExamRoundsAction');
     const saveSource = actionSource.slice(saveStart, fetchStart);
 
-    expect(saveSource).toContain(".rpc(\n            'save_exam_round_atomic'");
+    expect(saveSource).toContain(".rpc(\n            'save_exam_round_atomic_v2'");
+    expect(saveSource).toContain('p_exam_month: exam_month');
     expect(saveSource).not.toContain(".from('exam_rounds')");
     expect(saveSource).not.toContain(".from('exam_locations')");
     expect(saveSource.indexOf('parseExamRoundSaveInput(payload)')).toBeLessThan(
-      saveSource.indexOf("'save_exam_round_atomic'"),
+      saveSource.indexOf("'save_exam_round_atomic_v2'"),
     );
     expect(saveSource).toContain('examRoundSaveErrorMessage(err)');
     expect(actionSource).toContain("readErrorCode(err) === 'PGRST202'");

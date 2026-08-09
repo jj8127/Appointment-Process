@@ -18,6 +18,7 @@ const OTHER_FC_ID = '00000000-0000-4000-8000-000000000102';
 const ADMIN_ID = '00000000-0000-4000-8000-000000000201';
 const DEVELOPER_ID = '00000000-0000-4000-8000-000000000202';
 const MANAGER_ID = '00000000-0000-4000-8000-000000000203';
+const OTHER_ADMIN_ID = '00000000-0000-4000-8000-000000000204';
 
 const fc: DirectMessageActor = {
   actorId: FC_ID,
@@ -43,6 +44,14 @@ const developer: DirectMessageActor = {
   fcId: null,
   isRequestBoardDesigner: false,
 };
+const otherAdmin: DirectMessageActor = {
+  actorId: OTHER_ADMIN_ID,
+  sessionRole: 'admin',
+  phone: '01099990000',
+  staffType: 'admin',
+  fcId: null,
+  isRequestBoardDesigner: false,
+};
 const manager: DirectMessageActor = {
   actorId: MANAGER_ID,
   sessionRole: 'manager',
@@ -55,6 +64,11 @@ const sharedAdminCounterparty = {
   role: 'admin' as const,
   actorId: null,
   phone: null,
+};
+const personalAdminCounterparty = {
+  role: 'admin' as const,
+  actorId: ADMIN_ID,
+  phone: admin.phone,
 };
 const developerCounterparty = {
   role: 'developer' as const,
@@ -80,6 +94,14 @@ Deno.test('conversation membership is bound to the selected staff target', () =>
     fcActorId: FC_ID,
     counterparty: sharedAdminCounterparty,
   }));
+  assert(canAccessDirectConversation(admin, {
+    fcActorId: FC_ID,
+    counterparty: personalAdminCounterparty,
+  }));
+  assertFalse(canAccessDirectConversation(otherAdmin, {
+    fcActorId: FC_ID,
+    counterparty: personalAdminCounterparty,
+  }));
   assertFalse(canAccessDirectConversation(admin, {
     fcActorId: FC_ID,
     counterparty: developerCounterparty,
@@ -99,6 +121,28 @@ Deno.test('conversation membership is bound to the selected staff target', () =>
 });
 
 Deno.test('new message identities are server-derived and actor-bound', () => {
+  assertEquals(buildDirectMessageIdentity({
+    actor: fc,
+    fcActorId: FC_ID,
+    fcPhone: fc.phone,
+    counterparty: personalAdminCounterparty,
+  }), {
+    senderId: fc.phone,
+    receiverId: admin.phone,
+    senderActorId: FC_ID,
+    receiverActorId: ADMIN_ID,
+  });
+  assertEquals(buildDirectMessageIdentity({
+    actor: admin,
+    fcActorId: FC_ID,
+    fcPhone: fc.phone,
+    counterparty: personalAdminCounterparty,
+  }), {
+    senderId: admin.phone,
+    receiverId: fc.phone,
+    senderActorId: ADMIN_ID,
+    receiverActorId: FC_ID,
+  });
   assertEquals(buildDirectMessageIdentity({
     actor: fc,
     fcActorId: FC_ID,
@@ -135,6 +179,28 @@ Deno.test('new message identities are server-derived and actor-bound', () => {
 });
 
 Deno.test('current rows require the stable sender/receiver pair and immutable FC binding', () => {
+  assert(isCurrentDirectMessageVisible({
+    fcActorId: FC_ID,
+    fcPhone: fc.phone,
+    counterparty: personalAdminCounterparty,
+    row: {
+      sender_id: admin.phone,
+      receiver_id: fc.phone,
+      sender_actor_id: ADMIN_ID,
+      receiver_actor_id: FC_ID,
+    },
+  }));
+  assertFalse(isCurrentDirectMessageVisible({
+    fcActorId: FC_ID,
+    fcPhone: fc.phone,
+    counterparty: personalAdminCounterparty,
+    row: {
+      sender_id: otherAdmin.phone,
+      receiver_id: fc.phone,
+      sender_actor_id: OTHER_ADMIN_ID,
+      receiver_actor_id: FC_ID,
+    },
+  }));
   assert(isCurrentDirectMessageVisible({
     fcActorId: FC_ID,
     fcPhone: fc.phone,

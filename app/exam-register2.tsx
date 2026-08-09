@@ -14,6 +14,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -33,6 +34,7 @@ import {
   buildExamRoundNotificationPayload,
   getExamFlowConfig,
   getExamRoundCreateFormState,
+  getExamRoundDatePayload,
   getExamRoundEditFormState,
   sortExamRoundsNewestFirst,
   type ExamNotifyPayload,
@@ -48,6 +50,7 @@ import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
 const ORANGE = '#f36f21';
+const ORANGE_LIGHT = '#f7b182';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#E5E7EB';
@@ -75,6 +78,10 @@ const toYmd = (d: Date | null) =>
     d.getDate(),
   ).padStart(2, '0')}` : null;
 
+const toExamMonthStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
+
+const formatKoreanMonth = (d: Date) => `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
+
 const emptyRoundForm = {
   roundLabel: '',
   notes: '',
@@ -86,7 +93,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
   const { data, error } = await supabase
     .from('exam_rounds')
     .select(
-      'id,exam_date,registration_deadline,round_label,notes,created_at,updated_at,exam_locations(id,round_id,location_name,sort_order,created_at,updated_at)',
+      'id,exam_month,exam_date,registration_deadline,round_label,notes,created_at,updated_at,exam_locations(id,round_id,location_name,sort_order,created_at,updated_at)',
     )
     .eq('exam_type', examFlowConfig.examType)
     .order('exam_date', { ascending: true })
@@ -97,6 +104,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
   return (
     data?.map((row: any) => ({
       id: row.id,
+      exam_month: row.exam_month,
       exam_date: row.exam_date,
       registration_deadline: row.registration_deadline,
       round_label: row.round_label,
@@ -175,7 +183,9 @@ export default function ExamRegisterScreen() {
   };
 
   const [roundForm, setRoundForm] = useState<RoundForm>(emptyRoundForm);
-  const [examDate, setExamDate] = useState(new Date());
+  const [examDate, setExamDate] = useState<Date | null>(new Date());
+  const [examMonth, setExamMonth] = useState<Date | null>(() => toExamMonthStart(new Date()));
+  const [isExamDateTbd, setIsExamDateTbd] = useState(false);
   const [deadlineDate, setDeadlineDate] = useState(new Date());
   const [showExamPicker, setShowExamPicker] = useState(Platform.OS === 'ios');
   const [showDeadlinePicker, setShowDeadlinePicker] = useState(Platform.OS === 'ios');
@@ -363,15 +373,53 @@ export default function ExamRegisterScreen() {
     return () => clearTimeout(timer);
   }, [pendingFormScroll, scrollToForm, showForm]);
 
+  const handleExamDateTbdChange = (nextIsTbd: boolean) => {
+    setIsExamDateTbd(nextIsTbd);
+    if (nextIsTbd) {
+      setExamMonth((currentMonth) =>
+        examDate ? toExamMonthStart(examDate) : currentMonth,
+      );
+      setExamDate(null);
+      setShowExamPicker(Platform.OS === 'ios' || Platform.OS === 'web');
+      return;
+    }
+
+    // A month snapshot is not an exact exam date. The operator must choose
+    // the actual day before an existing TBD round can be finalized.
+    setExamDate(null);
+    setShowExamPicker(false);
+  };
+
+  const handleExamPickerChange = (event: { type?: string }, date?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowExamPicker(false);
+      if (event.type !== 'set') return;
+    }
+    if (!date) return;
+
+    if (isExamDateTbd) {
+      setExamMonth(toExamMonthStart(date));
+      return;
+    }
+
+    setExamDate(date);
+    setExamMonth(toExamMonthStart(date));
+  };
+
   const saveRound = useMutation({
     mutationFn: async (mode: 'create' | 'update') => {
       assertCanEdit();
       if (!roundForm.roundLabel.trim()) {
         throw new Error('시험 차수명을 입력해주세요.');
       }
+      const datePayload = getExamRoundDatePayload({
+        examDate,
+        examMonth,
+        isExamDateTbd,
+      });
       const payload = {
         exam_type: examFlowConfig.examType,
-        exam_date: toYmd(examDate),
+        ...datePayload,
         registration_deadline: toYmd(deadlineDate),
         round_label: roundForm.roundLabel.trim(),
         notes: roundForm.notes.trim() || null,
@@ -530,6 +578,8 @@ export default function ExamRegisterScreen() {
     setSelectedRoundId(createState.selectedRoundId);
     setRoundForm(createState.roundForm);
     setExamDate(createState.examDate);
+    setExamMonth(createState.examMonth);
+    setIsExamDateTbd(createState.isExamDateTbd);
     setDeadlineDate(createState.deadlineDate);
     setShowExamPicker(Platform.OS === 'ios');
     setShowDeadlinePicker(Platform.OS === 'ios');
@@ -547,8 +597,13 @@ export default function ExamRegisterScreen() {
     setSelectedRoundId(editState.selectedRoundId);
     setRoundForm(editState.roundForm);
     setExamDate(editState.examDate);
+    setExamMonth(editState.examMonth);
+    setIsExamDateTbd(editState.isExamDateTbd);
     setDeadlineDate(editState.deadlineDate);
-    setShowExamPicker(Platform.OS === 'ios');
+    setShowExamPicker(
+      Platform.OS === 'ios'
+      && Boolean(editState.isExamDateTbd ? editState.examMonth : editState.examDate),
+    );
     setShowDeadlinePicker(Platform.OS === 'ios');
     setLocationInput(editState.locationInput);
     setLocationOrder(editState.locationOrder);
@@ -716,31 +771,51 @@ export default function ExamRegisterScreen() {
 
                 <View style={styles.divider} />
 
-                <Text style={styles.label}>시험 일자</Text>
-                {Platform.OS === 'ios' || Platform.OS === 'web' ? (
+                <View style={styles.tbdToggleRow}>
+                  <View style={styles.tbdToggleCopy}>
+                    <Text style={styles.tbdToggleLabel}>시험일 미정</Text>
+                    <Text style={styles.tbdToggleDescription}>
+                      정확한 날짜가 정해지지 않은 경우 시험 월만 지정합니다.
+                    </Text>
+                  </View>
+                  <Switch
+                    value={isExamDateTbd}
+                    onValueChange={handleExamDateTbdChange}
+                    disabled={!canEdit}
+                    trackColor={{ false: '#D1D5DB', true: ORANGE_LIGHT }}
+                    thumbColor={isExamDateTbd ? ORANGE : '#F9FAFB'}
+                    accessibilityLabel="시험일 미정"
+                  />
+                </View>
+
+                <Text style={styles.label}>{isExamDateTbd ? '시험 월' : '시험 일자'}</Text>
+                {(Platform.OS === 'ios' || Platform.OS === 'web')
+                  && ((isExamDateTbd ? examMonth : examDate) || showExamPicker) ? (
                   <DateTimePicker
-                    value={examDate}
+                    value={(isExamDateTbd ? examMonth : examDate) ?? new Date()}
                     mode="date"
-                    onChange={(_, date) => date && setExamDate(date)}
+                    onChange={handleExamPickerChange}
                   />
                 ) : (
                   <Pressable
                     onPress={() => setShowExamPicker(true)}
                     style={styles.dateBox}
+                    disabled={!canEdit}
                   >
                     <Feather name="calendar" size={15} color={CHARCOAL} />
-                    <Text style={styles.dateText}>{formatKoreanDate(examDate)}</Text>
+                    <Text style={styles.dateText}>
+                      {isExamDateTbd
+                        ? (examMonth ? formatKoreanMonth(examMonth) : '시험 월 선택')
+                        : (examDate ? formatKoreanDate(examDate) : '정확한 시험일 선택')}
+                    </Text>
                   </Pressable>
                 )}
                 {showExamPicker && Platform.OS === 'android' && (
                   <DateTimePicker
-                    value={examDate}
+                    value={(isExamDateTbd ? examMonth : examDate) ?? new Date()}
                     mode="date"
                     display="default"
-                    onChange={(event, date) => {
-                      setShowExamPicker(false);
-                      if (event.type === 'set' && date) setExamDate(date);
-                    }}
+                    onChange={handleExamPickerChange}
                   />
                 )}
 
@@ -1189,6 +1264,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: CHARCOAL,
     fontSize: 15,
+  },
+  tbdToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 8,
+    backgroundColor: INPUT_BG,
+  },
+  tbdToggleCopy: {
+    flex: 1,
+  },
+  tbdToggleLabel: {
+    color: CHARCOAL,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  tbdToggleDescription: {
+    marginTop: 2,
+    color: MUTED,
+    fontSize: 12,
+    lineHeight: 17,
   },
   row: {
     flexDirection: 'row',

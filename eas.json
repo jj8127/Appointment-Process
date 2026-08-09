@@ -25,6 +25,7 @@
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
       "env": {
         "EXPO_PUBLIC_SENTRY_DSN": "https://29fc6e2ee7eb99961a604802ba381af7@o4511426401861632.ingest.de.sentry.io/4511426412740688",
         "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production",
@@ -34,6 +35,10 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6756690846"
+      }
+    }
   }
 }

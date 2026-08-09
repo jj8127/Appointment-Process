@@ -329,6 +329,26 @@ function isValidYmd(value: string): boolean {
   return !Number.isNaN(parsed.getTime());
 }
 
+function isCanonicalYmd(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+function isCanonicalMonthStart(value: string): boolean {
+  return /^\d{4}-\d{2}-01$/.test(value) && isCanonicalYmd(value);
+}
+
+function examMonthFromDate(value: string): string {
+  return `${value.slice(0, 7)}-01`;
+}
+
 function getKstYmd(reference = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Seoul',
@@ -1141,6 +1161,7 @@ serve(async (req: Request) => {
         data: {
           exam_type: 'life' | 'nonlife';
           exam_date: string | null;
+          exam_month?: string | null;
           registration_deadline: string;
           round_label?: string | null;
           notes?: string | null;
@@ -1149,6 +1170,49 @@ serve(async (req: Request) => {
       };
       if (!data?.exam_type || !data?.registration_deadline) {
         return fail('exam_type and registration_deadline are required');
+      }
+      if (!['life', 'nonlife'].includes(data.exam_type)) {
+        return fail('invalid exam type');
+      }
+
+      const examDate = trimOrNull(data.exam_date);
+      const registrationDeadline = trimOrNull(data.registration_deadline);
+      const hasExplicitExamMonth = Object.prototype.hasOwnProperty.call(data, 'exam_month');
+      const explicitExamMonth = trimOrNull(data.exam_month);
+
+      if (examDate && !isCanonicalYmd(examDate)) {
+        return fail('invalid exam date');
+      }
+      if (!registrationDeadline || !isCanonicalYmd(registrationDeadline)) {
+        return fail('invalid registration deadline');
+      }
+      if (hasExplicitExamMonth && (!explicitExamMonth || !isCanonicalMonthStart(explicitExamMonth))) {
+        return fail('invalid exam month');
+      }
+
+      let examMonth: string;
+      if (explicitExamMonth) {
+        examMonth = explicitExamMonth;
+      } else if (examDate) {
+        if (roundId) {
+          const { data: existingRound, error: existingRoundError } = await supabase
+            .from('exam_rounds')
+            .select('exam_date,exam_month')
+            .eq('id', roundId)
+            .maybeSingle();
+          if (existingRoundError) throw existingRoundError;
+          if (!existingRound) return fail('exam round not found', 404);
+          if (existingRound.exam_date === null) {
+            return fail('exam_month_required_for_tbd_round', 409);
+          }
+        }
+        examMonth = examMonthFromDate(examDate);
+      } else {
+        return fail('exam_month_required_for_tbd_round');
+      }
+
+      if (examDate && examMonth !== examMonthFromDate(examDate)) {
+        return fail('exam date and month mismatch');
       }
 
       const safeLocations = (locations ?? [])
@@ -1163,11 +1227,12 @@ serve(async (req: Request) => {
         );
 
       const { data: targetRoundId, error: saveError } = await supabase.rpc(
-        'save_exam_round_atomic',
+        'save_exam_round_atomic_v2',
         {
           p_round_id: roundId ?? null,
-          p_exam_date: data.exam_date ?? null,
-          p_registration_deadline: data.registration_deadline,
+          p_exam_date: examDate,
+          p_exam_month: examMonth,
+          p_registration_deadline: registrationDeadline,
           p_round_label: data.round_label ?? null,
           p_exam_type: data.exam_type,
           p_notes: data.notes ?? null,

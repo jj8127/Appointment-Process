@@ -2,6 +2,16 @@
   "version": 1,
   "rules": [
     {
+      "id": "instruction-surfaces",
+      "severity": "internal",
+      "prefixes": [
+        "supabase/functions/AGENTS.md"
+      ],
+      "requires_any": [
+        "docs/handbook/path-owner-map.json"
+      ]
+    },
+    {
       "id": "mobile-auth-gates",
       "severity": "contract",
       "prefixes": [
@@ -49,10 +59,11 @@
         "app/exam-register2.tsx",
         "app/exam-manage.tsx",
         "app/exam-manage2.tsx",
-        "components/ExamPaymentProofField.tsx",
+        "components/ExamPaymentProof",
         "lib/exam-application-validation.ts",
         "lib/exam-payment-proof",
         "lib/exam-flow-contract.ts",
+        "lib/exam-apply-history-guard.ts",
         "web/src/app/dashboard/exam/",
         "web/src/app/admin/exams/",
         "web/src/app/api/admin/exam-applicants/route.ts",
@@ -105,6 +116,8 @@
       "prefixes": [
         "app/messenger.tsx",
         "app/chat.tsx",
+        "app/group-chat.tsx",
+        "app/request-board-messenger.tsx",
         "app/notifications.tsx",
         "app/board.tsx",
         "app/board-detail.tsx",
@@ -114,6 +127,11 @@
         "app/admin-board-manage.tsx",
         "app/admin-notice.tsx",
         "app/admin-messenger.tsx",
+        "lib/chat-keyboard-layout.ts",
+        "lib/messenger-latency-trace.ts",
+        "lib/__tests__/messenger-latency-trace.test.ts",
+        "lib/__tests__/messenger-v2-hub-source.test.ts",
+        "lib/__tests__/request-board-room-preferences-compatibility.test.ts",
         "lib/messenger-participants.ts",
         "lib/notice-route.ts"
       ],
@@ -139,6 +157,7 @@
         "components/referral-revenue-graph/",
         "data/referral-revenue-demo.ts",
         "lib/referral-revenue-demo.ts",
+        "lib/referral-revenue-tree-layout.ts",
         "types/referral-revenue-graph.ts"
       ],
       "requires_any": [
@@ -231,6 +250,8 @@
         "scripts/ci/edge-diagnostic-console-baseline.json",
         "lib/__tests__/diagnostic-console-governance.test.ts",
         "lib/__tests__/diagnostic-privacy-source.test.ts",
+        "lib/logger.ts",
+        "lib/__tests__/logger.test.ts",
         "supabase/functions/set-password/index.ts",
         "supabase/functions/fc-notify/index.ts",
         "supabase/functions/user-presence/index.ts",
@@ -296,6 +317,14 @@
         "supabase/functions/_shared/__tests__/expo-push-delivery.test.ts",
         "supabase/functions/_shared/direct-message-policy.ts",
         "supabase/functions/_shared/__tests__/direct-message-policy_test.ts",
+        "supabase/functions/_shared/direct-message-search.ts",
+        "supabase/functions/_shared/group-chat-search.ts",
+        "supabase/functions/_shared/messenger-group-search.ts",
+        "supabase/functions/_shared/general-push-preference-policy.ts",
+        "supabase/functions/_shared/__tests__/general-push-preference-policy_test.ts",
+        "supabase/functions/_shared/notification-preferences.ts",
+        "supabase/functions/_shared/__tests__/notification-preferences_test.ts",
+        "supabase/functions/_shared/__tests__/messenger-group-search_test.ts",
         "supabase/functions/_shared/messenger-attachment-auth.ts",
         "supabase/functions/_shared/__tests__/messenger-attachment-auth_test.ts",
         "supabase/functions/_shared/messenger-attachment-policy.ts",
@@ -314,7 +343,13 @@
         "supabase/functions/device-token-register/",
         "supabase/functions/fc-notify/",
         "supabase/functions/messenger-attachments/",
+        "supabase/functions/notification-preferences/",
         "supabase/functions/__tests__/fc-notify-",
+        "supabase/functions/__tests__/messenger-direct-",
+        "supabase/functions/__tests__/messenger-group-",
+        "supabase/functions/__tests__/messenger-summary-performance.contract.test.ts",
+        "supabase/functions/__tests__/notification-delivery-attempt-audit.contract.test.ts",
+        "supabase/functions/__tests__/notification-preferences-source.contract.test.ts",
         "supabase/functions/__tests__/notification-persist-before-push.contract.test.ts",
         "web/src/app/api/admin/push/route.ts",
         "web/src/app/api/web-push/subscribe/route.ts",

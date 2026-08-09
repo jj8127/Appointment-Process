@@ -8,6 +8,11 @@ const roundApplicantSource = readFileSync('web/src/app/admin/exams/[id]/page.tsx
 const apiSource = readFileSync('web/src/app/api/admin/exam-applicants/route.ts', 'utf8');
 const cssSource = readFileSync('web/src/app/dashboard/exam/applicants/page.module.css', 'utf8');
 const detailCssSource = readFileSync('web/src/app/dashboard/exam/applicants/[id]/page.module.css', 'utf8');
+const relationMigration = readFileSync(
+  'supabase/migrations/20260807053153_remove_legacy_exam_registration_round_fk.sql',
+  'utf8',
+);
+const schemaSource = readFileSync('supabase/schema.sql', 'utf8');
 
 test('applicant rows expose hover identity and keyboard-accessible detail navigation', () => {
   assert.match(listSource, /<Tooltip\.Floating/);
@@ -88,6 +93,30 @@ test('admin API validates the requested registration and keeps history for appli
   assert.match(apiSource, /\.eq\('id', registrationId\)[\s\S]+\.maybeSingle\(\)/);
   assert.match(apiSource, /\.eq\('resident_id', selectedRow\.resident_id\)/);
   assert.match(apiSource, /allBase\.filter\(\(row\) => row\.id === registrationId\)/);
+});
+
+test('applicant API explicitly selects the type-aware round relationship', () => {
+  assert.match(apiSource, /exam_rounds!exam_registrations_round_exam_type_fkey\s*\(\s*round_label, exam_date, exam_type\s*\)/);
+  assert.doesNotMatch(apiSource, /exam_registrations_round_id_fkey/);
+  assert.doesNotMatch(apiSource, /\n\s*exam_rounds\s*\(\s*round_label, exam_date, exam_type\s*\)/);
+});
+
+test('legacy round relation removal is guarded by the type-aware relation and data parity', () => {
+  assert.match(relationMigration, /conname = 'exam_registrations_round_exam_type_fkey'/);
+  assert.match(
+    relationMigration,
+    /exam_round\.id = registration\.round_id\s+and exam_round\.exam_type = registration\.exam_type/,
+  );
+  assert.match(
+    relationMigration,
+    /drop constraint if exists exam_registrations_round_id_fkey/,
+  );
+  assert.match(relationMigration, /notify pgrst, 'reload schema'/);
+  assert.doesNotMatch(schemaSource, /exam_registrations_round_id_fkey/);
+  assert.match(
+    schemaSource,
+    /foreign key \(round_id, exam_type\)\s+references public\.exam_rounds \(id, exam_type\)/,
+  );
 });
 
 test('every web reception decision uses the atomic service transition without duplicate client notifications', () => {

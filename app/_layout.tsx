@@ -695,6 +695,7 @@ function RootLayout() {
                             name="messenger"
                             options={{
                               ...baseHeader,
+                              headerShown: false,
                               title: '메신저',
                               headerLeft: () => (
                                 <Pressable
@@ -708,7 +709,11 @@ function RootLayout() {
                           />
                           <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
+                          <Stack.Screen name="messenger-search" options={{ headerShown: false }} />
+                          <Stack.Screen name="new-conversation" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
+                          <Stack.Screen name="notification-settings" options={{ headerShown: false }} />
+                          <Stack.Screen name="muted-conversations" options={{ headerShown: false }} />
 
                           <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
                           <Stack.Screen name="appointment" options={{ ...baseHeader, title: '생명/손해 위촉' }} />
@@ -822,6 +827,7 @@ function RootLayout() {
                             name="messenger"
                             options={{
                               ...baseHeader,
+                              headerShown: false,
                               title: '메신저',
                               headerLeft: () => (
                                 <Pressable
@@ -835,7 +841,11 @@ function RootLayout() {
                           />
                           <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
+                          <Stack.Screen name="messenger-search" options={{ headerShown: false }} />
+                          <Stack.Screen name="new-conversation" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
+                          <Stack.Screen name="notification-settings" options={{ headerShown: false }} />
+                          <Stack.Screen name="muted-conversations" options={{ headerShown: false }} />
 
                           <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
                       <Stack.Screen name="appointment" options={{ ...baseHeader, title: '생명/손해 위촉' }} />

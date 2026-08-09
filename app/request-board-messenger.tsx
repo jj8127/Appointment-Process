@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -22,6 +22,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
+import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
+
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
@@ -30,6 +33,7 @@ import {
   MessageSelectCopySheet,
   MessengerMessageActionSheet,
 } from '@/components/MessengerMessageActionSheet';
+import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
@@ -45,6 +49,11 @@ import {
 import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
 import { confirmMessengerDelete } from '@/lib/messenger-delete-actions';
 import {
+  buildMessengerNotificationPreferenceFailure,
+  buildMessengerNotificationPreferenceLoadFailure,
+  type MessengerNotificationPreferenceFailure,
+} from '@/lib/messenger-notification-preferences';
+import {
   downloadRemoteFileToUserStorage,
   sanitizeNativeFileName,
   type DownloadRemoteFileToUserStorageResult,
@@ -52,6 +61,7 @@ import {
 import { getDirectMessageUnreadCount } from '@/lib/message-read-receipts';
 import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
 import {
+  REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE,
   type RbAttachmentMeta,
   type RbDesigner,
   type RbDirectMessageUser,
@@ -64,14 +74,18 @@ import {
   rbDeleteDmMessage,
   rbDeleteMessage,
   rbGetConversations,
+  rbGetDirectMessageContext,
   rbGetDirectMessageUsers,
   rbGetDesigners,
   rbGetDmConversations,
   rbGetDmMessages,
   rbGetMessages,
+  rbGetMessengerRoomPreferences,
+  rbGetMessageContext,
   rbGetPresence,
   rbSendDmMessage,
   rbSendMessage,
+  rbSetMessengerRoomMuted,
   rbUploadAttachments,
 } from '@/lib/request-board-api';
 import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
@@ -132,6 +146,26 @@ type UnifiedMessage = {
   deleted: boolean;
   attachments: MessageAttachment[];
 };
+
+type AnchorScrollState = {
+  messageId: number;
+  index: number;
+  attempts: number;
+};
+
+type AnchorContextGaps = {
+  hasBefore: boolean;
+  hasAfter: boolean;
+};
+
+type MessageLoadOptions = {
+  roomGeneration?: number;
+  includeAnchorContext?: boolean;
+  resetLoadedConversation?: boolean;
+};
+
+const ANCHOR_HIGHLIGHT_DURATION_MS = 3000;
+const ANCHOR_CONTEXT_REVALIDATE_MS = 60_000;
 
 const getUnifiedMessageCopyText = (message: UnifiedMessage | null | undefined): string => {
   if (!message) return '';
@@ -215,6 +249,22 @@ const formatFileSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+};
+
+const getConversationRoomKey = (conversation: UnifiedConversation): string =>
+  `${conversation.type}:${conversation.id}`;
+
+const getAnchorContextGapMessage = (gaps: AnchorContextGaps | null): string => {
+  if (gaps?.hasBefore && gaps.hasAfter) {
+    return '검색한 메시지 앞뒤의 일부 대화가 생략되어 있습니다.';
+  }
+  if (gaps?.hasBefore) {
+    return '검색한 메시지보다 이전의 일부 대화가 생략되어 있습니다.';
+  }
+  if (gaps?.hasAfter) {
+    return '검색한 메시지와 최신 대화 사이의 일부 메시지가 생략되어 있습니다.';
+  }
+  return '검색한 메시지 위치를 보고 있습니다.';
 };
 
 const normalizeAttachmentFileName = (value: string): string => {
@@ -317,15 +367,23 @@ export default function RequestBoardMessengerScreen() {
   const {
     requestDesignerId,
     directConversationId,
+    anchorMessageId,
     notificationId,
     notificationTarget,
   } = useLocalSearchParams<{
     requestDesignerId?: string;
     directConversationId?: string;
+    anchorMessageId?: string | string[];
     notificationId?: string;
     notificationTarget?: string;
   }>();
   const insets = useSafeAreaInsets();
+  const keyboardVisible = useKeyboardVisible();
+  const composerBottomPadding = getChatComposerBottomPadding({
+    keyboardVisible,
+    platform: Platform.OS,
+    safeAreaBottom: insets.bottom,
+  });
   const { residentId, ensureRequestBoardSession, requestBoardSyncError } = useSession();
 
   // Auth
@@ -350,6 +408,19 @@ export default function RequestBoardMessengerScreen() {
   const [selectCopyMessage, setSelectCopyMessage] = useState<UnifiedMessage | null>(null);
   const [msgLoading, setMsgLoading] = useState(false);
   const [msgError, setMsgError] = useState('');
+  const [anchorContextError, setAnchorContextError] = useState('');
+  const [anchorContextRetryKey, setAnchorContextRetryKey] = useState(0);
+  const [anchorContextGaps, setAnchorContextGaps] = useState<AnchorContextGaps | null>(null);
+  const [anchorModeExitedForRoute, setAnchorModeExitedForRoute] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
+  const [pendingAnchorMessageId, setPendingAnchorMessageId] = useState<number | null>(null);
+  const [conversationSettingsVisible, setConversationSettingsVisible] = useState(false);
+  const [roomMuted, setRoomMuted] = useState(false);
+  const [roomPreferenceLoading, setRoomPreferenceLoading] = useState(false);
+  const [roomPreferenceReady, setRoomPreferenceReady] = useState(false);
+  const [roomPreferencePending, setRoomPreferencePending] = useState(false);
+  const [roomPreferenceFailure, setRoomPreferenceFailure] =
+    useState<MessengerNotificationPreferenceFailure | null>(null);
   const [loadedConversationId, setLoadedConversationId] =
     useState<string | null>(null);
   const [inputText, setInputText] = useState('');
@@ -357,11 +428,32 @@ export default function RequestBoardMessengerScreen() {
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const flatListRef = useRef<FlatList<UnifiedMessage>>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const messagesRef = useRef<UnifiedMessage[]>([]);
+  const latestMessagesRef = useRef<UnifiedMessage[]>([]);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeConversationRoomKeyRef = useRef<string | null>(null);
+  const roomGenerationRef = useRef(0);
+  const messageLoadSequenceRef = useRef(0);
+  const roomPreferenceLoadSequenceRef = useRef(0);
+  const roomPreferenceSaveSequenceRef = useRef(0);
+  const activeRoomPreferenceKeyRef = useRef<string | null>(null);
+  const consumedRouteTargetRef = useRef<string | null>(null);
+  const anchorContextAttemptRef = useRef<string | null>(null);
+  const anchorContextLastAttemptAtRef = useRef(0);
+  const anchorContextValidatedKeyRef = useRef<string | null>(null);
+  const anchorContextMessagesRef = useRef<UnifiedMessage[]>([]);
+  const anchorContextSequenceRef = useRef(0);
+  const pendingAnchorScrollRef = useRef<AnchorScrollState | null>(null);
+  const anchorHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchorScrollRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchorScrollSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const parsedRequestDesignerId =
     parseExactlyOnePositiveIntegerRouteParam(requestDesignerId);
   const parsedDirectConversationId =
     parseExactlyOnePositiveIntegerRouteParam(directConversationId);
+  const parsedAnchorMessageId =
+    parseExactlyOnePositiveIntegerRouteParam(anchorMessageId);
+  const hasAnchorMessageParam = hasPresentRouteParam(anchorMessageId);
   const hasValidRequestDesignerId = parsedRequestDesignerId !== null;
   const hasValidDirectConversationId = parsedDirectConversationId !== null;
   const hasAmbiguousConversationTarget =
@@ -381,6 +473,15 @@ export default function RequestBoardMessengerScreen() {
       : hasValidDirectConversationId
         ? `dm-${parsedDirectConversationId}`
         : null;
+  const anchorRouteIdentity = [
+    notificationConversationId ?? 'none',
+    hasAnchorMessageParam ? parsedAnchorMessageId ?? 'invalid' : 'absent',
+  ].join(':');
+  const routeTargetIdentity = notificationConversationId
+    ? `${anchorRouteIdentity}:${String(notificationId ?? 'none')}`
+    : null;
+  const isAnchorModeActive = hasAnchorMessageParam
+    && anchorModeExitedForRoute !== anchorRouteIdentity;
   const expectedNotificationTarget = hasAmbiguousConversationTarget
     ? null
     : hasValidRequestDesignerId
@@ -396,6 +497,26 @@ export default function RequestBoardMessengerScreen() {
             directConversationId: parsedDirectConversationId,
           }
         : null;
+  const matchesRouteConversationTarget = useCallback((conversation: UnifiedConversation | null) => {
+    if (!conversation || hasAmbiguousConversationTarget) return false;
+    if (parsedRequestDesignerId !== null) {
+      return conversation.type === 'request'
+        && conversation.conversationIds.includes(parsedRequestDesignerId);
+    }
+    return parsedDirectConversationId !== null
+      && conversation.type === 'dm'
+      && conversation.primaryConversationId === parsedDirectConversationId;
+  }, [
+    hasAmbiguousConversationTarget,
+    parsedDirectConversationId,
+    parsedRequestDesignerId,
+  ]);
+  const activeConversationMatchesRouteTarget = matchesRouteConversationTarget(activeConv);
+  const anchorContextGapMessage = getAnchorContextGapMessage(anchorContextGaps);
+
+  const isCurrentRoomGeneration = useCallback((roomKey: string, generation: number) =>
+    activeConversationRoomKeyRef.current === roomKey
+    && roomGenerationRef.current === generation, []);
 
   const mergeMessagesDesc = useCallback((rows: UnifiedMessage[]) => {
     const byId = new Map<number, UnifiedMessage>();
@@ -404,9 +525,10 @@ export default function RequestBoardMessengerScreen() {
         byId.set(row.id, row);
       }
     });
-    return Array.from(byId.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
+    return Array.from(byId.values()).sort((a, b) => {
+      const timestampDifference = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return timestampDifference || b.id - a.id;
+    });
   }, []);
 
   const mapRawMessageToUnified = useCallback((message: RbMessage | RbDmMessage): UnifiedMessage => {
@@ -435,6 +557,174 @@ export default function RequestBoardMessengerScreen() {
       attachments,
     };
   }, [rbUser?.id]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    anchorContextAttemptRef.current = null;
+    anchorContextLastAttemptAtRef.current = 0;
+    anchorContextValidatedKeyRef.current = null;
+    anchorContextSequenceRef.current += 1;
+    pendingAnchorScrollRef.current = null;
+    anchorContextMessagesRef.current = [];
+    setAnchorContextGaps(null);
+    setAnchorModeExitedForRoute(null);
+    setPendingAnchorMessageId(null);
+    setHighlightedMessageId(null);
+    if (anchorHighlightTimerRef.current) clearTimeout(anchorHighlightTimerRef.current);
+    if (anchorScrollRetryTimerRef.current) clearTimeout(anchorScrollRetryTimerRef.current);
+    if (anchorScrollSettleTimerRef.current) clearTimeout(anchorScrollSettleTimerRef.current);
+  }, [anchorRouteIdentity]);
+
+  useEffect(() => {
+    if (!isAnchorModeActive) {
+      setAnchorContextError('');
+      return;
+    }
+    if (
+      parsedAnchorMessageId === null
+      || hasAmbiguousConversationTarget
+      || !notificationConversationId
+    ) {
+      setAnchorContextError(REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE);
+      return;
+    }
+    setAnchorContextError('');
+  }, [
+    hasAmbiguousConversationTarget,
+    hasAnchorMessageParam,
+    isAnchorModeActive,
+    notificationConversationId,
+    parsedAnchorMessageId,
+  ]);
+
+  useEffect(() => () => {
+    roomGenerationRef.current += 1;
+    messageLoadSequenceRef.current += 1;
+    roomPreferenceLoadSequenceRef.current += 1;
+    roomPreferenceSaveSequenceRef.current += 1;
+    anchorContextSequenceRef.current += 1;
+    if (anchorHighlightTimerRef.current) clearTimeout(anchorHighlightTimerRef.current);
+    if (anchorScrollRetryTimerRef.current) clearTimeout(anchorScrollRetryTimerRef.current);
+    if (anchorScrollSettleTimerRef.current) clearTimeout(anchorScrollSettleTimerRef.current);
+  }, []);
+
+  const focusAnchorMessage = useCallback((messageId: number) => {
+    setAnchorContextError('');
+    setHighlightedMessageId(messageId);
+    setPendingAnchorMessageId(messageId);
+    if (anchorHighlightTimerRef.current) clearTimeout(anchorHighlightTimerRef.current);
+    anchorHighlightTimerRef.current = setTimeout(() => {
+      setHighlightedMessageId((current) => current === messageId ? null : current);
+    }, ANCHOR_HIGHLIGHT_DURATION_MS);
+  }, []);
+
+  const focusAnchorFromLoadedMessages = useCallback((messageId: number): boolean => {
+    if (!latestMessagesRef.current.some((message) => message.id === messageId)) {
+      return false;
+    }
+    anchorContextMessagesRef.current = [];
+    anchorContextValidatedKeyRef.current = null;
+    setAnchorContextGaps(null);
+    setMessages(latestMessagesRef.current);
+    focusAnchorMessage(messageId);
+    return true;
+  }, [focusAnchorMessage]);
+
+  const handleReturnToLatestMessage = useCallback(() => {
+    anchorContextSequenceRef.current += 1;
+    messageLoadSequenceRef.current += 1;
+    anchorContextAttemptRef.current = null;
+    anchorContextLastAttemptAtRef.current = 0;
+    anchorContextValidatedKeyRef.current = null;
+    anchorContextMessagesRef.current = [];
+    pendingAnchorScrollRef.current = null;
+    setAnchorModeExitedForRoute(anchorRouteIdentity);
+    setAnchorContextError('');
+    setAnchorContextGaps(null);
+    setMessages(latestMessagesRef.current);
+    setPendingAnchorMessageId(null);
+    setHighlightedMessageId(null);
+    if (anchorHighlightTimerRef.current) clearTimeout(anchorHighlightTimerRef.current);
+    if (anchorScrollRetryTimerRef.current) clearTimeout(anchorScrollRetryTimerRef.current);
+    if (anchorScrollSettleTimerRef.current) clearTimeout(anchorScrollSettleTimerRef.current);
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [anchorRouteIdentity]);
+
+  const handleAnchorScrollToIndexFailed = useCallback((info: {
+    index: number;
+    highestMeasuredFrameIndex: number;
+    averageItemLength: number;
+  }) => {
+    const pending = pendingAnchorScrollRef.current;
+    if (!pending || pending.index !== info.index) return;
+    if (anchorScrollSettleTimerRef.current) clearTimeout(anchorScrollSettleTimerRef.current);
+
+    if (pending.attempts >= 2) {
+      pendingAnchorScrollRef.current = null;
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      setAnchorContextError(REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE);
+      return;
+    }
+
+    pending.attempts += 1;
+    flatListRef.current?.scrollToOffset({
+      offset: Math.max(0, info.averageItemLength * info.index),
+      animated: false,
+    });
+    if (anchorScrollRetryTimerRef.current) clearTimeout(anchorScrollRetryTimerRef.current);
+    anchorScrollRetryTimerRef.current = setTimeout(() => {
+      const latest = pendingAnchorScrollRef.current;
+      if (!latest || latest.messageId !== pending.messageId) return;
+      flatListRef.current?.scrollToIndex({
+        index: latest.index,
+        animated: true,
+        viewPosition: 0.5,
+      });
+      anchorScrollSettleTimerRef.current = setTimeout(() => {
+        if (pendingAnchorScrollRef.current?.messageId === latest.messageId) {
+          pendingAnchorScrollRef.current = null;
+        }
+      }, 1200);
+    }, 120);
+  }, []);
+
+  useEffect(() => {
+    if (pendingAnchorMessageId === null) return;
+    const index = messages.findIndex((message) => message.id === pendingAnchorMessageId);
+    if (index < 0) {
+      setPendingAnchorMessageId(null);
+      setAnchorContextError(REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE);
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      return;
+    }
+
+    pendingAnchorScrollRef.current = {
+      messageId: pendingAnchorMessageId,
+      index,
+      attempts: 0,
+    };
+    const timer = setTimeout(() => {
+      const list = flatListRef.current;
+      if (!list) {
+        pendingAnchorScrollRef.current = null;
+        setAnchorContextError(REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE);
+        setPendingAnchorMessageId(null);
+        return;
+      }
+      list.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+      setPendingAnchorMessageId(null);
+      if (anchorScrollSettleTimerRef.current) clearTimeout(anchorScrollSettleTimerRef.current);
+      anchorScrollSettleTimerRef.current = setTimeout(() => {
+        if (pendingAnchorScrollRef.current?.messageId === pendingAnchorMessageId) {
+          pendingAnchorScrollRef.current = null;
+        }
+      }, 1200);
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [messages, pendingAnchorMessageId]);
 
   /* ─── Auth Flow ─── */
   const ensureAuth = useCallback(async () => {
@@ -591,10 +881,12 @@ export default function RequestBoardMessengerScreen() {
 
       const nextDirectoryUsers: DirectoryItem[] = rbUser.role === 'fc'
         ? ((directoryPayload?.kind === 'designers' ? directoryPayload.users : []) as RbDesigner[])
-            .filter((designer) => designer.users)
+            .filter((designer): designer is RbDesigner & {
+              users: NonNullable<RbDesigner['users']> & { id: number };
+            } => Number.isSafeInteger(designer.users?.id) && Number(designer.users?.id) > 0)
             .map((designer) => {
-              const name = designer.users!.name;
-              const userId = designer.users!.id;
+              const name = designer.users.name;
+              const userId = designer.users.id;
               return {
                 id: `designer-${designer.id}`,
                 userId,
@@ -804,7 +1096,11 @@ export default function RequestBoardMessengerScreen() {
           .map(mapRawMessageToUnified),
       );
 
-      setMessages(mapped);
+      setMessages(
+        hasAnchorMessageParam && matchesRouteConversationTarget(conv)
+          ? mergeMessagesDesc([...mapped, ...anchorContextMessagesRef.current])
+          : mapped,
+      );
       setLoadedConversationId(conv.id);
     } catch (err) {
       logger.warn('[messenger] load messages failed', err);
@@ -812,7 +1108,13 @@ export default function RequestBoardMessengerScreen() {
     } finally {
       setMsgLoading(false);
     }
-  }, [mapRawMessageToUnified, mergeMessagesDesc, rbUser]);
+  }, [
+    hasAnchorMessageParam,
+    mapRawMessageToUnified,
+    matchesRouteConversationTarget,
+    mergeMessagesDesc,
+    rbUser,
+  ]);
 
   useEffect(() => {
     if (
@@ -823,9 +1125,7 @@ export default function RequestBoardMessengerScreen() {
       return;
     }
 
-    const targetConversation = conversations.find(
-      (conversation) => conversation.id === notificationConversationId,
-    );
+    const targetConversation = conversations.find(matchesRouteConversationTarget);
     if (!targetConversation) {
       setConvError('알림의 대상 대화를 열 수 없습니다.');
       return;
@@ -845,8 +1145,93 @@ export default function RequestBoardMessengerScreen() {
     convLoading,
     conversations,
     loadMessages,
+    matchesRouteConversationTarget,
     notificationConversationId,
   ]);
+
+  useEffect(() => {
+    if (
+      !rbUser
+      || parsedAnchorMessageId === null
+      || !notificationConversationId
+      || hasAmbiguousConversationTarget
+      || !activeConversationMatchesRouteTarget
+      || loadedConversationId !== activeConv?.id
+    ) {
+      return;
+    }
+
+    const isExpectedRoom = activeConv.type === 'request'
+      ? parsedRequestDesignerId !== null
+        && activeConv.conversationIds.includes(parsedRequestDesignerId)
+      : parsedDirectConversationId !== null
+        && activeConv.primaryConversationId === parsedDirectConversationId;
+    if (!isExpectedRoom) {
+      setAnchorContextError(REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE);
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      return;
+    }
+
+    const contextKey = `${anchorRouteIdentity}:${activeConv.type}`;
+    if (anchorContextAttemptRef.current === contextKey) return;
+    anchorContextAttemptRef.current = contextKey;
+    const sequence = ++anchorContextSequenceRef.current;
+
+    void (async () => {
+      try {
+        const result = activeConv.type === 'request'
+          ? await rbGetMessageContext(parsedRequestDesignerId!, parsedAnchorMessageId)
+          : await rbGetDirectMessageContext(parsedDirectConversationId!, parsedAnchorMessageId);
+        if (sequence !== anchorContextSequenceRef.current) return;
+        if (!result.success) {
+          if (focusAnchorFromLoadedMessages(parsedAnchorMessageId)) {
+            return;
+          }
+          anchorContextAttemptRef.current = null;
+          setAnchorContextError(REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE);
+          flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+          return;
+        }
+
+        const contextMessages: (RbMessage | RbDmMessage)[] = result.data.messages;
+        const mappedContext = contextMessages.map(mapRawMessageToUnified);
+        anchorContextMessagesRef.current = mappedContext;
+        setMessages((current) => mergeMessagesDesc([...mappedContext, ...current]));
+        focusAnchorMessage(parsedAnchorMessageId);
+      } catch (error) {
+        if (sequence !== anchorContextSequenceRef.current) return;
+        logger.warn('[messenger] message context failed', error);
+        if (focusAnchorFromLoadedMessages(parsedAnchorMessageId)) {
+          return;
+        }
+        anchorContextAttemptRef.current = null;
+        setAnchorContextError(REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE);
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }
+    })();
+  }, [
+    activeConv,
+    activeConversationMatchesRouteTarget,
+    anchorContextRetryKey,
+    anchorRouteIdentity,
+    focusAnchorFromLoadedMessages,
+    focusAnchorMessage,
+    hasAmbiguousConversationTarget,
+    loadedConversationId,
+    mapRawMessageToUnified,
+    mergeMessagesDesc,
+    notificationConversationId,
+    parsedAnchorMessageId,
+    parsedDirectConversationId,
+    parsedRequestDesignerId,
+    rbUser,
+  ]);
+
+  const retryAnchorContext = useCallback(() => {
+    anchorContextAttemptRef.current = null;
+    setAnchorContextError('');
+    setAnchorContextRetryKey((current) => current + 1);
+  }, []);
 
   const notificationReceipt = useNotificationReceiptCompletion({
     params: { notificationId, notificationTarget },
@@ -857,8 +1242,8 @@ export default function RequestBoardMessengerScreen() {
       || convError
       || msgError
         ? 'error'
-        : activeConv?.id === notificationConversationId
-          && loadedConversationId === notificationConversationId
+        : activeConversationMatchesRouteTarget
+          && loadedConversationId === activeConv?.id
           ? 'success'
           : 'loading',
   });
@@ -870,19 +1255,31 @@ export default function RequestBoardMessengerScreen() {
     loadMessages(conv);
   };
 
-  // Polling for new messages
-  useEffect(() => {
-    if (!activeConv) {
-      if (pollRef.current) clearInterval(pollRef.current);
-      return;
-    }
-    pollRef.current = setInterval(() => {
-      loadMessages(activeConv);
-    }, POLL_INTERVAL);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+  // GaramLink does not expose a mobile Realtime channel yet. Poll only while
+  // this route is focused, schedule the next read after the previous one has
+  // settled, and never stack slow legacy history requests on top of each other.
+  useFocusEffect(useCallback(() => {
+    if (!activeConv) return undefined;
+    let active = true;
+
+    const refreshAndSchedule = async (): Promise<void> => {
+      await loadMessages(activeConv);
+      if (!active) return;
+      pollRef.current = setTimeout(() => {
+        void refreshAndSchedule();
+      }, POLL_INTERVAL);
     };
-  }, [activeConv, loadMessages]);
+
+    pollRef.current = setTimeout(() => {
+      void refreshAndSchedule();
+    }, POLL_INTERVAL);
+
+    return () => {
+      active = false;
+      if (pollRef.current) clearTimeout(pollRef.current);
+      pollRef.current = null;
+    };
+  }, [activeConv, loadMessages]));
 
   /* ─── File Picking ─── */
   const handlePickImage = async () => {
@@ -1133,7 +1530,9 @@ export default function RequestBoardMessengerScreen() {
       setMessages([]);
       setPendingFiles([]);
       setPreviewImage(null);
-      loadConversations();
+      requestAnimationFrame(() => {
+        void loadConversations();
+      });
     } else {
       router.back();
     }
@@ -1241,6 +1640,84 @@ export default function RequestBoardMessengerScreen() {
     if (message) handleDeleteMessage(message);
   }, [actionMessage, handleDeleteMessage]);
 
+  const requestBoardRoomRef = useMemo(() => {
+    if (!activeConv) return null;
+    return activeConv.type === 'request'
+      ? { type: 'request' as const, requestDesignerId: activeConv.primaryConversationId }
+      : { type: 'direct' as const, conversationId: activeConv.primaryConversationId };
+  }, [activeConv]);
+  const requestBoardSheetRoom = useMemo(() => {
+    if (!requestBoardRoomRef) return null;
+    return requestBoardRoomRef.type === 'request'
+      ? {
+          version: 1 as const,
+          kind: 'request_chat' as const,
+          requestDesignerId: requestBoardRoomRef.requestDesignerId,
+        }
+      : {
+          version: 1 as const,
+          kind: 'request_direct_chat' as const,
+          directConversationId: requestBoardRoomRef.conversationId,
+        };
+  }, [requestBoardRoomRef]);
+
+  const loadRequestBoardRoomPreference = useCallback(async () => {
+    if (!activeConv || !requestBoardRoomRef) return;
+    const sequence = ++roomPreferenceLoadSequenceRef.current;
+    setRoomPreferenceLoading(true);
+    setRoomPreferenceReady(false);
+    const [roomResult] = await Promise.allSettled([
+      rbGetMessengerRoomPreferences(),
+    ]);
+    if (sequence !== roomPreferenceLoadSequenceRef.current) return;
+    if (
+      roomResult.status !== 'fulfilled'
+      || !roomResult.value.success
+    ) {
+      setRoomPreferenceFailure(buildMessengerNotificationPreferenceLoadFailure());
+      setRoomPreferenceLoading(false);
+      return;
+    }
+    const preference = roomResult.value.data.rooms.find((row) => {
+      if (row.room.type === 'direct') {
+        return activeConv.type === 'dm'
+          && row.room.conversationId === activeConv.primaryConversationId;
+      }
+      return activeConv.type === 'request'
+        && activeConv.conversationIds.includes(row.room.requestDesignerId);
+    });
+    setRoomMuted(preference?.muted === true);
+    setRoomPreferenceFailure(null);
+    setRoomPreferenceReady(true);
+    setRoomPreferenceLoading(false);
+  }, [activeConv, requestBoardRoomRef]);
+
+  useEffect(() => {
+    roomPreferenceLoadSequenceRef.current += 1;
+    setRoomMuted(false);
+    setRoomPreferenceReady(false);
+    setRoomPreferenceFailure(null);
+    if (requestBoardRoomRef) void loadRequestBoardRoomPreference();
+  }, [loadRequestBoardRoomPreference, requestBoardRoomRef]);
+
+  const saveRequestBoardRoomPreference = useCallback(async (nextMuted: boolean) => {
+    if (!requestBoardRoomRef || !roomPreferenceReady || roomPreferencePending) return;
+    const previousMuted = roomMuted;
+    setRoomMuted(nextMuted);
+    setRoomPreferencePending(true);
+    setRoomPreferenceFailure(null);
+    try {
+      const result = await rbSetMessengerRoomMuted(requestBoardRoomRef, nextMuted);
+      if (!result.success) throw new Error(result.error);
+      setRoomMuted(result.data.muted);
+    } catch (error) {
+      setRoomMuted(previousMuted);
+      setRoomPreferenceFailure(buildMessengerNotificationPreferenceFailure(nextMuted, error));
+    } finally {
+      setRoomPreferencePending(false);
+    }
+  }, [requestBoardRoomRef, roomMuted, roomPreferencePending, roomPreferenceReady]);
+
   if (authState === 'checking') {
     return (
       <View style={styles.container}>
@@ -1261,7 +1738,7 @@ export default function RequestBoardMessengerScreen() {
         {/* Header - fixed at top */}
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4, paddingBottom: SPACING.md }]}>
           <View style={styles.headerRow}>
-            <Pressable style={styles.backBtn} onPress={() => router.back()}>
+            <Pressable style={styles.backBtn} onPressIn={() => router.back()}>
               <Feather name="arrow-left" size={22} color={COLORS.gray[800]} />
             </Pressable>
             <Text style={styles.headerTitleCenter}>가람Link 메신저</Text>
@@ -1311,10 +1788,19 @@ export default function RequestBoardMessengerScreen() {
           state={notificationReceipt.state}
           onRetry={notificationReceipt.retryMarkRead}
         />
+        {anchorContextError ? (
+          <View style={styles.anchorContextBanner} accessibilityRole="alert">
+            <Feather name="info" size={16} color={COLORS.primary} />
+            <Text style={styles.anchorContextBannerText}>{anchorContextError}</Text>
+            <Pressable accessibilityRole="button" onPress={retryAnchorContext} style={styles.anchorContextRetryButton}>
+              <Text style={styles.anchorContextRetryText}>다시 시도</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* Chat Header */}
         <View style={[styles.chatHeader, { paddingTop: Math.max(insets.top, 20) }]}>
-          <Pressable style={styles.backBtn} onPress={handleBack}>
+          <Pressable style={styles.backBtn} onPressIn={handleBack}>
             <Feather name="arrow-left" size={22} color={COLORS.gray[800]} />
           </Pressable>
           <View style={styles.chatHeaderCenter}>
@@ -1364,8 +1850,39 @@ export default function RequestBoardMessengerScreen() {
               </View>
             </View>
           </View>
-          <View style={styles.backBtn} />
+          <Pressable
+            accessibilityLabel="대화방 설정 열기"
+            accessibilityRole="button"
+            onPress={() => {
+              setConversationSettingsVisible(true);
+              void loadRequestBoardRoomPreference();
+            }}
+            style={({ pressed }) => [styles.roomSettingsButton, pressed && styles.roomSettingsButtonPressed]}
+          >
+            <Feather name={roomMuted ? 'bell-off' : 'more-horizontal'} size={21} color={roomMuted ? COLORS.text.muted : COLORS.gray[800]} />
+          </Pressable>
         </View>
+
+        {hasAnchorMessageParam
+          && parsedAnchorMessageId !== null
+          && activeConversationMatchesRouteTarget
+          && messages.length > 0 ? (
+            <View style={styles.anchorLatestBanner}>
+              <Feather name="search" size={15} color={COLORS.text.muted} />
+              <Text style={styles.anchorLatestBannerText}>검색한 메시지 위치를 보고 있습니다.</Text>
+              <Pressable
+                accessibilityLabel="최신 메시지로 이동"
+                accessibilityRole="button"
+                onPress={handleReturnToLatestMessage}
+                style={({ pressed }) => [
+                  styles.anchorLatestButton,
+                  pressed && styles.anchorLatestButtonPressed,
+                ]}
+              >
+                <Text style={styles.anchorLatestButtonText}>최신 메시지로</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
         {/* Messages + Input */}
         <KeyboardAvoidingView
@@ -1390,10 +1907,12 @@ export default function RequestBoardMessengerScreen() {
             <FlatList<UnifiedMessage>
               ref={flatListRef}
               data={messages}
+              extraData={highlightedMessageId}
               keyExtractor={(item) => String(item.id)}
               inverted
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.msgListContent}
+              onScrollToIndexFailed={handleAnchorScrollToIndexFailed}
               renderItem={({ item, index }) => {
                 const showDate =
                   index === messages.length - 1 ||
@@ -1476,7 +1995,13 @@ export default function RequestBoardMessengerScreen() {
                 );
 
                 return (
-                  <View>
+                  <View
+                    style={
+                      item.id === highlightedMessageId
+                        ? styles.anchorMessageHighlight
+                        : undefined
+                    }
+                  >
                     {showDate && (
                       <View style={styles.dateSep}>
                         <View style={styles.dateLine} />
@@ -1581,7 +2106,7 @@ export default function RequestBoardMessengerScreen() {
           )}
 
           {/* Input Bar */}
-          <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+          <View style={[styles.inputBar, { paddingBottom: composerBottomPadding }]}>
             <Pressable
               style={({ pressed }) => [styles.attachBtn, pressed && { opacity: 0.6 }]}
               onPress={handlePickImage}
@@ -1679,6 +2204,31 @@ export default function RequestBoardMessengerScreen() {
           onClose={() => setSelectCopyMessage(null)}
           bottomInset={insets.bottom}
         />
+
+        {requestBoardSheetRoom ? (
+          <ConversationSettingsSheet
+            disabled={roomPreferenceLoading || !roomPreferenceReady}
+            disabledReason={roomPreferenceLoading
+              ? '이 대화의 알림 설정을 불러오는 중입니다.'
+              : !roomPreferenceReady
+                ? '알림 설정을 다시 불러와 주세요.'
+                : null}
+            failure={roomPreferenceFailure}
+            muted={roomMuted}
+            onClose={() => setConversationSettingsVisible(false)}
+            onOpenNotificationSettings={() => {
+              setConversationSettingsVisible(false);
+              router.push('/notification-settings' as never);
+            }}
+            onPreferenceChange={(change) => void saveRequestBoardRoomPreference(change.muted)}
+            onRetryLoad={() => void loadRequestBoardRoomPreference()}
+            onRetryPreferenceChange={(change) => void saveRequestBoardRoomPreference(change.muted)}
+            pending={roomPreferencePending}
+            room={requestBoardSheetRoom}
+            roomTitle={activeConv.name}
+            visible={conversationSettingsVisible}
+          />
+        ) : null}
       </View>
     );
   }
@@ -1714,11 +2264,20 @@ export default function RequestBoardMessengerScreen() {
         state={notificationReceipt.state}
         onRetry={notificationReceipt.retryMarkRead}
       />
+      {anchorContextError ? (
+        <View style={styles.anchorContextBanner} accessibilityRole="alert">
+          <Feather name="info" size={16} color={COLORS.primary} />
+          <Text style={styles.anchorContextBannerText}>{anchorContextError}</Text>
+          <Pressable accessibilityRole="button" onPress={retryAnchorContext} style={styles.anchorContextRetryButton}>
+            <Text style={styles.anchorContextRetryText}>다시 시도</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
         <View style={styles.headerRow}>
-          <Pressable style={styles.backBtn} onPress={() => router.back()}>
+          <Pressable style={styles.backBtn} onPressIn={() => router.back()}>
             <Feather name="arrow-left" size={22} color={COLORS.gray[800]} />
           </Pressable>
           <View style={styles.headerTitleRow}>
@@ -2123,6 +2682,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: COLORS.border.light, ...SHADOWS.sm,
   },
   chatHeaderCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4 },
+  roomSettingsButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roomSettingsButtonPressed: { backgroundColor: COLORS.gray[50] },
   avatarSm: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   avatarSmText: { fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: '700', color: '#fff' },
   avatarPresenceDot: { right: -1, bottom: -1, width: 11, height: 11, borderRadius: 5.5, borderColor: '#fff' },
@@ -2133,7 +2700,55 @@ const styles = StyleSheet.create({
   chatHeaderPresenceTextOnline: { color: '#15803D', fontWeight: '600' },
   chatHeaderCompany: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.text.muted, flexShrink: 1 },
 
+  anchorContextBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: SPACING.base, paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.primaryPale,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border.light,
+  },
+  anchorContextBannerText: {
+    flex: 1, fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.gray[700], lineHeight: 19,
+  },
+  anchorContextRetryButton: {
+    minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACING.xs,
+  },
+  anchorContextRetryText: {
+    color: COLORS.primary, fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: '700',
+  },
+  anchorLatestBanner: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: SPACING.base,
+    paddingRight: SPACING.sm,
+    backgroundColor: COLORS.gray[50],
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border.light,
+  },
+  anchorLatestBannerText: {
+    flex: 1,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    lineHeight: 17,
+    color: COLORS.text.muted,
+  },
+  anchorLatestButton: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.sm,
+    borderRadius: RADIUS.base,
+  },
+  anchorLatestButtonPressed: { backgroundColor: COLORS.primaryPale },
+  anchorLatestButtonText: {
+    color: COLORS.primary,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '700',
+  },
   msgListContent: { paddingHorizontal: SPACING.base, paddingTop: SPACING.sm, paddingBottom: SPACING.sm },
+  anchorMessageHighlight: {
+    backgroundColor: '#FFF7D6', borderRadius: RADIUS.md,
+    paddingHorizontal: 6,
+  },
 
   dateSep: { flexDirection: 'row', alignItems: 'center', marginVertical: SPACING.md, gap: SPACING.sm },
   dateLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: COLORS.border.light },

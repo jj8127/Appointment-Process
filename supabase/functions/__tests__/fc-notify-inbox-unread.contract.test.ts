@@ -24,4 +24,21 @@ describe('fc-notify inbox unread count contract', () => {
     expect(source).toContain('.range(offset, offset + pageSize - 1)');
     expect(source).toContain('.filter((item) => item.dismissed_at === null)');
   });
+
+  it('uses one actor audience scope for list and unread while denying personal-admin broadcasts', () => {
+    expect(source).toContain('function applyNotificationAudienceScope(');
+    expect(source).toContain("allowBroadcast: input.inboxRole === 'fc' || !input.residentId");
+    expect(source.match(/applyNotificationAudienceScope\(/g)).toHaveLength(3);
+    expect(source).toContain(": query.eq('recipient_actor_id', viewer.actorId)");
+  });
+
+  it('supports a staged rollout before requiring the versioned canonical-person binding', () => {
+    expect(source).toContain("recipient_binding?: 'canonical_person_v1'");
+    expect(source).toContain("getEnv('REQUIRE_CANONICAL_REQUEST_BOARD_RECIPIENT_BINDING') === 'true'");
+    expect(source).toContain('recipientBinding === undefined');
+    expect(source).toContain('requireCanonicalRequestBoardRecipientBinding');
+    expect(source).toContain("recipientBinding !== 'canonical_person_v1'");
+    expect(source).toContain('Canonical Request Board recipient binding is required');
+    expect(source).toContain('Unsupported Request Board recipient binding');
+  });
 });

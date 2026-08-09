@@ -37,11 +37,13 @@
         "data/referral-revenue-demo.ts",
         "lib/referral-revenue-demo.ts",
         "lib/referral-revenue-graph-native.ts",
+        "lib/referral-revenue-tree-layout.ts",
         "types/referral-revenue-graph.ts"
       ],
       "requires_any": [
         "lib/__tests__/referral-revenue-demo.test.ts",
         "lib/__tests__/referral-revenue-graph-native.test.ts",
+        "lib/__tests__/referral-revenue-tree-layout.test.ts",
         "lib/__tests__/referral-revenue-demo-source.test.ts",
         "lib/__tests__/referral-revenue-graph-link.test.ts",
         "docs/referral-system/TEST_CHECKLIST.md",
@@ -53,7 +55,7 @@
       "prefixes": [
         "app/exam-apply.tsx",
         "app/exam-apply2.tsx",
-        "components/ExamPaymentProofField.tsx",
+        "components/ExamPaymentProof",
         "lib/exam-application-validation.ts",
         "lib/exam-payment-proof",
         "web/src/app/api/admin/exam-applicants/",
@@ -163,9 +165,12 @@
       "prefixes": [
         "app/chat.tsx",
         "app/group-chat.tsx",
+        "app/messenger.tsx",
         "app/request-board-messenger.tsx",
+        "components/messenger/MessengerHubRows.tsx",
         "components/MessageUnreadReceiptBadge.tsx",
         "components/LinkifiedSelectableText.tsx",
+        "lib/chat-keyboard-layout.ts",
         "lib/direct-message-api.ts",
         "lib/group-chat-contract.ts",
         "supabase/functions/fc-notify/",
@@ -179,12 +184,15 @@
         "supabase/migrations/20260729032148_direct_message_target_isolation.sql",
         "lib/message-read-receipts.ts",
         "lib/internal-chat-api.ts",
+        "lib/messenger-hub-model.ts",
+        "lib/notification-preferences-api.ts",
         "lib/request-board-api.ts",
         "web/src/app/dashboard/chat/page.tsx",
         "web/src/lib/message-read-receipts.ts"
       ],
       "requires_any": [
         "lib/__tests__/feature-contract-matrix.test.ts",
+        "lib/__tests__/chat-keyboard-layout.test.ts",
         "lib/__tests__/group-chat-mobile-source.test.ts",
         "lib/__tests__/group-chat-edge-source.test.ts",
         "supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts",
@@ -194,6 +202,10 @@
         "lib/__tests__/direct-message-target-isolation.test.ts",
         "lib/__tests__/direct-message-service-boundary.test.ts",
         "lib/__tests__/mobile-chat-source.test.ts",
+        "lib/__tests__/messenger-v2-hub-model.test.ts",
+        "lib/__tests__/messenger-v2-hub-source.test.ts",
+        "lib/__tests__/messenger-v2-notification-settings-source.test.ts",
+        "lib/__tests__/notification-preferences-api.test.ts",
         "lib/__tests__/admin-web-chat-source.test.ts",
         "lib/__tests__/request-board-api-contract.test.ts",
         "docs/handbook/feature-contract-matrix.md",
@@ -428,6 +440,7 @@
       "id": "exam-flow-parity",
       "prefixes": [
         "lib/exam-flow-contract.ts",
+        "lib/exam-apply-history-guard.ts",
         "app/exam-apply.tsx",
         "app/exam-apply2.tsx",
         "app/exam-register.tsx",
@@ -435,6 +448,7 @@
       ],
       "requires_any": [
         "lib/__tests__/exam-flow-contract.test.ts",
+        "lib/__tests__/exam-apply-history-guard.test.ts",
         "lib/__tests__/exam-round-location-payload.test.ts",
         "lib/__tests__/exam-fees.test.ts",
         "docs/handbook/mobile/exam-flows.md",

@@ -9,7 +9,7 @@ iOS 번들ID 등록/Apple 점검 페이지 오류 우회:
     1) npm run eas:build:android
     2) 빌드 완료 후 Build artifacts에서 mapping.txt 다운로드
     3) Play Console > App bundle explorer > 해당 AAB > Deobfuscation files에 mapping.txt 업로드
-앱 실행+설치: npx expo run:android
+앱 실행+설치: npm run android (stale 무선 ADB 항목 자동 제외)
 웹 실행:cd web & npm run dev
 아이폰 빌드 제출: eas submit -p ios --latest
 
@@ -47,7 +47,7 @@ Expo Web 정적 배포가 필요할 때
     adb uninstall com.jj8127.Garam_in
 
 앱 icon적용 한 버전 실행하기
-    앱 삭제 후 -> npx expo prebuild --clean && npx expo run:android
+앱 삭제 후 -> npx expo prebuild --clean && npm run android
 
 expo mcp server로 앱 실행하기 [앱이 설치 되어 있다는 전제 하에]
     .\start-mcp.ps1

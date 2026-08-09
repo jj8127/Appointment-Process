@@ -19,6 +19,27 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-08-08
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 08-08 | Diagnosed the Android hub slowdown, removed fixed polling, deferred slow source commits, and canceled the temporary latency-log instrumentation after user confirmation | `app/messenger.tsx`, Android wrapper, Request Board compatibility/tests | [detail](WORK_DETAIL.md#20260808-messenger-latency-trace) |
+| 08-08 | Reworked Messenger V2 into an actor-scoped memory-first hub with retained list panes and indexed 30-row conversation summaries | `app/messenger.tsx`, messenger cache/rows/APIs, `fc-notify`, summary migration/contracts | [detail](WORK_DETAIL.md#20260808-messenger-v2-low-latency) |
+| 08-08 | Added private payment-proof viewing to the selected FC mobile exam application history and deployed JWT-protected `exam-payment-proof` v13 | `app/exam-apply*.tsx`, proof history component/API/Edge, focused contracts | [detail](WORK_DETAIL.md#20260808-mobile-exam-payment-proof-history) |
+| 08-08 | Minimized repository harness instructions/evidence and removed broad always-allow tool permissions | `AGENTS.md`, nested instructions, tool settings, harness evidence | [detail](WORK_DETAIL.md#20260808-harness-minimization) |
+
+## 2026-08-04
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 08-04 | Unified the direct, group, and GaramLink bridge chat composer gap across iOS/Android keyboard and safe-area variants | chat screens, shared keyboard layout, focused contracts | [detail](WORK_DETAIL.md#20260804-mobile-chat-keyboard-gap) |
+
+## 2026-08-03
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 08-03 | Restored the original fixed card-tree as an optional portrait revenue view while keeping the existing circular graph as the non-persisted default | `app/referral-revenue-graph.tsx`, `ReferralRevenueTreeView.tsx`, tree layout/tests, referral contracts | [detail](WORK_DETAIL.md#20260803-referral-revenue-selectable-tree) |
+
 ## 2026-07-30
 
 | Date | Work | Key files | Detail |
@@ -1003,3 +1024,97 @@
   EAS, OTA, commit, or push change was performed.
 - Details:
   [WORK_DETAIL.md#20260730-referral-revenue-radial-direction](WORK_DETAIL.md#20260730-referral-revenue-radial-direction)
+
+## 2026-08-04 Exam TBD month and per-type application slots
+
+- Restored date-TBD life/nonlife rounds by separating nullable `exam_date`
+  from the required canonical `exam_month`.
+- Changed the active monthly application boundary to
+  `(fc_id, exam_month, exam_type)`, so life and nonlife can each be active in
+  the same month, including when both bundles select third insurance.
+- Added the registration type snapshot, round/type consistency constraint,
+  TBD-aware submit RPCs, canonical admin month input, and type-scoped mobile
+  history/conflict checks.
+- P1 re-audit follow-up preserved `exam_date = null` plus `exam_month` in both
+  mobile admin forms, moved `admin-action` to the v2 writer only, rejected
+  implicit legacy TBD finalization, and excluded detached `fc_id IS NULL`
+  history from applicant-slot collision preflight.
+- Both application screens now treat history loading/fetching/error as a
+  fail-closed state for list/deep-link/receipt/submit, force a fresh read before
+  mutation, pass the fresh proof state into submission, and consume each route
+  target once.
+- Deployment now requires the `20260804081357` migration, exact v2 signature,
+  invoker/ACL checks, and representative zero-partial-write transactions before
+  admin web, Edge, or mobile activation.
+- Targeted 10-suite/121-test regressions, root TypeScript, web lint/type/build,
+  governance, and diff checks passed. The completed exam snapshot also passed
+  full Jest at 195 suites/1,204 tests; a later shared-worktree rerun after
+  concurrent messenger-hub edits had one out-of-scope source-test failure.
+- Independent fix/retest evaluation finished source PASS with no P0/P1/P2
+  finding; actual database apply and authenticated E2E remain rollout gates.
+- P1 repair verification passed focused 12-suite/127-test and full
+  219-suite/1,377-test Jest, root/web TypeScript and lint, root/web production
+  builds, `admin-action` Deno check, harness audit, JSON and diff checks.
+- The exam-scoped governance requirement passes; the shared worktree governance
+  command remains blocked only by unrelated messenger/push owner-map omissions.
+- Release remains HOLD. No database apply, web/Edge deployment, OTA/native
+  release, commit, push, or PR was performed.
+- Details:
+  [WORK_DETAIL.md#20260804-exam-tbd-per-type-slots](WORK_DETAIL.md#20260804-exam-tbd-per-type-slots)
+
+## 2026-08-05 GaramIn Android messenger label and room-bell repair
+
+- Corrected the active Expo messenger path rather than only the Request Board web path: people rows no longer append `가람in`/`가람Link`, and designer labels render as `회사명 설계 매니저`.
+- Added a per-room bell toggle in the conversation list for canonical GaramIn group/direct and GaramLink request/direct rooms. Save failure exposes a retryable notice.
+- The generic people/conversation warning no longer presents a GaramLink room-preference read failure as if the visible directory data had failed.
+- Focused 4-suite/29-test messenger checks, scoped ESLint, `git diff --check`, and harness audit passed. Full TypeScript remains blocked by pre-existing errors outside this increment; Android runtime and coordinated Request Board endpoint rollout remain required. No deployment, database mutation, OTA/native release, commit, push, or PR was performed.
+- Details: [WORK_DETAIL.md#20260805-android-messenger-parity](WORK_DETAIL.md#20260805-android-messenger-parity)
+
+## 2026-08-06 Administrator exam-applicant production compatibility repair
+
+- Fixed the privileged applicant API's `exam_rounds` embed to name the
+  legacy `round_id` relationship explicitly after the production schema added
+  the `(round_id, exam_type)` relationship.
+- Added a regression check that rejects an unqualified round embed. The
+  focused Node source suite passed 10/10 and web TypeScript passed.
+- This is a source-only candidate: no production deployment, database,
+  Supabase Function, native/OTA, credential, commit, push, or PR action was
+  performed. Targeted ESLint did not complete within its bounded local run;
+  the direct invocation from the repository root also reports known web alias
+  resolution errors, so release remains HOLD pending a clean web lint run.
+
+## 2026-08-08 Messenger V2 Kakao-style low-latency hub
+
+- Replaced GaramIn and GaramLink unbounded message-history list summaries with
+  service-role-only indexed RPCs; GaramLink adds deterministic 30/50-row cursor
+  pages and the mobile hub loads another page at scroll end.
+- Added actor/permission-scoped process-memory stale-while-revalidate snapshots,
+  list-local loading, retained fixed tab panes, memoized rows, stable list
+  callbacks, and collapsed-by-default role accordions. No conversation directory
+  is persisted to device storage.
+- Focused mobile 4 suites / 27 tests, Request Board 5 + 24 + 6 contracts,
+  FC Deno check, Request Board server TypeScript build, and scoped ESLint pass.
+  Root TypeScript remains blocked by an unrelated existing `app/index.tsx`
+  parse error; local Supabase DB verification is environment-blocked.
+- No remote migration, deployment, OTA/native release, commit, push, or PR was
+  performed. Release remains HOLD.
+- Details: [WORK_DETAIL.md#20260808-messenger-v2-low-latency](WORK_DETAIL.md#20260808-messenger-v2-low-latency)
+
+## 2026-08-08 Messenger V2 Android latency diagnosis
+
+- Device evidence identified repeated 30/60-second refreshes and large legacy
+  responses as the interaction blocker. Fixed timer polling was removed and
+  slow source commits now use transition priority.
+- The user confirmed that tab and accordion latency is resolved. The temporary
+  release-visible trace/logger/native touch collector was then removed by user
+  decision so no diagnostic overhead remains.
+- Fixed the Android wrapper so an ADB TCP serial is no longer passed as an Expo
+  device display name. Backend rollout remains open.
+- Details: [WORK_DETAIL.md#20260808-messenger-latency-trace](WORK_DETAIL.md#20260808-messenger-latency-trace)
+
+## 2026-08-09 GaramIn Google Play production verification
+
+- Confirmed EAS production build `4.2.2` / versionCode `71` finished successfully.
+- Confirmed in Google Play Console that `4.2.2 (71)` is the active production release, is available on Google Play, and was published on 2026-08-09 at 01:48 KST.
+- The publishing overview reports no unpublished changes. No duplicate upload or Console mutation was performed.
+- Details: [WORK_DETAIL.md#20260809-google-play-422](WORK_DETAIL.md#20260809-google-play-422)

@@ -21,8 +21,9 @@ test('administrator PWA manifest uses the deployed HTTPS app scope and branded s
   assert.match(manifestSource, /purpose:\s*'any'/);
 });
 
-test('administrator service worker stays network-only and never caches authenticated data', () => {
-  assert.match(serviceWorkerSource, /event\.respondWith\(fetch\(request\)\)/);
+test('administrator service worker stays network-only, handles offline assets, and never caches authenticated data', () => {
+  assert.match(serviceWorkerSource, /event\.respondWith\(fetch\(request\)\.catch\(\(\) => new Response\('', \{/);
+  assert.match(serviceWorkerSource, /status: 504/);
   assert.match(serviceWorkerSource, /request\.mode === 'navigate'/);
   assert.match(serviceWorkerSource, /'Cache-Control': 'no-store'/);
   assert.match(serviceWorkerSource, /subscription\.unsubscribe/);

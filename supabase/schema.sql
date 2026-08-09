@@ -2,7 +2,9 @@
 -- Supabase SQL Editor나 supabase CLI로 실행하세요.
 -- governance sync marker: 2026-03-28 (migration 20260328000001_add_hanwha_commission_contract.sql)
 
+
 create extension if not exists "uuid-ossp";
+create extension if not exists pg_trgm with schema extensions;
 
 create table if not exists public.fc_profiles (
   id uuid primary key default gen_random_uuid(),
@@ -494,6 +496,57 @@ create index if not exists idx_notification_receipts_viewer_unread
   on public.notification_receipts (viewer_actor_id, viewer_role, notification_id)
   where dismissed_at is null;
 
+-- Persist only aggregate provider outcomes for notification fanout. Token
+-- values, provider ticket IDs, and raw provider response bodies are excluded.
+create table if not exists public.notification_delivery_attempts (
+  id uuid primary key default gen_random_uuid(),
+  notification_id uuid not null references public.notifications(id) on delete cascade,
+  delivery_source text not null check (delivery_source in ('board_create', 'board_update', 'admin_notice')),
+  target_role text not null check (target_role in ('fc', 'admin', 'manager')),
+  provider text not null check (provider in ('fc_notify', 'expo')),
+  provider_response_status smallint check (
+    provider_response_status is null
+    or provider_response_status between 100 and 599
+  ),
+  attempted integer not null check (attempted between 0 and 1000000),
+  accepted integer not null check (accepted between 0 and attempted),
+  rejected integer not null check (rejected between 0 and attempted),
+  push_status text not null check (push_status in ('accepted', 'no_registered_device', 'provider_rejected')),
+  response_confirmed boolean not null,
+  failure_code text check (failure_code is null or failure_code in (
+    'missing_configuration',
+    'upstream_rejected',
+    'invalid_response',
+    'delivery_unconfirmed',
+    'request_failed'
+  )),
+  recorded_at timestamptz not null default now(),
+  unique (notification_id, delivery_source),
+  check (accepted + rejected <= attempted)
+);
+
+create index if not exists idx_notification_delivery_attempts_recorded
+  on public.notification_delivery_attempts (recorded_at desc);
+
+alter table public.notification_delivery_attempts enable row level security;
+
+revoke all privileges on table public.notification_delivery_attempts
+  from public, anon, authenticated;
+grant select, insert, update, delete on table public.notification_delivery_attempts
+  to service_role;
+
+drop policy if exists "notification_delivery_attempts service role"
+  on public.notification_delivery_attempts;
+create policy "notification_delivery_attempts service role"
+  on public.notification_delivery_attempts
+  for all
+  to service_role
+  using (true)
+  with check (true);
+
+comment on table public.notification_delivery_attempts is
+  'Privacy-safe aggregate provider outcomes for a persisted notification delivery attempt.';
+
 create table if not exists public.garamin_direct_conversations (
   id uuid primary key default gen_random_uuid(),
   fc_id uuid not null references public.fc_profiles(id) on delete cascade,
@@ -867,6 +920,10 @@ create index if not exists idx_group_chat_messages_reply
 
 create index if not exists idx_group_chat_messages_deleted
   on public.group_chat_messages (room_id, deleted_at);
+
+create index if not exists idx_group_chat_messages_live_content_trgm
+  on public.group_chat_messages using gin (content extensions.gin_trgm_ops)
+  where deleted_at is null;
 
 create index if not exists idx_group_chat_reads_actor
   on public.group_chat_reads (actor_id);
@@ -3755,7 +3812,7 @@ begin
     case when p_platform = 'garam_link' then touched_at else null end,
     touched_at
   )
-  on conflict (phone) do update
+  on conflict on constraint user_presence_pkey do update
     set garam_in_at = case when p_platform = 'garam_in' then touched_at else up.garam_in_at end,
         garam_link_at = case when p_platform = 'garam_link' then touched_at else up.garam_link_at end,
         updated_at = touched_at
@@ -3822,8 +3879,8 @@ begin
   else
     select *
       into row_data
-      from public.user_presence
-     where phone = normalized_phone;
+      from public.user_presence as presence
+     where presence.phone = normalized_phone;
   end if;
 
   if row_data.phone is null then
@@ -5378,11 +5435,15 @@ create trigger trg_prevent_exam_location_history_drift
 before update or delete on public.exam_locations
 for each row execute function public.prevent_exam_history_drift();
 
+create unique index if not exists idx_exam_rounds_id_exam_type
+  on public.exam_rounds (id, exam_type);
 alter table public.exam_registrations
-  drop constraint if exists exam_registrations_round_id_fkey;
+  drop constraint if exists exam_registrations_round_exam_type_fkey;
 alter table public.exam_registrations
-  add constraint exam_registrations_round_id_fkey
-  foreign key (round_id) references public.exam_rounds (id) on delete restrict;
+  add constraint exam_registrations_round_exam_type_fkey
+  foreign key (round_id, exam_type)
+  references public.exam_rounds (id, exam_type)
+  on delete restrict;
 alter table public.exam_registrations
   drop constraint if exists exam_registrations_location_id_fkey;
 alter table public.exam_registrations
@@ -5451,7 +5512,10 @@ begin
     from public.exam_rounds round_row
    where round_row.id = p_round_id
    for share;
-  if v_round.id is null or v_round.exam_date is null then
+  if v_round.id is null
+     or v_round.exam_month is null
+     or v_round.exam_type is null
+     or v_round.exam_type not in ('life', 'nonlife') then
     raise exception using errcode = '22023', message = 'invalid_exam_round';
   end if;
   if v_round.registration_deadline < current_date then
@@ -5464,7 +5528,7 @@ begin
     raise exception using errcode = '23503', message = 'invalid_exam_location';
   end if;
 
-  v_exam_month := date_trunc('month', v_round.exam_date)::date;
+  v_exam_month := v_round.exam_month;
   perform pg_advisory_xact_lock(
     hashtextextended(p_fc_id::text || ':' || v_exam_month::text, 0)
   );
@@ -5473,6 +5537,7 @@ begin
     from public.exam_registrations registration
    where registration.fc_id = p_fc_id
      and registration.exam_month = v_exam_month
+     and registration.exam_type = v_round.exam_type
      and registration.status in ('applied', 'confirmed', 'completed', 'no_show')
    order by registration.created_at, registration.id
    limit 1
@@ -5514,11 +5579,12 @@ begin
 
   if v_registration.id is null then
     insert into public.exam_registrations (
-      resident_id, fc_id, round_id, location_id, exam_month, status,
+      resident_id, fc_id, round_id, location_id, exam_month, exam_type, status,
       is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date,
       payment_proof_attached, payment_proof_policy_version
     ) values (
       btrim(p_resident_id), p_fc_id, p_round_id, p_location_id, v_exam_month,
+      v_round.exam_type,
       'applied', false, p_includes_primary_exam, p_is_third_exam,
       p_fee_paid_date, p_upload_id is not null, 1
     )
@@ -7206,6 +7272,1103 @@ revoke all on function public.reserve_messenger_attachment_upload_batch_v2(
 grant execute on function public.reserve_messenger_attachment_upload_batch_v2(
   uuid, text, uuid, text, jsonb, jsonb
 ) to service_role;
+
+-- Server-owned notification preferences. Mobile clients can only reach these
+-- tables through signed Edge Functions which derive the immutable actor tuple.
+create table if not exists public.app_push_preferences (
+  actor_id uuid not null,
+  actor_role text not null check (actor_role in ('fc', 'manager', 'admin')),
+  enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (actor_id, actor_role)
+);
+
+create table if not exists public.app_push_category_preferences (
+  actor_id uuid not null,
+  actor_role text not null check (actor_role in ('fc', 'manager', 'admin')),
+  category text not null check (category in ('messages', 'request_activity', 'notices', 'operations')),
+  enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (actor_id, actor_role, category)
+);
+
+create table if not exists public.messenger_room_notification_preferences (
+  actor_id uuid not null,
+  actor_role text not null check (actor_role in ('fc', 'manager', 'admin')),
+  room_key text not null check (
+    room_key ~ '^garamin:(direct-thread|group):[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+  ),
+  muted boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (actor_id, actor_role, room_key)
+);
+
+create or replace function public.prevent_notification_preference_actor_tuple_change()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if new.actor_id is distinct from old.actor_id
+     or new.actor_role is distinct from old.actor_role then
+    raise exception 'notification_preference_actor_tuple_immutable';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.prevent_notification_preference_actor_tuple_change()
+  from public, anon, authenticated;
+grant execute on function public.prevent_notification_preference_actor_tuple_change()
+  to service_role;
+
+drop trigger if exists app_push_preferences_actor_tuple_immutable
+  on public.app_push_preferences;
+create trigger app_push_preferences_actor_tuple_immutable
+  before update on public.app_push_preferences
+  for each row execute function public.prevent_notification_preference_actor_tuple_change();
+
+drop trigger if exists app_push_category_preferences_actor_tuple_immutable
+  on public.app_push_category_preferences;
+create trigger app_push_category_preferences_actor_tuple_immutable
+  before update on public.app_push_category_preferences
+  for each row execute function public.prevent_notification_preference_actor_tuple_change();
+
+drop trigger if exists messenger_room_preferences_actor_tuple_immutable
+  on public.messenger_room_notification_preferences;
+create trigger messenger_room_preferences_actor_tuple_immutable
+  before update on public.messenger_room_notification_preferences
+  for each row execute function public.prevent_notification_preference_actor_tuple_change();
+
+create index if not exists idx_app_push_category_preferences_actor
+  on public.app_push_category_preferences (actor_id, actor_role);
+
+create index if not exists idx_messenger_room_notification_preferences_actor
+  on public.messenger_room_notification_preferences (actor_id, actor_role, muted);
+
+alter table public.app_push_preferences enable row level security;
+alter table public.app_push_category_preferences enable row level security;
+alter table public.messenger_room_notification_preferences enable row level security;
+
+revoke all on table public.app_push_preferences from public, anon, authenticated;
+revoke all on table public.app_push_category_preferences from public, anon, authenticated;
+revoke all on table public.messenger_room_notification_preferences from public, anon, authenticated;
+grant all on table public.app_push_preferences to service_role;
+grant all on table public.app_push_category_preferences to service_role;
+grant all on table public.messenger_room_notification_preferences to service_role;
+
+drop policy if exists "app_push_preferences service role" on public.app_push_preferences;
+create policy "app_push_preferences service role"
+  on public.app_push_preferences
+  for all
+  to service_role
+  using (true)
+  with check (true);
+
+drop policy if exists "app_push_category_preferences service role" on public.app_push_category_preferences;
+create policy "app_push_category_preferences service role"
+  on public.app_push_category_preferences
+  for all
+  to service_role
+  using (true)
+  with check (true);
+
+drop policy if exists "messenger_room_notification_preferences service role" on public.messenger_room_notification_preferences;
+create policy "messenger_room_notification_preferences service role"
+  on public.messenger_room_notification_preferences
+  for all
+  to service_role
+  using (true)
+  with check (true);
+
+-- Messenger hub row actions (pin and non-destructive leave).
+alter table public.messenger_room_notification_preferences
+  add column if not exists pinned_at timestamptz,
+  add column if not exists left_at timestamptz;
+
+create index if not exists idx_messenger_room_preferences_pinned
+  on public.messenger_room_notification_preferences (actor_id, actor_role, pinned_at desc)
+  where pinned_at is not null;
+
+-- Compatibility backfill: the canonical room preference table becomes the
+-- single source of truth while retaining existing group-chat mute choices.
+insert into public.messenger_room_notification_preferences (
+  actor_id,
+  actor_role,
+  room_key,
+  muted,
+  updated_at
+)
+select resolved.actor_id,
+       resolved.actor_role,
+       'garamin:group:' || preferences.room_id::text,
+       preferences.muted,
+       preferences.updated_at
+from public.group_chat_preferences preferences
+join lateral (
+  select fc.id as actor_id, 'fc'::text as actor_role
+  from public.fc_profiles fc
+  where preferences.actor_id = 'fc:' || regexp_replace(fc.phone, '[^0-9]', '', 'g')
+  union all
+  select manager.id, 'manager'::text
+  from public.manager_accounts manager
+  where preferences.actor_id = 'manager:' || regexp_replace(manager.phone, '[^0-9]', '', 'g')
+  union all
+  select admin.id, 'admin'::text
+  from public.admin_accounts admin
+  where preferences.actor_id = 'admin:' || regexp_replace(admin.phone, '[^0-9]', '', 'g')
+) resolved on true
+on conflict (actor_id, actor_role, room_key) do update
+set muted = excluded.muted,
+    updated_at = excluded.updated_at;
+
+-- BEGIN 20260804081357_exam_round_month_for_tbd canonical parity block
+-- Canonical month ownership for exam rounds, including date-TBD rounds.
+-- The migration preserves history and aborts rather than guessing whenever
+-- existing registrations do not determine one unambiguous month.
+
+alter table public.exam_rounds
+  add column if not exists exam_month date;
+
+alter table public.exam_registrations
+  add column if not exists exam_type text;
+
+-- Registration type is a durable snapshot derived only from its referenced
+-- round. Never infer it from labels, subjects, or caller input.
+update public.exam_registrations registration
+   set exam_type = round_row.exam_type
+  from public.exam_rounds round_row
+ where round_row.id = registration.round_id
+   and registration.exam_type is null;
+
+update public.exam_rounds
+   set exam_month = date_trunc('month', exam_date)::date
+ where exam_date is not null
+   and exam_month is null;
+
+-- A referenced TBD round inherits its month only when every registration
+-- agrees on exactly one already-recorded month.
+with registered_round_months as (
+  select
+    round_row.id as round_id,
+    min(registration.exam_month) as resolved_exam_month,
+    count(distinct registration.exam_month) as distinct_exam_month_count
+  from public.exam_rounds round_row
+  join public.exam_registrations registration
+    on registration.round_id = round_row.id
+  where round_row.exam_date is null
+    and round_row.exam_month is null
+    and registration.exam_month is not null
+  group by round_row.id
+)
+update public.exam_rounds round_row
+   set exam_month = resolved.resolved_exam_month
+  from registered_round_months resolved
+ where round_row.id = resolved.round_id
+   and resolved.distinct_exam_month_count = 1;
+
+-- Only unused legacy TBD rounds may fall back to their label. The expression
+-- accepts a leading `YY년 M월`, `YYYY년 M월`, or `M월`. When the year is
+-- omitted, choose the first matching month on or after the deadline month so
+-- December -> January resolves across the year boundary deterministically.
+with parsed_unused_tbd_rounds as (
+  select
+    round_row.id as round_id,
+    round_row.registration_deadline,
+    regexp_match(
+      btrim(coalesce(round_row.round_label, '')),
+      '^(?:([0-9]{2}|[0-9]{4})년[[:space:]]*)?([0-9]{1,2})월(?:[[:space:]]|$)'
+    ) as date_parts
+  from public.exam_rounds round_row
+  where round_row.exam_date is null
+    and round_row.exam_month is null
+    and not exists (
+      select 1
+        from public.exam_registrations registration
+       where registration.round_id = round_row.id
+    )
+),
+resolved_unused_tbd_rounds as (
+  select
+    round_id,
+    registration_deadline,
+    case
+      when date_parts[1] is null
+        then extract(year from registration_deadline)::integer
+      when char_length(date_parts[1]) = 2
+        then 2000 + date_parts[1]::integer
+      else date_parts[1]::integer
+    end as base_year,
+    date_parts[1] is null as year_was_omitted,
+    date_parts[2]::integer as exam_month_number
+  from parsed_unused_tbd_rounds
+  where date_parts is not null
+),
+canonical_unused_tbd_rounds as (
+  select
+    round_id,
+    case
+      when year_was_omitted
+       and exam_month_number < extract(month from registration_deadline)::integer
+        then make_date(base_year + 1, exam_month_number, 1)
+      else make_date(base_year, exam_month_number, 1)
+    end as resolved_exam_month
+  from resolved_unused_tbd_rounds
+  where base_year between 2000 and 2100
+    and exam_month_number between 1 and 12
+)
+update public.exam_rounds round_row
+   set exam_month = resolved.resolved_exam_month
+  from canonical_unused_tbd_rounds resolved
+ where round_row.id = resolved.round_id;
+
+do $exam_round_month_preflight$
+begin
+  if exists (
+    select 1
+      from public.exam_rounds round_row
+     where round_row.exam_month is null
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'exam_round_month_backfill_unresolved';
+  end if;
+
+  if exists (
+    select 1
+      from public.exam_registrations registration
+      join public.exam_rounds round_row
+        on round_row.id = registration.round_id
+     where registration.status in ('applied', 'confirmed', 'completed', 'no_show')
+       and registration.exam_month is distinct from round_row.exam_month
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'exam_round_month_active_registration_drift';
+  end if;
+
+  if exists (
+    select 1
+      from public.exam_registrations registration
+     where registration.exam_type is null
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'exam_registration_type_backfill_unresolved';
+  end if;
+
+  if exists (
+    select 1
+      from public.exam_registrations registration
+     where not exists (
+       select 1
+         from public.exam_rounds round_row
+        where round_row.id = registration.round_id
+          and round_row.exam_type = registration.exam_type
+     )
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'exam_registration_round_type_drift';
+  end if;
+
+  if exists (
+    select 1
+      from public.exam_registrations registration
+     where registration.fc_id is not null
+       and registration.status in ('applied', 'confirmed', 'completed', 'no_show')
+       and registration.monthly_slot_policy_version = 1
+     group by registration.fc_id, registration.exam_month, registration.exam_type
+    having count(*) > 1
+  ) then
+    raise exception using
+      errcode = '23505',
+      message = 'exam_registration_type_active_collision';
+  end if;
+
+end
+$exam_round_month_preflight$;
+
+alter table public.exam_rounds
+  alter column exam_month set not null;
+
+alter table public.exam_rounds
+  drop constraint if exists exam_rounds_exam_month_start_check;
+alter table public.exam_rounds
+  add constraint exam_rounds_exam_month_start_check
+  check (exam_month = date_trunc('month', exam_month)::date);
+
+alter table public.exam_rounds
+  drop constraint if exists exam_rounds_exam_date_month_check;
+alter table public.exam_rounds
+  add constraint exam_rounds_exam_date_month_check
+  check (
+    exam_date is null
+    or exam_month = date_trunc('month', exam_date)::date
+  );
+
+alter table public.exam_registrations
+  alter column exam_type set not null;
+
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_exam_type_check;
+alter table public.exam_registrations
+  add constraint exam_registrations_exam_type_check
+  check (exam_type in ('life', 'nonlife'));
+
+create unique index if not exists idx_exam_rounds_id_exam_type
+  on public.exam_rounds (id, exam_type);
+
+alter table public.exam_registrations
+  drop constraint if exists exam_registrations_round_exam_type_fkey;
+alter table public.exam_registrations
+  add constraint exam_registrations_round_exam_type_fkey
+  foreign key (round_id, exam_type)
+  references public.exam_rounds (id, exam_type)
+  on delete restrict;
+
+drop index if exists public.idx_exam_registrations_active_fc_exam_month;
+drop index if exists public.idx_exam_registrations_active_fc_exam_month_type;
+
+create unique index idx_exam_registrations_active_fc_exam_month_type
+  on public.exam_registrations (fc_id, exam_month, exam_type)
+  where status in ('applied', 'confirmed', 'completed', 'no_show')
+    and monthly_slot_policy_version = 1;
+
+create or replace function public.save_exam_round_atomic_v2(
+  p_round_id uuid,
+  p_exam_date date,
+  p_exam_month date,
+  p_registration_deadline date,
+  p_round_label text,
+  p_exam_type text,
+  p_notes text,
+  p_locations text[]
+) returns uuid
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_round_id uuid;
+  v_location_id uuid;
+  v_location_name text;
+  v_location_position bigint;
+  v_locations text[];
+  v_location_count integer;
+  v_distinct_location_count integer;
+  v_updated_count integer;
+begin
+  if auth.role() is distinct from 'service_role' then
+    raise exception 'service role required' using errcode = '42501';
+  end if;
+
+  if p_registration_deadline is null then
+    raise exception 'registration deadline required' using errcode = '22023';
+  end if;
+  if p_exam_month is null
+     or p_exam_month <> date_trunc('month', p_exam_month)::date then
+    raise exception 'invalid exam month' using errcode = '22023';
+  end if;
+  if p_exam_date is not null
+     and p_exam_month <> date_trunc('month', p_exam_date)::date then
+    raise exception 'exam date and month mismatch' using errcode = '22023';
+  end if;
+  if p_exam_date is not null and p_registration_deadline > p_exam_date then
+    raise exception 'registration deadline cannot follow exam date' using errcode = '22023';
+  end if;
+  if p_round_label is null
+     or btrim(p_round_label) = ''
+     or char_length(btrim(p_round_label)) > 120 then
+    raise exception 'invalid round label' using errcode = '22023';
+  end if;
+  if p_exam_type not in ('life', 'nonlife') then
+    raise exception 'invalid exam type' using errcode = '22023';
+  end if;
+  if p_notes is not null and char_length(p_notes) > 2000 then
+    raise exception 'invalid notes' using errcode = '22023';
+  end if;
+
+  v_location_count := coalesce(cardinality(p_locations), 0);
+  if v_location_count < 1 or v_location_count > 50 then
+    raise exception 'invalid location count' using errcode = '22023';
+  end if;
+  if exists (
+    select 1
+      from unnest(p_locations) as requested(location_name)
+     where requested.location_name is null
+        or btrim(requested.location_name) = ''
+        or char_length(btrim(requested.location_name)) > 120
+  ) then
+    raise exception 'invalid location name' using errcode = '22023';
+  end if;
+
+  select array_agg(btrim(requested.location_name) order by requested.position),
+         count(distinct btrim(requested.location_name))::integer
+    into v_locations, v_distinct_location_count
+    from unnest(p_locations) with ordinality as requested(location_name, position);
+
+  if v_distinct_location_count <> v_location_count then
+    raise exception 'duplicate location name' using errcode = '22023';
+  end if;
+
+  if p_round_id is null then
+    insert into public.exam_rounds (
+      exam_date,
+      exam_month,
+      registration_deadline,
+      round_label,
+      exam_type,
+      notes
+    ) values (
+      p_exam_date,
+      p_exam_month,
+      p_registration_deadline,
+      btrim(p_round_label),
+      p_exam_type,
+      p_notes
+    )
+    returning id into v_round_id;
+  else
+    update public.exam_rounds
+       set exam_date = p_exam_date,
+           exam_month = p_exam_month,
+           registration_deadline = p_registration_deadline,
+           round_label = btrim(p_round_label),
+           exam_type = p_exam_type,
+           notes = p_notes
+     where id = p_round_id;
+
+    get diagnostics v_updated_count = row_count;
+    if v_updated_count <> 1 then
+      raise exception 'exam round not found' using errcode = 'P0002';
+    end if;
+    v_round_id := p_round_id;
+  end if;
+
+  for v_location_name, v_location_position in
+    select requested.location_name, requested.position
+      from unnest(v_locations) with ordinality as requested(location_name, position)
+  loop
+    v_location_id := null;
+    select location.id
+      into v_location_id
+      from public.exam_locations location
+     where location.round_id = v_round_id
+       and location.location_name = v_location_name
+     order by location.created_at, location.id
+     limit 1
+     for update;
+
+    if v_location_id is null then
+      insert into public.exam_locations (round_id, location_name, sort_order)
+      values (v_round_id, v_location_name, (v_location_position - 1)::integer);
+    else
+      update public.exam_locations
+         set sort_order = (v_location_position - 1)::integer
+       where id = v_location_id;
+    end if;
+  end loop;
+
+  delete from public.exam_locations location
+   where location.round_id = v_round_id
+     and not (btrim(location.location_name) = any(v_locations))
+     and not exists (
+       select 1
+         from public.exam_registrations registration
+        where registration.location_id = location.id
+     );
+
+  return v_round_id;
+end;
+$$;
+
+revoke all on function public.save_exam_round_atomic_v2(
+  uuid, date, date, date, text, text, text, text[]
+) from public, anon, authenticated;
+grant execute on function public.save_exam_round_atomic_v2(
+  uuid, date, date, date, text, text, text, text[]
+) to service_role;
+
+create or replace function public.save_exam_round_atomic(
+  p_round_id uuid,
+  p_exam_date date,
+  p_registration_deadline date,
+  p_round_label text,
+  p_exam_type text,
+  p_notes text,
+  p_locations text[]
+) returns uuid
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_exam_month date;
+  v_existing_exam_date date;
+begin
+  if p_round_id is not null then
+    select round_row.exam_date,
+           round_row.exam_month
+      into v_existing_exam_date,
+           v_exam_month
+      from public.exam_rounds round_row
+     where round_row.id = p_round_id;
+
+    if not found then
+      raise exception 'exam round not found' using errcode = 'P0002';
+    end if;
+
+    if v_existing_exam_date is null
+       and p_exam_date is not null then
+      raise exception using
+        errcode = '22023',
+        message = 'exam_month_required_for_tbd_round';
+    end if;
+  end if;
+
+  if p_exam_date is not null then
+    v_exam_month := date_trunc('month', p_exam_date)::date;
+  end if;
+
+  if v_exam_month is null then
+    raise exception using
+      errcode = '22023',
+      message = 'exam_month_required_for_tbd_round';
+  end if;
+
+  return public.save_exam_round_atomic_v2(
+    p_round_id,
+    p_exam_date,
+    v_exam_month,
+    p_registration_deadline,
+    p_round_label,
+    p_exam_type,
+    p_notes,
+    p_locations
+  );
+end;
+$$;
+
+revoke all on function public.save_exam_round_atomic(
+  uuid, date, date, text, text, text, text[]
+) from public, anon, authenticated;
+grant execute on function public.save_exam_round_atomic(
+  uuid, date, date, text, text, text, text[]
+) to service_role;
+
+create or replace function public.prevent_exam_history_drift()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+begin
+  if tg_table_name = 'exam_rounds' then
+    if tg_op = 'DELETE' and exists (
+      select 1 from public.exam_registrations where round_id = old.id
+    ) then
+      raise exception using errcode = '55000', message = 'exam_round_has_registrations';
+    end if;
+    if tg_op = 'UPDATE'
+       and exists (
+         select 1 from public.exam_registrations where round_id = old.id
+       )
+       and (
+         new.exam_type is distinct from old.exam_type
+         or new.exam_month is distinct from old.exam_month
+         or (
+           new.exam_date is distinct from old.exam_date
+           and not (
+             old.exam_date is null
+             and new.exam_date is not null
+             and date_trunc('month', new.exam_date)::date = old.exam_month
+           )
+         )
+       ) then
+      raise exception using errcode = '55000', message = 'exam_round_history_locked';
+    end if;
+  elsif tg_table_name = 'exam_locations' then
+    if tg_op = 'DELETE' and exists (
+      select 1 from public.exam_registrations where location_id = old.id
+    ) then
+      raise exception using errcode = '55000', message = 'exam_location_has_registrations';
+    end if;
+    if tg_op = 'UPDATE'
+       and new.round_id is distinct from old.round_id
+       and exists (
+         select 1 from public.exam_registrations where location_id = old.id
+       ) then
+      raise exception using errcode = '55000', message = 'exam_location_history_locked';
+    end if;
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+revoke all on function public.prevent_exam_history_drift()
+  from public, anon, authenticated;
+grant execute on function public.prevent_exam_history_drift()
+  to service_role;
+
+create or replace function public.submit_exam_registration_with_payment_proof_v2(
+  p_fc_id uuid,
+  p_resident_id text,
+  p_round_id uuid,
+  p_location_id uuid,
+  p_includes_primary_exam boolean,
+  p_is_third_exam boolean,
+  p_fee_paid_date date,
+  p_upload_id uuid default null
+)
+returns table (registration_id uuid, previous_proof_path text)
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_registration public.exam_registrations%rowtype;
+  v_round public.exam_rounds%rowtype;
+  v_upload public.exam_payment_proof_uploads%rowtype;
+  v_exam_month date;
+  v_previous_proof_path text;
+  v_action text;
+begin
+  if p_fc_id is null or nullif(btrim(p_resident_id), '') is null then
+    raise exception using errcode = '22023', message = 'invalid_exam_actor';
+  end if;
+  if not coalesce(p_includes_primary_exam, false)
+     and not coalesce(p_is_third_exam, false) then
+    raise exception using errcode = '23514', message = 'exam_subject_required';
+  end if;
+  if p_fee_paid_date is null or p_fee_paid_date > current_date then
+    raise exception using errcode = '22023', message = 'invalid_fee_paid_date';
+  end if;
+
+  select round_row.* into v_round
+    from public.exam_rounds round_row
+   where round_row.id = p_round_id
+   for share;
+  if v_round.id is null
+     or v_round.exam_month is null
+     or v_round.exam_type is null
+     or v_round.exam_type not in ('life', 'nonlife') then
+    raise exception using errcode = '22023', message = 'invalid_exam_round';
+  end if;
+  if v_round.registration_deadline < current_date then
+    raise exception using errcode = '55000', message = 'exam_round_closed';
+  end if;
+  if not exists (
+    select 1 from public.exam_locations
+     where id = p_location_id and round_id = p_round_id
+  ) then
+    raise exception using errcode = '23503', message = 'invalid_exam_location';
+  end if;
+
+  v_exam_month := v_round.exam_month;
+  perform pg_advisory_xact_lock(
+    hashtextextended(p_fc_id::text || ':' || v_exam_month::text, 0)
+  );
+
+  select registration.* into v_registration
+    from public.exam_registrations registration
+   where registration.fc_id = p_fc_id
+     and registration.exam_month = v_exam_month
+     and registration.exam_type = v_round.exam_type
+     and registration.status in ('applied', 'confirmed', 'completed', 'no_show')
+   order by registration.created_at, registration.id
+   limit 1
+   for update;
+
+  if v_registration.id is not null
+     and (
+       v_registration.round_id <> p_round_id
+       or v_registration.status <> 'applied'
+       or coalesce(v_registration.is_confirmed, false)
+     ) then
+    raise exception using errcode = '23505', message = 'active_exam_month_already_registered';
+  end if;
+
+  if p_upload_id is null then
+    if v_registration.id is null
+       or not coalesce(v_registration.payment_proof_attached, false) then
+      raise exception using errcode = '23514', message = 'payment_proof_required';
+    end if;
+  else
+    select upload.* into v_upload
+      from public.exam_payment_proof_uploads upload
+     where upload.id = p_upload_id and upload.fc_id = p_fc_id
+     for update;
+    if v_upload.id is null then
+      raise exception using errcode = '22023', message = 'payment_proof_not_found';
+    end if;
+    if v_upload.status = 'pending' and v_upload.expires_at <= now() then
+      raise exception using errcode = '55000', message = 'payment_proof_expired';
+    end if;
+    if v_upload.status = 'attached' then
+      if v_registration.id is null or v_upload.registration_id <> v_registration.id then
+        raise exception using errcode = '55000', message = 'payment_proof_already_used';
+      end if;
+    elsif v_upload.status <> 'pending' then
+      raise exception using errcode = '55000', message = 'payment_proof_not_available';
+    end if;
+  end if;
+
+  if v_registration.id is null then
+    insert into public.exam_registrations (
+      resident_id, fc_id, round_id, location_id, exam_month, exam_type, status,
+      is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date,
+      payment_proof_attached, payment_proof_policy_version
+    ) values (
+      btrim(p_resident_id), p_fc_id, p_round_id, p_location_id, v_exam_month,
+      v_round.exam_type,
+      'applied', false, p_includes_primary_exam, p_is_third_exam,
+      p_fee_paid_date, p_upload_id is not null, 1
+    )
+    returning * into v_registration;
+    v_action := 'submitted';
+  else
+    update public.exam_registrations
+       set resident_id = btrim(p_resident_id),
+           location_id = p_location_id,
+           includes_primary_exam = p_includes_primary_exam,
+           is_third_exam = p_is_third_exam,
+           fee_paid_date = p_fee_paid_date,
+           payment_proof_attached = payment_proof_attached or p_upload_id is not null,
+           payment_proof_policy_version = 1
+     where id = v_registration.id
+    returning * into v_registration;
+    v_action := 'updated';
+  end if;
+
+  if p_upload_id is not null and v_upload.status = 'pending' then
+    select proof.storage_path into v_previous_proof_path
+      from public.exam_payment_proof_uploads proof
+     where proof.registration_id = v_registration.id and proof.status = 'attached'
+     for update;
+    update public.exam_payment_proof_uploads proof
+       set status = 'replaced'
+     where proof.registration_id = v_registration.id and proof.status = 'attached';
+    update public.exam_payment_proof_uploads proof
+       set status = 'attached', registration_id = v_registration.id, consumed_at = now()
+     where proof.id = p_upload_id;
+  end if;
+
+  insert into public.exam_registration_decision_events (
+    registration_id, action, from_status, to_status, actor_type, actor_fc_id_snapshot
+  ) values (
+    v_registration.id, v_action,
+    case when v_action = 'updated' then 'applied' else null end,
+    'applied', 'fc', p_fc_id
+  );
+
+  return query select v_registration.id, v_previous_proof_path;
+end;
+$$;
+
+revoke all on function public.submit_exam_registration_with_payment_proof_v2(
+  uuid, text, uuid, uuid, boolean, boolean, date, uuid
+) from public, anon, authenticated;
+grant execute on function public.submit_exam_registration_with_payment_proof_v2(
+  uuid, text, uuid, uuid, boolean, boolean, date, uuid
+) to service_role;
+
+create or replace function public.submit_exam_registration_with_payment_proof_v3(
+  p_fc_id uuid,
+  p_resident_id text,
+  p_round_id uuid,
+  p_location_id uuid,
+  p_includes_primary_exam boolean,
+  p_is_third_exam boolean,
+  p_fee_paid_date date,
+  p_upload_id uuid,
+  p_actor_type text,
+  p_actor_admin_id uuid,
+  p_actor_manager_id uuid,
+  p_actor_fc_id uuid
+)
+returns table (
+  registration_id uuid,
+  previous_proof_path text
+)
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_registration public.exam_registrations%rowtype;
+  v_round public.exam_rounds%rowtype;
+  v_upload public.exam_payment_proof_uploads%rowtype;
+  v_exam_month date;
+  v_previous_proof_path text;
+  v_action text;
+begin
+  if p_fc_id is null or nullif(btrim(p_resident_id), '') is null then
+    raise exception using errcode = '22023', message = 'invalid_exam_target';
+  end if;
+  if not exists (
+    select 1
+      from public.fc_profiles profile
+     where profile.id = p_fc_id
+       and profile.signup_completed = true
+       and profile.is_manager_referral_shadow = false
+       and regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g')
+         = regexp_replace(p_resident_id, '[^0-9]', '', 'g')
+       and (
+         p_actor_type = 'fc'
+         or (
+           coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+           and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+           and not exists (
+             select 1
+               from public.manager_accounts manager_target
+              where manager_target.active = true
+                and regexp_replace(coalesce(manager_target.phone, ''), '[^0-9]', '', 'g')
+                  = regexp_replace(p_resident_id, '[^0-9]', '', 'g')
+           )
+           and not exists (
+             select 1
+               from public.admin_accounts staff_target
+              where staff_target.active = true
+                and regexp_replace(coalesce(staff_target.phone, ''), '[^0-9]', '', 'g')
+                  = regexp_replace(p_resident_id, '[^0-9]', '', 'g')
+           )
+         )
+       )
+  ) then
+    raise exception using errcode = '42501', message = 'invalid_exam_target';
+  end if;
+  if not coalesce(p_includes_primary_exam, false)
+     and not coalesce(p_is_third_exam, false) then
+    raise exception using errcode = '23514', message = 'exam_subject_required';
+  end if;
+  if p_fee_paid_date is not null and p_fee_paid_date > current_date then
+    raise exception using errcode = '22023', message = 'invalid_fee_paid_date';
+  end if;
+
+  if p_actor_type = 'fc' then
+    if p_actor_fc_id is distinct from p_fc_id
+       or p_actor_admin_id is not null
+       or p_actor_manager_id is not null then
+      raise exception using errcode = '42501', message = 'invalid_exam_actor';
+    end if;
+  elsif p_actor_type = 'manager' then
+    if p_actor_manager_id is null
+       or p_actor_admin_id is not null
+       or p_actor_fc_id is not null
+       or not exists (
+         select 1
+           from public.manager_accounts manager
+          where manager.id = p_actor_manager_id
+            and manager.active = true
+       ) then
+      raise exception using errcode = '42501', message = 'invalid_exam_actor';
+    end if;
+  elsif p_actor_type in ('admin', 'developer') then
+    if p_actor_admin_id is null
+       or p_actor_manager_id is not null
+       or p_actor_fc_id is not null
+       or not exists (
+         select 1
+           from public.admin_accounts admin_row
+          where admin_row.id = p_actor_admin_id
+            and admin_row.active = true
+            and (
+              (p_actor_type = 'developer' and admin_row.staff_type = 'developer')
+              or (
+                p_actor_type = 'admin'
+                and coalesce(admin_row.staff_type, 'admin') = 'admin'
+              )
+            )
+       ) then
+      raise exception using errcode = '42501', message = 'invalid_exam_actor';
+    end if;
+  else
+    raise exception using errcode = '42501', message = 'invalid_exam_actor';
+  end if;
+
+  select round_row.*
+    into v_round
+    from public.exam_rounds round_row
+   where round_row.id = p_round_id
+   for share;
+
+  if v_round.id is null
+     or v_round.exam_month is null
+     or v_round.exam_type is null
+     or v_round.exam_type not in ('life', 'nonlife') then
+    raise exception using errcode = '22023', message = 'invalid_exam_round';
+  end if;
+  if v_round.registration_deadline < current_date then
+    raise exception using errcode = '55000', message = 'exam_round_closed';
+  end if;
+  if not exists (
+    select 1
+      from public.exam_locations location
+     where location.id = p_location_id
+       and location.round_id = p_round_id
+  ) then
+    raise exception using errcode = '23503', message = 'invalid_exam_location';
+  end if;
+
+  v_exam_month := v_round.exam_month;
+  perform pg_advisory_xact_lock(
+    hashtextextended(p_fc_id::text || ':' || v_exam_month::text, 0)
+  );
+
+  select registration.*
+    into v_registration
+    from public.exam_registrations registration
+   where registration.fc_id = p_fc_id
+     and registration.exam_month = v_exam_month
+     and registration.exam_type = v_round.exam_type
+     and registration.status in ('applied', 'confirmed', 'completed', 'no_show')
+   order by registration.created_at, registration.id
+   limit 1
+   for update;
+
+  if v_registration.id is not null
+     and (
+       v_registration.round_id <> p_round_id
+       or v_registration.status <> 'applied'
+       or coalesce(v_registration.is_confirmed, false)
+     ) then
+    raise exception using errcode = '23505', message = 'active_exam_month_already_registered';
+  end if;
+
+  if p_upload_id is null then
+    if v_registration.id is null
+       or not coalesce(v_registration.payment_proof_attached, false) then
+      raise exception using errcode = '23514', message = 'payment_proof_required';
+    end if;
+  else
+    select upload.*
+      into v_upload
+      from public.exam_payment_proof_uploads upload
+     where upload.id = p_upload_id
+       and upload.fc_id = p_fc_id
+     for update;
+
+    if v_upload.id is null then
+      raise exception using errcode = '22023', message = 'payment_proof_not_found';
+    end if;
+    if v_upload.status = 'pending' and v_upload.expires_at <= now() then
+      raise exception using errcode = '55000', message = 'payment_proof_expired';
+    end if;
+    if v_upload.status = 'attached' then
+      if v_registration.id is null
+         or v_upload.registration_id <> v_registration.id then
+        raise exception using errcode = '55000', message = 'payment_proof_already_used';
+      end if;
+    elsif v_upload.status <> 'pending' then
+      raise exception using errcode = '55000', message = 'payment_proof_not_available';
+    end if;
+  end if;
+
+  if v_registration.id is null then
+    insert into public.exam_registrations (
+      resident_id,
+      fc_id,
+      round_id,
+      location_id,
+      exam_month,
+      exam_type,
+      status,
+      is_confirmed,
+      includes_primary_exam,
+      is_third_exam,
+      fee_paid_date,
+      payment_proof_attached,
+      payment_proof_policy_version
+    ) values (
+      btrim(p_resident_id),
+      p_fc_id,
+      p_round_id,
+      p_location_id,
+      v_exam_month,
+      v_round.exam_type,
+      'applied',
+      false,
+      p_includes_primary_exam,
+      p_is_third_exam,
+      p_fee_paid_date,
+      p_upload_id is not null,
+      1
+    )
+    returning * into v_registration;
+    v_action := 'submitted';
+  else
+    update public.exam_registrations
+       set resident_id = btrim(p_resident_id),
+           location_id = p_location_id,
+           includes_primary_exam = p_includes_primary_exam,
+           is_third_exam = p_is_third_exam,
+           fee_paid_date = coalesce(v_registration.fee_paid_date, p_fee_paid_date),
+           payment_proof_attached =
+             payment_proof_attached or p_upload_id is not null,
+           payment_proof_policy_version = 1
+     where id = v_registration.id
+    returning * into v_registration;
+    v_action := 'updated';
+  end if;
+
+  if p_upload_id is not null and v_upload.status = 'pending' then
+    select proof.storage_path
+      into v_previous_proof_path
+      from public.exam_payment_proof_uploads proof
+     where proof.registration_id = v_registration.id
+       and proof.status = 'attached'
+     for update;
+
+    update public.exam_payment_proof_uploads proof
+       set status = 'replaced'
+     where proof.registration_id = v_registration.id
+       and proof.status = 'attached';
+
+    update public.exam_payment_proof_uploads proof
+       set status = 'attached',
+           registration_id = v_registration.id,
+           consumed_at = now()
+     where proof.id = p_upload_id;
+  end if;
+
+  insert into public.exam_registration_decision_events (
+    registration_id,
+    action,
+    from_status,
+    to_status,
+    actor_type,
+    actor_admin_id_snapshot,
+    actor_manager_id_snapshot,
+    actor_fc_id_snapshot,
+    target_fc_id_snapshot
+  ) values (
+    v_registration.id,
+    v_action,
+    case when v_action = 'updated' then 'applied' else null end,
+    'applied',
+    p_actor_type,
+    p_actor_admin_id,
+    p_actor_manager_id,
+    p_actor_fc_id,
+    p_fc_id
+  );
+
+  return query
+  select v_registration.id, v_previous_proof_path;
+end;
+$$;
+
+revoke all on function public.submit_exam_registration_with_payment_proof_v3(
+  uuid, text, uuid, uuid, boolean, boolean, date, uuid, text, uuid, uuid, uuid
+) from public, anon, authenticated;
+grant execute on function public.submit_exam_registration_with_payment_proof_v3(
+  uuid, text, uuid, uuid, boolean, boolean, date, uuid, text, uuid, uuid, uuid
+) to service_role;
+-- END 20260804081357_exam_round_month_for_tbd canonical parity block
 
 create or replace function public.validate_messenger_attachment_intents_v2(
   p_actor_id uuid,
@@ -9256,7 +10419,10 @@ begin
    where round_row.id = p_round_id
    for share;
 
-  if v_round.id is null or v_round.exam_date is null then
+  if v_round.id is null
+     or v_round.exam_month is null
+     or v_round.exam_type is null
+     or v_round.exam_type not in ('life', 'nonlife') then
     raise exception using errcode = '22023', message = 'invalid_exam_round';
   end if;
   if v_round.registration_deadline < current_date then
@@ -9271,7 +10437,7 @@ begin
     raise exception using errcode = '23503', message = 'invalid_exam_location';
   end if;
 
-  v_exam_month := date_trunc('month', v_round.exam_date)::date;
+  v_exam_month := v_round.exam_month;
   perform pg_advisory_xact_lock(
     hashtextextended(p_fc_id::text || ':' || v_exam_month::text, 0)
   );
@@ -9281,6 +10447,7 @@ begin
     from public.exam_registrations registration
    where registration.fc_id = p_fc_id
      and registration.exam_month = v_exam_month
+     and registration.exam_type = v_round.exam_type
      and registration.status in ('applied', 'confirmed', 'completed', 'no_show')
    order by registration.created_at, registration.id
    limit 1
@@ -9331,6 +10498,7 @@ begin
       round_id,
       location_id,
       exam_month,
+      exam_type,
       status,
       is_confirmed,
       includes_primary_exam,
@@ -9344,6 +10512,7 @@ begin
       p_round_id,
       p_location_id,
       v_exam_month,
+      v_round.exam_type,
       'applied',
       false,
       p_includes_primary_exam,
@@ -10867,3 +12036,894 @@ revoke all on function public.reserve_messenger_attachment_upload_batch_v2(
 grant execute on function public.reserve_messenger_attachment_upload_batch_v2(
   uuid, text, uuid, text, jsonb, jsonb
 ) to service_role;
+
+create index if not exists idx_messages_live_content_trgm
+  on public.messages using gin (content extensions.gin_trgm_ops)
+  where deleted_at is null;
+
+-- Keep direct-message persistence and room-mute enforcement in one database
+-- transaction. The preference lookup is deliberately fail-closed for the
+-- notification side only: an unreadable/missing preference relation suppresses
+-- the notification row, while the already-validated message remains committed.
+--
+-- The notification INSERTs in the three canonical direct-message RPCs all pass
+-- through the trigger below. A transaction-local suppression counter lets the
+-- existing RPC integrity checks distinguish an intentionally muted recipient
+-- from an unexpected failure to persist an unmuted notification.
+
+create or replace function public.garamin_direct_room_notification_allowed_v1(
+  p_recipient_actor_id uuid,
+  p_recipient_role text,
+  p_room_key text
+)
+returns boolean
+language plpgsql
+stable
+security invoker
+set search_path = public, pg_temp
+as $$
+begin
+  if p_recipient_actor_id is null
+     or p_recipient_role not in ('fc', 'manager', 'admin')
+     or p_room_key is null
+     or p_room_key !~ '^garamin:direct-thread:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
+    return false;
+  end if;
+
+  return not exists (
+    select 1
+      from public.messenger_room_notification_preferences preference
+     where preference.actor_id = p_recipient_actor_id
+       and preference.actor_role = p_recipient_role
+       and preference.room_key = p_room_key
+       and preference.muted = true
+  );
+exception
+  -- Preference availability must never reopen notifications. This containment
+  -- also preserves the message transaction when the preference schema/read is
+  -- temporarily unavailable. No error details are logged because they may
+  -- contain identifiers.
+  when others then
+    return false;
+end;
+$$;
+
+revoke all on function public.garamin_direct_room_notification_allowed_v1(
+  uuid, text, text
+) from public, anon, authenticated;
+grant execute on function public.garamin_direct_room_notification_allowed_v1(
+  uuid, text, text
+) to service_role;
+
+create or replace function public.enforce_garamin_direct_room_mute_on_notification_v1()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_message_id uuid;
+  v_thread_id uuid;
+  v_suppressed integer;
+begin
+  if new.category is distinct from 'message'
+     or coalesce(new.target ->> 'kind', '') <> 'garamin_direct_chat' then
+    return new;
+  end if;
+
+  -- Preserve the original idempotent replay result. A notification that was
+  -- durably created by an earlier unmuted call is not a new notification and
+  -- must remain eligible for the existing ON CONFLICT replay path.
+  if exists (
+    select 1
+      from public.notifications notification
+     where notification.delivery_key = new.delivery_key
+  ) then
+    return new;
+  end if;
+
+  begin
+    if coalesce(new.delivery_key, '') !~
+       '^direct_message:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+      raise exception 'direct_notification_delivery_key_unresolved';
+    end if;
+
+    v_message_id := split_part(new.delivery_key, ':', 2)::uuid;
+    select message.thread_id
+      into v_thread_id
+      from public.messages message
+     where message.id = v_message_id;
+
+    if v_thread_id is null then
+      raise exception 'direct_notification_thread_unresolved';
+    end if;
+
+    if public.garamin_direct_room_notification_allowed_v1(
+      new.recipient_actor_id,
+      new.recipient_role,
+      'garamin:direct-thread:' || v_thread_id::text
+    ) then
+      return new;
+    end if;
+  exception
+    -- Any resolution or preference-read failure is notification-fail-closed.
+    -- Returning null from a BEFORE INSERT trigger skips only this notification;
+    -- the surrounding RPC transaction can still commit its message row.
+    when others then
+      null;
+  end;
+
+  begin
+    v_suppressed := coalesce(
+      nullif(
+        current_setting(
+          'app.garamin_direct_room_notifications_suppressed',
+          true
+        ),
+        ''
+      )::integer,
+      0
+    );
+  exception
+    when others then
+      v_suppressed := 0;
+  end;
+
+  perform set_config(
+    'app.garamin_direct_room_notifications_suppressed',
+    (v_suppressed + 1)::text,
+    true
+  );
+  return null;
+end;
+$$;
+
+revoke all on function public.enforce_garamin_direct_room_mute_on_notification_v1()
+  from public, anon, authenticated;
+grant execute on function public.enforce_garamin_direct_room_mute_on_notification_v1()
+  to service_role;
+
+drop trigger if exists notifications_garamin_direct_room_mute_v1
+  on public.notifications;
+create trigger notifications_garamin_direct_room_mute_v1
+  before insert on public.notifications
+  for each row
+  execute function public.enforce_garamin_direct_room_mute_on_notification_v1();
+
+-- Patch only the three current service-role RPCs. Each replacement is guarded
+-- so a drifted predecessor fails the migration rather than silently shipping a
+-- function whose notification integrity check still rolls back muted messages.
+do $migration$
+declare
+  v_definition text;
+  v_original text;
+  v_step text;
+begin
+  select pg_get_functiondef(
+    'public.send_garamin_direct_message_with_notification(uuid,uuid,text,text,uuid,uuid,text)'::regprocedure
+  ) into v_definition;
+  v_original := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'  if v_identity.resolved_sender_role = \'fc\'\n     and v_identity.resolved_counterparty_role = \'admin\' then',
+    E'  perform set_config(\'app.garamin_direct_room_notifications_suppressed\', \'0\', true);\n\n  if v_identity.resolved_sender_role = \'fc\'\n     and v_identity.resolved_counterparty_role = \'admin\' then'
+  );
+  if v_definition = v_original then
+    raise exception 'direct_text_room_mute_reset_source_drift';
+  end if;
+  v_step := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'  if jsonb_array_length(coalesce(v_notification_rows, \'[]\'::jsonb)) = 0 then\n    raise exception \'direct_message_notification_not_persisted\';\n  end if;',
+    E'  if jsonb_array_length(coalesce(v_notification_rows, \'[]\'::jsonb)) = 0\n     and coalesce(nullif(current_setting(\'app.garamin_direct_room_notifications_suppressed\', true), \'\')::integer, 0) = 0 then\n    raise exception \'direct_message_notification_not_persisted\';\n  end if;'
+  );
+  if v_definition = v_step then
+    raise exception 'direct_text_room_mute_patch_source_drift';
+  end if;
+  execute v_definition;
+
+  select pg_get_functiondef(
+    'public.commit_garamin_direct_message_with_attachments_v2(uuid,uuid,text,text,uuid,uuid,text,uuid,text,uuid[])'::regprocedure
+  ) into v_definition;
+  v_original := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'  if v_identity.resolved_sender_role = \'fc\'\n     and v_identity.resolved_counterparty_role = \'admin\' then',
+    E'  perform set_config(\'app.garamin_direct_room_notifications_suppressed\', \'0\', true);\n\n  if v_identity.resolved_sender_role = \'fc\'\n     and v_identity.resolved_counterparty_role = \'admin\' then'
+  );
+  if v_definition = v_original then
+    raise exception 'direct_attachment_room_mute_reset_source_drift';
+  end if;
+  v_step := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'  if cardinality(v_notification_ids) < 1 then\n    raise exception \'direct_message_notification_not_persisted\';\n  end if;',
+    E'  if cardinality(v_notification_ids) < 1\n     and coalesce(nullif(current_setting(\'app.garamin_direct_room_notifications_suppressed\', true), \'\')::integer, 0) = 0 then\n    raise exception \'direct_message_notification_not_persisted\';\n  end if;'
+  );
+  if v_definition = v_step then
+    raise exception 'direct_attachment_room_mute_patch_source_drift';
+  end if;
+  execute v_definition;
+
+  select pg_get_functiondef(
+    'public.commit_garamin_direct_broadcast_with_attachments_v2(uuid[],uuid[],uuid,text,uuid,text,uuid[])'::regprocedure
+  ) into v_definition;
+  v_original := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'  with inserted as (\n    insert into public.notifications (',
+    E'  perform set_config(\'app.garamin_direct_room_notifications_suppressed\', \'0\', true);\n\n  with inserted as (\n    insert into public.notifications ('
+  );
+  if v_definition = v_original then
+    raise exception 'direct_broadcast_room_mute_reset_source_drift';
+  end if;
+  v_step := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'  if cardinality(v_notification_ids) <> v_count then\n    raise exception \'direct_message_notification_not_persisted\';\n  end if;',
+    E'  if cardinality(v_notification_ids)\n       + coalesce(nullif(current_setting(\'app.garamin_direct_room_notifications_suppressed\', true), \'\')::integer, 0)\n       <> v_count then\n    raise exception \'direct_message_notification_not_persisted\';\n  end if;'
+  );
+  if v_definition = v_step then
+    raise exception 'direct_broadcast_room_mute_patch_source_drift';
+  end if;
+  execute v_definition;
+end;
+$migration$;
+
+-- CREATE OR REPLACE keeps prior ACLs on existing functions, but repeat the
+-- boundary explicitly so migration review does not depend on inherited state.
+revoke all on function public.send_garamin_direct_message_with_notification(
+  uuid, uuid, text, text, uuid, uuid, text
+) from public, anon, authenticated;
+grant execute on function public.send_garamin_direct_message_with_notification(
+  uuid, uuid, text, text, uuid, uuid, text
+) to service_role;
+
+revoke all on function public.commit_garamin_direct_message_with_attachments_v2(
+  uuid, uuid, text, text, uuid, uuid, text, uuid, text, uuid[]
+) from public, anon, authenticated;
+grant execute on function public.commit_garamin_direct_message_with_attachments_v2(
+  uuid, uuid, text, text, uuid, uuid, text, uuid, text, uuid[]
+) to service_role;
+
+revoke all on function public.commit_garamin_direct_broadcast_with_attachments_v2(
+  uuid[], uuid[], uuid, text, uuid, text, uuid[]
+) from public, anon, authenticated;
+grant execute on function public.commit_garamin_direct_broadcast_with_attachments_v2(
+  uuid[], uuid[], uuid, text, uuid, text, uuid[]
+) to service_role;
+-- Internal Messenger V2 list summaries are computed in Postgres so the Edge
+-- function never downloads unbounded message history or attachment batches.
+create index if not exists idx_messages_live_sender_receiver_created
+  on public.messages (sender_id, receiver_id, created_at desc, id desc)
+  where deleted_at is null;
+
+create index if not exists idx_messages_live_unread_receiver_sender
+  on public.messages (receiver_id, sender_id, created_at desc, id desc)
+  where deleted_at is null and is_read = false;
+
+create or replace function public.get_internal_messenger_summaries_v1(
+  p_viewer_id text,
+  p_target_ids text[]
+)
+returns table (
+  target_id text,
+  last_message text,
+  last_time timestamptz,
+  unread_count bigint
+)
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  with targets as (
+    select distinct btrim(raw_target.target_id) as target_id
+    from unnest(coalesce(p_target_ids, array[]::text[])) as raw_target(target_id)
+    where btrim(raw_target.target_id) <> ''
+  )
+  select
+    target.target_id,
+    latest.last_message,
+    latest.created_at as last_time,
+    coalesce(unread.unread_count, 0)::bigint as unread_count
+  from targets as target
+  left join lateral (
+    select
+      coalesce(
+        nullif(btrim(message.content), ''),
+        nullif(btrim(message.file_name), ''),
+        case
+          when message.attachment_batch_id is not null then '첨부파일'
+          else null
+        end
+      ) as last_message,
+      message.created_at
+    from (
+      select outbound.*
+      from public.messages as outbound
+      where outbound.sender_id = p_viewer_id
+        and outbound.receiver_id = target.target_id
+        and outbound.deleted_at is null
+
+      union all
+
+      select inbound.*
+      from public.messages as inbound
+      where inbound.sender_id = target.target_id
+        and inbound.receiver_id = p_viewer_id
+        and inbound.deleted_at is null
+    ) as message
+    order by message.created_at desc, message.id desc
+    limit 1
+  ) as latest on true
+  left join lateral (
+    select count(*)::bigint as unread_count
+    from public.messages as unread_message
+    where unread_message.receiver_id = p_viewer_id
+      and unread_message.sender_id = target.target_id
+      and unread_message.is_read = false
+      and unread_message.deleted_at is null
+  ) as unread on true
+  order by target.target_id;
+$$;
+
+revoke all on function public.get_internal_messenger_summaries_v1(text, text[])
+  from public, anon, authenticated;
+grant execute on function public.get_internal_messenger_summaries_v1(text, text[])
+  to service_role;
+create or replace function public.list_internal_chat_page_v1(
+  p_viewer_id text,
+  p_include_all_completed_fc boolean,
+  p_limit integer,
+  p_cursor_latest_at timestamptz default null,
+  p_cursor_fc_id uuid default null
+)
+returns table (
+  fc_id uuid,
+  name text,
+  phone text,
+  affiliation text,
+  last_message text,
+  last_time timestamptz,
+  unread_count bigint,
+  total_unread bigint,
+  latest_at timestamptz
+)
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  with participants as (
+    select
+      profile.id as fc_id,
+      coalesce(nullif(btrim(profile.name), ''), regexp_replace(profile.phone, '[^0-9]', '', 'g')) as name,
+      regexp_replace(profile.phone, '[^0-9]', '', 'g') as phone,
+      profile.affiliation
+    from public.fc_profiles as profile
+    where profile.signup_completed = true
+      and char_length(regexp_replace(profile.phone, '[^0-9]', '', 'g')) = 11
+      and position('설계매니저' in coalesce(profile.affiliation, '')) = 0
+      and (
+        p_include_all_completed_fc
+        or regexp_replace(coalesce(profile.affiliation, ''), '[[:space:]]+', '', 'g')
+          ~ '([0-9]+본부|[0-9]+팀|직할)'
+      )
+  ), summaries as (
+    select
+      participant.fc_id,
+      participant.name,
+      participant.phone,
+      participant.affiliation,
+      latest.last_message,
+      latest.created_at as last_time,
+      coalesce(unread.unread_count, 0)::bigint as unread_count,
+      coalesce(latest.created_at, 'epoch'::timestamptz) as latest_at
+    from participants as participant
+    left join lateral (
+      select
+        coalesce(
+          nullif(btrim(message.content), ''),
+          nullif(btrim(message.file_name), ''),
+          case when message.attachment_batch_id is not null then '첨부파일' else null end
+        ) as last_message,
+        message.created_at
+      from (
+        select outbound.*
+        from public.messages as outbound
+        where outbound.sender_id = p_viewer_id
+          and outbound.receiver_id = participant.phone
+          and outbound.deleted_at is null
+        union all
+        select inbound.*
+        from public.messages as inbound
+        where inbound.sender_id = participant.phone
+          and inbound.receiver_id = p_viewer_id
+          and inbound.deleted_at is null
+      ) as message
+      order by message.created_at desc, message.id desc
+      limit 1
+    ) as latest on true
+    left join lateral (
+      select pg_catalog.count(*)::bigint as unread_count
+      from public.messages as unread_message
+      where unread_message.receiver_id = p_viewer_id
+        and unread_message.sender_id = participant.phone
+        and unread_message.is_read = false
+        and unread_message.deleted_at is null
+    ) as unread on true
+  ), authorized_page as (
+    select
+      summary.*,
+      pg_catalog.sum(summary.unread_count) over ()::bigint as total_unread
+    from summaries as summary
+  )
+  select
+    page.fc_id,
+    page.name,
+    page.phone,
+    page.affiliation,
+    page.last_message,
+    page.last_time,
+    page.unread_count,
+    page.total_unread,
+    page.latest_at
+  from authorized_page as page
+  where p_cursor_latest_at is null
+    or page.latest_at < p_cursor_latest_at
+    or (
+      page.latest_at = p_cursor_latest_at
+      and page.fc_id < p_cursor_fc_id
+    )
+  order by page.latest_at desc, page.fc_id desc
+  limit least(greatest(p_limit, 1), 10000);
+$$;
+
+revoke all on function public.list_internal_chat_page_v1(text, boolean, integer, timestamptz, uuid)
+  from public, anon, authenticated;
+grant execute on function public.list_internal_chat_page_v1(text, boolean, integer, timestamptz, uuid)
+  to service_role;
+-- Migration 20260808131459: personal admin direct threads v1.
+-- GaramIn direct-message targets now bind plain administrators to an exact
+-- active actor. The nullable admin tuple remains only for legacy shared-room
+-- compatibility; new callers use the non-null actor tuple.
+
+alter table public.garamin_direct_threads
+  drop constraint if exists garamin_direct_threads_counterparty_shape_check;
+
+alter table public.garamin_direct_threads
+  add constraint garamin_direct_threads_counterparty_shape_check check (
+    counterparty_role = 'admin'
+    or (
+      counterparty_role in ('manager', 'developer')
+      and counterparty_actor_id is not null
+    )
+  );
+
+create or replace function public.assert_garamin_direct_message_identity_v2(
+  p_conversation_id uuid,
+  p_sender_id text,
+  p_receiver_id text,
+  p_sender_actor_id uuid,
+  p_receiver_actor_id uuid
+)
+returns table (
+  resolved_thread_id uuid,
+  resolved_legacy_conversation_id uuid,
+  resolved_fc_id uuid,
+  resolved_fc_phone text,
+  resolved_counterparty_role text,
+  resolved_counterparty_actor_id uuid,
+  resolved_counterparty_phone text,
+  resolved_sender_role text
+)
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_thread public.garamin_direct_threads%rowtype;
+  v_fc_id uuid;
+  v_fc_phone text;
+  v_counterparty_phone text;
+  v_requested_counterparty_role text;
+  v_requested_counterparty_actor_id uuid;
+begin
+  if p_conversation_id is null or p_sender_actor_id is null then
+    raise exception 'invalid_direct_message_payload';
+  end if;
+
+  select thread.*
+    into v_thread
+    from public.garamin_direct_threads thread
+   where thread.id = p_conversation_id;
+
+  if v_thread.id is null then
+    if exists (
+      select 1
+        from public.admin_accounts account
+       where account.id = p_sender_actor_id
+         and account.active = true
+         and account.staff_type = 'developer'
+         and regexp_replace(account.phone, '[^0-9]', '', 'g') = p_sender_id
+    ) then
+      v_requested_counterparty_role := 'developer';
+      v_requested_counterparty_actor_id := p_sender_actor_id;
+    elsif exists (
+      select 1
+        from public.admin_accounts account
+       where account.id = p_sender_actor_id
+         and account.active = true
+         and coalesce(account.staff_type, 'admin') <> 'developer'
+         and regexp_replace(account.phone, '[^0-9]', '', 'g') = p_sender_id
+    ) then
+      v_requested_counterparty_role := 'admin';
+      v_requested_counterparty_actor_id := p_sender_actor_id;
+    elsif exists (
+      select 1
+        from public.manager_accounts account
+       where account.id = p_sender_actor_id
+         and account.active = true
+         and regexp_replace(account.phone, '[^0-9]', '', 'g') = p_sender_id
+    ) then
+      v_requested_counterparty_role := 'manager';
+      v_requested_counterparty_actor_id := p_sender_actor_id;
+    elsif exists (
+      select 1
+        from public.admin_accounts account
+       where account.id = p_receiver_actor_id
+         and account.active = true
+         and account.staff_type = 'developer'
+         and regexp_replace(account.phone, '[^0-9]', '', 'g') = p_receiver_id
+    ) then
+      v_requested_counterparty_role := 'developer';
+      v_requested_counterparty_actor_id := p_receiver_actor_id;
+    elsif exists (
+      select 1
+        from public.admin_accounts account
+       where account.id = p_receiver_actor_id
+         and account.active = true
+         and coalesce(account.staff_type, 'admin') <> 'developer'
+         and regexp_replace(account.phone, '[^0-9]', '', 'g') = p_receiver_id
+    ) then
+      v_requested_counterparty_role := 'admin';
+      v_requested_counterparty_actor_id := p_receiver_actor_id;
+    elsif exists (
+      select 1
+        from public.manager_accounts account
+       where account.id = p_receiver_actor_id
+         and account.active = true
+         and regexp_replace(account.phone, '[^0-9]', '', 'g') = p_receiver_id
+    ) then
+      v_requested_counterparty_role := 'manager';
+      v_requested_counterparty_actor_id := p_receiver_actor_id;
+    else
+      v_requested_counterparty_role := 'admin';
+      v_requested_counterparty_actor_id := null;
+    end if;
+
+    if not exists (
+      select 1
+        from public.garamin_direct_conversations conversation
+       where conversation.id = p_conversation_id
+    ) then
+      raise exception 'direct_conversation_not_found';
+    end if;
+
+    insert into public.garamin_direct_threads (
+      legacy_conversation_id,
+      counterparty_role,
+      counterparty_actor_id
+    )
+    values (
+      p_conversation_id,
+      v_requested_counterparty_role,
+      v_requested_counterparty_actor_id
+    )
+    on conflict (
+      legacy_conversation_id,
+      counterparty_role,
+      counterparty_actor_id
+    ) do update
+      set updated_at = now()
+    returning * into v_thread;
+  end if;
+  if v_thread.id is null then
+    raise exception 'direct_conversation_not_found';
+  end if;
+
+  select profile.id, regexp_replace(profile.phone, '[^0-9]', '', 'g')
+    into v_fc_id, v_fc_phone
+    from public.garamin_direct_conversations conversation
+    join public.fc_profiles profile
+      on profile.id = conversation.fc_id
+     and profile.signup_completed = true
+     and coalesce(profile.is_manager_referral_shadow, false) = false
+     and coalesce(profile.affiliation, '') not ilike 'request_board_designer:%'
+     and replace(coalesce(profile.affiliation, ''), ' ', '') not like '%설계매니저%'
+   where conversation.id = v_thread.legacy_conversation_id;
+  if v_fc_id is null or length(v_fc_phone) <> 11 then
+    raise exception 'direct_conversation_not_found';
+  end if;
+
+  if v_thread.counterparty_role = 'admin' then
+    if v_thread.counterparty_actor_id is null then
+      v_counterparty_phone := null;
+    else
+      select regexp_replace(account.phone, '[^0-9]', '', 'g')
+        into v_counterparty_phone
+        from public.admin_accounts account
+       where account.id = v_thread.counterparty_actor_id
+         and account.active = true
+         and coalesce(account.staff_type, 'admin') <> 'developer';
+      if not found or length(v_counterparty_phone) <> 11 then
+        raise exception 'direct_message_recipient_not_found';
+      end if;
+    end if;
+  elsif v_thread.counterparty_role = 'developer' then
+    select regexp_replace(account.phone, '[^0-9]', '', 'g')
+      into v_counterparty_phone
+      from public.admin_accounts account
+     where account.id = v_thread.counterparty_actor_id
+       and account.active = true
+       and account.staff_type = 'developer';
+    if not found or length(v_counterparty_phone) <> 11 then
+      raise exception 'direct_message_recipient_not_found';
+    end if;
+  elsif v_thread.counterparty_role = 'manager' then
+    select regexp_replace(account.phone, '[^0-9]', '', 'g')
+      into v_counterparty_phone
+      from public.manager_accounts account
+     where account.id = v_thread.counterparty_actor_id
+       and account.active = true;
+    if not found or length(v_counterparty_phone) <> 11 then
+      raise exception 'direct_message_recipient_not_found';
+    end if;
+  else
+    raise exception 'direct_message_identity_mismatch';
+  end if;
+
+  if p_sender_id = v_fc_phone and p_sender_actor_id = v_fc_id then
+    if v_thread.counterparty_role = 'admin'
+       and v_thread.counterparty_actor_id is null then
+      if p_receiver_id is distinct from 'admin'
+         or p_receiver_actor_id is not null
+         or not exists (
+           select 1
+             from public.admin_accounts account
+            where account.active = true
+              and coalesce(account.staff_type, 'admin') <> 'developer'
+         ) then
+        raise exception 'direct_message_actor_mismatch';
+      end if;
+    elsif p_receiver_id is distinct from v_counterparty_phone
+       or p_receiver_actor_id is distinct from v_thread.counterparty_actor_id then
+      raise exception 'direct_message_actor_mismatch';
+    end if;
+    resolved_sender_role := 'fc';
+  elsif p_receiver_id = v_fc_phone and p_receiver_actor_id = v_fc_id then
+    if v_thread.counterparty_role = 'admin'
+       and v_thread.counterparty_actor_id is null then
+      if p_sender_id is distinct from 'admin'
+         or not exists (
+           select 1
+             from public.admin_accounts account
+            where account.id = p_sender_actor_id
+              and account.active = true
+              and coalesce(account.staff_type, 'admin') <> 'developer'
+         ) then
+        raise exception 'direct_message_actor_mismatch';
+      end if;
+      resolved_sender_role := 'admin';
+    elsif v_thread.counterparty_role in ('admin', 'developer') then
+      if p_sender_actor_id is distinct from v_thread.counterparty_actor_id
+         or p_sender_id is distinct from v_counterparty_phone then
+        raise exception 'direct_message_actor_mismatch';
+      end if;
+      resolved_sender_role := 'admin';
+    else
+      if p_sender_actor_id is distinct from v_thread.counterparty_actor_id
+         or p_sender_id is distinct from v_counterparty_phone then
+        raise exception 'direct_message_actor_mismatch';
+      end if;
+      resolved_sender_role := 'manager';
+    end if;
+  else
+    raise exception 'direct_message_identity_mismatch';
+  end if;
+
+  resolved_thread_id := v_thread.id;
+  resolved_legacy_conversation_id := v_thread.legacy_conversation_id;
+  resolved_fc_id := v_fc_id;
+  resolved_fc_phone := v_fc_phone;
+  resolved_counterparty_role := v_thread.counterparty_role;
+  resolved_counterparty_actor_id := v_thread.counterparty_actor_id;
+  resolved_counterparty_phone := v_counterparty_phone;
+  return next;
+end;
+$$;
+
+revoke all on function public.assert_garamin_direct_message_identity_v2(
+  uuid, text, text, uuid, uuid
+) from public, anon, authenticated;
+grant execute on function public.assert_garamin_direct_message_identity_v2(
+  uuid, text, text, uuid, uuid
+) to service_role;
+
+-- Preserve the current RPC implementations (including atomic room-mute
+-- accounting) and narrow only the shared-admin branches. Personal admin
+-- threads use the existing single-recipient branch.
+do $migration$
+declare
+  v_definition text;
+  v_original text;
+  v_step text;
+begin
+  select pg_get_functiondef(
+    'public.send_garamin_direct_message_with_notification(uuid,uuid,text,text,uuid,uuid,text)'::regprocedure
+  ) into v_definition;
+  v_original := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'and v_identity.resolved_counterparty_role = \'admin\' then',
+    E'and v_identity.resolved_counterparty_role = \'admin\'\n     and v_identity.resolved_counterparty_actor_id is null then'
+  );
+  if v_definition = v_original then
+    raise exception 'personal_admin_direct_text_source_drift';
+  end if;
+  execute v_definition;
+
+  select pg_get_functiondef(
+    'public.commit_garamin_direct_message_with_attachments_v2(uuid,uuid,text,text,uuid,uuid,text,uuid,text,uuid[])'::regprocedure
+  ) into v_definition;
+  v_original := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'and v_identity.resolved_counterparty_role = \'admin\' then',
+    E'and v_identity.resolved_counterparty_role = \'admin\'\n     and v_identity.resolved_counterparty_actor_id is null then'
+  );
+  if v_definition = v_original then
+    raise exception 'personal_admin_direct_attachment_source_drift';
+  end if;
+  execute v_definition;
+
+  select pg_get_functiondef(
+    'public.commit_garamin_direct_broadcast_with_attachments_v2(uuid[],uuid[],uuid,text,uuid,text,uuid[])'::regprocedure
+  ) into v_definition;
+  v_original := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'  v_sender_id := case\n    when v_sender_staff_type = \'developer\' then v_sender_phone\n    else \'admin\'\n  end;',
+    E'  v_sender_id := v_sender_phone;'
+  );
+  if v_definition = v_original then
+    raise exception 'personal_admin_direct_broadcast_sender_source_drift';
+  end if;
+  v_step := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'        case\n          when v_sender_staff_type = \'developer\' then p_sender_actor_id\n          else null\n        end',
+    E'        p_sender_actor_id'
+  );
+  if v_definition = v_step then
+    raise exception 'personal_admin_direct_broadcast_actor_source_drift';
+  end if;
+  v_step := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'    elsif v_thread.counterparty_role <> \'admin\'\n       or v_thread.counterparty_actor_id is not null then',
+    E'    elsif v_thread.counterparty_role <> \'admin\'\n       or v_thread.counterparty_actor_id is distinct from p_sender_actor_id then'
+  );
+  if v_definition = v_step then
+    raise exception 'personal_admin_direct_broadcast_acl_source_drift';
+  end if;
+  execute v_definition;
+
+  select pg_get_functiondef(
+    'public.reserve_messenger_attachment_upload_batch_v2(uuid,text,uuid,text,jsonb,jsonb)'::regprocedure
+  ) into v_definition;
+  v_original := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'        v_requested_counterparty_role := \'admin\';\n        v_requested_counterparty_actor_id := null;',
+    E'        v_requested_counterparty_role := \'admin\';\n        v_requested_counterparty_actor_id := p_actor_id;'
+  );
+  if v_definition = v_original then
+    raise exception 'personal_admin_attachment_reservation_actor_source_drift';
+  end if;
+  v_step := v_definition;
+  v_definition := replace(
+    v_definition,
+    E'      elsif v_thread.counterparty_role <> \'admin\'\n         or v_thread.counterparty_actor_id is not null then',
+    E'      elsif v_thread.counterparty_role <> \'admin\'\n         or v_thread.counterparty_actor_id is distinct from p_actor_id then'
+  );
+  if v_definition = v_step then
+    raise exception 'personal_admin_attachment_reservation_acl_source_drift';
+  end if;
+  execute v_definition;
+end;
+$migration$;
+
+revoke all on function public.send_garamin_direct_message_with_notification(
+  uuid, uuid, text, text, uuid, uuid, text
+) from public, anon, authenticated;
+grant execute on function public.send_garamin_direct_message_with_notification(
+  uuid, uuid, text, text, uuid, uuid, text
+) to service_role;
+
+revoke all on function public.commit_garamin_direct_message_with_attachments_v2(
+  uuid, uuid, text, text, uuid, uuid, text, uuid, text, uuid[]
+) from public, anon, authenticated;
+grant execute on function public.commit_garamin_direct_message_with_attachments_v2(
+  uuid, uuid, text, text, uuid, uuid, text, uuid, text, uuid[]
+) to service_role;
+
+revoke all on function public.commit_garamin_direct_broadcast_with_attachments_v2(
+  uuid[], uuid[], uuid, text, uuid, text, uuid[]
+) from public, anon, authenticated;
+grant execute on function public.commit_garamin_direct_broadcast_with_attachments_v2(
+  uuid[], uuid[], uuid, text, uuid, text, uuid[]
+) to service_role;
+
+revoke all on function public.reserve_messenger_attachment_upload_batch_v2(
+  uuid, text, uuid, text, jsonb, jsonb
+) from public, anon, authenticated;
+grant execute on function public.reserve_messenger_attachment_upload_batch_v2(
+  uuid, text, uuid, text, jsonb, jsonb
+) to service_role;
+-- 20260808151912_atomic_messenger_room_preference_patch_v1.sql
+create or replace function public.patch_messenger_room_preference_v1(
+  p_actor_id uuid,
+  p_actor_role text,
+  p_room_key text,
+  p_action text,
+  p_value boolean default null,
+  p_updated_at timestamptz default now()
+)
+returns void
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if p_actor_role not in ('fc', 'manager', 'admin') then
+    raise exception 'invalid_actor_role';
+  end if;
+  if p_action not in ('set_room', 'set_room_pinned', 'leave_room') then
+    raise exception 'invalid_room_preference_action';
+  end if;
+  if p_action in ('set_room', 'set_room_pinned') and p_value is null then
+    raise exception 'missing_room_preference_value';
+  end if;
+  if p_room_key !~ '^garamin:(direct-thread|group):[0-9a-f-]{36}$' then
+    raise exception 'invalid_room_key';
+  end if;
+
+  insert into public.messenger_room_notification_preferences as preference (
+    actor_id, actor_role, room_key, muted, pinned_at, left_at, updated_at
+  ) values (
+    p_actor_id,
+    p_actor_role,
+    p_room_key,
+    case when p_action = 'set_room' then p_value else false end,
+    case when p_action = 'set_room_pinned' and p_value then p_updated_at else null end,
+    case when p_action = 'leave_room' then p_updated_at else null end,
+    p_updated_at
+  )
+  on conflict (actor_id, actor_role, room_key) do update
+  set muted = case when p_action = 'set_room' then excluded.muted else preference.muted end,
+      pinned_at = case
+        when p_action = 'set_room_pinned' then excluded.pinned_at
+        when p_action = 'leave_room' then null
+        else preference.pinned_at
+      end,
+      left_at = case when p_action = 'leave_room' then excluded.left_at else preference.left_at end,
+      updated_at = excluded.updated_at;
+end;
+$$;
+
+revoke all on function public.patch_messenger_room_preference_v1(uuid, text, text, text, boolean, timestamptz)
+  from public, anon, authenticated;
+grant execute on function public.patch_messenger_room_preference_v1(uuid, text, text, text, boolean, timestamptz)
+  to service_role;

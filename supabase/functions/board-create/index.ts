@@ -32,6 +32,7 @@ type BoardPushDeliveryResult = Readonly<{
   targetRole: BoardPushTargetRole;
   ok: boolean;
   pushStatus: 'accepted' | 'no_registered_device' | 'provider_rejected';
+  providerResponseStatus: number | null;
   sent: number;
   logged: boolean;
   delivery: BoardPushDeliveryCounts;
@@ -127,6 +128,7 @@ async function sendBoardPush(
       targetRole,
       ok: false,
       pushStatus: 'provider_rejected',
+      providerResponseStatus: null,
       sent: 0,
       logged: false,
       delivery: EMPTY_PUSH_DELIVERY,
@@ -170,6 +172,7 @@ async function sendBoardPush(
         targetRole,
         ok: false,
         pushStatus: 'provider_rejected',
+        providerResponseStatus: response.status,
         sent: 0,
         logged: false,
         delivery: EMPTY_PUSH_DELIVERY,
@@ -216,6 +219,7 @@ async function sendBoardPush(
           targetRole,
           ok: false,
           pushStatus: 'provider_rejected',
+          providerResponseStatus: response.status,
           sent,
           logged,
           delivery,
@@ -228,7 +232,15 @@ async function sendBoardPush(
         || parsed?.delivery?.pushStatus === 'no_registered_device'
           ? parsed.delivery.pushStatus
           : 'provider_rejected';
-      return { targetRole, ok: true, pushStatus, sent, logged, delivery };
+      return {
+        targetRole,
+        ok: true,
+        pushStatus,
+        providerResponseStatus: response.status,
+        sent,
+        logged,
+        delivery,
+      };
     } catch {
       reportEdgeDiagnostic({
         event: 'board_create.push_fanout',
@@ -241,6 +253,7 @@ async function sendBoardPush(
         targetRole,
         ok: false,
         pushStatus: 'provider_rejected',
+        providerResponseStatus: response.status,
         sent: 0,
         logged: false,
         delivery: EMPTY_PUSH_DELIVERY,
@@ -258,12 +271,66 @@ async function sendBoardPush(
       targetRole,
       ok: false,
       pushStatus: 'provider_rejected',
+      providerResponseStatus: null,
       sent: 0,
       logged: false,
       delivery: EMPTY_PUSH_DELIVERY,
       failure: 'request_failed',
     };
   }
+}
+
+/**
+ * Keep the provider's privacy-safe delivery summary next to the notification
+ * that triggered it. This is deliberately aggregate-only: token values and
+ * raw provider bodies must never be retained in operational records.
+ */
+async function persistBoardPushDeliveryAttempts(
+  pushTargets: readonly BoardPushDeliveryResult[],
+  notificationIdByRole: ReadonlyMap<string, string>,
+) {
+  if (pushTargets.length === 0) return { ok: true, recorded: 0 };
+
+  const rows = pushTargets.flatMap((target) => {
+    const notificationId = notificationIdByRole.get(target.targetRole);
+    if (!notificationId) return [];
+    return [{
+      notification_id: notificationId,
+      delivery_source: 'board_create',
+      target_role: target.targetRole,
+      provider: 'fc_notify',
+      provider_response_status: target.providerResponseStatus,
+      attempted: target.delivery.attempted,
+      accepted: target.delivery.accepted,
+      rejected: target.delivery.rejected,
+      push_status: target.pushStatus,
+      response_confirmed: target.ok,
+      failure_code: target.failure ?? null,
+    }];
+  });
+
+  if (rows.length !== pushTargets.length) {
+    reportEdgeDiagnostic({
+      event: 'board_create.push_delivery_audit',
+      reason: 'notification_id_mapping_incomplete',
+      errorClass: 'database',
+    });
+    return { ok: false, recorded: 0 };
+  }
+
+  const { error } = await supabase
+    .from('notification_delivery_attempts')
+    .upsert(rows, { onConflict: 'notification_id,delivery_source' });
+  if (error) {
+    reportEdgeDiagnostic({
+      event: 'board_create.push_delivery_audit',
+      reason: 'insert_failed',
+      errorClass: 'database',
+    });
+    return { ok: false, recorded: 0 };
+  }
+
+  return { ok: true, recorded: rows.length };
 }
 
 serve(async (req: Request) => {
@@ -393,6 +460,9 @@ serve(async (req: Request) => {
         sendBoardPush('fc', notificationTitle, title, targetUrl, target, notificationIdByRole.get('fc')!),
         sendBoardPush('admin', notificationTitle, title, targetUrl, target, notificationIdByRole.get('admin')!),
       ]);
+  const pushDeliveryAudit = notificationError
+    ? { ok: false, recorded: 0 }
+    : await persistBoardPushDeliveryAttempts(pushTargets, notificationIdByRole);
 
   const inboxOk = !notificationError;
   const pushOk = inboxOk && pushTargets.every((target) => target.ok);
@@ -411,6 +481,7 @@ serve(async (req: Request) => {
       ok: pushOk,
       attempted: pushTargets.length,
       confirmed: pushTargets.filter((target) => target.ok).length,
+      deliveryRecorded: pushDeliveryAudit.ok,
       targets: pushTargets,
     },
   };
@@ -425,12 +496,14 @@ serve(async (req: Request) => {
       pushStatus: !inboxOk
         ? 'not_attempted'
         : pushStatus,
-      retryable: !inboxOk,
+      retryable: !inboxOk || !pushOk,
       ...(inboxOk
         ? { notificationIds: Array.from(notificationIdByRole.values()) }
         : {}),
     },
     notificationRetry: inboxOk ? null : { postId: data.id, eventKey },
-    notificationWarning: inboxOk ? null : 'notification_delivery_incomplete',
+    notificationWarning: inboxOk && pushOk && pushDeliveryAudit.ok
+      ? null
+      : 'notification_delivery_incomplete',
   }, 200, origin);
 });

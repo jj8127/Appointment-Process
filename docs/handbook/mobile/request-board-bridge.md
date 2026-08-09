@@ -2,8 +2,8 @@ doc_id: FC-APP-REQUEST-BOARD-BRIDGE
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-06-09
-source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request-board-session.ts + request_board/server/src/routes/messages.ts
+last_verified: 2026-08-04
+source_of_truth: app/request-board*.tsx + lib/chat-keyboard-layout.ts + lib/request-board-api.ts + lib/request-board-session.ts + request_board/server/src/routes/messages.ts
 
 # Mobile Playbook: GaramLink Bridge
 
@@ -19,6 +19,7 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 - `app/request-board-messenger.tsx` must follow the same messenger interaction contract as direct and group chat: link rendering/opening, long-press action menu, copy/delete actions, and numeric unread count display where read-state data exists.
 - Request-board messenger long-press UI must use `components/MessengerMessageActionSheet.tsx`; request-board-only limitations such as no reactions/reply/notice are represented by omitted capability props, not by a separate alert menu.
 - Shared UI/action primitive drift for bridge screens is inventoried by `scripts/audit/shared-ui-contract-audit.cjs` and governed by `docs/handbook/shared-ui-action-contracts.md`.
+- The bridge composer follows `lib/chat-keyboard-layout.ts` with direct and group chat: one compact open-keyboard gap, safe-area only after close, iOS offset 0, and no Android keyboard-height padding on top of `adjustResize`.
 - `lib/request-board-api.ts` is the bridge API surface for request-board messages, direct messages, delete actions, attachments, and session retry behavior.
 - Any bridge messenger change must update `lib/__tests__/mobile-chat-source.test.ts`, `lib/__tests__/message-read-receipts.test.ts`, `lib/__tests__/feature-contract-matrix.test.ts`, or this handbook contract.
 

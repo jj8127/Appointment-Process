@@ -3,6 +3,7 @@ import path from 'path';
 
 import {
   EXAM_FLOW_CONFIGS,
+  INVALID_EXAM_MONTH_MESSAGE,
   INVALID_EXAM_LOCATION_MESSAGE,
   buildExamApplyNotificationPayloads,
   buildExamRoundNotificationPayload,
@@ -10,15 +11,20 @@ import {
   formatExamRegistrationStatus,
   formatExamSubjectSelection,
   getExamMonthKey,
+  getExamRegistrationFlowType,
+  getExamRegistrationMonthKey,
+  getExamRoundMonthKey,
   getExamApplyRestoredSelectionState,
   getExamFeeAccountCopyText,
   getExamRoundCreateFormState,
+  getExamRoundDatePayload,
   getExamRoundEditFormState,
   getExamRoundSelectionState,
   getExamFlowConfig,
   isLocationInRound,
   isExamRegistrationVisibleInHistory,
   isExamMonthSlotConsumed,
+  isExamRegistrationInRoundMonth,
   sendExamApplyNotificationsBestEffort,
   sortExamRoundsNewestFirst,
   validateActiveExamOwnershipFixture,
@@ -33,6 +39,7 @@ const readAppSource = (fileName: string) =>
 
 const baseRound = {
   id: 'round-1',
+  exam_month: '2026-07-01',
   exam_date: '2026-07-20',
   registration_deadline: '2026-07-10',
   round_label: '1차',
@@ -92,7 +99,7 @@ describe('exam apply realtime channel topics', () => {
 });
 
 describe('exam flow contract', () => {
-  it('keeps one calendar-month slot across life, nonlife, and third subjects', () => {
+  it('keeps the active calendar-month status contract explicit', () => {
     expect(getExamMonthKey('2026-08-31')).toBe('2026-08');
     expect(getExamMonthKey('invalid')).toBeNull();
     expect(isExamMonthSlotConsumed('applied')).toBe(true);
@@ -102,6 +109,191 @@ describe('exam flow contract', () => {
     expect(isExamMonthSlotConsumed('rejected')).toBe(false);
     expect(isExamMonthSlotConsumed('cancelled_by_fc')).toBe(false);
     expect(isExamMonthSlotConsumed('cancelled_by_admin')).toBe(false);
+  });
+
+  it('scopes same-month primary conflicts by the registration type snapshot', () => {
+    const augustTbdRound = {
+      exam_month: '2026-08-01',
+      exam_date: null,
+    };
+    const historicalJulyTbd = {
+      exam_month: '2026-07-01',
+      exam_type: 'life',
+      exam_rounds: {
+        exam_month: '2026-07-01',
+        exam_date: null,
+        exam_type: 'life',
+      },
+    };
+    const sameMonthLifeApplication = {
+      exam_month: '2026-08-01',
+      exam_type: 'life',
+      exam_rounds: {
+        exam_month: '2026-08-01',
+        exam_date: null,
+        exam_type: 'nonlife',
+      },
+    };
+    const sameMonthNonlifeApplication = {
+      exam_month: '2026-08-01',
+      exam_type: 'nonlife',
+      exam_rounds: {
+        exam_month: '2026-08-01',
+        exam_date: null,
+        exam_type: 'life',
+      },
+    };
+    const legacyLifeApplication = {
+      exam_month: '2026-08-01',
+      exam_rounds: {
+        exam_month: '2026-08-01',
+        exam_date: null,
+        exam_type: 'life',
+      },
+    };
+
+    expect(getExamRoundMonthKey(augustTbdRound)).toBe('2026-08');
+    expect(getExamRegistrationFlowType(sameMonthLifeApplication)).toBe('life');
+    expect(getExamRegistrationFlowType(sameMonthNonlifeApplication)).toBe('nonlife');
+    expect(getExamRegistrationFlowType(legacyLifeApplication)).toBe('life');
+    expect(isExamRegistrationInRoundMonth(
+      historicalJulyTbd,
+      augustTbdRound,
+      'life',
+    )).toBe(false);
+    expect(isExamRegistrationInRoundMonth(
+      sameMonthLifeApplication,
+      augustTbdRound,
+      'life',
+    )).toBe(true);
+    expect(isExamRegistrationInRoundMonth(
+      sameMonthLifeApplication,
+      augustTbdRound,
+      'nonlife',
+    )).toBe(false);
+    expect(isExamRegistrationInRoundMonth(
+      sameMonthNonlifeApplication,
+      augustTbdRound,
+      'nonlife',
+    )).toBe(true);
+    expect(isExamRegistrationInRoundMonth(
+      legacyLifeApplication,
+      augustTbdRound,
+      'life',
+    )).toBe(true);
+    expect(isExamRegistrationInRoundMonth(
+      {
+        ...legacyLifeApplication,
+        exam_type: 'invalid',
+      },
+      augustTbdRound,
+      'life',
+    )).toBe(false);
+    expect(isExamRegistrationInRoundMonth(
+      { exam_month: '2026-08-01', exam_rounds: { exam_month: '2026-08-01' } },
+      augustTbdRound,
+      'life',
+    )).toBe(false);
+    expect(isExamRegistrationInRoundMonth(
+      {
+        exam_month: null,
+        exam_type: 'life',
+        exam_rounds: { exam_month: null, exam_date: null, exam_type: 'life' },
+      },
+      { exam_month: null, exam_date: null },
+      'life',
+    )).toBe(false);
+  });
+
+  it('scopes third exam bundles to their owning life or nonlife month slot', () => {
+    const augustNonlifeRound = {
+      exam_month: '2026-08-01',
+      exam_date: null,
+    };
+    const activeLifeThird = {
+      id: 'life-third',
+      round_id: 'life-round',
+      exam_month: '2026-08-01',
+      exam_type: 'life',
+      status: 'applied',
+      is_third_exam: true,
+    };
+    const activeNonlifeThird = {
+      id: 'nonlife-third',
+      round_id: 'another-nonlife-round',
+      exam_month: '2026-08-01',
+      exam_type: 'nonlife',
+      status: 'confirmed',
+      is_third_exam: true,
+    };
+
+    // A life-owned third selection does not consume the nonlife month slot.
+    expect(isExamRegistrationInRoundMonth(
+      activeLifeThird,
+      augustNonlifeRound,
+      'nonlife',
+    )).toBe(false);
+    // Once a nonlife-owned bundle exists, another nonlife round is blocked.
+    expect(isExamRegistrationInRoundMonth(
+      activeNonlifeThird,
+      augustNonlifeRound,
+      'nonlife',
+    )).toBe(true);
+    expect(isExamRegistrationInRoundMonth(
+      activeLifeThird,
+      augustNonlifeRound,
+      'life',
+    )).toBe(true);
+  });
+
+  it('uses exact dates only as a legacy fallback and keeps snapshots authoritative', () => {
+    expect(getExamRoundMonthKey({ exam_date: '2026-09-17' })).toBe('2026-09');
+    expect(getExamRoundMonthKey({
+      exam_month: null,
+      exam_date: '2026-09-17',
+    })).toBeNull();
+    expect(getExamRoundMonthKey({
+      exam_month: 'invalid',
+      exam_date: '2026-09-17',
+    })).toBeNull();
+    expect(getExamRoundMonthKey({
+      exam_month: '2026-09-17',
+      exam_date: '2026-09-17',
+    })).toBeNull();
+    expect(getExamRegistrationMonthKey({
+      exam_month: '2026-07-01',
+      exam_rounds: {
+        exam_month: '2026-08-01',
+        exam_date: '2026-08-20',
+      },
+    })).toBe('2026-07');
+    expect(getExamRegistrationMonthKey({
+      exam_month: null,
+      exam_rounds: {
+        exam_month: '2026-08-01',
+        exam_date: '2026-08-20',
+      },
+    })).toBeNull();
+    expect(getExamRegistrationFlowType({
+      exam_type: null,
+      exam_rounds: { exam_type: 'life' },
+    })).toBeNull();
+    expect(isExamRegistrationInRoundMonth(
+      {
+        exam_month: null,
+        exam_type: null,
+        exam_rounds: {
+          exam_month: '2026-08-01',
+          exam_date: '2026-08-20',
+          exam_type: 'life',
+        },
+      },
+      { exam_month: '2026-08-01', exam_date: null },
+      'life',
+    )).toBe(false);
+    expect(INVALID_EXAM_MONTH_MESSAGE).toBe(
+      '시험 월 정보를 확인할 수 없습니다. 관리자에게 문의해주세요.',
+    );
   });
 
   it('hides cancelled applications from FC history but retains rejection history', () => {
@@ -330,6 +522,8 @@ describe('exam flow contract', () => {
       selectedRoundId: null,
       roundForm: { roundLabel: '', notes: '' },
       examDate: now,
+      examMonth: new Date(2026, 6, 1),
+      isExamDateTbd: false,
       deadlineDate: now,
       locationInput: '',
       locationOrder: '0',
@@ -340,6 +534,8 @@ describe('exam flow contract', () => {
       selectedRoundId: 'round-1',
       roundForm: { roundLabel: '1차', notes: 'memo' },
       examDate: new Date('2026-07-20'),
+      examMonth: new Date(2026, 6, 1),
+      isExamDateTbd: false,
       deadlineDate: new Date('2026-07-10'),
       locationInput: '',
       locationOrder: '0',
@@ -354,9 +550,67 @@ describe('exam flow contract', () => {
     ).toMatchObject({
       selectedRoundId: 'round-1',
       roundForm: { roundLabel: '1차', notes: 'memo' },
-      examDate: now,
+      examDate: null,
+      examMonth: new Date(2026, 6, 1),
+      isExamDateTbd: true,
       deadlineDate: now,
     });
+
+    expect(
+      getExamRoundEditFormState(
+        {
+          ...baseRound,
+          exam_date: null,
+          exam_month: null,
+          registration_deadline: '',
+        },
+        now,
+      ),
+    ).toMatchObject({
+      examDate: null,
+      examMonth: null,
+      isExamDateTbd: true,
+    });
+  });
+
+  it('builds canonical admin date payloads without turning TBD into today', () => {
+    expect(
+      getExamRoundDatePayload({
+        examDate: null,
+        examMonth: new Date(2026, 7, 19),
+        isExamDateTbd: true,
+      }),
+    ).toEqual({
+      exam_date: null,
+      exam_month: '2026-08-01',
+    });
+
+    expect(
+      getExamRoundDatePayload({
+        examDate: new Date(2026, 8, 23),
+        examMonth: new Date(2026, 7, 1),
+        isExamDateTbd: false,
+      }),
+    ).toEqual({
+      exam_date: '2026-09-23',
+      exam_month: '2026-09-01',
+    });
+
+    expect(() =>
+      getExamRoundDatePayload({
+        examDate: null,
+        examMonth: new Date(2026, 7, 1),
+        isExamDateTbd: false,
+      }),
+    ).toThrow('정확한 시험일을 선택해주세요.');
+
+    expect(() =>
+      getExamRoundDatePayload({
+        examDate: null,
+        examMonth: null,
+        isExamDateTbd: true,
+      }),
+    ).toThrow('시험일 미정 회차는 시험 월을 선택해주세요.');
   });
 
   it('builds apply notification payloads without changing route or category contracts', () => {
@@ -479,7 +733,10 @@ describe('exam flow contract', () => {
           'createExamApplyRealtimeChannelTopic',
           'getExamApplyRestoredSelectionState',
           'getExamFeeAccountCopyText',
+          'getExamRegistrationFlowType',
+          'getExamRoundMonthKey',
           'getExamRoundSelectionState',
+          'isExamRegistrationInRoundMonth',
         ],
       },
       {
@@ -491,7 +748,10 @@ describe('exam flow contract', () => {
           'createExamApplyRealtimeChannelTopic',
           'getExamApplyRestoredSelectionState',
           'getExamFeeAccountCopyText',
+          'getExamRegistrationFlowType',
+          'getExamRoundMonthKey',
           'getExamRoundSelectionState',
+          'isExamRegistrationInRoundMonth',
         ],
       },
       {
@@ -501,6 +761,7 @@ describe('exam flow contract', () => {
           "const examFlowType = 'life' as const;",
           'buildExamRoundNotificationPayload',
           'getExamRoundCreateFormState',
+          'getExamRoundDatePayload',
           'getExamRoundEditFormState',
           'sortExamRoundsNewestFirst',
         ],
@@ -512,6 +773,7 @@ describe('exam flow contract', () => {
           "const examFlowType = 'nonlife' as const;",
           'buildExamRoundNotificationPayload',
           'getExamRoundCreateFormState',
+          'getExamRoundDatePayload',
           'getExamRoundEditFormState',
           'sortExamRoundsNewestFirst',
         ],
@@ -530,14 +792,51 @@ describe('exam flow contract', () => {
         expect(source).toContain("behavior={Platform.OS === 'ios' ? 'padding' : 'height'}");
         expect(source).toContain('variant="accent"');
         expect(source).toContain('disabled={!canAddLocation}');
+        expect(source).toContain('id,exam_month,exam_date,registration_deadline');
+        expect(source).toContain('exam_month: row.exam_month');
+        expect(source).toContain('const [examDate, setExamDate] = useState<Date | null>');
+        expect(source).toContain('const [isExamDateTbd, setIsExamDateTbd] = useState(false);');
+        expect(source).toContain('const datePayload = getExamRoundDatePayload({');
+        expect(source).toContain('...datePayload,');
+        expect(source).toContain('setExamDate(null);');
+        expect(source).toContain('시험일 미정');
         expect(source).not.toContain('KeyboardAwareWrapper');
       }
 
       if (expectation.file === 'exam-apply.tsx' || expectation.file === 'exam-apply2.tsx') {
         expect(source).toContain('sendExamApplyNotificationsBestEffort');
-        expect(source).toContain('const hasAvailableRounds = allRounds.some');
+        expect(source).toContain('const hasAvailableRounds = useMemo(');
+        expect(source).toContain('allRounds.some((round) => !isRoundClosed(round))');
         expect(source).toContain('!hasAvailableRounds');
         expect(source).toContain('현재 신청 가능한 시험이 없습니다.');
+        expect(source).toContain('exam_registrations_round_exam_type_fkey');
+        expect(source).toContain('exam_locations!exam_registrations_location_round_fkey(location_name)');
+        expect(source).toContain(
+          'const unresolvedMonth = getExamRoundMonthKey(roundMonth) === null;',
+        );
+        expect(source).toContain('INVALID_EXAM_MONTH_MESSAGE');
+        expect(source).toContain('&& isCurrentFlow(application)');
+        expect(source).not.toContain('showExamThirdMonthConflictFeedback');
+        expect(source).not.toContain('hasConflictingThirdExamRegistrationInRoundMonth');
+        expect(source).toMatch(
+          /isExamRegistrationInRoundMonth\(\s*application,\s*roundForMonthComparison,\s*examFlowType,?\s*\)/,
+        );
+        expect(source).toMatch(
+          /isExamRegistrationInRoundMonth\(\s*application,\s*roundMonth,\s*examFlowType,?\s*\)/,
+        );
+        expect(source).toContain('const activeForSelectedMonth = selectedRound');
+        expect(source).toMatch(
+          /isExamRegistrationInRoundMonth\(\s*application,\s*getRoundForMonthComparison\(selectedRound\),\s*examFlowType,?\s*\)/,
+        );
+        expect(source).toContain('setSelectedRoundId(null);');
+        const canonicalHistoryAttempt = source.indexOf(
+          '{ includeExamMonth: true, includeNestedExamType: true, includeFlowFilter: true }',
+        );
+        const legacyHistoryAttempt = source.indexOf(
+          '{ includeExamMonth: false, includeNestedExamType: true, includeFlowFilter: true }',
+        );
+        expect(canonicalHistoryAttempt).toBeGreaterThanOrEqual(0);
+        expect(canonicalHistoryAttempt).toBeLessThan(legacyHistoryAttempt);
         expect(source).toContain(
           '.channel(createExamApplyRealtimeChannelTopic(examFlowConfig.applyRealtimeChannelPrefix))',
         );

@@ -24,6 +24,11 @@ type SubmitResult = {
   cleanupWarning: boolean;
 };
 
+type ViewResult = {
+  signedUrl: string;
+  expiresInSeconds: number;
+};
+
 export type ExamApplicationTarget = {
   fcId: string;
   residentId: string;
@@ -192,5 +197,17 @@ export function cancelExamApplicationWithPaymentProof(
   return invokeExamPaymentProof<{ cleanupWarning: boolean }>(appSessionToken, {
     action: 'cancel',
     registrationId,
+  });
+}
+
+export function getExamPaymentProofViewUrl(
+  appSessionToken: string,
+  registrationId: string,
+  targetFcId?: string | null,
+) {
+  return invokeExamPaymentProof<ViewResult>(appSessionToken, {
+    action: 'view',
+    registrationId,
+    targetFcId: targetFcId ?? null,
   });
 }

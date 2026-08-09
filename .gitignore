@@ -75,6 +75,7 @@ coverage/
 nul
 /deno.lock
 supabase/.temp/
+supabase/**/.temp/
 
 # Vercel deployment
 .vercel

@@ -1,5 +1,6 @@
 export const EXAM_PAYMENT_PROOF_BUCKET = 'exam-payment-proofs';
 export const EXAM_PAYMENT_PROOF_MAX_BYTES = 10 * 1024 * 1024;
+export const EXAM_PAYMENT_PROOF_VIEW_EXPIRES_IN_SECONDS = 5 * 60;
 export const EXAM_PAYMENT_PROOF_ALLOWED_MIME_TYPES = [
   'image/jpeg',
   'image/png',
@@ -43,6 +44,12 @@ export type ListExamApplicationTargetsInput = {
 
 export type CancelExamApplicationInput = {
   action: 'cancel';
+  registrationId?: unknown;
+};
+
+export type ViewExamPaymentProofInput = {
+  action: 'view';
+  targetFcId?: unknown;
   registrationId?: unknown;
 };
 
@@ -201,6 +208,16 @@ export function validateCancelExamApplication(
   const registrationId = cleanString(input.registrationId);
   if (!isUuid(registrationId)) {
     return { ok: false, code: 'invalid_registration_id', message: '취소할 신청 내역을 확인할 수 없습니다.' };
+  }
+  return { ok: true, value: { registrationId } };
+}
+
+export function validateViewExamPaymentProof(
+  input: ViewExamPaymentProofInput,
+): ValidationResult<{ registrationId: string }> {
+  const registrationId = cleanString(input.registrationId);
+  if (!isUuid(registrationId)) {
+    return { ok: false, code: 'invalid_registration_id', message: '확인할 신청 내역을 찾을 수 없습니다.' };
   }
   return { ok: true, value: { registrationId } };
 }

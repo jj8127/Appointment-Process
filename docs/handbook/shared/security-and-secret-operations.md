@@ -2,8 +2,8 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-07-26
-source_of_truth: env contracts + reset-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
+last_verified: 2026-08-08
+source_of_truth: env contracts + reset-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + supabase/functions/fc-notify/index.ts + supabase/migrations/*internal_messenger_summary_v1.sql + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
 
@@ -57,6 +57,7 @@ source_of_truth: env contracts + reset-password functions + supabase/functions/_
 ## 2026-07-16 Diagnostic Privacy Contract
 
 - Privacy filtering happens before the first sink. The mobile and admin-web shared loggers sanitize the message, structured payload, and `Error` name/message/stack before any `console.*` serialization or Sentry-adjacent capture call. Sentry `beforeSend` remains defense in depth, not the primary logger boundary.
+- Messenger latency diagnostics use the logger's console-only `PERF` level. They emit fixed operation/source classifications, a process-local sequence ID, ISO start/completion timestamps, elapsed milliseconds, booleans, and counts only. `PERF` is visible in release device logs but never calls the Sentry capture path and must not accept actor/customer/session/room identifiers, URLs, request/response bodies, names, phones, message content, or raw `Error` data.
 - Diagnostic serialization must redact bearer/JWT-like credentials, Korean and international mobile numbers, resident numbers, Expo push tokens, OTP-labelled values/keys, raw upstream or response bodies, filenames, and storage object paths. Non-sensitive classification fields such as fixed `reason`, numeric/provider `status`, and error class name remain intact.
 - Push registration/API, signup OTP, and group-chat provider/database diagnostics use reviewed fixed reason/status fields only. Test mode never prints an OTP or destination identifier, and provider response bodies are not copied into logs or user-facing errors.
 - Edge diagnostics for the reviewed auth/referral, Request Board password bridge, notification fanout, presence fallback, Board database/view/attachment, and account-cleanup failures terminate at `supabase/functions/_shared/edge-diagnostic.ts`. Its input is a closed event/reason union with only bounded numeric `status`/`count`, boolean `retryable`, and a coarse allowlisted `errorClass`; it cannot accept raw `Error`, message/stack/cause, response body, URL/path, identifier, phone, referral code, or affiliation fields. The runtime reconstructs output field by field and emits a fixed fallback for an invalid event/reason pair.
@@ -163,3 +164,17 @@ source_of_truth: env contracts + reset-password functions + supabase/functions/_
 - `set-password`는 회원가입 추천인 확정 시 `supabase/functions/_shared/referral-link.ts`의 `applyReferralLinkState(...)`를 통해서만 invitee current-state를 쓴다. OTP/password 경로가 `fc_profiles` 추천인 컬럼을 ad-hoc update로 따로 건드리면 security/contract regression으로 본다.
 - admin web browser push는 `NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY`, `WEB_PUSH_SUBJECT`, `ADMIN_PUSH_SECRET`가 모두 있을 때만 fully configured 상태다. preview 배포처럼 값이 빠진 환경에서는 실패를 숨기지 말고 “설정되지 않은 배포” 상태를 명시적으로 보여줘야 한다.
 - admin web의 request-board deep link는 `NEXT_PUBLIC_REQUEST_BOARD_URL`이 없으면 production fallback으로 새면 안 된다. 설정이 빠진 배포에서는 disabled 상태로 남겨야 한다.
+## Messenger list summary boundary
+
+- `fc-notify` may call `get_internal_messenger_summaries_v1` only after the
+  signed app actor has been resolved and the viewer/target identifiers have
+  been derived from server-owned account and participant records.
+- The RPC is `SECURITY INVOKER` with an empty search path. Execute is revoked
+  from public, anon, and authenticated and granted only to `service_role`.
+  Client-supplied role or target arrays are never an authorization source.
+- The summary returns only target ID, latest preview/time, and unread count;
+  it excludes deleted messages and must not return message history or attachment
+  metadata to construct a list row.
+- Apply the additive migration before the Edge caller. Roll back the caller
+  first and retain the additive function/indexes until a reviewed forward
+  migration proves that no deployed caller depends on them.

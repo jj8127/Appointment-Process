@@ -152,16 +152,17 @@ describe('admin web direct chat list source', () => {
     expect(page).not.toContain('fc_id: deepLinked');
   });
 
-  it('keeps shared admin and FC inboxes active while personal admin inboxes fail closed', () => {
+  it('keeps shared admin and FC inboxes while binding personal staff inboxes to the signed phone', () => {
     const notificationBell = readFileSync(notificationBellPath, 'utf8');
 
     expect(notificationBell).toContain("const inboxRole = role === 'fc' ? 'fc' : 'admin'");
     expect(notificationBell).toContain('const inbox = await invokeInbox({');
-    expect(notificationBell).toContain("const personalInboxHeld = role === 'manager' || staffType === 'developer'");
-    expect(notificationBell).toContain('enabled: !personalInboxHeld');
+    expect(notificationBell).toContain("const isPersonalAdminInbox = role === 'manager' || staffType === 'developer'");
     expect(notificationBell).toContain(
-      "resident_id: inboxRole === 'fc' ? residentId.replace(/\\D/g, '') : null",
+      "resident_id: inboxRole === 'fc' || isPersonalAdminInbox",
     );
+    expect(notificationBell).toContain("? residentId.replace(/\\D/g, '')");
+    expect(notificationBell).not.toContain('personalInboxHeld');
     expect(notificationBell).not.toContain('Promise.all');
     expect(notificationBell).not.toContain('developerFcInbox');
     expect(notificationBell).not.toContain('actor_id:');

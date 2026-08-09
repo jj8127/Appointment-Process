@@ -2,18 +2,24 @@ doc_id: FC-HANDBOOK-SCREEN-INVENTORY
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer, operator
-last_verified: 2026-07-26
+last_verified: 2026-08-08
 source_of_truth: app/* + web/src/app/*
 
 # 화면 인벤토리
 
-## Mobile
+## Mobile (47 routes)
 
 - 인증/게이트: `login`, `signup`, `signup-verify`, `signup-password`, `reset-password`, `apply-gate`, `identity`
 - FC: `index`, `home-lite`, `fc/new`, `consent`, `docs-upload`, `hanwha-commission`, `appointment`, `exam-apply`, `exam-apply2`, `referral`, `referral-tree`(redirect), `referral-graph`, `referral-revenue-graph`(local sample)
-- 공용/콘텐츠: `settings`, `notifications`, `notice`, `notice-detail`, `board`, `board-detail`, `messenger`, `chat`
+- 공용/콘텐츠: `settings`, `notifications`, `notice`, `notice-detail`, `board`, `board-detail`, `messenger`, `messenger-search`, `new-conversation`, `chat`, `group-chat`, `notification-settings`, `muted-conversations`
 - GaramLink 연동: `request-board`, `request-board-messenger`, `request-board-requests`, `request-board-review`, `request-board-fc-codes`
 - Admin/Manager: `dashboard`, `exam-register`, `exam-register2`, `exam-manage`, `exam-manage2`, `admin-notice`, `admin-board`, `admin-board-manage`, `admin-messenger`
+
+The archived Figma foundation board contains the former 42-route inventory.
+Messenger V2 added the five routes `messenger-search`, `new-conversation`,
+`group-chat`, `notification-settings`, and `muted-conversations`; these are the
+required 42 → 47 delta for the next live Figma Phase 0 reconciliation. The
+existing SVG route cards remain inventory artifacts, not Component Sets.
 
 ## Admin Web
 

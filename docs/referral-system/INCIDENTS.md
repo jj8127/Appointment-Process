@@ -178,7 +178,10 @@
   - 한 손가락 pan, 두 손가락 pinch zoom, 화면 맞춤, 초기화, node 선택 ring과
     read-only 상세를 추가했다.
   - source regression이 `Circle`, `Line`, gesture/fit/reset 계약을 요구하고 이전
-    card/`ScrollView` renderer를 거부하도록 강화했다.
+    card/`ScrollView` renderer가 기본 원형 canvas를 대체하지 못하도록 강화했다.
+  - 2026-08-03 follow-up에서는 사용자가 초기 tree도 선택해 비교할 수 있도록 당시
+    고정 card geometry를 별도 `tree` mode로 복원했다. 기본값은 계속 원형 graph이며
+    tree mode는 원형 renderer를 unmount하므로 이 incident의 회귀 조건과 충돌하지 않는다.
 - linkedCases:
   - RF-SELF-05
 - evidence:
@@ -200,6 +203,8 @@
   - `npx jest --runInBand lib/__tests__/referral-revenue-demo.test.ts lib/__tests__/referral-revenue-graph-native.test.ts lib/__tests__/referral-revenue-demo-source.test.ts lib/__tests__/referral-revenue-graph-link.test.ts`
 - notes:
   - 기존 `/referral-graph` source와 실제 referral/API/DB 계약은 변경하지 않았다.
+  - `card/ScrollView 금지`는 기본 원형 graph renderer에 대한 조건이다. 명시적으로
+    선택한 별도 portrait tree presentation은 허용한다.
 
 ## INC-023 | 2026-06-08 | 설정 화면 추천코드 공유가 예전 direct deep-link 문구를 계속 사용함
 
@@ -1012,10 +1017,7 @@
   - 코드 변경: `web/src/lib/referral-graph-interaction.ts`
   - 코드 변경: `web/src/lib/referral-graph-physics.ts`
   - 코드 변경: `web/src/lib/referral-graph-simulation.test.ts`
-  - 증적: `.codex/harness/referral-graph-live-before.png`
-  - 증적: `.codex/harness/referral-graph-live-during.png`
-  - 증적: `.codex/harness/referral-graph-live-after.png`
-  - 증적: `.codex/harness/referral-graph-live-settled.png`
+  - 전후·드래그·안정화 시각 확인 완료. 중복 캡처는 개인정보 검토 후 제거했다.
 - reproduction:
   1. 관리자 웹에서 `/dashboard/referrals/graph`를 연다.
   2. direct descendant가 많은 hub node를 선택해 긴 거리로 drag한다.

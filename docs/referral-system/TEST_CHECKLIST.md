@@ -70,7 +70,8 @@
 - `RF-SELF-05` FC/본부장 `/referral-revenue-graph` 샘플 미리보기는 실제
   referral/API/DB 호출 없이 가상 parent chain의 1~10단계 15명만 10% 예상
   배분 합계에 포함하고 11단계는 `대상 제외`로 표시하며, `샘플 데이터`와
-  `실제 정산 아님`을 그래프·목록·상세에서 명확히 알림. 그래프 탭은 카드형
+  `실제 정산 아님`을 현재 그래프·트리·목록·상세에서 명확히 알림. 새 화면은 보기
+  선택을 저장하지 않고 항상 `현재 그래프`로 시작하며, 이 기본 graph는 카드형
   조직도가 아니라 기존 추천 관계 그래프처럼 원형 node와 visible edge를 사용함.
   관리자 웹의 실제 활성 charge/link/tension/collision/damping 계열을 참고하되,
   관리자 runtime에서 꺼진 `center/x/y`를 모바일 전역 중심력으로 되살리지 않음.
@@ -84,9 +85,9 @@
   지원함. graph는 safe-area 전체화면 HUD canvas로 열리고 node drag 중 주변 node가
   spring/repulsion/collision으로 반응한 뒤 release settle이 idle로 끝남. 확대
   `100%→200%` 중 node/edge는 확대되지만 이름·단계·금액 글자는 같은 screen-pixel
-  크기를 유지함. focused graph와 graph 설정/상세는 landscape, 목록과 목록 상세는
+  크기를 유지함. focused graph와 graph 설정/상세는 landscape, 트리·목록과 해당 상세는
   portrait이며 header/Android back, route blur, unmount 뒤 portrait로 복원함.
-  설정 panel에 summary/filter/list/fit/reset/legend/disclaimer가 있고 닫기·바깥 탭·
+  설정 panel에 summary/filter/tree/list/fit/reset/legend/disclaimer가 있고 닫기·바깥 탭·
   Android back으로 닫히며 단계 filter 뒤에도 viewer 연결 경로를 보존함. 1·3·6·10
   단계 guide ring과 child→parent 주황 arrow가 중심에서 바깥으로 퍼지는 depth 및
   viewer 쪽 샘플 기여 계산 방향을 함께 설명해야 함. 회색 base edge는 관계 구조이고
@@ -102,7 +103,14 @@
   sector와 반지름 확장을 허용해야 함. drag/release 좌표는
   `70..1530`으로 clamp되지 않고 surface 밖 유한 좌표를 유지하며, ±50,000 outlier도
   화면 맞춤으로 pinch 최소 배율 아래까지 축소해 inset 안에 복구돼야 함. eligible
-  edge는 주황 방향선 하나만 렌더하고 회색 base line을 이중으로 겹치지 않아야 함
+  edge는 주황 방향선 하나만 렌더하고 회색 base line을 이중으로 겹치지 않아야 함.
+  `트리` 선택 시 원형 renderer는 unmount되고 초기 440-wide 고정 3열 카드 계층이
+  portrait로 열려야 함. 118x66 card, 86px depth 간격, viewer/B 중앙·A 좌측·C 우측,
+  parent-bottom→child-top connector, A11 점선 제외 상태를 유지함. 단계 filter의 흐린
+  ancestor card는 선택 불가지만 금액/status label을 잃지 않고, 일반 card 선택은 기존
+  상세 sheet를 열어야 함. 다시 `현재 그래프`를 고르면 기존 원형 renderer와
+  landscape가 복원돼야 함. 큰 글자 설정에서도 card는 connector와 같은 66px 높이를
+  유지하고 visual text는 card 안에 맞추며 접근성 label은 전체 금액을 읽어야 함
 
 ### 5.2 초대링크
 

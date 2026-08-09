@@ -107,7 +107,7 @@ completed FC 또는 active manager 로그인 성공
 - `/referral`은 화면 로그인 세션과 referral self-service `appSessionToken`이 분리돼 있어도, 현재 token 부재/만료 시 저장된 `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 시도하고 실패 시에만 relogin CTA를 보여준다.
 - 네이티브 추천 관계 graph: `app/referral.tsx -> app/referral-graph.tsx -> hooks/use-referral-graph.ts -> get-referral-tree(mode='graph')`
 - graph canvas는 `react-native-svg` + Gesture Handler/Reanimated로 deterministic radial layout, pan/pinch, fit/reset, node selection을 처리하고 desktop d3 physics와 런타임 position을 공유하지 않는다. 깊이별 node 수로 반지름을 늘리고 형제마다 최소 각도 구간을 먼저 예약해 넓거나 불균형한 300-node 조직도에서도 최대 확대 터치 간격을 보존한다.
-- 로컬 매출 기여 샘플: `app/referral.tsx -> app/referral-revenue-graph.tsx -> data/referral-revenue-demo.ts -> lib/referral-revenue-demo.ts -> lib/referral-revenue-graph-native.ts -> graph/list/detail`
+- 로컬 매출 기여 샘플: `app/referral.tsx -> app/referral-revenue-graph.tsx -> data/referral-revenue-demo.ts -> lib/referral-revenue-demo.ts -> current graph/tree/list/detail`
 - 매출 기여 샘플은 `parentId` chain에서 viewer 기준 depth를 파생하고 1~10단계에만
   10% 샘플 예상액을 계산한다. 이 흐름에는 query hook, app-session refresh,
   Supabase client, Edge Function, DB/RPC 또는 기존 `get-referral-tree(mode='graph')`
@@ -161,10 +161,15 @@ completed FC 또는 active manager 로그인 성공
   import하지 않고 실제 활성 force 계열과 resolved balanced 상수만 참고하므로 새
   package나 desktop runtime 크기를 추가하지 않는다.
   `expo-screen-orientation`은 focus와 view mode를 함께 본다. focused graph와 graph
-  설정/상세는 `LANDSCAPE`, 목록과 목록 상세는 `PORTRAIT_UP`이며 blur·unmount·
+  설정/상세는 `LANDSCAPE`, 트리·목록과 해당 상세는 `PORTRAIT_UP`이며 blur·unmount·
   header/Android back에서도 portrait를 요청한다. last-request-wins coordinator가
-  늦게 끝난 landscape 요청이 목록/이탈 뒤 다시 적용되는 race를 막는다. 카드형
-  계층 렌더나 `ScrollView` 기반 가짜 graph는 이 계약을 충족하지 않는다.
+  늦게 끝난 landscape 요청이 트리·목록·이탈 뒤 다시 적용되는 race를 막는다.
+- route-local mode는 `graph | tree | list`이며 초기값은 항상 `graph`이고 저장하지
+  않는다. `graph`는 기존 원형 WebView/SVG renderer를 그대로 쓰고, `tree`는 그
+  renderer를 unmount한 뒤 `ReferralRevenueTreeView`와
+  `lib/referral-revenue-tree-layout.ts`의 고정 로컬 샘플 geometry를 사용한다. 두
+  presentation은 같은 filtered graph node/edge/context와 detail sheet를 공유한다.
+  기본 graph canvas 안에 카드형 `ScrollView`를 다시 넣는 것은 여전히 금지한다.
 - `/referral-revenue-graph`의 타입·계산·컴포넌트는 기존 추천 관계 graph와
   분리한다. 향후 실제 금융 데이터 연결은 별도 원장·권한·trusted API·정책 버전
   계약을 먼저 정의한 뒤 새 increment로 구현한다.

@@ -5,6 +5,7 @@ export type InputParseResult<T> =
 export type ExamRoundSaveInput = {
   roundId: string | null;
   exam_date: string | null;
+  exam_month: string;
   registration_deadline: string;
   round_label: string;
   exam_type: 'life' | 'nonlife';
@@ -78,6 +79,11 @@ const isValidIsoDate = (value: unknown): value is string => {
     && parsed.getUTCDate() === day;
 };
 
+const toIsoMonthStart = (isoDate: string) => `${isoDate.slice(0, 7)}-01`;
+
+const isValidIsoMonthStart = (value: unknown): value is string =>
+  isValidIsoDate(value) && value.endsWith('-01');
+
 const parseBoundedString = (
   value: unknown,
   { label, maxLength, allowEmpty = false }: { label: string; maxLength: number; allowEmpty?: boolean },
@@ -131,6 +137,23 @@ export function parseExamRoundSaveInput(input: unknown): InputParseResult<ExamRo
     examDate = input.exam_date;
   }
 
+  let examMonth: string;
+  if (input.exam_month === undefined || input.exam_month === null || input.exam_month === '') {
+    if (!examDate) {
+      return fail('시험일 미정 회차는 시험 월을 선택해야 합니다.');
+    }
+    examMonth = toIsoMonthStart(examDate);
+  } else {
+    if (!isValidIsoMonthStart(input.exam_month)) {
+      return fail('시험 월은 YYYY-MM-01 형식의 실제 월이어야 합니다.');
+    }
+    examMonth = input.exam_month;
+  }
+
+  if (examDate && examMonth !== toIsoMonthStart(examDate)) {
+    return fail('시험 월은 시험일이 속한 월과 같아야 합니다.');
+  }
+
   if (!isValidIsoDate(input.registration_deadline)) {
     return fail('접수 마감일은 YYYY-MM-DD 형식의 실제 날짜여야 합니다.');
   }
@@ -176,6 +199,7 @@ export function parseExamRoundSaveInput(input: unknown): InputParseResult<ExamRo
     value: {
       roundId,
       exam_date: examDate,
+      exam_month: examMonth,
       registration_deadline: input.registration_deadline,
       round_label: roundLabel.value,
       exam_type: input.exam_type,

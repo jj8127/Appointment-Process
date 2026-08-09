@@ -267,7 +267,10 @@ export async function canActorAccessMessengerAttachmentBatch(input: {
         && thread.counterparty_actor_id === input.actor.id;
     }
     return thread.counterparty_role === 'admin'
-      && thread.counterparty_actor_id === null;
+      && (
+        thread.counterparty_actor_id === null
+        || thread.counterparty_actor_id === input.actor.id
+      );
   }
   if (data.context_kind === 'direct_broadcast') {
     const { data: messages, error: messageError } = await input.supabase
@@ -309,7 +312,10 @@ export async function canActorAccessMessengerAttachmentBatch(input: {
     }
     return threads!.every((thread) =>
       thread.counterparty_role === 'admin'
-      && thread.counterparty_actor_id === null
+      && (
+        thread.counterparty_actor_id === null
+        || thread.counterparty_actor_id === input.actor.id
+      )
     );
   }
   return false;

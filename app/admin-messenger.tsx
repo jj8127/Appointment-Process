@@ -217,7 +217,9 @@ export default function AdminMessengerScreen() {
       router.push({
         pathname: '/chat',
         params: {
-          conversationId: item.conversation_id,
+          ...(item.conversation_id
+            ? { conversationId: item.conversation_id }
+            : { targetId: item.target_id ?? item.phone }),
           targetName: item.name,
         },
       });

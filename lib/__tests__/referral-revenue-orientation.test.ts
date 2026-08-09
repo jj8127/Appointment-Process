@@ -25,6 +25,12 @@ describe('referral revenue orientation', () => {
         canView: true,
         hydrated: true,
         isFocused: true,
+        viewMode: 'tree' as const,
+      },
+      {
+        canView: true,
+        hydrated: true,
+        isFocused: true,
         viewMode: 'list' as const,
       },
       {

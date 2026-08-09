@@ -1,7 +1,12 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { logger } from '@/lib/logger';
-import { registerPushToken } from '@/lib/notifications';
+import { getNotificationPreferences } from '@/lib/notification-preferences-api';
+import {
+  getPushPermissionStatus,
+  registerPushToken,
+  unregisterAllPushTokens,
+} from '@/lib/notifications';
 import {
   clearAuth,
   clearRequestBoardState,
@@ -107,6 +112,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [requestBoardSyncError, setRequestBoardSyncError] = useState<string | null>(null);
   const requestBoardSyncPromiseRef = useRef<Promise<{ ok: boolean; error?: string; needsRelogin?: boolean }> | null>(null);
   const lastPushRegistrationKeyRef = useRef<string | null>(null);
+  const suppressedPushRegistrationKeyRef = useRef<string | null>(null);
   const pushRegistrationForegroundRefreshKeyRef = useRef<string | null>(null);
   const pushRegistrationPromiseRef = useRef<{
     key: string;
@@ -336,7 +342,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       replaceAppSessionToken,
       ensureRequestBoardSession,
       logout: () => {
-        void clearSessionState({ clearAppSession: true });
+        void (async () => {
+          if (appSessionToken) {
+            const result = await unregisterAllPushTokens();
+            if (!result.ok) logger.warn('[push] logout token unregister failed', { reason: result.reason });
+          }
+          await clearSessionState({ clearAppSession: true });
+        })();
       },
       loginAs: (
         role,
@@ -389,8 +401,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     if (!pushRegistrationKey || !appSessionToken) return;
     const completedForCurrentSession = lastPushRegistrationKeyRef.current === pushRegistrationKey;
+    const suppressedForCurrentSession = suppressedPushRegistrationKeyRef.current === pushRegistrationKey;
     if (
-      completedForCurrentSession
+      (completedForCurrentSession || suppressedForCurrentSession)
       && pushRegistrationForegroundRefreshKeyRef.current !== pushRegistrationKey
     ) return;
 
@@ -416,6 +429,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const runAttempt = async () => {
       if (cancelled || lastPushRegistrationKeyRef.current === pushRegistrationKey) return;
 
+      const permissionStatus = await getPushPermissionStatus();
+      if (cancelled) return;
+      if (permissionStatus !== 'granted') {
+        // Boot/foreground refresh never opens the OS permission prompt. The
+        // settings master-ON action must call registerPushToken with
+        // { requestPermission: true } explicitly.
+        suppressedPushRegistrationKeyRef.current = pushRegistrationKey;
+        pushRegistrationForegroundRefreshKeyRef.current = pushRegistrationKey;
+        return;
+      }
+
+      try {
+        const preferences = await getNotificationPreferences();
+        if (cancelled) return;
+        if (!preferences.globalPushEnabled) {
+          suppressedPushRegistrationKeyRef.current = pushRegistrationKey;
+          pushRegistrationForegroundRefreshKeyRef.current = null;
+          return;
+        }
+      } catch {
+        attempt += 1;
+        if (attempt < retryDelaysMs.length) scheduleAttempt(retryDelaysMs[attempt]);
+        else {
+          exhausted = true;
+          logger.warn('[push] preference bootstrap retries exhausted');
+        }
+        return;
+      }
+
       let registrationPromise = pushRegistrationPromiseRef.current;
       if (!registrationPromise || registrationPromise.key !== pushRegistrationKey) {
         const promise = registerPushToken(pushRole, state.residentId, state.displayName);
@@ -432,6 +474,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
 
       if (result.ok) {
+        suppressedPushRegistrationKeyRef.current = null;
         lastPushRegistrationKeyRef.current = pushRegistrationKey;
         pushRegistrationForegroundRefreshKeyRef.current = pushRegistrationKey;
         exhausted = false;
@@ -439,6 +482,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       if (!result.retryable) {
+        suppressedPushRegistrationKeyRef.current = null;
         lastPushRegistrationKeyRef.current = pushRegistrationKey;
         pushRegistrationForegroundRefreshKeyRef.current = result.reason === 'permission_denied'
           ? pushRegistrationKey
@@ -469,6 +513,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         || cancelled
       ) return;
       lastPushRegistrationKeyRef.current = null;
+      suppressedPushRegistrationKeyRef.current = null;
       pushRegistrationForegroundRefreshKeyRef.current = null;
       attempt = 0;
       exhausted = false;

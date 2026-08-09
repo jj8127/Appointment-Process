@@ -2,10 +2,17 @@ doc_id: FC-BACKEND-ADMIN-OPS
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-29
+last_verified: 2026-08-04
 source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admin/* + web/src/app/api/fc-delete/route.ts
 
 # Backend Runbook: Admin Operations API
+
+## 2026-08-04 Exam round v2 writer and legacy mobile boundary
+
+- `admin-action:upsertExamRound` validates exact YMD values, canonical month-start `exam_month`, and exact-date/month consistency before calling only `save_exam_round_atomic_v2`.
+- New TBD requests must send an explicit month. A legacy caller that omits `exam_month` may derive it only from an exact date; if `roundId` identifies an existing `exam_date = null` round, the Edge Function rejects the request before RPC invocation so an old mobile fallback cannot finalize the round as today's date.
+- The database migration and exact v2 signature/ACL must be verified before this Edge version is activated. Missing v2 capability is a rollout stop condition and must not be bypassed with split writes or the legacy RPC.
+- The SQL writer stays `SECURITY INVOKER`, revoked from `PUBLIC`, `anon`, and `authenticated`, with `service_role` execution only. The signed administrator/developer caller gate remains separate from the database execution role.
 
 ## 2026-07-30 Resident-number list state contract
 

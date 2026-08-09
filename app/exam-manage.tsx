@@ -26,6 +26,7 @@ import {
   buildExamInfo,
   buildExamPhoneCandidates,
   formatExamResidentNumber,
+  formatExamRegistrationSubjectLabel,
   formatExamYmd,
 } from '@/lib/exam-display';
 import { logger } from '@/lib/logger';
@@ -67,6 +68,7 @@ type ExamRegistrationRaw = {
   resident_id: string;
   status: string;
   is_confirmed: boolean | null;
+  includes_primary_exam?: boolean | null;
   is_third_exam?: boolean | null;
   fee_paid_date?: string | null;
   rejection_reason?: string | null;
@@ -94,6 +96,7 @@ type ApplicantRow = {
   examInfo: string;
   isConfirmed: boolean;
   status: string;
+  includesPrimaryExam: boolean;
   thirdExam: boolean;
   feePaidDate?: string | null;
   rejectionReason?: string | null;
@@ -104,8 +107,8 @@ async function fetchApplicantsLife(adminPhone: string, appSessionToken: string |
     .from('exam_registrations')
     .select(
       `
-      id, resident_id, status, is_confirmed, is_third_exam, fee_paid_date, rejection_reason, created_at,
-      exam_rounds!inner ( exam_type, exam_date, round_label ),
+      id, resident_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, rejection_reason, created_at,
+      exam_rounds!exam_registrations_round_exam_type_fkey!inner ( exam_type, exam_date, round_label ),
       exam_locations!exam_registrations_location_round_fkey ( location_name )
     `,
     )
@@ -173,6 +176,7 @@ async function fetchApplicantsLife(adminPhone: string, appSessionToken: string |
       examInfo: buildExamInfo(reg),
       isConfirmed: !!reg.is_confirmed,
       status: reg.status,
+      includesPrimaryExam: reg.includes_primary_exam !== false,
       thirdExam: !!reg.is_third_exam,
       feePaidDate: reg.fee_paid_date ?? null,
       rejectionReason: reg.rejection_reason ?? null,
@@ -477,7 +481,14 @@ export default function ExamManageLifeScreen() {
 
         <View style={styles.infoGrid}>
           <InfoLabelValue label="주민번호" value={formatExamResidentNumber(a.residentNumber)} />
-          <InfoLabelValue label="제3보험" value={a.thirdExam ? '응시' : '-'} />
+          <InfoLabelValue
+            label="응시 과목"
+            value={formatExamRegistrationSubjectLabel({
+              examType: EXAM_TYPE,
+              includesPrimaryExam: a.includesPrimaryExam,
+              isThirdExam: a.thirdExam,
+            })}
+          />
           <InfoLabelValue label="응시료 납입일" value={formatExamYmd(a.feePaidDate)} />
           {a.rejectionReason ? <InfoLabelValue label="반려 사유" value={a.rejectionReason} fullWidth /> : null}
           <InfoLabelValue label="주소" value={a.address} fullWidth />

@@ -1,5 +1,35 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-08-08 | Edge deploy encoding | PowerShell 기본 인코딩으로 함수 소스를 번들링함
+
+- Symptom: Supabase 배포 도구에 `Get-Content -Raw` 결과를 전달하자 한글 문자열의 따옴표 경계가 훼손되어 서버 번들러가 TypeScript parse 오류로 배포를 거부했다. 기존 v12는 그대로 유지됐지만 첫 요청이 불필요하게 실패했다.
+- Guardrail: Windows에서 Edge Function 파일 내용을 API/플러그인에 전달할 때는 `Get-Content -Raw -Encoding UTF8`처럼 UTF-8을 명시한다. 실패 후에는 원격 함수 version/status를 먼저 확인해 기존 활성 버전 유지 여부를 검증한 다음 재시도한다.
+- Verification: UTF-8 명시 번들로 `exam-payment-proof` v13 배포가 성공했고, 원격 소스·JWT 설정·라이브 인증 거부·Edge 로그를 다시 확인했다.
+
+## 2026-08-08 | Local tool permissions | 배포·DB·삭제 명령을 상시 허용함
+
+- Symptom: 프로젝트 설정이 Git 삭제, Supabase DB 실행, Vercel 배포/설정을 승인 없이 허용했다.
+- Guardrail: 프로젝트 `allow`는 비워 두고, 외부 쓰기·배포·DB·삭제는 작업별 명시 승인을 받는다. 읽기와 검증 도구만 필요할 때 노출한다.
+
+## 2026-08-03 | Visualization replacement | 이전 트리 보기를 선택지로 보존하지 않음
+
+- Symptom:
+  - 매출 기여 화면을 원형 interaction graph로 교정할 때 초기 직사각형 card tree
+    renderer를 완전히 삭제해, 사용자가 두 표현을 비교하거나 tree로 돌아갈 수 없었다.
+- Root cause:
+  - 잘못된 기본 시각화를 교체하는 작업과 기존 표현을 보조 보기로 보존할지 결정하는
+    작업을 분리하지 않았다. acceptance도 `원형 graph여야 함`만 고정하고 default와
+    optional presentation을 구분하지 않았다.
+- Permanent guardrail:
+  - 사용자에게 노출된 visualization을 대체할 때는 제거 승인이 명시됐는지 확인하고,
+    그렇지 않으면 기존 표현을 별도 mode로 보존할지 먼저 계약한다.
+  - default mode, 지원하는 모든 보기, mode 전환 orientation, inactive renderer
+    unmount를 함께 회귀 테스트한다.
+- Verification:
+  - `/referral-revenue-graph`는 fresh mount마다 `graph`로 시작하고 `tree`와 `list`를
+    명시적으로 선택할 수 있다. tree layout/source/orientation 집중 테스트가 이 계약을
+    고정하며 기존 원형 Canvas 파일은 수정하지 않는다.
+
 ## 2026-07-31 | Release governance | 커밋 전 pre-push 검사로 커밋 범위를 검증했다고 판단함
 
 - Symptom:
@@ -1814,7 +1844,7 @@
   - `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-highlight.test.ts`
   - `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
   - `cd web && npm run build`
-  - Browser QA screenshot: `.codex/harness/referral-graph-obsidian-v7-browser-qa.png`
+  - Browser QA passed; the redundant screenshot was removed after privacy review.
 
 ## 2026-04-25 | Admin Referral Graph | directed hierarchy를 무시한 degree-only edge length로 branch child ring 공간을 놓침
 - Symptom:
@@ -1842,7 +1872,7 @@
   - `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts`
   - `node --experimental-strip-types --test web/src/lib/referral-graph-layout.test.ts`
   - `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
-  - Browser QA screenshot: `.codex/harness/referral-graph-nested-branch-auto-fit-qa.png`
+  - Browser QA passed; the redundant screenshot was removed after privacy review.
 
 ## 2026-04-25 | Admin Referral Graph | parent-child 원형을 별도 absolute ring force로 보정해 Obsidian식 core force 계약을 흐림
 - Symptom:
@@ -2612,7 +2642,7 @@
 - Why it was missed: Obsidian 참고를 force 설정명과 radial seed에만 반영했고, 공식 Graph View의 display/forces 항목처럼 text fade, node size, link thickness, center/repel/link/distance가 함께 만드는 읽기 경험을 screenshot 기준으로 충분히 평가하지 않았다. 또한 실제 운영 데이터의 connected component끼리 겹치지 않는지 component radius 기준으로 계산하지 않고, drag smoke도 "움직인다"만 보고 "링크가 찢어지지 않는가"와 "사용자가 놓은 좌표에서 release velocity가 즉시 0이 되는가"를 확인하지 않았다.
 - Permanent guardrail: graph/visualization 작업은 unit test와 nonblank smoke만으로 완료 처리하지 않는다. 최소 한 장의 실제 viewport screenshot을 확인하고, `이름 라벨 가시성`, `일반 label code 과노출 여부`, `node radius`, `link alpha/thickness`, `connected component overlap 없음`, `drag 중 linked neighbor follow`, `drag 후 hard pin 없음`, `drag 후 dropped position 즉시 유지`를 acceptance로 적어야 한다.
 - Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-layout.ts`, `web/src/lib/referral-graph-interaction.ts`, `web/src/lib/referral-graph-display.ts`, `web/src/lib/referral-graph-highlight.ts`, `.codex/harness/qa-report.md`
-- Verification: `node --experimental-strip-types --test web/src/lib/referral-graph-layout.test.ts`, `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts`, `node --experimental-strip-types --test web/src/lib/referral-graph-display.test.ts`, `node --experimental-strip-types --test web/src/lib/referral-graph-highlight.test.ts`, synthetic Playwright screenshot `.codex/harness/referral-graph-obsidian-overview-qa.png`, real-data screenshot `.codex/harness/referral-graph-no-overlap-qa.png`
+- Verification: focused layout/interaction/display/highlight tests and synthetic/real-data visual QA; redundant screenshots were removed after privacy review.
 
 ## 2026-04-24 | Referral Graph Drag Physics | 수동 위치 force가 d3 velocity를 덮어써 release 후 기존 물리가 죽고 링크 길이가 비정상적으로 남음
 - Symptom: 사용자가 노드를 드래그한 뒤 직접 연결선이 비정상적으로 길게 남는다고 보고했다. 추가로 "드래그한 위치에서 크게 벗어나면 안 되지만, 기존 물리법칙은 놓았을 때도 유지되어야 한다"는 계약이 확인됐다.
@@ -2628,7 +2658,7 @@
 - Why it was missed: "관성"을 release 후 흔들림으로 이해했고, "edge가 길어지지 않게"를 follower 좌표를 함께 옮기는 방식으로 풀었다. 실제 요구는 drag 중에도 link spring이 계속 당기고, release 후에는 dropped position을 짧게 약하게만 기억하는 구조였다.
 - Permanent guardrail: force-graph drag에서 pointer 대상 노드 외에는 좌표를 직접 쓰지 않는다. drag 중에는 대상 노드만 임시 `fx/fy`로 잡고 simulation을 reheat한다. release는 `fx/fy` 해제, recent sample 기반 clamped velocity 주입, dragged node 1개짜리 decaying drop tether만 허용한다. component/hub/drop 보정 force는 모두 `vx/vy += delta` 방식이어야 한다.
 - Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.ts`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-layout.ts`
-- Verification: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`, targeted web lint, `cd web && npm run build`, Playwright synthetic browser QA screenshot `.codex/harness/referral-graph-physics-browser-qa.png`, `node scripts/ci/check-governance.mjs`
+- Verification: focused graph tests, targeted web lint/build, synthetic browser QA, and governance; the redundant screenshot was removed after privacy review.
 
 ## 2026-06-04 | Mobile Theme | 시스템 다크 테마를 허용해 로그인/CTA 배경이 검정으로 보임
 - Symptom: SM_S942N 실기기에서 로그인 화면과 일부 홈 CTA/card 영역이 의도한 흰색/주황색 톤 대신 검정 배경처럼 보였다.
@@ -5247,7 +5277,7 @@
     Canvas draw path with cached fixed-pixel text rather than many moving
     SVG/native Text surfaces.
 - Verification:
-  - `.codex/harness/referral-revenue-demo-20260727/artifacts/revenue-webview-gfxinfo.txt`
+  - Retained aggregate jank values in the canonical QA report; the raw gfxinfo file was removed after privacy/retention review.
   - `components/referral-revenue-graph/ReferralRevenueGraphWebViewCanvas.tsx`
 
 ## 2026-07-30 | Revenue graph back handling assumed navigation history
@@ -5348,3 +5378,207 @@
 - Verification:
   - `lib/__tests__/referral-revenue-graph-native.test.ts`
   - `lib/__tests__/referral-revenue-demo-source.test.ts`
+
+## 2026-08-04 | Mobile chat keyboard avoidance had three competing bottom offsets
+
+- Symptom:
+  - Chat composers were nearly attached to the keyboard on some devices and left a large blank band on others; the reported iOS group-chat screen showed the latter.
+- Root cause:
+  - iOS added a fixed 65px keyboard vertical offset even though the custom header was outside the avoider, then retained the device safe-area while the keyboard was open.
+  - Android already used manifest `adjustResize` but direct/group chat added the full reported keyboard height again. The Request Board bridge used a third `height`-avoidance rule.
+- Permanent guardrail:
+  - Direct, group, and Request Board bridge composers use `lib/chat-keyboard-layout.ts`: 8px while open, device safe-area minimum only while closed.
+  - Keep custom-header iOS avoiders at offset 0 and let Android `adjustResize` own viewport resizing; never add keyboard height as composer padding.
+- Verification:
+  - `lib/__tests__/chat-keyboard-layout.test.ts`
+  - `lib/__tests__/group-chat-mobile-source.test.ts`
+
+## 2026-08-04 | 날짜 미정 시험을 nullable 날짜로 월 비교했다
+
+- Symptom:
+  - 운영에 신청 가능한 손해보험 `날짜 미정` 회차가 존재하지만, 일부 FC에게 선택 불가로 보이고 제출 RPC도 미정 날짜를 거부했다.
+- Root cause:
+  - 월 1회 신청 슬롯을 nullable `exam_date`에서 파생해, 서로 다른 TBD 회차들의 `null === null`을 같은 달 충돌로 취급했다.
+  - `exam_rounds.exam_date`는 스키마에서 nullable이지만 submit v2/v3는 null을 `invalid_exam_round`로 거부해 DB 계약이 서로 달랐다.
+  - 기존 테스트에 canonical 월을 가진 TBD 회차와 서로 다른 월 TBD 회차 사례가 없었다.
+- Permanent guardrail:
+  - 회차의 `exam_month` non-null snapshot을 canonical 월 소유자로 두고, 신청은 자신의 `exam_month` snapshot을 우선 비교한다.
+  - active 슬롯은 제3보험 선택 여부까지 포함해 `(fc_id, exam_month, exam_type)` 하나로 고정한다. 생명 신청은 손해 신청을 막지 않으며, 생명/손해를 가로지르는 별도 제3보험 월 제한을 만들지 않는다.
+  - 명시적 null/잘못된 월·종목 snapshot은 개별 fail closed하고 서로 같다고 비교하지 않는다. 해당 필드가 아예 없는 legacy 응답만 정확일/참조 회차 fallback을 허용한다.
+  - 일반 목록 선택뿐 아니라 `roundId` 딥링크와 최종 제출 직전에도 같은 type+month 충돌 matcher를 다시 실행한다.
+  - 관리자 화면에서 TBD를 해제할 때 canonical 월의 1일을 정확일로 간주하지 말고, 운영자가 실제 시험일을 명시적으로 선택하게 한다.
+  - submit v2/v3, legacy/v2 save RPC, 같은 월 날짜 확정 history rule을 하나의 migration/schema parity 계약과 focused regression으로 고정한다.
+- Verification:
+  - `lib/__tests__/exam-tbd-month-contract.test.ts`
+  - `lib/__tests__/exam-flow-contract.test.ts`
+  - `lib/__tests__/exam-round-atomic-save.test.ts`
+  - `lib/__tests__/privileged-server-action-input-policy.test.ts`
+  - `lib/__tests__/exam-month-conflict-feedback-source.test.ts`
+
+## 2026-08-04 | 시험 월 계약을 만들고도 구 관리자·stale cache·배포 gate를 끝까지 추적하지 않았다
+
+- Symptom:
+  - 모바일 관리자에서 기존 TBD 회차를 열면 nullable exact date가 오늘 날짜로 바뀌어 저장될 수 있었다.
+  - 신청 이력 query가 전역 5분 freshness를 상속해, 다른 세션의 신청은 잠시 우회하고 취소·반려된 신청은 계속 차단할 수 있었다.
+  - 배포 SSOT는 구 migration과 legacy writer만 확인하고도 v2 writer를 호출하는 web 활성화를 허용했다.
+- Root cause:
+  - canonical month를 추가했지만 기존 form helper의 non-null 날짜 fallback과 구 모바일 caller 호환 경계를 전체 writer graph로 다시 감사하지 않았다.
+  - 월 충돌 helper만 검증하고 그 입력 cache의 loading/fetching/error/freshness 상태를 목록·딥링크·최종 제출 전부에 같은 보안 경계로 적용하지 않았다.
+  - 배포 문서를 실제 활성 caller의 정확한 RPC signature에서 역추적하지 않아 obsolete gate가 남았다.
+- Permanent guardrail:
+  - TBD form state는 `exam_date = null`과 canonical `exam_month`를 함께 보존한다. 정확일 전환은 운영자의 명시적 날짜 선택만 허용하고, Edge와 legacy SQL wrapper도 implicit TBD finalization을 fail closed한다.
+  - 월 슬롯 판정에 쓰는 history는 mount와 최종 제출 직전에 새로 읽는다. loading/fetching/error는 목록·딥링크·receipt·submit 모두 차단하고, route target은 준비 완료 후 한 번만 소비한다.
+  - 배포 gate는 현재 caller가 호출하는 exact regprocedure, 실행 권한, 대표 성공/실패 transaction, 실패 시 partial-write 0건을 확인한 뒤에만 다음 계층을 활성화한다.
+- Verification:
+  - `lib/__tests__/exam-flow-contract.test.ts`
+  - `lib/__tests__/exam-month-conflict-feedback-source.test.ts`
+  - `lib/__tests__/exam-tbd-month-contract.test.ts`
+  - `lib/__tests__/exam-deployment-gate.test.ts`
+
+## 2026-08-04 | 메신저 알림 설정을 UI와 일부 전송 경로만으로 검증했다
+
+- Symptom:
+  - 방별 음소거 토글은 저장되었지만 일반 `notify/message` 푸시와 직접대화의 원자적 알림 insert가 설정을 우회할 수 있었다.
+  - 음소거 trigger가 직접대화 알림 row를 정상 억제한 뒤에도 Edge 소비자가 기존 row 수를 요구해, 메시지는 commit됐지만 발신 API가 실패로 응답할 수 있었다.
+  - 일부 공지·마감 알림 생산자와 가람Link 목록 helper는 각각 새 preference와 실패 상태를 우회해, OFF가 무시되거나 조회 실패가 정상 빈 목록처럼 보일 수 있었다.
+  - Request 방 ID와 direct 방 ID를 같은 숫자 집합으로 비교해, 서로 다른 namespace의 같은 숫자가 관계없는 대화에 음소거 표시를 만들 수 있었다.
+- Root cause:
+  - 알림 설정을 하나의 UI/API 기능으로 보고, 인앱 알림 저장과 Expo fanout을 만드는 모든 producer 행렬을 끝까지 연결하지 않았다.
+  - DB RPC 내부 무결성만 검사하고 RPC의 suppress 결과를 해석하는 Edge consumer 계약, 그리고 사용자 화면이 빈 상태를 선언하기 전 strict read 계약까지 함께 검증하지 않았다.
+  - 외형이 모두 숫자라는 이유로 방 종류를 키의 일부로 취급하지 않았다.
+- Permanent guardrail:
+  - 설정 기능은 text, attachment, broadcast, group, generic, lifecycle의 `인앱 저장 / Expo / bridge` 행렬으로 검증하고, 메시지와 알림이 한 트랜잭션인 경로는 DB trigger/RPC 내에서 fail-closed로 판정한다.
+  - 원자 RPC는 `expected / persisted / suppressed`를 명시하고 소비자는 합계와 실제 row를 함께 검증한다. 사용자 목록·검색용 조회는 실패를 `[]`로 바꾸지 않는 strict 경로를 사용해 부분 오류와 진짜 빈 상태를 구분한다.
+  - 방 비교는 항상 `kind + canonical id`로 하고, 서로 다른 BIGSERIAL 도메인을 하나의 숫자 집합으로 합치지 않는다.
+- Verification:
+  - `supabase/functions/__tests__/messenger-direct-room-mute-atomic.contract.test.ts`
+  - `supabase/functions/__tests__/fc-notify-general-push-preferences.contract.test.ts`
+  - `lib/__tests__/messenger-v2-hub-model.test.ts`
+
+## 2026-08-05 | 사용자 실행 경로가 아닌 웹 구현만 수정했다
+
+- Symptom:
+  - Request Board 쪽 역할 포맷을 바꿨지만 사용자가 `npx expo run:android`로 확인한 가람in 사람 목록은 여전히 `본부장 · 가람in`을 표시했다.
+- Root cause:
+  - 같은 메신저 기능이라는 이름만 보고 `request_board` 웹 경로를 우선 수정했고, 실제 Android 화면의 Expo Router 진입점과 행 컴포넌트를 먼저 추적하지 않았다.
+- Permanent guardrail:
+  - 사용자가 실행한 명령과 스크린샷을 받은 경우, 변경 전 해당 runtime의 route entry, renderer, API client를 모두 확인한다. 웹과 네이티브가 공통 도메인이라도 다른 표시 모델을 공유한다고 가정하지 않는다.
+- Verification:
+  - `app/messenger.tsx`
+  - `components/messenger/MessengerHubRows.tsx`
+  - `lib/__tests__/messenger-v2-hub-model.test.ts`
+  - `lib/__tests__/messenger-v2-hub-source.test.ts`
+
+## 2026-08-05 | Messenger startup waited for unrelated slow sources
+
+- Symptom:
+  - Developer accounts saw a long full-screen loader even when the internal people list itself was ready.
+- Root cause:
+  - The native hub awaited internal data, group chat, GaramLink bridging, and room preferences as one startup completion boundary; the hydration and focus effects could also begin the same initial load twice.
+- Permanent guardrail:
+  - Start independent sources in parallel, release the screen as soon as the internal directory source settles, and let deferred sources update their own rows and notices. Do not invoke the initial hub load from both the hydration effect and focus effect. Coalesce in-flight hub refreshes, avoid fixed timer polling, and do not merge a developer's GaramLink directory into the GaramIn people tab.
+  - Keep accordion expansion independent from role grouping/sorting, keep an in-screen tab switch out of router parameter mutation, and overlap route validation with an existing direct room's history request.
+- Verification:
+  - `lib/__tests__/messenger-v2-hub-source.test.ts`
+
+## 2026-08-05 | A list-level group-room action used the wrong preference boundary
+
+- Symptom:
+  - Pressing the shared group-room bell could surface the generic "could not turn off notifications" error.
+- Root cause:
+  - The messenger hub sent the group-room key to the generic preference function even though group membership and group mute persistence belong to the group-chat endpoint.
+- Permanent guardrail:
+  - Dispatch room preference writes by route kind. The group bell calls `groupChatSetMuted`, verifies the returned state, and stops press propagation before the outer row can navigate.
+- Verification:
+  - `lib/__tests__/messenger-v2-notification-settings-source.test.ts`
+
+## 2026-08-06 | A new database relationship made a legacy PostgREST embed ambiguous
+
+- Symptom:
+  - The privileged administrator exam-applicant list returned a server error
+    after the production schema gained the `(round_id, exam_type)` relationship.
+- Root cause:
+  - The API retained an unqualified `exam_rounds` PostgREST embed even though
+    `exam_registrations` now has both legacy and composite relationships to
+    that table.
+- Permanent guardrail:
+  - Any additive foreign key affecting a consumer-side PostgREST embed must
+    identify its intended relationship explicitly. Pair the migration with a
+    source contract test for every privileged read using that table pair.
+- Verification:
+  - `web/src/lib/exam-applicant-detail-source.test.ts`
+
+## 2026-08-08 | Messenger lists rebuilt summaries from unbounded message history
+
+- Symptom:
+  - Opening Messenger V2, switching tabs, and toggling role accordions could
+    appear frozen for about ten seconds as list endpoints returned large
+    histories and both hidden/visible virtualized trees rerendered.
+- Root cause:
+  - GaramIn and GaramLink list handlers fetched every related message and
+    attachment into Edge/Node, then recomputed latest and unread in JavaScript.
+  - The mobile hub blocked its useful shell on an internal source and kept both
+    tab lists mounted with unstable row callbacks.
+- Permanent guardrail:
+  - Conversation lists use actor-authorized indexed summary RPCs and bounded
+    keyset pages; never transfer full message history to build list previews.
+  - Keep actor-scoped snapshots in process memory only and reject stale
+    prior-actor updates. For the measured hub, retain both memoized virtualized
+    lists in fixed panes so a tab press does not recreate a list; disable input,
+    accessibility, and pagination on the inactive pane, and start people
+    accordions collapsed. Tab and accordion handlers remain network-free.
+- Verification:
+  - `supabase/functions/__tests__/messenger-summary-performance.contract.test.ts`
+  - `lib/__tests__/messenger-hub-cache.test.ts`
+  - `lib/__tests__/messenger-v2-hub-source.test.ts`
+
+## 2026-08-08 | Fixed polling repeatedly committed large legacy Messenger responses
+
+- Symptom:
+  - The local mobile source contained the low-latency summary path, but the connected Android app remained slow and showed a repeated `404` for the GaramLink room-preference endpoint.
+- Root cause:
+  - The development client was connected to production backends that had not received the new summary/preference rollout and returned hundreds of rows per source.
+  - Fixed 30/60-second refreshes overlapped those slow responses and repeatedly scheduled large React state commits while the user was switching tabs or accordions.
+- Permanent guardrail:
+  - A high-traffic mobile hub must not timer-poll full list sources. Use bounded focus/foreground revalidation with a cooldown, keep manual refresh available, and commit slow source results at transition priority.
+  - Confirm backend capability before interpreting device latency. An optional additive endpoint missing on a legacy server must enter a bounded compatibility mode instead of generating a new `404` on every poll.
+- Verification:
+  - `lib/__tests__/messenger-v2-hub-source.test.ts`
+  - `lib/__tests__/request-board-room-preferences-compatibility.test.ts`
+
+## 2026-08-08 | Android device serial was passed as an Expo device name
+
+- Symptom:
+  - `adb connect` succeeded, but `npm run android` failed with `Could not find device with name: <IP>:<port>`.
+- Root cause:
+  - The wrapper passed an ADB TCP serial to Expo CLI's `--device` option, which resolves a human-readable model name instead of an ADB serial.
+- Permanent guardrail:
+  - Select the direct online ADB transport in the wrapper, export it as `ANDROID_SERIAL`, and let Expo resolve the connected device without passing the serial as `--device`. Treat mDNS discovery and direct TCP connection as separate states.
+- Verification:
+  - `node scripts/run-android.mjs --help`
+
+## 2026-08-08 | A dirty Edge Function was deployed before its remote migration prerequisites
+
+- Symptom:
+  - Immediately after deploying `fc-notify`, the GaramIn People tab reported that internal data could not be loaded.
+  - The first compatibility repair covered FC `chat_targets`, but developer/admin `internal_chat_list` still failed on a second RPC from the same unapplied migration.
+- Root cause:
+  - The requested label change was a small hunk inside a much broader dirty Edge Function. Deploying the file also activated the new messenger-summary RPC caller while its migration was still local-only.
+- Permanent guardrail:
+  - Before every Edge deployment from a dirty worktree, inventory every migration/RPC referenced by the deployable bundle and compare those exact versions with the remote migration ledger. A focused diff is not a deployment-scope guarantee because the whole function is bundled.
+  - Build the inventory across every role/handler branch, and test each missing prerequisite independently; one fallback for one RPC does not make sibling role paths compatible.
+  - If prerequisites are absent, either obtain explicit approval for the ordered database rollout or ship an explicit, tested compatibility path before deploying. Never discover the dependency after production activation.
+- Verification:
+  - `supabase/functions/__tests__/messenger-summary-performance.contract.test.ts`
+  - `deno check supabase/functions/fc-notify/index.ts`
+
+## 2026-08-09 | Release status was inferred without checking the store track
+
+- Symptom:
+  - A completed EAS build was discussed as if Google Play publication had not happened, even though Play Console already showed that exact version active in production.
+- Root cause:
+  - Build completion and Store publication were tracked in separate steps, and the final status report did not re-open the authoritative production track before answering.
+- Permanent guardrail:
+  - Before claiming an Android release is pending or complete, verify both the exact EAS build `(appVersion, versionCode)` and the Google Play production track. Record active/review/rollout state, publish time, and unpublished-change status. Never re-submit an already active versionCode.
+- Verification:
+  - Google Play Console production track for `4.2.2 (71)` and the indexed Android release harness.

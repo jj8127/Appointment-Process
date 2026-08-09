@@ -22,9 +22,10 @@ describe('admin web exam and notice notification completion contract', () => {
     expect(examAction).toContain("getNotificationDeliveryFeedback('no_registered_device')");
     expect(examAction).not.toContain("reason: 'no_accepted_target'");
     expect(saveSource).toContain('const notificationResult = await notifyExamRoundChanged');
-    expect(saveSource.indexOf("'save_exam_round_atomic'")).toBeLessThan(
-      saveSource.indexOf('await notifyExamRoundChanged'),
-    );
+    const saveRpcIndex = saveSource.indexOf("'save_exam_round_atomic_v2'");
+    const notifyIndex = saveSource.indexOf('await notifyExamRoundChanged');
+    expect(saveRpcIndex).toBeGreaterThan(-1);
+    expect(notifyIndex).toBeGreaterThan(saveRpcIndex);
     expect(saveSource).toContain('success: true');
     expect(saveSource).toContain(
       "notificationResult.feedback.severity === 'warning'",

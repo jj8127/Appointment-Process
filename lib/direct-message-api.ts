@@ -17,6 +17,37 @@ export type GaraminDirectConversation = {
   counterpartyName: string | null;
 };
 
+export type GaraminDirectRoomRef = {
+  version: 1;
+  kind: 'garamin_direct_chat';
+  conversationId: string;
+};
+
+export type GaraminDirectSearchResult = {
+  source: 'garamin_direct';
+  room: GaraminDirectRoomRef;
+  messageId: string;
+  sentAt: string;
+  excerpt: string;
+  roomLabel: string;
+  senderLabel: string;
+};
+
+export type GaraminDirectContextMessage = {
+  messageId: string;
+  sentAt: string;
+  content: string;
+  senderLabel: string;
+  senderSide: 'viewer' | 'counterparty';
+  isAnchor: boolean;
+};
+
+export type GaraminDirectMessageContext = {
+  room: GaraminDirectRoomRef;
+  anchorMessageId: string;
+  messages: GaraminDirectContextMessage[];
+};
+
 export type GaraminDirectMessage = {
   id: string;
   conversation_id: string;
@@ -51,6 +82,7 @@ export type GaraminDirectBroadcastSendResult = {
 
 type DirectConversationWire = {
   id?: unknown;
+  requested_id?: unknown;
   counterparty_id?: unknown;
   counterparty_name?: unknown;
 };
@@ -85,7 +117,11 @@ function parseConversation(
   const counterpartyId = normalizeCounterpartyId(value?.counterparty_id);
   if (
     !isNotificationUuid(id)
-    || (expectedConversationId && id !== expectedConversationId)
+    || (
+      expectedConversationId
+      && id !== expectedConversationId
+      && value?.requested_id !== expectedConversationId
+    )
     || (
       counterpartyId !== ADMIN_CHAT_ID
       && counterpartyId.length !== 11
@@ -295,7 +331,7 @@ export async function fetchGaraminDirectMessages(
     throw new Error('대화 응답 형식이 올바르지 않습니다.');
   }
   const messages = data.messages.map((message) =>
-    parseMessage(message, conversationId)
+    parseMessage(message, conversation.id)
   );
   for (let index = 1; index < messages.length; index += 1) {
     if (
@@ -523,4 +559,168 @@ export async function deleteGaraminDirectMessage(input: {
   if (data.deleted !== true) {
     throw new Error('메시지를 삭제하지 못했습니다.');
   }
+}
+
+function parseDirectRoomRef(value: unknown): GaraminDirectRoomRef {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Direct message room response is invalid');
+  }
+  const room = value as Record<string, unknown>;
+  if (
+    room.version !== 1
+    || room.kind !== 'garamin_direct_chat'
+    || !isNotificationUuid(room.conversationId)
+  ) {
+    throw new Error('Direct message room response is invalid');
+  }
+  return {
+    version: 1,
+    kind: 'garamin_direct_chat',
+    conversationId: room.conversationId.toLowerCase(),
+  };
+}
+
+function parseBoundedLabel(value: unknown): string {
+  const label = typeof value === 'string' ? value.trim() : '';
+  if (!label || Array.from(label).length > 120) {
+    throw new Error('Direct message search response is invalid');
+  }
+  return label;
+}
+
+function parseSearchResult(value: unknown): GaraminDirectSearchResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Direct message search response is invalid');
+  }
+  const result = value as Record<string, unknown>;
+  const excerpt = typeof result.excerpt === 'string' ? result.excerpt : '';
+  if (
+    result.source !== 'garamin_direct'
+    || !isNotificationUuid(result.messageId)
+    || typeof result.sentAt !== 'string'
+    || !Number.isFinite(Date.parse(result.sentAt))
+    || Array.from(excerpt).length > 240
+  ) {
+    throw new Error('Direct message search response is invalid');
+  }
+  return {
+    source: 'garamin_direct',
+    room: parseDirectRoomRef(result.room),
+    messageId: result.messageId.toLowerCase(),
+    sentAt: result.sentAt,
+    excerpt,
+    roomLabel: parseBoundedLabel(result.roomLabel),
+    senderLabel: parseBoundedLabel(result.senderLabel),
+  };
+}
+
+export async function searchGaraminDirectMessages(input: {
+  q: string;
+  limit?: number;
+}): Promise<GaraminDirectSearchResult[]> {
+  const query = typeof input.q === 'string' ? input.q.trim() : '';
+  const queryLength = Array.from(query).length;
+  const limit = input.limit ?? 50;
+  if (
+    queryLength < 2
+    || queryLength > 100
+    || !Number.isSafeInteger(limit)
+    || limit < 1
+    || limit > 50
+  ) {
+    throw new Error('Direct message search input is invalid');
+  }
+  const data = await invokeDirectMessageAction<{
+    ok: true;
+    results?: unknown;
+  }>({
+    type: 'direct_message_search',
+    q: query,
+    limit,
+  });
+  if (!Array.isArray(data.results) || data.results.length > limit) {
+    throw new Error('Direct message search response is invalid');
+  }
+  const results = data.results.map(parseSearchResult);
+  for (let index = 1; index < results.length; index += 1) {
+    const previous = results[index - 1];
+    const current = results[index];
+    if (
+      previous.sentAt < current.sentAt
+      || (
+        previous.sentAt === current.sentAt
+        && previous.messageId < current.messageId
+      )
+    ) throw new Error('Direct message search response order is invalid');
+  }
+  return results;
+}
+
+export async function fetchGaraminDirectMessageContext(input: {
+  conversationId: string;
+  messageId: string;
+}): Promise<GaraminDirectMessageContext> {
+  if (
+    !isNotificationUuid(input.conversationId)
+    || !isNotificationUuid(input.messageId)
+  ) throw new Error('Direct message context input is invalid');
+  const data = await invokeDirectMessageAction<{
+    ok: true;
+    room?: unknown;
+    anchorMessageId?: unknown;
+    messages?: unknown;
+  }>({
+    type: 'direct_message_context',
+    conversation_id: input.conversationId.toLowerCase(),
+    message_id: input.messageId.toLowerCase(),
+  });
+  const room = parseDirectRoomRef(data.room);
+  if (
+    room.conversationId !== input.conversationId.toLowerCase()
+    || data.anchorMessageId !== input.messageId.toLowerCase()
+    || !Array.isArray(data.messages)
+    || data.messages.length < 1
+    || data.messages.length > 41
+  ) throw new Error('Direct message context response is invalid');
+  const messages = data.messages.map((value): GaraminDirectContextMessage => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('Direct message context response is invalid');
+    }
+    const message = value as Record<string, unknown>;
+    const senderSide = message.senderSide;
+    if (
+      !isNotificationUuid(message.messageId)
+      || typeof message.sentAt !== 'string'
+      || !Number.isFinite(Date.parse(message.sentAt))
+      || typeof message.content !== 'string'
+      || Array.from(message.content).length > 4_000
+      || (senderSide !== 'viewer' && senderSide !== 'counterparty')
+      || typeof message.isAnchor !== 'boolean'
+    ) throw new Error('Direct message context response is invalid');
+    return {
+      messageId: message.messageId.toLowerCase(),
+      sentAt: message.sentAt,
+      content: message.content,
+      senderLabel: parseBoundedLabel(message.senderLabel),
+      senderSide,
+      isAnchor: message.isAnchor,
+    };
+  });
+  const anchors = messages.filter((message) => message.isAnchor);
+  if (
+    anchors.length !== 1
+    || anchors[0].messageId !== data.anchorMessageId
+  ) throw new Error('Direct message context response is invalid');
+  for (let index = 1; index < messages.length; index += 1) {
+    const previous = messages[index - 1];
+    const current = messages[index];
+    if (
+      previous.sentAt > current.sentAt
+      || (
+        previous.sentAt === current.sentAt
+        && previous.messageId > current.messageId
+      )
+    ) throw new Error('Direct message context response order is invalid');
+  }
+  return { room, anchorMessageId: data.anchorMessageId, messages };
 }

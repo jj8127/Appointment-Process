@@ -11,7 +11,7 @@ contract_guard_2026_07_03: mobile board/notice screens, admin board/notification
 
 ## 2026-07-25 Notification-only retry contract
 
-- `board-create` and `board-update` return `delivery.notificationStored`. Only inbox persistence failure returns `notificationRetry: { postId, eventKey }`; provider rejection and no registered device remain silent sender-side outcomes.
+- `board-create` and `board-update` return `delivery.notificationStored`. Only inbox persistence failure returns `notificationRetry: { postId, eventKey }`. `board-create` also persists one bounded `notification_delivery_attempts` audit row per fanout target and returns a delivery warning when inbox persistence, provider confirmation, or the audit write is unconfirmed; it never returns provider bodies or recipient data.
 - Mobile and web retry only `board-notification-retry` with that pair. They never resubmit the create/update mutation, so a delivery retry cannot duplicate a post or repeat an edit.
 - The retry Edge accepts a signed app session for an active `admin` or `manager`. An admin may retry any committed board post; a manager may retry only a manager-authored post owned by the same canonical resident ID. Board automation and FC sessions are not authorized.
 - The server reloads the committed post, re-derives the event key from `postId + updated_at`, and derives the fixed `fc`, `admin`, and `manager` broadcast rows itself. Caller-supplied recipient roles, resident IDs, notification content, and targets are never accepted.
@@ -22,6 +22,7 @@ contract_guard_2026_07_03: mobile board/notice screens, admin board/notification
 ## 2026-07-23 Post-write notification delivery contract
 
 - `board-create` and `board-update` keep a committed board mutation successful even when the follow-up notification fanout is partially or fully rejected.
+- `board-create` treats an unconfirmed push or failed delivery-attempt audit as a notification warning while preserving `saved=true`. The warning must not invite resubmission of the already committed post.
 - The Edge response separates the saved result from a bounded `notification` delivery summary and a user-safe warning; raw provider payloads and recipient details are never returned.
 - Each nested `fc-notify` call has a 10-second deadline. A timeout is reported as incomplete notification delivery and never changes the already committed board write into a retryable write failure.
 - Push confirmation requires a logged inbox result and matching non-zero `attempted/accepted/sent` counts with zero rejected tickets. A partial Expo ticket result is not a confirmed fanout.

@@ -13,6 +13,7 @@ const fcViewer: NotificationReceiptViewer = {
   actorId: ACTOR_A,
   inboxRole: 'fc',
   residentId: '01011112222',
+  allowBroadcast: true,
   includeRequestBoardFc: false,
 };
 
@@ -95,6 +96,7 @@ Deno.test('request-board FC fallback still requires exact actor ownership', () =
     actorId: ACTOR_A,
     inboxRole: 'admin',
     residentId: '01011112222',
+    allowBroadcast: false,
     includeRequestBoardFc: true,
   };
   const requestBoardRow = row({ category: 'request_board_message' });
@@ -108,6 +110,31 @@ Deno.test('request-board FC fallback still requires exact actor ownership', () =
   );
   if (mismatch.authorized || mismatch.reason !== 'recipient_actor_mismatch') {
     throw new Error('request-board fallback must not weaken actor ownership');
+  }
+});
+
+Deno.test('personal administrator inbox denies shared broadcasts', () => {
+  const personalAdmin: NotificationReceiptViewer = {
+    actorId: ACTOR_A,
+    inboxRole: 'admin',
+    residentId: '01011112222',
+    allowBroadcast: false,
+    includeRequestBoardFc: false,
+  };
+  const broadcast = authorizeNotificationReceipt(row({
+    recipient_actor_id: null,
+    recipient_role: 'admin',
+    resident_id: null,
+  }), personalAdmin);
+  const targeted = authorizeNotificationReceipt(row({
+    recipient_role: 'admin',
+  }), personalAdmin);
+
+  if (broadcast.authorized || broadcast.reason !== 'broadcast_not_allowed') {
+    throw new Error('personal admin must not inherit the shared administrator broadcast');
+  }
+  if (!targeted.authorized || targeted.audience !== 'targeted') {
+    throw new Error('personal admin must retain exact actor-bound notifications');
   }
 });
 

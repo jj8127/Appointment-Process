@@ -210,6 +210,26 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
 
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>알림</Text>
+          <Pressable
+            accessibilityHint="앱 푸시와 대화방별 알림을 설정합니다."
+            accessibilityLabel="알림 설정 열기"
+            accessibilityRole="button"
+            onPress={() => router.push('/notification-settings' as never)}
+            style={({ pressed }) => [styles.settingsNavigationRow, pressed && styles.settingsNavigationRowPressed]}
+          >
+            <View style={styles.settingsNavigationIcon}>
+              <Feather name="bell" size={18} color={COLORS.primary} />
+            </View>
+            <View style={styles.settingsNavigationCopy}>
+              <Text style={styles.settingsNavigationTitle}>알림 설정</Text>
+              <Text style={styles.sectionText}>전체 알림, 종류별 알림과 알림을 끈 대화를 관리합니다.</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color={COLORS.text.muted} />
+          </Pressable>
+        </View>
+
         <Pressable style={styles.logoutButton} onPress={appLogout}>
           <Text style={styles.logoutText}>로그아웃</Text>
         </Pressable>
@@ -293,6 +313,29 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: COLORS.primary,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+  },
+  settingsNavigationRow: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    borderRadius: RADIUS.base,
+    paddingVertical: SPACING.xs,
+  },
+  settingsNavigationRowPressed: { opacity: 0.68 },
+  settingsNavigationIcon: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: RADIUS.base,
+    backgroundColor: COLORS.primaryPale,
+  },
+  settingsNavigationCopy: { flex: 1, minWidth: 0 },
+  settingsNavigationTitle: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.sm,
     fontWeight: TYPOGRAPHY.fontWeight.bold,
   },
   logoutButton: {

@@ -1145,8 +1145,16 @@ function ReferralRevenueGraphSvgCanvas({
       <View
         style={styles.canvas}
         onLayout={handleLayout}
-        accessibilityLabel="샘플 매출 기여 노드 엣지 그래프. 빈 공간은 한 손가락으로 이동하고, 노드는 끌어서 움직이며, 두 손가락으로 확대하거나 축소할 수 있습니다."
+        accessible={false}
+        importantForAccessibility="no"
       >
+        <View
+          pointerEvents="none"
+          style={styles.accessibilitySummary}
+          accessible
+          accessibilityRole="summary"
+          accessibilityLabel="샘플 매출 기여 노드 엣지 그래프. 노드는 끌어서 움직이며 개별로 탐색할 수 있고, 빈 공간은 한 손가락으로 이동하고, 두 손가락으로 확대하거나 축소할 수 있습니다."
+        />
         <View pointerEvents="none" style={styles.grid} />
         <Animated.View
           style={[
@@ -1308,6 +1316,14 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
     backgroundColor: '#fffaf5',
+  },
+  accessibilitySummary: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
   grid: {
     ...StyleSheet.absoluteFillObject,

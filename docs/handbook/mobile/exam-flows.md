@@ -2,7 +2,7 @@ doc_id: FC-APP-EXAM-FLOWS
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-07-25
+last_verified: 2026-08-04
 source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*.tsx
 
 # Mobile Playbook: Exam Flows
@@ -107,7 +107,7 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 - FC 시험 신청은 등록 row를 먼저 확정한 뒤 관리자/본인 알림을 `sendExamApplyNotificationsBestEffort`로 병렬 전송한다. 일부 알림 실패는 `failedTargets` 경고로 남기되 이미 저장된 신청을 mutation 실패로 되돌리지 않으며, 사용자가 같은 신청을 중복 재시도하도록 만들지 않는다.
 - 모바일 시험 알림은 `invokeFcNotify`의 app-session 헤더 계약을 사용하고, 관리자 승인 알림은 인증 쿠키가 포함된 `/api/fc-notify` 서버 경계를 사용한다.
-- 관리자 회차 저장은 검증된 admin session과 중앙 payload parser를 거친 뒤 `save_exam_round_atomic` RPC로 회차와 장소를 한 트랜잭션에서 갱신한다. 조회는 read-only admin session을 허용하고, 삭제는 parent round 한 건을 삭제해 FK cascade 계약을 따른다.
+- 관리자 회차 저장은 검증된 admin session과 중앙 payload parser를 거친 뒤 canonical `save_exam_round_atomic_v2` RPC로 회차와 장소를 한 트랜잭션에서 갱신한다. 구 `save_exam_round_atomic`은 정확일 caller 호환 wrapper로만 유지한다. 조회는 read-only admin session을 허용하고, 삭제는 parent round 한 건을 삭제해 FK cascade 계약을 따른다.
 
 ## 2026-07-25 응시료 입금 증빙·대리 신청 계약
 
@@ -123,3 +123,27 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - FC는 다른 대상 ID를 보낼 수 없다. 직원 대리 신청은 선택 FC 기준으로 월 1회 제한과 이력을 적용하며, 대리 취소는 이 화면에서 제공하지 않는다.
 - 감사 이벤트에는 `actor_type`, 관리자/본부장 actor snapshot, `target_fc_id_snapshot`을 남긴다.
 - 호환 배포 순서는 additive migration + 새 Edge Function → 구버전 호환 확인 → 모바일 OTA/앱 → 관리자 증빙 검토 surface다. 기존 알림 복구 릴리스와 섞어 배포하지 않는다.
+
+## 2026-08-04 시험일 미정 회차의 시험 월 계약
+
+- 정확한 시험일은 `exam_rounds.exam_date`에 nullable로 보존하고, 월 1회 신청 슬롯은 월초 날짜인 `exam_rounds.exam_month`를 canonical 기준으로 삼는다.
+- 신청 이력의 `exam_registrations.exam_month` snapshot을 우선하고, 구버전 호환 기간에만 실제 시험일에서 월을 파생한다. 해석할 수 없는 null/잘못된 월 두 개를 같은 월로 비교하지 않는다.
+- 생명·손해 신청 화면은 시험일이 null이어도 canonical 시험 월이 있으면 `미정` 회차를 선택할 수 있다. 같은 FC의 같은 월 active 신청은 같은 보험 종목 안에서만 충돌하며, 생명과 손해는 각각 한 건씩 신청할 수 있다. 제3보험을 선택한 경우에도 동일하게 종목별로 판단하므로, 같은 달 생명 제3보험 신청이 손해 제3보험 신청을 막거나 그 반대가 되어서는 안 된다.
+- 각 신청 화면의 이력·현재 신청·신청 상세 딥링크는 해당 생명/손해 종목만 표시한다. 데이터 조회는 rollout 호환과 snapshot 판정을 위해 두 종목을 함께 가져올 수 있지만, 반대 종목 row를 현재 화면의 신청으로 렌더링하지 않는다.
+- rollout은 DB migration → canonical 관리자 일정 writer → 모바일 순서를 지킨다. 새 컬럼을 조회하는 앱을 DB보다 먼저 배포하지 않는다.
+- 회귀 근거는 `lib/__tests__/exam-flow-contract.test.ts`, `lib/__tests__/exam-tbd-month-contract.test.ts`다.
+
+## 2026-08-04 TBD 관리자 편집과 신청 이력 freshness 계약
+
+- `exam-register`, `exam-register2`는 form hydrate 단계에서 `exam_date = null`을 오늘 날짜로 바꾸지 않는다. TBD 회차는 저장된 `exam_month`와 nullable exact date를 함께 유지하고, 정확일 전환은 관리자가 날짜 picker에서 실제 날짜를 선택했을 때만 가능하다.
+- 두 관리자 화면은 새 payload에 `exam_date`와 `exam_month`를 함께 보낸다. legacy exact-date caller는 Edge에서 월을 파생할 수 있지만, 명시적 월 없이 기존 TBD 회차를 수정하는 구 caller는 업그레이드 안내와 함께 fail closed한다.
+- `exam-apply`, `exam-apply2`의 history query는 전역 5분 stale cache를 신뢰하지 않는다. query가 loading/fetching/error인 동안 회차 선택, round 딥링크, notification receipt 완료, 최종 신청을 모두 막고 재시도를 제공한다.
+- 최종 신청은 증빙 업로드와 mutation 전에 history를 강제 refetch하고 그 반환 row로 같은 종목·월 active 충돌을 다시 판정한다. fresh 결과에서 `cancelled`, `rejected`는 슬롯을 즉시 해제한다.
+- registration/round route target은 대상 identity·종목·route key별로 필요한 query가 준비된 뒤 한 번만 적용한다. 이후 Realtime 또는 수동 refresh가 사용자의 현재 선택을 원래 딥링크로 되돌리거나 충돌 안내를 반복해서는 안 된다.
+
+## 2026-08-08 FC 신청 내역 입금 증빙 열람 계약
+
+- `exam-apply`, `exam-apply2`의 선택된 신청 내역은 `payment_proof_attached=true`인 경우에만 `입금 내역 보기` 버튼을 표시한다.
+- 버튼을 누를 때마다 signed app session과 정확한 신청 ID를 `exam-payment-proof` Edge Function에 전달한다. 서버는 기존 actor/대상 FC 검증 뒤 `registration_id + fc_id + status=attached`가 모두 일치하는 현재 증빙만 조회한다.
+- private `exam-payment-proofs` bucket과 service-role-only 업로드 장부는 그대로 유지한다. 앱에는 storage path나 원본 파일명을 노출하지 않고 5분 만료 signed URL만 반환하며, URL은 DB·로그·로컬 저장소에 보관하지 않는다.
+- 이미지는 공용 `ImagePreviewModal`로 전체 화면에서 열고, 로딩·오류·닫기·접근성 레이블을 명시한다. 스키마/RLS, 증빙 승인·OCR·다운로드, 알림 계약은 변경하지 않는다.

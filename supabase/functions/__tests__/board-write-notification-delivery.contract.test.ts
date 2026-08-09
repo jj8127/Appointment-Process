@@ -8,7 +8,7 @@ const functionFiles = [
 
 describe('board write notification delivery contract', () => {
   for (const file of functionFiles) {
-    it(`${file} keeps the saved write successful and warns only when inbox persistence fails`, () => {
+    it(`${file} keeps the saved write successful while returning a delivery warning`, () => {
       const source = readFileSync(join(process.cwd(), file), 'utf8');
 
       expect(source).toContain('const pushTargets = notificationError');
@@ -21,9 +21,10 @@ describe('board write notification delivery contract', () => {
       expect(source).toContain('const pushOk = inboxOk && pushTargets.every((target) => target.ok);');
       expect(source).toContain('saved: true');
       expect(source).toContain('notification,');
-      expect(source).toContain(
-        "notificationWarning: inboxOk ? null : 'notification_delivery_incomplete'",
-      );
+      const warningSource = file.endsWith('board-create/index.ts')
+        ? 'notificationWarning: inboxOk && pushOk && pushDeliveryAudit.ok'
+        : "notificationWarning: inboxOk ? null : 'notification_delivery_incomplete'";
+      expect(source).toContain(warningSource);
     });
 
     it(`${file} returns privacy-safe failure codes for every unconfirmed push path`, () => {
@@ -45,4 +46,19 @@ describe('board write notification delivery contract', () => {
       expect(source).not.toContain('console.error(error');
     });
   }
+
+  it('records the board-create fanout result and surfaces an unconfirmed push', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'supabase/functions/board-create/index.ts'),
+      'utf8',
+    );
+
+    expect(source).toContain(".from('notification_delivery_attempts')");
+    expect(source).toContain("delivery_source: 'board_create'");
+    expect(source).toContain('provider_response_status: target.providerResponseStatus');
+    expect(source).toContain('response_confirmed: target.ok');
+    expect(source).toContain('deliveryRecorded: pushDeliveryAudit.ok');
+    expect(source).toContain('notificationWarning: inboxOk && pushOk && pushDeliveryAudit.ok');
+    expect(source).not.toContain('provider_response_body');
+  });
 });

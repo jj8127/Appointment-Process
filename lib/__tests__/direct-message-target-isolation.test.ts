@@ -77,7 +77,9 @@ describe('GaramIn direct-message target isolation', () => {
       '-- Keep this block byte-equivalent to migration 20260729032148.\n';
     const markerIndex = schema.indexOf(marker);
     expect(markerIndex).toBeGreaterThanOrEqual(0);
-    expect(schema.slice(markerIndex + marker.length).trimEnd()).toBe(migration);
+    const blockStart = markerIndex + marker.length;
+    expect(schema.slice(blockStart, blockStart + migration.length)).toBe(migration);
+    expect(schema.slice(blockStart + migration.length)).toMatch(/^\n\n/);
   });
 
   it('resolves, queries and responds with the exact target thread', () => {

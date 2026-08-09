@@ -78,12 +78,13 @@ describe('mobile direct chat source', () => {
     expect(sendSource).toContain('clientMessageId,');
   });
 
-  it('polls the service instead of subscribing directly to the messages table', () => {
+  it('refreshes on focus or app resume without overlapping fixed polling', () => {
     const source = readFileSync(chatPath, 'utf8');
 
-    expect(source).toContain('const DIRECT_MESSAGE_POLL_INTERVAL_MS = 4_000');
-    expect(source).toContain('DIRECT_MESSAGE_POLL_INTERVAL_MS');
+    expect(source).toContain('useFocusEffect(useCallback(() => {');
     expect(source).toContain("AppState.addEventListener('change'");
+    expect(source).not.toContain('DIRECT_MESSAGE_POLL_INTERVAL_MS');
+    expect(source).not.toContain('setInterval(');
     expect(source).not.toMatch(
       /postgres_changes[\s\S]{0,500}table:\s*['"]messages['"]/,
     );
@@ -127,7 +128,7 @@ describe('mobile direct chat source', () => {
     expect(source).toContain("from '@/lib/messenger-room-ordering'");
     expect(source).toContain('getLastMessageTimestamp({ created_at: manager.last_time })');
     expect(source).toContain('getLastMessageTimestamp({ created_at: developer.last_time })');
-    expect(source).toContain('getLastMessageTimestamp({ created_at: adminSummary?.last_time })');
+    expect(source).toContain('getLastMessageTimestamp({ created_at: admin.last_time })');
     expect(source).toContain('sortConversationsByLastMessageTime<FcChatTarget>([');
   });
 });

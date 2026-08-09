@@ -8,17 +8,20 @@ import {
 } from '../_shared/board.ts';
 import {
   EXAM_PAYMENT_PROOF_BUCKET,
+  EXAM_PAYMENT_PROOF_VIEW_EXPIRES_IN_SECONDS,
   buildExamPaymentProofStoragePath,
   getKoreanYmd,
   validateDiscardExamPaymentProof,
   validateCancelExamApplication,
   validatePrepareExamPaymentProof,
   validateSubmitExamPaymentProof,
+  validateViewExamPaymentProof,
   type DiscardExamPaymentProofInput,
   type CancelExamApplicationInput,
   type ListExamApplicationTargetsInput,
   type PrepareExamPaymentProofInput,
   type SubmitExamPaymentProofInput,
+  type ViewExamPaymentProofInput,
 } from '../_shared/exam-payment-proof.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import { requireAppSessionFromRequest } from '../_shared/request-board-auth.ts';
@@ -28,7 +31,8 @@ type RequestBody =
   | SubmitExamPaymentProofInput
   | DiscardExamPaymentProofInput
   | CancelExamApplicationInput
-  | ListExamApplicationTargetsInput;
+  | ListExamApplicationTargetsInput
+  | ViewExamPaymentProofInput;
 
 type AppSession = {
   phone: string;
@@ -597,6 +601,11 @@ async function submitApplication(
       payment_proof_expired: '첨부 요청이 만료되었습니다. 사진을 다시 선택해주세요.',
       payment_proof_already_used: '이미 사용된 입금 내역 사진입니다.',
       payment_proof_not_available: '입금 내역 사진을 다시 선택해주세요.',
+      payment_proof_not_found: '입금 내역 사진을 다시 선택해주세요.',
+      payment_proof_not_uploaded: '입금 내역 사진 업로드를 다시 시도해주세요.',
+      exam_subject_required: '시험 과목을 1개 이상 선택해주세요.',
+      invalid_fee_paid_date: '입금일자를 확인하고 다시 선택해주세요.',
+      invalid_exam_round: '시험 일정을 다시 선택해주세요.',
       active_exam_month_already_registered:
         '선택한 FC는 해당 시험 월에 이미 신청 내역이 있습니다.',
       invalid_exam_actor: '시험 대리 신청 권한을 확인하지 못했습니다.',
@@ -604,7 +613,7 @@ async function submitApplication(
     };
     return failure(
       'submit_failed',
-      knownMessages[error.message] ?? '시험 신청을 저장하지 못했습니다.',
+      knownMessages[error.message] ?? '시험 신청 처리 중 내부 오류가 발생했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요.',
       409,
       origin,
     );
@@ -680,6 +689,56 @@ async function discardUpload(
   }
 
   return json({ ok: true }, 200, origin);
+}
+
+async function viewAttachedProof(
+  body: ViewExamPaymentProofInput,
+  target: { fcId: string },
+  origin?: string,
+) {
+  const validated = validateViewExamPaymentProof(body);
+  if (validated.ok === false) {
+    return failure(validated.code, validated.message, 400, origin);
+  }
+
+  const { data: proof, error: proofError } = await supabase
+    .from('exam_payment_proof_uploads')
+    .select('storage_path')
+    .eq('registration_id', validated.value.registrationId)
+    .eq('fc_id', target.fcId)
+    .eq('status', 'attached')
+    .maybeSingle<{ storage_path: string }>();
+
+  if (proofError) {
+    return failure('db_error', '입금 내역을 불러오지 못했습니다.', 500, origin);
+  }
+  if (!proof?.storage_path) {
+    return failure('payment_proof_not_found', '첨부된 입금 내역이 없습니다.', 404, origin);
+  }
+
+  const { data: signed, error: signError } = await supabase.storage
+    .from(EXAM_PAYMENT_PROOF_BUCKET)
+    .createSignedUrl(
+      proof.storage_path,
+      EXAM_PAYMENT_PROOF_VIEW_EXPIRES_IN_SECONDS,
+    );
+
+  if (signError || !signed?.signedUrl) {
+    reportEdgeDiagnostic({
+      event: 'exam_payment_proof.storage',
+      reason: 'signed_upload_url_failed',
+      errorClass: 'upstream',
+    });
+    return failure('storage_error', '입금 내역 이미지를 열지 못했습니다.', 500, origin);
+  }
+
+  return json({
+    ok: true,
+    data: {
+      signedUrl: signed.signedUrl,
+      expiresInSeconds: EXAM_PAYMENT_PROOF_VIEW_EXPIRES_IN_SECONDS,
+    },
+  }, 200, origin);
 }
 
 async function cancelApplication(
@@ -789,6 +848,9 @@ serve(async (req: Request) => {
   }
   if (body.action === 'discard') {
     return discardUpload(body, targetResult.target, origin);
+  }
+  if (body.action === 'view') {
+    return viewAttachedProof(body, targetResult.target, origin);
   }
   return failure('invalid_action', '지원하지 않는 요청입니다.', 400, origin);
 });

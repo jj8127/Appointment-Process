@@ -131,10 +131,15 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
   mixed content, DOM storage, 외부 navigation은 비활성 상태를 유지한다.
 - node 이름·단계·금액 label은 screen-pixel 크기로 캐시하므로 pinch/fit/reset 중
   글자 크기가 변하지 않는다. node 원과 edge만 graph scale을 따른다.
-- focus된 graph 및 graph 설정/상세는 landscape다. 목록과 목록 상세는 portrait이며,
+- 새 route mount의 기본값은 저장되지 않는 `현재 그래프`다. 사용자가 명시적으로
+  `트리` 또는 `목록`을 선택할 수 있지만 다음 fresh mount는 다시 현재 그래프로 연다.
+- focus된 graph 및 graph 설정/상세는 landscape다. 트리·목록과 해당 상세는 portrait이며,
   header/Android back, route blur, unmount에서는 portrait를 먼저 요청한다.
   orientation 요청은 last-request-wins로 처리해 늦게 끝난 landscape 요청이 이탈 후
   다시 적용되지 않게 한다.
+- 트리는 기존 graph node/edge/context와 상세 sheet를 공유하는 로컬 presentation일
+  뿐이다. tree mode에서는 원형 WebView를 반드시 unmount하며, 실제 referral 권한이나
+  data-read surface를 추가하지 않는다.
 - 신규 package, 실제 referral API/DB, 정산 데이터는 이 샘플 경로에 추가하지 않는다.
 
 ## 연관 문서

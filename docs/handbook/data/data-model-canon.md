@@ -2,7 +2,7 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-07-25
+last_verified: 2026-08-04
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
@@ -140,3 +140,14 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 - direct text/file/broadcast RPC와 attachment reservation/download 권한은
   같은 thread tuple을 검증하며, 모든 새 table/function 권한은
   `service_role` 전용이다.
+
+## 2026-08-04 시험 회차 canonical 월
+
+- `exam_rounds.exam_month`는 `YYYY-MM-01` 형태의 non-null canonical 시험 월이다. `exam_date`가 있으면 두 값은 같은 달이어야 하고, `exam_date` null은 정확한 날짜만 미정이라는 뜻이다.
+- `20260804081357_exam_round_month_for_tbd.sql`은 실제 날짜, 이미 저장된 신청 월 snapshot, 미사용 legacy TBD 라벨 순으로 백필한다. 회차를 일의의 월로 해석할 수 없거나 active 신청 snapshot과 다르면 추측하지 않고 migration을 중단한다.
+- `save_exam_round_atomic_v2`는 명시적 `p_exam_month`를 받는 `service_role` 전용 writer다. 기존 `save_exam_round_atomic`은 정확일에서 월을 파생하거나 기존 TBD 회차의 저장된 월을 재사용하며, 월 없는 신규 TBD 작성은 fail closed한다.
+- `exam_registrations.exam_type`은 신청이 참조한 회차의 `life | nonlife` snapshot이며, 회차와 다른 종목을 저장할 수 없다. active partial unique 키 `(fc_id, exam_month, exam_type)`은 주시험·제3보험 선택 조합과 관계없이 같은 달의 생명과 손해를 각각 한 건씩 허용한다. 생명/손해를 가로지르는 별도 제3보험 unique guard는 두지 않는다.
+- 신청 RPC v2/v3는 `exam_date`가 아니라 저장된 `round.exam_month` + `round.exam_type`로 advisory lock과 active 월 유일성을 계산한다. 증빙, actor, 장소-회차, 마감일, 감사 이벤트 계약은 그대로 유지한다.
+- 신청 이력이 있는 TBD 회차는 같은 canonical 월 안의 null → 정확일 확정만 한 번 허용한다. 시험 월, 시험 종류, 확정된 날짜의 재작성은 history drift로 차단한다.
+- 구 `save_exam_round_atomic` wrapper는 exact-date caller 호환만 담당한다. 기존 TBD 회차를 명시적 month 없이 exact date로 바꾸는 implicit 전환은 wrapper와 `admin-action` 양쪽에서 fail closed하며, canonical writer는 `save_exam_round_atomic_v2`다.
+- active-slot migration preflight의 applicant collision grouping은 `fc_id IS NULL`인 탈퇴·분리 이력을 제외한다. null FC는 `(fc_id, exam_month, exam_type)` applicant slot을 만들지 않으며, 그 밖의 month/type/history 무결성 검사는 그대로 유지한다.
