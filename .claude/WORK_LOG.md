@@ -1003,3 +1003,14 @@
   EAS, OTA, commit, or push change was performed.
 - Details:
   [WORK_DETAIL.md#20260730-referral-revenue-radial-direction](WORK_DETAIL.md#20260730-referral-revenue-radial-direction)
+
+## 2026-08-09 Admin exam relation production parity
+
+- Updated the administrator applicant API to use the type-aware exam-round
+  relationship that remains after the applied legacy-FK removal migration.
+- Added the applicant source contract to the governed exam-payment-proof test
+  family and verified the focused 10-test contract plus a Sentry-disabled Next
+  production build.
+- No production database, GitHub, Vercel, EAS, or store state was changed.
+- Details:
+  [WORK_DETAIL.md#20260809-admin-exam-relation-production-parity](WORK_DETAIL.md#20260809-admin-exam-relation-production-parity)

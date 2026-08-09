@@ -69,6 +69,7 @@
         "lib/__tests__/exam-application-validation.test.ts",
         "lib/__tests__/exam-payment-proof.test.ts",
         "lib/__tests__/exam-payment-proof-source-contract.test.ts",
+        "web/src/lib/exam-applicant-detail-source.test.ts",
         "web/src/lib/exam-payment-proof-admin.test.ts",
         "supabase/functions/_shared/__tests__/exam-payment-proof_test.ts",
         "supabase/functions/__tests__/exam-payment-proof-contract_test.ts",

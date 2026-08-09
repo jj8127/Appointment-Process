@@ -13565,3 +13565,33 @@
 - Release remains HOLD. No real organization, sales, settlement, payout,
   account, credential, package, API, database, Edge Function, deployment, EAS,
   OTA, commit, or push state was changed.
+
+<a id="20260809-admin-exam-relation-production-parity"></a>
+## 2026-08-09 Admin exam relation production parity
+
+**Scope**:
+- The production administrator deployment is based on `77153cda`, whose
+  applicant query names the removed legacy `exam_registrations_round_id_fkey`
+  relationship.
+- Production migration metadata records
+  `20260807053153_remove_legacy_exam_registration_round_fk`, so the clean
+  release candidate must name the surviving
+  `exam_registrations_round_exam_type_fkey` relationship.
+
+**Implementation**:
+- Changed only the applicant query relationship and its focused source
+  contract, then registered that contract under the existing governed exam
+  family.
+- Kept this candidate isolated from the primary dirty worktree and did not
+  include a duplicate or renamed database migration.
+
+**Verification**:
+- `node --test web/src/lib/exam-applicant-detail-source.test.ts`: 10/10 PASS.
+- Sentry-disabled `npm run build` with the existing local administrator
+  environment loaded in-process: PASS (compile, TypeScript, 49 pages).
+- `node scripts/ci/check-governance.mjs` and `git diff --check`: required before
+  handoff.
+
+**Release boundary**:
+- Candidate remains local-only. GitHub push and Vercel production deployment
+  require explicit approval; no database mutation is required.

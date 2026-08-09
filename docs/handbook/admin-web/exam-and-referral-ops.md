@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-EXAM-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-07-30
+last_verified: 2026-08-09
 source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/src/app/api/admin/exam-applicants/* + web/src/app/dashboard/referrals/page.tsx + web/src/app/dashboard/referrals/graph/page.tsx + web/src/app/api/admin/referrals/route.ts
 
 # Admin Web Playbook: Exam And Referral Ops
@@ -11,6 +11,15 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 
 - `/api/admin/exam-applicants` is a privileged admin web API and must use the signed server-session helper before reading or mutating applicant data.
 - Caller-supplied role or resident identity values are ignored for authorization; admin/manager capabilities come only from the verified session.
+
+## 2026-08-09 Exam Round Relationship Contract
+
+- `/api/admin/exam-applicants` must select `exam_rounds` through
+  `exam_registrations_round_exam_type_fkey`.
+- The legacy `exam_registrations_round_id_fkey` relationship was removed by
+  the applied production migration and must not be restored or queried.
+- Keep `web/src/lib/exam-applicant-detail-source.test.ts` aligned with this
+  explicit PostgREST relationship name before an administrator deployment.
 
 ## 포함 화면
 

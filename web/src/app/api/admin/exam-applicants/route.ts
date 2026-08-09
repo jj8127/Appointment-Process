@@ -68,7 +68,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const EXAM_REGISTRATION_SELECT = `
   id, status, created_at, round_id, resident_id, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, rejected_at,
   exam_locations!exam_registrations_location_round_fkey ( location_name ),
-  exam_rounds!exam_registrations_round_id_fkey ( round_label, exam_date, exam_type )
+  exam_rounds!exam_registrations_round_exam_type_fkey ( round_label, exam_date, exam_type )
 `;
 
 async function readRegistrationRows(registrationId?: string): Promise<ExamRegistrationRow[]> {

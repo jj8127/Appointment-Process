@@ -90,8 +90,9 @@ test('admin API validates the requested registration and keeps history for appli
   assert.match(apiSource, /allBase\.filter\(\(row\) => row\.id === registrationId\)/);
 });
 
-test('applicant API explicitly selects the legacy round relationship after the type snapshot FK exists', () => {
-  assert.match(apiSource, /exam_rounds!exam_registrations_round_id_fkey\s*\(\s*round_label, exam_date, exam_type\s*\)/);
+test('applicant API explicitly selects the type-aware round relationship', () => {
+  assert.match(apiSource, /exam_rounds!exam_registrations_round_exam_type_fkey\s*\(\s*round_label, exam_date, exam_type\s*\)/);
+  assert.doesNotMatch(apiSource, /exam_registrations_round_id_fkey/);
   assert.doesNotMatch(apiSource, /\n\s*exam_rounds\s*\(\s*round_label, exam_date, exam_type\s*\)/);
 });
 
