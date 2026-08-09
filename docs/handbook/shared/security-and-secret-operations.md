@@ -2,10 +2,22 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-07-26
+last_verified: 2026-08-09
 source_of_truth: env contracts + reset-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
+
+## 2026-08-09 Edge notification authorization and diagnostics
+
+- The signed app-session actor tuple, not a caller-supplied phone or role, owns
+  personal inbox list, unread, receipt, detail, room-preference, and delivery
+  authorization.
+- Shared administrator broadcast and personal administrator delivery are
+  separate scopes. A missing actor ID cannot silently broaden a personal
+  request into a broadcast.
+- Edge diagnostic fields are fixed, aggregate, and privacy-safe. They never
+  include tokens, phone numbers, resident numbers, message bodies, provider
+  payloads, or raw database errors.
 
 ## 2026-07-30 Administrator web notification and diagnostic boundary
 

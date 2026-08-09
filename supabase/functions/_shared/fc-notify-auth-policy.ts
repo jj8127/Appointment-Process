@@ -1,5 +1,7 @@
 // @ts-ignore Deno Edge Functions require explicit local TypeScript extensions.
 import { parseNotificationTargetV1 } from './notification-target.ts';
+// @ts-ignore Deno Edge Functions require explicit local TypeScript extensions.
+import { normalizeDirectMessageSearchLimit, normalizeDirectMessageSearchQuery } from './direct-message-search.ts';
 
 export type FcNotifyAppActor = {
   actorId: string;
@@ -133,11 +135,13 @@ function getActorScope(actor: FcNotifyAppActor) {
   const viewerId = actor.sessionRole === 'admin' && actor.staffType !== 'developer'
     ? 'admin'
     : phone;
+  const messengerViewerId = phone;
   return {
     phone,
     role,
     residentId,
     viewerId,
+    messengerViewerId,
     viewerRole: role,
     viewerStaffType: actor.sessionRole === 'admin' ? actor.staffType : null,
     viewerReadOnly: actor.sessionRole === 'manager',
@@ -159,7 +163,10 @@ function matchesViewerClaims(
   body: Record<string, unknown>,
   scope: ReturnType<typeof getActorScope>,
 ): boolean {
-  if (body.viewer_id !== undefined && String(body.viewer_id ?? '').trim() !== scope.viewerId) return false;
+  if (
+    body.viewer_id !== undefined
+    && String(body.viewer_id ?? '').trim() !== scope.messengerViewerId
+  ) return false;
   if (body.viewer_role !== undefined && body.viewer_role !== scope.viewerRole) return false;
   if (
     body.viewer_staff_type !== undefined
@@ -484,6 +491,60 @@ function buildDirectMessagePayload(
   };
 }
 
+function buildDirectMessageSearchPayload(
+  body: Record<string, unknown>,
+  actor: FcNotifyAppActor,
+): FcNotifyAppPolicyResult {
+  if (
+    actor.isRequestBoardDesigner
+    || (
+      actor.sessionRole === 'admin'
+      && actor.staffType !== 'admin'
+      && actor.staffType !== 'developer'
+    )
+  ) {
+    return deny('Direct message search is not allowed for this session');
+  }
+
+  const viewer = {
+    viewer_actor_id: actor.actorId,
+    viewer_actor_role:
+      actor.sessionRole === 'admin' && actor.staffType === 'developer'
+        ? 'developer'
+        : actor.sessionRole,
+  };
+  if (body.type === 'direct_message_search') {
+    const query = normalizeDirectMessageSearchQuery(body.q);
+    const limit = normalizeDirectMessageSearchLimit(body.limit);
+    if (!query) return deny('Direct message search query is invalid', 400);
+    if (!limit) return deny('Direct message search limit is invalid', 400);
+    return {
+      ok: true,
+      payload: {
+        type: 'direct_message_search',
+        q: query,
+        limit,
+        ...viewer,
+      },
+    };
+  }
+
+  const conversationId = cleanUuid(body.conversation_id);
+  const messageId = cleanUuid(body.message_id);
+  if (!conversationId || !messageId) {
+    return deny('Direct message context identifiers are invalid', 400);
+  }
+  return {
+    ok: true,
+    payload: {
+      type: 'direct_message_context',
+      conversation_id: conversationId,
+      message_id: messageId,
+      ...viewer,
+    },
+  };
+}
+
 function buildDirectMessageBroadcastPayload(
   body: Record<string, unknown>,
   actor: FcNotifyAppActor,
@@ -586,9 +647,15 @@ export function buildAppFcNotifyPayload(
     if (hasTargetId) {
       const rawTarget = String(body.target_id ?? '').trim();
       if (actor.sessionRole === 'fc') {
-        if (rawTarget && rawTarget.toLowerCase() !== 'admin') {
-          return deny('FC direct conversations target the shared admin inbox');
-        }
+        const normalizedTarget = rawTarget.toLowerCase();
+        if (
+          normalizedTarget
+          && normalizedTarget !== 'admin'
+          && sanitizePhone(rawTarget).length !== 11
+        ) return deny('FC direct conversation target is invalid', 400);
+        targetId = normalizedTarget && normalizedTarget !== 'admin'
+          ? sanitizePhone(rawTarget)
+          : null;
       } else {
         const digits = sanitizePhone(rawTarget);
         if (digits.length !== 11) return deny('Direct conversation target is invalid', 400);
@@ -608,6 +675,13 @@ export function buildAppFcNotifyPayload(
             : actor.sessionRole,
       },
     };
+  }
+
+  if (
+    body.type === 'direct_message_search'
+    || body.type === 'direct_message_context'
+  ) {
+    return buildDirectMessageSearchPayload(body, actor);
   }
 
   if (
@@ -640,15 +714,39 @@ export function buildAppFcNotifyPayload(
     if (!matchesViewerClaims(body, scope)) {
       return deny('Internal chat actor does not match the signed session');
     }
+    const limit = body.type === 'internal_chat_list' && body.limit !== undefined
+      ? Number(body.limit)
+      : undefined;
+    if (
+      limit !== undefined
+      && (!Number.isSafeInteger(limit) || limit < 1 || limit > 50)
+    ) {
+      return deny('Internal chat list limit is invalid', 400);
+    }
+    const cursor = body.type === 'internal_chat_list' && body.cursor !== undefined
+      ? body.cursor
+      : undefined;
+    if (
+      cursor !== undefined
+      && (
+        typeof cursor !== 'string'
+        || cursor.length === 0
+        || cursor.length > 1_024
+      )
+    ) {
+      return deny('Internal chat list cursor is invalid', 400);
+    }
     return {
       ok: true,
       payload: {
         type: body.type,
-        viewer_id: scope.viewerId,
+        viewer_id: scope.messengerViewerId,
         viewer_role: scope.viewerRole,
         viewer_staff_type: scope.viewerStaffType,
         viewer_read_only: scope.viewerReadOnly,
         viewer_is_request_board_designer: scope.viewerIsRequestBoardDesigner,
+        ...(limit !== undefined ? { limit } : {}),
+        ...(cursor !== undefined ? { cursor } : {}),
       },
     };
   }

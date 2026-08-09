@@ -1014,3 +1014,18 @@
 - No production database, GitHub, Vercel, EAS, or store state was changed.
 - Details:
   [WORK_DETAIL.md#20260809-admin-exam-relation-production-parity](WORK_DETAIL.md#20260809-admin-exam-relation-production-parity)
+
+## 2026-08-09 Admin notification and Edge parity candidate
+
+- Aligned the clean administrator candidate with deployed `fc-notify` v93,
+  including personal staff inbox identity, room preferences, service worker,
+  and privacy-safe diagnostic contracts.
+- Added the already-applied data-only Request Board recipient canonicalization
+  migration and a no-DDL schema parity marker; no database operation ran.
+- Administrator notification contracts, Deno type checking, governance,
+  `git diff --check`, and a Sentry-disabled 49-page Next production build all
+  passed on the isolated candidate.
+- GitHub push, Vercel production deployment, Supabase mutation, EAS build, and
+  store submission remain outside this local candidate.
+- Details:
+  [WORK_DETAIL.md#20260809-admin-notification-edge-parity](WORK_DETAIL.md#20260809-admin-notification-edge-parity)

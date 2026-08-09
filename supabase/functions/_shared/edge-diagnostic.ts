@@ -75,6 +75,10 @@ type EdgeDiagnosticPair =
       reason: 'insert_failed';
     }
   | {
+      event: 'board_create.push_delivery_audit';
+      reason: 'notification_id_mapping_incomplete' | 'insert_failed';
+    }
+  | {
       event: 'board_update.push_fanout';
       reason: 'upstream_rejected' | 'request_failed';
     }
@@ -174,6 +178,8 @@ const VALID_PAIRS = new Set<string>([
   'board_create.push_fanout:upstream_rejected',
   'board_create.push_fanout:request_failed',
   'board_create.notification_insert:insert_failed',
+  'board_create.push_delivery_audit:notification_id_mapping_incomplete',
+  'board_create.push_delivery_audit:insert_failed',
   'board_update.push_fanout:upstream_rejected',
   'board_update.push_fanout:request_failed',
   'board_update.notification_insert:insert_failed',

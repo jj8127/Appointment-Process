@@ -75,23 +75,48 @@ const manager = {
   staffType: null,
 };
 
-test('personal administrator browser inbox actions fail closed before Edge proxying', () => {
+test('personal administrator browser inbox actions bind the exact staff account scope', () => {
   for (const session of [developer, manager]) {
+    const list = buildBrowserFcNotifyPayload({
+      body: {
+        type: 'inbox_list',
+        role: 'admin',
+        resident_id: session.residentDigits,
+        limit: 80,
+      },
+      session,
+    });
+    assert.equal(list.ok, true);
+    if (list.ok) {
+      assert.equal(list.payload?.role, 'admin');
+      assert.equal(list.payload?.resident_id, session.residentDigits);
+      assert.equal(list.payload?.viewer_actor_role, session.role);
+    }
+
     for (const body of [
-      { type: 'inbox_list', role: 'admin', resident_id: session.residentDigits, limit: 80 },
       { type: 'inbox_get', notification_id: notificationId },
       { type: 'inbox_mark_read', notification_ids: [notificationId] },
       { type: 'inbox_dismiss', notification_ids: [notificationId] },
     ]) {
-      assert.deepEqual(
-        buildBrowserFcNotifyPayload({ body, session }),
-        {
-          ok: false,
-          status: 403,
-          error: 'Personal administrator inbox is unavailable until its Edge scope is upgraded',
-        },
-      );
+      const result = buildBrowserFcNotifyPayload({ body, session });
+      assert.equal(result.ok, true);
+      if (result.ok) {
+        assert.equal(result.payload?.viewer_actor_role, session.role);
+        assert.equal(result.payload?.viewer_actor_phone, session.residentDigits);
+      }
     }
+
+    assert.deepEqual(
+      buildBrowserFcNotifyPayload({
+        body: { type: 'inbox_list', role: 'fc', resident_id: session.residentDigits },
+        session,
+      }),
+      {
+        ok: false,
+        status: 403,
+        error: 'Inbox identity does not match the verified session',
+      },
+    );
   }
 });
 
@@ -127,7 +152,7 @@ test('regular administrator and FC inbox reads keep their signed scopes', () => 
   }
 });
 
-test('web callers do not emit held personal inbox requests', () => {
+test('web callers request the personal admin inbox without merging an FC shadow inbox', () => {
   const bell = readFileSync(
     resolve(root, 'web/src/components/DashboardNotificationBell.tsx'),
     'utf8',
@@ -137,13 +162,39 @@ test('web callers do not emit held personal inbox requests', () => {
     'utf8',
   );
 
-  assert.match(bell, /const personalInboxHeld = role === 'manager' \|\| staffType === 'developer'/);
-  assert.match(bell, /enabled: !personalInboxHeld/);
-  assert.match(bell, /if \(personalInboxHeld\) return \[\]/);
-  assert.match(bell, /disabled=\{personalInboxHeld\}/);
+  assert.match(bell, /const isPersonalAdminInbox = role === 'manager' \|\| staffType === 'developer'/);
+  assert.match(bell, /inboxRole === 'fc' \|\| isPersonalAdminInbox/);
+  assert.doesNotMatch(bell, /personalInboxHeld/);
   assert.doesNotMatch(bell, /developerFcInbox|Promise\.all/);
 
-  assert.match(messenger, /if \(personalInboxHeld\) \{/);
-  assert.match(messenger, /requestBoardUnread: 0/);
+  assert.match(messenger, /role === 'fc' \|\| isPersonalAdminInbox/);
+  assert.doesNotMatch(messenger, /personalInboxHeld/);
   assert.match(messenger, /role === 'fc' \? 'fc' : 'admin'/);
+});
+
+test('legacy Request Board rows are rebound only for one unambiguous staff actor', () => {
+  const migration = readFileSync(
+    resolve(
+      root,
+      'supabase/migrations/20260808094709_canonicalize_request_board_personal_recipients_v1.sql',
+    ),
+    'utf8',
+  );
+  const receiptPolicy = readFileSync(
+    resolve(root, 'supabase/functions/_shared/notification-receipt-policy.ts'),
+    'utf8',
+  );
+  const edge = readFileSync(
+    resolve(root, 'supabase/functions/fc-notify/index.ts'),
+    'utf8',
+  );
+
+  assert.match(migration, /from public\.admin_accounts account[\s\S]*union all[\s\S]*from public\.manager_accounts account/);
+  assert.match(migration, /having count\(distinct candidate\.actor_id\) = 1/);
+  assert.match(migration, /set recipient_role = 'admin',[\s\S]*recipient_actor_id = staff\.actor_id/);
+  assert.match(migration, /exists \([\s\S]*from public\.fc_profiles profile[\s\S]*profile\.id = notification\.recipient_actor_id/);
+
+  assert.match(receiptPolicy, /if \(!viewer\.allowBroadcast\)[\s\S]*reason: 'broadcast_not_allowed'/);
+  assert.match(edge, /function applyNotificationAudienceScope\([\s\S]*query\.eq\('recipient_actor_id', viewer\.actorId\)/);
+  assert.match(edge, /recipientBinding !== 'canonical_person_v1'/);
 });

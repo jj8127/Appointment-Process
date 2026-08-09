@@ -4,6 +4,7 @@ export type NotificationReceiptViewer = {
   actorId: string;
   inboxRole: NotificationInboxRole;
   residentId: string | null;
+  allowBroadcast: boolean;
   includeRequestBoardFc: boolean;
 };
 
@@ -19,7 +20,11 @@ export type NotificationOwnershipDecision =
   | { authorized: true; audience: 'broadcast' | 'targeted' }
   | {
       authorized: false;
-      reason: 'role_scope_mismatch' | 'recipient_actor_mismatch' | 'target_actor_missing';
+      reason:
+        | 'role_scope_mismatch'
+        | 'broadcast_not_allowed'
+        | 'recipient_actor_mismatch'
+        | 'target_actor_missing';
     };
 
 export type NotificationReceiptState =
@@ -62,6 +67,9 @@ export function authorizeNotificationReceipt(
     row.resident_id === null
     && row.recipient_actor_id === null;
   if (isTrueBroadcast) {
+    if (!viewer.allowBroadcast) {
+      return { authorized: false, reason: 'broadcast_not_allowed' };
+    }
     return { authorized: true, audience: 'broadcast' };
   }
 

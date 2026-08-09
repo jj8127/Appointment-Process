@@ -28,7 +28,7 @@ function json(body: Record<string, unknown>, status = 200) {
 }
 
 function getBrowserRateLimit(action: BrowserFcNotifyPayload['type']) {
-  if (action === 'message') return 20;
+  if (action === 'notify') return 20;
   if (action === 'inbox_list') return 60;
   return 120;
 }
@@ -46,15 +46,53 @@ async function loadCompletedFcTargetRows(targetId: string) {
   return data ?? [];
 }
 
-async function resolveCompletedFcTargetActorId(targetId: string): Promise<string | null> {
-  const rows = await loadCompletedFcTargetRows(targetId);
-  const normalizedTargetId = targetId.replace(/[^0-9]/g, '');
-  const matches = rows.filter((row) =>
-    String(row.id ?? '').trim().length > 0
-    && String(row.phone ?? '').replace(/[^0-9]/g, '') === normalizedTargetId
-  );
+async function loadActiveStaffTargetRows(
+  table: 'admin_accounts' | 'manager_accounts',
+  targetId: string,
+) {
+  const phoneCandidates = buildPhoneCandidates(targetId, targetId);
+  const { data, error } = await adminSupabase
+    .from(table)
+    .select('id,phone,active')
+    .in('phone', phoneCandidates)
+    .eq('active', true)
+    .limit(phoneCandidates.length);
 
-  return matches.length === 1 ? String(matches[0].id) : null;
+  if (error) throw error;
+  return data ?? [];
+}
+
+type CanonicalRequestBoardRecipient = {
+  actorId: string;
+  targetRole: 'admin' | 'fc';
+};
+
+async function resolveCanonicalRequestBoardRecipient(
+  targetId: string,
+): Promise<CanonicalRequestBoardRecipient | null> {
+  const [fcRows, adminRows, managerRows] = await Promise.all([
+    loadCompletedFcTargetRows(targetId),
+    loadActiveStaffTargetRows('admin_accounts', targetId),
+    loadActiveStaffTargetRows('manager_accounts', targetId),
+  ]);
+  const normalizedTargetId = targetId.replace(/[^0-9]/g, '');
+  const exactActorIds = (rows: Array<{ id?: unknown; phone?: unknown }>) => rows
+    .filter((row) =>
+      String(row.id ?? '').trim().length > 0
+      && String(row.phone ?? '').replace(/[^0-9]/g, '') === normalizedTargetId
+    )
+    .map((row) => String(row.id).trim());
+
+  const staffActorIds = Array.from(new Set(exactActorIds([...adminRows, ...managerRows])));
+  if (staffActorIds.length > 1) return null;
+  if (staffActorIds.length === 1) {
+    return { actorId: staffActorIds[0], targetRole: 'admin' };
+  }
+
+  const fcActorIds = Array.from(new Set(exactActorIds(fcRows)));
+  return fcActorIds.length === 1
+    ? { actorId: fcActorIds[0], targetRole: 'fc' }
+    : null;
 }
 
 async function resolveEligibleAdminChatTargetActorId(targetId: string): Promise<string | null> {
@@ -145,14 +183,15 @@ export async function POST(req: Request) {
       );
       if (!rateLimit.allowed) return json({ error: 'Too many requests' }, 429);
 
-      const recipientActorId = await resolveCompletedFcTargetActorId(bridgePolicy.payload.target_id);
-      if (!recipientActorId) {
-        return json({ error: 'FC notification target is not allowed' }, 403);
+      const recipient = await resolveCanonicalRequestBoardRecipient(bridgePolicy.payload.target_id);
+      if (!recipient) {
+        return json({ error: 'Request Board notification target is not allowed' }, 403);
       }
 
       const downstreamPayload: Record<string, unknown> = {
         ...bridgePolicy.payload,
-        recipient_actor_id: recipientActorId,
+        target_role: recipient.targetRole,
+        recipient_actor_id: recipient.actorId,
       };
       return await proxyToFcNotify(downstreamPayload);
     }
@@ -186,12 +225,10 @@ export async function POST(req: Request) {
     );
     if (!rateLimit.allowed) return json({ error: 'Too many requests' }, 429);
 
-    if (
-      (browserPolicy.payload.type === 'message' || browserPolicy.payload.type === 'notify')
-      && browserPolicy.payload.target_role === 'fc'
-      && !await resolveEligibleAdminChatTargetActorId(browserPolicy.payload.target_id)
-    ) {
-      return json({ error: 'FC notification target is not allowed' }, 403);
+    if (browserPolicy.payload.type === 'notify' && browserPolicy.payload.target_role === 'fc') {
+      if (!await resolveEligibleAdminChatTargetActorId(browserPolicy.payload.target_id)) {
+        return json({ error: 'FC notification target is not allowed' }, 403);
+      }
     }
 
     return await proxyToFcNotify(browserPolicy.payload);

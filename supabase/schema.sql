@@ -1,6 +1,7 @@
 ﻿-- Supabase 스키마/정책 정의
 -- Supabase SQL Editor나 supabase CLI로 실행하세요.
 -- governance sync marker: 2026-03-28 (migration 20260328000001_add_hanwha_commission_contract.sql)
+-- data-only parity marker: 2026-08-09 (migration 20260808094709_canonicalize_request_board_personal_recipients_v1.sql; no DDL)
 
 create extension if not exists "uuid-ossp";
 

@@ -2,8 +2,25 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-29
+last_verified: 2026-08-09
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
+
+## Personal staff inbox identity boundary (2026-08-09)
+
+- Personal `admin`, `developer`, and `manager` inbox operations are authorized
+  with the signed immutable actor ID. Shared administrator broadcasts use an
+  explicit broadcast scope and are never inferred from a missing personal ID.
+- Request Board notification mirrors may be rebound from an FC shadow actor to
+  one active staff actor only when normalized-phone ownership is unambiguous.
+  The data-only migration is idempotent with respect to already canonical rows
+  and leaves ambiguous identities untouched.
+- Administrator web list, unread, read/receipt, detail, and room preference
+  calls use the same proxy predicate and Edge contract. Browser-system push
+  remains retired; durable in-app inbox persistence is the operator-visible
+  source of truth.
+- Provider and diagnostic logs remain aggregate-only. Raw tokens, phone
+  numbers, recipient IDs, message bodies, provider ticket IDs, and provider
+  response bodies are excluded.
 
 ## Notification-center acknowledgement boundary (2026-07-27)
 

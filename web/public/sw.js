@@ -72,5 +72,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  event.respondWith(fetch(request));
+  // The worker is intentionally network-only. Resolve a failed static fetch
+  // to a bounded response so an offline asset request does not surface as an
+  // unhandled service-worker promise rejection in the administrator console.
+  event.respondWith(fetch(request).catch(() => new Response('', {
+    status: 504,
+    statusText: 'Network unavailable',
+    headers: { 'Cache-Control': 'no-store' },
+  })));
 });

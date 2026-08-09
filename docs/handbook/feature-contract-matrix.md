@@ -2,12 +2,25 @@ doc_id: FC-FEATURE-CONTRACT-MATRIX
 owner_repo: fc-onboarding-app
 owner_area: cross-surface contracts
 audience: developer, operator
-last_verified: 2026-07-31
+last_verified: 2026-08-09
 source_of_truth: code + tests + request_board/docs/handbook/feature-contract-matrix.md
 
 # Feature Contract Matrix
 
 This matrix defines business behavior that must stay consistent across GaramIn mobile, GaramIn admin web, and GaramLink bridge surfaces. Screen-level implementations may differ, but these contracts must not drift.
+
+## 2026-08-09 Notification identity parity
+
+- Administrator and manager personal inboxes use the immutable staff actor ID
+  in the signed Edge scope; shared administrator broadcast scope remains a
+  separate explicit target.
+- GaramLink personal recipients mirrored into GaramIn are rebound only when a
+  normalized phone maps to one unambiguous active staff actor. Ambiguous or
+  ordinary FC rows are left unchanged.
+- The administrator bell and messenger fetch the same actor-scoped list,
+  unread count, receipt, and room-preference contracts as the deployed
+  `fc-notify` bundle. A local UI hold must not outlive the deployed Edge
+  authorization contract.
 
 ## 2026-07-30 Contract update
 
@@ -35,7 +48,7 @@ This matrix defines business behavior that must stay consistent across GaramIn m
 | Exam life/nonlife flow parity | Life and nonlife exam screens may differ by config only. Query keys, routes, realtime channels, fee accounts, selection restore rules, admin round form state, and notification payloads must be derived from `exam-flow-contract`. | `lib/exam-flow-contract.ts`, `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/exam-register.tsx`, `app/exam-register2.tsx` | `lib/__tests__/exam-flow-contract.test.ts`, `lib/__tests__/exam-round-location-payload.test.ts`, `lib/__tests__/exam-fees.test.ts` |
 | Designer visibility | Active designers are visible; operationally inactive designers are hidden from selection/directories unless a documented test/developer exception exists. Developer and explicit test accounts used for support must not be removed by incidental UI filters. | `app/chat.tsx`, `app/request-board-messenger.tsx`, request-board bridge APIs | this matrix + request_board designer visibility contracts |
 | Request status and review | Request status labels, filters, review actions, and notification categories must be derived from the same normalized status contract. | `lib/request-board-*.ts`, `app/request-board*.tsx` | request-board mobile UI/status tests |
-| Notification and unread routing | Notification categories and deep links must resolve to the same destination on mobile, admin web, and GaramLink. Unread counts must share actor/thread identity. Developer/manager personal admin inbox list, detail, receipt, and UI fetches must fail closed together until the Edge actor and broadcast scopes have one canonical authorization predicate; regular admin and FC scopes must remain active. | `lib/notification-route.ts`, `lib/notification-checkpoint.ts`, `web/src/components/DashboardNotificationBell.tsx`, `web/src/app/dashboard/messenger/page.tsx`, `web/src/lib/fc-notify-proxy-policy.ts` | notification route/checkpoint tests, `web/src/lib/fc-notify-personal-inbox-hold.test.ts`, `lib/__tests__/fc-notify-route-auth.test.ts`, `lib/__tests__/admin-web-chat-source.test.ts` |
+| Notification and unread routing | Notification categories and deep links must resolve to the same destination on mobile, admin web, and GaramLink. Unread counts share immutable actor/thread identity. Personal administrator, developer, and manager inbox list/detail/receipt/room-preference calls use the deployed signed actor scope; shared administrator broadcast remains distinct and explicit. | `lib/notification-route.ts`, `lib/notification-checkpoint.ts`, `web/src/components/DashboardNotificationBell.tsx`, `web/src/app/dashboard/messenger/page.tsx`, `web/src/lib/fc-notify-proxy-policy.ts`, `supabase/functions/fc-notify/index.ts` | notification route/checkpoint tests, `web/src/lib/fc-notify-personal-inbox-hold.test.ts`, `lib/__tests__/fc-notify-route-auth.test.ts`, `lib/__tests__/admin-web-chat-source.test.ts`, this matrix |
 | External links and files | URL opening, file download/opening, and attachment policy must use shared opener/sanitizer helpers; direct `Linking.openURL` exceptions need a contract test. | `lib/open-external-url.ts`, `lib/external-url.ts`, `app/docs-upload.tsx`, `web/src/lib/admin-file-open.ts` | external URL/file opener tests |
 | UI action primitives | Buttons, icon actions, confirms, modals, sheets, copy/link/file actions, and destructive flows must be inventoried and either use shared primitives or document an intentional exception. | `components/Button.tsx`, `components/AppAlertProvider.tsx`, `components/MessengerMessageActionSheet.tsx`, `components/LinkifiedSelectableText.tsx`, `scripts/audit/shared-ui-contract-audit.cjs` | `lib/__tests__/shared-ui-action-contracts.test.ts`, `docs/handbook/shared-ui-action-contracts.md` |
 | Function primitives | Reused formatter, normalizer, mapper, resolver, permission, message grouping, and display helpers must be owned by shared `lib/*` contracts instead of screen-local copies. | `lib/exam-display.ts`, `lib/group-chat-display.ts`, `scripts/audit/shared-function-contract-audit.cjs`, `app/exam-manage*.tsx`, `app/group-chat.tsx` | `lib/__tests__/exam-display.test.ts`, `lib/__tests__/group-chat-function-contracts.test.ts`, `lib/__tests__/shared-function-contracts.test.ts`, `docs/handbook/shared-ui-action-contracts.md` |

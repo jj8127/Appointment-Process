@@ -2,10 +2,22 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-07-25
+last_verified: 2026-08-09
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
+
+## Request Board personal-recipient canonicalization (2026-08-09)
+
+- Migration `20260808094709_canonicalize_request_board_personal_recipients_v1.sql`
+  is data-only: it adds no table, column, index, function, policy, or grant, so
+  the canonical schema DDL remains unchanged.
+- Only legacy Request Board notification rows whose normalized phone resolves
+  to exactly one active administrator/developer or manager actor are rebound
+  from the matching FC shadow actor. Ambiguous ownership and ordinary FC rows
+  remain untouched.
+- `supabase/schema.sql` records a no-DDL parity marker so schema/migration
+  governance can distinguish this intentional data correction from missing DDL.
 
 ## Notification delivery idempotency (2026-07-25)
 

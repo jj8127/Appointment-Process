@@ -13595,3 +13595,39 @@
 **Release boundary**:
 - Candidate remains local-only. GitHub push and Vercel production deployment
   require explicit approval; no database mutation is required.
+
+<a id="20260809-admin-notification-edge-parity"></a>
+## 2026-08-09 Admin notification and Edge parity candidate
+
+**Scope**:
+- Production Supabase reports `fc-notify` v93 active while the administrator
+  Vercel deployment is based on older local-only source that still holds
+  personal developer/manager inbox operations closed.
+- The candidate must match the deployed Edge actor/broadcast authorization,
+  privacy-safe diagnostics, notification preferences, and direct-message
+  recipient resolution without changing live data.
+
+**Implementation**:
+- Updated the administrator bell, messenger, signed `fc-notify` proxy, proxy
+  policy, service worker, and personal-inbox contract together.
+- Synchronized the complete deployment-local `fc-notify` source/dependency
+  bundle with the already active v93 function source.
+- Added remote-applied migration
+  `20260808094709_canonicalize_request_board_personal_recipients_v1.sql` and a
+  schema comment that explicitly records its data-only/no-DDL nature.
+- Documented immutable personal staff actor ownership, explicit shared-admin
+  broadcast scope, and privacy-safe aggregate diagnostic boundaries.
+
+**Verification**:
+- Administrator notification matrix: 26 files, exit 0.
+- Normalized SHA-256 comparison of all 17 `fc-notify` bundle files against the
+  audited local/deployed source: zero mismatches.
+- `deno check --frozen fc-notify/index.ts`: PASS from the governed function
+  directory.
+- `node scripts/ci/check-governance.mjs` and `git diff --check`: PASS.
+- Sentry-disabled Next production build: PASS (compile, TypeScript, 49 pages).
+
+**Release boundary**:
+- This is an isolated local candidate. It performs no production database or
+  Edge mutation because the migration and function are already active.
+- GitHub push and clean Vercel Production deployment require explicit approval.

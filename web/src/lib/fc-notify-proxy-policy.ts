@@ -47,6 +47,7 @@ export type FcNotifyBrowserSession = {
 export type RequestBoardNotifyPayload = {
   type: 'notify';
   target_role: 'fc';
+  recipient_binding: 'canonical_person_v1';
   target_id: string;
   title: string;
   body: string;
@@ -87,10 +88,12 @@ export type BrowserFcNotifyPayload =
       viewer_is_request_board_designer: false;
     }
   | {
-      type: 'message';
+      type: 'notify';
       target_role: 'fc';
       target_id: string;
-      message: string;
+      title: string;
+      body: string;
+      category: 'message';
       sender_id: string;
       sender_name: string;
     }
@@ -137,10 +140,12 @@ export type BrowserFcNotifyPayload =
       viewer_actor_phone: string;
     }
   | {
-      type: 'message';
+      type: 'notify';
       target_role: 'admin';
       target_id: null;
-      message: string;
+      title: string;
+      body: string;
+      category: 'message';
       sender_id: string;
       sender_name: string;
     }
@@ -288,15 +293,6 @@ function hasMismatchedBoolean(
   return hasOwn(body, key) && body[key] !== expected;
 }
 
-function isPersonalAdminInboxHeld(session: FcNotifyBrowserSession) {
-  return session.role === 'manager'
-    || (session.role === 'admin' && session.staffType === 'developer');
-}
-
-function personalAdminInboxHeld() {
-  return fail(403, 'Personal administrator inbox is unavailable until its Edge scope is upgraded');
-}
-
 export function classifyFcNotifyIngress(
   body: unknown,
   bridgeToken: string | null | undefined,
@@ -343,6 +339,7 @@ export function buildRequestBoardNotifyPayload(input: {
   }
 
   const targetId = typeof body.target_id === 'string' ? body.target_id.trim() : '';
+  const recipientBinding = body.recipient_binding;
   const title = boundedSafeText(body.title, 120);
   const message = boundedSafeText(body.body, 2_000);
   const category = typeof body.category === 'string' ? body.category.trim() : '';
@@ -350,6 +347,9 @@ export function buildRequestBoardNotifyPayload(input: {
   const target = parseRequestBoardTargetForFc(body.target);
 
   if (!PHONE_PATTERN.test(targetId)) return fail(400, 'Invalid FC notification target');
+  if (recipientBinding !== 'canonical_person_v1') {
+    return fail(400, 'Invalid Request Board recipient binding');
+  }
   if (!title || !message) return fail(400, 'Invalid notification content');
   if (!requestBoardCategories.has(category)) return fail(403, 'Request Board category is not allowed');
   if (!legacyUrl) return fail(400, 'Invalid notification URL');
@@ -360,6 +360,7 @@ export function buildRequestBoardNotifyPayload(input: {
     payload: {
       type: 'notify',
       target_role: 'fc',
+      recipient_binding: 'canonical_person_v1',
       target_id: targetId,
       title,
       body: message,
@@ -406,9 +407,6 @@ function buildInboxPayload(
   body: Record<string, unknown>,
   session: FcNotifyBrowserSession,
 ): PolicyResult<BrowserFcNotifyPayload> {
-  if (isPersonalAdminInboxHeld(session)) return personalAdminInboxHeld();
-
-  const requestedRole = body.role;
   let role: 'admin' | 'fc';
   let residentId: string | null;
 
@@ -416,10 +414,7 @@ function buildInboxPayload(
     role = 'fc';
     residentId = session.residentDigits;
   } else if (session.role === 'manager' || session.staffType === 'developer') {
-    if (requestedRole !== 'admin' && requestedRole !== 'fc') {
-      return fail(403, 'Inbox role is not allowed');
-    }
-    role = requestedRole;
+    role = 'admin';
     residentId = session.residentDigits;
   } else {
     role = 'admin';
@@ -455,8 +450,6 @@ function buildInboxMutationPayload(
   body: Record<string, unknown>,
   session: FcNotifyBrowserSession,
 ): PolicyResult<BrowserFcNotifyPayload> {
-  if (isPersonalAdminInboxHeld(session)) return personalAdminInboxHeld();
-
   if (body.type !== 'inbox_mark_read' && body.type !== 'inbox_dismiss') {
     return fail(403, 'Inbox mutation is not allowed');
   }
@@ -484,8 +477,6 @@ function buildInboxGetPayload(
   body: Record<string, unknown>,
   session: FcNotifyBrowserSession,
 ): PolicyResult<BrowserFcNotifyPayload> {
-  if (isPersonalAdminInboxHeld(session)) return personalAdminInboxHeld();
-
   const notificationId =
     typeof body.notification_id === 'string' ? body.notification_id.trim().toLowerCase() : '';
   if (!UUID_PATTERN.test(notificationId)) return fail(400, 'Invalid notification id');
@@ -778,10 +769,12 @@ function buildMessagePayload(
     return {
       ok: true,
       payload: {
-        type: 'message',
+        type: 'notify',
         target_role: 'admin',
         target_id: null,
-        message,
+        title: 'message',
+        body: message,
+        category: 'message',
         sender_id: senderId,
         sender_name: redactSensitiveText(expectedSenderName, 'FC'),
       },
@@ -815,10 +808,12 @@ function buildMessagePayload(
   return {
     ok: true,
     payload: {
-      type: 'message',
+      type: 'notify',
       target_role: 'fc',
       target_id: targetId,
-      message,
+      title: 'message',
+      body: message,
+      category: 'message',
       sender_id: senderId,
       sender_name: redactSensitiveText(expectedSenderName, isDeveloper ? '개발자' : '총무팀'),
     },
