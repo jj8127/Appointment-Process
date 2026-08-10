@@ -253,7 +253,10 @@ export default function AdminNoticeScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}>
+      <KeyboardAwareWrapper
+        contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}
+        keyboardDismissMode="none"
+      >
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>공지사항 등록</Text>

@@ -13912,3 +13912,23 @@
 - With explicit user approval, only `admin-action` was deployed to project `ubeginyxaotcamuqpmud`; remote status is ACTIVE v25 and `verify_jwt=true`. An unauthenticated `getOwnProfile` probe returns HTTP 401.
 - GaramIn source commit `6d43f00003ea4fed55e3b599e755e91de2ef3764` was published to the `production` OTA branch for runtime `4.2.2`, Android and iOS, as update group `1e1a6dfe-ccfe-44d3-b9e4-584be61923f9`. The production channel is active and mapped to that branch.
 - No production row/log read, database/schema change, native/Store build, Git push, or PR was performed. Authenticated device load/edit/save/reopen smoke remains the final runtime verification gate, so verification posture remains HOLD even though rollout is live.
+
+<a id="20260810-profile-keyboard-follow-up"></a>
+## 2026-08-10 | GaramIn profile completeness and keyboard consistency follow-up
+
+**Profile findings and repair**:
+- The signed `getOwnProfile` request succeeded on the production test session. The canonical row itself had absent email and carrier values, and no alternate server profile-history table contained those fields.
+- A privacy-safe aggregate survey identified the original 63 completed accounts missing both fields. One exact test account received verification-only values under explicit user authorization; the local debug build then hydrated both values, proving the read/render path.
+- Form validation now allows a legacy incomplete profile to update a different allowed field without inventing email/carrier, while the submit guard prevents clearing populated name, affiliation, email, or carrier values.
+- A masked workbook reports the original 63-account set and marks the single verification-corrected account; the other 62 remain unchanged.
+
+**Keyboard implementation**:
+- `app/fc/new.tsx` now uses `KeyboardAwareWrapper` on Android and iOS, adds Android/Fabric focus-scroll retries, retains sufficient keyboard-height scroll room, and keeps the keyboard open during drag.
+- Dashboard and both exam-application routes no longer route Android through a plain scroll branch that bypasses keyboard-aware ownership.
+- Every reviewed direct scroll/list surface now uses `keyboardDismissMode="none"`; the shared wrapper raises its default Android focus clearance. The registry is version 2 and the audit rejects `on-drag` or `interactive` anywhere under mobile `app/` or `components/`.
+
+**Verification and boundaries**:
+- Focused RED/GREEN coverage includes legacy partial editing and the Android basic-information source contract.
+- Full Jest passes 236 suites / 1,465 tests. `npx tsc --noEmit`, zero-warning `npx expo lint`, `npm run audit:mobile-keyboard` (34/34), JSON parsing, and `git diff --check` pass.
+- Samsung local debug evidence shows the detailed-address field fully above the keyboard and the keyboard retained after a short drag. Wireless ADB later disconnected before an additional signup-route smoke, without invalidating the completed representative check.
+- No follow-up OTA, native/Store release, Edge deployment, Git push, or unrelated production write was performed. Follow-up production release remains HOLD pending explicit approval.

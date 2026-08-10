@@ -1204,6 +1204,7 @@ export default function RequestBoardReviewScreen() {
               style={styles.attachmentDraftScroll}
               contentContainerStyle={styles.attachmentDraftList}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="none"
             >
               {attachmentUploadDraft?.files.map((file, index) => (
                 <View key={`${file.name}-${index}`} style={styles.attachmentDraftItem}>

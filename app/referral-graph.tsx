@@ -232,6 +232,7 @@ export default function ReferralGraphPage() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chipRow}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
         >
           {STATUS_FILTERS.map((filter) => {
             const active = statusFilter === filter.value;
@@ -350,6 +351,8 @@ export default function ReferralGraphPage() {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.legendRow}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
         >
           {LEGEND.map((item) => (
             <View key={item.label} style={styles.legendItem}>

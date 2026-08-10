@@ -514,7 +514,7 @@ export default function ExamManageNonlifeScreen() {
       />
       <ScrollView
         contentContainerStyle={styles.container}
-        keyboardDismissMode="on-drag"
+        keyboardDismissMode="none"
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >

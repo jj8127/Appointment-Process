@@ -1275,6 +1275,7 @@ export default function AdminBoardManageScreen() {
                 style={styles.modalBody}
                 contentContainerStyle={{ paddingBottom: commentBarInset + insets.bottom, flexGrow: 1 }}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="none"
               >
               {/* 작성자 정보 */}
                 <View style={styles.modalAuthor}>

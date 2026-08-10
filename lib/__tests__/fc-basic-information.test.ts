@@ -45,6 +45,16 @@ describe('FC basic-information edit contract', () => {
     })).toEqual({ name: '수정 이름' });
   });
 
+  it('lets a legacy partial profile update one populated field without filling missing fields', () => {
+    const current = profile({ email: null, carrier: null });
+    const next = buildFcBasicInformationFormValues(current);
+
+    expect(buildFcBasicInformationPatch(current, {
+      ...next,
+      name: '수정 이름',
+    })).toEqual({ name: '수정 이름' });
+  });
+
   it('never includes phone, recommender, workflow, or identity fields in the base-profile patch', () => {
     const current = profile();
 

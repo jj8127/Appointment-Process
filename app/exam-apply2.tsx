@@ -12,7 +12,6 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -1690,24 +1689,14 @@ export default function ExamApplyScreen() {
         state={notificationReceipt.state}
         onRetry={() => void notificationReceipt.retryMarkRead()}
       />
-      {Platform.OS === 'android' ? (
-        <ScrollView
-          contentContainerStyle={styles.container}
-          refreshControl={screenRefreshControl}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
-          {screenContent}
-        </ScrollView>
-      ) : (
-        <KeyboardAwareWrapper
-          contentContainerStyle={styles.container}
-          refreshControl={screenRefreshControl}
-        >
-          {screenContent}
-        </KeyboardAwareWrapper>
-      )}
+      <KeyboardAwareWrapper
+        contentContainerStyle={styles.container}
+        refreshControl={screenRefreshControl}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
+      >
+        {screenContent}
+      </KeyboardAwareWrapper>
     </SafeAreaView>
   );
 }

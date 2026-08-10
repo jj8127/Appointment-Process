@@ -197,7 +197,7 @@ export default function ReferralPage() {
         }
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
+        keyboardDismissMode="none"
       >
         <View style={styles.pageContent}>
           {blockedContent ? (

@@ -2164,7 +2164,7 @@ export default function ChatScreen() {
           contentContainerStyle={styles.listContent}
           style={styles.list}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
+          keyboardDismissMode="none"
         />
 
         <View

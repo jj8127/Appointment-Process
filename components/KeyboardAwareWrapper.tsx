@@ -1,5 +1,5 @@
 import { createContext, ReactElement, ReactNode, useContext, useRef } from 'react';
-import { RefreshControlProps, ViewStyle } from 'react-native';
+import { Platform, RefreshControlProps, ViewStyle } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 type KeyboardAwareContextType = {
@@ -9,6 +9,8 @@ type KeyboardAwareContextType = {
 const KeyboardAwareContext = createContext<KeyboardAwareContextType>({
   scrollToInput: () => { },
 });
+
+const DEFAULT_EXTRA_SCROLL_HEIGHT = Platform.OS === 'android' ? 180 : 96;
 
 export const useKeyboardAware = () => useContext(KeyboardAwareContext);
 
@@ -26,7 +28,7 @@ export function KeyboardAwareWrapper({
   children,
   contentContainerStyle,
   style,
-  extraScrollHeight = 24,
+  extraScrollHeight = DEFAULT_EXTRA_SCROLL_HEIGHT,
   refreshControl,
   keyboardShouldPersistTaps = 'always',
   keyboardDismissMode = 'none',

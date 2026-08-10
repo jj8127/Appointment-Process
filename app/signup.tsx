@@ -460,7 +460,7 @@ export default function SignupScreen() {
       <KeyboardAwareWrapper
         contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(160, keyboardPadding + 120) }]}
         extraScrollHeight={220}
-        keyboardDismissMode="on-drag"
+        keyboardDismissMode="none"
       >
         <View style={styles.hero}>
           <Text style={styles.heroEyebrow}>회원가입</Text>

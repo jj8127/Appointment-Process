@@ -280,6 +280,8 @@ export default function AllowanceConsentScreen() {
       >
         <ScrollView
           contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
           refreshControl={
             < RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }

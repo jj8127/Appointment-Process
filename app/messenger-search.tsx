@@ -734,7 +734,7 @@ export default function MessengerSearchScreen() {
       ) : null}
       <ScrollView
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) }}
-        keyboardDismissMode="on-drag"
+        keyboardDismissMode="none"
         keyboardShouldPersistTaps="handled"
       >
         {!debouncedQuery ? (

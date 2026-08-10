@@ -3701,24 +3701,14 @@ export default function DashboardScreen() {
         state={notificationReceipt.state}
         onRetry={() => void notificationReceipt.retryMarkRead()}
       />
-      {Platform.OS === 'android' ? (
-        <ScrollView
-          refreshControl={screenRefreshControl}
-          contentContainerStyle={{ paddingBottom: (deleteModalVisible ? 0 : keyboardPadding) + 40 }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          showsVerticalScrollIndicator={false}
-        >
-          {screenContent}
-        </ScrollView>
-      ) : (
-        <KeyboardAwareWrapper
-          refreshControl={screenRefreshControl}
-          contentContainerStyle={{ paddingBottom: (deleteModalVisible ? 0 : keyboardPadding) + 40 }}
-        >
-          {screenContent}
-        </KeyboardAwareWrapper>
-      )}
+      <KeyboardAwareWrapper
+        refreshControl={screenRefreshControl}
+        contentContainerStyle={{ paddingBottom: (deleteModalVisible ? 0 : keyboardPadding) + 40 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
+      >
+        {screenContent}
+      </KeyboardAwareWrapper>
     </SafeAreaView>
   );
 }

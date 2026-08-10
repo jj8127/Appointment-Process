@@ -672,6 +672,7 @@ export default function AdminBoardScreen() {
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
       <KeyboardAwareWrapper
         contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 20 }]}
+        keyboardDismissMode="none"
       >
         <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>

@@ -1889,6 +1889,7 @@ export default function RequestBoardMessengerScreen() {
               keyExtractor={(item) => String(item.id)}
               inverted
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="none"
               contentContainerStyle={styles.msgListContent}
               onScrollToIndexFailed={handleAnchorScrollToIndexFailed}
               renderItem={({ item, index }) => {
@@ -2342,6 +2343,7 @@ export default function RequestBoardMessengerScreen() {
           contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
           stickySectionHeadersEnabled={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
           refreshControl={
             <RefreshControl
               refreshing={convRefreshing}

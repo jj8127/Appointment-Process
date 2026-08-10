@@ -112,6 +112,7 @@ export function ExamApplicationTargetSelector({
               data={filteredTargets}
               keyExtractor={(item) => item.fcId}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="none"
               contentContainerStyle={filteredTargets.length === 0 ? styles.emptyList : undefined}
               ListEmptyComponent={<Text style={styles.empty}>검색 결과가 없습니다.</Text>}
               renderItem={({ item }) => (

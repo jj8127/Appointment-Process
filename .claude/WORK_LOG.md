@@ -1164,3 +1164,12 @@
 - Added signed FC-self `getOwnProfile`/`updateOwnProfile` actions, full existing-value hydration, changed-field-only writes, immutable login phone, and a recoverable load-error surface that never exposes a destructive blank form.
 - Full root Jest 236 suites / 1,463 tests, TypeScript, full lint, 52-route Expo export, keyboard audit, the `admin-action` Deno check, governance, and harness audit pass. With explicit approval, `admin-action` was deployed alone as ACTIVE v25 with JWT verification retained, then the clean `6d43f00` source was published to the GaramIn 4.2.2 production OTA branch for Android and iOS. No database/schema, native/Store build, Git push, or PR action was performed; authenticated device load/edit/save/reopen smoke remains HOLD.
 - Details: [WORK_DETAIL.md#20260810-fc-basic-information-edit-recovery](WORK_DETAIL.md#20260810-fc-basic-information-edit-recovery)
+
+## 2026-08-10 GaramIn profile completeness and keyboard consistency follow-up
+
+- Confirmed with a sanitized production survey that the reported carrier/email display gap came from 63 completed profiles whose canonical values were absent, not from failed app hydration. One exact test account was corrected for verification and the remaining 62 were left untouched; a masked workbook was produced for handoff.
+- Made legacy incomplete profiles safely editable without requiring absent historical values, while preventing existing populated fields from being cleared accidentally.
+- Standardized all 34 registered native keyboard surfaces to retain the keyboard during drag, strengthened shared Android focus scroll room, and removed Android plain-scroll branches that bypassed keyboard-aware ownership.
+- Full Jest passes 236 suites / 1,465 tests; TypeScript, zero-warning Expo lint, 34/34 keyboard audit, and diff check pass. A Samsung local debug smoke confirmed lower-field visibility and retained keyboard during a short drag before wireless ADB disconnected.
+- No follow-up OTA, native/Store release, Edge deployment, Git push, or unrelated production write was performed; release remains HOLD.
+- Details: [WORK_DETAIL.md#20260810-profile-keyboard-follow-up](WORK_DETAIL.md#20260810-profile-keyboard-follow-up)

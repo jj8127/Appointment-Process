@@ -220,6 +220,7 @@ export default function IdentityScreen() {
         contentContainerStyle={[styles.container, { paddingBottom: Math.max(80, keyboardPadding + 40) }]}
         extraScrollHeight={140}
         keyboardShouldPersistTaps="always"
+        keyboardDismissMode="none"
       >
         <View style={styles.noticeBox}>
           <Text style={styles.noticeTitle}>본 단계는 위촉(등록) 신청을 위한 법정 절차 단계입니다.</Text>

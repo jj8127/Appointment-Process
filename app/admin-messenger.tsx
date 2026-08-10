@@ -372,7 +372,7 @@ export default function AdminMessengerScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={HANWHA_ORANGE} />}
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 12) + 16 }}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Feather name="message-circle" size={40} color="#D1D5DB" />

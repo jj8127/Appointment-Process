@@ -130,6 +130,7 @@ export default function LoginScreen() {
                     contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 40 }]}
                     extraScrollHeight={140}
                     keyboardShouldPersistTaps="always"
+                    keyboardDismissMode="none"
                 >
                     <View style={styles.innerContent}>
                         <MotiView

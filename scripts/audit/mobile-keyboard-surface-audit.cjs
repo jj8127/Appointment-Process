@@ -43,11 +43,22 @@ function discoverKeyboardSurfaceFiles() {
 
 function runAudit() {
   const registry = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'));
+  const allSurfaceFiles = [
+    ...walkTsx(path.join(ROOT, 'app')),
+    ...walkTsx(path.join(ROOT, 'components')),
+  ];
   const registered = registry.surfaces.map((surface) => surface.file).sort();
   const discovered = discoverKeyboardSurfaceFiles();
   const registeredSet = new Set(registered);
   const discoveredSet = new Set(discovered);
   const errors = [];
+
+  for (const file of allSurfaceFiles) {
+    const source = fs.readFileSync(file, 'utf8');
+    if (/keyboardDismissMode\s*=\s*["'](?:on-drag|interactive)["']/.test(source)) {
+      errors.push(`keyboard must remain visible during drag: ${relativeFile(file)}`);
+    }
+  }
 
   for (const file of discovered) {
     if (!registeredSet.has(file)) errors.push(`unregistered keyboard surface: ${file}`);

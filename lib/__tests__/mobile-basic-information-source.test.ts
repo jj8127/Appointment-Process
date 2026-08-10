@@ -30,4 +30,13 @@ describe('mobile FC basic-information source contract', () => {
     expect(source).not.toContain("logger.debug('[fc/new] loadExisting: signup raw', { raw })");
     expect(source).not.toContain("logger.debug('[DEBUG] Mobile: Creating FC Profile Payload'");
   });
+
+  it('keeps focused fields visible above the Android keyboard', () => {
+    expect(source).not.toContain('<ScrollView');
+    expect(source).toContain('<KeyboardAwareWrapper');
+    expect(source).toContain("extraScrollHeight={Platform.OS === 'android' ? 220 : 140}");
+    expect(source).toContain('keyboardDismissMode="none"');
+    expect(source).not.toContain('keyboardDismissMode="on-drag"');
+    expect(source).toContain('setTimeout(() => scrollToInput(node), 220)');
+  });
 });

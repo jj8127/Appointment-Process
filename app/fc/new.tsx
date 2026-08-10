@@ -15,7 +15,6 @@ import {
   Pressable,
   RefreshControl,
   ReturnKeyTypeOptions,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -50,13 +49,16 @@ const TEXT_MUTED = '#6b7280';
 const PLACEHOLDER = '#9ca3af';
 
 const schema = z.object({
-  affiliation: z.string().min(1, '소속을 선택해주세요.'),
-  name: z.string().min(1, '이름을 입력해주세요.'),
+  affiliation: z.string(),
+  name: z.string(),
   phone: z.string().min(8, '휴대폰 번호를 입력해주세요.'),
-  email: z.string().email('유효한 이메일을 입력해주세요.'),
-  carrier: z.string().min(1, '통신사를 선택해주세요.'),
-  address: z.string().min(1, '주소를 입력해주세요.'),
-  addressDetail: z.string().min(1, '상세주소를 입력해주세요.'),
+  email: z.string().refine(
+    (value) => !value.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()),
+    '유효한 이메일을 입력해주세요.',
+  ),
+  carrier: z.string(),
+  address: z.string(),
+  addressDetail: z.string(),
   residentFront: z.string().optional().or(z.literal('')),
   residentBack: z.string().optional().or(z.literal('')),
 }).superRefine((values, ctx) => {
@@ -372,6 +374,24 @@ export default function FcNewScreen() {
         values.addressDetail.trim() !== existingAddressDetail.trim();
       const hasResidentInput = front.length > 0 || back.length > 0;
       const needsResidentForIdentity = hasResidentInput || (!existingResidentMasked && addressChanged);
+      const patch = buildFcBasicInformationPatch(existingProfile, values);
+      const clearedFields = (['affiliation', 'name', 'email', 'carrier'] as const)
+        .filter((field) => String(existingProfile[field] ?? '').trim() && !values[field].trim());
+
+      if (clearedFields.length > 0) {
+        Alert.alert('입력 확인', '기존 기본 정보는 빈 값으로 변경할 수 없습니다.');
+        return;
+      }
+
+      if (addressChanged && (!values.address.trim() || !values.addressDetail.trim())) {
+        Alert.alert('입력 확인', '주소를 변경하려면 기본 주소와 상세주소를 모두 입력해주세요.');
+        return;
+      }
+
+      if (Object.keys(patch).length === 0 && !addressChanged && !hasResidentInput) {
+        Alert.alert('변경 없음', '변경된 기본 정보가 없습니다.');
+        return;
+      }
 
       if (addressChanged || hasResidentInput) {
         if (needsResidentForIdentity && (!front || !back)) {
@@ -407,7 +427,6 @@ export default function FcNewScreen() {
         }
       }
 
-      const patch = buildFcBasicInformationPatch(existingProfile, values);
       const updateResult = await invokeAdminAction<{ profile: { id: string } }>(
         phoneDigits,
         'updateOwnProfile',
@@ -878,25 +897,15 @@ export default function FcNewScreen() {
           ),
         }}
       />
-      {Platform.OS === 'android' ? (
-        <ScrollView
-          contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
-          refreshControl={screenRefreshControl}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          showsVerticalScrollIndicator={false}
-        >
-          {screenContent}
-        </ScrollView>
-      ) : (
-        <KeyboardAwareWrapper
-          contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
-          extraScrollHeight={140}
-          refreshControl={screenRefreshControl}
-        >
-          {screenContent}
-        </KeyboardAwareWrapper>
-      )}
+      <KeyboardAwareWrapper
+        contentContainerStyle={[styles.container, { paddingBottom: Math.max(160, keyboardPadding + 120) }]}
+        extraScrollHeight={Platform.OS === 'android' ? 220 : 140}
+        refreshControl={screenRefreshControl}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
+      >
+        {screenContent}
+      </KeyboardAwareWrapper>
 
       <Modal visible={showDomainPicker} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowDomainPicker(false)}>
@@ -1009,6 +1018,15 @@ const FormField = ({
 }: FormFieldProps) => {
   const { scrollToInput } = useKeyboardAware();
   const [inputHeight, setInputHeight] = useState(multiline ? 80 : 0);
+  const scrollFocusedInputIntoView = useCallback((target: any) => {
+    const node = findNodeHandle(target);
+    if (!node) return;
+
+    scrollToInput(node);
+    // Android/Fabric can miss the first request while the keyboard is opening.
+    setTimeout(() => scrollToInput(node), 80);
+    setTimeout(() => scrollToInput(node), 220);
+  }, [scrollToInput]);
 
   return (
     <View style={styles.field}>
@@ -1038,13 +1056,13 @@ const FormField = ({
             onSubmitEditing={onSubmitEditing}
             blurOnSubmit={blurOnSubmit}
             onFocus={(e) => {
-              scrollToInput(findNodeHandle(e.target as any));
+              scrollFocusedInputIntoView(e.target as any);
             }}
             onContentSizeChange={(e) => {
               if (!multiline) return;
               const nextHeight = Math.max(80, e.nativeEvent.contentSize.height);
               if (nextHeight !== inputHeight) setInputHeight(nextHeight);
-              scrollToInput(findNodeHandle(e.target as any));
+              scrollFocusedInputIntoView(e.target as any);
             }}
           />
         )}

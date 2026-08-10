@@ -626,7 +626,7 @@ export default function ExamRegisterScreen() {
       contentContainerStyle={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
+      keyboardDismissMode="none"
       showsVerticalScrollIndicator={false}
       nestedScrollEnabled
     >
