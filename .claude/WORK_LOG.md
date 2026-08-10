@@ -1147,4 +1147,5 @@
 
 - Fixed the GitHub app-job-only failure where the root Sentry upload guard test depended on a warm nested `web/node_modules` installation.
 - Declared the exact compatible Sentry bundler core version in the root test dependency graph and locked it so root `npm ci` reproduces the test independently.
+- After the dependency follow-up, both clean GitHub app jobs, both web jobs, and Vercel pass. The PR checklist body is also exact-line compliant; a new synchronize event is required because rerunning the original failed workflow reuses its stale pull-request event payload.
 - Details: [WORK_DETAIL.md#20260810-clean-ci-dependency-closure](WORK_DETAIL.md#20260810-clean-ci-dependency-closure)
