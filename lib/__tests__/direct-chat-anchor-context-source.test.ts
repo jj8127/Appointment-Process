@@ -116,7 +116,7 @@ describe('mobile direct-chat anchor context source', () => {
     const source = readFileSync(chatPath, 'utf8');
 
     expect(source).toContain('getChatComposerBottomPadding({');
-    expect(source).toContain('keyboardVerticalOffset={0}');
+    expect(source).toContain('<KeyboardSafeBottomBar>');
     expect(source).toContain('paddingBottom: composerBottomPadding');
   });
 });

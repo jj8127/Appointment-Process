@@ -9,7 +9,6 @@ import {
   Alert,
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -27,6 +26,7 @@ import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
 import {
@@ -1863,11 +1863,7 @@ export default function RequestBoardMessengerScreen() {
           ) : null}
 
         {/* Messages + Input */}
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={0}
-        >
+        <View style={{ flex: 1 }}>
           {msgLoading && messages.length === 0 ? (
             <BrandedLoadingState
               variant="request-board-messenger"
@@ -2047,9 +2043,10 @@ export default function RequestBoardMessengerScreen() {
             />
           )}
 
-          {/* Pending Files Preview */}
-          {pendingFiles.length > 0 && (
-            <View style={styles.pendingStrip}>
+          <KeyboardSafeBottomBar>
+            {/* Pending Files Preview */}
+            {pendingFiles.length > 0 && (
+              <View style={styles.pendingStrip}>
               <FlatList<PendingFile>
                 horizontal
                 data={pendingFiles}
@@ -2081,11 +2078,11 @@ export default function RequestBoardMessengerScreen() {
                   );
                 }}
               />
-            </View>
-          )}
+              </View>
+            )}
 
-          {/* Input Bar */}
-          <View style={[styles.inputBar, { paddingBottom: composerBottomPadding }]}>
+            {/* Input Bar */}
+            <View style={[styles.inputBar, { paddingBottom: composerBottomPadding }]}>
             <Pressable
               style={({ pressed }) => [styles.attachBtn, pressed && { opacity: 0.6 }]}
               onPress={handlePickImage}
@@ -2124,8 +2121,9 @@ export default function RequestBoardMessengerScreen() {
                 <Feather name="send" size={18} color="#fff" />
               )}
             </Pressable>
-          </View>
-        </KeyboardAvoidingView>
+            </View>
+          </KeyboardSafeBottomBar>
+        </View>
 
         {/* Fullscreen Image Preview Modal */}
         <Modal

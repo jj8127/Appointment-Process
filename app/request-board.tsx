@@ -468,7 +468,7 @@ export default function RequestBoardScreen() {
   };
 
   const openMessenger = () => {
-    router.push('/request-board-messenger' as any);
+    router.push('/messenger' as any);
   };
 
   const openFcCodes = () => {

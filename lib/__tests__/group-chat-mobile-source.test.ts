@@ -84,13 +84,10 @@ describe('group chat mobile wiring', () => {
 
     for (const source of [groupSource, directSource, requestBoardSource]) {
       expect(source).toContain('getChatComposerBottomPadding');
-      expect(source).toContain('keyboardVerticalOffset={0}');
+      expect(source).toContain('<KeyboardSafeBottomBar>');
       expect(source).not.toContain("keyboardVerticalOffset={Platform.OS === 'ios' ? 65 : 0}");
       expect(source).not.toContain("Platform.OS === 'android' ? keyboardPadding : 0");
-    }
-
-    for (const source of [groupSource, directSource, requestBoardSource]) {
-      expect(source).toContain(
+      expect(source).not.toContain(
         "behavior={Platform.OS === 'ios' ? 'padding' : undefined}",
       );
     }

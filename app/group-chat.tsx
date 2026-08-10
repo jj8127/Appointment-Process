@@ -31,6 +31,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
 import {
@@ -1616,11 +1617,7 @@ export default function GroupChatScreen() {
       {loading ? (
         <MessengerLoadingState variant="group-chat" />
       ) : (
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={0}
-        >
+        <View style={{ flex: 1 }}>
           <FlatList
             ref={flatListRef}
             data={messages}
@@ -1643,18 +1640,18 @@ export default function GroupChatScreen() {
             }
           />
 
-          {uploading && (
-            <View
-              style={[
-                styles.uploadingOverlay,
-                { bottom: 68 + composerBottomPadding },
-              ]}
-            >
-              <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
-              <Text style={styles.uploadingText}>메시지 전송 중...</Text>
-            </View>
-          )}
-
+          <KeyboardSafeBottomBar>
+            {uploading && (
+              <View
+                style={[
+                  styles.uploadingOverlay,
+                  { bottom: 68 + composerBottomPadding },
+                ]}
+              >
+                <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
+                <Text style={styles.uploadingText}>메시지 전송 중...</Text>
+              </View>
+            )}
               <View
                 style={[
                   styles.inputWrapper,
@@ -1792,8 +1789,9 @@ export default function GroupChatScreen() {
                 )}
               </Pressable>
             </View>
-          </View>
-        </KeyboardAvoidingView>
+              </View>
+          </KeyboardSafeBottomBar>
+        </View>
       )}
 
       <Modal

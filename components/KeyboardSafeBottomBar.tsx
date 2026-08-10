@@ -8,8 +8,12 @@ import {
   View,
   type ViewStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { getKeyboardFrameOverlap } from '@/lib/mobile-keyboard-layout';
+import {
+  getAndroidKeyboardFootprint,
+  getKeyboardOverlapFromRestingFrame,
+} from '@/lib/mobile-keyboard-layout';
 
 type KeyboardSafeBottomBarProps = PropsWithChildren<{
   contentContainerStyle?: StyleProp<ViewStyle>;
@@ -20,9 +24,9 @@ type KeyboardSafeBottomBarProps = PropsWithChildren<{
 /**
  * Keeps a fixed bottom input surface above the measured keyboard overlap.
  *
- * Android detail sheets are absolutely positioned and do not consistently
- * inherit the native window resize. Measure the bar and the keyboard in the
- * same screen coordinate space, then move only by their actual overlap.
+ * Android detail sheets do not consistently inherit native window resize.
+ * Compare the bar's resting frame with its live frame, then add only the IME
+ * movement the native window has not already applied.
  */
 export function KeyboardSafeBottomBar({
   children,
@@ -30,21 +34,34 @@ export function KeyboardSafeBottomBar({
   keyboardVerticalOffset = 0,
   style,
 }: KeyboardSafeBottomBarProps) {
+  const safeAreaInsets = useSafeAreaInsets();
   const androidBarRef = useRef<View>(null);
-  const keyboardTopRef = useRef<number | null>(null);
+  const keyboardFootprintRef = useRef<number | null>(null);
   const overlapRef = useRef(0);
+  const restingBottomRef = useRef<number | null>(null);
   const [androidOverlap, setAndroidOverlap] = useState(0);
 
-  const measureAndroidOverlap = useCallback((keyboardTop: number) => {
+  const measureRestingBottom = useCallback(() => {
     requestAnimationFrame(() => {
-      if (keyboardTopRef.current !== keyboardTop) return;
       androidBarRef.current?.measureInWindow((_x, y, _width, height) => {
-        if (keyboardTopRef.current !== keyboardTop) return;
+        if (keyboardFootprintRef.current !== null) return;
+        restingBottomRef.current = y + height;
+      });
+    });
+  }, []);
+
+  const measureAndroidOverlap = useCallback((keyboardFootprint: number) => {
+    requestAnimationFrame(() => {
+      if (keyboardFootprintRef.current !== keyboardFootprint) return;
+      androidBarRef.current?.measureInWindow((_x, y, _width, height) => {
+        if (keyboardFootprintRef.current !== keyboardFootprint) return;
         const untranslatedBottom = y + height + overlapRef.current;
-        const nextOverlap = getKeyboardFrameOverlap({
-          keyboardTop,
-          viewBottom: untranslatedBottom,
+        const restingBottom = restingBottomRef.current ?? untranslatedBottom;
+        const nextOverlap = getKeyboardOverlapFromRestingFrame({
+          keyboardFootprint,
+          restingBottom,
           verticalOffset: keyboardVerticalOffset,
+          viewBottom: untranslatedBottom,
         });
         overlapRef.current = nextOverlap;
         setAndroidOverlap(nextOverlap);
@@ -52,10 +69,19 @@ export function KeyboardSafeBottomBar({
     });
   }, [keyboardVerticalOffset]);
 
+  const getKeyboardFootprint = useCallback((keyboardHeight: number) => (
+    getAndroidKeyboardFootprint({
+      androidApiLevel: Platform.Version,
+      keyboardHeight,
+      safeAreaBottom: safeAreaInsets.bottom,
+    })
+  ), [safeAreaInsets.bottom]);
+
   const handleAndroidKeyboardFrame = useCallback((event: KeyboardEvent) => {
-    keyboardTopRef.current = event.endCoordinates.screenY;
-    measureAndroidOverlap(event.endCoordinates.screenY);
-  }, [measureAndroidOverlap]);
+    const keyboardFootprint = getKeyboardFootprint(event.endCoordinates.height);
+    keyboardFootprintRef.current = keyboardFootprint;
+    measureAndroidOverlap(keyboardFootprint);
+  }, [getKeyboardFootprint, measureAndroidOverlap]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return undefined;
@@ -65,9 +91,10 @@ export function KeyboardSafeBottomBar({
       handleAndroidKeyboardFrame,
     );
     const hide = Keyboard.addListener('keyboardDidHide', () => {
-      keyboardTopRef.current = null;
+      keyboardFootprintRef.current = null;
       overlapRef.current = 0;
       setAndroidOverlap(0);
+      measureRestingBottom();
     });
 
     return () => {
@@ -75,7 +102,7 @@ export function KeyboardSafeBottomBar({
       changeFrame.remove();
       hide.remove();
     };
-  }, [handleAndroidKeyboardFrame]);
+  }, [handleAndroidKeyboardFrame, measureRestingBottom]);
 
   if (Platform.OS === 'android') {
     return (
@@ -83,10 +110,14 @@ export function KeyboardSafeBottomBar({
         ref={androidBarRef}
         onLayout={() => {
           const keyboardMetrics = Keyboard.isVisible() ? Keyboard.metrics() : undefined;
-          const keyboardTop = keyboardTopRef.current ?? keyboardMetrics?.screenY ?? null;
-          if (keyboardTop !== null) {
-            keyboardTopRef.current = keyboardTop;
-            measureAndroidOverlap(keyboardTop);
+          if (keyboardMetrics) {
+            const keyboardFootprint = keyboardFootprintRef.current
+              ?? getKeyboardFootprint(keyboardMetrics.height);
+            keyboardFootprintRef.current = keyboardFootprint;
+            measureAndroidOverlap(keyboardFootprint);
+          } else {
+            keyboardFootprintRef.current = null;
+            measureRestingBottom();
           }
         }}
         style={[

@@ -11,7 +11,6 @@ import {
   Dimensions,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -24,6 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
 import {
@@ -2158,10 +2158,7 @@ export default function ChatScreen() {
         </View>
       ) : null}
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}>
+      <View style={{ flex: 1 }}>
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -2176,13 +2173,14 @@ export default function ChatScreen() {
           keyboardDismissMode="none"
         />
 
-        <View
-          style={[
-            styles.inputWrapper,
-            {
-              paddingBottom: composerBottomPadding,
-            },
-          ]}>
+        <KeyboardSafeBottomBar>
+          <View
+            style={[
+              styles.inputWrapper,
+              {
+                paddingBottom: composerBottomPadding,
+              },
+            ]}>
           {selectedAttachments.length > 0 ? (
             <ScrollView
               horizontal
@@ -2271,8 +2269,9 @@ export default function ChatScreen() {
               )}
             </Pressable>
           </View>
-        </View>
-      </KeyboardAvoidingView>
+          </View>
+        </KeyboardSafeBottomBar>
+      </View>
 
       <MessengerMessageActionSheet
         visible={Boolean(actionMessage)}

@@ -74,6 +74,13 @@ describe('Messenger V2 hub UI contract', () => {
     expect(source).toContain('rbSetMessengerRoomMuted');
   });
 
+  test('keeps the request-board messenger shortcut on the v2 hub', () => {
+    const source = fs.readFileSync(path.join(repositoryRoot, 'app', 'request-board.tsx'), 'utf8');
+
+    expect(source).toContain("router.push('/messenger' as any)");
+    expect(source).not.toContain("router.push('/request-board-messenger' as any)");
+  });
+
   test('opens exactly four room actions on long press with lightweight read handling', () => {
     const source = fs.readFileSync(path.join(repositoryRoot, 'app', 'messenger.tsx'), 'utf8');
     const rows = fs.readFileSync(
