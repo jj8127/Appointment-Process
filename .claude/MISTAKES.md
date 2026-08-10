@@ -5615,3 +5615,16 @@
   - `lib/__tests__/session-logout.test.ts`
   - `lib/__tests__/logout-source-contract.test.ts`
   - `lib/__tests__/notifications.test.ts`
+
+## 2026-08-10 | A root test depended on a warm nested web installation
+
+- Symptom:
+  - The full Jest suite passed locally but failed in both clean GitHub app jobs because `@sentry/bundler-plugin-core` could not be resolved from `web/package.json`.
+- Root cause:
+  - The root security test directly loaded a package owned by the nested web dependency graph without declaring that runtime in the root test graph. A pre-existing `web/node_modules` directory masked the missing dependency locally.
+- Permanent guardrail:
+  - Any package imported or required by a root test must be declared in the root manifest at the exact compatible version, even when the product dependency is also transitive under a nested workspace.
+  - Release readiness requires the clean GitHub app job or an equivalent root `npm ci`; a warm combined dependency tree is not clean-install evidence.
+- Verification:
+  - `lib/__tests__/sentry-build-upload-guard.test.ts`
+  - root `npm ci`, full Jest, and GitHub app checks

@@ -215,6 +215,13 @@ Pop-Location
 - 읽기 조사는 Sentry plugin과 `SENTRY_READ_AUTH_TOKEN`만 사용한다.
 - local build는 네 가지 업로드 차단 환경변수를 모두 설정한다.
 - 인증·scope·source map 차단은 제품 오류와 분리해 `EXTERNAL_CREDENTIAL` 또는 `ENVIRONMENT_BLOCKED`로 기록한다.
+- 루트 테스트가 nested `web/package.json` 기준으로 패키지를 직접 로드하더라도, 해당 패키지는 루트 `npm ci`만으로 재현되도록 루트 manifest에 직접 선언한다. 기존 `web/node_modules`가 있는 warm tree 성공은 clean-install 증거가 아니다.
+
+### 패치 버전이 없는 npm advisory
+
+- 2026-08-10 기준 Expo 54/Metro의 `image-size` 경로는 `GHSA-w3rx-r6r6-pgpr`, `GHSA-5p2g-fcmc-qvqq`에 의해 high로 보고되며, GitHub advisory에는 `2.0.2`까지 패치 버전이 없다.
+- `npm audit fix --force`가 Expo major/minor 하향을 제안하면 실행하지 않는다. 현재 버전, first-patched 상태, 실제 입력 경계와 빌드 검증을 기록하고 upstream 패치 또는 Expo 호환 릴리스를 추적한다.
+- Metro가 처리하는 asset은 검토된 저장소 소스만 허용한다. 외부 사용자가 제출한 ICNS/JXL/HEIF 파일을 빌드 입력으로 연결하지 않으며, 이 입력 제한은 upstream 패치를 대체하지 않는다.
 
 ## 10. 다음 문서
 

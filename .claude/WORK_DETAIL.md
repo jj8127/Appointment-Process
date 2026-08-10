@@ -13857,3 +13857,20 @@
 - Final clean-source verification passed: governance, `expo install --check`, 52-route Sentry-upload-disabled Expo export, `assembleDebug`, and `bundleRelease`. The local release compile needed a process-only 1024 MB Metaspace override after the default 512 MB daemon exhausted Metaspace; no repository build setting was changed.
 - The compile-only local AAB is 89,120,226 bytes with SHA-256 `795800B0E76B8E076BEAD38C4FA58328137EF1F61621B96C2A06AFDB61AA3175`. It is not a Store artifact and was not uploaded; EAS Production remains responsible for managed credentials and remote build-number auto-increment.
 - Static and build evidence do not replace physical Android/iOS focus, type, multiline growth, submit, dismiss, rotation, and reopen smoke. EAS/OTA/Store release remains HOLD until that evidence exists.
+
+<a id="20260810-clean-ci-dependency-closure"></a>
+## 2026-08-10 | Clean CI dependency closure
+
+**Observed failure**:
+- GitHub app jobs installed only the root package graph and failed `lib/__tests__/sentry-build-upload-guard.test.ts` with `Cannot find module '@sentry/bundler-plugin-core' from 'web/package.json'`.
+- Local full Jest had passed because an existing nested web installation supplied the undeclared package.
+
+**Repair**:
+- Added exact root dev dependency `@sentry/bundler-plugin-core@5.3.0`, matching the version resolved by the web lockfile.
+- The production web owner remains `@sentry/nextjs`; this dependency exists only so the root security test can execute its directly required plugin runtime after a clean root install.
+
+**Verification and boundaries**:
+- Root `npm ci` passed. With `web/node_modules` temporarily isolated, the focused Sentry upload guard passed 14/14 from the root dependency graph; full root Jest passed 232 suites / 1,447 tests.
+- `npm audit` currently reports 11 high dependency paths from `image-size` advisories `GHSA-w3rx-r6r6-pgpr` and `GHSA-5p2g-fcmc-qvqq`. GitHub reports every published version through `2.0.2` as affected with no first patched version. This is an existing Expo/Metro build-tool path, not introduced by the Sentry test dependency; `npm audit fix --force` would break compatibility by downgrading Expo 54 to 53 and is prohibited.
+- Both GitHub app jobs and PR governance must pass after the follow-up push. The unpatched upstream advisory remains explicit release risk; repository-controlled build assets reduce the practical input path but do not constitute an upstream fix.
+- No Sentry release/upload, production deployment, EAS/OTA, database operation, or Store action is performed by this dependency repair.

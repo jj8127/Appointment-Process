@@ -1142,3 +1142,9 @@
 - Removed inactive Messenger search/context declarations that produced the remaining lint warnings and wired the existing anchor-context gap copy into its visible banner.
 - Added a closed inventory audit and regression contract. Full Jest, TypeScript, zero-warning lint, governance, dependency check, 52-route Expo export, Android debug assembly, and local release AAB compilation pass; physical Android/iOS interaction remains required before release.
 - Details: [WORK_DETAIL.md#20260810-garamin-keyboard-surface-closure](WORK_DETAIL.md#20260810-garamin-keyboard-surface-closure)
+
+## 2026-08-10 Clean CI dependency closure
+
+- Fixed the GitHub app-job-only failure where the root Sentry upload guard test depended on a warm nested `web/node_modules` installation.
+- Declared the exact compatible Sentry bundler core version in the root test dependency graph and locked it so root `npm ci` reproduces the test independently.
+- Details: [WORK_DETAIL.md#20260810-clean-ci-dependency-closure](WORK_DETAIL.md#20260810-clean-ci-dependency-closure)
