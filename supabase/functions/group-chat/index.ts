@@ -54,6 +54,11 @@ import {
   serializeGroupChatSearchResult,
   type GroupChatSearchMessageRow,
 } from '../_shared/group-chat-search.ts';
+import {
+  chunkGroupChatDataApiValues,
+  collectGroupChatDataApiBatches,
+  collectGroupChatDataApiPages,
+} from '../_shared/group-chat-data-api-batching.ts';
 
 type Payload =
   | { type: 'group_chat_bootstrap'; limit?: number }
@@ -485,23 +490,38 @@ async function resolveActor(session: AppSessionTokenPayload, origin?: string | n
 
 async function listEligibleMembers(): Promise<GroupChatMember[]> {
   const [fcResult, managerResult, adminResult] = await Promise.all([
-    supabase
-      .from('fc_profiles')
-      .select('id,name,phone,affiliation,signup_completed,is_manager_referral_shadow,life_commission_completed,nonlife_commission_completed,appointment_date_life,appointment_date_nonlife')
-      .eq('signup_completed', true),
-    supabase
-      .from('manager_accounts')
-      .select('id,name,phone,active')
-      .eq('active', true),
-    supabase
-      .from('admin_accounts')
-      .select('id,name,phone,active,staff_type')
-      .eq('active', true),
+    collectGroupChatDataApiPages(async (from, to) => {
+      const result = await supabase
+        .from('fc_profiles')
+        .select('id,name,phone,affiliation,signup_completed,is_manager_referral_shadow,life_commission_completed,nonlife_commission_completed,appointment_date_life,appointment_date_nonlife')
+        .eq('signup_completed', true)
+        .order('id', { ascending: true })
+        .range(from, to);
+      return { data: result.data ?? [], error: result.error };
+    }),
+    collectGroupChatDataApiPages(async (from, to) => {
+      const result = await supabase
+        .from('manager_accounts')
+        .select('id,name,phone,active')
+        .eq('active', true)
+        .order('id', { ascending: true })
+        .range(from, to);
+      return { data: result.data ?? [], error: result.error };
+    }),
+    collectGroupChatDataApiPages(async (from, to) => {
+      const result = await supabase
+        .from('admin_accounts')
+        .select('id,name,phone,active,staff_type')
+        .eq('active', true)
+        .order('id', { ascending: true })
+        .range(from, to);
+      return { data: result.data ?? [], error: result.error };
+    }),
   ]);
 
-  if (fcResult.error) throw fcResult.error;
-  if (managerResult.error) throw managerResult.error;
-  if (adminResult.error) throw adminResult.error;
+  if (!fcResult.ok || !managerResult.ok || !adminResult.ok) {
+    throw new Error('group_chat_member_query_failed');
+  }
 
   const members: GroupChatMember[] = [];
 
@@ -1080,57 +1100,82 @@ async function insertNotificationsWithFallback(rows: Record<string, unknown>[]):
   if (rows.length === 0) {
     return { inserted_count: 0, failed: false, ids_by_actor: new Map() };
   }
-  const result = await supabase
-    .from('notifications')
-    .upsert(rows, { onConflict: 'delivery_key' })
-    .select('id,resident_id,recipient_role,recipient_actor_id,target,delivery_key');
-  if (result.error) {
-    console.warn('[group-chat] notification insert failed', { reason: 'notification_insert_failed' });
+  const expectedByActor = new Map(
+    rows.map((row) => [String(row.recipient_actor_id ?? ''), row]),
+  );
+  if (expectedByActor.size !== rows.length || expectedByActor.has('')) {
     return {
       inserted_count: 0,
       failed: true,
       ids_by_actor: new Map(),
-      failure_reason: 'notification_insert_failed',
+      failure_reason: 'recipient_mismatch',
     };
   }
-  const expectedByActor = new Map(
-    rows.map((row) => [String(row.recipient_actor_id ?? ''), row]),
-  );
+
   const idsByActor = new Map<string, string>();
-  let failureReason: string | undefined;
-  for (const row of result.data ?? []) {
-    const recipientActorId = String(row.recipient_actor_id ?? '');
-    const expected = expectedByActor.get(recipientActorId);
-    const expectedTarget = expected?.target;
-    if (!expected || !expectedTarget || typeof expectedTarget !== 'object') {
-      failureReason = 'recipient_mismatch';
-      continue;
+  let insertedCount = 0;
+  for (const batch of chunkGroupChatDataApiValues(rows)) {
+    const result = await supabase
+      .from('notifications')
+      .upsert(batch, { onConflict: 'delivery_key' })
+      .select('id,resident_id,recipient_role,recipient_actor_id,target,delivery_key');
+    if (result.error) {
+      console.warn('[group-chat] notification insert failed', { reason: 'notification_insert_failed' });
+      return {
+        inserted_count: insertedCount,
+        failed: true,
+        ids_by_actor: idsByActor,
+        failure_reason: 'notification_insert_failed',
+      };
     }
-    if (row.delivery_key !== expected.delivery_key || idsByActor.has(recipientActorId)) {
-      failureReason = 'delivery_key_mismatch';
-      continue;
+
+    const confirmedBeforeBatch = idsByActor.size;
+    let failureReason: string | undefined;
+    for (const row of result.data ?? []) {
+      const recipientActorId = String(row.recipient_actor_id ?? '');
+      const expected = expectedByActor.get(recipientActorId);
+      const expectedTarget = expected?.target;
+      if (!expected || !expectedTarget || typeof expectedTarget !== 'object') {
+        failureReason = 'recipient_mismatch';
+        continue;
+      }
+      if (row.delivery_key !== expected.delivery_key || idsByActor.has(recipientActorId)) {
+        failureReason = 'delivery_key_mismatch';
+        continue;
+      }
+      const residentId = String(expected.resident_id ?? '');
+      const validation = validatePersistedNotificationForDelivery(row, {
+        target: expectedTarget as NotificationTargetV1,
+        recipientRole: expected.recipient_role === 'admin' ? 'admin' : 'fc',
+        recipientActorId,
+        residentId,
+      });
+      if (validation.ok === false) {
+        failureReason = validation.reason;
+        continue;
+      }
+      idsByActor.set(recipientActorId, validation.notificationId);
     }
-    const residentId = String(expected.resident_id ?? '');
-    const validation = validatePersistedNotificationForDelivery(row, {
-      target: expectedTarget as NotificationTargetV1,
-      recipientRole: expected.recipient_role === 'admin' ? 'admin' : 'fc',
-      recipientActorId,
-      residentId,
-    });
-    if (validation.ok === false) {
-      failureReason = validation.reason;
-      continue;
+
+    insertedCount += result.data?.length ?? 0;
+    if (
+      failureReason
+      || (result.data?.length ?? 0) !== batch.length
+      || idsByActor.size - confirmedBeforeBatch !== batch.length
+    ) {
+      return {
+        inserted_count: insertedCount,
+        failed: true,
+        ids_by_actor: idsByActor,
+        failure_reason: failureReason ?? 'notification_id_mapping_incomplete',
+      };
     }
-    idsByActor.set(recipientActorId, validation.notificationId);
   }
-  const failed = Boolean(failureReason)
-    || (result.data?.length ?? 0) !== rows.length
-    || idsByActor.size !== rows.length;
+
   return {
-    inserted_count: result.data?.length ?? 0,
-    failed,
+    inserted_count: insertedCount,
+    failed: false,
     ids_by_actor: idsByActor,
-    ...(failed ? { failure_reason: failureReason ?? 'notification_id_mapping_incomplete' } : {}),
   };
 }
 
@@ -1223,19 +1268,25 @@ async function resolveNativePushRecipients(recipients: GroupChatMember[]): Promi
   // server-held service client. Actor UUIDs and roles come from eligible account
   // rows above, never from the request body or client metadata.
   const [globalResult, categoryResult] = await Promise.all([
-    supabase
-      .from('app_push_preferences')
-      .select('actor_id,actor_role,enabled')
-      .in('actor_id', actorIds)
-      .in('actor_role', actorRoles),
-    supabase
-      .from('app_push_category_preferences')
-      .select('actor_id,actor_role,enabled')
-      .in('actor_id', actorIds)
-      .in('actor_role', actorRoles)
-      .eq('category', GROUP_CHAT_APP_PUSH_CATEGORY),
+    collectGroupChatDataApiBatches(actorIds, async (actorIdBatch) => {
+      const result = await supabase
+        .from('app_push_preferences')
+        .select('actor_id,actor_role,enabled')
+        .in('actor_id', actorIdBatch)
+        .in('actor_role', actorRoles);
+      return { data: result.data ?? [], error: result.error };
+    }),
+    collectGroupChatDataApiBatches(actorIds, async (actorIdBatch) => {
+      const result = await supabase
+        .from('app_push_category_preferences')
+        .select('actor_id,actor_role,enabled')
+        .in('actor_id', actorIdBatch)
+        .in('actor_role', actorRoles)
+        .eq('category', GROUP_CHAT_APP_PUSH_CATEGORY);
+      return { data: result.data ?? [], error: result.error };
+    }),
   ]);
-  if (globalResult.error || categoryResult.error) {
+  if (!globalResult.ok || !categoryResult.ok) {
     console.warn('[group-chat] app push preference query failed', {
       reason: 'app_push_preference_query_failed',
     });
@@ -1246,8 +1297,8 @@ async function resolveNativePushRecipients(recipients: GroupChatMember[]): Promi
     ok: true,
     recipients: selectNativePushRecipients(
       recipients,
-      (globalResult.data ?? []) as AppPushPreferenceRow[],
-      (categoryResult.data ?? []) as AppPushPreferenceRow[],
+      globalResult.data as AppPushPreferenceRow[],
+      categoryResult.data as AppPushPreferenceRow[],
     ),
   };
 }
@@ -1266,32 +1317,43 @@ async function notifyRecipients(input: {
   const effectiveActorRoles = Array.from(new Set(
     members.map((member) => member.role),
   ));
+  const legacyActorIds = Array.from(new Set(
+    members.map((member) => member.actor_id),
+  ));
   // Canonical room preferences use the immutable actor tuple. The legacy
   // phone-derived group actor key remains a per-row compatibility fallback.
   const [canonicalPreferenceResult, legacyPreferenceResult] = await Promise.all([
-    supabase
-      .from('messenger_room_notification_preferences')
-      .select('actor_id,actor_role,muted')
-      .eq('room_key', groupChatRoomPreferenceKey(input.roomId))
-      .in('actor_id', immutableActorIds)
-      .in('actor_role', effectiveActorRoles),
-    supabase
-      .from('group_chat_preferences')
-      .select('actor_id,muted')
-      .eq('room_id', input.roomId),
+    collectGroupChatDataApiBatches(immutableActorIds, async (actorIdBatch) => {
+      const result = await supabase
+        .from('messenger_room_notification_preferences')
+        .select('actor_id,actor_role,muted')
+        .eq('room_key', groupChatRoomPreferenceKey(input.roomId))
+        .in('actor_id', actorIdBatch)
+        .in('actor_role', effectiveActorRoles);
+      return { data: result.data ?? [], error: result.error };
+    }),
+    collectGroupChatDataApiBatches(legacyActorIds, async (actorIdBatch) => {
+      const result = await supabase
+        .from('group_chat_preferences')
+        .select('actor_id,muted')
+        .eq('room_id', input.roomId)
+        .in('actor_id', actorIdBatch);
+      return { data: result.data ?? [], error: result.error };
+    }),
   ]);
-  if (canonicalPreferenceResult.error) throw canonicalPreferenceResult.error;
-  if (legacyPreferenceResult.error) throw legacyPreferenceResult.error;
+  if (!canonicalPreferenceResult.ok || !legacyPreferenceResult.ok) {
+    throw new Error('group_chat_room_preference_query_failed');
+  }
 
   const canonicalMutedByActor = new Map(
-    ((canonicalPreferenceResult.data ?? []) as RoomNotificationPreferenceRow[])
+    (canonicalPreferenceResult.data as RoomNotificationPreferenceRow[])
       .map((row) => [
         `${normalizeGroupChatText(row.actor_role).toLowerCase()}:${normalizeGroupChatText(row.actor_id).toLowerCase()}`,
         row.muted === true,
       ]),
   );
   const legacyMutedByActor = new Map(
-    ((legacyPreferenceResult.data ?? []) as PreferenceRow[])
+    (legacyPreferenceResult.data as PreferenceRow[])
       .map((row) => [row.actor_id, row.muted === true]),
   );
 
@@ -1421,11 +1483,17 @@ async function notifyRecipients(input: {
   }
 
   const recipientPhones = Array.from(new Set(nativePushRecipients.map((member) => member.phone)));
-  const { data: tokenRows, error: tokenError } = await supabase
-    .from('device_tokens')
-    .select('expo_push_token,resident_id,role')
-    .in('resident_id', recipientPhones);
-  if (tokenError) {
+  const tokenResult = await collectGroupChatDataApiBatches(
+    recipientPhones,
+    async (phoneBatch) => {
+      const result = await supabase
+        .from('device_tokens')
+        .select('expo_push_token,resident_id,role')
+        .in('resident_id', phoneBatch);
+      return { data: result.data ?? [], error: result.error };
+    },
+  );
+  if (!tokenResult.ok) {
     console.warn('[group-chat] token query failed', { reason: 'token_query_failed' });
     return {
       ok: true,
@@ -1447,7 +1515,7 @@ async function notifyRecipients(input: {
   }
 
   const allowedTokenRows = selectEligibleRecipientTokens(
-    (tokenRows ?? []) as DeviceTokenRow[],
+    tokenResult.data as DeviceTokenRow[],
     nativePushRecipients,
   );
   if (allowedTokenRows.length === 0) {

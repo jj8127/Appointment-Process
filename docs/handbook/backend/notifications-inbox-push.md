@@ -3,7 +3,7 @@ owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
 last_verified: 2026-08-10
-source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + lib/session-logout.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
+source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/group-chat-data-api-batching.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + lib/session-logout.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
 
 ## Mobile logout push cleanup boundary (2026-08-10)
 
@@ -53,6 +53,12 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 - The opaque `gcnr1` retry token is HMAC-SHA256 authenticated with the existing current/previous app-session signing secrets and a dedicated domain separator. The stable delivery event key is derived independently from committed room ID, message ID, sender actor ID, and creation time so signing-key rotation cannot duplicate inbox rows.
 - The retry action reloads the canonical room/message, requires the current active actor to be the original sender and a current eligible member, rejects deleted/foreign/tampered state, and derives the current unmuted audience, content, typed target, recipient UUIDs, and delivery keys server-side.
 - Each current recipient is upserted by its unique delivery key and the returned UUID, exact actor/role/resident, target, and delivery key are validated before Expo fanout. Replays reuse inbox rows; partial audience persistence is completed without reinserting the message.
+
+## Group-chat large-room Data API boundary (2026-08-10)
+
+- Eligible member tables are enumerated with stable ordering and 100-row pagination. A configured Data API response limit must not silently remove later room members from the notification audience.
+- Canonical actor preference lookups, device-token lookups, and notification upserts use at most 100 input values or rows per request. This bounds both response-size and query-URL pressure for large rooms.
+- Every notification batch validates the returned canonical rows before its IDs can enter Expo fanout. A failed or truncated batch keeps `notificationStored=false`; the existing opaque retry completes only notification persistence and never resubmits the committed chat message.
 
 ## Direct-message routing and conversation ordering (2026-07-24)
 

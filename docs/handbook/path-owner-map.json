@@ -371,6 +371,7 @@
       "prefixes": [
         "supabase/functions/_shared/group-chat.ts",
         "supabase/functions/_shared/group-chat-notification-event.ts",
+        "supabase/functions/_shared/group-chat-data-api-batching.ts",
         "supabase/functions/_shared/__tests__/group-chat-notification-event_test.ts",
         "supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts",
         "supabase/functions/group-chat/"

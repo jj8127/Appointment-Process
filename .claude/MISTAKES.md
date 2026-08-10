@@ -5628,3 +5628,18 @@
 - Verification:
   - `lib/__tests__/sentry-build-upload-guard.test.ts`
   - root `npm ci`, full Jest, and GitHub app checks
+
+## 2026-08-10 | Large-room Data API calls assumed one unbounded response
+
+- Symptom:
+  - A committed message in a 536-member group showed that inbox notification registration failed and exposed a notification-only retry action.
+- Root cause:
+  - Group-chat loaded eligible members without pagination, passed the full room actor/phone sets through single `in(...)` filters, and persisted the whole notification audience with one `upsert(...).select(...)` call.
+  - Delivery required the returned row count to equal the entire audience, so a configured response cap could both omit members and misclassify a large successful upsert as incomplete.
+- Permanent guardrail:
+  - Enumerate full audience tables with stable ordered pagination; bound every Data API actor/phone filter and notification write to 100 inputs or rows.
+  - Validate each notification batch before fanout and fail closed on any incomplete batch. Notification replay must reuse the deterministic delivery key and must never repeat the committed message write.
+- Verification:
+  - `lib/__tests__/group-chat-data-api-batching.test.ts`
+  - `supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts`
+  - `supabase/functions/__tests__/messenger-group-push-preferences.contract.test.ts`

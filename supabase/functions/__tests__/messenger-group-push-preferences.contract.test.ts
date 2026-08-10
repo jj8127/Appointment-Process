@@ -81,7 +81,10 @@ describe('group-chat global/category native-push suppression contract', () => {
     expect(notify).toContain(
       ".eq('room_key', groupChatRoomPreferenceKey(input.roomId))",
     );
-    expect(notify).toContain(".in('actor_id', immutableActorIds)");
+    expect(notify).toContain(
+      'collectGroupChatDataApiBatches(immutableActorIds',
+    );
+    expect(notify).toContain(".in('actor_id', actorIdBatch)");
     expect(notify).toContain(".in('actor_role', effectiveActorRoles)");
     expect(notify).toContain(".from('group_chat_preferences')");
   });
@@ -97,7 +100,10 @@ describe('group-chat global/category native-push suppression contract', () => {
     expect(preferenceQuery).toContain(
       ".select('actor_id,actor_role,enabled')",
     );
-    expect(preferenceQuery).toContain(".in('actor_id', actorIds)");
+    expect(preferenceQuery).toContain(
+      'collectGroupChatDataApiBatches(actorIds',
+    );
+    expect(preferenceQuery).toContain(".in('actor_id', actorIdBatch)");
     expect(preferenceQuery).toContain(".in('actor_role', actorRoles)");
     expect(preferenceQuery).toContain(
       ".from('app_push_category_preferences')",
@@ -156,7 +162,10 @@ describe('group-chat global/category native-push suppression contract', () => {
       'nativePushRecipients.map((member) => member.phone)',
     );
     expect(notify).toContain(
-      '(tokenRows ?? []) as DeviceTokenRow[],\n    nativePushRecipients,',
+      'tokenResult.data as DeviceTokenRow[],\n    nativePushRecipients,',
+    );
+    expect(notify).toContain(
+      'collectGroupChatDataApiBatches(\n    recipientPhones',
     );
     expect(notify).toContain(
       'nativePushRecipients.map((member) => [',
@@ -168,7 +177,7 @@ describe('group-chat global/category native-push suppression contract', () => {
 
   it('fails native push closed on preference query errors without retrying persisted notifications', () => {
     expect(preferenceQuery).toContain(
-      'if (globalResult.error || categoryResult.error)',
+      'if (!globalResult.ok || !categoryResult.ok)',
     );
     expect(preferenceQuery).toContain('return { ok: false }');
     const failureStart = notify.indexOf('if (!nativePushResolution.ok)');

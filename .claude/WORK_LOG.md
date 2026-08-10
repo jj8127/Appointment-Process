@@ -1149,3 +1149,11 @@
 - Declared the exact compatible Sentry bundler core version in the root test dependency graph and locked it so root `npm ci` reproduces the test independently.
 - After the dependency follow-up, both clean GitHub app jobs, both web jobs, and Vercel pass. The PR checklist body is also exact-line compliant; a new synchronize event is required because rerunning the original failed workflow reuses its stale pull-request event payload.
 - Details: [WORK_DETAIL.md#20260810-clean-ci-dependency-closure](WORK_DETAIL.md#20260810-clean-ci-dependency-closure)
+
+## 2026-08-10 Group-chat large-room notification recovery
+
+- Diagnosed the sender-visible notification registration failure from a 536-member runtime screenshot without retaining recipient data or reading production records/logs.
+- Replaced unbounded member enumeration, actor/phone filters, and notification persistence with stable pagination and 100-row batching while preserving notification-only idempotent retry.
+- Added executable batching tests and strengthened group-chat Edge source contracts. Local Deno, focused Jest, TypeScript, lint, governance, and harness verification are the release evidence recorded below.
+- No production query/write, Edge deployment, OTA/native release, push, or PR action was performed. Production rollout remains HOLD pending explicit deployment approval and an authenticated large-room smoke test.
+- Details: [WORK_DETAIL.md#20260810-group-chat-notification-recovery](WORK_DETAIL.md#20260810-group-chat-notification-recovery)

@@ -9,6 +9,9 @@ describe('group-chat notification-only retry contract', () => {
   const event = read(
     'supabase/functions/_shared/group-chat-notification-event.ts',
   );
+  const batching = read(
+    'supabase/functions/_shared/group-chat-data-api-batching.ts',
+  );
   const schema = read('supabase/schema.sql');
   const migration = read(
     'supabase/migrations/20260725004017_add_typed_notification_targets_and_receipts.sql',
@@ -104,7 +107,14 @@ describe('group-chat notification-only retry contract', () => {
     );
 
     expect(notify).toContain('groupChatNotificationDeliveryKey(');
+    expect(batching).toContain('GROUP_CHAT_DATA_API_BATCH_SIZE = 100');
     expect(persist).toContain(
+      'for (const batch of chunkGroupChatDataApiValues(rows))',
+    );
+    expect(persist).toContain(
+      ".upsert(batch, { onConflict: 'delivery_key' })",
+    );
+    expect(persist).not.toContain(
       ".upsert(rows, { onConflict: 'delivery_key' })",
     );
     expect(persist).toContain(
@@ -116,12 +126,50 @@ describe('group-chat notification-only retry contract', () => {
     expect(persist).toContain(
       'validatePersistedNotificationForDelivery',
     );
-    expect(persist).toContain('idsByActor.size !== rows.length');
+    expect(persist).toContain(
+      'idsByActor.size - confirmedBeforeBatch !== batch.length',
+    );
     expect(providerCall).toBeGreaterThan(persistenceCall);
     expect(notify).toContain('if (notificationInsert.failed)');
     expect(notify.indexOf('if (notificationInsert.failed)')).toBeLessThan(
       providerCall,
     );
+  });
+
+  it('bounds large-room member, preference, token, and notification Data API operations', () => {
+    const membersStart = edge.indexOf('async function listEligibleMembers()');
+    const membersEnd = edge.indexOf(
+      'async function getEligibleFcMemberByActorId',
+      membersStart,
+    );
+    const members = edge.slice(membersStart, membersEnd);
+    const nativePreferenceStart = edge.indexOf(
+      'async function resolveNativePushRecipients',
+    );
+    const nativePreferenceEnd = edge.indexOf(
+      'async function notifyRecipients',
+      nativePreferenceStart,
+    );
+    const nativePreferences = edge.slice(
+      nativePreferenceStart,
+      nativePreferenceEnd,
+    );
+
+    expect(members).toContain('collectGroupChatDataApiPages');
+    expect(members).toContain(".order('id', { ascending: true })");
+    expect(members).toContain('.range(from, to)');
+    expect(nativePreferences).toContain('collectGroupChatDataApiBatches(actorIds');
+    expect(notify).toContain(
+      'collectGroupChatDataApiBatches(immutableActorIds',
+    );
+    expect(notify).toContain(
+      'collectGroupChatDataApiBatches(legacyActorIds',
+    );
+    expect(notify).toContain(
+      'collectGroupChatDataApiBatches(\n    recipientPhones',
+    );
+    expect(notify).not.toContain(".in('actor_id', immutableActorIds)");
+    expect(notify).not.toContain(".in('resident_id', recipientPhones)");
   });
 
   it('keeps duplicate and partial-audience retry idempotency compatible in schema and migration', () => {

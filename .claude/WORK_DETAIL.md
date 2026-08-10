@@ -13875,3 +13875,20 @@
 - Both GitHub app jobs and PR governance must pass after the follow-up push. The unpatched upstream advisory remains explicit release risk; repository-controlled build assets reduce the practical input path but do not constitute an upstream fix.
 - Follow-up commit `f50c4e9` made both clean GitHub app jobs pass; both web jobs and the Vercel preview also pass. The PR checklist was corrected so all five required labels match the repository checker as exact checked lines. A manual rerun of the earlier failure still used its original stale event payload, so this documentation commit intentionally creates a new synchronize event that evaluates the current PR body.
 - No Sentry release/upload, production deployment, EAS/OTA, database operation, or Store action is performed by this dependency repair.
+
+<a id="20260810-group-chat-notification-recovery"></a>
+## 2026-08-10 | Group-chat large-room notification recovery
+
+**Observed failure and root cause**:
+- A committed message in a 536-member group displayed `notificationStored=false` and offered the existing notification-only retry.
+- Source inspection found four unbounded Data API boundaries in `group-chat`: member enumeration, full-room actor preference filters, phone-based device-token lookup, and a single notification upsert whose returned row count had to equal the entire audience.
+- A configurable response cap or oversized filter can therefore omit recipients or make a successfully persisted large batch look truncated. This diagnosis is based on source and runtime-count evidence; no production setting, row, or raw log was queried.
+
+**Implementation**:
+- Added a dependency-free shared batching helper with a fixed 100-row/request boundary.
+- Eligible FC, manager, and administrator tables now use stable ordered pagination. Actor-ID and phone filters and notification upserts are split into bounded requests.
+- Canonical notification validation is performed for every batch before fanout. Any failed or incomplete batch remains fail-closed, and replay keeps the existing delivery key so it completes notification persistence without reinserting the chat message.
+
+**Verification and boundaries**:
+- RED first: the new 535-recipient batching suite failed because the helper did not exist. GREEN after implementation: 10 focused/adjacent Jest suites passed 91 tests; the notification-event Deno suite passed 4 tests; the Edge Deno check, root TypeScript, scoped ESLint, governance, harness audit, JSON parsing, and diff check passed. The Deno entrypoint lint used only the `import/no-unresolved` exemption for its two remote URL imports, which `deno check` resolved successfully.
+- No production query/write, hosted-log read, Edge deployment, app release, push, or PR was performed. Production remains unchanged until explicit deployment approval; after rollout, an authenticated large-room send plus notification-only retry smoke is required.
