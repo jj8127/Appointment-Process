@@ -1,5 +1,6 @@
 -- Administrator-assisted FC signup based on a documented written-consent check.
 -- This is an alternate verification basis. It must never mark phone OTP as verified.
+-- The filename matches the production migration-history version applied on 2026-08-10.
 
 alter table public.fc_profiles
   add column if not exists signup_verification_method text;

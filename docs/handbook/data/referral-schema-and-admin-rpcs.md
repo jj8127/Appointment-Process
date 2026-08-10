@@ -3,7 +3,7 @@ owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
 last_verified: 2026-08-10
-source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql + supabase/migrations/20260810054317_admin_assisted_signup_v1.sql
+source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql + supabase/migrations/20260810070757_admin_assisted_signup_v1.sql
 
 # Data Handbook: Referral Schema And Admin RPCs
 

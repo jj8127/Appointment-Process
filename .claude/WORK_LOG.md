@@ -1179,3 +1179,8 @@
 - Full Jest passes 236 suites / 1,465 tests; TypeScript, zero-warning Expo lint, 34/34 keyboard audit, and diff check pass. A Samsung local debug smoke confirmed lower-field visibility and retained keyboard during a short drag before wireless ADB disconnected.
 - No follow-up OTA, native/Store release, Edge deployment, Git push, or unrelated production write was performed; release remains HOLD.
 - Details: [WORK_DETAIL.md#20260810-profile-keyboard-follow-up](WORK_DETAIL.md#20260810-profile-keyboard-follow-up)
+## 2026-08-10 Production migration history parity
+
+- Aligned the administrator-assisted signup migration filename with the already-applied production history version and updated its handbook, schema snapshot, and test references.
+- A linked Supabase dry-run reports zero pending database changes; the migration was not re-executed.
+- Details: [WORK_DETAIL.md#20260810-production-migration-history-parity](WORK_DETAIL.md#20260810-production-migration-history-parity)

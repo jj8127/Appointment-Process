@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const root = path.resolve(__dirname, '..', '..');
 const migration = fs.readFileSync(
-  path.join(root, 'supabase', 'migrations', '20260810054317_admin_assisted_signup_v1.sql'),
+  path.join(root, 'supabase', 'migrations', '20260810070757_admin_assisted_signup_v1.sql'),
   'utf8',
 ).replace(/\s+/g, ' ').toLowerCase();
 const schema = fs.readFileSync(path.join(root, 'supabase', 'schema.sql'), 'utf8')

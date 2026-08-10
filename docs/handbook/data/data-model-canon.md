@@ -154,6 +154,6 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 ## 2026-08-10 관리자 보조 가입 데이터 계약
 
-- `20260810054317_admin_assisted_signup_v1.sql`은 관리자가 서면 동의를 확인한 FC의 가입 프로필과 최초 비밀번호 변경 상태를 하나의 원자적 절차로 기록한다.
+- `20260810070757_admin_assisted_signup_v1.sql`은 관리자가 서면 동의를 확인한 FC의 가입 프로필과 최초 비밀번호 변경 상태를 하나의 원자적 절차로 기록한다.
 - 보조 가입 관련 테이블은 RLS를 유지하고 service-role 경로에서만 기록한다. anon/authenticated 역할에는 직접 실행 권한을 부여하지 않는다.
 - 추천인 연결, 동의 증빙 메타데이터, 자격 상태, 전화 미인증 상태와 최초 비밀번호 변경 요구값은 `supabase/schema.sql`의 canonical snapshot과 동일해야 한다.
