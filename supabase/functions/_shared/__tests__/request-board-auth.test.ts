@@ -1,8 +1,56 @@
 import {
+  buildAssistedPasswordChangeTokenPayload,
   buildRequestBoardPasswordSyncAssertionPayload,
+  createAssistedPasswordChangeChallenge,
   createRequestBoardPasswordSyncAssertion,
+  parseAssistedPasswordChangeTokenDetailed,
   parseDesignerCompanyNameFromAffiliation,
 } from '../request-board-auth';
+
+describe('administrator-assisted first-password challenge contract', () => {
+  it('binds the FC, phone, purpose, nonce, and short expiry without granting an app role', () => {
+    expect(buildAssistedPasswordChangeTokenPayload({
+      phone: '010-0000-0000',
+      fcId: '11111111-1111-4111-8111-111111111111',
+      nonce: 'nonce-value-at-least-thirty-two-characters',
+      nowSec: 1_800_000_000,
+      ttlSec: 900,
+    })).toEqual({
+      kind: 'fc_assisted_password_change',
+      purpose: 'replace_temporary_password',
+      phone: '01000000000',
+      fcId: '11111111-1111-4111-8111-111111111111',
+      nonce: 'nonce-value-at-least-thirty-two-characters',
+      iat: 1_800_000_000,
+      exp: 1_800_000_900,
+    });
+  });
+
+  it('signs a short-lived challenge that parses only as the password-change kind', async () => {
+    const originalSecret = process.env.FC_APP_SESSION_TOKEN_SECRET;
+    process.env.FC_APP_SESSION_TOKEN_SECRET = 'test-only-app-session-secret-with-sufficient-length';
+    try {
+      const challenge = await createAssistedPasswordChangeChallenge(
+        '01000000000',
+        '11111111-1111-4111-8111-111111111111',
+      );
+      expect(challenge?.nonceHash).toMatch(/^[a-f0-9]{64}$/);
+      const parsed = await parseAssistedPasswordChangeTokenDetailed(challenge?.token ?? '');
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) {
+        expect(parsed.payload.kind).toBe('fc_assisted_password_change');
+        expect(parsed.payload.purpose).toBe('replace_temporary_password');
+        expect(parsed.payload).not.toHaveProperty('role');
+      }
+    } finally {
+      if (originalSecret === undefined) {
+        delete process.env.FC_APP_SESSION_TOKEN_SECRET;
+      } else {
+        process.env.FC_APP_SESSION_TOKEN_SECRET = originalSecret;
+      }
+    }
+  });
+});
 
 describe('request_board designer affiliation contract', () => {
   it('derives the designer company from the GaramIn bootstrap affiliation marker', () => {

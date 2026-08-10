@@ -2,8 +2,8 @@ doc_id: FC-ADMIN-DASHBOARD-LIFECYCLE
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-06-08
-source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/app/api/admin/list/route.ts + web/src/lib/dashboard-table-display.ts + web/src/lib/shared.ts
+last_verified: 2026-08-10
+source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/dashboard/fc-signup/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/app/api/admin/list/route.ts + web/src/app/api/admin/assisted-signup/route.ts + web/src/lib/admin-assisted-signup-server.ts + web/src/lib/dashboard-table-display.ts + web/src/lib/shared.ts
 
 # Admin Web Playbook: Dashboard Lifecycle
 
@@ -15,6 +15,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 
 - `/dashboard`
 - `/dashboard/profile/[id]`
+- `/dashboard/fc-signup`
 - `/`와 `/auth`는 dashboard 진입 직전 단계이며, 최종 staff 진입 판정은 middleware cookie session과 `use-session` restore가 같은 snapshot을 공유해야 한다.
 - `/` root entry는 세션 복원 뒤 로더에 머무르면 안 되며, staff session이면 `/dashboard`, 그 외에는 `/auth`로 즉시 resolve되어야 한다.
 
@@ -50,6 +51,9 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 ## 상태/분기
 
 - `manager`는 같은 화면을 보더라도 write action이 비활성
+- `서면확인 회원가입` 메뉴와 `/dashboard/fc-signup` 실행 권한은 활성 admin/developer session만 가진다. manager/read-only session에는 메뉴를 숨기고 직접 접근도 서버에서 거부한다.
+- 가입 화면은 `SMS 인증 없음`, 실행 관리자, 고정 검증 근거를 상단에 명확히 표시한다. 추천인은 trusted 검색 결과에서 선택하고 이름 문자열만으로 확정하지 않는다.
+- 제출은 동의일·내부 증빙 참조번호·고정 확인문 동의·임시 비밀번호를 모두 요구한다. 성공 후에는 FC가 첫 로그인에서 새 비밀번호를 설정해야 함을 운영자에게 알린다.
 - protected dashboard/admin layout은 middleware가 이미 통과시킨 staff session을 restore gap 때문에 다시 `/auth`로 밀어내면 안 된다.
 - FC 상세 모달은 `보증 보험 동의 / 서류 관리 / 다위촉 / 생명/손해 위촉` 4탭 구조
 - FC 상세 모달 헤더는 `/api/admin/resident-numbers` trusted path를 통해 주민등록번호 full-view와 생년월일을 바로 보여준다. 실패 시 masked fallback으로 돌리지 않고 조회 실패를 그대로 표시한다.

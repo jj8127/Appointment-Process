@@ -8,7 +8,8 @@ export type AppSessionStaffType = 'admin' | 'developer';
 type SignedTokenKind =
   | 'request_board_bridge'
   | 'request_board_password_sync'
-  | 'fc_onboarding_session';
+  | 'fc_onboarding_session'
+  | 'fc_assisted_password_change';
 
 type SignedTokenPayloadBase = {
   kind: SignedTokenKind;
@@ -35,6 +36,19 @@ export type AppSessionTokenPayload = SignedTokenPayloadBase & {
   role: AppSessionSourceRole;
   staffType?: AppSessionStaffType;
   fcId?: string;
+};
+
+export type AssistedPasswordChangeTokenPayload = SignedTokenPayloadBase & {
+  kind: 'fc_assisted_password_change';
+  purpose: 'replace_temporary_password';
+  fcId: string;
+  nonce: string;
+};
+
+export type AssistedPasswordChangeChallenge = {
+  token: string;
+  nonceHash: string;
+  expiresAt: string;
 };
 
 type SignedTokenVerificationResult<TPayload extends SignedTokenPayloadBase> =
@@ -66,6 +80,14 @@ type RequiredAppSessionResult =
     status: number;
   };
 
+type AssistedPasswordChangeTokenParseResult =
+  | { ok: true; payload: AssistedPasswordChangeTokenPayload }
+  | {
+    ok: false;
+    code: 'invalid_password_change_token' | 'expired_password_change_token';
+    message: string;
+  };
+
 export function getEnv(name: string): string | undefined {
   const g = globalThis as unknown as {
     Deno?: { env?: { get?: (key: string) => string | undefined } };
@@ -82,7 +104,7 @@ function getTrimmedEnv(name: string) {
   return (getEnv(name) ?? '').trim();
 }
 
-function uniqueSecrets(values: Array<string | undefined | null>) {
+function uniqueSecrets(values: (string | undefined | null)[]) {
   const seen = new Set<string>();
   const secrets: string[] = [];
   values.forEach((value) => {
@@ -158,6 +180,13 @@ async function signPayload(payloadPart: string, secret: string) {
   );
   const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(payloadPart));
   return toBase64Url(new Uint8Array(signatureBuffer));
+}
+
+async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(value));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 async function buildSignedToken<TPayload extends SignedTokenPayloadBase>(
@@ -329,6 +358,111 @@ export async function createAppSessionToken(
   };
 
   return buildSignedToken(payload, secret);
+}
+
+export function buildAssistedPasswordChangeTokenPayload({
+  phone,
+  fcId,
+  nonce,
+  nowSec,
+  ttlSec,
+}: {
+  phone: string;
+  fcId: string;
+  nonce: string;
+  nowSec: number;
+  ttlSec: number;
+}): AssistedPasswordChangeTokenPayload {
+  return {
+    kind: 'fc_assisted_password_change',
+    purpose: 'replace_temporary_password',
+    phone: String(phone ?? '').replace(/\D/g, ''),
+    fcId: String(fcId ?? '').trim(),
+    nonce,
+    iat: nowSec,
+    exp: nowSec + ttlSec,
+  };
+}
+
+export async function createAssistedPasswordChangeChallenge(
+  phone: string,
+  fcId: string,
+): Promise<AssistedPasswordChangeChallenge | null> {
+  const secret = getAppSessionSigningSecret();
+  if (!secret) return null;
+
+  const ttlRaw = Number((getEnv('FC_ASSISTED_PASSWORD_CHANGE_TTL_SEC') ?? '900').trim());
+  const ttlSec = Number.isFinite(ttlRaw)
+    ? Math.min(1800, Math.max(300, Math.floor(ttlRaw)))
+    : 900;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const nonce = crypto.randomUUID();
+  const payload = buildAssistedPasswordChangeTokenPayload({
+    phone,
+    fcId,
+    nonce,
+    nowSec,
+    ttlSec,
+  });
+
+  return {
+    token: await buildSignedToken(payload, secret),
+    nonceHash: await sha256Hex(nonce),
+    expiresAt: new Date(payload.exp * 1000).toISOString(),
+  };
+}
+
+export async function parseAssistedPasswordChangeTokenDetailed(
+  token: string,
+): Promise<AssistedPasswordChangeTokenParseResult> {
+  const secrets = getAppSessionVerificationSecrets();
+  if (secrets.length === 0) {
+    return {
+      ok: false,
+      code: 'invalid_password_change_token',
+      message: '비밀번호 변경 요청이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+
+  const parsed = await verifySignedTokenWithSecrets<AssistedPasswordChangeTokenPayload>(token, secrets);
+  if (parsed.ok === false) {
+    return parsed.reason === 'expired_token'
+      ? {
+        ok: false,
+        code: 'expired_password_change_token',
+        message: '비밀번호 변경 시간이 만료되었습니다. 다시 로그인해주세요.',
+      }
+      : {
+        ok: false,
+        code: 'invalid_password_change_token',
+        message: '비밀번호 변경 요청이 유효하지 않습니다. 다시 로그인해주세요.',
+      };
+  }
+
+  const payload = parsed.payload;
+  const isValid = payload.kind === 'fc_assisted_password_change'
+    && payload.purpose === 'replace_temporary_password'
+    && /^01[0-9]{9}$/.test(payload.phone)
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.fcId)
+    && typeof payload.nonce === 'string'
+    && payload.nonce.length >= 32
+    && typeof payload.iat === 'number'
+    && payload.exp > payload.iat
+    && payload.exp - payload.iat <= 1800;
+
+  if (!isValid) {
+    return {
+      ok: false,
+      code: 'invalid_password_change_token',
+      message: '비밀번호 변경 요청이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+
+  return { ok: true, payload };
+}
+
+export async function hashAssistedPasswordChangeNonce(nonce: string) {
+  return sha256Hex(String(nonce ?? ''));
 }
 
 export async function parseAppSessionTokenDetailed(

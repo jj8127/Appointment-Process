@@ -3,9 +3,17 @@ owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
 last_verified: 2026-08-10
-source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-session.tsx
+source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx
 
 # Mobile Playbook: Auth And Gates
+
+## 2026-08-10 관리자 서면확인 가입 후 첫 로그인 계약
+
+- `admin_written_consent` 가입은 SMS OTP 가입의 우회 플래그가 아니라 별도 검증 근거다. 해당 프로필은 `signup_completed=true`여도 `phone_verified=false`를 유지한다.
+- 관리자가 발급한 임시 비밀번호로 로그인하면 `login-with-password`는 일반 앱 세션이나 Request Board bridge 세션을 발급하지 않는다. 대신 FC·전화번호·목적·nonce·짧은 만료시간에 묶인 `fc_assisted_password_change` 토큰만 반환한다.
+- 모바일은 위 토큰을 메모리에만 보관하고 `/first-password-change`에서 임시 비밀번호와 다른 새 비밀번호를 설정한다. 앱 종료 후 토큰 복구나 일반 세션 저장소 재사용은 금지한다.
+- DB의 one-time challenge와 `must_change_password`가 최종 권한 원천이다. 성공한 challenge 재사용, 만료 challenge, 다른 FC에 발급된 토큰은 모두 다시 로그인하도록 종료한다.
+- 새 비밀번호 변경이 성공한 뒤에도 자동 로그인하지 않는다. 사용자는 새 비밀번호로 다시 로그인해야 정상 앱/bridge 세션을 받을 수 있다.
 
 ## 2026-08-10 Explicit Logout Contract
 

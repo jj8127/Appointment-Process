@@ -650,6 +650,15 @@ function RootLayout() {
                             }}
                           />
                           <Stack.Screen
+                            name="first-password-change"
+                            options={{
+                              ...authHeader,
+                              title: '새 비밀번호 설정',
+                              headerBackVisible: false,
+                              gestureEnabled: false,
+                            }}
+                          />
+                          <Stack.Screen
                             name="signup-verify"
                             options={{
                               ...authHeader,
@@ -790,6 +799,15 @@ function RootLayout() {
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
+                            }}
+                          />
+                          <Stack.Screen
+                            name="first-password-change"
+                            options={{
+                              ...authHeader,
+                              title: '새 비밀번호 설정',
+                              headerBackVisible: false,
+                              gestureEnabled: false,
                             }}
                           />
                           <Stack.Screen

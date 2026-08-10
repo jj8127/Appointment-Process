@@ -228,12 +228,18 @@ serve(async (req: Request) => {
     reset_sent_at: null,
   };
 
+  const fcPasswordUpdatePayload = {
+    ...passwordUpdatePayload,
+    must_change_password: false,
+    temporary_password_issued_at: null,
+  };
+
   const updateResult =
     account.kind === 'admin'
       ? await supabase.from('admin_accounts').update(passwordUpdatePayload).eq('id', account.id)
       : account.kind === 'manager'
         ? await supabase.from('manager_accounts').update(passwordUpdatePayload).eq('id', account.id)
-        : await supabase.from('fc_credentials').update(passwordUpdatePayload).eq('fc_id', account.id);
+        : await supabase.from('fc_credentials').update(fcPasswordUpdatePayload).eq('fc_id', account.id);
 
   const { error: updateError } = updateResult;
 

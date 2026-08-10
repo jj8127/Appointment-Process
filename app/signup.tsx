@@ -42,6 +42,7 @@ import {
   toggleLicenseStatus,
 } from '@/lib/license-statuses';
 import { supabase } from '@/lib/supabase';
+import { SIGNUP_AFFILIATION_OPTIONS, SIGNUP_CARRIER_OPTIONS } from '@/lib/signup-profile-options';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { validatePhone, validateEmail, validateRequired, normalizePhone } from '@/lib/validation';
 import type { LicenseStatus } from '@/types/fc';
@@ -49,19 +50,6 @@ import type { LicenseStatus } from '@/types/fc';
 const AUTH_SCREEN_BACKGROUND = COLORS.primaryPale;
 
 const STORAGE_KEY = 'fc-onboarding/signup';
-
-const AFFILIATION_OPTIONS = [
-  '1본부 서선미',
-  '2본부 박성훈',
-  '3본부 김태희',
-  '4본부 현경숙',
-  '5본부 최철준',
-  '6본부 김정수(박선희)',
-  '7본부 이동훈',
-  '8본부 정승철',
-  '9본부 이현욱(김주용)',
-  '10본부 한태균',
-];
 
 const EMAIL_DOMAINS = [
   'naver.com',
@@ -71,7 +59,6 @@ const EMAIL_DOMAINS = [
   'nate.com',
   '직접입력',
 ];
-const CARRIER_OPTIONS = ['SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰'];
 const REFERRAL_SEARCH_ERROR_MESSAGE = '추천인 검색을 지금 사용할 수 없습니다. 잠시 후 다시 시도해주세요.';
 
 export default function SignupScreen() {
@@ -471,7 +458,7 @@ export default function SignupScreen() {
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>기본 정보</Text>
           <View style={styles.affiliationBox}>
-            {AFFILIATION_OPTIONS.map((opt) => {
+            {SIGNUP_AFFILIATION_OPTIONS.map((opt) => {
               const active = selectedAffiliation === opt;
               return (
                 <Pressable
@@ -765,7 +752,7 @@ export default function SignupScreen() {
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>통신사 선택</Text>
             <View style={styles.modalOptions}>
-              {CARRIER_OPTIONS.map((value) => (
+              {SIGNUP_CARRIER_OPTIONS.map((value) => (
                 <Pressable
                   key={value}
                   style={styles.modalOption}

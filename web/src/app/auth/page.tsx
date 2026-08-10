@@ -151,6 +151,15 @@ function AuthContent() {
                 throw new Error('로그인 요청을 처리하지 못했습니다.');
             }
             if (!data?.ok) {
+                if (data?.code === 'password_change_required') {
+                    notifications.show({
+                        title: '새 비밀번호가 필요합니다',
+                        message: '관리자가 발급한 임시 비밀번호를 본인이 사용할 새 비밀번호로 변경해주세요.',
+                        color: 'orange',
+                    });
+                    router.replace('/first-password-change');
+                    return;
+                }
                 if (data?.code === 'not_found' && data?.role !== 'admin') {
                     notifications.show({
                         title: '안내',

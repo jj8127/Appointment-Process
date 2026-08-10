@@ -13,7 +13,7 @@ describe('10본부 계약', () => {
   it.each([
     'app/dashboard.tsx',
     'app/fc/new.tsx',
-    'app/signup.tsx',
+    'lib/signup-profile-options.ts',
     'supabase/functions/fc-notify/index.ts',
     'web/src/app/api/admin/list/route.ts',
   ])('keeps 10본부 in %s', (relativePath) => {

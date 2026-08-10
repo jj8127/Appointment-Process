@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { FC_GRAPH_SESSION_COOKIE } from '@/lib/fc-graph-session';
 import { STAFF_SESSION_COOKIE } from '@/lib/staff-session';
 import { WEB_APP_SESSION_COOKIE } from '@/lib/request-board-app-session';
+import { ASSISTED_PASSWORD_CHANGE_COOKIE } from '@/lib/assisted-password-change-cookie';
 
 export async function POST() {
   const response = NextResponse.json({ ok: true });
@@ -21,6 +22,13 @@ export async function POST() {
     maxAge: 0,
   });
   response.cookies.set(WEB_APP_SESSION_COOKIE, '', {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: 0,
+  });
+  response.cookies.set(ASSISTED_PASSWORD_CHANGE_COOKIE, '', {
     httpOnly: true,
     sameSite: 'strict',
     secure: process.env.NODE_ENV === 'production',

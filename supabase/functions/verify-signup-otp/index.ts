@@ -150,6 +150,9 @@ serve(async (req: Request) => {
       .update({
         phone_verified: true,
         phone_verified_at: new Date().toISOString(),
+        signup_verification_method: 'phone_otp',
+        signup_verified_at: new Date().toISOString(),
+        signup_verified_by_admin_id: null,
         phone_verification_hash: null,
         phone_verification_expires_at: null,
         phone_verification_sent_at: null,
@@ -204,6 +207,9 @@ serve(async (req: Request) => {
     .update({
       phone_verified: true,
       phone_verified_at: new Date().toISOString(),
+      signup_verification_method: 'phone_otp',
+      signup_verified_at: new Date().toISOString(),
+      signup_verified_by_admin_id: null,
       phone_verification_hash: null,
       phone_verification_expires_at: null,
       phone_verification_sent_at: null,

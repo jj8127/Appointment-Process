@@ -16,6 +16,7 @@
     { "file": "app/exam-register.tsx", "kind": "scroll-form", "requiredTokens": ["KeyboardAvoidingView", "scrollFocusedInputIntoView", "keyboardDismissMode=\"none\""] },
     { "file": "app/exam-register2.tsx", "kind": "scroll-form", "requiredTokens": ["KeyboardAvoidingView", "scrollFocusedInputIntoView", "keyboardDismissMode=\"none\""] },
     { "file": "app/fc/new.tsx", "kind": "scroll-form", "requiredTokens": ["KeyboardAwareWrapper", "useKeyboardPadding", "keyboardDismissMode=\"none\""] },
+    { "file": "app/first-password-change.tsx", "kind": "scroll-form", "requiredTokens": ["KeyboardAwareWrapper", "useKeyboardPadding", "keyboardDismissMode=\"none\""] },
     { "file": "app/group-chat.tsx", "kind": "fixed-bottom-and-modal-composer", "requiredTokens": ["KeyboardSafeBottomBar", "KeyboardAvoidingView", "getChatComposerBottomPadding", "keyboardDismissMode=\"none\""] },
     { "file": "app/identity.tsx", "kind": "scroll-form", "requiredTokens": ["KeyboardAwareWrapper", "useKeyboardPadding", "keyboardDismissMode=\"none\""] },
     { "file": "app/login.tsx", "kind": "scroll-form", "requiredTokens": ["KeyboardAwareWrapper", "useKeyboardPadding", "keyboardDismissMode=\"none\""] },

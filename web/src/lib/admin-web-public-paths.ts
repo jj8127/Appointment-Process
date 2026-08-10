@@ -1,6 +1,7 @@
 export const ADMIN_WEB_PUBLIC_PATHS = [
   '/account-deletion',
   '/auth',
+  '/first-password-change',
   '/invite',
   '/reset-password',
   '/favicon.ico',

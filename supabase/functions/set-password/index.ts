@@ -620,6 +620,8 @@ serve(async (req: Request) => {
         locked_until: null,
         reset_token_hash: null,
         reset_token_expires_at: null,
+        must_change_password: false,
+        temporary_password_issued_at: null,
       },
       { onConflict: 'fc_id' },
     );
@@ -631,7 +633,12 @@ serve(async (req: Request) => {
   // Mark signup as completed
   const { error: profileUpdateError } = await supabase
     .from('fc_profiles')
-    .update({ signup_completed: true })
+    .update({
+      signup_completed: true,
+      signup_verification_method: 'phone_otp',
+      signup_verified_at: new Date().toISOString(),
+      signup_verified_by_admin_id: null,
+    })
     .eq('id', fcId);
 
   if (profileUpdateError) {

@@ -2,8 +2,8 @@ doc_id: FC-DATA-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-07-31
-source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql
+last_verified: 2026-08-10
+source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql + supabase/migrations/20260810054317_admin_assisted_signup_v1.sql
 
 # Data Handbook: Referral Schema And Admin RPCs
 
@@ -49,6 +49,8 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 - 비로그인 회원가입 추천인 검색 current path는 `app/signup.tsx -> search-signup-referral`이다.
 - `search-signup-referral`은 app session 없이 호출되지만, 응답은 `name`, `affiliation`, `code`만 반환하고 전화번호/주민정보 같은 PII를 노출하지 않는다.
 - signup search 결과는 active referral code가 있는 후보만 반환해야 한다. 회원가입 화면이 결과를 선택해도 최종 payload는 기존 `referralCode` + `referralInviterFcId`만 유지하고, `validate-referral-code`를 다시 통과한 뒤 `set-password`가 확정한다.
+- 관리자 서면확인 가입은 `admin_create_assisted_signup_v1`에서 선택된 active 추천인 FC를 다시 검증하고 `apply_referral_link_state(..., source='admin_override', reason='admin_assisted_signup')`를 호출한다. 관리자 화면의 표시 문자열을 직접 `fc_profiles.recommender`에 쓰지 않는다.
+- RPC의 프로필·추천 링크·임시 자격증명·서면확인 원장은 단일 트랜잭션이다. referral 적용 실패 시 가입 완료 상태나 임시 비밀번호만 남으면 회귀다.
 
 ## 운영 함수
 

@@ -22,6 +22,10 @@ import {
 } from '@/lib/admin-web-login-timeout';
 import { buildPhoneCandidates } from '@/lib/phone-candidates';
 import { logger } from '@/lib/logger';
+import {
+  ASSISTED_PASSWORD_CHANGE_COOKIE,
+  ASSISTED_PASSWORD_CHANGE_COOKIE_MAX_AGE_SECONDS,
+} from '@/lib/assisted-password-change-cookie';
 
 type LoginResponse = {
   ok?: boolean;
@@ -33,6 +37,8 @@ type LoginResponse = {
   code?: string;
   message?: string;
   appSessionToken?: string;
+  passwordChangeToken?: string;
+  passwordChangeExpiresAt?: string;
 };
 
 function normalizeDigits(value: unknown) {
@@ -97,12 +103,19 @@ export async function POST(req: Request) {
       ok: false,
       message: '로그인 결과를 확인할 수 없습니다.',
     };
-    const {
-      appSessionToken: rawAppSessionToken,
-      ...publicLoginData
-    } = loginData;
+    const rawAppSessionToken = loginData.appSessionToken;
+    const rawPasswordChangeToken = loginData.passwordChangeToken;
+    const publicLoginData = { ...loginData };
+    delete publicLoginData.appSessionToken;
+    delete publicLoginData.passwordChangeToken;
+    delete publicLoginData.passwordChangeExpiresAt;
     const response = NextResponse.json(publicLoginData);
     const appSessionToken = String(rawAppSessionToken ?? '').trim();
+    const passwordChangeToken = String(rawPasswordChangeToken ?? '').trim();
+    const passwordChangeRequired =
+      loginData.ok !== true
+      && loginData.code === 'password_change_required'
+      && Boolean(passwordChangeToken);
     response.cookies.set(WEB_APP_SESSION_COOKIE, data?.ok && appSessionToken ? appSessionToken : '', {
       httpOnly: true,
       sameSite: 'strict',
@@ -110,6 +123,17 @@ export async function POST(req: Request) {
       path: '/',
       maxAge: data?.ok && appSessionToken ? WEB_APP_SESSION_COOKIE_MAX_AGE_SECONDS : 0,
     });
+    response.cookies.set(
+      ASSISTED_PASSWORD_CHANGE_COOKIE,
+      passwordChangeRequired ? passwordChangeToken : '',
+      {
+        httpOnly: true,
+        sameSite: 'strict',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: passwordChangeRequired ? ASSISTED_PASSWORD_CHANGE_COOKIE_MAX_AGE_SECONDS : 0,
+      },
+    );
 
     if (data?.ok && data.role === 'fc') {
       const residentDigits = normalizeDigits(data.residentId ?? phone);
@@ -121,8 +145,7 @@ export async function POST(req: Request) {
 
       if (profileError || !profileRow?.id) {
         logger.warn('[api/auth/login] FC profile not found after password login', {
-          phone: residentDigits,
-          error: profileError?.message,
+          reason: profileError ? 'profile_lookup_failed' : 'profile_missing',
         });
         return NextResponse.json(
           { ok: false, message: 'FC 계정 정보를 확인할 수 없습니다.' },

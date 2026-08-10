@@ -2,10 +2,19 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-08-08
-source_of_truth: env contracts + reset-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + supabase/functions/fc-notify/index.ts + supabase/migrations/*internal_messenger_summary_v1.sql + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
+last_verified: 2026-08-10
+source_of_truth: env contracts + reset-password functions + assisted-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + supabase/functions/fc-notify/index.ts + supabase/migrations/*internal_messenger_summary_v1.sql + supabase/migrations/20260810054317_admin_assisted_signup_v1.sql + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/admin/assisted-signup/route.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
+
+## 2026-08-10 관리자 서면확인 회원가입 경계
+
+- 실행 권한은 verified server session 기준 활성 `admin` 또는 `developer`뿐이다. `manager`와 read-only session은 조회·실행 모두 허용하지 않는다.
+- 서면확인은 SMS OTP 성공으로 기록하지 않는다. `signup_verification_method='admin_written_consent'`, `phone_verified=false`, 확인 일시와 실행 관리자 ID를 별도 저장한다.
+- 감사 원장은 요청 ID, 대상 FC, 실행 관리자, 확인일, 내부 증빙 참조번호, 고정 확인문 버전만 저장한다. 서면 본문, 주민번호, 전화번호, 자유서술 개인정보를 증빙 참조 필드나 로그에 복사하지 않는다.
+- 프로필·추천 관계·임시 자격증명·동의 원장은 `admin_create_assisted_signup_v1` 한 트랜잭션으로 처리하고 요청 ID와 대상 전화번호를 잠근다. 부분 성공을 클라이언트 보정으로 이어 붙이지 않는다.
+- 임시 비밀번호는 PBKDF2-SHA256 해시만 저장하고 `must_change_password=true`로 발급한다. 첫 로그인에서는 일반 세션을 차단하고 one-time 비밀번호 변경 challenge만 허용한다.
+- 테이블은 Data API 공개 권한을 제거하고 service-role RPC 경로만 사용한다. 원장은 append-only이며 일반 브라우저 Supabase client가 직접 조회하거나 수정하지 않는다.
 
 ## 2026-07-30 Administrator web notification and diagnostic boundary
 

@@ -31,6 +31,18 @@ type EdgeDiagnosticPair =
         | 'manager_shadow_lookup_failed';
     }
   | {
+      event: 'login_with_password.assisted_password_change';
+      reason: 'challenge_issue_failed';
+    }
+  | {
+      event: 'complete_assisted_password.credential_lookup';
+      reason: 'lookup_failed' | 'invalid_credential_material';
+    }
+  | {
+      event: 'complete_assisted_password.rpc';
+      reason: 'challenge_rejected' | 'completion_failed';
+    }
+  | {
       event: 'request_board.password_sync';
       reason: 'upstream_rejected' | 'invalid_response' | 'request_failed' | 'timeout';
     }
@@ -159,6 +171,11 @@ const VALID_PAIRS = new Set<string>([
   'login_with_password.referral_bootstrap:referral_code_auto_issue_failed',
   'login_with_password.referral_bootstrap:manager_shadow_ensure_failed',
   'login_with_password.referral_bootstrap:manager_shadow_lookup_failed',
+  'login_with_password.assisted_password_change:challenge_issue_failed',
+  'complete_assisted_password.credential_lookup:lookup_failed',
+  'complete_assisted_password.credential_lookup:invalid_credential_material',
+  'complete_assisted_password.rpc:challenge_rejected',
+  'complete_assisted_password.rpc:completion_failed',
   'request_board.password_sync:upstream_rejected',
   'request_board.password_sync:invalid_response',
   'request_board.password_sync:request_failed',

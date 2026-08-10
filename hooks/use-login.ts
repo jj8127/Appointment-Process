@@ -5,6 +5,8 @@ import { router } from 'expo-router';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { clearRequestBoardState, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
+import { setPendingAssistedPasswordChange } from '@/lib/pending-assisted-password-change';
+import { clearSavedLoginCredentials } from '@/lib/saved-login-credentials';
 import { normalizeStaffType } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { validatePhone, validateRequired, normalizePhone } from '@/lib/validation';
@@ -19,6 +21,8 @@ type LoginResponse = {
   staffType?: 'admin' | 'developer' | null;
   requestBoardBridgeToken?: string;
   appSessionToken?: string;
+  passwordChangeToken?: string;
+  passwordChangeExpiresAt?: string;
   requestBoardRole?: 'fc' | 'designer' | null;
 };
 
@@ -59,7 +63,6 @@ export function useLogin(options?: UseLoginOptions) {
 
       if (error) {
         logger.warn('[login] login-with-password invoke failed', {
-          phone: digits,
           error,
         });
         const errorMessage = error instanceof Error ? error.message : '오류가 발생했습니다. 다시 시도해주세요.';
@@ -71,8 +74,22 @@ export function useLogin(options?: UseLoginOptions) {
       }
 
       if (!data?.ok) {
+        if (data?.code === 'password_change_required' && data.passwordChangeToken) {
+          await clearRequestBoardState({ clearAppSession: true });
+          await clearSavedLoginCredentials().catch(() => undefined);
+          setPendingAssistedPasswordChange(
+            data.passwordChangeToken,
+            data.passwordChangeExpiresAt ?? null,
+          );
+          Alert.alert(
+            '새 비밀번호가 필요합니다',
+            '관리자가 발급한 임시 비밀번호입니다. 계속하려면 본인이 사용할 새 비밀번호를 설정해주세요.',
+          );
+          router.replace('/first-password-change');
+          return false;
+        }
+
         logger.warn('[login] login-with-password rejected', {
-          phone: digits,
           code: data?.code ?? null,
           role: data?.role ?? null,
           message: data?.message ?? null,
@@ -131,7 +148,6 @@ export function useLogin(options?: UseLoginOptions) {
       return true;
     } catch (error) {
       logger.warn('[login] login flow threw', {
-        phone: digits,
         error,
       });
       const errorMessage = error instanceof Error ? error.message : '오류가 발생했습니다. 다시 시도해주세요.';
