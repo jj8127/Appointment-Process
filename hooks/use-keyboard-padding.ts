@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Keyboard, KeyboardEvent, Platform } from 'react-native';
 
+import { normalizeKeyboardPadding } from '@/lib/mobile-keyboard-layout';
+
 /**
- * Returns extra bottom padding to lift content above the keyboard.
- * On Android the native window is resized via `softwareKeyboardLayoutMode:
- * resize`, so the keyboard height is intentionally not added a second time.
+ * Returns explicit scroll room equal to the reported keyboard height.
+ *
+ * Android callers using a plain ScrollView depend on this even when
+ * `softwareKeyboardLayoutMode` is `resize`: edge-to-edge and custom overlay
+ * layouts do not consistently receive a usable resize on every device.
+ * Fixed bottom bars should use KeyboardAvoidingView/KeyboardSafeBottomBar so
+ * React Native can calculate the remaining overlap instead of adding this
+ * value directly to their position.
  */
 export function useKeyboardPadding() {
   const [padding, setPadding] = useState(0);
@@ -12,8 +19,7 @@ export function useKeyboardPadding() {
   useEffect(() => {
     const show = Keyboard.addListener(
       Platform.OS === 'android' ? 'keyboardDidShow' : 'keyboardWillShow',
-      (event: KeyboardEvent) =>
-        setPadding(Platform.OS === 'android' ? 0 : event.endCoordinates.height),
+      (event: KeyboardEvent) => setPadding(normalizeKeyboardPadding(event.endCoordinates.height)),
     );
     const hide = Keyboard.addListener(
       Platform.OS === 'android' ? 'keyboardDidHide' : 'keyboardWillHide',
@@ -31,10 +37,8 @@ export function useKeyboardPadding() {
 /**
  * Reports keyboard visibility without exposing the keyboard height.
  *
- * Android uses the native `adjustResize` layout mode.  Consumers must not add
- * the Android keyboard height a second time because the window has already
- * been resized by the OS.  Chat composers still need to know whether the
- * keyboard is open so they can keep their small resting gap.
+ * Chat composers use visibility to keep a small resting gap while their
+ * KeyboardAvoidingView owns the actual measured overlap.
  */
 export function useKeyboardVisible() {
   const [visible, setVisible] = useState(false);

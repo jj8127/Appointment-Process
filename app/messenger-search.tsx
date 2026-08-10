@@ -47,8 +47,6 @@ import {
   rbSearchDirectMessages,
   rbSearchMessages,
   type RbConversation,
-  type RbDesigner,
-  type RbDirectMessageUser,
   type RbDmConversation,
 } from '@/lib/request-board-api';
 
@@ -59,12 +57,6 @@ type SourceStore = {
 };
 
 type SourceStores = Record<MessengerSearchSource, SourceStore>;
-
-type DirectoryRead<T> =
-  | { status: 'ready'; data: T }
-  | { status: 'error' };
-
-type RbDirectoryPerson = RbDesigner | RbDirectMessageUser;
 
 const EMPTY_SOURCES: SourceStores = {
   internal: { status: 'loading', items: [] },
@@ -89,14 +81,6 @@ function directConversationTitle(conversation: RbDmConversation): string {
   return conversation.participant?.name ?? '가람Link 채팅';
 }
 
-async function settleDirectoryRead<T>(request: Promise<T>): Promise<DirectoryRead<T>> {
-  try {
-    return { status: 'ready', data: await request };
-  } catch {
-    return { status: 'error' };
-  }
-}
-
 export default function MessengerSearchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -115,10 +99,6 @@ export default function MessengerSearchScreen() {
   const [sources, setSources] = useState<SourceStores>(EMPTY_SOURCES);
   const [history, setHistory] = useState<MessengerSearchHistorySnapshot>(
     messengerSearchHistory.snapshot(),
-  );
-  const normalizedQuery = useMemo(
-    () => normalizeMessengerSearchQuery(query),
-    [query],
   );
   const sequences = useRef<Record<'internal' | 'group', LatestMessengerSearchSequence>>({
     internal: new LatestMessengerSearchSequence(),
@@ -139,9 +119,6 @@ export default function MessengerSearchScreen() {
   const internalMessageErrorRef = useRef<string | null>(null);
   const groupMessageErrorRef = useRef<string | null>(null);
   const garamlinkDirectoryRef = useRef<MessengerSearchResult[]>([]);
-  const garamlinkRequestDirectoryRef = useRef<MessengerSearchResult[]>([]);
-  const garamlinkDirectDirectoryRef = useRef<MessengerSearchResult[]>([]);
-  const garamlinkPeopleDirectoryRef = useRef<MessengerSearchResult[]>([]);
   const garamlinkDirectoryErrorRef = useRef<string | null>(null);
   const garamlinkMessageErrorRef = useRef<string | null>(null);
   const garamlinkMessagesRef = useRef<MessengerSearchMessage[]>([]);
@@ -149,11 +126,6 @@ export default function MessengerSearchScreen() {
   const requestConversationIdsRef = useRef<number[]>([]);
   const requestRoomLabelRef = useRef(new Map<number, string>());
   const directRoomLabelRef = useRef(new Map<number, string>());
-  const messageBatchQueryRef = useRef<Record<MessengerSearchSource, string | null>>({
-    internal: null,
-    group: null,
-    garamlink: null,
-  });
 
   const viewerContext = useMemo<InternalChatViewerContext>(() => ({
     role,

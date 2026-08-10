@@ -2,7 +2,9 @@ import { Feather } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import {
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -79,7 +81,10 @@ export function ExamApplicationTargetSelector({
       </Pressable>
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        <View style={styles.overlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.overlay}
+        >
           <View style={styles.sheet}>
             <View style={styles.header}>
               <Text style={styles.title}>시험 신청 대상 선택</Text>
@@ -131,7 +136,7 @@ export function ExamApplicationTargetSelector({
               )}
             />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

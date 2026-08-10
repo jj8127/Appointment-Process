@@ -189,3 +189,10 @@ source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversa
   client records that capability once per process, uses an empty preference list,
   and stops subsequent GET/PATCH HTTP attempts until restart. Deploying the
   additive server endpoint restores the normal preference path.
+
+## Native keyboard ownership
+
+- Every direct or registered shared native input under `app/**` and `components/**` is classified in `scripts/audit/mobile-keyboard-surfaces.json`; `npm run audit:mobile-keyboard` must remain exact.
+- A fixed board or chat composer must keep both its focused input and primary submit action inside `KeyboardAvoidingView` or `KeyboardSafeBottomBar`. A keyboard-aware scroll sibling does not own a fixed footer.
+- Plain-scroll Android forms may use the normalized reported keyboard height as explicit scroll room. Modal editors own avoidance inside the modal, and reviewed top-search lists dismiss on drag.
+- Source and build checks prove structural coverage only. Physical Android/iOS focus, typing, multiline growth, submit, dismiss, rotation, and reopen evidence remains mandatory before native release.

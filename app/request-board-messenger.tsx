@@ -158,14 +158,7 @@ type AnchorContextGaps = {
   hasAfter: boolean;
 };
 
-type MessageLoadOptions = {
-  roomGeneration?: number;
-  includeAnchorContext?: boolean;
-  resetLoadedConversation?: boolean;
-};
-
 const ANCHOR_HIGHLIGHT_DURATION_MS = 3000;
-const ANCHOR_CONTEXT_REVALIDATE_MS = 60_000;
 
 const getUnifiedMessageCopyText = (message: UnifiedMessage | null | undefined): string => {
   if (!message) return '';
@@ -250,9 +243,6 @@ const formatFileSize = (bytes: number): string => {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 };
-
-const getConversationRoomKey = (conversation: UnifiedConversation): string =>
-  `${conversation.type}:${conversation.id}`;
 
 const getAnchorContextGapMessage = (gaps: AnchorContextGaps | null): string => {
   if (gaps?.hasBefore && gaps.hasAfter) {
@@ -431,13 +421,9 @@ export default function RequestBoardMessengerScreen() {
   const messagesRef = useRef<UnifiedMessage[]>([]);
   const latestMessagesRef = useRef<UnifiedMessage[]>([]);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const activeConversationRoomKeyRef = useRef<string | null>(null);
-  const roomGenerationRef = useRef(0);
   const messageLoadSequenceRef = useRef(0);
   const roomPreferenceLoadSequenceRef = useRef(0);
   const roomPreferenceSaveSequenceRef = useRef(0);
-  const activeRoomPreferenceKeyRef = useRef<string | null>(null);
-  const consumedRouteTargetRef = useRef<string | null>(null);
   const anchorContextAttemptRef = useRef<string | null>(null);
   const anchorContextLastAttemptAtRef = useRef(0);
   const anchorContextValidatedKeyRef = useRef<string | null>(null);
@@ -477,9 +463,6 @@ export default function RequestBoardMessengerScreen() {
     notificationConversationId ?? 'none',
     hasAnchorMessageParam ? parsedAnchorMessageId ?? 'invalid' : 'absent',
   ].join(':');
-  const routeTargetIdentity = notificationConversationId
-    ? `${anchorRouteIdentity}:${String(notificationId ?? 'none')}`
-    : null;
   const isAnchorModeActive = hasAnchorMessageParam
     && anchorModeExitedForRoute !== anchorRouteIdentity;
   const expectedNotificationTarget = hasAmbiguousConversationTarget
@@ -513,10 +496,6 @@ export default function RequestBoardMessengerScreen() {
   ]);
   const activeConversationMatchesRouteTarget = matchesRouteConversationTarget(activeConv);
   const anchorContextGapMessage = getAnchorContextGapMessage(anchorContextGaps);
-
-  const isCurrentRoomGeneration = useCallback((roomKey: string, generation: number) =>
-    activeConversationRoomKeyRef.current === roomKey
-    && roomGenerationRef.current === generation, []);
 
   const mergeMessagesDesc = useCallback((rows: UnifiedMessage[]) => {
     const byId = new Map<number, UnifiedMessage>();
@@ -601,7 +580,6 @@ export default function RequestBoardMessengerScreen() {
   ]);
 
   useEffect(() => () => {
-    roomGenerationRef.current += 1;
     messageLoadSequenceRef.current += 1;
     roomPreferenceLoadSequenceRef.current += 1;
     roomPreferenceSaveSequenceRef.current += 1;
@@ -1869,7 +1847,7 @@ export default function RequestBoardMessengerScreen() {
           && messages.length > 0 ? (
             <View style={styles.anchorLatestBanner}>
               <Feather name="search" size={15} color={COLORS.text.muted} />
-              <Text style={styles.anchorLatestBannerText}>검색한 메시지 위치를 보고 있습니다.</Text>
+              <Text style={styles.anchorLatestBannerText}>{anchorContextGapMessage}</Text>
               <Pressable
                 accessibilityLabel="최신 메시지로 이동"
                 accessibilityRole="button"

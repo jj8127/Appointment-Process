@@ -2,8 +2,8 @@ doc_id: FC-SHARED-UI-ACTION-CONTRACTS
 owner_repo: fc-onboarding-app
 owner_area: shared-ui
 audience: developer
-last_verified: 2026-07-03
-source_of_truth: components/* + app/* + web/src/* + scripts/audit/shared-ui-contract-audit.cjs + scripts/audit/shared-function-contract-audit.cjs
+last_verified: 2026-08-10
+source_of_truth: components/* + app/* + hooks/use-keyboard-padding.ts + web/src/* + scripts/audit/shared-ui-contract-audit.cjs + scripts/audit/shared-function-contract-audit.cjs + scripts/audit/mobile-keyboard-surface-audit.cjs
 
 # Shared UI Action Contracts
 
@@ -26,6 +26,8 @@ Run the live inventory before broad UI or action refactors:
 ```bash
 node scripts/audit/shared-ui-contract-audit.cjs
 node scripts/audit/shared-ui-contract-audit.cjs --json
+node scripts/audit/mobile-keyboard-surface-audit.cjs
+node scripts/audit/mobile-keyboard-surface-audit.cjs --json
 ```
 
 The audit excludes archive, temporary, deployment, generated, and dependency folders. New clusters should be added to the inventory categories before implementation.
@@ -64,6 +66,10 @@ Board comment edit/delete action sheets in `app/board.tsx` and `app/admin-board-
 Board reaction/comment failure and empty-comment validation alerts in `app/board.tsx` and `app/admin-board-manage.tsx` must use `showBoardFeedbackAlert` from `lib/board-feedback-alerts.ts`. The helper owns the shared title/message copy; screens only pass the native alert function and the alert kind.
 
 Board reaction counts in `app/board.tsx` and `app/admin-board-manage.tsx` must use `buildBoardReactionCounts` and `applyBoardReactionUpdate` from `lib/board-reaction-state.ts`. The helper owns missing-count normalization, toggle-off behavior, reaction switching, and total delta semantics; screens only own mutation wiring and optimistic cache writes.
+
+Native keyboard surfaces are governed by `scripts/audit/mobile-keyboard-surfaces.json`. The audit discovers direct `TextInput` renderers and consumers of shared input components, then fails when the reviewed registry and live source differ or when a required layout owner disappears. Classify the actual input ancestry rather than accepting a keyboard helper elsewhere in the file.
+
+Fixed-bottom composers must keep the input and primary action inside `KeyboardAvoidingView` or `KeyboardSafeBottomBar`. `KeyboardAwareWrapper` protects only descendants in its scroll tree. Android plain-scroll screens keep explicit keyboard-height scroll room through `useKeyboardPadding`; `softwareKeyboardLayoutMode=resize` alone is not visibility evidence. Run `npm run audit:mobile-keyboard` and `lib/__tests__/mobile-keyboard-surface-contract.test.ts` after adding or restructuring any native input.
 
 Admin web reject reason entry in `web/src/app/dashboard/page.tsx`, `web/src/app/dashboard/appointment/page.tsx`, and `web/src/app/dashboard/docs/page.tsx` must use `RejectReasonModal` from `web/src/components/RejectReasonModal.tsx`. The shared component owns textarea layout, cancel/submit buttons, and keyboard behavior: Enter submits, while Shift+Enter inserts a newline.
 

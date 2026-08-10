@@ -34,6 +34,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
@@ -49,7 +50,6 @@ import {
 import { showBoardCommentActions } from '@/lib/board-comment-actions';
 import { buildBoardPostShareContent } from '@/lib/board-share-link';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
-import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import {
@@ -254,7 +254,6 @@ export default function BoardScreen() {
   const { role, displayName, residentId, readOnly, hydrated, isRequestBoardDesigner, staffType } = useSession();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-  const keyboardPadding = useKeyboardPadding();
   const screenHeight = Dimensions.get('window').height;
   const homeHeaderTitle = buildWelcomeTitle({
     role,
@@ -1452,7 +1451,12 @@ export default function BoardScreen() {
 
               </KeyboardAwareWrapper>
               {/* 댓글 작성 */}
-              <View style={[styles.commentBar, { paddingBottom: Math.max(insets.bottom + 16, 28) + keyboardPadding }]}>
+              <KeyboardSafeBottomBar
+                contentContainerStyle={[
+                  styles.commentBar,
+                  { paddingBottom: Math.max(insets.bottom + 16, 28) },
+                ]}
+              >
                 {replyTarget && (
                   <View style={styles.replyBanner}>
                     <Text style={styles.replyBannerText}>{replyTarget.authorName}님에게 답글</Text>
@@ -1481,7 +1485,7 @@ export default function BoardScreen() {
                     <Feather name="send" size={18} color="#fff" />
                   </Pressable>
                 </View>
-              </View>
+              </KeyboardSafeBottomBar>
             </View>
           </Animated.View>
         </View>

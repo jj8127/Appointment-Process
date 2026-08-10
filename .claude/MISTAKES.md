@@ -5583,6 +5583,23 @@
 - Verification:
   - Google Play Console production track for `4.2.2 (71)` and the indexed Android release harness.
 
+## 2026-08-10 | Chat-only keyboard reasoning was applied globally and the board composer ancestry was not traced
+
+- Symptom:
+  - The released Android app still allowed the board comment input to remain behind the keyboard even though the app declared `softwareKeyboardLayoutMode=resize` and the board file contained `KeyboardAwareWrapper`.
+- Root cause:
+  - The fixed comment bar in `app/board.tsx` and `app/admin-board-manage.tsx` was a sibling outside the keyboard-aware scroll tree, so that wrapper could not move it.
+  - A chat composer fix changed the shared `useKeyboardPadding()` Android value to zero. That screen-specific anti-double-padding decision also removed explicit scroll room from dashboard, onboarding, identity, and auth consumers whose Android contract intentionally uses a plain `ScrollView`.
+- Why it was missed:
+  - The earlier audit started from the three chat routes and helper presence, not a closed inventory of every direct/shared input and its JSX ancestry. EAS build completion was also treated as stronger evidence than a physical board-comment focus test.
+- Permanent guardrail:
+  - Run `npm run audit:mobile-keyboard`; every discovered native input surface must be classified in `scripts/audit/mobile-keyboard-surfaces.json` with its required layout owner.
+  - Trace the focused input and its submit action to the exact scroll, modal, or fixed-bottom ancestor. A helper elsewhere in the file and manifest `adjustResize` are not sufficient.
+  - Fixed-bottom inputs use measured keyboard avoidance. Explicit keyboard height remains valid as scroll room for Fabric-safe Android plain-scroll screens, but must not be reused as direct composer positioning.
+- Verification:
+  - `lib/__tests__/mobile-keyboard-surface-contract.test.ts`
+  - Physical Android/iOS focus, type, multiline growth, submit, dismiss, and reopen smoke remains mandatory before release.
+
 ## 2026-08-10 | Remote push cleanup was made a prerequisite for local logout
 
 - Symptom:

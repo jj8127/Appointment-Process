@@ -429,6 +429,7 @@ export default function NewConversationScreen() {
           ]}
           data={filteredPeople}
           keyExtractor={(item) => item.key}
+          keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={(
             <View style={styles.centerState}>

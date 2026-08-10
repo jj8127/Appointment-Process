@@ -8,6 +8,7 @@
     "android": "node ./scripts/run-android.mjs",
     "ios": "expo run:ios",
     "build": "node --experimental-websocket ./node_modules/expo/bin/cli export --platform web",
+    "audit:mobile-keyboard": "node ./scripts/audit/mobile-keyboard-surface-audit.cjs",
     "web": "expo start --web",
     "eas:build:android": "node ./scripts/eas-build.js android production",
     "eas:build:ios": "node ./scripts/eas-build.js ios production --non-interactive --freeze-credentials",

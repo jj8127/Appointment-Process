@@ -1134,3 +1134,11 @@
 - Explicit logout routes through `/login?skipAuto=1`, and the home-only `isLoggingOut` branch was removed.
 - Focused logout/notification tests, adjacent auth/session tests, TypeScript, scoped ESLint, and task-owned governance contracts pass. No remote function, database, OTA, Store, push, or PR action was performed; the change set is preserved locally and release remains HOLD.
 - Details: [WORK_DETAIL.md#20260810-logout-session-reliability](WORK_DETAIL.md#20260810-logout-session-reliability)
+
+## 2026-08-10 GaramIn keyboard-surface closure
+
+- Re-audited all 34 direct and registered shared native input surfaces by their actual JSX layout owner rather than helper presence.
+- Moved both fixed board comment bars into a measured keyboard-safe bottom boundary, restored explicit Android scroll room, and added modal/search keyboard ownership where it was missing.
+- Removed inactive Messenger search/context declarations that produced the remaining lint warnings and wired the existing anchor-context gap copy into its visible banner.
+- Added a closed inventory audit and regression contract. Full Jest, TypeScript, zero-warning lint, governance, dependency check, 52-route Expo export, Android debug assembly, and local release AAB compilation pass; physical Android/iOS interaction remains required before release.
+- Details: [WORK_DETAIL.md#20260810-garamin-keyboard-surface-closure](WORK_DETAIL.md#20260810-garamin-keyboard-surface-closure)

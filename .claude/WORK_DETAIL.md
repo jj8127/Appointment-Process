@@ -13835,3 +13835,25 @@
 - Focused GREEN: 3 suites / 14 tests. Adjacent auth/session/notification GREEN: 5 suites / 57 tests.
 - Root TypeScript and scoped ESLint pass. Task-owned governance obligations are satisfied; the repository-wide governance command still reports only pre-existing exam-documentation and package-contract violations outside this task.
 - No remote Supabase call, function deployment, database change, OTA/native release, push, or PR was performed. This change set is preserved locally; release remains HOLD pending an approved app rollout and physical-device logout smoke.
+
+<a id="20260810-garamin-keyboard-surface-closure"></a>
+## 2026-08-10 | GaramIn keyboard-surface closure
+
+**Root cause**:
+- The board comment composer was a fixed sibling outside `KeyboardAwareWrapper`, so the wrapper could not move the focused input or submit action above the Android keyboard.
+- A chat-specific anti-double-padding change had made shared Android `useKeyboardPadding()` return zero, weakening plain-scroll form surfaces outside chat.
+- The earlier review searched for keyboard helpers without closing the inventory of direct/shared inputs or tracing each input to its owning scroll, modal, or fixed-bottom ancestor.
+
+**Implementation**:
+- Added `KeyboardSafeBottomBar` and used it for board and administrator-board comment composers.
+- Restored normalized explicit keyboard-height padding for plain-scroll consumers while fixed composers keep measured avoidance.
+- Added keyboard avoidance to both exam rejection modals and `ExamApplicationTargetSelector`, plus drag dismissal to reviewed top-search lists.
+- Added a 34-surface registry, audit command, structural contract tests, owner documentation, and repeatable mistake-ledger guardrails.
+
+**Verification and boundaries**:
+- `npm run audit:mobile-keyboard`: 34 discovered / 34 registered / 0 errors.
+- Full Jest: 232 suites / 1,447 tests pass. Root TypeScript passes. Expo lint reports zero errors and zero warnings after inactive Messenger search/context declarations were removed and the existing anchor-context gap copy was connected to its banner.
+- Governance, dependency compatibility, Expo export, and Android native assembly must pass on the final clean commit before push.
+- Final clean-source verification passed: governance, `expo install --check`, 52-route Sentry-upload-disabled Expo export, `assembleDebug`, and `bundleRelease`. The local release compile needed a process-only 1024 MB Metaspace override after the default 512 MB daemon exhausted Metaspace; no repository build setting was changed.
+- The compile-only local AAB is 89,120,226 bytes with SHA-256 `795800B0E76B8E076BEAD38C4FA58328137EF1F61621B96C2A06AFDB61AA3175`. It is not a Store artifact and was not uploaded; EAS Production remains responsible for managed credentials and remote build-number auto-increment.
+- Static and build evidence do not replace physical Android/iOS focus, type, multiline growth, submit, dismiss, rotation, and reopen smoke. EAS/OTA/Store release remains HOLD until that evidence exists.

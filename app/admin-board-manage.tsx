@@ -37,10 +37,10 @@ import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { ReactionPicker, DEFAULT_REACTIONS } from '@/components/ReactionPicker';
 import { useAppLogout } from '@/hooks/use-app-logout';
-import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { openBoardAttachment } from '@/lib/board-attachment-actions';
 import { showBoardFeedbackAlert } from '@/lib/board-feedback-alerts';
@@ -213,7 +213,6 @@ export default function AdminBoardManageScreen() {
   const { role, displayName, residentId, readOnly, isRequestBoardDesigner, hydrated, staffType } = useSession();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-  const keyboardPadding = useKeyboardPadding();
   const screenHeight = Dimensions.get('window').height;
   const bottomNavHeight = 72;
   const homeHeaderTitle = buildWelcomeTitle({
@@ -1442,7 +1441,12 @@ export default function AdminBoardManageScreen() {
 
               </KeyboardAwareWrapper>
               {/* 댓글 작성 */}
-              <View style={[styles.commentBar, { paddingBottom: Math.max(insets.bottom, 12) + keyboardPadding }]}>
+              <KeyboardSafeBottomBar
+                contentContainerStyle={[
+                  styles.commentBar,
+                  { paddingBottom: Math.max(insets.bottom, 12) },
+                ]}
+              >
                 {replyTarget && (
                   <View style={styles.replyBanner}>
                     <Text style={styles.replyBannerText}>{replyTarget.authorName}님에게 답글</Text>
@@ -1471,7 +1475,7 @@ export default function AdminBoardManageScreen() {
                     <Feather name="send" size={18} color="#fff" />
                   </Pressable>
                 </View>
-              </View>
+              </KeyboardSafeBottomBar>
 
               {showActionSheet && selectedPost && canManageSelected && (
                 <View style={styles.actionSheetOverlay}>

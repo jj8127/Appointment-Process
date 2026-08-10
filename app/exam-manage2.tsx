@@ -4,7 +4,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -512,6 +514,8 @@ export default function ExamManageNonlifeScreen() {
       />
       <ScrollView
         contentContainerStyle={styles.container}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <View style={styles.header}>
@@ -589,7 +593,10 @@ export default function ExamManageNonlifeScreen() {
         animationType="fade"
         onRequestClose={() => setRejectTarget(null)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>시험 신청 반려</Text>
             <Text style={styles.modalDescription}>반려 사유를 1자 이상 1000자 이하로 입력해주세요.</Text>
@@ -632,7 +639,7 @@ export default function ExamManageNonlifeScreen() {
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

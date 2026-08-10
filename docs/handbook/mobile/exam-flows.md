@@ -147,3 +147,9 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - 버튼을 누를 때마다 signed app session과 정확한 신청 ID를 `exam-payment-proof` Edge Function에 전달한다. 서버는 기존 actor/대상 FC 검증 뒤 `registration_id + fc_id + status=attached`가 모두 일치하는 현재 증빙만 조회한다.
 - private `exam-payment-proofs` bucket과 service-role-only 업로드 장부는 그대로 유지한다. 앱에는 storage path나 원본 파일명을 노출하지 않고 5분 만료 signed URL만 반환하며, URL은 DB·로그·로컬 저장소에 보관하지 않는다.
 - 이미지는 공용 `ImagePreviewModal`로 전체 화면에서 열고, 로딩·오류·닫기·접근성 레이블을 명시한다. 스키마/RLS, 증빙 승인·OCR·다운로드, 알림 계약은 변경하지 않는다.
+
+## 2026-08-10 Native keyboard visibility
+
+- `exam-manage` and `exam-manage2` keep their top search fields in a drag-dismissable scroll owner and render the reject-reason card inside `KeyboardAvoidingView` on both Android and iOS.
+- `ExamApplicationTargetSelector` owns keyboard avoidance inside its native modal; the application screens must not depend on their outer scroll container to move this modal sheet.
+- These paths are included in `scripts/audit/mobile-keyboard-surfaces.json` and `lib/__tests__/mobile-keyboard-surface-contract.test.ts`. A source/build pass does not replace physical keyboard-open verification.

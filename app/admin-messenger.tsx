@@ -346,6 +346,7 @@ export default function AdminMessengerScreen() {
             value={keyword}
             onChangeText={setKeyword}
             autoCorrect={false}
+            returnKeyType="search"
           />
           {keyword.length > 0 && (
             <Pressable onPress={() => setKeyword('')}>
