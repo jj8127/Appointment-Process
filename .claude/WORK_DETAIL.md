@@ -13892,3 +13892,21 @@
 **Verification and boundaries**:
 - RED first: the new 535-recipient batching suite failed because the helper did not exist. GREEN after implementation: 10 focused/adjacent Jest suites passed 91 tests; the notification-event Deno suite passed 4 tests; the Edge Deno check, root TypeScript, scoped ESLint, governance, harness audit, JSON parsing, and diff check passed. The Deno entrypoint lint used only the `import/no-unresolved` exemption for its two remote URL imports, which `deno check` resolved successfully.
 - No production query/write, hosted-log read, Edge deployment, app release, push, or PR was performed. Production remains unchanged until explicit deployment approval; after rollout, an authenticated large-room send plus notification-only retry smoke is required.
+
+<a id="20260810-fc-basic-information-edit-recovery"></a>
+## 2026-08-10 | FC basic-information edit recovery
+
+**Root cause**:
+- `app/fc/new.tsx` queried digit and hyphen phone candidates with `maybeSingle()`. Duplicate legacy/canonical candidates or any read failure returned early while react-hook-form retained empty defaults, so the screen looked like an editable blank profile.
+- Save then attempted an anonymous direct `fc_profiles` update/insert even though the custom mobile session is not a Supabase Auth identity covered by the table's update policy. This made persistence unreliable and allowed a load failure to become a destructive full-payload attempt.
+
+**Implementation**:
+- Added signed FC-self `admin-action:getOwnProfile` and `updateOwnProfile`. The server derives the only target from the signed FC session, binds ID and trusted phone together, and accepts only `name`, `affiliation`, `email`, and `carrier` in a normalized patch.
+- Added a pure hydration/diff helper. The mobile screen now fills every supported existing field, sends only changed base fields, keeps the login phone and recommender read-only, and no longer logs profile/storage/save payloads.
+- Added explicit loading/ready/error state. A failed canonical load displays a retry surface and never exposes or enables an empty edit form.
+
+**Verification and boundaries**:
+- RED first: all 3 new suites failed for the missing helper, signed actions, load guard, retry state, and immutable phone. GREEN: 3 suites / 8 tests.
+- Adjacent admin-action authorization/canonical-target/workflow regression: 3 suites / 34 tests PASS. Full root Jest passes 236 suites / 1,463 tests after aligning the notification target source contract with the signed save result.
+- `npx tsc --noEmit`, full Expo lint, Sentry-upload-disabled 52-route Expo web export, 34/34 keyboard audit, `deno check supabase/functions/admin-action/index.ts`, strict governance, workspace harness audit, JSON parsing, and diff check PASS.
+- No production data/log read, database change, Edge deployment, OTA/native/Store release, push, or PR was performed. Production repair requires an approved `admin-action` deployment plus an approved app rollout and authenticated device load/edit/save/reopen smoke; release remains HOLD.

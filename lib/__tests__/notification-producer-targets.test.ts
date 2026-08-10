@@ -31,7 +31,8 @@ describe('mobile notification producers use exact typed targets', () => {
 
     const fcNew = readApp(join('fc', 'new.tsx'));
     expect(fcNew).toContain("kind: 'fc_profile'");
-    expect(fcNew).toContain('String(data.id)');
+    expect(fcNew).toContain('savedProfile.id');
+    expect(fcNew).toContain("'updateOwnProfile'");
     expect(fcNew).toContain('presentPostCommitNotificationDelivery({');
     expect(fcNew).toContain('retryNotification: notifyProfileSaved');
 

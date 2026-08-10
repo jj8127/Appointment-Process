@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Controller, useForm, type Control } from 'react-hook-form';
 import {
   Alert,
+  ActivityIndicator,
   BackHandler,
   findNodeHandle,
   InteractionManager,
@@ -29,15 +30,20 @@ import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwa
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { invokeAdminAction } from '@/lib/admin-action-api';
+import {
+  buildFcBasicInformationFormValues,
+  buildFcBasicInformationPatch,
+  type FcBasicInformationProfile,
+} from '@/lib/fc-basic-information';
 import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { canOpenFcProfileRegistration } from '@/lib/fc-workflow';
 import { logger } from '@/lib/logger';
-import { safeStorage } from '@/lib/safe-storage';
 import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, toResidentInputAlertMessage } from '@/lib/store-identity-error';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
-import { formatPhone, normalizePhone, validateResidentId } from '@/lib/validation';
+import { normalizePhone, validateResidentId } from '@/lib/validation';
 
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
@@ -154,8 +160,6 @@ const EMAIL_DOMAINS = [
   '직접입력',
 ];
 const CARRIER_OPTIONS = ['SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰'];
-const SIGNUP_STORAGE_KEY = 'fc-onboarding/signup';
-
 async function sendNotificationAndPush(
   role: 'admin' | 'fc',
   residentId: string | null,
@@ -191,6 +195,8 @@ export default function FcNewScreen() {
     role,
     appSessionToken,
   } = useSession();
+  const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [existingProfile, setExistingProfile] = useState<FcBasicInformationProfile | null>(null);
   const [existingTempId, setExistingTempId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedAffiliation, setSelectedAffiliation] = useState('');
@@ -266,112 +272,71 @@ export default function FcNewScreen() {
   }, [pendingAddressDetailFocus, showAddressSearch]);
 
   const loadExisting = useCallback(async (phone?: string) => {
-    const key = phone ?? phoneFromSession;
-    const normalizedKey = normalizePhone(key ?? '');
-    logger.debug('[fc/new] loadExisting start', { phone, phoneFromSession, key });
-    if (!normalizedKey) {
-      logger.debug('[fc/new] loadExisting: no key, returning early');
-      return;
-    }
-    const phoneCandidates = Array.from(
-      new Set([normalizedKey, formatPhone(normalizedKey)].filter(Boolean)),
-    );
-    const query = phoneCandidates.length > 1
-      ? supabase.from('fc_profiles').select('id,affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked,signup_completed').in('phone', phoneCandidates)
-      : supabase.from('fc_profiles').select('id,affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked,signup_completed').eq('phone', phoneCandidates[0]);
-    const { data, error } = await query.maybeSingle();
-    if (error) {
-      logger.warn('FC load failed', error.message);
-      return;
-    }
-    if (role === 'fc' && !canOpenFcProfileRegistration(data)) {
-      if (!registrationGateAlertShown.current) {
-        registrationGateAlertShown.current = true;
-        Alert.alert('사전등록 필요', '본등록은 사전등록을 완료한 뒤 진행할 수 있습니다.');
-      }
-      router.replace('/signup');
-      return;
-    }
-    logger.debug('[fc/new] loadExisting: DB data', { data });
+    const normalizedKey = normalizePhone(phone ?? phoneFromSession ?? '');
+    setProfileLoadState('loading');
+    setExistingProfile(null);
     setExistingResidentNumberFull(null);
 
-    let signupPayload: Partial<FormValues & { phone?: string; carrier?: string }> | null = null;
+    if (!normalizedKey) {
+      setProfileLoadState('error');
+      return;
+    }
+
     try {
-      const raw = await safeStorage.getItem(SIGNUP_STORAGE_KEY);
-      logger.debug('[fc/new] loadExisting: signup raw', { raw });
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<FormValues & { phone?: string; carrier?: string }>;
-        const payloadPhone = (parsed.phone ?? '').replace(/[^0-9]/g, '');
-        logger.debug('[fc/new] loadExisting: parsed signup', { parsed, payloadPhone, key, matches: payloadPhone === key });
-        if (payloadPhone && payloadPhone === key) {
-          signupPayload = parsed;
+      const result = await invokeAdminAction<{ profile: FcBasicInformationProfile }>(
+        normalizedKey,
+        'getOwnProfile',
+        {},
+      );
+      const profile = result.profile;
+
+      if (role === 'fc' && !canOpenFcProfileRegistration(profile)) {
+        if (!registrationGateAlertShown.current) {
+          registrationGateAlertShown.current = true;
+          Alert.alert('사전등록 필요', '본등록은 사전등록을 완료한 뒤 진행할 수 있습니다.');
         }
+        router.replace('/signup');
+        return;
       }
-    } catch (err) {
-      logger.warn('signup payload load failed', err);
-    }
 
-    const merged = {
-      affiliation: data?.affiliation || signupPayload?.affiliation || '',
-      name: data?.name || signupPayload?.name || '',
-      phone: data?.phone || signupPayload?.phone || normalizedKey,
-      email: data?.email || signupPayload?.email || '',
-      carrier: data?.carrier || signupPayload?.carrier || '',
-      address: data?.address || '',
-      addressDetail: data?.address_detail || '',
-      residentMasked: data?.resident_id_masked || null,
-      temp_id: data?.temp_id ?? null,
-    };
+      const formValues = buildFcBasicInformationFormValues(profile);
+      const matchedAffiliation = normalizeAffiliationLabel(formValues.affiliation);
+      reset({ ...formValues, affiliation: matchedAffiliation });
+      setSelectedAffiliation(matchedAffiliation);
+      setCarrier(formValues.carrier);
+      setExistingRecommender(String(profile.recommender ?? '').trim());
+      setExistingAddress(formValues.address);
+      setExistingAddressDetail(formValues.addressDetail);
+      setExistingResidentMasked(profile.resident_id_masked ?? null);
+      setExistingTempId(profile.temp_id ?? null);
+      setExistingProfile({ ...profile, affiliation: matchedAffiliation });
 
-    const matchedAffiliation = normalizeAffiliationLabel(merged.affiliation);
-
-    reset({
-      affiliation: matchedAffiliation,
-      name: merged.name,
-      phone: merged.phone,
-      email: merged.email,
-      carrier: merged.carrier,
-      address: merged.address,
-      addressDetail: merged.addressDetail,
-      residentFront: '',
-      residentBack: '',
-    });
-    setSelectedAffiliation(matchedAffiliation);
-    setCarrier(merged.carrier);
-    setExistingRecommender(String(data?.recommender ?? '').trim());
-    setExistingAddress(merged.address);
-    setExistingAddressDetail(merged.addressDetail);
-    setExistingResidentMasked(merged.residentMasked);
-    if (data?.id && phoneFromSession) {
-      try {
-        const { data: residentData, error: residentError } = await supabase.functions.invoke('admin-action', {
-          body: {
-            adminPhone: normalizePhone(phoneFromSession),
-            appSessionToken,
-            action: 'getResidentNumbers',
-            payload: { fcIds: [data.id] },
-          },
-        });
-        if (residentError) throw residentError;
-        const full = residentData?.residentNumbers?.[data.id];
-        setExistingResidentNumberFull(typeof full === 'string' && full ? full : null);
-      } catch (err) {
-        logger.warn('[fc/new] full resident number fetch failed', err);
-      }
-    }
-    if (merged.email && merged.email.includes('@')) {
-      const [local, domainPart] = merged.email.split('@');
-      setEmailLocal(local ?? '');
-      if (domainPart && EMAIL_DOMAINS.includes(domainPart)) {
-        setEmailDomain(domainPart);
+      const [emailLocalPart = '', emailDomainPart = ''] = formValues.email.split('@');
+      setEmailLocal(emailLocalPart);
+      if (emailDomainPart && EMAIL_DOMAINS.includes(emailDomainPart)) {
+        setEmailDomain(emailDomainPart);
         setCustomDomain('');
       } else {
-        setEmailDomain(domainPart ? '직접입력' : '');
-        setCustomDomain(domainPart ?? '');
+        setEmailDomain(emailDomainPart ? '직접입력' : '');
+        setCustomDomain(emailDomainPart);
       }
+
+      setProfileLoadState('ready');
+
+      try {
+        const residentResult = await invokeAdminAction<{
+          residentNumbers: Record<string, string | null>;
+        }>(normalizedKey, 'getResidentNumbers', { fcIds: [profile.id] });
+        const full = residentResult.residentNumbers?.[profile.id];
+        setExistingResidentNumberFull(typeof full === 'string' && full ? full : null);
+      } catch {
+        logger.warn('[fc/new] resident number unavailable', { reason: 'resident_lookup_failed' });
+      }
+    } catch {
+      logger.warn('[fc/new] basic information unavailable', { reason: 'profile_load_failed' });
+      setProfileLoadState('error');
     }
-    setExistingTempId(merged.temp_id);
-  }, [appSessionToken, phoneFromSession, reset, role]);
+  }, [phoneFromSession, reset, role]);
 
   useEffect(() => {
     loadExisting();
@@ -382,80 +347,38 @@ export default function FcNewScreen() {
   }, [emailLocal, emailDomain, customDomain, updateEmailValue]);
 
   const onSubmit = async (values: FormValues) => {
-    setSubmitting(true);
+    if (profileLoadState !== 'ready' || !existingProfile) {
+      Alert.alert('정보 확인 필요', '기본 정보를 다시 불러온 뒤 수정해주세요.');
+      return;
+    }
 
-    const phoneDigits = values.phone.replace(/[^0-9]/g, '');
-    if (role === 'fc') {
-      const phoneCandidates = Array.from(
-        new Set([phoneDigits, formatPhone(phoneDigits)].filter(Boolean)),
-      );
-      const registrationQuery = phoneCandidates.length > 1
-        ? supabase.from('fc_profiles').select('signup_completed').in('phone', phoneCandidates)
-        : supabase.from('fc_profiles').select('signup_completed').eq('phone', phoneCandidates[0]);
-      const { data: registration, error: registrationError } = await registrationQuery.maybeSingle();
-      if (registrationError || !canOpenFcProfileRegistration(registration)) {
-        setSubmitting(false);
+    setSubmitting(true);
+    try {
+      const phoneDigits = normalizePhone(phoneFromSession ?? '');
+      if (!phoneDigits) {
+        Alert.alert('저장 실패', '로그인 정보를 확인할 수 없습니다. 다시 로그인해주세요.');
+        return;
+      }
+      if (role === 'fc' && !canOpenFcProfileRegistration(existingProfile)) {
         Alert.alert('사전등록 필요', '본등록은 사전등록을 완료한 뒤 진행할 수 있습니다.');
         router.replace('/signup');
         return;
       }
-    }
 
-    const basePayload = {
-      name: values.name,
-      affiliation: values.affiliation,
-      phone: phoneDigits,
-      email: values.email,
-      carrier: values.carrier,
-      career_type: null,
-    };
+      const front = values.residentFront?.trim() ?? '';
+      const back = values.residentBack?.trim() ?? '';
+      const addressChanged =
+        values.address.trim() !== existingAddress.trim() ||
+        values.addressDetail.trim() !== existingAddressDetail.trim();
+      const hasResidentInput = front.length > 0 || back.length > 0;
+      const needsResidentForIdentity = hasResidentInput || (!existingResidentMasked && addressChanged);
 
-    logger.debug('[DEBUG] Mobile: Creating FC Profile Payload', { basePayload });
+      if (addressChanged || hasResidentInput) {
+        if (needsResidentForIdentity && (!front || !back)) {
+          Alert.alert('입력 확인', '주민번호를 처음 저장할 때는 앞/뒤를 모두 입력해주세요.');
+          return;
+        }
 
-    const { data: existing } = await supabase
-      .from('fc_profiles')
-      .select('id')
-      .eq('phone', phoneDigits)
-      .maybeSingle();
-
-    let data: { id: string } | null = null;
-    let error: any = null;
-
-    if (existing?.id) {
-      const { error: updateErr } = await supabase.from('fc_profiles').update(basePayload).eq('id', existing.id);
-      error = updateErr;
-      data = existing as { id: string };
-    } else {
-      const insertPayload = {
-        ...basePayload,
-        status: 'draft',
-        life_commission_completed: false,
-        nonlife_commission_completed: false,
-      };
-      const { data: insertData, error: insertErr } = await supabase
-        .from('fc_profiles')
-        .insert(insertPayload)
-        .select('id')
-        .single();
-      data = insertData as any;
-      error = insertErr;
-    }
-
-    const front = values.residentFront?.trim() ?? '';
-    const back = values.residentBack?.trim() ?? '';
-    const addressChanged =
-      values.address.trim() !== existingAddress.trim() ||
-      values.addressDetail.trim() !== existingAddressDetail.trim();
-    const hasResidentInput = front.length > 0 || back.length > 0;
-    const needsResidentForIdentity = hasResidentInput || (!existingResidentMasked && addressChanged);
-
-    if (addressChanged || hasResidentInput) {
-      if (needsResidentForIdentity && (!front || !back)) {
-        setSubmitting(false);
-        Alert.alert('입력 확인', '주민번호를 처음 저장할 때는 앞/뒤를 모두 입력해주세요.');
-        return;
-      }
-      try {
         const identityPayload: {
           residentId: string;
           residentFront?: string;
@@ -477,55 +400,47 @@ export default function FcNewScreen() {
           body: identityPayload,
         });
         if (identityErr) {
-          setSubmitting(false);
           const rawMessage = await extractFunctionErrorMessage(identityErr, '신원 정보 저장에 실패했습니다.');
-          logger.warn('[fc/new] store-identity failed', { rawMessage });
+          logger.warn('[fc/new] store-identity failed', { reason: 'identity_save_failed' });
           Alert.alert('저장 실패', mapStoreIdentityErrorMessage(rawMessage));
           return;
         }
-      } catch (err: any) {
-        setSubmitting(false);
-        Alert.alert('저장 실패', err?.message ?? '신원 정보 저장에 실패했습니다.');
-        return;
       }
-    }
 
-    setSubmitting(false);
+      const patch = buildFcBasicInformationPatch(existingProfile, values);
+      const updateResult = await invokeAdminAction<{ profile: { id: string } }>(
+        phoneDigits,
+        'updateOwnProfile',
+        { patch },
+      );
+      const savedProfile = updateResult.profile;
 
-    if (error) {
-      Alert.alert('저장 실패', error.message);
-      return;
-    }
+      queryClient.invalidateQueries({ queryKey: ['my-fc-status'] });
 
-    // Invalidate queries to ensure Home gets fresh data
-    queryClient.invalidateQueries({ queryKey: ['my-fc-status'] });
-
-    const notifyProfileSaved = data?.id
-      ? () => sendNotificationAndPush(
+      const notifyProfileSaved = () => sendNotificationAndPush(
         'admin',
         null,
         `${values.name}님이 기본정보를 등록했습니다.`,
         `${values.name}님이 기본정보를 생성/수정했습니다.`,
-        String(data.id),
-      )
-      : null;
-    const notificationDelivery = notifyProfileSaved
-      ? await notifyProfileSaved()
-      : {
-          confirmed: false as const,
-          notificationStored: false as const,
-          reason: 'invalid_recipient' as const,
-        };
+        savedProfile.id,
+      );
+      const notificationDelivery = await notifyProfileSaved();
 
-    loginAs('fc', phoneDigits, values.name, null, false, false, null, appSessionToken);
-    presentPostCommitNotificationDelivery({
-      delivery: notificationDelivery,
-      retryNotification: notifyProfileSaved ?? (async () => notificationDelivery),
-      successTitle: '저장 완료',
-      successMessage: '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.',
-      notificationLabel: '관리자',
-      onDone: () => router.replace('/'),
-    });
+      loginAs('fc', phoneDigits, values.name, null, false, false, null, appSessionToken);
+      presentPostCommitNotificationDelivery({
+        delivery: notificationDelivery,
+        retryNotification: notifyProfileSaved,
+        successTitle: '저장 완료',
+        successMessage: '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.',
+        notificationLabel: '관리자',
+        onDone: () => router.replace('/'),
+      });
+    } catch {
+      logger.warn('[fc/new] basic information save failed', { reason: 'profile_save_failed' });
+      Alert.alert('저장 실패', '기본 정보를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const onError = (errors: any) => {
@@ -635,8 +550,38 @@ export default function FcNewScreen() {
     }
   }, [loadExisting]);
 
+  const retryBasicInformationLoad = useCallback(() => {
+    void loadExisting();
+  }, [loadExisting]);
+
   const screenRefreshControl = <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />;
-  const screenContent = (
+  const screenContent = profileLoadState !== 'ready' ? (
+    <>
+      <ScreenHeader
+        title="기본 정보"
+        subtitle="현재 등록된 정보를 안전하게 불러옵니다."
+      />
+      <View style={styles.loadStateCard}>
+        {profileLoadState === 'loading' ? (
+          <>
+            <ActivityIndicator size="small" color={COLORS.primary} />
+            <Text style={styles.loadStateTitle}>기본 정보를 불러오고 있습니다.</Text>
+          </>
+        ) : (
+          <>
+            <Feather name="alert-circle" size={28} color={COLORS.error} />
+            <Text style={styles.loadStateTitle}>기본 정보를 불러오지 못했습니다.</Text>
+            <Text style={styles.loadStateDescription}>
+              빈 화면에서 새로 입력하지 말고 다시 불러와 주세요.
+            </Text>
+            <Button onPress={retryBasicInformationLoad} variant="primary" size="md">
+              다시 불러오기
+            </Button>
+          </>
+        )}
+      </View>
+    </>
+  ) : (
     <>
         <ScreenHeader
           title="기본 정보"
@@ -693,6 +638,7 @@ export default function FcNewScreen() {
             onSubmitEditing={() => setShowCarrierPicker(true)}
             blurOnSubmit={false}
             scrollEnabled={false} // Added
+            editable={false}
           />
           <View style={styles.field}>
             <View style={styles.fieldLabelRow}>
@@ -903,7 +849,7 @@ export default function FcNewScreen() {
 
         <Button
           onPress={handleSubmit(onSubmit, onError)}
-          disabled={submitting}
+          disabled={submitting || profileLoadState !== 'ready'}
           loading={submitting}
           variant="primary"
           size="lg"
@@ -1044,6 +990,7 @@ type FormFieldProps = {
   onSubmitEditing?: () => void;
   blurOnSubmit?: boolean;
   scrollEnabled?: boolean; // Added
+  editable?: boolean;
 };
 
 const FormField = ({
@@ -1058,6 +1005,7 @@ const FormField = ({
   onSubmitEditing,
   blurOnSubmit,
   scrollEnabled, // Added
+  editable = true,
 }: FormFieldProps) => {
   const { scrollToInput } = useKeyboardAware();
   const [inputHeight, setInputHeight] = useState(multiline ? 80 : 0);
@@ -1084,6 +1032,7 @@ const FormField = ({
             placeholderTextColor={PLACEHOLDER}
             value={value}
             onChangeText={onChange}
+            editable={editable}
             multiline={multiline}
             returnKeyType={returnKeyType}
             onSubmitEditing={onSubmitEditing}
@@ -1107,6 +1056,30 @@ const FormField = ({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.white },
   container: { padding: SPACING.lg, gap: SPACING.lg - 2 },
+  loadStateCard: {
+    minHeight: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.md,
+    padding: SPACING.xl,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.white,
+    ...SHADOWS.base,
+  },
+  loadStateTitle: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    textAlign: 'center',
+  },
+  loadStateDescription: {
+    color: COLORS.text.muted,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
   sectionCard: {
     backgroundColor: COLORS.white,
     padding: SPACING.base,

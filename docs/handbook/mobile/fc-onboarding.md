@@ -2,10 +2,18 @@ doc_id: FC-APP-ONBOARDING
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-06-08
-source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + app/exam-apply.tsx + app/exam-apply2.tsx + lib/fc-workflow.ts + lib/home-latest-notice.ts + lib/notice-route.ts
+last_verified: 2026-08-10
+source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + app/exam-apply.tsx + app/exam-apply2.tsx + lib/fc-basic-information.ts + lib/fc-workflow.ts + lib/home-latest-notice.ts + lib/notice-route.ts + supabase/functions/admin-action/index.ts
 
 # Mobile Playbook: FC Onboarding
+
+## 2026-08-10 기존 FC 기본 정보 수정 계약
+
+- Home > 기본 정보는 서명된 FC 앱 세션으로 `admin-action:getOwnProfile`을 호출하고, 서버가 세션의 `fcId`와 전화번호 후보를 함께 검증해 한 개의 본인 프로필만 반환한다. 화면이 임의 `fcId`를 선택하거나 익명 `fc_profiles` 조회 결과를 편집 권한으로 사용하지 않는다.
+- 기존 프로필을 전부 불러오기 전에는 편집 폼과 저장 버튼을 활성화하지 않는다. 조회 실패는 빈 신규 입력 화면으로 대체하지 않고 재시도 상태로 남긴다.
+- 기본 정보 저장은 현재 값과 비교한 변경분만 `admin-action:updateOwnProfile`로 전송한다. 서버 허용 필드는 `name`, `affiliation`, `email`, `carrier`이며 전화번호, 추천인, 신원정보, workflow 상태는 이 액션으로 변경할 수 없다.
+- 로그인 전화번호는 앱의 사용자 식별자이므로 이 화면에서 읽기 전용이다. 추천인도 가입 당시 스냅샷을 읽기 전용으로 표시한다.
+- 프로필/가입 payload나 raw DB 오류를 앱 진단 로그에 남기지 않는다.
 
 ## 2026-07-05 Home Latest Admin Message
 

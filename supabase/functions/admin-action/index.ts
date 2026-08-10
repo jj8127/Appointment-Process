@@ -182,6 +182,50 @@ function cleanPhone(input: string | null | undefined): string {
   return String(input ?? '').replace(/[^0-9]/g, '');
 }
 
+const FC_BASIC_INFORMATION_FIELDS = new Set([
+  'name',
+  'affiliation',
+  'email',
+  'carrier',
+]);
+
+type FcBasicInformationPatchResult =
+  | { ok: true; patch: Record<string, string> }
+  | { ok: false; message: string };
+
+function normalizeFcBasicInformationPatch(input: unknown): FcBasicInformationPatchResult {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, message: '수정할 기본 정보가 올바르지 않습니다.' };
+  }
+
+  const entries = Object.entries(input as Record<string, unknown>);
+  if (entries.some(([key]) => !FC_BASIC_INFORMATION_FIELDS.has(key))) {
+    return { ok: false, message: '수정할 수 없는 기본 정보가 포함되어 있습니다.' };
+  }
+
+  const patch: Record<string, string> = {};
+  for (const [key, rawValue] of entries) {
+    if (typeof rawValue !== 'string') {
+      return { ok: false, message: '기본 정보는 문자열로 입력해주세요.' };
+    }
+
+    const value = rawValue.trim();
+    if (!value) {
+      return { ok: false, message: '기본 정보의 필수 항목은 비워둘 수 없습니다.' };
+    }
+    if ((key === 'name' && value.length > 100) || value.length > 254) {
+      return { ok: false, message: '기본 정보 입력값이 너무 깁니다.' };
+    }
+    if (key === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      return { ok: false, message: '유효한 이메일을 입력해주세요.' };
+    }
+
+    patch[key] = value;
+  }
+
+  return { ok: true, patch };
+}
+
 const NOTIFICATION_DELIVERY_WARNING = 'notification_delivery_incomplete';
 
 type CanonicalFcNotificationTarget =
@@ -505,7 +549,8 @@ serve(async (req: Request) => {
 
   const normalizedBodyPhone = cleanPhone(adminPhone);
   const allowManagerRead = action === 'getResidentNumbers' || action === 'getInviteeReferralCode';
-  const allowFcRead = action === 'getResidentNumbers';
+  const allowFcSelfProfile = action === 'getOwnProfile' || action === 'updateOwnProfile';
+  const allowFcRead = action === 'getResidentNumbers' || allowFcSelfProfile;
   const authHeader = req.headers.get('Authorization') ?? '';
   const isServiceCaller = authHeader === `Bearer ${serviceKey}`;
 
@@ -570,7 +615,8 @@ serve(async (req: Request) => {
   const isAuthorized =
     isAdmin
     || (allowManagerRead && isManager)
-    || (allowFcRead && requesterFcIds.length > 0);
+    || (allowFcSelfProfile && requesterFcIds.length > 0)
+    || (action === 'getResidentNumbers' && requesterFcIds.length > 0);
 
   if (!isAuthorized) {
     return fail(
@@ -584,6 +630,59 @@ serve(async (req: Request) => {
   }
 
   try {
+    const ownFcId = requesterFcIds[0];
+
+    if (action === 'getOwnProfile') {
+      if (trustedRole !== 'fc' || !ownFcId) {
+        return fail('Unauthorized: signed FC session is required', 403);
+      }
+
+      const { data: profile, error } = await supabase
+        .from('fc_profiles')
+        .select('id,affiliation,name,phone,recommender,email,temp_id,carrier,address,address_detail,resident_id_masked,signup_completed')
+        .eq('id', ownFcId)
+        .in('phone', buildResidentIds(trustedPhone))
+        .maybeSingle();
+      if (error) return fail('기본 정보를 불러오지 못했습니다.', 500);
+      if (!profile?.id) return fail('기본 정보를 찾을 수 없습니다.', 404);
+
+      return json({ ok: true, profile });
+    }
+
+    if (action === 'updateOwnProfile') {
+      if (trustedRole !== 'fc' || !ownFcId) {
+        return fail('Unauthorized: signed FC session is required', 403);
+      }
+
+      const normalized = normalizeFcBasicInformationPatch(payload.patch);
+      if (!normalized.ok) return fail(normalized.message);
+
+      const phoneCandidates = buildResidentIds(trustedPhone);
+      if (Object.keys(normalized.patch).length === 0) {
+        const { data: currentProfile, error: readError } = await supabase
+          .from('fc_profiles')
+          .select('id')
+          .eq('id', ownFcId)
+          .in('phone', phoneCandidates)
+          .maybeSingle();
+        if (readError) return fail('기본 정보를 확인하지 못했습니다.', 500);
+        if (!currentProfile?.id) return fail('기본 정보를 찾을 수 없습니다.', 404);
+        return json({ ok: true, profile: currentProfile });
+      }
+
+      const { data: updatedProfile, error: updateError } = await supabase
+        .from('fc_profiles')
+        .update(normalized.patch)
+        .eq('id', ownFcId)
+        .in('phone', phoneCandidates)
+        .select('id')
+        .maybeSingle();
+      if (updateError) return fail('기본 정보를 저장하지 못했습니다.', 500);
+      if (!updatedProfile?.id) return fail('기본 정보를 찾을 수 없습니다.', 404);
+
+      return json({ ok: true, profile: updatedProfile });
+    }
+
     // ── getResidentNumbers ──
     if (action === 'getResidentNumbers') {
       const identityKey = getEnv('FC_IDENTITY_KEY');

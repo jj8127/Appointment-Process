@@ -1157,3 +1157,10 @@
 - Added executable batching tests and strengthened group-chat Edge source contracts. Local Deno, focused Jest, TypeScript, lint, governance, and harness verification are the release evidence recorded below.
 - No production query/write, Edge deployment, OTA/native release, push, or PR action was performed. Production rollout remains HOLD pending explicit deployment approval and an authenticated large-room smoke test.
 - Details: [WORK_DETAIL.md#20260810-group-chat-notification-recovery](WORK_DETAIL.md#20260810-group-chat-notification-recovery)
+
+## 2026-08-10 FC basic-information edit recovery
+
+- Reproduced the Home > Basic information regression where a failed/ambiguous anonymous profile read left an editable blank form and the save path attempted a direct anonymous table update.
+- Added signed FC-self `getOwnProfile`/`updateOwnProfile` actions, full existing-value hydration, changed-field-only writes, immutable login phone, and a recoverable load-error surface that never exposes a destructive blank form.
+- Full root Jest 236 suites / 1,463 tests, TypeScript, full lint, 52-route Expo export, keyboard audit, the `admin-action` Deno check, governance, and harness audit pass. No production query/write, Edge deployment, app/OTA/native release, Store action, push, or PR was performed; rollout and physical-device reopen verification remain HOLD.
+- Details: [WORK_DETAIL.md#20260810-fc-basic-information-edit-recovery](WORK_DETAIL.md#20260810-fc-basic-information-edit-recovery)

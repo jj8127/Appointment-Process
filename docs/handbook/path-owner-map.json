@@ -39,6 +39,10 @@
         "app/consent.tsx",
         "app/docs-upload.tsx",
         "app/appointment.tsx",
+        "lib/fc-basic-information.ts",
+        "lib/__tests__/fc-basic-information.test.ts",
+        "lib/__tests__/mobile-basic-information-source.test.ts",
+        "lib/__tests__/notification-producer-targets.test.ts",
         "lib/fc-workflow.ts",
         "lib/fc-workflow-core.ts",
         "types/fc.ts"
@@ -227,6 +231,7 @@
       "prefixes": [
         "supabase/functions/_shared/commission.ts",
         "supabase/functions/admin-action/",
+        "supabase/functions/__tests__/admin-action-fc-self-profile.contract.test.ts",
         "supabase/functions/fc-consent/",
         "supabase/functions/fc-submit-hanwha-commission/",
         "supabase/functions/fc-submit-appointment/",

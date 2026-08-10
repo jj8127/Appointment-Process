@@ -5643,3 +5643,19 @@
   - `lib/__tests__/group-chat-data-api-batching.test.ts`
   - `supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts`
   - `supabase/functions/__tests__/messenger-group-push-preferences.contract.test.ts`
+
+## 2026-08-10 | A failed profile read was rendered as an editable blank form
+
+- Symptom:
+  - Home > 기본 정보에서 저장된 값이 모두 사라진 것처럼 보였고, 이름 하나를 고치려 해도 전체 항목을 다시 입력해야 했으며 저장도 신뢰할 수 없었다.
+- Root cause:
+  - 기존 프로필 조회 실패를 별도 UI 상태로 표현하지 않고 빈 form defaults를 그대로 렌더했다.
+  - 모바일 커스텀 세션을 Supabase Auth 세션처럼 간주해 익명 클라이언트에서 `fc_profiles`를 직접 수정했다.
+- Permanent guardrail:
+  - 기존 레코드 편집 화면은 canonical hydrate 성공 전까지 폼과 submit을 열지 않는다. 실패 시 빈 신규 폼이 아니라 명시적 재시도를 제공한다.
+  - 커스텀 앱 세션의 본인 수정은 서명 세션에서 서버가 대상 ID를 도출하고, allowlist 변경분만 trusted path로 저장한다. 전화번호·추천인·workflow·신원 필드는 기본정보 patch에 포함하지 않는다.
+  - 프로필 row, 로컬 가입 payload, raw DB 오류를 진단 로그에 남기지 않는다.
+- Verification:
+  - `lib/__tests__/fc-basic-information.test.ts`
+  - `lib/__tests__/mobile-basic-information-source.test.ts`
+  - `supabase/functions/__tests__/admin-action-fc-self-profile.contract.test.ts`

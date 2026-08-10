@@ -2,10 +2,17 @@ doc_id: FC-BACKEND-ADMIN-OPS
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admin/* + web/src/app/api/fc-delete/route.ts
 
 # Backend Runbook: Admin Operations API
+
+## 2026-08-10 FC self-service basic-information boundary
+
+- `admin-action:getOwnProfile`과 `updateOwnProfile`은 이름과 달리 관리자 권한을 공유하지 않는 서명된 FC 본인 전용 액션이다. 요청 body의 대상 ID는 받지 않고 앱 세션의 `fcId`를 사용하며, legacy 토큰에 `fcId`가 없을 때만 세션 전화번호가 정확히 한 프로필로 해석되는 경우에 한해 보정한다.
+- 조회와 수정은 서버가 확정한 FC ID와 세션 전화번호 후보를 동시에 조건으로 사용한다. 세션 역할이 FC가 아니거나 대상이 모호·불일치하면 실패한다.
+- 수정 payload는 `patch`만 받고 `name`, `affiliation`, `email`, `carrier` 외 필드를 거부한다. 전화번호, 추천인, 신원정보, 가입 완료, workflow/status 필드는 본인 기본정보 액션의 쓰기 권한이 아니다.
+- FC 앱은 이 경로로 기존 값을 먼저 hydrate하고 변경 필드만 저장한다. 익명 Supabase 클라이언트의 직접 `fc_profiles` update/insert는 기본정보 수정 계약이 아니다.
 
 ## 2026-08-04 Exam round v2 writer and legacy mobile boundary
 
