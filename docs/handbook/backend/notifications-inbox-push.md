@@ -2,8 +2,15 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-29
-source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
+last_verified: 2026-08-10
+source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + lib/session-logout.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
+
+## Mobile logout push cleanup boundary (2026-08-10)
+
+- 로컬 세션 종료는 원격 `device-token-register` DELETE보다 먼저 시작한다. 푸시 토큰 해제 지연·timeout·실패가 앱의 로그아웃이나 로그인 화면 이동을 막으면 안 된다.
+- 원격 해제는 로그아웃 시작 시 메모리에 캡처한 현재 signed app-session token으로만 호출하고 5초 timeout을 둔 best-effort 작업으로 처리한다. 로컬 저장소가 먼저 비워져도 임의 actor 입력이나 body role로 대체하지 않는다.
+- 원격 실패는 `session_unavailable` 또는 `unregister_failed` 같은 fixed reason만 기록한다. app-session token, Expo token, 전화번호, 사용자 이름, raw Edge 응답과 thrown value는 진단에 포함하지 않는다.
+- `lib/session-logout.ts`는 local-first orchestration의 SSOT이고, `lib/notifications.ts`는 bounded Edge 호출의 SSOT다.
 
 ## Notification-center acknowledgement boundary (2026-07-27)
 

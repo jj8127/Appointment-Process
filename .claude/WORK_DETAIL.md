@@ -13794,3 +13794,44 @@
   Root TypeScript는 범위 밖 `app/index.tsx` 기존 JSX parse 오류로 차단됐다.
 - interaction latency는 사용자 실기기 확인으로 해결됐다. 원격 서버/DB/Edge/OTA는
   변경하지 않았으며 backend summary 성능 검증과 rollout은 별도 HOLD다.
+<a id="20260810-fc-completion-state-reconciliation"></a>
+## 2026-08-10 | FC completion-state reconciliation
+
+**Observed state**:
+- A privacy-safe aggregate production read evaluated 514 FC rows using the mobile workflow predicates without returning or retaining names, phones, UUIDs, file paths, or raw records.
+- 161 legacy completed rows do not satisfy every new dawichok/PDF/document prerequisite, but all resolve to mobile step 5 because completion status and both commission tracks are authoritative completion evidence.
+- 96 rows share the reported legacy-completion shape. No row with appointment/completion evidence resolves to mobile step 3.
+- One partial-track row and one both-tracks/non-final-status row exist, but neither reproduces the reported mobile step-3 behavior.
+
+**Implementation**:
+- `getFcHomeQuickLinkDescriptions` now derives completed-FC quick-link copy from the shared mobile workflow step.
+- Completed FCs retain access to dawichok and appointment history but see `완료 내역 확인`; in-progress FCs keep the existing action copy.
+- The normal dawichok approval + PDF gate, administrator completion controls, and production data are unchanged.
+
+**Verification and boundaries**:
+- `npm test -- --runTestsByPath lib/__tests__/workflow-step-regression.test.ts lib/__tests__/fc-workflow-cross-surface.test.ts --runInBand`: 2 suites / 37 tests PASS.
+- `npx expo lint app/index.tsx lib/fc-workflow.ts lib/__tests__/workflow-step-regression.test.ts`: PASS.
+- `npx tsc --noEmit`: PASS.
+- Sentry-disabled `npm run build`: Expo web export PASS.
+- Governance check, workspace harness audit, INDEX JSON parse, and `git diff --check`: PASS.
+- No production write, migration, Edge/Vercel deployment, OTA/native release, push, or PR was performed. This change set is preserved locally; release remains HOLD.
+
+<a id="20260810-logout-session-reliability"></a>
+## 2026-08-10 | Logout session reliability
+
+**Root cause**:
+- The 4.2.2 release added `await unregisterAllPushTokens()` before `clearSessionState()`. The Edge invocation had no client timeout, so a slow or unresolved request prevented the local role and tokens from being cleared.
+- Android home set `isLoggingOut=true` before that work and had no reset path. Its loading component did not render the supplied copy, so the stalled state appeared as a blank white screen.
+- Common explicit logout also navigated to plain `/login` while the previous role could still be visible, allowing the login auto-landing effect to race back into the authenticated route.
+
+**Implementation**:
+- Added `lib/session-logout.ts` as the local-first coordinator. It starts local cleanup before remote push cleanup and reports only fixed failure reasons.
+- `unregisterAllPushTokens` accepts the captured signed token and gives the Supabase Function invocation a 5-second timeout.
+- Explicit logout defaults to `/login?skipAuto=1`; home now uses the common action and no longer owns a terminal Android logout surface.
+- Updated mobile auth, notification, and feature contract handbooks. Existing FC completion quick-link changes in `app/index.tsx` were preserved.
+
+**Verification and boundaries**:
+- RED before implementation: missing coordinator, plain login route, terminal home state, and unbounded unregister contract all failed.
+- Focused GREEN: 3 suites / 14 tests. Adjacent auth/session/notification GREEN: 5 suites / 57 tests.
+- Root TypeScript and scoped ESLint pass. Task-owned governance obligations are satisfied; the repository-wide governance command still reports only pre-existing exam-documentation and package-contract violations outside this task.
+- No remote Supabase call, function deployment, database change, OTA/native release, push, or PR was performed. This change set is preserved locally; release remains HOLD pending an approved app rollout and physical-device logout smoke.

@@ -114,15 +114,17 @@ describe('registerPushToken', () => {
 
   test('unregisters every token for the signed actor through the trusted function', async () => {
     invokeMock.mockResolvedValue({ data: { ok: true }, error: null });
-    await expect(unregisterAllPushTokens()).resolves.toEqual({
+    await expect(unregisterAllPushTokens('captured-session-token')).resolves.toEqual({
       ok: true,
       retryable: false,
       reason: 'unregistered',
     });
+    expect(getStoredAppSessionTokenMock).not.toHaveBeenCalled();
     expect(invokeMock).toHaveBeenCalledWith('device-token-register', expect.objectContaining({
       method: 'DELETE',
       body: { disableAll: true },
-      headers: { 'x-app-session-token': 'session-token' },
+      headers: { 'x-app-session-token': 'captured-session-token' },
+      timeout: 5_000,
     }));
   });
 

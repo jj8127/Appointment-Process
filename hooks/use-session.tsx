@@ -22,6 +22,7 @@ import {
 } from '@/lib/request-board-session';
 import { buildPushRegistrationAttemptKey } from '@/lib/push-registration';
 import { safeStorage } from '@/lib/safe-storage';
+import { startSessionLogout } from '@/lib/session-logout';
 import { normalizeStaffType, type StaffType } from '@/lib/staff-identity';
 import { isValidMobilePhone, normalizePhone } from '@/lib/validation';
 
@@ -342,13 +343,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       replaceAppSessionToken,
       ensureRequestBoardSession,
       logout: () => {
-        void (async () => {
-          if (appSessionToken) {
-            const result = await unregisterAllPushTokens();
-            if (!result.ok) logger.warn('[push] logout token unregister failed', { reason: result.reason });
-          }
-          await clearSessionState({ clearAppSession: true });
-        })();
+        startSessionLogout({
+          sessionToken: appSessionToken,
+          clearLocalSession: () => clearSessionState({ clearAppSession: true }),
+          unregisterPushTokens: unregisterAllPushTokens,
+          onLocalClearFailure: () => {
+            logger.warn('[session] local logout cleanup failed');
+          },
+          onPushUnregisterFailure: (reason) => {
+            logger.warn('[push] logout token unregister failed', { reason });
+          },
+        });
       },
       loginAs: (
         role,

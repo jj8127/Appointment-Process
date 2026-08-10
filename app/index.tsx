@@ -36,7 +36,9 @@ import {
   calcFcHomeWorkflowStep,
   canOpenFcProfileRegistration,
   getFcHomeNextAction,
+  getFcHomeQuickLinkDescriptions,
 } from '@/lib/fc-workflow';
+import { useAppLogout } from '@/hooks/use-app-logout';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
@@ -184,15 +186,16 @@ const FC_STAGE_YOUTUBE_PLACEHOLDERS: Record<
 };
 
 const buildFcQuickLinks = (profile?: FcProfile | null): QuickLink[] => {
+  const workflowDescriptions = getFcHomeQuickLinkDescriptions(profile);
   const hanwhaLink: QuickLink = {
     href: '/hanwha-commission',
     title: '다위촉 URL',
-    description: '다위촉 진행',
+    description: workflowDescriptions.hanwha,
   };
   const insuranceLink: QuickLink = {
     href: '/appointment',
     title: '생명/손해 위촉',
-    description: '생명/손해 위촉 진행',
+    description: workflowDescriptions.insurance,
   };
 
   const referralLink: QuickLink = {
@@ -451,7 +454,8 @@ const getLinkIcon = (href: string) => {
 
 export default function Home() {
   useInAppUpdate(); // Check for Android updates on mount
-  const { role, residentId, displayName, logout, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
+  const { role, residentId, displayName, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
+  const appLogout = useAppLogout();
   const { mode, notificationId, notificationTarget } = useLocalSearchParams<{
     mode?: string;
     notificationId?: string;
@@ -489,7 +493,6 @@ export default function Home() {
   });
 
   const [adminHomeTab, setAdminHomeTab] = useState<'onboarding' | 'exam'>('onboarding');
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const examHomeSurface = resolveExamHomeSurface({ role, readOnly, adminHomeTab });
@@ -1052,15 +1055,8 @@ export default function Home() {
 
   // 모바일 푸시 토큰 등록 (배너 알림 수신용)
   const handleLogout = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    if (Platform.OS === 'android') {
-      setIsLoggingOut(true);
-      setTimeout(() => {
-        logout();
-      }, 100);
-    } else {
-      logout();
-    }
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    appLogout();
   };
 
   const handleAdminTabChange = (tab: 'onboarding' | 'exam') => {
@@ -1186,19 +1182,6 @@ export default function Home() {
       supabase.removeChannel(docChannel);
     };
   }, [role, myFc?.id, refetchMyFc]);
-
-  // Android Crash Fix: Wait for all hooks to be valid, then short-circuit layout
-  if (isLoggingOut) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#fff' }}>
-        <BrandedLoadingState
-          variant="home"
-          title="세션을 정리하고 있어요"
-          subtitle="안전하게 로그아웃하는 중입니다."
-        />
-      </View>
-    );
-  }
 
   if (!hydrated) {
     return (

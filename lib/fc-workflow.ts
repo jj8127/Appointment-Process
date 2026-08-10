@@ -208,6 +208,22 @@ export const calcAdminWorkflowStep = (profile?: WorkflowProfile | null): AdminWo
 export const calcFcHomeWorkflowStep = (profile?: WorkflowProfile | null): WorkflowStepNumber =>
   calcWorkflowStep(profile);
 
+export const getFcHomeQuickLinkDescriptions = (
+  profile?: WorkflowProfile | null,
+): { hanwha: string; insurance: string } => {
+  if (calcFcHomeWorkflowStep(profile) === 5) {
+    return {
+      hanwha: '다위촉 완료 내역 확인',
+      insurance: '위촉 완료 내역 확인',
+    };
+  }
+
+  return {
+    hanwha: '다위촉 진행',
+    insurance: '생명/손해 위촉 진행',
+  };
+};
+
 const getFcHomeStepKey = (step: WorkflowStepNumber): FcHomeStepKey => {
   switch (step) {
     case 1:

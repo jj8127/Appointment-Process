@@ -3,7 +3,7 @@ import { useCallback } from 'react';
 
 import { useSession } from '@/hooks/use-session';
 
-export function useAppLogout(loginPath: string = '/login') {
+export function useAppLogout(loginPath: string = '/login?skipAuto=1') {
   const router = useRouter();
   const { logout } = useSession();
 

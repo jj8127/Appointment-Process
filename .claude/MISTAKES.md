@@ -5582,3 +5582,19 @@
   - Before claiming an Android release is pending or complete, verify both the exact EAS build `(appVersion, versionCode)` and the Google Play production track. Record active/review/rollout state, publish time, and unpublished-change status. Never re-submit an already active versionCode.
 - Verification:
   - Google Play Console production track for `4.2.2 (71)` and the indexed Android release harness.
+
+## 2026-08-10 | Remote push cleanup was made a prerequisite for local logout
+
+- Symptom:
+  - A developer or administrator could press logout on Android and remain indefinitely on a white screen with no usable action.
+- Root cause:
+  - Logout awaited the remote `device-token-register` cleanup before clearing local role and token state, while the Function invocation had no client timeout.
+  - The home screen entered an Android-only `isLoggingOut` state before the request and had no reset path.
+- Permanent guardrail:
+  - Local authentication state is the authoritative logout boundary and must be cleared before any remote notification, analytics, presence, or bridge cleanup.
+  - Remote cleanup uses a previously captured signed credential, a bounded timeout, best-effort failure handling, and fixed sanitized diagnostics. It must never control logout navigation.
+  - Explicit logout routes must suppress automatic landing from a stale same-frame session snapshot, and tests must include a never-resolving remote Promise.
+- Verification:
+  - `lib/__tests__/session-logout.test.ts`
+  - `lib/__tests__/logout-source-contract.test.ts`
+  - `lib/__tests__/notifications.test.ts`

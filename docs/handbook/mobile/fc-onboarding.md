@@ -99,6 +99,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - `미승인`: `1단계 보증 보험 동의`, 다음 단계 `반려 사유를 확인하고 다시 입력하세요`
 - `docs-approved`: `3단계 다위촉 URL`
 - `hanwha-commission-approved`: `4단계 생명/손해 위촉`
+- 최종 완료 FC의 빠른 메뉴는 다위촉·생명/손해 위촉 화면을 계속 열람할 수 있게 유지하되, 다시 진행해야 하는 것으로 오해하지 않도록 `완료 내역 확인`으로 표시한다.
 
 ## 사용자 액션
 

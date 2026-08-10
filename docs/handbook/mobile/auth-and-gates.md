@@ -2,10 +2,17 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-07-30
+last_verified: 2026-08-10
 source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-session.tsx
 
 # Mobile Playbook: Auth And Gates
+
+## 2026-08-10 Explicit Logout Contract
+
+- 명시적 로그아웃은 FC·관리자·본부장·개발자·설계매니저 모두 로컬 세션 종료가 권한 원천이다. 원격 푸시 토큰 해제나 가람Link 정리가 늦거나 실패해도 로컬 `role`, 앱 세션 토큰, 저장 세션을 비우는 동작을 기다리게 하면 안 된다.
+- 홈과 공통 로그아웃 액션은 `/login?skipAuto=1`로 이동해, 같은 이벤트 프레임에 남아 있는 이전 세션 snapshot이 로그인 화면에서 landing route로 되돌리는 경합을 막는다.
+- 푸시 토큰 해제는 로그아웃 시작 시 캡처한 signed app-session token으로 bounded best-effort 실행한다. 실패는 fixed reason만 기록하며 토큰·actor·원문 오류를 로그에 남기지 않는다.
+- 회귀 증거는 `lib/__tests__/session-logout.test.ts`, `lib/__tests__/logout-source-contract.test.ts`, `lib/__tests__/notifications.test.ts`가 소유한다.
 
 ## 2026-07-03 Login Contract Notes
 

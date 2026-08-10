@@ -11,6 +11,7 @@ import {
   canOpenFcProfileRegistration,
   getAllowanceDisplayState,
   getFcHomeNextAction,
+  getFcHomeQuickLinkDescriptions,
 } from '../fc-workflow';
 import type { FcProfile } from '../../web/src/types/fc';
 
@@ -275,6 +276,29 @@ describe('workflow step regression', () => {
 
     expect(calcStep(row)).toBe(5);
     expect(getSummaryStatus(row).label).toBe('가입 시 위촉 완료');
+    expect(getFcHomeNextAction(row as any)).toMatchObject({
+      step: 5,
+      title: '완료',
+      subtitle: '모든 위촉 과정이 끝났습니다.',
+    });
+    expect(getFcHomeQuickLinkDescriptions(row as any)).toEqual({
+      hanwha: '다위촉 완료 내역 확인',
+      insurance: '위촉 완료 내역 확인',
+    });
+  });
+
+  test('in-progress FC quick links keep action copy', () => {
+    const row = profile({
+      status: 'docs-approved',
+      temp_id: 'TMP-001',
+      allowance_date: '2026-02-20',
+      fc_documents: approvedDocs,
+    });
+
+    expect(getFcHomeQuickLinkDescriptions(row as any)).toEqual({
+      hanwha: '다위촉 진행',
+      insurance: '생명/손해 위촉 진행',
+    });
   });
 
   test('fc profile registration opens only after preregistration is completed', () => {

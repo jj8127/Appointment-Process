@@ -27,6 +27,8 @@ export type PushTokenUnregisterResult =
   | { ok: true; retryable: false; reason: 'unregistered' }
   | { ok: false; retryable: boolean; reason: 'session_unavailable' | 'unregister_failed' };
 
+const PUSH_TOKEN_UNREGISTER_TIMEOUT_MS = 5_000;
+
 export async function getPushPermissionStatus(): Promise<PushPermissionStatus> {
   if (Platform.OS === 'web') return 'unavailable';
   try {
@@ -50,8 +52,10 @@ export async function openPushNotificationSettings() {
   }
 }
 
-export async function unregisterAllPushTokens(): Promise<PushTokenUnregisterResult> {
-  const sessionToken = await getStoredAppSessionToken();
+export async function unregisterAllPushTokens(
+  providedSessionToken?: string,
+): Promise<PushTokenUnregisterResult> {
+  const sessionToken = providedSessionToken?.trim() || await getStoredAppSessionToken();
   if (!sessionToken) {
     return { ok: false, retryable: true, reason: 'session_unavailable' };
   }
@@ -62,6 +66,7 @@ export async function unregisterAllPushTokens(): Promise<PushTokenUnregisterResu
         method: 'DELETE',
         body: { disableAll: true },
         headers: { 'x-app-session-token': sessionToken },
+        timeout: PUSH_TOKEN_UNREGISTER_TIMEOUT_MS,
       },
     );
     return !error && data?.ok === true

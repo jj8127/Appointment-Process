@@ -1118,3 +1118,19 @@
 - Confirmed in Google Play Console that `4.2.2 (71)` is the active production release, is available on Google Play, and was published on 2026-08-09 at 01:48 KST.
 - The publishing overview reports no unpublished changes. No duplicate upload or Console mutation was performed.
 - Details: [WORK_DETAIL.md#20260809-google-play-422](WORK_DETAIL.md#20260809-google-play-422)
+
+## 2026-08-10 FC completion-state reconciliation
+
+- Audited 514 production FC workflow rows with aggregate-only, privacy-safe reads; no names, phones, UUIDs, file paths, or raw rows were retained.
+- Confirmed 161 legacy completed FC rows without the full new dawichok contract, including 96 rows matching the reported completion shape, all still resolve to mobile step 5. No completed/appointment-evidence row resolves to mobile step 3.
+- Changed completed-FC home quick links from action copy to `완료 내역 확인` while preserving the normal dawichok approval + PDF gate for in-progress FCs.
+- Focused 2-suite/37-test workflow checks, scoped Expo lint, full TypeScript, Sentry-disabled Expo web export, governance, and harness audit passed. No production write, migration, deployment, app release, push, or PR was performed; the change set is preserved locally and release remains HOLD.
+- Details: [WORK_DETAIL.md#20260810-fc-completion-state-reconciliation](WORK_DETAIL.md#20260810-fc-completion-state-reconciliation)
+
+## 2026-08-10 Logout session reliability
+
+- Fixed the 4.2.2 logout regression that waited for remote push-token removal before clearing the local app session and could leave Android developer/admin home on a terminal white loading surface.
+- Local session cleanup now starts first; the captured signed token is used only for a 5-second bounded best-effort `device-token-register` DELETE.
+- Explicit logout routes through `/login?skipAuto=1`, and the home-only `isLoggingOut` branch was removed.
+- Focused logout/notification tests, adjacent auth/session tests, TypeScript, scoped ESLint, and task-owned governance contracts pass. No remote function, database, OTA, Store, push, or PR action was performed; the change set is preserved locally and release remains HOLD.
+- Details: [WORK_DETAIL.md#20260810-logout-session-reliability](WORK_DETAIL.md#20260810-logout-session-reliability)
