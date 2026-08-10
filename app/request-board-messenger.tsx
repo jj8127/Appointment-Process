@@ -1395,8 +1395,8 @@ export default function RequestBoardMessengerScreen() {
             '업로드 실패',
             toRequestBoardSessionErrorMessage(uploadRes.error, '파일 업로드에 실패했습니다.'),
           );
-          setInputText(text);
-          setPendingFiles(files);
+          setInputText((current) => current.trim() ? current : text);
+          setPendingFiles((current) => current.length > 0 ? current : files);
           setSending(false);
           return;
         }
@@ -1479,8 +1479,8 @@ export default function RequestBoardMessengerScreen() {
             )),
           );
         }
-        setInputText(text);
-        setPendingFiles(files);
+        setInputText((current) => current.trim() ? current : text);
+        setPendingFiles((current) => current.length > 0 ? current : files);
       }
     } catch {
       setMessages((prev) => prev.filter((message) => message.id !== tempMessageId));
@@ -1495,8 +1495,8 @@ export default function RequestBoardMessengerScreen() {
           )),
         );
       }
-      setInputText(text);
-      setPendingFiles(files);
+      setInputText((current) => current.trim() ? current : text);
+      setPendingFiles((current) => current.length > 0 ? current : files);
     } finally {
       setSending(false);
     }
@@ -1865,7 +1865,7 @@ export default function RequestBoardMessengerScreen() {
         {/* Messages + Input */}
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={0}
         >
           {msgLoading && messages.length === 0 ? (
@@ -2108,7 +2108,6 @@ export default function RequestBoardMessengerScreen() {
               placeholderTextColor={COLORS.gray[400]}
               multiline
               maxLength={2000}
-              editable={!sending}
             />
             <Pressable
               style={({ pressed }) => [

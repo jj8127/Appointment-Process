@@ -1023,6 +1023,7 @@ export default function GroupChatScreen() {
   ]);
 
   const handleSendText = useCallback(() => {
+    const submittedText = text;
     const nextText = text.trim();
     const attachments = selectedAttachments;
     if ((!nextText && attachments.length === 0) || uploading) return;
@@ -1034,8 +1035,16 @@ export default function GroupChatScreen() {
     void sendPayload(nextText, attachments)
       .then((sent) => {
         if (!sent) return;
-        setText('');
-        setSelectedAttachments([]);
+        setText((current) => current === submittedText ? '' : current);
+        setSelectedAttachments((current) =>
+          current.length === attachments.length
+          && current.every(
+            (attachment, index) =>
+              attachment.clientFileId === attachments[index]?.clientFileId,
+          )
+            ? []
+            : current,
+        );
       })
       .finally(() => setUploading(false));
   }, [
@@ -1609,7 +1618,7 @@ export default function GroupChatScreen() {
       ) : (
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={0}
         >
           <FlatList
@@ -1756,7 +1765,7 @@ export default function GroupChatScreen() {
                 placeholder={canSendMessages ? '메시지를 입력하세요' : '총무 또는 본부장이 채팅을 허용하면 입력할 수 있어요'}
                 placeholderTextColor={MUTED}
                 multiline
-                editable={canSendMessages && !uploading}
+                editable={canSendMessages}
                 textAlignVertical="center"
                 scrollEnabled={false}
               />

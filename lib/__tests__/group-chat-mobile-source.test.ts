@@ -91,7 +91,7 @@ describe('group chat mobile wiring', () => {
 
     for (const source of [groupSource, directSource, requestBoardSource]) {
       expect(source).toContain(
-        "behavior={Platform.OS === 'ios' ? 'padding' : 'height'}",
+        "behavior={Platform.OS === 'ios' ? 'padding' : undefined}",
       );
     }
   });

@@ -1414,6 +1414,7 @@ export default function ChatScreen() {
   };
 
   const handleSendText = () => {
+    const submittedText = text;
     const content = text.trim();
     const attachments = selectedAttachments;
     if ((!content && attachments.length === 0) || sendingAttachments) return;
@@ -1421,8 +1422,16 @@ export default function ChatScreen() {
     void sendPayload(content, attachments)
       .then((sent) => {
         if (!sent) return;
-        setText('');
-        setSelectedAttachments([]);
+        setText((current) => current === submittedText ? '' : current);
+        setSelectedAttachments((current) =>
+          current.length === attachments.length
+          && current.every(
+            (attachment, index) =>
+              attachment.clientFileId === attachments[index]?.clientFileId,
+          )
+            ? []
+            : current,
+        );
       })
       .finally(() => setSendingAttachments(false));
   };
@@ -2151,7 +2160,7 @@ export default function ChatScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={0}>
         <FlatList
           ref={flatListRef}
@@ -2241,7 +2250,6 @@ export default function ChatScreen() {
               multiline
               textAlignVertical="center"
               scrollEnabled={false}
-              editable={!sendingAttachments}
             />
             <Pressable
               onPress={handleSendText}

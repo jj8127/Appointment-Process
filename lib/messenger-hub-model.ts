@@ -285,16 +285,21 @@ export function buildInternalListRows(items: readonly InternalChatListItem[]) {
           },
     };
   });
-  const conversations = items.map<MessengerHubConversation>((item, index) => ({
-    ...people[index],
-    ...(isNotificationUuid(item.conversation_id)
-      ? { garaminRoomKey: `garamin:direct-thread:${item.conversation_id}` }
-      : {}),
-    preview: item.last_message?.trim() || '아직 메시지가 없습니다.',
-    timestamp: item.last_time,
-    timestampMs: parseMessengerTimestamp(item.last_time),
-    unreadCount: safeUnread(item.unread_count),
-  }));
+  const conversations = items.flatMap<MessengerHubConversation>((item, index) => {
+    if (!item.last_message?.trim() && !item.last_time && safeUnread(item.unread_count) === 0) {
+      return [];
+    }
+    return [{
+      ...people[index],
+      ...(isNotificationUuid(item.conversation_id)
+        ? { garaminRoomKey: `garamin:direct-thread:${item.conversation_id}` }
+        : {}),
+      preview: item.last_message?.trim() || '대화를 시작해 보세요.',
+      timestamp: item.last_time,
+      timestampMs: parseMessengerTimestamp(item.last_time),
+      unreadCount: safeUnread(item.unread_count),
+    }];
+  });
   return { people: sortMessengerPeople(people), conversations: sortMessengerConversations(conversations) };
 }
 
@@ -329,7 +334,7 @@ export function buildGroupConversation(
 export function buildRequestConversationRows(
   items: readonly RbConversation[],
 ): MessengerHubConversation[] {
-  return items.map((item) => {
+  return items.filter((item) => item.lastMessage !== null).map((item) => {
     const participant = item.participantRole === 'designer'
       ? item.designer?.users
       : item.fc;
@@ -356,7 +361,7 @@ export function buildRequestConversationRows(
 export function buildRequestDmRows(
   items: readonly RbDmConversation[],
 ): MessengerHubConversation[] {
-  return items.map((item) => ({
+  return items.filter((item) => item.lastMessage !== null).map((item) => ({
     key: `request-dm:${item.id}`,
     ...(item.participant?.id
       ? { identityKey: `request-user:${item.participant.id}` }

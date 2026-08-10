@@ -10,8 +10,8 @@ import { normalizeKeyboardPadding } from '@/lib/mobile-keyboard-layout';
  * `softwareKeyboardLayoutMode` is `resize`: edge-to-edge and custom overlay
  * layouts do not consistently receive a usable resize on every device.
  * Fixed bottom bars should use KeyboardAvoidingView/KeyboardSafeBottomBar so
- * React Native can calculate the remaining overlap instead of adding this
- * value directly to their position.
+ * their actual screen-frame overlap is resolved instead of adding this height
+ * directly to their position.
  */
 export function useKeyboardPadding() {
   const [padding, setPadding] = useState(0);

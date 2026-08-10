@@ -5,6 +5,7 @@ import {
   buildFcTargetRows,
   buildGroupConversation,
   buildInternalListRows,
+  buildRequestConversationRows,
   buildRequestDmRows,
   buildRequestDirectoryPeople,
   classifyMessengerPersonRole,
@@ -225,7 +226,8 @@ describe('Messenger V2 hub model', () => {
       last_time: null,
       unread_count: 0,
     };
-    expect(buildInternalListRows([item]).people[0]).toMatchObject({
+    const result = buildInternalListRows([item]);
+    expect(result.people[0]).toMatchObject({
       key: 'internal-target:01012345678',
       route: {
         kind: 'internal',
@@ -233,6 +235,40 @@ describe('Messenger V2 hub model', () => {
         targetName: '김가람',
       },
     });
+    expect(result.conversations).toEqual([]);
+  });
+
+  test('keeps never-started GaramLink rooms out of the conversation tab', () => {
+    const emptyDm = {
+      id: 42,
+      type: 'direct' as const,
+      participant: { id: 9, name: '테스트 매니저', role: 'designer', phone: null },
+      lastMessage: null,
+      unreadCount: 0,
+      created_at: '2026-08-01T00:00:00.000Z',
+      updated_at: '2026-08-02T00:00:00.000Z',
+    };
+    const emptyRequest = {
+      id: 17,
+      primaryConversationId: 17,
+      conversationIds: [17],
+      requestIds: [3],
+      participantUserId: 9,
+      participantRole: 'designer' as const,
+      status: 'active',
+      request: { id: 3, customer_name: '고객', status: 'active' },
+      fc: null,
+      designer: {
+        id: 2,
+        company_name: '회사',
+        users: { id: 9, name: '테스트 매니저', phone: null },
+      },
+      lastMessage: null,
+      unreadCount: 0,
+    };
+
+    expect(buildRequestDmRows([emptyDm])).toEqual([]);
+    expect(buildRequestConversationRows([emptyRequest])).toEqual([]);
   });
 
   test('groups people by role without relying on their source labels', () => {
@@ -282,7 +318,13 @@ describe('Messenger V2 hub model', () => {
       id: 42,
       type: 'direct',
       participant: { id: 9, name: '이설계', role: 'designer', phone: null },
-      lastMessage: null,
+      lastMessage: {
+        id: 1,
+        message: '확인했습니다.',
+        sender_id: 9,
+        is_read: true,
+        created_at: '2026-08-02T00:00:00.000Z',
+      },
       unreadCount: 0,
       created_at: '2026-08-01T00:00:00.000Z',
       updated_at: '2026-08-02T00:00:00.000Z',
@@ -315,7 +357,13 @@ describe('Messenger V2 hub model', () => {
       id: 42,
       type: 'direct',
       participant: { id: 9, name: '이설계', role: 'designer', phone: null },
-      lastMessage: null,
+      lastMessage: {
+        id: 1,
+        message: '확인했습니다.',
+        sender_id: 9,
+        is_read: true,
+        created_at: '2026-08-02T00:00:00.000Z',
+      },
       unreadCount: 0,
       created_at: '2026-08-01T00:00:00.000Z',
       updated_at: '2026-08-02T00:00:00.000Z',
