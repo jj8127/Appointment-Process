@@ -13960,3 +13960,20 @@ Verification:
 **Verification**:
 - Supabase linked-project dry-run reports the remote database is up to date with no pending migrations, seeds, or roles.
 - No schema statement was re-executed and no production record was read or changed during this parity repair.
+<a id="20260810-admin-assisted-signup-production-rollout"></a>
+## 2026-08-10 | Administrator-assisted signup production rollout
+
+**Rollout**:
+- Applied `admin_assisted_signup_v1` to production and verified the added profile/credential state, RLS-enabled service-role tables, three RPCs, and anon/authenticated execution revocations.
+- Deployed `verify-signup-otp`, `set-password`, `reset-password`, `complete-assisted-password`, and `login-with-password` in compatibility order with JWT verification retained.
+- Built the administrator web from an isolated clean worktree and deployed `dpl_HmJ1brXrGdYE2giXHYr4qEaZwkHz` to the production alias. The first remote packaging attempt did not change production; the successful artifact reported no error-level build events.
+
+**Account and privacy evidence**:
+- Used the signed production administrator session to create exactly the two accounts explicitly approved by the user. No resident number, address, consent body, plaintext password, token, UUID, or raw production record is retained in this documentation.
+- The second browser form reset its license selection before submission. One evidence-reference-bounded row was corrected from the default value to the two requested licenses, and a full aggregate query was rerun.
+- Final aggregate verification is all true for exactly two distinct records: completed signup, `admin_written_consent`, phone unverified, first-password change required, consent actor/date/attestation consistency, expected recommender mapping, admin referral event, and requested licenses.
+
+**Local verification and boundaries**:
+- Focused assisted-signup Jest passes 3 suites / 19 tests, including the Vercel web-root packaging regression contract. Administrator-web TypeScript and scoped root/web ESLint pass.
+- Production advisor findings are informational only for the intentionally service-role-only unused tables/indexes. The clean root install still reports the documented 11 pre-existing high dependency audit paths; the web subtree reports zero.
+- No exam application or mobile OTA/Store release occurred. Subjects retain responsibility for choosing their own final passwords on first login. The task created no commit or push and preserved unrelated worktree changes.

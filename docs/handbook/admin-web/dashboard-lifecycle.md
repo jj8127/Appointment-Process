@@ -133,3 +133,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 
 - [../workflow-state-matrix.md](../workflow-state-matrix.md)
 - [../backend/admin-operations-api.md](../backend/admin-operations-api.md)
+## 2026-08-10 관리자 보조 가입 배포 경계
+
+- 관리자 보조 가입 폼의 검증 스키마와 가입 선택지는 Vercel 프로젝트 루트인 `web/` 내부 모듈에서 해석되어야 한다.
+- `web/src/lib/admin-assisted-signup-contract.ts`가 저장소 상위 별칭에 의존하면 원격 패키징 경계에서 누락될 수 있으므로, 웹 루트 내부의 검증·선택지 모듈만 다시 내보낸다.

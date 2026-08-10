@@ -58,4 +58,17 @@ describe('administrator-assisted signup trusted boundaries', () => {
     expect(pending).not.toContain('SecureStore');
     expect(pending).not.toContain('localStorage');
   });
+
+  it('keeps the administrator-web validation contract inside the deployed web root', () => {
+    const contract = read('web/src/lib/admin-assisted-signup-contract.ts');
+    const validation = read('web/src/lib/admin-assisted-signup-validation.ts');
+    const profileOptions = read('web/src/lib/signup-profile-options.ts');
+
+    expect(contract).toContain("export * from './admin-assisted-signup-validation'");
+    expect(contract).not.toContain('@shared');
+    expect(validation).toContain("from './signup-profile-options'");
+    expect(validation).not.toContain('@shared');
+    expect(profileOptions).toContain('SIGNUP_AFFILIATION_OPTIONS');
+    expect(profileOptions).toContain('SIGNUP_CARRIER_OPTIONS');
+  });
 });

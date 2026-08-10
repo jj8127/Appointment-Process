@@ -1,1 +1,1 @@
-export * from '@shared/lib/admin-assisted-signup-validation';
+export * from './admin-assisted-signup-validation';
