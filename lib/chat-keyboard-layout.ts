@@ -23,9 +23,6 @@ export function getChatComposerBottomPadding({
   const normalizedSafeArea = Number.isFinite(safeAreaBottom)
     ? Math.max(0, safeAreaBottom)
     : 0;
-  if (platform === 'android') {
-    return 20;
-  }
-
-  return Math.max(normalizedSafeArea, 12);
+  const minimumRestingInset = platform === 'android' ? 20 : 12;
+  return Math.max(normalizedSafeArea, minimumRestingInset);
 }

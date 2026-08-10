@@ -35,7 +35,12 @@ describe('mobile chat keyboard layout', () => {
     expect(getChatComposerBottomPadding({
       keyboardHeight: 0,
       platform: 'android',
+      safeAreaBottom: 48,
+    })).toBe(48);
+    expect(getChatComposerBottomPadding({
+      keyboardHeight: 0,
+      platform: 'android',
       safeAreaBottom: 96,
-    })).toBe(20);
+    })).toBe(96);
   });
 });
