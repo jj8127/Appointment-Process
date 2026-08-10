@@ -241,6 +241,7 @@
       "requires_any": [
         "lib/__tests__/board-attachment-actions.test.ts",
         "lib/__tests__/board-comment-actions.test.ts",
+        "lib/__tests__/board-comment-reply-flow.test.ts",
         "lib/__tests__/board-feedback-alerts.test.ts",
         "lib/__tests__/board-reaction-state.test.ts",
         "lib/__tests__/admin-web-board-source.test.ts",

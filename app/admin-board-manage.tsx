@@ -259,10 +259,12 @@ export default function AdminBoardManageScreen() {
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
   const [collapsedThreadIds, setCollapsedThreadIds] = useState<string[]>([]);
+  const [isThreadInitialized, setIsThreadInitialized] = useState(false);
   const [replyTarget, setReplyTarget] = useState<{
     id: string;
     authorName: string;
     parentId: string;
+    threadRootId: string;
   } | null>(null);
   // undefined = not yet set (use server data), null = cleared, BoardReactionKey = selected
   const [myReactionOverride, setMyReactionOverride] = useState<BoardReactionKey | null | undefined>(undefined);
@@ -556,12 +558,29 @@ export default function AdminBoardManageScreen() {
 
   // Add comment mutation
   const addCommentMutation = useMutation({
-    mutationFn: async ({ postId, content, parentId }: { postId: string; content: string; parentId?: string }) => {
+    mutationFn: async ({
+      postId,
+      content,
+      parentId,
+    }: {
+      postId: string;
+      content: string;
+      parentId?: string;
+      threadRootId?: string;
+    }) => {
       if (!actor) throw new Error('로그인이 필요합니다.');
       return createBoardComment(actor, { postId, content, parentId });
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       setCommentText('');
+      setReplyTarget((current) => (
+        current?.parentId === variables.parentId ? null : current
+      ));
+      if (variables.threadRootId) {
+        setCollapsedThreadIds((current) => (
+          current.filter((commentId) => commentId !== variables.threadRootId)
+        ));
+      }
       queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
     },
@@ -702,8 +721,8 @@ export default function AdminBoardManageScreen() {
       postId: selectedPost.id,
       content: commentText.trim(),
       parentId: replyTarget?.parentId,
+      threadRootId: replyTarget?.threadRootId,
     });
-    setReplyTarget(null);
   };
 
   const openCommentActions = (comment: (typeof modalComments)[number]) => {
@@ -723,7 +742,11 @@ export default function AdminBoardManageScreen() {
     ));
   }, []);
 
-  const renderCommentThread = (comment: (typeof modalComments)[number], depth = 0) => {
+  const renderCommentThread = (
+    comment: (typeof modalComments)[number],
+    depth = 0,
+    threadRootId = comment.id,
+  ) => {
     const replies = threadedComments.repliesByParent.get(comment.id) ?? [];
     const isReply = depth > 0;
     const isCollapsed = depth === 0 && collapsedThreadIds.includes(comment.id);
@@ -811,7 +834,12 @@ export default function AdminBoardManageScreen() {
         <View style={styles.commentActions}>
           <Pressable
             style={styles.replyButton}
-            onPress={() => setReplyTarget({ id: comment.id, authorName: comment.authorName, parentId: comment.id })}
+            onPress={() => setReplyTarget({
+              id: comment.id,
+              authorName: comment.authorName,
+              parentId: comment.id,
+              threadRootId,
+            })}
           >
             <Text style={styles.replyButtonText}>답글</Text>
           </Pressable>
@@ -831,7 +859,7 @@ export default function AdminBoardManageScreen() {
         )}
         {replies.length > 0 && !isCollapsed && (
           <View style={styles.replyList}>
-            {replies.map((reply) => renderCommentThread(reply, depth + 1))}
+            {replies.map((reply) => renderCommentThread(reply, depth + 1, threadRootId))}
           </View>
         )}
       </View>
@@ -844,19 +872,19 @@ export default function AdminBoardManageScreen() {
       setEditingCommentText('');
       setReplyTarget(null);
       setCollapsedThreadIds([]);
+      setIsThreadInitialized(false);
       setPreviewImage(null);
     }
   }, [selectedPost]);
 
   useEffect(() => {
-    if (!selectedPost || collapsedThreadIds.length > 0) return;
+    if (!selectedPost || isThreadInitialized || modalComments.length === 0) return;
     const initialCollapsed = threadedComments.roots
       .filter((comment) => (threadedComments.repliesByParent.get(comment.id)?.length ?? 0) > 0)
       .map((comment) => comment.id);
-    if (initialCollapsed.length > 0) {
-      setCollapsedThreadIds(initialCollapsed);
-    }
-  }, [collapsedThreadIds.length, selectedPost, threadedComments]);
+    setCollapsedThreadIds(initialCollapsed);
+    setIsThreadInitialized(true);
+  }, [isThreadInitialized, modalComments.length, selectedPost, threadedComments]);
 
   const canWrite = actor?.role === 'admin' || actor?.role === 'manager';
   const canManagePost = (post?: BoardPost | null) =>

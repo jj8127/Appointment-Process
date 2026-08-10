@@ -199,10 +199,15 @@ export default function BoardPage() {
   const [newPost, setNewPost] = useState({ title: '', content: '' });
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
-  const [replyTarget, setReplyTarget] = useState<{ id: string; authorName: string } | null>(null);
+  const [replyTarget, setReplyTarget] = useState<{
+    id: string;
+    authorName: string;
+    threadRootId: string;
+  } | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
   const [collapsedThreadIds, setCollapsedThreadIds] = useState<string[]>([]);
+  const [isThreadInitialized, setIsThreadInitialized] = useState(false);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const isEditMode = !!editingPostId;
   const [attachments, setAttachments] = useState<WebAttachment[]>([]);
@@ -231,7 +236,6 @@ export default function BoardPage() {
     enabled: !!actor && !!editingPostId,
   });
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   // 초기 카테고리 설정: categoryId가 null이고 categories가 로드되면 첫번째 카테고리 선택
   useEffect(() => {
     if (!categoryId && categories.length > 0) {
@@ -254,18 +258,12 @@ export default function BoardPage() {
   }, [editingPostId]);
 
   useEffect(() => {
-    if (!selectedPostId) {
-      setReplyTarget(null);
-      setEditingCommentId(null);
-      setEditingCommentText('');
-      setCollapsedThreadIds([]);
-      return;
-    }
     setReplyTarget(null);
     setEditingCommentId(null);
     setEditingCommentText('');
+    setCollapsedThreadIds([]);
+    setIsThreadInitialized(false);
   }, [selectedPostId]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const { data: listData, isLoading, error, isError, refetch } = useQuery({
     queryKey: ['board-posts', actor?.role, actor?.residentId],
@@ -289,7 +287,6 @@ export default function BoardPage() {
     return posts.filter((post) => post.title.toLowerCase().includes(q) || post.contentPreview.toLowerCase().includes(q));
   }, [posts, searchQuery]);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!routePostId) return;
     if (selectedPostId === routePostId) return;
@@ -306,7 +303,6 @@ export default function BoardPage() {
       setCommentText('');
     }
   }, [isLoading, posts, routePostId, selectedPostId]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const { data: detailData } = useQuery({
     queryKey: ['board-detail', selectedPostId],
@@ -369,18 +365,14 @@ export default function BoardPage() {
     return { roots, repliesByParent };
   }, [modalComments]);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!selectedPostId || modalComments.length === 0) return;
-    setCollapsedThreadIds((prev) => {
-      if (prev.length > 0) return prev;
-      const next = threadedComments.roots
-        .filter((comment) => (threadedComments.repliesByParent.get(comment.id) ?? []).length > 0)
-        .map((comment) => comment.id);
-      return next;
-    });
-  }, [modalComments, selectedPostId, threadedComments]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+    if (!selectedPostId || isThreadInitialized || modalComments.length === 0) return;
+    const initialCollapsed = threadedComments.roots
+      .filter((comment) => (threadedComments.repliesByParent.get(comment.id) ?? []).length > 0)
+      .map((comment) => comment.id);
+    setCollapsedThreadIds(initialCollapsed);
+    setIsThreadInitialized(true);
+  }, [isThreadInitialized, modalComments, selectedPostId, threadedComments]);
 
   const canManagePost = (post?: BoardPost | null) =>
     actor?.role === 'admin' || (actor?.role === 'manager' && !!post?.isMine);
@@ -685,15 +677,29 @@ export default function BoardPage() {
   });
 
   const addCommentMutation = useMutation({
-    mutationFn: async ({ content, parentId }: { content: string; parentId?: string | null }) => {
+    mutationFn: async ({
+      content,
+      parentId,
+    }: {
+      content: string;
+      parentId?: string | null;
+      threadRootId?: string;
+    }) => {
       if (!actor || !selectedPostId) throw new Error('로그인이 필요합니다.');
       return createBoardComment(actor, { postId: selectedPostId, content, parentId: parentId ?? undefined });
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       setCommentText('');
-      setReplyTarget(null);
+      setReplyTarget((current) => (
+        current?.id === variables.parentId ? null : current
+      ));
+      if (variables.threadRootId) {
+        setCollapsedThreadIds((current) => (
+          current.filter((commentId) => commentId !== variables.threadRootId)
+        ));
+      }
       notifications.show({
         title: '댓글 작성 완료',
         message: '댓글이 성공적으로 작성되었습니다.',
@@ -1064,7 +1070,11 @@ export default function BoardPage() {
       });
       return;
     }
-    addCommentMutation.mutate({ content: commentText.trim(), parentId: replyTarget?.id ?? null });
+    addCommentMutation.mutate({
+      content: commentText.trim(),
+      parentId: replyTarget?.id ?? null,
+      threadRootId: replyTarget?.threadRootId,
+    });
   };
 
   const toggleThread = (commentId: string) => {
@@ -1075,7 +1085,11 @@ export default function BoardPage() {
     ));
   };
 
-  const renderCommentThread = (comment: BoardDetail['comments'][number], depth = 0) => {
+  const renderCommentThread = (
+    comment: BoardDetail['comments'][number],
+    depth = 0,
+    threadRootId = comment.id,
+  ) => {
     const replies = threadedComments.repliesByParent.get(comment.id) ?? [];
     const isCollapsed = depth === 0 && collapsedThreadIds.includes(comment.id);
     const isEditing = editingCommentId === comment.id;
@@ -1190,7 +1204,11 @@ export default function BoardPage() {
               <Button
                 size="xs"
                 variant="subtle"
-                onClick={() => setReplyTarget({ id: comment.id, authorName: comment.authorName })}
+                onClick={() => setReplyTarget({
+                  id: comment.id,
+                  authorName: comment.authorName,
+                  threadRootId,
+                })}
               >
                 답글
               </Button>
@@ -1229,7 +1247,7 @@ export default function BoardPage() {
 
         {!isCollapsed && replies.length > 0 && (
           <Stack gap="xs">
-            {replies.map((reply) => renderCommentThread(reply, depth + 1))}
+            {replies.map((reply) => renderCommentThread(reply, depth + 1, threadRootId))}
           </Stack>
         )}
       </Stack>

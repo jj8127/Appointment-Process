@@ -5661,3 +5661,19 @@
   - `lib/__tests__/fc-basic-information.test.ts`
   - `lib/__tests__/mobile-basic-information-source.test.ts`
   - `supabase/functions/__tests__/admin-action-fc-self-profile.contract.test.ts`
+
+## 2026-08-10 | Board reply state was cleared before the comment write completed
+
+- Symptom:
+  - A user could submit a reply, lose the visible reply target immediately, and then see no new reply while the parent thread remained collapsed.
+  - If the first request failed, retrying the preserved text could submit it as a top-level comment because the selected parent had already been cleared.
+- Root cause:
+  - The mobile board screens cleared `replyTarget` immediately after starting the mutation instead of after confirmed success.
+  - Mobile admin and admin web treated an empty collapsed-thread list as an uninitialized state, so expanding the last collapsed thread could cause it to collapse again.
+- Permanent guardrail:
+  - Keep the selected parent and entered text until the comment mutation succeeds. Clear only the exact submitted reply target, and preserve a newer target if one was selected while the request was pending.
+  - Carry the root thread ID with nested reply targets and remove that root from collapsed state after a successful reply.
+  - Initialize default collapsed threads once per opened post; an intentionally empty collapsed list means all threads are expanded.
+- Verification:
+  - `lib/__tests__/board-comment-reply-flow.test.ts`
+  - Focused mobile/admin board tests, mobile Expo export, and Sentry-disabled admin web production build.

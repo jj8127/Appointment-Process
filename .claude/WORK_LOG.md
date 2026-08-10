@@ -19,6 +19,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-08-10
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 08-10 | Preserved GaramIn board reply targets through failed writes and revealed the committed reply by expanding its root thread across mobile and admin web | `app/board.tsx`, `app/admin-board-manage.tsx`, admin web board, focused reply contract | [detail](WORK_DETAIL.md#20260810-board-comment-reply-recovery) |
+
 ## 2026-08-08
 
 | Date | Work | Key files | Detail |

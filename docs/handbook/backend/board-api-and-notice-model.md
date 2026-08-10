@@ -2,12 +2,20 @@ doc_id: FC-BACKEND-BOARD-NOTICE
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-25
+last_verified: 2026-08-10
 source_of_truth: supabase/functions/board-* + web/src/app/api/admin/notices/route.ts
 
 contract_guard_2026_07_03: mobile board/notice screens, admin board/notification pages, board Edge Functions, notice API routes, notification route normalization, and automated digest posting are mapped in docs/handbook/contract-test-map.json.
 
 # Backend Runbook: Board API And Notice Model
+
+## 2026-08-10 Reply commit and visibility contract
+
+- Mobile and admin-web composers retain the entered content and selected reply target until `board-comment-create` succeeds. A failed request must remain retryable as the same reply and must not silently become a top-level comment.
+- Reply UI state carries both the exact parent comment ID and the root thread ID. Only the parent ID is sent to the Edge Function; the root ID is client-local state used to reveal the committed reply.
+- On success, callers clear only the reply target that belonged to the completed request, expand its root thread, and refresh board detail/list queries. A newer reply target selected during an in-flight request must not be cleared by the older completion.
+- Default thread collapse is initialized once per opened post. An empty collapsed-thread list after initialization means the user intentionally expanded every thread and must not trigger automatic re-collapse.
+- `board-comment-create` reloads the selected parent, verifies that it belongs to the same post, enforces the supported reply depth, and persists that exact ID as `board_comments.parent_id`.
 
 ## 2026-07-25 Notification-only retry contract
 

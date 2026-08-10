@@ -13932,3 +13932,21 @@
 - Full Jest passes 236 suites / 1,465 tests. `npx tsc --noEmit`, zero-warning `npx expo lint`, `npm run audit:mobile-keyboard` (34/34), JSON parsing, and `git diff --check` pass.
 - Samsung local debug evidence shows the detailed-address field fully above the keyboard and the keyboard retained after a short drag. Wireless ADB later disconnected before an additional signup-route smoke, without invalidating the completed representative check.
 - No follow-up OTA, native/Store release, Edge deployment, Git push, or unrelated production write was performed. Follow-up production release remains HOLD pending explicit approval.
+## <a id="20260810-board-comment-reply-recovery"></a> 2026-08-10 | GaramIn board comment reply recovery
+
+**Scope**: Mobile Board, mobile administrator Board, admin-web Board, and the existing `board-comment-create` parent contract.
+
+- The mobile submit handlers previously cleared `replyTarget` immediately after starting the mutation. A failed request therefore retained the text but lost its parent, so a retry could become a top-level comment.
+- Reply targets now carry the selected parent ID plus the root thread ID. The exact parent ID remains the Edge payload; the root ID is used only to expand the correct thread after success.
+- Mutation success clears only the target submitted by that request, expands its root thread, and invalidates detail/list data. Errors retain both target and text.
+- Mobile admin and admin web now distinguish one-time thread initialization from an intentionally empty collapsed list, so the final expanded thread no longer collapses itself again.
+- No schema, migration, production query, Edge deployment, app release, or external write was performed. Release status remains `HOLD` pending authorized rollout and physical-device confirmation.
+
+Verification:
+
+- Passed: `npx jest lib/__tests__/board-comment-reply-flow.test.ts lib/__tests__/board-comment-actions.test.ts lib/__tests__/admin-web-board-source.test.ts --runInBand` (`3` suites / `10` tests).
+- Passed: feature-contract focused Jest (`2` suites / `9` tests).
+- Passed: changed mobile-file ESLint, admin-web board ESLint (zero errors; three pre-existing unused-disable warnings), and admin-web TypeScript.
+- Passed: Sentry-disabled Expo web export and Sentry-disabled admin-web production build.
+- Root TypeScript and Edge Deno checks remain blocked by the concurrent pre-existing `AssistedPasswordChangeTokenParseResult` missing type in `supabase/functions/_shared/request-board-auth.ts`, outside this Board repair.
+- Workspace governance still reports unrelated concurrent assisted-signup/auth/schema ownership gaps; this repair updated its Board owner document, work log/detail, contract matrix, and mistake ledger.
