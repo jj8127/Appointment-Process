@@ -8,6 +8,7 @@ import type {
 
 export const REFERRAL_GRAPH_SURFACE_SIZE = 1800;
 export const REFERRAL_GRAPH_SURFACE_CENTER = REFERRAL_GRAPH_SURFACE_SIZE / 2;
+export const REFERRAL_GRAPH_MAX_BITMAP_SIDE_PX = 2048;
 export const REFERRAL_GRAPH_MIN_SCALE = 0.25;
 export const REFERRAL_GRAPH_MAX_SCALE = 6;
 export const REFERRAL_GRAPH_FIT_PADDING = 56;
@@ -16,9 +17,21 @@ const DEPTH_GAP = 168;
 const MIN_DEPTH_ARC_SPACING = 72;
 const DISCONNECTED_RING_GAP = 96;
 const SURFACE_EDGE_MARGIN = 96;
+const NODE_MIN_SCREEN_RADIUS = 15;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
+
+export function getReferralGraphRenderSurfaceSize(pixelRatio: number) {
+  const safePixelRatio = Number.isFinite(pixelRatio) && pixelRatio > 0
+    ? pixelRatio
+    : 1;
+
+  return Math.min(
+    REFERRAL_GRAPH_SURFACE_SIZE,
+    Math.max(1, Math.floor(REFERRAL_GRAPH_MAX_BITMAP_SIDE_PX / safePixelRatio)),
+  );
+}
 
 const compareNode = (a: ReferralGraphNode, b: ReferralGraphNode) =>
   a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id);
@@ -26,6 +39,13 @@ const compareNode = (a: ReferralGraphNode, b: ReferralGraphNode) =>
 export function getReferralGraphNodeRadius(totalDescendantCount: number) {
   const safeCount = Math.max(0, Number(totalDescendantCount) || 0);
   return (4.6 + Math.min(Math.log1p(safeCount) * 2.15, 9.4)) * 1.25;
+}
+
+export function getReferralGraphNodeScreenRadius(totalDescendantCount: number) {
+  return Math.max(
+    getReferralGraphNodeRadius(totalDescendantCount),
+    NODE_MIN_SCREEN_RADIUS,
+  );
 }
 
 export function getReferralGraphNodeColor(node: ReferralGraphNode) {

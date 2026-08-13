@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   LayoutChangeEvent,
+  PixelRatio,
   Pressable,
   StyleSheet,
   Text,
@@ -8,24 +9,180 @@ import {
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  type SharedValue,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { Circle, G, Line, Text as SvgText } from 'react-native-svg';
+import Svg, { G, Line } from 'react-native-svg';
 
 import {
   buildReferralGraphLayout,
   getReferralGraphFitViewport,
   getReferralGraphNodeColor,
-  getReferralGraphNodeRadius,
+  getReferralGraphNodeScreenRadius,
   getReferralGraphNodeStatusLabel,
+  getReferralGraphRenderSurfaceSize,
   REFERRAL_GRAPH_MAX_SCALE,
   REFERRAL_GRAPH_MIN_SCALE,
   REFERRAL_GRAPH_SURFACE_SIZE,
 } from '@/lib/referral-graph-native';
-import type { ReferralGraphEdge, ReferralGraphNode } from '@/types/referral-graph';
+import type {
+  ReferralGraphEdge,
+  ReferralGraphNode,
+  ReferralGraphPoint,
+} from '@/types/referral-graph';
+
+const GRAPH_RENDER_SURFACE_SIZE = getReferralGraphRenderSurfaceSize(PixelRatio.get());
+const GRAPH_RENDER_COORDINATE_SCALE = GRAPH_RENDER_SURFACE_SIZE / REFERRAL_GRAPH_SURFACE_SIZE;
+const NODE_HIT_TARGET_SIZE = 48;
+const NODE_LABEL_WIDTH = 120;
+const NODE_LABEL_GAP = 6;
+const NODE_SELECTED_RING_GAP = 7;
+const NODE_VISUAL_MAX_SCALE = 1.4;
+
+const getNodeVisualScale = (graphScale: number) => {
+  'worklet';
+  return Math.min(
+    Math.max(graphScale, REFERRAL_GRAPH_MIN_SCALE),
+    NODE_VISUAL_MAX_SCALE,
+  );
+};
+
+type ReferralGraphNodeLayerProps = {
+  node: ReferralGraphNode;
+  point: ReferralGraphPoint;
+  graphScale: SharedValue<number>;
+};
+
+type ReferralGraphNodeMarkerProps = ReferralGraphNodeLayerProps & {
+  selected: boolean;
+  onSelectNode: (node: ReferralGraphNode) => void;
+};
+
+const ReferralGraphNodeMarker = memo(function ReferralGraphNodeMarker({
+  node,
+  point,
+  selected,
+  graphScale,
+  onSelectNode,
+}: ReferralGraphNodeMarkerProps) {
+  const screenRadius = getReferralGraphNodeScreenRadius(node.totalDescendantCount);
+  const nodeDiameter = screenRadius * 2;
+  const selectedRingDiameter = (screenRadius + NODE_SELECTED_RING_GAP) * 2;
+  const inverseScaleStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: GRAPH_RENDER_COORDINATE_SCALE / Math.max(graphScale.value, 0.001) },
+    ],
+  }));
+  const visualScaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: getNodeVisualScale(graphScale.value) }],
+  }));
+
+  return (
+    <Animated.View
+      pointerEvents="box-none"
+      style={[
+        styles.nodeAnchor,
+        {
+          left: point.x * GRAPH_RENDER_COORDINATE_SCALE - NODE_HIT_TARGET_SIZE / 2,
+          top: point.y * GRAPH_RENDER_COORDINATE_SCALE - NODE_HIT_TARGET_SIZE / 2,
+        },
+        inverseScaleStyle,
+      ]}
+    >
+      <Pressable
+        style={({ pressed }) => [
+          styles.nodeHitTarget,
+          pressed && styles.nodeHitTargetPressed,
+        ]}
+        onPress={() => onSelectNode(node)}
+        accessibilityRole="button"
+        accessibilityLabel={`${node.name}, ${node.affiliation}, ${getReferralGraphNodeStatusLabel(node)}, 하위 ${node.totalDescendantCount}명`}
+        accessibilityHint="두 번 탭하면 상세 정보를 엽니다."
+      >
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.nodeVisual, visualScaleStyle]}
+        >
+          {selected ? (
+            <View
+              style={[
+                styles.selectedNodeRing,
+                {
+                  width: selectedRingDiameter,
+                  height: selectedRingDiameter,
+                  borderRadius: selectedRingDiameter / 2,
+                  left: (NODE_HIT_TARGET_SIZE - selectedRingDiameter) / 2,
+                  top: (NODE_HIT_TARGET_SIZE - selectedRingDiameter) / 2,
+                },
+              ]}
+            />
+          ) : null}
+          <View
+            style={[
+              styles.nodeCircle,
+              {
+                width: nodeDiameter,
+                height: nodeDiameter,
+                borderRadius: nodeDiameter / 2,
+                left: (NODE_HIT_TARGET_SIZE - nodeDiameter) / 2,
+                top: (NODE_HIT_TARGET_SIZE - nodeDiameter) / 2,
+                backgroundColor: getReferralGraphNodeColor(node),
+              },
+            ]}
+          />
+        </Animated.View>
+      </Pressable>
+    </Animated.View>
+  );
+});
+
+const ReferralGraphNodeLabel = memo(function ReferralGraphNodeLabel({
+  node,
+  point,
+  graphScale,
+}: ReferralGraphNodeLayerProps) {
+  const screenRadius = getReferralGraphNodeScreenRadius(node.totalDescendantCount);
+  const inverseScaleStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: GRAPH_RENDER_COORDINATE_SCALE / Math.max(graphScale.value, 0.001) },
+    ],
+  }));
+  const labelOffsetStyle = useAnimatedStyle(() => ({
+    transform: [{
+      translateY:
+        screenRadius * getNodeVisualScale(graphScale.value) + NODE_LABEL_GAP,
+    }],
+  }));
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        styles.nodeLabelAnchor,
+        {
+          left: point.x * GRAPH_RENDER_COORDINATE_SCALE - NODE_HIT_TARGET_SIZE / 2,
+          top: point.y * GRAPH_RENDER_COORDINATE_SCALE - NODE_HIT_TARGET_SIZE / 2,
+        },
+        inverseScaleStyle,
+      ]}
+    >
+      <Animated.Text
+        accessible={false}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        style={[
+          styles.nodeLabel,
+          labelOffsetStyle,
+        ]}
+      >
+        {node.name.length > 10 ? `${node.name.slice(0, 10)}…` : node.name}
+      </Animated.Text>
+    </Animated.View>
+  );
+});
 
 type ReferralGraphCanvasProps = {
   nodes: ReferralGraphNode[];
@@ -52,6 +209,13 @@ export function ReferralGraphCanvas({
   const positions = useMemo(
     () => buildReferralGraphLayout(nodes, edges),
     [edges, nodes],
+  );
+  const positionedNodes = useMemo(
+    () => nodes.flatMap((node) => {
+      const point = positions.get(node.id);
+      return point ? [{ node, point }] : [];
+    }),
+    [nodes, positions],
   );
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [displayScale, setDisplayScale] = useState(1);
@@ -146,7 +310,7 @@ export function ReferralGraphCanvas({
     transform: [
       { translateX: panX.value },
       { translateY: panY.value },
-      { scale: scale.value },
+      { scale: scale.value / GRAPH_RENDER_COORDINATE_SCALE },
     ],
   }));
 
@@ -157,9 +321,7 @@ export function ReferralGraphCanvas({
     ),
     [edges, visibleNodeIds],
   );
-  const minimumScreenRadius = 15 / Math.max(displayScale, REFERRAL_GRAPH_MIN_SCALE);
-  const hitTargetSize = 48 / Math.max(displayScale, REFERRAL_GRAPH_MIN_SCALE);
-  const labelFontSize = Math.min(34, 11 / Math.max(displayScale, REFERRAL_GRAPH_MIN_SCALE));
+  const edgeStrokeWidth = 1.4 / Math.max(displayScale, REFERRAL_GRAPH_MIN_SCALE);
 
   return (
     <GestureDetector gesture={graphGesture}>
@@ -173,15 +335,17 @@ export function ReferralGraphCanvas({
           style={[
             styles.surface,
             {
-              left: (canvasSize.width - REFERRAL_GRAPH_SURFACE_SIZE) / 2,
-              top: (canvasSize.height - REFERRAL_GRAPH_SURFACE_SIZE) / 2,
+              width: GRAPH_RENDER_SURFACE_SIZE,
+              height: GRAPH_RENDER_SURFACE_SIZE,
+              left: (canvasSize.width - GRAPH_RENDER_SURFACE_SIZE) / 2,
+              top: (canvasSize.height - GRAPH_RENDER_SURFACE_SIZE) / 2,
             },
             animatedSurfaceStyle,
           ]}
         >
           <Svg
-            width={REFERRAL_GRAPH_SURFACE_SIZE}
-            height={REFERRAL_GRAPH_SURFACE_SIZE}
+            width={GRAPH_RENDER_SURFACE_SIZE}
+            height={GRAPH_RENDER_SURFACE_SIZE}
             viewBox={`0 0 ${REFERRAL_GRAPH_SURFACE_SIZE} ${REFERRAL_GRAPH_SURFACE_SIZE}`}
           >
             <G>
@@ -197,83 +361,35 @@ export function ReferralGraphCanvas({
                     x2={target.x}
                     y2={target.y}
                     stroke="#cbd5e1"
-                    strokeWidth={Math.max(1.4, 1.2 / Math.max(displayScale, 0.5))}
+                    strokeWidth={edgeStrokeWidth}
                     strokeLinecap="round"
                   />
                 );
               })}
             </G>
-            <G>
-              {nodes.map((node) => {
-                const point = positions.get(node.id);
-                if (!point) return null;
-                const radius = Math.max(
-                  getReferralGraphNodeRadius(node.totalDescendantCount),
-                  minimumScreenRadius,
-                );
-                const selected = node.id === selectedNodeId;
-                return (
-                  <G key={node.id}>
-                    {selected ? (
-                      <Circle
-                        cx={point.x}
-                        cy={point.y}
-                        r={radius + 7 / Math.max(displayScale, 0.5)}
-                        fill="none"
-                        stroke="#2563eb"
-                        strokeWidth={3 / Math.max(displayScale, 0.5)}
-                      />
-                    ) : null}
-                    <Circle
-                      cx={point.x}
-                      cy={point.y}
-                      r={radius}
-                      fill={getReferralGraphNodeColor(node)}
-                      stroke="#ffffff"
-                      strokeWidth={2.4 / Math.max(displayScale, 0.5)}
-                    />
-                    <SvgText
-                      x={point.x}
-                      y={point.y + radius + labelFontSize + 5}
-                      fill="#334155"
-                      fontSize={labelFontSize}
-                      fontWeight="700"
-                      textAnchor="middle"
-                    >
-                      {node.name.length > 10 ? `${node.name.slice(0, 10)}…` : node.name}
-                    </SvgText>
-                  </G>
-                );
-              })}
-            </G>
           </Svg>
 
-          {nodes.map((node) => {
-            const point = positions.get(node.id);
-            if (!point) return null;
-            return (
-              <Pressable
-                key={`hit-${node.id}`}
-                style={({ pressed }) => [
-                  styles.nodeHitTarget,
-                  {
-                    width: hitTargetSize,
-                    height: hitTargetSize,
-                    borderRadius: hitTargetSize / 2,
-                    left: point.x - hitTargetSize / 2,
-                    top: point.y - hitTargetSize / 2,
-                  },
-                  pressed && styles.nodeHitTargetPressed,
-                ]}
-                onPress={() => onSelectNode(node)}
-                accessibilityRole="button"
-                accessibilityLabel={`${node.name}, ${node.affiliation}, ${getReferralGraphNodeStatusLabel(node)}, 하위 ${node.totalDescendantCount}명`}
-                accessibilityHint="두 번 탭하면 상세 정보를 엽니다."
-              >
-                <Text style={styles.hiddenNodeLabel}>{node.name}</Text>
-              </Pressable>
-            );
-          })}
+          {positionedNodes.map(({ node, point }) => (
+              <ReferralGraphNodeMarker
+                key={node.id}
+                node={node}
+                point={point}
+                selected={node.id === selectedNodeId}
+                graphScale={scale}
+                onSelectNode={onSelectNode}
+              />
+          ))}
+
+          <View pointerEvents="none" style={styles.nodeLabelLayer}>
+            {positionedNodes.map(({ node, point }) => (
+                <ReferralGraphNodeLabel
+                  key={node.id}
+                  node={node}
+                  point={point}
+                  graphScale={scale}
+                />
+            ))}
+          </View>
         </Animated.View>
 
         <View pointerEvents="none" style={styles.zoomBadge}>
@@ -299,11 +415,30 @@ const styles = StyleSheet.create({
   },
   surface: {
     position: 'absolute',
-    width: REFERRAL_GRAPH_SURFACE_SIZE,
-    height: REFERRAL_GRAPH_SURFACE_SIZE,
+  },
+  nodeAnchor: {
+    position: 'absolute',
+    width: NODE_HIT_TARGET_SIZE,
+    height: NODE_HIT_TARGET_SIZE,
+    overflow: 'visible',
+  },
+  nodeLabelLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+  },
+  nodeLabelAnchor: {
+    position: 'absolute',
+    width: NODE_HIT_TARGET_SIZE,
+    height: NODE_HIT_TARGET_SIZE,
+    overflow: 'visible',
   },
   nodeHitTarget: {
     position: 'absolute',
+    width: NODE_HIT_TARGET_SIZE,
+    height: NODE_HIT_TARGET_SIZE,
+    left: 0,
+    top: 0,
+    borderRadius: NODE_HIT_TARGET_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
@@ -311,10 +446,32 @@ const styles = StyleSheet.create({
   nodeHitTargetPressed: {
     backgroundColor: 'rgba(37, 99, 235, 0.12)',
   },
-  hiddenNodeLabel: {
-    width: 1,
-    height: 1,
-    opacity: 0,
+  nodeVisual: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  selectedNodeRing: {
+    position: 'absolute',
+    borderWidth: 3,
+    borderColor: '#2563eb',
+  },
+  nodeCircle: {
+    position: 'absolute',
+    borderWidth: 2.4,
+    borderColor: '#ffffff',
+  },
+  nodeLabel: {
+    position: 'absolute',
+    top: NODE_HIT_TARGET_SIZE / 2,
+    width: NODE_LABEL_WIDTH,
+    left: (NODE_HIT_TARGET_SIZE - NODE_LABEL_WIDTH) / 2,
+    color: '#334155',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+    textShadowColor: '#f8fafc',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 3,
   },
   zoomBadge: {
     position: 'absolute',

@@ -13968,3 +13968,24 @@ Verification:
 - Focused assisted-signup Jest passes 3 suites / 19 tests, including the Vercel web-root packaging regression contract. Administrator-web TypeScript and scoped root/web ESLint pass.
 - Production advisor findings are informational only for the intentionally service-role-only unused tables/indexes. The clean root install still reports the documented 11 pre-existing high dependency audit paths; the web subtree reports zero.
 - No exam application or mobile OTA/Store release occurred. Subjects retain responsibility for choosing their own final passwords on first login. The task created no commit or push and preserved unrelated worktree changes.
+
+<a id="20260813-referral-graph-android-rendering-recovery"></a>
+## 2026-08-13 | Referral graph Android rendering recovery
+
+**Incident and root cause**:
+- A Galaxy S26 Ultra on Android 16 failed when the 1,800-dp `react-native-svg` surface became a roughly 7,650-pixel backing bitmap at device density, requiring about 234 MB for one canvas allocation.
+- The initial fixed-screen marker compensation kept nodes readable but also kept them too large at low graph zoom. Interleaved marker/label rendering allowed later markers to paint above earlier labels in dense regions.
+
+**Implementation**:
+- The SVG now renders edges only and caps its physical backing side at 2,048 pixels while retaining the existing logical coordinate system and layout math.
+- Native node markers use a zoom-aware visual scale: they shrink with graph zoom, have a bounded 1.4x growth ceiling, and keep a separate 48-point hit target.
+- Labels use a dedicated final overlay layer, follow the scaled marker radius, and retain a subtle canvas-colored halo for dense-graph contrast.
+- Added source and helper contracts for the bitmap cap, fixed logical surface, zoom-aware node behavior, and marker-before-label layer order.
+
+**Verification and release boundary**:
+- Passed focused Jest: `admin-assisted-signup-source-contract`, `referral-graph-native`, and `referral-graph-link` (`3` suites / `23` tests).
+- Passed root TypeScript and scoped ESLint for all changed graph and regression-contract files.
+- Passed a Sentry-disabled arm64 Android release build and a clean-lockfile, Sentry-disabled Next 16 administrator-web production build.
+- Paired a Galaxy S26 over wireless ADB, installed an isolated QA package without replacing the Play-installed 4.2.3 app, and reached the authenticated referral graph. The user manually confirmed zoom behavior as normal.
+- Removed the temporary instrumentation app, local QA APKs, screenshots, dependency links, and build scripts. The isolated QA app remains installed for comparison; production data and the production app were not changed.
+- No OTA, native/Store release, Git push, migration, database write, or external deployment occurred. Release status remains `HOLD` until explicit rollout approval and final commit-based release evidence.

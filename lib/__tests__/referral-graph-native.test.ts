@@ -5,7 +5,10 @@ import {
   getReferralGraphNeighborhood,
   getReferralGraphNodeColor,
   getReferralGraphNodeRadius,
+  getReferralGraphNodeScreenRadius,
+  getReferralGraphRenderSurfaceSize,
   normalizeReferralGraph,
+  REFERRAL_GRAPH_MAX_BITMAP_SIDE_PX,
   REFERRAL_GRAPH_MAX_SCALE,
   REFERRAL_GRAPH_SURFACE_CENTER,
   REFERRAL_GRAPH_SURFACE_SIZE,
@@ -36,6 +39,24 @@ const edge = (source: string, target: string): ReferralGraphEdge => ({
 });
 
 describe('native referral graph helpers', () => {
+  it('caps the native SVG backing bitmap on high-density Android devices', () => {
+    const pixelRatio = 4.25;
+    const renderSurfaceSize = getReferralGraphRenderSurfaceSize(pixelRatio);
+    const bitmapSidePixels = Math.ceil(renderSurfaceSize * pixelRatio);
+
+    expect(renderSurfaceSize).toBe(481);
+    expect(renderSurfaceSize).toBeLessThan(REFERRAL_GRAPH_SURFACE_SIZE);
+    expect(bitmapSidePixels).toBeLessThanOrEqual(REFERRAL_GRAPH_MAX_BITMAP_SIDE_PX);
+    expect(bitmapSidePixels * bitmapSidePixels * 4).toBeLessThanOrEqual(
+      REFERRAL_GRAPH_MAX_BITMAP_SIDE_PX * REFERRAL_GRAPH_MAX_BITMAP_SIDE_PX * 4,
+    );
+  });
+
+  it('keeps the full logical surface when its bitmap already fits the cap', () => {
+    expect(getReferralGraphRenderSurfaceSize(1)).toBe(REFERRAL_GRAPH_SURFACE_SIZE);
+    expect(getReferralGraphRenderSurfaceSize(0)).toBe(REFERRAL_GRAPH_SURFACE_SIZE);
+  });
+
   it('uses viewer, commission, signup, preregistration color priority', () => {
     expect(getReferralGraphNodeColor(node('viewer', {
       isViewer: true,
@@ -56,6 +77,12 @@ describe('native referral graph helpers', () => {
     expect(getReferralGraphNodeRadius(0)).toBeCloseTo(5.75);
     expect(getReferralGraphNodeRadius(10)).toBeGreaterThan(getReferralGraphNodeRadius(1));
     expect(getReferralGraphNodeRadius(100000)).toBeCloseTo(17.5);
+  });
+
+  it('keeps a readable fixed screen radius while preserving descendant emphasis', () => {
+    expect(getReferralGraphNodeScreenRadius(0)).toBe(15);
+    expect(getReferralGraphNodeScreenRadius(10)).toBe(15);
+    expect(getReferralGraphNodeScreenRadius(100000)).toBeCloseTo(17.5);
   });
 
   it('deduplicates nodes and canonical edges while dropping unsafe edges', () => {

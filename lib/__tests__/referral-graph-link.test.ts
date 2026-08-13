@@ -30,4 +30,42 @@ describe('referral graph web link helpers', () => {
     expect(referralPageSource).not.toContain('Linking.openURL');
     expect(referralPageSource).not.toContain('EXPO_PUBLIC_ADMIN_WEB_URL');
   });
+
+  it('renders the native graph through a density-bounded SVG surface', () => {
+    const canvasSource = readFileSync(
+      join(process.cwd(), 'components/referral-graph/ReferralGraphCanvas.tsx'),
+      'utf8',
+    );
+
+    expect(canvasSource).toContain(
+      'getReferralGraphRenderSurfaceSize(PixelRatio.get())',
+    );
+    expect(canvasSource).toContain('width={GRAPH_RENDER_SURFACE_SIZE}');
+    expect(canvasSource).toContain('height={GRAPH_RENDER_SURFACE_SIZE}');
+    expect(canvasSource).toContain(
+      '{ scale: scale.value / GRAPH_RENDER_COORDINATE_SCALE }',
+    );
+    expect(canvasSource).toContain('getReferralGraphNodeScreenRadius(');
+    expect(canvasSource).toContain(
+      'GRAPH_RENDER_COORDINATE_SCALE / Math.max(graphScale.value, 0.001)',
+    );
+    expect(canvasSource).toContain(
+      'screenRadius * getNodeVisualScale(graphScale.value) + NODE_LABEL_GAP',
+    );
+    expect(canvasSource).toContain('const NODE_VISUAL_MAX_SCALE = 1.4');
+    expect(canvasSource).toContain('getNodeVisualScale(graphScale.value)');
+    expect(canvasSource).toContain('const ReferralGraphNodeMarker = memo');
+    expect(canvasSource).toContain('const ReferralGraphNodeLabel = memo');
+    expect(canvasSource).toContain('style={styles.nodeLabelLayer}');
+    expect(canvasSource.indexOf('<ReferralGraphNodeMarker')).toBeLessThan(
+      canvasSource.indexOf('<ReferralGraphNodeLabel'),
+    );
+    expect(canvasSource).toContain("textShadowColor: '#f8fafc'");
+    expect(canvasSource).not.toContain('SvgText');
+    expect(canvasSource).not.toContain('<Circle');
+    expect(canvasSource).not.toContain('const minimumScreenRadius');
+    expect(canvasSource).not.toContain('Math.min(34, 11 /');
+    expect(canvasSource).not.toContain('width={REFERRAL_GRAPH_SURFACE_SIZE}');
+    expect(canvasSource).not.toContain('height={REFERRAL_GRAPH_SURFACE_SIZE}');
+  });
 });

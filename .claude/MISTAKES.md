@@ -5677,3 +5677,20 @@
 - Verification:
   - `lib/__tests__/board-comment-reply-flow.test.ts`
   - Focused mobile/admin board tests, mobile Expo export, and Sentry-disabled admin web production build.
+
+## 2026-08-13 | Logical SVG dimensions were treated as density-independent native bitmap cost
+
+- Symptom:
+  - Opening the referral graph on a high-density Galaxy device crashed while Android attempted to draw an approximately 234 MB bitmap.
+  - A first compensation kept markers fixed at every zoom level, so low-zoom nodes stayed visually large and could cover nearby names.
+- Root cause:
+  - The 1,800-dp SVG surface was allocated at device density without a physical pixel cap.
+  - Marker size, interaction size, and label paint order were handled as one concern instead of separate visual, hit-target, and overlay layers.
+- Permanent guardrail:
+  - Bound native SVG backing surfaces by physical pixels and keep logical graph coordinates in the viewBox/layout layer.
+  - Keep marker visuals zoom-aware with explicit lower/upper bounds, keep accessible hit targets independent, and render all labels in a final overlay above all markers.
+  - Any graph rendering change requires a high-density physical-device open and pinch smoke in addition to source/helper contracts.
+- Verification:
+  - `lib/__tests__/referral-graph-native.test.ts`
+  - `lib/__tests__/referral-graph-link.test.ts`
+  - Galaxy S26 Android 16 open, pinch-out, pinch-in, and no-crash smoke.

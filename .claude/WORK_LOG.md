@@ -1186,3 +1186,11 @@
 - Created exactly two user-approved accounts through a signed administrator session. Aggregate-only verification confirms written-consent provenance, phone-unverified truth, forced first-password change, expected referral links/events, and the requested license state for both records.
 - Added a web-root-local validation contract so the Vercel project packages every required module, plus a regression source-contract test. No exam application, mobile OTA/Store release, commit, push, or additional account occurred.
 - Details: [WORK_DETAIL.md#20260810-admin-assisted-signup-production-rollout](WORK_DETAIL.md#20260810-admin-assisted-signup-production-rollout)
+
+## 2026-08-13 Referral graph Android rendering recovery
+
+- Matched the reported Galaxy S26 / Android 16 failure to the density-amplified native SVG bitmap path and capped the physical backing surface while preserving the 1,800-unit logical graph.
+- Moved node markers and labels out of the SVG edge layer. Node visuals now shrink with graph zoom, stop growing at a bounded maximum, retain a fixed accessible hit target, and render every label above every marker.
+- Focused Jest passes 3 suites / 23 tests; root TypeScript and scoped ESLint pass; a Sentry-disabled arm64 Android release build and Sentry-disabled administrator-web production build pass. The user confirmed pinch zoom behavior on the paired Galaxy S26.
+- Production app 4.2.3 remained installed and unchanged. No OTA, Store release, Git push, migration, database write, or external deployment occurred; release remains HOLD pending explicit rollout approval.
+- Details: [WORK_DETAIL.md#20260813-referral-graph-android-rendering-recovery](WORK_DETAIL.md#20260813-referral-graph-android-rendering-recovery)
