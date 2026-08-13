@@ -2,8 +2,8 @@ doc_id: FC-SHARED-UI-ACTION-CONTRACTS
 owner_repo: fc-onboarding-app
 owner_area: shared-ui
 audience: developer
-last_verified: 2026-07-03
-source_of_truth: components/* + app/* + web/src/* + scripts/audit/shared-ui-contract-audit.cjs + scripts/audit/shared-function-contract-audit.cjs
+last_verified: 2026-08-10
+source_of_truth: components/* + app/* + hooks/use-keyboard-padding.ts + web/src/* + scripts/audit/shared-ui-contract-audit.cjs + scripts/audit/shared-function-contract-audit.cjs + scripts/audit/mobile-keyboard-surface-audit.cjs
 
 # Shared UI Action Contracts
 
@@ -26,6 +26,8 @@ Run the live inventory before broad UI or action refactors:
 ```bash
 node scripts/audit/shared-ui-contract-audit.cjs
 node scripts/audit/shared-ui-contract-audit.cjs --json
+node scripts/audit/mobile-keyboard-surface-audit.cjs
+node scripts/audit/mobile-keyboard-surface-audit.cjs --json
 ```
 
 The audit excludes archive, temporary, deployment, generated, and dependency folders. New clusters should be added to the inventory categories before implementation.
@@ -40,6 +42,8 @@ When touching governed primitives, update at least one of:
 - `docs/handbook/contract-test-map.json`
 
 Screen-only implementations are allowed only when the feature is intentionally unique and the exception is documented in the relevant handbook page.
+
+React Native container children must not rely on raw JSX whitespace or primitive values. Put adjacent closing tags on separate lines, type element-only icon/value slots as `ReactElement`, and keep `lib/__tests__/react-native-text-child-contract.test.ts` green across `app`, `components`, and `hooks`.
 
 Messenger attachment opens in `app/chat.tsx` and `app/group-chat.tsx` must use `openMessengerAttachment` from `lib/messenger-attachment-actions.ts`. The helper owns external URL opening through `openExternalUrl`, failure alerts, and logging. Do not call `Linking.openURL` directly from messenger attachment bubbles.
 
@@ -63,7 +67,19 @@ Board reaction/comment failure and empty-comment validation alerts in `app/board
 
 Board reaction counts in `app/board.tsx` and `app/admin-board-manage.tsx` must use `buildBoardReactionCounts` and `applyBoardReactionUpdate` from `lib/board-reaction-state.ts`. The helper owns missing-count normalization, toggle-off behavior, reaction switching, and total delta semantics; screens only own mutation wiring and optimistic cache writes.
 
+Native keyboard surfaces are governed by `scripts/audit/mobile-keyboard-surfaces.json`. The audit discovers direct `TextInput` renderers and consumers of shared input components, then fails when the reviewed registry and live source differ or when a required layout owner disappears. Classify the actual input ancestry rather than accepting a keyboard helper elsewhere in the file.
+
+Fixed-bottom composers must keep the input and primary action inside `KeyboardAvoidingView` or `KeyboardSafeBottomBar`. `KeyboardAwareWrapper` protects only descendants in its scroll tree. Android plain-scroll screens keep explicit keyboard-height scroll room through `useKeyboardPadding`; `softwareKeyboardLayoutMode=resize` alone is not visibility evidence. Run `npm run audit:mobile-keyboard` and `lib/__tests__/mobile-keyboard-surface-contract.test.ts` after adding or restructuring any native input.
+
+Keyboard surfaces must keep the keyboard open while the user drags or scrolls (`keyboardDismissMode="none"`). Scroll forms must also own focus visibility through `KeyboardAwareWrapper`, or through a reviewed `KeyboardAvoidingView` plus explicit focus scrolling/keyboard-height room. Top search fields are exempt from focus scrolling only when the input itself is permanently above the keyboard. The mobile keyboard audit rejects `on-drag` and `interactive` dismissal modes anywhere under `app/` or `components/`.
+
 Admin web reject reason entry in `web/src/app/dashboard/page.tsx`, `web/src/app/dashboard/appointment/page.tsx`, and `web/src/app/dashboard/docs/page.tsx` must use `RejectReasonModal` from `web/src/components/RejectReasonModal.tsx`. The shared component owns textarea layout, cancel/submit buttons, and keyboard behavior: Enter submits, while Shift+Enter inserts a newline.
+
+Admin web document and appointment mutations treat browser payloads as `unknown` and validate them through `web/src/lib/privileged-action-input-policy.ts` after verifying the server session. Client-provided recipient phones are not part of the action contract; server actions derive the canonical FC phone from `fcId` before creating inbox or push notifications. Regression evidence lives in `lib/__tests__/privileged-server-action-input-policy.test.ts`.
+
+## Notification partial-success feedback
+
+Chat, board, document, exam, and notice submission surfaces must distinguish the committed business mutation from its follow-up notification delivery. They await the delivery result, keep an already committed mutation successful, and show a user-safe partial-success warning when no provider accepted the notification. The UI must not expose tokens, recipient identifiers, provider bodies, or raw transport errors, and must not invite users to repeat the committed mutation as a notification retry.
 
 ## Shared Function Contracts
 

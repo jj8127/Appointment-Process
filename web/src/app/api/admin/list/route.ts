@@ -1,10 +1,13 @@
 import { adminSupabase } from '@/lib/admin-supabase';
 import { adminRouteAuthErrorResponse, requireAdminOrManagerReadRoute } from '@/lib/admin-route-auth';
+import {
+    buildActiveManagerPhoneSet,
+    isDashboardFcOnlyRow,
+} from '@/lib/dashboard-fc-eligibility';
 import { normalizeDashboardFcListRow } from '@/lib/dashboard-table-display';
 import { logger } from '@/lib/logger';
 import { NextResponse } from 'next/server';
 
-const DESIGNER_MARKER = '설계매니저';
 const AFFILIATION_CANONICAL_OPTIONS = [
     '1본부 서선미',
     '2본부 박성훈',
@@ -15,6 +18,7 @@ const AFFILIATION_CANONICAL_OPTIONS = [
     '7본부 이동훈',
     '8본부 정승철',
     '9본부 이현욱(김주용)',
+    '10본부 한태균',
 ] as const;
 const LEGACY_AFFILIATION_TO_CANONICAL: Record<string, string> = {
     '1본부 [본부장: 서선미]': '1본부 서선미',
@@ -29,6 +33,7 @@ const LEGACY_AFFILIATION_TO_CANONICAL: Record<string, string> = {
     '8본부 [본부장: 정승철]': '8본부 정승철',
     '9본부 [본부장: 이현욱]': '9본부 이현욱(김주용)',
     '9본부 [본부장: 김주용]': '9본부 이현욱(김주용)',
+    '10본부 [본부장: 한태균]': '10본부 한태균',
     '1팀(서울1) : 서선미 본부장님': '1본부 서선미',
     '2팀(서울2) : 박성훈 본부장님': '2본부 박성훈',
     '3팀(부산1) : 김태희 본부장님': '3본부 김태희',
@@ -52,7 +57,7 @@ const normalizeAffiliationLabel = (value?: string | null): string => {
     const mapped = LEGACY_AFFILIATION_TO_CANONICAL[trimmed];
     if (mapped) return mapped;
 
-    const prefix = trimmed.match(/^([1-9])\s*(본부|팀)/);
+    const prefix = trimmed.match(/^(10|[1-9])\s*(본부|팀)/);
     if (prefix?.[1]) {
         const index = Number(prefix[1]) - 1;
         return AFFILIATION_CANONICAL_OPTIONS[index] ?? trimmed;
@@ -68,19 +73,28 @@ export async function GET() {
     }
 
     try {
-        const { data, error } = await adminSupabase
-            .from('fc_profiles')
-            .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_credentials(password_set_at), fc_documents(doc_type,storage_path,file_name,status,reviewer_note)')
-            .eq('signup_completed', true)
-            .order('created_at', { ascending: false });
+        const [
+            { data, error },
+            { data: activeManagerRows, error: activeManagerError },
+        ] = await Promise.all([
+            adminSupabase
+                .from('fc_profiles')
+                .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_credentials(password_set_at), fc_documents(doc_type,storage_path,file_name,status,reviewer_note)')
+                .eq('signup_completed', true)
+                .order('created_at', { ascending: false }),
+            adminSupabase
+                .from('manager_accounts')
+                .select('phone')
+                .eq('active', true),
+        ]);
 
         if (error) throw error;
+        if (activeManagerError) throw activeManagerError;
+
+        const activeManagerPhones = buildActiveManagerPhoneSet(activeManagerRows ?? []);
 
         const fcOnlyData = (data ?? [])
-            .filter((row) => {
-                const affiliation = normalizeWhitespace(row?.affiliation);
-                return !affiliation.includes(DESIGNER_MARKER);
-            })
+            .filter((row) => isDashboardFcOnlyRow(row, activeManagerPhones))
             .map((row) => ({
                 ...normalizeDashboardFcListRow(row),
                 affiliation: normalizeAffiliationLabel(row?.affiliation),

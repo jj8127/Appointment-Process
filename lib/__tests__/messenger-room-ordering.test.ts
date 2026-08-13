@@ -8,6 +8,9 @@ import {
 
 const root = join(__dirname, '..', '..');
 const requestBoardMessengerPath = join(root, 'app', 'request-board-messenger.tsx');
+const directChatPath = join(root, 'app', 'chat.tsx');
+const internalChatHelperPath = join(root, 'supabase', 'functions', '_shared', 'internal-chat.ts');
+const adminChatTargetsPath = join(root, 'web', 'src', 'lib', 'admin-chat-targets.ts');
 
 describe('messenger room ordering', () => {
   test('uses only real message timestamps for room ordering', () => {
@@ -42,5 +45,17 @@ describe('messenger room ordering', () => {
     expect(source).toContain('sortConversationsByLastMessageTime(visibleConversations)');
     expect(source).toContain('sortConversationsByLastMessageTime(prev.map');
     expect(source).not.toContain('lastTimestamp: Date.now()');
+  });
+
+  test('all direct-conversation lists keep latest real messages above empty conversations', () => {
+    const directChatSource = readFileSync(directChatPath, 'utf8');
+    const internalChatSource = readFileSync(internalChatHelperPath, 'utf8');
+    const adminChatSource = readFileSync(adminChatTargetsPath, 'utf8');
+
+    expect(directChatSource).toContain('sortConversationsByLastMessageTime<FcChatTarget>([');
+    expect(internalChatSource).toContain('return new Date(right.last_time).getTime() - new Date(left.last_time).getTime()');
+    expect(adminChatSource).toContain('return new Date(b.last_time).getTime() - new Date(a.last_time).getTime()');
+    expect(adminChatSource).toContain('if (a.last_time) return -1');
+    expect(adminChatSource).toContain('if (b.last_time) return 1');
   });
 });

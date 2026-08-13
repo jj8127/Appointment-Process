@@ -1,10 +1,14 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useFocusEffect, useRouter } from 'expo-router';
+import {
+  Stack,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -16,6 +20,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -26,6 +31,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
 import {
@@ -34,7 +40,9 @@ import {
   MESSENGER_REACTIONS,
 } from '@/components/MessengerMessageActionSheet';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
-import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
+import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
+import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
 import { classifyGroupChatError } from '@/lib/group-chat-error';
 import {
   formatGroupChatTime,
@@ -46,52 +54,126 @@ import {
   normalizeGroupChatMemberSearch,
   resolveGroupChatSendPermission,
 } from '@/lib/group-chat-display';
-import { openMessengerAttachment } from '@/lib/messenger-attachment-actions';
+import {
+  openAuthorizedMessengerAttachment,
+  openMessengerAttachment,
+} from '@/lib/messenger-attachment-actions';
+import {
+  appendMessengerAttachmentCandidates,
+  formatMessengerAttachmentSize,
+  isPreparedMessengerAttachmentBatchForDraft,
+  MAX_MESSENGER_ATTACHMENTS,
+  MESSENGER_ATTACHMENT_MIME_BY_EXTENSION,
+  prepareMessengerAttachmentBatch,
+  removeSelectedMessengerAttachment,
+  uploadMessengerAttachmentBatch,
+  type PreparedMessengerAttachmentBatch,
+  type SelectedMessengerAttachment,
+} from '@/lib/messenger-attachment-api';
 import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
 import { confirmMessengerDelete } from '@/lib/messenger-delete-actions';
 import {
   groupChatBootstrap,
   groupChatClearNotice,
+  groupChatContext,
   groupChatDeleteMessage,
+  getGroupChatNotificationRetry,
+  hasGroupChatPostCommitWarning,
   groupChatMarkRead,
+  groupChatRetryNotification,
   groupChatSend,
-  groupChatSetMuted,
   groupChatSetMemberSendPermission,
+  groupChatSetMuted,
   groupChatSetNotice,
   groupChatSetReaction,
   type GroupChatActor,
   type GroupChatMember,
   type GroupChatMessage,
   type GroupChatMessageType,
+  type GroupChatNotificationRetry,
   type GroupChatNotice,
   type GroupChatRoom,
 } from '@/lib/group-chat-api';
 import { logger } from '@/lib/logger';
+import {
+  buildMessengerNotificationPreferenceFailure,
+  buildMessengerNotificationPreferenceLoadFailure,
+  type MessengerNotificationPreferenceFailure,
+} from '@/lib/messenger-notification-preferences';
+import {
+  buildMessengerRoomRef,
+  getNotificationPreferences,
+} from '@/lib/notification-preferences-api';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import {
+  hasPresentRouteParam,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
 import { supabase } from '@/lib/supabase';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { safeDecodeFileName } from '@/lib/validation';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6B7280';
 const SOFT_BG = '#F9FAFB';
-const CHAT_UPLOAD_BUCKET = 'chat-uploads';
 const MESSAGE_LIMIT = 80;
-const GROUP_CHAT_REFRESH_INTERVAL_MS = 8_000;
+const GROUP_CHAT_ANCHOR_CONTEXT_REVALIDATE_MS = 60_000;
 
 function showGroupChatErrorAlert(error: unknown) {
   const userError = classifyGroupChatError(error);
   Alert.alert(userError.title, userError.message);
 }
+
+function showGroupChatDeliveryWarning(retryNotification?: () => void) {
+  logger.warn('[group-chat] notification inbox persistence failed');
+  Alert.alert(
+    '메시지 전송 완료 · 알림 등록 실패',
+    '메시지는 전송됐지만 수신자 알림함에 등록하지 못했습니다.',
+    retryNotification
+      ? [
+          { text: '확인', style: 'cancel' },
+          { text: '알림만 다시 시도', onPress: retryNotification },
+        ]
+      : [{ text: '확인' }],
+  );
+}
+
+async function retryGroupChatNotificationOnly(
+  retry: GroupChatNotificationRetry,
+) {
+  try {
+    const result = await groupChatRetryNotification(retry);
+    if (hasGroupChatPostCommitWarning(result)) {
+      const nextRetry = getGroupChatNotificationRetry(result);
+      showGroupChatDeliveryWarning(
+        nextRetry
+          ? () => {
+              void retryGroupChatNotificationOnly(nextRetry);
+            }
+          : undefined,
+      );
+      return;
+    }
+    Alert.alert('알림 등록 완료', '수신자 알림함에 알림을 등록했습니다.');
+  } catch (error) {
+    logger.warn('[group-chat] notification-only retry failed', error);
+    showGroupChatErrorAlert(error);
+  }
+}
 type OptimisticMessageInput = {
   content: string;
   messageType: GroupChatMessageType;
-  fileUrl?: string | null;
-  fileName?: string | null;
-  fileSize?: number | null;
 };
 
 type SearchableGroupChatMember = GroupChatMember & {
   search_key: string;
+};
+
+type GroupChatScrollToIndexFailure = {
+  index: number;
+  highestMeasuredFrameIndex: number;
+  averageItemLength: number;
 };
 
 type MemberListRowProps = {
@@ -181,12 +263,37 @@ const MemberListRow = memo(function MemberListRow({
 
 export default function GroupChatScreen() {
   const router = useRouter();
+  const { roomId, anchorMessageId, notificationId, notificationTarget } =
+    useLocalSearchParams<{
+      roomId?: string;
+      anchorMessageId?: string;
+      notificationId?: string;
+      notificationTarget?: string;
+    }>();
   const insets = useSafeAreaInsets();
-  const keyboardPadding = useKeyboardPadding();
+  const keyboardVisible = useKeyboardVisible();
   const flatListRef = useRef<FlatList<GroupChatMessage> | null>(null);
   const pickingRef = useRef(false);
-  const isUploadCancelled = useRef(false);
+  const attachmentBatchRef = useRef<PreparedMessengerAttachmentBatch | null>(
+    null,
+  );
+  const attachmentBatchReplyTargetRef = useRef<string | null>(null);
   const messagesRef = useRef<GroupChatMessage[]>([]);
+  const anchorContextRef = useRef<{
+    key: string;
+    messages: GroupChatMessage[];
+    hasBefore: boolean;
+    hasAfter: boolean;
+    validatedAt: number;
+  } | null>(null);
+  const anchorContextAttemptedKeyRef = useRef<string | null>(null);
+  const anchorContextLastAttemptAtRef = useRef(0);
+  const anchorContextInFlightKeyRef = useRef<string | null>(null);
+  const anchorContextRequestGenerationRef = useRef(0);
+  const anchorScrollHandledKeyRef = useRef<string | null>(null);
+  const pendingAnchorMessageIdRef = useRef<string | null>(null);
+  const anchorScrollRetryCountRef = useRef(0);
+  const roomPreferenceSequenceRef = useRef(0);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -197,19 +304,64 @@ export default function GroupChatScreen() {
   const [memberListVisible, setMemberListVisible] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
   const [muted, setMuted] = useState(false);
+  const [conversationSettingsVisible, setConversationSettingsVisible] = useState(false);
+  const [roomPreferenceLoading, setRoomPreferenceLoading] = useState(false);
+  const [roomPreferenceReady, setRoomPreferenceReady] = useState(false);
+  const [roomPreferenceLoadedKey, setRoomPreferenceLoadedKey] =
+    useState<string | null>(null);
+  const [roomPreferencePending, setRoomPreferencePending] = useState(false);
+  const [roomPreferenceFailure, setRoomPreferenceFailure] =
+    useState<MessengerNotificationPreferenceFailure | null>(null);
   const [canSendMessages, setCanSendMessages] = useState(false);
   const [notice, setNotice] = useState<GroupChatNotice | null>(null);
   const [messages, setMessages] = useState<GroupChatMessage[]>([]);
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [selectedAttachments, setSelectedAttachments] = useState<
+    SelectedMessengerAttachment[]
+  >([]);
   const [replyTarget, setReplyTarget] = useState<GroupChatMessage | null>(null);
   const [actionMessage, setActionMessage] = useState<GroupChatMessage | null>(null);
   const [selectCopyMessage, setSelectCopyMessage] = useState<GroupChatMessage | null>(null);
   const [noticeUpdating, setNoticeUpdating] = useState(false);
   const [permissionUpdatingIds, setPermissionUpdatingIds] = useState<Set<string>>(() => new Set());
+  const [roomLoadFailed, setRoomLoadFailed] = useState(false);
+  const [anchorLoadFailed, setAnchorLoadFailed] = useState(false);
+  const [anchorHasHistoryGap, setAnchorHasHistoryGap] = useState(false);
+  const [anchorNavigationDismissed, setAnchorNavigationDismissed] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
-  const bottomSafeInset = Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 12);
+  const composerBottomPadding = getChatComposerBottomPadding({
+    keyboardVisible,
+    platform: Platform.OS,
+    safeAreaBottom: insets.bottom,
+  });
   const roomTitle = room?.title ?? '가람PA 단톡방';
+  const routeRoomId = parseExactlyOneUuidRouteParam(roomId);
+  const hasInvalidRoomRoute =
+    hasPresentRouteParam(roomId) && !routeRoomId;
+  const routeAnchorMessageId = parseExactlyOneUuidRouteParam(anchorMessageId);
+  const hasAnchorRouteParam = hasPresentRouteParam(anchorMessageId);
+  const hasInvalidAnchorRoute =
+    hasAnchorRouteParam && !routeAnchorMessageId;
+  const anchorRouteKey = `${routeRoomId ?? 'canonical'}:${routeAnchorMessageId ?? 'none'}:${hasInvalidRoomRoute || hasInvalidAnchorRoute ? 'invalid' : 'valid'}`;
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasInvalidRoomRoute && routeRoomId
+      ? { version: 1, kind: 'group_chat', roomId: routeRoomId }
+      : null,
+    loadState: hasInvalidRoomRoute
+      ? 'error'
+      : roomLoadFailed
+      ? 'error'
+      : room?.id === routeRoomId
+        ? 'success'
+        : loading
+          ? 'loading'
+          : routeRoomId
+            ? 'error'
+            : 'idle',
+  });
   const canManageMemberSendPermissions = isStaffGroupChatActor(actor);
   const canManageNotice = isStaffGroupChatActor(actor);
   const deferredMemberSearch = useDeferredValue(memberSearch);
@@ -231,8 +383,26 @@ export default function GroupChatScreen() {
     applyMessages(messagesRef.current.filter((message) => message.id !== messageId));
   }, [applyMessages]);
 
+  useEffect(() => {
+    anchorContextRequestGenerationRef.current += 1;
+    anchorContextRef.current = null;
+    anchorContextAttemptedKeyRef.current = null;
+    anchorContextLastAttemptAtRef.current = 0;
+    anchorContextInFlightKeyRef.current = null;
+    anchorScrollHandledKeyRef.current = null;
+    pendingAnchorMessageIdRef.current = null;
+    setAnchorHasHistoryGap(false);
+    setAnchorNavigationDismissed(false);
+    anchorScrollRetryCountRef.current = 0;
+    setHighlightedMessageId(null);
+    setAnchorLoadFailed(
+      hasAnchorRouteParam && (hasInvalidRoomRoute || hasInvalidAnchorRoute),
+    );
+  }, [anchorRouteKey, hasAnchorRouteParam, hasInvalidAnchorRoute, hasInvalidRoomRoute]);
+
   const load = useCallback(async (options?: { silent?: boolean }) => {
     try {
+      setRoomLoadFailed(false);
       const data = await groupChatBootstrap(MESSAGE_LIMIT);
       setRoom(data.room);
       setActor(data.actor);
@@ -242,7 +412,88 @@ export default function GroupChatScreen() {
       setCanSendMessages(resolveGroupChatSendPermission(data.actor, data.can_send_messages));
       setNotice(data.notice ?? null);
       const localMessages = messagesRef.current.filter((message) => message.id.startsWith('local-'));
-      applyMessages([...data.messages, ...localMessages]);
+      let contextMessages: GroupChatMessage[] = [];
+      if (routeAnchorMessageId && !hasInvalidRoomRoute && !anchorNavigationDismissed) {
+        const contextRoomId = routeRoomId ?? data.room.id;
+        const contextKey = `${contextRoomId}:${routeAnchorMessageId}`;
+        const bootstrapHasAnchor = data.messages.some(
+          (message) => message.id === routeAnchorMessageId,
+        );
+        const cachedContext = anchorContextRef.current?.key === contextKey
+          ? anchorContextRef.current
+          : null;
+        const now = Date.now();
+        const cacheNeedsRevalidation = !cachedContext
+          || now - cachedContext.validatedAt >= GROUP_CHAT_ANCHOR_CONTEXT_REVALIDATE_MS;
+        const lastAttemptMatches = anchorContextAttemptedKeyRef.current === contextKey;
+        const contextAttemptDue = !lastAttemptMatches
+          || now - anchorContextLastAttemptAtRef.current >= GROUP_CHAT_ANCHOR_CONTEXT_REVALIDATE_MS;
+
+        if (cachedContext) {
+          contextMessages = cachedContext.messages;
+          setAnchorHasHistoryGap(
+            cachedContext.hasBefore || cachedContext.hasAfter,
+          );
+        }
+
+        if (
+          cacheNeedsRevalidation
+          && contextAttemptDue
+          && anchorContextInFlightKeyRef.current !== contextKey
+        ) {
+          anchorContextAttemptedKeyRef.current = contextKey;
+          anchorContextLastAttemptAtRef.current = now;
+          anchorContextInFlightKeyRef.current = contextKey;
+          const requestGeneration = anchorContextRequestGenerationRef.current + 1;
+          anchorContextRequestGenerationRef.current = requestGeneration;
+          try {
+            const context = await groupChatContext(contextRoomId, routeAnchorMessageId);
+            if (anchorContextRequestGenerationRef.current !== requestGeneration) return;
+            if (
+              context.roomRef.roomId !== data.room.id
+              || context.anchorMessageId !== routeAnchorMessageId
+            ) {
+              throw new Error('invalid_group_chat_anchor_context');
+            }
+            contextMessages = context.messages;
+            anchorContextRef.current = {
+              key: contextKey,
+              messages: contextMessages,
+              hasBefore: context.hasBefore,
+              hasAfter: context.hasAfter,
+              validatedAt: Date.now(),
+            };
+            setAnchorHasHistoryGap(context.hasBefore || context.hasAfter);
+            setAnchorLoadFailed(false);
+          } catch {
+            if (anchorContextRequestGenerationRef.current !== requestGeneration) return;
+            logger.warn('[group-chat] anchor context unavailable', {
+              reason: 'anchor_context_unavailable',
+            });
+            anchorContextRef.current = null;
+            contextMessages = [];
+            setAnchorHasHistoryGap(false);
+            if (bootstrapHasAnchor) {
+              setAnchorLoadFailed(false);
+            } else {
+              anchorScrollHandledKeyRef.current = null;
+              pendingAnchorMessageIdRef.current = null;
+              setHighlightedMessageId(null);
+              setAnchorLoadFailed(true);
+            }
+          } finally {
+            if (
+              anchorContextRequestGenerationRef.current === requestGeneration
+              && anchorContextInFlightKeyRef.current === contextKey
+            ) {
+              anchorContextInFlightKeyRef.current = null;
+            }
+          }
+        }
+      }
+      // Full bootstrap rows precede display-only context rows so canonical
+      // message metadata wins whenever the bounded windows overlap.
+      applyMessages([...data.messages, ...contextMessages, ...localMessages]);
       const topMessageId = data.messages[0]?.id ?? null;
       if (topMessageId) {
         void groupChatMarkRead(topMessageId).catch((error) => {
@@ -250,6 +501,7 @@ export default function GroupChatScreen() {
         });
       }
     } catch (error) {
+      setRoomLoadFailed(true);
       logger.warn('[group-chat] load failed', error);
       if (!options?.silent) {
         showGroupChatErrorAlert(error);
@@ -258,28 +510,117 @@ export default function GroupChatScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [applyMessages]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  }, [
+    anchorNavigationDismissed,
+    applyMessages,
+    hasInvalidRoomRoute,
+    routeAnchorMessageId,
+    routeRoomId,
+  ]);
 
   useFocusEffect(
     useCallback(() => {
-      void load({ silent: true });
-      const intervalId = setInterval(() => {
-        void load({ silent: true });
-      }, GROUP_CHAT_REFRESH_INTERVAL_MS);
-      return () => clearInterval(intervalId);
+      void load();
+      const subscription = AppState.addEventListener('change', (nextState) => {
+        if (nextState === 'active') void load({ silent: true });
+      });
+      return () => subscription.remove();
     }, [load]),
   );
 
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') void load({ silent: true });
+  const handleAnchorScrollToIndexFailed = useCallback((
+    info: GroupChatScrollToIndexFailure,
+  ) => {
+    const pendingAnchorMessageId = pendingAnchorMessageIdRef.current;
+    if (!pendingAnchorMessageId) return;
+    const currentAnchorIndex = messagesRef.current.findIndex(
+      (message) => message.id === pendingAnchorMessageId,
+    );
+    if (currentAnchorIndex < 0) return;
+
+    const approximateOffset = Math.max(
+      0,
+      info.averageItemLength * currentAnchorIndex,
+    );
+    flatListRef.current?.scrollToOffset({
+      offset: approximateOffset,
+      animated: false,
     });
-    return () => subscription.remove();
-  }, [load]);
+    if (anchorScrollRetryCountRef.current >= 2) return;
+
+    anchorScrollRetryCountRef.current += 1;
+    setTimeout(() => {
+      if (pendingAnchorMessageIdRef.current !== pendingAnchorMessageId) return;
+      const retryIndex = messagesRef.current.findIndex(
+        (message) => message.id === pendingAnchorMessageId,
+      );
+      if (retryIndex < 0) return;
+      flatListRef.current?.scrollToIndex({
+        index: retryIndex,
+        animated: true,
+        viewPosition: 0.5,
+      });
+    }, 80);
+  }, []);
+
+  useEffect(() => {
+    if (
+      loading
+      || anchorNavigationDismissed
+      || !room?.id
+      || !routeAnchorMessageId
+    ) return undefined;
+    const scrollKey = `${room.id}:${routeAnchorMessageId}`;
+    if (anchorScrollHandledKeyRef.current === scrollKey) return undefined;
+
+    // The inverted list still consumes the newest-first data index directly;
+    // reversing this index would jump to the wrong message.
+    const anchorIndex = messages.findIndex(
+      (message) => message.id === routeAnchorMessageId,
+    );
+    if (anchorIndex < 0) return undefined;
+
+    anchorScrollHandledKeyRef.current = scrollKey;
+    pendingAnchorMessageIdRef.current = routeAnchorMessageId;
+    anchorScrollRetryCountRef.current = 0;
+    setHighlightedMessageId(routeAnchorMessageId);
+    const frame = requestAnimationFrame(() => {
+      flatListRef.current?.scrollToIndex({
+        index: anchorIndex,
+        animated: true,
+        viewPosition: 0.5,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    anchorNavigationDismissed,
+    loading,
+    messages,
+    room?.id,
+    routeAnchorMessageId,
+  ]);
+
+  useEffect(() => {
+    if (!highlightedMessageId) return undefined;
+    const timeoutId = setTimeout(() => setHighlightedMessageId(null), 4_000);
+    return () => clearTimeout(timeoutId);
+  }, [highlightedMessageId]);
+
+  const handleReturnToLatest = useCallback(() => {
+    setAnchorNavigationDismissed(true);
+    anchorContextRequestGenerationRef.current += 1;
+    anchorContextRef.current = null;
+    anchorContextAttemptedKeyRef.current = null;
+    anchorContextLastAttemptAtRef.current = 0;
+    anchorContextInFlightKeyRef.current = null;
+    anchorScrollHandledKeyRef.current = null;
+    pendingAnchorMessageIdRef.current = null;
+    anchorScrollRetryCountRef.current = 0;
+    setAnchorHasHistoryGap(false);
+    setAnchorLoadFailed(false);
+    setHighlightedMessageId(null);
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
 
   useEffect(() => {
     if (!room?.id) return undefined;
@@ -300,6 +641,7 @@ export default function GroupChatScreen() {
           applyMessages([
             {
               ...nextMessage,
+              attachments: nextMessage.attachments ?? [],
               unread_count: existingMessage?.unread_count ?? nextMessage.unread_count ?? 0,
             },
             ...messagesRef.current,
@@ -317,9 +659,13 @@ export default function GroupChatScreen() {
   }, [applyMessages, room?.id]);
 
   const handleRefresh = useCallback(() => {
+    if (anchorLoadFailed) {
+      anchorContextAttemptedKeyRef.current = null;
+      anchorContextLastAttemptAtRef.current = 0;
+    }
     setRefreshing(true);
     void load();
-  }, [load]);
+  }, [anchorLoadFailed, load]);
 
   const searchableMembers = useMemo<SearchableGroupChatMember[]>(() => {
     return [...members].sort((left, right) => {
@@ -476,9 +822,10 @@ export default function GroupChatScreen() {
       sender_name: actor.name,
       content: input.content,
       message_type: input.messageType,
-      file_url: input.fileUrl ?? null,
-      file_name: input.fileName ?? null,
-      file_size: input.fileSize ?? null,
+      file_url: null,
+      file_name: null,
+      file_size: null,
+      attachments: [],
       created_at: now,
       unread_count: Math.max(0, memberCount - 1),
       reply_to_message_id: currentReplyTarget?.id ?? null,
@@ -493,17 +840,76 @@ export default function GroupChatScreen() {
 
   const sendOptimisticToServer = useCallback(async (
     localMessageId: string,
-    input: OptimisticMessageInput & { replyToMessageId?: string | null },
+    input: OptimisticMessageInput & {
+      replyToMessageId?: string | null;
+      attachmentBatch?: PreparedMessengerAttachmentBatch | null;
+    },
   ) => {
-    try {
+    let notificationRetry: GroupChatNotificationRetry | null = null;
+    let shouldShowDeliveryWarning = false;
+    const commit = async () => {
+      let attachmentIntentIds: string[] | null = null;
+      if (input.attachmentBatch) {
+        const uploadResult = await uploadMessengerAttachmentBatch(
+          input.attachmentBatch,
+        );
+        if (uploadResult.state === 'committed') {
+          return { state: 'committed' as const };
+        }
+        attachmentIntentIds = uploadResult.intentIds;
+      }
       const result = await groupChatSend({
         content: input.content,
         messageType: input.messageType,
-        fileUrl: input.fileUrl,
-        fileName: input.fileName,
-        fileSize: input.fileSize,
         replyToMessageId: input.replyToMessageId,
+        ...(input.attachmentBatch && attachmentIntentIds
+          ? {
+              attachmentIntentIds,
+              deliveryKey: input.attachmentBatch.deliveryKey,
+              payloadFingerprint: input.attachmentBatch.payloadFingerprint,
+            }
+          : {}),
       });
+      return { state: 'sent' as const, result };
+    };
+    const commitWithRetry = async (): Promise<
+      Awaited<ReturnType<typeof commit>> | null
+    > => {
+      try {
+        return await commit();
+      } catch (error) {
+        if (!input.attachmentBatch) throw error;
+        logger.warn('[group-chat] attachment send result unavailable');
+        return new Promise((resolve) => {
+          Alert.alert(
+            '전송 확인 필요',
+            '파일 메시지 전송 결과를 확인하지 못했습니다. 같은 요청으로 다시 확인하면 중복 전송되지 않습니다.',
+            [
+              { text: '취소', style: 'cancel', onPress: () => resolve(null) },
+              {
+                text: '다시 확인',
+                onPress: () => {
+                  void commitWithRetry().then(resolve);
+                },
+              },
+            ],
+            { cancelable: false },
+          );
+        });
+      }
+    };
+    try {
+      const commitResult = await commitWithRetry();
+      if (!commitResult) {
+        removeMessage(localMessageId);
+        return false;
+      }
+      if (commitResult.state === 'committed') {
+        removeMessage(localMessageId);
+        await load({ silent: true });
+        return true;
+      }
+      const { result } = commitResult;
       applyMessages([
         result.message,
         ...messagesRef.current.filter((message) => message.id !== localMessageId),
@@ -511,252 +917,348 @@ export default function GroupChatScreen() {
       void groupChatMarkRead(result.message.id).catch((error) => {
         logger.debug('[group-chat] mark read after send failed', error);
       });
+      if (result.read_state?.updated === false) {
+        logger.warn('[group-chat] post-send read state update failed');
+      }
+      shouldShowDeliveryWarning = hasGroupChatPostCommitWarning(result);
+      notificationRetry = getGroupChatNotificationRetry(result);
     } catch (error) {
-      updateMessage(localMessageId, { send_status: 'failed' });
+      if (input.attachmentBatch) {
+        removeMessage(localMessageId);
+      } else {
+        updateMessage(localMessageId, { send_status: 'failed' });
+      }
       logger.warn('[group-chat] send failed', error);
       showGroupChatErrorAlert(error);
+      return false;
     }
-  }, [applyMessages, updateMessage]);
+
+    if (shouldShowDeliveryWarning) {
+      showGroupChatDeliveryWarning(
+        notificationRetry
+          ? () => {
+              void retryGroupChatNotificationOnly(notificationRetry);
+            }
+          : undefined,
+      );
+    }
+    return true;
+  }, [applyMessages, load, removeMessage, updateMessage]);
 
   const sendPayload = useCallback(async (
     content: string,
-    messageType: GroupChatMessageType = 'text',
-    fileData?: { url: string; name?: string | null; size?: number | null },
+    attachments: readonly SelectedMessengerAttachment[],
   ) => {
     if (!canSendMessages) {
       showSendPermissionAlert();
-      return;
+      return false;
+    }
+    if (!room?.id) {
+      Alert.alert('전송 실패', '단톡방 정보를 불러온 뒤 다시 시도해주세요.');
+      return false;
+    }
+
+    let attachmentBatch: PreparedMessengerAttachmentBatch | null = null;
+    try {
+      if (attachments.length > 0) {
+        const replyToMessageId = replyTarget?.id ?? null;
+        const draft = {
+          files: attachments,
+          context: { kind: 'group' as const, roomId: room.id },
+          content,
+        };
+        const canReuseAttachmentBatch =
+          isPreparedMessengerAttachmentBatchForDraft(
+            attachmentBatchRef.current,
+            draft,
+          )
+          && attachmentBatchReplyTargetRef.current === replyToMessageId;
+        attachmentBatch = canReuseAttachmentBatch
+          ? attachmentBatchRef.current
+          : await prepareMessengerAttachmentBatch(draft);
+        attachmentBatchRef.current = attachmentBatch;
+        attachmentBatchReplyTargetRef.current = replyToMessageId;
+      }
+    } catch (error) {
+      Alert.alert(
+        '파일 확인 필요',
+        error instanceof Error ? error.message : '첨부 파일을 확인해 주세요.',
+      );
+      return false;
     }
 
     const optimisticMessage = buildOptimisticMessage({
-      content,
-      messageType,
-      fileUrl: fileData?.url,
-      fileName: fileData?.name,
-      fileSize: fileData?.size,
+      content:
+        content
+        || (attachments.length > 0
+          ? `파일 ${attachments.length}개 전송 중`
+          : ''),
+      messageType: attachments.length > 0 ? 'file' : 'text',
     });
     if (!optimisticMessage) {
       Alert.alert('전송 실패', '단톡방 정보를 불러온 뒤 다시 시도해주세요.');
-      return;
+      return false;
     }
 
     applyMessages([optimisticMessage, ...messagesRef.current]);
-    setReplyTarget(null);
-    await sendOptimisticToServer(optimisticMessage.id, {
+    const sent = await sendOptimisticToServer(optimisticMessage.id, {
       content,
-      messageType,
-      fileUrl: fileData?.url,
-      fileName: fileData?.name,
-      fileSize: fileData?.size,
+      messageType: attachments.length > 0 ? 'file' : 'text',
       replyToMessageId: optimisticMessage.reply_to_message_id,
+      attachmentBatch,
     });
-  }, [applyMessages, buildOptimisticMessage, canSendMessages, sendOptimisticToServer, showSendPermissionAlert]);
+    if (sent) {
+      attachmentBatchRef.current = null;
+      attachmentBatchReplyTargetRef.current = null;
+      setReplyTarget(null);
+    }
+    return sent;
+  }, [
+    applyMessages,
+    buildOptimisticMessage,
+    canSendMessages,
+    room?.id,
+    replyTarget?.id,
+    sendOptimisticToServer,
+    showSendPermissionAlert,
+  ]);
 
   const handleSendText = useCallback(() => {
+    const submittedText = text;
     const nextText = text.trim();
-    if (!nextText) return;
+    const attachments = selectedAttachments;
+    if ((!nextText && attachments.length === 0) || uploading) return;
     if (!canSendMessages) {
       showSendPermissionAlert();
       return;
     }
-    setText('');
-    isUploadCancelled.current = false;
-    void sendPayload(nextText, 'text');
-  }, [canSendMessages, sendPayload, showSendPermissionAlert, text]);
+    setUploading(true);
+    void sendPayload(nextText, attachments)
+      .then((sent) => {
+        if (!sent) return;
+        setText((current) => current === submittedText ? '' : current);
+        setSelectedAttachments((current) =>
+          current.length === attachments.length
+          && current.every(
+            (attachment, index) =>
+              attachment.clientFileId === attachments[index]?.clientFileId,
+          )
+            ? []
+            : current,
+        );
+      })
+      .finally(() => setUploading(false));
+  }, [
+    canSendMessages,
+    selectedAttachments,
+    sendPayload,
+    showSendPermissionAlert,
+    text,
+    uploading,
+  ]);
 
-  const uploadToSupabase = useCallback(async (uri: string, fileType: string) => {
-    try {
-      isUploadCancelled.current = false;
-      setUploading(true);
-      const ext = uri.split('.').pop()?.toLowerCase() ?? 'bin';
-      const fileName = `group-chat/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-      const uploadMimeType = fileType?.trim() || 'application/octet-stream';
-
-      if (Platform.OS === 'web') {
-        const localFileResponse = await fetch(uri);
-        if (!localFileResponse.ok) {
-          throw new Error(`파일을 읽지 못했습니다. (${localFileResponse.status})`);
-        }
-        const fileBlob = await localFileResponse.blob();
-        const byteArray = new Uint8Array(await fileBlob.arrayBuffer());
-        const { error } = await supabase.storage.from(CHAT_UPLOAD_BUCKET).upload(fileName, byteArray, {
-          contentType: uploadMimeType,
-          upsert: false,
-        });
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.storage
-          .from(CHAT_UPLOAD_BUCKET)
-          .createSignedUploadUrl(fileName);
-        if (error || !data?.signedUrl) {
-          throw error ?? new Error('Signed upload URL 생성 실패');
-        }
-        const uploadResult = await FileSystem.uploadAsync(data.signedUrl, uri, {
-          httpMethod: 'PUT',
-          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-          headers: { 'Content-Type': uploadMimeType },
-        });
-        if (uploadResult.status < 200 || uploadResult.status >= 300) {
-          throw new Error(`업로드 실패 (status ${uploadResult.status})`);
-        }
-      }
-
-      if (isUploadCancelled.current) return null;
-      const { data: urlData } = supabase.storage.from(CHAT_UPLOAD_BUCKET).getPublicUrl(fileName);
-      return urlData.publicUrl;
-    } catch (error) {
-      if (isUploadCancelled.current) return null;
-      logger.error('[group-chat] file upload failed', { error });
-      showGroupChatErrorAlert(error);
-      return null;
-    } finally {
-      if (!isUploadCancelled.current) setUploading(false);
-    }
-  }, []);
-
-  const pickImage = useCallback(async () => {
+  const handleAttachment = useCallback(async () => {
     if (!canSendMessages) {
       showSendPermissionAlert();
       return;
     }
-
-    if (Platform.OS === 'ios') {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('사진 접근 권한 필요', '설정 > 가람in > 사진 접근을 허용해 주세요.');
-        return;
-      }
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      quality: 0.8,
-    });
-
-    if (!result.canceled) {
-      const asset = result.assets[0];
-      const optimisticMessage = buildOptimisticMessage({
-        content: '사진을 보냈습니다.',
-        messageType: 'image',
-        fileUrl: asset.uri,
-        fileName: asset.fileName ?? 'image.jpg',
-        fileSize: asset.fileSize,
-      });
-      if (!optimisticMessage) {
-        Alert.alert('전송 실패', '단톡방 정보를 불러온 뒤 다시 시도해주세요.');
-        return;
-      }
-
-      applyMessages([optimisticMessage, ...messagesRef.current]);
-      setReplyTarget(null);
-      const publicUrl = await uploadToSupabase(asset.uri, asset.mimeType ?? 'image/jpeg');
-      if (!publicUrl) {
-        if (isUploadCancelled.current) {
-          removeMessage(optimisticMessage.id);
-        } else {
-          updateMessage(optimisticMessage.id, { send_status: 'failed' });
-        }
-        return;
-      }
-
-      updateMessage(optimisticMessage.id, { file_url: publicUrl });
-      await sendOptimisticToServer(optimisticMessage.id, {
-        content: '사진을 보냈습니다.',
-        messageType: 'image',
-        fileUrl: publicUrl,
-        fileName: asset.fileName ?? 'image.jpg',
-        fileSize: asset.fileSize,
-        replyToMessageId: optimisticMessage.reply_to_message_id,
-      });
-    }
-  }, [applyMessages, buildOptimisticMessage, canSendMessages, removeMessage, sendOptimisticToServer, showSendPermissionAlert, updateMessage, uploadToSupabase]);
-
-  const pickDocument = useCallback(async () => {
-    if (!canSendMessages) {
-      showSendPermissionAlert();
-      return;
-    }
-
-    if (pickingRef.current) return;
+    if (pickingRef.current || uploading) return;
     pickingRef.current = true;
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
+        type: Array.from(
+          new Set(Object.values(MESSENGER_ATTACHMENT_MIME_BY_EXTENSION)),
+        ),
         copyToCacheDirectory: true,
+        multiple: true,
+        base64: false,
       });
-      if (!result.canceled) {
-        const file = result.assets[0];
-        const optimisticMessage = buildOptimisticMessage({
-          content: file.name,
-          messageType: 'file',
-          fileUrl: file.uri,
-          fileName: file.name,
-          fileSize: file.size,
-        });
-        if (!optimisticMessage) {
-          Alert.alert('전송 실패', '단톡방 정보를 불러온 뒤 다시 시도해주세요.');
-          return;
-        }
-
-        applyMessages([optimisticMessage, ...messagesRef.current]);
-        setReplyTarget(null);
-        const publicUrl = await uploadToSupabase(file.uri, file.mimeType ?? 'application/octet-stream');
-        if (!publicUrl) {
-          if (isUploadCancelled.current) {
-            removeMessage(optimisticMessage.id);
-          } else {
-            updateMessage(optimisticMessage.id, { send_status: 'failed' });
-          }
-          return;
-        }
-
-        updateMessage(optimisticMessage.id, { file_url: publicUrl });
-        await sendOptimisticToServer(optimisticMessage.id, {
-          content: file.name,
-          messageType: 'file',
-          fileUrl: publicUrl,
-          fileName: file.name,
-          fileSize: file.size,
-          replyToMessageId: optimisticMessage.reply_to_message_id,
-        });
-      }
+      if (result.canceled) return;
+      const next = await appendMessengerAttachmentCandidates(
+        selectedAttachments,
+        result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.name,
+          size: asset.size,
+          mimeType: asset.mimeType,
+          webFile: asset.file,
+        })),
+      );
+      setSelectedAttachments(next);
     } catch (error) {
-      logger.debug('[group-chat] document picker failed', { error });
+      Alert.alert(
+        '파일 선택 실패',
+        error instanceof Error ? error.message : '파일을 선택하지 못했습니다.',
+      );
     } finally {
       pickingRef.current = false;
     }
-  }, [applyMessages, buildOptimisticMessage, canSendMessages, removeMessage, sendOptimisticToServer, showSendPermissionAlert, updateMessage, uploadToSupabase]);
+  }, [
+    canSendMessages,
+    selectedAttachments,
+    showSendPermissionAlert,
+    uploading,
+  ]);
 
-  const handleAttachment = useCallback(() => {
+  const handleImageAttachment = useCallback(async () => {
     if (!canSendMessages) {
       showSendPermissionAlert();
       return;
     }
+    if (pickingRef.current || uploading) return;
+    if (selectedAttachments.length >= MAX_MESSENGER_ATTACHMENTS) {
+      Alert.alert('첨부 한도', `사진과 파일은 최대 ${MAX_MESSENGER_ATTACHMENTS}개까지 첨부할 수 있습니다.`);
+      return;
+    }
+    pickingRef.current = true;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('사진 권한 필요', '사진을 첨부하려면 사진 접근 권한을 허용해 주세요.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        selectionLimit: MAX_MESSENGER_ATTACHMENTS - selectedAttachments.length,
+        quality: 0.85,
+      });
+      if (result.canceled) return;
+      const selectedAt = Date.now();
+      const next = await appendMessengerAttachmentCandidates(
+        selectedAttachments,
+        result.assets.map((asset, index) => ({
+          uri: asset.uri,
+          name: asset.fileName ?? `image_${selectedAt}_${index + 1}.jpg`,
+          size: asset.fileSize,
+          mimeType: asset.mimeType ?? 'image/jpeg',
+          webFile: asset.file,
+        })),
+      );
+      setSelectedAttachments(next);
+    } catch (error) {
+      Alert.alert(
+        '사진 선택 실패',
+        error instanceof Error ? error.message : '사진을 선택하지 못했습니다.',
+      );
+    } finally {
+      pickingRef.current = false;
+    }
+  }, [
+    canSendMessages,
+    selectedAttachments,
+    showSendPermissionAlert,
+    uploading,
+  ]);
 
-    Alert.alert('파일 전송', '어떤 파일을 보내시겠습니까?', [
-      { text: '사진 보관함', onPress: pickImage },
-      { text: '문서 (PDF 등)', onPress: pickDocument },
-      { text: '취소', style: 'cancel' },
-    ]);
-  }, [canSendMessages, pickDocument, pickImage, showSendPermissionAlert]);
+  const groupRoomRef = useMemo(() => room?.id
+    ? buildMessengerRoomRef('group', room.id)
+    : null, [room?.id]);
+  const groupSheetRoom = useMemo(() => groupRoomRef ? ({
+    version: 1 as const,
+    kind: 'group_chat' as const,
+    roomId: groupRoomRef.id,
+  }) : null, [groupRoomRef]);
+  const groupRoomPreferenceReady = Boolean(
+    groupRoomRef
+    && roomPreferenceReady
+    && roomPreferenceLoadedKey === groupRoomRef.key,
+  );
 
-  const handleCancelUpload = useCallback(() => {
-    isUploadCancelled.current = true;
-    setUploading(false);
-  }, []);
+  const loadGroupRoomPreference = useCallback(async () => {
+    const roomRef = groupRoomRef;
+    if (!roomRef) return;
+    const sequence = ++roomPreferenceSequenceRef.current;
+    setRoomPreferenceLoading(true);
+    setRoomPreferenceReady(false);
+    setRoomPreferenceLoadedKey(null);
+    setRoomPreferenceFailure(null);
+    try {
+      const preferences = await getNotificationPreferences();
+      if (sequence !== roomPreferenceSequenceRef.current) return;
+      setMuted(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setRoomPreferenceLoadedKey(roomRef.key);
+      setRoomPreferenceReady(true);
+      setRoomPreferenceFailure(null);
+    } catch (error) {
+      if (sequence !== roomPreferenceSequenceRef.current) return;
+      setRoomPreferenceReady(false);
+      setRoomPreferenceLoadedKey(null);
+      setRoomPreferenceFailure(buildMessengerNotificationPreferenceLoadFailure(error));
+    } finally {
+      if (sequence === roomPreferenceSequenceRef.current) {
+        setRoomPreferenceLoading(false);
+      }
+    }
+  }, [groupRoomRef]);
 
-  const toggleMuted = useCallback(async () => {
-    const nextMuted = !muted;
+  useEffect(() => {
+    roomPreferenceSequenceRef.current += 1;
+    setMuted(false);
+    setRoomPreferenceLoading(false);
+    setRoomPreferenceReady(false);
+    setRoomPreferenceLoadedKey(null);
+    setRoomPreferencePending(false);
+    setRoomPreferenceFailure(null);
+    if (groupRoomRef) void loadGroupRoomPreference();
+    return () => {
+      roomPreferenceSequenceRef.current += 1;
+    };
+  }, [groupRoomRef, loadGroupRoomPreference]);
+
+  const saveGroupRoomPreference = useCallback(async (nextMuted: boolean) => {
+    const roomRef = groupRoomRef;
+    if (
+      !roomRef
+      || !groupRoomPreferenceReady
+      || roomPreferenceLoading
+      || roomPreferencePending
+    ) return;
+    const sequence = ++roomPreferenceSequenceRef.current;
+    const previousMuted = muted;
     setMuted(nextMuted);
+    setRoomPreferencePending(true);
+    setRoomPreferenceFailure(null);
+
+    let confirmedMuted: boolean;
     try {
       const result = await groupChatSetMuted(nextMuted);
-      setMuted(result.muted);
+      confirmedMuted = result.muted;
     } catch (error) {
-      setMuted(!nextMuted);
-      showGroupChatErrorAlert(error);
+      if (sequence !== roomPreferenceSequenceRef.current) return;
+      setMuted(previousMuted);
+      setRoomPreferenceFailure(buildMessengerNotificationPreferenceFailure(nextMuted, error));
+      setRoomPreferencePending(false);
+      return;
     }
-  }, [muted]);
+
+    if (sequence !== roomPreferenceSequenceRef.current) return;
+    setMuted(confirmedMuted);
+    setRoomPreferenceLoadedKey(roomRef.key);
+    setRoomPreferenceReady(true);
+
+    try {
+      const preferences = await getNotificationPreferences();
+      if (sequence !== roomPreferenceSequenceRef.current) return;
+      setMuted(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setRoomPreferenceLoadedKey(roomRef.key);
+      setRoomPreferenceReady(true);
+      setRoomPreferenceFailure(null);
+    } catch (error) {
+      if (sequence !== roomPreferenceSequenceRef.current) return;
+      setRoomPreferenceFailure(buildMessengerNotificationPreferenceLoadFailure(error));
+    } finally {
+      if (sequence === roomPreferenceSequenceRef.current) {
+        setRoomPreferencePending(false);
+      }
+    }
+  }, [
+    groupRoomPreferenceReady,
+    groupRoomRef,
+    muted,
+    roomPreferenceLoading,
+    roomPreferencePending,
+  ]);
 
   const handleMemberSendPermissionToggle = useCallback(async (member: GroupChatMember, nextCanSend: boolean) => {
     if (!canManageMemberSendPermissions || member.role !== 'fc') return;
@@ -825,6 +1327,81 @@ export default function GroupChatScreen() {
       return <Text style={[styles.deletedMessageText, isMe ? styles.deletedMessageTextMe : styles.deletedMessageTextOther]}>삭제된 메시지입니다.</Text>;
     }
 
+    if ((item.attachments ?? []).length > 0) {
+      return (
+        <View style={styles.attachmentMessageContent}>
+          {item.content ? (
+            <LinkifiedSelectableText
+              text={item.content}
+              style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextOther]}
+              linkStyle={styles.msgLinkText}
+              linkPressBehavior="open"
+              selectable={false}
+            />
+          ) : null}
+          {item.attachments.map((attachment) => (
+            <Pressable
+              key={attachment.id}
+              style={[
+                styles.fileCard,
+                isMe ? styles.fileCardMe : styles.fileCardOther,
+              ]}
+              onPress={() => {
+                void openAuthorizedMessengerAttachment(attachment.id, {
+                  logScope: 'group-chat',
+                });
+              }}
+            >
+              <View style={[
+                styles.fileIconBox,
+                isMe ? styles.fileIconBoxMe : styles.fileIconBoxOther,
+              ]}>
+                <Ionicons
+                  name={attachment.mimeType.startsWith('image/')
+                    ? 'image-outline'
+                    : 'document-text'}
+                  size={22}
+                  color={isMe ? '#fff' : HANWHA_ORANGE}
+                />
+              </View>
+              <View style={styles.fileTextWrap}>
+                <Text
+                  style={[
+                    styles.fileName,
+                    isMe ? styles.fileNameMe : styles.fileNameOther,
+                  ]}
+                  numberOfLines={2}
+                >
+                  {attachment.name}
+                </Text>
+                <Text
+                  style={[
+                    styles.fileHint,
+                    isMe ? styles.fileHintMe : styles.fileHintOther,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {formatMessengerAttachmentSize(attachment.size)} · 탭하여 열기
+                </Text>
+              </View>
+              <View style={[
+                styles.fileDownloadButton,
+                isMe
+                  ? styles.fileDownloadButtonMe
+                  : styles.fileDownloadButtonOther,
+              ]}>
+                <Feather
+                  name="download"
+                  size={16}
+                  color={isMe ? '#fff' : HANWHA_ORANGE}
+                />
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      );
+    }
+
     if (item.message_type === 'image' && item.file_url) {
       return (
         <View style={styles.imageTouch}>
@@ -868,6 +1445,7 @@ export default function GroupChatScreen() {
 
   const renderItem = useCallback(({ item }: { item: GroupChatMessage }) => {
     const isMe = item.sender_actor_id === actor?.id;
+    const isHighlighted = item.id === highlightedMessageId;
     const unreadCount = Math.max(0, Number(item.unread_count ?? 0));
     const showUnreadCount = unreadCount > 0;
     const reactions = item.reactions ?? [];
@@ -883,7 +1461,11 @@ export default function GroupChatScreen() {
     );
 
     return (
-      <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
+      <View style={[
+        styles.msgRow,
+        isMe ? styles.msgRowMe : styles.msgRowOther,
+        isHighlighted && styles.anchorMessageRow,
+      ]}>
         {!isMe && (
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{getInitial(item.sender_name)}</Text>
@@ -906,6 +1488,7 @@ export default function GroupChatScreen() {
                 isMe ? styles.bubbleMe : styles.bubbleOther,
                 item.message_type === 'image' && !item.deleted_at && styles.bubbleImage,
                 item.message_type === 'file' && !item.deleted_at && styles.bubbleFile,
+                isHighlighted && styles.anchorMessageBubble,
               ]}
             >
               {renderReplyPreview(item, isMe)}
@@ -929,16 +1512,28 @@ export default function GroupChatScreen() {
         </View>
       </View>
     );
-  }, [actor?.id, handleMessagePress, handleReactionAction, openMessageActions, renderMessageContent, renderReplyPreview]);
+  }, [actor?.id, handleMessagePress, handleReactionAction, highlightedMessageId, openMessageActions, renderMessageContent, renderReplyPreview]);
 
   const headerSubtitle = useMemo(() => `${memberCount.toLocaleString('ko-KR')}명 참여`, [memberCount]);
+  const showAnchorReturnToLatest = Boolean(
+    routeAnchorMessageId
+    && !hasInvalidRoomRoute
+    && !hasInvalidAnchorRoute
+    && !anchorLoadFailed
+    && !anchorNavigationDismissed
+    && room?.id,
+  );
 
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar style="dark" backgroundColor="#fff" />
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
-        <Pressable style={styles.headerButton} onPress={() => router.back()}>
+        <Pressable style={styles.headerButton} onPressIn={() => router.back()}>
           <Feather name="arrow-left" size={22} color={CHARCOAL} />
         </Pressable>
         <View style={styles.headerCenter}>
@@ -949,8 +1544,16 @@ export default function GroupChatScreen() {
           <Pressable style={styles.headerButton} onPress={openMemberList}>
             <Feather name="users" size={20} color={CHARCOAL} />
           </Pressable>
-          <Pressable style={styles.headerButton} onPress={toggleMuted}>
-            <Feather name={muted ? 'bell-off' : 'bell'} size={20} color={muted ? MUTED : HANWHA_ORANGE} />
+          <Pressable
+            accessibilityLabel="대화방 설정 열기"
+            accessibilityRole="button"
+            style={styles.headerButton}
+            onPress={() => {
+              setConversationSettingsVisible(true);
+              void loadGroupRoomPreference();
+            }}
+          >
+            <Feather name={muted ? 'bell-off' : 'more-horizontal'} size={20} color={muted ? MUTED : CHARCOAL} />
           </Pressable>
         </View>
       </View>
@@ -983,24 +1586,49 @@ export default function GroupChatScreen() {
         </Pressable>
       )}
 
+      {(hasInvalidAnchorRoute || anchorLoadFailed) && (
+        <View style={styles.anchorUnavailableBanner}>
+          <Feather name="info" size={15} color={MUTED} />
+          <Text style={styles.anchorUnavailableText}>
+            {'\ud574\ub2f9 \uba54\uc2dc\uc9c0 \uc704\uce58\ub97c \uc5f4 \uc218 \uc5c6\uc5b4 \ucd5c\uc2e0 \ub300\ud654\ub97c \ubcf4\uc5ec\ub4dc\ub9bd\ub2c8\ub2e4.'}
+          </Text>
+        </View>
+      )}
+
+      {showAnchorReturnToLatest ? (
+        <View style={styles.anchorUnavailableBanner}>
+          <Feather name="search" size={15} color={MUTED} />
+          <Text style={styles.anchorUnavailableText}>
+            {anchorHasHistoryGap
+              ? '검색한 메시지와 최신 대화 사이의 일부 메시지는 생략되어 있습니다.'
+              : '검색한 메시지 위치를 보고 있습니다.'}
+          </Text>
+          <Pressable
+            accessibilityLabel="최신 메시지로 이동"
+            accessibilityRole="button"
+            onPress={handleReturnToLatest}
+            style={styles.anchorLatestButton}
+          >
+            <Text style={styles.anchorLatestButtonText}>최신 메시지로</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {loading ? (
         <MessengerLoadingState variant="group-chat" />
       ) : (
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 65 : 0}
-        >
+        <View style={{ flex: 1 }}>
           <FlatList
             ref={flatListRef}
             data={messages}
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
             inverted
+            onScrollToIndexFailed={handleAnchorScrollToIndexFailed}
             style={styles.list}
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="interactive"
+            keyboardDismissMode="none"
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={HANWHA_ORANGE} />
             }
@@ -1012,26 +1640,22 @@ export default function GroupChatScreen() {
             }
           />
 
-          {uploading && (
-            <View
-              style={[
-                styles.uploadingOverlay,
-                { bottom: 68 + bottomSafeInset + (Platform.OS === 'android' ? keyboardPadding : 0) },
-              ]}
-            >
-              <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
-              <Text style={styles.uploadingText}>파일 전송 중...</Text>
-              <TouchableOpacity onPress={handleCancelUpload} style={styles.cancelUploadBtn} activeOpacity={0.8}>
-                <Ionicons name="close-circle" size={20} color="#666" />
-                <Text style={styles.cancelUploadText}>취소</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
+          <KeyboardSafeBottomBar>
+            {uploading && (
+              <View
+                style={[
+                  styles.uploadingOverlay,
+                  { bottom: 68 + composerBottomPadding },
+                ]}
+              >
+                <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
+                <Text style={styles.uploadingText}>메시지 전송 중...</Text>
+              </View>
+            )}
               <View
                 style={[
                   styles.inputWrapper,
-                  { paddingBottom: bottomSafeInset + (Platform.OS === 'android' ? keyboardPadding : 0) },
+                  { paddingBottom: composerBottomPadding },
                 ]}
               >
                 {replyTarget && (
@@ -1056,12 +1680,78 @@ export default function GroupChatScreen() {
                     <Text style={styles.sendPermissionNoticeText}>채팅 권한이 꺼져 있어요</Text>
                   </View>
                 )}
+                {selectedAttachments.length > 0 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.selectedAttachmentList}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {selectedAttachments.map((attachment) => (
+                      <View
+                        key={attachment.clientFileId}
+                        style={styles.selectedAttachmentChip}
+                      >
+                        <Ionicons
+                          name={attachment.mimeType.startsWith('image/')
+                            ? 'image-outline'
+                            : 'document-text-outline'}
+                          size={17}
+                          color={HANWHA_ORANGE}
+                        />
+                        <View style={styles.selectedAttachmentTextWrap}>
+                          <Text
+                            style={styles.selectedAttachmentName}
+                            numberOfLines={1}
+                          >
+                            {attachment.name}
+                          </Text>
+                          <Text style={styles.selectedAttachmentSize}>
+                            {formatMessengerAttachmentSize(attachment.size)}
+                          </Text>
+                        </View>
+                        <Pressable
+                          hitSlop={8}
+                          disabled={uploading}
+                          onPress={() => {
+                            setSelectedAttachments((current) =>
+                              removeSelectedMessengerAttachment(
+                                current,
+                                attachment.clientFileId,
+                              )
+                            );
+                          }}
+                        >
+                          <Feather name="x" size={16} color={MUTED} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : null}
                 <View style={styles.inputContainer}>
               <TouchableOpacity
-                onPress={handleAttachment}
-                style={[styles.attachBtn, !canSendMessages && styles.attachBtnDisabled]}
+                onPress={handleImageAttachment}
+                style={[
+                  styles.attachBtn,
+                  (!canSendMessages || uploading) && styles.attachBtnDisabled,
+                ]}
                 activeOpacity={0.7}
-                disabled={!canSendMessages}
+                disabled={!canSendMessages || uploading}
+                accessibilityRole="button"
+                accessibilityLabel="사진 첨부"
+              >
+                <Feather name="image" size={22} color="#9CA3AF" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleAttachment}
+                style={[
+                  styles.attachBtn,
+                  (!canSendMessages || uploading) && styles.attachBtnDisabled,
+                ]}
+                activeOpacity={0.7}
+                disabled={!canSendMessages || uploading}
+                accessibilityRole="button"
+                accessibilityLabel="파일 첨부"
               >
                 <Feather name="paperclip" size={22} color="#9CA3AF" />
               </TouchableOpacity>
@@ -1078,14 +1768,30 @@ export default function GroupChatScreen() {
               />
               <Pressable
                 onPress={handleSendText}
-                style={[styles.sendBtn, (!canSendMessages || !text.trim()) && styles.sendBtnDisabled]}
-                disabled={!canSendMessages || !text.trim()}
+                style={[
+                  styles.sendBtn,
+                  (
+                    !canSendMessages
+                    || uploading
+                    || (!text.trim() && selectedAttachments.length === 0)
+                  ) && styles.sendBtnDisabled,
+                ]}
+                disabled={
+                  !canSendMessages
+                  || uploading
+                  || (!text.trim() && selectedAttachments.length === 0)
+                }
               >
-                <Feather name="arrow-up" size={20} color="#fff" />
+                {uploading ? (
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
+                ) : (
+                  <Feather name="arrow-up" size={20} color="#fff" />
+                )}
               </Pressable>
             </View>
-          </View>
-        </KeyboardAvoidingView>
+              </View>
+          </KeyboardSafeBottomBar>
+        </View>
       )}
 
       <Modal
@@ -1184,6 +1890,31 @@ export default function GroupChatScreen() {
         onClose={() => setSelectCopyMessage(null)}
         bottomInset={insets.bottom}
       />
+
+      {groupSheetRoom ? (
+        <ConversationSettingsSheet
+          disabled={roomPreferenceLoading || !groupRoomPreferenceReady}
+          disabledReason={roomPreferenceLoading
+            ? '이 대화의 알림 설정을 불러오는 중입니다.'
+            : !groupRoomPreferenceReady
+              ? '알림 설정을 다시 불러와 주세요.'
+              : null}
+          failure={roomPreferenceFailure}
+          muted={muted}
+          onClose={() => setConversationSettingsVisible(false)}
+          onOpenNotificationSettings={() => {
+            setConversationSettingsVisible(false);
+            router.push('/notification-settings' as never);
+          }}
+          onPreferenceChange={(change) => void saveGroupRoomPreference(change.muted)}
+          onRetryLoad={() => void loadGroupRoomPreference()}
+          onRetryPreferenceChange={(change) => void saveGroupRoomPreference(change.muted)}
+          pending={roomPreferencePending}
+          room={groupSheetRoom}
+          roomTitle={roomTitle}
+          visible={conversationSettingsVisible}
+        />
+      ) : null}
     </View>
   );
 }
@@ -1201,9 +1932,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F3F4F6',
   },
   headerButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1243,11 +1974,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FED7AA',
   },
+  anchorUnavailableBanner: {
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#F9FAFB',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  anchorUnavailableText: { flex: 1, fontSize: 12, lineHeight: 17, color: MUTED },
+  anchorLatestButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
+  anchorLatestButtonText: { color: HANWHA_ORANGE, fontSize: 12, fontWeight: '700' },
   list: { flex: 1 },
   listContent: { paddingVertical: 20, paddingHorizontal: 16, gap: 12, flexGrow: 1 },
   msgRow: { flexDirection: 'row', marginBottom: 12, width: '100%' },
   msgRowMe: { justifyContent: 'flex-end' },
   msgRowOther: { justifyContent: 'flex-start' },
+  anchorMessageRow: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 14,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+  },
   avatar: {
     width: 36,
     height: 36,
@@ -1280,6 +2031,14 @@ const styles = StyleSheet.create({
   bubbleOther: { backgroundColor: '#fff', borderTopLeftRadius: 2, borderWidth: 1, borderColor: '#F3F4F6' },
   bubbleImage: { paddingHorizontal: 4, paddingVertical: 4 },
   bubbleFile: { paddingHorizontal: 8, paddingVertical: 8 },
+  anchorMessageBubble: {
+    borderWidth: 2,
+    borderColor: HANWHA_ORANGE,
+    shadowColor: HANWHA_ORANGE,
+    shadowOpacity: 0.16,
+    shadowRadius: 5,
+    elevation: 3,
+  },
   msgText: { fontSize: 15, lineHeight: 22, flexWrap: 'wrap' },
   msgTextMe: { color: '#fff', fontWeight: '500' },
   msgTextOther: { color: CHARCOAL },
@@ -1333,6 +2092,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  attachmentMessageContent: { gap: 8, minWidth: 190 },
   fileCardMe: { backgroundColor: 'rgba(255,255,255,0.14)' },
   fileCardOther: { backgroundColor: '#FFF7ED' },
   fileIconBox: {
@@ -1402,6 +2162,35 @@ const styles = StyleSheet.create({
   replyTargetName: { fontSize: 12, fontWeight: '900', color: HANWHA_ORANGE },
   replyTargetText: { marginTop: 2, fontSize: 13, color: CHARCOAL },
   inputContainer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  selectedAttachmentList: {
+    gap: 8,
+    paddingBottom: 10,
+  },
+  selectedAttachmentChip: {
+    width: 210,
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED',
+  },
+  selectedAttachmentTextWrap: { flex: 1, minWidth: 0 },
+  selectedAttachmentName: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    color: CHARCOAL,
+  },
+  selectedAttachmentSize: {
+    marginTop: 2,
+    fontSize: 11,
+    color: MUTED,
+  },
   sendPermissionNotice: {
     minHeight: 36,
     marginBottom: 10,

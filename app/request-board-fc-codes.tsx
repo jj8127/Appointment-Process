@@ -445,6 +445,8 @@ export default function RequestBoardFcCodesScreen() {
           contentContainerStyle={[styles.codeListContent, { paddingBottom: 80 + insets.bottom }]}
           onScroll={scrollHandler}
           scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -479,7 +481,11 @@ export default function RequestBoardFcCodesScreen() {
               </Pressable>
             </View>
 
-            <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="always">
+            <ScrollView
+              style={styles.modalBody}
+              keyboardShouldPersistTaps="always"
+              keyboardDismissMode="none"
+            >
               {formError && (
                 <View style={styles.formErrorBox}>
                   <Feather name="alert-circle" size={14} color={COLORS.error} />
@@ -510,6 +516,7 @@ export default function RequestBoardFcCodesScreen() {
                     style={styles.suggestionsList}
                     nestedScrollEnabled
                     keyboardShouldPersistTaps="always"
+                    keyboardDismissMode="none"
                     showsVerticalScrollIndicator
                   >
                     {filteredCompanyNames.map((name) => (

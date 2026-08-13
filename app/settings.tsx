@@ -21,7 +21,7 @@ const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
 
 export default function SettingsScreen() {
-  const { role, residentId, residentMask, displayName, logout, isRequestBoardDesigner, readOnly, hydrated, staffType, appSessionToken } = useSession();
+  const { role, residentId, displayName, logout, isRequestBoardDesigner, readOnly, hydrated, staffType, appSessionToken } = useSession();
   const appLogout = useAppLogout();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
@@ -37,9 +37,10 @@ export default function SettingsScreen() {
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const accountRole: 'fc' | 'admin' | 'manager' = readOnly ? 'manager' : role === 'admin' ? 'admin' : 'fc';
   const canViewMyReferralCode =
     !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
+  const canDeleteAccount =
+    role === 'fc' && !readOnly && Boolean(residentId) && Boolean(appSessionToken);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -49,11 +50,11 @@ export default function SettingsScreen() {
   }, [hydrated, role]);
 
   const handleDelete = () => {
-    if (!role) {
+    if (!canDeleteAccount) {
       Alert.alert('오류', '로그인 정보를 확인할 수 없습니다.');
       return;
     }
-    if (!residentId) {
+    if (!residentId || !appSessionToken) {
       Alert.alert('오류', '로그인 정보를 확인할 수 없습니다.');
       return;
     }
@@ -61,11 +62,15 @@ export default function SettingsScreen() {
   };
 
   const confirmDelete = async () => {
-    if (!residentId) return;
+    if (!canDeleteAccount || !residentId || !appSessionToken) return;
     setDeleting(true);
     try {
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; deleted?: boolean; error?: string }>('delete-account', {
-        body: { residentId, residentMask, role: accountRole },
+        body: {
+          appSessionToken,
+          residentId,
+          role: 'fc',
+        },
       });
       if (error) throw error;
       if (!data?.ok || !data?.deleted) {
@@ -188,14 +193,40 @@ export default function SettingsScreen() {
           <Text style={styles.sectionTitle}>계정 삭제</Text>
           <Text style={styles.sectionText}>계정을 삭제하면 모든 데이터가 영구적으로 제거됩니다.</Text>
           <Pressable
-            style={[styles.deleteButton, deleting && styles.deleteButtonDisabled]}
+            style={[
+              styles.deleteButton,
+              (deleting || !canDeleteAccount) && styles.deleteButtonDisabled,
+            ]}
             onPress={handleDelete}
-            disabled={deleting}
+            disabled={
+              deleting
+              || !canDeleteAccount
+            }
             testID="settings-delete-account"
             accessibilityLabel="계정 삭제"
           >
             <Feather name="trash-2" size={16} color={COLORS.white} />
             <Text style={styles.deleteText}>{deleting ? '삭제 중...' : '계정 삭제'}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>알림</Text>
+          <Pressable
+            accessibilityHint="앱 푸시와 대화방별 알림을 설정합니다."
+            accessibilityLabel="알림 설정 열기"
+            accessibilityRole="button"
+            onPress={() => router.push('/notification-settings' as never)}
+            style={({ pressed }) => [styles.settingsNavigationRow, pressed && styles.settingsNavigationRowPressed]}
+          >
+            <View style={styles.settingsNavigationIcon}>
+              <Feather name="bell" size={18} color={COLORS.primary} />
+            </View>
+            <View style={styles.settingsNavigationCopy}>
+              <Text style={styles.settingsNavigationTitle}>알림 설정</Text>
+              <Text style={styles.sectionText}>전체 알림, 종류별 알림과 알림을 끈 대화를 관리합니다.</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color={COLORS.text.muted} />
           </Pressable>
         </View>
 
@@ -282,6 +313,29 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: COLORS.primary,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+  },
+  settingsNavigationRow: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    borderRadius: RADIUS.base,
+    paddingVertical: SPACING.xs,
+  },
+  settingsNavigationRowPressed: { opacity: 0.68 },
+  settingsNavigationIcon: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: RADIUS.base,
+    backgroundColor: COLORS.primaryPale,
+  },
+  settingsNavigationCopy: { flex: 1, minWidth: 0 },
+  settingsNavigationTitle: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.sm,
     fontWeight: TYPOGRAPHY.fontWeight.bold,
   },
   logoutButton: {

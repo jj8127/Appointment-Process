@@ -31,7 +31,6 @@ import { DateInput } from '@mantine/dates';
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconCalendar,
-  IconBell,
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
@@ -52,6 +51,7 @@ import { ChangeEvent, MouseEvent, useEffect, useMemo, useRef, useState, useTrans
 
 import { useSession } from '@/hooks/use-session';
 import { useResidentNumber } from '@/hooks/use-resident-number';
+import { useVisiblePageResidentNumbers } from '@/hooks/use-visible-page-resident-numbers';
 import {
   closePendingAdminFileWindow,
   navigateAdminFileWindowOrCurrentTab,
@@ -77,16 +77,17 @@ import {
   getDocProgress,
   getSummaryStatus
 } from '../../lib/shared';
-import { sendPushNotification } from '../actions';
+import { sendPushNotificationForFc } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
-import { registerWebPushSubscription } from '@/components/WebPushRegistrar';
+import styles from './page.module.css';
 import {
   DASHBOARD_FC_LIST_COLUMN_COUNT,
   DASHBOARD_FC_LIST_COLUMNS,
+  formatDashboardResidentNumberCell,
   formatDashboardSignupDate,
 } from '@/lib/dashboard-table-display';
-import { getWebPushRegistrationFeedback } from '@/lib/web-push-config';
+import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 
 import { logger } from '../../lib/logger';
 
@@ -389,10 +390,10 @@ export default function DashboardPage() {
   const queryClient = useQueryClient();
   const { hydrated, isReadOnly, role, residentId } = useSession();
   const [activeTab, setActiveTab] = useState<string | null>('all');
+  const [metricFilter, setMetricFilter] = useState<'all' | 'pendingAllowance' | 'pendingDocs'>('all');
   const [keyword, setKeyword] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 20;
-  const [isPushRegistering, setIsPushRegistering] = useState(false);
 
   // 모달 상태
   const [opened, { open, close }] = useDisclosure(false);
@@ -557,7 +558,6 @@ export default function DashboardPage() {
           { success: false },
           {
             fcId: selectedFc.id,
-            phone: selectedFc.phone,
             type: 'reject',
             category,
             value: null,
@@ -574,6 +574,7 @@ export default function DashboardPage() {
           [isLife ? 'appointment_reject_reason_life' : 'appointment_reject_reason_nonlife']: reason,
           status: 'hanwha-commission-approved',
         });
+        showAdminNotificationWarning(result);
         notifications.show({ title: '처리 완료', message: '생명/손해 위촉 정보를 반려했습니다.', color: 'green' });
         queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       }
@@ -582,7 +583,6 @@ export default function DashboardPage() {
         const doc = rejectTarget.doc;
         const res = await updateDocStatusAction({ success: false }, {
           fcId: selectedFc.id,
-          phone: selectedFc.phone,
           docType: doc.doc_type,
           status: 'rejected',
           reason,
@@ -600,6 +600,7 @@ export default function DashboardPage() {
             ? { ...buildDocWorkflowResetProfileFields(), fc_documents: nextDocs }
             : { fc_documents: nextDocs, status: nextProfileStatus },
         );
+        showAdminNotificationWarning(res);
         notifications.show({ title: '반려 완료', message: '서류가 반려되었습니다.', color: 'green' });
         queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       }
@@ -661,6 +662,17 @@ export default function DashboardPage() {
         result = result.filter((fc: FCProfileWithDocuments & { adminStep: number }) => fc.adminStep === stepNum);
       }
     }
+    if (metricFilter === 'pendingAllowance') {
+      result = result.filter((fc: FCProfileWithDocuments & { step: number }) => {
+        const allowanceDisplay = getAllowanceDisplayState(fc);
+        return fc.step === 1 && ['entered', 'prescreen'].includes(allowanceDisplay.key);
+      });
+    } else if (metricFilter === 'pendingDocs') {
+      result = result.filter(
+        (fc: FCProfileWithDocuments & { step: number }) =>
+          fc.step === 2 && getDocProgress(fc).key === 'in-progress',
+      );
+    }
     if (keyword.trim()) {
       const q = keyword.trim().toLowerCase();
       result = result.filter(
@@ -671,7 +683,7 @@ export default function DashboardPage() {
       );
     }
     return result;
-  }, [fcs, activeTab, keyword]);
+  }, [fcs, activeTab, keyword, metricFilter]);
 
   // 페이지네이션 처리
   const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
@@ -680,11 +692,38 @@ export default function DashboardPage() {
     const endIndex = startIndex + ITEMS_PER_PAGE;
     return filteredData.slice(startIndex, endIndex);
   }, [filteredData, currentPage, ITEMS_PER_PAGE]);
+  const visibleFcIds = useMemo(
+    () => paginatedData.map((fc: FCProfileWithDocuments) => fc.id),
+    [paginatedData],
+  );
+  const residentNumberResetKey = [
+    activeTab,
+    metricFilter,
+    keyword,
+    currentPage,
+    role,
+    residentId,
+  ].join('\u001f');
+  const visibleResidentNumbers = useVisiblePageResidentNumbers({
+    fcIds: visibleFcIds,
+    enabled: hydrated && (role === 'admin' || role === 'manager'),
+    resetKey: residentNumberResetKey,
+  });
 
   // 탭이나 검색어가 변경되면 첫 페이지로 이동
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTab, keyword]);
+  }, [activeTab, keyword, metricFilter]);
+
+  const handleMetricFilterChange = (nextFilter: 'all' | 'pendingAllowance' | 'pendingDocs') => {
+    setMetricFilter((current) => current === nextFilter && nextFilter !== 'all' ? 'all' : nextFilter);
+    setActiveTab('all');
+  };
+
+  const handleActiveTabChange = (nextTab: string | null) => {
+    setActiveTab(nextTab);
+    setMetricFilter('all');
+  };
 
   const {
     residentNumberDisplay: selectedResidentNumberDisplay,
@@ -712,7 +751,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'updateProfile',
-          payload: { fcId: selectedFc.id, data: payload, phone: selectedFc.phone },
+          payload: { fcId: selectedFc.id, data: payload },
         }),
       });
       const data = await resp.json().catch(() => null);
@@ -723,7 +762,7 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '업데이트 실패');
       }
-      return data as { profile?: Partial<FCProfileWithDocuments> | null } | null;
+      return data as { profile?: Partial<FCProfileWithDocuments> | null; warning?: unknown } | null;
     },
     onSuccess: (response) => {
       const nextProfileUpdates: Partial<FCProfileWithDocuments> = {
@@ -736,6 +775,7 @@ export default function DashboardPage() {
         nextProfileUpdates.temp_id = tempIdInput;
       }
       updateSelectedFc(nextProfileUpdates);
+      showAdminNotificationWarning(response);
       notifications.show({ title: '저장 완료', message: '기본 정보가 업데이트되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
@@ -889,7 +929,6 @@ export default function DashboardPage() {
             types: nextTypes,
             deadline: normalizedDeadline,
             currentDeadline: selectedFc.docs_deadline_at ?? null,
-            phone: selectedFc.phone,
           },
         }),
       });
@@ -901,8 +940,10 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '업데이트 실패');
       }
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (response) => {
+      showAdminNotificationWarning(response);
       notifications.show({ title: '요청 완료', message: '서류 목록이 갱신되었습니다.', color: 'blue' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
@@ -933,7 +974,6 @@ export default function DashboardPage() {
             title,
             msg,
             extra,
-            phone: selectedFc.phone,
           },
         }),
       });
@@ -945,11 +985,13 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '상태 업데이트 실패');
       }
+      return data;
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (response, variables) => {
       if (variables?.status) {
         updateSelectedFc({ status: variables.status, ...(variables.extra ?? {}) });
       }
+      showAdminNotificationWarning(response);
       notifications.show({ title: '처리 완료', message: '상태가 변경되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
@@ -959,7 +1001,7 @@ export default function DashboardPage() {
   const deleteFcMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFc) return;
-      logger.debug('[Web][deleteFc] start', { id: selectedFc.id, phone: selectedFc.phone });
+      logger.debug('[Web][deleteFc] start', { requestCount: 1 });
       const resp = await fetch('/api/fc-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -967,7 +1009,10 @@ export default function DashboardPage() {
       });
 
       const data = await resp.json().catch(() => null);
-      logger.debug('[Web][deleteFc] response', { id: selectedFc.id, status: resp.status, data });
+      logger.debug('[Web][deleteFc] response', {
+        status: resp.status,
+        ok: resp.ok,
+      });
 
       if (!resp.ok) {
         const message =
@@ -979,29 +1024,40 @@ export default function DashboardPage() {
 
       // API 응답 검증
       if (!data || typeof data !== 'object') {
-        logger.error('[Web][deleteFc] invalid response', { id: selectedFc.id, data });
+        logger.error('[Web][deleteFc] invalid response', {
+          status: resp.status,
+          errorCode: 'invalid_response',
+        });
         throw new Error('서버 응답이 올바르지 않습니다.');
       }
 
       // deleted 플래그 확인
       if ('deleted' in data && !data.deleted) {
-        logger.warn('[Web][deleteFc] delete returned false', { id: selectedFc.id, data });
+        logger.warn('[Web][deleteFc] delete returned false', {
+          status: resp.status,
+          errorCode: 'delete_not_confirmed',
+        });
         throw new Error(
           typeof data.message === 'string' ? data.message : 'FC 정보를 삭제할 수 없습니다.'
         );
       }
 
-      logger.info('[Web][deleteFc] success', { id: selectedFc.id, deletedCount: data.deletedCount });
+      logger.info('[Web][deleteFc] success', {
+        status: resp.status,
+        deletedCount: 1,
+      });
       return data;
     },
-    onSuccess: (data) => {
-      logger.debug('[Web][deleteFc] onSuccess', { data });
+    onSuccess: () => {
+      logger.debug('[Web][deleteFc] onSuccess', { deletedCount: 1 });
       notifications.show({ title: '삭제 완료', message: 'FC 정보가 삭제되었습니다.', color: 'gray' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       close();
     },
     onError: (err: Error) => {
-      logger.error('[Web][deleteFc] failed', err);
+      logger.error('[Web][deleteFc] failed', {
+        errorCode: 'delete_request_failed',
+      });
       notifications.show({ title: '오류', message: err.message, color: 'red' });
     },
   });
@@ -1073,6 +1129,7 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '다위촉 URL 발송 신호 처리 실패');
       }
+      showAdminNotificationWarning(data);
       return {
         sentAt: typeof data?.dawichok_url_sent_at === 'string' ? data.dawichok_url_sent_at : new Date().toISOString(),
         sentBy: typeof data?.dawichok_url_sent_by === 'string' ? data.dawichok_url_sent_by : null,
@@ -1467,13 +1524,13 @@ export default function DashboardPage() {
           { success: false },
           {
             fcId: selectedFc!.id,
-            phone: selectedFc!.phone,
             type,
             category,
             value,
           }
         );
         if (result.success) {
+          showAdminNotificationWarning(result);
           notifications.show({ title: '완료', message: result.message, color: 'green' });
           queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
           if (type === 'schedule' && scheduleValue) {
@@ -1720,6 +1777,15 @@ export default function DashboardPage() {
         </Group>
       </Table.Td>
       <Table.Td ta="center">
+        <Text
+          size="sm"
+          fw={600}
+          c={visibleResidentNumbers[fc.id]?.status === 'ready' ? 'dark.7' : 'dimmed'}
+        >
+          {formatDashboardResidentNumberCell(visibleResidentNumbers[fc.id])}
+        </Text>
+      </Table.Td>
+      <Table.Td ta="center">
         <Text size="sm" fw={600} c="dark.7">
           {fc.phone}
         </Text>
@@ -1915,96 +1981,6 @@ export default function DashboardPage() {
     );
   }, [fcs]);
 
-  const handleWebPushSettings = async () => {
-    setIsPushRegistering(true);
-    try {
-      const result = await registerWebPushSubscription(role, residentId, { forceResubscribe: true });
-      if (result.ok) {
-        notifications.show({
-          title: '웹 알림 설정 완료',
-          message: '브라우저 알림이 정상 등록되었습니다.',
-          color: 'green',
-        });
-        return;
-      }
-
-      const feedback = getWebPushRegistrationFeedback(result.message);
-      notifications.show({
-        title: feedback.title,
-        message: feedback.message,
-        color: feedback.color,
-      });
-    } catch (err: unknown) {
-      const error = err as Error;
-      notifications.show({
-        title: '웹 알림 등록 실패',
-        message: error?.message ?? '알림 등록 중 오류가 발생했습니다.',
-        color: 'red',
-      });
-    } finally {
-      setIsPushRegistering(false);
-    }
-  };
-
-  const handleBrowserNotificationTest = async () => {
-    if (typeof window === 'undefined' || typeof Notification === 'undefined') {
-      notifications.show({
-        title: '지원되지 않음',
-        message: '이 브라우저에서는 알림 API를 지원하지 않습니다.',
-        color: 'orange',
-      });
-      return;
-    }
-
-    try {
-      let permission = Notification.permission;
-      if (permission === 'default') {
-        permission = await Notification.requestPermission();
-      }
-
-      if (permission !== 'granted') {
-        notifications.show({
-          title: '알림 권한 필요',
-          message: '브라우저 사이트 설정에서 알림을 허용해주세요.',
-          color: 'orange',
-        });
-        return;
-      }
-
-      const title = 'FC 온보딩 알림 테스트';
-      const body = '이 알림이 보이면 브라우저/OS 알림 경로는 정상입니다.';
-
-      if ('serviceWorker' in navigator) {
-        const registration = await navigator.serviceWorker.getRegistration();
-        if (registration) {
-          await registration.showNotification(title, {
-            body,
-            icon: '/favicon.ico',
-            badge: '/favicon.ico',
-            data: { url: '/dashboard' },
-          });
-        } else {
-          new Notification(title, { body, icon: '/favicon.ico' });
-        }
-      } else {
-        new Notification(title, { body, icon: '/favicon.ico' });
-      }
-
-      notifications.show({
-        title: '테스트 알림 전송',
-        message: '브라우저 시스템 알림 영역을 확인해주세요.',
-        color: 'green',
-      });
-    } catch (err: unknown) {
-      const error = err as Error;
-      notifications.show({
-        title: '알림 테스트 실패',
-        message: error?.message ?? '알림 테스트 중 오류가 발생했습니다.',
-        color: 'red',
-      });
-    }
-  };
-
   const canResetToLookup = Boolean(
     selectedFc?.temp_id && !isReadOnly && isLookupResettableStatus(selectedFc?.status),
   );
@@ -2018,23 +1994,6 @@ export default function DashboardPage() {
             <Text c="dimmed" mt={4}>FC 온보딩 전체 현황판</Text>
           </div>
           <Group gap="xs">
-            <Button
-              leftSection={<IconBell size={16} />}
-              onClick={handleWebPushSettings}
-              loading={isPushRegistering}
-              variant="default"
-              radius="md"
-            >
-              알림 설정
-            </Button>
-            <Button
-              leftSection={<IconBell size={16} />}
-              onClick={handleBrowserNotificationTest}
-              variant="default"
-              radius="md"
-            >
-              알림 테스트
-            </Button>
             <Button
               leftSection={<IconRefresh size={16} />}
               onClick={() => {
@@ -2063,7 +2022,19 @@ export default function DashboardPage() {
 
         {/* Metrics Cards */}
         <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-          <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
+          <Card
+            component="button"
+            type="button"
+            padding="lg"
+            radius="md"
+            withBorder
+            shadow="sm"
+            className={styles.metricCard}
+            data-active={metricFilter === 'all' || undefined}
+            data-tone="total"
+            aria-pressed={metricFilter === 'all'}
+            onClick={() => handleMetricFilterChange('all')}
+          >
             <Group justify="space-between" mb="xs">
               <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>총 인원</Text>
               <ThemeIcon variant="light" color="blue" radius="md" size="lg">
@@ -2074,12 +2045,25 @@ export default function DashboardPage() {
               <Text fw={800} size="2.5rem" lh={1}>{metrics.total}</Text>
               <Text c="dimmed" size="sm" mb={6}>명</Text>
             </Group>
-            <Text c="green" size="xs" fw={700} mt="md">
-              가입 완료 FC 현황
-            </Text>
+            <Group justify="space-between" mt="md" gap="xs">
+              <Text c="green" size="xs" fw={700}>가입 완료 FC 현황</Text>
+              {metricFilter === 'all' && <Badge size="xs" variant="light" color="blue">전체 보기</Badge>}
+            </Group>
           </Card>
 
-          <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
+          <Card
+            component="button"
+            type="button"
+            padding="lg"
+            radius="md"
+            withBorder
+            shadow="sm"
+            className={styles.metricCard}
+            data-active={metricFilter === 'pendingAllowance' || undefined}
+            data-tone="allowance"
+            aria-pressed={metricFilter === 'pendingAllowance'}
+            onClick={() => handleMetricFilterChange('pendingAllowance')}
+          >
             <Group justify="space-between" mb="xs">
               <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>보증 보험 동의 승인 대기</Text>
               <ThemeIcon variant="light" color="orange" radius="md" size="lg">
@@ -2090,12 +2074,25 @@ export default function DashboardPage() {
               <Text fw={800} size="2.5rem" lh={1}>{metrics.pendingAllowance}</Text>
               <Text c="dimmed" size="sm" mb={6}>건</Text>
             </Group>
-            <Text c="orange" size="xs" fw={700} mt="md">
-              승인 필요
-            </Text>
+            <Group justify="space-between" mt="md" gap="xs">
+              <Text c="orange" size="xs" fw={700}>승인 필요</Text>
+              {metricFilter === 'pendingAllowance' && <Badge size="xs" color="orange">필터 적용</Badge>}
+            </Group>
           </Card>
 
-          <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
+          <Card
+            component="button"
+            type="button"
+            padding="lg"
+            radius="md"
+            withBorder
+            shadow="sm"
+            className={styles.metricCard}
+            data-active={metricFilter === 'pendingDocs' || undefined}
+            data-tone="documents"
+            aria-pressed={metricFilter === 'pendingDocs'}
+            onClick={() => handleMetricFilterChange('pendingDocs')}
+          >
             <Group justify="space-between" mb="xs">
               <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>서류검토 대기</Text>
               <ThemeIcon variant="light" color="indigo" radius="md" size="lg">
@@ -2106,9 +2103,10 @@ export default function DashboardPage() {
               <Text fw={800} size="2.5rem" lh={1}>{metrics.pendingDocs}</Text>
               <Text c="dimmed" size="sm" mb={6}>건</Text>
             </Group>
-            <Text c="indigo" size="xs" fw={700} mt="md">
-              검토 필요
-            </Text>
+            <Group justify="space-between" mt="md" gap="xs">
+              <Text c="indigo" size="xs" fw={700}>검토 필요</Text>
+              {metricFilter === 'pendingDocs' && <Badge size="xs" color="indigo">필터 적용</Badge>}
+            </Group>
           </Card>
         </SimpleGrid>
 
@@ -2144,7 +2142,7 @@ export default function DashboardPage() {
             <Group justify="space-between">
               <Tabs
                 value={activeTab}
-                onChange={setActiveTab}
+                onChange={handleActiveTabChange}
                 variant="pills"
                 radius="xl"
                 color="dark"
@@ -2615,13 +2613,53 @@ export default function DashboardPage() {
                       leftSection={<IconSend size={16} />}
                       disabled={isReadOnly}
                       onClick={async () => {
-                        // sendPushNotification handles both DB insert and push notification
-                        await sendPushNotification(selectedFc.phone, {
+                        // Resolve the current notification recipient from the stable FC id on the server.
+                        const notificationResult = await sendPushNotificationForFc(selectedFc.id, {
                           title: '진행 요청',
                           body: '관리자가 진행을 요청하였습니다.',
+                          target: {
+                            version: 1,
+                            kind: 'onboarding_section',
+                            fcId: selectedFc.id,
+                            section: 'home',
+                          },
                           data: { url: '/' },
                         });
-                        notifications.show({ title: '전송 완료', message: '알림을 보냈습니다.', color: 'blue' });
+                        if (!('inbox' in notificationResult) || !('failures' in notificationResult)) {
+                          logger.warn('[dashboard] reminder request rejected');
+                          notifications.show({
+                            title: '알림 요청 실패',
+                            message: '알림 요청을 처리하지 못했습니다. 수신자와 권한을 확인해 주세요.',
+                            color: 'red',
+                          });
+                          return;
+                        }
+                        const invalidRecipient = notificationResult.failures.some(
+                          (failure) => failure === 'missing_recipient' || failure === 'recipient_mismatch',
+                        );
+                        if (invalidRecipient) {
+                          logger.warn('[dashboard] reminder recipient invalid');
+                          notifications.show({
+                            title: '수신자 확인 필요',
+                            message: '유효한 알림 수신자를 확인할 수 없습니다.',
+                            color: 'red',
+                          });
+                          return;
+                        }
+                        if (!notificationResult.inbox?.logged) {
+                          logger.warn('[dashboard] reminder inbox persistence failed');
+                          notifications.show({
+                            title: '알림 등록 실패',
+                            message: '알림을 등록하지 못했습니다. 다시 시도해 주세요.',
+                            color: 'red',
+                          });
+                          return;
+                        }
+                        notifications.show({
+                          title: '전송 완료',
+                          message: '알림을 보냈습니다.',
+                          color: 'blue',
+                        });
                       }}
                     >
                       재촉 알림
@@ -2632,7 +2670,7 @@ export default function DashboardPage() {
                       leftSection={<IconTrash size={16} />}
                       disabled={isReadOnly}
                       onClick={() => {
-                        logger.debug('[Web][deleteFc] click', { id: selectedFc?.id, phone: selectedFc?.phone });
+                        logger.debug('[Web][deleteFc] click', { requestCount: 1 });
                         showConfirm({
                           title: 'FC 삭제',
                           message: '정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.',
@@ -2750,12 +2788,12 @@ export default function DashboardPage() {
                                               const manualApprovalNote = isSubmitted ? null : '총무 수동 승인: 파일 미제출';
                                               const res = await updateDocStatusAction({ success: false }, {
                                                 fcId: selectedFc.id,
-                                                phone: selectedFc.phone,
                                                 docType: d.doc_type,
                                                 status: nextStatus,
                                                 reason: manualApprovalNote,
                                               });
                                               if (res.success) {
+                                                showAdminNotificationWarning(res);
                                                 notifications.show({ title: '승인', message: res.message, color: 'green' });
                                                 const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
                                                   doc.doc_type === d.doc_type

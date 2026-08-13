@@ -1,26 +1,31 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  Keyboard,
+  KeyboardAvoidingView,
   LayoutChangeEvent,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import type { FocusEvent as RNFocusEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import { invokeAdminAction } from '@/lib/admin-action-api';
+import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import {
   buildExamRoundLocationRows,
   hasExamRoundLocationsForSave,
@@ -29,10 +34,19 @@ import {
   buildExamRoundNotificationPayload,
   getExamFlowConfig,
   getExamRoundCreateFormState,
+  getExamRoundDatePayload,
   getExamRoundEditFormState,
+  sortExamRoundsNewestFirst,
   type ExamNotifyPayload,
 } from '@/lib/exam-flow-contract';
+import { logger } from '@/lib/logger';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import {
+  hasPresentRouteParam,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
 import { supabase } from '@/lib/supabase';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
 const ORANGE = '#f36f21';
@@ -46,34 +60,13 @@ const examFlowType = 'life' as const;
 const examFlowConfig = getExamFlowConfig(examFlowType);
 
 async function notifyExamFlow(payload: ExamNotifyPayload) {
-  const { data, error } = await supabase.functions.invoke('fc-notify', {
-    body: payload,
-  });
-  if (error) throw error;
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '알림 전송 실패');
+  const result = await invokeFcNotifyForDelivery(payload);
+  if (!result.confirmed && result.reason === 'invalid_recipient') {
+    throw new Error('notification_invalid_recipient');
   }
-}
-
-async function adminAction(
-  adminPhone: string,
-  action: string,
-  payload: Record<string, unknown>,
-): Promise<{ ok: boolean; [key: string]: unknown }> {
-  const normalizedPhone = (adminPhone ?? '').replace(/[^0-9]/g, '');
-  if (!normalizedPhone) {
-    throw new Error('로그인 정보가 없습니다. 다시 로그인해주세요.');
+  if (!result.confirmed && result.notificationStored === false) {
+    throw new Error('notification_persistence_failed');
   }
-  const { data, error } = await supabase.functions.invoke('admin-action', {
-    body: { adminPhone: normalizedPhone, action, payload },
-  });
-  if (error) {
-    throw new Error(error instanceof Error ? error.message : '관리자 처리 중 오류가 발생했습니다.');
-  }
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '관리자 처리 중 오류가 발생했습니다.');
-  }
-  return data as { ok: boolean; [key: string]: unknown };
 }
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
@@ -84,6 +77,10 @@ const toYmd = (d: Date | null) =>
   d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
     d.getDate(),
   ).padStart(2, '0')}` : null;
+
+const toExamMonthStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
+
+const formatKoreanMonth = (d: Date) => `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
 
 const emptyRoundForm = {
   roundLabel: '',
@@ -96,7 +93,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
   const { data, error } = await supabase
     .from('exam_rounds')
     .select(
-      'id,exam_date,registration_deadline,round_label,notes,created_at,updated_at,exam_locations(id,round_id,location_name,sort_order,created_at,updated_at)',
+      'id,exam_month,exam_date,registration_deadline,round_label,notes,created_at,updated_at,exam_locations(id,round_id,location_name,sort_order,created_at,updated_at)',
     )
     .eq('exam_type', examFlowConfig.examType)
     .order('exam_date', { ascending: true })
@@ -107,6 +104,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
   return (
     data?.map((row: any) => ({
       id: row.id,
+      exam_month: row.exam_month,
       exam_date: row.exam_date,
       registration_deadline: row.registration_deadline,
       round_label: row.round_label,
@@ -124,7 +122,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
 type RoundedButtonProps = {
   label: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'danger';
+  variant?: 'primary' | 'secondary' | 'danger' | 'accent';
   disabled?: boolean;
   fullWidth?: boolean;
 };
@@ -141,7 +139,9 @@ function RoundedButton({
       ? styles.btnPrimary
       : variant === 'secondary'
         ? styles.btnSecondary
-        : styles.btnDanger;
+        : variant === 'accent'
+          ? styles.btnAccent
+          : styles.btnDanger;
 
   const textStyle =
     variant === 'secondary'
@@ -169,6 +169,12 @@ function RoundedButton({
 
 export default function ExamRegisterScreen() {
   const { role, readOnly, residentId } = useSession();
+  const { roundId, notificationId, notificationTarget } =
+    useLocalSearchParams<{
+      roundId?: string;
+      notificationId?: string;
+      notificationTarget?: string;
+    }>();
   const canEdit = role === 'admin' && !readOnly;
   const assertCanEdit = () => {
     if (!canEdit) {
@@ -177,7 +183,9 @@ export default function ExamRegisterScreen() {
   };
 
   const [roundForm, setRoundForm] = useState<RoundForm>(emptyRoundForm);
-  const [examDate, setExamDate] = useState(new Date());
+  const [examDate, setExamDate] = useState<Date | null>(new Date());
+  const [examMonth, setExamMonth] = useState<Date | null>(() => toExamMonthStart(new Date()));
+  const [isExamDateTbd, setIsExamDateTbd] = useState(false);
   const [deadlineDate, setDeadlineDate] = useState(new Date());
   const [showExamPicker, setShowExamPicker] = useState(Platform.OS === 'ios');
   const [showDeadlinePicker, setShowDeadlinePicker] = useState(Platform.OS === 'ios');
@@ -189,9 +197,11 @@ export default function ExamRegisterScreen() {
   const [notesHeight, setNotesHeight] = useState(80);
   const [showForm, setShowForm] = useState(false);
   const isEditMode = Boolean(selectedRoundId);
+  const canAddLocation = canEdit && locationInput.trim().length > 0;
 
   // 애니메이션 값
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const focusedInputTargetRef = useRef<RNFocusEvent['target'] | null>(null);
   const formOffsetYRef = useRef(0);
   const formOpacity = useRef(new Animated.Value(0)).current;
   const formTranslateY = useRef(new Animated.Value(24)).current;
@@ -207,6 +217,7 @@ export default function ExamRegisterScreen() {
   const {
     data: rounds,
     isLoading,
+    isError,
     isFetching,
     refetch,
   } = useQuery({
@@ -239,17 +250,32 @@ export default function ExamRegisterScreen() {
     }
   }, [refetch]);
 
-  const sortedRounds = useMemo(
-    () =>
-      (rounds ?? []).slice().sort((a, b) => {
-        const da = a.exam_date ?? '';
-        const db = b.exam_date ?? '';
-        if (da < db) return -1;
-        if (da > db) return 1;
-        return 0;
-      }),
-    [rounds],
-  );
+  const sortedRounds = useMemo(() => sortExamRoundsNewestFirst(rounds ?? []), [rounds]);
+  const routeRoundId = parseExactlyOneUuidRouteParam(roundId);
+  const hasInvalidRoundRoute =
+    hasPresentRouteParam(roundId) && !routeRoundId;
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasInvalidRoundRoute && routeRoundId
+      ? {
+          version: 1,
+          kind: 'exam',
+          examType: 'life',
+          examRoundId: routeRoundId,
+        }
+      : null,
+    loadState: hasInvalidRoundRoute
+      ? 'error'
+      : isError
+      ? 'error'
+      : sortedRounds.some((row) => row.id === routeRoundId)
+        ? 'success'
+        : isLoading
+          ? 'loading'
+          : routeRoundId
+            ? 'error'
+            : 'idle',
+  });
 
   const selectedRound = useMemo(
     () => sortedRounds.find((r) => r.id === selectedRoundId) ?? null,
@@ -293,6 +319,34 @@ export default function ExamRegisterScreen() {
     });
   }, []);
 
+  const scrollFocusedInputIntoView = useCallback(
+    (event: RNFocusEvent) => {
+      if (Platform.OS === 'web') return;
+      focusedInputTargetRef.current = event.target;
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollResponderScrollNativeHandleToKeyboard(
+          event.target,
+          28,
+          true,
+        );
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+    const eventName = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const subscription = Keyboard.addListener(eventName, () => {
+      const target = focusedInputTargetRef.current;
+      if (target == null) return;
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollResponderScrollNativeHandleToKeyboard(target, 28, true);
+      });
+    });
+    return () => subscription.remove();
+  }, []);
+
   const requestFormScroll = useCallback(() => {
     setPendingFormScroll(true);
   }, []);
@@ -319,14 +373,55 @@ export default function ExamRegisterScreen() {
     return () => clearTimeout(timer);
   }, [pendingFormScroll, scrollToForm, showForm]);
 
+  const handleExamDateTbdChange = (nextIsTbd: boolean) => {
+    setIsExamDateTbd(nextIsTbd);
+    if (nextIsTbd) {
+      setExamMonth((currentMonth) =>
+        examDate ? toExamMonthStart(examDate) : currentMonth,
+      );
+      setExamDate(null);
+      setShowExamPicker(Platform.OS === 'ios' || Platform.OS === 'web');
+      return;
+    }
+
+    // A month snapshot is not an exact exam date. The operator must choose
+    // the actual day before an existing TBD round can be finalized.
+    setExamDate(null);
+    setShowExamPicker(false);
+  };
+
+  const handleExamPickerChange = (event: { type?: string }, date?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowExamPicker(false);
+      if (event.type !== 'set') return;
+    }
+    if (!date) return;
+
+    if (isExamDateTbd) {
+      setExamMonth(toExamMonthStart(date));
+      return;
+    }
+
+    setExamDate(date);
+    setExamMonth(toExamMonthStart(date));
+  };
+
   const saveRound = useMutation({
     mutationFn: async (mode: 'create' | 'update') => {
       assertCanEdit();
+      if (!roundForm.roundLabel.trim()) {
+        throw new Error('시험 차수명을 입력해주세요.');
+      }
+      const datePayload = getExamRoundDatePayload({
+        examDate,
+        examMonth,
+        isExamDateTbd,
+      });
       const payload = {
         exam_type: examFlowConfig.examType,
-        exam_date: toYmd(examDate),
+        ...datePayload,
         registration_deadline: toYmd(deadlineDate),
-        round_label: roundForm.roundLabel.trim() || null,
+        round_label: roundForm.roundLabel.trim(),
         notes: roundForm.notes.trim() || null,
       };
       if (mode === 'update' && !selectedRoundId) {
@@ -343,7 +438,7 @@ export default function ExamRegisterScreen() {
         throw new Error('응시 지역을 1개 이상 입력해주세요.');
       }
 
-      const result = await adminAction(residentId ?? '', 'upsertExamRound', {
+      const result = await invokeAdminAction(residentId ?? '', 'upsertExamRound', {
         roundId: mode === 'update' ? selectedRoundId : null,
         data: payload,
         locations: locationRows,
@@ -356,10 +451,6 @@ export default function ExamRegisterScreen() {
       return { id: savedId };
     },
     onSuccess: async (res, mode) => {
-      Alert.alert(
-        '저장 완료',
-        mode === 'create' ? '새 시험 일정이 등록되었습니다.' : '시험 일정이 업데이트되었습니다.',
-      );
       closeFormWithAnim();
       refetch();
       if (res?.id) {
@@ -373,10 +464,79 @@ export default function ExamRegisterScreen() {
       const actionLabel = mode === 'create' ? '등록' : '수정';
       const notificationPayload = buildExamRoundNotificationPayload({
         examType: examFlowType,
+        examRoundId: res.id,
         title: `${examTitle} 일정이 ${actionLabel}되었습니다.`,
         body: '응시를 희망하는 경우 신청해주세요.',
       });
-      void notifyExamFlow(notificationPayload).catch(() => undefined);
+      const savedMessage = mode === 'create'
+        ? '새 시험 일정이 등록되었습니다.'
+        : '시험 일정이 업데이트되었습니다.';
+      try {
+        await notifyExamFlow(notificationPayload);
+      } catch (notificationError) {
+        logger.warn('[exam-register] round saved but notification delivery was incomplete', {
+          examType: examFlowType,
+          examRoundId: res.id,
+          error:
+            notificationError instanceof Error
+              ? notificationError.message
+              : String(notificationError),
+        });
+        if (
+          notificationError instanceof Error
+          && notificationError.message === 'notification_invalid_recipient'
+        ) {
+          Alert.alert(
+            '저장 완료 · 알림 대상 오류',
+            `${savedMessage} 알림을 받을 사용자 정보를 확인할 수 없습니다.`,
+          );
+          return;
+        }
+        const retryNotificationDelivery = async () => {
+          try {
+            await notifyExamFlow(notificationPayload);
+            Alert.alert(
+              '알림 등록 완료',
+              '저장된 시험 일정 알림을 등록했습니다.',
+            );
+          } catch (retryError) {
+            if (
+              retryError instanceof Error
+              && retryError.message === 'notification_invalid_recipient'
+            ) {
+              Alert.alert(
+                '알림 대상 오류',
+                '알림을 받을 사용자 정보를 확인할 수 없습니다.',
+              );
+              return;
+            }
+            Alert.alert(
+              '알림 등록 실패',
+              '시험 일정은 저장되었지만 알림을 다시 등록하지 못했습니다.',
+              [
+                { text: '확인' },
+                {
+                  text: '다시 등록',
+                  onPress: () => void retryNotificationDelivery(),
+                },
+              ],
+            );
+          }
+        };
+        Alert.alert(
+          '일정 저장 완료 · 알림 등록 실패',
+          `${savedMessage} FC 알림을 등록하지 못했습니다.`,
+          [
+            { text: '확인' },
+            {
+              text: '알림 다시 등록',
+              onPress: () => void retryNotificationDelivery(),
+            },
+          ],
+        );
+        return;
+      }
+      Alert.alert('저장 완료', savedMessage);
     },
     onSettled: (_data, error) => {
       if (error) {
@@ -386,40 +546,10 @@ export default function ExamRegisterScreen() {
     },
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _addLocation = useMutation({
-    mutationFn: async () => {
-      assertCanEdit();
-      if (!selectedRoundId) throw new Error('시험 일정을 먼저 선택해주세요.');
-      const trimmed = locationInput.trim();
-      if (!trimmed) throw new Error('지역명을 입력해주세요.');
-
-      const order = Number(locationOrder) || 0;
-
-      const { error } = await supabase.from('exam_locations').insert({
-        round_id: selectedRoundId,
-        location_name: trimmed,
-        sort_order: order,
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      setLocationInput('');
-      setLocationOrder('0');
-      refetch();
-    },
-    onSettled: (_data, error) => {
-      if (error) {
-        const message = error instanceof Error ? error.message : '지역 추가 중 오류가 발생했습니다.';
-        Alert.alert('지역 추가 실패', message);
-      }
-    },
-  });
-
   const deleteRound = useMutation({
     mutationFn: async (id: string) => {
       assertCanEdit();
-      await adminAction(residentId ?? '', 'deleteExamRound', { roundId: id });
+      await invokeAdminAction(residentId ?? '', 'deleteExamRound', { roundId: id });
     },
     onSuccess: () => {
       refetch();
@@ -448,6 +578,8 @@ export default function ExamRegisterScreen() {
     setSelectedRoundId(createState.selectedRoundId);
     setRoundForm(createState.roundForm);
     setExamDate(createState.examDate);
+    setExamMonth(createState.examMonth);
+    setIsExamDateTbd(createState.isExamDateTbd);
     setDeadlineDate(createState.deadlineDate);
     setShowExamPicker(Platform.OS === 'ios');
     setShowDeadlinePicker(Platform.OS === 'ios');
@@ -460,13 +592,18 @@ export default function ExamRegisterScreen() {
     requestFormScroll();
   };
 
-  const handleSelectRound = (round: ExamRoundWithLocations) => {
+  const handleSelectRound = useCallback((round: ExamRoundWithLocations) => {
     const editState = getExamRoundEditFormState(round);
     setSelectedRoundId(editState.selectedRoundId);
     setRoundForm(editState.roundForm);
     setExamDate(editState.examDate);
+    setExamMonth(editState.examMonth);
+    setIsExamDateTbd(editState.isExamDateTbd);
     setDeadlineDate(editState.deadlineDate);
-    setShowExamPicker(Platform.OS === 'ios');
+    setShowExamPicker(
+      Platform.OS === 'ios'
+      && Boolean(editState.isExamDateTbd ? editState.examMonth : editState.examDate),
+    );
     setShowDeadlinePicker(Platform.OS === 'ios');
     setLocationInput(editState.locationInput);
     setLocationOrder(editState.locationOrder);
@@ -475,7 +612,13 @@ export default function ExamRegisterScreen() {
       setShowForm(true);
     }
     requestFormScroll();
-  };
+  }, [requestFormScroll, showForm]);
+
+  useEffect(() => {
+    if (!routeRoundId || selectedRoundId === routeRoundId) return;
+    const targetRound = sortedRounds.find((round) => round.id === routeRoundId);
+    if (targetRound) handleSelectRound(targetRound);
+  }, [handleSelectRound, routeRoundId, selectedRoundId, sortedRounds]);
 
   const screenContent = (
     <ScrollView
@@ -483,7 +626,7 @@ export default function ExamRegisterScreen() {
       contentContainerStyle={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
+      keyboardDismissMode="none"
       showsVerticalScrollIndicator={false}
       nestedScrollEnabled
     >
@@ -628,31 +771,51 @@ export default function ExamRegisterScreen() {
 
                 <View style={styles.divider} />
 
-                <Text style={styles.label}>시험 일자</Text>
-                {Platform.OS === 'ios' || Platform.OS === 'web' ? (
+                <View style={styles.tbdToggleRow}>
+                  <View style={styles.tbdToggleCopy}>
+                    <Text style={styles.tbdToggleLabel}>시험일 미정</Text>
+                    <Text style={styles.tbdToggleDescription}>
+                      정확한 날짜가 정해지지 않은 경우 시험 월만 지정합니다.
+                    </Text>
+                  </View>
+                  <Switch
+                    value={isExamDateTbd}
+                    onValueChange={handleExamDateTbdChange}
+                    disabled={!canEdit}
+                    trackColor={{ false: '#D1D5DB', true: ORANGE_LIGHT }}
+                    thumbColor={isExamDateTbd ? ORANGE : '#F9FAFB'}
+                    accessibilityLabel="시험일 미정"
+                  />
+                </View>
+
+                <Text style={styles.label}>{isExamDateTbd ? '시험 월' : '시험 일자'}</Text>
+                {(Platform.OS === 'ios' || Platform.OS === 'web')
+                  && ((isExamDateTbd ? examMonth : examDate) || showExamPicker) ? (
                   <DateTimePicker
-                    value={examDate}
+                    value={(isExamDateTbd ? examMonth : examDate) ?? new Date()}
                     mode="date"
-                    onChange={(_, date) => date && setExamDate(date)}
+                    onChange={handleExamPickerChange}
                   />
                 ) : (
                   <Pressable
                     onPress={() => setShowExamPicker(true)}
                     style={styles.dateBox}
+                    disabled={!canEdit}
                   >
                     <Feather name="calendar" size={15} color={CHARCOAL} />
-                    <Text style={styles.dateText}>{formatKoreanDate(examDate)}</Text>
+                    <Text style={styles.dateText}>
+                      {isExamDateTbd
+                        ? (examMonth ? formatKoreanMonth(examMonth) : '시험 월 선택')
+                        : (examDate ? formatKoreanDate(examDate) : '정확한 시험일 선택')}
+                    </Text>
                   </Pressable>
                 )}
-                {showExamPicker && Platform.OS !== 'ios' && (
+                {showExamPicker && Platform.OS === 'android' && (
                   <DateTimePicker
-                    value={examDate}
+                    value={(isExamDateTbd ? examMonth : examDate) ?? new Date()}
                     mode="date"
                     display="default"
-                    onChange={(event, date) => {
-                      setShowExamPicker(false);
-                      if (event.type === 'set' && date) setExamDate(date);
-                    }}
+                    onChange={handleExamPickerChange}
                   />
                 )}
 
@@ -693,6 +856,7 @@ export default function ExamRegisterScreen() {
                     setRoundForm((prev) => ({ ...prev, roundLabel: text }))
                   }
                   editable={canEdit}
+                  onFocus={scrollFocusedInputIntoView}
                   style={styles.input}
                 />
 
@@ -705,6 +869,7 @@ export default function ExamRegisterScreen() {
                     setRoundForm((prev) => ({ ...prev, notes: text }))
                   }
                   editable={canEdit}
+                  onFocus={scrollFocusedInputIntoView}
                   style={[styles.input, { height: notesHeight }]}
                   multiline
                   scrollEnabled={false}
@@ -723,6 +888,7 @@ export default function ExamRegisterScreen() {
                       value={locationInput}
                       onChangeText={setLocationInput}
                       editable={canEdit}
+                      onFocus={scrollFocusedInputIntoView}
                       style={styles.input}
                     />
                   </View>
@@ -735,6 +901,7 @@ export default function ExamRegisterScreen() {
                       onChangeText={setLocationOrder}
                       keyboardType="number-pad"
                       editable={canEdit}
+                      onFocus={scrollFocusedInputIntoView}
                       style={styles.input}
                     />
                   </View>
@@ -756,8 +923,8 @@ export default function ExamRegisterScreen() {
                       setLocationInput('');
                       setLocationOrder('0');
                     }}
-                    variant="secondary"
-                    disabled={!canEdit}
+                    variant="accent"
+                    disabled={!canAddLocation}
                   />
                 </View>
                 {draftLocations.length > 0 && (
@@ -814,7 +981,19 @@ export default function ExamRegisterScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      {Platform.OS === 'android' ? screenContent : <KeyboardAwareWrapper>{screenContent}</KeyboardAwareWrapper>}
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
+      {Platform.OS === 'web' ? screenContent : (
+        <KeyboardAvoidingView
+          style={styles.keyboardAvoiding}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+        >
+          {screenContent}
+        </KeyboardAvoidingView>
+      )}
     </SafeAreaView>
   );
 }
@@ -823,6 +1002,9 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: BACKGROUND,
+  },
+  keyboardAvoiding: {
+    flex: 1,
   },
   container: {
     padding: 16,
@@ -1083,6 +1265,32 @@ const styles = StyleSheet.create({
     color: CHARCOAL,
     fontSize: 15,
   },
+  tbdToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 8,
+    backgroundColor: INPUT_BG,
+  },
+  tbdToggleCopy: {
+    flex: 1,
+  },
+  tbdToggleLabel: {
+    color: CHARCOAL,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  tbdToggleDescription: {
+    marginTop: 2,
+    color: MUTED,
+    fontSize: 12,
+    lineHeight: 17,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1147,6 +1355,9 @@ const styles = StyleSheet.create({
   },
   btnSecondary: {
     backgroundColor: ORANGE_LIGHT,
+  },
+  btnAccent: {
+    backgroundColor: ORANGE,
   },
   btnDanger: {
     backgroundColor: '#fee2e2',

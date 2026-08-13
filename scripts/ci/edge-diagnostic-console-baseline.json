@@ -1,0 +1,75 @@
+{
+  "description": "Exact allowlist of explicitly reviewed single-literal console diagnostics. All variable or error diagnostics must use the closed Edge helper or a sanitized structured logger.",
+  "auditedFiles": [
+    "supabase/functions/set-password/index.ts",
+    "supabase/functions/login-with-password/index.ts",
+    "supabase/functions/_shared/request-board-password-sync.ts",
+    "supabase/functions/fc-notify/index.ts",
+    "supabase/functions/user-presence/index.ts",
+    "supabase/functions/get-referral-tree/index.ts",
+    "supabase/functions/board-create/index.ts",
+    "supabase/functions/board-update/index.ts",
+    "supabase/functions/board-detail/index.ts",
+    "supabase/functions/_shared/board.ts",
+    "supabase/functions/board-attachment-delete/index.ts",
+    "supabase/functions/board-attachment-sign/index.ts",
+    "supabase/functions/delete-account/index.ts",
+    "web/src/app/dashboard/settings/page.tsx"
+  ],
+  "expectedCounts": {
+    "fixed-non-sensitive": 7,
+    "unproven": 0,
+    "total": 7
+  },
+  "sinks": [
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: inviter profile not found or missing phone')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "inviter-profile-missing"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: inviter profile is neither signup completed nor manager shadow')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "inviter-profile-ineligible"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: inviter profile is request-board designer')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "inviter-profile-designer"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: inviter phone is not normalized')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "inviter-phone-not-normalized"
+    },
+    {
+      "path": "supabase/functions/set-password/index.ts",
+      "method": "warn",
+      "call": "console.warn('[set-password] resolveReferralDetails: self-referral detected, skipping')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "self-referral"
+    },
+    {
+      "path": "supabase/functions/board-create/index.ts",
+      "method": "warn",
+      "call": "console.warn('[board-create] push skipped: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "board-create-push-config-missing"
+    },
+    {
+      "path": "supabase/functions/board-update/index.ts",
+      "method": "warn",
+      "call": "console.warn('[board-update] push skipped: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY')",
+      "classification": "fixed-non-sensitive",
+      "anchor": "board-update-push-config-missing"
+    }
+  ]
+}

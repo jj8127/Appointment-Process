@@ -2,10 +2,18 @@ doc_id: FC-APP-ONBOARDING
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-06-08
-source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + app/exam-apply.tsx + app/exam-apply2.tsx + lib/fc-workflow.ts + lib/home-latest-notice.ts + lib/notice-route.ts
+last_verified: 2026-08-10
+source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + app/exam-apply.tsx + app/exam-apply2.tsx + lib/fc-basic-information.ts + lib/fc-workflow.ts + lib/home-latest-notice.ts + lib/notice-route.ts + supabase/functions/admin-action/index.ts
 
 # Mobile Playbook: FC Onboarding
+
+## 2026-08-10 기존 FC 기본 정보 수정 계약
+
+- Home > 기본 정보는 서명된 FC 앱 세션으로 `admin-action:getOwnProfile`을 호출하고, 서버가 세션의 `fcId`와 전화번호 후보를 함께 검증해 한 개의 본인 프로필만 반환한다. 화면이 임의 `fcId`를 선택하거나 익명 `fc_profiles` 조회 결과를 편집 권한으로 사용하지 않는다.
+- 기존 프로필을 전부 불러오기 전에는 편집 폼과 저장 버튼을 활성화하지 않는다. 조회 실패는 빈 신규 입력 화면으로 대체하지 않고 재시도 상태로 남긴다.
+- 기본 정보 저장은 현재 값과 비교한 변경분만 `admin-action:updateOwnProfile`로 전송한다. 서버 허용 필드는 `name`, `affiliation`, `email`, `carrier`이며 전화번호, 추천인, 신원정보, workflow 상태는 이 액션으로 변경할 수 없다.
+- 로그인 전화번호는 앱의 사용자 식별자이므로 이 화면에서 읽기 전용이다. 추천인도 가입 당시 스냅샷을 읽기 전용으로 표시한다.
+- 프로필/가입 payload나 raw DB 오류를 앱 진단 로그에 남기지 않는다.
 
 ## 2026-07-05 Home Latest Admin Message
 
@@ -86,6 +94,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - 시험 신청 화면은 기존 신청을 복원할 때도 `location_id`가 현재 회차의 지역 목록에 없으면 선택 상태를 복원하지 않고, 다시 지역을 고르게 한다
 - Android new architecture/Fabric에서 `fc/new`, `exam-apply`, `exam-apply2`처럼 `RefreshControl`과 큰 조건부 렌더 tree를 함께 가진 화면은 `KeyboardAwareWrapper`를 primary scroll owner로 쓰지 않는다. Android는 plain `ScrollView` + explicit bottom padding을 쓰고, iOS에서만 기존 keyboard-aware wrapper를 유지한다.
 - 홈 가이드 CTA의 재생 표시는 icon font glyph 대신 `guidePlayTriangle` 스타일 삼각형으로 그린다. Android emulator/device에서 Feather glyph baseline drift가 생기면 이 스타일 계약을 유지한다.
+- FC 신규 등록의 소속 선택과 legacy normalization은 `1본부`부터 `10본부`까지 지원한다. 두 자리 본부 번호는 한 자리 정규식으로 잘라 해석하지 않으며, `10본부 [본부장: 한태균]`은 canonical `10본부 한태균`으로 정규화한다.
 
 ## FC 홈/다음 단계 동작
 
@@ -98,6 +107,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - `미승인`: `1단계 보증 보험 동의`, 다음 단계 `반려 사유를 확인하고 다시 입력하세요`
 - `docs-approved`: `3단계 다위촉 URL`
 - `hanwha-commission-approved`: `4단계 생명/손해 위촉`
+- 최종 완료 FC의 빠른 메뉴는 다위촉·생명/손해 위촉 화면을 계속 열람할 수 있게 유지하되, 다시 진행해야 하는 것으로 오해하지 않도록 `완료 내역 확인`으로 표시한다.
 
 ## 사용자 액션
 
@@ -118,13 +128,30 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - 기술 에러는 사용자용 한국어 알림으로 변환
 - schema drift가 있으면 관리자 쪽 저장/조회와 어긋날 수 있음
 - 시험 신청 저장 시 회차-지역 불일치가 감지되면 `선택한 응시 지역이 해당 시험 회차에 속하지 않습니다.` 메시지로 차단한다
+- 홈의 생명·손해보험 시험 현황은 등록 row의 회차 관계를 명시적 FK 이름으로 먼저 해석하고, 관계 이름이 다른 구버전 schema에서만 inner embed로 보정한다. 어느 경로에서도 관계가 해소되지 않으면 잘못된 0명 통계로 숨기지 않고 조회 실패로 처리한다.
 
 ## 연관 문서
 
-- [../workflow-state-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/workflow-state-matrix.md)
-- [../admin-web/dashboard-lifecycle.md](E:/hanhwa/fc-onboarding-app/docs/handbook/admin-web/dashboard-lifecycle.md)
+- [../workflow-state-matrix.md](../workflow-state-matrix.md)
+- [../admin-web/dashboard-lifecycle.md](../admin-web/dashboard-lifecycle.md)
 
 ## 2026-07-04 Shared FC Workflow Core
 
 - FC onboarding next-step labels and workflow display state must stay aligned with `lib/fc-workflow-core.ts`.
 - Admin web wrappers and mobile screens should expose surface-specific presentation only; workflow priority and allowance state rules belong in the shared core.
+
+## 2026-07-13 FC notification session boundary
+
+- Protected FC notification calls from onboarding screens use `lib/fc-notify-client.ts` instead of invoking `fc-notify` directly. The helper attaches the stored app-session token as `x-app-session-token`; a missing token is a session error before the network call.
+- `latest_notice` remains the explicit public-read exception. Consent, document, profile, and appointment updates keep their existing notification meaning, but the Edge Function derives the caller identity from the signed session rather than trusting screen-supplied actor claims.
+
+## 2026-07-20 FC home Realtime lifecycle
+
+- FC 홈의 메시지·프로필·서류 Realtime 구독은 effect 실행마다 비식별 고유 topic을 사용한다. 전화번호, 주민 식별값, FC id를 channel topic에 넣지 않는다.
+- `@supabase/realtime-js`가 같은 topic의 기존 채널을 재사용하므로, 비동기 `removeChannel()`이 끝나기 전 React 개발 effect가 다시 실행되어도 이미 구독된 채널에 콜백을 추가하지 않아야 한다.
+- 각 effect cleanup은 자신이 만든 채널만 `supabase.removeChannel(channel)`로 정리한다.
+# 2026-07-24 사용자 성공 피드백과 알림 진단 분리
+
+- FC의 정보 제출·서류 등록·위촉 입력이 저장되면 화면에는 해당 업무의 정상 성공 피드백만 표시한다.
+- 후속 inbox/push 전달 미확인은 저장 성공을 경고 상태로 바꾸지 않으며, `notification_delivery_incomplete` 같은 진단 코드와 개인정보 없는 개발 로그로만 남긴다.
+- 첨부 업로드처럼 사용자가 직접 요청한 핵심 작업 자체가 실패한 경우의 재시도 안내는 계속 표시한다.

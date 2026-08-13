@@ -19,14 +19,24 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { Button } from '@/components/Button';
 import { RefreshButton } from '@/components/RefreshButton';
-import { useToast } from '@/components/Toast';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import {
+  combineFcNotifyDeliveryResults,
+  invokeFcNotifyForDelivery,
+} from '@/lib/fc-notify-client';
+import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { logger } from '@/lib/logger';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { openExternalUrl } from '@/lib/open-external-url';
+import {
+  hasPresentRouteParam,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
 import { supabase } from '@/lib/supabase';
 import { COLORS } from '@/lib/theme';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { RequiredDoc } from '@/types/fc';
 
 type FcLite = { id: string; temp_id: string | null; name: string; status: string; docs_deadline_at?: string | null };
@@ -68,34 +78,41 @@ async function sendNotificationAndPush(
   residentId: string | null,
   title: string,
   body: string,
+  fcId: string,
   url?: string,
 ) {
-  const { error, data } = await supabase.functions.invoke('fc-notify', {
-    body: {
-      type: 'notify',
-      target_role: role,
-      target_id: residentId,
-      title,
-      body,
-      category: 'app_event',
-      url,
+  return invokeFcNotifyForDelivery({
+    type: 'notify',
+    target_role: role,
+    target_id: residentId,
+    title,
+    body,
+    category: 'app_event',
+    url,
+    target: {
+      version: 1,
+      kind: 'onboarding_section',
+      fcId,
+      section: 'docs_upload',
     },
   });
-  if (error) {
-    throw error;
-  }
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '알림 전송 실패');
-  }
 }
 
 export default function DocsUploadScreen() {
   const { residentId, role } = useSession();
-  useIdentityGate({ nextPath: '/docs-upload' });
-  const { showToast } = useToast();
+  const { destinationAccepted: identityGateAccepted } =
+    useIdentityGate({ nextPath: '/docs-upload' });
   const router = useRouter();
-  const { userId } = useLocalSearchParams<{ userId?: string }>();
+  const { userId, notificationId, notificationTarget } =
+    useLocalSearchParams<{
+      userId?: string;
+      notificationId?: string;
+      notificationTarget?: string;
+    }>();
   const isAdmin = role === 'admin';
+  const routeUserId = parseExactlyOneUuidRouteParam(userId);
+  const hasInvalidUserRoute =
+    hasPresentRouteParam(userId) && !routeUserId;
   const [fc, setFc] = useState<FcLite | null>(null);
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
@@ -104,6 +121,9 @@ export default function DocsUploadScreen() {
   const storageDebuggedRef = useRef(false);
   const keyboardPadding = useKeyboardPadding();
   const [refreshing, setRefreshing] = useState(false);
+  const [profileLoadState, setProfileLoadState] = useState<
+    'loading' | 'success' | 'error'
+  >('loading');
 
   const docCount = useMemo(
     () => ({ uploaded: docs.filter((d) => d.storagePath).length, total: docs.length }),
@@ -117,9 +137,16 @@ export default function DocsUploadScreen() {
 
   const loadData = useCallback(async () => {
     try {
+      setProfileLoadState('loading');
+      if (hasInvalidUserRoute) {
+        setFc(null);
+        setDocs([]);
+        setProfileLoadState('error');
+        return;
+      }
       let targetId: string | null = null;
-      if (isAdmin && userId) {
-        targetId = userId;
+      if (isAdmin && routeUserId) {
+        targetId = routeUserId;
       } else if (residentId) {
         const { data: profileId, error: idErr } = await supabase
           .from('fc_profiles')
@@ -132,6 +159,7 @@ export default function DocsUploadScreen() {
       if (!targetId) {
         setFc(null);
         setDocs([]);
+        setProfileLoadState('error');
         return;
       }
 
@@ -144,6 +172,7 @@ export default function DocsUploadScreen() {
       if (!profile) {
         setFc(null);
         setDocs([]);
+        setProfileLoadState('error');
         return;
       }
 
@@ -176,14 +205,28 @@ export default function DocsUploadScreen() {
 
       setFc(profile as FcLite);
       setDocs(reqDocs);
+      setProfileLoadState('success');
     } catch (err: any) {
+      setProfileLoadState('error');
       Alert.alert('조회 오류', err?.message ?? '정보를 불러오지 못했습니다.');
     }
-  }, [isAdmin, residentId, userId]);
+  }, [hasInvalidUserRoute, isAdmin, residentId, routeUserId]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: fc?.id
+      ? {
+          version: 1,
+          kind: 'onboarding_section',
+          fcId: fc.id,
+          section: 'docs_upload',
+        }
+      : null,
+    loadState: identityGateAccepted ? profileLoadState : 'loading',
+  });
 
   useEffect(() => {
     if (storageDebuggedRef.current) return;
@@ -350,48 +393,67 @@ export default function DocsUploadScreen() {
       setDocs(updatedDocs);
 
       const nameLabel = fc.name || 'FC';
-      const notificationJobs: Promise<unknown>[] = [
-        sendNotificationAndPush(
+      const notificationJobs = [
+        () => sendNotificationAndPush(
           'admin',
-          residentId ?? null,
+          null,
           `${nameLabel}님이 ${type}을 제출했습니다.`,
           `${nameLabel}님이 ${type}을 업로드했습니다.`,
+          fc.id,
           '/dashboard',
         ),
       ];
       const uploadedCount = updatedDocs.filter((d) => d.storagePath).length;
       if (uploadedCount === updatedDocs.length && updatedDocs.length > 0) {
         notificationJobs.push(
-          sendNotificationAndPush(
+          () => sendNotificationAndPush(
             'admin',
-            residentId ?? null,
+            null,
             `${nameLabel}님이 모든 서류를 제출했습니다.`,
             `${nameLabel}님이 모든 필수 서류를 업로드했습니다.`,
+            fc.id,
             '/dashboard',
           ),
         );
       }
 
+      const deliverNotifications = () =>
+        Promise.all(notificationJobs.map((notify) => notify()));
+      const deliveryResults = await deliverNotifications();
+      let retryableNotificationIndexes = deliveryResults
+        .map((delivery, index) =>
+          !delivery.confirmed && delivery.notificationStored === false
+            ? index
+            : -1
+        )
+        .filter((index) => index >= 0);
+      const retryFailedNotifications = async () => {
+        if (retryableNotificationIndexes.length === 0) {
+          return combineFcNotifyDeliveryResults(deliveryResults);
+        }
+        const retryResults = await Promise.all(
+          retryableNotificationIndexes.map((index) => notificationJobs[index]()),
+        );
+        retryableNotificationIndexes = retryableNotificationIndexes.filter(
+          (_index, resultIndex) =>
+            !retryResults[resultIndex].confirmed
+            && retryResults[resultIndex].notificationStored === false,
+        );
+        return combineFcNotifyDeliveryResults(retryResults);
+      };
+
       setUploadingType(null);
       uploadStateCleared = true;
       logger.debug('[upload] success', { objectPath });
-      showToast({
-        message:
+      presentPostCommitNotificationDelivery({
+        delivery: combineFcNotifyDeliveryResults(deliveryResults),
+        retryNotification: retryFailedNotifications,
+        successTitle: '등록 완료',
+        successMessage:
           uploadedCount === updatedDocs.length && updatedDocs.length > 0
             ? '모든 필수 서류가 제출되었습니다.'
             : '파일이 정상적으로 등록되었습니다.',
-        variant: 'success',
-      });
-      void Promise.allSettled(notificationJobs).then((results) => {
-        const rejected = results.filter((result) => result.status === 'rejected');
-        if (rejected.length > 0) {
-          logger.warn('[upload] notification failed', {
-            docType: type,
-            failures: rejected.map((result) =>
-              result.status === 'rejected' ? String(result.reason) : 'unknown',
-            ),
-          });
-        }
+        notificationLabel: '관리자',
       });
     } catch (err: any) {
       logger.warn('[upload] failed', { bucket: BUCKET, error: err?.message ?? err });
@@ -497,6 +559,10 @@ export default function DocsUploadScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>
@@ -580,7 +646,7 @@ export default function DocsUploadScreen() {
           contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 100 }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
         >
           <View style={styles.list}>
             {docs.map((doc) => {

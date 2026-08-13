@@ -37,6 +37,7 @@ import { useDeferredValue, useState } from 'react';
 
 import { RecommenderSelect } from '@/components/RecommenderSelect';
 import { useSession } from '@/hooks/use-session';
+import { resolveReferralPermissionDisplay } from '@/lib/referral-permission-display';
 import type {
   ReferralAdminDetail,
   ReferralAdminEventItem,
@@ -382,9 +383,15 @@ export default function ReferralDashboardPage() {
 
   const serverCanMutate =
     detailQuery.data?.permissions.canMutate
-    ?? listQuery.data?.permissions.canMutate
-    ?? false;
-  const showMutateControls = role === 'admin' && !isReadOnly && serverCanMutate;
+    ?? listQuery.data?.permissions.canMutate;
+  const {
+    showMutateControls,
+    showReadOnlyState,
+  } = resolveReferralPermissionDisplay({
+    role,
+    isReadOnly,
+    serverCanMutate,
+  });
   const summary = listQuery.data?.summary;
   const detail = detailQuery.data?.detail ?? null;
   const unresolvedItems = listQuery.data?.unresolvedItems ?? [];
@@ -590,15 +597,15 @@ export default function ReferralDashboardPage() {
               >
                 일괄 발급
               </Button>
-            ) : (
+            ) : showReadOnlyState ? (
               <Badge color="gray" variant="light">
                 {role === 'manager' ? '본부장 읽기 전용' : '조회 전용'}
               </Badge>
-            )}
+            ) : null}
           </Group>
         </Group>
 
-        {!showMutateControls ? (
+        {showReadOnlyState ? (
           <Alert color="gray" variant="light" icon={<IconAlertCircle size={16} />}>
             본 화면은 조회 전용입니다. 코드 발급, 재발급, 비활성 작업은 관리자 또는 개발자 세션에서만 가능합니다.
           </Alert>

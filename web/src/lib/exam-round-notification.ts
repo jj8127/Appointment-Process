@@ -8,6 +8,12 @@ export type ExamRoundNotificationPayload = {
   body: string;
   category: 'exam_round';
   url: '/exam-apply' | '/exam-apply2';
+  target: {
+    version: 1;
+    kind: 'exam';
+    examType: ExamRoundType;
+    examRoundId: string;
+  };
 };
 
 export function getExamRoundTargetUrl(examType: ExamRoundType): ExamRoundNotificationPayload['url'] {
@@ -18,10 +24,12 @@ export function buildExamRoundNotificationPayload({
   title,
   body,
   examType,
+  examRoundId,
 }: {
   title: string;
   body: string;
   examType: ExamRoundType;
+  examRoundId: string;
 }): ExamRoundNotificationPayload {
   return {
     type: 'notify',
@@ -31,5 +39,6 @@ export function buildExamRoundNotificationPayload({
     body,
     category: 'exam_round',
     url: getExamRoundTargetUrl(examType),
+    target: { version: 1, kind: 'exam', examType, examRoundId },
   };
 }

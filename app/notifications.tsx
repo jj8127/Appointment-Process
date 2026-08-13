@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -21,16 +21,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
+import { prepareInboxNotificationNavigation } from '@/lib/inbox-notification-navigation';
 import { logger } from '@/lib/logger';
-import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
+import { fetchMobileUnreadNotificationCountOrThrow } from '@/lib/mobile-unread-notification-count';
+import { reconcileNotificationCenterReadState } from '@/lib/notification-center-read-state';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
-import { setNotificationCheckpointNow } from '@/lib/notification-checkpoint';
+import { markNotificationNavigationPending } from '@/lib/notification-navigation-coordinator';
+import { advanceNotificationNoticeCheckpoint } from '@/lib/notification-notice-checkpoint';
 import {
-  normalizeNotificationTargetUrl,
-  resolveRequestBoardNotificationRoute,
-} from '@/lib/notification-route';
+  parseNotificationTarget,
+  type NotificationTarget,
+} from '@/lib/notification-target';
+import { buildPendingNotificationOwnerBinding } from '@/lib/pending-notification-navigation';
 import { resolveNoticeRoute } from '@/lib/notice-route';
-import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { COLORS } from '@/lib/theme';
 
@@ -41,9 +45,12 @@ type Notice = {
   body: string;
   category?: string | null;
   targetUrl?: string | null;
+  target: NotificationTarget | null;
+  readAt?: string | null;
   created_at?: string | null;
   source: 'notification' | 'notice';
   origin: 'request_board' | 'fc_onboarding' | 'notice';
+  isBroadcast?: boolean;
 };
 
 type InboxNotificationPayload = {
@@ -51,8 +58,12 @@ type InboxNotificationPayload = {
   title: string;
   body: string;
   category?: string | null;
+  target?: unknown;
   target_url?: string | null;
   created_at?: string | null;
+  resident_id?: string | null;
+  read_at?: string | null;
+  dismissed_at?: string | null;
 };
 
 type InboxNoticePayload = {
@@ -96,10 +107,22 @@ const isRequestBoardCategory = (category?: string | null): boolean =>
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { role, residentId, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
+  const { targetError } = useLocalSearchParams<{
+    targetError?: string | string[];
+  }>();
+  const {
+    role,
+    residentId,
+    hydrated,
+    requestBoardRole,
+    readOnly,
+    staffType,
+    appSessionToken,
+  } = useSession();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [dragArmed, setDragArmed] = useState(false);
@@ -112,9 +135,15 @@ export default function NotificationsScreen() {
     readOnly,
     staffType,
   });
-  const includeRequestBoardFcInbox = inboxRole === 'admin' && requestBoardRole === 'fc';
+  const isRequestBoardInboxOnly = requestBoardRole === 'designer';
+  const includeRequestBoardFcInbox = inboxRole === 'admin' && requestBoardRole !== null;
+  const canDeleteSharedNotices = inboxRole === 'admin' && !readOnly;
   const hiddenNoticeStorageKey =
-    inboxRole === 'fc' ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}` : null;
+    inboxRole === 'fc'
+      ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}`
+      : readOnly
+        ? `${HIDDEN_NOTICE_KEY_PREFIX}:manager:${residentId || 'manager'}`
+        : null;
 
   const selectionModeRef = useRef(selectionMode);
   const isDraggingRef = useRef(isDragging);
@@ -133,10 +162,28 @@ export default function NotificationsScreen() {
   const autoScrollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
+  const inboxNavigationOwner = buildPendingNotificationOwnerBinding({
+    role,
+    residentId,
+    appSessionToken,
+  });
+  const inboxNavigationSessionKey = JSON.stringify(inboxNavigationOwner ?? null);
+  const inboxNavigationSessionKeyRef = useRef(inboxNavigationSessionKey);
+  inboxNavigationSessionKeyRef.current = inboxNavigationSessionKey;
 
   const itemHeightsRef = useRef<Map<string, number>>(new Map());
   const itemLayoutsRef = useRef<Map<string, { y: number; height: number }>>(new Map());
   const scrollOffsetRef = useRef(0);
+
+  useEffect(() => {
+    const errorValue = typeof targetError === 'string' ? targetError : undefined;
+    if (errorValue !== 'unavailable') return;
+    Alert.alert(
+      '대상을 열 수 없음',
+      '이 알림의 이동 대상이 없거나 더 이상 접근할 수 없습니다.',
+      [{ text: '확인' }],
+    );
+  }, [targetError]);
 
   useEffect(() => {
     selectionModeRef.current = selectionMode;
@@ -343,14 +390,13 @@ export default function NotificationsScreen() {
   const fetchInbox = useCallback(async (): Promise<{ pushRows: Notice[]; noticeRows: Notice[] }> => {
     if (!inboxRole) return { pushRows: [], noticeRows: [] };
 
-    const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
-      body: {
+    const { data, error } = await invokeFcNotify<InboxListResponse>({
         type: 'inbox_list',
         role: inboxRole,
         resident_id: inboxResidentId,
         limit: 100,
         include_request_board_fc: includeRequestBoardFcInbox,
-      },
+        only_request_board_categories: isRequestBoardInboxOnly,
     });
     if (error) throw error;
     if (!data?.ok) {
@@ -364,9 +410,12 @@ export default function NotificationsScreen() {
       body: item.body,
       category: item.category ?? '알림',
       targetUrl: item.target_url ?? null,
+      target: parseNotificationTarget(item.target),
+      readAt: item.read_at ?? null,
       created_at: item.created_at,
       source: 'notification',
       origin: isRequestBoardCategory(item.category) ? 'request_board' : 'fc_onboarding',
+      isBroadcast: !item.resident_id,
     }));
 
     const noticeRows: Notice[] = (data.notices ?? []).map((item) => ({
@@ -376,12 +425,19 @@ export default function NotificationsScreen() {
       body: item.body,
       category: item.category ?? '공지',
       targetUrl: null,
+      target: {
+        version: 1,
+        kind: 'notice',
+        noticeId: item.id,
+      },
+      readAt: null,
       created_at: item.created_at,
       source: 'notice',
       origin: 'notice',
+      isBroadcast: true,
     }));
 
-    if (!isRequestBoardDesigner) {
+    if (!isRequestBoardInboxOnly) {
       return { pushRows, noticeRows };
     }
 
@@ -397,15 +453,18 @@ export default function NotificationsScreen() {
       ),
       noticeRows: [],
     };
-  }, [includeRequestBoardFcInbox, inboxResidentId, inboxRole, isRequestBoardDesigner]);
+  }, [includeRequestBoardFcInbox, inboxResidentId, inboxRole, isRequestBoardInboxOnly]);
 
   const load = useCallback(async () => {
     if (!hydrated) return;
+    const viewedAt = new Date().toISOString();
     try {
+      setLoadError(null);
       const { pushRows, noticeRows } = await fetchInbox();
       const hiddenNoticeIds = await loadHiddenNoticeIds();
       const merged = [...pushRows, ...noticeRows]
         .filter((item) => {
+          if (hiddenNoticeIds.has(item.id)) return false;
           if (item.source !== 'notice') return true;
           const rawNoticeId = item.id.replace('notice:', '');
           return !hiddenNoticeIds.has(rawNoticeId);
@@ -415,30 +474,65 @@ export default function NotificationsScreen() {
           const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
           return bTime - aTime;
         });
-        if (!mountedRef.current) return;
-        setNotices(merged);
-        await setNotificationCheckpointNow({
-          role: inboxRole,
-          residentId: inboxResidentId,
-          requestBoardRole,
+      if (!mountedRef.current) return;
+      setNotices(merged);
+
+      if (inboxRole) {
+        await reconcileNotificationCenterReadState({
+          scope: {
+            role: inboxRole,
+            residentId: inboxResidentId,
+            requestBoardRole,
+          },
+          viewedAt,
+          rows: merged,
+        }, {
+          markRead: async (notificationIds) => {
+            const { data, error } = await invokeFcNotify<{
+              ok?: boolean;
+              authorized?: boolean;
+              state?: string;
+            }>({
+              type: 'inbox_mark_read',
+              role: inboxRole,
+              resident_id: inboxResidentId,
+              notification_ids: notificationIds,
+              include_request_board_fc: includeRequestBoardFcInbox,
+            });
+            if (error) throw error;
+            return data ?? {};
+          },
+          advanceNoticeCheckpoint: (scope, timestamp) =>
+            advanceNotificationNoticeCheckpoint(scope, timestamp),
+          fetchUnreadCount: (scope) =>
+            fetchMobileUnreadNotificationCountOrThrow(scope),
+          syncBadge: (unreadCount) =>
+            syncNativeNotificationBadge(unreadCount, {
+              context: 'notifications-screen-load',
+              dismissPresentedWhenZero: true,
+            }),
+          warn: (message, error) => logger.warn(message, error),
         });
-        const unreadCount = await fetchMobileUnreadNotificationCount({
-          role: inboxRole,
-          residentId: inboxResidentId,
-          requestBoardRole,
-        });
-        await syncNativeNotificationBadge(unreadCount, {
-          context: 'notifications-screen-load',
-          dismissPresentedWhenZero: true,
-        });
+      }
     } catch (err: unknown) {
       logger.warn('Failed to load notifications', err);
+      if (mountedRef.current) {
+        setLoadError('알림을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      }
     } finally {
       if (!mountedRef.current) return;
       setLoading(false);
       setRefreshing(false);
     }
-    }, [fetchInbox, hydrated, inboxResidentId, inboxRole, loadHiddenNoticeIds, requestBoardRole]);
+    }, [
+      fetchInbox,
+      hydrated,
+      inboxResidentId,
+      inboxRole,
+      includeRequestBoardFcInbox,
+      loadHiddenNoticeIds,
+      requestBoardRole,
+    ]);
 
   useEffect(() => {
     void load();
@@ -553,23 +647,25 @@ export default function NotificationsScreen() {
 
       const selectedSet = new Set(selectedSnapshot);
       const selectedItems = notices.filter((item) => selectedSet.has(item.id));
+      const locallyHiddenNotificationIds = selectedItems
+        .filter((item) => inboxRole === 'fc' && item.source === 'notification' && item.isBroadcast)
+        .map((item) => item.id);
+      const locallyHiddenNotificationIdSet = new Set(locallyHiddenNotificationIds);
       const notificationIds = selectedItems
-        .filter((item) => item.source === 'notification')
+        .filter((item) => item.source === 'notification' && !locallyHiddenNotificationIdSet.has(item.id))
         .map((item) => item.rawId);
       const noticeIds = selectedSnapshot
         .filter((id) => id.startsWith('notice:'))
         .map((id) => id.replace('notice:', ''));
 
-      if (notificationIds.length > 0 || (inboxRole === 'admin' && noticeIds.length > 0)) {
-        const { data, error } = await supabase.functions.invoke('fc-notify', {
-          body: {
-            type: 'inbox_delete',
+      if (notificationIds.length > 0 || (canDeleteSharedNotices && noticeIds.length > 0)) {
+        const { data, error } = await invokeFcNotify({
+            type: 'inbox_dismiss',
             role: inboxRole,
             resident_id: inboxResidentId,
             notification_ids: notificationIds,
-            notice_ids: inboxRole === 'admin' ? noticeIds : [],
+            notice_ids: canDeleteSharedNotices ? noticeIds : [],
             include_request_board_fc: includeRequestBoardFcInbox,
-          },
         });
         if (error) throw error;
         if (!data?.ok) {
@@ -579,9 +675,10 @@ export default function NotificationsScreen() {
         }
       }
 
-      if (inboxRole === 'fc' && noticeIds.length > 0) {
+      if (!canDeleteSharedNotices && (noticeIds.length > 0 || locallyHiddenNotificationIds.length > 0)) {
         const hidden = await loadHiddenNoticeIds();
         noticeIds.forEach((id) => hidden.add(id));
+        locallyHiddenNotificationIds.forEach((id) => hidden.add(id));
         await saveHiddenNoticeIds(hidden);
       }
 
@@ -592,13 +689,15 @@ export default function NotificationsScreen() {
       void load();
 
       const totalNotifIds = notificationIds.length;
-      const isNoticeOnlyFc = inboxRole === 'fc' && noticeIds.length > 0 && totalNotifIds === 0;
+      const isLocallyHiddenOnly = !canDeleteSharedNotices
+        && (noticeIds.length > 0 || locallyHiddenNotificationIds.length > 0)
+        && totalNotifIds === 0;
       alertTimerRef.current = setTimeout(() => {
         if (!mountedRef.current) return;
         Alert.alert(
           '완료',
-          isNoticeOnlyFc
-            ? '선택한 공지는 알림센터에서 숨김 처리되었습니다.'
+          isLocallyHiddenOnly
+            ? '선택한 항목은 이 기기의 알림센터에서 숨김 처리되었습니다.'
             : '선택한 항목을 삭제했습니다.',
         );
       }, 150);
@@ -632,80 +731,7 @@ export default function NotificationsScreen() {
     return rawCategory;
   };
 
-  const resolveNotificationRoute = (item: Notice): string | null => {
-    if (item.source === 'notice') {
-      return resolveNoticeRoute(item.rawId);
-    }
-
-    if (item.origin === 'request_board') {
-      return resolveRequestBoardNotificationRoute({
-        category: item.category,
-        targetUrl: item.targetUrl,
-      });
-    }
-
-    const lowerTitle = item.title?.toLowerCase?.() ?? '';
-    const lowerBody = item.body?.toLowerCase?.() ?? '';
-
-    const isHanwhaWorkflowNotification =
-      lowerTitle.includes('다위촉 승인') ||
-      lowerTitle.includes('다위촉 반려') ||
-      lowerBody.includes('다위촉이 승인') ||
-      lowerBody.includes('다위촉이 반려') ||
-      lowerBody.includes('승인 pdf');
-
-    if (isHanwhaWorkflowNotification) {
-      return '/hanwha-commission';
-    }
-
-    if (item.targetUrl) {
-      return normalizeNotificationTargetUrl(item.targetUrl);
-    }
-
-    const category = (item.category ?? '').toLowerCase();
-
-    if (category === 'group_chat_message') {
-      return '/group-chat';
-    }
-    if (category.includes('message') || lowerTitle.includes('메시지') || lowerBody.includes('메시지')) {
-      return '/messenger?channel=garam';
-    }
-    if (category.startsWith('board_') || lowerTitle.includes('게시판') || lowerBody.includes('게시판')) {
-      return '/board';
-    }
-    if (category.includes('exam_round') || lowerTitle.includes('시험 일정') || lowerBody.includes('시험 일정')) {
-      return lowerTitle.includes('손해') || lowerBody.includes('손해') ? '/exam-apply2' : '/exam-apply';
-    }
-    if (category.includes('exam_apply') || lowerTitle.includes('시험 신청') || lowerBody.includes('시험 신청')) {
-      return lowerTitle.includes('손해') || lowerBody.includes('손해') ? '/exam-apply2' : '/exam-apply';
-    }
-    if (category.includes('docs') || lowerTitle.includes('서류') || lowerBody.includes('서류')) {
-      return '/docs-upload';
-    }
-    if (
-      lowerTitle.includes('임시번호') ||
-      lowerTitle.includes('임시사번') ||
-      lowerBody.includes('임시번호') ||
-      lowerBody.includes('임시사번') ||
-      lowerTitle.includes('temp id') ||
-      lowerBody.includes('temp id')
-    ) {
-      return '/consent';
-    }
-    if (lowerTitle.includes('수당') || lowerBody.includes('수당')) {
-      return '/consent';
-    }
-    if (lowerTitle.includes('위촉') || lowerBody.includes('위촉')) {
-      return '/appointment';
-    }
-    if (lowerTitle.includes('공지') || lowerBody.includes('공지')) {
-      return '/notice';
-    }
-
-    return null;
-  };
-
-  const handlePressItem = (item: Notice) => {
+  const handlePressItem = async (item: Notice) => {
     if (isDraggingRef.current) return;
 
     if (selectionModeRef.current) {
@@ -717,18 +743,36 @@ export default function NotificationsScreen() {
       return;
     }
 
-    const route = resolveNotificationRoute(item);
-    if (route) {
-      router.push(route as never);
+    if (item.source === 'notice') {
+      const route = resolveNoticeRoute(item.rawId);
+      if (route) router.push(route as never);
       return;
     }
-
-    if (item.origin === 'request_board') {
-      Alert.alert(item.title, `${item.body}\n\n상세 내용은 설계요청(request_board)에서 확인할 수 있습니다.`, [{ text: '확인' }]);
-      return;
+    if (item.target && role) {
+      const sessionKeyAtPress = inboxNavigationSessionKey;
+      const prepared = await prepareInboxNotificationNavigation({
+        notificationId: item.rawId,
+        target: item.target,
+        viewerRole: role,
+        owner: inboxNavigationOwner,
+      });
+      if (
+        !mountedRef.current
+        || inboxNavigationSessionKeyRef.current !== sessionKeyAtPress
+      ) {
+        return;
+      }
+      if (prepared.ok) {
+        markNotificationNavigationPending();
+        router.push(prepared.route as never);
+        return;
+      }
     }
-
-    Alert.alert(item.title, item.body, [{ text: '확인' }]);
+    Alert.alert(
+      '대상을 열 수 없음',
+      '알림 대상이 없거나 현재 계정에서 접근할 수 없습니다.',
+      [{ text: '확인' }],
+    );
   };
 
   const renderItem = ({ item, index }: { item: Notice; index: number }) => {
@@ -759,7 +803,9 @@ export default function NotificationsScreen() {
       >
         <Pressable
           style={[styles.itemContainer, isSelected ? styles.itemSelected : styles.itemUnselected]}
-          onPress={() => handlePressItem(item)}
+          onPress={() => {
+            void handlePressItem(item);
+          }}
           onLongPress={() => handleLongPressItem(item.id)}
           onTouchMove={handlePressMoveItem}
           onPressOut={() => {
@@ -853,6 +899,15 @@ export default function NotificationsScreen() {
         </View>
       )}
 
+      {loadError ? (
+        <View style={styles.loadErrorBanner}>
+          <Text style={styles.loadErrorText}>{loadError}</Text>
+          <Pressable style={styles.loadErrorRetry} onPress={() => void load()}>
+            <Text style={styles.loadErrorRetryText}>다시 시도</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {loading && !refreshing ? (
         <MessengerLoadingState variant="notifications" />
       ) : (
@@ -941,6 +996,24 @@ const styles = StyleSheet.create({
     minHeight: 64,
   },
   headerTitle: { fontSize: 22, fontWeight: '800', color: COLORS.text.primary },
+  loadErrorBanner: {
+    marginHorizontal: 20,
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#FEF2F2',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadErrorText: { flex: 1, color: '#B91C1C', fontSize: 13 },
+  loadErrorRetry: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#B91C1C',
+  },
+  loadErrorRetryText: { color: '#fff', fontSize: 12, fontWeight: '700' },
 
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { padding: 20, paddingBottom: 40 },

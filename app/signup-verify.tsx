@@ -164,6 +164,7 @@ export default function SignupVerifyScreen() {
         <KeyboardAwareWrapper
           contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(40, keyboardPadding + 40) }]}
           extraScrollHeight={140}
+          keyboardDismissMode="none"
         >
           <View style={styles.innerContent}>
             <MotiView

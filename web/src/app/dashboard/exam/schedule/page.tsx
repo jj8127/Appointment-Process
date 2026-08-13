@@ -23,10 +23,11 @@ import {
     ThemeIcon,
     Title
 } from '@mantine/core';
-import { Calendar, DateInput } from '@mantine/dates';
+import { Calendar, DateInput, MonthPickerInput } from '@mantine/dates';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import { notificationFeedbackColor } from '@/lib/notification-delivery-feedback';
 import {
     IconCalendar,
     IconChevronLeft,
@@ -39,10 +40,12 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { z } from 'zod';
 
 import { useSession } from '@/hooks/use-session';
-import { sortExamRoundsByExamDateThenDeadline } from '@/lib/exam-round-sort';
+import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
+import { sortExamRoundsNewestFirst } from '@/lib/exam-round-sort';
 
 // --- Constants ---
 const HANWHA_ORANGE = '#f36f21';
@@ -53,22 +56,40 @@ const MUTED = '#6b7280';
 type ExamRound = {
     id: string;
     exam_date: string | null;
+    exam_month: string;
     registration_deadline: string;
     round_label: string;
     exam_type?: 'life' | 'nonlife' | string;
     notes?: string;
+    created_at?: string;
     locations: { id: string; location_name: string }[];
 };
 
 // --- Schema ---
 const roundSchema = z.object({
     exam_date: z.date().nullable(),
+    exam_month: z.string().nullable(),
     registration_deadline: z.date(),
     round_label: z.string().min(1, '회차명을 입력해주세요'),
     exam_type: z.enum(['life', 'nonlife']),
     notes: z.string().optional(),
     locations: z.array(z.string()).min(1, '최소 1개의 장소를 등록해주세요'),
     is_date_tbd: z.boolean().default(false), // 미정 여부
+}).superRefine((values, context) => {
+    if (values.is_date_tbd && !values.exam_month) {
+        context.addIssue({
+            code: 'custom',
+            path: ['exam_month'],
+            message: '시험일 미정 회차는 시험 월을 선택해 주세요.',
+        });
+    }
+    if (!values.is_date_tbd && !values.exam_date) {
+        context.addIssue({
+            code: 'custom',
+            path: ['exam_date'],
+            message: '정확한 시험일을 선택해 주세요.',
+        });
+    }
 });
 
 type RoundFormValues = z.infer<typeof roundSchema>;
@@ -100,6 +121,8 @@ const validateRoundForm = (values: RoundFormValues) => {
 
 export default function ExamSchedulePage() {
     const queryClient = useQueryClient();
+    const searchParams = useSearchParams();
+    const notificationRoundId = (searchParams.get('roundId') ?? '').trim();
     const { isReadOnly } = useSession();
     const [opened, { open, close }] = useDisclosure(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -112,6 +135,7 @@ export default function ExamSchedulePage() {
         validate: validateRoundForm,
         initialValues: {
             exam_date: new Date(),
+            exam_month: dayjs().startOf('month').format('YYYY-MM-DD'),
             registration_deadline: new Date(),
             round_label: '',
             exam_type: 'life',
@@ -135,30 +159,54 @@ export default function ExamSchedulePage() {
     // --- Mutations ---
     const saveMutation = useMutation({
         mutationFn: async (values: RoundFormValues) => {
-            const { exam_date, registration_deadline, round_label, notes, is_date_tbd } = values;
+            const {
+                exam_date,
+                exam_month,
+                registration_deadline,
+                round_label,
+                notes,
+                is_date_tbd,
+            } = values;
+            const normalizedExamDate = is_date_tbd || !exam_date
+                ? null
+                : dayjs(exam_date).format('YYYY-MM-DD');
+            const normalizedExamMonth = normalizedExamDate
+                ? dayjs(normalizedExamDate).startOf('month').format('YYYY-MM-DD')
+                : exam_month;
 
             const payload = {
-                exam_date: is_date_tbd || !exam_date ? null : dayjs(exam_date).format('YYYY-MM-DD'),
+                exam_date: normalizedExamDate,
+                exam_month: normalizedExamMonth,
                 registration_deadline: dayjs(registration_deadline).format('YYYY-MM-DD'),
                 round_label,
                 exam_type: values.exam_type,
                 notes,
                 locations: values.locations,
                 roundId: editingId,
-                actionLabel: editingId ? '수정' as const : '등록' as const,
             };
             const { saveExamRoundAction } = await import('./actions');
             const result = await saveExamRoundAction({ success: false }, payload);
             if (!result.success) {
                 throw new Error(result.error || '저장 실패');
             }
+            return result;
         },
-        onSuccess: () => {
+        onSuccess: (result) => {
             notifications.show({
                 title: editingId ? '수정 완료' : '등록 완료',
                 message: `시험 일정이 ${editingId ? '수정' : '등록'}되었습니다.`,
                 color: 'green',
             });
+            if (
+                result.notificationDelivery
+                && result.notificationDelivery.severity !== 'success'
+            ) {
+                notifications.show({
+                    title: result.notificationDelivery.title,
+                    message: result.notificationDelivery.message,
+                    color: notificationFeedbackColor(result.notificationDelivery),
+                });
+            }
             queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
             handleClose();
         },
@@ -211,6 +259,7 @@ export default function ExamSchedulePage() {
         const isTBD = !round.exam_date;
         form.setValues({
             exam_date: round.exam_date ? new Date(round.exam_date) : null,
+            exam_month: round.exam_month,
             registration_deadline: new Date(round.registration_deadline),
             round_label: round.round_label,
             exam_type: (round.exam_type as 'life' | 'nonlife') ?? 'life',
@@ -244,7 +293,7 @@ export default function ExamSchedulePage() {
     // --- Render ---
     const deadlineCutoff = (dateStr: string) => dayjs(dateStr).endOf('day');
 
-    const sortedRounds = sortExamRoundsByExamDateThenDeadline(rounds ?? []);
+    const sortedRounds = sortExamRoundsNewestFirst(rounds ?? []);
 
     const rows = sortedRounds.map((round) => {
         const cutoff = deadlineCutoff(round.registration_deadline);
@@ -297,6 +346,9 @@ export default function ExamSchedulePage() {
 
     return (
         <Container size="xl" py="xl">
+            {notificationRoundId && sortedRounds.some((round) => round.id === notificationRoundId)
+                ? <NotificationDestinationReady />
+                : null}
             <Group justify="space-between" mb="lg">
                 <div>
                     <Title order={2} c={CHARCOAL}>시험 일정 관리</Title>
@@ -448,7 +500,7 @@ export default function ExamSchedulePage() {
                                     </Badge>
                                 </Group>
                                 <Stack gap="xs">
-                                    {rounds?.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).slice(0, 4).map(r => (
+                                    {sortedRounds.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).slice(0, 4).map(r => (
                                         <Paper key={r.id} withBorder p="sm" radius="md" bg="white">
                                             <Text size="sm" fw={700}>{r.round_label}</Text>
                                             <Group gap={6} mt={4}>
@@ -463,7 +515,7 @@ export default function ExamSchedulePage() {
                                             </Group>
                                         </Paper>
                                     ))}
-                                    {!rounds?.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).length && (
+                                    {!sortedRounds.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).length && (
                                         <Text size="xs" c="dimmed">예정된 일정이 없습니다.</Text>
                                     )}
                                 </Stack>
@@ -505,30 +557,70 @@ export default function ExamSchedulePage() {
                                 mb="md"
                                 {...form.getInputProps('is_date_tbd', { type: 'checkbox' })}
                                 onChange={(e) => {
-                                    form.setFieldValue('is_date_tbd', e.currentTarget.checked);
-                                    if (e.currentTarget.checked) {
+                                    const isTbd = e.currentTarget.checked;
+                                    form.setFieldValue('is_date_tbd', isTbd);
+                                    if (isTbd) {
+                                        const monthSource = form.values.exam_date ?? new Date();
+                                        form.setFieldValue(
+                                            'exam_month',
+                                            dayjs(monthSource).startOf('month').format('YYYY-MM-DD'),
+                                        );
                                         form.setFieldValue('exam_date', null);
                                     } else {
-                                        form.setFieldValue('exam_date', new Date());
+                                        // A month snapshot is not an exact exam date. Require the
+                                        // operator to choose the actual day explicitly.
+                                        form.setFieldValue('exam_date', null);
                                     }
                                 }}
                             />
                             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                                {form.values.is_date_tbd ? (
+                                    <MonthPickerInput
+                                        required
+                                        label="시험 월"
+                                        description="정확한 시험일이 미정이어도 시험이 속한 월은 반드시 선택해 주세요."
+                                        placeholder="시험 월 선택"
+                                        leftSection={<IconCalendar size={16} />}
+                                        value={form.values.exam_month}
+                                        onChange={(value) => {
+                                            form.setFieldValue(
+                                                'exam_month',
+                                                value
+                                                    ? dayjs(value).startOf('month').format('YYYY-MM-DD')
+                                                    : null,
+                                            );
+                                        }}
+                                        error={form.errors.exam_month}
+                                        locale="ko"
+                                        valueFormat="YYYY년 MM월"
+                                        popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
+                                        size="sm"
+                                    />
+                                ) : (
                                 <DateInput
+                                    required
                                     label="시험일"
                                     placeholder="시험 날짜 선택"
                                     leftSection={<IconCalendar size={16} />}
                                     value={form.values.exam_date}
                                     disabled={form.values.is_date_tbd}
                                     onChange={(value) => {
-                                        if (!value) return;
+                                        if (!value) {
+                                            form.setFieldValue('exam_date', null);
+                                            return;
+                                        }
                                         const nextValue =
                                             typeof value === 'string' ? new Date(value) : (value as Date);
                                         if (!Number.isNaN(nextValue.getTime())) {
                                             form.setFieldValue('exam_date', nextValue);
+                                            form.setFieldValue(
+                                                'exam_month',
+                                                dayjs(nextValue).startOf('month').format('YYYY-MM-DD'),
+                                            );
                                         }
                                     }}
                                     locale="ko"
+                                    error={form.errors.exam_date}
                                     monthLabelFormat="YYYY년 M월"
                                     previousIcon={<IconChevronLeft size={14} />}
                                     nextIcon={<IconChevronRight size={14} />}
@@ -569,6 +661,7 @@ export default function ExamSchedulePage() {
                                         day: { borderRadius: 8, height: 34, fontWeight: 600, margin: '0 auto' },
                                     }}
                                 />
+                                )}
                                 <DateInput
                                     label="접수 마감일"
                                     placeholder="마감 날짜 선택"

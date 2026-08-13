@@ -2,7 +2,7 @@ doc_id: SHARED-BRIDGE-CONTRACT
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-04-16
+last_verified: 2026-07-29
 source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/functions/sync-request-board-session/index.ts + supabase/functions/refresh-app-session/index.ts + request_board/server/src/routes/auth.ts + lib/request-board-api.ts
 
 # Cross-Repo Bridge Contract
@@ -12,6 +12,29 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 - `lib/request-board-api.ts` must remain the GaramIn bridge boundary for GaramLink requests, messages, direct messages, attachments, and delete actions.
 - Bridge API changes must keep request-board session retry/error classification, trusted `ssnView=full` reads, and messenger interaction parity aligned with request_board server routes.
 - Contract evidence is tracked through `lib/__tests__/request-board-api-contract.test.ts`, `lib/__tests__/request-board-session.test.ts`, `lib/__tests__/feature-contract-matrix.test.ts`, and the request_board feature-contract tests.
+
+### Response-bound notification timeout budget
+
+- The mobile bridge keeps an eight-second default for ordinary calls.
+- A server route that waits for notification fanout before responding must declare a caller-specific timeout budget. `POST /api/requests` uses 30 seconds because it settles bounded new-request channels before returning.
+- Create writes are not automatically retried after timeout because the server may already have committed the primary record.
+
+### Mobile request-list summary contract
+
+- GaramIn request lists use `ssnView=masked&includeAttachments=false`; list rows still include designer decision metadata such as `rejection_reason` but omit request attachments and their signed-URL work.
+- The request_board server keeps `includeAttachments=true` as the compatibility default so existing GaramLink web screens retain their previous response shape.
+- Request detail remains the explicit full-detail path. Optional detail enrichment must not block the mobile list's first render.
+
+## 2026-07-08 Designer Account Parity
+
+- A request_board-linked designer account is a cross-system identity, not a request_board-only row.
+- Completion requires all of these to be true:
+  - request_board has `users.role='designer'` for the phone.
+  - request_board has an active `designers` row for the same user and company.
+  - GaramIn/fc-onboarding-app has `fc_profiles.phone=<digits>`, `signup_completed=true`, `phone_verified=true`, and `affiliation='<company> 설계매니저'`.
+  - GaramIn/fc-onboarding-app has `fc_credentials.password_set_at` for that `fc_profiles.id`.
+- Never consider a designer bootstrap complete until request_board `npm run ops:check-designer-parity -- --phone <phone> --company <company>` passes against the production request_board and GaramIn Supabase projects.
+- The affiliation marker `설계매니저` is part of the login/bridge contract. `login-with-password` derives request_board `designer` mode from that marker, and `supabase/functions/_shared/__tests__/request-board-auth.test.ts` guards the parser.
 
 ## 핵심 흐름
 
@@ -24,14 +47,15 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 
 ## role mapping
 
-| app identity | bridge role |
-| --- | --- |
-| `fc` | `fc` |
-| `manager` | `fc` |
-| `developer` | `fc` |
-| linked designer | `designer` |
-| plain `admin` | direct bridge 대상 아님 |
+| app identity | Request Board signed/source role | persisted/runtime contract |
+| --- | --- | --- |
+| `fc` | `fc` | writable runtime `fc`; password-sync establishes `direct/fc` |
+| `manager` | `manager` | persisted/runtime `fc`, `sourceRole=manager`, `authSource=bridge`, read-only |
+| `developer` | Request Board bridge/password-sync role `fc`; GaramIn app-session identity remains `admin/developer` | writable runtime `fc`; not a manager session |
+| linked designer | `designer` | writable runtime `designer` |
+| plain `admin` | `admin` | direct Request Board actor 대상 아님 |
 
+- signed source role, request_board 표시/runtime role, direct-login eligibility를 같은 의미로 사용하지 않는다. 특히 manager는 runtime `fc`여도 source role이 `manager`이고 직접 로그인할 수 없다.
 - bridge role이 `fc`로 보여도 phone이 `admin_accounts`에 속한 developer/plain admin은 `refresh-app-session` 대상이 아니다. referral self-service 세션 발급은 completed FC 또는 active manager만 허용한다.
 
 ## 운영 실패 패턴
@@ -46,6 +70,7 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 
 - `REQUEST_BOARD_AUTH_BRIDGE_SECRET` / `FC_ONBOARDING_AUTH_BRIDGE_SECRET`
 - `REQUEST_BOARD_PASSWORD_SYNC_TOKEN` / `FC_ONBOARDING_PASSWORD_SYNC_TOKEN`
+- 양쪽 `REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET`
 - `requestBoardRole`
 - `users.affiliation` / app affiliation source
 
@@ -64,5 +89,5 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 
 ## 관련 문서
 
-- [security-and-secret-operations.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/security-and-secret-operations.md)
-- [request_board operations runbook](E:/hanhwa/request_board/docs/handbook/operations-runbook.md)
+- [security-and-secret-operations.md](./security-and-secret-operations.md)
+- [request_board operations runbook](../../../../request_board/docs/handbook/operations-runbook.md)

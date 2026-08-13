@@ -14,6 +14,13 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { normalizeApplyGateNext } from '@/lib/home-entry-flow';
+import {
+  authorizeNotificationOpen,
+  parseNotificationOpenRoute,
+} from '@/lib/notification-open-authorization';
+import { markNotificationNavigationIdle } from '@/lib/notification-navigation-coordinator';
+import { clearPendingNotificationNavigation } from '@/lib/pending-notification-navigation';
 import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, toResidentInputAlertMessage } from '@/lib/store-identity-error';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
@@ -151,12 +158,26 @@ export default function IdentityScreen() {
       await queryClient.refetchQueries({ queryKey: ['identity-status', residentId] });
       await queryClient.refetchQueries({ queryKey: ['my-fc-status', residentId] });
 
-      Alert.alert('등록 완료', '신원 정보가 저장되었습니다.');
-      if (next) {
-        router.replace(next as any);
-      } else {
-        router.replace('/');
+      const safeNext = normalizeApplyGateNext(next);
+      const notificationHandoff = parseNotificationOpenRoute(safeNext);
+      if (notificationHandoff) {
+        const authorization = await authorizeNotificationOpen(notificationHandoff);
+        if (!authorization.ok) {
+          await clearPendingNotificationNavigation({
+            notificationId: notificationHandoff.notificationId,
+            target: notificationHandoff.target,
+          });
+          markNotificationNavigationIdle();
+          Alert.alert(
+            '등록 완료 · 알림 대상 확인 실패',
+            '신원 정보는 저장되었지만 해당 알림을 더 이상 열 수 없습니다.',
+          );
+          router.replace('/notifications?targetError=unavailable');
+          return;
+        }
       }
+      Alert.alert('등록 완료', '신원 정보가 저장되었습니다.');
+      router.replace(safeNext as any);
     } catch (err: any) {
       Alert.alert('저장 실패', toUserFacingAlertMessage(err, '신원 정보 저장 중 문제가 발생했습니다.'));
     } finally {
@@ -199,6 +220,7 @@ export default function IdentityScreen() {
         contentContainerStyle={[styles.container, { paddingBottom: Math.max(80, keyboardPadding + 40) }]}
         extraScrollHeight={140}
         keyboardShouldPersistTaps="always"
+        keyboardDismissMode="none"
       >
         <View style={styles.noticeBox}>
           <Text style={styles.noticeTitle}>본 단계는 위촉(등록) 신청을 위한 법정 절차 단계입니다.</Text>

@@ -2,18 +2,24 @@ doc_id: FC-HANDBOOK-SCREEN-INVENTORY
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer, operator
-last_verified: 2026-03-28
+last_verified: 2026-08-08
 source_of_truth: app/* + web/src/app/*
 
 # 화면 인벤토리
 
-## Mobile
+## Mobile (47 routes)
 
 - 인증/게이트: `login`, `signup`, `signup-verify`, `signup-password`, `reset-password`, `apply-gate`, `identity`
-- FC: `index`, `home-lite`, `fc/new`, `consent`, `docs-upload`, `hanwha-commission`, `appointment`, `exam-apply`, `exam-apply2`
-- 공용/콘텐츠: `settings`, `notifications`, `notice`, `notice-detail`, `board`, `board-detail`, `messenger`, `chat`
+- FC: `index`, `home-lite`, `fc/new`, `consent`, `docs-upload`, `hanwha-commission`, `appointment`, `exam-apply`, `exam-apply2`, `referral`, `referral-tree`(redirect), `referral-graph`, `referral-revenue-graph`(local sample)
+- 공용/콘텐츠: `settings`, `notifications`, `notice`, `notice-detail`, `board`, `board-detail`, `messenger`, `messenger-search`, `new-conversation`, `chat`, `group-chat`, `notification-settings`, `muted-conversations`
 - GaramLink 연동: `request-board`, `request-board-messenger`, `request-board-requests`, `request-board-review`, `request-board-fc-codes`
 - Admin/Manager: `dashboard`, `exam-register`, `exam-register2`, `exam-manage`, `exam-manage2`, `admin-notice`, `admin-board`, `admin-board-manage`, `admin-messenger`
+
+The archived Figma foundation board contains the former 42-route inventory.
+Messenger V2 added the five routes `messenger-search`, `new-conversation`,
+`group-chat`, `notification-settings`, and `muted-conversations`; these are the
+required 42 → 47 delta for the next live Figma Phase 0 reconciliation. The
+existing SVG route cards remain inventory artifacts, not Component Sets.
 
 ## Admin Web
 
@@ -23,6 +29,7 @@ source_of_truth: app/* + web/src/app/*
 - 추천인: `/dashboard/referrals`
 - 메신저/채팅: `/dashboard/messenger`, `/dashboard/chat`
 - 운영 보조: `/dashboard/settings`, `/dashboard/profile`, `/auth`
+- `/dashboard/settings` account-deletion failures retain the existing user notification but emit only a fixed message through the sanitized web logger; raw exceptions never reach a direct console sink.
 
 ## 우선 문서화 화면군
 

@@ -12,6 +12,7 @@ const MANAGER_NAME_TO_AFFILIATION: Record<string, string> = {
   '이현욱': '9본부 이현욱(김주용)',
   '김주용': '9본부 이현욱(김주용)',
   '이현옥': '9본부 이현욱(김주용)',
+  '한태균': '10본부 한태균',
 };
 
 const normalizeManagerName = (value?: string | null): string =>

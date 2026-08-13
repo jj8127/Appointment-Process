@@ -34,7 +34,6 @@ Run `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-dige
 $CodexArgs = @(
   'exec',
   '--dangerously-bypass-approvals-and-sandbox',
-  '-m', 'gpt-5.2',
   '-C', $RepoRoot.Path,
   '--json',
   '--output-last-message', $LastMessagePath,

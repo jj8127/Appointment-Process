@@ -18,6 +18,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { useLogin } from '@/hooks/use-login';
 import { logger } from '@/lib/logger';
+import { waitForNotificationNavigationDecision } from '@/lib/notification-navigation-coordinator';
 import {
     clearSavedLoginCredentials,
     getSavedLoginCredentials,
@@ -69,9 +70,15 @@ export default function LoginScreen() {
             residentId,
             isRequestBoardDesigner,
         });
-        if (nextRoute) {
+        if (!nextRoute) return;
+        let active = true;
+        void waitForNotificationNavigationDecision().then((hasPending) => {
+            if (!active || hasPending) return;
             router.replace(nextRoute);
-        }
+        });
+        return () => {
+            active = false;
+        };
     }, [hydrated, isRequestBoardDesigner, residentId, role, skipAutoRedirect]);
 
     const toggleRememberPassword = useCallback(() => {
@@ -123,6 +130,7 @@ export default function LoginScreen() {
                     contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 40 }]}
                     extraScrollHeight={140}
                     keyboardShouldPersistTaps="always"
+                    keyboardDismissMode="none"
                 >
                     <View style={styles.innerContent}>
                         <MotiView

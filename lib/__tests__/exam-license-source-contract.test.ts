@@ -11,27 +11,29 @@ const sliceBetween = (source: string, startMarker: string, endMarker: string) =>
   return source.slice(start, end);
 };
 
-describe('exam application fee paid date source contract', () => {
+describe('exam application historical fee paid date source contract', () => {
   it.each([
     ['life', 'app/exam-apply.tsx'],
     ['nonlife', 'app/exam-apply2.tsx'],
-  ])('%s application restores and displays fee_paid_date from the FC query', (_examType, path) => {
+  ])('%s application preserves and displays historical fee_paid_date without an input', (_examType, path) => {
     const source = readSource(path);
     const applyType = sliceBetween(source, 'type MyExamApply = {', '};');
-    const myApplyQuery = sliceBetween(source, 'const { data: myApplies', 'const currentApply');
-    const restoreEffect = sliceBetween(
-      source,
-      'const restoredState = getExamApplyRestoredSelectionState({',
-      '}, [existingForRound',
-    );
+    const myApplyQuery = sliceBetween(source, 'data: myApplies = []', 'const currentApply');
 
     expect(applyType).toContain('fee_paid_date?: string | null;');
-    expect(myApplyQuery).toContain('queryKey: [examFlowConfig.myApplyQueryKeyPrefix, residentId]');
+    expect(myApplyQuery).toContain(
+      "queryKey: ['my-exam-apply-history', examFlowType, applicationResidentId]",
+    );
+    expect(myApplyQuery).toContain('exam_registrations_round_exam_type_fkey');
     expect(myApplyQuery).toContain('fee_paid_date');
-    expect(restoreEffect).toContain('existingForRound');
-    expect(restoreEffect).toContain('setFeePaidDate(restoredState.feePaidDate)');
+    expect(myApplyQuery).toContain(
+      'exam_locations!exam_registrations_location_round_fkey(location_name)',
+    );
+    expect(myApplyQuery).not.toContain(".eq('exam_rounds.exam_type'");
     expect(source).toContain('getExamApplyRestoredSelectionState');
     expect(source).toContain('formatFeePaidDate(currentApply.fee_paid_date)');
+    expect(source).not.toContain('setFeePaidDate');
+    expect(source).not.toContain('DateTimePicker');
   });
 });
 

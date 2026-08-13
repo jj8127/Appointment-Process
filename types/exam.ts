@@ -1,5 +1,7 @@
 export type ExamRound = {
   id: string;
+  // Canonical calendar month (YYYY-MM-01). Optional only while DB rollout is in flight.
+  exam_month?: string | null;
   // Nullable to support "미정" (TBD) schedules
   exam_date: string | null;
   registration_deadline: string;

@@ -23,13 +23,14 @@ import {
   type ReferralSearchResult,
 } from '@/components/ReferralSearchField';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
-import { consumePendingReferralCode, savePendingReferralCode } from '@/lib/referral-deeplink';
+import { consumePendingReferralCode } from '@/lib/referral-deeplink';
 import { useSession } from '@/hooks/use-session';
 import { safeStorage } from '@/lib/safe-storage';
 import {
   buildPendingSignupReferralSelection,
   buildStoredSignupReferral,
   getSignupReferralSelectionError,
+  hasValidStoredSignupReferral,
   runSinglePendingReferralApply,
 } from '@/lib/signup-referral';
 import {
@@ -41,6 +42,7 @@ import {
   toggleLicenseStatus,
 } from '@/lib/license-statuses';
 import { supabase } from '@/lib/supabase';
+import { SIGNUP_AFFILIATION_OPTIONS, SIGNUP_CARRIER_OPTIONS } from '@/lib/signup-profile-options';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { validatePhone, validateEmail, validateRequired, normalizePhone } from '@/lib/validation';
 import type { LicenseStatus } from '@/types/fc';
@@ -48,18 +50,6 @@ import type { LicenseStatus } from '@/types/fc';
 const AUTH_SCREEN_BACKGROUND = COLORS.primaryPale;
 
 const STORAGE_KEY = 'fc-onboarding/signup';
-
-const AFFILIATION_OPTIONS = [
-  '1본부 서선미',
-  '2본부 박성훈',
-  '3본부 김태희',
-  '4본부 현경숙',
-  '5본부 최철준',
-  '6본부 김정수(박선희)',
-  '7본부 이동훈',
-  '8본부 정승철',
-  '9본부 이현욱(김주용)',
-];
 
 const EMAIL_DOMAINS = [
   'naver.com',
@@ -69,7 +59,6 @@ const EMAIL_DOMAINS = [
   'nate.com',
   '직접입력',
 ];
-const CARRIER_OPTIONS = ['SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰'];
 const REFERRAL_SEARCH_ERROR_MESSAGE = '추천인 검색을 지금 사용할 수 없습니다. 잠시 후 다시 시도해주세요.';
 
 export default function SignupScreen() {
@@ -171,7 +160,7 @@ export default function SignupScreen() {
     if (selectedReferral && referralStatus !== 'valid') {
       Alert.alert(
         '입력 확인',
-        '선택한 추천인을 확인하지 못했습니다. 다시 검색해 선택하거나 입력값을 지워주세요.',
+        '선택한 추천인을 확인하지 못했습니다. 다시 검색해 선택해주세요.',
       );
       return;
     }
@@ -183,6 +172,10 @@ export default function SignupScreen() {
       referralInviterName,
       referralInviterFcId,
     });
+    if (!hasValidStoredSignupReferral(storedReferral)) {
+      Alert.alert('입력 확인', '유효한 추천인을 다시 검색해 선택해주세요.');
+      return;
+    }
     const normalizedLicenseStatuses = normalizeLicenseStatuses(licenseStatuses);
     const commissionStatus = mapLicenseStatusesToCommissionStatus(normalizedLicenseStatuses);
 
@@ -430,13 +423,8 @@ export default function SignupScreen() {
     useCallback(() => {
       if (!hydrated) return;
       if (role) {
-        // 로그인 상태: 대기 중인 추천 코드가 있으면 추천인 코드 페이지로 이동
-        (async () => {
-          const code = await consumePendingReferralCode();
-          if (!code) return;
-          await savePendingReferralCode(code);
-          router.replace({ pathname: '/referral', params: { referralNonce: Date.now().toString() } });
-        })();
+        // 로그인 상태에서는 가입용 추천 코드를 소비하고 폐기한다.
+        void consumePendingReferralCode();
         return;
       }
       void applyPendingReferralCode();
@@ -446,8 +434,7 @@ export default function SignupScreen() {
   useEffect(() => {
     if (!referralNonce || !hydrated) return;
     if (role) {
-      // 로그인 상태: 추천인 코드 페이지로 리다이렉트 (코드는 storage에 유지)
-      router.replace({ pathname: '/referral', params: { referralNonce } });
+      void consumePendingReferralCode();
       return;
     }
     void applyPendingReferralCode();
@@ -460,7 +447,7 @@ export default function SignupScreen() {
       <KeyboardAwareWrapper
         contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(160, keyboardPadding + 120) }]}
         extraScrollHeight={220}
-        keyboardDismissMode="on-drag"
+        keyboardDismissMode="none"
       >
         <View style={styles.hero}>
           <Text style={styles.heroEyebrow}>회원가입</Text>
@@ -471,7 +458,7 @@ export default function SignupScreen() {
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>기본 정보</Text>
           <View style={styles.affiliationBox}>
-            {AFFILIATION_OPTIONS.map((opt) => {
+            {SIGNUP_AFFILIATION_OPTIONS.map((opt) => {
               const active = selectedAffiliation === opt;
               return (
                 <Pressable
@@ -559,7 +546,7 @@ export default function SignupScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>추천인 (선택)</Text>
+            <Text style={styles.label}>추천인 (필수)</Text>
             <ReferralSearchField
               inputRef={referralSearchInputRef}
               searchQuery={referralSearchQuery}
@@ -765,7 +752,7 @@ export default function SignupScreen() {
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>통신사 선택</Text>
             <View style={styles.modalOptions}>
-              {CARRIER_OPTIONS.map((value) => (
+              {SIGNUP_CARRIER_OPTIONS.map((value) => (
                 <Pressable
                   key={value}
                   style={styles.modalOption}

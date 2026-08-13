@@ -66,6 +66,51 @@
 - `RF-SELF-01` FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환함
 - `RF-SELF-02` FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 `fc_profiles.recommender_*` snapshot / `referral_events` audit trail을 함께 갱신하고, 저장 직후 같은 화면의 direct recommender/current recommender가 재진입 없이 즉시 갱신됨
 - `RF-SELF-03` FC/본부장 self-service `app/referral.tsx`는 `나를 추천한 사람` 카드에 direct recommender 1명만 노출하고 `내가 추천한 사람들` tree는 canonical `recommender_fc_id` 링크만 반영해야 하며, `depth:2` 초기 로드 뒤 descendant lazy expand가 absolute depth 스타일을 유지하고 1단계 background prefetch로 다음 expand를 보조해야 하며, direct recommender card + subtree drill-down이 caller 자기 서브트리 범위 안에서만 동작하고 tree read 실패 시에도 기존 추천인 사용자는 같은 화면에서 변경 UI를 계속 열 수 있으며 Android production build에서 render crash(`ReactClippingViewManager.addView`, `dispatchGetDisplayList null child`) 없이 진입/편집/새로고침이 가능해야 함
+- `RF-SELF-04` FC/본부장 `/referral-graph`는 외부 웹 URL 없이 네이티브 route로 진입하고, signed 자기 root의 canonical downline만 phone/audit/mutation 없이 표시하며 pan/pinch, fit/reset, 검색/상태/1~3촌 focus, node 상세, relogin 상태를 지원함
+- `RF-SELF-05` FC/본부장 `/referral-revenue-graph` 샘플 미리보기는 실제
+  referral/API/DB 호출 없이 가상 parent chain의 1~10단계 15명만 10% 예상
+  배분 합계에 포함하고 11단계는 `대상 제외`로 표시하며, `샘플 데이터`와
+  `실제 정산 아님`을 현재 그래프·트리·목록·상세에서 명확히 알림. 새 화면은 보기
+  선택을 저장하지 않고 항상 `현재 그래프`로 시작하며, 이 기본 graph는 카드형
+  조직도가 아니라 기존 추천 관계 그래프처럼 원형 node와 visible edge를 사용함.
+  관리자 웹의 실제 활성 charge/link/tension/collision/damping 계열을 참고하되,
+  관리자 runtime에서 꺼진 `center/x/y`를 모바일 전역 중심력으로 되살리지 않음.
+  viewer 중심 collision-safe landscape radial seed는 A/B/C branch sector를 분리하고
+  모든 eligible parent→child edge에서 depth 목표 반지름이 증가해야 함. 전체 node
+  pair는 원래 collision 반지름에 5px 여유를 더한 envelope를 만족하고 production
+  800x360 canvas/inset 안에 포함돼야 함. 네이티브 draw/physics는 외부 요청 없는 로컬
+  WebView의 단일 HTML Canvas loop에서 처리해 drag frame마다 React/SVG node별
+  redraw를 만들지 않음. 모든 node 원 안에 예상 배분액이 항상 보이고 collision pass
+  뒤 node pair가 겹치지 않으며 pan/pinch, 화면 맞춤, 초기화, node 선택 상세를
+  지원함. graph는 safe-area 전체화면 HUD canvas로 열리고 node drag 중 주변 node가
+  spring/repulsion/collision으로 반응한 뒤 release settle이 idle로 끝남. 확대
+  `100%→200%` 중 node/edge는 확대되지만 이름·단계·금액 글자는 같은 screen-pixel
+  크기를 유지함. focused graph와 graph 설정/상세는 landscape, 트리·목록과 해당 상세는
+  portrait이며 header/Android back, route blur, unmount 뒤 portrait로 복원함.
+  설정 panel에 summary/filter/tree/list/fit/reset/legend/disclaimer가 있고 닫기·바깥 탭·
+  Android back으로 닫히며 단계 filter 뒤에도 viewer 연결 경로를 보존함. 1·3·6·10
+  단계 guide ring과 child→parent 주황 arrow가 중심에서 바깥으로 퍼지는 depth 및
+  viewer 쪽 샘플 기여 계산 방향을 함께 설명해야 함. 회색 base edge는 관계 구조이고
+  A11 edge는 회색 점선/no-arrow임. viewer node에는 unfiltered 합계 10,240,000원이
+  보이고 edge에는 금액 label이 없어야 함. A10 선택 경로는 정적으로 강조되고 inward
+  pulse는 최대 1.5초 뒤 끝나 RAF가 idle이어야 하며 A11 선택은 arrow/pulse를 만들지
+  않아야 함. Android gfxinfo 기준 동일 eligible node의 warmed 900ms drag를 3회
+  측정해 각 run의 janky frame이 5% 미만이고 slow bitmap upload가 0인지 확인하며
+  slow UI thread도 함께 기록함. 고정 17-node canonical A/B/C seed와 51-frame normal settle의
+  disjoint edge crossing은 각각 0이고, A single-child chain의 첫 root joint 이후 최대
+  turn은 45도 이하이며 깊이별 angular step은 한 방향이어야 함. 이 45도 assertion은
+  fixture 회귀값이고 runtime hard clamp가 아니며, dense fanout은 subtree/collision 기반
+  sector와 반지름 확장을 허용해야 함. drag/release 좌표는
+  `70..1530`으로 clamp되지 않고 surface 밖 유한 좌표를 유지하며, ±50,000 outlier도
+  화면 맞춤으로 pinch 최소 배율 아래까지 축소해 inset 안에 복구돼야 함. eligible
+  edge는 주황 방향선 하나만 렌더하고 회색 base line을 이중으로 겹치지 않아야 함.
+  `트리` 선택 시 원형 renderer는 unmount되고 초기 440-wide 고정 3열 카드 계층이
+  portrait로 열려야 함. 118x66 card, 86px depth 간격, viewer/B 중앙·A 좌측·C 우측,
+  parent-bottom→child-top connector, A11 점선 제외 상태를 유지함. 단계 filter의 흐린
+  ancestor card는 선택 불가지만 금액/status label을 잃지 않고, 일반 card 선택은 기존
+  상세 sheet를 열어야 함. 다시 `현재 그래프`를 고르면 기존 원형 renderer와
+  landscape가 복원돼야 함. 큰 글자 설정에서도 card는 connector와 같은 66px 높이를
+  유지하고 visual text는 card 안에 맞추며 접근성 label은 전체 금액을 읽어야 함
 
 ### 5.2 초대링크
 
@@ -94,8 +139,8 @@
 - `RF-ADMIN-04` 추천코드 재발급/비활성은 활성 코드와 이벤트 로그를 일관되게 갱신함
 - `RF-ADMIN-05` `manager`는 추천인 코드 화면/GET은 조회 가능하지만 mutate UI와 `POST` 권한은 없음
 - `RF-ADMIN-06` 레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남김
-- `RF-ADMIN-07` `/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지함
-- `RF-ADMIN-08` graph canvas는 사용자 설정을 `Center force/Repel force/Link force/Link distance` 4개로 유지하되, 추천인 트리 가독성을 위해 dynamic link distance, sibling angular separation, cluster/node separation, envelope, weak cluster gravity, active drag force suppression, directed descendant follower를 사용한다. 금지 항목은 고정 반경 radial containment, isolated ring 강제 배치, drop tether, release velocity 주입, active drag 중 global re-layout이다. parent/hub drag 중 dragged node는 pointer를 따라가고 directed descendant branch는 찢어지지 않아야 하며 unrelated graph는 screen pixel 기준으로 안정적이어야 한다. 빈 공간 pan/reset/기본 node name label 상시 표시, manager read-only, isolated toggle, settings slider 저장/복원을 유지하고, 브라우저 QA는 no overlay/no console error와 nonblank canvas, pointer/follower/unrelated drift screen-pixel 지표를 확인한다.
+- `RF-ADMIN-07` `/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지함. 수백 개 FC에서도 추천코드 `.in(fc_id, ...)`를 40개 이하 bounded chunk로 나눠 HTTP header overflow 없이 전역 최신순 결과를 반환해야 함
+- `RF-ADMIN-08` graph canvas는 사용자 설정을 `Center force/Repel force/Link force/Link distance` 4개로 유지하고 현재 활성 charge/link/link-tension/collision/component-separation/pointer/max-link-stretch/drag-locality를 사용한다. `branch-bend`, `sibling-angular`, `edge-crossing`, global center/x/y와 cluster/component envelope·gravity·cohesion은 꺼진 상태를 유지한다. childless terminal leaf edge는 deterministic `118..185px` band이고 240-node/24-child fixture에서는 `166..179px`여야 하며, 같은 parent의 child-hub bridge는 기존 `354px`를 유지해야 한다. 실제 471-node settle은 crossing/severity/min-spacing/max-edge/direct-spoke P90 기존 한도를 모두 통과해야 한다. drag 중에는 pointer가 잡은 node 하나만 `fx/fy`로 고정하고 direct/indirect neighbor는 고정하거나 같은 delta로 옮기지 않는다. A-B-C chain에서 B와 C는 평소 link·link-tension·charge·collision force를 통해 단계적으로 반응하고, drag 시작 edge 길이의 `1.2x` 최대 stretch를 모든 영향 edge가 지키며 unrelated component는 screen pixel 기준으로 안정적이어야 한다. release는 dragged node의 `fx/fy`를 해제하고 simulation을 reheat해 spring momentum을 이어간다. 빈 공간 pan/reset/기본 node name label 상시 표시, manager read-only, isolated toggle, settings slider 저장/복원을 유지하고 브라우저 QA는 no overlay/no console error, nonblank canvas, direct/second-hop/unrelated drift와 release 후 움직임을 확인한다.
 - `RF-ADMIN-09` 레거시 추천인 검토 큐는 `자동 연결 가능/동명이인 후보 다수/후보 없음/잘못된 자기추천` 상태를 정확히 분류함
 - `RF-ADMIN-10` `안전 자동 정리`는 exact-unique만 구조화하고 자기추천/후보 없음/동명이인은 남김
 
@@ -135,15 +180,24 @@
 - login auto-issue 케이스는 로그인 전/후 active code count, code 값 유지 여부, manager shadow profile 보장 여부, 로그인 응답 success 유지 여부를 함께 남긴다.
 - self-service invitee 목록 케이스는 `fc_profiles.recommender_fc_id = caller` 결과와 화면 목록 개수를 대조하고, `recommender_linked_at` snapshot이 노출되는지 확인한다.
 - self-service tree 케이스는 `get-referral-tree` 응답의 `ancestors`, `descendants`, `truncated`와 node expand 후 후속 요청 결과를 함께 남긴다.
+- native graph 케이스는 `{mode:'graph'}` 응답의 `permissions.canMutate=false`, `scope='downline'`, 자기 `rootFcId`, phone/audit 필드 부재를 확인한다. eligibility-before-cap, manager shadow 경로, 300번째 초과 node의 `truncated=true`, `limit=1`에서도 fixed-page인 조회, 299-child star와 296-leaf heavy branch 옆 small sibling 간격, depth 20 surface bounds를 포함한 합성/source contract test와 Android 실제 gesture QA를 분리해 남긴다.
 - depth 2 밖의 deeper node를 펼칠 때는 subtree-relative `node_depth`가 화면 absolute depth로 정규화되어 top-level 강조색이 다시 붙지 않는지, prefetch가 끝난 node는 중복 요청 없이 즉시 열리는지 함께 확인한다.
 - `/referral` 최초 진입이 로그인 세션만 살아 있고 referral `appSessionToken`은 만료된 상태여도, bridge token이 유효하면 조회/저장이 같은 화면에서 자동 복구되는지 확인한다.
 - Android `/referral` 안정성 케이스는 production build에서 첫 진입, edit mode 전환, pull-to-refresh, tree/error 상태 전환을 최소 1회씩 밟고 `null child at index` / `ReactClippingViewManager.addView` 크래시가 없는지 확인한다.
-- 본부장 보조 링크 케이스는 모바일 화면에서 FC 미노출, 본부장 노출, 외부 브라우저 open만 확인하고 graph 자체 사용성 검증은 `RF-ADMIN-07/08`로 분리한다.
+- 모바일 `/referral` 그래프 CTA는 FC/본부장 모두 노출되고 외부 브라우저를 열지 않아야 한다. native 사용성은 `RF-SELF-04`, desktop 관리자 graph 사용성은 `RF-ADMIN-07/08`로 분리한다.
 - 추천코드 검색 입력 회귀는 실제 입력 문자열(`j -> J`, `ab -> AB`, exact 8자리 paste`)과 결과 선택 전/후 화면을 함께 남긴다.
 - 초대링크 exact code 회귀는 같은 딥링크 진입에서 `search-signup-referral`이 exact fast path로 1회만 보이고, signup 화면에서 pending code apply가 중복 spinner/search rerun을 만들지 않는지 함께 남긴다.
 - source repo만 보고 맞춘 계약 정리는 evidence가 아니다. 그런 항목은 notes에 `code review only`로 명시한다.
 
-## 7. 장애 발생 시 추가 절차
+## 7. Production-sized graph simulation gate
+
+- In an environment configured with the admin Supabase URL and service key, `referral-graph-realdata.test.ts` runs by default; it must not be hidden behind an opt-in skip flag.
+- The test must mirror the free-physics force contract used by `ReferralGraphCanvas`, including link distance/strength, collision, component separation, link tension, decay, and drag reheating.
+- Topology samples must be selected by generic graph properties such as degree. Diagnostics may contain aggregate counts and distances only and must not print FC names, phone numbers, or stable account identifiers.
+- Acceptance requires bounded disjoint crossings and weighted visual severity, minimum node spacing, maximum edge/spoke length, and stable results after a small high-degree-node drag.
+- The complete direct Node suite must finish with zero skipped tests before Production publication.
+
+## 8. Failure follow-up
 
 1. `TEST_RUN_RESULT.json`에 `FAIL` 또는 `BLOCKED` 기록
 2. `INCIDENTS.md`에 새 항목 추가

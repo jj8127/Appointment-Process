@@ -73,7 +73,7 @@ serve(async (req: Request) => {
   }
 
   const parsedBridgeToken = await parseRequestBoardBridgeTokenDetailed(bridgeToken);
-  if (!parsedBridgeToken.ok) {
+  if (parsedBridgeToken.ok === false) {
     return fail(parsedBridgeToken.code, parsedBridgeToken.message, 401);
   }
 

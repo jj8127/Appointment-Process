@@ -68,12 +68,6 @@ export type ReferralGraphPointerDragTarget = {
   x: number;
   y: number;
 };
-export type ReferralGraphPointerDragForceOptions = {
-  stiffness: number;
-  damping: number;
-  maxVelocity: number;
-  minAlpha: number;
-};
 
 const DEFAULT_DRAG_LOCALITY_FORCE: ReferralGraphDragLocalityForceOptions = {
   directNeighborVelocityScale: 0.45,
@@ -92,13 +86,6 @@ const DEFAULT_DRAG_ELASTIC_TETHER_FORCE: ReferralGraphDragElasticTetherForceOpti
   maxVelocity: 220,
   minAlpha: 0.75,
 };
-const DEFAULT_POINTER_DRAG_FORCE: ReferralGraphPointerDragForceOptions = {
-  stiffness: 1.18,
-  damping: 0.66,
-  maxVelocity: 220,
-  minAlpha: 0.9,
-};
-
 type VelocityNode = {
   id: string;
   x?: number;
@@ -311,18 +298,22 @@ export function getReferralGraphLinkDistance(
         250,
         430,
       );
-  } else if (isLeafSpoke || (minDegree <= 1 && maxDegree >= 3)) {
-    const terminalLeafJitter = isLeafSpoke ? getTerminalLeafDistanceJitter(options) : 0;
-    const crowdedLeafDistance = isLeafSpoke
-      ? 112
-        + (Math.pow(Math.max(0, sourceChildCount - 2), 0.82) * 20)
-        + (Math.sqrt(Math.max(1, graphNodeCount)) * 2.2)
-      : 0;
+  } else if (isLeafSpoke) {
+    const terminalLeafJitter = getTerminalLeafDistanceJitter(options) * 0.4;
+    resolvedDistance = clamp(
+      129
+        + (Math.pow(Math.max(0, sourceChildCount - 2), 0.7) * 3)
+        + (Math.sqrt(Math.max(1, graphNodeCount)) * 0.65)
+        - clamp((90 - graphNodeCount) * 0.055, 0, 4)
+        + terminalLeafJitter,
+      118,
+      185,
+    );
+  } else if (minDegree <= 1 && maxDegree >= 3) {
     resolvedDistance = clamp(
       Math.max(
         clampedBase * 0.36,
-        125 + (Math.sqrt(maxChildCount) * 8) + (densityBonus * 0.15) + terminalLeafJitter,
-        crowdedLeafDistance + terminalLeafJitter,
+        125 + (Math.sqrt(maxChildCount) * 8) + (densityBonus * 0.15),
       ),
       118,
       300,
@@ -404,6 +395,54 @@ export type ReferralGraphLinkTensionOptions = {
   subtreeSizeByNodeId?: Map<string, number>;
   thresholdMultiplier?: number;
 };
+
+export type ReferralGraphMaxLinkStretchOptions = {
+  activeDraggedNodeIdRef?: {
+    current: string | null;
+  };
+  dragStartDistanceByLinkKeyRef: {
+    current: Map<string, number>;
+  };
+  iterations?: number;
+  maxStretchMultiplier?: number;
+};
+
+export function getReferralGraphLinkKey<T extends ReferralGraphLayoutMemoryNode>(
+  link: ReferralGraphDragSpringLink<T>,
+) {
+  const sourceId = getLinkEndpointId(link.source);
+  const targetId = getLinkEndpointId(link.target);
+  return JSON.stringify(sourceId <= targetId ? [sourceId, targetId] : [targetId, sourceId]);
+}
+
+export function captureReferralGraphLinkDistances<T extends ReferralGraphLayoutMemoryNode>(
+  links: Array<ReferralGraphDragSpringLink<T>>,
+  nodesById: ReadonlyMap<string, T>,
+) {
+  const distances = new Map<string, number>();
+
+  for (const link of links) {
+    const source = resolveLinkedNode(link.source, nodesById);
+    const target = resolveLinkedNode(link.target, nodesById);
+    if (
+      !source
+      || !target
+      || !hasFiniteCoordinate(source.x)
+      || !hasFiniteCoordinate(source.y)
+      || !hasFiniteCoordinate(target.x)
+      || !hasFiniteCoordinate(target.y)
+    ) {
+      continue;
+    }
+
+    const distance = Math.hypot(target.x - source.x, target.y - source.y);
+    if (distance > 0) {
+      distances.set(getReferralGraphLinkKey(link), distance);
+    }
+  }
+
+  return distances;
+}
 
 export type ReferralGraphClusterSeparationOptions = {
   activeDraggedNodeIdRef?: {
@@ -630,7 +669,7 @@ export function createReferralGraphDragSpringForce<T extends ReferralGraphLayout
 
 function resolveLinkedNode<T extends ReferralGraphLayoutMemoryNode>(
   value: string | T,
-  nodesById: Map<string, T>,
+  nodesById: ReadonlyMap<string, T>,
 ) {
   return typeof value === 'object' ? value : nodesById.get(value);
 }
@@ -888,34 +927,227 @@ export function createReferralGraphDragElasticTetherForce<T extends VelocityNode
 
 export function createReferralGraphPointerDragForce<T extends VelocityNode>(
   pointerDragTargetRef: { current: ReferralGraphPointerDragTarget | null },
-  options: Partial<ReferralGraphPointerDragForceOptions> = {},
 ): { (alpha: number): void; initialize: (nodes: T[]) => void } {
-  const config = {
-    ...DEFAULT_POINTER_DRAG_FORCE,
-    ...options,
-  };
   let nodesById = new Map<string, T>();
 
-  const force = ((alpha: number) => {
+  const force = (() => {
     const target = pointerDragTargetRef.current;
     if (!target) {
       return;
     }
 
     const node = nodesById.get(target.nodeId);
-    if (
-      !node
-      || !hasFiniteCoordinate(node.x)
-      || !hasFiniteCoordinate(node.y)
-    ) {
+    if (!node) {
       return;
     }
 
-    const effectiveAlpha = Math.max(alpha, config.minAlpha);
-    const spring = config.stiffness * effectiveAlpha;
-    node.vx = ((node.vx ?? 0) * config.damping) + ((target.x - node.x) * spring);
-    node.vy = ((node.vy ?? 0) * config.damping) + ((target.y - node.y) * spring);
-    clampVelocity(node, config.maxVelocity);
+    node.x = target.x;
+    node.y = target.y;
+    node.vx = 0;
+    node.vy = 0;
+    (node as T & { fx?: number | null }).fx = target.x;
+    (node as T & { fy?: number | null }).fy = target.y;
+  }) as unknown as { (alpha: number): void; initialize: (nodes: T[]) => void };
+
+  force.initialize = (nodes: T[]) => {
+    nodesById = new Map(nodes.map((node) => [node.id, node]));
+  };
+
+  return force;
+}
+
+export function createReferralGraphMaxLinkStretchForce<T extends ReferralGraphLayoutMemoryNode>(
+  links: Array<ReferralGraphDragSpringLink<T>>,
+  options: ReferralGraphMaxLinkStretchOptions,
+): { (alpha: number): void; initialize: (nodes: T[]) => void } {
+  let nodesById = new Map<string, T>();
+
+  const force = (() => {
+    const activeDraggedNodeId = options.activeDraggedNodeIdRef?.current;
+    if (!activeDraggedNodeId) {
+      return;
+    }
+
+    const maxStretchMultiplier = clamp(options.maxStretchMultiplier ?? 1.2, 1, 2);
+    const iterations = Math.round(clamp(options.iterations ?? 12, 1, 32));
+    const dragStartDistanceByLinkKey = options.dragStartDistanceByLinkKeyRef.current;
+    const adjacency = new Map<string, string[]>();
+    const constraints = links.flatMap((link, index) => {
+      const sourceId = getLinkEndpointId(link.source);
+      const targetId = getLinkEndpointId(link.target);
+      const source = resolveLinkedNode(link.source, nodesById);
+      const target = resolveLinkedNode(link.target, nodesById);
+      const dragStartDistance = dragStartDistanceByLinkKey.get(getReferralGraphLinkKey(link));
+      if (
+        !source
+        || !target
+        || !dragStartDistance
+        || !hasFiniteCoordinate(source.x)
+        || !hasFiniteCoordinate(source.y)
+        || !hasFiniteCoordinate(target.x)
+        || !hasFiniteCoordinate(target.y)
+      ) {
+        return [];
+      }
+
+      adjacency.set(sourceId, [...(adjacency.get(sourceId) ?? []), targetId]);
+      adjacency.set(targetId, [...(adjacency.get(targetId) ?? []), sourceId]);
+      return [{
+        index,
+        maxDistance: dragStartDistance * maxStretchMultiplier,
+        source,
+        sourceId,
+        target,
+        targetId,
+      }];
+    });
+    const nodeDepth = new Map<string, number>([[activeDraggedNodeId, 0]]);
+    const pendingNodeIds = [activeDraggedNodeId];
+
+    for (let pendingIndex = 0; pendingIndex < pendingNodeIds.length; pendingIndex += 1) {
+      const nodeId = pendingNodeIds[pendingIndex];
+      const depth = nodeDepth.get(nodeId) ?? 0;
+      for (const neighborId of adjacency.get(nodeId) ?? []) {
+        if (!nodeDepth.has(neighborId)) {
+          nodeDepth.set(neighborId, depth + 1);
+          pendingNodeIds.push(neighborId);
+        }
+      }
+    }
+
+    const activeConstraints = constraints
+      .filter(({ sourceId, targetId }) => nodeDepth.has(sourceId) && nodeDepth.has(targetId))
+      .sort((left, right) => {
+        const leftDepth = Math.max(nodeDepth.get(left.sourceId) ?? 0, nodeDepth.get(left.targetId) ?? 0);
+        const rightDepth = Math.max(nodeDepth.get(right.sourceId) ?? 0, nodeDepth.get(right.targetId) ?? 0);
+        return leftDepth - rightDepth || left.index - right.index;
+      });
+
+    type ProjectionMode = 'position' | 'projected';
+    const getCoordinates = (node: T, mode: ProjectionMode) => ({
+      x: (node.x ?? 0) + (mode === 'projected' ? node.vx ?? 0 : 0),
+      y: (node.y ?? 0) + (mode === 'projected' ? node.vy ?? 0 : 0),
+    });
+    const moveNode = (node: T, dx: number, dy: number, mode: ProjectionMode) => {
+      if (mode === 'projected') {
+        node.vx = (node.vx ?? 0) + dx;
+        node.vy = (node.vy ?? 0) + dy;
+      } else {
+        node.x = (node.x ?? 0) + dx;
+        node.y = (node.y ?? 0) + dy;
+      }
+    };
+
+    const projectConstraints = (mode: ProjectionMode) => {
+      for (let iteration = 0; iteration < iterations; iteration += 1) {
+        let hadViolation = false;
+
+        for (const constraint of activeConstraints) {
+          const {
+            maxDistance,
+            source,
+            sourceId,
+            target,
+            targetId,
+          } = constraint;
+          const sourcePosition = getCoordinates(source, mode);
+          const targetPosition = getCoordinates(target, mode);
+          const dx = targetPosition.x - sourcePosition.x;
+          const dy = targetPosition.y - sourcePosition.y;
+          const distance = Math.hypot(dx, dy);
+          if (distance <= maxDistance || distance === 0) {
+            continue;
+          }
+          hadViolation = true;
+
+          const sourceMovable = sourceId !== activeDraggedNodeId && source.fx == null && source.fy == null;
+          const targetMovable = targetId !== activeDraggedNodeId && target.fx == null && target.fy == null;
+          if (!sourceMovable && !targetMovable) {
+            continue;
+          }
+
+          const sourceDepth = nodeDepth.get(sourceId) ?? 0;
+          const targetDepth = nodeDepth.get(targetId) ?? 0;
+          const sourceShare = !sourceMovable
+            ? 0
+            : !targetMovable
+              ? 1
+              : sourceDepth < targetDepth
+                ? 0
+                : sourceDepth > targetDepth
+                  ? 1
+                  : 0.5;
+          const targetShare = !targetMovable
+            ? 0
+            : !sourceMovable
+              ? 1
+              : sourceDepth < targetDepth
+                ? 1
+                : sourceDepth > targetDepth
+                  ? 0
+                  : 0.5;
+          const strictSlack = Math.max(1e-9, maxDistance * 1e-12);
+          const correction = distance - Math.max(0, maxDistance - strictSlack);
+          const unitX = dx / distance;
+          const unitY = dy / distance;
+
+          moveNode(source, unitX * correction * sourceShare, unitY * correction * sourceShare, mode);
+          moveNode(target, -unitX * correction * targetShare, -unitY * correction * targetShare, mode);
+        }
+
+        if (!hadViolation) {
+          break;
+        }
+      }
+
+      // Cycles can converge only asymptotically under pairwise projection. A
+      // uniform contraction around the grabbed node is a final, shape-preserving
+      // feasibility projection and makes the cap strict in finite time.
+      const draggedNode = nodesById.get(activeDraggedNodeId);
+      if (!draggedNode) {
+        return;
+      }
+      let contractionScale = 1;
+      for (const { maxDistance, source, target } of activeConstraints) {
+        const sourcePosition = getCoordinates(source, mode);
+        const targetPosition = getCoordinates(target, mode);
+        const distance = Math.hypot(
+          targetPosition.x - sourcePosition.x,
+          targetPosition.y - sourcePosition.y,
+        );
+        if (distance > maxDistance && distance > 0) {
+          const strictSlack = Math.max(1e-9, maxDistance * 1e-12);
+          contractionScale = Math.min(
+            contractionScale,
+            Math.max(0, maxDistance - strictSlack) / distance,
+          );
+        }
+      }
+      if (contractionScale >= 1) {
+        return;
+      }
+
+      const anchor = getCoordinates(draggedNode, mode);
+      for (const nodeId of nodeDepth.keys()) {
+        if (nodeId === activeDraggedNodeId) {
+          continue;
+        }
+        const node = nodesById.get(nodeId);
+        if (!node || node.fx != null || node.fy != null) {
+          continue;
+        }
+        const position = getCoordinates(node, mode);
+        moveNode(
+          node,
+          anchor.x + ((position.x - anchor.x) * contractionScale) - position.x,
+          anchor.y + ((position.y - anchor.y) * contractionScale) - position.y,
+          mode,
+        );
+      }
+    };
+
+    projectConstraints('position');
+    projectConstraints('projected');
   }) as unknown as { (alpha: number): void; initialize: (nodes: T[]) => void };
 
   force.initialize = (nodes: T[]) => {

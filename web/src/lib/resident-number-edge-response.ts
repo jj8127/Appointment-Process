@@ -1,10 +1,10 @@
-type ResidentNumberMap = Record<string, string | null>;
+import type {
+  ResidentNumberReadResult,
+  ResidentNumberReadStatus,
+} from '@/lib/resident-number-read-contract';
 
 type ResidentNumberEdgeFallbackResponse =
-  | {
-      ok: true;
-      residentNumbers: ResidentNumberMap;
-    }
+  | ({ ok: true } & ResidentNumberReadResult)
   | {
       ok: false;
       message: string;
@@ -13,6 +13,9 @@ type ResidentNumberEdgeFallbackResponse =
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
+
+const isFullResidentNumber = (value: unknown): value is string =>
+  typeof value === 'string' && /^\d{6}-\d{7}$/.test(value);
 
 export function parseResidentNumberEdgeFallbackResponse({
   responseOk,
@@ -27,9 +30,34 @@ export function parseResidentNumberEdgeFallbackResponse({
     data.ok === true &&
     isRecord(data.residentNumbers)
   ) {
+    const rawStatuses = isRecord(data.residentNumberStatuses)
+      ? data.residentNumberStatuses
+      : {};
+    const residentNumbers: ResidentNumberReadResult['residentNumbers'] = {};
+    const residentNumberStatuses: ResidentNumberReadResult['residentNumberStatuses'] = {};
+
+    for (const [fcId, value] of Object.entries(data.residentNumbers)) {
+      if (isFullResidentNumber(value)) {
+        residentNumbers[fcId] = value;
+        residentNumberStatuses[fcId] = 'ready';
+        continue;
+      }
+
+      residentNumbers[fcId] = null;
+      const declaredStatus = rawStatuses[fcId];
+      const inferredStatus: ResidentNumberReadStatus = value === null
+        ? 'missing'
+        : 'unavailable';
+      residentNumberStatuses[fcId] =
+        declaredStatus === 'missing' || declaredStatus === 'unavailable'
+          ? declaredStatus
+          : inferredStatus;
+    }
+
     return {
       ok: true,
-      residentNumbers: data.residentNumbers as ResidentNumberMap,
+      residentNumbers,
+      residentNumberStatuses,
     };
   }
 

@@ -16,8 +16,8 @@ import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 export interface FormInputProps extends Omit<TextInputProps, 'style'> {
   label?: string;
   error?: string;
-  leftIcon?: React.ReactNode;
-  rightIcon?: React.ReactNode;
+  leftIcon?: React.ReactElement;
+  rightIcon?: React.ReactElement;
   containerStyle?: ViewStyle;
   inputStyle?: TextStyle;
   variant?: 'default' | 'password' | 'select';

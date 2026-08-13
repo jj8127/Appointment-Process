@@ -1,8 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
-import * as Notifications from 'expo-notifications';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -30,27 +28,31 @@ import { Skeleton } from '@/components/LoadingSkeleton';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { resolveExamHomeSurface } from '@/lib/exam-role';
 import {
+  fetchGaraminDirectMessages,
+  resolveGaraminDirectConversation,
+} from '@/lib/direct-message-api';
+import {
   calcAdminWorkflowStep,
   calcFcHomeWorkflowStep,
   canOpenFcProfileRegistration,
   getFcHomeNextAction,
+  getFcHomeQuickLinkDescriptions,
 } from '@/lib/fc-workflow';
+import { useAppLogout } from '@/hooks/use-app-logout';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
 import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
 import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
+import { createHomeRealtimeChannelTopic } from '@/lib/home-realtime-channel';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
-import { registerPushToken } from '@/lib/notifications';
 import { resolveHomeLatestNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
-import {
-  buildPushRegistrationAttemptKey,
-  resolvePushRegistrationDeviceRole,
-} from '@/lib/push-registration';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import {
   HOME_GUIDE_ICON_BACKGROUND,
   HOME_GUIDE_ICON_BORDER,
@@ -59,6 +61,7 @@ import {
 } from '@/lib/home-guide-ui';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
 import type { FcProfile } from '@/types/fc';
 
@@ -146,6 +149,8 @@ const quickLinksAdminExam: QuickLink[] = [
   { href: '/exams/nonlife', title: '손해보험 시험', description: '응시일정 · 마감 관리' },
   { href: '/exam-manage', title: '생명/제3 신청자', description: '신청 현황 조회' },
   { href: '/exam-manage2', title: '손해 신청자', description: '신청 현황 조회' },
+  { href: '/exam-apply', title: '생명/제3 대리 신청', description: 'FC를 선택해 시험 접수' },
+  { href: '/exam-apply2', title: '손해 대리 신청', description: 'FC를 선택해 시험 접수' },
 ];
 
 const quickLinksFcBase: QuickLink[] = [
@@ -159,7 +164,6 @@ const quickLinksFcBase: QuickLink[] = [
 
 const quickLinksManagerExam: QuickLink[] = [
   ...quickLinksAdminExam,
-  ...quickLinksFcBase.slice(0, 2),
 ];
 
 const fcHomeSteps = [
@@ -182,15 +186,16 @@ const FC_STAGE_YOUTUBE_PLACEHOLDERS: Record<
 };
 
 const buildFcQuickLinks = (profile?: FcProfile | null): QuickLink[] => {
+  const workflowDescriptions = getFcHomeQuickLinkDescriptions(profile);
   const hanwhaLink: QuickLink = {
     href: '/hanwha-commission',
     title: '다위촉 URL',
-    description: '다위촉 진행',
+    description: workflowDescriptions.hanwha,
   };
   const insuranceLink: QuickLink = {
     href: '/appointment',
     title: '생명/손해 위촉',
-    description: '생명/손해 위촉 진행',
+    description: workflowDescriptions.insurance,
   };
 
   const referralLink: QuickLink = {
@@ -244,9 +249,7 @@ const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
 
 const fetchLatestNotice = async (): Promise<LatestNoticeSummary | null> => {
   try {
-    const { data, error } = await supabase.functions.invoke<LatestNoticeResponse>('fc-notify', {
-      body: { type: 'latest_notice' },
-    });
+    const { data, error } = await invokeFcNotify<LatestNoticeResponse>({ type: 'latest_notice' });
     if (error) throw error;
     if (!data?.ok) {
       throw new Error(data?.message ?? '최신 공지를 불러오지 못했습니다.');
@@ -264,30 +267,16 @@ const fetchLatestAdminMessage = async (residentId: string) => {
     return null;
   }
   try {
-    const { data: authRes } = await supabase.auth.getUser();
-    logger.debug('[Home] latest admin msg start', { supabaseUserId: authRes?.user?.id, residentId });
-
-    const { data, error } = await supabase
-      .from('messages') // 테이블명이 다르면 여기 수정 필요
-      .select('*') // 컬럼 구조 확인용
-      .eq('receiver_id', residentId) // 내가 받은 메시지
-      .neq('sender_id', residentId) // 내가 보낸 것은 제외
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (error) {
-      logger.warn('[Home] latest admin msg error', error);
-      return null;
-    }
-
-    logger.debug('[Home] latest admin msg data', data);
-    const msg = data?.[0];
-    if (!msg) return null;
-    const content =
-      (msg as any).content || (msg as any).text || (msg as any).message || (msg as any).body || '';
-    return { ...msg, content };
+    const conversation = await resolveGaraminDirectConversation({
+      targetId: null,
+    });
+    const result = await fetchGaraminDirectMessages(conversation.id);
+    const latestIncoming = [...result.messages]
+      .reverse()
+      .find((message) => message.receiver_id === residentId);
+    return latestIncoming ?? null;
   } catch (err) {
-    logger.debug('[Home] latest admin msg exception', err);
+    logger.warn('[Home] latest admin msg error', err);
     return null;
   }
 };
@@ -345,41 +334,74 @@ type ExamStats = {
 };
 
 const fetchExamStats = async (): Promise<ExamStats> => {
-  const countByType = async (examType: 'life' | 'nonlife') => {
-    const { data, error } = await supabase
-      .from('exam_registrations')
-      .select('resident_id, is_confirmed, created_at, exam_rounds!inner(exam_type)')
-      .eq('exam_rounds.exam_type', examType)
-      .order('resident_id', { ascending: true })
-      .order('created_at', { ascending: true });
-    if (error) throw error;
+  const normalizeSingle = <T,>(value: T | T[] | null | undefined): T | null => {
+    if (!value) return null;
+    return Array.isArray(value) ? value[0] : value;
+  };
 
-    const rows = data ?? [];
-    const residentIds = Array.from(
-      new Set(rows.map((row: any) => row.resident_id).filter((v: any): v is string => !!v)),
-    );
-    const existingResidents = new Set<string>();
-    if (residentIds.length > 0) {
-      const { data: profiles, error: profileErr } = await supabase
-        .from('fc_profiles')
-        .select('phone')
-        .in('phone', residentIds);
-      if (profileErr) throw profileErr;
-      (profiles ?? []).forEach((p: any) => {
-        if (p.phone) existingResidents.add(p.phone as string);
-      });
+  const countByType = async (examType: 'life' | 'nonlife') => {
+    const isRelationshipError = (error: unknown): boolean => {
+      if (!error || typeof error !== 'object') {
+        return false;
+      }
+      const message = `${(error as { message?: string }).message ?? ''}`.toLowerCase();
+      return message.includes('pgrst201') || message.includes('could not embed');
+    };
+
+    const relationNames = [
+      'exam_registrations_round_exam_type_fkey',
+      'exam_registrations_round_id_fkey',
+      '',
+    ] as const;
+
+    for (const relationName of relationNames) {
+      const relation = relationName
+        ? `exam_rounds!${relationName}(exam_type)`
+        : 'exam_rounds!inner(exam_type)';
+      const { data, error } = await supabase
+        .from('exam_registrations')
+        .select(`resident_id, is_confirmed, created_at, ${relation}`)
+        .order('resident_id', { ascending: true })
+        .order('created_at', { ascending: true });
+
+      if (!error) {
+        const rows = (data ?? []).filter(
+          (row: any) => normalizeSingle(row?.exam_rounds)?.exam_type === examType,
+        );
+        const residentIds = Array.from(
+          new Set(rows.map((row: any) => row.resident_id).filter((v: any): v is string => !!v)),
+        );
+        const existingResidents = new Set<string>();
+        if (residentIds.length > 0) {
+          const { data: profiles, error: profileErr } = await supabase
+            .from('fc_profiles')
+            .select('phone')
+            .in('phone', residentIds);
+          if (profileErr) throw profileErr;
+          (profiles ?? []).forEach((p: any) => {
+            if (p.phone) existingResidents.add(p.phone as string);
+          });
+        }
+
+        const latestByResident = new Map<string, boolean>();
+        rows.forEach((row: any) => {
+          const residentId = row.resident_id;
+          if (!residentId || !existingResidents.has(residentId)) return;
+          latestByResident.set(residentId, Boolean(row.is_confirmed));
+        });
+
+        const total = latestByResident.size;
+        const pending = Array.from(latestByResident.values()).filter((v) => !v).length;
+        return { total, pending };
+      }
+
+      if (!isRelationshipError(error)) {
+        throw error;
+      }
     }
 
-    const latestByResident = new Map<string, boolean>();
-    rows.forEach((row: any) => {
-      const residentId = row.resident_id;
-      if (!residentId || !existingResidents.has(residentId)) return;
-      latestByResident.set(residentId, Boolean(row.is_confirmed));
-    });
+    throw new Error('Unable to load exam registrations.');
 
-    const total = latestByResident.size;
-    const pending = Array.from(latestByResident.values()).filter((v) => !v).length;
-    return { total, pending };
   };
 
   const [life, nonlife] = await Promise.all([countByType('life'), countByType('nonlife')]);
@@ -432,8 +454,13 @@ const getLinkIcon = (href: string) => {
 
 export default function Home() {
   useInAppUpdate(); // Check for Android updates on mount
-  const { role, residentId, displayName, logout, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
-  const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const { role, residentId, displayName, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
+  const appLogout = useAppLogout();
+  const { mode, notificationId, notificationTarget } = useLocalSearchParams<{
+    mode?: string;
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
   const { data: identityStatus, isLoading: identityLoading } = useIdentityStatus();
 
   const insets = useSafeAreaInsets();
@@ -466,7 +493,6 @@ export default function Home() {
   });
 
   const [adminHomeTab, setAdminHomeTab] = useState<'onboarding' | 'exam'>('onboarding');
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const examHomeSurface = resolveExamHomeSurface({ role, readOnly, adminHomeTab });
@@ -493,11 +519,30 @@ export default function Home() {
   const {
     data: myFc,
     isLoading: statusLoading,
+    isError: statusError,
     refetch: refetchMyFc,
   } = useQuery({
     queryKey: ['my-fc-status', residentId],
     queryFn: () => (residentId ? fetchFcStatus(residentId) : Promise.resolve(null)),
     enabled: role === 'fc' && !!residentId,
+  });
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: myFc?.id
+      ? {
+          version: 1,
+          kind: 'onboarding_section',
+          fcId: myFc.id,
+          section: 'home',
+        }
+      : null,
+    loadState: statusError
+      ? 'error'
+      : myFc?.id
+        ? 'success'
+        : statusLoading
+          ? 'loading'
+          : 'error',
   });
 
   // FC 전용 코치마크
@@ -569,7 +614,6 @@ export default function Home() {
   const zoneScrollTargets = useRef<Record<number, number>>({});
   const shortcutZoneRefs = useRef<(View | null)[]>([]);
   const shortcutScrollTargets = useRef<Record<number, number>>({});
-  const pushRegistrationAttemptRef = useRef<string | null>(null);
 
   // 투어 시작 시 zone 위치를 미리 캐시 (스크롤 전 측정)
   const cacheZonePositions = useCallback(() => {
@@ -1010,68 +1054,9 @@ export default function Home() {
   // 사용자가 홈 화면의 "기본 정보" 버튼을 눌러 자발적으로 편집 가능
 
   // 모바일 푸시 토큰 등록 (배너 알림 수신용)
-  const PUSH_CHANNEL_ID = 'alerts';
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const attemptKey = buildPushRegistrationAttemptKey({
-        hydrated,
-        role,
-        residentId,
-        requestBoardRole,
-      });
-      const pushRole = resolvePushRegistrationDeviceRole({ role, requestBoardRole });
-      if (!attemptKey || !residentId || !pushRole) return;
-      if (pushRegistrationAttemptRef.current === attemptKey) return;
-
-      try {
-        const { status } = await Notifications.requestPermissionsAsync();
-        if (status !== 'granted') {
-          logger.debug('[push] permission denied');
-          return;
-        }
-        if (Platform.OS === 'android') {
-          await Notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
-            name: '중요 알림',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            sound: 'default',
-            lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          });
-        }
-
-        const { data: token } = await Notifications.getExpoPushTokenAsync({
-          projectId: Constants.expoConfig?.extra?.eas?.projectId,
-        });
-        if (!active || !token) return;
-        if (pushRegistrationAttemptRef.current === attemptKey) return;
-        pushRegistrationAttemptRef.current = attemptKey;
-
-        // 디바이스 중복 방지: 기존 토큰 제거 후 upsert (unique constraint 대응)
-        await registerPushToken(pushRole, residentId, displayName, token);
-        logger.debug('[push] trusted registration requested', { residentId, role: pushRole });
-      } catch (e: unknown) {
-        pushRegistrationAttemptRef.current = null;
-        const error = e as { message?: string };
-        logger.debug('[push] exception', error?.message ?? e);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [hydrated, role, residentId, requestBoardRole, displayName]);
-
   const handleLogout = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    if (Platform.OS === 'android') {
-      setIsLoggingOut(true);
-      setTimeout(() => {
-        logout();
-      }, 100);
-    } else {
-      logout();
-    }
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    appLogout();
   };
 
   const handleAdminTabChange = (tab: 'onboarding' | 'exam') => {
@@ -1142,26 +1127,25 @@ export default function Home() {
     }, [refetchLatestAdminMsg, residentId, role]),
   );
 
-  // 실시간: 새 메시지 도착 시 미리보기 즉시 갱신
+  // 메시지 테이블은 서버 전용이므로 서명된 서비스 조회를 주기적으로 갱신한다.
   useEffect(() => {
     if (role !== 'fc' || !residentId) return;
-    const channel = supabase
-      .channel(`home-messages-${residentId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `receiver_id=eq.${residentId}` },
-        (payload) => {
-          const newMsg: any = payload.new;
-          const content = newMsg?.content || newMsg?.text || newMsg?.message || newMsg?.body;
-          if (content) {
-            refetchLatestAdminMsg?.();
-          }
-        },
-      )
-      .subscribe();
+    const intervalId = setInterval(
+      () => void refetchLatestAdminMsg?.(),
+      4_000,
+    );
+    const appStateSubscription = AppState.addEventListener(
+      'change',
+      (nextState) => {
+        if (nextState === 'active') {
+          void refetchLatestAdminMsg?.();
+        }
+      },
+    );
 
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(intervalId);
+      appStateSubscription.remove();
     };
   }, [refetchLatestAdminMsg, residentId, role]);
 
@@ -1169,7 +1153,7 @@ export default function Home() {
   useEffect(() => {
     if (role !== 'fc' || !residentId) return;
     const profileChannel = supabase
-      .channel(`home-profile-${residentId}`)
+      .channel(createHomeRealtimeChannelTopic('home-profile'))
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'fc_profiles', filter: `phone=eq.${residentId}` },
@@ -1186,7 +1170,7 @@ export default function Home() {
   useEffect(() => {
     if (role !== 'fc' || !myFc?.id) return;
     const docChannel = supabase
-      .channel(`home-docs-${myFc.id}`)
+      .channel(createHomeRealtimeChannelTopic('home-documents'))
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'fc_documents', filter: `fc_id=eq.${myFc.id}` },
@@ -1198,19 +1182,6 @@ export default function Home() {
       supabase.removeChannel(docChannel);
     };
   }, [role, myFc?.id, refetchMyFc]);
-
-  // Android Crash Fix: Wait for all hooks to be valid, then short-circuit layout
-  if (isLoggingOut) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#fff' }}>
-        <BrandedLoadingState
-          variant="home"
-          title="세션을 정리하고 있어요"
-          subtitle="안전하게 로그아웃하는 중입니다."
-        />
-      </View>
-    );
-  }
 
   if (!hydrated) {
     return (
@@ -1236,6 +1207,10 @@ export default function Home() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       <Animated.ScrollView
         ref={scrollViewRef}
         refreshControl={
@@ -1266,7 +1241,7 @@ export default function Home() {
                 {isManagerExam
                   ? '시험 일정과 신청자 명단을 확인하고 직접 시험도 접수할 수 있어요.'
                   : adminHomeTab === 'exam'
-                  ? '시험 일정 등록과 신청자 관리 메뉴를 모았습니다.'
+                  ? '시험 일정·신청자 관리와 FC 대리 신청 메뉴를 모았습니다.'
                   : '위촉/서류 진행 현황과 주요 업무를 확인하세요.'}
               </Text>
             </View>
@@ -1898,14 +1873,14 @@ export default function Home() {
               {role === 'admin' && isManagerExam
                 ? '시험 관리/신청 바로가기'
                 : role === 'admin' && isAdminExam
-                ? '시험 관리 바로가기'
+                ? '시험 관리/대리 신청 바로가기'
                 : '바로가기'}
             </Text>
             {role === 'admin' && showsExamManagementHome ? (
               <Text style={styles.sectionHint}>
                 {isManagerExam
-                  ? '기존 시험 목록·신청자 명단에 시험 신청 메뉴를 추가했습니다'
-                  : '시험 등록/신청자 관련 메뉴를 모았습니다'}
+                  ? '시험 목록·신청자 명단과 FC 대리 신청 메뉴를 모았습니다'
+                  : '시험 등록·신청자 관리와 FC 대리 신청 메뉴를 모았습니다'}
               </Text>
             ) : null}
           </View>
@@ -1975,6 +1950,8 @@ export default function Home() {
           <View style={styles.actionGrid}>
             {quickLinks.map((item, index) => {
               const key = `${item.href}-${item.stepKey ?? item.title ?? index}`;
+              const isMessengerShortcut = item.href === '/messenger';
+              const messengerUnreadBadge = unreadMsgCount > 99 ? '99+' : String(unreadMsgCount);
               const card = (
                 <AndroidSafeMotiView
                   from={{ opacity: 0, translateY: 20 }}
@@ -1984,6 +1961,12 @@ export default function Home() {
                 >
                   <Pressable
                     style={({ pressed }) => [styles.actionCardGrid, pressed && styles.pressedScale]}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      isMessengerShortcut && unreadMsgCount > 0
+                        ? `${item.title}, 읽지 않은 메시지 ${messengerUnreadBadge}개`
+                        : item.title
+                    }
                     onPress={() => handlePressLink(item.href as any, item.stepKey)}>
                     <View style={styles.iconCircle}>
                       <Feather
@@ -1991,6 +1974,11 @@ export default function Home() {
                         size={22}
                         color={HANWHA_ORANGE}
                       />
+                      {isMessengerShortcut && unreadMsgCount > 0 ? (
+                        <View style={styles.quickLinkUnreadBadge}>
+                          <Text style={styles.quickLinkUnreadBadgeText}>{messengerUnreadBadge}</Text>
+                        </View>
+                      ) : null}
                     </View>
                     <Text style={styles.actionTitleGrid} numberOfLines={1}>{item.title}</Text>
                     <Text style={styles.actionDescGrid} numberOfLines={2}>{item.description}</Text>
@@ -2405,6 +2393,7 @@ const styles = StyleSheet.create({
     minHeight: 120, // Increased height to accommodate larger text
   },
   iconCircle: {
+    position: 'relative',
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -2412,6 +2401,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
+  },
+  quickLinkUnreadBadge: {
+    position: 'absolute',
+    top: -7,
+    right: -9,
+    minWidth: 23,
+    height: 23,
+    paddingHorizontal: 5,
+    borderRadius: 12,
+    backgroundColor: '#EF4444',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickLinkUnreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+    lineHeight: 14,
   },
   actionTitleGrid: {
     fontSize: 17, // 15 -> 17

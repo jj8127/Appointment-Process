@@ -17,6 +17,7 @@ test('builds the shared fc-notify broadcast payload for exam schedule changes', 
       title: '2026-06-17 (공통 7차 생명보험) 일정 등록',
       body: '시험 일정이 등록되었습니다.',
       examType: 'life',
+      examRoundId: '018f4f87-1ad4-7e39-9f5f-a89f2bdd9c11',
     }),
     {
       type: 'notify',
@@ -26,6 +27,12 @@ test('builds the shared fc-notify broadcast payload for exam schedule changes', 
       body: '시험 일정이 등록되었습니다.',
       category: 'exam_round',
       url: '/exam-apply',
+      target: {
+        version: 1,
+        kind: 'exam',
+        examType: 'life',
+        examRoundId: '018f4f87-1ad4-7e39-9f5f-a89f2bdd9c11',
+      },
     },
   );
 });

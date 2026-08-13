@@ -6,6 +6,7 @@ import {
   REFERRAL_GRAPH_ENGINE_COOLDOWN,
   applyReferralGraphDragSpring,
   applyReferralGraphLayoutMemory,
+  captureReferralGraphLinkDistances,
   createReferralGraphComponentCohesionForce,
   createReferralGraphEdgeCrossingForce,
   createReferralGraphClusterGravityForce,
@@ -16,6 +17,7 @@ import {
   createReferralGraphPointerDragForce,
   createReferralGraphLayoutMemoryForce,
   createReferralGraphLinkTensionForce,
+  createReferralGraphMaxLinkStretchForce,
   createReferralGraphNodeSeparationForce,
   createReferralGraphSiblingAngularForce,
   getReferralGraphFreeLinkStrength,
@@ -239,7 +241,7 @@ test('createReferralGraphDragElasticTetherForce applies the same default spring 
   assert.equal(nodes[1].vy, nodes[2].vy);
 });
 
-test('createReferralGraphPointerDragForce pulls the grabbed node with velocity instead of pinning or teleporting it', () => {
+test('createReferralGraphPointerDragForce fixes only the grabbed node', () => {
   const pointerDragTargetRef = {
     current: {
       nodeId: 'root',
@@ -248,25 +250,27 @@ test('createReferralGraphPointerDragForce pulls the grabbed node with velocity i
     },
   };
   const nodes = [
-    { id: 'root', x: 0, y: 0, vx: 0, vy: 0 },
+    { id: 'root', x: 0, y: 0, vx: -500, vy: 300, fx: undefined, fy: undefined },
+    { id: 'neighbor', x: 40, y: 15, vx: 400, vy: -200, fx: undefined, fy: undefined },
     { id: 'other', x: 20, y: 20, vx: 0, vy: 0 },
   ];
-  const force = createReferralGraphPointerDragForce(pointerDragTargetRef, {
-    damping: 0,
-    maxVelocity: 50,
-    minAlpha: 1,
-    stiffness: 1,
-  });
+  const force = createReferralGraphPointerDragForce(pointerDragTargetRef);
 
   force.initialize(nodes);
   force(0);
 
-  assert.equal(nodes[0].x, 0);
-  assert.equal(nodes[0].y, 0);
-  assert.ok((nodes[0].vx ?? 0) > 0, `grabbed node should receive pointer-pull velocity, got ${nodes[0].vx}`);
-  assert.ok((nodes[0].vy ?? 0) < 0, `grabbed node should receive pointer-pull velocity, got ${nodes[0].vy}`);
-  assert.equal(nodes[1].vx, 0);
-  assert.equal(nodes[1].vy, 0);
+  assert.deepEqual(
+    { x: nodes[0].x, y: nodes[0].y, vx: nodes[0].vx, vy: nodes[0].vy, fx: nodes[0].fx, fy: nodes[0].fy },
+    { x: 120, y: -60, vx: 0, vy: 0, fx: 120, fy: -60 },
+  );
+  assert.deepEqual(
+    { x: nodes[1].x, y: nodes[1].y, vx: nodes[1].vx, vy: nodes[1].vy, fx: nodes[1].fx, fy: nodes[1].fy },
+    { x: 40, y: 15, vx: 400, vy: -200, fx: undefined, fy: undefined },
+  );
+  assert.deepEqual(
+    { x: nodes[2].x, y: nodes[2].y, vx: nodes[2].vx, vy: nodes[2].vy },
+    { x: 20, y: 20, vx: 0, vy: 0 },
+  );
 });
 
 test('resolveReferralGraphFreePhysics keeps extreme slider values bounded for stable motion', () => {
@@ -388,7 +392,7 @@ test('getReferralGraphLinkDistance gives short leaf spokes and long hub bridges'
   }) <= 135);
 });
 
-test('getReferralGraphLinkDistance keeps sparse leaves short and lengthens crowded leaf fans only as needed', () => {
+test('getReferralGraphLinkDistance keeps sparse leaves short and caps crowded leaf fans', () => {
   const baseDistance = 250;
 
   const sparseSpoke = getReferralGraphLinkDistance(8, 1, baseDistance, {
@@ -403,10 +407,18 @@ test('getReferralGraphLinkDistance keeps sparse leaves short and lengthens crowd
     sourceChildCount: 18,
     graphNodeCount: 180,
   });
+  const minimumSpoke = getReferralGraphLinkDistance(3, 1, baseDistance, {
+    sourceHasChildren: true,
+    targetHasChildren: false,
+    sourceChildCount: 1,
+    graphNodeCount: 1,
+  });
 
+  assert.ok(minimumSpoke >= 118, `terminal leaf spoke must respect the explicit floor, got ${minimumSpoke}`);
   assert.ok(sparseSpoke <= 150, `sparse terminal leaf spoke should remain short, got ${sparseSpoke}`);
-  assert.ok(crowdedSpoke >= 250, `crowded terminal leaf spoke should reserve fan space, got ${crowdedSpoke}`);
-  assert.ok(crowdedSpoke <= 300, `crowded terminal leaf spoke should stay bounded, got ${crowdedSpoke}`);
+  assert.ok(crowdedSpoke >= 150, `crowded terminal leaf spoke should clear the hub, got ${crowdedSpoke}`);
+  assert.ok(crowdedSpoke <= 185, `crowded terminal leaf spoke should stay compact, got ${crowdedSpoke}`);
+  assert.ok(crowdedSpoke > sparseSpoke, `crowded leaf fan should retain a modest spacing bonus: sparse=${sparseSpoke}, crowded=${crowdedSpoke}`);
 });
 
 test('getReferralGraphLinkDistance staggers terminal leaf lengths by link id within a short range', () => {
@@ -429,9 +441,9 @@ test('getReferralGraphLinkDistance staggers terminal leaf lengths by link id wit
   });
 
   assert.equal(distances[0], repeated, 'terminal leaf jitter must be stable for the same link id');
-  assert.ok(Math.max(...distances) <= 300, `terminal leaf jitter should stay bounded, got ${distances.join(',')}`);
-  assert.ok(Math.min(...distances) >= 220, `crowded terminal leaf jitter should reserve space outside the hub, got ${distances.join(',')}`);
-  assert.ok(Math.max(...distances) - Math.min(...distances) >= 18, `terminal leaves should have slightly varied lengths, got ${distances.join(',')}`);
+  assert.ok(Math.max(...distances) <= 185, `terminal leaf jitter should stay compact, got ${distances.join(',')}`);
+  assert.ok(Math.min(...distances) >= 118, `terminal leaf jitter should respect the collision-safe floor, got ${distances.join(',')}`);
+  assert.ok(Math.max(...distances) - Math.min(...distances) >= 7, `terminal leaves should have slightly varied lengths, got ${distances.join(',')}`);
 });
 
 test('getReferralGraphMinimumNodeDistance grows enough for admin-sized graphs', () => {
@@ -511,7 +523,51 @@ test('getReferralGraphLinkDistance keeps crowded terminal leaf edges shorter tha
   assert.ok(childHub >= terminalLeaf + 25, `child hub edge should be visibly longer: hub=${childHub}, leaf=${terminalLeaf}`);
 });
 
-test('getReferralGraphLinkDistance keeps sparse chain bridges modest while star leaves stay readable', () => {
+test('getReferralGraphLinkDistance compacts dense terminal leaf spokes without shrinking child-hub bridges', () => {
+  const baseDistance = 250;
+  const terminalLeafDistances = Array.from({ length: 24 }, (_, index) => getReferralGraphLinkDistance(
+    24,
+    1,
+    baseDistance,
+    {
+      sourceHasChildren: true,
+      targetHasChildren: false,
+      sourceChildCount: 24,
+      sourceId: 'dense-hub',
+      targetId: `terminal-leaf-${index}`,
+      sourceSubtreeSize: 72,
+      targetSubtreeSize: 1,
+      graphNodeCount: 240,
+    },
+  ));
+  const childHub = getReferralGraphLinkDistance(24, 4, baseDistance, {
+    sourceHasChildren: true,
+    targetHasChildren: true,
+    sourceChildCount: 24,
+    targetChildCount: 3,
+    sourceId: 'dense-hub',
+    targetId: 'child-hub',
+    sourceSubtreeSize: 72,
+    targetSubtreeSize: 12,
+    graphNodeCount: 240,
+  });
+
+  assert.ok(
+    Math.max(...terminalLeafDistances) <= 185,
+    `dense terminal leaves should stay in a compact spoke band, got ${terminalLeafDistances.join(',')}`,
+  );
+  assert.ok(
+    Math.min(...terminalLeafDistances) >= 160,
+    `dense terminal leaves should still clear the hub collision zone, got ${terminalLeafDistances.join(',')}`,
+  );
+  assert.equal(childHub, 354, `child-hub bridge should remain unchanged, got ${childHub}`);
+  assert.ok(
+    childHub >= Math.max(...terminalLeafDistances) + 165,
+    `child-hub bridge should remain visually distinct from leaf spokes: hub=${childHub}, leaves=${terminalLeafDistances.join(',')}`,
+  );
+});
+
+test('getReferralGraphLinkDistance keeps sparse chain bridges modest while star leaves stay compact', () => {
   const baseDistance = 250;
 
   const sparseChainBridge = getReferralGraphLinkDistance(2, 2, baseDistance, {
@@ -533,11 +589,12 @@ test('getReferralGraphLinkDistance keeps sparse chain bridges modest while star 
   });
 
   assert.ok(sparseChainBridge <= 230, `sparse chain bridge should not stretch into a long strand, got ${sparseChainBridge}`);
-  assert.ok(starLeafSpoke >= 165, `star leaf spokes should not collapse into the hub, got ${starLeafSpoke}`);
-  assert.ok(starLeafSpoke >= sparseChainBridge, `high-fanout leaf spokes should not be shorter than sparse chains: bridge=${sparseChainBridge}, leaf=${starLeafSpoke}`);
+  assert.ok(starLeafSpoke >= 118, `star leaf spokes should clear the collision-safe floor, got ${starLeafSpoke}`);
+  assert.ok(starLeafSpoke <= 185, `star leaf spokes should remain in the terminal band, got ${starLeafSpoke}`);
+  assert.ok(starLeafSpoke <= sparseChainBridge - 40, `terminal leaves should be visibly shorter than child bridges: bridge=${sparseChainBridge}, leaf=${starLeafSpoke}`);
 });
 
-test('getReferralGraphLinkDistance keeps one-child relay chains shorter than high-fanout leaf spokes', () => {
+test('getReferralGraphLinkDistance keeps high-fanout terminal leaves shorter than one-child relay bridges', () => {
   const baseDistance = 250;
 
   const relayBridge = getReferralGraphLinkDistance(2, 2, baseDistance, {
@@ -560,8 +617,8 @@ test('getReferralGraphLinkDistance keeps one-child relay chains shorter than hig
 
   assert.ok(relayBridge <= 230, `one-child relay chains should stay compact even with deeper descendants, got ${relayBridge}`);
   assert.ok(
-    highFanoutLeafSpoke >= relayBridge + 20,
-    `many-child hubs should get longer child spokes than sparse chains: chain=${relayBridge}, fanout=${highFanoutLeafSpoke}`,
+    highFanoutLeafSpoke <= relayBridge - 40,
+    `terminal leaves should remain shorter than subtree relay bridges: chain=${relayBridge}, fanout=${highFanoutLeafSpoke}`,
   );
 });
 
@@ -1048,6 +1105,241 @@ test('createReferralGraphLinkTensionForce keeps active drag branch links under t
   assert.ok(parent.vx > 0, `active dragged source should still receive normal spring tension, got ${parent.vx}`);
   assert.ok(child.vx < 0, `active dragged child edge should still pull the child back, got ${child.vx}`);
   assert.equal(Math.abs(parent.vx), Math.abs(child.vx));
+});
+
+test('createReferralGraphMaxLinkStretchForce caps edge length at 1.2x its drag-start length', () => {
+  const source = { id: 'source', x: 0, y: 0, vx: 0, vy: 0 };
+  const target = { id: 'target', x: 320, y: 0, vx: 0, vy: 0 };
+  const links = [
+    { source: 'source', target: 'target' },
+  ];
+  const force = createReferralGraphMaxLinkStretchForce(links, {
+    activeDraggedNodeIdRef: { current: 'source' },
+    dragStartDistanceByLinkKeyRef: {
+      current: captureReferralGraphLinkDistances(
+        links,
+        new Map([
+          ['source', { ...source, x: 0 }],
+          ['target', { ...target, x: 80 }],
+        ]),
+      ),
+    },
+    maxStretchMultiplier: 1.2,
+  });
+
+  force.initialize([source, target]);
+  force(1);
+
+  const currentDistance = Math.hypot(target.x - source.x, target.y - source.y);
+  assert.ok(currentDistance <= 96 + Number.EPSILON, `edge exceeded drag-start 1.2x cap: ${currentDistance}`);
+});
+
+test('createReferralGraphMaxLinkStretchForce is inactive outside a drag gesture', () => {
+  const source = { id: 'source', x: 0, y: 0, vx: 0, vy: 0 };
+  const target = { id: 'target', x: 320, y: 0, vx: 0, vy: 0 };
+  const links = [
+    { source: 'source', target: 'target' },
+  ];
+  const force = createReferralGraphMaxLinkStretchForce(links, {
+    activeDraggedNodeIdRef: { current: null },
+    dragStartDistanceByLinkKeyRef: {
+      current: captureReferralGraphLinkDistances(links, new Map([
+        ['source', source],
+        ['target', { ...target, x: 80 }],
+      ])),
+    },
+    maxStretchMultiplier: 1.2,
+  });
+
+  force.initialize([source, target]);
+  force(1);
+
+  assert.equal(source.vx, 0);
+  assert.equal(target.vx, 0);
+});
+
+test('createReferralGraphMaxLinkStretchForce preserves every pointer-controlled endpoint', () => {
+  const source = { id: 'source', x: -200, y: 0, vx: 0, vy: 0, fx: -200, fy: 0 };
+  const target = { id: 'target', x: 80, y: 0, vx: 0, vy: 0 };
+  const links = [
+    { source: 'source', target: 'target' },
+  ];
+  const force = createReferralGraphMaxLinkStretchForce(links, {
+    activeDraggedNodeIdRef: { current: 'source' },
+    dragStartDistanceByLinkKeyRef: {
+      current: captureReferralGraphLinkDistances(links, new Map([
+        ['source', { id: 'source', x: 0, y: 0, vx: 0, vy: 0 }],
+        ['target', target],
+      ])),
+    },
+    maxStretchMultiplier: 1.2,
+  });
+
+  force.initialize([source, target]);
+  force(1);
+
+  assert.deepEqual(
+    { x: source.x, y: source.y, vx: source.vx, vy: source.vy, fx: source.fx, fy: source.fy },
+    { x: -200, y: 0, vx: 0, vy: 0, fx: -200, fy: 0 },
+  );
+  assert.ok(target.x < 0, `non-controlled neighbor should follow the controlled endpoint, got ${target.x}`);
+  const currentDistance = Math.hypot(target.x - source.x, target.y - source.y);
+  assert.ok(currentDistance <= 96 + Number.EPSILON, `dragged edge exceeded drag-start 1.2x cap: ${currentDistance}`);
+});
+
+test('createReferralGraphMaxLinkStretchForce progressively moves unpinned direct and second-hop nodes', () => {
+  const dragged = { id: 'dragged', x: 400, y: 0, vx: 0, vy: 0, fx: 400, fy: 0 };
+  const directNeighbor = {
+    id: 'direct',
+    x: 80,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    fx: undefined as number | undefined,
+    fy: undefined as number | undefined,
+  };
+  const secondHop = {
+    id: 'second-hop',
+    x: 160,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    fx: undefined as number | undefined,
+    fy: undefined as number | undefined,
+  };
+  const links = [
+    { source: 'dragged', target: 'direct' },
+    { source: 'direct', target: 'second-hop' },
+  ];
+  const force = createReferralGraphMaxLinkStretchForce(links, {
+    activeDraggedNodeIdRef: { current: 'dragged' },
+    dragStartDistanceByLinkKeyRef: {
+      current: captureReferralGraphLinkDistances(links, new Map([
+        ['dragged', { id: 'dragged', x: 0, y: 0, vx: 0, vy: 0, fx: undefined, fy: undefined }],
+        ['direct', { id: 'direct', x: 80, y: 0, vx: 0, vy: 0, fx: undefined, fy: undefined }],
+        ['second-hop', secondHop],
+      ])),
+    },
+    maxStretchMultiplier: 1.2,
+  });
+
+  force.initialize([dragged, directNeighbor, secondHop]);
+  force(1);
+
+  assert.equal(dragged.x, 400);
+  assert.equal(dragged.fx, 400);
+  assert.equal(directNeighbor.fx, undefined);
+  assert.equal(directNeighbor.fy, undefined);
+  assert.equal(secondHop.fx, undefined);
+  assert.equal(secondHop.fy, undefined);
+  assert.ok(directNeighbor.x > 80, `direct neighbor should follow through its edge, got ${directNeighbor.x}`);
+  assert.ok(secondHop.x > 160, `second hop should respond progressively through the direct neighbor, got ${secondHop.x}`);
+  assert.ok(
+    directNeighbor.x - 80 > secondHop.x - 160,
+    `direct response should lead the second hop: direct=${directNeighbor.x}, second=${secondHop.x}`,
+  );
+  assert.ok(
+    Math.abs(directNeighbor.x - dragged.x) <= 96.05,
+    `direct edge exceeded drag-start 1.2x cap: ${Math.abs(directNeighbor.x - dragged.x)}`,
+  );
+  assert.ok(
+    Math.abs(secondHop.x - directNeighbor.x) <= 96 + Number.EPSILON,
+    `second-hop boundary edge exceeded drag-start 1.2x cap: ${Math.abs(secondHop.x - directNeighbor.x)}`,
+  );
+});
+
+test('createReferralGraphMaxLinkStretchForce strictly caps every edge in a five-node chain after a large pointer jump', () => {
+  const nodes = Array.from({ length: 5 }, (_, index) => ({
+    id: `chain-${index}`,
+    x: index === 0 ? 1000 : index * 80,
+    y: 0,
+    vx: index === 0 ? 0 : (index % 2 === 0 ? 240 : -180),
+    vy: 0,
+    fx: index === 0 ? 1000 : undefined,
+    fy: index === 0 ? 0 : undefined,
+  }));
+  const links = Array.from({ length: 4 }, (_, index) => ({
+    source: `chain-${index}`,
+    target: `chain-${index + 1}`,
+  }));
+  const dragStartNodes = new Map(nodes.map((node, index) => [
+    node.id,
+    { ...node, x: index * 80, vx: 0, fx: undefined, fy: undefined },
+  ]));
+  const force = createReferralGraphMaxLinkStretchForce(links, {
+    activeDraggedNodeIdRef: { current: 'chain-0' },
+    dragStartDistanceByLinkKeyRef: {
+      current: captureReferralGraphLinkDistances(links, dragStartNodes),
+    },
+    maxStretchMultiplier: 1.2,
+  });
+
+  force.initialize(nodes);
+  force(1);
+
+  assert.deepEqual(
+    { x: nodes[0].x, y: nodes[0].y, fx: nodes[0].fx, fy: nodes[0].fy },
+    { x: 1000, y: 0, fx: 1000, fy: 0 },
+  );
+  for (const node of nodes.slice(1)) {
+    assert.equal(node.fx, undefined, `${node.id} should remain force-driven on x`);
+    assert.equal(node.fy, undefined, `${node.id} should remain force-driven on y`);
+  }
+
+  const movements = nodes.slice(1).map((node, index) => node.x - ((index + 1) * 80));
+  for (let index = 1; index < movements.length; index += 1) {
+    assert.ok(
+      movements[index - 1] > movements[index],
+      `chain response should propagate progressively: ${movements.join(',')}`,
+    );
+  }
+
+  for (let index = 0; index < links.length; index += 1) {
+    const source = nodes[index];
+    const target = nodes[index + 1];
+    const currentDistance = Math.hypot(target.x - source.x, target.y - source.y);
+    const projectedDistance = Math.hypot(
+      (target.x + target.vx) - (source.x + source.vx),
+      (target.y + target.vy) - (source.y + source.vy),
+    );
+    assert.ok(
+      currentDistance <= 96 + Number.EPSILON,
+      `chain edge ${index} exceeded its current 1.2x cap: ${currentDistance}`,
+    );
+    assert.ok(
+      projectedDistance <= 96 + Number.EPSILON,
+      `chain edge ${index} would exceed its 1.2x cap on integration: ${projectedDistance}`,
+    );
+  }
+});
+
+test('createReferralGraphMaxLinkStretchForce leaves unrelated components untouched during drag', () => {
+  const dragged = { id: 'dragged', x: 0, y: 0, vx: -200, vy: 0 };
+  const neighbor = { id: 'neighbor', x: 80, y: 0, vx: 0, vy: 0 };
+  const unrelatedSource = { id: 'other-source', x: 0, y: 200, vx: 0, vy: 0 };
+  const unrelatedTarget = { id: 'other-target', x: 320, y: 200, vx: 0, vy: 0 };
+  const links = [
+    { source: 'dragged', target: 'neighbor' },
+    { source: 'other-source', target: 'other-target' },
+  ];
+  const force = createReferralGraphMaxLinkStretchForce(links, {
+    activeDraggedNodeIdRef: { current: 'dragged' },
+    dragStartDistanceByLinkKeyRef: {
+      current: captureReferralGraphLinkDistances(links, new Map([
+        ['dragged', dragged],
+        ['neighbor', neighbor],
+        ['other-source', unrelatedSource],
+        ['other-target', { ...unrelatedTarget, x: 80 }],
+      ])),
+    },
+    maxStretchMultiplier: 1.2,
+  });
+
+  force.initialize([dragged, neighbor, unrelatedSource, unrelatedTarget]);
+  force(1);
+
+  assert.equal(unrelatedSource.vx, 0);
+  assert.equal(unrelatedTarget.vx, 0);
 });
 
 test('createReferralGraphBranchBendForce skips active drag branch nodes', () => {

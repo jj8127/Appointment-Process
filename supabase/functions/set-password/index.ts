@@ -7,6 +7,8 @@ import {
   type CommissionCompletionStatus,
 } from '../_shared/commission.ts';
 import { applyReferralLinkState } from '../_shared/referral-link.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
+import { getEnv } from '../_shared/request-board-auth.ts';
 import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
 
 type Payload = {
@@ -38,13 +40,6 @@ type ReferralResolutionResult = {
   resolvedReferral: ResolvedReferralDetails | null;
   rejectionReason: string | null;
 };
-
-function getEnv(name: string): string | undefined {
-  const g: any = globalThis as any;
-  if (g?.Deno?.env?.get) return g.Deno.env.get(name);
-  if (g?.process?.env) return g.process.env[name];
-  return undefined;
-}
 
 // Security: Restrict CORS to specific origins
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
@@ -215,22 +210,25 @@ async function resolveReferralDetails(params: {
       .maybeSingle();
 
     if (codeError) {
-      console.warn('[set-password] resolveReferralDetails: referral code lookup error', codeError.message);
+      reportEdgeDiagnostic({
+        event: 'set_password.referral_resolution',
+        reason: 'code_lookup_failed',
+        errorClass: 'database',
+      });
       return { resolvedReferral: null, rejectionReason: 'code_lookup_failed' };
     }
     if (!referralCodeRow) {
-      console.warn('[set-password] resolveReferralDetails: referral code not found or inactive', params.referralCode);
+      reportEdgeDiagnostic({
+        event: 'set_password.referral_resolution',
+        reason: 'not_found_or_inactive',
+      });
       return { resolvedReferral: null, rejectionReason: 'not_found_or_inactive' };
     }
     if (params.validatedInviterFcId && params.validatedInviterFcId !== referralCodeRow.fc_id) {
-      console.warn(
-        '[set-password] resolveReferralDetails: inviter hint mismatch, using referral code source of truth',
-        JSON.stringify({
-          referralCode: params.referralCode,
-          validatedInviterFcId: params.validatedInviterFcId,
-          resolvedInviterFcId: referralCodeRow.fc_id,
-        }),
-      );
+      reportEdgeDiagnostic({
+        event: 'set_password.referral_resolution',
+        reason: 'inviter_hint_mismatch',
+      });
     }
 
     const { data: inviterProfile, error: inviterError } = await params.supabase
@@ -240,7 +238,11 @@ async function resolveReferralDetails(params: {
       .maybeSingle();
 
     if (inviterError) {
-      console.warn('[set-password] resolveReferralDetails: inviter profile lookup error', inviterError.message);
+      reportEdgeDiagnostic({
+        event: 'set_password.referral_resolution',
+        reason: 'inviter_profile_lookup_failed',
+        errorClass: 'database',
+      });
       return { resolvedReferral: null, rejectionReason: 'inviter_profile_lookup_failed' };
     }
     if (!inviterProfile?.phone) {
@@ -281,8 +283,11 @@ async function resolveReferralDetails(params: {
       },
       rejectionReason: null,
     };
-  } catch (err) {
-    console.warn('[set-password] resolveReferralDetails: unexpected error', err instanceof Error ? err.message : String(err));
+  } catch {
+    reportEdgeDiagnostic({
+      event: 'set_password.referral_resolution',
+      reason: 'unexpected_error',
+    });
     return { resolvedReferral: null, rejectionReason: 'unexpected_resolution_error' };
   }
 }
@@ -319,7 +324,11 @@ async function insertReferralEvent(params: {
     });
 
   if (error) {
-    console.warn(`[set-password] ${params.logLabel}: event insert error`, error.message);
+    reportEdgeDiagnostic({
+      event: 'set_password.referral_event',
+      reason: 'insert_failed',
+      errorClass: 'database',
+    });
   }
 }
 
@@ -436,24 +445,26 @@ serve(async (req: Request) => {
     return fail('already_set', '이미 비밀번호가 설정되어 있습니다.');
   }
 
-  if (referralCode && !resolvedReferral) {
-    await insertReferralEvent({
-      supabase,
-      eventType: 'referral_rejected',
-      source: 'manual_entry',
-      referralCode: referralCode || null,
-      inviteeFcId: fcId,
-      inviteePhone: phone,
-      metadata: {
-        captureSource: 'set_password_signup',
-        rejectionReason: referralResolution.rejectionReason ?? 'unresolved_referral',
-      },
-      logLabel: 'set-password',
-    });
+  if (!referralCode || !resolvedReferral) {
+    if (referralCode) {
+      await insertReferralEvent({
+        supabase,
+        eventType: 'referral_rejected',
+        source: 'manual_entry',
+        referralCode,
+        inviteeFcId: fcId,
+        inviteePhone: phone,
+        metadata: {
+          captureSource: 'set_password_signup',
+          rejectionReason: referralResolution.rejectionReason ?? 'unresolved_referral',
+        },
+        logLabel: 'set-password',
+      });
+    }
     return json({
       ok: false,
       code: 'referral_invalid',
-      message: '추천인 정보를 확인하지 못했습니다. 추천인을 다시 선택해주세요.',
+      message: '유효한 추천인을 선택해야 가입을 완료할 수 있습니다.',
     });
   }
 
@@ -576,8 +587,12 @@ serve(async (req: Request) => {
       reason: 'set_password_signup',
     });
 
-    if (!applyResult.ok) {
-      console.warn('[set-password] applyReferralLinkState failed', applyResult.message);
+    if (applyResult.ok === false) {
+      reportEdgeDiagnostic({
+        event: 'set_password.referral_link',
+        reason: 'apply_failed',
+        errorClass: 'database',
+      });
       return json(
         {
           ok: false,
@@ -605,6 +620,8 @@ serve(async (req: Request) => {
         locked_until: null,
         reset_token_hash: null,
         reset_token_expires_at: null,
+        must_change_password: false,
+        temporary_password_issued_at: null,
       },
       { onConflict: 'fc_id' },
     );
@@ -616,7 +633,12 @@ serve(async (req: Request) => {
   // Mark signup as completed
   const { error: profileUpdateError } = await supabase
     .from('fc_profiles')
-    .update({ signup_completed: true })
+    .update({
+      signup_completed: true,
+      signup_verification_method: 'phone_otp',
+      signup_verified_at: new Date().toISOString(),
+      signup_verified_by_admin_id: null,
+    })
     .eq('id', fcId);
 
   if (profileUpdateError) {

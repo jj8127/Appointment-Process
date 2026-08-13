@@ -25,27 +25,51 @@ import {
     UnstyledButton
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconChevronDown, IconDownload, IconRefresh, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import {
+    IconCalendarEvent,
+    IconBan,
+    IconCheck,
+    IconChevronDown,
+    IconDownload,
+    IconListDetails,
+    IconPhoto,
+    IconRefresh,
+    IconSearch,
+    IconTrash,
+    IconX,
+} from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
+import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 
+import styles from './page.module.css';
+
 import {
+    buildExamApplicantQuickAffiliationOptions,
     buildExamApplicantRoundFilterOptions,
     buildExamApplicantSubjectFilterOptions,
+    EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE,
     EXAM_APPLICANT_ALL_FILTER_VALUE,
     EXAM_APPLICANT_EXPORT_COLUMNS,
     EXAM_APPLICANT_TABLE_BADGE_STYLES,
     formatExamApplicantReceptionStatus,
+    getExamApplicantApplicationStatusBadgeColor,
     getExamApplicantRoundFilterValue,
     getExamApplicantCellValue,
     getExamApplicantSubjectKey,
     isExamApplicantRoundFilterValid,
+    matchesExamApplicantQuickAffiliation,
     type ExamApplicantExportColumn,
     type ExamApplicantExportColumnKey,
     type ExamApplicantFilterOption,
 } from '@/lib/exam-applicant-list-display';
-import { supabase } from '@/lib/supabase';
+import {
+    buildExamPaymentProofExportLinkMap,
+    buildExamPaymentProofImagePath,
+    type ExamPaymentProofExportLink,
+} from '@/lib/exam-payment-proof-admin';
+import { RejectReasonModal } from '@/components/RejectReasonModal';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -72,7 +96,9 @@ type Applicant = {
     exam_date: string | null;
     exam_type?: string | null;
     fee_paid_date?: string | null;
+    payment_proof_attached?: boolean;
     is_confirmed: boolean;
+    includes_primary_exam?: boolean;
     is_third_exam?: boolean;
     application_type?: string | null;
 };
@@ -92,6 +118,7 @@ type RowField = ExamApplicantExportColumnKey | 'is_confirmed';
 
 type ColumnField =
     | ExamApplicantExportColumnKey
+    | 'payment_proof'
     | 'is_confirmed'
     | 'actions';
 
@@ -211,97 +238,132 @@ interface TopFilterMenuProps {
     options: ExamApplicantFilterOption[];
     value: string;
     onChange: (value: string) => void;
+    kind: 'subject' | 'round';
 }
 
-const TopFilterMenu = ({ title, options, value, onChange }: TopFilterMenuProps) => {
+const TopFilterMenu = ({ title, options, value, onChange, kind }: TopFilterMenuProps) => {
     const selected = options.find((option) => option.value === value) ?? options[0];
     const isActive = value !== EXAM_APPLICANT_ALL_FILTER_VALUE;
+    const dropdownWidth = kind === 'round' ? 440 : 280;
+
+    const renderOption = (option: ExamApplicantFilterOption) => {
+        const isSelected = option.value === value;
+        const isAll = option.value === EXAM_APPLICANT_ALL_FILTER_VALUE;
+
+        if (kind === 'round' && !isAll) {
+            const [date = '날짜 미정', round = '회차 미정', ...subjectParts] = option.label.split(' · ');
+            const subject = subjectParts.join(' · ') || '과목 미정';
+
+            return (
+                <Group gap="sm" wrap="nowrap" align="center" w="100%">
+                    <div className={styles.roundDateBadge}>{date}</div>
+                    <Stack gap={1} style={{ minWidth: 0, flex: 1 }}>
+                        <Text size="sm" fw={700} c={isSelected ? 'orange.8' : CHARCOAL} lineClamp={1}>
+                            {round}
+                        </Text>
+                        <Text size="xs" c="dimmed" lineClamp={1}>{subject}</Text>
+                    </Stack>
+                </Group>
+            );
+        }
+
+        return (
+            <Group gap="sm" wrap="nowrap">
+                {isAll
+                    ? <IconListDetails size={17} stroke={1.8} />
+                    : kind === 'round'
+                        ? <IconCalendarEvent size={17} stroke={1.8} />
+                        : null}
+                <Text size="sm" fw={isSelected ? 700 : 600}>{isAll ? '전체 보기' : option.label}</Text>
+            </Group>
+        );
+    };
 
     return (
-        <Menu shadow="md" width={300} position="bottom-start" withinPortal>
+        <Menu shadow="lg" width={dropdownWidth} position="bottom-start" offset={8} withinPortal>
             <Menu.Target>
                 <Button
-                    variant={isActive ? 'filled' : 'light'}
+                    variant="light"
                     color={isActive ? 'orange' : 'gray'}
                     radius="xl"
-                    size="xs"
+                    size="sm"
                     rightSection={<IconChevronDown size={14} />}
+                    aria-label={`${title} 필터, 현재 ${selected?.label ?? '전체'}`}
                     styles={{
-                        root: { maxWidth: '100%', height: 'auto', minHeight: 30, paddingTop: 6, paddingBottom: 6 },
-                        label: { whiteSpace: 'normal', lineHeight: 1.2, wordBreak: 'keep-all', textAlign: 'left' },
+                        root: {
+                            maxWidth: kind === 'round' ? 310 : 210,
+                            height: 38,
+                            paddingTop: 0,
+                            paddingBottom: 0,
+                            border: `1px solid ${isActive ? '#f7b27d' : '#e5e7eb'}`,
+                            boxShadow: isActive ? '0 2px 8px rgba(243, 115, 33, 0.12)' : 'none',
+                        },
+                        inner: {
+                            height: '100%',
+                            alignItems: 'center',
+                        },
+                        label: {
+                            display: 'flex',
+                            height: '100%',
+                            alignItems: 'center',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            lineHeight: 1.2,
+                            textAlign: 'left',
+                        },
                         section: { flexShrink: 0 },
                     }}
                 >
                     {title}: {selected?.label ?? '전체'}
                 </Button>
             </Menu.Target>
-            <Menu.Dropdown style={{ maxHeight: 320, overflowY: 'auto' }}>
-                {options.map((option) => (
-                    <Menu.Item
-                        key={option.value}
-                        color={option.value === value ? 'orange' : undefined}
-                        onClick={() => onChange(option.value)}
-                    >
-                        {option.label}
-                    </Menu.Item>
-                ))}
+            <Menu.Dropdown className={styles.topFilterDropdown}>
+                <Group justify="space-between" px="sm" py="xs" className={styles.topFilterHeading}>
+                    <Text size="xs" fw={800} c="dimmed">{title} 선택</Text>
+                    <Text size="xs" c="dimmed">{Math.max(options.length - 1, 0)}개</Text>
+                </Group>
+                <Divider />
+                <div className={styles.topFilterOptions}>
+                    {options.map((option) => {
+                        const isSelected = option.value === value;
+                        return (
+                            <Menu.Item
+                                key={option.value}
+                                className={styles.topFilterItem}
+                                data-selected={isSelected || undefined}
+                                rightSection={isSelected ? <IconCheck size={17} stroke={2.4} /> : null}
+                                onClick={() => onChange(option.value)}
+                            >
+                                {renderOption(option)}
+                            </Menu.Item>
+                        );
+                    })}
+                </div>
             </Menu.Dropdown>
         </Menu>
     );
 };
 
-const formatExamApprovalInfo = (item: Applicant) => {
-    const dateLabel = item.exam_date ? dayjs(item.exam_date).format('YYYY-MM-DD') : '시험 일정';
-    const roundLabel = item.round_label && item.round_label !== '-' ? ` (${item.round_label})` : '';
-    const locationLabel = item.location_name && item.location_name !== '미정' ? ` [${item.location_name}]` : '';
-    return `${dateLabel}${roundLabel}${locationLabel}`;
-};
-
-async function notifyFcExamApprovalStatus(item: Applicant, isConfirmed: boolean) {
-    const targetId = (item.phone ?? '').replace(/[^0-9]/g, '');
-    if (!targetId) {
-        throw new Error('FC 전화번호를 찾을 수 없습니다.');
-    }
-
-    const title = isConfirmed
-        ? '시험 신청이 승인되었습니다.'
-        : '시험 신청 승인 상태가 변경되었습니다.';
-    const body = isConfirmed
-        ? `${formatExamApprovalInfo(item)} 접수가 승인되었습니다. 시험 신청 화면에서 상태를 확인해주세요.`
-        : `${formatExamApprovalInfo(item)} 접수 완료가 해제되었습니다. 시험 신청 화면에서 상태를 확인해주세요.`;
-
-    const { data, error } = await supabase.functions.invoke('fc-notify', {
-        body: {
-            type: 'notify',
-            target_role: 'fc',
-            target_id: targetId,
-            title,
-            body,
-            category: 'exam_apply',
-            url: item.exam_type === 'nonlife' ? '/exam-apply2' : '/exam-apply',
-        },
-    });
-
-    if (error) throw error;
-    if (!data?.ok) {
-        throw new Error((data as { message?: string } | null)?.message ?? '시험 승인 알림 전송 실패');
-    }
-}
-
 export default function ExamApplicantsPage() {
+    const router = useRouter();
     const queryClient = useQueryClient();
     const { isReadOnly, hydrated, role } = useSession();
+    const [rejectTarget, setRejectTarget] = useState<Applicant | null>(null);
+    const [rejectReason, setRejectReason] = useState('');
     const [filters, setFilters] = useState<FilterState>({});
-    const [quickAffiliation, setQuickAffiliation] = useState('전체');
+    const [quickAffiliation, setQuickAffiliation] = useState(EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE);
     const [examSubjectFilter, setExamSubjectFilter] = useState(EXAM_APPLICANT_ALL_FILTER_VALUE);
     const [examRoundFilter, setExamRoundFilter] = useState(EXAM_APPLICANT_ALL_FILTER_VALUE);
+    const [isExporting, setIsExporting] = useState(false);
 
-    const tableColumnCount = EXAM_APPLICANT_EXPORT_COLUMNS.length + 2;
+    const tableColumnCount = EXAM_APPLICANT_EXPORT_COLUMNS.length + 3;
+    const proofColumnMinWidth = 120;
     const statusColumnMinWidth = 130;
     const actionsColumnMinWidth = 90;
     const tableMinWidth = EXAM_APPLICANT_EXPORT_COLUMNS.reduce(
         (sum, column) => sum + column.minWidth,
-        statusColumnMinWidth + actionsColumnMinWidth,
+        proofColumnMinWidth + statusColumnMinWidth + actionsColumnMinWidth,
     );
 
     // --- Fetch All Recent Applicants ---
@@ -359,13 +421,7 @@ export default function ExamApplicantsPage() {
     }, [applicants]);
 
     const quickAffiliationOptions = useMemo(() => {
-        if (!applicants) return ['전체'];
-        const raw = applicants
-            .map((item) => item.affiliation || '-')
-            .filter(Boolean)
-            .sort((a, b) => a.localeCompare(b));
-        const unique = Array.from(new Set(raw));
-        return ['전체', ...unique];
+        return buildExamApplicantQuickAffiliationOptions(applicants ?? []);
     }, [applicants]);
 
     const examSubjectFilterOptions = useMemo(
@@ -395,10 +451,10 @@ export default function ExamApplicantsPage() {
     };
 
     // --- Filter Logic ---
-    const filteredRows = useMemo(() => {
+    const baseFilteredRows = useMemo(() => {
         if (!applicants) return [];
         return applicants.filter(item => {
-            if (quickAffiliation !== '전체' && item.affiliation !== quickAffiliation) {
+            if (!matchesExamApplicantQuickAffiliation(item.affiliation, quickAffiliation)) {
                 return false;
             }
 
@@ -417,6 +473,7 @@ export default function ExamApplicantsPage() {
             }
 
             return Object.entries(filters).every(([field, selectedValues]) => {
+                if (field === 'is_confirmed') return true;
                 if (!selectedValues || selectedValues.length === 0) return true;
                 const val = getRowValue(item, field as RowField);
                 return selectedValues.includes(val);
@@ -424,13 +481,40 @@ export default function ExamApplicantsPage() {
         });
     }, [applicants, effectiveExamRoundFilter, examSubjectFilter, filters, quickAffiliation]);
 
+    const filteredRows = useMemo(() => {
+        const selectedStatuses = filters.is_confirmed ?? [];
+        if (selectedStatuses.length === 0) return baseFilteredRows;
+
+        return baseFilteredRows.filter((item) =>
+            selectedStatuses.includes(formatExamApplicantReceptionStatus(item)),
+        );
+    }, [baseFilteredRows, filters.is_confirmed]);
+
     // --- Stats ---
     const stats = useMemo(() => {
-        const total = filteredRows.length;
-        const confirmed = filteredRows.filter(a => a.is_confirmed).length;
+        const total = baseFilteredRows.length;
+        const confirmed = baseFilteredRows.filter(a => a.is_confirmed).length;
         const pending = total - confirmed;
         return { total, confirmed, pending };
-    }, [filteredRows]);
+    }, [baseFilteredRows]);
+
+    const selectedReceptionStatus = filters.is_confirmed?.length === 1
+        ? filters.is_confirmed[0]
+        : null;
+    const setReceptionStatusFilter = (nextStatus: '접수 완료' | '미접수' | null) => {
+        setFilters((current) => {
+            const next = { ...current };
+            const currentStatus = current.is_confirmed?.length === 1
+                ? current.is_confirmed[0]
+                : null;
+            if (!nextStatus || currentStatus === nextStatus) {
+                delete next.is_confirmed;
+            } else {
+                next.is_confirmed = [nextStatus];
+            }
+            return next;
+        });
+    };
 
     // --- Mutations ---
     const updateStatusMutation = useMutation({
@@ -439,7 +523,10 @@ export default function ExamApplicantsPage() {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ registrationId: item.id, isConfirmed }),
+                body: JSON.stringify({
+                    registrationId: item.id,
+                    action: isConfirmed ? 'confirm' : 'unconfirm',
+                }),
             });
             const json: unknown = await response.json().catch(() => null);
             const nextStatus = isConfirmed ? 'confirmed' : 'applied';
@@ -456,7 +543,7 @@ export default function ExamApplicantsPage() {
             }
             return { item, isConfirmed, nextStatus };
         },
-        onSuccess: async ({ item, isConfirmed, nextStatus }) => {
+        onSuccess: ({ item, isConfirmed, nextStatus }) => {
             queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
                 if (!Array.isArray(old)) return old;
                 return (old as Applicant[]).map((row) =>
@@ -469,18 +556,6 @@ export default function ExamApplicantsPage() {
                 color: 'green',
                 icon: <IconRefresh size={16} />,
             });
-            if (!isConfirmed) return;
-
-            try {
-                await notifyFcExamApprovalStatus(item, true);
-            } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : '시험 승인 알림 전송에 실패했습니다.';
-                notifications.show({
-                    title: '알림 전송 실패',
-                    message: `상태는 저장되었지만 FC 앱 알림 전송은 실패했습니다. (${msg})`,
-                    color: 'yellow',
-                });
-            }
         },
         onError: (err: unknown) => {
             const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
@@ -488,13 +563,64 @@ export default function ExamApplicantsPage() {
         },
     });
 
+    const rejectApplicantMutation = useMutation({
+        mutationFn: async ({ item, reason }: { item: Applicant; reason: string }) => {
+            const response = await fetch('/api/admin/exam-applicants', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    registrationId: item.id,
+                    action: 'reject',
+                    reason,
+                }),
+            });
+            const json: unknown = await response.json().catch(() => null);
+            if (!response.ok || !isRecord(json) || json.ok !== true) {
+                throw new Error(
+                    isRecord(json) && typeof json.error === 'string'
+                        ? json.error
+                        : '시험 신청 반려에 실패했습니다.',
+                );
+            }
+            return item;
+        },
+        onSuccess: (item) => {
+            queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
+                if (!Array.isArray(old)) return old;
+                return (old as Applicant[]).map((row) =>
+                    row.id === item.id
+                        ? { ...row, is_confirmed: false, status: 'rejected' }
+                        : row,
+                );
+            });
+            setRejectTarget(null);
+            setRejectReason('');
+            notifications.show({
+                title: '반려 완료',
+                message: `${item.name} 신청을 반려했습니다.`,
+                color: 'red',
+            });
+        },
+        onError: (error: unknown) => {
+            notifications.show({
+                title: '반려 실패',
+                message: error instanceof Error ? error.message : '반려 처리에 실패했습니다.',
+                color: 'red',
+            });
+        },
+    });
+
     const deleteApplicantMutation = useMutation({
         mutationFn: async (item: Applicant) => {
             const response = await fetch('/api/admin/exam-applicants', {
-                method: 'DELETE',
+                method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ registrationId: item.id }),
+                body: JSON.stringify({
+                    registrationId: item.id,
+                    action: 'cancel_by_admin',
+                }),
             });
 
             const json: unknown = await response.json().catch(() => null);
@@ -503,65 +629,123 @@ export default function ExamApplicantsPage() {
                 const message =
                     isRecord(json) && typeof json.error === 'string'
                         ? json.error
-                        : '시험 신청 삭제에 실패했습니다.';
+                        : '시험 신청 취소에 실패했습니다.';
                 throw new Error(message);
             }
 
-            return {
-                item,
-                deleted: !isRecord(json) || typeof json.deleted !== 'boolean' ? true : json.deleted,
-            };
+            return item;
         },
-        onSuccess: ({ item, deleted }) => {
+        onSuccess: (item) => {
             queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
                 if (!Array.isArray(old)) return old;
-                return (old as Applicant[]).filter((row) => row.id !== item.id);
+                return (old as Applicant[]).map((row) =>
+                    row.id === item.id
+                        ? { ...row, is_confirmed: false, status: 'cancelled_by_admin' }
+                        : row,
+                );
             });
             notifications.show({
-                title: deleted ? '삭제 완료' : '이미 삭제됨',
-                message: deleted
-                    ? `${item.name} 신청 내역을 삭제했습니다.`
-                    : '이미 삭제된 신청 내역입니다.',
-                color: deleted ? 'green' : 'blue',
+                title: '취소 완료',
+                message: `${item.name} 신청을 관리자 취소 처리했습니다.`,
+                color: 'green',
                 icon: <IconTrash size={16} />,
             });
         },
         onError: (err: unknown) => {
             const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
-            notifications.show({ title: '삭제 실패', message: msg, color: 'red' });
+            notifications.show({ title: '취소 실패', message: msg, color: 'red' });
         },
     });
 
-    // --- CSV Download ---
-    const handleDownloadCsv = () => {
+    // --- Styled XLSX Download ---
+    const handleDownloadExcel = async () => {
         if (filteredRows.length === 0) {
             notifications.show({ title: '알림', message: '다운로드할 데이터가 없습니다.', color: 'blue' });
             return;
         }
 
-        const headers = EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => column.title);
-        const asExcelText = (value: string) => `="${String(value).replace(/"/g, '""')}"`;
-        const pRows = filteredRows.map((item) =>
-            EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => {
-                const value = getRowValue(item, column.key);
-                return column.key === 'phone' || column.key === 'resident_id'
-                    ? asExcelText(value)
-                    : value;
-            }),
-        );
+        setIsExporting(true);
+        try {
+            const attachedRegistrationIds = filteredRows
+                .filter((item) => item.payment_proof_attached)
+                .map((item) => item.id);
+            let proofLinks = new Map<string, ExamPaymentProofExportLink>();
 
-        const csvContent = [
-            headers.join(','),
-            ...pRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
-        ].join('\n');
+            if (attachedRegistrationIds.length > 0) {
+                const response = await fetch('/api/admin/exam-applicants/payment-proof-export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    cache: 'no-store',
+                    body: JSON.stringify({ registrationIds: attachedRegistrationIds }),
+                });
+                const json: unknown = await response.json().catch(() => null);
+                const rawLinks =
+                    isRecord(json) && Array.isArray(json.links)
+                        ? json.links
+                        : [];
+                const links = rawLinks.filter((value): value is ExamPaymentProofExportLink => (
+                    isRecord(value)
+                    && typeof value.registrationId === 'string'
+                    && typeof value.storagePath === 'string'
+                    && typeof value.signedUrl === 'string'
+                ));
 
-        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `exam_applicants_${dayjs().format('YYYYMMDD')}.csv`;
-        link.click();
-        URL.revokeObjectURL(url);
+                if (
+                    !response.ok
+                    || !isRecord(json)
+                    || json.ok !== true
+                    || links.length !== rawLinks.length
+                    || links.length !== attachedRegistrationIds.length
+                ) {
+                    const message =
+                        isRecord(json) && typeof json.error === 'string'
+                            ? json.error
+                            : '입금 증빙 링크를 발급하지 못했습니다.';
+                    throw new Error(message);
+                }
+                proofLinks = buildExamPaymentProofExportLinkMap(links);
+            }
+
+            const headers = [
+                ...EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => column.title),
+                '접수 상태',
+                '입금 증빙 경로',
+                '입금 증빙 URL (30일 유효)',
+            ];
+            const workbookRows = filteredRows.map((item) => {
+                const proofLink = proofLinks.get(item.id);
+                return {
+                    values: [
+                        ...EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => {
+                            return getRowValue(item, column.key);
+                        }),
+                        formatExamApplicantReceptionStatus(item),
+                        proofLink?.storagePath ?? '-',
+                        proofLink?.signedUrl ?? '-',
+                    ],
+                    isConfirmed: item.is_confirmed,
+                    proofUrl: proofLink?.signedUrl ?? null,
+                };
+            });
+
+            const { downloadExamApplicantWorkbook } = await import(
+                '@/lib/exam-applicant-workbook'
+            );
+            await downloadExamApplicantWorkbook({
+                headers,
+                rows: workbookRows,
+                generatedAt: new Date(),
+                fileName: `exam_applicants_${dayjs().format('YYYYMMDD')}.xlsx`,
+            });
+        } catch (exportError: unknown) {
+            const message = exportError instanceof Error
+                ? exportError.message
+                : '엑셀 파일을 만들지 못했습니다.';
+            notifications.show({ title: '엑셀 다운로드 실패', message, color: 'red' });
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     const renderHeader = (title: string, field: ColumnField, minWidth?: number) => {
@@ -573,16 +757,16 @@ export default function ExamApplicantsPage() {
             lineHeight: 1.25,
         };
 
-        if (field === 'actions') {
+        if (field === 'actions' || field === 'payment_proof') {
             return (
-            <Table.Th style={headerStyle}>
+            <Table.Th key={field} style={headerStyle}>
                 <Text fw={700} size="sm" c="dimmed" ta="center" style={{ whiteSpace: 'normal', wordBreak: 'keep-all', lineHeight: 1.25 }}>{title}</Text>
             </Table.Th>
             );
         }
 
         return (
-            <Table.Th style={headerStyle}>
+            <Table.Th key={field} style={headerStyle}>
                 <ExcelColumnFilter
                     title={title}
                     field={field}
@@ -618,6 +802,21 @@ export default function ExamApplicantsPage() {
                     <Badge
                         variant="light"
                         color={value === '재신청' ? 'orange' : 'gray'}
+                        radius="sm"
+                        styles={EXAM_APPLICANT_TABLE_BADGE_STYLES}
+                    >
+                        {value}
+                    </Badge>
+                </Table.Td>
+            );
+        }
+
+        if (column.key === 'application_status') {
+            return (
+                <Table.Td key={column.key} ta="center">
+                    <Badge
+                        variant="light"
+                        color={getExamApplicantApplicationStatusBadgeColor(value)}
                         radius="sm"
                         styles={EXAM_APPLICANT_TABLE_BADGE_STYLES}
                     >
@@ -690,7 +889,8 @@ export default function ExamApplicantsPage() {
                             leftSection={<IconDownload size={16} />}
                             variant="filled"
                             color="green"
-                            onClick={handleDownloadCsv}
+                            onClick={handleDownloadExcel}
+                            loading={isExporting}
                             radius="md"
                         >
                             엑셀 다운로드
@@ -708,7 +908,7 @@ export default function ExamApplicantsPage() {
                     <Text size="xs" c="dimmed" fw={500}>빠른 분류:</Text>
                     <Tabs
                         value={quickAffiliation}
-                        onChange={(value) => setQuickAffiliation(value ?? '전체')}
+                        onChange={(value) => setQuickAffiliation(value ?? EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE)}
                         variant="pills"
                         radius="xl"
                         color="blue"
@@ -729,25 +929,72 @@ export default function ExamApplicantsPage() {
                         options={examSubjectFilterOptions}
                         value={examSubjectFilter}
                         onChange={handleExamSubjectFilterChange}
+                        kind="subject"
                     />
                     <TopFilterMenu
                         title="시험 회차"
                         options={examRoundFilterOptions}
                         value={effectiveExamRoundFilter}
                         onChange={setExamRoundFilter}
+                        kind="round"
                     />
                 </Group>
-                <Group grow>
-                    <Paper p="md" radius="md" withBorder shadow="sm">
-                        <Text size="xs" c="dimmed" fw={700} tt="uppercase">총 신청자 (현재 필터)</Text>
+                <Group grow align="stretch">
+                    <Paper
+                        component="button"
+                        type="button"
+                        p="md"
+                        radius="md"
+                        withBorder
+                        shadow="sm"
+                        className={styles.statCard}
+                        data-active={!selectedReceptionStatus || undefined}
+                        data-tone="total"
+                        aria-pressed={!selectedReceptionStatus}
+                        onClick={() => setReceptionStatusFilter(null)}
+                    >
+                        <Group justify="space-between" gap="xs">
+                            <Text size="xs" c="dimmed" fw={700} tt="uppercase">총 신청자 (현재 필터)</Text>
+                            {!selectedReceptionStatus && <Badge size="xs" variant="light" color="gray">전체 보기</Badge>}
+                        </Group>
                         <Text fw={700} size="xl" mt="xs">{stats.total}명</Text>
                     </Paper>
-                    <Paper p="md" radius="md" withBorder shadow="sm" style={{ borderLeft: `4px solid ${HANWHA_ORANGE}` }}>
-                        <Text size="xs" c="orange" fw={700} tt="uppercase">접수 완료</Text>
+                    <Paper
+                        component="button"
+                        type="button"
+                        p="md"
+                        radius="md"
+                        withBorder
+                        shadow="sm"
+                        className={styles.statCard}
+                        data-active={selectedReceptionStatus === '접수 완료' || undefined}
+                        data-tone="confirmed"
+                        aria-pressed={selectedReceptionStatus === '접수 완료'}
+                        onClick={() => setReceptionStatusFilter('접수 완료')}
+                    >
+                        <Group justify="space-between" gap="xs">
+                            <Text size="xs" c="orange" fw={700} tt="uppercase">접수 완료</Text>
+                            {selectedReceptionStatus === '접수 완료' && <Badge size="xs" color="orange">선택됨</Badge>}
+                        </Group>
                         <Text fw={700} size="xl" mt="xs" c="orange">{stats.confirmed}명</Text>
                     </Paper>
-                    <Paper p="md" radius="md" withBorder shadow="sm">
-                        <Text size="xs" c="dimmed" fw={700} tt="uppercase">미접수</Text>
+                    <Paper
+                        component="button"
+                        type="button"
+                        p="md"
+                        radius="md"
+                        withBorder
+                        shadow="sm"
+                        className={styles.statCard}
+                        data-active={selectedReceptionStatus === '미접수' || undefined}
+                        data-tone="pending"
+                        aria-pressed={selectedReceptionStatus === '미접수'}
+                        onClick={() => setReceptionStatusFilter('미접수')}
+                    >
+                        <Group justify="space-between" gap="xs">
+                            <Text size="xs" c="dimmed" fw={700} tt="uppercase">미접수</Text>
+                            {selectedReceptionStatus === '미접수' && <Badge size="xs" variant="filled" color="dark">선택됨</Badge>}
+                        </Group>
                         <Text fw={700} size="xl" mt="xs">{stats.pending}명</Text>
                     </Paper>
                 </Group>
@@ -769,6 +1016,7 @@ export default function ExamApplicantsPage() {
                                     {EXAM_APPLICANT_EXPORT_COLUMNS.map((column) =>
                                         renderHeader(column.title, column.key, column.minWidth),
                                     )}
+                                    {renderHeader('입금 증빙', 'payment_proof', proofColumnMinWidth)}
                                     {renderHeader('접수 상태', 'is_confirmed', statusColumnMinWidth)}
                                     {renderHeader('관리', 'actions', actionsColumnMinWidth)}
                                 </Table.Tr>
@@ -788,9 +1036,46 @@ export default function ExamApplicantsPage() {
                                     </Table.Td></Table.Tr>
                                 ) : filteredRows.length > 0 ? (
                                     filteredRows.map((item) => (
-                                        <Table.Tr key={item.id}>
+                                        <Tooltip.Floating
+                                            key={item.id}
+                                            label={`${item.affiliation || '소속 미정'} · ${item.name || '이름 미정'}`}
+                                            position="top"
+                                            offset={24}
+                                            classNames={{ tooltip: styles.floatingIdentityTooltip }}
+                                        >
+                                        <Table.Tr
+                                            className={styles.applicantRow}
+                                            data-reception={item.is_confirmed ? 'confirmed' : 'pending'}
+                                            role="link"
+                                            tabIndex={0}
+                                            aria-label={`${item.affiliation || '소속 미정'} ${item.name || '이름 미정'}, ${formatExamApplicantReceptionStatus(item)}, 상세 보기`}
+                                            onClick={() => router.push(`/dashboard/exam/applicants/${encodeURIComponent(item.id)}`)}
+                                            onKeyDown={(event) => {
+                                                if (event.key !== 'Enter' && event.key !== ' ') return;
+                                                event.preventDefault();
+                                                router.push(`/dashboard/exam/applicants/${encodeURIComponent(item.id)}`);
+                                            }}
+                                        >
                                             {EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => renderApplicantCell(item, column))}
-                                            <Table.Td>
+                                            <Table.Td onClick={(event) => event.stopPropagation()} ta="center">
+                                                {item.payment_proof_attached ? (
+                                                    <Button
+                                                        component="a"
+                                                        href={buildExamPaymentProofImagePath(item.id)}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        size="compact-sm"
+                                                        variant="light"
+                                                        color="orange"
+                                                        leftSection={<IconPhoto size={15} />}
+                                                    >
+                                                        보기
+                                                    </Button>
+                                                ) : (
+                                                    <Text size="sm" c="dimmed" ta="center">없음</Text>
+                                                )}
+                                            </Table.Td>
+                                            <Table.Td onClick={(event) => event.stopPropagation()}>
                                                 <SegmentedControl
                                                     size="xs"
                                                     radius="xl"
@@ -808,18 +1093,39 @@ export default function ExamApplicantsPage() {
                                                     }}
                                                     disabled={
                                                         isReadOnly ||
+                                                        !['applied', 'confirmed'].includes(item.status) ||
                                                         (updateStatusMutation.isPending && updateStatusMutation.variables?.item.id === item.id)
                                                     }
                                                 />
                                             </Table.Td>
-                                            <Table.Td>
-                                                <Tooltip label={isReadOnly ? '본부장은 삭제할 수 없습니다.' : '신청자 삭제'}>
+                                            <Table.Td onClick={(event) => event.stopPropagation()}>
+                                                <Group gap="xs" justify="center" wrap="nowrap">
+                                                <Tooltip label={isReadOnly ? '본부장은 반려할 수 없습니다.' : '시험 신청 반려'}>
+                                                    <ActionIcon
+                                                        variant="light"
+                                                        color="red"
+                                                        size="lg"
+                                                        disabled={
+                                                            isReadOnly
+                                                            || !['applied', 'confirmed'].includes(item.status)
+                                                            || rejectApplicantMutation.isPending
+                                                        }
+                                                        onClick={() => {
+                                                            setRejectTarget(item);
+                                                            setRejectReason('');
+                                                        }}
+                                                    >
+                                                        <IconBan size={16} />
+                                                    </ActionIcon>
+                                                </Tooltip>
+                                                <Tooltip label={isReadOnly ? '본부장은 취소할 수 없습니다.' : '신청 관리자 취소'}>
                                                     <ActionIcon
                                                         variant="light"
                                                         color="red"
                                                         size="lg"
                                                         disabled={
                                                             isReadOnly ||
+                                                            !['applied', 'confirmed'].includes(item.status) ||
                                                             (deleteApplicantMutation.isPending &&
                                                                 deleteApplicantMutation.variables?.id === item.id)
                                                         }
@@ -829,7 +1135,7 @@ export default function ExamApplicantsPage() {
                                                         }
                                                         onClick={() => {
                                                             if (isReadOnly) return;
-                                                            if (!window.confirm(`${item.name} 신청 내역을 삭제하시겠습니까?`)) {
+                                                            if (!window.confirm(`${item.name} 신청을 관리자 취소 처리하시겠습니까? 이력은 보존됩니다.`)) {
                                                                 return;
                                                             }
                                                             deleteApplicantMutation.mutate(item);
@@ -838,8 +1144,10 @@ export default function ExamApplicantsPage() {
                                                         <IconTrash size={16} />
                                                     </ActionIcon>
                                                 </Tooltip>
+                                                </Group>
                                             </Table.Td>
                                         </Table.Tr>
+                                        </Tooltip.Floating>
                                     ))
                                 ) : (
                                     <Table.Tr><Table.Td colSpan={tableColumnCount} align="center" py={80} c="dimmed">
@@ -854,6 +1162,30 @@ export default function ExamApplicantsPage() {
                     </ScrollArea>
                 </Paper>
             </Stack>
+            <RejectReasonModal
+                opened={Boolean(rejectTarget)}
+                onClose={() => {
+                    if (!rejectApplicantMutation.isPending) {
+                        setRejectTarget(null);
+                        setRejectReason('');
+                    }
+                }}
+                title="시험 신청 반려"
+                description="FC에게 전달할 반려 사유를 입력해주세요."
+                placeholder="반려 사유 (1~1000자)"
+                value={rejectReason}
+                onChange={setRejectReason}
+                submitting={rejectApplicantMutation.isPending}
+                submitDisabled={rejectReason.trim().length < 1 || rejectReason.trim().length > 1000}
+                onSubmit={() => {
+                    if (rejectTarget) {
+                        rejectApplicantMutation.mutate({
+                            item: rejectTarget,
+                            reason: rejectReason.trim(),
+                        });
+                    }
+                }}
+            />
         </Container>
     );
 }

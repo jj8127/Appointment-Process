@@ -2,10 +2,127 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-04-23
-source_of_truth: env contracts + reset-password functions + admin service-role callers
+last_verified: 2026-08-10
+source_of_truth: env contracts + reset-password functions + assisted-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + supabase/functions/fc-notify/index.ts + supabase/migrations/*internal_messenger_summary_v1.sql + supabase/migrations/20260810070757_admin_assisted_signup_v1.sql + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
+
+## 2026-08-10 관리자 서면확인 회원가입 경계
+
+- 실행 권한은 verified server session 기준 활성 `admin` 또는 `developer`뿐이다. `manager`와 read-only session은 조회·실행 모두 허용하지 않는다.
+- 서면확인은 SMS OTP 성공으로 기록하지 않는다. `signup_verification_method='admin_written_consent'`, `phone_verified=false`, 확인 일시와 실행 관리자 ID를 별도 저장한다.
+- 감사 원장은 요청 ID, 대상 FC, 실행 관리자, 확인일, 내부 증빙 참조번호, 고정 확인문 버전만 저장한다. 서면 본문, 주민번호, 전화번호, 자유서술 개인정보를 증빙 참조 필드나 로그에 복사하지 않는다.
+- 프로필·추천 관계·임시 자격증명·동의 원장은 `admin_create_assisted_signup_v1` 한 트랜잭션으로 처리하고 요청 ID와 대상 전화번호를 잠근다. 부분 성공을 클라이언트 보정으로 이어 붙이지 않는다.
+- 임시 비밀번호는 PBKDF2-SHA256 해시만 저장하고 `must_change_password=true`로 발급한다. 첫 로그인에서는 일반 세션을 차단하고 one-time 비밀번호 변경 challenge만 허용한다.
+- 테이블은 Data API 공개 권한을 제거하고 service-role RPC 경로만 사용한다. 원장은 append-only이며 일반 브라우저 Supabase client가 직접 조회하거나 수정하지 않는다.
+
+## 2026-07-30 Administrator web notification and diagnostic boundary
+
+- The administrator web uses its in-app notification center only. On an
+  authenticated session it retires legacy browser subscriptions and displayed
+  system notifications, and it does not expose a new system-notification
+  registration control.
+- `fc-notify` and administrator notification routes log only privacy-safe
+  aggregates. Phone numbers, tokens, provider response bodies, and resident
+  numbers are never diagnostic fields.
+- Durable inbox persistence is independent from device/provider delivery.
+  Missing devices or provider rejection must not be shown to an operator as if
+  the requested notification was never recorded.
+
+## Native referral graph read boundary (2026-07-26)
+
+- `get-referral-tree`의 additive graph mode는 `x-app-session-token`을 검증한 뒤 token source role `fc` 또는 `manager`만 허용하고, DB에서 다시 확인한 자기 profile id를 root로 고정합니다. 요청 body의 `fcId`, role, phone은 graph scope 근거가 아닙니다.
+- Graph 조회는 service role로 canonical `fc_profiles.recommender_fc_id` downline만 읽고 `permissions.canMutate=false`, `scope='downline'`를 반환합니다. phone, 주민정보, audit payload, 관계 변경 action은 응답과 모바일 상세 화면에 포함하지 않습니다.
+- Graph DB failure는 fixed `db_error` 사용자 응답과 closed `referral_tree.load:rpc_and_fallback_failed` diagnostic으로 끝납니다. raw database message, profile identifier, 추천코드, affiliation은 로그에 전달하지 않습니다.
+
+## Board notification retry trust boundary (2026-07-25)
+
+- Clients authenticate with the existing signed app session and submit only `{postId,eventKey}`. The `board-notification-retry` Edge rejects FC and automation callers, checks manager ownership against the committed post, and derives recipient scope and content server-side.
+- Only the Edge uses `SUPABASE_SERVICE_ROLE_KEY` for the service-bound `notifications` upsert and provider-only `fc-notify` call. The key, notification recipients, raw database errors, and provider responses are never returned or logged.
+- Inbox persistence failure emits only the closed `board_notification_retry.notification_insert` diagnostic. Provider rejection and no registered device are bounded delivery metadata and never become a sender warning.
+
+## Group-chat retry token boundary (2026-07-25)
+
+- Group-chat notification retry tokens reuse the existing `FC_APP_SESSION_TOKEN_SECRET` current/previous rotation pair only through a dedicated HMAC context. No new secret or client-visible signing material is introduced.
+- Token verification is timing-safe and is combined with a fresh signed-session actor lookup, canonical room-scoped message lookup, original-sender match, deletion check, and current membership check. Possession of a token alone grants no access.
+- The retry request accepts only message ID and opaque token. Recipient IDs, notification IDs, message content, typed target, and provider payload are server-derived.
+
+## 2026-07-24 Direct-message deep-link boundary
+
+- `fc-notify` derives a direct-message target from the authenticated sender identity. Browser callers still cannot choose `sender_id` or `sender_name`; the protected proxy rebuilds both from the verified session.
+- Message push data may contain only the canonical staff/FC chat actor ID, the bounded display name, the internal relative `/chat?...` route, category, source, and target role metadata. It must not contain session tokens, resident numbers, device tokens, provider responses, or raw database errors.
+- `chat_targets` can return per-target last-message time, preview, and unread count only to the signed FC whose viewer ID matches the app-session token. The Edge query is restricted to conversations between that FC and the already authorized staff target set.
+
+## 2026-07-23 Exam Payment Proof Private Upload Contract
+
+- 시험 증빙 업로드 권한은 전화번호, FC id, CORS origin만으로 부여하지 않습니다. `exam-payment-proof`는 `x-app-session-token`의 서명을 검증하고 현재 FC/manager 계정과 대상 FC 소유권을 다시 확인한 뒤에만 단기 signed upload URL을 발급합니다.
+- `exam-payment-proofs` 버킷과 `exam_payment_proof_uploads` 장부는 service-role-only입니다. 모바일은 public URL을 만들거나 Storage path를 직접 조합하지 않으며, Edge가 발급한 signed upload token으로만 선택한 JPG/PNG/WebP 파일을 최대 10MB까지 전송합니다.
+- 신청 저장은 `submit_exam_registration_with_payment_proof` RPC 한 번으로 신청과 증빙 연결을 원자 처리합니다. `(fc_id, request_id)` 멱등성 키를 재사용해 응답 유실 재시도가 증빙·신청 중복을 만들지 않게 합니다.
+- 진단은 `exam_payment_proof.database:database_operation_failed`, `exam_payment_proof.storage:signed_upload_url_failed`, `exam_payment_proof.storage:storage_remove_failed`의 고정 쌍만 허용합니다. 원본 오류, signed URL, object path, 파일명, FC 식별자는 로그나 사용자 오류에 포함하지 않습니다.
+- 관리자 화면의 증빙 조회는 `getVerifiedReadOnlyAdminSession`으로 활성 admin/manager를 확인하고 현재 `attached` ledger row만 service role로 다운로드합니다. ordinary applicant 응답에는 object path나 signed URL을 섞지 않으며 image 응답은 `private, no-store`입니다.
+- 엑셀 export는 같은 활성 admin/manager 확인 뒤에만 30일 signed URL을 발급합니다. 발급 URL은 admin web cookie 없이 열리는 전달 가능한 bearer capability이므로 public bucket 대체 수단으로 확장하지 않고, DB·로그·일반 목록 응답에 저장하거나 기록하지 않습니다.
+- 배포는 additive DB migration과 새 `exam-payment-proof` Edge를 먼저 검증한 다음 새 모바일을 활성화합니다. 이 변경은 진행 중인 Request Board DB/Vercel 순서나 `admin-action` 릴리스에 포함하지 않으며, 운영 DB 적용·관리자 증빙 열람·실기기 확인 전에는 release hold입니다.
+
+## 2026-07-16 Diagnostic Privacy Contract
+
+- Privacy filtering happens before the first sink. The mobile and admin-web shared loggers sanitize the message, structured payload, and `Error` name/message/stack before any `console.*` serialization or Sentry-adjacent capture call. Sentry `beforeSend` remains defense in depth, not the primary logger boundary.
+- Messenger latency diagnostics use the logger's console-only `PERF` level. They emit fixed operation/source classifications, a process-local sequence ID, ISO start/completion timestamps, elapsed milliseconds, booleans, and counts only. `PERF` is visible in release device logs but never calls the Sentry capture path and must not accept actor/customer/session/room identifiers, URLs, request/response bodies, names, phones, message content, or raw `Error` data.
+- Diagnostic serialization must redact bearer/JWT-like credentials, Korean and international mobile numbers, resident numbers, Expo push tokens, OTP-labelled values/keys, raw upstream or response bodies, filenames, and storage object paths. Non-sensitive classification fields such as fixed `reason`, numeric/provider `status`, and error class name remain intact.
+- Push registration/API, signup OTP, and group-chat provider/database diagnostics use reviewed fixed reason/status fields only. Test mode never prints an OTP or destination identifier, and provider response bodies are not copied into logs or user-facing errors.
+- Edge diagnostics for the reviewed auth/referral, Request Board password bridge, notification fanout, presence fallback, Board database/view/attachment, and account-cleanup failures terminate at `supabase/functions/_shared/edge-diagnostic.ts`. Its input is a closed event/reason union with only bounded numeric `status`/`count`, boolean `retryable`, and a coarse allowlisted `errorClass`; it cannot accept raw `Error`, message/stack/cause, response body, URL/path, identifier, phone, referral code, or affiliation fields. The runtime reconstructs output field by field and emits a fixed fallback for an invalid event/reason pair.
+- The 2026-07-16 reviewed 14-file inventory now contains exactly 9 direct-console sinks, all explicitly reviewed single-literal non-sensitive diagnostics; the unproven count is zero. The exact call-and-anchor allowlist is a regression fence: every variable/error diagnostic must use the closed Edge helper or a sanitized structured logger, and any new or rewritten direct sink requires classification plus evidence.
+- Local proof uses malicious samples and positive controls through logger/Sentry-adjacent boundaries plus frozen Deno checks. Production Supabase log replay, live Sentry inspection, and device push delivery remain external rollout checks and do not become green from local source tests alone.
+
+## 2026-07-12 FC Notify Dual-Ingress Secret Contract
+
+- Browser `/api/fc-notify` calls require the source origin to match the actual request URL's scheme plus canonical Host and a verified signed server session. `X-Forwarded-Host` alone is not authorization evidence.
+- FC sessions bind the signed token's `fcId` and resident phone to the same `signup_completed=true` profile before any privileged notification read or send.
+- Request Board uses a dedicated pair: sender `FC_ONBOARDING_NOTIFY_TOKEN`, receiver `REQUEST_BOARD_NOTIFY_TOKEN`. Both missing and mismatched values fail closed; no other bridge secret or service-role key is an authentication fallback.
+- The sender accepts only the exact HTTPS `/api/fc-notify` endpoint, with plain HTTP limited to localhost development checks. The receiver compares SHA-256 digests with `timingSafeEqual`, never logs the token, and rebuilds the outbound payload from an action/category allowlist.
+- Both sides redact complete title/body values before applying identical 120/2000-character bounds. Browser callers omit sender identity and direct notification inserts; the route derives identity and the Edge Function remains the single notification-row writer.
+- Deploy sender/token first and the hardened receiver second. If the protected receiver rollout fails, keep the receiver closed, repair token parity, or temporarily disable bridge fanout. Never restore the unauthenticated raw-body proxy as a rollback.
+
+## 2026-07-12 Board App-Session And Automation Contract
+
+- A phone number, role, CORS origin, or active account row is not proof of possession. Every Board
+  request is authorized by either a signed `x-app-session-token` rebound to the active DB actor or the
+  narrow automation ingress below. The service-role client is used only after that decision.
+- Mobile keeps the signed token in secure app-session storage. Admin web keeps it in the HttpOnly
+  `web_app_session` cookie and reaches Board through the signed same-origin `/api/board` proxy. The
+  login route must strip `appSessionToken` from public JSON.
+- `BOARD_AUTOMATION_TOKEN` is a dedicated high-entropy exact-match secret paired between the
+  insurance-digest runner and Edge secrets. `BOARD_AUTOMATION_ACTOR_PHONE` must be an active admin;
+  `BOARD_AUTOMATION_ACTOR_NAME` is server configuration, never request authority.
+- Automation may read categories/list and create only `보험소식 브리핑 ...` in canonical `general`.
+  Missing category is a blocker. It may not create categories or reach update/delete/pin/attachment.
+- Rotate the runner and Edge token together. Empty, near-match, wrong-action, and wrong-category
+  requests fail closed. Never log the token or include it in dry-run payloads.
+- Authentication rollout is caller first: deploy signed mobile/web/runner transports, verify adoption
+  and admin re-login, then enforce actor-bound authentication across FC notify and all 17 Board Edge
+  handlers in one controlled window. Partial Board auth rollout can reopen a sibling confused-deputy
+  path. This rule does not define DB/RPC version ordering.
+- Atomic RPC rollout is a separate compatibility sequence: (A) old/new-DB-compatible caller or
+  feature-disabled RPC path, (B) additive migration plus existence/grant/transaction verification,
+  (C) new RPC caller activation, then (D) observation and auth smoke before removing legacy/compat.
+- The current `board-update` handler is RPC-required: activate it only after the Board RPC migration
+  is verified and signed caller adoption is proven, as part of the 17-Board auth enforcement window.
+  The admin-web exam schedule action is also RPC-required: activate it in a separate web release only
+  after the Exam RPC migration is verified. Neither current artifact is an A-stage compatible caller.
+- Never use multi-statement writes as a compatibility or rollback path. Use feature-off/held safe
+  artifacts before activation and additive forward correction after migration.
+
+## 2026-07-12 Local Sentry Build Deny Contract
+
+- A local verification build is safe only when `SENTRY_DISABLE_UPLOAD=1` reaches the final Sentry
+  plugin config and forces both `authToken: undefined` and `sourcemaps.disable=true`.
+- Clearing a parent-shell token is insufficient because Next may reload an ignored `.env.local`.
+  Route unexpected traffic to a loopback-only `SENTRY_URL` and inspect output for upload/release/
+  artifact activity; build success does not excuse an external mutation.
+
+## 2026-07-22 Notification diagnostic privacy contract
+
+- Mobile notification handlers must return only the supported display flags and must not log raw notification payloads, tokens, contact values, or navigation data.
+- `lib/__tests__/diagnostic-privacy-source.test.ts` owns the source guard for both the root Expo handler and `lib/notifications.ts`; handler compatibility changes must keep this privacy boundary intact.
 
 ## 2026-07-07 Supabase Functions Lockfile
 
@@ -15,7 +132,10 @@ source_of_truth: env contracts + reset-password functions + admin service-role c
 
 - Privileged admin web routes must verify the signed server session. Raw `session_role` or `session_resident` cookies are not an authorization source outside the explicit session helper/proxy boundary.
 - `device_tokens` must be treated as service-role-only storage. Register/delete goes through `device-token-register`; fanout goes through server routes or server-only helpers.
-- Request Board bridge tokens use `REQUEST_BOARD_BRIDGE_TOKEN_SECRET`; app session tokens use `FC_APP_SESSION_TOKEN_SECRET`. The legacy bridge secret is verify-only during rotation and must not mint new bridge tokens.
+- Request Board bridge-token compatibility and FC app-session signing are separate HMAC trust domains.
+  App sessions are signed only by `FC_APP_SESSION_TOKEN_SECRET` and verify only that current key plus
+  `FC_APP_SESSION_TOKEN_PREVIOUS_SECRET`; `REQUEST_BOARD_AUTH_BRIDGE_SECRET` is never an app-session
+  minting or verification fallback.
 
 ## 반드시 문서화되는 항목
 
@@ -53,3 +173,17 @@ source_of_truth: env contracts + reset-password functions + admin service-role c
 - `set-password`는 회원가입 추천인 확정 시 `supabase/functions/_shared/referral-link.ts`의 `applyReferralLinkState(...)`를 통해서만 invitee current-state를 쓴다. OTP/password 경로가 `fc_profiles` 추천인 컬럼을 ad-hoc update로 따로 건드리면 security/contract regression으로 본다.
 - admin web browser push는 `NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY`, `WEB_PUSH_SUBJECT`, `ADMIN_PUSH_SECRET`가 모두 있을 때만 fully configured 상태다. preview 배포처럼 값이 빠진 환경에서는 실패를 숨기지 말고 “설정되지 않은 배포” 상태를 명시적으로 보여줘야 한다.
 - admin web의 request-board deep link는 `NEXT_PUBLIC_REQUEST_BOARD_URL`이 없으면 production fallback으로 새면 안 된다. 설정이 빠진 배포에서는 disabled 상태로 남겨야 한다.
+## Messenger list summary boundary
+
+- `fc-notify` may call `get_internal_messenger_summaries_v1` only after the
+  signed app actor has been resolved and the viewer/target identifiers have
+  been derived from server-owned account and participant records.
+- The RPC is `SECURITY INVOKER` with an empty search path. Execute is revoked
+  from public, anon, and authenticated and granted only to `service_role`.
+  Client-supplied role or target arrays are never an authorization source.
+- The summary returns only target ID, latest preview/time, and unread count;
+  it excludes deleted messages and must not return message history or attachment
+  metadata to construct a list row.
+- Apply the additive migration before the Edge caller. Roll back the caller
+  first and retain the additive function/indexes until a reviewed forward
+  migration proves that no deployed caller depends on them.

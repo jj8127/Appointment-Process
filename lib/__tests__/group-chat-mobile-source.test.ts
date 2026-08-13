@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 const appRoot = join(__dirname, '..', '..', 'app');
 const componentRoot = join(__dirname, '..', '..', 'components');
+const workspaceRoot = join(__dirname, '..', '..');
 
 function readAppFile(fileName: string) {
   return readFileSync(join(appRoot, fileName), 'utf8');
@@ -16,10 +17,10 @@ describe('group chat mobile wiring', () => {
   it('exposes the group chat card from the messenger hub', () => {
     const source = readAppFile('messenger.tsx');
 
-    expect(source).toContain('가람PA 단톡방');
     expect(source).toContain("router.push('/group-chat')");
     expect(source).toContain('groupChatBootstrap');
-    expect(source).toContain('canUseGroupChat &&');
+    expect(source).toContain('buildGroupConversation(summary)');
+    expect(source).toContain('if (capabilities.canUseGroupChat)');
     expect(source).not.toContain("staffType !== 'developer'");
   });
 
@@ -37,11 +38,78 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('showGroupChatErrorAlert(error)');
     expect(source).toContain('buildOptimisticMessage');
     expect(source).toContain('sendOptimisticToServer');
+    expect(source).toContain('hasGroupChatPostCommitWarning');
+    expect(source).toContain('getGroupChatNotificationRetry');
+    expect(source).toContain('groupChatRetryNotification');
+    expect(source).toContain('showGroupChatDeliveryWarning');
+    expect(source).toContain('메시지는 전송됐지만 수신자 알림함에 등록하지 못했습니다.');
+    expect(source).toContain('알림만 다시 시도');
+    expect(source).toContain("logger.warn('[group-chat] post-send read state update failed')");
+    expect(source).not.toContain('result.warning.message');
     expect(source).toContain('send_status');
     expect(source).toContain('DocumentPicker.getDocumentAsync');
+    expect(source).toContain('multiple: true');
+    expect(source).toContain('appendMessengerAttachmentCandidates');
+    expect(source).toContain('prepareMessengerAttachmentBatch');
+    expect(source).toContain('uploadMessengerAttachmentBatch');
+    expect(source).toContain('openAuthorizedMessengerAttachment');
     expect(source).toContain('ImagePicker.launchImageLibraryAsync');
+    expect(source).toContain('accessibilityLabel="사진 첨부"');
+    expect(source).toContain('selectionLimit: MAX_MESSENGER_ATTACHMENTS - selectedAttachments.length');
+    expect(source).not.toContain('createSignedUploadUrl');
+    expect(source).not.toContain('getPublicUrl');
     expect(source).toContain('keyboardShouldPersistTaps="handled"');
     expect(source).toContain('supabase.removeChannel(channel)');
+
+    const sendStart = source.indexOf('const sendOptimisticToServer');
+    const sendEnd = source.indexOf('const sendPayload', sendStart);
+    const sendSource = source.slice(sendStart, sendEnd);
+    expect(sendSource.indexOf('applyMessages([')).toBeGreaterThan(-1);
+    expect(sendSource.indexOf('shouldShowDeliveryWarning = hasGroupChatPostCommitWarning(result)'))
+      .toBeGreaterThan(sendSource.indexOf('applyMessages(['));
+    expect(sendSource).toContain('notificationRetry = getGroupChatNotificationRetry(result)');
+    expect(sendSource.indexOf('if (shouldShowDeliveryWarning)'))
+      .toBeGreaterThan(sendSource.indexOf('catch (error)'));
+    const retryStart = source.indexOf('async function retryGroupChatNotificationOnly');
+    const retryEnd = source.indexOf('type OptimisticMessageInput', retryStart);
+    const retrySource = source.slice(retryStart, retryEnd);
+    expect(retrySource).toContain('groupChatRetryNotification(retry)');
+    expect(retrySource).not.toContain('groupChatSend(');
+  });
+
+  it('keeps every mobile chat composer at one keyboard gap across device insets', () => {
+    const groupSource = readAppFile('group-chat.tsx');
+    const directSource = readAppFile('chat.tsx');
+    const requestBoardSource = readAppFile('request-board-messenger.tsx');
+
+    for (const source of [groupSource, directSource, requestBoardSource]) {
+      expect(source).toContain('getChatComposerBottomPadding');
+      expect(source).toContain('<KeyboardSafeBottomBar>');
+      expect(source).not.toContain("keyboardVerticalOffset={Platform.OS === 'ios' ? 65 : 0}");
+      expect(source).not.toContain("Platform.OS === 'android' ? keyboardPadding : 0");
+      expect(source).not.toContain(
+        "behavior={Platform.OS === 'ios' ? 'padding' : undefined}",
+      );
+    }
+  });
+
+  it('does not reuse an attachment delivery after the reply target changes', () => {
+    const source = readAppFile('group-chat.tsx');
+    const sendStart = source.indexOf('const sendPayload');
+    const sendEnd = source.indexOf('const handleSendText', sendStart);
+    const sendSource = source.slice(sendStart, sendEnd);
+
+    expect(source).toContain('attachmentBatchReplyTargetRef');
+    expect(sendSource).toContain('const replyToMessageId = replyTarget?.id ?? null');
+    expect(sendSource).toContain(
+      'attachmentBatchReplyTargetRef.current === replyToMessageId',
+    );
+    expect(sendSource).toContain(
+      'attachmentBatchReplyTargetRef.current = replyToMessageId',
+    );
+    expect(sendSource).toContain(
+      'attachmentBatchReplyTargetRef.current = null',
+    );
   });
 
   it('renders internet URLs as tappable, underlined links in group chat messages', () => {
@@ -228,23 +296,51 @@ describe('group chat mobile wiring', () => {
     expect(source).not.toContain('function resolveCanSendMessages');
   });
 
-  it('routes group chat notifications to the group chat screen', () => {
-    const source = readAppFile('notifications.tsx');
+  it('routes each group-chat push by its exact room and notification receipt', () => {
+    const notificationSource = readAppFile('notifications.tsx');
+    const groupChatSource = readAppFile('group-chat.tsx');
+    const targetSource = readFileSync(
+      join(workspaceRoot, 'lib', 'notification-target.ts'),
+      'utf8',
+    );
+    const edgeSource = readFileSync(
+      join(workspaceRoot, 'supabase', 'functions', 'group-chat', 'index.ts'),
+      'utf8',
+    );
 
-    expect(source).toContain("category === 'group_chat_message'");
-    expect(source).toContain("return '/group-chat'");
+    expect(edgeSource).toContain(
+      "target: { version: 1, kind: 'group_chat', roomId: input.roomId }",
+    );
+    expect(edgeSource).toContain(
+      'const notificationId = notificationInsert.ids_by_actor.get(',
+    );
+    expect(edgeSource).not.toContain(
+      'notificationId: notificationInsert.ids_by_actor.get(',
+    );
+    expect(edgeSource).toContain('if (!notificationId) return null');
+    expect(edgeSource).toContain('if (notificationInsert.failed)');
+    expect(edgeSource).toContain('recipient_actor_id: member.immutable_actor_id');
+    expect(groupChatSource).toContain(
+      "expectedTarget: !hasInvalidRoomRoute && routeRoomId\n      ? { version: 1, kind: 'group_chat', roomId: routeRoomId }",
+    );
+    expect(groupChatSource).toContain('room?.id === routeRoomId');
+    expect(groupChatSource).toContain('useNotificationReceiptCompletion');
+    expect(targetSource).toContain(
+      'path = `/group-chat?roomId=${encodeURIComponent(target.roomId)}`',
+    );
+    expect(notificationSource).toContain('parseNotificationTarget(item.target)');
+    expect(notificationSource).not.toContain("category === 'group_chat_message'");
   });
 
   it('registers push tokens from mobile admin sessions too', () => {
-    const source = readAppFile('index.tsx');
-    const pushRegistrationSection = source.slice(
-      source.indexOf('모바일 푸시 토큰 등록'),
-      source.indexOf('const handleLogout'),
-    );
+    const sessionSource = readFileSync(join(workspaceRoot, 'hooks', 'use-session.tsx'), 'utf8');
+    const homeSource = readAppFile('index.tsx');
 
-    expect(pushRegistrationSection).toContain('resolvePushRegistrationDeviceRole');
-    expect(pushRegistrationSection).toContain('buildPushRegistrationAttemptKey');
-    expect(pushRegistrationSection).toContain('role: pushRole');
-    expect(pushRegistrationSection).not.toContain("if (role !== 'fc' || !residentId) return;");
+    expect(sessionSource).toContain('buildPushRegistrationAttemptKey');
+    expect(sessionSource).toContain("const pushRole: 'admin' | 'fc' | 'manager'");
+    expect(sessionSource).toContain("state.requestBoardRole === 'designer'");
+    expect(sessionSource).toContain("registerPushToken(pushRole, state.residentId, state.displayName)");
+    expect(sessionSource).not.toContain("if (role !== 'fc' || !residentId) return;");
+    expect(homeSource).not.toContain('registerPushToken(');
   });
 });

@@ -2,26 +2,27 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  compareExamRoundsByExamDateThenDeadline,
-  sortExamRoundsByExamDateThenDeadline,
+  compareExamRoundsNewestFirst,
+  sortExamRoundsNewestFirst,
 } from './exam-round-sort.ts';
 
 type DemoRound = {
   id: string;
   exam_date: string | null;
   registration_deadline: string;
+  created_at?: string;
 };
 
-test('sorts rows with valid exam dates in ascending order', () => {
+test('sorts rows with valid exam dates newest first', () => {
   const rows: DemoRound[] = [
     { id: 'late', exam_date: '2026-07-01', registration_deadline: '2026-06-25' },
     { id: 'early', exam_date: '2026-06-10', registration_deadline: '2026-06-01' },
     { id: 'middle', exam_date: '2026-06-15', registration_deadline: '2026-06-02' },
   ];
 
-  const sorted = sortExamRoundsByExamDateThenDeadline(rows);
+  const sorted = sortExamRoundsNewestFirst(rows);
 
-  assert.deepEqual(sorted.map((row) => row.id), ['early', 'middle', 'late']);
+  assert.deepEqual(sorted.map((row) => row.id), ['late', 'middle', 'early']);
 });
 
 test('places exam-date-missing rows below dated rows', () => {
@@ -31,21 +32,21 @@ test('places exam-date-missing rows below dated rows', () => {
     { id: 'missing-slow', exam_date: null, registration_deadline: '2026-06-03' },
   ];
 
-  const sorted = sortExamRoundsByExamDateThenDeadline(rows);
+  const sorted = sortExamRoundsNewestFirst(rows);
 
-  assert.deepEqual(sorted.map((row) => row.id), ['dated', 'missing-fast', 'missing-slow']);
+  assert.deepEqual(sorted.map((row) => row.id), ['dated', 'missing-slow', 'missing-fast']);
 });
 
-test('sorts missing-date rows by registration_deadline ascending', () => {
+test('sorts missing-date rows by registration deadline newest first', () => {
   const rows: DemoRound[] = [
     { id: 'late', exam_date: null, registration_deadline: '2026-06-30' },
     { id: 'early', exam_date: null, registration_deadline: '2026-06-01' },
     { id: 'same', exam_date: null, registration_deadline: '2026-06-01' },
   ];
 
-  const sorted = sortExamRoundsByExamDateThenDeadline(rows);
+  const sorted = sortExamRoundsNewestFirst(rows);
 
-  assert.deepEqual(sorted.map((row) => row.id), ['early', 'same', 'late']);
+  assert.deepEqual(sorted.map((row) => row.id), ['late', 'early', 'same']);
 });
 
 test('applies deadline tie-breaker for same exam-date rows', () => {
@@ -60,7 +61,29 @@ test('applies deadline tie-breaker for same exam-date rows', () => {
     registration_deadline: '2026-06-05',
   };
 
-  const byDeadline = compareExamRoundsByExamDateThenDeadline(roundsA, roundsB);
+  const byDeadline = compareExamRoundsNewestFirst(roundsA, roundsB);
 
-  assert.equal(byDeadline > 0, true);
+  assert.equal(byDeadline < 0, true);
+});
+
+test('uses creation time as the final newest-first tie breaker', () => {
+  const rows: DemoRound[] = [
+    {
+      id: 'older-created',
+      exam_date: '2026-06-10',
+      registration_deadline: '2026-06-01',
+      created_at: '2026-05-01T00:00:00Z',
+    },
+    {
+      id: 'newer-created',
+      exam_date: '2026-06-10',
+      registration_deadline: '2026-06-01',
+      created_at: '2026-05-02T00:00:00Z',
+    },
+  ];
+
+  assert.deepEqual(sortExamRoundsNewestFirst(rows).map((row) => row.id), [
+    'newer-created',
+    'older-created',
+  ]);
 });

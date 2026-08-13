@@ -15,6 +15,7 @@ export function buildResidentNumberEdgeFallbackRequest({
     url: `${supabaseUrl}/functions/v1/admin-action`,
     init: {
       method: 'POST',
+      cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
         apikey: serviceKey,

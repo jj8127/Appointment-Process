@@ -53,8 +53,14 @@ test('returns resident numbers from a successful edge fallback response', async 
   });
 
   assert.deepStrictEqual(result, {
-    'fc-1': '900101-1234567',
-    'fc-2': null,
+    residentNumbers: {
+      'fc-1': '900101-1234567',
+      'fc-2': null,
+    },
+    residentNumberStatuses: {
+      'fc-1': 'ready',
+      'fc-2': 'missing',
+    },
   });
   assert.equal(fetchCalls.length, 1);
   assert.equal(fetchCalls[0].url, 'https://project.supabase.co/functions/v1/admin-action');
@@ -109,7 +115,7 @@ test('throws the existing runtime misconfiguration error and skips fetch when ed
   ]);
 });
 
-test('logs response status and body before throwing the edge fallback server message', async () => {
+test('logs only response status and throws a fixed edge fallback message', async () => {
   const logCalls: LogCall[] = [];
 
   await assert.rejects(
@@ -125,7 +131,7 @@ test('logs response status and body before throwing the edge fallback server mes
       },
     }),
     {
-      message: 'Resident-number edge fallback failed after FC_IDENTITY_KEY is not configured: server says no',
+      message: 'Resident-number edge fallback failed after FC_IDENTITY_KEY is not configured.',
     },
   );
 
@@ -135,7 +141,6 @@ test('logs response status and body before throwing the edge fallback server mes
       details: {
         fallbackReason: 'missing_identity_key',
         status: 500,
-        body: { message: 'server says no', error: 'secondary' },
       },
     },
   ]);
@@ -159,7 +164,7 @@ test('uses the default edge fallback error message when response JSON cannot be 
       },
     }),
     {
-      message: 'Resident-number edge fallback failed after FC_IDENTITY_KEY is not configured: Edge Function failed',
+      message: 'Resident-number edge fallback failed after FC_IDENTITY_KEY is not configured.',
     },
   );
 
@@ -169,7 +174,6 @@ test('uses the default edge fallback error message when response JSON cannot be 
       details: {
         fallbackReason: 'missing_identity_key',
         status: 502,
-        body: null,
       },
     },
   ]);

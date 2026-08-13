@@ -1,9 +1,664 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20260808-mobile-exam-payment-proof-history"></a> 2026-08-08 | Mobile exam payment-proof history preview
+
+**Scope**:
+- 생명·손해 시험 신청 화면의 선택된 신청 내역에서 해당 신청에 첨부한 입금 증빙 이미지를 확인한다.
+- private bucket, signed app session, 대상 FC 소유권 경계를 유지한다.
+
+**Changes**:
+- `payment_proof_attached=true`인 신청 상세에만 `입금 내역 보기`를 표시하고, 공용 전체 화면 이미지 미리보기를 사용한다.
+- 앱은 버튼을 누를 때만 신청 ID와 선택 대상 FC를 전송한다. Edge는 actor와 대상 FC를 다시 확인하고 `registration_id`, `fc_id`, `status=attached`가 모두 일치하는 현재 증빙에 5분 signed URL을 발급한다.
+- storage path·원본 파일명·signed URL을 DB, 로그, 로컬 저장소에 추가하지 않았다. 스키마/RLS, 승인·OCR·다운로드, 배포 범위는 변경하지 않았다.
+
+**Verification**:
+- 모바일 Jest 2 suites / 17 tests, Edge Node contract 4/4, shared Deno test 4/4, Edge Deno check, focused TypeScript: PASS.
+- Targeted ESLint는 오류 0건이며 기존 `Array<T>` 경고 2건만 유지된다.
+- 전체 root TypeScript는 기존 `app/index.tsx:334` 이후 JSX parse 오류로 차단되어 이 증분의 PASS 근거로 사용하지 않았다.
+- Targeted diff check와 workspace harness audit은 PASS했다. repository-wide governance는 이번 범위 밖의 기존 messenger/notification/home dirty path에 owner-map·문서 갱신이 없어 차단됐다.
+
+**Release posture**:
+- `exam-payment-proof`만 프로젝트 `ubeginyxaotcamuqpmud`에 JWT 검증을 유지한 v13으로 배포했고 `ACTIVE` 상태를 확인했다. 원격 번들에서 `view`, signed URL 생성, `registration_id + fc_id + attached` 결합을 다시 확인했다.
+- 미인증 호출과 앱 세션 없는 anon 호출은 각각 `401`로 차단됐으며 최근 Edge 로그에 런타임 예외가 없다. 모바일 코드 배포와 실제 계정 Android 미리보기 E2E는 아직 수행하지 않았으므로 전체 릴리스는 `HOLD`다.
+- EAS/OTA/Store, DB/schema/RLS, credential, Sentry, Git publication 상태는 변경하지 않았다.
+
+## <a id="20260808-harness-minimization"></a> 2026-08-08 | Harness minimization
+
+- Reduced canonical instructions to non-discoverable invariants, action boundaries, and minimum checks.
+- Removed broad project tool allows and privacy-risky redundant graph evidence; reconciled lifecycle/index state.
+- Toolkit validation, harness audit, JSON parsing, and diff checks passed. No external action ran; release remains `HOLD`.
+
+## <a id="20260729-admin-web-store-pwa"></a> 2026-07-29 | 관리자 웹 Microsoft Store PWA 준비
+
+**Scope**:
+- 관리자 웹을 기존 Next.js 운영 URL 기반 PWA로 설치 가능하게 준비한다.
+- 기존 Web Push·알림 클릭 딥링크를 보존하고 인증 데이터는 오프라인 캐시하지 않는다.
+- Partner Center 상품을 임의 생성하거나 업로드·제출하지 않는다.
+
+**Changes**:
+- `/manifest.webmanifest`에 `가람in 관리자`, `/auth` 시작 경로, `/` 범위,
+  standalone 표시, `ko-KR`, 정사각형 Store 아이콘을 선언했다.
+- 공개 로그인 화면에서도 알림 권한 요청 없이 `/sw.js`를 등록하는 production
+  secure-context 등록기를 추가했다.
+- 기존 push/notificationclick 로직에 network-only fetch와 고정 오프라인 안내를
+  합쳤다. Cache Storage API는 사용하지 않는다.
+- 자동 metadata 링크와 수동 링크가 중복되지 않도록 최종 HTML의 manifest 링크를
+  한 개로 고정했다.
+
+**Verification**:
+- PWA 및 알림 탐색 focused contracts: 8/8 PASS.
+- Admin web TypeScript, ESLint, Sentry-disabled Next production build: PASS.
+- 생성 manifest의 이름, 시작 경로, 범위, 표시 방식, 언어, 아이콘을 파싱 검증했다.
+- `/auth` 정적 문서의 manifest 링크와 theme color가 각각 1개임을 검증했다.
+- 서비스워커의 push/notificationclick/network-only 조합과 Cache Storage 미사용을
+  검증했다.
+
+**External gate**:
+- 2026-07-29 Partner Center 제품 목록에는 `가람Link`만 존재했다.
+- 관리자 웹용 Package ID는 새 상품 예약 후에만 발급된다. 실제 Store MSIX 생성,
+  운영 PWA 배포, PWABuilder 검사, WACK, private audience 설치 QA는 그 identity와
+  별도 승인이 필요하다.
+
+## <a id="20260727-notification-center-unread-decrement"></a> 2026-07-27 | Notification center unread decrement
+
+**Symptom**:
+- Opening the mobile notification center did not reduce the unread badge.
+- Receipt-backed notification rows were only marked after an exact destination
+  accepted a deep link, while shared notices were counted from the epoch with
+  no per-viewer read boundary.
+
+**Fix**:
+- A successful inbox load now bulk-marks the visible unread notification UUIDs
+  through the existing actor-authorized `inbox_mark_read` action.
+- Shared notices use a separate user-scoped checkpoint. The load-start time is
+  advanced monotonically only after the list succeeds, so concurrently arriving
+  notices remain unread.
+- Mobile unread requests send optional `notice_since`; `fc-notify` applies it
+  only to notices, leaving notification rows fully receipt-backed.
+- The authoritative unread count and native badge are refreshed after the
+  acknowledgement. Failures stay retryable telemetry and do not create a
+  confusing user alert.
+- Notification-center badge refresh uses a strict count read: if the count
+  endpoint fails, the current badge remains unchanged instead of being
+  mistaken for a real zero.
+- The inbox list now pages past dismissed receipt rows before applying its
+  visible-item limit. This keeps the rendered list and unrestricted unread
+  count on the same actor/audience/receipt scope.
+
+**Compatibility and safety**:
+- `notice_since` is optional. Existing clients that omit it keep the previous
+  request contract.
+- No database schema, delete/dismiss behavior, sender warning, secret, or
+  unrelated referral-graph source changed.
+- Production `fc-notify` v80 was deployed with JWT verification retained.
+  App/OTA/store publication was not performed.
+
+**Verification**:
+- Focused Jest: 8 suites, 56 tests PASS.
+- Root TypeScript, scoped ESLint, and `deno check
+  supabase/functions/fc-notify/index.ts`: PASS.
+- Active bundle inspection confirms `notice_since`, the pagination collector,
+  and its shared dependency are present. An unauthenticated gateway smoke
+  remains rejected with 401, while a valid anon-JWT public-read smoke returns
+  `ok=true`.
+- Documentation and harness closeout checks are recorded in the current task
+  handoff.
+
+## 2026-07-24 | 시험 신청 복구·서류 알림·메신저 딥링크 안정화
+
+**Changes**:
+- 운영 시험 신청 RPC의 `registration_id` 모호성 오류를 테이블 별칭으로 제거하고, Edge 오류 본문을 모바일에서 안전하게 표시하도록 보강했다.
+- 서류 승인·반려는 매 건 FC 알림함에 저장하고 외부 푸시는 Next `after()`로 분리해 관리자 응답 지연을 줄였다.
+- 개발자/총무 메시지 알림은 인증된 발신자의 직접 채팅 URL과 sender metadata를 저장·전송한다.
+- FC 직접 채팅 대상에 `last_message`, `last_time`, `unread_count`를 제공하고, FC·관리자 모바일·관리자 웹·설계요청 목록 모두 마지막 실제 메시지 시각 최신순 계약을 확인했다.
+- 시험 입금일 불일치 안내를 짧게 줄이고 날짜 선택 UI 바로 위로 옮겼다.
+
+**Verification**:
+- Focused chat/notification tests 47/47, full Jest 147 suites / 817 tests, root/web TypeScript, scoped lint, Edge Deno check, governance, diff check: PASS.
+- Admin web Next production build and Expo web export: PASS with Sentry upload disabled.
+- Production migration receipt: `20260723153541_fix_exam_payment_proof_registration_id_ambiguity`.
+
 > **상세 이력 누적 파일**입니다.  
 > 최근 1개월 Git 이력(`2026-01-12` ~ `2026-02-11`, 총 44 commits)을 기준으로 재구성했습니다.
 >
 > 요약 인덱스는 [WORK_LOG.md](WORK_LOG.md)를 확인하세요.
+
+---
+
+## <a id="20260723-exam-payment-proof"></a> 2026-07-23 | FC 시험 신청 응시료 입금 증빙
+
+**Scope**: 생명보험·손해보험 FC 시험 신청의 납입일/증빙 필수 입력과 private 저장 경계.
+
+**Changes**:
+- 납입일 아래에 JPG/PNG/WebP 1개, 최대 10MB의 입금 내역 선택·미리보기·교체·삭제 UI를 공용 컴포넌트로 추가했다.
+- 누락 alert에 `입금 내역 캡처`를 포함하고 미래 납입일을 앱/서버 양쪽에서 차단했으며, 요청한 날짜 불일치 주의 문구를 두 화면에 동일하게 표시했다.
+- private `exam-payment-proofs` bucket, service-role-only upload ledger, `payment_proof_attached`/호환 version, atomic submit RPC를 additive migration과 `schema.sql`에 함께 추가했다.
+- 새 `exam-payment-proof` Edge Function이 signed app session을 검증한 뒤 prepare/submit/discard/cancel을 처리한다. 공개 URL, raw identifier log, 클라이언트 직접 신청 write는 사용하지 않는다.
+- request UUID를 재사용해 응답 유실 재시도에서 같은 upload ledger를 사용하고, 교체/취소 뒤 이전 object를 best effort로 정리한다.
+
+**Verification**:
+- 현재 앱 브랜치에 `ab34880`으로 통합했고 Focused Jest 4 suites, 26/26 PASS.
+- Edge Node contract/helper/diagnostic tests 12/12 PASS.
+- Root TypeScript, targeted ESLint, new Edge Deno check, clean-HEAD governance, diff check: PASS.
+- Sentry upload credential을 비운 `npm run build`가 46개 static route를 포함해 PASS.
+- Full Jest는 124/129 suites, 683/688 tests가 통과했다. 남은 5건은 격리 worktree 경로를 canonical repo로 가정한 inventory 2건, 기존 CRLF-sensitive source lock 2건, 격리 환경에 `web` Sentry package가 없는 1건으로 이번 시험 증빙 변경과 무관하다.
+- FC Supabase에 `20260723040446`만 선택 적용하고 migration history를 일치시켰다. private 10MB bucket, RLS, anon/authenticated table·RPC 권한 없음, service-role RPC 권한을 원격 SQL로 확인했다.
+- 새 `exam-payment-proof`만 Edge version 1로 배포했으며 미인증 요청과 앱 세션 없는 anon 요청 모두 401로 차단되는 것을 확인했다.
+- 실제 로그인된 Android 개발 앱에서 입금일 불일치 주의 문구, 필수 증빙 필드, `사진 선택` 버튼을 확인하고 Android 사진 선택기가 열리는 것까지 PASS. 운영 시험 신청은 생성하지 않았다.
+
+**Safety**:
+- 최초 구현은 `D:\hanhwa\_codex_exam_payment_proof_20260723`의 `codex/exam-payment-proof-20260723` 브랜치에 격리했다.
+- 사용자 요청 뒤 현재 앱 브랜치에 cherry-pick했고, 다른 세션의 Request Board, 기존 `fc-notify`/`group-chat`, `admin-action`, 관리자 웹/모바일 신청자 화면, Vercel, EAS/OTA, push는 변경하거나 배포하지 않았다.
+- unrelated pending migration 때문에 `db push`를 쓰지 않고 대상 SQL 1개만 실행했다. additive migration → 새 Edge → 모바일 테스트 순서를 유지했다.
+- 증빙을 고르거나 실제 신청을 제출하지 않았으므로 운영 신청·Storage object는 생성하지 않았다. 관리자 검토 surface는 별도 후속 범위다.
+
+---
+
+## <a id="20260723-exam-fee-date-round-selection"></a> 2026-07-23 | 시험 회차 선택 시 납입일자 유지
+
+**Symptom**: FC가 응시료 납입일자를 먼저 입력한 뒤 시험 일정을 선택하면 입력값이 사라져 다시 입력해야 했다.
+
+**Root cause**: 회차 변경 시 실행되는 기존 신청 복원 effect가, 선택 회차에 기존 신청이 없는 정상 신규 신청에서도 helper의 `feePaidDate: null` 기본값을 form state에 덮어썼다.
+
+**Fix**:
+- 생명/손해 신청 화면 모두 기존 신청 row가 있을 때만 저장된 `fee_paid_date`와 picker 임시값을 복원한다.
+- 기존 신청이 없는 새 회차를 선택하면 고사장/제3보험 선택 초기화는 유지하되 사용자가 입력한 납입일자는 보존한다.
+- 두 화면의 복원 effect에 같은 guard가 존재하는지 source contract로 고정했다.
+
+**Safety**: 신청 API, 증빙 업로드, DB/Edge, 관리자 웹, Request Board, 알림과 배포 경로는 변경하지 않았다.
+
+---
+
+## <a id="20260723-admin-exam-payment-proof"></a> 2026-07-23 | 관리자 시험 신청 입금 증빙 조회·내보내기
+
+**Scope**: 시험 신청자 목록/상세에서 admin과 manager가 FC 입금 증빙을 보고, 필터 결과 CSV에 증빙 경로와 전달 가능한 URL을 포함한다.
+
+**Changes**:
+- ordinary applicant API에 `payment_proof_attached`만 추가하고 Storage path/signed URL은 포함하지 않았다.
+- canonical 신청자 목록에 `입금 증빙` 컬럼 하나를 추가하고, 상세의 `시험 신청 정보` 바로 아래에 `입금 증빙 확인` 카드를 추가했다.
+- 활성 admin/manager 세션을 확인한 image route가 현재 attached private object만 `no-store`로 stream한다. manager의 접수/삭제 쓰기 제한은 유지했다.
+- CSV 다운로드 시 별도 권한 확인을 거쳐 opaque Storage path와 admin web 세션 없이 열 수 있는 30일 signed URL을 발급한다. bucket은 private 상태를 유지하며 signed URL/path는 DB나 로그에 남기지 않는다.
+- 증빙 승인/거절, OCR, 입력일·사진 날짜 비교 상태나 별도 검토 workflow는 추가하지 않았다.
+
+**Verification**:
+- Focused admin-web Node tests 32/32 PASS.
+- Admin-web TypeScript와 targeted ESLint PASS.
+- 실행 중인 Next dev의 `.next`를 건드리지 않는 별도 출력 디렉터리에서 Next.js 16.2.11 Webpack Production build PASS. 신규 image/export API dynamic route가 build manifest에 포함됐다.
+- Documentation governance, `git diff --check`, 변경 경로 감사와 same-agent privacy/security review PASS.
+
+**Safety**:
+- Request Board, notification/group-chat, `admin-action`, 모바일 신청 화면, schema/migration, Supabase remote, Vercel, EAS/OTA, push를 변경하거나 배포하지 않았다.
+- CSV signed URL은 전달 가능한 bearer capability이며 30일 뒤 만료한다. 일반 applicant API와 진단에는 URL/path를 노출하지 않는다.
+
+---
+
+## <a id="20260723-temp-id-mobile-push-token-recovery"></a> 2026-07-23 | Temporary-id mobile push token recovery
+
+**Scope**: Admin-web temporary-id issuance notifications sent to the corresponding signed-in GaramIn FC handset.
+
+**Evidence**:
+- Read-only Production checks found the latest temporary-id inbox row and a completed FC profile, but zero current device-token rows for that recipient, so Expo delivery could not be attempted.
+- Aggregate checks found no current normalization mismatch among issued temporary ids; passing the unnormalized source value remained a latent contract defect.
+- The recipient had recent GaramIn presence, showing that an active session could remain without a recoverable server token row.
+
+**Changes**:
+- The canonical admin recipient helper now passes the validated digits-only phone to the server notification service.
+- The global session provider keeps one registration owner and refreshes a successful, permission-denied, or retry-exhausted registration when the app returns to foreground.
+- Newly issued app-session tokens are persisted to secure storage before registration, and a registration revision forces reconciliation even when the visible role and resident identity do not change.
+- Legacy app-session tokens are migrated out of the session JSON into secure storage; newly written session JSON no longer retains the credential.
+- Unsupported platform/client/device outcomes remain terminal, and the existing in-flight coalescing plus bounded retry behavior is preserved.
+- Focused source contracts lock normalized-recipient delivery and foreground token reconciliation.
+
+**Verification**:
+- Root focused Jest: 4 suites / 23 tests PASS.
+- Admin-web focused Node tests: 14/14 PASS.
+- Root and admin-web TypeScript: PASS.
+- Targeted root and admin-web ESLint: PASS.
+- After the current development-client bundle was reopened on the connected handset, one current FC-role token was registered. A single bounded provider smoke was accepted and the handset received it.
+- The one-off smoke payload displayed `?` characters because its Korean text crossed a PowerShell stdin encoding boundary. The checked product notification literals were verified as valid UTF-8 Korean and were not changed.
+- Governance and final diff checks are recorded in the task handoff.
+
+**Safety**:
+- Production inspection used aggregate/read-only queries and fixed log metadata; no phone, token, notification body, or raw log was printed in the handoff.
+- The only remote mutation was one explicitly bounded notification smoke after the handset registered its own token. No manual token fabrication, schema change, deployment, credential change, Sentry mutation, stage, commit, or push was performed.
+- The mobile repair is present in the connected development-client bundle only; Store/OTA delivery remains a separate release action.
+
+---
+
+## <a id="20260722-exam-register-interaction"></a> 2026-07-22 | Admin exam registration interaction repair
+
+**Scope**: GaramIn life and nonlife exam registration screens used by editable admin/general-affairs sessions.
+
+**Changes**:
+- Preserved the Fabric-safe single plain `ScrollView` and added keyboard viewport avoidance plus post-open focused-input scrolling.
+- Made the location-add action genuinely disabled for blank input and visibly solid orange when enabled.
+- Centralized newest-first exam-round ordering with deadline and creation-time tie breakers.
+- Applied the same behavior to both life and nonlife registration screens.
+
+**Verification**:
+- Focused exam-flow Jest contract: 10/10 PASS.
+- Targeted ESLint: PASS.
+- Root TypeScript: PASS.
+- Governance, diff, and Android runtime checks are recorded in the final task handoff.
+
+**Safety**:
+- No database, deployment, credential, Sentry, Store, or Git publication state was changed.
+- Existing protected dirty files remain unstaged and untouched.
+## <a id="20260722-request-board-mobile-performance"></a> 2026-07-22 | Mobile Request Board first-render performance
+
+**Scope**: GaramIn Request Board home, request list, and new-request entry latency.
+
+**Changes**:
+- Coalesced overlapping initial/focus/app-active refreshes and retained explicit forced refresh after pull-to-refresh or a successful mutation.
+- Rendered request rows before optional rejected-assignment detail hydration and guarded background results by request sequence.
+- Switched the mobile list to the masked, attachment-free summary contract while leaving request detail unchanged.
+- Made customer selection available before the remaining create-form catalogs finish loading, with an honest compose-step loader.
+
+**Verification**:
+- Focused Request Board Jest suites: 53/53 PASS.
+- Root TypeScript: PASS.
+- Request Board server feature contract and server TypeScript build: PASS.
+- Final lint, governance, harness, diff, and connected-Android checks are recorded in the active handoff.
+
+**Safety**:
+- No deployment, production request, remote database write, credential change, Git publication, or Sentry mutation was performed.
+- Existing unrelated dirty work remains unstaged and untouched. Release remains `HOLD`.
+
+---
+
+## <a id="20260722-request-board-create-timeout"></a> 2026-07-22 | Mobile Request Board create timeout alignment
+
+**Scope**: GaramIn design-request creation against the response-bound GaramLink notification fanout.
+
+**Changes**:
+- Preserved the eight-second default Request Board fetch timeout.
+- Added a 30-second timeout only to `POST /api/requests`, without forwarding the custom option to the native Fetch implementation.
+- Preserved the existing retryable Korean timeout message and did not add automatic write retries.
+- Added focused source-contract coverage and documented the cross-repository timeout-budget guardrail.
+
+**Verification**:
+- Focused Jest API contract: 11/11 PASS.
+- Root TypeScript: PASS.
+- Targeted ESLint and repository governance: PASS.
+- Central harness audit and scoped diff check: PASS.
+- Connected Android reloaded the current Metro 8081 bundle, remained on `MainActivity`, and produced zero fatal/bundle error markers in the bounded check.
+- Production data replay was deliberately excluded because a timed-out create may already be durable and a synthetic replay would mutate shared data.
+
+**Safety**:
+- No deployment, remote database write, credential change, Git publication, or Sentry mutation was performed.
+- Existing unrelated dirty work remains unstaged and untouched. Release remains `HOLD`.
+
+---
+
+## <a id="20260720-fc-home-realtime-remount"></a> 2026-07-20 | FC home Realtime remount repair
+
+**Scope**: Android FC home Render Error during Supabase Realtime effect remounts.
+
+**Changes**:
+- Added a typed helper that creates a non-identifying, unique channel topic for each home Realtime effect setup.
+- Applied it to message, profile, and document subscriptions while keeping row filters and per-channel cleanup unchanged.
+- Added a focused test for same-timestamp uniqueness and source-level prevention of identity-bearing home topics.
+- Updated both structured diagnostic sanitizers so phone-backed `residentId` fields receive phone masking as well as resident-number masking.
+- Documented the Realtime lifecycle contract and repeat-prevention rule.
+
+**Verification**:
+- `npm test -- --runTestsByPath lib/__tests__/home-realtime-channel.test.ts --runInBand`: 2/2 PASS.
+- `npm test -- --runTestsByPath lib/__tests__/sentry-sanitize.test.ts --runInBand`: validates phone-backed `residentId` masking.
+- Targeted ESLint for the home screen, helper, and regression test: PASS.
+- `npx tsc --noEmit --pretty false`: PASS.
+- `node scripts/ci/check-governance.mjs`: PASS.
+- `git diff --check`: PASS with line-ending warnings only.
+
+**Safety**:
+- No Supabase database, publication, policy, remote configuration, deployment, credential, or Sentry state was changed.
+- Existing unrelated dirty work remains unstaged and untouched.
+- Release posture remains `HOLD`.
+
+---
+
+## <a id="20260716-residual-diagnostic-privacy-closure"></a> 2026-07-16 | Residual diagnostic privacy closure
+
+**Scope and invariant**:
+- Closed all 27 previously unproven direct-console sinks in the reviewed 14-file Edge/admin-web surface, including the five ambiguous source sites, without changing product responses, database/storage decisions, fallback behavior, notification fanout, or user-facing error text.
+- The final direct-console allowlist is exactly 9 fixed single-literal diagnostics, 0 unproven, 9 total. Variable errors, messages, response bodies, identifiers, filenames, and storage paths must terminate at the closed Edge helper or the sanitized web logger.
+
+**Changes**:
+- Extended the closed Edge event/reason pairs for referral resolution/events, notification callback/storage/database paths, presence fallback, referral-tree fallback, Board push/notification/storage operations, and account storage cleanup.
+- Removed the FC notify request-mode log, routed all other residual Edge failures through fixed diagnostics, and routed the settings deletion exception to a fixed sanitized logger message while retaining the existing user notification.
+- Extended poison-field/runtime pair tests and source assertions, converted the AST baseline from investigation debt to an exact reviewed allowlist, and mapped all remediated callers to the diagnostic contract and owning handbooks.
+
+**Verification**:
+- PASS: Deno helper poison/allowlist tests 5/5, changed Edge entrypoints 9/9, and the full frozen Edge entrypoint set 46/46.
+- PASS: focused privacy/governance/auth-source Jest 3 suites / 13 tests; root Jest coverage 123 suites / 677 tests. One user-owned protected test was explicitly excluded from this increment's lint, type, Jest, and coverage commands and was not read or edited.
+- PASS: root lint and TypeScript with the same explicit protected-file exclusion; Expo web export generated 46 static routes. Admin web lint, TypeScript, Sentry-disabled production build, and Node tests passed with 230 passed / 1 existing remote-data skip.
+- PASS: ops 28/28, Board loopback smoke 11/11, root/web audits with zero advisories, Sentry report-only dry-run, all three governance modes, and final diff check.
+- An independent evaluator found and then rechecked an AST alias/indirect-call bypass guard. The final guard rejects aliases, `.call`, global/element access, and variable/multiple/interpolated arguments; the final independent verdict has no remaining finding.
+- One exploratory Jest invocation replaced the repository's existing ignore list and therefore sent web/Deno test files through the wrong Jest transformer. It also exposed the intentionally removed FC-notify request-log expectation. Restoring the original ignore set, adding only the protected-file exclusion, and updating that source contract produced the passing results above; no product defect was hidden.
+
+**Safety**:
+- No deploy, remote database/function call, Sentry mutation/upload, secret change, staging, commit, push, or PR was performed. One user-owned protected test remained excluded from all task edits, staging, and verification. Release remains `HOLD` for the existing external rollout, authentication E2E, and credential blockers.
+
+---
+
+## <a id="20260716-edge-diagnostic-closure"></a> 2026-07-16 | Closed Edge diagnostics and proven sink closure
+
+**Scope and invariant**:
+- Reviewed the exact residual diagnostic surface without changing unrelated console debt. Fifteen paths were proven to expose a phone, referral code, UUID/profile identifier, affiliation, raw upstream body/JSON, or raw `Error` before the first sink.
+- Diagnostic output is now reject-by-construction: fixed event/reason pairs plus optional bounded status/count, boolean retryability, and a coarse error class. Raw messages, errors, bodies, URLs/paths, identifiers, phone numbers, referral values, and affiliations are not accepted and are discarded even after a forced type escape.
+
+**Changes**:
+- Added one shared `edge-diagnostic.ts` sink and routed the 15 proven set-password, login, password-sync, FC notify, Board, account-cleanup, and admin-web settings paths to closed diagnostics or a fixed logger message.
+- Preserved Request Board password-sync request body, headers, timeout/finally cleanup, and best-effort response behavior while stopping non-OK body reads and raw JSON/Error serialization.
+- Added Deno poison/positive-control tests, inverted the three password-sync leak characterization tests, and added source assertions for all remediated paths.
+- At this intermediate snapshot, the exact remaining 36 direct-console calls were frozen as 9 fixed literals plus 27 unproven items. The later [residual diagnostic privacy closure](#20260716-residual-diagnostic-privacy-closure) closed all 27 and replaced this investigation snapshot with the final 9/0/9 reviewed allowlist.
+
+**Verification and safety**:
+- Focused Deno helper/password-sync tests, changed-entrypoint Deno checks, focused Jest privacy/governance suites, and the final full local gates are recorded in the sprint evidence receipt and handoff.
+- No deploy, remote function/database call, secret change, Sentry upload, staging, commit, push, or PR was performed. One user-owned protected test remained excluded from all task edits, staging, and verification.
+- Production log replay, authenticated remote flows, and rollout credential checks remain external. Release decision remains `HOLD`.
+
+---
+
+## <a id="20260716-diagnostic-privacy-boundary"></a> 2026-07-16 | Diagnostic privacy boundary for logger, push, OTP, and group chat
+
+**Validated path and invariant**:
+- Mobile and admin-web callers could pass arbitrary strings, `Error` objects, or structured payloads into the shared logger. The logger serialized them to `console.*` before Sentry's final `beforeSend` sanitizer and also handed the original `Error` to the Sentry-adjacent capture hook.
+- Push registration/API, signup OTP cleanup/test mode, and group-chat provider/database failures also used direct console calls with raw identifiers, tokens, errors, or upstream response bodies. The admin-web server push consumer additionally logged recipient/content/token data and raw Expo response text through the shared logger and returned provider text on failure.
+- Every console/Sentry-adjacent diagnostic must therefore redact bearer/JWT-like credentials, Korean and international mobile numbers, resident numbers, Expo push tokens, OTP values, raw provider bodies, filenames, and storage paths before the first sink. Stable `reason`, `status`, and error class names remain available for triage.
+
+**Changes**:
+- Moved sanitization to the mobile and web logger boundary before formatting, console output, and Sentry capture. Raw `Error` objects are rebuilt from their sanitized name/message/stack rather than forwarded unchanged.
+- Extended the shared mobile/web sanitizer contract for international phone formats including optional domestic prefixes, bearer credentials in `Error.name`/message/stack, Expo tokens, Korean particle-form OTP labels, provider response-body keys, multiword filenames, and labeled extensionless storage object paths.
+- Replaced sensitive direct-console arguments in push, OTP, and group-chat paths with reviewed fixed reason/status diagnostics. Signup test mode no longer prints the destination or OTP, and failed SMS/group-chat provider bodies are not read into logs or client errors.
+- Reduced admin-web server push diagnostics to fixed category/reason/status, booleans, and aggregate counts. It no longer logs recipient/content/token data, raw database errors, or Expo response bodies, and failure results retain the existing `success: false` contract with a stable local error message.
+- Added runtime redaction/positive-control tests plus a narrow source-governance contract for only the reviewed direct-console callsites; unrelated console sites were not mass-refactored.
+
+**Verification**:
+- RED evidence: before implementation, the new focused suites failed on the raw logger payload, international phone, OTP, push token, storage path, provider-body, and four reviewed direct-console boundaries. Independent read-only validation then falsified five bypass classes across both sanitizer copies: raw `Error.name`, multiword filename, optional-prefix international phone, Korean particle-form OTP, and extensionless object path, plus the admin-web server push consumer's raw provider path.
+- GREEN: 8 focused Jest suites / 46 tests PASS, including logger, sanitizer, push registration, signup completion, priority security, and group-chat contracts.
+- GREEN: admin-web sanitizer Node tests 2/2 PASS; root and web TypeScript PASS; targeted root/web ESLint has zero errors; Deno frozen checks for `request-signup-otp` and `group-chat` PASS. The independent evaluator reran all binding reproductions against both sanitizer copies and the real server push source-to-sink path.
+- Final governance and diff checks are recorded in the session handoff; all verification commands set both Sentry upload-deny flags, a non-credential local token, and a loopback Sentry URL.
+
+**Residual risk and release decision**:
+- No production Supabase log replay, live Sentry event inspection, device/EAS push delivery, or authenticated hosted flow was performed. Those require an approved rollout window and external credentials/environment.
+- No deploy, remote DB/function invocation, Sentry mutation, secret change, push, PR, staging, or commit was performed in this increment. Release remains `HOLD` for the existing remote rollout/authentication/credential blockers.
+- One user-owned protected test remained excluded from all task edits, staging, and verification.
+
+---
+
+## <a id="20260716-dependency-security-closeout"></a> 2026-07-16 | Root and admin-web dependency security closeout
+
+**Scope**:
+- Local root Expo and admin-web package/build boundaries only.
+- No deploy, EAS action, Supabase remote mutation, Sentry upload, push, PR, secret rotation, or history rewrite.
+
+**Changes**:
+- Aligned the root graph with Expo SDK 54, moved Expo MCP to development scope, removed invalid broad overrides, pinned reviewed patched transitives below their owning packages, and added an executable dependency contract.
+- Used Expo's SDK 54 Sentry compatibility line and removed only the unsupported replay option while preserving masking, sampling, and `beforeSend` sanitization.
+- Declared the Node build requirements exposed by clean installation and made the Expo web export command work at both the compatibility floor and the recommended Node 24 runtime.
+- Removed the unused admin-web 3D/VR force-graph dependency chain, updated the Supabase SDK and reviewed transitive security boundaries, and retained the 2D graph actually imported by the app.
+- Replaced onboarding `npm install` commands with lock-preserving `npm ci`; dependency maintenance that intentionally changes a lock remains a separate reviewed operation.
+- Added a contract-map rule so future root/web manifest, lock, Sentry, and export changes must update an owning contract/test or handbook evidence path.
+
+**Verification**:
+- Root Node 20/npm 10 and Node 24/npm 11 clean `npm ci`: PASS with an unchanged final lock hash.
+- Root full and production audits: zero advisories; `npm ls --all`, Expo install check, lint, TypeScript, Sentry-disabled build, and diff check: PASS.
+- Root Jest and coverage: 122 suites / 666 tests PASS; focused dependency/Sentry contracts: 23 PASS; ops 27/27 and Board smoke 11/11 PASS.
+- Root Expo web export: PASS on Node 20 and Node 24 with 46 static routes; no application source imports `ws`, and the browser export contains no `ws` browser-stub marker.
+- Admin web clean install, dependency tree, lint, TypeScript, Sentry-disabled build, and full/production audits: PASS with zero advisories.
+- Admin web Node tests: 228 PASS, zero failures, one pre-existing remote-data skip.
+- Admin web dependency commit: `64f1e23`.
+
+**Residual risk and release decision**:
+- Node 24 remains the documented runtime. The root manifest does not declare an engine floor; compatibility was verified on Node 20.19.5/npm 10.8.2 and Node 24.18/npm 11.16, while upstream Supabase support has moved to Node 22+. Node 20 is evidence of compatibility, not a production target.
+- Remote Supabase authentication/Realtime, signed caller rollout, migrations, authenticated role E2E, external credential rotation, and history/clone disposition remain unproven.
+- Release decision remains `HOLD` even though the local dependency and build gates are green.
+
+**Safety**:
+- Sentry upload credentials were cleared and both upload-deny flags were set for builds. No raw secret, personal data, remote response body, deploy, migration, or remote mutation was copied into evidence.
+- One pre-existing user-owned protected test remained excluded from all dependency-task edits, staging, and verification.
+
+---
+
+## <a id="20260715-operations-documentation"></a> 2026-07-15 | Operations documentation and governance boundary
+
+**Background**:
+- The root `AGENTS.md` had grown beyond 100 KiB by accumulating status, roadmap, and implementation history, so it no longer worked as a session control document.
+- Current local security commits needed a single operational handoff that preserved the signed-session, Board actor, and atomic-write contracts without claiming remote rollout success.
+
+**Evidence captured on 2026-07-15** (historical baseline; current resolutions are recorded in the 2026-07-16 closeouts):
+- Local commits `75b1a0a` and `a12928b` separate notification/app-session authentication from Board actor binding and privileged atomic writes.
+- The exact frozen changed Edge command for FC notify plus the 17 Board entrypoints passes `18/18` with zero diagnostics.
+- The full web TypeScript gate was red on pre-existing test import/type debt; it was resolved in `4bbf0fc` without narrowing the gate.
+- Remote caller-first rollout, migration application, and authenticated role E2E are not proven.
+- An active tracked editor configuration contained a live-looking token-like secret at this snapshot. The active file was removed in `ba174e1`; external revoke/rotate and history/clone assessment remain P0.
+- Release decision remains `HOLD`.
+
+**Changes**:
+- Reduced `AGENTS.md` to a stable control document below 24 KiB and routed history to existing handbook/work-log sources rather than duplicating it.
+- Added developer onboarding with tool/env-name setup, disposable test data, safe local checks, and Docker/Deno/Sentry troubleshooting.
+- Rebuilt the operations runbook around service signals, incident classes, sensitive logging, read-token-only Sentry, signed-session/bridge key domains, rollback/escalation, and report-only automation.
+- Expanded deployment into lane-specific caller-first, additive migration, Edge, smoke, observation, rollback, and explicit-approval checkpoints.
+- Classified commands by mutation risk and removed example personal data/password operations from the command guide.
+- Added an executable UTF-8 byte gate with exact 24,576 allowed / 24,577 rejected boundary tests and integrated it into governance.
+- After independent evaluation found an ordering ambiguity, separated auth rollout from DB/API compatibility: signed caller adoption precedes Edge auth enforcement, while each RPC migration is applied and verified before its new caller is activated. `board-update` activation is tied to the Board migration plus the 17-Board enforcement window; admin-web exam schedule activation follows the Exam migration in a separate web release.
+
+**Verification**:
+- `node scripts/ci/documentation-governance.test.mjs`: PASS, 4/4 tests; exact 24,576 allowed and 24,577 rejected.
+- `node scripts/ci/documentation-governance.mjs AGENTS.md`: PASS, 10,795/24,576 bytes after rollout-order correction.
+- `node scripts/ci/check-governance.mjs`: PASS.
+- `node scripts/ci/check-governance.mjs --require-handbook-sync`: PASS.
+- `node scripts/ci/check-governance.mjs --require-contract-sync`: PASS.
+- `git diff --check`: PASS; existing LF-to-CRLF notices only.
+- Local Markdown link/path check: PASS, 83 checked and 0 missing.
+- Added-line/new-file PII and credential-pattern scan: PASS, 0 phone, resident-number, JWT, private-key, bearer, or known-token-prefix matches.
+- Repository staged count: 0. The protected editor configuration still has zero worktree/index status entries, matching the evaluator pre-state; its content was not read or printed.
+- One pre-existing user-owned protected test remains exactly one unstaged status entry with staged count 0, matching the evaluator pre-state; this documentation increment did not read or edit its content.
+- A separate evaluator must review this unstaged increment.
+
+**Safety**:
+- No push, PR, deploy, remote DB/function/secret change, EAS action, Sentry mutation, credential rotation, stage, or commit was performed in this increment.
+
+---
+
+## <a id="20260712-sentry-build-upload-guard"></a> 2026-07-12 | Sentry-disabled local build hard guard
+
+**Background**:
+- A verification build set an empty shell `SENTRY_AUTH_TOKEN` and `SENTRY_DISABLE_UPLOAD=1`, but Next reloaded the ignored `web/.env.local` token and the Sentry plugin uploaded source-map artifacts.
+
+**Changes**:
+- Added a pure parser for authoritative Sentry upload-disable values.
+- Wired `SENTRY_DISABLE_UPLOAD` into `withSentryConfig` so it removes the auth token and sets `sourcemaps.disable=true`, even when a local dotenv file contains upload credentials.
+- Added behavior and source-wiring regressions and corrected the local verification runbook.
+
+**Files**:
+- `web/next.config.ts`
+- `web/src/lib/sentry-build-policy.ts`
+- `web/.env.example`
+- `lib/__tests__/sentry-build-upload-guard.test.ts`
+- `README.md`
+- `.claude/MISTAKES.md`
+
+**Verification**:
+- RED: the pre-fix build output contained live Sentry artifact upload activity.
+- GREEN evidence is recorded in the workspace harness QA report; no additional live Sentry mutation is permitted during guard verification.
+
+---
+
+## <a id="20260712-fc-notify-dual-ingress"></a> 2026-07-12 | FC notify dual-ingress authentication
+
+**Background**:
+- Public `/api/fc-notify` forwarded an unauthenticated raw body with a service-role credential.
+- The same route serves signed browser callers and the Request Board server bridge, so a receiver-only change would either leave the boundary open or break notification fanout.
+
+**Changes**:
+- Added a pure dual-ingress policy and rebuilt every privileged outbound payload from allowlisted fields.
+- Browser requests now require exact request-origin evidence (scheme plus canonical Host), a signed active account session, and session-derived role/identity. Caller-controlled `X-Forwarded-Host` is never fallback authority, and FC session tokens are bound to the same completed profile id and phone.
+- Preserved exact regular-admin, developer, manager, and FC caller behavior while restricting message scope to admin/developer-to-eligible-FC and signed-FC-to-shared-admin.
+- Added constant-time `REQUEST_BOARD_NOTIFY_TOKEN` verification plus the exact eight-category Request Board allowlist.
+- Redacted complete notification text before applying the shared 120/2000-character Request Board bounds, safely truncated browser messages, rejected external/control-character URLs, and rebuilt every upstream payload from allowlisted fields.
+- Removed browser-supplied sender identity and direct `notifications` inserts from both web chat callers. The protected route now derives canonical sender identity and the Edge Function remains the single notification-row writer.
+- Updated the Request Board sender in the paired repository to require its token, the exact protected HTTPS endpoint, the same category allowlist, and the same redaction/bounds before network I/O.
+- Added a tracked, secret-free `web/.env.example` so the paired receiver token and local verification contract are reviewable without exposing credentials.
+- Normalized one pre-existing LF-only user-owned protected source-contract test so the Windows full Jest suite no longer reports a false failure; its identifier is withheld.
+
+**Files**:
+- `web/src/app/api/fc-notify/route.ts`
+- `web/src/lib/fc-notify-proxy-policy.ts`
+- `web/src/lib/server-session.ts`
+- `web/src/lib/staff-identity.ts`
+- `lib/__tests__/fc-notify-route-auth.test.ts`
+- `lib/__tests__/admin-web-chat-source.test.ts`
+- One user-owned protected source-contract test (identifier withheld).
+- `web/.gitignore`
+- `web/.env.example`
+- `README.md`
+- `docs/handbook/backend/notifications-inbox-push.md`
+- `.claude/MISTAKES.md`
+
+**Verification**:
+- RED/GREEN route policy, exact scheme+Host origin, X-Forwarded-Host-only denial, caller parity, completed-FC binding, full-redaction-before-bound, single-writer/source identity, and Windows CRLF regression tests.
+- Focused security/chat tests and full repository checks are recorded in the workspace harness QA report.
+- No deployment, environment, database, Supabase Function, Vercel, Sentry, or credential state was changed.
+
+---
+
+## <a id="20260712-direct-edge-board-auth"></a> 2026-07-12 | Direct Edge and Board signed-session boundary
+
+**Background**:
+- The protected Next notification proxy did not close direct public access to the service-role
+  `fc-notify` handler.
+- The 17 `board-*` handlers shared a second confused-deputy boundary: request body role/phone plus an
+  active-row lookup was accepted as authentication, after which service-role writes and trusted
+  notification fanout were available.
+
+**Changes**:
+- Limited public `fc-notify` to `latest_notice`; exact service `apikey` remains the internal ingress,
+  while every app action requires the signed app-session header, active DB actor recheck, and a rebuilt
+  action payload.
+- Added a common mobile FC notify transport and migrated direct app callers.
+- Replaced the Board body-actor authority with a request-bound verifier across all 17 endpoints.
+- Added mobile token attachment and fail-closed missing-session behavior in the common Board transport.
+- Routed admin-web Board calls through `/api/board`, which verifies origin, signed active server session,
+  rate limit, exact function allowlist, and the HttpOnly app-session cookie. Login no longer returns the
+  app-session token in browser-visible JSON.
+- Added a least-privilege insurance-digest token path limited to category/list reads and canonical
+  `general` digest creation. The runner no longer creates categories and the blocked CLI logs in each
+  actor to obtain the signed app-session header.
+
+**Rollout**:
+- Caller Release A must precede Edge Release B. Existing mobile admins without stored tokens require
+  re-login; there is no safe body-actor compatibility fallback.
+- Configure `FC_APP_SESSION_TOKEN_SECRET`, `BOARD_AUTOMATION_TOKEN`, and the active automation admin
+  phone before Edge enforcement. Apply the atomic Board migration before `board-update` deployment.
+- Deploy all 17 Board functions in one controlled window so no sibling service-key deputy remains.
+
+**Verification**:
+- RED/GREEN app/automation policy, caller transport, web proxy, exact function inventory, and source
+  boundary tests.
+- Passed: `deno check --frozen --config supabase/functions/deno.json supabase/functions/fc-notify/index.ts supabase/functions/board-attachment-delete/index.ts supabase/functions/board-attachment-finalize/index.ts supabase/functions/board-attachment-sign/index.ts supabase/functions/board-categories-list/index.ts supabase/functions/board-category-create/index.ts supabase/functions/board-category-update/index.ts supabase/functions/board-comment-create/index.ts supabase/functions/board-comment-delete/index.ts supabase/functions/board-comment-like-toggle/index.ts supabase/functions/board-comment-update/index.ts supabase/functions/board-create/index.ts supabase/functions/board-delete/index.ts supabase/functions/board-detail/index.ts supabase/functions/board-list/index.ts supabase/functions/board-pin/index.ts supabase/functions/board-reaction-toggle/index.ts supabase/functions/board-update/index.ts` (`18/18` entrypoints, zero diagnostics).
+- Local loopback handler evidence is recorded in the workspace harness; no live API, database, secret,
+  function, or deployment state was changed.
+
+---
+
+## <a id="20260712-board-write-integrity"></a> 2026-07-12 | Board write integrity
+
+**Changes**:
+- Applied the same manager-own-post predicate to attachment sign and finalize.
+- Finalize now revalidates count/size/type, canonical post-bound storage paths, unique/unfinalized paths,
+  object existence, actual object size, and MIME metadata before inserting attachment rows.
+- Added the service-role-only `update_board_post_atomic` SQL function so post field changes and attachment
+  order are validated and committed in one database transaction.
+- Redacted Board update title/content and notification rows before persistence/fanout.
+
+**Deployment order**:
+- Apply `20260712000001_atomic_board_post_update.sql` first, then deploy `board-update`. The Edge change
+  intentionally fails closed if the RPC is absent; do not roll back by restoring multi-statement writes.
+
+**Verification**:
+- RED/GREEN ownership, canonical path, object-proof, atomic RPC/source tests plus Deno checks.
+
+---
+
+## <a id="20260712-privileged-actions-exam-boundaries"></a> 2026-07-12 | Privileged Server Actions and exam commit boundaries
+
+**Changes**:
+- Added active signed-admin checks before all service-role exam schedule, appointment, and document
+  Server Action access; manager remains eligible only for the explicit schedule read action.
+- Added fail-closed runtime parsing for UUID/date/discriminant/length/list inputs and stopped accepting
+  client notification phone or exam action labels.
+- Derived notification phones from `fc_profiles`; document changes that do not send a notification remain
+  compatible with malformed legacy phone data.
+- Made exam registration notifications post-commit best effort so a saved application cannot be shown as
+  failed merely because delivery failed.
+- Reduced exam round deletion to one `exam_rounds` statement and relied on the verified FK cascades, so
+  registrations/locations are not destructively removed in separate transactions.
+
+**Verification**:
+- RED/GREEN input, auth-order, post-commit rejection injection, and single-delete cascade source contracts.
+- Full web lint and a Sentry-loopback production build passed without upload/release/artifact activity.
+
+**Local-source evidence**:
+- `saveExamRoundAction` now uses the single `save_exam_round_atomic` RPC. Migration
+  `20260712000002_atomic_exam_round_save.sql` and `supabase/schema.sql` contain the matching function,
+  revoke access from `public`, `anon`, and `authenticated`, and grant execution only to `service_role`;
+  `lib/__tests__/exam-round-atomic-save.test.ts` locks the caller, transaction, schema-parity, and grant contract.
+- This verifies only the current local source and tests. It is not evidence that the migration was applied
+  remotely or that any database, Edge Function, or application deployment occurred.
+
+---
+
+## <a id="20260708-document-policy-cleanup"></a> 2026-07-08 | Resident-number policy and documentation cleanup
+
+**Background**:
+- Active docs still had absolute `E:/hanhwa` links, stale resident-number masking language, and unindexed auxiliary documents.
+- The current resident-number policy is full-view only on trusted paths, with no masked or partial fallback.
+
+**Changes**:
+- Updated the interview security summary so resident-number screen display uses trusted full-view only, while logs/test output use redaction.
+- Converted active handbook/docs absolute workspace links to relative links.
+- Moved stale auxiliary docs, old SuperClaude docs, completed Superpowers plans, and old blocked CLI evidence into `docs/archive/2026-07-doc-cleanup/`.
+- Added archive README/index wording so archived files are not treated as current operating SSOT.
+
+**Files**:
+- `docs/보안_조치.md`
+- `docs/README.md`
+- `docs/handbook/*`
+- `docs/archive/2026-07-doc-cleanup/*`
+
+**Verification**:
+- Passed `node scripts/ci/check-governance.mjs`.
+- Passed active-doc absolute-link scan for `E:/hanhwa` and `D:/hanhwa`.
+- Reviewed resident-number policy text scan; remaining hits are negative policy statements or historical notes, not active masked/partial display instructions.
+- Passed changed Markdown replacement-character scan.
+- Passed local Markdown link existence scan.
+- Passed `git diff --check`.
+
+---
+
+## <a id="20260707-documentation-operating-model"></a> 2026-07-07 | Cross-repo documentation operating model
+
+**Background**:
+- The Hanhwa workspace already had handbook, work log, governance, and legacy reference documents, but their responsibilities were easy to confuse.
+- The requested operating rule was to unify documentation behavior while asking the user whenever an official rule is ambiguous.
+
+**Changes**:
+- Expanded the shared documentation contract into the cross-repo documentation operating SSOT.
+- Defined document priority, document type ownership, minimum update sets, AGENTS.md scope, legacy reference handling, and ambiguity escalation rules.
+- Updated the handbook/docs indexes so documentation SSOT points to handbook and the shared documentation contract rather than treating AGENTS.md as the only source.
+
+**Files**:
+- `docs/handbook/shared/documentation-contract.md`
+- `docs/handbook/INDEX.md`
+- `docs/README.md`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**Verification**:
+- UTF-8 read check for edited Markdown files.
+- Governance check.
 
 ---
 
@@ -436,12 +1091,12 @@
 - `android/app/src/main/res/values-night/colors.xml`
 - `lib/__tests__/login-mobile-source.test.ts`
 - `lib/__tests__/signup-background-source.test.ts`
-- `lib/__tests__/navigation-background-source.test.ts`
+- One user-owned protected source-contract test (identifier withheld).
 - `components/__tests__/Button.contract.test.ts`
 - `docs/handbook/mobile/auth-and-gates.md`
 
 **검증**:
-- 통과: `npm test -- --runInBand lib/__tests__/login-mobile-source.test.ts lib/__tests__/signup-background-source.test.ts lib/__tests__/navigation-background-source.test.ts components/__tests__/Button.contract.test.ts` (11/11).
+- 통과: 로그인·가입·버튼 회귀와 user-owned protected source-contract test를 함께 검증한 focused suite (11/11, 보호 식별자와 exact command 비공개).
 - 통과: `npm run lint`.
 - 통과: `npx tsc --noEmit --pretty false`.
 - 통과: `git diff --check`.
@@ -512,7 +1167,7 @@
 - 현재 OTA는 runtime `4.0.4`용이다. 이미 설치된 앱이 `expo-updates`와 같은 runtime으로 빌드되어 있어야 자동으로 받는다.
 - `expo-updates` 설정이 이번에 repo에 추가됐으므로, 이 설정 이전에 배포된 native binary는 OTA 수신 대상이 아닐 수 있다.
 
-## <a id="20260612-global-navigation-background"></a> 2026-06-12 | 앱 전역 UI 배경색 회귀 방지
+## <a id="20260612-global-surface-background"></a> 2026-06-12 | 앱 전역 UI 배경색 회귀 방지
 
 **배경**:
 - 회원가입 전환 배경을 고친 뒤에도 다른 화면에서 같은 종류의 색상 깜빡임이 재발할 수 있는지 점검했다.
@@ -522,16 +1177,16 @@
 - `app/_layout.tsx`에 `DEFAULT_SCREEN_BACKGROUND`를 추가하고 루트 `GestureHandlerRootView`, React Navigation theme `background/card`, `baseHeader.contentStyle`, 두 Stack의 `screenOptions.contentStyle`, `StatusBar`, Android `NavigationBar.setBackgroundColorAsync`가 모두 같은 밝은 배경을 사용하도록 고정했다.
 - 가입 화면용 `AUTH_GRADIENT_BACKGROUND`는 유지해 auth flow의 연한 주황 fallback과 일반 화면의 흰색 fallback을 분리했다.
 - 앱/컴포넌트 전체에서 명시적인 검정/투명 배경 사용을 스캔했다. 검정 계열은 이미지 프리뷰/모달 딤/주소검색 오버레이 등 의도된 overlay에 집중되어 있고, 일반 화면 전환 배경 후보는 전역 fallback으로 막았다.
-- `navigation-background-source.test.ts`를 추가해 전역 surface 중 하나라도 빠지면 테스트가 실패하게 했다.
+- 전역 surface 누락을 감지하는 user-owned protected source-contract test를 추가했으며 식별자는 문서에 복제하지 않는다.
 
 **핵심 파일**:
 - `app/_layout.tsx`
-- `lib/__tests__/navigation-background-source.test.ts`
+- One user-owned protected source-contract test (identifier withheld).
 - `.claude/MISTAKES.md`
 
 **검증**:
-- RED/GREEN `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts`
-- `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts lib/__tests__/signup-background-source.test.ts`
+- RED/GREEN: focused run for the user-owned protected source-contract test (identifier and exact command withheld).
+- PASS: the same protected contract together with the signup-background regression suite.
 
 **후속/주의**:
 - 화면별 카드/버튼 색상은 각 UI 목적에 따라 유지했다. 전환 중 검정색 노출 방지는 전역 navigation/root/native bar fallback에서 담당한다.
@@ -827,7 +1482,7 @@
   - follower count: 76
   - unrelated active-drag drift: 14.088px
   - settle 후 release point 거리: 9.66px
-- 증적: `.codex/harness/referral-graph-live-before.png`, `.codex/harness/referral-graph-live-during.png`, `.codex/harness/referral-graph-live-after.png`, `.codex/harness/referral-graph-live-settled.png`
+- 전후·드래그·안정화 시각 확인 완료; 중복 캡처는 개인정보 검토 후 제거했다.
 
 **미실행/제약**:
 - 실제 사용자가 직접 브라우저/디바이스에서 느끼는 주관적 체감 검증은 별도 피드백으로 받을 수 있다. 이번 변경은 자동 테스트, production build, 실제 브라우저 CDP drag 지표와 screenshot으로 검증했다.
@@ -1287,7 +1942,7 @@
 - 통과: `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test web/src/lib/referral-graph-realdata.test.ts`
   - 실제 데이터: `nodes=192`, `edges=108`, `crossings=0`, `crossingVisualSeverity=0`.
 - 통과: local dev browser smoke에서 `/dashboard/referrals/graph` 200, graph API 200.
-- 캡쳐: `.codex/harness/referral-graph-descendant-size.png`
+- 시각 확인 완료; 중복 캡처는 개인정보 검토 후 제거했다.
 - 통과: `git diff --check`
   - LF/CRLF working-copy warnings only.
 - 배포 준비: 첫 `vercel deploy --prod`는 로컬 generated output까지 업로드되어 파일 수 제한/대용량 archive 오류가 발생했고, root `.vercelignore`만으로는 rootDirectory=`web` 업로드 필터가 바뀌지 않아 `web/.vercelignore`까지 추가했다.
@@ -2573,7 +3228,7 @@
 - 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-highlight.test.ts`
 - 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
 - 통과: `cd web && npm run build`
-- 통과: Chrome DevTools Protocol browser QA on `http://localhost:3000/dashboard/referrals/graph` with intercepted synthetic graph API, screenshot `.codex/harness/referral-graph-obsidian-v7-browser-qa.png`
+- 통과: Chrome DevTools Protocol browser QA with an intercepted synthetic graph API; the redundant screenshot was removed after privacy review.
 
 ---
 
@@ -2606,7 +3261,7 @@
 - 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-layout.test.ts`
 - 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
 - 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts`
-- 통과: Chrome DevTools Protocol synthetic browser QA on `http://localhost:3000/dashboard/referrals/graph` with nested branch graph API, screenshot `.codex/harness/referral-graph-nested-branch-auto-fit-qa.png`
+- 통과: Chrome DevTools Protocol synthetic browser QA with a nested branch graph API; the redundant screenshot was removed after privacy review.
 
 ---
 
@@ -2669,7 +3324,7 @@
 - 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
 - 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts`
 - 통과: `cd web && npm run build`
-- 통과: Playwright synthetic browser QA on `http://localhost:3000/dashboard/referrals/graph` with parent-child ring graph API, screenshot `.codex/harness/referral-graph-child-rings-browser-qa.png`
+- 통과: Playwright synthetic browser QA with a parent-child ring graph API; the redundant screenshot was removed after privacy review.
 
 ---
 
@@ -2732,7 +3387,7 @@
 - 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
 - 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts`
 - 통과: `cd web && npm run build`
-- 통과: Playwright synthetic browser QA on `http://localhost:3000/dashboard/referrals/graph` with dummy admin cookies + intercepted graph API, screenshot `.codex/harness/referral-graph-physics-browser-qa.png`
+- 통과: Playwright synthetic browser QA with dummy admin cookies and an intercepted graph API; the redundant screenshot was removed after privacy review.
 - 통과: `git diff --check`
 - 통과: `node scripts/ci/check-governance.mjs`
 
@@ -2808,11 +3463,11 @@
   - isolated hide switch default off
   - search, fit, drag, reset smoke
   - node click Drawer smoke
-  - screenshot: `.codex/harness/referral-graph-radial-qa.png`
+  - radial visual QA passed; the redundant screenshot was removed after privacy review.
   - synthetic visual smoke: `nonBackground=32195`, `orangeNode=3501`, `labelInk=7977`
-  - screenshot: `.codex/harness/referral-graph-obsidian-overview-qa.png`
+  - overview visual QA passed; the redundant screenshot was removed after privacy review.
   - real graph no-overlap check: `154` nodes, `77` edges, `18` connected components, minimum connected-component envelope margin `20`
-  - screenshot: `.codex/harness/referral-graph-no-overlap-qa.png`
+  - no-overlap visual QA passed; the redundant screenshot was removed after privacy review.
 - 참고: latest drag-link refinement는 unit/lint/build로 재검증했다. 이 환경에서 fresh automated browser drag replay는 사용할 수 없었다.
 
 ---
@@ -3264,9 +3919,9 @@
   - `messages.sender_id = '01058006018'`로 2026-04-22자 신규 메시지 sample 조회 성공
   - self-referral 3건 모두 별도 문구로 `전송 완료` 확인
 - 증적:
-  - `.codex/harness/reports/missing-recommender-message-send-2026-04-22.md`
-  - `.codex/harness/reports/missing-recommender-message-send-2026-04-22.json`
-  - `.codex/harness/reports/fc-missing-recommender-2026-04-22-outreach.csv`
+  - `privacy-deleted; see central FC raw-harness receipt`
+  - `privacy-deleted; see central FC raw-harness receipt`
+  - `privacy-deleted; see central FC raw-harness receipt`
 
 ---
 
@@ -3316,9 +3971,9 @@
 - 통과: `npm run report:legacy-recommenders -- --date=2026-04-22 --apply`
 - 통과: `npm run report:missing-recommender -- --date=2026-04-22-after-link`
 - 증적:
-  - `.codex/harness/reports/legacy-recommender-reconcile-2026-04-22.md`
-  - `.codex/harness/reports/legacy-recommender-reconcile-2026-04-22.json`
-  - `.codex/harness/reports/fc-missing-recommender-2026-04-22-after-link.csv`
+  - `privacy-deleted; see central FC raw-harness receipt`
+  - `privacy-deleted; see central FC raw-harness receipt`
+  - `privacy-deleted; see central FC raw-harness receipt`
 
 ---
 
@@ -3475,7 +4130,7 @@
   - 스택이 있으면 `back()`, 없으면 fallback route로 `replace()`하는 공용 helper를 추가했다.
   - `메신저` route header에 이 helper를 연결해 top header back button이 항상 보이도록 했다.
 - Android emulator QA
-  - FC flow와 admin internal-messenger flow 증적을 `.codex/harness/evidence/android-optimization-pass1/`에 수집했다.
+  - FC flow와 admin internal-messenger flow 증적을 `privacy-deleted; see central FC raw-harness receipt`에 수집했다.
   - 제공받은 developer/admin 계정은 request_board session sync 과정에서 다시 login으로 돌아가는 현상이 있어, plain-admin QA session injection으로 internal messenger admin list/read 동작까지는 검증했다.
 
 **결과**:
@@ -3491,7 +4146,7 @@
 - 통과: `npx eslint --rule "import/no-unresolved: off" supabase/functions/fc-notify/index.ts`
 - 통과: `node scripts/ci/check-governance.mjs`
 - 통과: `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
-- 증적: `E:\hanhwa\fc-onboarding-app\.codex\harness\evidence\android-optimization-pass1\home.png`, `messenger-hub.png`, `admin-messenger-deeplink.png`, `admin-chat-open-2.png`, `admin-messenger-after-read.png`, `notifications-admin.png`
+- 증적: `privacy-deleted; see central FC raw-harness receipt`, `messenger-hub.png`, `admin-messenger-deeplink.png`, `admin-chat-open-2.png`, `admin-messenger-after-read.png`, `notifications-admin.png`
 - 미실행: 사용자가 이어서 수행할 실제 계정 수동 QA 전체 세트
 - 별도 메모: `npx tsc --noEmit --pretty false`는 이번 변경과 무관한 기존 오류(`app/appointment.tsx`, `app/hanwha-commission.tsx`, `app/referral.tsx`, `components/DaumPostcode.tsx`, `hooks/use-my-referral-code.ts`)로 인해 여전히 실패
 
@@ -11016,8 +11671,8 @@
 - Browser QA: production build served at `http://localhost:3100`, account `01058006018`, dragged node `3a645d36-50ce-44fd-9bf2-f9506c9cb70d`; `elasticDepthCount=88` during drag and immediately after release, then cleared after settle. Descendants continued moving after mouseup, with top tracked displacement `211.02` graph units at 220ms.
 
 **Evidence**:
-- `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.json`
-- `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.png`
+- [privacy-safe referral graph QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa)
+- [privacy-safe referral graph QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa)
 
 ---
 
@@ -11493,3 +12148,1898 @@
 
 **Notes**:
 - Resident-number display rules remain full-or-hidden. Masked or partial resident-number display is not a valid fallback for workflows that require the full value.
+
+---
+
+## <a id="20260708-account-deletion-url"></a> 2026-07-08 | Admin web public account deletion URL
+
+**Scope**: Google Play Data Safety account/data deletion URL for GaramIn.
+
+**Changes**:
+- Added `web/src/app/account-deletion/page.tsx` as a public, login-free page under the admin web deployment.
+- Added `/account-deletion` to the admin web public route allowlist so the proxy does not redirect Google Play reviewers to `/auth`.
+- Documented the existing in-app/admin-web deletion path: login, open settings, choose account deletion, and confirm.
+- Explained which user-linked data is deleted by the existing `delete-account` flow and which data can be retained for legal, security, settlement, audit, backup, or de-identified statistics reasons.
+- Linked the existing Google Play listing and hosted privacy policy so the page can be used as the Google Play account deletion URL.
+
+**Verification**:
+- Passed: `cd web && npm run lint -- src/app/account-deletion/page.tsx`.
+- Passed: `node --test web/src/lib/admin-web-public-paths.test.ts`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+- Passed: `cd web && SENTRY_AUTH_TOKEN='' SENTRY_DISABLE_UPLOAD=1 npm run build`; route output includes static `/account-deletion`.
+
+**Notes**:
+- Google Play should use `https://adminweb-red.vercel.app/account-deletion` after this route is deployed. Supabase Dashboard URLs are operator-only and must not be used as the public account deletion URL.
+
+---
+
+## <a id="20260708-public-page-web-push-registration"></a> 2026-07-08 | Public page web-push auto-registration guard
+
+**Scope**: Admin web account deletion page console noise after production deploy.
+
+**Changes**:
+- Added `web/src/lib/web-push-registration-policy.ts` to centralize whether global web-push auto-registration may run.
+- Updated `WebPushRegistrar` to skip auto-registration on public admin web routes such as `/account-deletion` and `/auth`.
+- Added regression coverage proving stale client session fields do not trigger `/api/web-push/subscribe` on public pages.
+
+**Verification**:
+- Passed: `cd web && npm run lint -- src/components/WebPushRegistrar.tsx src/lib/web-push-registration-policy.ts src/lib/web-push-registration-policy.test.ts`.
+- Passed: `node --test web/src/lib/admin-web-public-paths.test.ts web/src/lib/web-push-registration-policy.test.ts`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+- Passed: `cd web && SENTRY_AUTH_TOKEN='' SENTRY_DISABLE_UPLOAD=1 npm run build`.
+
+**Notes**:
+- Manual notification registration from authenticated dashboard/settings flows remains unchanged.
+
+---
+
+## <a id="20260708-designer-bootstrap-parity"></a> 2026-07-08 | Designer bootstrap parity guard
+
+**Scope**: GaramIn login/bridge contract for request_board-linked designers.
+
+**Evidence**:
+- A designer account had been added to request_board, but the phone was still absent from GaramIn `fc_profiles`/`fc_credentials`.
+- GaramIn `login-with-password` classifies request_board-linked designers from `fc_profiles.affiliation = '<company> 설계매니저'`.
+
+**Changes**:
+- Added `supabase/functions/_shared/__tests__/request-board-auth.test.ts` so the affiliation marker parser is covered directly.
+- Updated `docs/handbook/shared/cross-repo-bridge-contract.md` with the full cross-system designer completion rule.
+- Updated `.claude/MISTAKES.md` with the root cause and permanent guardrail.
+
+**Verification**:
+- Passed: `npm test -- --runInBand supabase/functions/_shared/__tests__/request-board-auth.test.ts`.
+
+**Notes**:
+- The request_board companion change adds the production parity checker that queries both Supabase projects after a designer add/change.
+
+---
+
+## <a id="20260713-preserved-audit-completion"></a> 2026-07-13 | Preserved audit evidence normalization and repository verification
+
+**Scope**: preserved Codex Security artifacts, repository-wide safe verification, handbook governance, and local unauthenticated browser QA.
+
+**Evidence handling**:
+- Kept scan inputs and the dirty repository snapshot unchanged while normalizing only round-03 scan artifacts.
+- Backed up the four non-canonical worker JSONL sets before mechanical schema normalization.
+- Verified all six workers against exact keys/types, raw trace, three ledger rows per candidate, affected-location existence/ranges, work/tree ledgers, and shared-input hashes.
+- Delegated the 853/853 preserved round-03 candidate sources to a separate evidence-only semantic reconciliation pass; no new discovery pass was started.
+- Final reconciliation retained 262 canonical rows and 1,968 total provenance entries, mapped all 853 round-03 source ids exactly once, and classified 42 candidates as genuine-new with zero mapping/structural errors.
+- Canonical JSONL SHA-256: `595ebe54be9bffc87b7296dbcae659ed5010a4edd477ffdeb3f5e3c8c11132be`; `discovery_terminal.md` is intentionally absent because genuine-new is greater than zero.
+- This completes preserved artifact normalization/reconciliation only. It does not claim deep-scan novelty convergence; a later authorized round 4 must reach zero genuine-new before writing a terminal marker.
+
+**Verification**:
+- Passed: `npm test -- --runInBand` — 121 suites / 658 tests.
+- Passed: root lint, `npx tsc --noEmit`, web lint, Expo export, and Sentry-disabled root/web production builds.
+- Passed: board Edge smoke 6/6 and board-list Edge smoke 5/5.
+- Passed after handbook/map reconciliation: `node scripts/ci/check-governance.mjs` and `git diff --check` (line-ending warnings only).
+- Integrated QA validator executed successfully but its stored run remains 17 PASS, 3 FAIL, 28 BLOCKED, and 4 SKIPPED; this is not an all-green release result.
+
+**Browser QA**:
+- `/auth` rendered without horizontal overflow at 320, 390, and 768 CSS pixels and exposed an alert after empty submit.
+- The password visibility action has no accessible name.
+- `/account-deletion` rendered at 390 CSS pixels with the required deletion, retention, Play Store, and privacy-policy content.
+- Authenticated workflow QA was not run without disposable credentials. The in-app Browser PNG capture defect is recorded in the workspace harness; rejected PNGs are not release evidence.
+
+**Safety**:
+- No commit, push, deploy, environment, database, migration, credential, production account, or live Sentry mutation was performed in this pass.
+
+---
+
+## <a id="20260716-full-typescript-gates"></a> 2026-07-16 | Full web and Edge Function TypeScript gates
+
+**Scope**: all tracked Supabase Edge Function entrypoints and the admin web no-emit TypeScript gate.
+
+**Changes**:
+- Replaced unsafe password-reset row assertions with fail-closed runtime decoders.
+- Used explicit literal failure checks for result unions while preserving signed-session, bridge-token, actor, and referral authorization branches.
+- Enabled explicit `.ts` imports only under the existing web `noEmit` contract, completed the local `d3-force` declaration, and narrowed test/helper input types to fields actually read at runtime.
+
+**Verification**:
+- Passed full `deno check --frozen --config supabase/functions/deno.json` for 46/46 tracked entrypoints with zero diagnostics.
+- Passed board loopback smoke suites 6/6 and 5/5, related Jest tests, password-sync tests, and Node/ops suites.
+- Passed web `npx tsc --noEmit --pretty false`, lint, Sentry-disabled production build, 26 focused tests, and the full web Node suite with 228 passed, 0 failed, and 1 existing remote-data skip.
+- Independent evaluators found no test exclusion, compiler weakening, unsafe cast, authentication bypass, package change, or protected-navigation-file mutation in either contract.
+
+**Safety**:
+- No push, PR, deployment, remote Supabase change, migration, secret change, or Sentry upload was performed.
+- Release posture remains `HOLD` while external authenticated E2E and remaining release blockers are unresolved.
+
+---
+
+## <a id="20260716-fc-completion-state-ops-fallback"></a> 2026-07-16 | Final FC state alignment and model-independent insurance fallback
+
+**Scope**: current local quality claims, credential-incident boundaries, compact harness handoff, and the paused insurance digest Codex fallback.
+
+**Changes**:
+- Replaced stale web TypeScript and Deno debt claims with the current sanitized receipt: FC 18/18, all 46 Edge entrypoints, and root/web TypeScript PASS.
+- Recorded the credential boundary as active tracked copy 0, current local untracked copy 6, confirmed historical exposure, and external rotate/history/clone HOLD without copying any credential material.
+- Classified the single actual-Supabase referral graph skip as `DESTRUCTIVE_OR_EXTERNAL_TEST_BLOCKER`; it was not run against shared or production data.
+- Removed the explicit model option from the insurance digest fallback so the installed Codex default is used, and added a deterministic source-contract assertion that rejects a future `-m` or `--model` option.
+- Updated the session grounding discovery path to portable `%USERPROFILE%\.agents\skills\...`.
+- Verified read-only that zero matching Windows Scheduled Tasks currently invoke the fallback; no scheduler state was created, changed, enabled, or invoked, and the insurance automation remains PAUSED.
+
+**Verification**:
+- Passed `node --test scripts/ops/post-insurance-digest.test.mjs`: 15/15.
+- Passed all `scripts/ops/*.test.mjs`: 28/28.
+- Passed `node scripts/ci/documentation-governance.test.mjs`: 4/4.
+- Passed `node scripts/ci/check-governance.mjs`.
+- Passed `git diff --check`; output contained line-ending warnings only.
+- Read-only Scheduled Task inspection returned matching task count 0.
+
+**Safety**:
+- Did not read, edit, stage, or commit one user-owned protected test; its identifier is withheld.
+- No push, PR, deployment, remote database change, credential mutation, task-scheduler mutation, or Sentry mutation was performed.
+- Release posture remains `HOLD` for external authenticated E2E, ordered rollout, credential incident response, and remaining portfolio P0 items.
+
+---
+
+## <a id="20260720-admin-web-login-timeout"></a> 2026-07-20 | Admin web login response deadline
+
+**Scope**: admin web browser login request and its server-side Supabase Edge Function proxy.
+
+**Diagnosis**:
+- Browser QA proved that the rendered login button was enabled and its empty-submit handler displayed the expected alert.
+- A valid disposable account request then remained pending while the local Next.js development server stopped answering even `/auth`; after a clean restart, the same authentication path completed successfully.
+- A second disposable account completed through `/api/auth/login` with HTTP 200 in about 2.3 seconds, confirming that credentials and the Edge Function contract were valid.
+
+**Changes**:
+- Bounded the Supabase `login-with-password` invocation at 15 seconds using the installed `supabase-js` timeout contract.
+- Bounded the browser proxy request at 20 seconds so a stalled Next.js request returns control to the user.
+- Added structured `504 upstream_timeout` handling, a retryable Korean message, and nested timeout detection for browser and Supabase-wrapped abort errors.
+- Added focused behavior and source-contract tests.
+
+**Verification**:
+- Passed focused login tests: 3/3.
+- Passed the full safe Node/ops suite: 270 passed, 0 failed, 1 existing remote-data skip.
+- Passed targeted ESLint, full web TypeScript, governance, and `git diff --check`.
+- Passed the Sentry-disabled Next.js production build with `/api/auth/login` included as a dynamic route.
+- A production-build browser login reached the role-correct FC referral graph; an independent API login returned HTTP 200 in about 2.7 seconds.
+
+**Safety**:
+- Timeout diagnostics record only error class names; phone numbers, passwords, tokens, and raw upstream bodies are excluded.
+- No deployment, remote database write, migration, credential change, or Sentry upload was performed.
+
+---
+
+## <a id="20260720-react-native-text-child"></a> 2026-07-20 | Android native text-child closure
+
+**Diagnosis**:
+- The device component stack pointed to `sortedCustomers.map` in `app/request-board-create.tsx`.
+- The customer card ended with `</View>            </Pressable>` on one line. Babel transforms that spacing into a string child of `Pressable`, which Android Fabric rejects outside a `Text` host.
+- A RED whole-source contract also identified element-only icon/value slots whose broad `ReactNode` types could admit the same primitive-child failure.
+
+**Changes**:
+- Split the customer-card closing tags onto separate lines.
+- Narrowed `Button` and `FormInput` icon slots plus the dashboard detail value slot to `ReactElement`.
+- Added `react-native-text-child-contract.test.ts`, scanning all mobile TSX under `app`, `components`, and `hooks` for same-line emitted whitespace and inferred primitive children beneath native container hosts.
+
+**Verification**:
+- RED reproduced exactly one emitted whitespace child and five primitive-capable slot paths.
+- GREEN passed the new contract 2/2 and the combined Request Board/shared UI contracts 41/41.
+- Targeted ESLint and root `tsc --noEmit` passed.
+
+**Safety**:
+- Existing dirty changes in `app/_layout.tsx` and `lib/__tests__/navigation-background-source.test.ts` were excluded.
+- No push, deployment, remote database operation, credential change, or Sentry mutation was performed.
+
+---
+
+## <a id="20260722-admin-web-exam-save-and-login"></a> 2026-07-22 | Admin web exam save and login diagnosis
+
+**Diagnosis**:
+- Vercel grouped the schedule-save failures under PostgREST `PGRST202`: the deployed server action calls `save_exam_round_atomic`, but the FC Production database does not contain that function.
+- Supabase migration history also stops before the local `20260712000002_atomic_exam_round_save.sql`, and a read-only `to_regprocedure` check returned false.
+- Recent login-button attempts reached `/api/auth/login` and returned HTTP 200. The button was enabled and the browser showed no client error; a second tab entered the dashboard with the newly created server session. The remaining regression is the original login tab failing to complete its client-side route transition.
+
+**Changes**:
+- Converted the login card to a native form submission contract and replaced the post-success client route transition with `window.location.replace`, so the browser reloads from the server session source of truth.
+- Mapped missing exam RPC errors to an explicit operational message and reduced server logging to error name/code instead of the raw PostgREST object.
+- Kept the atomic RPC-only save path; no partial multi-statement fallback was introduced.
+
+**Verification and rollout**:
+- Applied the reviewed additive `atomic_exam_round_save` migration to FC Production as hosted version `20260722110641` after explicit operator approval.
+- Verified the function is `SECURITY INVOKER`, executable by `service_role`, denied to `anon`/`authenticated`, and rejects an invalid-input smoke without writing data.
+- Deployed the admin web twice after explicit approval, most recently for newest-first schedule ordering. The latest Production deployment is `dpl_8mQ2kFYbu6tau8Lc3D83xT4JnyxU`, and `adminweb-red.vercel.app` resolves to it.
+- Verified the Production alias is READY, `/auth` returns HTTP 200, and the bounded post-deploy runtime-error query returned no recent errors.
+- Focused auth/exam contracts, web TypeScript, scoped lint, and the Sentry-disabled Production build passed.
+
+**Safety**:
+- No credential value, personal identifier, raw Production row, or raw error body was retained in the report.
+- No Sentry mutation, commit, push, PR, or unrelated database change was performed.
+
+---
+
+## <a id="20260722-admin-exam-applicant-detail"></a> 2026-07-22 | Admin exam applicant detail and list interaction polish
+
+**Scope**: `/dashboard/exam/applicants`, its selected-registration detail route, and the existing privileged applicant API.
+
+**Changes**:
+- Made every applicant row mouse- and keyboard-navigable to `/dashboard/exam/applicants/[id]`, with a cursor-following semi-transparent identity tooltip positioned above the pointer.
+- Added an at-a-glance detail page and admin-only `시험 접수하기` action using the existing PATCH contract and FC approval notification helper; manager sessions remain read-only.
+- Added previous/next applicant navigation in the same stable newest-first order as the list, with disabled boundary buttons and opaque-ID-only routes.
+- Kept historical rows while classifying a selected registration, then narrowed to the requested row before profile/resident-number enrichment so `재신청` remains accurate.
+- Reworked subject/round menus into compact selected states and structured date/round/subject items.
+- Made total/confirmed/pending summary cards accessible reception filters and kept their comparison counts stable while one status is selected.
+- Added distinct completed/pending row colors, immediate state-driven recoloring, stable header keys, and a source contract for all new interactions.
+
+**Verification**:
+- Focused applicant source/display/enrichment Node suites: 21/21 PASS.
+- Admin web TypeScript and scoped ESLint: PASS.
+- Sentry-disabled Next.js Production build: PASS; the dynamic applicant detail route was emitted.
+- Authenticated visual comparison remains blocked in the isolated browser because the local route redirects to `/auth`; user-provided local screenshots supplied iterative visual feedback for the list and tooltip.
+
+**Safety and rollout boundary**:
+- The detail/list increment is local only and was not included in the earlier Production deployment.
+- No Production data mutation, deployment, credential change, Sentry mutation, commit, push, or PR was performed for this increment.
+- Existing unrelated dirty files remain unstaged and preserved. Release posture remains `HOLD` pending authenticated runtime QA and explicit deployment direction.
+
+---
+
+## <a id="20260722-admin-dashboard-metric-filters"></a> 2026-07-22 | Admin dashboard KPI list filters
+
+**Scope**: the three KPI cards and FC list on `/dashboard`.
+
+**Changes**:
+- Converted total, guarantee-insurance approval waiting, and document-review waiting cards into keyboard-accessible filter buttons with explicit selected states.
+- Reused the exact workflow predicates that calculate each KPI, so the filtered FC rows match the displayed count contract.
+- Re-selecting an active waiting card or selecting total returns to the full list. Choosing a workflow tab clears the KPI filter; keyword search remains composable.
+
+**Verification**:
+- Dashboard KPI source contract: 2/2 PASS as part of the combined focused 23/23 Node run.
+- Web TypeScript and scoped TS/TSX ESLint: PASS.
+- Final Sentry-disabled Production build: PASS. Authenticated visual QA remains in the shared task gate.
+
+**Safety**:
+- Client-side filtering only; no API, database, role, credential, Sentry, or remote state changed.
+- This increment is local-only and not deployed.
+
+---
+
+## <a id="20260722-home-messenger-unread-badge"></a> 2026-07-22 | GaramIn home messenger unread badge
+
+**Scope**: the mobile home `메신저` shortcut card.
+
+**Changes**:
+- Reused the existing signed `internal_unread_count` query result already loaded by the home screen.
+- Added a red count badge to the messenger shortcut icon only when unread is nonzero, capped display at `99+`, and included the same count in the accessibility label.
+- Kept the shortcut route and message read-state source unchanged; no duplicate unread fetch was introduced.
+
+**Verification**:
+- Focused home source contract: 2/2 PASS.
+- Root TypeScript and scoped ESLint: PASS.
+- Repository governance: PASS.
+
+**Safety**:
+- No message content, contact identifier, token, or raw unread response is logged or persisted by the badge.
+- Local-only UI change; no deployment, remote mutation, credential change, Sentry mutation, commit, push, or PR.
+## 2026-07-21 native designer push token role repair
+
+- Scope: Request Board designer native Expo token registration only.
+- Production evidence was read-only and privacy-safe: `device-token-register` returned 500 during the device test, the hosted role constraint allowed only two non-manager roles, and the hosted manager-token aggregate was zero.
+- Root cause: application and schema snapshot required `role='manager'`, but no migration changed the hosted `device_tokens_role_check`.
+- Local change: added `20260721052837_allow_manager_device_tokens.sql`, retained service-role-only access, and added an exact-role source contract plus owning handbook updates.
+- Excluded existing dirty paths: `app/_layout.tsx`, `lib/__tests__/navigation-background-source.test.ts`.
+- Rollout boundary: no production migration, Edge deployment, Vercel deployment, push, PR, Sentry mutation, token output, or external message was performed.
+
+## 2026-07-21 | Native designer token production rollout
+
+- Applied the reviewed `allow_manager_device_tokens` migration to the FC production project.
+- Verified the hosted constraint now permits exactly `admin`, `fc`, and `manager`; migration history records the production application.
+- Restarted the connected Android app without deleting app data. The existing signed session registered one manager token successfully; only aggregate presence was inspected.
+- Notification delivery remains `HOLD` because the paired Request Board sender and FC receiver Vercel token variables are absent from their current Production settings.
+- No Edge deployment, token generation/change, Sentry mutation, push, PR, or contact/token value output was performed.
+
+## <a id="20260721-request-board-rejection-repair"></a> 2026-07-21 | Request Board rejection repair
+
+**Diagnosis**:
+- Production rejection requests failed with PostgREST `PGRST202` because the deployed server called `transition_request_assignment_v1` while the Request Board Production database did not contain that RPC or its migration history entry.
+- After the schema repair, the mobile home quick-card path still provided no success acknowledgement; it only closed the modal and refreshed data.
+
+**Changes**:
+- Applied the existing additive `atomic_request_assignment_transitions_v1` migration to the Request Board Production Supabase project.
+- Verified the function remains `SECURITY INVOKER`, grants execution to `service_role`, denies `anon` and `authenticated`, and has its supporting partial index.
+- Added `Alert.alert('거절 완료', '의뢰를 거절했습니다.')` before the home-card background refresh.
+- Added a focused mobile UI contract asserting the success acknowledgement and its ordering before refresh.
+
+**Verification**:
+- Production migration history and function existence checks passed.
+- The user confirmed designer rejection now completes successfully.
+- `request-board-mobile-ui-contract.test.ts`: 37/37 passed.
+
+**Safety**:
+- No credentials, contact data, rejection reason, or raw production payload was emitted.
+- No Vercel redeployment, Sentry mutation, commit, push, or PR was performed.
+
+---
+
+## <a id="20260721-admin-web-production-alias"></a> 2026-07-21 | Admin web Production alias repair
+
+**Diagnosis**:
+- The current `admin_web` Production deployment was `READY`, and a synthetic non-account login request proved the current client handler entered and exited its loading state.
+- The operator-facing `adminweb-red.vercel.app` hostname still resolved to the 2026-07-08 deployment, while the newly deployed build was attached only to Vercel-generated Production aliases.
+- This stale alias kept the operator on code from before the 2026-07-20 bounded-login repair, making the login action appear inert.
+
+**Operational change**:
+- Repointed `adminweb-red.vercel.app` to the current `admin_web` Production deployment.
+- Did not change auth code, Supabase state, credentials, project environment variables, or Sentry release state.
+
+**Verification**:
+- Vercel resolved both the generated Production hostname and `adminweb-red.vercel.app` to the same current deployment ID with `READY` state.
+- The operator hostname routed an existing valid browser session to `/dashboard`.
+- Aggregate-only DOM checks confirmed all four requested exam-applicant quick-filter labels render on the operator hostname.
+- Focused auth/applicant tests, scoped lint, web TypeScript, governance, diff check, Sentry-disabled production build, and harness audit are recorded in the task QA report.
+
+**Privacy and containment**:
+- No credential values were read or retained.
+- One broad live-dashboard DOM observation produced ephemeral row-level values in tool output; no file or harness artifact retained the raw observation. Subsequent browser verification used only exact-label booleans and aggregate counts.
+- The deployment used one unique web-only `%TEMP%` root, rejected forbidden candidates, and removed the exact root after completion.
+
+---
+
+## <a id="20260723-admin-chat-mobile-push-confirmation"></a> 2026-07-23 | Admin direct-chat mobile push confirmation
+
+**Diagnosis**:
+- Privacy-safe Production aggregates showed a newly saved staff direct message, one recently refreshed FC Expo token for that recipient, and zero matching `message` notification rows.
+- The admin chat UI started `/api/fc-notify` with `void` after the message insert, did not keep the request alive across page lifecycle changes, and treated every HTTP/body result as logging-only. A cancelled or rejected notification therefore looked identical to full success.
+
+**Changes**:
+- Kept the existing optimistic message insert and separated notification delivery into a post-commit boundary.
+- Added `keepalive`, awaited the protected notification proxy, and required outer/downstream success plus `logged=true` and `sent>=1`.
+- Added yellow partial-failure feedback without deleting the committed message or restoring it to the composer.
+- Replaced raw response-object diagnostics with fixed reason/status and aggregate sent fields.
+
+**Verification**:
+- `admin-web-chat-source.test.ts`: 12/12 PASS.
+- `admin-chat-notification-result.test.ts`: 2/2 PASS.
+- Web TypeScript and scoped ESLint: PASS.
+
+**Safety**:
+- No phone, push token, message body, provider response, or raw log was retained.
+- No new test message, Supabase/Vercel deployment, DB change, credential/Sentry mutation, commit, push, or PR was performed.
+- Physical handset presentation remains a user-observed E2E step after a new authorized send; repository release posture remains HOLD.
+
+---
+
+## <a id="20260723-notification-delivery-truthfulness"></a> 2026-07-23 | Notification delivery truthfulness audit and scoped release
+
+**Diagnosis**:
+- `fc-notify` counted queried tokens as sent without checking Expo HTTP status or individual ticket status, and returned raw provider results.
+- Several mobile/web callers treated HTTP 200 or `ok=true` as confirmed delivery even when `logged=false`, `sent=0`, or a transport error occurred.
+- FC workflow events reused the FC phone as an admin recipient, which changed a shared-admin event into a personal target.
+- Group chat resolved active managers as members and then removed their tokens with a generic null-target policy.
+- Some post-commit fanout failures could return an overall failure after the durable write and invite duplicate retries.
+
+**Changes**:
+- Count only explicit Expo `status=ok` tickets, report attempted/accepted/rejected aggregates, and remove raw provider bodies/tickets/tokens from responses and logs.
+- Preserve primary writes while surfacing structured partial-delivery warnings in admin web and mobile flows.
+- Route non-message FC workflow events to the shared admin inbox; keep concrete targeting only for direct message category.
+- Match group-chat tokens against resolved phone+role membership and isolate fanout failures from saved-message success.
+- Keep failed reminder recipients retryable by advancing `docs_deadline_last_notified_at` only after accepted delivery.
+- Propagate board create/update and admin lifecycle notification warnings through their callers.
+
+**Release boundary**:
+- No schema or data migration is required or manufactured.
+- Changed Edge targets: `fc-notify`, `group-chat`, `board-create`, `board-update`, `docs-deadline-reminder`.
+- Admin web Production is the only web deployment target. Mobile Store/OTA/native actions and Request Board repository changes remain excluded.
+- Physical handset presentation remains a post-deploy operator check; global repository release posture is not reclassified by this scoped rollout.
+
+**Safety**:
+- Diagnostics retain only fixed reason/status and aggregate counts.
+- No credential, token, phone, message body, provider response, raw Production row, or Sentry release artifact is retained.
+
+---
+
+## <a id="20260723-release-candidate-stabilization"></a> 2026-07-23 | Release-candidate stabilization gates
+
+**Corrections**:
+- Used exact discriminant checks for `admin-action` authorization and canonical recipient results so all Edge entrypoints type-check under Deno.
+- Replaced a dynamic `fc-notify` console warning with the closed `reportEdgeDiagnostic` contract.
+- Updated stale source contracts to validate the current authenticated notification path, stable Request Board create keys, partial retry behavior, and centralized session push registration.
+- Updated the board-create smoke provider fixture with attempted/accepted/rejected delivery evidence.
+- Set `web.nextConfig.turbopack.root` to the repository root because the admin web imports shared notification code outside `web/`.
+
+**Verification**:
+- FC Jest and coverage: 145 suites / 795 tests PASS.
+- Deno: 46 Edge entrypoints PASS.
+- Board handler smoke: 11/11 PASS.
+- Aggregate Node tests: 315 PASS / 1 intentional skip.
+- Expo web and Next.js admin-web production builds: PASS with Sentry upload disabled.
+- Root/admin-web lint, TypeScript, documentation governance, repository governance, and diff checks: PASS.
+- Root/admin-web npm audit: zero vulnerabilities.
+
+**Boundary**:
+- No deployment, database migration, credential change, Sentry release/upload, Store artifact publication, or external message was performed.
+- The separately requested exam deposit-evidence feature is owned by another session and is not part of this release candidate.
+
+<a id="20260723-admin-web-notification-deployment-root"></a>
+## 2026-07-23 Admin web notification deployment-root repair
+
+- Evidence:
+  - The administrator mutation returned success and the FC profile entered the temporary-ID-issued state.
+  - No matching notification history row was created, and the target account had zero FC-role device tokens.
+  - The latest Vercel Git build failed because `web/src/app/dashboard/notifications/actions.ts` imported an Edge shared module outside the configured `web` Root Directory.
+- Change:
+  - Added `web/src/lib/expo-push-delivery.ts` and changed the server action to use the deployment-local module.
+  - Added focused provider-ticket aggregation and deployment-root source contracts.
+- Release boundary:
+  - No Supabase schema or row mutation is part of this code repair.
+  - A Production admin-web deployment restores notification creation behavior; system Push additionally requires the handset to register an FC-role device token.
+
+## 20260723 Referral app-session recovery
+
+- Symptom:
+  - A completed FC account could refresh its app session, but the referral-code page surfaced an invalid-session error.
+  - Production logs showed `refresh-app-session` succeeding while `get-referral-tree` returned 401.
+- Root cause:
+  - `refresh-app-session` minted tokens with the dedicated FC current key.
+  - Referral consumers still bundled an older `_shared/request-board-auth.ts` verifier tied to the legacy shared bridge key.
+- Local containment:
+  - `get-my-invitees` and `update-my-recommender` had existing ambiguous union checks that made Deno infer `Response | undefined`; the checks were narrowed without changing response or authorization behavior.
+  - Six referral functions passed Deno checks. Six focused suites passed 24/24 tests.
+- Production release:
+  - Deployed `get-referral-tree`, `get-my-referral-code`, `get-my-invitees`, `update-my-recommender`, `get-fc-referral-code`, and `search-fc-for-referral`.
+  - Re-read every active bundle through the Supabase management surface. Every function remained JWT protected and verified only the dedicated current/previous app-session key pair.
+- Runtime verification:
+  - A bounded read-only compatibility smoke for the reported account returned `200 / ok: true` from `get-my-referral-code`.
+  - `get-referral-tree` returned `200 / ok: true` with a root present.
+  - New-version aggregate logs contained one 200 for each affected page request and no 401.
+- Exclusions:
+  - No `admin-action`, notification Edge, Request Board, database, Storage, Vercel, Sentry, mobile release, secret mutation, commit, or push.
+
+## <a id="20260723-notification-production-closure"></a> 2026-07-23 | Notification production closure
+
+**Production changes**:
+- Published the compatibility-safe FC Edge cohort with JWT verification retained: `fc-notify` v77, `group-chat` v15, `board-create` v18, `board-update` v18, and `docs-deadline-reminder` v6. `admin-action` remained untouched.
+- Applied only Request Board migration B after the live single-writer server contract passed. The bounded lifecycle duplicate aggregate changed from 151 removable rows / 151 groups to zero, and `notifications_designer_lifecycle_event_unique` is present.
+- The repository-wide Edge gate exposed implicit result narrowing in `exam-payment-proof`; six discriminants were made explicit without changing runtime behavior, focused tests passed, and JWT-protected v4 was published.
+
+**Verification**:
+- FC focused notification tests: 58 PASS; Board loopback handler smoke: 6/6 PASS.
+- Request Board characterization and transition contracts PASS, including lifecycle single-writer ordering and awaited fanout.
+- FC full Jest: 147 suites / 810 tests PASS. Coverage passed 147 suites / 809 tests before the final static payment-proof contract was added; the focused payment-proof rerun passed 13 tests and the repository-wide Edge gate passed 47/47 entrypoints.
+- Expo web build, admin-web lint, TypeScript, and Production build PASS with Sentry uploads disabled.
+- FC and Request Board Vercel projects reported zero grouped runtime errors in the bounded one-hour check.
+- Admin-web npm audit reports zero vulnerabilities. The root audit has zero High/Critical findings and four Moderate advisories in the Expo MCP development-tool chain; the offered fix is a forced breaking `expo-mcp` change and was not mixed into this release.
+
+**Remaining runtime evidence**:
+- No Android device was attached through ADB, and both available browser profiles reached the admin-web login page without an authenticated session.
+- Therefore request/approve/reject/message/inbox/push and authenticated admin login/chat/exam/notification smoke remain explicit operator/handset checks; no credential was guessed and no synthetic customer/account was created.
+- Store/OTA/native, hardened `admin-action`, P2 durable outbox, secret changes, and Sentry mutation remain excluded.
+## 20260724-document-notification-and-exam-proof-repair
+
+**User-visible symptoms**
+
+- Document rejection notified the FC, while a non-final approval did not; both decision buttons waited too long.
+- The exam payment warning was verbose and separated from the payment-date selector.
+- Payment-proof upload succeeded, then exam submission displayed a generic server connection failure.
+
+**Diagnosis**
+
+- Production aggregate: 10 recent document approvals, 6 matching approval notifications, 4 without a notification, matching the `allApproved`-only branch.
+- Admin document decisions awaited the complete Expo/web-push provider path after the durable workflow writes.
+- Supabase Edge logs showed payment-proof `prepare` 200 followed by `submit` 409 twice. Matching Postgres logs reported `column reference "registration_id" is ambiguous`; the upload row remained pending and its Storage object existed.
+
+**Changes**
+
+- Added document-specific approval notification copy and kept final approval copy/deep link distinct.
+- Split durable inbox persistence from provider-only delivery and scheduled the latter with Next.js `after()` without a second inbox insert.
+- Shortened and repositioned the shared payment warning in both exam application screens.
+- Added and applied `20260724003500_fix_exam_payment_proof_registration_id_ambiguity.sql`, preserving the security-invoker signature and service-role-only grant.
+- Parsed safe non-2xx Edge messages from the Supabase Functions error context.
+
+<a id="20260724-developer-only-notification-diagnostics"></a>
+## 2026-07-24 | Developer-only notification diagnostics and exam-detail proof placement
+
+**User request**
+
+- Do not show “업무는 완료됐지만 알림 전달을 확인하지 못했습니다” variants to FCs or operators.
+- Keep notification delivery failures available to developers only.
+- Move the payment-proof image from the crowded left column to the right reception-status area.
+
+**Changes**
+
+- `invokeFcNotifyForDelivery`, admin notification adapters, Board, and Request Board adapters now keep bounded delivery evidence in structured logs while returning no user-facing post-commit warning.
+- Removed warning alerts/toasts from mobile workflow submissions, exam flows, direct/group chat, admin-web document/exam/notice/chat/board flows, and reminder actions.
+- Server actions return stable diagnostic codes instead of Korean user copy for incomplete delivery.
+- The exam applicant detail renders `PaymentProofCard` inside the right status card after the reception summary and before the reception button.
+
+**Verification**
+
+- Focused notification/chat/board tests: PASS.
+- Root and admin-web TypeScript: PASS.
+- Scoped root and admin-web ESLint: PASS.
+- Root Jest: 147 suites / 818 tests PASS.
+- Admin-web direct Node tests: 289 PASS / 1 intentional skip / 0 failures.
+- Expo web export, admin-web Production build, governance, Deno check, and diff check: PASS.
+- Independent final review: no new P0/P1/P2 release blocker.
+
+**Production release**
+
+- Published only `fc-notify` v78 with `verify_jwt=true`; `admin-action` and native/OTA remained untouched.
+- Published admin web deployment `dpl_FELkt6SaYTY77toMstWoqrkrh1Vx`; Vercel reported `READY` and attached `adminweb-red.vercel.app`.
+- Production route smoke: `/auth` returned 200, while `/` and `/dashboard/exam/applicants` redirected unauthenticated requests to `/auth`.
+- Vercel reported no grouped runtime errors and no error/fatal logs for the new deployment in the bounded post-release window.
+- Authenticated applicant-detail visual QA and real-handset push/deep-link smoke remain operator checks because no authenticated browser session or attached Android device was available.
+
+**Remote verification**
+
+- Function definition contains qualified `proof.registration_id` and `proof.status`.
+- `security_definer=false`, `service_role EXECUTE=true`, and anon/authenticated execute privileges remain false.
+
+<a id="20260724-referral-graph-realdata-release-gate"></a>
+## 2026-07-24 | Referral graph real-data release gate
+
+**Request**
+
+- Include the one intentionally excluded item in the release.
+
+**Finding**
+
+- The excluded item was not a product feature. It was the read-only actual-Supabase referral graph test gated by `RUN_REFERRAL_GRAPH_REALDATA_TEST=1`.
+- Enabling the stale test reproduced 15 crossings because its copied force stack no longer matched the free-physics stack shipped by `ReferralGraphCanvas`.
+
+**Changes**
+
+- Removed the environment-controlled skip so the configured admin-web suite always executes the real-data gate.
+- Aligned the simulation with the current free-physics resolver, degree-aware link strength, collision, component separation, link-tension, decay, and drag-spring contract.
+- Replaced the named-FC topology sample with the highest-degree generic hub.
+- Removed names and stable identifiers from diagnostics; logs now contain only aggregate counts and distances.
+- Kept strict bounds for crossings, weighted visual severity, node separation, edge length, high-degree spokes, and post-drag stability.
+
+**Boundaries**
+
+- Production Supabase access is read-only. No row, schema, Storage, Edge, secret, native/OTA, `admin-action`, or Request Board change is included.
+- Test sources are not bundled into the browser runtime; the Production publication records the verified release state rather than adding a new user-facing feature.
+
+<a id="20260725-referral-dashboard-query-repair"></a>
+## 2026-07-25 | Referral dashboard query repair
+
+**Incident**
+
+- The production referrals API returned 500 and the page displayed a read-only warning to an authenticated developer.
+- Vercel runtime evidence showed the server failure, and Supabase API logs narrowed it to a 400 response from `referral_events`.
+
+**Root cause**
+
+- The event query placed every FC identifier into both sides of one PostgREST `or` filter. With hundreds of FCs, the request URL exceeded a safe bounded size.
+- While that request was loading or failed, the page defaulted the absent server permission payload to `false`, making an unresolved state look like an authorization denial.
+
+**Changes**
+
+- Split referral-event identifiers into bounded chunks of 40, executed the chunks independently, and merged results by event ID in global newest-first order.
+- Added an explicit permission-display resolver so mutation controls and the read-only notice appear only after the server permission boolean is resolved.
+- Added behavioral and source-contract tests for large identifier sets, duplicate events, ordering, and unresolved developer permissions.
+- Recorded the regression pattern and guardrails in `.claude/MISTAKES.md`.
+
+**Verification**
+
+- Focused Node tests: 8/8 PASS.
+- Admin-web TypeScript: PASS.
+- Scoped ESLint: PASS.
+- Git diff check: PASS.
+
+**Boundary**
+
+- Production Supabase access was read-only; no data or schema change was required.
+- No Vercel deployment was made from the dirty shared worktree because it would also publish unrelated in-progress changes.
+## <a id="20260726-admin-staff-session-production-repair"></a> 2026-07-26 Admin staff-session Production repair
+
+## Incident
+
+- The latest administrator deployment served `/auth`, but a valid staff login
+  returned 500 from `/api/auth/login`.
+- A bounded Vercel runtime-error query identified the exact exception:
+  the dedicated staff-session signing secret was not configured.
+- A Production environment-name inventory confirmed the variable was absent.
+  No environment value, credential, submitted password, or account identifier
+  was read or retained.
+
+## Repair
+
+- With explicit user approval, generated a new independent cryptographic random
+  value and stored it as the sensitive Vercel Production variable
+  `STAFF_SESSION_SECRET`.
+- The first generation attempt used an unavailable static RNG method and,
+  because the shell error was non-terminating, reached the Vercel write. It was
+  immediately replaced with a fail-closed
+  `RandomNumberGenerator.Create().GetBytes(...)` value before deployment.
+- Rebuilt and deployed the administrator web with Sentry uploads disabled, then
+  explicitly attached the operating alias to deployment
+  `dpl_76ZWfm8iNz9oWuLeRLNzoaHRB28K`.
+
+## Verification and boundary
+
+- Vercel reports the deployment READY.
+- `https://adminweb-red.vercel.app/auth` returns 200 and embeds the expected
+  deployment ID.
+- The new deployment has no error or fatal runtime log in the bounded
+  postdeploy scan.
+- A real successful staff login remains the final user-side smoke because no
+  account password was accessed for automation.
+- GaramIn, GaramLink, Supabase schema/data, Edge Functions, accounts,
+  passwords, native binaries, and OTA releases were unchanged.
+
+## <a id="20260726-referral-graph-drag-edge-cap"></a> 2026-07-26 Referral graph drag edge cap
+
+### Change
+
+- The earlier dynamic-layout-target baseline was replaced because it did not
+  represent how far an edge had actually stretched from the moment the user
+  began dragging.
+- Drag start now captures both the actual length of every edge and a rigid
+  pointer-controlled group consisting of the grabbed node plus its directly
+  connected one-hop nodes.
+- Pointer control runs after ordinary simulation forces, fixes every controlled
+  node at its captured offset from the pointer, and is followed by a constraint
+  pass that limits each edge to 1.2 times its drag-start length without moving
+  any controlled endpoint.
+- Non-controlled nodes remain under normal link, charge, collision, and
+  separation physics. The force exits immediately when there is no active drag
+  and ignores all disconnected components.
+
+### Verification and boundary
+
+- Focused graph interaction and physics suites: 62/62 pass.
+- Wider graph interaction, physics, layout, simulation, and edge suites:
+  113/113 pass.
+- Admin-web TypeScript, scoped ESLint, governance, and `git diff --check`:
+  pass.
+- After explicit user approval, deployed the verified dirty source to
+  Production as `dpl_FbCoTtgx3ZAhxWS7rJtWLdXAV2po` (READY). The build compiled
+  with Next.js 16.2.11, completed TypeScript, and did not create a Sentry
+  release or upload source maps.
+- `adminweb-red.vercel.app/auth` returns 200 and embeds the new deployment ID;
+  the initial deployment-scoped error/fatal scan is empty.
+- No Supabase change, Edge deployment, native build, OTA, account change, or
+  credential rotation was performed.
+
+## <a id="20260726-admin-local-staff-session"></a> 2026-07-26 Admin web local staff-session repair
+
+### Diagnosis and change
+
+- The active local Next.js terminal confirmed `/api/auth/login` failed only
+  while minting the staff cookie because the dedicated secret was absent.
+- Development mode now lazily creates one 32-byte process-local random signing
+  value and retains it on the server global so Fast Refresh does not invalidate
+  the session.
+- The fallback is unavailable in Production and test mode. Existing rules
+  rejecting authentication-domain and Supabase service-role keys remain
+  unchanged.
+
+### Verification and boundary
+
+- Staff-session focused tests: 4/4 pass, including Production fail-closed,
+  development create/verify, configured current key, and previous-key rotation.
+- Admin-web TypeScript, scoped ESLint, and `git diff --check`: pass.
+- A harmless empty login request returned the expected 400 and refreshed the
+  active local route. A real account password was not accessed for automation.
+- No deployment or remote state mutation was performed.
+
+## <a id="20260726-native-referral-graph"></a> 2026-07-26 GaramIn native referral graph
+
+### Contract and implementation
+
+- `/referral` now routes to the native `/referral-graph` screen instead of
+  constructing or opening the administrator-web graph URL. Both stack branches
+  register the native route.
+- `get-referral-tree` keeps the legacy tree body/response unchanged and adds an
+  explicit `{mode:'graph'}` branch. The branch accepts only signed FC/manager
+  app sessions, resolves the root from the verified self profile, ignores body
+  `fcId` for scope, and traverses canonical `fc_profiles.recommender_fc_id`
+  descendants.
+- Graph responses contain name, affiliation, active-code state,
+  registration/commission state, descendant counts, canonical edges, a
+  downline-only permission object, and a truncation marker. They do not contain
+  phone numbers, audit payloads, relation mutations, or arbitrary root access.
+- The mobile screen uses a deterministic cycle-safe radial layout and existing
+  React Native SVG, Gesture Handler, Reanimated, and TanStack Query
+  dependencies. It supports one-finger pan, two-finger pinch, fit/reset,
+  search/status filtering, selected-node 1-3 hop focus, a read-only detail
+  sheet, loading/empty/error/relogin states, and node accessibility labels.
+- Desktop force physics and drag remain a separate web contract; the native
+  first delivery does not copy or modify the dirty web graph implementation.
+
+### Verification
+
+- Targeted graph/navigation/privacy tests: 24/24 pass.
+- Independent final evaluator: 6 related suites / 27 tests pass with no
+  remaining actionable finding.
+- Repository Jest: 179/179 suites, 1,080/1,080 tests pass.
+- `npx tsc --noEmit`: pass.
+- `npm run lint`: pass.
+- Frozen Deno check for `get-referral-tree`: pass.
+- `git diff --check`: pass.
+- Android Expo export: pass, 3,068 modules bundled.
+- Independent evaluator findings were addressed: graph read no longer
+  bootstraps a manager shadow profile, 5xx profile lookup errors are normalized,
+  id/code/edge reads are chunked or fixed-page, eligibility is applied before
+  the cap, canonical manager-shadow branches are preserved, truncation cannot
+  be cleared by a later overflow check, deep coordinates stay within the native
+  surface, and both balanced and heavily skewed 300-node layouts retain
+  selectable spacing at maximum zoom.
+- Governance is green for the native graph and referral documentation changes;
+  the aggregate dirty-worktree command remains blocked only by a pre-existing,
+  user-owned `package.json` script hunk that requires its own contract evidence.
+
+### Remaining evidence and boundary
+
+- After a 5-suite / 22-test compatibility preflight, targeted Deno check, and
+  diff check, the user explicitly authorized the backend rollout.
+  `get-referral-tree` v7 is now `ACTIVE` with `verify_jwt=true`; the deployed
+  source contains the additive graph branch and the legacy tree response.
+- The authenticated FC Android emulator rendered 16 nodes and 15 edges.
+  Read-only node detail, one-finger canvas movement, fit/reset, back navigation,
+  the existing referral-tree screen, and reopening the graph all passed.
+  The Edge runtime recorded an HTTP 200 v7 request.
+- `RF-SELF-04` remains `BLOCKED`, not falsely marked PASS, because the combined
+  FC/manager case still lacks manager-role, trustworthy two-pointer pinch,
+  relogin, and TalkBack evidence. The FC runtime slice itself passed.
+- Only the authorized Edge Function was deployed. No schema/migration,
+  database row, Vercel, Sentry, EAS build/update/submit, account, password,
+  token, secret, production configuration, or other Edge Function was changed.
+
+## <a id="20260727-referral-revenue-demo"></a> 2026-07-27 GaramIn referral revenue sample graph
+
+### Contract and implementation
+
+- Added `/referral-revenue-graph` as a separate, explicitly fictional local
+  preview. The existing `/referral-graph` source and runtime contract remain
+  unchanged.
+- `/referral` keeps the recommendation relationship graph CTA first and adds
+  `매출 기여 그래프 미리보기` with a visible `샘플` badge beneath it. Both
+  Android and non-Android stack branches register the separate route.
+- Raw sample nodes contain only `id`, `parentId`, display fields, and sample
+  sales. Pure helpers derive depth, reject duplicate/orphan/cyclic/multi-root
+  graphs, apply 1,000 basis points only at depths 1 through 10, and produce
+  deterministic totals.
+- The fixed demo contains 15 eligible contributors, KRW 102,400,000 eligible
+  sample sales, and KRW 10,240,000 expected allocation. A11 is derived as
+  depth 11 and contributes zero.
+- The mobile preview provides a circular SVG node-and-edge network,
+  amount-sorted list, all/1-3/4-6/7-10 filters, depth badges, and a read-only
+  detail sheet. The network uses a deterministic fixed-tick port of the
+  administrator web balanced center/charge/link/tension/damping/collision
+  physics, pan/pinch, fit/reset, visible edges, selection rings, and compact
+  sample amounts inside every node. A final hard collision pass prevents node
+  overlap at fit scale.
+- Graph mode is now a full-safe-area canvas. Only a compact back/title/sample
+  header and settings trigger remain persistent; summary, filter, list,
+  fit/reset, legend, all three summary values, and the complete sample warning
+  open in a temporary scrollable modal panel. Idle physics is hidden and zoom
+  feedback auto-dismisses after fit/pinch. Empty-space drag pans the world;
+  node drag fixes the selected node to the pointer while
+  interactive spring/repulsion/collision steps move surrounding nodes. Release
+  continues a damped animation-frame settle and then removes the transient
+  physics indicator.
+- Added the Expo SDK-compatible screen-orientation module. This route requests
+  landscape on native mount and restores portrait on cleanup. Collapsed
+  landscape no longer reserves a permanent left HUD or bottom legend and uses
+  compact top/edge fit insets; portrait stays available as the responsive
+  fallback.
+  Relationship edges are explicitly described as hierarchy, not money
+  movement.
+- The first visual pass used rectangular hierarchy cards. That was rejected
+  because data being organized as nodes and edges was not sufficient visual
+  parity with the existing referral graph. The corrected contract and source
+  regression require actual circular SVG nodes and edges and reject the former
+  card/`ScrollView` renderer.
+- A skeptical evaluator reproduced a disconnected lineage in the first
+  4-6/7-10 filter implementation. The final graph now includes every selected
+  node's ancestor chain through the viewer, renders out-of-range ancestors as
+  subdued context nodes while preserving their in-node amounts, and tests every
+  filtered graph for viewer connectivity. A compact-HUD evaluator then found
+  missing context amounts, the abbreviated warning, a missing sales summary,
+  and an unlabeled active filter; all four findings were fixed before the final
+  PASS.
+- A later exact administrator-web runtime experiment added `d3-force@3.0.0`,
+  the web seed layout, persistent simulation, group drag, and a 3200-dp SVG
+  surface. Android attempted an approximately 282-MB backing bitmap and
+  crashed, while the added dependency/layout path also exceeded the user's
+  desired mobile complexity. At the user's request, that experiment was
+  completely withdrawn: the prior 1600-surface fixed-tick native helper and
+  canvas were restored from the verified pre-experiment source, the exact-port
+  modules/tests/type shim and four d3 packages were removed, and the compact
+  landscape screen was reopened successfully on the emulator.
+
+### Verification and boundary
+
+- Focused revenue and existing relationship graph regressions: 7/7 suites,
+  45/45 tests pass.
+- Repository Jest: 187/187 suites, 1,126/1,126 tests pass.
+- `npx tsc --noEmit`, targeted ESLint, `npm run lint`, governance,
+  `git diff --check`, referral JSON parsing, and the workspace harness audit:
+  pass.
+- Post-fix Android Expo export passed with 3,079 modules, 84 output files, and
+  no Sentry release/source-map upload credential.
+- Authenticated read-only manager Android preview passed the complete graph,
+  graph/list switch, detail sheet, A11 excluded treatment, and the corrected
+  4-6 and 7-10 continuous lineage. The already-loaded local screen also
+  rendered with emulator Wi-Fi and cellular disabled.
+- A rebuilt Android development client entered the route directly in
+  2400x1080 landscape. Runtime screenshots confirmed the collapsed full-canvas
+  state, filtered context-node amounts, the three-summary settings panel, and
+  the fully scrolled warning. The graph reacted visibly while A1 was dragged,
+  settled without overlap while preserving every amount label, and restored
+  1080x2400 portrait on exit.
+- Independent compact-HUD re-evaluation passed after the four findings were
+  fixed. The final source contract run passed 4 suites / 28 tests; the complete
+  repository run passed 187 suites / 1,126 tests, TypeScript, and Expo lint.
+- Post-restore verification passed the focused revenue suites at 3 suites /
+  26 tests, `npx tsc --noEmit`, scoped ESLint, and a fresh Android development
+  runtime launch of the collapsed 2400x1080 landscape graph. No exact
+  administrator-web runtime dependency remains. Full Expo lint, governance,
+  diff/JSON checks, and a fresh 3,079-module / 10.9-MB Android export also
+  passed.
+- No actual payout policy was encoded. Rounding, cancellation, clawback,
+  settlement period, confirmation, payment trigger, and production data
+  authority remain intentionally undefined.
+- No API, Supabase query, schema, migration, Edge Function, real-user data,
+  deployment, EAS/OTA release, database row, account, credential, or production
+  configuration was changed for this preview. `package.json` and the lockfile
+  add only Expo SDK-compatible `expo-screen-orientation`.
+
+---
+
+## <a id="20260728-notification-bridge-and-tenth-headquarters"></a> 2026-07-28 | Designer notification bridge and tenth headquarters
+
+**Diagnosis**:
+- The trusted Request Board bridge reached the GaramIn web proxy, but the
+  downstream Edge function rejected direct service notification inserts that
+  lacked a canonical recipient actor UUID.
+- Headquarters option owners and prefix fallback logic stopped at nine.
+
+**Correction**:
+- The web proxy now resolves the authenticated bridge target against eligible
+  completed FC profiles and forwards only the server-derived actor UUID.
+  Caller-provided actor identifiers remain discarded.
+- Added the canonical `10본부 한태균` label to maintained mobile, Edge, web,
+  manager-affiliation, and exam-filter contracts, including two-digit prefix
+  normalization.
+- After a uniqueness/conflict preflight, created one active manager credential
+  by copying the selected FC's existing password hash, salt, and set timestamp;
+  added the active headquarters mapping, updated the retained FC/referral
+  profile affiliation, synchronized the existing GaramLink mirror, and aligned
+  the existing device-token role. No plaintext password was read or changed.
+
+**Verification**:
+- Focused Jest: 3 suites / 38 tests PASS, including the existing administrator
+  chat target exclusion contract.
+- Root and web TypeScript, scoped root/web ESLint, and no-lock Deno check PASS.
+- Sentry-upload-disabled administrator web production build PASS.
+- Database postflight: one active target manager, one active tenth-headquarters
+  mapping, preserved credential equivalence, updated mirror affiliation, and
+  all twelve pre-existing active managers retained. The user must sign out and
+  sign in once so the app replaces any already-issued FC session with a manager
+  session.
+
+**Boundary**:
+- Only the exact authorized account and affiliation rows were changed
+  remotely. No Vercel, Edge, app, OTA, Store, Git, secret, or Sentry
+  publication was performed.
+
+---
+
+## <a id="20260728-styled-exam-applicant-xlsx"></a> 2026-07-28 | Styled exam-applicant XLSX export
+
+**Correction**:
+- Replaced the browser-built CSV in
+  `web/src/app/dashboard/exam/applicants/page.tsx` with a lazily loaded real
+  XLSX builder.
+- The exported population remains the final `filteredRows`. The existing
+  authorized proof-export API still supplies opaque Storage paths and fresh
+  30-day signed URLs only to active admin/manager sessions.
+- The workbook adds a title/summary band, frozen first four rows and first two
+  columns, automatic filtering, deliberate widths, borders, application/third
+  exam emphasis, an explicit `접수 상태` column, and clickable HTTPS proof
+  links.
+- Confirmed rows use a light orange fill across all exported cells and pending
+  rows use a light gray fill across all exported cells, with a stronger
+  matching status cell so state remains visible while scanning any column.
+- Every exported value is a literal text cell, including telephone and resident
+  identifiers, so leading zeroes are preserved without formula-shaped content.
+
+**Dependency review**:
+- `exceljs` was evaluated and rejected because its transitive dependency tree
+  added audit findings.
+- The final dependency is `write-excel-file@4.1.1` with the already deduplicated
+  `fflate@0.8.2`; `fflate` is also listed as a test dependency for deterministic
+  OOXML inspection. Neither package appears in the production audit findings.
+- The remaining production audit baseline is four high findings owned by
+  `@sentry/nextjs`, `brace-expansion`, `next`, and `postcss`; no audit fix was
+  applied.
+
+**Verification**:
+- `node --experimental-strip-types --test src/lib/exam-applicant-workbook.test.ts`:
+  4/4 PASS.
+- `node --experimental-strip-types --test web/src/lib/exam-payment-proof-admin.test.ts`:
+  6/6 PASS.
+- Web `npx tsc --noEmit`, scoped ESLint, and Sentry-upload-disabled
+  `npm run build`: PASS.
+- The generated XLSX was unzipped in tests to verify frozen panes, auto-filter,
+  styles, relationship XML, the explicit status value, both full-row status
+  fills, and the external proof hyperlink.
+- A synthetic workbook was imported, inspected, and rendered with the bundled
+  spreadsheet artifact tooling; Korean labels, widths, highlights, and leading
+  zeroes displayed correctly.
+- `git diff --check`: PASS. Repository governance remains blocked by unrelated
+  in-flight owner-map violations for `app/fc/new.tsx` and
+  `web/src/app/api/admin/list/route.ts`.
+
+**Boundary**:
+- No Vercel deployment, Git commit/push, Supabase/Storage mutation, Edge
+  deployment, real applicant export, or production data access occurred.
+
+---
+
+## <a id="20260729-garamin-production-publication"></a> 2026-07-29 | GaramIn Edge and administrator-web production publication
+
+**Publication**:
+- Active JWT-verified GaramIn Edge versions:
+  `login-with-password` v52, `sync-request-board-session` v6,
+  `request-password-reset` v40, and `reset-password` v40.
+- Administrator-web Vercel Production deployment:
+  `dpl_6iT15wpGGaRxTDJSbB3PJuXDMRmv`
+  (`admin-ann36o1n2-jun-jeongs-projects.vercel.app`).
+- The stable `adminweb-red.vercel.app` alias remained on the pre-release
+  deployment because of retained rollback state and was explicitly reassigned
+  to the new deployment.
+- The exact authorized password mutation used fresh derived credential
+  material and cleared stale lock/reset state. Exact-one postflight matched the
+  new derived material without recording the account identifier or password.
+
+**Verification**:
+- All four Edge functions pass Deno `check`, contain the maintained
+  tenth-headquarters mapping, and return HTTP 401 to unauthenticated smoke
+  requests.
+- Administrator-web Vercel state: `READY`, target `production`; the stable
+  domain resolves to the new deployment ID.
+- `GET https://adminweb-red.vercel.app/auth`: HTTP 200, HTML response.
+- Deployment-scoped runtime-log query over the release window returned no
+  application log or error.
+- Focused notification/tenth-headquarters tests: 43/43; workbook/proof tests:
+  10/10; root and web TypeScript, full web lint, and the Sentry-disabled
+  48-route production build: PASS.
+- Synthetic workbook inspection found one 17-column sheet, two data rows, no
+  formula errors, preserved leading-zero identifiers, and the expected
+  title/header/status/proof-link presentation.
+
+**Boundary**:
+- No native, OTA, Play Store, App Store, Git, or Sentry publication occurred.
+- Existing user-owned repository changes, including `app.json`, were
+  preserved.
+
+---
+
+## <a id="20260729-garamin-direct-target-isolation"></a> 2026-07-29 | GaramIn developer-chat target isolation
+
+**Diagnosis**:
+- Production read-only inspection confirmed one active developer account at
+  the user-confirmed phone.
+- The visible “개발자” card did not identify the persisted room:
+  `app/chat.tsx` discarded the FC target, and
+  `garamin_direct_conversations unique(fc_id)` collapsed every staff target
+  into one shared administrator conversation.
+
+**Implementation**:
+- Mobile now forwards the selected target and verifies the canonical
+  counterparty returned by `fc-notify`.
+- Added `garamin_direct_threads` as an additive target layer over the legacy
+  one-per-FC envelope and added `messages.thread_id`.
+- Shared admin, exact developer, and exact manager identities are checked in
+  Edge policy and atomic SQL for text, attachments and broadcast sends.
+- Legacy target omission remains shared-admin compatible. Immutable historical
+  developer/manager replies are attributable to their personal threads;
+  ambiguous old FC-to-`admin` messages remain shared.
+- Attachment reservation uses a target-aware wrapper over the existing quota
+  implementation, and attachment download authorization follows linked
+  message threads instead of a blanket staff rule.
+
+**Verification**:
+- Root lint and `npx tsc --noEmit`: PASS.
+- Full root Jest: 189 suites / 1,142 tests PASS.
+- Sentry-upload-disabled Expo web export: PASS with 48 static routes.
+- Administrator-web lint, TypeScript, and Sentry-upload-disabled production
+  build: PASS with 49 generated pages.
+- Strict frozen Deno check with `supabase/functions/deno.json` for `fc-notify`,
+  `get-referral-tree`, and `messenger-attachments`: PASS.
+- Direct-message and attachment-auth Deno tests: 13/13 PASS.
+- Focused direct-message/mobile Jest suites: 19/19 PASS.
+- Migration and canonical schema target-isolation blocks are byte-equivalent
+  after newline normalization.
+- Local PostgreSQL execution was unavailable because Docker Desktop was not
+  running; production was not used as a parser/test environment.
+
+**Boundary**:
+- No production migration, Edge deployment, native/OTA/store release, or
+  message/data mutation was performed.
+
+---
+
+## <a id="20260729-full-range-push-governance"></a> 2026-07-29 | Full-range push governance alignment
+
+**Trigger**:
+- The manual one-commit governance check passed, but the real Git pre-push hook
+  correctly evaluated the full fetched-upstream-to-HEAD range and found owner
+  coverage missing for shared account-deletion and messenger-attachment code.
+
+**Change**:
+- Added exact owner-map prefixes for account-deletion authorization/outbox
+  modules and messenger-attachment policy/service modules with their tests.
+- Updated the admin operations handbook for the signed caller, transactional
+  deletion, cleanup-outbox, resident-number, and exam-transition boundaries.
+- Updated the scheduled-runtime handbook for persisted typed reminder targets
+  and authoritative notification IDs.
+- Added a repeatable full-range governance guardrail to the mistake ledger.
+
+**Verification**:
+- Exact upstream-range pre-push governance: PASS.
+- `docs/handbook/path-owner-map.json` parse and owner-doc synchronization:
+  PASS.
+- Staged diff check, changed-file secret scan, and central harness audit: PASS.
+
+**Boundary**:
+- This alignment changes only repository governance and handbook evidence. It
+  does not deploy code, mutate a database, or publish an application release.
+
+---
+
+## <a id="20260729-unused-native-picker-removal"></a> 2026-07-29 | Unused native picker removal
+
+**Diagnosis**:
+- Google Play native crashes reached
+  `RawPropsParser::prepare<RNCAndroidDropdownPickerProps>` and
+  `RawPropsParser::prepare<RNCAndroidDialogPickerProps>`.
+- The application had no picker import or usage, but
+  `@react-native-picker/picker` 2.11.1 remained a direct dependency and Expo
+  autolinking therefore compiled its native descriptors into the app.
+- That package release predates the React Native 0.81 New Architecture compile
+  option repair and was unnecessary application code.
+
+**Change**:
+- Removed the picker from `package.json`, `package-lock.json`, and the local
+  installation.
+- Added a root dependency contract that requires both the direct dependency and
+  lockfile package entry to remain absent.
+- Added the repeatable dependency-regression guardrail to `MISTAKES.md`.
+
+**Verification**:
+- Repository source search: no picker import or component usage.
+- `npm ls @react-native-picker/picker --all`: empty.
+- `npx expo install --check`: dependencies up to date.
+- Expo Android `react-native-config`: no picker module or picker descriptor.
+- Root dependency contract: 7/7 PASS.
+- `npx tsc --noEmit` and `npm run lint`: PASS.
+- Full root Jest: 189 suites / 1,143 tests PASS.
+- Sentry-upload-disabled Android Expo export: PASS, 3,079 modules bundled.
+- `npm audit --audit-level=high` reported pre-existing transitive advisories
+  whose automated fixes require breaking Expo/Jest upgrades; no unrelated
+  `npm audit fix` was applied.
+
+**Boundary**:
+- No New Architecture, screen, ANR, or business-flow code was changed.
+- No EAS/native build, OTA update, Play/App Store submission, deployment,
+  account, database, Edge Function, Sentry, or other remote state was changed.
+
+---
+
+## <a id="20260730-exam-applicant-status-separation"></a> 2026-07-30 | Exam applicant lifecycle-status separation
+
+**Diagnosis**:
+- The applicant API already returned `exam_registrations.status`, but the
+  shared reception formatter translated lifecycle values such as rejected and
+  cancelled into the `접수 상태` column.
+- That conflated the binary administrative reception flag with the
+  registration lifecycle and prevented a dedicated cancelled/rejected field.
+
+**Change**:
+- Kept `접수 상태` binary from `is_confirmed`.
+- Added the shared `신청 상태` field for active, completed, no-show, rejected,
+  FC-cancelled, and administrator-cancelled registrations.
+- Applied the same column and labels to the canonical dashboard table,
+  round-specific administrator table, and filtered XLSX workbook.
+- Changed workbook widths to header-keyed values so the additional column
+  cannot shift unrelated column sizing.
+
+**Verification**:
+- Shared display/workbook tests: 20/20 PASS.
+- Web TypeScript and scoped ESLint: PASS.
+- Sentry-disabled web production build, diff check, governance, and central
+  harness audit: recorded in the task handoff.
+
+**Boundary**:
+- No query, schema, RLS, RPC, Edge Function, account, Storage, deployment,
+  commit, or push change was required.
+
+---
+
+## <a id="20260730-minimal-exam-workbook"></a> 2026-07-30 | Minimal exam-applicant workbook styling
+
+**Change**:
+- Removed the solid orange title band, dark header band, and reception-based
+  whole-row fills from the generated applicant workbook.
+- Kept a white body, light-gray header/summary surfaces, subtle borders, and
+  conservative typography.
+- Restricted semantic color to the orange title, reception-status cell,
+  rejected/completed/cancelled application-status text, and proof hyperlink,
+  plus near-white whole-row fills for confirmed and rejected records only.
+- Preserved workbook values, column order, filters, frozen panes, widths,
+  literal identifier formatting, and signed-link behavior.
+
+**Verification**:
+- Focused workbook tests, web TypeScript, scoped ESLint, Sentry-disabled
+  Production build, diff check, governance, and central harness audit: recorded
+  in the task handoff.
+- The synthetic workbook was imported, inspected, scanned for formula errors,
+  rendered, and visually reviewed with the bundled spreadsheet runtime.
+
+**Boundary**:
+- No API, authorization, database, Storage, deployment, commit, or push change
+  was performed.
+
+---
+
+## <a id="20260730-referral-graph-drag-mobile-canvas-performance"></a> 2026-07-30 | Referral graph drag and mobile revenue-canvas performance
+
+**Requested behavior**:
+- In the administrator referral graph, dragging A must not rigidly translate B.
+  With A-B-C links, B and then C should react progressively through graph
+  physics.
+- The native revenue graph must stop stuttering, keep label size constant while
+  zooming, use landscape only for graph mode, and restore portrait everywhere
+  else.
+
+**Administrator graph change**:
+- Removed the grabbed-node-plus-neighbor rigid drag group. Only the grabbed node
+  receives pointer `fx/fy`; direct and indirect nodes stay unpinned.
+- Kept link, link-tension, charge, and collision active so motion propagates
+  through A-B-C rather than through copied pointer deltas.
+- Preserved release reheat/momentum and projected every affected edge under its
+  drag-start `1.2x` maximum length. Five-node-chain and randomized tree/cycle
+  tests cover the constraint and unrelated-component isolation.
+
+**Native revenue graph change**:
+- Initial optimizations removed derived-data churn and React commits, but
+  measured A1 drags still showed 100% jank: the Android renderer continued
+  rerasterizing moving SVG/native Text nodes.
+- The final native path uses the existing `react-native-webview` dependency with
+  an external-request-free local HTML document and one Canvas draw/physics loop.
+  Mutable numeric arrays handle center, charge, link/tension, damping, and
+  collision without per-node React/SVG frame work. Web keeps the existing SVG
+  fallback.
+- Node labels are cached on offscreen canvases and drawn in screen coordinates,
+  so node circles/edges scale while names, depths, and amounts retain their
+  screen-pixel size.
+- A 6px intent threshold separates tap from drag. Pointer cancellation neither
+  selects nor settles, the last pointer-up coordinate is committed, and the
+  animation frame loop sleeps while idle or route-blurred.
+- The local bridge requires the current revision, a local document URL, focus,
+  and a currently selectable node. CSP, navigation denial, mixed-content/file
+  access denial, and malformed-message rejection remain in place. Android
+  reports the native event URL as the literal `null`; runtime therefore accepts
+  only null/`null`/`about:blank` at the native layer and independently requires
+  the HTML message's `window.location.href` to equal `about:blank`.
+
+**Orientation and navigation**:
+- Focused graph, settings, and graph detail stay landscape.
+- List and list detail switch to portrait. Header/Android back, blur, and
+  unmount request portrait before leaving, including no-history route entry.
+- A last-request-wins coordinator rejects stale async landscape completions.
+
+**Verification**:
+- Independent final review: PASS with no Android-scope P0-P2 finding.
+- Focused revenue regression: 6 suites / 47 tests PASS.
+- Repository regression: 192 suites / 1,165 tests PASS.
+- Root TypeScript/lint, administrator web TypeScript/scoped lint, JSON,
+  diff check, harness audit, and Sentry-disabled Android export: PASS.
+- Workspace governance remains blocked by unrelated dirty notification,
+  resident-number, exam, and dashboard changes that require their own owner
+  documents; this task did not overwrite those in-flight changes.
+- Android 2400x1080 graph runtime: B1 node tap opened the native detail Modal;
+  graph/settings/detail stayed landscape and list/back restored portrait.
+- Warm 900ms A1 drag runs measured 1.94%, 3.92%, and 2.91% janky frames with
+  p50 18/18/24ms, p90 19/25/28ms, and zero slow bitmap uploads. Slow UI-thread
+  events were 0/0/1.
+- Earlier final Canvas runs before the bridge/intent hardening measured
+  0.93-1.85% jank, compared with the original SVG path's 100% jank and
+  650ms p50.
+
+**Boundary**:
+- Data remains labelled fictional local sample data. No package, real referral
+  query, financial data, API, database, Edge Function, deployment, release,
+  commit, or push change was performed.
+- TalkBack swipe fallback remains available through semantic node buttons.
+  Touch-exploration bounds matching the moving visual nodes and iPad split-view
+  orientation are not claimed by this Android emulator verification.
+
+---
+
+## <a id="20260730-referral-graph-untangled-seed-and-leaves"></a> 2026-07-30 | Referral graph untangled seed and terminal leaves
+
+**Requested behavior**:
+- Make the mobile revenue network spread continuously from the viewer instead of
+  folding a chain back and forth, while preserving the lightweight runtime and
+  using the administrator referral graph's actual physics as the reference.
+- Remove the apparent maximum node travel distance.
+- In the dense administrator referral graph, shorten edges whose child endpoint
+  has no children without compressing branch-to-branch hub links.
+
+**Implementation**:
+- Replaced mobile depth-alternating lanes with deterministic subtree ordering and
+  parent-relative forward angular placement. Link target length and collision
+  envelopes determine sibling/chain spacing before the existing charge, link,
+  link-tension, collision, alpha-decay, and velocity-damping loop runs.
+- Kept the administrator runtime truth explicit: edge-crossing, sibling-angular,
+  center, x, and y forces remain disabled; no O(E²) crossing force or d3 port was
+  added to mobile.
+- Eligible contribution edges now render as one orange child-to-parent shaft;
+  excluded edges retain their neutral dashed treatment.
+- Removed the 70~1530 world-coordinate clamp from the WebView, SVG caller, and
+  shared physics. Finite-number guards remain. `화면 맞춤` may scale below the
+  gesture minimum so arbitrarily distant nodes remain recoverable, and reset
+  restores the deterministic seed.
+- Added SVG overflow support for off-surface world positions while labels remain
+  fixed in screen pixels.
+- Split the administrator link-distance resolver's explicit terminal-leaf path.
+  Dense terminal leaf spokes use a deterministic 118~185px band; non-terminal
+  child-hub bridges and the active physics/drag lifecycle are unchanged.
+
+**Measured behavior**:
+- Canonical 17-node mobile sample: initial crossing `0`, 51-frame settle crossing
+  `0`, post-root maximum chain turn `27.2°` (previously about `167°`).
+- Dense administrator fixture: terminal leaf `166~179px`; child-hub bridge
+  remains `354px`. The 471-node read-only settle kept direct-spoke P90 at
+  `419.922/420` and all existing crossing/spacing/edge limits green.
+
+**Verification**:
+- Mobile focused suites: 6 suites / 58 tests PASS.
+- Administrator physics/layout/free/simulation/real-data suites: 125/125 PASS.
+- Root and administrator TypeScript plus scoped/full ESLint: PASS.
+- Independent source/contract review was requested for both mobile and web
+  increments; Android device visual QA was intentionally left for the user's
+  own terminal and is not claimed here.
+
+**Boundary**:
+- No package, production data, API, database, Edge Function, deployment, EAS,
+  OTA, device command, commit, or push belongs to this increment. Release stays
+  `HOLD`.
+
+---
+
+## <a id="20260730-local-admin-referral-graph-recovery"></a> 2026-07-30 | Local administrator referral graph recovery
+
+**Observed failure**:
+- The authenticated local graph route loaded its page shell, but
+  `/api/admin/referrals/graph` returned 500. The server recorded an 18,531-byte
+  request URL and `UND_ERR_HEADERS_OVERFLOW`.
+- The dashboard notification bell simultaneously emitted paired 200/403
+  `/api/fc-notify` responses for the logged-in developer account. A previously
+  registered service worker exposed the failed GET as a secondary FetchEvent
+  error but did not cause either API failure.
+
+**Implementation**:
+- Reused the existing 40-ID bounded chunk helper for referral-code reads,
+  deduplicated rows by ID, and restored global `created_at` descending order.
+  No RPC, schema, or data mutation was introduced.
+- Removed the developer header's rejected second role=`fc` request, then
+  rejected the initially proposed merged payload after independent security
+  review found incompatible actor-ID namespaces and shared-admin broadcast
+  exposure in the deployed Edge contract.
+- Until a coordinated producer/Edge/receipt fix is reviewed and deployed,
+  developer/manager web inbox list/get/mark/dismiss actions fail closed in the
+  Next policy and their web callers do not emit those requests. Regular admin
+  and actual FC signed scopes remain enabled.
+
+**Evidence**:
+- Read-only reproduction: unchunked 534-ID query failed; fourteen <=40-ID reads
+  succeeded and returned 453 referral-code rows.
+- Running Next dev server after the code change:
+  `GET /api/admin/referrals/graph 200` in about 1.31 seconds.
+- Focused bounded-query tests 5/5, web TypeScript, and web lint passed.
+- The developer notification diagnosis matched current Edge logs: every bell
+  refresh produced one success beside the rejected cross-role request.
+- The running dev server established the original paired admin-200/FC-403
+  cause. The final fail-closed version is covered by dedicated policy/caller
+  contracts and was not represented as a deployed Edge fix or fresh browser
+  notification QA.
+- Personal-inbox HOLD tests passed 3/3, the combined web recovery set passed
+  17/17, root notification source/auth tests passed 28/28, and full Jest passed
+  192 suites / 1,176 tests. Root/web TypeScript and web lint passed.
+
+**Boundary**:
+- No database write, migration, RPC, Edge deploy, Vercel deploy, production
+  release, account, credential, or service-worker mutation was performed.
+- Current live read volume is 453 code rows. A future single 40-ID chunk that
+  can exceed the PostgREST row cap still needs stable `created_at,id`
+  pagination; this is a non-blocking scale follow-up, not a current truncation.
+- Re-enabling developer/manager web inboxes requires one coordinated change:
+  canonical Request Board recipient binding, personal-admin broadcast denial,
+  identical list/get/receipt predicates, focused security tests, and Edge
+  deployment. None of those production mutations belongs to this increment.
+
+---
+
+## <a id="20260730-administrator-web-production-release"></a> 2026-07-30 | Administrator-web production release
+
+**Source and verification**:
+- Completed source commit:
+  `d828cf07c1cf35d2bf76bfec07aa2f615066fd2e`.
+- Governance/document alignment commit:
+  `8992bff48aac4d2112826c086070c523655a35a0`.
+- Administrator-web node tests: 416/416 PASS.
+- Administrator-web lint, TypeScript, 49-route Production build,
+  `git diff --check`, full-range governance, board-create smoke 6/6, and
+  central harness audit: PASS.
+- Production dependency audit has zero critical findings. Existing
+  high/moderate transitive findings remain outside this release's
+  dependency-removal scope.
+
+**Vercel deployment**:
+- Preview: `dpl_CtHJF829ajoLkTrqvfFA9kMFhXZp`.
+- Production: `dpl_4J8g5KCfYTu4xusiJaHaRYjYvZje`.
+- Stable operator URL: `https://adminweb-red.vercel.app`.
+- The Vercel plugin confirmed the Production deployment is READY and resolves
+  to commit `8992bff48aac4d2112826c086070c523655a35a0`.
+- Plugin URL smoke checks returned 200 for `/auth`,
+  `/manifest.webmanifest`, and `/sw.js`. The unauthenticated
+  `/api/admin/exam-applicants` request returned the expected 401
+  `Invalid session: missing role`.
+- Plugin observability checks found no grouped runtime errors and no
+  error/fatal runtime-log entries in the post-release ten-minute window.
+
+**Boundary**:
+- The linked Vercel CLI uploaded and promoted the exact verified source because
+  the plugin deployment endpoint requires an explicit complete file payload;
+  the Vercel plugin remained authoritative for project/deployment state, URL
+  verification, and runtime observability.
+- No Git push, Supabase migration, Edge Function deployment, Storage mutation,
+  Sentry mutation, mobile build/OTA, GaramLink deployment, or store submission
+  was performed.
+- The repository-wide release HOLD remains unchanged outside this explicitly
+  authorized administrator-web lane.
+
+---
+
+## <a id="20260730-referral-revenue-radial-direction"></a> 2026-07-30 | Mobile revenue graph radial direction
+
+**Requested behavior**:
+- Make the sample revenue graph visibly spread from the viewer center.
+- Show which direction each lower person's sample contribution reaches the
+  viewer while preserving the responsive, lightweight mobile graph.
+- Use the administrator referral graph's actual physical rules as the
+  reference without restoring the previously withdrawn full d3 runtime port.
+
+**Administrator reference truth**:
+- The live administrator runtime keeps charge, degree-aware link springs, link
+  tension, collision, alpha decay, and velocity damping active.
+- Administrator `alphaDecay=0.016` is retained as a comparison baseline only;
+  mobile bounds post-drag work with its explicit
+  `initialAlpha=0.32`, `decayMultiplier=0.94`, `stopThreshold=0.014` schedule,
+  so value-level alpha runtime parity is not claimed.
+- The resolved balanced preset still exposes `centerStrength=0.024`, but the
+  live canvas explicitly disables `center`, `x`, and `y`. Mobile therefore does
+  not apply one global all-node center pull.
+- The administrator source was reference-only for this increment and was not
+  edited.
+
+**Mobile implementation**:
+- Replaced discarded static pre-simulation work with a deterministic,
+  collision-safe landscape radial seed. The viewer starts at the logical
+  origin, A/B/C direct branches use separate sectors, and descendants receive
+  increasing depth radii.
+- Retained the mobile numeric charge/link/tension/collision/damping loop and
+  added only weak O(n) radial guidance plus a bounded viewer anchor/rebase.
+  Pointer drag fixes only the grabbed node; neighbors react through forces.
+- Fit/reset stays viewer-centered. Pure guards cover every eligible edge's
+  outward radial growth, the global collision envelope plus 5 logical pixels,
+  and production 800x360 viewport/inset containment.
+- Added 1/3/6/10 guide rings. Gray edges remain sample organization structure;
+  eligible orange arrows point child-to-parent toward the viewer. A11 remains
+  excluded with a dashed gray edge and no arrow.
+- Eligible selection keeps the complete ancestry path statically emphasized
+  and runs at most one 1.5-second inward pulse. The event-driven frame loop
+  stops after the final dirty frame. The viewer node shows the unfiltered
+  10,240,000원 sample total; eligible nodes keep their own expected amount and
+  edges have no amount labels.
+- Fixed-screen-pixel cached labels, the offline WebView bridge/security
+  boundary, graph-only landscape, list/back/blur portrait restoration, sample
+  access gate, 10%/1~10 depth rule, and local-only data boundary are unchanged.
+- No `d3-force` import, package addition, API, query, Supabase/Edge/schema
+  change, or administrator graph edit was added.
+
+**Verification**:
+- Focused radial contracts: 4 suites / 45 tests PASS.
+- Full repository Jest: 192 suites / 1,171 tests PASS.
+- `npx tsc --noEmit`, `npm run lint`, scoped ESLint, the pre-documentation
+  `git diff --check`, and a Sentry-upload-disabled Android Expo export: PASS.
+- Emulator: default radial graph landscape; A10 ten-edge path/detail; A11
+  excluded dashed/no-arrow treatment; list portrait; graph return landscape:
+  PASS.
+- Warmed 900ms A4 drag runs: 104 frames / 3 jank (2.88%, p99 19ms);
+  104 / 2 (1.92%, p99 19ms); 107 / 1 (0.93%, p99 21ms). Missed vsync and slow
+  bitmap uploads were zero in all runs.
+- After the A10 pulse completed, a two-second idle gfx window rendered zero
+  frames.
+- Privacy-safe local evidence:
+  `.codex/runtime/referral-radial-final-20260730/`.
+
+**Lifecycle closeout and boundary**:
+- After these owning notes were written, governance, referral JSON parsing,
+  the central harness audit, final diff check, post-clarification Android
+  export, and independent re-evaluation all passed. The evaluator's only P3
+  wording finding was resolved by explicitly separating the administrator
+  alpha baseline from the bounded mobile settle schedule.
+- Release remains HOLD. No real organization, sales, settlement, payout,
+  account, credential, package, API, database, Edge Function, deployment, EAS,
+  OTA, commit, or push state was changed.
+
+<a id="20260803-referral-revenue-selectable-tree"></a>
+## 2026-08-03 | 매출 기여 현재 그래프 기본 + 선택형 트리 복원
+
+**요청과 이력 확인**:
+- 사용자는 현재 원형 매출 그래프를 기본값으로 유지하면서, 초기 버전의 트리형
+  표현도 선택해 볼 수 있게 해 달라고 요청했다.
+- Git 첫 커밋에는 이미 원형 renderer만 남아 있었다. pre-commit 작업 기록에서 삭제
+  직전 234-line card renderer를 확인했고, 440-wide canvas, 118x66 card, 86px row,
+  viewer/B 중앙·A 좌측·C 우측, parent-bottom→child-top line이라는 원 geometry를
+  복구 기준으로 삼았다. 실제 과거 사용자 데이터나 로그 원문은 제품 문서에 복사하지
+  않았다.
+
+**구현**:
+- `ViewMode`를 `graph | tree | list`로 확장하되 `useState<ViewMode>('graph')`를
+  유지하고 view 선택을 저장하지 않았다. fresh mount 기본값은 계속 기존 원형 graph다.
+- live graph 설정과 portrait segmented control에 `현재 그래프`, `트리`, `목록`을
+  명시했다. graph만 landscape를 요청하고 tree/list는 portrait를 요청한다.
+- `ReferralRevenueTreeView.tsx`와 pure tree layout helper를 추가했다. 트리는 기존
+  `graphNodes`, `graphEdges`, `focusedGraphNodeIds`, selected node/detail sheet를 공유해
+  계산·filter·11단계 제외·샘플 고지 의미가 달라지지 않는다.
+- tree mode는 기존 circular WebView/SVG를 hidden 상태로 두지 않고 조건 분기로
+  unmount한다. 기존 원형 Canvas/WebView/physics source는 수정하지 않았다.
+- context ancestor는 흐리게 보이고 선택할 수 없지만 금액/status는 그대로 보이며,
+  접근성 label은 이름·단계·전체 금액·context 상태를 포함한다.
+
+**검증과 발견 사항**:
+- focused revenue regression: 7 suites / 64 tests PASS.
+- full repository Jest: 193 suites / 1,182 tests PASS.
+- root TypeScript와 scoped ESLint PASS.
+- pure layout test는 A/B/C column, A11 depth, 1080px canvas height,
+  parent-bottom→child-top connector를 고정한다. source test는 graph default/no
+  persistence, three-mode selection, locality, circular renderer isolation, context amount,
+  orientation을 고정한다.
+- 독립 UI evaluator가 Dynamic Type에서 `minHeight` card가 66px connector보다 커질 수
+  있는 P1을 발견했다. card를 connector와 같은 fixed 66px로 바꾸고 이름·단계·금액에
+  bounded fit을 적용했으며, 전체 내용은 접근성 label에 보존했다.
+- 로컬 Expo web은 bundle/route 로드까지 성공했지만 사용 가능한 두 browser profile에
+  FC/read-only-manager session이 없어 access gate 뒤 UI를 확인하지 못했다. Android
+  device도 연결되지 않았다. 따라서 small-screen nested scroll, graph→tree→graph native
+  orientation, large-text visual, card detail, TalkBack은 미검증으로 남긴다.
+
+**문서·안전 경계**:
+- referral SPEC/architecture/checklist/case/result/incident, handbook owner/contract maps,
+  auth/data contracts, feature matrix, harness, mistake ledger를 default graph와 optional
+  tree 계약에 맞췄다.
+- RF-SELF-05와 릴리스는 native visual/accessibility 증거가 생길 때까지 `BLOCKED` /
+  `HOLD`다.
+- package, real referral/sales/settlement data, API, Supabase/Edge, schema, migration,
+  Sentry state, deployment, EAS, OTA, commit, push, PR은 변경하지 않았다.
+
+<a id="20260804-mobile-chat-keyboard-gap"></a>
+## 2026-08-04 | 모바일 채팅 입력창 키보드 간격 통일
+
+**요청과 원인**:
+- 기종에 따라 채팅 입력창이 키보드에 붙거나 큰 빈 공간을 남겼다. 제보 화면은 `가람PA 단톡방`의 iOS 경로였다.
+- 직접/그룹 채팅은 custom header가 keyboard avoider 밖에 있는데도 iOS `keyboardVerticalOffset=65`를 더했고, 키보드가 열린 뒤에도 기기별 safe-area padding을 유지했다.
+- Android manifest는 이미 `adjustResize`인데 직접/그룹 채팅이 키보드 전체 높이를 입력창 padding으로 다시 더했다. GaramLink bridge 채팅도 별도 Android `height` 회피와 safe-area 규칙을 사용했다.
+
+**구현**:
+- `lib/chat-keyboard-layout.ts`에서 키보드가 열리면 8px, 닫히면 iOS 12px/Android 20px 최소값과 실제 safe-area 중 큰 값을 반환하도록 공통화했다.
+- 직접 채팅, 가람PA 단톡방, GaramLink bridge 채팅을 공통 계산으로 연결했다.
+- 세 화면 모두 iOS keyboard vertical offset을 0으로 고정하고 Android는 OS `adjustResize`만 사용해 키보드 높이 이중 적용을 제거했다.
+
+**검증과 경계**:
+- RED/GREEN `lib/__tests__/group-chat-mobile-source.test.ts`로 세 화면의 공통 wiring과 제거된 이중 보정을 고정했다.
+- `lib/__tests__/chat-keyboard-layout.test.ts`에서 iOS/Android safe-area 0/12/21/34가 열린 키보드에서 모두 같은 8px로 수렴하고, 닫힌 뒤 platform inset이 복원됨을 검증했다.
+- 관련 Jest 4 suites / 34 tests, root TypeScript, scoped ESLint, governance, `git diff --check`, Sentry-disabled Expo web export가 통과했다.
+- Windows 작업 환경에서는 iOS 실기기 시각 검증을 실행하지 못했다. 네이티브 빌드/OTA와 실제 기기 설치는 별도 승인 후 검증 범위로 남긴다.
+- API, 메시지, 계정, Supabase/Edge, schema, migration, Sentry, 배포, EAS, OTA, commit, push 상태는 변경하지 않았다.
+
+<a id="20260804-exam-tbd-per-type-slots"></a>
+## 2026-08-04 | 시험일 미정 복원과 생보·손보 종목별 신청 슬롯
+
+**요청과 원인**:
+- 손해보험 신청에서 `날짜 미정` 회차를 선택할 수 없었고, 같은 달 생명보험 신청이 있으면 손해보험 신청까지 막혔다.
+- 앱은 nullable `exam_date`를 월 키로 비교해 서로 다른 TBD 회차의 `null`을 같은 달로 오인했고, submit RPC는 정확일이 null인 회차를 거절했다.
+- DB의 기존 active unique 키와 RPC 조회는 보험 종목을 구분하지 않았다. 최종 사용자 정정에 따라 제3보험도 생보/손보 종목별 경계를 따르며 cross-type 월 제한을 두지 않는다.
+
+**구현**:
+- `exam_rounds.exam_month`를 월초 canonical 값으로 추가하고 날짜·기존 신청·엄격한 legacy label 순으로 fail-closed 백필한다. 정확일은 계속 nullable이다.
+- `exam_registrations.exam_type`을 참조 회차에서 백필하고 composite FK로 drift를 차단한다. active unique 키는 `(fc_id, exam_month, exam_type)` 하나이며 주시험/제3보험 조합 모두 동일하게 적용된다.
+- submit v2/v3는 잠근 회차의 month/type만 신뢰하고 같은 종목의 active bundle만 찾는다. proof, actor, audit, location, deadline, advisory-lock 계약은 유지했다.
+- 관리자 웹의 TBD 모드에 필수 `시험 월` 입력을 추가했고, 모바일 두 화면은 canonical month 및 type snapshot으로 이력·현재 신청·충돌을 종목별 처리한다.
+- 신청 이력이 있는 TBD 회차는 같은 월 안에서 null → 정확일 확정만 허용하며 월·종목·이미 확정된 날짜의 재작성을 막는다.
+
+**검증과 경계**:
+- Targeted Jest 10 suites / 121 tests, root TypeScript, web lint/TypeScript/Sentry-disabled production build, governance, `git diff --check`가 통과했다. 시험 변경 완료 시점의 full Jest도 195 suites / 1,204 tests PASS였다.
+- 이후 동시 진행 중인 messenger-hub 변경이 합쳐진 최신 shared-worktree full Jest는 199 suites 중 198, 1,227 tests 중 1,226이 통과했고, 이번 범위 밖 `group-chat-mobile-source`의 구 literal 기대 1건만 실패했다. 해당 사용자 소유 메신저 파일/test는 이 시험 작업에서 수정하지 않았다.
+- 독립 검토에서 발견한 딥링크 월 충돌 우회, TBD 해제 시 월 1일 자동 확정, 구 RPC 문서/test drift를 수정하고 재평가해 source PASS(P0/P1/P2 0건)를 받았다. 명시적 null month/type snapshot도 legacy fallback 없이 fail closed하도록 강화했다.
+- Docker 기반 로컬 Supabase가 준비되지 않아 실제 migration apply와 인증된 E2E는 실행하지 못했다. source test는 실제 Postgres 실행 증거를 대체하지 않는다.
+- 운영 적용 순서는 DB migration → 관리자 웹 → 호환되는 앱 OTA/네이티브 릴리스다. 운영 DB, Edge/web, OTA/native, commit, push, PR은 변경하지 않았다.
+
+**P1 재감사 후속 조치**:
+- 모바일 `exam-register`, `exam-register2`가 `exam_month`를 조회하고 nullable exact date, canonical month, TBD 여부를 별도 form state로 유지하도록 바꿨다. 기존 TBD를 열어 그대로 저장하면 `exam_date = null`과 기존 월을 보내며, TBD를 해제하면 실제 날짜 선택 전 저장을 거부한다.
+- `admin-action:upsertExamRound`는 strict YMD/month-start/date-month 검증 후 `save_exam_round_atomic_v2`만 호출한다. 정확일을 보내는 구 caller는 월 파생 호환을 유지하지만, 기존 TBD 회차를 명시적 month 없이 수정하는 요청은 RPC 전에 거절한다. legacy SQL wrapper도 같은 implicit 전환을 막는다.
+- migration active-slot preflight에서 탈퇴·분리 이력인 `fc_id IS NULL` row를 applicant collision grouping에서 제외했다. schema canonical block, `SECURITY INVOKER`, public/anon/authenticated revoke, service-role-only grant는 그대로 유지했다.
+- 두 신청 화면은 history query를 `staleTime: 0`, `refetchOnMount: 'always'`로 두고 loading/fetching/error 동안 회차 선택, round deep link, notification receipt 완료, 최종 CTA를 fail closed한다. 최종 제출은 history를 강제 refetch하고 fresh same-type/month/confirmation/proof 결과를 mutation 입력까지 전달한다.
+- route hydration은 actor, 생명/손해 flow, registration/round target key별로 한 번만 소비해 Realtime/refetch가 사용자 선택이나 충돌 안내를 다시 실행하지 않게 했다.
+- `DEPLOYMENT.md`는 구 `20260712000002`/legacy writer 확인만으로는 불충분하다고 명시하고, `20260804081357`, exact v2 regprocedure, invoker/ACL, TBD/exact/invalid/zero-partial-write transaction을 DB → 검증 → admin web+Edge → 인증 smoke → mobile 순서의 필수 gate로 고정했다.
+
+**P1 후속 검증과 경계**:
+- Targeted Jest 12 suites / 127 tests, full Jest 219 suites / 1,377 tests PASS.
+- Root/web TypeScript와 lint, Sentry-upload-disabled root Expo export 및 web production build, `admin-action` Deno check, JSON parse, `git diff --check`, central harness audit PASS.
+- 독립 evaluator가 mobile, history, Edge/SQL/rollout을 재감사해 P0/P1/P2 0건, SOURCE PASS를 판정했다.
+- `node scripts/ci/check-governance.mjs --require-handbook-sync`의 시험 `admin-action` handbook 요구는 해소됐다. 최신 shared worktree에서는 별도 messenger/push 신규 파일의 owner-map/handbook 누락만 남아 전체 명령은 실패한다.
+- `npx --no-install supabase status`는 Docker Desktop Linux engine 미실행으로 실패했다. 실제 migration apply, catalog ACL 확인, 대표 transaction, 인증 mobile→Edge→Postgres E2E 전까지 rollout과 release는 HOLD다.
+- 운영 DB, Edge/web, OTA/native, commit, push, PR은 변경하지 않았다.
+
+<a id="20260805-android-messenger-parity"></a>
+## 2026-08-05 | Android 메신저 역할 표기와 대화방 알림 종
+
+**원인과 구현**:
+- Android에서 확인한 화면은 `request_board` 웹이 아니라 `fc-onboarding-app/app/messenger.tsx`였다. 사람 행은 raw affiliation과 출처를 함께 렌더링해 `본부장 · 가람in`이 남아 있었다.
+- 사람 목록에서는 출처 접미사를 제거하고, `가람Link` 소속 설계 매니저를 `회사명 설계 매니저`로 정규화했다.
+- 대화 목록의 각 canonical room에는 알림 상태를 바꾸는 종 버튼을 추가했다. 가람in은 Edge preference, 가람Link는 Request Board room-preference API로 저장하며 실패 시 재시도 안내를 표시한다.
+- GaramLink preference read 실패는 주소록/대화 데이터 실패와 별개이므로 공통 목록 경고에서 제외했다. 설정/저장 실패 자체를 성공으로 처리하지 않는다.
+
+**검증과 경계**:
+- `messenger-v2-hub-model`, `messenger-v2-hub-source`, `messenger-v2-notification-settings-source`, `notification-preferences-api` 4 suites / 29 tests PASS, scoped ESLint 및 `git diff --check` PASS.
+- 전체 TypeScript는 이번 경로 밖의 `messenger-search`, `request-board-messenger`, 기존 fc-notify test 오류로 red다. 현 변경 파일에서 새 TypeScript 진단은 확인되지 않았다.
+- Request Board 방별 preference endpoint/migration은 별도 coordinated rollout이 필요하므로 실제 Android GaramLink 토글은 해당 endpoint가 배포·인증 smoke되기 전까지 HOLD다. 배포, DB, Edge, OTA/native release는 변경하지 않았다.
+
+<a id="20260808-messenger-v2-low-latency"></a>
+## 2026-08-08 | Messenger V2 카카오톡형 저지연 허브
+
+**원인과 계약**:
+- 모바일은 숨긴 사람/대화 리스트를 모두 갱신하면서 inline row callback을 매
+  render마다 만들었다. 이후 활성 리스트만 mount하도록 좁혔지만 실기기에서 탭마다
+  리스트 재생성 비용이 드러났다. 초기 shell은 내부 목록 응답을 기다렸다.
+- GaramIn `chat_targets`/`internal_chat_list`와 GaramLink request/direct 목록은
+  허용된 모든 방의 메시지 전체를 Edge/Node로 읽어 latest/unread를 JS로 집계했다.
+- 중앙 하네스에 cached paint 200ms, 탭/아코디언 100ms, summary API p95 1초
+  목표와 actor/권한/legacy/pagination HOLD 조건을 고정했다.
+
+**구현**:
+- `get_internal_messenger_summaries_v1`, `list_internal_chat_page_v1`, GaramLink
+  request/direct summary RPC는 삭제 행을 제외하고 latest와 unread만 반환한다.
+  RPC는 `SECURITY INVOKER`, 고정 search path, public/anon/authenticated revoke,
+  service-role-only grant를 사용한다.
+- GaramIn 내부 목록과 GaramLink는 30-row keyset page를 제공한다.
+  기존 complete-list caller는 모든 page를 따르고, hub는 첫 page 후 scroll end에서
+  다음 page를 merge한다.
+- 허브 snapshot은 actor/permission scope별 process memory에만 보관한다. scope가
+  바뀌면 이전 async response를 거절한다. 네트워크 loading은 list-local이다. 두
+  virtualized list는 고정 pane에 한 번 mount해 탭마다 재생성하지 않고, inactive pane의
+  입력·접근성·pagination을 막는다. 사람 accordion은 기본 접힘이고 row는
+  memo/stable callback 경계를 쓴다.
+
+**검증과 경계**:
+- Mobile focused Jest 4 suites / 29 tests, scoped ESLint, FC `deno check` PASS.
+- Request Board summary 6/6, Messenger V2 24/24, direct-role 6/6, server TypeScript
+  build PASS. Root TypeScript는 이번 범위 밖 `app/index.tsx`의 기존 JSX parse 오류로
+  실패했다.
+- Docker/local Supabase가 없어 migration apply, catalog ACL, EXPLAIN/BUFFERS는
+  `BLOCKED_ENVIRONMENT`다. 운영 summary API p95도 미측정이다.
+- 고정 30/60초 timer polling은 제거하고 focus/foreground refresh에 2분 cooldown을
+  적용했다. 수동 pull-to-refresh는 즉시 실행되며, 느린 source state commit은
+  `startTransition`으로 내려 탭/accordion 입력을 우선한다. 사용자가 연결된 Android
+  앱에서 interaction latency 해결을 확인했다.
+- Realtime Broadcast와 durable encrypted local DB는 후속이다. 원격 DB, Edge/서버
+  배포, OTA/native, commit, push, PR은 변경하지 않았고 release는 HOLD다.
+
+<a id="20260809-google-play-422"></a>
+## 2026-08-09 | GaramIn Google Play production 4.2.2 verification
+
+**Observed state**:
+- EAS Android production build `5e733d21-ec62-4591-8213-9bb28acf6373` is `FINISHED` with app version `4.2.2`, versionCode `71`, runtime `4.2.2`, production channel, and Store distribution.
+- Google Play Console production shows `Active`, latest release `4.2.2 (71)`, and `Google Play에 제공됨`.
+- Console publish time is 2026-08-09 01:48 KST and the publishing overview reports no unpublished changes.
+
+**Release decision**:
+- The requested build is already live; submitting the same AAB again would duplicate versionCode `71` and is prohibited.
+- No duplicate upload, new release, rollout mutation, database/Edge/Vercel change, or Git push was performed during verification.
+
+<a id="20260808-messenger-latency-trace"></a>
+## 2026-08-08 | Messenger V2 Android latency 진단과 계측 취소
+
+**관찰과 구현**:
+- Android 로그는 GaramLink 대화 목록 완료만 보여 주고 시작 시각/구간별 duration은
+  없었다. 연결된 `requestboard-steel.vercel.app`은 room-preference GET에 404를
+  반환해 아직 additive endpoint가 배포되지 않은 legacy server임도 확인됐다.
+- room-preference GET 404는 첫 응답에서 legacy capability로 기억해 빈 preference
+  목록으로 호환하고, 이후 polling과 PATCH HTTP 요청을 반복하지 않는다. 새 서버의
+  정상 endpoint 응답은 기존 동작을 유지한다.
+- 수집된 기기 로그에서 legacy backend의 513행 응답과 30/60초 timer refresh가
+  겹치며 큰 state commit을 반복하는 것이 확인됐다. timer polling을 제거하고
+  focus/foreground 2분 cooldown, manual refresh, transition-priority source commit,
+  retained list pane, 기본 접힌 accordion으로 교정했다.
+- 무선 ADB wrapper는 TCP serial을 Expo `--device` 이름으로 전달하지 않고
+  `ANDROID_SERIAL`로만 고정한다.
+- 사용자가 Android 앱에서 latency 해결을 확인한 뒤 로그 출력 작업 취소를
+  결정했다. 임시 PERF logger, JS trace helper/test, native touch hook, collector와
+  package script를 모두 제거했다.
+
+**검증과 경계**:
+- 로그 제거 전후 hub/cache/logger/legacy compatibility focused tests와 scoped
+  ESLint를 통과했고, Android Kotlin compile 및 debug APK build/install도 통과했다.
+  Root TypeScript는 범위 밖 `app/index.tsx` 기존 JSX parse 오류로 차단됐다.
+- interaction latency는 사용자 실기기 확인으로 해결됐다. 원격 서버/DB/Edge/OTA는
+  변경하지 않았으며 backend summary 성능 검증과 rollout은 별도 HOLD다.
+<a id="20260810-fc-completion-state-reconciliation"></a>
+## 2026-08-10 | FC completion-state reconciliation
+
+**Observed state**:
+- A privacy-safe aggregate production read evaluated 514 FC rows using the mobile workflow predicates without returning or retaining names, phones, UUIDs, file paths, or raw records.
+- 161 legacy completed rows do not satisfy every new dawichok/PDF/document prerequisite, but all resolve to mobile step 5 because completion status and both commission tracks are authoritative completion evidence.
+- 96 rows share the reported legacy-completion shape. No row with appointment/completion evidence resolves to mobile step 3.
+- One partial-track row and one both-tracks/non-final-status row exist, but neither reproduces the reported mobile step-3 behavior.
+
+**Implementation**:
+- `getFcHomeQuickLinkDescriptions` now derives completed-FC quick-link copy from the shared mobile workflow step.
+- Completed FCs retain access to dawichok and appointment history but see `완료 내역 확인`; in-progress FCs keep the existing action copy.
+- The normal dawichok approval + PDF gate, administrator completion controls, and production data are unchanged.
+
+**Verification and boundaries**:
+- `npm test -- --runTestsByPath lib/__tests__/workflow-step-regression.test.ts lib/__tests__/fc-workflow-cross-surface.test.ts --runInBand`: 2 suites / 37 tests PASS.
+- `npx expo lint app/index.tsx lib/fc-workflow.ts lib/__tests__/workflow-step-regression.test.ts`: PASS.
+- `npx tsc --noEmit`: PASS.
+- Sentry-disabled `npm run build`: Expo web export PASS.
+- Governance check, workspace harness audit, INDEX JSON parse, and `git diff --check`: PASS.
+- No production write, migration, Edge/Vercel deployment, OTA/native release, push, or PR was performed. This change set is preserved locally; release remains HOLD.
+
+<a id="20260810-logout-session-reliability"></a>
+## 2026-08-10 | Logout session reliability
+
+**Root cause**:
+- The 4.2.2 release added `await unregisterAllPushTokens()` before `clearSessionState()`. The Edge invocation had no client timeout, so a slow or unresolved request prevented the local role and tokens from being cleared.
+- Android home set `isLoggingOut=true` before that work and had no reset path. Its loading component did not render the supplied copy, so the stalled state appeared as a blank white screen.
+- Common explicit logout also navigated to plain `/login` while the previous role could still be visible, allowing the login auto-landing effect to race back into the authenticated route.
+
+**Implementation**:
+- Added `lib/session-logout.ts` as the local-first coordinator. It starts local cleanup before remote push cleanup and reports only fixed failure reasons.
+- `unregisterAllPushTokens` accepts the captured signed token and gives the Supabase Function invocation a 5-second timeout.
+- Explicit logout defaults to `/login?skipAuto=1`; home now uses the common action and no longer owns a terminal Android logout surface.
+- Updated mobile auth, notification, and feature contract handbooks. Existing FC completion quick-link changes in `app/index.tsx` were preserved.
+
+**Verification and boundaries**:
+- RED before implementation: missing coordinator, plain login route, terminal home state, and unbounded unregister contract all failed.
+- Focused GREEN: 3 suites / 14 tests. Adjacent auth/session/notification GREEN: 5 suites / 57 tests.
+- Root TypeScript and scoped ESLint pass. Task-owned governance obligations are satisfied; the repository-wide governance command still reports only pre-existing exam-documentation and package-contract violations outside this task.
+- No remote Supabase call, function deployment, database change, OTA/native release, push, or PR was performed. This change set is preserved locally; release remains HOLD pending an approved app rollout and physical-device logout smoke.
+
+<a id="20260810-garamin-keyboard-surface-closure"></a>
+## 2026-08-10 | GaramIn keyboard-surface closure
+
+**Root cause**:
+- The board comment composer was a fixed sibling outside `KeyboardAwareWrapper`, so the wrapper could not move the focused input or submit action above the Android keyboard.
+- A chat-specific anti-double-padding change had made shared Android `useKeyboardPadding()` return zero, weakening plain-scroll form surfaces outside chat.
+- The earlier review searched for keyboard helpers without closing the inventory of direct/shared inputs or tracing each input to its owning scroll, modal, or fixed-bottom ancestor.
+
+**Implementation**:
+- Added `KeyboardSafeBottomBar` and used it for board and administrator-board comment composers.
+- Restored normalized explicit keyboard-height padding for plain-scroll consumers while fixed composers keep measured avoidance.
+- Added keyboard avoidance to both exam rejection modals and `ExamApplicationTargetSelector`, plus drag dismissal to reviewed top-search lists.
+- Added a 34-surface registry, audit command, structural contract tests, owner documentation, and repeatable mistake-ledger guardrails.
+
+**Verification and boundaries**:
+- `npm run audit:mobile-keyboard`: 34 discovered / 34 registered / 0 errors.
+- Full Jest: 232 suites / 1,447 tests pass. Root TypeScript passes. Expo lint reports zero errors and zero warnings after inactive Messenger search/context declarations were removed and the existing anchor-context gap copy was connected to its banner.
+- Governance, dependency compatibility, Expo export, and Android native assembly must pass on the final clean commit before push.
+- Final clean-source verification passed: governance, `expo install --check`, 52-route Sentry-upload-disabled Expo export, `assembleDebug`, and `bundleRelease`. The local release compile needed a process-only 1024 MB Metaspace override after the default 512 MB daemon exhausted Metaspace; no repository build setting was changed.
+- The compile-only local AAB is 89,120,226 bytes with SHA-256 `795800B0E76B8E076BEAD38C4FA58328137EF1F61621B96C2A06AFDB61AA3175`. It is not a Store artifact and was not uploaded; EAS Production remains responsible for managed credentials and remote build-number auto-increment.
+- Static and build evidence do not replace physical Android/iOS focus, type, multiline growth, submit, dismiss, rotation, and reopen smoke. EAS/OTA/Store release remains HOLD until that evidence exists.
+
+<a id="20260810-clean-ci-dependency-closure"></a>
+## 2026-08-10 | Clean CI dependency closure
+
+**Observed failure**:
+- GitHub app jobs installed only the root package graph and failed `lib/__tests__/sentry-build-upload-guard.test.ts` with `Cannot find module '@sentry/bundler-plugin-core' from 'web/package.json'`.
+- Local full Jest had passed because an existing nested web installation supplied the undeclared package.
+
+**Repair**:
+- Added exact root dev dependency `@sentry/bundler-plugin-core@5.3.0`, matching the version resolved by the web lockfile.
+- The production web owner remains `@sentry/nextjs`; this dependency exists only so the root security test can execute its directly required plugin runtime after a clean root install.
+
+**Verification and boundaries**:
+- Root `npm ci` passed. With `web/node_modules` temporarily isolated, the focused Sentry upload guard passed 14/14 from the root dependency graph; full root Jest passed 232 suites / 1,447 tests.
+- `npm audit` currently reports 11 high dependency paths from `image-size` advisories `GHSA-w3rx-r6r6-pgpr` and `GHSA-5p2g-fcmc-qvqq`. GitHub reports every published version through `2.0.2` as affected with no first patched version. This is an existing Expo/Metro build-tool path, not introduced by the Sentry test dependency; `npm audit fix --force` would break compatibility by downgrading Expo 54 to 53 and is prohibited.
+- Both GitHub app jobs and PR governance must pass after the follow-up push. The unpatched upstream advisory remains explicit release risk; repository-controlled build assets reduce the practical input path but do not constitute an upstream fix.
+- Follow-up commit `f50c4e9` made both clean GitHub app jobs pass; both web jobs and the Vercel preview also pass. The PR checklist was corrected so all five required labels match the repository checker as exact checked lines. A manual rerun of the earlier failure still used its original stale event payload, so this documentation commit intentionally creates a new synchronize event that evaluates the current PR body.
+- No Sentry release/upload, production deployment, EAS/OTA, database operation, or Store action is performed by this dependency repair.
+
+<a id="20260810-group-chat-notification-recovery"></a>
+## 2026-08-10 | Group-chat large-room notification recovery
+
+**Observed failure and root cause**:
+- A committed message in a 536-member group displayed `notificationStored=false` and offered the existing notification-only retry.
+- Source inspection found four unbounded Data API boundaries in `group-chat`: member enumeration, full-room actor preference filters, phone-based device-token lookup, and a single notification upsert whose returned row count had to equal the entire audience.
+- A configurable response cap or oversized filter can therefore omit recipients or make a successfully persisted large batch look truncated. This diagnosis is based on source and runtime-count evidence; no production setting, row, or raw log was queried.
+
+**Implementation**:
+- Added a dependency-free shared batching helper with a fixed 100-row/request boundary.
+- Eligible FC, manager, and administrator tables now use stable ordered pagination. Actor-ID and phone filters and notification upserts are split into bounded requests.
+- Canonical notification validation is performed for every batch before fanout. Any failed or incomplete batch remains fail-closed, and replay keeps the existing delivery key so it completes notification persistence without reinserting the chat message.
+
+**Verification and boundaries**:
+- RED first: the new 535-recipient batching suite failed because the helper did not exist. GREEN after implementation: 10 focused/adjacent Jest suites passed 91 tests; the notification-event Deno suite passed 4 tests; the Edge Deno check, root TypeScript, scoped ESLint, governance, harness audit, JSON parsing, and diff check passed. The Deno entrypoint lint used only the `import/no-unresolved` exemption for its two remote URL imports, which `deno check` resolved successfully.
+- No production query/write, hosted-log read, Edge deployment, app release, push, or PR was performed. Production remains unchanged until explicit deployment approval; after rollout, an authenticated large-room send plus notification-only retry smoke is required.
+
+<a id="20260810-fc-basic-information-edit-recovery"></a>
+## 2026-08-10 | FC basic-information edit recovery
+
+**Root cause**:
+- `app/fc/new.tsx` queried digit and hyphen phone candidates with `maybeSingle()`. Duplicate legacy/canonical candidates or any read failure returned early while react-hook-form retained empty defaults, so the screen looked like an editable blank profile.
+- Save then attempted an anonymous direct `fc_profiles` update/insert even though the custom mobile session is not a Supabase Auth identity covered by the table's update policy. This made persistence unreliable and allowed a load failure to become a destructive full-payload attempt.
+
+**Implementation**:
+- Added signed FC-self `admin-action:getOwnProfile` and `updateOwnProfile`. The server derives the only target from the signed FC session, binds ID and trusted phone together, and accepts only `name`, `affiliation`, `email`, and `carrier` in a normalized patch.
+- Added a pure hydration/diff helper. The mobile screen now fills every supported existing field, sends only changed base fields, keeps the login phone and recommender read-only, and no longer logs profile/storage/save payloads.
+- Added explicit loading/ready/error state. A failed canonical load displays a retry surface and never exposes or enables an empty edit form.
+
+**Verification and boundaries**:
+- RED first: all 3 new suites failed for the missing helper, signed actions, load guard, retry state, and immutable phone. GREEN: 3 suites / 8 tests.
+- Adjacent admin-action authorization/canonical-target/workflow regression: 3 suites / 34 tests PASS. Full root Jest passes 236 suites / 1,463 tests after aligning the notification target source contract with the signed save result.
+- `npx tsc --noEmit`, full Expo lint, Sentry-upload-disabled 52-route Expo web export, 34/34 keyboard audit, `deno check supabase/functions/admin-action/index.ts`, strict governance, workspace harness audit, JSON parsing, and diff check PASS.
+- With explicit user approval, only `admin-action` was deployed to project `ubeginyxaotcamuqpmud`; remote status is ACTIVE v25 and `verify_jwt=true`. An unauthenticated `getOwnProfile` probe returns HTTP 401.
+- GaramIn source commit `6d43f00003ea4fed55e3b599e755e91de2ef3764` was published to the `production` OTA branch for runtime `4.2.2`, Android and iOS, as update group `1e1a6dfe-ccfe-44d3-b9e4-584be61923f9`. The production channel is active and mapped to that branch.
+- No production row/log read, database/schema change, native/Store build, Git push, or PR was performed. Authenticated device load/edit/save/reopen smoke remains the final runtime verification gate, so verification posture remains HOLD even though rollout is live.
+
+<a id="20260810-profile-keyboard-follow-up"></a>
+## 2026-08-10 | GaramIn profile completeness and keyboard consistency follow-up
+
+**Profile findings and repair**:
+- The signed `getOwnProfile` request succeeded on the production test session. The canonical row itself had absent email and carrier values, and no alternate server profile-history table contained those fields.
+- A privacy-safe aggregate survey identified the original 63 completed accounts missing both fields. One exact test account received verification-only values under explicit user authorization; the local debug build then hydrated both values, proving the read/render path.
+- Form validation now allows a legacy incomplete profile to update a different allowed field without inventing email/carrier, while the submit guard prevents clearing populated name, affiliation, email, or carrier values.
+- A masked workbook reports the original 63-account set and marks the single verification-corrected account; the other 62 remain unchanged.
+
+**Keyboard implementation**:
+- `app/fc/new.tsx` now uses `KeyboardAwareWrapper` on Android and iOS, adds Android/Fabric focus-scroll retries, retains sufficient keyboard-height scroll room, and keeps the keyboard open during drag.
+- Dashboard and both exam-application routes no longer route Android through a plain scroll branch that bypasses keyboard-aware ownership.
+- Every reviewed direct scroll/list surface now uses `keyboardDismissMode="none"`; the shared wrapper raises its default Android focus clearance. The registry is version 2 and the audit rejects `on-drag` or `interactive` anywhere under mobile `app/` or `components/`.
+
+**Verification and boundaries**:
+- Focused RED/GREEN coverage includes legacy partial editing and the Android basic-information source contract.
+- Full Jest passes 236 suites / 1,465 tests. `npx tsc --noEmit`, zero-warning `npx expo lint`, `npm run audit:mobile-keyboard` (34/34), JSON parsing, and `git diff --check` pass.
+- Samsung local debug evidence shows the detailed-address field fully above the keyboard and the keyboard retained after a short drag. Wireless ADB later disconnected before an additional signup-route smoke, without invalidating the completed representative check.
+- No follow-up OTA, native/Store release, Edge deployment, Git push, or unrelated production write was performed. Follow-up production release remains HOLD pending explicit approval.
+## <a id="20260810-board-comment-reply-recovery"></a> 2026-08-10 | GaramIn board comment reply recovery
+
+**Scope**: Mobile Board, mobile administrator Board, admin-web Board, and the existing `board-comment-create` parent contract.
+
+- The mobile submit handlers previously cleared `replyTarget` immediately after starting the mutation. A failed request therefore retained the text but lost its parent, so a retry could become a top-level comment.
+- Reply targets now carry the selected parent ID plus the root thread ID. The exact parent ID remains the Edge payload; the root ID is used only to expand the correct thread after success.
+- Mutation success clears only the target submitted by that request, expands its root thread, and invalidates detail/list data. Errors retain both target and text.
+- Mobile admin and admin web now distinguish one-time thread initialization from an intentionally empty collapsed list, so the final expanded thread no longer collapses itself again.
+- No schema, migration, production query, Edge deployment, app release, or external write was performed. Release status remains `HOLD` pending authorized rollout and physical-device confirmation.
+
+Verification:
+
+- Passed: `npx jest lib/__tests__/board-comment-reply-flow.test.ts lib/__tests__/board-comment-actions.test.ts lib/__tests__/admin-web-board-source.test.ts --runInBand` (`3` suites / `10` tests).
+- Passed: feature-contract focused Jest (`2` suites / `9` tests).
+- Passed: changed mobile-file ESLint, admin-web board ESLint (zero errors; three pre-existing unused-disable warnings), and admin-web TypeScript.
+- Passed: Sentry-disabled Expo web export and Sentry-disabled admin-web production build.
+- Root TypeScript and Edge Deno checks remain blocked by the concurrent pre-existing `AssistedPasswordChangeTokenParseResult` missing type in `supabase/functions/_shared/request-board-auth.ts`, outside this Board repair.
+- Workspace governance still reports unrelated concurrent assisted-signup/auth/schema ownership gaps; this repair updated its Board owner document, work log/detail, contract matrix, and mistake ledger.
+<a id="20260810-production-migration-history-parity"></a>
+## 2026-08-10 | Production migration history parity
+
+**Change**:
+- Renamed the administrator-assisted signup migration from local version `20260810054317` to the production history version `20260810070757` and updated every source-of-truth reference.
+- Preserved the migration SQL contract; the production-history fetch differed only by its generated trailing statement terminator.
+
+**Verification**:
+- Supabase linked-project dry-run reports the remote database is up to date with no pending migrations, seeds, or roles.
+- No schema statement was re-executed and no production record was read or changed during this parity repair.
+<a id="20260810-admin-assisted-signup-production-rollout"></a>
+## 2026-08-10 | Administrator-assisted signup production rollout
+
+**Rollout**:
+- Applied `admin_assisted_signup_v1` to production and verified the added profile/credential state, RLS-enabled service-role tables, three RPCs, and anon/authenticated execution revocations.
+- Deployed `verify-signup-otp`, `set-password`, `reset-password`, `complete-assisted-password`, and `login-with-password` in compatibility order with JWT verification retained.
+- Built the administrator web from an isolated clean worktree and deployed `dpl_HmJ1brXrGdYE2giXHYr4qEaZwkHz` to the production alias. The first remote packaging attempt did not change production; the successful artifact reported no error-level build events.
+
+**Account and privacy evidence**:
+- Used the signed production administrator session to create exactly the two accounts explicitly approved by the user. No resident number, address, consent body, plaintext password, token, UUID, or raw production record is retained in this documentation.
+- The second browser form reset its license selection before submission. One evidence-reference-bounded row was corrected from the default value to the two requested licenses, and a full aggregate query was rerun.
+- Final aggregate verification is all true for exactly two distinct records: completed signup, `admin_written_consent`, phone unverified, first-password change required, consent actor/date/attestation consistency, expected recommender mapping, admin referral event, and requested licenses.
+
+**Local verification and boundaries**:
+- Focused assisted-signup Jest passes 3 suites / 19 tests, including the Vercel web-root packaging regression contract. Administrator-web TypeScript and scoped root/web ESLint pass.
+- Production advisor findings are informational only for the intentionally service-role-only unused tables/indexes. The clean root install still reports the documented 11 pre-existing high dependency audit paths; the web subtree reports zero.
+- No exam application or mobile OTA/Store release occurred. Subjects retain responsibility for choosing their own final passwords on first login. The task created no commit or push and preserved unrelated worktree changes.
+<a id="20260813-referral-graph-android-rendering-recovery"></a>
+## 2026-08-13 | Referral graph Android rendering recovery
+
+**Incident and root cause**:
+- A Galaxy S26 Ultra on Android 16 failed when the 1,800-dp `react-native-svg` surface became a roughly 7,650-pixel backing bitmap at device density, requiring about 234 MB for one canvas allocation.
+- The initial fixed-screen marker compensation kept nodes readable but also kept them too large at low graph zoom. Interleaved marker/label rendering allowed later markers to paint above earlier labels in dense regions.
+
+**Implementation**:
+- The SVG now renders edges only and caps its physical backing side at 2,048 pixels while retaining the existing logical coordinate system and layout math.
+- Native node markers use a zoom-aware visual scale: they shrink with graph zoom, have a bounded 1.4x growth ceiling, and keep a separate 48-point hit target.
+- Labels use a dedicated final overlay layer, follow the scaled marker radius, and retain a subtle canvas-colored halo for dense-graph contrast.
+- Added source and helper contracts for the bitmap cap, fixed logical surface, zoom-aware node behavior, and marker-before-label layer order.
+
+**Verification and release boundary**:
+- Passed focused Jest: `admin-assisted-signup-source-contract`, `referral-graph-native`, and `referral-graph-link` (`3` suites / `23` tests).
+- Passed root TypeScript and scoped ESLint for all changed graph and regression-contract files.
+- Passed a Sentry-disabled arm64 Android release build and a clean-lockfile, Sentry-disabled Next 16 administrator-web production build.
+- Paired a Galaxy S26 over wireless ADB, installed an isolated QA package without replacing the Play-installed 4.2.3 app, and reached the authenticated referral graph. The user manually confirmed zoom behavior as normal.
+- Removed the temporary instrumentation app, local QA APKs, screenshots, dependency links, and build scripts. The isolated QA app remains installed for comparison; production data and the production app were not changed.
+- No OTA, native/Store release, Git push, migration, database write, or external deployment occurred. Release status remains `HOLD` until explicit rollout approval and final commit-based release evidence.
+
+<a id="20260813-garamin-423-local-release-preparation-audit"></a>
+## 2026-08-13 | GaramIn 4.2.3 local release-preparation audit
+
+**Git preparation**:
+- Preserved all pre-existing user-owned changes and organized them into local commits for administrator-web deploy-root packaging, app version 4.2.3 alignment, and referral-graph Android recovery.
+- The primary `release/garamin-4.2.2-clean-20260809` worktree was clean after the commits. No stash, reset, restore, force operation, push, or branch publication was used.
+
+**Clean commit verification**:
+- Created a detached clean worktree at referral commit `7959cf1`, installed root and administrator-web dependencies with their committed lockfiles, and disabled all Sentry uploads.
+- Passed: root and web `npm ci`, `git diff --check`, documentation governance, integrated governance, root lint, root TypeScript, Expo web export, web lint, web TypeScript, and Next 16 production build.
+- Passed focused changed-contract verification: administrator-assisted signup packaging plus referral graph helper/source contracts (`3` suites / `23` tests).
+- Passed S26 device evidence from the implementation session: isolated QA install, authenticated graph open, manual pinch confirmation, and production app 4.2.3 left unchanged.
+
+**Repository-wide blockers**:
+- Composite receipt `quality-full-20260813-053226` is `FAILED`; the primary environmental failure class is the intentionally empty dependency directories in the primary FC and Request Board checkouts.
+- In the clean FC worktree, the baseline commit reproduces 10 failing suites / 14 failing tests across pre-existing Exam, Messenger, Presence, and notification source contracts. Two additional inventory tests fail only because their scanner intentionally excludes any checkout below `.codex-tmp`.
+- The all-Node gate also contains one pre-existing admin-login source-contract mismatch and the explicitly external real-data referral test, which fails closed when Supabase environment access is absent.
+- The pre-existing Board Edge smoke and all-Function Deno type check remain red. The root audit reports 11 high / 0 critical advisories; the web audit reports zero.
+- These failures are outside the referral/rendering and deploy-root packaging diff and require a separately authorized cross-feature remediation. Repository-wide release verdict remains `HOLD`.
+
+**Boundaries**:
+- No Git push, PR, OTA, Store/native release, Vercel deployment, Edge deployment, migration, production query/write, or release upload occurred.
+
+<a id="20260813-garamin-423-ota-424-android-build"></a>
+## 2026-08-13 | GaramIn 4.2.3 OTA and Android 4.2.4 production build
+
+**Git publication**:
+- Pushed the release branch through merge commit `48dc271`, then preserved the user's app version 4.2.4 change as `d03f7d5` and pushed it to the same branch.
+- Pre-push governance passed for both publication ranges. The branch was even with its upstream after each push.
+
+**Production OTA**:
+- Used a detached clean worktree at `48dc271` so the OTA remained runtime 4.2.3 and could be received by the installed 4.2.3 binary.
+- Published production update group `caf4a6a8-c4f7-49ce-a841-2c5572c4c46f` for Android and iOS at 100% availability.
+- Android update ID: `019ff9c5-9ef1-73ec-9def-216dd75a1dd4`; iOS update ID: `019ff9c5-9ef1-73ca-938a-eb4c0a21732b`.
+- EAS reports runtime 4.2.3 and Git commit `48dc271f54d9053441cd56901db48969e323e422` for both updates.
+
+**Android native build repair and result**:
+- The first local production build command failed before submission because the primary checkout's deliberately empty `node_modules` could not resolve the `expo-router` config plugin.
+- Reinstalled the committed root lockfile with `npm ci`; `npx expo config --json` then completed successfully and the production build no longer reproduced the plugin-resolution error.
+- Completed EAS Android production build `979d7c8d-4ae5-4c48-9c42-b92ed2f703bb` from `d03f7d5` as app 4.2.4, version code 74, runtime 4.2.4, Store-distribution AAB.
+- Artifact: `https://expo.dev/artifacts/eas/jrEPlaM48KZfgriqSv44SIbbBAPZY4vnQDtcA6jLTrY.aab`.
+
+**Boundaries**:
+- No Play Store submission or rollout, iOS native build, Vercel deployment, Supabase migration/function deployment, production data access, or secret mutation occurred.
+- The previously documented repository-wide baseline test, Deno, Board smoke, and dependency-audit findings were not changed by this publication and remain a separate remediation lane.

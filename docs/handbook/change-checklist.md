@@ -2,8 +2,8 @@ doc_id: FC-HANDBOOK-CHANGE-CHECKLIST
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer
-last_verified: 2026-04-06
-source_of_truth: .github/pull_request_template.md + scripts/ci/check-governance.mjs
+last_verified: 2026-07-15
+source_of_truth: .github/pull_request_template.md + scripts/ci/check-governance.mjs + scripts/ci/documentation-governance.mjs
 
 # 변경 체크리스트
 
@@ -39,6 +39,15 @@ source_of_truth: .github/pull_request_template.md + scripts/ci/check-governance.
 - handbook-sensitive 코드 경로는 `path-owner-map.json` 검사를 통과해야 함
 - 회귀 fix면 broad 로그와 별도로 `MISTAKES.md`에 root cause + permanent guardrail 기록
 - 정기 handbook sync 세션에서는 `node scripts/ci/check-governance.mjs --require-handbook-sync`를 사용
+
+## 제어 문서 크기
+
+- 루트 `AGENTS.md`는 UTF-8 기준 24,576 bytes 이하로 유지합니다.
+- stable control rule과 context route만 남기고 status, roadmap, history는 owning handbook와 work log에 둡니다.
+- 경계 테스트: `node scripts/ci/documentation-governance.test.mjs`
+- 실제 파일 검사: `node scripts/ci/documentation-governance.mjs AGENTS.md`
+- 통합 governance: `node scripts/ci/check-governance.mjs`
+
 ## Feature contract guardrails
 
 - When messenger, role/session, designer visibility, request status, notification routing, attachment/link handling, or sensitive-data behavior changes, update one contract evidence file listed in `docs/handbook/contract-test-map.json`.

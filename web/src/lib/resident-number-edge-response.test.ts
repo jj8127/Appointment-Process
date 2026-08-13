@@ -21,6 +21,10 @@ test('accepts ok response with object residentNumbers', () => {
         'fc-1': '900101-1234567',
         'fc-2': null,
       },
+      residentNumberStatuses: {
+        'fc-1': 'ready',
+        'fc-2': 'missing',
+      },
     },
   );
 });
@@ -38,6 +42,65 @@ test('rejects malformed success bodies even when HTTP response is ok', () => {
       { ok: false, message: 'Edge Function failed' },
     );
   }
+});
+
+test('fails closed for masked, partial, or otherwise invalid row values', () => {
+  assert.deepStrictEqual(
+    parseResidentNumberEdgeFallbackResponse({
+      responseOk: true,
+      data: {
+        ok: true,
+        residentNumbers: {
+          'fc-masked': 'masked-value',
+          'fc-partial': 'partial-value',
+          'fc-missing': null,
+        },
+      },
+    }),
+    {
+      ok: true,
+      residentNumbers: {
+        'fc-masked': null,
+        'fc-partial': null,
+        'fc-missing': null,
+      },
+      residentNumberStatuses: {
+        'fc-masked': 'unavailable',
+        'fc-partial': 'unavailable',
+        'fc-missing': 'missing',
+      },
+    },
+  );
+});
+
+test('preserves explicit per-row decrypt failures from the edge function', () => {
+  assert.deepStrictEqual(
+    parseResidentNumberEdgeFallbackResponse({
+      responseOk: true,
+      data: {
+        ok: true,
+        residentNumbers: {
+          'fc-failed': null,
+          'fc-missing': null,
+        },
+        residentNumberStatuses: {
+          'fc-failed': 'unavailable',
+          'fc-missing': 'missing',
+        },
+      },
+    }),
+    {
+      ok: true,
+      residentNumbers: {
+        'fc-failed': null,
+        'fc-missing': null,
+      },
+      residentNumberStatuses: {
+        'fc-failed': 'unavailable',
+        'fc-missing': 'missing',
+      },
+    },
+  );
 });
 
 test('rejects non-ok HTTP responses even when body looks successful', () => {

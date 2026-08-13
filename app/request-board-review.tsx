@@ -23,10 +23,16 @@ import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import {
+  hasPresentRouteParam,
+  parseExactlyOnePositiveIntegerRouteParam,
+} from '@/lib/strict-route-params';
 import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { formatRequestBoardDrivingStatus } from '@/lib/request-board-driving-status';
 import { canMakeRequestBoardFcDecision } from '@/lib/request-board-permissions';
+import { getRequestBoardNotificationFeedback } from '@/lib/request-board-notification-feedback';
 import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
 import {
   rbAcceptRequest,
@@ -46,6 +52,7 @@ import {
   normalizeDesignerRejectReason,
 } from '@/lib/request-board-review-actions';
 import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { safeDecodeFileName } from '@/lib/validation';
 
 /* ─── Helpers ─── */
@@ -192,7 +199,11 @@ export default function RequestBoardReviewScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, notificationId, notificationTarget } = useLocalSearchParams<{
+    id: string;
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
   const {
     role,
     readOnly,
@@ -219,7 +230,26 @@ export default function RequestBoardReviewScreen() {
   const [designerRejectReason, setDesignerRejectReason] = useState('');
   const [attachmentUploadDraft, setAttachmentUploadDraft] = useState<AttachmentUploadDraft | null>(null);
 
-  const requestId = id ? parseInt(id, 10) : null;
+  const requestId = parseExactlyOnePositiveIntegerRouteParam(id);
+  const hasInvalidRequestRoute =
+    hasPresentRouteParam(id) && requestId === null;
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasInvalidRequestRoute && requestId
+      ? { version: 1, kind: 'request', requestId }
+      : null,
+    loadState: hasInvalidRequestRoute
+      ? 'error'
+      : fetchError
+      ? 'error'
+      : detail?.id === requestId
+        ? 'success'
+        : loading
+          ? 'loading'
+          : requestId
+            ? 'error'
+            : 'idle',
+  });
 
   const fetchData = useCallback(async () => {
     if (!hydrated) {
@@ -273,7 +303,11 @@ export default function RequestBoardReviewScreen() {
             try {
               const res = await rbApproveDesign(requestId, assignment.designer_id);
               if (res.success) {
-                Alert.alert('승인 완료', '설계가 승인되었습니다.');
+                const notificationFeedback = getRequestBoardNotificationFeedback(res);
+                Alert.alert(
+                  notificationFeedback?.title ?? '승인 완료',
+                  notificationFeedback?.message ?? '설계가 승인되었습니다.',
+                );
                 await fetchData();
               } else {
                 Alert.alert(
@@ -311,7 +345,11 @@ export default function RequestBoardReviewScreen() {
       const res = await rbRejectDesign(requestId, rejectTargetId, trimmed);
       if (res.success) {
         setRejectModalVisible(false);
-        Alert.alert('거절 완료', '설계가 거절되었습니다.');
+        const notificationFeedback = getRequestBoardNotificationFeedback(res);
+        Alert.alert(
+          notificationFeedback?.title ?? '거절 완료',
+          notificationFeedback?.message ?? '설계가 거절되었습니다.',
+        );
         await fetchData();
       } else {
         Alert.alert('오류', toRequestBoardSessionErrorMessage(res.error, '거절 처리 중 오류가 발생했습니다.'));
@@ -341,7 +379,11 @@ export default function RequestBoardReviewScreen() {
           try {
             const res = await rbAcceptRequest(requestId, assignment.designer_id, assignment.id);
             if (res.success) {
-              Alert.alert('수락 완료', '의뢰를 수락했습니다.');
+              const notificationFeedback = getRequestBoardNotificationFeedback(res);
+              Alert.alert(
+                notificationFeedback?.title ?? '수락 완료',
+                notificationFeedback?.message ?? '의뢰를 수락했습니다.',
+              );
               await fetchData();
             } else {
               Alert.alert(
@@ -399,7 +441,11 @@ export default function RequestBoardReviewScreen() {
       );
       if (res.success) {
         resetDesignerRejectModal();
-        Alert.alert('거절 완료', '의뢰를 거절했습니다.');
+        const notificationFeedback = getRequestBoardNotificationFeedback(res);
+        Alert.alert(
+          notificationFeedback?.title ?? '거절 완료',
+          notificationFeedback?.message ?? '의뢰를 거절했습니다.',
+        );
         await fetchData();
       } else {
         Alert.alert(
@@ -534,7 +580,11 @@ export default function RequestBoardReviewScreen() {
                 requestDesignerId: assignment.id,
               });
               if (res.success) {
-                Alert.alert('완료 처리됨', '의뢰가 완료 상태로 전환되었습니다.');
+                const notificationFeedback = getRequestBoardNotificationFeedback(res);
+                Alert.alert(
+                  notificationFeedback?.title ?? '완료 처리됨',
+                  notificationFeedback?.message ?? '의뢰가 완료 상태로 전환되었습니다.',
+                );
                 await fetchData();
               } else {
                 Alert.alert(
@@ -885,6 +935,10 @@ export default function RequestBoardReviewScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
@@ -1150,6 +1204,7 @@ export default function RequestBoardReviewScreen() {
               style={styles.attachmentDraftScroll}
               contentContainerStyle={styles.attachmentDraftList}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="none"
             >
               {attachmentUploadDraft?.files.map((file, index) => (
                 <View key={`${file.name}-${index}`} style={styles.attachmentDraftItem}>

@@ -2,11 +2,11 @@ import {
   buildMobileUnreadFcNotifyBody,
   combineMobileUnreadCounts,
   fetchMobileUnreadNotificationCountWithDeps,
+  fetchMobileUnreadNotificationCountWithDepsOrThrow,
   resolveMobileUnreadBridgePlan,
 } from '@/lib/mobile-unread-notification-count-plan';
 
 const makeUnreadDeps = (overrides = {}) => ({
-  getNotificationCheckpoint: jest.fn(async () => new Date('2026-05-30T00:00:00.000Z')),
   invokeFcNotify: jest.fn(async () => ({ data: { ok: true, count: 3 }, error: null })),
   getRequestBoardUnreadCount: jest.fn(async () => 4),
   warn: jest.fn(),
@@ -77,7 +77,7 @@ describe('resolveMobileUnreadBridgePlan', () => {
     ).toEqual({
       shouldFetch: true,
       includeLiveRequestBoardUnread: false,
-      includeRequestBoardFcInbox: false,
+      includeRequestBoardFcInbox: true,
       includeNoticeUnread: false,
       onlyRequestBoardCategories: true,
     });
@@ -105,7 +105,6 @@ describe('buildMobileUnreadFcNotifyBody', () => {
       buildMobileUnreadFcNotifyBody({
         role: 'admin',
         residentId: undefined,
-        sinceIso: '2026-05-30T00:00:00.000Z',
         includeLiveRequestBoardUnread: true,
         includeRequestBoardFcInbox: true,
         includeNoticeUnread: false,
@@ -115,7 +114,6 @@ describe('buildMobileUnreadFcNotifyBody', () => {
       type: 'inbox_unread_count',
       role: 'admin',
       resident_id: null,
-      since: '2026-05-30T00:00:00.000Z',
       exclude_request_board_categories: true,
       include_request_board_fc: true,
       include_notices: false,
@@ -126,21 +124,21 @@ describe('buildMobileUnreadFcNotifyBody', () => {
       buildMobileUnreadFcNotifyBody({
         role: 'fc',
         residentId: '01051078127',
-        sinceIso: '2026-05-30T00:00:00.000Z',
         includeLiveRequestBoardUnread: false,
         includeRequestBoardFcInbox: false,
         includeNoticeUnread: true,
         onlyRequestBoardCategories: false,
+        noticeSince: '2026-07-27T01:00:00.000Z',
       }),
     ).toEqual({
       type: 'inbox_unread_count',
       role: 'fc',
       resident_id: '01051078127',
-      since: '2026-05-30T00:00:00.000Z',
       exclude_request_board_categories: false,
       include_request_board_fc: false,
       include_notices: true,
       only_request_board_categories: false,
+      notice_since: '2026-07-27T01:00:00.000Z',
     });
   });
 });
@@ -187,13 +185,12 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
       }, deps),
     ).resolves.toBe(0);
 
-    expect(deps.getNotificationCheckpoint).not.toHaveBeenCalled();
     expect(deps.invokeFcNotify).not.toHaveBeenCalled();
     expect(deps.getRequestBoardUnreadCount).not.toHaveBeenCalled();
     expect(deps.warn).not.toHaveBeenCalled();
   });
 
-  it('fetches checkpoint and fc-notify for FC sessions without adding hidden live request_board unread', async () => {
+  it('keeps receipt-backed rows independent while passing a notice-only checkpoint', async () => {
     const deps = makeUnreadDeps();
 
     await expect(
@@ -201,26 +198,19 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
         role: 'fc',
         residentId: '01051078127',
         requestBoardRole: null,
+        noticeSince: '2026-07-27T01:00:00.000Z',
       }, deps),
     ).resolves.toBe(3);
 
-    expect(deps.getNotificationCheckpoint).toHaveBeenCalledWith(
-      {
-        role: 'fc',
-        residentId: '01051078127',
-        requestBoardRole: null,
-      },
-      { initializeIfMissing: false },
-    );
     expect(deps.invokeFcNotify).toHaveBeenCalledWith({
       type: 'inbox_unread_count',
       role: 'fc',
       resident_id: '01051078127',
-      since: '2026-05-30T00:00:00.000Z',
       exclude_request_board_categories: false,
       include_request_board_fc: false,
       include_notices: true,
       only_request_board_categories: false,
+      notice_since: '2026-07-27T01:00:00.000Z',
     });
     expect(deps.getRequestBoardUnreadCount).not.toHaveBeenCalled();
     expect(deps.warn).not.toHaveBeenCalled();
@@ -241,7 +231,6 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
       type: 'inbox_unread_count',
       role: 'admin',
       resident_id: null,
-      since: '2026-05-30T00:00:00.000Z',
       exclude_request_board_categories: false,
       include_request_board_fc: false,
       include_notices: true,
@@ -265,7 +254,6 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
       type: 'inbox_unread_count',
       role: 'admin',
       resident_id: '01051078127',
-      since: '2026-05-30T00:00:00.000Z',
       exclude_request_board_categories: false,
       include_request_board_fc: true,
       include_notices: true,
@@ -294,6 +282,22 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
     );
   });
 
+  it('lets strict callers preserve an existing badge when fc-notify is unavailable', async () => {
+    const deps = makeUnreadDeps({
+      invokeFcNotify: jest.fn(async () => ({ data: null, error: new Error('fc-notify down') })),
+    });
+
+    await expect(
+      fetchMobileUnreadNotificationCountWithDepsOrThrow({
+        role: 'fc',
+        residentId: '01051078127',
+        requestBoardRole: null,
+      }, deps),
+    ).rejects.toThrow('fc-notify down');
+
+    expect(deps.warn).not.toHaveBeenCalled();
+  });
+
   it('returns zero and logs the current warning when designer fc-notify count fails', async () => {
     const deps = makeUnreadDeps({
       invokeFcNotify: jest.fn(async () => ({ data: null, error: new Error('designer inbox down') })),
@@ -311,6 +315,30 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
       '[mobile-unread-count] fetch failed',
       expect.objectContaining({ message: 'designer inbox down' }),
     );
+  });
+
+  it('includes the personal request-board FC inbox for manager-backed designer sessions', async () => {
+    const deps = makeUnreadDeps({
+      invokeFcNotify: jest.fn(async () => ({ data: { ok: true, count: 2 }, error: null })),
+    });
+
+    await expect(
+      fetchMobileUnreadNotificationCountWithDeps({
+        role: 'admin',
+        residentId: '01051078127',
+        requestBoardRole: 'designer',
+      }, deps),
+    ).resolves.toBe(2);
+
+    expect(deps.invokeFcNotify).toHaveBeenCalledWith({
+      type: 'inbox_unread_count',
+      role: 'admin',
+      resident_id: '01051078127',
+      exclude_request_board_categories: false,
+      include_request_board_fc: true,
+      include_notices: false,
+      only_request_board_categories: true,
+    });
   });
 
   it('counts only visible request_board category notifications for request-board designer sessions', async () => {
@@ -331,7 +359,6 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
       type: 'inbox_unread_count',
       role: 'fc',
       resident_id: '01051078127',
-      since: '2026-05-30T00:00:00.000Z',
       exclude_request_board_categories: false,
       include_request_board_fc: false,
       include_notices: false,

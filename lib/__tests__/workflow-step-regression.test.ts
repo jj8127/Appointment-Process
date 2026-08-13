@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import {
   ADMIN_STEP_LABELS,
   STEP_LABELS,
@@ -9,6 +11,7 @@ import {
   canOpenFcProfileRegistration,
   getAllowanceDisplayState,
   getFcHomeNextAction,
+  getFcHomeQuickLinkDescriptions,
 } from '../fc-workflow';
 import type { FcProfile } from '../../web/src/types/fc';
 
@@ -40,6 +43,37 @@ const profile = (overrides: Partial<FcProfile> = {}): FcProfile => ({
 });
 
 describe('workflow step regression', () => {
+  test('fc home uses the admin actor label in exactly eight next-action messages', () => {
+    const source = readFileSync('lib/fc-workflow.ts', 'utf8');
+    const nextActionSource = source.slice(source.indexOf('export const getFcHomeNextAction'));
+    const expectedAdminMessages = [
+      '관리자가 임시사번을 발급중입니다. 기다려주세요.',
+      '관리자가 사전 심사를 준비 중입니다.',
+      '관리자가 필요한 서류를 검토 중입니다. 기다려주세요.',
+      '관리자가 가람in으로 다위촉 URL PDF를 전달 중입니다. 기다려주세요.',
+      '관리자가 위촉 여부를 검토중입니다.',
+      '손해 위촉 완료 여부를 관리자가 검토중입니다.',
+      '생명 위촉 완료 여부를 관리자가 검토중입니다.',
+      '위촉 완료 여부를 관리자가 검토중입니다.',
+    ];
+
+    expect(nextActionSource).not.toContain('총무가');
+    expect(nextActionSource.match(/관리자가/g)).toHaveLength(8);
+    for (const message of expectedAdminMessages) {
+      expect(nextActionSource).toContain(message);
+    }
+  });
+
+  test('admin dashboard KPI cards reuse workflow predicates as list filters', () => {
+    const source = readFileSync('web/src/app/dashboard/page.tsx', 'utf8');
+
+    expect(source).toContain("metricFilter === 'pendingAllowance'");
+    expect(source).toContain("['entered', 'prescreen'].includes(allowanceDisplay.key)");
+    expect(source).toContain("metricFilter === 'pendingDocs'");
+    expect(source).toContain("fc.step === 2 && getDocProgress(fc).key === 'in-progress'");
+    expect(source).toContain("setMetricFilter('all')");
+  });
+
   test('legacy partial-commission signup does not jump to step 4', () => {
     const row = profile({
       status: 'appointment-completed',
@@ -242,6 +276,29 @@ describe('workflow step regression', () => {
 
     expect(calcStep(row)).toBe(5);
     expect(getSummaryStatus(row).label).toBe('가입 시 위촉 완료');
+    expect(getFcHomeNextAction(row as any)).toMatchObject({
+      step: 5,
+      title: '완료',
+      subtitle: '모든 위촉 과정이 끝났습니다.',
+    });
+    expect(getFcHomeQuickLinkDescriptions(row as any)).toEqual({
+      hanwha: '다위촉 완료 내역 확인',
+      insurance: '위촉 완료 내역 확인',
+    });
+  });
+
+  test('in-progress FC quick links keep action copy', () => {
+    const row = profile({
+      status: 'docs-approved',
+      temp_id: 'TMP-001',
+      allowance_date: '2026-02-20',
+      fc_documents: approvedDocs,
+    });
+
+    expect(getFcHomeQuickLinkDescriptions(row as any)).toEqual({
+      hanwha: '다위촉 진행',
+      insurance: '생명/손해 위촉 진행',
+    });
   });
 
   test('fc profile registration opens only after preregistration is completed', () => {
@@ -266,7 +323,7 @@ describe('workflow step regression', () => {
       step: 2,
       key: 'docs',
       route: '/docs-upload',
-      subtitle: '총무가 필요한 서류를 검토 중입니다. 기다려주세요.',
+      subtitle: '관리자가 필요한 서류를 검토 중입니다. 기다려주세요.',
       disabled: false,
     });
   });
@@ -325,7 +382,7 @@ describe('workflow step regression', () => {
       step: 1,
       key: 'consent',
       route: '/consent',
-      subtitle: '총무가 사전 심사를 준비 중입니다.',
+      subtitle: '관리자가 사전 심사를 준비 중입니다.',
       disabled: false,
     });
   });

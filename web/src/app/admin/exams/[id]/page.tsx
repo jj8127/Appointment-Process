@@ -4,6 +4,7 @@ import { useSession } from '@/hooks/use-session';
 import {
   ActionIcon,
   Badge,
+  Button,
   Center,
   Container,
   Group,
@@ -21,7 +22,7 @@ import {
   Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconFilter, IconFilterOff, IconRefresh, IconSearch, IconX } from '@tabler/icons-react';
+import { IconBan, IconFilter, IconFilterOff, IconRefresh, IconSearch, IconX } from '@tabler/icons-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -29,11 +30,13 @@ import {
   EXAM_APPLICANT_EXPORT_COLUMNS,
   EXAM_APPLICANT_TABLE_BADGE_STYLES,
   formatExamApplicantReceptionStatus,
+  getExamApplicantApplicationStatusBadgeColor,
   getExamApplicantCellValue,
   type ExamApplicantExportColumn,
   type ExamApplicantExportColumnKey,
   type ExamApplicantListItem,
 } from '@/lib/exam-applicant-list-display';
+import { RejectReasonModal } from '@/components/RejectReasonModal';
 
 type Row = ExamApplicantListItem & {
   id: string;
@@ -72,6 +75,9 @@ export default function AdminExamManagePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const roundId = String(params.id ?? '');
+  const [rejectTarget, setRejectTarget] = useState<Row | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejecting, setRejecting] = useState(false);
 
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -143,7 +149,10 @@ export default function AdminExamManagePage() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ registrationId: row.id, isConfirmed: nextConfirmed }),
+        body: JSON.stringify({
+          registrationId: row.id,
+          action: nextConfirmed ? 'confirm' : 'unconfirm',
+        }),
       });
       const json: unknown = await response.json().catch(() => null);
       const isOk = response.ok && isRecord(json) && json.ok === true;
@@ -170,11 +179,53 @@ export default function AdminExamManagePage() {
         autoClose: 2000,
         icon: <IconRefresh size={16} />,
       });
+
     } catch (e) {
       const err = e as Error;
       notifications.show({ title: '변경 실패', message: err.message, color: 'red' });
     } finally {
       setProcessingId(null);
+    }
+  };
+
+  const rejectRegistration = async () => {
+    if (!rejectTarget || rejecting) return;
+    setRejecting(true);
+    try {
+      const response = await fetch('/api/admin/exam-applicants', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          registrationId: rejectTarget.id,
+          action: 'reject',
+          reason: rejectReason.trim(),
+        }),
+      });
+      const json: unknown = await response.json().catch(() => null);
+      if (!response.ok || !isRecord(json) || json.ok !== true) {
+        throw new Error(
+          isRecord(json) && typeof json.error === 'string'
+            ? json.error
+            : '시험 신청 반려에 실패했습니다.',
+        );
+      }
+      setRows((previous) => previous.map((row) =>
+        row.id === rejectTarget.id
+          ? { ...row, status: 'rejected', is_confirmed: false }
+          : row,
+      ));
+      setRejectTarget(null);
+      setRejectReason('');
+      notifications.show({ title: '반려 완료', message: '시험 신청을 반려했습니다.', color: 'red' });
+    } catch (error) {
+      notifications.show({
+        title: '반려 실패',
+        message: error instanceof Error ? error.message : '반려 처리에 실패했습니다.',
+        color: 'red',
+      });
+    } finally {
+      setRejecting(false);
     }
   };
 
@@ -431,6 +482,21 @@ export default function AdminExamManagePage() {
       );
     }
 
+    if (column.key === 'application_status') {
+      return (
+        <Table.Td key={column.key} ta="center">
+          <Badge
+            variant="light"
+            color={getExamApplicantApplicationStatusBadgeColor(value)}
+            radius="sm"
+            styles={EXAM_APPLICANT_TABLE_BADGE_STYLES}
+          >
+            {value}
+          </Badge>
+        </Table.Td>
+      );
+    }
+
     if (column.key === 'fee_paid_date') {
       return (
         <Table.Td key={column.key} ta="center">
@@ -585,13 +651,17 @@ export default function AdminExamManagePage() {
                         <Table.Tr key={row.id}>
                           {EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => renderApplicantCell(row, column))}
                           <Table.Td ta="center">
+                            <Stack gap="xs">
                             <SegmentedControl
                               size="xs"
                               radius="xl"
                               fullWidth
                               value={row.is_confirmed ? 'confirmed' : 'pending'}
                               onChange={(val) => updateStatus(row, val as 'confirmed' | 'pending')}
-                              disabled={processingId === row.id}
+                              disabled={
+                                processingId === row.id
+                                || !['applied', 'confirmed'].includes(row.status)
+                              }
                               data={[
                                 { label: '미접수', value: 'pending' },
                                 { label: '접수 완료', value: 'confirmed' },
@@ -607,6 +677,20 @@ export default function AdminExamManagePage() {
                                 },
                               }}
                             />
+                            <Button
+                              size="compact-xs"
+                              variant="light"
+                              color="red"
+                              leftSection={<IconBan size={14} />}
+                              disabled={!['applied', 'confirmed'].includes(row.status)}
+                              onClick={() => {
+                                setRejectTarget(row);
+                                setRejectReason('');
+                              }}
+                            >
+                              반려
+                            </Button>
+                            </Stack>
                           </Table.Td>
                         </Table.Tr>
                       ))
@@ -618,6 +702,23 @@ export default function AdminExamManagePage() {
           </Stack>
         </Paper>
       </Stack>
+      <RejectReasonModal
+        opened={Boolean(rejectTarget)}
+        onClose={() => {
+          if (!rejecting) {
+            setRejectTarget(null);
+            setRejectReason('');
+          }
+        }}
+        title="시험 신청 반려"
+        description="FC에게 전달할 반려 사유를 입력해주세요."
+        placeholder="반려 사유 (1~1000자)"
+        value={rejectReason}
+        onChange={setRejectReason}
+        submitting={rejecting}
+        submitDisabled={rejectReason.trim().length < 1 || rejectReason.trim().length > 1000}
+        onSubmit={rejectRegistration}
+      />
     </Container>
   );
 }

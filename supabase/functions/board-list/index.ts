@@ -11,6 +11,12 @@ import {
   toBoardDisplayRole,
   redactSensitiveText,
 } from '../_shared/board.ts';
+import {
+  AUTOMATION_BOARD_LIST_LIMIT,
+  AUTOMATION_BOARD_LIST_SELECT,
+  isCanonicalGeneralBoardCategory,
+  validateAutomationBoardListRequest,
+} from '../_shared/board-list-policy.ts';
 
 type Payload = {
   actor?: {
@@ -42,8 +48,54 @@ serve(async (req: Request) => {
   const body = await parseJson<Payload>(req);
   if (!body) return json({ ok: false, code: 'invalid_json', message: 'Invalid JSON' }, 400, origin);
 
-  const actorCheck = await requireActor(body, origin);
+  const actorCheck = await requireActor(req, body, 'board-list', origin);
   if (actorCheck.ok === false) return actorCheck.response;
+
+  if (actorCheck.authMode === 'automation') {
+    const policy = validateAutomationBoardListRequest(body);
+    if (policy.ok === false) {
+      return json({
+        ok: false,
+        code: 'automation_forbidden',
+        message: 'board automation may list only recent canonical general digest posts',
+      }, 403, origin);
+    }
+
+    const { data: category, error: categoryError } = await supabase
+      .from('board_categories')
+      .select('id,slug,is_active')
+      .eq('id', policy.categoryId)
+      .maybeSingle();
+
+    if (categoryError) return dbError(categoryError, origin);
+    if (!isCanonicalGeneralBoardCategory(category, policy.categoryId)) {
+      return json({
+        ok: false,
+        code: 'automation_forbidden',
+        message: 'board automation may list only the canonical general category',
+      }, 403, origin);
+    }
+
+    const { data, error } = await supabase
+      .from('board_posts_with_stats')
+      .select(AUTOMATION_BOARD_LIST_SELECT)
+      .eq('category_id', policy.categoryId)
+      .order('created_at', { ascending: false })
+      .limit(AUTOMATION_BOARD_LIST_LIMIT);
+
+    if (error) return dbError(error, origin);
+
+    return json({
+      ok: true,
+      data: {
+        items: (data ?? []).map((row) => ({
+          id: row.id,
+          title: redactSensitiveText(row.title, '게시글'),
+          createdAt: row.created_at,
+        })),
+      },
+    }, 200, origin);
+  }
 
   const sort = body.sort ?? 'created';
   const order = body.order ?? 'desc';

@@ -198,6 +198,8 @@ export const calcWorkflowStep = (profile?: WorkflowProfile | null): WorkflowStep
 
 export const calcAdminWorkflowStep = (profile?: WorkflowProfile | null): AdminWorkflowStepNumber => {
   if (!profile) return 0;
+  const { lifeCompleted, nonlifeCompleted } = getCommissionCompletionState(profile);
+  if (lifeCompleted || nonlifeCompleted) return 5;
   const workflowStep = calcWorkflowStep(profile);
   if (!hasIdentityInfo(profile) && workflowStep === 1) return 0;
   return workflowStep;
@@ -205,6 +207,22 @@ export const calcAdminWorkflowStep = (profile?: WorkflowProfile | null): AdminWo
 
 export const calcFcHomeWorkflowStep = (profile?: WorkflowProfile | null): WorkflowStepNumber =>
   calcWorkflowStep(profile);
+
+export const getFcHomeQuickLinkDescriptions = (
+  profile?: WorkflowProfile | null,
+): { hanwha: string; insurance: string } => {
+  if (calcFcHomeWorkflowStep(profile) === 5) {
+    return {
+      hanwha: '다위촉 완료 내역 확인',
+      insurance: '위촉 완료 내역 확인',
+    };
+  }
+
+  return {
+    hanwha: '다위촉 진행',
+    insurance: '생명/손해 위촉 진행',
+  };
+};
 
 const getFcHomeStepKey = (step: WorkflowStepNumber): FcHomeStepKey => {
   switch (step) {
@@ -290,7 +308,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         key,
         route: '/consent',
         title: '보증 보험 동의',
-        subtitle: '총무가 임시사번을 발급중입니다. 기다려주세요.',
+        subtitle: '관리자가 임시사번을 발급중입니다. 기다려주세요.',
         disabled: false,
       };
     }
@@ -320,7 +338,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         key,
         route: '/consent',
         title: '보증 보험 동의',
-        subtitle: '총무가 사전 심사를 준비 중입니다.',
+        subtitle: '관리자가 사전 심사를 준비 중입니다.',
         disabled: false,
       };
     }
@@ -342,7 +360,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         key,
         route: '/docs-upload',
         title: '문서제출',
-        subtitle: '총무가 필요한 서류를 검토 중입니다. 기다려주세요.',
+        subtitle: '관리자가 필요한 서류를 검토 중입니다. 기다려주세요.',
         disabled: false,
       };
     }
@@ -399,7 +417,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         key,
         route: '/hanwha-commission',
         title: '다위촉 URL',
-        subtitle: '총무가 가람in으로 다위촉 URL PDF를 전달 중입니다. 기다려주세요.',
+        subtitle: '관리자가 가람in으로 다위촉 URL PDF를 전달 중입니다. 기다려주세요.',
         disabled: false,
       };
     }
@@ -409,7 +427,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         key,
         route: '/hanwha-commission',
         title: '다위촉 URL',
-        subtitle: '총무가 위촉 여부를 검토중입니다.',
+        subtitle: '관리자가 위촉 여부를 검토중입니다.',
         disabled: false,
       };
     }
@@ -456,7 +474,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
           key,
           route: '/appointment',
           title: '생명/손해 위촉',
-          subtitle: '손해 위촉 완료 여부를 총무가 검토중입니다.',
+          subtitle: '손해 위촉 완료 여부를 관리자가 검토중입니다.',
           disabled: false,
         };
       }
@@ -487,7 +505,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
           key,
           route: '/appointment',
           title: '생명/손해 위촉',
-          subtitle: '생명 위촉 완료 여부를 총무가 검토중입니다.',
+          subtitle: '생명 위촉 완료 여부를 관리자가 검토중입니다.',
           disabled: false,
         };
       }
@@ -518,7 +536,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         key,
         route: '/appointment',
         title: '생명/손해 위촉',
-        subtitle: '위촉 완료 여부를 총무가 검토중입니다.',
+        subtitle: '위촉 완료 여부를 관리자가 검토중입니다.',
         disabled: false,
       };
     }

@@ -5,6 +5,7 @@ import {
   buildRequestBoardPasswordSyncBody,
   syncRequestBoardPasswordWithDeps,
 } from '../request-board-password-sync.ts';
+import type { EdgeDiagnosticInput } from '../edge-diagnostic.ts';
 
 test('builds request_board password-sync body for FC with affiliation and metadata', () => {
   assert.deepEqual(
@@ -27,7 +28,7 @@ test('builds request_board password-sync body for FC with affiliation and metada
   );
 });
 
-test('builds request_board password-sync body for manager while preserving manager role', () => {
+test('builds manager password-sync metadata without forwarding the canonical password', () => {
   assert.deepEqual(
     buildRequestBoardPasswordSyncBody('01022223333', 'Manager!1234', {
       role: 'manager',
@@ -35,15 +36,15 @@ test('builds request_board password-sync body for manager while preserving manag
       affiliation: '1본부 서선미',
       initiatorRole: 'manager',
       syncReason: 'self-reset',
-    }),
+    }, 'signed-assertion-placeholder'),
     {
       phone: '01022223333',
-      password: 'Manager!1234',
       role: 'manager',
       name: '서선미',
       affiliation: '1본부 서선미',
       initiatorRole: 'manager',
       syncReason: 'self-reset',
+      authAssertion: 'signed-assertion-placeholder',
     },
   );
 });
@@ -126,7 +127,7 @@ test('skips request_board password sync fetch when url or token is missing', asy
     clearTimeoutImpl: () => {
       sideEffects += 1;
     },
-    warn: () => {
+    diagnostic: () => {
       sideEffects += 1;
     },
   };
@@ -154,11 +155,49 @@ test('skips request_board password sync fetch when url or token is missing', asy
   assert.equal(sideEffects, 0);
 });
 
+test('fails closed before network I/O when the signed assertion is unavailable', async () => {
+  let fetchCount = 0;
+  const diagnostics: EdgeDiagnosticInput[] = [];
+
+  await syncRequestBoardPasswordWithDeps({
+    syncUrl: 'https://request.example/api/auth/sync-password',
+    syncToken: 'transport-token-placeholder',
+    timeoutMs: 1000,
+    logPrefix: 'test',
+    phone: '',
+    password: '',
+    authAssertion: null,
+    options: { role: 'fc' },
+  }, {
+    fetchImpl: async () => {
+      fetchCount += 1;
+      throw new Error('fetch should not run');
+    },
+    createAbortController: () => ({
+      signal: {} as AbortSignal,
+      abort: () => {},
+    }),
+    setTimeoutImpl: () => 'timeout',
+    clearTimeoutImpl: () => {},
+    diagnostic: (input) => {
+      diagnostics.push(input);
+    },
+  });
+
+  assert.equal(fetchCount, 0);
+  assert.deepEqual(diagnostics, [{
+    event: 'request_board.password_sync',
+    reason: 'request_failed',
+    retryable: false,
+    errorClass: 'authentication',
+  }]);
+});
+
 test('sends request_board password sync fetch with current headers, body, signal, and timeout cleanup', async () => {
   const calls: Array<{ input: string; init: Record<string, unknown> }> = [];
   const timeoutMsValues: number[] = [];
   const clearedTimeouts: unknown[] = [];
-  const warnings: unknown[][] = [];
+  const diagnostics: EdgeDiagnosticInput[] = [];
   let abortCount = 0;
   const signal = { kind: 'test-signal' } as unknown as AbortSignal;
   const timeoutCallbacks: Array<() => void> = [];
@@ -170,6 +209,7 @@ test('sends request_board password sync fetch with current headers, body, signal
     logPrefix: 'reset-password',
     phone: '01012345678',
     password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
     options: {
       role: 'fc',
       name: '홍길동',
@@ -201,8 +241,8 @@ test('sends request_board password sync fetch with current headers, body, signal
     clearTimeoutImpl: (handle) => {
       clearedTimeouts.push(handle);
     },
-    warn: (...args) => {
-      warnings.push(args);
+    diagnostic: (input) => {
+      diagnostics.push(input);
     },
   });
 
@@ -215,26 +255,32 @@ test('sends request_board password sync fetch with current headers, body, signal
   });
   assert.deepEqual(
     JSON.parse(String(calls[0]?.init.body)),
-    buildRequestBoardPasswordSyncBody('01012345678', 'Pass!1234', {
-      role: 'fc',
-      name: '홍길동',
-      affiliation: '1본부',
-      initiatorRole: 'self',
-      syncReason: 'self-reset',
-    }),
+    buildRequestBoardPasswordSyncBody(
+      '01012345678',
+      'Pass!1234',
+      {
+        role: 'fc',
+        name: '홍길동',
+        affiliation: '1본부',
+        initiatorRole: 'self',
+        syncReason: 'self-reset',
+      },
+      'signed-assertion-placeholder',
+    ),
   );
   assert.equal(calls[0]?.init.signal, signal);
   assert.deepEqual(timeoutMsValues, [4321]);
   assert.deepEqual(clearedTimeouts, ['timeout-handle']);
-  assert.deepEqual(warnings, []);
+  assert.deepEqual(diagnostics, []);
 
   timeoutCallbacks[0]?.();
   assert.equal(abortCount, 1);
 });
 
-test('warns without throwing for non-ok request_board password sync response', async () => {
-  const body = 'x'.repeat(250);
-  const warnings: unknown[][] = [];
+test('reports only fixed metadata for a non-ok request_board password sync response', async () => {
+  const body = 'POISON-UPSTREAM-BODY-01077778888-REF-CODE';
+  const diagnostics: EdgeDiagnosticInput[] = [];
+  let bodyReadCount = 0;
 
   await syncRequestBoardPasswordWithDeps({
     syncUrl: 'https://request.example/api/auth/sync-password',
@@ -243,12 +289,16 @@ test('warns without throwing for non-ok request_board password sync response', a
     logPrefix: 'login-with-password',
     phone: '01012345678',
     password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
     options: { role: 'designer', companyName: '농협생명' },
   }, {
     fetchImpl: async () => ({
       ok: false,
       status: 503,
-      text: async () => body,
+      text: async () => {
+        bodyReadCount += 1;
+        return body;
+      },
       json: async () => ({ success: false }),
     }),
     createAbortController: () => ({
@@ -257,19 +307,30 @@ test('warns without throwing for non-ok request_board password sync response', a
     }),
     setTimeoutImpl: () => 'timeout-handle',
     clearTimeoutImpl: () => {},
-    warn: (...args) => {
-      warnings.push(args);
+    diagnostic: (input) => {
+      diagnostics.push(input);
     },
   });
 
-  assert.deepEqual(warnings, [[
-    `[login-with-password] request_board sync failed: 503 ${body.slice(0, 200)}`,
-  ]]);
+  assert.equal(bodyReadCount, 0);
+  assert.deepEqual(diagnostics, [{
+    event: 'request_board.password_sync',
+    reason: 'upstream_rejected',
+    status: 503,
+    retryable: true,
+    errorClass: 'upstream',
+  }]);
+  assert.equal(JSON.stringify(diagnostics).includes(body), false);
 });
 
-test('warns without throwing for unsuccessful request_board password sync json body', async () => {
-  const jsonBody = { success: false, error: 'sync failed' };
-  const warnings: unknown[][] = [];
+test('reports only fixed metadata for an unsuccessful request_board password sync json body', async () => {
+  const jsonBody = {
+    success: false,
+    error: 'POISON-JSON-ERROR',
+    phone: '010-7777-8888',
+    affiliation: 'POISON-AFFILIATION',
+  };
+  const diagnostics: EdgeDiagnosticInput[] = [];
 
   await syncRequestBoardPasswordWithDeps({
     syncUrl: 'https://request.example/api/auth/sync-password',
@@ -278,6 +339,7 @@ test('warns without throwing for unsuccessful request_board password sync json b
     logPrefix: 'reset-password',
     phone: '01012345678',
     password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
     options: { role: 'manager', affiliation: '1본부' },
   }, {
     fetchImpl: async () => ({
@@ -292,19 +354,23 @@ test('warns without throwing for unsuccessful request_board password sync json b
     }),
     setTimeoutImpl: () => 'timeout-handle',
     clearTimeoutImpl: () => {},
-    warn: (...args) => {
-      warnings.push(args);
+    diagnostic: (input) => {
+      diagnostics.push(input);
     },
   });
 
-  assert.deepEqual(warnings, [[
-    `[reset-password] request_board sync error: ${JSON.stringify(jsonBody).slice(0, 200)}`,
-  ]]);
+  assert.deepEqual(diagnostics, [{
+    event: 'request_board.password_sync',
+    reason: 'invalid_response',
+    errorClass: 'upstream',
+  }]);
+  assert.equal(JSON.stringify(diagnostics).includes('POISON'), false);
+  assert.equal(JSON.stringify(diagnostics).includes('010-7777-8888'), false);
 });
 
-test('warns without throwing for thrown request_board password sync fetch errors', async () => {
-  const error = new Error('network down');
-  const warnings: unknown[][] = [];
+test('reports only a coarse class for thrown request_board password sync fetch errors', async () => {
+  const error = new Error('POISON-NETWORK-ERROR-01077778888');
+  const diagnostics: EdgeDiagnosticInput[] = [];
 
   await syncRequestBoardPasswordWithDeps({
     syncUrl: 'https://request.example/api/auth/sync-password',
@@ -313,6 +379,7 @@ test('warns without throwing for thrown request_board password sync fetch errors
     logPrefix: 'set-password',
     phone: '01012345678',
     password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
     options: { role: 'fc' },
   }, {
     fetchImpl: async () => {
@@ -324,13 +391,81 @@ test('warns without throwing for thrown request_board password sync fetch errors
     }),
     setTimeoutImpl: () => 'timeout-handle',
     clearTimeoutImpl: () => {},
-    warn: (...args) => {
-      warnings.push(args);
+    diagnostic: (input) => {
+      diagnostics.push(input);
     },
   });
 
-  assert.deepEqual(warnings, [[
-    '[set-password] request_board sync error:',
-    error,
-  ]]);
+  assert.deepEqual(diagnostics, [{
+    event: 'request_board.password_sync',
+    reason: 'request_failed',
+    retryable: true,
+    errorClass: 'network',
+  }]);
+  assert.equal(JSON.stringify(diagnostics).includes('POISON'), false);
+});
+
+test('classifies an aborted request_board password sync without serializing its error', async () => {
+  const diagnostics: EdgeDiagnosticInput[] = [];
+
+  await syncRequestBoardPasswordWithDeps({
+    syncUrl: 'https://request.example/api/auth/sync-password',
+    syncToken: 'bridge-token',
+    timeoutMs: 1000,
+    logPrefix: 'set-password',
+    phone: '01012345678',
+    password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
+    options: { role: 'fc' },
+  }, {
+    fetchImpl: async () => {
+      throw new Error('POISON-TIMEOUT-ERROR-01077778888');
+    },
+    createAbortController: () => ({
+      signal: { aborted: true } as AbortSignal,
+      abort: () => {},
+    }),
+    setTimeoutImpl: () => 'timeout-handle',
+    clearTimeoutImpl: () => {},
+    diagnostic: (input) => {
+      diagnostics.push(input);
+    },
+  });
+
+  assert.deepEqual(diagnostics, [{
+    event: 'request_board.password_sync',
+    reason: 'timeout',
+    retryable: true,
+    errorClass: 'timeout',
+  }]);
+  assert.equal(JSON.stringify(diagnostics).includes('POISON'), false);
+});
+
+test('does not let an injected diagnostic failure escape password sync', async () => {
+  await assert.doesNotReject(() => syncRequestBoardPasswordWithDeps({
+    syncUrl: 'https://request.example/api/auth/sync-password',
+    syncToken: 'bridge-token',
+    timeoutMs: 1000,
+    logPrefix: 'set-password',
+    phone: '01012345678',
+    password: 'Pass!1234',
+    authAssertion: 'signed-assertion-placeholder',
+    options: { role: 'fc' },
+  }, {
+    fetchImpl: async () => ({
+      ok: false,
+      status: 502,
+      text: async () => 'POISON-BODY',
+      json: async () => ({ success: false }),
+    }),
+    createAbortController: () => ({
+      signal: {} as AbortSignal,
+      abort: () => {},
+    }),
+    setTimeoutImpl: () => 'timeout-handle',
+    clearTimeoutImpl: () => {},
+    diagnostic: () => {
+      throw new Error('diagnostic unavailable');
+    },
+  }));
 });

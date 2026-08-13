@@ -2,10 +2,59 @@ doc_id: FC-BACKEND-ADMIN-OPS
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-04-06
+last_verified: 2026-08-10
 source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admin/* + web/src/app/api/fc-delete/route.ts
 
 # Backend Runbook: Admin Operations API
+
+## 2026-08-10 FC self-service basic-information boundary
+
+- `admin-action:getOwnProfile`과 `updateOwnProfile`은 이름과 달리 관리자 권한을 공유하지 않는 서명된 FC 본인 전용 액션이다. 요청 body의 대상 ID는 받지 않고 앱 세션의 `fcId`를 사용하며, legacy 토큰에 `fcId`가 없을 때만 세션 전화번호가 정확히 한 프로필로 해석되는 경우에 한해 보정한다.
+- 조회와 수정은 서버가 확정한 FC ID와 세션 전화번호 후보를 동시에 조건으로 사용한다. 세션 역할이 FC가 아니거나 대상이 모호·불일치하면 실패한다.
+- 수정 payload는 `patch`만 받고 `name`, `affiliation`, `email`, `carrier` 외 필드를 거부한다. 전화번호, 추천인, 신원정보, 가입 완료, workflow/status 필드는 본인 기본정보 액션의 쓰기 권한이 아니다.
+- FC 앱은 이 경로로 기존 값을 먼저 hydrate하고 변경 필드만 저장한다. 익명 Supabase 클라이언트의 직접 `fc_profiles` update/insert는 기본정보 수정 계약이 아니다.
+
+## 2026-08-04 Exam round v2 writer and legacy mobile boundary
+
+- `admin-action:upsertExamRound` validates exact YMD values, canonical month-start `exam_month`, and exact-date/month consistency before calling only `save_exam_round_atomic_v2`.
+- New TBD requests must send an explicit month. A legacy caller that omits `exam_month` may derive it only from an exact date; if `roundId` identifies an existing `exam_date = null` round, the Edge Function rejects the request before RPC invocation so an old mobile fallback cannot finalize the round as today's date.
+- The database migration and exact v2 signature/ACL must be verified before this Edge version is activated. Missing v2 capability is a rollout stop condition and must not be bypassed with split writes or the legacy RPC.
+- The SQL writer stays `SECURITY INVOKER`, revoked from `PUBLIC`, `anon`, and `authenticated`, with `service_role` execution only. The signed administrator/developer caller gate remains separate from the database execution role.
+
+## 2026-07-30 Resident-number list state contract
+
+- `/api/admin/resident-numbers` resolves each requested FC as `value`,
+  `missing`, or `unavailable`. An absent encrypted value is `missing`; a
+  permission, runtime, or decrypt failure is `unavailable`.
+- Administrator lists render `missing` as `미입력` and `unavailable` as
+  `조회 불가`. They must not describe a missing value as a system failure or a
+  failed read as user non-entry.
+- Direct decrypt and the `admin-action` fallback use the same row contract.
+  Masked or partial values are never accepted as successful full-value reads.
+
+## 2026-07-29 Atomic deletion and privileged identity boundary
+
+- `admin-action:deleteFc`, `/api/fc-delete`, and the public account-deletion
+  Edge path converge on the transactional account-deletion RPC. Relational
+  deletion commits atomically; Storage and Auth cleanup is recorded through
+  the durable cleanup outbox and retried independently.
+- The caller role and actor identity are derived from the signed current
+  session and re-resolved against an active account. Request-body role,
+  telephone, sender, or staff-type hints are never authorization evidence.
+- `/api/admin/resident-numbers` remains a signed admin/manager trusted read.
+  It normalizes raw, digits-only, and hyphenated account phones consistently
+  before resolving the active caller, and never falls back to an anonymous
+  privileged table read.
+- Exam registration mutations use the atomic transition RPC. Reject and
+  administrative cancellation preserve their audit state, and any linked
+  notification is validated against its persisted typed recipient target
+  before push delivery.
+
+## 2026-07-24 서류 승인·반려 알림 응답 계약
+
+- `/api/admin/fc`의 `updateDocStatus`는 승인과 반려 모두 FC 알림함에 한 건을 먼저 저장한다. 일부 서류 승인도 생략하지 않으며, 전체 승인일 때만 다음 단계 링크를 사용한다.
+- 관리자 요청은 알림함 저장 결과까지만 기다리고 Expo·웹 푸시 전달은 Next.js `after()`에서 이어서 처리한다. 따라서 외부 푸시 지연이 서류 승인·반려 응답 시간을 막지 않는다.
+- 응답 이후 전달이 실패해도 이미 저장된 알림함 레코드는 유지되며, 공급자 전달 경로는 알림함 레코드를 중복 삽입하지 않는다.
 
 ## 2026-07-06 Signed Admin Route Contract
 
@@ -42,3 +91,12 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 - 다위촉 URL 승인 완료는 PDF path/name이 있어야만 저장되며, 승인일은 서버에서 자동 기록됩니다. 총무가 별도로 승인일을 입력하지는 않습니다.
 - 단계 명칭은 `3단계 다위촉 URL`, `4단계 생명/손해 위촉`을 기준으로 API 라벨과 클라이언트 문구를 맞춥니다.
 - FC 삭제는 storage/auth/notification/identity 정리까지 연쇄됩니다.
+
+## 모바일 관리자 workflow 알림 대상 계약
+
+- `admin-action.sendNotification`의 FC 수신자 키는 화면에 남아 있는 전화번호가 아니라 권한 검증된 `fcId`입니다. 클라이언트가 보내는 phone/role 필드는 권한 또는 수신자 결정에 사용하지 않습니다.
+- trusted Edge Function은 알림 직전에 `fc_profiles.id=fcId`로 현재 phone을 조회하고, `010`으로 시작하는 11자리 번호만 canonical 대상에 사용합니다. 조회 실패, row 부재, 번호 형식 오류 시 다른 번호로 fallback하거나 inbox/push를 발송하지 않습니다.
+- `/api/admin/fc`가 임시사번 발급 후 알림을 보낼 때도 현재 FC profile phone을 숫자-only 값으로 정규화·검증한 뒤 그 canonical 값만 server push service에 넘깁니다. 형식이 포함된 원본 값을 검증 후 다시 전달하면 안 됩니다.
+- inbox 저장과 `fc-notify` push는 같은 `admin-action.sendNotification` 요청 안에서 처리합니다. `fc-notify` 호출은 service-role trusted boundary에서만 수행하며 10초로 제한합니다.
+- primary workflow mutation은 알림 실패 때문에 되돌리지 않습니다. 알림 대상 조회, inbox 저장, downstream push 중 하나라도 확인되지 않으면 `notification_delivery_incomplete` 같은 고정 진단 코드를 반환할 수 있지만, 앱은 이를 사용자 경고로 표시하지 않고 안전한 개발 로그로만 남깁니다.
+- 응답과 진단 로그에는 canonical phone, token, provider 원문, raw DB 오류를 포함하지 않습니다.

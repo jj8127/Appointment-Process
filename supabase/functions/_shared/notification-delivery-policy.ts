@@ -1,8 +1,10 @@
 const REQUEST_BOARD_CATEGORY_PREFIX = 'request_board_';
+const SCOPED_FC_MANAGER_CATEGORIES = new Set(['fc_update', 'fc_delete']);
 
 type ManagerDeliveryInput = {
   category?: string | null;
   targetId?: string | null;
+  allowScopedManagerLifecycle?: boolean;
 };
 
 type TokenWithRole = {
@@ -21,9 +23,14 @@ export function isRequestBoardNotificationCategory(category?: string | null): bo
   return normalizeCategory(category).startsWith(REQUEST_BOARD_CATEGORY_PREFIX);
 }
 
-export function shouldDeliverToManagerMobileToken({ category, targetId }: ManagerDeliveryInput): boolean {
+export function shouldDeliverToManagerMobileToken({
+  category,
+  targetId,
+  allowScopedManagerLifecycle = false,
+}: ManagerDeliveryInput): boolean {
   const normalizedCategory = normalizeCategory(category);
   if (isRequestBoardNotificationCategory(normalizedCategory)) return true;
+  if (allowScopedManagerLifecycle && SCOPED_FC_MANAGER_CATEGORIES.has(normalizedCategory)) return true;
   return normalizedCategory === 'message' && hasConcreteTargetId(targetId);
 }
 

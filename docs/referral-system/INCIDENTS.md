@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-06-08` 기준 등록된 추천인 이슈는 `23건`이다.
+- `2026-07-30` 기준 등록된 추천인 이슈는 `26건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,9 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-026 | 2026-07-30 | 대규모 추천코드 ID를 한 URL로 조회해 관리자 그래프 API가 헤더 초과 500을 반환함 | `RF-ADMIN-07` | fixed |
+| INC-025 | 2026-07-30 | 모바일 매출 그래프의 반전 seed와 관리자 dense leaf 길이로 그래프가 과도하게 꼬임 | `RF-SELF-05`, `RF-ADMIN-08` | fixed |
+| INC-024 | 2026-07-27 | 매출 기여 그래프를 추천 관계 그래프와 다른 카드형 계층으로 구현함 | `RF-SELF-05` | fixed |
 | INC-023 | 2026-06-08 | 설정 화면 추천코드 공유가 예전 direct deep-link 문구를 계속 사용함 | `RF-LINK-06` | fixed |
 | INC-022 | 2026-04-26 | 관리자 추천인 그래프 체크리스트 미완료 상태를 완료처럼 보고함 | `RF-ADMIN-08` | monitoring |
 | INC-021 | 2026-04-25 | 관리자 추천인 그래프가 Obsidian 동등성 요청 뒤에도 custom force 누적으로 불안정해짐 | `RF-ADMIN-08` | monitoring |
@@ -69,6 +72,139 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-026 | 2026-07-30 | 대규모 추천코드 ID를 한 URL로 조회해 관리자 그래프 API가 헤더 초과 500을 반환함
+
+- symptom:
+  - 로컬 `/dashboard/referrals/graph`가 반복해서 그래프 조회 실패를 표시하고 `/api/admin/referrals/graph`가 500을 반환했다.
+  - DevTools에는 등록된 service worker의 FetchEvent 실패도 함께 보였지만 이는 500 응답에 따른 2차 증상이었다.
+- impact:
+  - 로그인과 페이지 shell은 정상이어도 실제 추천인 그래프를 볼 수 없었다.
+- trigger:
+  - 추천 대상 FC가 500명대까지 증가한 상태에서 관리자 그래프를 조회했다.
+- rootCause:
+  - `fetchReferralCodes`가 500여 개 UUID를 하나의 PostgREST `.in('fc_id', fcIds)` URL에 넣어 약 18~21KB 요청을 만들었다.
+  - Node Undici가 응답을 처리하기 전에 `UND_ERR_HEADERS_OVERFLOW`를 발생시켰다.
+- fix:
+  - 기존 40-ID bounded chunk helper를 추천코드 조회에도 적용하고, row ID로 중복 제거한 뒤 `created_at` 전역 내림차순으로 병합했다.
+  - 스키마·RPC·데이터 쓰기 없이 서버 읽기 경로만 수정했다.
+- linkedCases:
+  - `RF-ADMIN-07`
+- evidence:
+  - 수정 전 terminal: request URL 18,531자, `UND_ERR_HEADERS_OVERFLOW`, API 500.
+  - read-only 재현: 534 eligible IDs의 unchunked 조회 실패; 40개씩 14 chunk는 모두 성공하고 453 code rows 반환.
+  - 수정 후 실행 중 dev server: `/api/admin/referrals/graph` 200, 약 1.31초.
+  - bounded-query regression 5/5, web TypeScript/lint PASS.
+- reproduction:
+  1. 수백 개 FC ID를 하나의 `referral_codes.in(fc_id, ...)` 요청에 넣는다.
+  2. URL이 런타임 HTTP 헤더 한도를 넘으면 `fetch failed`와 `UND_ERR_HEADERS_OVERFLOW`가 발생한다.
+  3. API route가 일반화된 추천인 그래프 조회 실패 500을 반환한다.
+- regressionCheck:
+  - `web/src/lib/admin-referral-event-query.test.ts`에서 444개 ID가 40개 이하 chunk로 분할되고 중복 row가 전역 최신순으로 병합되는지 검사한다.
+- notes:
+  - `/api/fc-notify`의 403은 개발자 inbox 계약의 별도 문제이며 이 그래프 500이나 service worker가 원인이 아니다.
+
+## INC-025 | 2026-07-30 | 모바일 매출 그래프의 반전 seed와 관리자 dense leaf 길이로 그래프가 과도하게 꼬임
+
+- symptom:
+  - 모바일 매출 그래프의 단일 A 체인이 깊이마다 좌우로 접혀, 초기 배치가 교차하지 않아도 일반 settle 뒤 edge 교차가 생겼다.
+  - 모바일 node를 멀리 끌면 논리 surface 경계인 70~1530 좌표에서 더 움직이지 않았다.
+  - 관리자 추천인 그래프는 인원이 많을 때 자식이 없는 node의 spoke가 300px까지 늘어나 다른 branch 안으로 침범했다.
+- impact:
+  - 관계 데이터가 맞아도 선이 뒤엉켜 잘못 연결된 조직처럼 보였고, 사용자가 node를 원하는 위치까지 정리할 수도 없었다.
+- trigger:
+  - 17-node 매출 샘플의 연속 chain 회전각과 settle 교차를 계측하고, 관리자 dense fanout의 terminal link 길이를 분리 측정했다.
+- rootCause:
+  - 관리자 웹의 활성 force 계열은 참고했지만 모바일 seed에 depth별 좌우 반전 lane을 별도로 넣었고, 기존 테스트는 guide depth만 확인해 인접 edge의 큰 방향 반전을 놓쳤다.
+  - seed용 1600-unit surface를 world 좌표 경계로도 사용했다.
+  - 관리자 terminal leaf 공식이 dense fanout 압력에 따라 일반 branch link처럼 300px 상한까지 커졌다.
+- fix:
+  - 모바일 seed를 stable subtree order와 parent-relative forward angle로 바꾸고 link 길이·collision envelope를 각도 간격에 반영했다. 매 frame O(E²) crossing force는 추가하지 않았다.
+  - eligible edge는 하나의 주황 방향 shaft만 그리며, 유한성 검사는 유지하되 world 좌표 clamp를 제거했다. 멀어진 node는 최소 pinch 배율 아래까지 허용하는 `화면 맞춤`과 `초기화`로 복구한다.
+  - 관리자 terminal leaf만 결정적 118~185px band로 줄이고 child-hub bridge 및 기존 활성 force/drag 동작은 유지했다.
+- linkedCases:
+  - `RF-SELF-05`
+  - `RF-ADMIN-08`
+- evidence:
+  - 모바일 canonical sample: initial crossing 0, 51-frame settle crossing 0, post-root maximum turn 27.2°.
+  - 모바일 focused regression: 2 suites / 36 tests PASS.
+  - 관리자 physics/layout/free/simulation/real-data regression: 125/125 PASS; dense terminal leaf 166~179px, child-hub bridge 354px.
+  - 471-node read-only settle: crossing 18/44, severity 5.302/13.4, min spacing 약 84px, max edge 454.360/468, direct-spoke P90 419.922/420 PASS.
+  - 모바일·관리자 TypeScript 및 대상 ESLint PASS.
+- reproduction:
+  1. 이전 `DEPTH_SECTOR_LANES` seed로 A1~A11의 연속 edge 방향을 계산하면 post-root 최대 회전각이 약 167°가 된다.
+  2. 이전 seed를 51 frame settle하면 disjoint edge crossing이 1개 생긴다.
+  3. 이전 관리자 dense 240-node fixture에서 terminal leaf 목표 길이를 계산하면 모두 300px까지 늘어난다.
+- regressionCheck:
+  - `lib/__tests__/referral-revenue-graph-native.test.ts`에서 initial/settle crossing, 최대 turn, unlimited coordinate, far-node fit을 고정한다.
+  - `lib/__tests__/referral-revenue-demo-source.test.ts`에서 eligible single shaft와 WebView/SVG clamp 제거를 고정한다.
+  - `web/src/lib/referral-graph-physics.test.ts`에서 dense leaf band와 child-hub 기존 길이를 함께 고정한다.
+- notes:
+  - 복잡한 전체 그래프에서 모든 임시 crossing을 금지하지 않는다. 45도는 고정 canonical fixture의 회귀값이지 runtime clamp가 아니다. dense fanout은 subtree/collision 밀도에 따라 sector와 반지름을 넓힌다.
+
+## INC-024 | 2026-07-27 | 매출 기여 그래프를 추천 관계 그래프와 다른 카드형 계층으로 구현함
+
+- symptom:
+  - 사용자가 기존 추천인 그래프처럼 node와 edge가 보이는 graph를 요청했지만,
+    첫 매출 기여 화면은 직사각형 hierarchy card를 세로 선으로 연결했다.
+- impact:
+  - 데이터 구조상 node/edge가 존재해도 사용자가 기대한 원형 network 탐색 경험과
+    달라 실제 UI 검토 목적을 충족하지 못했다.
+- trigger:
+  - Android emulator에서 첫 매출 기여 graph를 직접 확인한 직후.
+- rootCause:
+  - `node와 edge`를 데이터 의미로만 해석하고, 사용자가 지목한 기존 추천 관계
+    graph의 핵심 시각 primitive와 interaction을 acceptance에 넣지 않았다.
+  - corrective radial pass에서도 전체 맞춤 시 금액 label을 숨겼고 관리자 웹의
+    실제 force/collision 수치를 확인하지 않아 요청한 물리 parity를 충족하지 못했다.
+- fix:
+  - graph canvas를 원형 SVG node와 visible SVG edge의 deterministic fixed-tick
+    force network로 교체하고 관리자 웹 balanced physics 상수를 이식했다.
+  - hard collision-resolution pass로 node pair 겹침을 제거하고 각 원 안에 사람
+    식별자와 예상 배분액을 전체 맞춤 상태에서도 항상 표시했다.
+  - graph route를 full-safe-area canvas + translucent HUD로 바꾸고 node drag
+    hit-test, 실시간 interactive force step, release damping settle을 추가했다.
+  - native route 진입 시 landscape를 요청하고, 270pt 왼쪽 HUD와 오른쪽
+    playfield가 겹치지 않도록 fit inset을 분리했으며 이탈 시 portrait를
+    복원하도록 했다.
+  - 후속 사용자 검토에서 permanent HUD 자체가 graph 공간을 과도하게 점유함을
+    확인해, 기본 상태는 compact header와 설정 trigger만 남기고 summary/filter/
+    actions/legend/disclaimer를 dismissible 설정 panel로 이동했다. permanent
+    left/bottom fit reservation과 idle status badge도 제거했다.
+  - 독립 compact-HUD 검토에서 filtered context ancestor의 금액이 `경로`로
+    대체되고, panel에 세 번째 매출 summary와 전체 10% 경고가 누락되며 active
+    filter가 접근성 label에 포함되지 않은 문제를 발견했다. context node의
+    금액을 복원하고 panel/접근성 계약을 모두 보강한 뒤 재평가 PASS를 받았다.
+  - 한 손가락 pan, 두 손가락 pinch zoom, 화면 맞춤, 초기화, node 선택 ring과
+    read-only 상세를 추가했다.
+  - source regression이 `Circle`, `Line`, gesture/fit/reset 계약을 요구하고 이전
+    card/`ScrollView` renderer가 기본 원형 canvas를 대체하지 못하도록 강화했다.
+  - 2026-08-03 follow-up에서는 사용자가 초기 tree도 선택해 비교할 수 있도록 당시
+    고정 card geometry를 별도 `tree` mode로 복원했다. 기본값은 계속 원형 graph이며
+    tree mode는 원형 renderer를 unmount하므로 이 incident의 회귀 조건과 충돌하지 않는다.
+- linkedCases:
+  - RF-SELF-05
+- evidence:
+  - Focused revenue/relationship graph regressions pass 7 suites / 45 tests.
+  - Compact-HUD source re-evaluation passes 4 suites / 28 tests with no
+    remaining P0/P1/P2 finding.
+  - Android emulator runtime confirms 2400x1080 landscape entry, circular
+    nodes/edges, live drag and settle, in-node amounts without overlap, and
+    1080x2400 portrait restoration on exit.
+  - Final screenshots confirm the collapsed full-canvas state, filtered
+    context-node amounts, three-summary panel, and fully scrolled warning.
+- reproduction:
+  1. `/referral`에서 `매출 기여 그래프 미리보기`를 누른다.
+  2. graph 탭이 직사각형 카드 열이 아니라 원형 node와 edge의 radial network인지 확인한다.
+  3. 기본 landscape 진입과 HUD/playfield 분리, pan/pinch, node drag,
+     `화면 맞춤`, `초기화`, node 선택 상세를 확인한다.
+  4. 화면에서 나간 뒤 주변 앱 화면이 portrait로 복원되는지 확인한다.
+- regressionCheck:
+  - `npx jest --runInBand lib/__tests__/referral-revenue-demo.test.ts lib/__tests__/referral-revenue-graph-native.test.ts lib/__tests__/referral-revenue-demo-source.test.ts lib/__tests__/referral-revenue-graph-link.test.ts`
+- notes:
+  - 기존 `/referral-graph` source와 실제 referral/API/DB 계약은 변경하지 않았다.
+  - `card/ScrollView 금지`는 기본 원형 graph renderer에 대한 조건이다. 명시적으로
+    선택한 별도 portrait tree presentation은 허용한다.
 
 ## INC-023 | 2026-06-08 | 설정 화면 추천코드 공유가 예전 direct deep-link 문구를 계속 사용함
 
@@ -881,10 +1017,7 @@
   - 코드 변경: `web/src/lib/referral-graph-interaction.ts`
   - 코드 변경: `web/src/lib/referral-graph-physics.ts`
   - 코드 변경: `web/src/lib/referral-graph-simulation.test.ts`
-  - 증적: `.codex/harness/referral-graph-live-before.png`
-  - 증적: `.codex/harness/referral-graph-live-during.png`
-  - 증적: `.codex/harness/referral-graph-live-after.png`
-  - 증적: `.codex/harness/referral-graph-live-settled.png`
+  - 전후·드래그·안정화 시각 확인 완료. 중복 캡처는 개인정보 검토 후 제거했다.
 - reproduction:
   1. 관리자 웹에서 `/dashboard/referrals/graph`를 연다.
   2. direct descendant가 많은 hub node를 선택해 긴 거리로 drag한다.
@@ -895,3 +1028,36 @@
   - source-level regression은 active drag force mode, directed follower, unrelated component drift 테스트로 고정한다.
 - notes:
   - live visual QA의 primary metric은 graph unit이 아니라 screen/client pixel이다.
+
+## INC-012 | 2026-07-23 | 추천인 Edge 부분 배포로 갱신된 FC 세션이 401 처리됨
+
+- symptom:
+  - FC가 재로그인해도 추천인 코드 페이지에서 세션이 유효하지 않다는 오류가 반복됐다.
+  - 세션 갱신은 성공했지만 `get-referral-tree`가 401을 반환했다.
+- impact:
+  - 특정 계정 문제가 아니라 새 전용 키로 갱신된 세션을 사용하는 추천인 페이지 전체가 영향을 받을 수 있었다.
+- trigger:
+  - app-session 발급 함수만 전용 FC 키 체계로 먼저 배포되고 추천인 소비 함수들은 구형 공통 인증 번들에 남았다.
+- rootCause:
+  - signer와 consumer를 하나의 호환성 배포 단위로 검증하지 않았다.
+  - 활성 함수 버전만 확인하고 실제 번들에 포함된 `_shared/request-board-auth.ts`의 current/previous 검증 계약을 비교하지 않았다.
+- fix:
+  - 추천인 세션 소비 함수 6개를 동일한 전용 FC current/previous 검증 코드로 재배포했다.
+  - 배포를 막던 두 함수의 `Response | undefined` 타입 추론을 동작 변경 없이 좁혔다.
+- linkedCases:
+  - RF-SELF-03
+  - RF-SEC-02
+- evidence:
+  - Deno check 6/6 PASS.
+  - 추천인·세션 집중 테스트 24/24 PASS.
+  - 운영 번들 6개 모두 JWT 보호, current/previous 검증, app-session legacy fallback 없음.
+  - 운영 읽기 검증: 추천인 코드와 트리 모두 `200 / ok: true`.
+- reproduction:
+  1. 유효한 bridge token으로 app session을 갱신한다.
+  2. 같은 app session으로 `get-my-referral-code`와 `get-referral-tree`를 호출한다.
+  3. 구형 consumer 번들에서는 tree 요청이 401이 되고, 통일된 번들에서는 두 요청 모두 성공한다.
+- regressionCheck:
+  - RF-SELF-03은 자동 세션 갱신 뒤 코드와 트리가 함께 복구되는지 응답 본문까지 확인한다.
+  - 배포 후 각 함수의 실제 공통 인증 번들에서 전용 current/previous 키만 검사한다.
+- notes:
+  - 사용자 재로그인은 해결책이 아니며 서버 배포 정합성 복구가 필요했다.

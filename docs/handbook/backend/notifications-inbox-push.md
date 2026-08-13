@@ -2,8 +2,111 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-06-16
-source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + web/src/app/actions.ts + web/src/app/api/admin/push/route.ts + web/src/app/api/web-push/subscribe/route.ts
+last_verified: 2026-08-10
+source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/group-chat-data-api-batching.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + lib/session-logout.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
+
+## Mobile logout push cleanup boundary (2026-08-10)
+
+- 로컬 세션 종료는 원격 `device-token-register` DELETE보다 먼저 시작한다. 푸시 토큰 해제 지연·timeout·실패가 앱의 로그아웃이나 로그인 화면 이동을 막으면 안 된다.
+- 원격 해제는 로그아웃 시작 시 메모리에 캡처한 현재 signed app-session token으로만 호출하고 5초 timeout을 둔 best-effort 작업으로 처리한다. 로컬 저장소가 먼저 비워져도 임의 actor 입력이나 body role로 대체하지 않는다.
+- 원격 실패는 `session_unavailable` 또는 `unregister_failed` 같은 fixed reason만 기록한다. app-session token, Expo token, 전화번호, 사용자 이름, raw Edge 응답과 thrown value는 진단에 포함하지 않는다.
+- `lib/session-logout.ts`는 local-first orchestration의 SSOT이고, `lib/notifications.ts`는 bounded Edge 호출의 SSOT다.
+
+## Notification-center acknowledgement boundary (2026-07-27)
+
+- A successfully loaded mobile notification center acknowledges every visible
+  notification row whose actor-scoped receipt has no `read_at`. Cards remain in
+  the list; read is not delete or dismiss.
+- Shared notices do not use `notification_receipts`. Their unread contribution
+  is bounded by a separate user-scoped local observation checkpoint supplied as
+  optional `notice_since`. That boundary filters notices only; notification
+  rows remain receipt-backed and must never be hidden by a local checkpoint.
+- The observation boundary is captured before the list request and advances
+  monotonically after the list succeeds. A notice created after that boundary
+  stays unread, and an older concurrent load cannot move the checkpoint back.
+- Bulk read acknowledgement is actor-authorized and idempotent. Failure remains
+  retryable on the next center load and is fixed telemetry only; it does not
+  show a confusing delivery or read-state warning to the user.
+- After acknowledgement, mobile refetches the authoritative unread count and
+  synchronizes the native badge. Older clients may omit `notice_since`; the
+  Edge request remains backward compatible.
+- Inbox pagination applies its visible-item limit only after actor
+  authorization and receipt dismissal filtering. Each audience source advances
+  through raw pages until the visible limit is filled or the source is
+  exhausted, so newer dismissed rows cannot hide older unread rows while the
+  badge still counts them.
+
+## Board notification retry boundary (2026-07-25)
+
+- Durable inbox persistence is the sender-facing boundary. `notificationStored=false` yields a notification-only retry token; no-device and provider rejection keep `notificationStored=true` and do not show a sender warning.
+- `board-notification-retry` is an authenticated trusted-server path. It resolves the current committed post and recipient broadcasts server-side, uses one unique delivery key per event/role, validates the returned canonical rows, and only then invokes `fc-notify` with `skip_notification_insert=true`.
+- Clients can submit only the committed post ID and opaque event key. They cannot choose a notification ID, audience, exact recipient, target, title, or body, and retries never call a board mutation.
+
+## Group-chat read-state feedback boundary (2026-07-25)
+
+- A post-send read-state update failure remains fixed operations telemetry and `read_state.updated=false`; it never creates a sender-facing warning.
+- The sender warning is reserved for `notificationStored=false`. No-device, provider rejection, unread state, and read-state synchronization do not turn a committed message into a warning or retry of the message write.
+
+## Group-chat notification-only retry boundary (2026-07-25)
+
+- A committed `group_chat_send` returns top-level `delivery` and, only when inbox persistence is false, `notificationRetry: { messageId, retryToken }`. Mobile and web call `group_chat_notification_retry`; they never resubmit the message.
+- The opaque `gcnr1` retry token is HMAC-SHA256 authenticated with the existing current/previous app-session signing secrets and a dedicated domain separator. The stable delivery event key is derived independently from committed room ID, message ID, sender actor ID, and creation time so signing-key rotation cannot duplicate inbox rows.
+- The retry action reloads the canonical room/message, requires the current active actor to be the original sender and a current eligible member, rejects deleted/foreign/tampered state, and derives the current unmuted audience, content, typed target, recipient UUIDs, and delivery keys server-side.
+- Each current recipient is upserted by its unique delivery key and the returned UUID, exact actor/role/resident, target, and delivery key are validated before Expo fanout. Replays reuse inbox rows; partial audience persistence is completed without reinserting the message.
+
+## Group-chat large-room Data API boundary (2026-08-10)
+
+- Eligible member tables are enumerated with stable ordering and 100-row pagination. A configured Data API response limit must not silently remove later room members from the notification audience.
+- Canonical actor preference lookups, device-token lookups, and notification upserts use at most 100 input values or rows per request. This bounds both response-size and query-URL pressure for large rooms.
+- Every notification batch validates the returned canonical rows before its IDs can enter Expo fanout. A failed or truncated batch keeps `notificationStored=false`; the existing opaque retry completes only notification persistence and never resubmits the committed chat message.
+
+## Direct-message routing and conversation ordering (2026-07-24)
+
+- Every Garam branch direct-message notification stores and pushes a concrete `/chat?targetId=...&targetName=...` route derived from the authenticated sender. A legacy generic chat URL can be upgraded from the same bounded sender metadata on mobile.
+- FC, admin mobile, admin web, and Request Board conversation lists order rooms by the latest real message timestamp. Conversations without a message stay below active conversations; local screen-open time must not be used as a synthetic recency value.
+- The Edge `chat_targets` response includes `last_message`, `last_time`, and `unread_count` for each authorized staff target. Extra response fields remain backward-compatible with older mobile clients.
+
+## Diagnostic Privacy Notes (2026-07-16)
+
+- Mobile registration diagnostics may retain role, configuration-presence, reuse, success, and fixed failure-reason state. They never include resident identifiers, app-session values, Expo push tokens, or raw invocation errors.
+- The Expo API route never interpolates an invalid destination token or forwards an exception message. Provider failure logs contain only fixed reason/status fields, while the existing ignored/ok/error response envelope remains stable.
+- Group-chat push/database diagnostics never copy recipient phones, device tokens, filenames, storage paths, DB error text, or Expo response bodies. Provider HTTP status and fixed operation reason remain available for triage.
+- The admin-web server push service follows the same rule: start/query/delivery/cleanup logs contain only fixed category, reason, status, booleans, and aggregate counts. It never logs recipient IDs, notification title/body, token values, raw database errors, or Expo response bodies, and failed responses return a stable local message rather than provider text.
+- Shared mobile/web loggers sanitize before console and Sentry-adjacent capture. Final Sentry event filtering is defense in depth and must not be treated as protection for an earlier console sink.
+- Production push replay and hosted log inspection require an approved rollout environment; local source contracts and Deno checks do not prove delivery.
+
+## Priority Security Notes (2026-07-12)
+
+- The public Next `/api/fc-notify` route has two independent trust boundaries. Browser requests
+  require an exact scheme-and-canonical-Host origin match plus a verified signed/active server session;
+  Request Board callbacks require `X-Request-Bridge-Token` matching `REQUEST_BOARD_NOTIFY_TOKEN`.
+- A server-held service-role key is key custody, not caller authentication. Never restore raw-body
+  forwarding or use a JS-readable role/resident value as the authorization actor.
+- Browser outbound payloads are rebuilt from the verified session. Managers cannot send messages;
+  admin/developer may target verified completed non-designer FCs, and a signed completed FC may
+  target only the shared admin conversation.
+- Request Board callbacks allow only `type=notify`, `recipient_binding=canonical_person_v1`, an
+  11-digit target, an internal relative URL, and the eight current `request_board_*`
+  lifecycle/message categories. The receiver resolves the target phone to one exact active staff
+  account (admin/manager) before falling back to one completed FC account. Unknown
+  control fields such as `skip_notification_insert` are not forwarded. Complete title/body values
+  are redacted before the shared 120/2000-character bounds are applied.
+- Browser chat callers omit sender id/name and never insert `notifications` directly. The protected
+  route derives canonical sender identity, while the Edge Function is the single notification-row writer.
+- Sender `FC_ONBOARDING_NOTIFY_TOKEN` and receiver `REQUEST_BOARD_NOTIFY_TOKEN` must be configured
+  with the same high-entropy value before rollout. The sender endpoint must be the exact HTTPS
+  `/api/fc-notify` route (HTTP only for localhost development checks); missing or invalid configuration
+  fails closed before network I/O.
+- The direct `fc-notify` handler now has three explicit ingress modes: `latest_notice` public read,
+  exact service `apikey`, or signed `x-app-session-token`. App mode rechecks the active DB actor and
+  rebuilds action-specific identity/scope before any service-role side effect. Deploy it only after
+  mobile caller adoption and required re-login are verified.
+- All 17 `board-*` handlers use the same request-bound app actor. This is required because a Board
+  handler that still trusts body actor data can become a confused deputy and call `fc-notify` with its
+  own service key. Web Board calls use `/api/board`; mobile calls attach the token in `lib/board-api.ts`.
+- Exam apply notification delivery is post-commit best effort. A failed admin/self notification must
+  be logged as incomplete delivery and must never turn a saved registration into a visible application
+  failure that invites a duplicate retry.
 
 ## Priority Security Notes (2026-07-06)
 
@@ -20,20 +123,63 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 
 - inbox list/unread/delete
 - Expo push
-- admin web push callback
+- admin web push compatibility no-op/subscription retirement
 - latest notice
 - request_board unread merge
 
 ## 핵심 계약
 
 - `fc-notify`가 notification persistence와 push fanout의 중심입니다.
-- admin web push는 `/api/admin/push`와 subscription registry를 통해 보조됩니다.
-- request_board bridge unread는 admin/developer session에서 `requestBoardRole='fc'`일 때 함께 합산될 수 있습니다.
+- 관리자 웹은 canonical inbox와 헤더 알림센터만 사용합니다. `/api/admin/push`의
+  인증·payload 검증 응답은 구버전 Edge 호환용 no-op이며 브라우저 푸시를 보내지
+  않습니다. subscription POST도 저장하지 않고, DELETE만 현재 검증된 actor 범위를
+  정리합니다.
+- request_board bridge unread는 개인 식별자가 있는 admin/manager/developer session에서 `requestBoardRole='fc'` 또는 `designer`일 때 해당 개인의 FC-role Request Board inbox를 함께 조회합니다. `designer`는 Request Board category만 집계하고 공지/게시글 알림은 제외합니다.
+- 관리자 웹 developer/manager inbox는 canonical-person recipient binding을 사용합니다.
+  Request Board bridge의 전화번호는 Next proxy에서 하나의 활성 staff actor UUID로
+  해석하고, 개인 admin inbox는 그 UUID가 일치하는 row만 조회합니다. shared-admin
+  broadcast는 개인 inbox에 포함하지 않으며 list/get/mark/dismiss가 같은 receipt
+  predicate를 사용합니다. staff 계정이 중복되어 대상을 하나로 결정할 수 없으면
+  알림 생성을 fail-closed합니다.
+- 롤아웃은 expand/contract 순서를 지킵니다. Request Board producer가 binding을 먼저
+  보내고, Edge를 `REQUIRE_CANONICAL_REQUEST_BOARD_RECIPIENT_BINDING=false` 호환 모드로
+  배포한 뒤 Next proxy/UI와 legacy-row backfill migration을 배포합니다. smoke가 통과한
+  다음 해당 Edge secret을 `true`로 전환해 binding 누락을 차단합니다.
+- 일반 admin과 실제 FC session은 기존 signed role/resident 범위를 유지합니다.
 - 설계매니저 가람in 모바일 push/unread는 request_board 관련 알림과 본인에게 직접 온 내부 채팅 알림으로 제한합니다. 게시판, 공지, 시험, FC 온보딩 broadcast는 manager 모바일 토큰으로 fanout하지 않습니다.
 - Expo push API는 한 요청에 최대 100개 payload만 허용하므로 `fc-notify`는 mobile push payload를 100개 단위로 chunk 전송합니다.
-- 2026-06-03 현재 카카오톡 delivery adapter는 활성 계약이 아니다. `fc-notify`는 inbox row와 app/web push를 유지하되 `notification_deliveries` 같은 별도 Kakao audit table에 쓰지 않는다.
+- 2026-06-03 현재 카카오톡 delivery adapter는 활성 계약이 아니다. `fc-notify`는 inbox row와 모바일 Expo push를 유지하되 `notification_deliveries` 같은 별도 Kakao audit table에 쓰지 않는다.
 - 사용자-facing 알림 제목/분기 문구는 `보증 보험 동의`, `다위촉` 명칭을 사용한다. 내부 `allowance_*`, `hanwha_*` identifier는 기존 DB 호환 때문에 유지될 수 있다.
-- 모바일 푸시 탭, 알림센터 row 탭, admin web push URL은 모두 `lib/notification-route.ts`의 route normalizer를 거쳐야 합니다. 게시판 글 URL은 `/board?postId=...`가 canonical mobile target이며, 이 경로가 게시판 화면의 상세 모달을 엽니다. legacy `/board-detail?postId=...` 및 admin web `/dashboard/board?postId=...`는 같은 모달 진입점으로 정규화합니다.
+- 모바일 푸시 탭과 모바일/관리자 알림센터 row 탭은 모두 canonical typed target
+  경로를 사용합니다. 게시판 글 URL은 `/board?postId=...`가 canonical mobile
+  target이며, legacy `/board-detail?postId=...` 및 admin web
+  `/dashboard/board?postId=...`는 같은 모달 진입점으로 정규화합니다.
+
+## 2026-07-23 관리자 웹 직접 채팅 전달 확인
+
+- `/dashboard/chat`은 메시지 row 저장 성공 후 `/api/fc-notify`를 post-commit 단계에서 호출합니다. 알림 실패가 저장된 메시지를 실패로 되돌리거나 입력창에 복원되게 해 중복 전송을 유도하면 안 됩니다.
+- 알림 요청은 브라우저 이탈 중에도 전송이 취소되지 않도록 `keepalive`를 사용하고 완료를 기다립니다. 단, composer 전체를 잠그지 않아 optimistic send 반응성은 유지합니다.
+- HTTP 2xx만으로 전달 성공을 판단하지 않습니다. 보호 프록시와 downstream `ok`, notification `logged=true`, Expo 대상 `attempted>0`, `accepted=attempted`, `rejected=0`, `sent=accepted`를 모두 확인해야 합니다.
+- 확인 실패 시 발신자에게 “메시지는 저장됐지만 가람in 푸시 알림 전달을 확인하지 못했다”는 부분 실패를 표시합니다. 진단 로그에는 고정 reason/status와 aggregate sent만 남기고 메시지 본문, 수신자 식별자, 토큰, raw provider response는 남기지 않습니다.
+
+## 2026-07-23 임시사번 발급 모바일 알림 복구
+
+## 2026-07-24 서류 승인·반려 알림과 응답 지연
+
+- 문서 상태 변경은 승인과 반려 모두 FC 알림함 row를 정확히 1건 먼저 저장합니다. 일부 승인도 `서류 승인 안내`를 보내며, 마지막 승인만 `서류 검토 완료`와 `/hanwha-commission` 다음 단계 링크를 사용합니다.
+- 관리자 HTTP 응답은 문서·프로필 변경과 알림함 저장까지만 기다립니다. Expo
+  제공자 전송은 Next.js `after()`에서 같은 canonical FC 수신자에게 이어지며
+  알림함 row를 다시 insert하지 않습니다. 브라우저 Web Push는 조회하거나 보내지
+  않습니다.
+- 수신자 확인 또는 알림함 저장이 실패하면 문서 변경은 유지하고 `notification_delivery_incomplete` 경고를 반환합니다.
+
+- 관리자 임시사번 발급은 완료된 FC 프로필의 현재 전화번호를 서버에서 다시 조회하고, 숫자만 남긴 canonical 값으로 inbox/push 수신자를 지정합니다. 형식이 포함된 원본 전화번호를 push helper에 넘기지 않습니다.
+- 업무 mutation과 알림 fanout은 분리된 결과입니다. 임시사번 발급 저장이 끝난 뒤 대상 토큰이 없거나 provider 전송이 불완전하면 발급을 실패로 되돌리지 않고 고정된 부분 실패 경고를 반환합니다.
+- 모바일의 전역 session provider만 `device-token-register`를 소유합니다. 일시 오류에는 bounded retry를 사용하고, 성공·권한 거부·retry 소진 뒤 앱이 foreground로 돌아오면 현재 signed session으로 토큰 상태를 다시 조정합니다.
+- 신규 가입 직후 발급된 `appSessionToken`은 push 등록보다 먼저 secure storage에 저장합니다. 같은 화면상 사용자로 `loginAs`가 다시 호출되더라도 registration revision을 증가시켜 trusted 등록을 다시 실행합니다.
+- 과거 session JSON에 남아 있는 `appSessionToken`은 restore 시 secure storage로 한 번만 이관하고, 새 session JSON에는 토큰을 다시 기록하지 않습니다.
+- 지원하지 않는 platform/client/device는 현재 process에서 terminal로 유지합니다. 토큰 등록·복구 진단에는 전화번호, resident id, 토큰 값, 원문 오류를 남기지 않습니다.
+- 운영 알림 문구는 UTF-8 소스 또는 JSON serializer를 통해 전달합니다. PowerShell 파이프/리다이렉션으로 비ASCII 시험 payload를 만들면 콘솔 code page에서 `?`로 손실될 수 있으므로, 시험 전송은 제품 경로를 사용하거나 Unicode code point를 보존하는 파일/serializer를 사용합니다.
 
 ## 2026-03-28 기준 주의점
 
@@ -45,11 +191,11 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 
 - 일반 게시판 글 작성은 `board-create`가 inbox row를 직접 저장하는 예외 경로입니다.
 - 일반 게시판 글 수정은 `board-update`가 같은 board post target URL로 inbox row와 `fc-notify` push fanout을 함께 보냅니다.
-- 이 경로는 row 저장만으로 끝내면 가람in/app/web push가 빠지므로, 같은 change set에서 반드시 `fc-notify` fanout을 함께 호출해야 합니다.
+- 이 경로는 row 저장만으로 끝내면 모바일 Expo fanout이 빠지므로, 같은 change set에서 반드시 `fc-notify` fanout을 함께 호출해야 합니다.
 - direct row insert 이후 `fc-notify`를 다시 부를 때는 `skip_notification_insert=true`를 사용해 중복 알림 row를 만들지 않습니다.
 - 게시판 글 fanout은 최소 두 축이 필요합니다.
   - `target_role='fc'`: FC 앱 푸시
-  - `target_role='admin'`: admin/manager 앱 푸시 + admin web push callback
+  - `target_role='admin'`: admin/manager 앱 푸시 + 관리자 웹 canonical inbox
 - 2026-06-16 기준, push data 또는 inbox row에 web/admin URL 형태(`/dashboard/board?postId=...`)나 legacy mobile URL(`/board-detail?postId=...`)이 들어와도 모바일은 `lib/notification-route.ts`에서 `/board?postId=...`로 변환해야 합니다. `app/_layout.tsx`에서 raw `content.data.url`을 직접 `router.push()`하지 않습니다.
 
 ## 2026-06-05 Codex 보험 브리핑 메모
@@ -70,7 +216,7 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 
 ## 운영 실수
 
-- web push identity row를 권한 원천으로 오해하지 않음
+- 퇴역한 web push subscription row를 권한 원천이나 전달 성공 근거로 사용하지 않음
 - badge 숫자와 앱 unread는 동기화 주기가 다를 수 있음
 - bridge notification이 앱 한쪽에만 보이면 request_board fanout부터 추적
 
@@ -84,7 +230,9 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 ## 2026-06-05 설계매니저 모바일 알림 제한 메모
 
 - request_board 디자이너 세션의 Expo token은 `device_tokens.role='manager'`로 저장한다. `fc` role로 저장하면 FC 전체 대상 공지/시험 broadcast를 같이 받을 수 있다.
+- 운영 `device_tokens_role_check`도 `admin`, `fc`, `manager`를 정확히 허용해야 한다. 이 전이는 `20260721052837_allow_manager_device_tokens.sql`이 소유하며, schema snapshot만 고치고 migration을 누락하면 설계 매니저 토큰 등록이 500으로 실패한다.
 - `fc-notify`는 토큰 query에서 `role`을 함께 읽고, manager token은 `request_board_*` category 또는 `category='message'` + 구체적인 `target_id`가 있는 직접 채팅일 때만 유지한다.
+- 서명된 앱 세션의 FC→관리자 및 관리자→FC 직접 메시지는 토큰 조회 전에 수신 계정이 현재 활성 상태인지 검증한다. 완료되지 않았거나 탈퇴한 FC의 잔존 토큰에는 내부 메시지를 보내지 않는다.
 - 설계매니저 unread badge는 fc-onboarding unread를 더하지 않고 live request_board unread만 사용한다.
 - 게시판/공지/시험 알림을 추가하거나 수정할 때는 `supabase/functions/_shared/notification-delivery-policy.ts`와 `lib/mobile-unread-notification-count-plan.ts` 테스트를 함께 확인한다.
 
@@ -93,3 +241,25 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 - Web push/Expo fanout implementation belongs in `web/src/lib/push-notification-service.ts` and must remain server-only.
 - `web/src/app/actions.ts` is only an authenticated server-action wrapper around that service. API routes that already verified a signed admin session should call the service directly.
 - Mobile startup registration should reuse an Expo token that was already fetched in the registration effect instead of calling `getExpoPushTokenAsync` twice for the same attempt.
+
+## 2026-07-22 Expo notification handler contract
+
+- Expo SDK 54 notification handlers use `shouldShowBanner` and `shouldShowList`; deprecated `shouldShowAlert` must not be returned from either the root handler or shared notification helper.
+- The source privacy contract checks both handler sites so a future copy does not reintroduce the deprecated field or print raw notification payloads.
+- Admin exam reception notifications continue through the existing signed `/api/fc-notify` server proxy; the selected applicant API does not expose service-role credentials to the client.
+
+## 2026-07-23 Delivery confirmation contract
+
+- Transport success is not delivery success. Confirmation requires the intended inbox row to be logged and every attempted Expo ticket to have `status=ok` when mobile delivery is required. Zero-attempt and partial acceptance are incomplete delivery.
+- Expo responses are reduced to attempted/accepted/rejected counts. Raw provider bodies, ticket identifiers, push tokens, recipient identifiers, and message bodies must not appear in responses or logs.
+- Durable business writes and notification fanout are separate outcomes. After a successful write, fanout failure may return a machine-readable diagnostic code but must not produce a retry-inducing overall failure.
+- Post-commit delivery diagnostics are developer-only. Mobile and admin-web clients log the bounded code/counts and show the normal business-success feedback; they must not show “알림 확인 필요” or “저장은 완료됐지만…” copy to operators or FCs.
+- FC workflow events for admin review use the shared admin scope (`target_id=null`). A concrete admin target is reserved for direct internal-message category.
+- Group-chat fanout uses the already resolved active membership and matches both normalized phone and role; a later generic role filter must not remove an eligible manager.
+- Reminder checkpoints advance only for recipients whose full provider delivery was accepted, so zero-attempt, partial, rejected, and timed-out recipients remain retryable.
+
+## 2026-07-23 Admin web deployment boundary
+
+- The Vercel project Root Directory is `web`, so admin-web runtime imports must resolve inside `web` even when a repository-parent path works in local TypeScript or Turbopack.
+- The admin notice sender keeps its Expo ticket classifier in `web/src/lib/expo-push-delivery.ts`; Edge Functions retain their deployment-local `_shared` implementation.
+- `web/src/lib/expo-push-delivery.test.ts` locks both the delivery accounting and the absence of a repository-parent runtime import from the notice server action.

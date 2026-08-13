@@ -1,122 +1,83 @@
+const OFFLINE_DOCUMENT = `<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f97316" />
+    <title>가람in 관리자 - 연결 필요</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; background: #fff7ed; color: #111827; }
+      main { min-height: 100vh; display: grid; place-content: center; padding: 24px; text-align: center; }
+      h1 { margin: 0 0 12px; font-size: 24px; }
+      p { margin: 0; color: #4b5563; line-height: 1.6; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div>
+        <h1>인터넷 연결이 필요합니다.</h1>
+        <p>연결 상태를 확인한 뒤 가람in 관리자를 다시 열어 주세요.</p>
+      </div>
+    </main>
+  </body>
+</html>`;
+
 self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
+async function retireSystemNotifications() {
+  const pushManager = self.registration.pushManager;
+  if (pushManager) {
+    const subscription = await pushManager.getSubscription().catch(() => null);
+    if (subscription) {
+      await subscription.unsubscribe().catch(() => false);
+    }
+  }
+
+  const notifications = await self.registration.getNotifications().catch(() => []);
+  for (const notification of notifications) {
+    notification.close();
+  }
+}
+
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(Promise.all([
+    self.clients.claim(),
+    retireSystemNotifications(),
+  ]));
 });
 
-self.addEventListener('push', (event) => {
-  let data = {};
-  try {
-    data = event.data ? event.data.json() : {};
-  } catch {
-    data = {
-      title: '알림',
-      body: event.data ? event.data.text() : '',
-      data: {},
-    };
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') {
+    return;
   }
 
-  const title = data.title || 'FC 온보딩 알림';
-  const options = {
-    body: data.body || '',
-    data: data.data || {},
-    icon: '/favicon.ico',
-    badge: '/favicon.ico',
-  };
-
-  event.waitUntil(self.registration.showNotification(title, options));
-});
-
-const sanitizeDigits = (value) => String(value || '').replace(/[^0-9]/g, '');
-
-const normalizeTargetName = (value) => String(value || '').trim();
-
-const buildDashboardChatUrl = (input) => {
-  const params = new URLSearchParams();
-  const targetId = sanitizeDigits(input && input.targetId);
-  const targetName = normalizeTargetName(input && input.targetName);
-
-  if (targetId) params.set('targetId', targetId);
-  if (targetName) params.set('targetName', targetName);
-
-  const query = params.toString();
-  return query ? `/dashboard/chat?${query}` : '/dashboard/chat';
-};
-
-const normalizeNotificationTargetUrl = (rawUrl) => {
-  let trimmed = String(rawUrl || '').trim();
-  if (!trimmed) return '/dashboard/notifications';
-
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    try {
-      const parsed = new URL(trimmed);
-      trimmed = `${parsed.pathname}${parsed.search}`;
-    } catch {
-      return '/dashboard/notifications';
-    }
+  const requestUrl = new URL(request.url);
+  if (requestUrl.origin !== self.location.origin) {
+    return;
   }
 
-  if (trimmed.startsWith('/dashboard/chat')) return trimmed;
-
-  if (trimmed.startsWith('/dashboard/messenger')) {
-    try {
-      const parsed = new URL(trimmed, self.location.origin);
-      const channel = (parsed.searchParams.get('channel') || '').trim().toLowerCase();
-      if (channel === 'garam') {
-        return buildDashboardChatUrl({
-          targetId: parsed.searchParams.get('targetId'),
-          targetName: parsed.searchParams.get('targetName'),
-        });
-      }
-      return `${parsed.pathname}${parsed.search}`;
-    } catch {
-      return '/dashboard/messenger';
-    }
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(() => new Response(OFFLINE_DOCUMENT, {
+        status: 503,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+        },
+      })),
+    );
+    return;
   }
 
-  if (trimmed.startsWith('/chat')) {
-    try {
-      const parsed = new URL(trimmed, self.location.origin);
-      return buildDashboardChatUrl({
-        targetId: parsed.searchParams.get('targetId'),
-        targetName: parsed.searchParams.get('targetName'),
-      });
-    } catch {
-      return '/dashboard/chat';
-    }
-  }
-
-  return trimmed;
-};
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const rawTargetUrl = (event.notification.data && event.notification.data.url) || '/dashboard/notifications';
-  const targetUrl = normalizeNotificationTargetUrl(rawTargetUrl);
-  const targetHref = new URL(targetUrl, self.location.origin).href;
-
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientList) => {
-      for (const client of clientList) {
-        if (client.url === targetHref && 'focus' in client) {
-          return client.focus();
-        }
-      }
-
-      for (const client of clientList) {
-        if (!client.url.startsWith(self.location.origin)) continue;
-        if ('navigate' in client && 'focus' in client) {
-          const navigatedClient = await client.navigate(targetUrl);
-          return (navigatedClient || client).focus();
-        }
-      }
-
-      if (clients.openWindow) {
-        return clients.openWindow(targetUrl);
-      }
-      return undefined;
-    })
-  );
+  // The worker is intentionally network-only. Resolve a failed static fetch
+  // to a bounded response so an offline asset request does not surface as an
+  // unhandled service-worker promise rejection in the administrator console.
+  event.respondWith(fetch(request).catch(() => new Response('', {
+    status: 504,
+    statusText: 'Network unavailable',
+    headers: { 'Cache-Control': 'no-store' },
+  })));
 });

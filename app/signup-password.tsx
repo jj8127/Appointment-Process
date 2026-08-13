@@ -17,6 +17,7 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { logger } from '@/lib/logger';
 import { safeStorage } from '@/lib/safe-storage';
+import { hasValidStoredSignupReferral } from '@/lib/signup-referral';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { validatePassword } from '@/lib/validation';
@@ -65,6 +66,11 @@ export default function SignupPasswordScreen() {
           router.replace('/signup-verify');
           return;
         }
+        if (!hasValidStoredSignupReferral(parsed)) {
+          Alert.alert('알림', '유효한 추천인을 먼저 선택해주세요.');
+          router.replace('/signup');
+          return;
+        }
         setPayload(parsed);
       } catch {
         await safeStorage.removeItem(STORAGE_KEY);
@@ -92,6 +98,11 @@ export default function SignupPasswordScreen() {
   const handleComplete = async () => {
     Keyboard.dismiss();
     if (!payload) return;
+    if (!hasValidStoredSignupReferral(payload)) {
+      Alert.alert('알림', '유효한 추천인을 먼저 선택해주세요.');
+      router.replace('/signup');
+      return;
+    }
 
     const trimmedPassword = password.trim();
     const trimmedConfirm = confirm.trim();
@@ -172,6 +183,7 @@ export default function SignupPasswordScreen() {
         <KeyboardAwareWrapper
           contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(40, keyboardPadding + 40) }]}
           extraScrollHeight={140}
+          keyboardDismissMode="none"
         >
           <View style={styles.innerContent}>
             <MotiView

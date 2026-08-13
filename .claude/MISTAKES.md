@@ -1,5 +1,178 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-08-08 | Edge deploy encoding | PowerShell 기본 인코딩으로 함수 소스를 번들링함
+
+- Symptom: Supabase 배포 도구에 `Get-Content -Raw` 결과를 전달하자 한글 문자열의 따옴표 경계가 훼손되어 서버 번들러가 TypeScript parse 오류로 배포를 거부했다. 기존 v12는 그대로 유지됐지만 첫 요청이 불필요하게 실패했다.
+- Guardrail: Windows에서 Edge Function 파일 내용을 API/플러그인에 전달할 때는 `Get-Content -Raw -Encoding UTF8`처럼 UTF-8을 명시한다. 실패 후에는 원격 함수 version/status를 먼저 확인해 기존 활성 버전 유지 여부를 검증한 다음 재시도한다.
+- Verification: UTF-8 명시 번들로 `exam-payment-proof` v13 배포가 성공했고, 원격 소스·JWT 설정·라이브 인증 거부·Edge 로그를 다시 확인했다.
+
+## 2026-08-08 | Local tool permissions | 배포·DB·삭제 명령을 상시 허용함
+
+- Symptom: 프로젝트 설정이 Git 삭제, Supabase DB 실행, Vercel 배포/설정을 승인 없이 허용했다.
+- Guardrail: 프로젝트 `allow`는 비워 두고, 외부 쓰기·배포·DB·삭제는 작업별 명시 승인을 받는다. 읽기와 검증 도구만 필요할 때 노출한다.
+
+## 2026-08-03 | Visualization replacement | 이전 트리 보기를 선택지로 보존하지 않음
+
+- Symptom:
+  - 매출 기여 화면을 원형 interaction graph로 교정할 때 초기 직사각형 card tree
+    renderer를 완전히 삭제해, 사용자가 두 표현을 비교하거나 tree로 돌아갈 수 없었다.
+- Root cause:
+  - 잘못된 기본 시각화를 교체하는 작업과 기존 표현을 보조 보기로 보존할지 결정하는
+    작업을 분리하지 않았다. acceptance도 `원형 graph여야 함`만 고정하고 default와
+    optional presentation을 구분하지 않았다.
+- Permanent guardrail:
+  - 사용자에게 노출된 visualization을 대체할 때는 제거 승인이 명시됐는지 확인하고,
+    그렇지 않으면 기존 표현을 별도 mode로 보존할지 먼저 계약한다.
+  - default mode, 지원하는 모든 보기, mode 전환 orientation, inactive renderer
+    unmount를 함께 회귀 테스트한다.
+- Verification:
+  - `/referral-revenue-graph`는 fresh mount마다 `graph`로 시작하고 `tree`와 `list`를
+    명시적으로 선택할 수 있다. tree layout/source/orientation 집중 테스트가 이 계약을
+    고정하며 기존 원형 Canvas 파일은 수정하지 않는다.
+
+## 2026-07-31 | Release governance | 커밋 전 pre-push 검사로 커밋 범위를 검증했다고 판단함
+
+- Symptom:
+  - 로컬 `npm run governance:pre-push`는 통과했지만 실제 `git push` hook은 모바일
+    추천 그래프와 알림 bell 변경에 필요한 계약 문서 누락을 차단했다.
+- Root cause:
+  - pre-push 스크립트가 `HEAD`와 원격 기준의 커밋 범위를 검사한다는 점을 놓치고,
+    아직 커밋되지 않은 working tree까지 검증됐다고 판단했다.
+- Permanent guardrail:
+  - 커밋 전에는 path-owner/contract map을 직접 대조하고, 커밋 후 실제
+    `npm run governance:pre-push` 또는 push hook을 다시 실행한다.
+  - hook이 요구하는 문서는 단순 touch가 아니라 변경된 runtime 계약과 회귀 증거를
+    명시하도록 갱신한다.
+- Verification:
+  - referral data handbook과 feature contract matrix에 이번 그래프·알림 계약을
+    기록한 뒤, 보정된 커밋 범위로 governance와 push hook을 다시 실행한다.
+
+## 2026-07-30 | Admin referral query | 수백 개 UUID를 한 PostgREST URL에 넣음
+
+- Symptom:
+  - `/api/admin/referrals/graph`가 로그인 이후 500을 반환했고, Node Undici가
+    `UND_ERR_HEADERS_OVERFLOW`를 기록했다.
+- Root cause:
+  - 소규모 데이터에서 동작하던 `referral_codes.in('fc_id', fcIds)`를 대규모
+    데이터에도 그대로 사용해 요청 URL이 18~21KB까지 커졌다.
+- Permanent guardrail:
+  - 외부 Data API의 대량 ID filter는 bounded chunk helper를 사용하고, chunk 결과의
+    중복 제거와 전역 정렬 의미를 별도 테스트로 고정한다.
+  - synthetic 단위 테스트뿐 아니라 현재 read-only 데이터 규모와 실행 중 dev API
+    응답으로 확장성 경계를 확인한다.
+- Verification:
+  - 534 IDs를 40개씩 나눈 14 read가 성공하고 453 rows를 반환했다.
+  - 수정 후 실행 중 dev server의 graph API가 200을 반환했다.
+
+## 2026-07-30 | Notification inbox contract | 개발자에게 서로 다른 role inbox를 두 번 요청함
+
+- Symptom:
+  - 로컬 dashboard에서 `/api/fc-notify` 200과 403이 한 쌍으로 반복됐다.
+- Root cause:
+  - Web bell과 Next proxy는 developer의 `admin`·`fc` 두 inbox를 허용했지만,
+    Edge auth contract는 developer를 개인 `admin` scope로만 검증했다.
+  - 단일 merged payload로 바꾸는 첫 시도도 안전하지 않았다. Request Board 생산자는
+    `fc_profiles.id`, developer/manager viewer는 별도 account-table ID를 사용해 병합이
+    비었고, 개인 admin query는 shared-admin broadcast까지 허용했다.
+- Permanent guardrail:
+  - 하나의 계층이 허용하는 role 조합만 테스트하지 말고, Next proxy의 최종 payload를
+    Edge auth policy에 넣는 cross-contract 회귀를 유지한다.
+  - canonical cross-role actor binding, 개인 admin broadcast 차단, list/get/receipt 동일
+    predicate를 Edge에서 함께 고치고 배포하기 전에는 developer/manager web inbox를
+    서버에서 fail-closed한다. UI도 해당 요청을 보내지 않는다.
+  - 실제 FC와 일반 admin의 signed scope는 그대로 유지한다.
+- Verification:
+  - 현재 Edge 로그에서 동일 refetch 시각의 200/403 쌍을 확인했다.
+  - personal-inbox HOLD contract 3/3, adjacent web recovery 17/17, root focused
+    28/28, full Jest 192 suites/1,176 tests, web TypeScript/lint로 fail-closed와
+    일반 admin/FC 비회귀를 함께 검증했다.
+
+## 2026-07-30 | Graph layout parity | 활성 force 일치만으로 읽기 쉬운 seed까지 같다고 판단함
+
+- Symptom:
+  - 모바일 매출 그래프가 관리자 웹의 charge/link/tension/collision/damping 계열을
+    사용하면서도, 단일 chain이 깊이마다 반대편으로 접혀 일반 settle 뒤 edge가
+    교차했다.
+  - seed surface의 좌표 clamp 때문에 사용자가 node를 일정 거리 밖으로 끌 수 없었다.
+  - 관리자 dense graph의 terminal leaf spoke도 300px까지 늘어 branch 안으로
+    침범했다.
+- Root cause:
+  - force-family parity와 seed-layout parity를 분리하지 않았고, guide depth만
+    검사해 인접 edge의 방향 반전과 settle 교차를 놓쳤다.
+  - 초기 배치용 surface를 영구 world boundary로 재사용했다.
+  - leaf fanout 압력과 hub-to-hub spacing을 같은 거리 성장식으로 처리했다.
+- Permanent guardrail:
+  - canonical graph의 초기·reset·정상 settle disjoint crossing 수와 연속 chain
+    최대 turn을 fixture 회귀 테스트로 고정하되 runtime 각도 clamp로 사용하지 않는다.
+    dense fanout은 subtree/collision 밀도에 따라 sector와 반지름을 확장한다.
+  - seed surface, camera viewport, world coordinates를 별도 개념으로 유지하고,
+    far-node fit 복구를 함께 시험한다.
+  - terminal leaf와 child-hub bridge의 거리 band를 같은 dense fixture에서 함께
+    검증해 leaf만 짧아지는지 확인한다.
+- Verification:
+  - 모바일 initial/51-frame settle crossing `0/0`, post-root maximum turn `27.2°`.
+  - 관리자 dense terminal leaf `166~179px`, child-hub bridge `354px`.
+  - 관련 모바일 36 tests와 관리자 physics 49 tests 통과.
+
+## 2026-07-29 | 관리자 웹 PWA | 설치용 서비스워커가 기존 알림 서비스워커를 대체할 뻔함
+
+- Symptom:
+  - PWA 설치 조건을 추가하는 과정에서 기존 `/sw.js`의 push 수신과
+    notification-click 딥링크가 제거된 초안이 만들어졌다.
+  - 배포 전 diff와 기존 알림 source contract 검토에서 발견해 합친 뒤 검증했다.
+- Root cause:
+  - tracked 서비스워커를 신규 PWA 전용 파일처럼 취급했고, 기존 event listener
+    목록과 소유 기능을 먼저 조사하지 않았다.
+- Why it was missed:
+  - manifest·installability 검증에 먼저 집중해 `/sw.js`가 이미 Web Push의 실행
+    경계라는 사실을 초기 편집 전에 확인하지 않았다.
+- Permanent guardrail:
+  - 기존 서비스워커를 변경할 때는 먼저 install, activate, fetch, push,
+    notificationclick listener를 전부 목록화한다.
+  - PWA 오프라인 처리는 기존 알림 로직에 additive하게 합치고, Cache Storage
+    미사용 계약과 push/notificationclick 보존 계약을 같은 focused gate에서
+    실행한다.
+- Related files:
+  - `web/public/sw.js`
+  - `web/src/lib/admin-pwa-contract.test.ts`
+  - `web/src/lib/notification-navigation-source.test.ts`
+- Verification:
+  - 두 focused suite 8/8, web TypeScript, ESLint, Sentry-disabled Next build,
+    최종 서비스워커 source inspection을 실행한다.
+
+## 2026-07-25 | Notification post-commit state | storage clear and coordinator state diverged
+
+- Symptom:
+  - While notification A was being marked read, newly captured notification B
+    remained in storage but the navigation coordinator was reset to idle.
+  - Group-chat message persistence could succeed while canonical inbox
+    persistence failed, yet the sender received only an operations log and had
+    no notification-only repair.
+- Root cause:
+  - The conditional pending-clear result was ignored before changing coordinator
+    state.
+  - Post-commit UI mixed read-state, provider, and inbox outcomes instead of
+    checking only `delivery.notificationStored`, and completion was declared
+    without an idempotent notification-only retry.
+- Permanent guardrail:
+  - Conditional storage mutation and coordinator state transition are one
+    contract: clear to idle only when the same pending record was removed;
+    otherwise preserve or rehydrate the newer pending state.
+  - Read/unread, login, device, and provider outcomes never create sender
+    warnings. Only canonical inbox persistence failure may warn, and every
+    post-commit warning requires a stable notification-only retry that cannot
+    duplicate the domain write or message.
+- Verification:
+  - Deterministic A-await/B-capture race tests, group-chat persistence/retry
+    tests, full TypeScript, lint, and independent notification evaluation.
+
+## 2026-07-24 | 메시지 알림에서 발신 대화방 정보 유실
+
+- 문제: 관리자 웹의 `message` 알림은 인증된 발신자 ID/이름을 이미 알고 있었지만 Edge와 웹 푸시가 FC 대상 URL을 일반 `/chat`으로 만들었다. 알림 클릭 시 대상 개발자/총무 대화방 대신 메신저 선택 화면으로 이동했다.
+- 원인: FC→관리자 경로에만 직접 채팅 URL을 만들고 관리자/개발자→FC 경로와 별도 웹 푸시 경로는 같은 계약으로 묶지 않았다.
+- 방지: 모든 직접 메시지 알림은 인증된 발신자에서 `/chat?targetId=...&targetName=...`를 생성하고 sender metadata fallback을 함께 제공한다. Edge·웹 푸시·모바일 라우터를 소스 계약 테스트로 함께 검증한다.
+- 추가 회귀 방지: 대화 목록은 역할별 고정 그룹 순서가 아니라 마지막 실제 메시지 시각을 공통 기준으로 사용하며, 메시지가 없는 대상만 아래에 둔다.
+
 > 반복될 수 있는 실수, 회귀, 드리프트만 기록합니다.  
 > 기능 완료 보고, 일반 변경 내역, TODO는 여기에 쓰지 않습니다.
 
@@ -29,6 +202,331 @@
 - Related files:
 - Verification:
 ```
+
+## 2026-07-23 | FC 시험 신청 form state | 신규 회차 복원 기본값이 선입력 납입일자를 삭제
+- Symptom:
+  - FC가 응시료 납입일자를 입력한 뒤 시험 회차를 선택하면 날짜가 `null`로 바뀌어 다시 입력해야 했다.
+- Root cause:
+  - 기존 신청 복원 helper의 “신청 없음” 기본값과 사용자가 작성 중인 draft를 같은 상태로 취급했고, 회차 변경 effect가 기본값을 무조건 form state에 반영했다.
+- Why it was missed:
+  - 기존 신청의 저장값 복원만 테스트했고, 신규 신청에서 회차보다 납입일자를 먼저 입력하는 순서의 상태 보존 계약은 없었다.
+- Permanent guardrail:
+  - 회차 변경 시 회차 종속값만 초기화하고, 납입일자 같은 사용자 draft는 대상 회차의 기존 신청 row가 있을 때만 저장값으로 덮어쓴다.
+  - 생명/손해 두 화면의 복원 effect에 동일한 `existingForRound` guard가 있는지 source contract로 검증한다.
+- Related files:
+  - `app/exam-apply.tsx`, `app/exam-apply2.tsx`
+  - `lib/__tests__/exam-license-source-contract.test.ts`
+- Verification:
+  - fee-date/source focused Jest, TypeScript, targeted ESLint, governance와 diff check를 실행한다.
+
+## 2026-07-23 | Test handoff | 격리 브랜치 기능을 현재 Metro 앱에서 바로 보인다고 간주
+- Symptom:
+  - 입금 증빙 UI 구현은 격리 worktree에만 있었는데 사용자가 canonical `D:\hanhwa\fc-onboarding-app`에서 Android 개발 빌드를 열어 새 UI가 보이지 않았다.
+- Root cause:
+  - 코드 구현 완료와 사용자가 실제로 번들링하는 checkout 통합 완료를 구분하지 않고, 활성 Metro의 source root와 대상 commit을 실기기 확인 전에 대조하지 않았다.
+- Why it was missed:
+  - 격리 worktree의 focused test와 source contract가 통과한 사실을 테스트 가능 상태로 과대 해석했고, `expo run:android` 로그의 실제 cwd를 feature branch와 비교하는 handoff gate가 없었다.
+- Permanent guardrail:
+  - 격리 구현을 사용자에게 테스트 요청하기 전 `활성 Metro cwd → checkout HEAD → feature commit 포함 여부 → 실기기 source marker`를 차례로 확인한다.
+  - 아직 통합되지 않은 기능은 “구현 완료”와 “현재 앱에서 테스트 가능”을 분리해 보고하고, 충돌 소유권을 확인한 뒤 cherry-pick 또는 명시적 빌드 경로를 제공한다.
+- Related files:
+  - `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+  - `app/exam-apply.tsx`, `app/exam-apply2.tsx`
+- Verification:
+  - 현재 앱 HEAD `ab34880`, Android 로그인 세션, 입금 증빙 필드 렌더링, 시스템 사진 선택기 실행을 직접 확인했다.
+
+## 2026-07-23 | Custom-session storage | private 증빙을 기존 anon client upload 패턴으로 연결할 위험
+- Symptom:
+  - 응시료 입금 증빙은 private 파일이어야 하지만, 기존 모바일 시험 신청은 custom session을 쓰면서 `exam_registrations`를 anon client에서 직접 저장하고 있었다.
+  - 같은 패턴으로 새 bucket 정책을 열면 다른 사용자의 object path 접근이나 신청/증빙 소유권 위조가 가능하고, DB 실패·신청 취소 시 object가 남을 수 있었다.
+- Root cause:
+  - 앱 세션과 Supabase Auth JWT를 같은 권한 경계로 간주하고, Storage upload·metadata save·registration save·cleanup을 별도 작업으로 취급하려 했다.
+- Why it was missed:
+  - 기존 문서 업로드 코드가 signed upload URL을 사용한다는 사실만 보면 안전해 보이지만, URL 발급 주체의 app-session/FC 소유권 검증과 최종 DB 원자성은 별도 계약이다.
+- Permanent guardrail:
+  - custom-session 모바일의 private 첨부는 anon Storage 정책을 추가하지 않는다. signed app session을 검증한 서버가 upload URL을 발급하고 소유 FC를 고정한다.
+  - 파일 준비에는 멱등 request UUID를 사용하고, 최종 신청과 upload 소비 상태는 하나의 DB 함수에서 확정한다.
+  - 교체·취소·DB 실패마다 object/metadata 보상 경로를 명시하고, 공개 URL·signed URL·storage path를 로그에 남기지 않는다.
+  - additive migration은 구버전 호환 version을 유지하고 caller 전환 뒤 별도 강화 migration으로 필수 정책을 올린다.
+- Related files:
+  - `lib/exam-payment-proof.ts`, `lib/exam-payment-proof-api.ts`
+  - `supabase/functions/exam-payment-proof/index.ts`
+  - `supabase/functions/_shared/exam-payment-proof.ts`
+  - `supabase/migrations/20260723040446_add_exam_payment_proofs.sql`
+- Verification:
+  - private/service-role-only migration source contract, signed-session Edge source contract, Deno check, helper/diagnostic Node tests, 양쪽 화면 source-contract test로 고정했다.
+
+## 2026-07-16 | Diagnostic privacy | final Sentry sanitization did not protect earlier console sinks
+- Symptom:
+  - Shared mobile/web loggers serialized raw messages, payloads, and `Error` stacks to `console.*` before Sentry's final sanitizer ran.
+  - Direct push, signup OTP, and group-chat diagnostics could print identifiers, provider errors/bodies, push tokens, or test OTP data. The admin-web server push consumer also logged recipient/content/token data and returned raw provider failure text.
+- Root cause:
+  - Privacy filtering existed at Sentry `beforeSend`, but not at the first shared logger sink, direct-console callsites had no reviewed safe-field contract, and no real-consumer test traced provider response text through the shared logger.
+  - TypeScript unions and callsite casts were treated as sufficient even though runtime input can bypass types; the sink itself did not reconstruct a closed record field by field.
+- Why it was missed:
+  - Sanitizer tests exercised Sentry-shaped objects only; they did not assert console output, the Sentry-adjacent capture arguments, `Error.name`, natural-language phone/OTP/filename/object-path variants, raw `Error` reconstruction, or the actual admin-web provider consumer.
+- Permanent guardrail:
+  - Sanitize the message, structured data, and `Error` name/message/stack before formatting or calling either console or Sentry-adjacent capture hooks.
+  - Sensitive provider/OTP/push callsites log only fixed reason/status fields. Never log a destination identifier, OTP, token, raw provider body, filename, or storage path, including in test mode.
+  - Keep runtime negative tests and positive controls for mobile/web sanitizers and logger classification, plus a narrow source contract for the explicitly reviewed direct-console paths. Do not replace this with a broad unrelated console rewrite.
+  - The first narrow source lock did not inventory sibling Edge/web console sinks. Investigation snapshots must not fossilize unproven sinks: close or explicitly reclassify them, then keep the reviewed 14-file AST allowlist exact at 9 fixed single-literal diagnostics, 0 unproven, 9 total. Only those exact literals are approved; all variable/error paths use the closed shared helper or sanitized logger.
+- Related files:
+  - `lib/logger.ts`, `web/src/lib/logger.ts`
+  - `lib/sentry-sanitize.ts`, `web/src/lib/sentry-sanitize.ts`
+  - `app/api/push+api.ts`, `lib/notifications.ts`
+  - `web/src/lib/push-notification-service.ts`
+  - `supabase/functions/request-signup-otp/index.ts`, `supabase/functions/group-chat/index.ts`
+  - `supabase/functions/_shared/edge-diagnostic.ts`, `scripts/ci/edge-diagnostic-console-baseline.json`
+  - `lib/__tests__/logger.test.ts`, `lib/__tests__/sentry-sanitize.test.ts`, `lib/__tests__/diagnostic-privacy-source.test.ts`, `lib/__tests__/priority-security-hardening.test.ts`, `web/src/lib/sentry-sanitize.test.ts`
+  - `lib/__tests__/diagnostic-console-governance.test.ts`, `supabase/functions/_shared/__tests__/edge-diagnostic_test.ts`
+- Verification:
+  - Pre-fix falsification failed on every new sensitive class and reviewed direct-console source boundary; the same tests pass after the fix.
+  - Root/web TypeScript, targeted ESLint, focused Jest/Node suites, and both changed Edge Function Deno checks pass without remote calls or Sentry uploads.
+  - The first follow-up closed 15 proven sensitive sinks and added runtime poison checks. The second closes all 27 residual unproven sinks, extends the closed event/reason pairs and poison/source tests, removes the request-mode log, and freezes the final exact 9/0/9 reviewed allowlist.
+
+## 2026-07-16 | Clean dependency reproducibility | hoisting and runtime globals hid export requirements
+- Symptom:
+  - A regular development tree passed focused checks, but a clean Node 20 installation first lacked the Expo Babel preset and then failed static rendering because the runtime did not expose WebSocket by default.
+  - Aligning the dependency graph with Expo SDK 54 also exposed a Sentry replay option that was not supported by the SDK-compatible Sentry version.
+- Root cause:
+  - The build relied on a transitively hoisted preset, a newer-runtime global, and an SDK integration option from a different Sentry compatibility line.
+- Why it was missed:
+  - Dependency validation used the existing `node_modules` tree and focused tests without a clean install plus export on both the lowest permitted and recommended Node runtimes.
+- Permanent guardrail:
+  - Declare build-time packages directly, keep Node 24 as the documented runtime, and run `npm ci` before claiming package reproducibility.
+  - Do not infer a supported runtime from the root manifest because it has no engine floor. Keep Node 24 as the documented runtime; if Node 20 compatibility is intentionally retained, prove the exact Node 20.19.5/npm 10.8.2 and Node 24 matrix with clean exports rather than a warm tree.
+  - Run `npx expo install --check`, the root dependency contract, lint, TypeScript, full tests, audits, and a Sentry-disabled export after package or SDK integration changes.
+  - Prefer narrow owner-scoped overrides and typed SDK options; do not repair one advisory with an incompatible graph-wide override.
+- Related files:
+  - `package.json`
+  - `package-lock.json`
+  - `lib/sentry.ts`
+  - `scripts/ci/root-dependency-security.test.ts`
+  - `docs/handbook/developer-onboarding.md`
+- Verification:
+  - Clean Node 20/npm 10 and Node 24/npm 11 installs and exports pass with the same lock hash; full/production audits report zero advisories.
+
+## 2026-07-15 | Deployment ordering | auth adoption and DB RPC compatibility were collapsed into one caller-first sequence
+- Symptom:
+  - The first documentation draft placed signed caller adoption, additive RPC migration, and Edge enforcement in one linear “caller-first” rollout, obscuring whether RPC-required callers were safe against the old DB.
+- Root cause:
+  - Authentication enforcement ordering and DB/API version compatibility were treated as one deployment axis even though `board-update` and admin-web exam schedule activate different RPC callers at different times.
+- Why it was missed:
+  - Focus stayed on closing the body-actor authentication boundary, so migration-before-caller activation was stated only indirectly.
+- Permanent guardrail:
+  - Document authentication as signed caller adoption → Edge auth enforcement.
+  - Document atomic DB change as old/new-compatible or feature-disabled caller → additive migration verification → per-caller activation → observation/auth smoke → compatibility removal.
+  - Name the activation point for `board-update` and admin-web exam schedule separately; never use “caller-first” as shorthand for DB/API version ordering.
+- Related files:
+  - `AGENTS.md`
+  - `docs/deployment/DEPLOYMENT.md`
+  - `docs/handbook/operations-runbook.md`
+  - `docs/handbook/shared/security-and-secret-operations.md`
+- Verification:
+  - Documentation boundary, governance normal/handbook/contract, link/path, diff, and sensitive-pattern gates.
+
+## 2026-07-15 | Documentation control surface | AGENTS accumulated delivery history until it exceeded the quick-control boundary
+- Symptom:
+  - Root `AGENTS.md` exceeded 100 KiB and mixed stable safety rules with old snapshots, roadmap items, and a long progress ledger.
+- Root cause:
+  - Session-close guidance repeatedly appended status to the control file instead of linking the existing handbook and work-log owners.
+- Why it was missed:
+  - Governance checked code/document synchronization but had no byte-size boundary for the session entry document.
+- Permanent guardrail:
+  - Keep root `AGENTS.md` at or below 24,576 UTF-8 bytes and retain only stable control rules, release safety, current major blockers, and context routes.
+  - Store current behavior in the handbook and append delivery evidence to `WORK_LOG.md`/`WORK_DETAIL.md`; do not recreate removed history in another new file.
+  - Run the 24,576/24,577 boundary tests and integrated governance on every documentation-control change.
+- Related files:
+  - `AGENTS.md`
+  - `docs/handbook/shared/documentation-contract.md`
+  - `scripts/ci/documentation-governance.mjs`
+  - `scripts/ci/documentation-governance.test.mjs`
+  - `scripts/ci/check-governance.mjs`
+- Verification:
+  - `node scripts/ci/documentation-governance.test.mjs`
+  - `node scripts/ci/check-governance.mjs`
+
+## 2026-07-12 | App Session HMAC | bridge secret fallback crossed token trust domains
+- Symptom:
+  - A token with `kind='fc_onboarding_session'` and admin claims could be signed with the legacy Request Board bridge secret and accepted as an FC app session.
+- Root cause:
+  - Edge and web app-session signers reused `REQUEST_BOARD_AUTH_BRIDGE_SECRET` as a fallback, and the Edge verifier included the same bridge secret alongside the dedicated app-session keys.
+- Why it was missed:
+  - Token `kind` checks were tested, but the signer/verifier key domain was not; an attacker who knew the shared bridge secret could choose the app-session kind before signing.
+- Permanent guardrail:
+  - App sessions mint only with `FC_APP_SESSION_TOKEN_SECRET` and verify only its current/previous pair. Bridge secrets must never appear in an app-session signer or verifier.
+  - Rotation installs the new current key and old key as `FC_APP_SESSION_TOKEN_PREVIOUS_SECRET`, then removes the previous key after the maximum token TTL. Missing dedicated current key fails closed and requires login/session repair rather than bridge-secret fallback.
+- Related files:
+  - `supabase/functions/_shared/request-board-auth.ts`
+  - `web/src/lib/request-board-app-session.ts`
+  - `lib/__tests__/app-session-secret-boundary.test.ts`
+- Verification:
+  - Forged bridge-secret admin app-session RED→GREEN test plus current/previous dedicated-key positive controls.
+
+## 2026-07-12 | Sentry Verification Build | clearing the shell token did not override `.env.local`
+- Symptom:
+  - A local Next production verification build was launched with an empty shell `SENTRY_AUTH_TOKEN` and `SENTRY_DISABLE_UPLOAD=1`, but Next reloaded the ignored `web/.env.local` token and the Sentry plugin uploaded source-map artifact bundles.
+- Root cause:
+  - `web/next.config.ts` passed `process.env.SENTRY_AUTH_TOKEN` directly to `withSentryConfig` and did not implement the documented `SENTRY_DISABLE_UPLOAD` guard. Clearing an environment variable before Next's dotenv phase was not an authoritative deny control.
+- Why it was missed:
+  - The operating note assumed an empty parent-shell variable could not be repopulated by framework env loading, and prior checks treated build exit status as sufficient evidence without inspecting Sentry upload lines.
+- Permanent guardrail:
+  - `SENTRY_DISABLE_UPLOAD=1` must set both `authToken: undefined` and `sourcemaps.disable: true` in the final Next Sentry config, regardless of ignored local env files.
+  - Safe local builds set `SENTRY_DISABLE_UPLOAD=1`, clear `SENTRY_AUTH_TOKEN`, and inspect output for artifact/upload/release activity; a successful build with an upload is an operational failure.
+  - Verification of the guard must route any unexpected upload attempt to a loopback-only Sentry URL, never to the live service.
+- Related files:
+  - `web/next.config.ts`
+  - `web/src/lib/sentry-build-policy.ts`
+  - `web/.env.example`
+  - `lib/__tests__/sentry-build-upload-guard.test.ts`
+  - `README.md`
+- Verification:
+  - RED: a Sentry-disabled build still uploaded artifacts because the flag was unused.
+  - GREEN: pure policy/source regression plus a loopback-routed production build with no upload attempt.
+
+## 2026-07-12 | Direct Edge Actor Trust | an active phone record was mistaken for proof of possession
+- Symptom:
+  - Anonymous callers could forge an active admin/manager/FC phone in the request body and make service-role `fc-notify` or any of 17 `board-*` functions read, write, delete, or fan out notifications as that actor.
+- Root cause:
+  - The handlers used a service-role Supabase client and treated a caller-supplied role/phone plus an active-row lookup as authentication. `board-create` and `board-update` then became confused deputies that called the newly protected `fc-notify` with their own trusted service key.
+- Why it was missed:
+  - Reviews followed normal app callers and checked CORS, role allowlists, and key custody, but did not prove possession at the public Edge boundary or search sibling service-key callers after hardening the direct notify endpoint.
+- Permanent guardrail:
+  - All non-public mobile Edge actions require a signed `x-app-session-token`, then rebind token role/phone/fcId to an active database actor before any service-role query. `latest_notice` is the only public `fc-notify` action.
+  - Every `board-*` endpoint must call the common request-bound verifier with its exact function name. Body actor fields are compatibility claims only and may never create authority.
+  - Web Board calls go through the signed same-origin `/api/board` proxy; mobile Board calls attach the stored app-session token in the common transport.
+  - Insurance-digest automation uses an exact `BOARD_AUTOMATION_TOKEN`, an active server-configured admin phone, and only `board-categories-list`, `board-list`, and canonical-general `board-create`. It may never create categories or reach update/delete/attachment actions.
+  - Caller Release A must be adopted before the 17-function Edge Release B. There is no safe body-actor fallback for old clients.
+- Related files:
+  - `supabase/functions/fc-notify/index.ts`
+  - `supabase/functions/_shared/fc-notify-auth-policy.ts`
+  - `supabase/functions/_shared/board.ts`
+  - `supabase/functions/_shared/board-actor-policy.ts`
+  - `lib/fc-notify-client.ts`
+  - `lib/board-api.ts`
+  - `web/src/app/api/board/route.ts`
+  - `scripts/ops/post-insurance-digest.mjs`
+  - `lib/__tests__/fc-notify-edge-auth-source.test.ts`
+  - `lib/__tests__/board-edge-auth-source.test.ts`
+- Verification:
+  - RED/GREEN pure policy and source contracts, all-function Deno checks, and loopback handler smokes that prove forged requests stop before writes/downstream fanout.
+
+## 2026-07-12 | Board Attachment And Update Integrity | role checks did not prove post ownership or atomicity
+- Symptom:
+  - A legitimate manager could request upload/finalize operations for another author's post, finalize caller-selected storage paths without proving an object existed, and a bad attachment order could return 400 after post fields had already changed.
+- Root cause:
+  - Attachment sign/finalize checked only the broad manager role and post existence. Finalize trusted path/size/MIME metadata, while `board-update` mutated the post before validating and separately updating attachment order.
+- Why it was missed:
+  - Delete/update had local manager ownership checks, but sibling attachment endpoints and the ordering of multi-step writes were not reviewed as one post-write invariant.
+- Permanent guardrail:
+  - Admin may manage every post; manager may manage only a manager-authored post whose canonical author phone matches the signed actor.
+  - Finalize accepts only canonical `board/<postId>/<uuid>_<sanitized-name>` paths, unique unfinalized objects that exist in Storage, and server-verified size/MIME metadata within the shared limits.
+  - Post fields and attachment order are applied by the service-role-only `update_board_post_atomic` database function in one transaction. Its migration must precede the updated Edge function.
+- Related files:
+  - `supabase/functions/board-attachment-sign/index.ts`
+  - `supabase/functions/board-attachment-finalize/index.ts`
+  - `supabase/functions/board-update/index.ts`
+  - `supabase/migrations/20260712000001_atomic_board_post_update.sql`
+  - `lib/__tests__/board-edge-auth-policy.test.ts`
+- Verification:
+  - RED/GREEN ownership/path/atomic-source contracts and Deno checks for all Board functions.
+
+## 2026-07-12 | Privileged Server Actions | same-origin UI access was mistaken for authorization
+- Symptom:
+  - Exam schedule, appointment, and document Server Actions could reach service-role database writes without a verified signed admin session. A read-only manager could bypass disabled buttons and mutate or delete exam data.
+- Root cause:
+  - The implementation relied on dashboard routing, disabled UI controls, and in two files an origin check, none of which proves the caller's role inside an exported Server Action.
+- Why it was missed:
+  - API routes had signed-session helpers, but the same inventory did not include all `'use server'` modules holding `adminSupabase`.
+- Permanent guardrail:
+  - Every privileged Server Action must verify an active signed session before parsing attacker input or touching `adminSupabase`; read-only actions explicitly use the manager-capable read helper.
+  - Runtime input is parsed fail closed, and notification phone/identity is loaded from the database rather than accepted from the client.
+  - The priority security source test inventories every server module that imports `adminSupabase`.
+- Related files:
+  - `web/src/app/dashboard/exam/schedule/actions.ts`
+  - `web/src/app/dashboard/appointment/actions.ts`
+  - `web/src/app/dashboard/docs/actions.ts`
+  - `web/src/lib/privileged-action-input-policy.ts`
+  - `lib/__tests__/privileged-server-action-input-policy.test.ts`
+- Verification:
+  - RED/GREEN auth-order and input-policy tests, full web lint, and a Sentry-loopback production build.
+
+## 2026-07-12 | Exam Apply Commit Boundary | notification failure was shown as registration failure
+- Symptom:
+  - The exam registration row could be saved successfully, then a failed admin/self notification made the mutation show `신청 실패`, encouraging a duplicate retry.
+- Root cause:
+  - Post-commit notification delivery was awaited inside the same mutation failure boundary as the database write.
+- Why it was missed:
+  - Happy-path tests treated database mutation and best-effort notification as one operation and did not inject a delivery failure after commit.
+- Permanent guardrail:
+  - `sendExamApplyNotificationsBestEffort` settles both deliveries, reports only failed target classes, and never reclassifies a committed application as failed.
+  - Source tests forbid sequential `await notifyExamFlow(notificationPayloads.*)` calls in both life and nonlife apply screens.
+- Related files:
+  - `lib/exam-flow-contract.ts`
+  - `app/exam-apply.tsx`
+  - `app/exam-apply2.tsx`
+  - `lib/__tests__/exam-flow-contract.test.ts`
+- Verification:
+  - RED missing-helper failure, then GREEN rejection-injection and screen source contracts.
+
+## 2026-07-12 | Exam Round Delete | manual child deletion split one cascade into destructive partial steps
+- Symptom:
+  - Deleting a round removed registrations first, then locations, then the round. A later failure could return an error after registrations were already lost.
+- Root cause:
+  - The Server Action manually reproduced foreign-key cascade behavior with three separate service-role statements.
+- Why it was missed:
+  - Step-by-step logging looked safer than a single delete, but transaction boundaries and the existing `ON DELETE CASCADE` schema were not checked together.
+- Permanent guardrail:
+  - Round deletion is one `exam_rounds` delete statement; database cascades remove locations and registrations atomically.
+  - The source contract forbids direct registration/location deletes in `deleteExamRoundAction` and verifies both cascade constraints in the schema snapshot.
+- Related files:
+  - `web/src/app/dashboard/exam/schedule/actions.ts`
+  - `supabase/schema.sql`
+  - `lib/__tests__/priority-security-hardening.test.ts`
+- Verification:
+  - RED source contract against the three-step delete, then GREEN targeted Jest and web lint.
+
+## 2026-07-12 | FC Notify Proxy Trust Boundary | server-side key custody was mistaken for caller authentication
+- Symptom:
+  - Public callers could POST arbitrary FC notify actions to `/api/fc-notify`; the route performed privileged web-push/database work and forwarded the raw body to the service-role Edge Function.
+- Root cause:
+  - The route protected the service-role key from the browser bundle but did not authenticate the caller, separate browser and Request Board ingress, or rebuild an action-specific outbound payload.
+  - The first hardened draft also bounded text before redaction, duplicated/delegated notification persistence ambiguously, and compared client-supplied sender display data even though the server already owned the canonical identity.
+- Why it was missed:
+  - Reviews followed the visible admin-web callers and treated the proxy as browser-only, without inventorying the cross-repository `request_board` server caller or testing the public route as an independent trust boundary.
+- Permanent guardrail:
+  - Every public privileged proxy must inventory all callers, authenticate each ingress independently, reject unsupported actions before side effects, and serialize only a server-rebuilt allowlisted payload.
+  - Browser compatibility tests must feed the exact caller payloads for regular admin, developer, manager, and FC sessions; server-derived display identity must use the same canonical helper as the client contract.
+  - Same-origin authorization requires the canonical request origin (scheme + Host); caller-controlled `X-Forwarded-Host` is not a fallback authority. A signed FC token must bind its `fcId` and phone to the same completed profile before authorization.
+  - Redact the complete title/body/message before applying notification bounds so truncation cannot turn a detectable secret into an undetectable partial secret.
+  - Browser chat callers must omit sender id/name and direct notification inserts; the protected route derives identity and the Edge function remains the single notification-row writer.
+  - `lib/__tests__/fc-notify-route-auth.test.ts` must fail if `/api/fc-notify` loses signed-session/origin checks, constant-time bridge-token verification, identity reconstruction, or reintroduces raw-body forwarding.
+- Related files:
+  - `web/src/app/api/fc-notify/route.ts`
+  - `web/src/lib/fc-notify-proxy-policy.ts`
+  - `web/src/lib/server-session.ts`
+  - `web/src/app/dashboard/chat/page.tsx`
+  - `web/src/app/chat/page.tsx`
+  - `lib/__tests__/fc-notify-route-auth.test.ts`
+  - `lib/__tests__/admin-web-chat-source.test.ts`
+- Verification:
+  - RED: `npx jest lib/__tests__/fc-notify-route-auth.test.ts --runInBand` failed on the unauthenticated route and raw `JSON.stringify(body)` forwarding.
+  - GREEN: `npx jest lib/__tests__/fc-notify-route-auth.test.ts --runInBand`
+
+## 2026-07-12 | Windows Source Contracts | LF-only fixture comparison made the full suite falsely red
+- Symptom:
+  - The complete Jest suite failed two assertions in one user-owned protected source-contract test even though the expected source was present; the checkout used CRLF while the test embedded LF-only multiline strings.
+- Root cause:
+  - A source-contract test compared raw file bytes without normalizing line endings first.
+- Why it was missed:
+  - Focused suites did not collect this unrelated source test, and the existing assertion output looked like a content mismatch until the invisible carriage returns were isolated.
+- Permanent guardrail:
+  - Source-contract tests that compare multiline text must normalize `\r\n?` to `\n` before assertions, or use whitespace-tolerant behavior/AST checks. Full-suite verification remains required after focused security tests.
+- Related files:
+  - One user-owned protected source-contract test (identifier withheld).
+- Verification:
+  - RED: full `npm test -- --runInBand` failed 2/549 assertions on the Windows checkout.
+  - GREEN: focused run for one user-owned protected source-contract test and then the complete Jest suite; the identifier is withheld.
 
 ## 2026-07-07 | CI Audit Repo Identity | audit tests assumed the local folder name
 - Symptom:
@@ -271,7 +769,7 @@
 - Related files:
   - `web/src/components/referrals/ReferralGraphCanvas.tsx`
   - `web/src/lib/referral-graph-interaction.test.ts`
-  - `.codex/harness/referral-graph-visual-qa.md`
+  - [privacy-safe referral graph QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa)
 - Verification:
   - RED/GREEN: `npx tsx --test web/src/lib/referral-graph-interaction.test.ts`.
   - Passed: `npx tsx --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts`.
@@ -296,7 +794,7 @@
   - `web/src/components/referrals/ReferralGraphCanvas.tsx`
   - `web/src/lib/referral-graph-interaction.ts`
   - `web/src/lib/referral-graph-interaction.test.ts`
-  - `.codex/harness/referral-graph-visual-qa.md`
+  - [privacy-safe referral graph QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa)
 - Verification:
   - Passed browser QA with account `01058006018`: dragging node `한태균` by `187.8829px` moved 6 direct descendants by `78.9108px`, 3 second-hop descendants by `45.7683px`, deeper descendants by about `24-27px`, and 244 background nodes by `0px`.
   - Passed: `npx tsx --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-free-simulation.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-link-style.test.ts web/src/lib/admin-web-route-access.test.ts web/src/lib/admin-web-referral-graph-nav.test.ts`.
@@ -325,7 +823,7 @@
   - Passed: `npx tsx --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-free-simulation.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/admin-web-route-access.test.ts web/src/lib/admin-web-referral-graph-nav.test.ts`.
   - Passed: `npm --prefix web run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-interaction.test.ts src/lib/referral-graph-free-simulation.test.ts src/app/dashboard/referrals/graph/page.tsx`.
   - Passed: `SENTRY_AUTH_TOKEN='' npm --prefix web run build`.
-  - Passed browser QA with account `01058006018`: loaded 259 nodes and 154 connections, dragged node `한태균` with matching `draggedNodeId`, viewport center/zoom delta `0`, stable screenshot diff `0.0`, and post-drag settled diff `0.0`. Evidence: `.codex/harness/referral-graph-visual-qa.md`.
+  - Passed browser QA with a disposable test account: loaded the expected graph, dragged a designated test node with a matching internal identifier, preserved viewport center/zoom, and observed no stable or post-drag visual diff. Evidence: [privacy-safe referral graph QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa).
 
 ## 2026-06-26 | Admin Web Board/Notifications | Secret-bearing env value reached a visible author name
 - Symptom:
@@ -539,11 +1037,11 @@
 - Permanent guardrail:
   - Do not use `LinearGradient` for full-screen mobile auth backgrounds on Android in this repo; use an explicit solid light background (`COLORS.primaryPale`/`#fff1e6`) or another non-gradient fallback-first treatment.
   - When auditing Android dark/black regressions, inspect transparent assets and the surface behind them before replacing image files.
-  - Auth-entry source tests should lock the absence of full-screen gradient-only background contracts on `/login` the same way navigation/signup tests lock light fallbacks elsewhere.
+  - Auth-entry source tests should lock the absence of full-screen gradient-only background contracts on `/login` the same way user-owned protected source-contract tests lock light fallbacks elsewhere; their identifiers are withheld.
 - Related files:
   - `app/login.tsx`
   - `lib/__tests__/signup-background-source.test.ts`
-  - `lib/__tests__/navigation-background-source.test.ts`
+  - One user-owned protected source-contract test (identifier withheld).
 - Verification:
   - Confirmed `assets/images/login.png` is mostly transparent, so the screenshot's black area was not baked into the logo.
   - Confirmed `app/_layout.tsx` and `app.json` already pin app-level backgrounds, StatusBar, and NavigationBar to light colors.
@@ -1346,7 +1844,7 @@
   - `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-highlight.test.ts`
   - `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
   - `cd web && npm run build`
-  - Browser QA screenshot: `.codex/harness/referral-graph-obsidian-v7-browser-qa.png`
+  - Browser QA passed; the redundant screenshot was removed after privacy review.
 
 ## 2026-04-25 | Admin Referral Graph | directed hierarchy를 무시한 degree-only edge length로 branch child ring 공간을 놓침
 - Symptom:
@@ -1374,7 +1872,7 @@
   - `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts`
   - `node --experimental-strip-types --test web/src/lib/referral-graph-layout.test.ts`
   - `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
-  - Browser QA screenshot: `.codex/harness/referral-graph-nested-branch-auto-fit-qa.png`
+  - Browser QA passed; the redundant screenshot was removed after privacy review.
 
 ## 2026-04-25 | Admin Referral Graph | parent-child 원형을 별도 absolute ring force로 보정해 Obsidian식 core force 계약을 흐림
 - Symptom:
@@ -1620,7 +2118,7 @@
   - 전화번호/주민번호처럼 앞자리 0이 의미를 갖는 보고서 CSV는 기본 export를 spreadsheet-safe text 형식으로 저장하고, 필요하면 raw CSV를 별도 파일로 같이 만든다.
   - 보고서 산출물은 생성 직후 첫 몇 줄을 다시 읽어 phone column formatting contract를 확인한다.
 - Related files:
-  - `scripts/reporting/export-missing-recommender-report.mjs`, `.codex/harness/reports/fc-missing-recommender-2026-04-22.csv`
+  - `scripts/reporting/export-missing-recommender-report.mjs`, `privacy-deleted; see central FC raw-harness receipt`
 - Verification:
   - `npm run report:missing-recommender -- --date=2026-04-22`
   - `Get-Content .codex\\harness\\reports\\fc-missing-recommender-2026-04-22.csv -TotalCount 5`
@@ -1641,7 +2139,7 @@
   - backend smoke 통과만으로 모바일 로그인 회귀를 닫지 않는다. 최소 1회는 emulator/device에서 실제 fetch contract를 확인한다.
   - emulator를 재기동할 때 DNS가 흔들리면 `-dns-server 8.8.8.8,1.1.1.1`로 띄우고 그 상태를 QA note에 남긴다.
 - Related files:
-  - `.codex/harness/evidence/android-optimization-pass1/*`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md`
+  - `privacy-deleted; see central FC raw-harness receipt`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md`
 - Verification:
   - emulator relaunch: `emulator.exe -avd codex-api34 -dns-server 8.8.8.8,1.1.1.1`
   - `adb shell ping -c 1 google.com`
@@ -2144,7 +2642,7 @@
 - Why it was missed: Obsidian 참고를 force 설정명과 radial seed에만 반영했고, 공식 Graph View의 display/forces 항목처럼 text fade, node size, link thickness, center/repel/link/distance가 함께 만드는 읽기 경험을 screenshot 기준으로 충분히 평가하지 않았다. 또한 실제 운영 데이터의 connected component끼리 겹치지 않는지 component radius 기준으로 계산하지 않고, drag smoke도 "움직인다"만 보고 "링크가 찢어지지 않는가"와 "사용자가 놓은 좌표에서 release velocity가 즉시 0이 되는가"를 확인하지 않았다.
 - Permanent guardrail: graph/visualization 작업은 unit test와 nonblank smoke만으로 완료 처리하지 않는다. 최소 한 장의 실제 viewport screenshot을 확인하고, `이름 라벨 가시성`, `일반 label code 과노출 여부`, `node radius`, `link alpha/thickness`, `connected component overlap 없음`, `drag 중 linked neighbor follow`, `drag 후 hard pin 없음`, `drag 후 dropped position 즉시 유지`를 acceptance로 적어야 한다.
 - Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-layout.ts`, `web/src/lib/referral-graph-interaction.ts`, `web/src/lib/referral-graph-display.ts`, `web/src/lib/referral-graph-highlight.ts`, `.codex/harness/qa-report.md`
-- Verification: `node --experimental-strip-types --test web/src/lib/referral-graph-layout.test.ts`, `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts`, `node --experimental-strip-types --test web/src/lib/referral-graph-display.test.ts`, `node --experimental-strip-types --test web/src/lib/referral-graph-highlight.test.ts`, synthetic Playwright screenshot `.codex/harness/referral-graph-obsidian-overview-qa.png`, real-data screenshot `.codex/harness/referral-graph-no-overlap-qa.png`
+- Verification: focused layout/interaction/display/highlight tests and synthetic/real-data visual QA; redundant screenshots were removed after privacy review.
 
 ## 2026-04-24 | Referral Graph Drag Physics | 수동 위치 force가 d3 velocity를 덮어써 release 후 기존 물리가 죽고 링크 길이가 비정상적으로 남음
 - Symptom: 사용자가 노드를 드래그한 뒤 직접 연결선이 비정상적으로 길게 남는다고 보고했다. 추가로 "드래그한 위치에서 크게 벗어나면 안 되지만, 기존 물리법칙은 놓았을 때도 유지되어야 한다"는 계약이 확인됐다.
@@ -2160,7 +2658,7 @@
 - Why it was missed: "관성"을 release 후 흔들림으로 이해했고, "edge가 길어지지 않게"를 follower 좌표를 함께 옮기는 방식으로 풀었다. 실제 요구는 drag 중에도 link spring이 계속 당기고, release 후에는 dropped position을 짧게 약하게만 기억하는 구조였다.
 - Permanent guardrail: force-graph drag에서 pointer 대상 노드 외에는 좌표를 직접 쓰지 않는다. drag 중에는 대상 노드만 임시 `fx/fy`로 잡고 simulation을 reheat한다. release는 `fx/fy` 해제, recent sample 기반 clamped velocity 주입, dragged node 1개짜리 decaying drop tether만 허용한다. component/hub/drop 보정 force는 모두 `vx/vy += delta` 방식이어야 한다.
 - Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.ts`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-layout.ts`
-- Verification: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`, targeted web lint, `cd web && npm run build`, Playwright synthetic browser QA screenshot `.codex/harness/referral-graph-physics-browser-qa.png`, `node scripts/ci/check-governance.mjs`
+- Verification: focused graph tests, targeted web lint/build, synthetic browser QA, and governance; the redundant screenshot was removed after privacy review.
 
 ## 2026-06-04 | Mobile Theme | 시스템 다크 테마를 허용해 로그인/CTA 배경이 검정으로 보임
 - Symptom: SM_S942N 실기기에서 로그인 화면과 일부 홈 CTA/card 영역이 의도한 흰색/주황색 톤 대신 검정 배경처럼 보였다.
@@ -2168,7 +2666,7 @@
 - Why it was missed: 색상 회귀를 개별 버튼/카드 스타일 문제로만 보고, Expo system UI + React Navigation theme + screen fallback background를 같은 acceptance로 묶지 않았다. 실기기 dark-mode screenshot 확인을 완료 조건에 두지 않아 같은 증상이 반복됐다.
 - Permanent guardrail: 가람in 모바일은 별도 dark theme 구현 전까지 light-only 계약이다. `app.json`, root `ThemeProvider`, `NavigationBar`, screen/container fallback background를 함께 고정하고, UI 색상 회귀 수정 뒤에는 SM_S942N 또는 Android target에서 해당 화면 스크린샷을 반드시 확인한다.
 - Related files: `app.json`, `app/_layout.tsx`, `app/login.tsx`
-- Verification: `npm run lint -- app/_layout.tsx app/login.tsx`, `npx expo config --type public`, `npx expo run:android --device SM_S942N`, ADB screenshot `.codex/harness/evidence/kim-referral-auth/login-after-color-fix.png`
+- Verification: `npm run lint -- app/_layout.tsx app/login.tsx`, `npx expo config --type public`, `npx expo run:android --device SM_S942N`, ADB screenshot `privacy-deleted; see central FC raw-harness receipt`
 
 ## 2026-06-04 | Admin Web FC Access | JS로 쓰는 웹 세션 쿠키를 그대로 FC 권한 근거로 쓰려 해 impersonation 위험을 만들 뻔함
 - Symptom: 관리자 웹 추천인 그래프를 FC에게 열면서 `session_role=fc`, `session_resident=<전화번호>` 쿠키만 있으면 그래프 API allowlist를 통과할 수 있는 구조가 될 수 있었다.
@@ -2184,7 +2682,7 @@
 - Why it was missed: `request-board-review` 화면이 FC 검토와 설계매니저 상세/관리 surface를 공유하는데도, 완료 설계 이후의 액션 소유권을 역할별 테스트로 고정하지 않았다.
 - Permanent guardrail: 완료 설계의 FC decision 버튼은 `!isRequestBoardDesigner && needsReview` 조건에서만 렌더링한다. 설계매니저 화면은 같은 상태를 `FC 검토 대기`로만 표시하고, 역할별 Android UI 확인 또는 그에 준하는 명시적 회귀 테스트를 남긴다.
 - Related files: `app/request-board-review.tsx`, `lib/__tests__/request-board-review-role.contract.test.ts`
-- Verification: `npx jest lib\__tests__\request-board-api-contract.test.ts lib\__tests__\request-board-mobile-products.test.ts lib\__tests__\request-board-review-role.contract.test.ts lib\__tests__\request-board-session.test.ts --runInBand`, `npx tsc --noEmit`, `npm run lint -- app\request-board-review.tsx lib\__tests__\request-board-review-role.contract.test.ts`, FC Android detail screenshot `.codex/harness/ui-qa/android-fc-review-detail-buttons-after-role-patch.png`; 설계매니저 Android visual pass는 사용자 지시로 보류하고 사용자 세션/임시 request_board 데이터는 복구 및 삭제했다.
+- Verification: `npx jest lib\__tests__\request-board-api-contract.test.ts lib\__tests__\request-board-mobile-products.test.ts lib\__tests__\request-board-review-role.contract.test.ts lib\__tests__\request-board-session.test.ts --runInBand`, `npx tsc --noEmit`, `npm run lint -- app\request-board-review.tsx lib\__tests__\request-board-review-role.contract.test.ts`, [privacy-safe UI QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#ui-qa); 설계매니저 Android visual pass는 사용자 지시로 보류하고 사용자 세션/임시 request_board 데이터는 복구 및 삭제했다.
 
 ## 2026-06-04 | Request Board Bottom Sheet | 완료 CTA를 Android 시스템 내비게이션 바와 겹치게 배치
 - Symptom: 설계매니저 선택 바텀시트에 `1명 선택 완료` 버튼을 추가했지만 SM_S942N 화면에서 버튼 하단이 Android 시스템 내비게이션 바와 겹쳤다.
@@ -2475,13 +2973,13 @@
 - Related files: `app/_layout.tsx`, `app/signup.tsx`, `app/signup-verify.tsx`, `app/signup-password.tsx`, `app/reset-password.tsx`, `lib/__tests__/signup-background-source.test.ts`
 - Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/signup-background-source.test.ts`; `npx tsc --noEmit --pretty false`; `npm run lint`; `git diff --check`
 
-## 2026-06-12 | App-Wide Navigation Background Fallback | 화면별 배경만 보고 전역 scene 배경을 놓침
+## 2026-06-12 | App-Wide Scene Surface Fallback | 화면별 배경만 보고 전역 scene 배경을 놓침
 - Symptom: 가입 화면을 고쳐도 다른 헤더/헤더 없는 화면에서 전환 중 UI 배경색이 또 바뀔 수 있다는 위험이 남아 있었다.
 - Root cause: `app/_layout.tsx`의 전역 Stack `screenOptions`는 `headerShown: false`만 지정했고, `baseHeader`, React Navigation theme, root container, StatusBar, Android NavigationBar가 하나의 밝은 background contract로 묶여 있지 않았다.
 - Why it was missed: 개별 화면 root style과 정상 렌더만 확인했고, React Navigation scene container와 Android native navigation bar가 별도 surface라는 점을 전역 회귀 조건으로 두지 않았다.
-- Permanent guardrail: 앱 전체 기본 배경은 `DEFAULT_SCREEN_BACKGROUND` 같은 단일 상수로 루트/테마/Stack/baseHeader/StatusBar/Android NavigationBar에 모두 연결한다. 전역 navigation background source test가 이 연결 중 하나라도 빠지면 실패해야 한다.
-- Related files: `app/_layout.tsx`, `lib/__tests__/navigation-background-source.test.ts`
-- Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts`; `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts lib/__tests__/signup-background-source.test.ts`
+- Permanent guardrail: 앱 전체 기본 배경은 `DEFAULT_SCREEN_BACKGROUND` 같은 단일 상수로 루트/테마/Stack/baseHeader/StatusBar/Android NavigationBar에 모두 연결한다. 관련 user-owned protected source-contract test가 이 연결 중 하나라도 빠지면 실패해야 하며 식별자는 문서에 복제하지 않는다.
+- Related files: `app/_layout.tsx`; one user-owned protected source-contract test (identifier withheld).
+- Verification: RED/GREEN focused run for the user-owned protected source-contract test; PASS for the same protected contract together with the signup-background regression suite. Identifiers and exact commands are withheld.
 
 ## 2026-06-12 | EAS Update Config Drift | OTA 발행 가능 여부를 서버 배포처럼 단순 취급
 - Symptom: 단톡방 알림 앱 JS 반영을 위해 EAS Update를 실행하자 CLI가 `expo-updates`, `updates.url`, `runtimeVersion`을 자동 설치/설정했다.
@@ -3389,6 +3887,38 @@
 - Verification:
   - RED/GREEN `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand`
 
+## 2026-07-08 | Admin Web Public Account Deletion | global web-push auto registration leaked onto public routes
+- Symptom:
+  - The public `/account-deletion` page loaded, but Chrome DevTools showed `POST /api/web-push/subscribe 401` and `[web-push] register failed` when stale client session fields existed without a valid signed staff session.
+- Root cause:
+  - `WebPushRegistrar` was mounted globally in `web/src/app/layout.tsx` and only checked client-side role/resident fields, not whether the current route was public.
+- Why it was missed:
+  - The account-deletion verification checked HTTP 200 and route allowlisting, but did not inspect browser console behavior with stale admin cookies/local session state.
+- Permanent guardrail:
+  - Global browser-push auto-registration must pass through `shouldAutoRegisterWebPush()` and skip every `isAdminWebPublicPath()` route.
+- Related files:
+  - `web/src/components/WebPushRegistrar.tsx`
+  - `web/src/lib/web-push-registration-policy.ts`
+  - `web/src/lib/web-push-registration-policy.test.ts`
+- Verification:
+  - `cd web && npm run lint -- src/components/WebPushRegistrar.tsx src/lib/web-push-registration-policy.ts src/lib/web-push-registration-policy.test.ts`
+  - `node --test web/src/lib/admin-web-public-paths.test.ts web/src/lib/web-push-registration-policy.test.ts`
+  - `cd web && SENTRY_AUTH_TOKEN='' SENTRY_DISABLE_UPLOAD=1 npm run build`
+
+## 2026-07-13 | Deep-scan artifact validation | PowerShell parser and working-directory assumptions created false signals
+
+- Symptom:
+  - `ConvertFrom-Json` reported failures on large valid JSONL rows, and one worker setup created stray `deep_discovery/worker-01` through `worker-06` directories outside the intended `round-03` root.
+- Root cause:
+  - Console-oriented PowerShell parsing was used as the JSONL authority, and a relative worker path was resolved from the wrong current directory.
+- Permanent guardrail:
+  - Validate JSONL with a standards-compliant streaming parser and record line count, schema keys, types, and exact-once trace checks; do not treat PowerShell rendering/parser output alone as corruption evidence.
+  - Resolve scan artifact directories to absolute paths and assert the expected `round-03/worker-*` parent before creating or writing anything.
+  - If a wrong empty artifact directory is created, verify its absolute path and emptiness before removal, then record the correction in the harness.
+- Verification:
+  - Central validation passed all six round-03 workers with 4,381 work-ledger rows each, 971 tree paths, unchanged input hashes, valid locations, canonical schemas, and zero validation errors.
+
+
 ## 2026-07-06 | Identity Gate Used Stale Public Fields | home unlock trusted masked resident/address remnants
 - Symptom:
   - A pre-registration/full-registration account without resident number and address could still land on the full home screen instead of `home-lite`.
@@ -3426,3 +3956,1755 @@
   - `lib/__tests__/signup-completion-regression.test.ts`
 - Verification:
   - RED/GREEN `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand`
+
+## 2026-07-08 | Designer Bootstrap Missed GaramIn Login Rows | request_board-only account add broke cross-system parity
+- Symptom:
+  - A new request_board designer could exist in GaramLink, but GaramIn login for the same phone still returned the unregistered-phone path.
+- Root cause:
+  - The operational add was scoped to request_board `users`/`designers` and workbook data, but GaramIn login requires matching `fc_profiles` and `fc_credentials`.
+  - request_board-linked designers are detected through `fc_profiles.affiliation = '<company> 설계매니저'`; without that exact marker and credential row, `login-with-password` cannot issue designer bridge mode.
+- Why it was missed:
+  - Existing docs stated the storage model, but no test or runbook forced a post-add parity check across the two Supabase projects.
+- Permanent guardrail:
+  - Designer bootstrap is complete only after request_board and GaramIn/fc-onboarding-app rows both exist.
+  - request_board `npm run ops:check-designer-parity -- --phone <phone> --company <company>` must pass after every designer add/change.
+  - `supabase/functions/_shared/__tests__/request-board-auth.test.ts` guards the affiliation parser used by GaramIn login/bridge.
+- Related files:
+  - `supabase/functions/_shared/request-board-auth.ts`
+  - `supabase/functions/_shared/__tests__/request-board-auth.test.ts`
+  - `docs/handbook/shared/cross-repo-bridge-contract.md`
+- Verification:
+  - `npm test -- --runInBand supabase/functions/_shared/__tests__/request-board-auth.test.ts`
+
+## 2026-07-16 | Local MCP Configuration Was Tracked | local credentials entered repository history
+- Symptom:
+  - A machine-local MCP configuration path was present in the tracked tree and reachable history.
+- Root cause:
+  - The repository ignored other local tool settings but did not ignore the VS Code MCP configuration path.
+- Permanent guardrail:
+  - Keep local MCP configuration in environment variables or an approved secure store; never commit the machine-local file.
+  - Never copy credential values into examples, logs, screenshots, test fixtures, receipts, or assistant knowledge.
+  - Verify the exact local path is ignored before configuring an MCP integration.
+- Verification:
+  - `git check-ignore --no-index -q -- .vscode/mcp.json`
+  - Confirm the path is absent from the candidate tree without opening or diffing its contents.
+
+## 2026-07-16 | Narrow Type Checks Hid Full-Gate Failures | local suites passed while repository-wide TypeScript gates stayed red
+- Symptom:
+  - The web and Edge Function focused tests passed, but the full web TypeScript check and all-function Deno check still reported errors.
+- Root cause:
+  - Test-only `.ts` imports were not enabled for the web no-emit check, a local `d3-force` declaration was incomplete, and several Edge Function result unions were accessed without an explicit failure discriminant.
+  - A password-reset database row was asserted into an application type instead of being decoded at the runtime boundary.
+- Permanent guardrail:
+  - Run web source-inspection tests from the FC repository root because their fixture paths intentionally resolve from `process.cwd()`.
+  - Keep `allowImportingTsExtensions` paired with the web `noEmit` contract; do not exclude tests to make TypeScript green.
+  - Narrow result unions with an explicit literal failure check and decode unknown database rows before use; do not use casts, `any`, `@ts-ignore`, or relaxed compiler settings to silence a full-entrypoint error.
+- Verification:
+  - `cd web && npx tsc --noEmit --pretty false`
+  - Run all 46 tracked `supabase/functions/*/index.ts` entrypoints through `deno check --frozen --config supabase/functions/deno.json`.
+  - Run web Node source-inspection tests from the repository root.
+
+## 2026-07-16 | Reusable Codex Fallback Pinned A Model | subscription and runtime portability drifted
+- Symptom:
+  - The paused insurance digest fallback passed an explicit model option even though reusable automation must follow the installed Codex default.
+- Root cause:
+  - The fallback encoded a one-time model choice inside the operational script, and no test treated model independence as part of the automation contract.
+- Why it was missed:
+  - Existing ops tests covered payload, token, category, idempotency, and redaction behavior but did not inspect the PowerShell launcher arguments.
+- Permanent guardrail:
+  - Reusable Codex launchers must omit `-m` and `--model` unless a separately approved contract requires a pin.
+  - `scripts/ops/post-insurance-digest.test.mjs` must read the fallback source and fail if either model option is reintroduced.
+- Verification:
+  - `node --test scripts/ops/post-insurance-digest.test.mjs` (15/15)
+  - all `scripts/ops/*.test.mjs` (28/28)
+
+## 2026-07-20 | FC Home Realtime Topic Reuse | React effect 재연결이 이미 구독된 채널에 콜백을 추가
+- Symptom:
+  - Android 개발 빌드의 FC 홈에서 `cannot add postgres_changes callbacks ... after subscribe()` Render Error가 발생했다.
+  - 기존 channel topic에 FC 식별값이 포함되어 개발 오류 화면에도 식별값이 노출됐다.
+- Root cause:
+  - `@supabase/realtime-js 2.109.0`은 같은 topic의 기존 채널을 재사용한다.
+  - React 개발 effect cleanup의 비동기 `removeChannel()`이 끝나기 전에 effect가 다시 실행되면 같은 topic이 이미 구독된 채널을 반환했고, 이어지는 `.on('postgres_changes', ...)`가 예외를 던졌다.
+- Permanent guardrail:
+  - React effect가 소유하는 Realtime 채널은 각 setup마다 비식별 고유 topic을 생성하고 cleanup은 그 인스턴스만 제거한다.
+  - 전화번호, 주민 식별값, 내부 FC id를 channel topic이나 오류 메시지에 포함하지 않는다.
+  - `residentId`는 현재 휴대폰 번호일 수 있으므로 공통 진단 마스커는 주민번호와 전화번호 규칙을 모두 적용한다.
+  - `lib/__tests__/home-realtime-channel.test.ts`가 topic 고유성과 홈 source의 식별값 없는 topic 사용을 고정한다.
+- Related files:
+  - `app/index.tsx`
+  - `lib/home-realtime-channel.ts`
+  - `lib/__tests__/home-realtime-channel.test.ts`
+  - `lib/sentry-sanitize.ts`
+  - `web/src/lib/sentry-sanitize.ts`
+
+## 2026-07-20 | Admin Login Request Had No Deadline | stalled API looked like a dead button
+- Symptom:
+  - The admin web login button accepted a click, but a stalled `/api/auth/login` request left the user waiting without a terminal result.
+- Root cause:
+  - Neither the browser proxy request nor the server-side `login-with-password` Edge Function invocation had a bounded timeout.
+  - A cold or unhealthy local Next.js server could therefore make a wired, enabled button appear inert.
+- Permanent guardrail:
+  - Keep the Supabase login invocation timeout shorter than the browser proxy timeout so the API normally returns a structured `504` first.
+  - Treat browser `TimeoutError` and Supabase-wrapped `AbortError` as expected transport failures with a retryable Korean message.
+  - Never log the submitted phone number, password, token, or raw upstream body while diagnosing login transport failures.
+- Related files:
+  - `web/src/app/auth/page.tsx`
+  - `web/src/app/api/auth/login/route.ts`
+  - `web/src/lib/admin-web-login-timeout.ts`
+- Verification:
+  - `node --test web/src/lib/admin-web-login-timeout.test.ts web/src/lib/admin-web-auth-login-proxy-source.test.ts`
+
+## 2026-07-20 | React Native JSX whitespace | same-line closing tags emitted a raw text child
+- Symptom:
+  - Android Fabric reported `Text strings must be rendered within a <Text> component` while rendering the Request Board customer list.
+- Root cause:
+  - `app/request-board-create.tsx` placed `</View>` and `</Pressable>` on the same line with spaces between them. Babel preserved those spaces as a string child of `Pressable`.
+  - Shared icon/value slots also accepted broad `ReactNode` values even though they render directly below native container hosts, allowing a future number or string to reproduce the same failure.
+- Permanent guardrail:
+  - Put adjacent closing JSX tags on separate lines in React Native container trees.
+  - Type element-only slots as `ReactElement`, not `ReactNode`.
+  - Keep `lib/__tests__/react-native-text-child-contract.test.ts` scanning all mobile TSX for emitted same-line whitespace children and inferred string/number children below native containers.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `app/dashboard.tsx`
+  - `components/Button.tsx`
+  - `components/FormInput.tsx`
+  - `lib/__tests__/react-native-text-child-contract.test.ts`
+## 2026-07-21 | Schema rollout | schema snapshot에만 manager token 역할을 추가하고 migration을 누락함
+
+- Symptom:
+  - Android 설계 매니저 로그인 직후 `device-token-register`가 500을 반환하고 네이티브 알림 토큰이 한 건도 등록되지 않았다.
+- Root cause:
+  - `supabase/schema.sql`과 앱/Edge 계약은 `device_tokens.role='manager'`를 사용했지만, 운영 constraint를 변경하는 migration이 없어서 원격 DB는 `admin`, `fc`만 허용했다.
+- Permanent guardrail:
+  - schema snapshot의 기존 constraint를 넓힐 때는 동일 변경을 소유하는 additive migration과 exact-role source contract를 함께 추가한다.
+  - 기기 토큰 등록 E2E에서는 함수 HTTP 성공뿐 아니라 역할별 토큰 row count와 최신 등록 시각을 개인정보 없이 확인한다.
+- Verification:
+  - `lib/__tests__/priority-security-hardening.test.ts`
+  - `supabase/migrations/20260721052837_allow_manager_device_tokens.sql`
+
+## 2026-07-21 | Mobile mutation feedback | successful quick-card rejection had no confirmation
+
+- Symptom:
+  - A designer rejection completed successfully from the Request Board home card, but the modal simply closed and refreshed, leaving the user unsure whether the action succeeded.
+- Root cause:
+  - The home quick-card success branch reset local state and fetched fresh data without showing the success alert already used by the detailed review screen.
+- Permanent guardrail:
+  - Every user-triggered Request Board state transition must expose an explicit success acknowledgement before background refresh work.
+  - Keep source-contract coverage for both failure and success feedback on quick-card mutation paths.
+- Verification:
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+
+## 2026-07-22 | Cross-repo timeout drift | notification fanout outlived the mobile create deadline
+
+- Symptom:
+  - GaramIn reported that GaramLink was delayed while creating a design request, even though the server could already have committed the request.
+- Root cause:
+  - The mobile Request Board wrapper applied one eight-second timeout to every call.
+  - The server had been changed to await bounded web, native, and AlimTalk notification fanout before returning from `POST /api/requests`, but the mobile write timeout contract was not updated with it.
+- Permanent guardrail:
+  - Keep a short default timeout for ordinary mobile calls and an explicit longer bound for response-before-return notification writes.
+  - Never automatically retry request creation after a transport timeout; the primary write may already be durable and an automatic retry can duplicate it.
+  - Any server change that moves notification work before the response must update and test every calling client's timeout budget in the same increment.
+- Verification:
+  - `lib/__tests__/request-board-api-contract.test.ts`
+
+## 2026-07-22 | Mobile request workflow performance | optional work blocked first render
+
+- Symptom:
+  - GaramIn design-request home, list, and create pages felt slow even when the primary data needed for the first screen was already available.
+- Root cause:
+  - Mount, focus, and app-active lifecycle events could start duplicate home refreshes.
+  - The list waited for per-rejected-assignment detail hydration, and its 100-row response requested attachments whose signed URLs were not used by the mobile list.
+  - The create screen kept a full-screen loader until customer, product, designer, and FC-code catalogs all completed.
+- Permanent guardrail:
+  - Coalesce passive lifecycle refreshes, render primary rows before optional enrichment, use an explicit attachment-free summary projection for summary clients, and reveal each workflow step as soon as its own required data is ready.
+  - Keep forced refresh for user intent and successful mutations, sequence-guard background enrichment, and preserve the server's attachment-inclusive default for existing clients.
+- Verification:
+  - `lib/__tests__/request-board-refresh-policy.test.ts`
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+  - `lib/__tests__/request-board-api-contract.test.ts`
+
+## 2026-07-22 | Exam registration mobile UX | resized viewport did not reveal focused inputs
+
+- Symptom:
+  - Admin/general-affairs users could focus lower exam-registration inputs, but Android did not scroll them above the opened keyboard. The location-add action also stayed pale orange while enabled, and older rounds appeared before newer ones.
+- Root cause:
+  - The Fabric-safe Android path correctly avoided the shared keyboard-aware wrapper but had no replacement focused-input scroll after `adjustResize`.
+  - Location-add reused a secondary pale style without tying its disabled state to trimmed input validity.
+  - Both registration screens duplicated an ascending exam-date sort.
+- Permanent guardrail:
+  - Keep one plain Android `ScrollView`, pair it with viewport avoidance and keyboard-after-show focus scrolling, make action color follow real validity, and centralize shared newest-first ordering for both exam types.
+- Verification:
+  - `lib/__tests__/exam-flow-contract.test.ts`
+
+## 2026-07-21 | UI 분류 정렬 | 본부명을 문자열로 정렬해 10본부가 1본부 앞에 배치됨
+
+- 증상: 고정 빠른 분류를 추가한 첫 테스트에서 `10본부`가 `1본부`보다
+  먼저 표시됐습니다.
+- 원인: 숫자가 포함된 본부명을 일반 문자열 비교로 정렬했습니다.
+- 영구 방지책: `N본부` 접두사의 숫자를 추출해 수치 정렬하고, 1·2·6·8·9·10
+  순서를 회귀 테스트로 고정합니다.
+- 검증: `web/src/lib/exam-applicant-list-display.test.ts`
+
+## 2026-07-21 | Vercel alias drift | 최신 Production 배포가 운영 주소에 반영되지 않음
+
+- Symptom:
+  - 최신 관리자 웹 배포는 `READY`였지만 운영자가 사용하는 `adminweb-red.vercel.app`에서는 로그인 버튼이 이전처럼 반응하지 않는 것으로 보였다.
+- Root cause:
+  - CLI Production 배포가 Vercel 생성 alias만 갱신했고, 별도 운영 alias는 2026-07-08 배포에 남아 있었다.
+- Permanent guardrail:
+  - 관리자 웹 배포 완료 조건에는 배포 자체의 `READY`뿐 아니라 실제 운영자 hostname이 같은 deployment ID로 해석되는지 확인하는 단계를 포함한다.
+  - 운영 alias가 별도라면 배포 직후 명시적으로 재연결하고, 운영 hostname에서 핵심 화면의 현재 변경 문구를 aggregate-only로 확인한다.
+- Verification:
+  - Vercel deployment lookup for generated Production hostname and `adminweb-red.vercel.app`.
+
+## 2026-07-21 | Browser QA privacy | 광범위 대시보드 DOM 출력에 운영 행 값이 포함됨
+
+- Symptom:
+  - 운영 alias 재연결 뒤 대시보드 진입을 확인하는 과정에서 전체 DOM snapshot 1회가 ephemeral tool output에 출력됐고, 11자리 숫자 패턴 60개가 포함됐다.
+- Root cause:
+  - 인증 성공 여부만 확인하면 되는 단계에서 URL·heading·필수 label 같은 제한된 신호 대신 broad snapshot을 출력했다.
+- Permanent guardrail:
+  - 운영 데이터 화면에서는 DOM snapshot 원문을 출력하지 않는다. snapshot은 메모리에서만 판정하고 URL, boolean, count, opaque hash만 보고한다.
+  - 이번 ephemeral observation의 SHA-256은 `cb9504f911b9bd3af0aaf62e84d7bd6e93c8c6150b671ab89362bc8b071529b5`이며, 영구 파일·하네스·로그 사본은 생성하지 않았다.
+- Verification:
+  - 후속 시험 신청자 확인은 네 개 기대 label의 존재 boolean만 반환했다.
+
+## 2026-07-22 | Browser QA privacy repeat | 인증 입력 DOM snapshot이 필드 내용을 노출함
+
+- Symptom:
+  - 로그인 버튼의 활성 상태만 확인하면 되는 조사에서 인증 화면 전체 DOM snapshot을 출력해 채워진 인증 필드 내용이 ephemeral tool output에 포함됐다.
+- Root cause:
+  - 이전 guardrail을 운영 데이터 테이블에만 좁게 적용하고, 로그인·비밀번호 재설정·OTP 화면도 동일한 민감 화면으로 분류하지 않았다.
+- Permanent guardrail:
+  - 인증 화면에서는 전체 DOM snapshot, visible DOM, screenshot을 출력하지 않는다. locator가 필요하면 접근성 이름만 포함된 새 빈 세션을 사용하고, 이미 값이 채워진 화면에서는 `count`, `isEnabled`, `disabled`, `aria-*`, URL 같은 제한된 속성만 읽는다.
+  - 도구 출력에 포함된 인증 필드 내용은 복사·기록·재사용하지 않으며, 파일·로그·Sentry·보고서에 남기지 않는다.
+- Verification:
+  - 후속 확인은 로그인 버튼의 count/enabled/disabled 속성과 콘솔 오류 개수만 반환했다.
+
+## 2026-07-22 | RPC rollout order | exam caller가 운영 migration보다 먼저 활성화됨
+
+- Symptom:
+  - 관리자 웹 시험 일정 등록이 반복적으로 `PGRST202`로 실패했다.
+- Root cause:
+  - RPC-required admin web artifact가 Production에 활성화됐지만 `20260712000002_atomic_exam_round_save.sql`은 FC 운영 migration history에 없었다.
+- Permanent guardrail:
+  - exam RPC caller 배포 전 `to_regprocedure` 존재, service-role execute grant, anon/authenticated revoke, atomic behavior를 운영에서 확인하고 그 증거가 없으면 기능을 활성화하지 않는다.
+  - 누락 시 다중 쿼리 fallback을 추가하지 않고 additive migration을 먼저 적용한다.
+- Verification:
+  - Vercel error group `PGRST202`, Supabase migration list, read-only function existence query.
+
+## 2026-07-22 | Realtime effect reconnect | 구독 중인 동일 topic을 재사용함
+
+- Symptom:
+  - 시험 신청 화면이 개발 모드 effect 재연결 중 `postgres_changes` callback을 `subscribe()` 이후 추가했다는 Render Error로 중단됐다.
+- Root cause:
+  - 현재 Realtime client는 같은 topic의 채널을 재사용한다. effect cleanup의 비동기 leave가 끝나기 전에 같은 개인 식별 기반 topic으로 재실행되어 이미 joining/joined 상태인 채널에 `.on()`을 호출했다.
+- Permanent guardrail:
+  - effect 실행마다 개인 식별값이 없는 고유한 channel topic을 생성하고, 모든 `.on()`을 `.subscribe()` 전에 등록하며, cleanup에서는 그 실행이 만든 정확한 채널만 제거한다.
+- Verification:
+  - `lib/__tests__/exam-flow-contract.test.ts`
+
+## 2026-07-22 | Applicant detail classification | 선택 row만 먼저 조회해 재신청 이력을 잃음
+
+- Symptom:
+  - 신청자 상세 API가 선택된 registration 하나만 분류기에 전달하면 이전 동일 과목 신청이 있어도 `신규신청`으로 표시될 수 있었다.
+- Root cause:
+  - 목록 최적화를 상세 조회에 그대로 적용하면서 `신규신청/재신청`이 과거 신청 이력을 필요로 하는 파생 상태라는 점을 query scope보다 뒤에서 고려했다.
+- Permanent guardrail:
+  - 선택 registration을 먼저 찾고 동일 신청자의 해당 시점까지 이력을 조회해 분류한 다음, enrichment 직전에 선택 ID로 좁힌다.
+  - 상세 API source contract는 ID lookup, resident history lookup, post-classification ID filter를 함께 고정한다.
+- Verification:
+  - `web/src/lib/exam-applicant-detail-source.test.ts`
+
+## 2026-07-22 | React mapped header keys | helper가 반환한 `<th>`에 stable key가 없음
+
+- Symptom:
+  - 시험 신청자 테이블 렌더링에서 `Each child in a list should have a unique key prop` 경고가 발생했다.
+- Root cause:
+  - `EXAM_APPLICANT_EXPORT_COLUMNS.map()`이 호출하는 `renderHeader`가 fragment가 아닌 `<Table.Th>`를 직접 반환하면서도 key를 소유하지 않았다.
+- Permanent guardrail:
+  - map callback helper가 최상위 React element를 반환하면 helper의 안정적인 식별자(`field`)를 그 element의 `key`로 사용한다.
+  - applicant source contract에서 일반 헤더와 action 헤더 모두 같은 keyed root를 사용하도록 고정한다.
+- Verification:
+  - `web/src/lib/exam-applicant-detail-source.test.ts`
+
+## 2026-07-23 | Admin direct-chat push | fire-and-forget가 저장 성공 뒤 알림 실패를 숨김
+
+- Symptom:
+  - 관리자 웹 채팅에는 메시지가 정상 저장됐지만 가람in 휴대폰 알림이 뜨지 않았고, 관리자 화면에도 전달 실패 신호가 없었다.
+- Root cause:
+  - 메시지 insert 뒤 `/api/fc-notify`를 `void`로 실행해 브라우저 lifecycle 취소 가능성을 남겼고, HTTP/downstream 응답의 `logged`와 `sent`를 검증하지 않았다.
+  - 알림 성공을 메시지 저장 성공과 분리하면서도 post-commit 전달 확인 계약과 부분 실패 UI를 만들지 않았다.
+- Permanent guardrail:
+  - 사용자 메시지 저장 뒤 푸시 fanout은 post-commit으로 완료를 확인하되, 실패해도 저장된 메시지를 rollback하거나 입력창에 복원하지 않는다.
+  - 브라우저 알림 요청은 이탈 내성을 갖고, HTTP 2xx뿐 아니라 프록시/downstream 성공, notification row 저장, 최소 1개 기기 대상을 검증한다.
+  - 진단에는 고정 reason/status와 aggregate count만 남기고 수신자, 본문, 토큰, raw provider response를 기록하지 않는다.
+- Verification:
+  - `lib/__tests__/admin-web-chat-source.test.ts`
+  - `web/src/lib/admin-chat-notification-result.test.ts`
+
+## 2026-07-23 | Notification success was inferred from transport success and subject identity was reused as recipient identity
+
+- Symptom:
+  - Saved messages and workflow updates appeared successful while inbox persistence, device targeting, or provider acceptance had failed.
+  - FC-to-admin workflow events could target the FC phone instead of the shared admin audience, and resolved group-chat managers could be filtered out afterward.
+- Root cause:
+  - Callers and fanout services used HTTP success or token count as delivery truth and did not preserve separate `logged`, attempted, accepted, and rejected states.
+  - Event-subject identifiers and notification-recipient identifiers were treated as interchangeable.
+- Permanent guardrail:
+  - Sender-visible delivery success is based on durable inbox persistence. Unread,
+    logged-out, no-device, zero accepted push, and provider rejection remain
+    receipt or operations telemetry and never produce a sender warning.
+  - A primary write is never rolled back or presented as unsaved because a
+    post-commit notification failed. Only durable inbox persistence failure may
+    show an exact inbox-registration warning, with an idempotent
+    notification-only retry that cannot duplicate the primary write.
+  - Every committed message source must return a stable notification-only retry
+    token on inbox persistence failure. The retry authenticates the original
+    sender, reloads the committed message and current audience server-side, and
+    upserts recipient delivery keys; it must never call the message mutation.
+  - Non-message FC workflow events use shared-admin scope (`target_id=null`); only direct message category may use a concrete staff target.
+  - Provider bodies, tickets, tokens, recipient identifiers, and message bodies are never logged or returned as diagnostics.
+- Verification:
+  - Pure provider/delivery classifiers, mobile/web source contracts, group-chat membership contracts, Edge Deno checks, and diagnostic privacy tests.
+
+## 2026-07-23 | Contract tests depended on one working directory and stale success payloads
+
+- Symptom:
+  - The full Node gate failed only when launched from the repository root, while the same source test passed from `web`.
+  - The Board Edge smoke test rejected a valid new response because its fixture and exact payload assertion still modeled the older fire-and-forget notification contract.
+- Root cause:
+  - A source test resolved files from `process.cwd()` instead of its own module location.
+  - The loopback notification fixture returned transport-only success and the smoke assertion did not cover the new saved-versus-delivered fields.
+- Permanent guardrail:
+  - Source tests resolve fixtures relative to `import.meta.url` and must pass from the canonical aggregate gate working directory.
+  - Edge smoke fixtures model confirmed provider delivery, and response assertions explicitly cover `saved`, bounded notification aggregates, and `notificationWarning`.
+- Verification:
+  - Aggregate Node test gate from the repository root and both Board Edge loopback smoke tests.
+
+## 2026-07-23 | Push registration was duplicated and a failed attempt suppressed later retries
+
+- Symptom:
+  - A signed-in design manager could keep using the app while the server had no usable manager-role device token, so Request Board notifications never reached the handset.
+  - A signed-in FC could also remain active after its trusted-server token row was absent, leaving a temporary-id notification in the inbox with zero Expo delivery attempts.
+- Root cause:
+  - Push registration was owned by both the home screen and the global session provider, and the attempt key was treated as complete before registration success was known.
+  - A successful registration or a permission-denied result was treated as complete for the rest of the process lifetime, so foreground resume did not reconcile a missing token or a permission change.
+- Permanent guardrail:
+  - The global session provider is the only push-registration owner. It derives designer sessions as `manager`, records the attempt key only after success or a terminal failure, and uses bounded retries plus app-foreground reconciliation after success, permission denial, or retry exhaustion.
+  - Unsupported platform, client, or device states remain terminal for the current process. Foreground reconciliation must reuse the single in-flight owner and must not print resident identifiers, notification contents, or push tokens.
+  - Concrete FC notification token queries remain role-bound. Only concrete `request_board_*` recipients may include both `fc` and `manager` token roles, followed by the manager-delivery policy and exact resident-id scope.
+- Verification:
+  - Push registration retry/source contracts, Request Board session contracts, FC notification role-policy tests, and the Edge Function Deno check.
+
+## 2026-07-23 | A stale screen identifier was trusted as the notification recipient
+
+- Symptom:
+  - A successful admin workflow mutation could save correctly but notify an obsolete phone value, leaving the current FC device without an inbox or push event.
+- Root cause:
+  - The mobile caller supplied both the stable FC id and a mutable phone field, and the privileged handler reused the client-provided phone as delivery authority.
+- Permanent guardrail:
+  - Privileged workflow callers send only the stable FC id. Immediately before each notification, the server resolves the latest completed FC profile and validates the canonical phone; lookup or delivery failure becomes a fixed post-commit warning and never falls back to another number.
+  - Boolean workflow notifications cover both transitions (`false -> true` and `true -> false`) instead of assuming that only approval is meaningful.
+- Verification:
+  - Canonical-recipient source tests, Edge Deno checks, workflow transition tests, and admin/mobile type and lint gates.
+
+## 2026-07-23 | Post-commit attachment work was presented as a failed primary mutation
+
+- Symptom:
+  - A saved board post or design request could show a full failure when attachment upload or delivery failed, encouraging the operator to submit the primary mutation again.
+- Root cause:
+  - Durable writes and external attachment side effects shared one success/failure boundary, and retry actions repeated create/update instead of retrying only the failed attachment stage.
+- Permanent guardrail:
+  - Preserve the committed entity id, return a partial-delivery warning, and make retries address only failed attachment work. A post-commit failure must never erase the saved result or call the primary mutation again.
+- Verification:
+  - Mobile/web board source contracts, Request Board attachment delivery tests, TypeScript, lint, and governance checks.
+
+## 2026-07-23 | A privileged Edge mutation trusted a claimed actor identifier
+
+- Symptom:
+  - A caller with the public application credential could claim a known administrator phone in the request body and reach service-role mutations without proving the corresponding signed app session.
+- Root cause:
+  - `admin-action` checked whether the claimed phone existed and was active, but did not bind that identity to a verified session token. Native session credentials were also eligible for plaintext AsyncStorage persistence.
+- Permanent guardrail:
+  - Service-role Edge mutations authorize only an exact service-role bearer or a verified signed app session whose canonical active database actor supplies role, phone, and staff type. Body actor fields are never an authorization source.
+  - Mobile callers use one authenticated invocation helper and fail locally if the signed session token is unavailable. Native auth and bridge tokens use secure storage first, with one-time migration and removal of legacy plaintext values.
+- Verification:
+  - Edge authorization policy tests, canonical actor tests, secure token-storage migration tests, Deno checks, mobile TypeScript/lint, and priority security gates.
+
+## 2026-07-23 | Direct-message and bridged-inbox checks covered only one side of each role mapping
+
+- Symptom:
+  - A stale FC device token could receive an admin direct message after the FC profile was no longer completed.
+  - A manager-backed Request Board designer could receive push delivery but see no matching inbox row or unread badge because the row used the FC wire role while the app session used the admin role.
+- Root cause:
+  - Active-recipient validation covered FC-to-staff messages but not the reverse direction.
+  - The bridge merge recognized only `requestBoardRole='fc'`, even though designer sessions use the same personal FC-role notification rows.
+- Permanent guardrail:
+  - Both direct-message directions validate the canonical active recipient before token lookup.
+  - Any personal admin-role Request Board bridge session may merge only its exact resident-id FC-role rows; designer sessions then restrict the visible/countable set to `request_board_*` categories and exclude notices.
+- Verification:
+  - FC notification auth-policy/source tests, mobile unread planning tests, Deno checks, and notification/request-board screen lint.
+
+## 2026-07-23 | Development type checks did not prove the Turbopack filesystem root
+
+- Symptom:
+  - Admin-web TypeScript passed, but the production build could not resolve shared notification code outside the nested `web` directory.
+  - A local production build later passed while the Vercel Git build still failed because the project Root Directory upload excluded the repository-parent module entirely.
+- Root cause:
+  - The TypeScript alias covered the repository parent while `turbopack.root` stopped at `web`; production compilation refuses files outside that root.
+  - Turbopack filesystem access and Vercel deployment upload scope were treated as the same boundary even though changing the compiler root cannot upload an excluded file.
+- Permanent guardrail:
+  - Runtime imports for a nested Vercel project must resolve to files inside its configured Root Directory unless the remote project explicitly includes outside-root source.
+  - When Edge Functions and Vercel need the same small pure contract, keep deployment-local implementations with focused parity tests instead of adding a runtime import across deployment roots.
+  - Production build remains a required release gate; lint and TypeScript alone are insufficient.
+- Verification:
+  - `lib/__tests__/agent-room-build-tracing.test.ts`
+  - `web/src/lib/expo-push-delivery.test.ts`
+  - Sentry-disabled `web` production build
+
+## 2026-07-23 | A new Edge failure diagnostic bypassed the closed diagnostic contract
+
+- Symptom:
+  - The full Jest gate rejected a two-argument `console.warn` added to the Expo push failure path.
+- Root cause:
+  - The change used a locally safe-looking aggregate reason but bypassed the repository's exact single-literal console allowlist and closed diagnostic schema.
+- Permanent guardrail:
+  - Variable Edge diagnostics must use `reportEdgeDiagnostic` with an enumerated event/reason pair; raw or locally structured console arguments remain forbidden.
+- Verification:
+  - `diagnostic-console-governance.test.ts`
+  - `diagnostic-privacy-source.test.ts`
+  - Deno check for `fc-notify` and the shared diagnostic helper
+
+## 2026-07-23 | Push registration raced ahead of secure app-session persistence
+
+- Symptom:
+  - A newly completed FC could actively use GaramIn and receive inbox rows while the server still had no device-token row, so temporary-id and other system pushes had no provider recipient.
+- Root cause:
+  - `loginAs` updated the in-memory session before the signed app-session token was guaranteed in secure storage, while trusted push registration read only the secure token helper.
+  - Repeating `loginAs` for the same visible identity did not change the registration key, so a failed first attempt could remain stale.
+  - Legacy session JSON still retained the credential even after secure token storage was introduced.
+- Permanent guardrail:
+  - Persist the signed app-session token through the secure boundary before triggering trusted registration, and advance a registration revision on every token replacement.
+  - Migrate legacy session-JSON tokens into secure storage during restore and never write them back into new session JSON.
+  - Keep product notification literals in UTF-8 source. Do not use a shell stdin pipeline for non-ASCII smoke payloads unless its encoding is explicitly controlled.
+- Verification:
+  - Secure-token migration and registration-revision source contracts, focused push tests, root TypeScript, scoped lint, governance, and one connected-handset provider smoke.
+
+## 2026-07-23 | Partial Edge deployment left app-session consumers on incompatible keys
+
+- Symptom:
+  - A valid FC account refreshed its app session successfully, but the referral page still displayed an invalid-session error and `get-referral-tree` repeatedly returned 401.
+- Root cause:
+  - The session issuer had been deployed with the dedicated FC app-session key while referral consumers still bundled the older verifier that accepted only the shared Request Board bridge key.
+  - Function version checks alone did not compare the bundled `_shared/request-board-auth.ts` contract across every signer and consumer.
+- Permanent guardrail:
+  - Treat every app-session signer and consumer as one compatibility cohort. Before and after deployment, verify the active bundle uses `FC_APP_SESSION_TOKEN_SECRET` plus `FC_APP_SESSION_TOKEN_PREVIOUS_SECRET` and has no legacy shared-key fallback in the app-session verifier.
+  - Run Deno checks for every function in the cohort and inspect response bodies (`ok: true`), not only HTTP status codes.
+  - Keep the previous dedicated key for the maximum issued-token lifetime when rotating the current key.
+- Verification:
+  - Six referral consumers passed Deno checks and 24 focused referral/session tests.
+  - All six active production bundles are JWT protected and use only the dedicated current/previous app-session verifier.
+  - A read-only production smoke returned `200 / ok: true` for both referral-code and referral-tree requests, and the new-version logs contained only those two 200 responses.
+
+## 2026-07-23 | Source contracts preserved superseded control-flow and build-root text
+
+- Symptom:
+  - The full Jest gate failed after accepted push-registration and Turbopack repairs even though focused behavior, TypeScript, and production builds were green.
+- Root cause:
+  - Source tests asserted one obsolete combined retry condition and an old `web`-only Turbopack-root comment instead of the current observable safety branches and repository-root compiler boundary.
+- Permanent guardrail:
+  - When an accepted repair deliberately splits a branch or changes a compiler boundary, update every source contract in the same change set to assert the durable invariants, not the retired line of code or comment.
+  - Focused tests are not a substitute for the full Jest gate before publication.
+- Verification:
+  - The updated contracts separately require successful registration, terminal non-retryable handling, permission-denied foreground containment, and the repository-root Turbopack configuration.
+  - Focused and full Jest are rerun before commit.
+
+## 2026-07-23 | A new Edge function repeated implicit failure-result narrowing
+
+- Symptom:
+  - Root TypeScript, focused payment-proof tests, and Production builds passed, but the all-function Deno gate found 11 accesses that were not narrowed to the failure side of result unions.
+- Root cause:
+  - The new handler used `if (!result.ok)` even though this Edge compiler configuration requires the explicit `result.ok === false` discriminant used by the repaired referral cohort.
+- Permanent guardrail:
+  - Every Edge result union must use an explicit literal discriminant before reading failure-only fields.
+  - New Edge functions must pass the repository-wide all-entrypoint Deno gate, not only focused Jest and root TypeScript.
+- Verification:
+  - The payment-proof source contract rejects implicit failure checks and requires all six explicit failure discriminants.
+  - Focused payment-proof tests and the all-entrypoint Deno gate are rerun.
+## 2026-07-24 | Document decision notifications | 일부 승인은 알림이 없고 외부 푸시가 관리자 응답을 지연함
+
+- Symptom:
+  - FC 서류 반려 알림은 도착했지만 마지막 전 일부 승인에는 알림이 없었고, 승인·미승인 버튼은 외부 푸시 제공자 응답까지 기다려 오래 걸렸다.
+- Root cause:
+  - 승인 알림 조건을 `allApproved`에만 묶었고, 상태 저장·알림함 저장·Expo/web-push 전송을 하나의 동기 요청 경계에 두었다.
+- Permanent guardrail:
+  - 승인과 반려 전이를 모두 명시적으로 테스트하고 각 전이마다 알림함 row를 1건 저장한다.
+  - 상태 변경 응답은 durable inbox 저장까지만 기다리며 provider fanout은 `after()`로 분리하고, provider-only helper는 알림함을 다시 insert하지 않는다.
+- Verification:
+  - `web/src/lib/admin-document-decision-notification-source.test.ts`
+
+## 2026-07-24 | Exam payment-proof RPC | 반환 열과 테이블 열의 같은 이름이 운영 신청을 409로 차단함
+
+- Symptom:
+  - 증빙 업로드는 200으로 끝났지만 신청 저장은 409였고 앱은 실제 원인을 숨긴 채 서버 연결 실패만 표시했다.
+- Root cause:
+  - `returns table (registration_id ...)` 출력 변수와 `exam_payment_proof_uploads.registration_id`를 PL/pgSQL에서 무수식으로 함께 사용해 열 참조가 모호해졌다.
+  - Supabase Functions의 non-2xx 응답 본문은 `error.context`에 있었지만 호출 helper가 `data`만 읽었다.
+- Permanent guardrail:
+  - table-returning PL/pgSQL 함수에서 출력 열과 겹칠 수 있는 모든 테이블 열은 alias로 수식한다.
+  - FunctionsHttpError의 구조화된 안전 메시지를 context에서 복원하는 source contract를 유지한다.
+- Verification:
+  - Production Postgres/Edge timestamp correlation, function-definition/privilege query, `lib/__tests__/exam-payment-proof-source-contract.test.ts`
+## 2026-07-24 | Post-commit notification diagnostics leaked into user success feedback
+
+- Symptom:
+  - Successful saves, approvals, applications, and messages repeatedly showed “알림 확인 필요” or “저장은 완료됐지만 알림 전달을 확인하지 못했습니다.”
+- Root cause:
+  - Provider delivery truth was correctly separated from the durable business write, but the diagnostic result was still mapped to a user-facing partial-success alert at many mobile and admin-web call sites.
+- Permanent guardrail:
+  - Once the primary business mutation is committed, provider/inbox delivery diagnostics stay machine-readable and developer-only unless notification delivery is itself the sole requested business action.
+  - Shared adapters log bounded codes/counts and return no user warning. Source contracts reject the retired warning copy across mobile, admin web, chat, group chat, board, and Request Board flows.
+- Verification:
+  - Full FC Jest, root/web TypeScript and lint, admin-web build, Expo export, governance, and a repository-wide warning-copy search.
+
+## 2026-07-24 | Real-data referral graph test drifted from the shipped runtime
+
+- Symptom:
+  - The only intentionally skipped admin-web test failed when enabled, reporting 15 edge crossings even though it simulated a force stack no longer used by `ReferralGraphCanvas`.
+  - Its diagnostics also selected a named FC and printed names for close-node and long-edge samples.
+- Root cause:
+  - The Production-data quality test copied an older physics configuration instead of following the current free-physics runtime contract.
+  - The topology sample and debug output were tied to personally identifying operating data.
+- Permanent guardrail:
+  - A real-data simulation test must use the same exported physics resolver, link-distance/strength helpers, and force composition contract as the shipped graph.
+  - Select topology samples by generic graph properties such as degree, and keep diagnostics aggregate-only; never print names, phone numbers, or stable account identifiers.
+  - Release verification must run the real-data test by default in the configured environment and report zero skipped tests.
+- Verification:
+  - Referral graph focused suite, complete admin-web Node suite, TypeScript, lint, Production build, governance, and privacy-safe source scan.
+
+## 2026-07-24 | Harness registry used an unsupported lifecycle value
+
+- Symptom:
+  - The central harness audit rejected a prior registry entry marked `completed`.
+- Root cause:
+  - The registry was updated without checking the allowed lifecycle enum.
+- Permanent guardrail:
+  - Use only `active`, `paused`, `blocked`, `archived`, or `abandoned` in the central harness registry.
+  - Run the workspace harness audit immediately after every registry lifecycle edit.
+- Verification:
+  - `node D:\hanhwa\codex-toolkit\scripts\audit-harnesses.mjs --check --workspace D:\hanhwa`
+
+## 2026-07-24 | Resident-number list repair temporarily bypassed the encrypted Edge fallback
+
+- Symptom:
+  - The first list-column implementation worked only when the admin web server
+    could decrypt directly and would have recreated the staff lookup failure in
+    deployments that intentionally rely on the encrypted Edge fallback.
+- Root cause:
+  - A new batch projection was implemented as a direct-only read instead of
+    extending the existing trusted fallback cohort.
+- Permanent guardrail:
+  - Every resident-number read surface must call the shared
+    direct-then-encrypted-Edge resolver, accept only full-format values from
+    `fc_identity_secure`, and fail closed per row.
+  - Tests must exercise direct success, encrypted Edge fallback, role denial,
+    stale scope cleanup, and sanitized provider failures.
+- Verification:
+  - Resident-number route, Edge executor/fallback, privacy, and visible-page
+    state suites.
+
+## 2026-07-24 | Recommender relation-only privilege leaked through broad legacy paths
+
+- Symptom:
+  - A dedicated manager/admin/developer relation route existed, but the broad
+    admin FC route could still search or mutate recommender data; inactive
+    manager shadows and formatted phone values also drifted between web and DB
+    eligibility checks.
+- Root cause:
+  - The new narrow exception was added without closing older mutation/search
+    paths or making the active-manager predicate atomic and normalization-
+    equivalent in PostgreSQL.
+- Permanent guardrail:
+  - Recommender changes have exactly one relation-only route with a mandatory
+    reason and server-derived actor metadata. Broad profile routes must reject
+    recommender fields.
+  - Eligibility must lock and recheck active manager ownership in the database,
+    normalize both compared phone values, and revoke unchecked helper access.
+  - Authenticated invite entry must discard signup-only referral state rather
+    than redirecting to a retired FC self-edit flow.
+- Verification:
+  - Referral permission, route policy, active-manager shadow, formatted-phone,
+    and signup completion suites.
+
+## 2026-07-24 | Password sync trusted transport possession without one-time upstream proof
+
+- Symptom:
+  - A shared transport token could accompany caller-supplied role data, and the
+    first signed-assertion revision could be replayed within its TTL.
+- Root cause:
+  - Transport authentication was treated as identity/role authorization, then
+    assertion nonce format was validated without authoritative consumption.
+- Permanent guardrail:
+  - Bind phone, upstream role, purpose, nonce, issued-at, and expiry in a
+    dedicated password-sync assertion; never reuse the bridge-login key.
+  - The receiver must consume only a SHA-256 nonce digest exactly once before
+    any credential or provenance mutation, and compare transport secrets with
+    fixed-length digests plus timing-safe equality.
+  - Manager-known passwords must never cross into Request Board.
+- Verification:
+  - FC assertion/key-rotation and password-sync Node/Deno suites plus Request
+    Board priority security and ACL contracts.
+
+## 2026-07-24 | Messenger schema drift hid anonymous writes and public attachments
+
+- Symptom:
+  - The deployed direct-message table and Storage bucket allowed broad
+    anonymous/authenticated reads or writes, while local canonical schema and
+    migration history did not contain the deployed table shape needed to audit
+    or harden it safely.
+- Root cause:
+  - A client-direct messaging path evolved outside the canonical schema
+    snapshot, and bucket URL-prefix checks were treated as ownership/type
+    validation.
+- Permanent guardrail:
+  - Every deployed messaging table, RLS policy, grant, trigger, bucket setting,
+    and object policy must have a forward migration plus canonical schema
+    representation.
+  - Message clients never write rows or public object URLs directly. Trusted
+    intents bind actor, conversation, canonical private path, delivery key,
+    size, type, hash, and expiry; commit and signed download recheck membership.
+  - Every attachment-bearing commit writes the canonical `file` message type,
+    and clients fail closed unless the returned commit proof, message ID, and
+    attachment count exactly match the request.
+  - Required PL/pgSQL inputs must be rejected with explicit `IS NULL` checks,
+    and identity/idempotency comparisons use `IS DISTINCT FROM`; SQL `CHECK`
+    constraints must not accidentally accept a NULL/unknown result.
+  - Account-deletion triggers must move attachment batches to a terminal state
+    before parent rows cascade, and every attachment foreign key/check must be
+    tested against that terminal transition (including already terminal rows).
+  - Direct attachment reserve/commit/account-delete paths share the lock order
+    actor or owner, then sorted conversation, then batch. Broadcast cleanup
+    reconciles from durable conversation IDs because legacy account deletion
+    can remove message rows before the profile trigger runs.
+  - A durable cleanup outbox is incomplete without an authenticated production
+    scheduler that expires intents and drains both immediate and post-token
+    jobs; scheduler rollout is a release condition, not an optional follow-up.
+  - Storage objects are removed only through the Storage API, never by deleting
+    `storage.objects` metadata directly.
+- Verification:
+  - Read-only production schema/policy drift preflight, migration source
+    contracts, actor/foreign-intent negatives, signed-download authorization,
+    and upload/delete Storage smokes.
+
+## 2026-07-24 | Test bypasses and session signing keys failed open in production paths
+
+- Symptom:
+  - A public password-reset Edge function enabled a fixed SMS bypass when
+    configuration was absent, and staff cookies could be signed with unrelated
+    auth or Supabase service-role keys.
+- Root cause:
+  - Development convenience defaults and key fallbacks were embedded directly
+    in externally reachable production modules without an environment fail-
+    closed boundary or key-domain separation contract.
+- Permanent guardrail:
+  - SMS/OTP bypasses default off, have no fixed fallback code, and throw before
+    handlers or service-role writers in hosted/production runtimes. Explicit
+    bypass is local-development-only and requires a configured six-digit code.
+  - Staff cookies use only dedicated current/previous secrets; auth, NextAuth,
+    bridge, and service-role keys are forbidden fallbacks.
+  - Every public OTP/reset Edge entrypoint must have unset, production-true,
+    normal hash/expiry, and downstream-writer ordering regression coverage.
+- Verification:
+  - Password-reset and signup-OTP security source contracts, affected Edge Deno
+    checks, staff-session rotation tests, web TypeScript, targeted lint, and
+    independent security evaluation.
+
+## 2026-07-25 | Attachment boundary checks diverged across clients, proxy auth, and OOXML parts
+
+- Symptom:
+  - The web attachment proxy supplied both a service key and an app-session
+    token, but the Edge resolver chose the service branch first and rejected
+    normal web users.
+  - Web direct/group clients treated a successful HTTP response as file-send
+    success without proving the attachment commit, canonical `file` message
+    type, and exact attachment count.
+  - OOXML inspection rejected external relationships only in the package root,
+    allowing nested Word/Excel/PowerPoint `*.rels` files to reference external
+    HTTP, SMB, or file targets.
+- Root cause:
+  - Authentication precedence, response validation, and container inspection
+    were implemented at individual surfaces instead of one explicit
+    end-to-end attachment contract.
+- Permanent guardrail:
+  - An explicit app-session header always selects app-session validation; an
+    invalid session must never fall through to service authorization. Service
+    identity claims are accepted only when no app-session header is present.
+  - Every attachment client must fail closed unless the response includes a
+    non-null commit proof, canonical `file` message type, and the exact requested
+    attachment count before clearing the draft.
+  - Inspect every bounded, case-insensitive OOXML `*.rels` entry and reject all
+    normalized `TargetMode=External` relationships while retaining root package
+    type validation.
+- Verification:
+  - Attachment auth precedence/invalid-session tests, shared web commit-response
+    tests across direct/group surfaces, and malicious nested DOCX/XLSX/PPTX
+    relationship tests.
+
+## 2026-07-25 | Referral event filters exceeded PostgREST URL limits and mimicked read-only access
+
+- Symptom:
+  - The referral-code dashboard returned 500 once the FC population grew, while
+    valid developer sessions were shown a read-only warning.
+- Root cause:
+  - One GET filter repeated every FC UUID in both inviter and invitee `in(...)`
+    clauses. Supabase rejected the oversized `referral_events` URL with 400.
+  - The client treated a missing permission payload during that failure as
+    `canMutate: false`, making a data error look like an authorization decision.
+- Permanent guardrail:
+  - Bound PostgREST filter cardinality, merge chunk results by stable event ID,
+    and restore global ordering after the merge.
+  - Render read-only state only after server permissions resolve; loading and
+    query failures must not be presented as role restrictions.
+- Verification:
+  - A 447-FC chunking regression, cross-chunk deduplication/order tests, and
+    developer/manager permission-display tests.
+
+## 2026-07-25 | Whole-schema negative assertions blocked an additive actor contract
+
+- Symptom:
+  - Adding manager audit support to a new exam-submission RPC failed an older
+    transition test even though manager transitions remained forbidden.
+- Root cause:
+  - The regression asserted that an actor string was absent from the entire
+    schema instead of inspecting the function whose authorization boundary it
+    intended to protect.
+- Permanent guardrail:
+  - Scope security source assertions to the canonical function, policy, or
+    handler under test. Do not use whole-schema negative string assertions when
+    another additive workflow may legitimately use the same role name.
+- Verification:
+  - The transition matrix test now extracts
+    `transition_exam_registration`; the separate proxy-application contract
+    verifies manager audit and target snapshots in v3.
+
+## 2026-07-25 | Completed FC profiles were not sufficient proxy-target evidence
+
+- Symptom:
+  - The staff proxy exam selector could include completed profiles that also
+    represented a headquarters manager, linked designer, general-affairs
+    operator, administrator, or developer.
+- Root cause:
+  - The initial target contract filtered signup state and manager shadow rows
+    but did not reconcile canonical staff accounts and designer affiliation
+    markers before treating every remaining profile as a pure FC.
+- Permanent guardrail:
+  - Staff-assisted selectors must derive pure-FC eligibility on the server:
+    completed non-shadow profile, no linked-designer affiliation, and no active
+    manager or admin-account phone overlap.
+  - Apply the same rule to direct target-ID validation; client-side hiding is
+    not an authorization boundary. Preserve explicitly documented legacy
+    self-application paths separately.
+- Verification:
+  - Edge source contract, v3 migration/schema parity, Deno contract tests, and
+    production aggregate preflight for the resulting pure-FC population.
+
+## 2026-07-26 | UUID identity backfill used an unsupported aggregate
+
+- Symptom:
+  - The typed-notification production migration stopped at the deterministic
+    legacy actor backfill with `function min(uuid) does not exist`.
+- Root cause:
+  - The query already proved exactly one matching active identity but then used
+    `min(uuid)` to select it. PostgreSQL does not provide that aggregate for
+    UUID values.
+- Permanent guardrail:
+  - After an exact-one cardinality predicate, use a scalar UUID select directly.
+    Do not introduce numeric/text ordering aggregates for UUID identity
+    selection, and retain the duplicate-mapping fail-closed predicate.
+- Verification:
+  - The notification migration source contract rejects UUID `min(...)`, focused
+    Jest coverage passes, and the production migration is retried only after
+    confirming the failed transaction left no recorded migration version.
+
+## 2026-07-26 | PL/pgSQL mixed a row variable with a scalar INTO target
+
+- Symptom:
+  - The typed-notification migration next stopped while compiling
+    `transition_exam_registration` with `record variable cannot be part of
+    multiple-item INTO list`.
+- Root cause:
+  - One query selected a composite registration row and scalar exam type into a
+    `%rowtype` variable plus a text variable. PL/pgSQL does not allow a record
+    variable in a multi-item `INTO` list.
+- Permanent guardrail:
+  - Lock and load the registration row with `SELECT registration.* ... FOR
+    UPDATE`, validate it, then load immutable round metadata in a separate
+    scalar query.
+- Verification:
+  - The base exam migration, typed-notification replacement, and canonical
+    schema share the two-step form, with a regression assertion that rejects
+    the mixed `INTO` pattern.
+
+## 2026-07-26 | Out-of-order reconciliation attempted to downgrade an RPC result contract
+
+- Symptom:
+  - The legacy exam-bundle migration stopped with `cannot change return type of
+    existing function` after the newer typed-notification migration had already
+    installed a seven-column `transition_exam_registration` result.
+- Root cause:
+  - Production migration history required reconciling an older timestamp after
+    a newer migration. The older migration unconditionally used `CREATE OR
+    REPLACE` for the same function signature with only five output columns,
+    which PostgreSQL forbids and would have downgraded the newer contract.
+- Permanent guardrail:
+  - Reconciliation-safe migrations must detect and preserve a newer compatible
+    function contract when historical migrations are applied out of timestamp
+    order. Never replace a newer RPC result shape with a legacy one.
+- Verification:
+  - The legacy transition installer now skips itself when the typed
+    `notification_id` result is present; the failed transaction recorded no
+    partial migration, and the retry is preceded by focused contract tests and
+    a two-migration dry run.
+
+## 2026-07-26 | Profile ACL containment broke RLS helper evaluation
+
+- Symptom:
+  - The mobile admin dashboard failed to load FC rows with
+    `permission denied for table profiles`, and an already-open FC lite home
+    could not re-evaluate a completed identity profile.
+- Root cause:
+  - The containment migration correctly removed anon access to
+    `public.profiles`, but existing `fc_profiles` RLS policies still invoked
+    invoker-security helpers (`is_admin`, `is_manager`, `is_fc`, and
+    `current_fc_id`) that selected from the newly protected table. PostgreSQL
+    may evaluate those policy expressions even when another OR branch permits
+    the request.
+- Permanent guardrail:
+  - Profile-backed RLS identity helpers must be bounded `SECURITY DEFINER`
+    functions with a fixed search path, explicit execute grants, and no ability
+    to return arbitrary profile rows. Do not restore anon table access to make
+    an RLS helper work.
+- Verification:
+  - The production anon role can again select `fc_profiles`, still receives
+    401 for direct `profiles` access, the four helpers are security-definer,
+    and the containment contract covers the migration and canonical schema.
+
+## 2026-07-26 | Android month-conflict alert could leave a blocking dim layer
+
+- Symptom:
+  - Selecting another exam in an already occupied month showed the expected
+    rejection message, but on Samsung Android the screen could remain dimmed
+    and stop accepting touches after the dialog disappeared.
+- Root cause:
+  - The local month-slot guard used a native modal `Alert` for a non-destructive
+    selection warning. On the affected Android dialog/window path, the native
+    dim layer could outlive the visible dialog.
+- Permanent guardrail:
+  - Android selection-only conflicts must use non-modal feedback. Reserve
+    native modal dialogs for actions that require an explicit confirmation
+    choice.
+- Verification:
+  - Life and nonlife pages now share an Android `ToastAndroid` month-conflict
+    path, retain the same explanatory copy, and have a source contract that
+    rejects the old modal alert call.
+
+## 2026-07-26 | Non-terminating PowerShell RNG failure still fed Vercel stdin
+
+- Symptom:
+  - The first staff-session secret setup command called a static cryptographic
+    RNG method unavailable in the installed Windows PowerShell runtime.
+    PowerShell treated the method error as non-terminating and continued to the
+    Vercel environment-variable command.
+- Root cause:
+  - The command did not set `$ErrorActionPreference = 'Stop'` before generating
+    and piping the value, and assumed a newer .NET RNG API was available.
+- Permanent guardrail:
+  - Secret-generation commands must fail closed before any external write.
+    Use `RandomNumberGenerator.Create().GetBytes(...)` for Windows PowerShell
+    compatibility, set terminating-error behavior, verify the external command
+    exit code, and never pass a generated value on the command line.
+- Verification:
+  - The initial value was immediately overwritten before any deployment used
+    it. Production now stores the replacement as a sensitive encrypted value,
+    and the administrator web was deployed only afterward.
+
+## 2026-07-26 | Using layout targets for a drag cap either damaged layout or made the cap ineffective
+
+- Symptom:
+  - An initial interpretation of the drag-stretch request capped the graph's
+    normal dynamic target distance at 1.2 times the global base distance.
+    A visual simulation test then showed neighboring branch leaves entering
+    another hub's local fan.
+  - The follow-up constraint preserved the layout but compared against each
+    edge's dynamic target. Long edges could therefore still stretch far enough
+    that the requested 1.2x bound appeared not to be applied.
+- Root cause:
+  - The requested bound concerned transient edge stretch during dragging, not
+    the density-aware target lengths used to build the settled layout.
+  - A transient interaction multiplier must state and capture its baseline; a
+    computed layout target is not the same as the edge's length at drag start.
+- Permanent guardrail:
+  - Preserve static target-distance heuristics. Apply user interaction bounds
+    after pointer forces, only while a drag is active, and scope corrections to
+    the dragged connected component.
+  - For a drag-relative multiplier, snapshot actual edge lengths at gesture
+    start. Keep the grabbed node and explicitly controlled one-hop nodes rigid,
+    and apply hard-cap corrections only to non-controlled endpoints.
+- Verification:
+  - Focused tests prove drag-start capture, the rigid grabbed-plus-one-hop
+    group, the actual-length 1.2x cap, no-op behavior outside dragging,
+    controlled-endpoint preservation, and isolation of unrelated components.
+
+## 2026-07-26 | Production-only session configuration broke local staff login
+
+- Symptom:
+  - The local Next.js administrator login completed upstream authentication
+    but returned 500 while creating the staff session.
+- Root cause:
+  - The dedicated Production session-secret boundary was correct, but local
+    development had no safe fallback and therefore required an undocumented
+    copy of a remote secret.
+- Permanent guardrail:
+  - Never copy a Production signing key into local development merely for
+    convenience. Development may use a process-local cryptographic value that
+    survives HMR, while Production and tests must continue to fail closed
+    without the dedicated configured secret.
+- Verification:
+  - Focused tests cover the environment boundary and development create/verify
+    flow; TypeScript and scoped lint pass.
+
+## 2026-07-26 | A display cap and uniform graph fixture did not prove bounded mobile graph work
+
+- Symptom:
+  - The first native referral graph pass limited the returned array to 300
+    nodes only after loading and filtering all child rows.
+  - Its 300-node spacing test used a uniform star, while a heavy branch beside
+    small siblings could still compress the small nodes below the selectable
+    distance at maximum zoom.
+- Root cause:
+  - A response-size cap was treated as a query-work cap, and a single balanced
+    topology was treated as sufficient evidence for graph interaction safety.
+- Permanent guardrail:
+  - Apply eligibility during breadth-first traversal, request only the remaining
+    eligible slots plus one, keep raw DB reads page-sized, and preserve an
+    already-detected truncation flag.
+  - Maximum-size graph tests must cover both wide uniform and strongly
+    unbalanced branch shapes. Weighted angular layout must reserve a minimum
+    sweep per sibling before distributing the remaining sweep by subtree size.
+- Verification:
+  - Focused graph/navigation/privacy tests cover the fixed page/limit contract,
+    truncation preservation, a 299-child star, and a 296-leaf heavy branch next
+    to two small siblings. TypeScript and frozen Deno checks pass.
+
+## 2026-07-27 | A successful legacy Edge response still left the new mobile graph unusable
+
+- Symptom:
+  - The authenticated native graph showed its generic retry state even though
+    `get-referral-tree` returned HTTP 200.
+- Root cause:
+  - The active Edge bundle was still v6. It correctly returned the legacy tree
+    shape, but did not yet contain the additive `{mode:'graph'}` response
+    required by the new screen.
+- Permanent guardrail:
+  - Before authenticated runtime QA for a new additive Edge mode, inspect the
+    active function version and source contract, not only the HTTP status.
+  - After an authorized rollout, verify the new version is active, keeps its
+    prior JWT policy, contains both new and legacy response markers, and then
+    exercise both the new screen and the old client path.
+- Verification:
+  - `get-referral-tree` v7 is active with JWT verification retained. Its graph
+    request returned 200 and rendered 16 nodes / 15 edges, while the existing
+    referral-tree screen continued to load without an error.
+
+## 2026-07-27 | Receipt migration left notification-center unread state split
+
+- Symptom:
+  - Opening the GaramIn notification center no longer reduced the unread badge.
+- Root cause:
+  - The receipt migration removed the previous center-view checkpoint without
+    replacing its list-level acknowledgement. Notification rows were marked
+    only after a destination accepted a deep link, and shared notices continued
+    to be counted from the epoch even though they have no receipt row.
+  - The inbox list also applied its raw row limit before loading per-viewer
+    receipts. A full first page of dismissed rows could therefore render an
+    empty center while the unrestricted unread query still counted older rows.
+- Permanent guardrail:
+  - Keep receipt-backed notifications and checkpoint-backed shared notices as
+    separate unread sources. A successful center load bulk-acknowledges only
+    visible notification UUIDs, advances a notice-only observation boundary
+    monotonically, then refetches and synchronizes the authoritative badge.
+  - Never apply the local notice boundary to notification rows, and never turn
+    an acknowledgement failure into a user-facing delivery warning.
+  - Badge reconciliation must use a strict count read. A tolerant helper that
+    maps transport failure to zero can erase a valid badge and hide the retry.
+  - Apply list limits after viewer-specific visibility and dismissal filters.
+    If those filters cannot run in the query, page the raw source until the
+    requested visible limit is filled or the source is exhausted.
+- Verification:
+  - Focused read-state, checkpoint, mobile count, Edge authorization, receipt,
+    pagination, and source-contract tests pass 56/56; TypeScript, scoped lint, and the
+    `fc-notify` Deno check pass.
+
+## 2026-07-27 | Graph semantics were mistaken for the requested graph UI
+
+- Symptom:
+  - The first revenue-contribution preview connected rectangular hierarchy
+    cards with lines and called the result a node-and-edge graph, even though
+    the user explicitly asked for the same visible graph form as the existing
+    referral graph.
+- Root cause:
+  - Acceptance covered graph data semantics and ancestry connectivity but did
+    not translate the named reference screen into primitive-shape, layout, and
+    interaction requirements.
+  - The first visual correction then used a radial approximation and hid
+    amounts at fit scale instead of inspecting the administrator web's actual
+    resolved force constants and preserving the user's required value display.
+- Permanent guardrail:
+  - When a user names an existing screen as the visual reference, acceptance
+    must explicitly cover its defining primitives and interactions. For this
+    surface that means circular SVG nodes, visible SVG edges, the referenced
+    balanced force/collision constants, in-node amounts, no overlap,
+    pan/pinch, fit/reset, and node selection.
+  - If the requested experience is described as game-like, a static settled
+    layout plus canvas pan is not enough. Acceptance must state whether nodes
+    themselves are draggable, how neighboring nodes react during drag, how
+    release settles, and how much of the screen belongs to the canvas.
+  - If landscape is part of the requested experience, verify a native
+    route-scoped orientation lock, the actual rotated window dimensions, a
+    landscape-specific overlay reservation, and portrait restoration on exit.
+    A manually rotated emulator screenshot alone is not sufficient evidence.
+  - Full-screen graph controls need a collapsed-state budget, not only
+    non-overlap checks. Summary, filters, actions, legends, and disclaimers may
+    each fit correctly while collectively taking over the canvas. Keep only
+    navigation, sample identity, and one settings trigger persistent; move the
+    rest into a dismissible panel and capture the closed state as primary QA.
+  - A depth filter may subdue ancestor context through color and edge styling,
+    but must never replace the required in-node amount with a generic `경로`
+    label. Source coverage must reject that conditional substitution.
+  - Moving controls into a compact panel must preserve all three summaries, the
+    complete sample/10% warning, and an accessible announcement of any active
+    filter; visual presence elsewhere on the route is not equivalent.
+  - A source regression must reject card/row/`ScrollView` graph renderers for
+    this canvas instead of treating any connected hierarchy as equivalent.
+  - Visual reference parity does not automatically authorize a byte-for-byte
+    desktop physics port on mobile. Set an explicit bundle, frame-time, and
+    Android backing-bitmap budget before adding a desktop graph dependency.
+    Keep the lightweight fixed-tick approximation when the user prefers its
+    responsiveness; do not add `d3-force`, the full web seed-layout module, or
+    a large logical SVG surface without a measured mobile benefit.
+  - Validate SVG memory in physical pixels, not only logical coordinates. A
+    3200-dp SVG on the 2.625-density emulator attempted an approximately
+    282-MB backing bitmap and crashed Android even though TypeScript, Jest,
+    lint, and static export passed.
+- Verification:
+  - Focused layout and source-contract tests assert circular nodes, edges,
+    gestures, fit/reset, deterministic bounded placement, context-node amounts,
+    complete panel content, and the absence of the prior card/`ScrollView`
+    implementation.
+  - The exact desktop-runtime experiment was withdrawn at the user's request.
+    The prior 1600-surface fixed-tick implementation was restored exactly,
+    `d3-force` and its four installed packages were removed, focused tests
+    passed 26/26, TypeScript and scoped lint passed, and the restored landscape
+    graph rendered on the Android emulator.
+
+## 2026-07-28 | The notification receiver contract tightened without bridge enrichment
+
+- Symptom:
+  - Request Board created designer notifications, but the GaramIn bridge
+    returned HTTP 400 and no matching GaramIn notification row appeared.
+- Root cause:
+  - `fc-notify` correctly required a canonical `recipient_actor_id` for direct
+    service notifications, while the trusted web proxy still forwarded only a
+    phone target.
+- Permanent guardrail:
+  - The GaramIn server resolves an eligible target phone to the canonical
+    profile UUID after bridge authentication and forwards that server-derived
+    value.
+  - The external Request Board body can never supply or override the actor UUID.
+  - Any direct-service receiver contract change requires an end-to-end proxy
+    contract test in the same change.
+- Verification:
+  - Focused proxy/actor-binding tests, web TypeScript/lint, and the production
+    web build.
+
+## 2026-07-28 | Headquarters normalization assumed a single-digit number
+
+- Symptom:
+  - Adding a tenth headquarters would leave several selectors and fallback
+    normalizers unable to recognize its prefix.
+- Root cause:
+  - Headquarters labels were duplicated across mobile, Edge, and web sources,
+    and fallback regular expressions allowed only `[1-9]`.
+- Permanent guardrail:
+  - Every maintained headquarters surface includes the canonical tenth label
+    and accepts the explicit `(10|[1-9])` prefix contract.
+  - A focused source contract covers all duplicated option owners until the
+    affiliation catalog is centralized.
+- Verification:
+  - Focused tenth-headquarters tests, root/web TypeScript, scoped lint, and
+    Deno check.
+
+## 2026-07-28 | CSV was presented as Excel and could not carry the required design
+
+- Symptom:
+  - The exam-applicant download used an `.csv` payload even though the UI called
+    it Excel, so it could not provide persistent headers, filtering, column
+    widths, row emphasis, or safe clickable proof links.
+- Root cause:
+  - The export contract treated spreadsheet compatibility as equivalent to a
+    real workbook and relied on formula-shaped strings to preserve identifiers.
+  - The screen-only `접수 상태` column was excluded from the shared export
+    column list, and the first workbook design did not explicitly compare
+    visible operational columns with exported columns.
+- Permanent guardrail:
+  - Any export that promises spreadsheet formatting must emit a real `.xlsx`
+    workbook, keep phone/resident identifiers as literal text cells, test the
+    generated OOXML, and render a synthetic workbook before handoff.
+  - Audit an added workbook dependency before accepting it; reject a candidate
+    that introduces a vulnerability delta.
+  - Export regression tests must compare screen-only operational columns as
+    well as shared data columns. When row status must remain scannable while
+    horizontally scrolling, apply the status tone to every populated cell in
+    that row and retain an explicit status column.
+- Verification:
+  - The workbook contract test unzips the generated XLSX and asserts frozen
+    panes, auto-filter, styles, HTTPS proof hyperlink relationships, and literal
+    leading-zero text values. It also asserts the explicit reception-status
+    value and both full-row status fills. A synthetic workbook was rendered and
+    inspected visually.
+
+## 2026-07-29 | Workbook source contract depended on the caller's working directory
+
+- Symptom:
+  - The workbook implementation tests passed, but the page-integration source
+    contract failed when invoked from the repository root because it looked for
+    the administrator page under a root-level `src/` directory.
+- Root cause:
+  - The test used a process-relative path even though the package is routinely
+    tested from both the repository root and the `web` directory.
+- Permanent guardrail:
+  - Source-contract tests in nested packages must resolve fixtures and source
+    files relative to `import.meta.url`, not `process.cwd()`.
+- Verification:
+  - The same Node test command passes from the repository root after the path
+    is resolved relative to the test module.
+
+## 2026-07-29 | A ready Production deployment did not move the rolled-back stable alias
+
+- Symptom:
+  - The administrator-web deployment reached `READY`, while the user-facing
+    stable domain still resolved to the previous deployment.
+- Root cause:
+  - Retained rollback state prevented automatic stable-domain reassignment.
+    Deployment readiness alone was treated as insufficient release evidence.
+- Permanent guardrail:
+  - Resolve every stable user-facing domain through the deployment API after
+    each Production rollout and compare its deployment ID with the release
+    receipt.
+  - If necessary, explicitly move only the intended stable alias, then repeat
+    ID resolution and a public-route smoke check.
+- Verification:
+  - `adminweb-red.vercel.app` resolves to
+    `dpl_6iT15wpGGaRxTDJSbB3PJuXDMRmv`, and `/auth` returns HTTP 200.
+
+## 2026-07-29 | A target label was not proof of a target-bound conversation
+
+- Symptom:
+  - An FC opened the “개발자” card, but the message entered the shared
+    administrator room and a non-developer administrator replied.
+- Root cause:
+  - The mobile route discarded every FC target ID, while the database allowed
+    only one direct conversation per FC. UI identity and server room identity
+    were therefore unrelated.
+- Permanent guardrail:
+  - Direct-message targets use additive actor-bound threads, and the server
+    returns the canonical counterparty ID/name that the client verifies before
+    showing or sending messages.
+  - Text, attachment, broadcast, read and delete paths must all authorize the
+    same thread tuple. Legacy target omission maps only to the shared admin
+    thread.
+  - Edge verification must use the repository `deno.json` with `--frozen`;
+    discriminated failure results are narrowed in separate null and
+    `ok === false` branches so the strict checker cannot retain a success arm.
+- Verification:
+  - Focused Jest and Deno contracts cover selected-target forwarding,
+    cross-target denial, canonical `thread_id`, and attachment authorization.
+
+## 2026-07-29 | A one-commit governance check did not prove the push range
+
+- Symptom:
+  - The manual pre-push command passed for the newest commit, but the real Git
+    hook rejected the nine-commit remote range because earlier shared account
+    deletion and messenger attachment modules had no path-owner rule.
+- Root cause:
+  - Verification without push-ref input defaulted to the previous commit
+    instead of the actual remote tracking ref, so it did not exercise the same
+    change range as the hook.
+- Permanent guardrail:
+  - Before publishing an ahead branch, compare against the fetched upstream and
+    run governance with that exact base/head range. Every new shared backend
+    module and test must be registered in `path-owner-map.json`.
+- Verification:
+  - The account-deletion and messenger-attachment shared modules now map to
+    their owning handbook contracts, and the privileged admin and scheduled-job
+    owner documents record the changed behavior.
+
+## 2026-07-29 | An unused native module remained autolinked and crashed Fabric startup
+
+- Symptom:
+  - Google Play reported Android native `SIGABRT` events while Fabric prepared
+    `RNCAndroidDropdownPickerProps` and `RNCAndroidDialogPickerProps`.
+- Root cause:
+  - The app did not import `@react-native-picker/picker`, but version `2.11.1`
+    remained a direct dependency and was therefore autolinked into every native
+    build. That release predates the React Native 0.81 New Architecture compile
+    option repair.
+- Permanent guardrail:
+  - Do not retain unused native modules as direct dependencies.
+  - The root dependency contract must reject both the manifest declaration and
+    lockfile installation of the picker.
+  - After removing a native dependency, verify Expo autolinking output and
+    perform a clean native build; an OTA update cannot remove compiled code.
+- Verification:
+  - The focused dependency contract, Expo dependency check, autolinking
+    inspection, TypeScript, lint, and Android export must pass without any
+    picker descriptor in the resolved native module graph.
+## 2026-07-30 | Retired Edge warnings remained in the diagnostic allowlist
+
+- Symptom:
+  - The focused notification tests and administrator production build passed,
+    but the full Jest suite failed because two deleted Web Push configuration
+    warnings remained in the exact console baseline.
+- Root cause:
+  - Removing the retired callback path changed the reviewed sink inventory, but
+    its governance allowlist and exact count were not updated in the same edit.
+- Permanent guardrail:
+  - Any removal of an Edge `console.*` sink must update the exact diagnostic
+    allowlist and count, then run the full Jest suite in addition to focused
+    notification contracts.
+- Verification:
+  - `lib/__tests__/diagnostic-console-governance.test.ts`
+  - Full Jest: 189 suites / 1,143 tests pass.
+
+## 2026-07-30 | Missing resident data and decrypt failures shared one null state
+
+- Symptom:
+  - The administrator FC list displayed `조회 불가` both when a resident number
+    had never been entered and when a stored encrypted value could not be read.
+- Root cause:
+  - The direct reader, Edge fallback, API client, and table cell collapsed every
+    non-value result into the same `null` state.
+- Permanent guardrail:
+  - Resident-number list reads must preserve `ready`, `missing`, and
+    `unavailable` as separate per-FC states from storage through the UI.
+  - An explicit absence may display `미입력`; malformed, omitted, decrypt-failed,
+    or request-failed values must fail closed as `조회 불가`.
+- Verification:
+  - Resident-number display, visible-page, Edge response/executor, route, and
+    privacy contract tests.
+  - `deno check supabase/functions/admin-action/index.ts`
+  - Sentry-disabled administrator web production build.
+
+## 2026-07-30 | Registration lifecycle and reception state shared one label
+
+- Symptom:
+  - Rejected and cancelled exam registrations appeared through the reception
+    field instead of a dedicated application-status column, and the XLSX could
+    not expose both meanings independently.
+- Root cause:
+  - A shared formatter used both `status` and `is_confirmed`, collapsing a
+    multi-state registration lifecycle into a binary reception concept.
+- Permanent guardrail:
+  - `exam_registrations.status` owns `신청 상태`; `is_confirmed` alone owns
+    `접수 상태`.
+  - Shared table/export columns and workbook tests must cover FC cancellation,
+    administrator cancellation, rejection, and unknown status values.
+- Verification:
+  - `web/src/lib/exam-applicant-list-display.test.ts`
+  - `web/src/lib/exam-applicant-workbook.test.ts`
+
+## 2026-07-30 | The FC dashboard inferred role from affiliation text alone
+
+- Symptom:
+  - The completed-FC dashboard excluded affiliations containing `설계매니저`
+    but still counted active manager identities whose profile affiliation looked
+    like an FC headquarters.
+- Root cause:
+  - `/api/admin/list` treated a presentation label as the only role boundary
+    even though `manager_accounts` is the authoritative active-manager source.
+- Permanent guardrail:
+  - FC-only directories must exclude both whitespace-normalized designer
+    affiliation markers and canonical phones owned by active manager accounts.
+  - Role exclusion must be tested with a manager identity whose affiliation
+    otherwise looks like a valid FC headquarters.
+- Verification:
+  - `lib/__tests__/dashboard-fc-eligibility.test.ts`
+  - `web/src/app/api/admin/list/route.ts`
+
+## 2026-07-30 | Direct-neighbor drag pins made the referral graph rigid
+
+- Symptom:
+  - Dragging A translated directly connected B in a fixed shape, so B did not
+    behave like C in an A-B-C spring chain.
+- Root cause:
+  - The drag contract treated direct neighbors as controlled drag members
+    instead of leaving every node except the grabbed node in the simulation.
+- Permanent guardrail:
+  - Only the grabbed node may receive pointer `fx/fy`.
+  - Direct and indirect nodes must remain unpinned and react through live link,
+    link-tension, charge, and collision forces.
+  - Tests must include A-B-C, a five-node chain, unrelated components, and the
+    drag-start `1.2x` edge-length cap.
+- Verification:
+  - `web/src/lib/referral-graph-interaction.test.ts`
+  - `web/src/lib/referral-graph-physics.test.ts`
+
+## 2026-07-30 | Removing React state updates did not remove Android graph jank
+
+- Symptom:
+  - The revenue graph still produced 100% janky frames after drag coordinates
+    moved to shared values and later to native node Views.
+- Root cause:
+  - Moving SVG and native Text surfaces continued to rerasterize per node, so
+    removing React commits alone did not remove bitmap/render cost.
+- Permanent guardrail:
+  - Benchmark a real node drag separately from blank-space pan and inspect
+    `Janky frames`, percentiles, `Slow UI thread`, and `Slow bitmap uploads`.
+  - Animated graph labels that exceed the Android renderer budget use one
+    Canvas draw path with cached fixed-pixel text rather than many moving
+    SVG/native Text surfaces.
+- Verification:
+  - Retained aggregate jank values in the canonical QA report; the raw gfxinfo file was removed after privacy/retention review.
+  - `components/referral-revenue-graph/ReferralRevenueGraphWebViewCanvas.tsx`
+
+## 2026-07-30 | Revenue graph back handling assumed navigation history
+
+- Symptom:
+  - A cold direct route could have no stack entry to pop, and list mode's
+    default header bypassed the graph screen's portrait-first fallback.
+- Root cause:
+  - Back navigation used stack history as an implicit prerequisite.
+- Permanent guardrail:
+  - Both graph and list headers call the same portrait-first
+    `goBackOrReplace(router, '/referral')` path.
+  - Test direct/no-history entry in addition to ordinary stack navigation.
+- Verification:
+  - `app/referral-revenue-graph.tsx`
+  - `lib/__tests__/referral-revenue-demo-source.test.ts`
+
+## 2026-07-30 | Android WebView local message URL was the literal null string
+
+- Symptom:
+  - Tapping a revenue node updated the HTML Canvas selection ring but did not
+    open the React Native detail sheet.
+- Root cause:
+  - Static review assumed Android `onMessage.nativeEvent.url` would be
+    `about:blank`; the local `source={{html, baseUrl:'about:blank'}}` runtime
+    delivered the literal string `null`.
+- Permanent guardrail:
+  - Verify bridge-driven behavior on the emulator, not only Canvas-local visual
+    state.
+  - Accept only the observed local native URL set and independently require the
+    revisioned message's `window.location.href` to be `about:blank`.
+- Verification:
+  - Emulator node tap showed `DETAIL_MODAL_PRESENT`.
+  - `lib/__tests__/referral-revenue-demo-source.test.ts`
+
+## 2026-07-30 | Dirty-worktree governance did not prove the committed range
+
+- Symptom:
+  - The pre-commit dirty-worktree governance check passed, but the post-commit
+    upstream-to-HEAD check found missing owner and feature-contract documents.
+- Root cause:
+  - Release readiness relied on a dirty-diff check whose file enumeration is
+    not equivalent to the Git hook's committed-range contract.
+- Permanent guardrail:
+  - Run `npm run governance:pre-push` again after the release commit and before
+    deployment. A pre-commit PASS is supporting evidence, not the final gate.
+- Verification:
+  - `scripts/ci/pre-push-governance.mjs`
+  - `docs/handbook/path-owner-map.json`
+  - `docs/handbook/contract-test-map.json`
+
+## 2026-07-30 | Release tests assumed one working directory and a fixed graph size
+
+- Symptom:
+  - The repository-wide release gate failed even though focused web checks
+    passed: two source-contract tests opened `src/...` from the repository
+    root, and the live referral graph kept a small-dataset absolute crossing
+    limit after growing to hundreds of nodes and links.
+  - The board-create smoke fixture also returned only an informal post id even
+    though the production notification event contract derives its key from a
+    UUID and `updated_at`.
+- Root cause:
+  - Test fixtures encoded launch-directory and historical-data assumptions
+    instead of the production interfaces they were intended to verify.
+- Permanent guardrail:
+  - Source-contract tests resolve files from `import.meta.url`.
+  - Live-data visual limits retain strict minimums but scale with edge count;
+    the independently tested pointer-drag edge cap remains exactly `1.2x`.
+  - Post-insert smoke fixtures return the same selected UUID/timestamp fields
+    as PostgREST production responses.
+- Verification:
+  - `web/src/lib/admin-referral-event-query.test.ts`
+  - `web/src/lib/referral-permission-display.test.ts`
+  - `web/src/lib/referral-graph-realdata.test.ts`
+  - `scripts/testing/board-edge-handler-smoke.mjs`
+
+## 2026-07-30 | Revenue radial tests sampled only guide depths and missed local inversions
+
+- Symptom:
+  - The sample revenue graph had tests for selected 1/3/6/10 guide depths but
+    adjacent parent-child positions could still alternate inward and outward.
+  - A mathematically valid fit also clipped padded content in the actual
+    production 800x360 landscape canvas.
+- Root cause:
+  - Assertions sampled presentation landmarks instead of checking every
+    eligible edge, every node pair, and the actual runtime viewport/insets.
+  - The physics-parity description followed a resolved preset value without
+    first inspecting which administrator forces were active at runtime.
+- Permanent guardrail:
+  - Assert strict outward radial target growth for every eligible parent-child
+    edge, not only depths 1/3/6/10.
+  - Assert all-pair separation using the sum of collision radii plus 5 logical
+    pixels and assert padded containment in the production 800x360
+    viewport/insets.
+  - Inspect the administrator runtime force registry before claiming parity:
+    charge/link/tension/collision/damping are active references, while
+    center/x/y are disabled.
+- Verification:
+  - `lib/__tests__/referral-revenue-graph-native.test.ts`
+  - `lib/__tests__/referral-revenue-demo-source.test.ts`
+
+## 2026-08-04 | Mobile chat keyboard avoidance had three competing bottom offsets
+
+- Symptom:
+  - Chat composers were nearly attached to the keyboard on some devices and left a large blank band on others; the reported iOS group-chat screen showed the latter.
+- Root cause:
+  - iOS added a fixed 65px keyboard vertical offset even though the custom header was outside the avoider, then retained the device safe-area while the keyboard was open.
+  - Android already used manifest `adjustResize` but direct/group chat added the full reported keyboard height again. The Request Board bridge used a third `height`-avoidance rule.
+- Permanent guardrail:
+  - Direct, group, and Request Board bridge composers use `lib/chat-keyboard-layout.ts`: 8px while open, device safe-area minimum only while closed.
+  - Keep custom-header iOS avoiders at offset 0 and let Android `adjustResize` own viewport resizing; never add keyboard height as composer padding.
+- Verification:
+  - `lib/__tests__/chat-keyboard-layout.test.ts`
+  - `lib/__tests__/group-chat-mobile-source.test.ts`
+
+## 2026-08-04 | 날짜 미정 시험을 nullable 날짜로 월 비교했다
+
+- Symptom:
+  - 운영에 신청 가능한 손해보험 `날짜 미정` 회차가 존재하지만, 일부 FC에게 선택 불가로 보이고 제출 RPC도 미정 날짜를 거부했다.
+- Root cause:
+  - 월 1회 신청 슬롯을 nullable `exam_date`에서 파생해, 서로 다른 TBD 회차들의 `null === null`을 같은 달 충돌로 취급했다.
+  - `exam_rounds.exam_date`는 스키마에서 nullable이지만 submit v2/v3는 null을 `invalid_exam_round`로 거부해 DB 계약이 서로 달랐다.
+  - 기존 테스트에 canonical 월을 가진 TBD 회차와 서로 다른 월 TBD 회차 사례가 없었다.
+- Permanent guardrail:
+  - 회차의 `exam_month` non-null snapshot을 canonical 월 소유자로 두고, 신청은 자신의 `exam_month` snapshot을 우선 비교한다.
+  - active 슬롯은 제3보험 선택 여부까지 포함해 `(fc_id, exam_month, exam_type)` 하나로 고정한다. 생명 신청은 손해 신청을 막지 않으며, 생명/손해를 가로지르는 별도 제3보험 월 제한을 만들지 않는다.
+  - 명시적 null/잘못된 월·종목 snapshot은 개별 fail closed하고 서로 같다고 비교하지 않는다. 해당 필드가 아예 없는 legacy 응답만 정확일/참조 회차 fallback을 허용한다.
+  - 일반 목록 선택뿐 아니라 `roundId` 딥링크와 최종 제출 직전에도 같은 type+month 충돌 matcher를 다시 실행한다.
+  - 관리자 화면에서 TBD를 해제할 때 canonical 월의 1일을 정확일로 간주하지 말고, 운영자가 실제 시험일을 명시적으로 선택하게 한다.
+  - submit v2/v3, legacy/v2 save RPC, 같은 월 날짜 확정 history rule을 하나의 migration/schema parity 계약과 focused regression으로 고정한다.
+- Verification:
+  - `lib/__tests__/exam-tbd-month-contract.test.ts`
+  - `lib/__tests__/exam-flow-contract.test.ts`
+  - `lib/__tests__/exam-round-atomic-save.test.ts`
+  - `lib/__tests__/privileged-server-action-input-policy.test.ts`
+  - `lib/__tests__/exam-month-conflict-feedback-source.test.ts`
+
+## 2026-08-04 | 시험 월 계약을 만들고도 구 관리자·stale cache·배포 gate를 끝까지 추적하지 않았다
+
+- Symptom:
+  - 모바일 관리자에서 기존 TBD 회차를 열면 nullable exact date가 오늘 날짜로 바뀌어 저장될 수 있었다.
+  - 신청 이력 query가 전역 5분 freshness를 상속해, 다른 세션의 신청은 잠시 우회하고 취소·반려된 신청은 계속 차단할 수 있었다.
+  - 배포 SSOT는 구 migration과 legacy writer만 확인하고도 v2 writer를 호출하는 web 활성화를 허용했다.
+- Root cause:
+  - canonical month를 추가했지만 기존 form helper의 non-null 날짜 fallback과 구 모바일 caller 호환 경계를 전체 writer graph로 다시 감사하지 않았다.
+  - 월 충돌 helper만 검증하고 그 입력 cache의 loading/fetching/error/freshness 상태를 목록·딥링크·최종 제출 전부에 같은 보안 경계로 적용하지 않았다.
+  - 배포 문서를 실제 활성 caller의 정확한 RPC signature에서 역추적하지 않아 obsolete gate가 남았다.
+- Permanent guardrail:
+  - TBD form state는 `exam_date = null`과 canonical `exam_month`를 함께 보존한다. 정확일 전환은 운영자의 명시적 날짜 선택만 허용하고, Edge와 legacy SQL wrapper도 implicit TBD finalization을 fail closed한다.
+  - 월 슬롯 판정에 쓰는 history는 mount와 최종 제출 직전에 새로 읽는다. loading/fetching/error는 목록·딥링크·receipt·submit 모두 차단하고, route target은 준비 완료 후 한 번만 소비한다.
+  - 배포 gate는 현재 caller가 호출하는 exact regprocedure, 실행 권한, 대표 성공/실패 transaction, 실패 시 partial-write 0건을 확인한 뒤에만 다음 계층을 활성화한다.
+- Verification:
+  - `lib/__tests__/exam-flow-contract.test.ts`
+  - `lib/__tests__/exam-month-conflict-feedback-source.test.ts`
+  - `lib/__tests__/exam-tbd-month-contract.test.ts`
+  - `lib/__tests__/exam-deployment-gate.test.ts`
+
+## 2026-08-04 | 메신저 알림 설정을 UI와 일부 전송 경로만으로 검증했다
+
+- Symptom:
+  - 방별 음소거 토글은 저장되었지만 일반 `notify/message` 푸시와 직접대화의 원자적 알림 insert가 설정을 우회할 수 있었다.
+  - 음소거 trigger가 직접대화 알림 row를 정상 억제한 뒤에도 Edge 소비자가 기존 row 수를 요구해, 메시지는 commit됐지만 발신 API가 실패로 응답할 수 있었다.
+  - 일부 공지·마감 알림 생산자와 가람Link 목록 helper는 각각 새 preference와 실패 상태를 우회해, OFF가 무시되거나 조회 실패가 정상 빈 목록처럼 보일 수 있었다.
+  - Request 방 ID와 direct 방 ID를 같은 숫자 집합으로 비교해, 서로 다른 namespace의 같은 숫자가 관계없는 대화에 음소거 표시를 만들 수 있었다.
+- Root cause:
+  - 알림 설정을 하나의 UI/API 기능으로 보고, 인앱 알림 저장과 Expo fanout을 만드는 모든 producer 행렬을 끝까지 연결하지 않았다.
+  - DB RPC 내부 무결성만 검사하고 RPC의 suppress 결과를 해석하는 Edge consumer 계약, 그리고 사용자 화면이 빈 상태를 선언하기 전 strict read 계약까지 함께 검증하지 않았다.
+  - 외형이 모두 숫자라는 이유로 방 종류를 키의 일부로 취급하지 않았다.
+- Permanent guardrail:
+  - 설정 기능은 text, attachment, broadcast, group, generic, lifecycle의 `인앱 저장 / Expo / bridge` 행렬으로 검증하고, 메시지와 알림이 한 트랜잭션인 경로는 DB trigger/RPC 내에서 fail-closed로 판정한다.
+  - 원자 RPC는 `expected / persisted / suppressed`를 명시하고 소비자는 합계와 실제 row를 함께 검증한다. 사용자 목록·검색용 조회는 실패를 `[]`로 바꾸지 않는 strict 경로를 사용해 부분 오류와 진짜 빈 상태를 구분한다.
+  - 방 비교는 항상 `kind + canonical id`로 하고, 서로 다른 BIGSERIAL 도메인을 하나의 숫자 집합으로 합치지 않는다.
+- Verification:
+  - `supabase/functions/__tests__/messenger-direct-room-mute-atomic.contract.test.ts`
+  - `supabase/functions/__tests__/fc-notify-general-push-preferences.contract.test.ts`
+  - `lib/__tests__/messenger-v2-hub-model.test.ts`
+
+## 2026-08-05 | 사용자 실행 경로가 아닌 웹 구현만 수정했다
+
+- Symptom:
+  - Request Board 쪽 역할 포맷을 바꿨지만 사용자가 `npx expo run:android`로 확인한 가람in 사람 목록은 여전히 `본부장 · 가람in`을 표시했다.
+- Root cause:
+  - 같은 메신저 기능이라는 이름만 보고 `request_board` 웹 경로를 우선 수정했고, 실제 Android 화면의 Expo Router 진입점과 행 컴포넌트를 먼저 추적하지 않았다.
+- Permanent guardrail:
+  - 사용자가 실행한 명령과 스크린샷을 받은 경우, 변경 전 해당 runtime의 route entry, renderer, API client를 모두 확인한다. 웹과 네이티브가 공통 도메인이라도 다른 표시 모델을 공유한다고 가정하지 않는다.
+- Verification:
+  - `app/messenger.tsx`
+  - `components/messenger/MessengerHubRows.tsx`
+  - `lib/__tests__/messenger-v2-hub-model.test.ts`
+  - `lib/__tests__/messenger-v2-hub-source.test.ts`
+
+## 2026-08-05 | Messenger startup waited for unrelated slow sources
+
+- Symptom:
+  - Developer accounts saw a long full-screen loader even when the internal people list itself was ready.
+- Root cause:
+  - The native hub awaited internal data, group chat, GaramLink bridging, and room preferences as one startup completion boundary; the hydration and focus effects could also begin the same initial load twice.
+- Permanent guardrail:
+  - Start independent sources in parallel, release the screen as soon as the internal directory source settles, and let deferred sources update their own rows and notices. Do not invoke the initial hub load from both the hydration effect and focus effect. Coalesce in-flight hub refreshes, avoid fixed timer polling, and do not merge a developer's GaramLink directory into the GaramIn people tab.
+  - Keep accordion expansion independent from role grouping/sorting, keep an in-screen tab switch out of router parameter mutation, and overlap route validation with an existing direct room's history request.
+- Verification:
+  - `lib/__tests__/messenger-v2-hub-source.test.ts`
+
+## 2026-08-05 | A list-level group-room action used the wrong preference boundary
+
+- Symptom:
+  - Pressing the shared group-room bell could surface the generic "could not turn off notifications" error.
+- Root cause:
+  - The messenger hub sent the group-room key to the generic preference function even though group membership and group mute persistence belong to the group-chat endpoint.
+- Permanent guardrail:
+  - Dispatch room preference writes by route kind. The group bell calls `groupChatSetMuted`, verifies the returned state, and stops press propagation before the outer row can navigate.
+- Verification:
+  - `lib/__tests__/messenger-v2-notification-settings-source.test.ts`
+
+## 2026-08-06 | A new database relationship made a legacy PostgREST embed ambiguous
+
+- Symptom:
+  - The privileged administrator exam-applicant list returned a server error
+    after the production schema gained the `(round_id, exam_type)` relationship.
+- Root cause:
+  - The API retained an unqualified `exam_rounds` PostgREST embed even though
+    `exam_registrations` now has both legacy and composite relationships to
+    that table.
+- Permanent guardrail:
+  - Any additive foreign key affecting a consumer-side PostgREST embed must
+    identify its intended relationship explicitly. Pair the migration with a
+    source contract test for every privileged read using that table pair.
+- Verification:
+  - `web/src/lib/exam-applicant-detail-source.test.ts`
+
+## 2026-08-08 | Messenger lists rebuilt summaries from unbounded message history
+
+- Symptom:
+  - Opening Messenger V2, switching tabs, and toggling role accordions could
+    appear frozen for about ten seconds as list endpoints returned large
+    histories and both hidden/visible virtualized trees rerendered.
+- Root cause:
+  - GaramIn and GaramLink list handlers fetched every related message and
+    attachment into Edge/Node, then recomputed latest and unread in JavaScript.
+  - The mobile hub blocked its useful shell on an internal source and kept both
+    tab lists mounted with unstable row callbacks.
+- Permanent guardrail:
+  - Conversation lists use actor-authorized indexed summary RPCs and bounded
+    keyset pages; never transfer full message history to build list previews.
+  - Keep actor-scoped snapshots in process memory only and reject stale
+    prior-actor updates. For the measured hub, retain both memoized virtualized
+    lists in fixed panes so a tab press does not recreate a list; disable input,
+    accessibility, and pagination on the inactive pane, and start people
+    accordions collapsed. Tab and accordion handlers remain network-free.
+- Verification:
+  - `supabase/functions/__tests__/messenger-summary-performance.contract.test.ts`
+  - `lib/__tests__/messenger-hub-cache.test.ts`
+  - `lib/__tests__/messenger-v2-hub-source.test.ts`
+
+## 2026-08-08 | Fixed polling repeatedly committed large legacy Messenger responses
+
+- Symptom:
+  - The local mobile source contained the low-latency summary path, but the connected Android app remained slow and showed a repeated `404` for the GaramLink room-preference endpoint.
+- Root cause:
+  - The development client was connected to production backends that had not received the new summary/preference rollout and returned hundreds of rows per source.
+  - Fixed 30/60-second refreshes overlapped those slow responses and repeatedly scheduled large React state commits while the user was switching tabs or accordions.
+- Permanent guardrail:
+  - A high-traffic mobile hub must not timer-poll full list sources. Use bounded focus/foreground revalidation with a cooldown, keep manual refresh available, and commit slow source results at transition priority.
+  - Confirm backend capability before interpreting device latency. An optional additive endpoint missing on a legacy server must enter a bounded compatibility mode instead of generating a new `404` on every poll.
+- Verification:
+  - `lib/__tests__/messenger-v2-hub-source.test.ts`
+  - `lib/__tests__/request-board-room-preferences-compatibility.test.ts`
+
+## 2026-08-08 | Android device serial was passed as an Expo device name
+
+- Symptom:
+  - `adb connect` succeeded, but `npm run android` failed with `Could not find device with name: <IP>:<port>`.
+- Root cause:
+  - The wrapper passed an ADB TCP serial to Expo CLI's `--device` option, which resolves a human-readable model name instead of an ADB serial.
+- Permanent guardrail:
+  - Select the direct online ADB transport in the wrapper, export it as `ANDROID_SERIAL`, and let Expo resolve the connected device without passing the serial as `--device`. Treat mDNS discovery and direct TCP connection as separate states.
+- Verification:
+  - `node scripts/run-android.mjs --help`
+
+## 2026-08-08 | A dirty Edge Function was deployed before its remote migration prerequisites
+
+- Symptom:
+  - Immediately after deploying `fc-notify`, the GaramIn People tab reported that internal data could not be loaded.
+  - The first compatibility repair covered FC `chat_targets`, but developer/admin `internal_chat_list` still failed on a second RPC from the same unapplied migration.
+- Root cause:
+  - The requested label change was a small hunk inside a much broader dirty Edge Function. Deploying the file also activated the new messenger-summary RPC caller while its migration was still local-only.
+- Permanent guardrail:
+  - Before every Edge deployment from a dirty worktree, inventory every migration/RPC referenced by the deployable bundle and compare those exact versions with the remote migration ledger. A focused diff is not a deployment-scope guarantee because the whole function is bundled.
+  - Build the inventory across every role/handler branch, and test each missing prerequisite independently; one fallback for one RPC does not make sibling role paths compatible.
+  - If prerequisites are absent, either obtain explicit approval for the ordered database rollout or ship an explicit, tested compatibility path before deploying. Never discover the dependency after production activation.
+- Verification:
+  - `supabase/functions/__tests__/messenger-summary-performance.contract.test.ts`
+  - `deno check supabase/functions/fc-notify/index.ts`
+
+## 2026-08-09 | Release status was inferred without checking the store track
+
+- Symptom:
+  - A completed EAS build was discussed as if Google Play publication had not happened, even though Play Console already showed that exact version active in production.
+- Root cause:
+  - Build completion and Store publication were tracked in separate steps, and the final status report did not re-open the authoritative production track before answering.
+- Permanent guardrail:
+  - Before claiming an Android release is pending or complete, verify both the exact EAS build `(appVersion, versionCode)` and the Google Play production track. Record active/review/rollout state, publish time, and unpublished-change status. Never re-submit an already active versionCode.
+- Verification:
+  - Google Play Console production track for `4.2.2 (71)` and the indexed Android release harness.
+
+## 2026-08-10 | Chat-only keyboard reasoning was applied globally and the board composer ancestry was not traced
+
+- Symptom:
+  - The released Android app still allowed the board comment input to remain behind the keyboard even though the app declared `softwareKeyboardLayoutMode=resize` and the board file contained `KeyboardAwareWrapper`.
+- Root cause:
+  - The fixed comment bar in `app/board.tsx` and `app/admin-board-manage.tsx` was a sibling outside the keyboard-aware scroll tree, so that wrapper could not move it.
+  - A chat composer fix changed the shared `useKeyboardPadding()` Android value to zero. That screen-specific anti-double-padding decision also removed explicit scroll room from dashboard, onboarding, identity, and auth consumers whose Android contract intentionally uses a plain `ScrollView`.
+  - Later Android-only plain-scroll branches bypassed the `KeyboardAwareWrapper` context entirely, making descendant focus-scroll calls no-ops, while `on-drag`/`interactive` modes dismissed the keyboard on the first drag gesture.
+- Why it was missed:
+  - The earlier audit started from the three chat routes and helper presence, not a closed inventory of every direct/shared input and its JSX ancestry. EAS build completion was also treated as stronger evidence than a physical board-comment focus test.
+- Permanent guardrail:
+  - Run `npm run audit:mobile-keyboard`; every discovered native input surface must be classified in `scripts/audit/mobile-keyboard-surfaces.json` with its required layout owner.
+  - Trace the focused input and its submit action to the exact scroll, modal, or fixed-bottom ancestor. A helper elsewhere in the file and manifest `adjustResize` are not sufficient.
+  - Fixed-bottom inputs use measured keyboard avoidance. Explicit keyboard height remains valid as scroll room for Fabric-safe Android plain-scroll screens, but must not be reused as direct composer positioning.
+  - Keyboard-backed scrollables use `keyboardDismissMode="none"`; the keyboard audit rejects drag-dismiss modes globally and requires reviewed focus-visibility ownership for every registered surface.
+- Verification:
+  - `lib/__tests__/mobile-keyboard-surface-contract.test.ts`
+  - Physical Android/iOS focus, type, multiline growth, submit, dismiss, and reopen smoke remains mandatory before release.
+
+## 2026-08-10 | Remote push cleanup was made a prerequisite for local logout
+
+- Symptom:
+  - A developer or administrator could press logout on Android and remain indefinitely on a white screen with no usable action.
+- Root cause:
+  - Logout awaited the remote `device-token-register` cleanup before clearing local role and token state, while the Function invocation had no client timeout.
+  - The home screen entered an Android-only `isLoggingOut` state before the request and had no reset path.
+- Permanent guardrail:
+  - Local authentication state is the authoritative logout boundary and must be cleared before any remote notification, analytics, presence, or bridge cleanup.
+  - Remote cleanup uses a previously captured signed credential, a bounded timeout, best-effort failure handling, and fixed sanitized diagnostics. It must never control logout navigation.
+  - Explicit logout routes must suppress automatic landing from a stale same-frame session snapshot, and tests must include a never-resolving remote Promise.
+- Verification:
+  - `lib/__tests__/session-logout.test.ts`
+  - `lib/__tests__/logout-source-contract.test.ts`
+  - `lib/__tests__/notifications.test.ts`
+
+## 2026-08-10 | A root test depended on a warm nested web installation
+
+- Symptom:
+  - The full Jest suite passed locally but failed in both clean GitHub app jobs because `@sentry/bundler-plugin-core` could not be resolved from `web/package.json`.
+- Root cause:
+  - The root security test directly loaded a package owned by the nested web dependency graph without declaring that runtime in the root test graph. A pre-existing `web/node_modules` directory masked the missing dependency locally.
+- Permanent guardrail:
+  - Any package imported or required by a root test must be declared in the root manifest at the exact compatible version, even when the product dependency is also transitive under a nested workspace.
+  - Release readiness requires the clean GitHub app job or an equivalent root `npm ci`; a warm combined dependency tree is not clean-install evidence.
+- Verification:
+  - `lib/__tests__/sentry-build-upload-guard.test.ts`
+  - root `npm ci`, full Jest, and GitHub app checks
+
+## 2026-08-10 | Large-room Data API calls assumed one unbounded response
+
+- Symptom:
+  - A committed message in a 536-member group showed that inbox notification registration failed and exposed a notification-only retry action.
+- Root cause:
+  - Group-chat loaded eligible members without pagination, passed the full room actor/phone sets through single `in(...)` filters, and persisted the whole notification audience with one `upsert(...).select(...)` call.
+  - Delivery required the returned row count to equal the entire audience, so a configured response cap could both omit members and misclassify a large successful upsert as incomplete.
+- Permanent guardrail:
+  - Enumerate full audience tables with stable ordered pagination; bound every Data API actor/phone filter and notification write to 100 inputs or rows.
+  - Validate each notification batch before fanout and fail closed on any incomplete batch. Notification replay must reuse the deterministic delivery key and must never repeat the committed message write.
+- Verification:
+  - `lib/__tests__/group-chat-data-api-batching.test.ts`
+  - `supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts`
+  - `supabase/functions/__tests__/messenger-group-push-preferences.contract.test.ts`
+
+## 2026-08-10 | A failed profile read was rendered as an editable blank form
+
+- Symptom:
+  - Home > 기본 정보에서 저장된 값이 모두 사라진 것처럼 보였고, 이름 하나를 고치려 해도 전체 항목을 다시 입력해야 했으며 저장도 신뢰할 수 없었다.
+- Root cause:
+  - 기존 프로필 조회 실패를 별도 UI 상태로 표현하지 않고 빈 form defaults를 그대로 렌더했다.
+  - 모바일 커스텀 세션을 Supabase Auth 세션처럼 간주해 익명 클라이언트에서 `fc_profiles`를 직접 수정했다.
+- Permanent guardrail:
+  - 기존 레코드 편집 화면은 canonical hydrate 성공 전까지 폼과 submit을 열지 않는다. 실패 시 빈 신규 폼이 아니라 명시적 재시도를 제공한다.
+  - 커스텀 앱 세션의 본인 수정은 서명 세션에서 서버가 대상 ID를 도출하고, allowlist 변경분만 trusted path로 저장한다. 전화번호·추천인·workflow·신원 필드는 기본정보 patch에 포함하지 않는다.
+  - 프로필 row, 로컬 가입 payload, raw DB 오류를 진단 로그에 남기지 않는다.
+- Verification:
+  - `lib/__tests__/fc-basic-information.test.ts`
+  - `lib/__tests__/mobile-basic-information-source.test.ts`
+  - `supabase/functions/__tests__/admin-action-fc-self-profile.contract.test.ts`
+
+## 2026-08-10 | Board reply state was cleared before the comment write completed
+
+- Symptom:
+  - A user could submit a reply, lose the visible reply target immediately, and then see no new reply while the parent thread remained collapsed.
+  - If the first request failed, retrying the preserved text could submit it as a top-level comment because the selected parent had already been cleared.
+- Root cause:
+  - The mobile board screens cleared `replyTarget` immediately after starting the mutation instead of after confirmed success.
+  - Mobile admin and admin web treated an empty collapsed-thread list as an uninitialized state, so expanding the last collapsed thread could cause it to collapse again.
+- Permanent guardrail:
+  - Keep the selected parent and entered text until the comment mutation succeeds. Clear only the exact submitted reply target, and preserve a newer target if one was selected while the request was pending.
+  - Carry the root thread ID with nested reply targets and remove that root from collapsed state after a successful reply.
+  - Initialize default collapsed threads once per opened post; an intentionally empty collapsed list means all threads are expanded.
+- Verification:
+  - `lib/__tests__/board-comment-reply-flow.test.ts`
+  - Focused mobile/admin board tests, mobile Expo export, and Sentry-disabled admin web production build.
+
+## 2026-08-13 | Logical SVG dimensions were treated as density-independent native bitmap cost
+
+- Symptom:
+  - Opening the referral graph on a high-density Galaxy device crashed while Android attempted to draw an approximately 234 MB bitmap.
+  - A first compensation kept markers fixed at every zoom level, so low-zoom nodes stayed visually large and could cover nearby names.
+- Root cause:
+  - The 1,800-dp SVG surface was allocated at device density without a physical pixel cap.
+  - Marker size, interaction size, and label paint order were handled as one concern instead of separate visual, hit-target, and overlay layers.
+- Permanent guardrail:
+  - Bound native SVG backing surfaces by physical pixels and keep logical graph coordinates in the viewBox/layout layer.
+  - Keep marker visuals zoom-aware with explicit lower/upper bounds, keep accessible hit targets independent, and render all labels in a final overlay above all markers.
+  - Any graph rendering change requires a high-density physical-device open and pinch smoke in addition to source/helper contracts.
+- Verification:
+  - `lib/__tests__/referral-graph-native.test.ts`
+  - `lib/__tests__/referral-graph-link.test.ts`
+  - Galaxy S26 Android 16 open, pinch-out, pinch-in, and no-crash smoke.
+
+## 2026-08-13 | Empty primary dependency directories blocked Expo release tooling
+
+- Symptom:
+  - `npm run eas:build:android` failed before EAS submission because Expo could not resolve the `expo-router` config plugin from the primary checkout.
+- Root cause:
+  - Release cleanup restored `node_modules` to an intentionally empty placeholder state even though the next approved release command depended on the primary checkout's installed packages.
+- Permanent guardrail:
+  - Before EAS config, update, or build commands, require a lockfile-backed dependency install in the exact checkout that will run the command.
+  - A clean Git worktree does not imply a release-runnable dependency state; verify `npx expo config --json` before starting a paid or long-running native build.
+- Verification:
+  - Root `npm ci` completed from the committed lockfile.
+  - `npx expo config --json` succeeded.
+  - Android production build `979d7c8d-4ae5-4c48-9c42-b92ed2f703bb` completed as app 4.2.4 / version code 74 / runtime 4.2.4.

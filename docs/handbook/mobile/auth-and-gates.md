@@ -2,10 +2,25 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-06-16
-source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-session.tsx
+last_verified: 2026-08-10
+source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx
 
 # Mobile Playbook: Auth And Gates
+
+## 2026-08-10 관리자 서면확인 가입 후 첫 로그인 계약
+
+- `admin_written_consent` 가입은 SMS OTP 가입의 우회 플래그가 아니라 별도 검증 근거다. 해당 프로필은 `signup_completed=true`여도 `phone_verified=false`를 유지한다.
+- 관리자가 발급한 임시 비밀번호로 로그인하면 `login-with-password`는 일반 앱 세션이나 Request Board bridge 세션을 발급하지 않는다. 대신 FC·전화번호·목적·nonce·짧은 만료시간에 묶인 `fc_assisted_password_change` 토큰만 반환한다.
+- 모바일은 위 토큰을 메모리에만 보관하고 `/first-password-change`에서 임시 비밀번호와 다른 새 비밀번호를 설정한다. 앱 종료 후 토큰 복구나 일반 세션 저장소 재사용은 금지한다.
+- DB의 one-time challenge와 `must_change_password`가 최종 권한 원천이다. 성공한 challenge 재사용, 만료 challenge, 다른 FC에 발급된 토큰은 모두 다시 로그인하도록 종료한다.
+- 새 비밀번호 변경이 성공한 뒤에도 자동 로그인하지 않는다. 사용자는 새 비밀번호로 다시 로그인해야 정상 앱/bridge 세션을 받을 수 있다.
+
+## 2026-08-10 Explicit Logout Contract
+
+- 명시적 로그아웃은 FC·관리자·본부장·개발자·설계매니저 모두 로컬 세션 종료가 권한 원천이다. 원격 푸시 토큰 해제나 가람Link 정리가 늦거나 실패해도 로컬 `role`, 앱 세션 토큰, 저장 세션을 비우는 동작을 기다리게 하면 안 된다.
+- 홈과 공통 로그아웃 액션은 `/login?skipAuto=1`로 이동해, 같은 이벤트 프레임에 남아 있는 이전 세션 snapshot이 로그인 화면에서 landing route로 되돌리는 경합을 막는다.
+- 푸시 토큰 해제는 로그아웃 시작 시 캡처한 signed app-session token으로 bounded best-effort 실행한다. 실패는 fixed reason만 기록하며 토큰·actor·원문 오류를 로그에 남기지 않는다.
+- 회귀 증거는 `lib/__tests__/session-logout.test.ts`, `lib/__tests__/logout-source-contract.test.ts`, `lib/__tests__/notifications.test.ts`가 소유한다.
 
 ## 2026-07-03 Login Contract Notes
 
@@ -96,14 +111,56 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 - referral function 실패 응답의 `code`는 문자열, `null`, 또는 누락 상태일 수 있다. 클라이언트는 error classification 때 `null`을 `undefined`로 정규화하되, 사용자 표시 message fallback은 기존 `message -> fallback` 순서를 유지한다.
 - `/referral` 상단은 더 이상 루트까지의 추천인 업라인 chain을 모두 보여주지 않고, direct recommender 1명 카드만 노출한다. 사용자가 입력한 추천코드 기준 사람 한 명만 보이는 것이 현재 UI 계약이다.
 - `app/referral.tsx`의 descendant lazy expand는 같은 `appSessionToken`으로 descendant `fcId`를 다시 조회하므로, 서버 인가도 `self only`가 아니라 `self subtree membership`을 검증해야 화면 contract와 맞는다. `app/referral-tree.tsx`는 legacy 진입을 `/referral`로 보내는 compatibility redirect만 유지한다.
-- 추천인 그래프 웹 shortcut은 모바일 self-service의 보조 링크이며, `EXPO_PUBLIC_ADMIN_WEB_URL`이 있을 때 FC와 본부장 모두 `/dashboard/referrals/graph`로 이동할 수 있어야 한다.
+- 추천인 그래프 CTA는 외부 관리자 웹을 열지 않고 앱 내부 `/referral-graph`로 이동한다. FC와 `admin + readOnly` 본부장만 진입할 수 있고, 실제 Edge token source role은 `fc` 또는 `manager`여야 한다.
+- `/referral-graph`도 `useReferralAppSession`의 current token → bridge refresh → 1회 retry 계약을 공유하며, 양쪽 token 복구 실패 시 relogin CTA를 보여준다. plain admin/developer/designer는 graph data query를 시작하지 않는다.
+- `/referral-revenue-graph`는 FC와 `admin + readOnly` 본부장만 볼 수 있는 로컬
+  샘플 미리보기다. designer/plain admin/developer는 직접 route 진입도 차단하며,
+  샘플 상수만 렌더하므로 app-session refresh, referral query, Supabase 또는
+  네트워크 요청을 시작하지 않는다.
 - 위촉 단계 필드(`hanwha_commission_*`, 보험 위촉 제출/승인 날짜)가 늘어날 때는 인증 흐름이 해당 필드를 잘못 덮어쓰지 않는지 같이 점검해야 합니다.
 - 설계매니저/디자이너 세션에서 `hooks/use-session.tsx`가 등록하는 mobile push token은 FC 토큰처럼 취급하면 안 된다. request_board 설계요청과 본인 채팅 알림만 받도록 역할/토큰 scope를 유지한다.
+- `hooks/use-session.tsx`는 mobile push 등록의 단일 owner입니다. transient 실패는 bounded retry하고, 성공·권한 거부·retry 소진 후 foreground 복귀 시 현재 signed session으로 다시 등록해 서버 token row 유실이나 권한 변경을 복구합니다. 지원하지 않는 platform/client/device 결과는 process 동안 terminal로 유지합니다.
+- 신규 가입·로그인에서 받은 `appSessionToken`은 push 등록보다 먼저 secure storage에 저장하고, token replacement마다 registration revision을 증가시켜 동일 role/resident 세션도 trusted 등록을 다시 실행해야 합니다. restore가 legacy session JSON의 토큰을 발견하면 secure storage로 이관한 뒤 새 JSON에는 자격증명을 포함하지 않습니다.
+
+## 2026-07-30 매출 기여 그래프 런타임 계약
+
+- `/referral-revenue-graph`의 네이티브 graph는 기존 `react-native-webview` 안의
+  외부 요청 없는 로컬 HTML 단일 Canvas에서 draw와 physics를 처리한다. node별
+  SVG/native Text를 drag frame마다 다시 그리는 경로를 추가하지 않는다.
+- 상호작용 물리는 관리자 웹 추천인 graph에서 실제로 활성인
+  charge·degree-aware link·link tension·collision·alpha/velocity damping 계열을
+  참고한다. 관리자 runtime에서 꺼진 `center/x/y` force는 모바일 전역 중심력으로
+  복원하지 않는다. 모바일은 viewer 중심의 collision-safe landscape radial seed와
+  약한 depth target, bounded viewer anchor/rebase를 사용하며 pointer로 잡은 node
+  하나만 고정한다. 관리자 `d3-force` runtime 전체를 이식하거나 package를 추가하지
+  않는다.
+- 1·3·6·10단계 guide ring은 viewer 중심에서 바깥으로 깊어지는 방향을 나타낸다.
+  회색 edge는 샘플 조직 관계이고 주황 child→parent arrow는 viewer 쪽 10% 샘플 기여
+  계산 방향이다. A11은 회색 점선/no-arrow이며 실제 송금·정산·지급 흐름으로
+  해석하지 않는다. eligible node 선택 경로의 inward pulse는 최대 1.5초 뒤 끝나고
+  event-driven RAF가 idle로 돌아가야 한다.
+- viewer node는 unfiltered 샘플 예상 유입 합계 10,240,000원을 표시하고 eligible
+  node는 자기 예상 배분액을 유지한다. edge에 금액 label을 추가하지 않는다.
+- WebView bridge는 `{type:'select-node', nodeId}`만 허용하고 앱은 현재 로컬 sample
+  node map에 존재하는 ID만 상세 선택으로 수락한다. file/universal file access,
+  mixed content, DOM storage, 외부 navigation은 비활성 상태를 유지한다.
+- node 이름·단계·금액 label은 screen-pixel 크기로 캐시하므로 pinch/fit/reset 중
+  글자 크기가 변하지 않는다. node 원과 edge만 graph scale을 따른다.
+- 새 route mount의 기본값은 저장되지 않는 `현재 그래프`다. 사용자가 명시적으로
+  `트리` 또는 `목록`을 선택할 수 있지만 다음 fresh mount는 다시 현재 그래프로 연다.
+- focus된 graph 및 graph 설정/상세는 landscape다. 트리·목록과 해당 상세는 portrait이며,
+  header/Android back, route blur, unmount에서는 portrait를 먼저 요청한다.
+  orientation 요청은 last-request-wins로 처리해 늦게 끝난 landscape 요청이 이탈 후
+  다시 적용되지 않게 한다.
+- 트리는 기존 graph node/edge/context와 상세 sheet를 공유하는 로컬 presentation일
+  뿐이다. tree mode에서는 원형 WebView를 반드시 unmount하며, 실제 referral 권한이나
+  data-read surface를 추가하지 않는다.
+- 신규 package, 실제 referral API/DB, 정산 데이터는 이 샘플 경로에 추가하지 않는다.
 
 ## 연관 문서
 
-- [../shared/cross-repo-bridge-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/cross-repo-bridge-contract.md)
-- [../shared/security-and-secret-operations.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/security-and-secret-operations.md)
+- [../shared/cross-repo-bridge-contract.md](../shared/cross-repo-bridge-contract.md)
+- [../shared/security-and-secret-operations.md](../shared/security-and-secret-operations.md)
 
 ## 2026-06-16 auth UI regression guard
 
@@ -111,4 +168,4 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 - These auth screens must keep a plain light root surface with `AUTH_SCREEN_BACKGROUND` and `styles.authBackground`, currently `COLORS.primaryPale`.
 - Login must keep `KeyboardAwareWrapper` with `keyboardShouldPersistTaps="always"` and the primary login CTA must use the shared `Button` with `dismissKeyboardOnPress`. Do not replace it with a raw `Pressable` unless the same keyboard-open tap contract is explicitly re-tested.
 - Android night splash background must stay light as well; a black night splash can make auth transitions look like another UI color regression.
-- Regression coverage lives in `lib/__tests__/login-mobile-source.test.ts`, `lib/__tests__/signup-background-source.test.ts`, `lib/__tests__/navigation-background-source.test.ts`, and `components/__tests__/Button.contract.test.ts`.
+- Regression coverage lives in `lib/__tests__/login-mobile-source.test.ts`, `lib/__tests__/signup-background-source.test.ts`, `components/__tests__/Button.contract.test.ts`, and one user-owned protected source-contract test whose identifier is withheld and which remains outside unrelated task edits and verification.

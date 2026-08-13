@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const layoutSource = readFileSync(join(__dirname, '..', '..', 'app', '_layout.tsx'), 'utf8');
+const layoutSource = readFileSync(
+  join(__dirname, '..', '..', 'app', '_layout.tsx'),
+  'utf8',
+).replace(/\r\n?/g, '\n');
 
 describe('navigation background fallbacks', () => {
   it('keeps app-level navigation surfaces on an explicit light background', () => {

@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -170,6 +170,11 @@ export default function RequestBoardRequestsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<RequestBoardListFilterKey>('all');
+  const requestSequenceRef = useRef(0);
+
+  useEffect(() => () => {
+    requestSequenceRef.current += 1;
+  }, []);
 
   useEffect(() => {
     const rawFilter = Array.isArray(filter) ? filter[0] : filter;
@@ -193,6 +198,8 @@ export default function RequestBoardRequestsScreen() {
     if (!hydrated) {
       return;
     }
+    const requestSequence = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestSequence;
     setFetchError(null);
     try {
       const sync = await ensureRequestBoardSession();
@@ -201,16 +208,31 @@ export default function RequestBoardRequestsScreen() {
       }
 
       const data = await rbGetRequestList();
-      const hydratedData = await hydrateDesignerRejectionReasons(data);
-      setRequests(hydratedData);
+      if (requestSequence !== requestSequenceRef.current) return;
+      setRequests(data);
+
+      setTimeout(() => {
+        void hydrateDesignerRejectionReasons(data)
+          .then((hydratedData) => {
+            if (requestSequence === requestSequenceRef.current) {
+              setRequests(hydratedData);
+            }
+          })
+          .catch(() => {
+            logger.warn('[requests] optional rejection-reason hydration failed');
+          });
+      }, 0);
     } catch (err) {
+      if (requestSequence !== requestSequenceRef.current) return;
       logger.warn('[requests] fetch failed', err);
       setFetchError(
         toRequestBoardSessionErrorMessage(err, '의뢰 목록을 불러오는데 실패했습니다.'),
       );
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (requestSequence === requestSequenceRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [ensureRequestBoardSession, hydrated]);
 

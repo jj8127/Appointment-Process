@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
+  createAssistedPasswordChangeChallenge,
   createAppSessionToken,
   createRequestBoardBridgeToken,
   getEnv,
@@ -12,6 +13,7 @@ import {
   ensureManagerReferralShadowProfile,
 } from '../_shared/referral-code.ts';
 import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
 
 type Payload = {
@@ -143,16 +145,12 @@ async function autoIssueReferralCodeOnLogin(params: {
     reason: params.reason ?? 'auto_issue_on_login',
   });
 
-  if (!result.ok) {
-    console.warn(
-      '[login-with-password] referral code auto-issue failed',
-      JSON.stringify({
-        actorRole: params.actorRole,
-        phone: cleanPhone(params.actorPhone),
-        fcId: params.profile.id,
-        message: result.message,
-      }),
-    );
+  if (result.ok === false) {
+    reportEdgeDiagnostic({
+      event: 'login_with_password.referral_bootstrap',
+      reason: 'referral_code_auto_issue_failed',
+      errorClass: 'database',
+    });
   }
 }
 
@@ -359,11 +357,12 @@ serve(async (req: Request) => {
     });
 
     const shadowResult = await ensureManagerReferralShadowProfile(supabase, manager.phone, manager.name);
-    if (!shadowResult.ok) {
-      console.warn(
-        '[login-with-password] manager referral shadow ensure failed',
-        JSON.stringify({ phone: manager.phone, message: shadowResult.message }),
-      );
+    if (shadowResult.ok === false) {
+      reportEdgeDiagnostic({
+        event: 'login_with_password.referral_bootstrap',
+        reason: 'manager_shadow_ensure_failed',
+        errorClass: 'database',
+      });
     } else {
       const { data: managerReferralProfile, error: managerReferralProfileError } = await supabase
         .from('fc_profiles')
@@ -372,10 +371,11 @@ serve(async (req: Request) => {
         .maybeSingle();
 
       if (managerReferralProfileError) {
-        console.warn(
-          '[login-with-password] manager referral profile lookup failed',
-          JSON.stringify({ phone: manager.phone, message: managerReferralProfileError.message }),
-        );
+        reportEdgeDiagnostic({
+          event: 'login_with_password.referral_bootstrap',
+          reason: 'manager_shadow_lookup_failed',
+          errorClass: 'database',
+        });
       } else {
         await autoIssueReferralCodeOnLogin({
           profile: managerReferralProfile,
@@ -420,7 +420,7 @@ serve(async (req: Request) => {
 
   const { data: creds, error: credsError } = await supabase
     .from('fc_credentials')
-    .select('password_hash,password_salt,failed_count,locked_until,password_set_at')
+    .select('password_hash,password_salt,failed_count,locked_until,password_set_at,must_change_password')
     .eq('fc_id', profile.id)
     .maybeSingle();
 
@@ -470,6 +470,49 @@ serve(async (req: Request) => {
     .from('fc_credentials')
     .update({ failed_count: 0, locked_until: null })
     .eq('fc_id', profile.id);
+
+  if (creds.must_change_password === true) {
+    const challenge = await createAssistedPasswordChangeChallenge(profile.phone, profile.id);
+    if (!challenge) {
+      return json({
+        ok: false,
+        code: 'server_misconfigured',
+        message: '비밀번호 변경 요청을 생성하지 못했습니다.',
+      }, 500, origin);
+    }
+
+    const { error: challengeError } = await supabase.rpc(
+      'issue_admin_assisted_password_change_v1',
+      {
+        p_fc_id: profile.id,
+        p_nonce_hash: challenge.nonceHash,
+        p_expires_at: challenge.expiresAt,
+      },
+    );
+    if (challengeError) {
+      reportEdgeDiagnostic({
+        event: 'login_with_password.assisted_password_change',
+        reason: 'challenge_issue_failed',
+        errorClass: 'database',
+      });
+      return json({
+        ok: false,
+        code: 'password_change_unavailable',
+        message: '비밀번호 변경 요청을 준비하지 못했습니다. 잠시 후 다시 시도해주세요.',
+      }, 500, origin);
+    }
+
+    return fail(
+      'password_change_required',
+      '관리자가 발급한 임시 비밀번호입니다. 계속하려면 새 비밀번호를 설정해주세요.',
+      {
+        role: 'fc',
+        passwordChangeToken: challenge.token,
+        passwordChangeExpiresAt: challenge.expiresAt,
+      },
+      origin,
+    );
+  }
 
   const designerCompanyName = parseDesignerCompanyNameFromAffiliation(profile.affiliation);
   const requestBoardRole: 'fc' | 'designer' = designerCompanyName ? 'designer' : 'fc';

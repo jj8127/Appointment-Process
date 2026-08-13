@@ -2,6 +2,7 @@ import {
   buildPendingSignupReferralSelection,
   buildStoredSignupReferral,
   getSignupReferralSelectionError,
+  hasValidStoredSignupReferral,
   runSinglePendingReferralApply,
 } from '../signup-referral';
 
@@ -74,12 +75,15 @@ describe('buildStoredSignupReferral', () => {
 
   test('requires the user to pick a search result before continuing when the single input is filled', () => {
     expect(getSignupReferralSelectionError('KCSACZXU', null)).toBe(
-      '추천인을 적용하려면 검색 결과에서 한 명을 선택하거나 입력값을 지워주세요.',
+      '추천인을 적용하려면 검색 결과에서 한 명을 선택해주세요.',
     );
   });
 
-  test('does not require a selection when the single input is empty or already resolved', () => {
-    expect(getSignupReferralSelectionError('', null)).toBeNull();
+  test('requires a selected referral even when the search input is empty', () => {
+    expect(getSignupReferralSelectionError('', null)).toBe('추천인을 검색해 선택해주세요.');
+  });
+
+  test('accepts an already resolved selection', () => {
     expect(
       getSignupReferralSelectionError('문주화', {
         fcId: 'fc-1',
@@ -88,6 +92,32 @@ describe('buildStoredSignupReferral', () => {
         code: 'KCSACZXU',
       }),
     ).toBeNull();
+  });
+});
+
+describe('hasValidStoredSignupReferral', () => {
+  test('requires the validated code, inviter id, and display name carried from signup', () => {
+    expect(hasValidStoredSignupReferral({
+      recommender: '문주화',
+      referralCode: 'KCSACZXU',
+      referralInviterFcId: 'fc-1',
+    })).toBe(true);
+
+    expect(hasValidStoredSignupReferral({
+      recommender: '',
+      referralCode: 'KCSACZXU',
+      referralInviterFcId: 'fc-1',
+    })).toBe(false);
+    expect(hasValidStoredSignupReferral({
+      recommender: '문주화',
+      referralCode: undefined,
+      referralInviterFcId: 'fc-1',
+    })).toBe(false);
+    expect(hasValidStoredSignupReferral({
+      recommender: '문주화',
+      referralCode: 'KCSACZXU',
+      referralInviterFcId: undefined,
+    })).toBe(false);
   });
 });
 

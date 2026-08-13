@@ -17,6 +17,7 @@ test('exam applicant list display columns follow the confirmed admin workbook or
       '시험 신청일',
       '시험응시 과목',
       '시험 신청 구분',
+      '신청 상태',
       '생명보험 응시일자',
       '생명보험 고사장',
       '손해보험 응시일자',
@@ -213,6 +214,77 @@ test('top exam applicant filters build de-duped subject options from current row
   ]);
 });
 
+test('application lifecycle status is separate from binary reception status', async () => {
+  const mod = await import('./exam-applicant-list-display.ts').catch(() => null);
+
+  assert.ok(mod, 'exam applicant list display module should exist');
+  assert.equal(mod.formatExamApplicantReceptionStatus({ is_confirmed: true }), '접수 완료');
+  assert.equal(mod.formatExamApplicantReceptionStatus({ is_confirmed: false }), '미접수');
+
+  const expectedLabels = new Map([
+    ['applied', '신청 완료'],
+    ['confirmed', '신청 완료'],
+    ['completed', '시험 완료'],
+    ['no_show', '미응시'],
+    ['rejected', '반려'],
+    ['cancelled_by_fc', '본인 취소'],
+    ['cancelled_by_admin', '관리자 취소'],
+    ['unexpected', '-'],
+  ]);
+
+  for (const [status, expected] of expectedLabels) {
+    const item = {
+      status,
+      is_confirmed: status === 'confirmed',
+      affiliation: '-',
+      name: '-',
+      resident_id: '-',
+      address: '-',
+      phone: '-',
+      location_name: '-',
+      round_label: '-',
+      exam_date: null,
+    };
+    assert.equal(mod.formatExamApplicantApplicationStatus(item), expected);
+    assert.equal(
+      mod.getExamApplicantCellValue(item, 'application_status'),
+      expected,
+    );
+  }
+
+  assert.equal(mod.getExamApplicantApplicationStatusBadgeColor('반려'), 'red');
+  assert.equal(mod.getExamApplicantApplicationStatusBadgeColor('본인 취소'), 'gray');
+  assert.equal(mod.getExamApplicantApplicationStatusBadgeColor('시험 완료'), 'green');
+  assert.equal(mod.getExamApplicantApplicationStatusBadgeColor('미응시'), 'yellow');
+  assert.equal(mod.getExamApplicantApplicationStatusBadgeColor('신청 완료'), 'blue');
+});
+
+test('exam applicant quick affiliations pin requested headquarters and match legacy composite labels', async () => {
+  const mod = await import('./exam-applicant-list-display.ts').catch(() => null);
+
+  assert.ok(mod, 'exam applicant list display module should exist');
+  assert.deepStrictEqual(
+    mod.buildExamApplicantQuickAffiliationOptions([
+      { affiliation: '8본부 정승철' },
+      { affiliation: '1본부 서선미' },
+      { affiliation: '6본부 김정수(박선희)' },
+      { affiliation: '9본부 이현욱(김주용)' },
+    ]),
+    [
+      '전체',
+      '1본부 서선미',
+      '2본부 박성훈',
+      '6본부 김정수',
+      '8본부 정승철',
+      '9본부 김주용',
+      '10본부 한태균',
+    ],
+  );
+  assert.equal(mod.matchesExamApplicantQuickAffiliation('6본부 김정수(박선희)', '6본부 김정수'), true);
+  assert.equal(mod.matchesExamApplicantQuickAffiliation('9본부 이현욱(김주용)', '9본부 김주용'), true);
+  assert.equal(mod.matchesExamApplicantQuickAffiliation('1본부 서선미', '2본부 박성훈'), false);
+});
+
 test('top exam applicant round filters narrow by selected subject and format labels', async () => {
   const mod = await import('./exam-applicant-list-display.ts').catch(() => null);
 
@@ -322,6 +394,18 @@ test('round-specific admin exam page uses the shared applicant column contract',
   assert.match(source, /getExamApplicantCellValue/);
   assert.match(source, /roundId=/);
   assert.doesNotMatch(source, /<FilterHeader label="이름" field="name" \/>[\s\S]*<FilterHeader label="연락처" field="phone" \/>[\s\S]*<FilterHeader label="소속" field="affiliation"/);
+});
+
+test('all admin applicant tables render the shared application status as a dedicated badge', () => {
+  const sources = [
+    readFileSync('web/src/app/dashboard/exam/applicants/page.tsx', 'utf8'),
+    readFileSync('web/src/app/admin/exams/[id]/page.tsx', 'utf8'),
+  ];
+
+  for (const source of sources) {
+    assert.match(source, /column\.key === 'application_status'/);
+    assert.match(source, /getExamApplicantApplicationStatusBadgeColor\(value\)/);
+  }
 });
 
 test('all admin applicant table surfaces use shared non-clipping badge styles', () => {

@@ -357,6 +357,18 @@ describe('request-board mobile UI contracts', () => {
     expect(homeSource).not.toContain('모바일에서 거절 처리');
   });
 
+  it('confirms a successful designer rejection from the home quick request card', () => {
+    const handlerStart = homeSource.indexOf('const handleDesignerRejectConfirm = async () =>');
+    const handlerEnd = homeSource.indexOf('const openNotifications = () =>', handlerStart);
+    const handlerBlock = homeSource.slice(handlerStart, handlerEnd);
+
+    expect(handlerBlock).toContain('getRequestBoardNotificationFeedback(result)');
+    expect(handlerBlock).toContain("notificationFeedback?.title ?? '거절 완료'");
+    expect(handlerBlock).toContain("notificationFeedback?.message ?? '의뢰를 거절했습니다.'");
+    expect(handlerBlock.indexOf('Alert.alert('))
+      .toBeLessThan(handlerBlock.indexOf('await fetchData({ force: true });'));
+  });
+
   it('does not log out the whole GaramIn session when only request-board reauthentication is needed', () => {
     const autoSyncStart = sessionSource.indexOf('void ensureRequestBoardSession().then');
     const autoSyncEnd = sessionSource.indexOf('return () => {', autoSyncStart);
@@ -395,13 +407,53 @@ describe('request-board mobile UI contracts', () => {
     expect(requestsSource).toContain('{designerRejectionSummary.reason}');
   });
 
+  it('renders request list rows before optional rejection-reason hydration finishes', () => {
+    const fetchBlock = requestsSource.slice(
+      requestsSource.indexOf('const fetchData = useCallback'),
+      requestsSource.indexOf('const handleRefresh = () =>'),
+    );
+    expect(fetchBlock).toContain('setRequests(data);');
+    expect(fetchBlock).toContain('setTimeout(() =>');
+    expect(fetchBlock).toContain('hydrateDesignerRejectionReasons(data)');
+    expect(fetchBlock).toContain('requestSequence === requestSequenceRef.current');
+    expect(fetchBlock).toContain("logger.warn('[requests] optional rejection-reason hydration failed')");
+    expect(fetchBlock.indexOf('setRequests(data);')).toBeLessThan(
+      fetchBlock.indexOf('hydrateDesignerRejectionReasons(data)'),
+    );
+  });
+
+  it('coalesces passive home refreshes but forces pull and post-mutation refreshes', () => {
+    expect(homeSource).toContain('shouldSkipRequestBoardPassiveRefresh');
+    expect(homeSource).toContain('requestBoardRefreshInFlightRef');
+    expect(homeSource).toContain('lastRequestBoardRefreshCompletedAtRef');
+    expect(homeSource).toContain('void fetchData({ force: true });');
+    expect(homeSource.match(/await fetchData\(\{ force: true \}\);/g)).toHaveLength(2);
+  });
+
+  it('opens the customer step before later request catalogs finish loading', () => {
+    const loadBlock = createSource.slice(
+      createSource.indexOf('const loadData = useCallback'),
+      createSource.indexOf('useEffect(() => {', createSource.indexOf('const loadData = useCallback')),
+    );
+    expect(loadBlock).toContain('const customerRowsPromise = rbGetCustomers();');
+    expect(loadBlock).toContain('const catalogRowsPromise = Promise.all([');
+    expect(loadBlock.indexOf('setLoading(false);')).toBeLessThan(
+      loadBlock.indexOf('await catalogRowsPromise'),
+    );
+    expect(createSource).toContain('if (catalogLoading)');
+    expect(createSource).toContain('상품·설계 매니저 정보를 불러오는 중입니다');
+  });
+
   it('creates one GaramIn request per selected product-designer cell', () => {
     const submitRequestBlock = createSource.slice(
-      createSource.indexOf('const submitRequest = async () => {'),
+      createSource.indexOf('const submitRequest = async (retryFailedOnly = false) => {'),
       createSource.indexOf('const renderCustomerStep = () => ('),
     );
 
-    expect(submitRequestBlock).toContain('const requestJobs = selectedProductIds.flatMap');
+    expect(submitRequestBlock).toContain('const allRequestJobSeeds = selectedProductIds.flatMap');
+    expect(submitRequestBlock).toContain('const requestJobSeeds = retryFailedOnly');
+    expect(submitRequestBlock).toContain('const requestJobs = requestJobSeeds.map');
+    expect(submitRequestBlock).toContain('clientRequestKey,');
     expect(submitRequestBlock).toContain('productIds: [productId]');
     expect(submitRequestBlock).toContain('designerIds: [designer.id]');
     expect(submitRequestBlock).toContain('designerCodeSelections: [designerCodeSelection]');
@@ -411,7 +463,7 @@ describe('request-board mobile UI contracts', () => {
 
   it('handles partial multi-request creation without inviting duplicate retry submissions', () => {
     const submitRequestBlock = createSource.slice(
-      createSource.indexOf('const submitRequest = async () => {'),
+      createSource.indexOf('const submitRequest = async (retryFailedOnly = false) => {'),
       createSource.indexOf('const renderCustomerStep = () => ('),
     );
 
@@ -422,9 +474,37 @@ describe('request-board mobile UI contracts', () => {
     expect(submitRequestBlock).not.toContain('const createdResults = await Promise.all(');
   });
 
+  it('keeps saved requests successful and retries only post-commit attachment delivery', () => {
+    const submitRequestBlock = createSource.slice(
+      createSource.indexOf('const submitRequest = async (retryFailedOnly = false) => {'),
+      createSource.indexOf('const renderCustomerStep = () => ('),
+    );
+    const retryBlock = createSource.slice(
+      createSource.indexOf('const retryAttachmentDelivery = async () =>'),
+      createSource.indexOf('const submitRequest = async (retryFailedOnly = false) => {'),
+    );
+
+    expect(submitRequestBlock).toContain('setSentRequestIds((previousIds) =>');
+    expect(submitRequestBlock).toContain('Array.from(new Set([...previousIds, ...createdRequestIds]))');
+    expect(submitRequestBlock).toContain('runAttachmentDelivery({');
+    expect(submitRequestBlock).toContain('requestIds: createdRequestIds');
+    expect(submitRequestBlock).toContain('setPendingAttachmentDelivery(deliveryResult.pending)');
+    expect(submitRequestBlock).toContain('deliveryBatchKey: `garamin_attachment:${randomUUID()}`');
+    expect(retryBlock).toContain('runAttachmentDelivery(pendingAttachmentDelivery)');
+    expect(retryBlock).not.toContain('rbCreateRequest');
+    expect(createSource).toContain('요청을 다시 만들지 말고 첨부 전달만 다시 시도해주세요.');
+  });
+
+  it('keeps request saves successful while surfacing incomplete notification delivery', () => {
+    expect(createSource).toContain('getRequestBoardNotificationFeedback(result)');
+    expect(createSource).toContain('setRequestNotificationFeedback(');
+    expect(createSource).toContain('requestNotificationFeedback.title');
+    expect(createSource).toContain('requestNotificationFeedback.message');
+  });
+
   it('blocks existing customers without driving status before creating a GaramIn request', () => {
     const submitRequestBlock = createSource.slice(
-      createSource.indexOf('const submitRequest = async () => {'),
+      createSource.indexOf('const submitRequest = async (retryFailedOnly = false) => {'),
       createSource.indexOf('const renderCustomerStep = () => ('),
     );
 
@@ -525,6 +605,57 @@ describe('request-board mobile UI contracts', () => {
     expect(reviewSource).toContain('file.description');
     expect(reviewSource).toContain('file.expiry_date');
     expect(reviewSource).toContain('formatDate(file.expiry_date)');
+  });
+
+  it('opens and receipts only the exact request or direct conversation from a notification', () => {
+    expect(messengerSource).toContain(
+      'hasConflictingRouteParams(requestDesignerId, directConversationId)',
+    );
+    expect(messengerSource).toContain(
+      'hasPresentRouteParam(requestDesignerId)',
+    );
+    expect(messengerSource).toContain(
+      'hasPresentRouteParam(directConversationId)',
+    );
+    expect(messengerSource).toContain(
+      'const notificationConversationId = hasAmbiguousConversationTarget',
+    );
+    expect(messengerSource).toContain(
+      '? `req-${parsedRequestDesignerId}`',
+    );
+    expect(messengerSource).toContain(
+      '? `dm-${parsedDirectConversationId}`',
+    );
+    expect(messengerSource).toContain(
+      "kind: 'request_chat' as const",
+    );
+    expect(messengerSource).toContain(
+      "kind: 'request_direct_chat' as const",
+    );
+    expect(messengerSource).toContain(
+      'conversation.conversationIds.includes(parsedRequestDesignerId)',
+    );
+    expect(messengerSource).toContain(
+      'conversations.find(matchesRouteConversationTarget)',
+    );
+    expect(messengerSource).toContain(
+      'setLoadedConversationId(conv.id)',
+    );
+    expect(messengerSource).toContain(
+      'loadedConversationId === activeConv?.id',
+    );
+    expect(messengerSource).toContain(
+      'anchorContextMessagesRef.current',
+    );
+    expect(messengerSource).toContain(
+      'anchorContextAttemptRef.current = null',
+    );
+    expect(messengerSource).toContain(
+      'setAnchorContextRetryKey((current) => current + 1)',
+    );
+    expect(messengerSource).toContain(
+      'useNotificationReceiptCompletion',
+    );
   });
 
   it('collects designer attachment description and expiry metadata before upload', () => {

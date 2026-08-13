@@ -1,16 +1,20 @@
-import { logger, LogLevel } from '../logger';
+import { logger } from '../logger';
+import { setSentryCaptureException } from '../sentry-monitor';
 
 describe('Logger', () => {
   let consoleLogSpy: jest.SpyInstance;
   let consoleInfoSpy: jest.SpyInstance;
   let consoleWarnSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
+  let sentryCaptureSpy: jest.Mock;
 
   beforeEach(() => {
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
     consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation();
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    sentryCaptureSpy = jest.fn();
+    setSentryCaptureException(sentryCaptureSpy);
   });
 
   afterEach(() => {
@@ -18,6 +22,7 @@ describe('Logger', () => {
     consoleInfoSpy.mockRestore();
     consoleWarnSpy.mockRestore();
     consoleErrorSpy.mockRestore();
+    setSentryCaptureException(null);
   });
 
   describe('debug', () => {
@@ -64,6 +69,73 @@ describe('Logger', () => {
       expect(consoleErrorSpy).toHaveBeenCalled();
       expect(consoleErrorSpy.mock.calls[0][0]).toContain('[ERROR]');
       expect(consoleErrorSpy.mock.calls[0][0]).toContain('Error message');
+    });
+
+    it('sanitizes console and Sentry-adjacent diagnostics while preserving classification', () => {
+      const bearerToken = 'eyJhbGciOiJIUzI1NiJ9.payloadpayload.signaturesignature';
+      const pushToken = 'ExponentPushToken[device-secret-value]';
+      const storagePath = 'fc-documents/user-1/customer-id.pdf';
+
+      logger.error('Delivery failed for +82 10-1234-5678', {
+        authorization: `Bearer ${bearerToken}`,
+        residentId: '990101-1234567',
+        otpCode: '654321',
+        expoPushToken: pushToken,
+        storagePath,
+        upstreamResponseBody: '{"phone":"010-9876-5432"}',
+        status: 502,
+        reason: 'upstream_rejected',
+      });
+
+      const consoleOutput = String(consoleErrorSpy.mock.calls[0][0]);
+      const [capturedError, capturedContext] = sentryCaptureSpy.mock.calls[0];
+      const capturedOutput = JSON.stringify({
+        name: capturedError.name,
+        message: capturedError.message,
+        stack: capturedError.stack,
+        context: capturedContext,
+      });
+
+      for (const sensitiveValue of [
+        bearerToken,
+        '+82 10-1234-5678',
+        '990101-1234567',
+        '654321',
+        pushToken,
+        storagePath,
+        '010-9876-5432',
+      ]) {
+        expect(consoleOutput).not.toContain(sensitiveValue);
+        expect(capturedOutput).not.toContain(sensitiveValue);
+      }
+      expect(consoleOutput).toContain('"status": 502');
+      expect(consoleOutput).toContain('"reason": "upstream_rejected"');
+      expect(capturedOutput).toContain('upstream_rejected');
+    });
+
+    it('rebuilds raw Error instances with a sanitized message and stack', () => {
+      const rawError = new Error(
+        'Bearer device-secret +82 10-1234-5678 OTP: 654321 at fc-documents/user-1/customer-id.pdf',
+      );
+      rawError.name = 'ProviderDeliveryError';
+      rawError.stack = `${rawError.name}: ${rawError.message}\n    at send(fc-documents/user-1/customer-id.pdf)`;
+
+      logger.error('Provider delivery failed', rawError);
+
+      const consoleOutput = String(consoleErrorSpy.mock.calls[0][0]);
+      const [capturedError] = sentryCaptureSpy.mock.calls[0];
+      const capturedOutput = `${capturedError.name}\n${capturedError.message}\n${capturedError.stack}`;
+
+      for (const sensitiveValue of [
+        'device-secret',
+        '+82 10-1234-5678',
+        '654321',
+        'fc-documents/user-1/customer-id.pdf',
+      ]) {
+        expect(consoleOutput).not.toContain(sensitiveValue);
+        expect(capturedOutput).not.toContain(sensitiveValue);
+      }
+      expect(capturedError.name).toBe('ProviderDeliveryError');
     });
   });
 

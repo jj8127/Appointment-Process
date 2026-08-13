@@ -1,0 +1,76 @@
+import { classifyFcNotificationResult } from './admin-chat-notification-result';
+import { logger } from './logger';
+
+type ExamApprovalNotificationTarget = {
+  id: string;
+  phone: string;
+  exam_date: string | null;
+  round_label: string;
+  location_name: string;
+  exam_type?: string | null;
+};
+
+function formatExamApprovalInfo(item: ExamApprovalNotificationTarget): string {
+  const dateLabel = item.exam_date?.slice(0, 10) || '시험 일정';
+  const roundLabel = item.round_label && item.round_label !== '-' ? ` (${item.round_label})` : '';
+  const locationLabel = item.location_name && item.location_name !== '미정' ? ` [${item.location_name}]` : '';
+  return `${dateLabel}${roundLabel}${locationLabel}`;
+}
+
+export async function notifyFcExamApprovalStatus(
+  item: ExamApprovalNotificationTarget,
+  isConfirmed: boolean,
+): Promise<void> {
+  const examType = item.exam_type === 'nonlife' ? 'nonlife' : 'life';
+  const targetId = (item.phone ?? '').replace(/[^0-9]/g, '');
+  if (!targetId) {
+    logger.warn('[exam-applicant] mobile notification skipped', {
+      reason: 'missing_target',
+    });
+    return;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch('/api/fc-notify', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      keepalive: true,
+      body: JSON.stringify({
+        type: 'exam_approval_notify',
+        target_id: targetId,
+        is_confirmed: isConfirmed,
+        exam_info: formatExamApprovalInfo(item),
+        exam_type: examType,
+        target: {
+          version: 1,
+          kind: 'exam',
+          examType,
+          examRegistrationId: item.id,
+        },
+      }),
+    });
+  } catch {
+    logger.warn('[exam-applicant] mobile notification unconfirmed', {
+      reason: 'network_error',
+      status: 0,
+    });
+    return;
+  }
+
+  const responseBody: unknown = await response.json().catch(() => null);
+  const result = classifyFcNotificationResult(response.status, responseBody);
+  if (!result.ok) {
+    logger.warn('[exam-applicant] mobile notification unconfirmed', {
+      reason: result.reason,
+      status: response.status,
+    });
+    return;
+  }
+
+  logger.debug('[exam-applicant] mobile notification confirmed', {
+    sent: result.sent,
+    status: response.status,
+  });
+}

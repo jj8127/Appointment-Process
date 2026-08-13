@@ -51,15 +51,15 @@ npm install
 # Start Expo development server
 npm start
 
-# Run on specific platforms
-npx expo run:android
+# Run on Android (filters stale mDNS ADB entries and selects an online device)
+npm run android
 npx expo run:ios
 
 # Test on iOS with Expo Go (QR code scan)
 npx expo start  # Switch to Expo Go mode
 
 # Clean rebuild with custom icon
-npx expo prebuild --clean && npx expo run:android
+npx expo prebuild --clean && npm run android
 
 # Clear app data
 adb uninstall com.jj8127.Garam_in

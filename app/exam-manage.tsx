@@ -1,9 +1,12 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -17,16 +20,26 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
-import { deleteExamRegistrationAsAdmin } from '@/lib/exam-admin-api';
-import { notifyExamApprovalStatus } from '@/lib/exam-approval-notify';
+import {
+  deleteExamRegistrationAsAdmin,
+  transitionExamRegistrationAsAdmin,
+} from '@/lib/exam-admin-api';
 import {
   buildExamInfo,
   buildExamPhoneCandidates,
   formatExamResidentNumber,
+  formatExamRegistrationSubjectLabel,
   formatExamYmd,
 } from '@/lib/exam-display';
 import { logger } from '@/lib/logger';
+import { formatExamRegistrationStatus } from '@/lib/exam-flow-contract';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import {
+  hasPresentRouteParam,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
 import { supabase } from '@/lib/supabase';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 
 const ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -57,8 +70,10 @@ type ExamRegistrationRaw = {
   resident_id: string;
   status: string;
   is_confirmed: boolean | null;
+  includes_primary_exam?: boolean | null;
   is_third_exam?: boolean | null;
   fee_paid_date?: string | null;
+  rejection_reason?: string | null;
   created_at: string;
   exam_rounds: ExamRoundRef | ExamRoundRef[] | null;
   exam_locations: ExamLocationRef | ExamLocationRef[] | null;
@@ -82,8 +97,11 @@ type ApplicantRow = {
   phone: string;
   examInfo: string;
   isConfirmed: boolean;
+  status: string;
+  includesPrimaryExam: boolean;
   thirdExam: boolean;
   feePaidDate?: string | null;
+  rejectionReason?: string | null;
 };
 
 async function fetchApplicantsLife(adminPhone: string, appSessionToken: string | null): Promise<ApplicantRow[]> {
@@ -91,8 +109,8 @@ async function fetchApplicantsLife(adminPhone: string, appSessionToken: string |
     .from('exam_registrations')
     .select(
       `
-      id, resident_id, status, is_confirmed, is_third_exam, fee_paid_date, created_at,
-      exam_rounds!inner ( exam_type, exam_date, round_label ),
+      id, resident_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, rejection_reason, created_at,
+      exam_rounds!exam_registrations_round_exam_type_fkey!inner ( exam_type, exam_date, round_label ),
       exam_locations!exam_registrations_location_round_fkey ( location_name )
     `,
     )
@@ -159,8 +177,11 @@ async function fetchApplicantsLife(adminPhone: string, appSessionToken: string |
       phone: profile?.phone ?? key,
       examInfo: buildExamInfo(reg),
       isConfirmed: !!reg.is_confirmed,
+      status: reg.status,
+      includesPrimaryExam: reg.includes_primary_exam !== false,
       thirdExam: !!reg.is_third_exam,
       feePaidDate: reg.fee_paid_date ?? null,
+      rejectionReason: reg.rejection_reason ?? null,
     });
   }
   return result;
@@ -168,6 +189,12 @@ async function fetchApplicantsLife(adminPhone: string, appSessionToken: string |
 
 export default function ExamManageLifeScreen() {
   const { role, hydrated, readOnly, residentId, appSessionToken } = useSession();
+  const { registrationId, notificationId, notificationTarget } =
+    useLocalSearchParams<{
+      registrationId?: string;
+      notificationId?: string;
+      notificationTarget?: string;
+    }>();
   const canEdit = role === 'admin' && !readOnly;
   // Mobile manager sessions are normalized to admin + readOnly in hooks/use-session.
   const canReadApplicants = role === 'admin';
@@ -180,11 +207,41 @@ export default function ExamManageLifeScreen() {
   const [searchText, setSearchText] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'confirmed' | 'pending'>('all');
   const [filterAffiliation, setFilterAffiliation] = useState('전체');
+  const [rejectTarget, setRejectTarget] = useState<ApplicantRow | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   const { data: applicants, isLoading, error: applicantsError, refetch } = useQuery<ApplicantRow[]>({
     queryKey: ['exam-applicants', EXAM_TYPE, residentId, appSessionToken],
     queryFn: () => fetchApplicantsLife(residentId ?? '', appSessionToken),
     enabled: hydrated && canReadApplicants && !!residentId,
+  });
+  const routeRegistrationId =
+    parseExactlyOneUuidRouteParam(registrationId);
+  const hasInvalidRegistrationRoute =
+    hasPresentRouteParam(registrationId) && !routeRegistrationId;
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasInvalidRegistrationRoute && routeRegistrationId
+      ? {
+          version: 1,
+          kind: 'exam',
+          examType: 'life',
+          examRegistrationId: routeRegistrationId,
+        }
+      : null,
+    loadState: hasInvalidRegistrationRoute
+      ? 'error'
+      : applicantsError
+      ? 'error'
+      : applicants?.some(
+          (row) => row.registrationId === routeRegistrationId,
+        )
+        ? 'success'
+        : isLoading
+          ? 'loading'
+          : routeRegistrationId
+            ? 'error'
+            : 'idle',
   });
 
   // Realtime: 시험 접수 변경 시 관리자 화면 갱신
@@ -210,11 +267,21 @@ export default function ExamManageLifeScreen() {
         a.headQuarter.toLowerCase().includes(keyword) ||
         a.examInfo.toLowerCase().includes(keyword);
       let matchStatus = true;
-      if (filterStatus === 'confirmed') matchStatus = a.isConfirmed;
-      if (filterStatus === 'pending') matchStatus = !a.isConfirmed;
+      if (filterStatus === 'confirmed') matchStatus = a.status === 'confirmed';
+      if (filterStatus === 'pending') matchStatus = a.status === 'applied';
       return matchAffiliation && matchText && matchStatus;
+    }).sort((left, right) => {
+      if (left.registrationId === routeRegistrationId) return -1;
+      if (right.registrationId === routeRegistrationId) return 1;
+      return 0;
     });
-  }, [applicants, filterAffiliation, searchText, filterStatus]);
+  }, [
+    applicants,
+    filterAffiliation,
+    routeRegistrationId,
+    searchText,
+    filterStatus,
+  ]);
 
   const affiliationOptions = useMemo(() => {
     if (!applicants) return ['전체'];
@@ -239,34 +306,44 @@ export default function ExamManageLifeScreen() {
   const toggleMutation = useMutation({
     mutationFn: async (params: { applicant: ApplicantRow; value: boolean }) => {
       assertCanEdit();
-      const nextStatus = params.value ? 'confirmed' : 'applied';
-      const { error } = await supabase
-        .from('exam_registrations')
-        .update({ is_confirmed: params.value, status: nextStatus })
-        .eq('id', params.applicant.registrationId);
-      if (error) throw error;
+      await transitionExamRegistrationAsAdmin({
+        adminPhone: residentId ?? '',
+        registrationId: params.applicant.registrationId,
+        action: params.value ? 'confirm' : 'unconfirm',
+      });
       return params;
     },
-    onSuccess: async ({ applicant, value }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
-      if (!value) return;
-
-      try {
-        await notifyExamApprovalStatus({
-          residentId: applicant.residentId,
-          examInfo: applicant.examInfo,
-          examPath: '/exam-apply',
-          isConfirmed: true,
-        });
-      } catch (err) {
-        logger.warn('[exam-manage] approval notification failed', err);
-        Alert.alert('알림 전송 실패', '시험 상태는 저장되었지만 FC 앱 알림 전송은 실패했습니다.');
-      }
     },
     onSettled: (_data, error) => {
       if (error) {
         const message = error instanceof Error ? error.message : '오류가 발생했습니다.';
         Alert.alert('저장 실패', message);
+      }
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (input: { applicant: ApplicantRow; reason: string }) => {
+      assertCanEdit();
+      await transitionExamRegistrationAsAdmin({
+        adminPhone: residentId ?? '',
+        registrationId: input.applicant.registrationId,
+        action: 'reject',
+        reason: input.reason,
+      });
+      return input;
+    },
+    onSuccess: () => {
+      setRejectTarget(null);
+      setRejectReason('');
+      queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
+      Alert.alert('반려 완료', '시험 신청을 반려했습니다.');
+    },
+    onSettled: (_data, error) => {
+      if (error) {
+        Alert.alert('반려 실패', error instanceof Error ? error.message : '반려 처리에 실패했습니다.');
       }
     },
   });
@@ -282,12 +359,12 @@ export default function ExamManageLifeScreen() {
     },
     onSuccess: (applicant) => {
       queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
-      Alert.alert('삭제 완료', `${applicant.name} 신청 내역을 삭제했습니다.`);
+      Alert.alert('취소 완료', `${applicant.name} 신청을 관리자 취소 처리했습니다.`);
     },
     onSettled: (_data, error) => {
       if (error) {
         const message = error instanceof Error ? error.message : '오류가 발생했습니다.';
-        Alert.alert('삭제 실패', message);
+        Alert.alert('취소 실패', message);
       }
     },
   });
@@ -302,12 +379,12 @@ export default function ExamManageLifeScreen() {
     }
 
     Alert.alert(
-      '시험 신청 삭제',
-      `${applicant.name}님의 신청 내역을 삭제하시겠습니까?\n삭제 후에는 되돌릴 수 없습니다.`,
+      '시험 신청 관리자 취소',
+      `${applicant.name}님의 신청을 취소 처리하시겠습니까?\n신청 이력은 보존됩니다.`,
       [
         { text: '취소', style: 'cancel' },
         {
-          text: '삭제',
+          text: '취소 처리',
           style: 'destructive',
           onPress: () => deleteMutation.mutate(applicant),
         },
@@ -326,12 +403,18 @@ export default function ExamManageLifeScreen() {
   }, [refetch]);
 
   const renderCard = (a: ApplicantRow) => {
-    const statusText = a.isConfirmed ? '접수 완료' : '미접수';
+    const statusText = formatExamRegistrationStatus(a.status);
     const statusColor = a.isConfirmed ? BADGE_CONFIRMED_TEXT : BADGE_PENDING_TEXT;
     const isDeleting =
       deleteMutation.isPending && deleteMutation.variables?.registrationId === a.registrationId;
     return (
-      <View key={a.registrationId} style={styles.card}>
+      <View
+        key={a.registrationId}
+        style={[
+          styles.card,
+          a.registrationId === routeRegistrationId && styles.targetCard,
+        ]}
+      >
         <View style={styles.cardHeader}>
           <View>
             <Text style={styles.nameText}>
@@ -342,11 +425,21 @@ export default function ExamManageLifeScreen() {
           <View style={styles.cardActions}>
             <Pressable
               onPress={() => handleToggle(a)}
-              disabled={!canEdit || toggleMutation.isPending || isDeleting}
+              disabled={
+                !canEdit
+                || toggleMutation.isPending
+                || isDeleting
+                || !['applied', 'confirmed'].includes(a.status)
+              }
               style={[
                 styles.statusBadge,
                 a.isConfirmed ? styles.badgeConfirmed : styles.badgePending,
-                (!canEdit || toggleMutation.isPending || isDeleting) && { opacity: 0.6 },
+                (
+                  !canEdit
+                  || toggleMutation.isPending
+                  || isDeleting
+                  || !['applied', 'confirmed'].includes(a.status)
+                ) && { opacity: 0.6 },
               ]}
             >
               <Text style={[styles.statusBadgeText, a.isConfirmed ? styles.textConfirmed : styles.textPending]}>
@@ -362,8 +455,26 @@ export default function ExamManageLifeScreen() {
                 (!canEdit || isDeleting || toggleMutation.isPending) && { opacity: 0.6 },
               ]}
             >
-              <Feather name="trash-2" size={14} color="#dc2626" />
-              <Text style={styles.deleteButtonText}>{isDeleting ? '삭제 중' : '삭제'}</Text>
+              <Feather name="x-circle" size={14} color="#dc2626" />
+              <Text style={styles.deleteButtonText}>{isDeleting ? '취소 중' : '관리자 취소'}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setRejectTarget(a);
+                setRejectReason('');
+              }}
+              disabled={
+                !canEdit
+                || rejectMutation.isPending
+                || !['applied', 'confirmed'].includes(a.status)
+              }
+              style={[
+                styles.deleteButton,
+                (!canEdit || !['applied', 'confirmed'].includes(a.status)) && { opacity: 0.6 },
+              ]}
+            >
+              <Feather name="slash" size={14} color="#dc2626" />
+              <Text style={styles.deleteButtonText}>반려</Text>
             </Pressable>
           </View>
         </View>
@@ -372,8 +483,16 @@ export default function ExamManageLifeScreen() {
 
         <View style={styles.infoGrid}>
           <InfoLabelValue label="주민번호" value={formatExamResidentNumber(a.residentNumber)} />
-          <InfoLabelValue label="제3보험" value={a.thirdExam ? '응시' : '-'} />
+          <InfoLabelValue
+            label="응시 과목"
+            value={formatExamRegistrationSubjectLabel({
+              examType: EXAM_TYPE,
+              includesPrimaryExam: a.includesPrimaryExam,
+              isThirdExam: a.thirdExam,
+            })}
+          />
           <InfoLabelValue label="응시료 납입일" value={formatExamYmd(a.feePaidDate)} />
+          {a.rejectionReason ? <InfoLabelValue label="반려 사유" value={a.rejectionReason} fullWidth /> : null}
           <InfoLabelValue label="주소" value={a.address} fullWidth />
         </View>
 
@@ -389,8 +508,14 @@ export default function ExamManageLifeScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
+      />
       <ScrollView
         contentContainerStyle={styles.container}
+        keyboardDismissMode="none"
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <View style={styles.header}>
@@ -462,6 +587,60 @@ export default function ExamManageLifeScreen() {
 
         {filteredApplicants.map(renderCard)}
       </ScrollView>
+      <Modal
+        visible={Boolean(rejectTarget)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRejectTarget(null)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>시험 신청 반려</Text>
+            <Text style={styles.modalDescription}>반려 사유를 1자 이상 1000자 이하로 입력해주세요.</Text>
+            <TextInput
+              value={rejectReason}
+              onChangeText={setRejectReason}
+              multiline
+              maxLength={1000}
+              placeholder="반려 사유"
+              placeholderTextColor="#9CA3AF"
+              style={styles.rejectInput}
+            />
+            <View style={styles.modalActions}>
+              <Pressable style={styles.modalCancel} onPress={() => setRejectTarget(null)}>
+                <Text style={styles.modalCancelText}>닫기</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.modalReject,
+                  (
+                    rejectMutation.isPending
+                    || rejectReason.trim().length < 1
+                    || rejectReason.trim().length > 1000
+                  ) && { opacity: 0.5 },
+                ]}
+                disabled={
+                  rejectMutation.isPending
+                  || rejectReason.trim().length < 1
+                  || rejectReason.trim().length > 1000
+                }
+                onPress={() => {
+                  if (rejectTarget) {
+                    rejectMutation.mutate({ applicant: rejectTarget, reason: rejectReason.trim() });
+                  }
+                }}
+              >
+                <Text style={styles.modalRejectText}>
+                  {rejectMutation.isPending ? '처리 중...' : '반려'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -591,4 +770,32 @@ const styles = StyleSheet.create({
 
   emptyState: { alignItems: 'center', marginTop: 40 },
   emptyText: { color: MUTED, fontSize: 14 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  targetCard: {
+    borderColor: ORANGE,
+    borderWidth: 2,
+  },
+  modalCard: { width: '100%', maxWidth: 420, backgroundColor: '#fff', borderRadius: 16, padding: 20, gap: 12 },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL },
+  modalDescription: { fontSize: 13, color: MUTED },
+  rejectInput: {
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 10,
+    padding: 12,
+    color: CHARCOAL,
+    textAlignVertical: 'top',
+  },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
+  modalCancel: { paddingHorizontal: 16, paddingVertical: 10 },
+  modalCancelText: { color: MUTED, fontWeight: '700' },
+  modalReject: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, backgroundColor: '#dc2626' },
+  modalRejectText: { color: '#fff', fontWeight: '800' },
 });

@@ -29,11 +29,16 @@ if (dsn) {
         maskAllText: true,
         maskAllImages: true,
         maskAllVectors: true,
-        screenshotStrategy: 'canvas',
       }),
     ],
     beforeSend(event) {
       return sanitizeSentryEvent(event);
+    },
+    beforeSendTransaction(event) {
+      return sanitizeSentryEvent(event);
+    },
+    beforeBreadcrumb(breadcrumb) {
+      return sanitizeSentryContext(breadcrumb) as typeof breadcrumb;
     },
   });
 

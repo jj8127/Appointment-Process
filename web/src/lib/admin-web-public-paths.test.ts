@@ -7,9 +7,12 @@ describe('isAdminWebPublicPath', () => {
   it('keeps password reset accessible without an admin session', () => {
     assert.equal(isAdminWebPublicPath('/reset-password'), true);
     assert.equal(isAdminWebPublicPath('/reset-password/confirm'), true);
+    assert.equal(isAdminWebPublicPath('/first-password-change'), true);
   });
 
   it('preserves the existing public admin web paths', () => {
+    assert.equal(isAdminWebPublicPath('/account-deletion'), true);
+    assert.equal(isAdminWebPublicPath('/account-deletion/details'), true);
     assert.equal(isAdminWebPublicPath('/auth'), true);
     assert.equal(isAdminWebPublicPath('/auth/callback'), true);
     assert.equal(isAdminWebPublicPath('/invite'), true);

@@ -71,7 +71,7 @@ begin
     case when p_platform = 'garam_link' then touched_at else null end,
     touched_at
   )
-  on conflict (phone) do update
+  on conflict on constraint user_presence_pkey do update
     set garam_in_at = case when p_platform = 'garam_in' then touched_at else up.garam_in_at end,
         garam_link_at = case when p_platform = 'garam_link' then touched_at else up.garam_link_at end,
         updated_at = touched_at
@@ -138,8 +138,8 @@ begin
   else
     select *
       into row_data
-      from public.user_presence
-     where phone = normalized_phone;
+      from public.user_presence as presence
+     where presence.phone = normalized_phone;
   end if;
 
   if row_data.phone is null then

@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase } from '../_shared/board.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 
 type Payload = {
   actor?: {
@@ -24,8 +25,8 @@ serve(async (req: Request) => {
   const body = await parseJson<Payload>(req);
   if (!body) return json({ ok: false, code: 'invalid_json', message: 'Invalid JSON' }, 400, origin);
 
-  const actorCheck = await requireActor(body, origin);
-  if (!actorCheck.ok) return actorCheck.response;
+  const actorCheck = await requireActor(req, body, 'board-attachment-delete', origin);
+  if (actorCheck.ok === false) return actorCheck.response;
   const forbidden = requireRole(actorCheck.actor, ['admin', 'manager'], origin);
   if (forbidden) return forbidden;
 
@@ -75,7 +76,11 @@ serve(async (req: Request) => {
   if (storagePaths.length > 0) {
     const { error: storageError } = await supabase.storage.from('board-attachments').remove(storagePaths);
     if (storageError) {
-      console.error('[board-attachment-delete] storage delete error:', storageError.message);
+      reportEdgeDiagnostic({
+        event: 'board_attachment.storage',
+        reason: 'delete_failed',
+        errorClass: 'upstream',
+      });
       // Continue with DB deletion even if storage fails - prevents orphan records
       // Admin can manually clean storage later if needed
     }

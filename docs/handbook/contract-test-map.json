@@ -3,11 +3,108 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "edge-diagnostic-privacy",
+      "prefixes": [
+        "supabase/functions/_shared/edge-diagnostic.ts",
+        "supabase/functions/_shared/__tests__/edge-diagnostic_test.ts",
+        "scripts/ci/edge-diagnostic-console-baseline.json",
+        "lib/__tests__/diagnostic-console-governance.test.ts",
+        "lib/__tests__/diagnostic-privacy-source.test.ts",
+        "supabase/functions/set-password/index.ts",
+        "supabase/functions/fc-notify/index.ts",
+        "supabase/functions/user-presence/index.ts",
+        "supabase/functions/get-referral-tree/index.ts",
+        "supabase/functions/board-create/index.ts",
+        "supabase/functions/board-update/index.ts",
+        "supabase/functions/board-attachment-delete/index.ts",
+        "supabase/functions/board-attachment-sign/index.ts",
+        "supabase/functions/delete-account/index.ts",
+        "web/src/app/dashboard/settings/page.tsx"
+      ],
+      "requires_any": [
+        "supabase/functions/_shared/__tests__/edge-diagnostic_test.ts",
+        "lib/__tests__/diagnostic-console-governance.test.ts",
+        "lib/__tests__/diagnostic-privacy-source.test.ts",
+        "docs/handbook/shared/security-and-secret-operations.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "mobile-referral-revenue-demo",
+      "prefixes": [
+        "app/referral-revenue-graph.tsx",
+        "components/referral-revenue-graph/",
+        "data/referral-revenue-demo.ts",
+        "lib/referral-revenue-demo.ts",
+        "lib/referral-revenue-graph-native.ts",
+        "lib/referral-revenue-tree-layout.ts",
+        "types/referral-revenue-graph.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/referral-revenue-demo.test.ts",
+        "lib/__tests__/referral-revenue-graph-native.test.ts",
+        "lib/__tests__/referral-revenue-tree-layout.test.ts",
+        "lib/__tests__/referral-revenue-demo-source.test.ts",
+        "lib/__tests__/referral-revenue-graph-link.test.ts",
+        "docs/referral-system/TEST_CHECKLIST.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "exam-payment-proof",
+      "prefixes": [
+        "app/exam-apply.tsx",
+        "app/exam-apply2.tsx",
+        "components/ExamPaymentProof",
+        "lib/exam-application-validation.ts",
+        "lib/exam-payment-proof",
+        "web/src/app/api/admin/exam-applicants/",
+        "web/src/app/dashboard/exam/applicants/",
+        "web/src/lib/exam-payment-proof-admin.ts",
+        "supabase/functions/exam-payment-proof/",
+        "supabase/functions/_shared/exam-payment-proof.ts",
+        "supabase/functions/_shared/__tests__/exam-payment-proof_test.ts",
+        "supabase/functions/__tests__/exam-payment-proof-contract_test.ts",
+        "supabase/migrations/20260723040446_add_exam_payment_proofs.sql"
+      ],
+      "requires_any": [
+        "lib/__tests__/exam-application-validation.test.ts",
+        "lib/__tests__/exam-payment-proof.test.ts",
+        "lib/__tests__/exam-payment-proof-source-contract.test.ts",
+        "web/src/lib/exam-payment-proof-admin.test.ts",
+        "supabase/functions/_shared/__tests__/exam-payment-proof_test.ts",
+        "supabase/functions/__tests__/exam-payment-proof-contract_test.ts",
+        "docs/handbook/mobile/exam-flows.md",
+        "docs/handbook/data/storage-and-attachments.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "dependency-and-build-security",
+      "prefixes": [
+        "package.json",
+        "package-lock.json",
+        "lib/sentry.ts",
+        "scripts/ci/root-dependency-security.test.ts",
+        "web/package.json",
+        "web/package-lock.json",
+        "web/src/lib/sentry-build-policy.ts"
+      ],
+      "requires_any": [
+        "scripts/ci/root-dependency-security.test.ts",
+        "lib/__tests__/sentry-build-upload-guard.test.ts",
+        "docs/handbook/developer-onboarding.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
       "id": "priority-security-boundaries",
       "prefixes": [
         "app/dashboard.tsx",
         "lib/notifications.ts",
+        "lib/fc-notify-client.ts",
         "supabase/functions/device-token-register/",
+        "supabase/functions/_shared/fc-notify-auth-policy.ts",
         "supabase/functions/_shared/request-board-auth.ts",
         "web/src/app/api/admin/",
         "web/src/app/api/fc-delete/",
@@ -19,10 +116,46 @@
         "web/src/lib/admin-route-auth.ts",
         "web/src/lib/push-notification-service.ts",
         "web/src/lib/request-board-app-session.ts",
+        "web/src/lib/fc-notify-proxy-policy.ts",
+        "web/src/lib/privileged-action-input-policy.ts",
+        "web/src/lib/sentry-build-policy.ts",
         "web/src/lib/server-session.ts"
       ],
       "requires_any": [
         "lib/__tests__/priority-security-hardening.test.ts",
+        "lib/__tests__/app-session-secret-boundary.test.ts",
+        "lib/__tests__/fc-notify-client.test.ts",
+        "lib/__tests__/fc-notify-edge-auth-policy.test.ts",
+        "lib/__tests__/fc-notify-route-auth.test.ts",
+        "lib/__tests__/privileged-server-action-input-policy.test.ts",
+        "lib/__tests__/sentry-build-upload-guard.test.ts",
+        "lib/__tests__/react-native-text-child-contract.test.ts",
+        "supabase/functions/_shared/__tests__/request-board-auth.test.ts",
+        "web/src/lib/expo-push-delivery.test.ts",
+        "docs/handbook/backend/notifications-inbox-push.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "notification-center-read-state",
+      "prefixes": [
+        "app/notifications.tsx",
+        "lib/mobile-unread-notification-count.ts",
+        "lib/mobile-unread-notification-count-plan.ts",
+        "lib/notification-center-read-state.ts",
+        "lib/notification-notice-checkpoint.ts",
+        "supabase/functions/fc-notify/",
+        "supabase/functions/_shared/fc-notify-auth-policy.ts",
+        "supabase/functions/_shared/notification-inbox-pagination.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/notification-center-read-state.test.ts",
+        "lib/__tests__/notification-center-read-state-source.test.ts",
+        "lib/__tests__/notification-inbox-pagination.test.ts",
+        "lib/__tests__/notification-notice-checkpoint.test.ts",
+        "lib/__tests__/mobile-unread-notification-count-plan.test.ts",
+        "lib/__tests__/fc-notify-edge-auth-policy.test.ts",
+        "supabase/functions/__tests__/fc-notify-inbox-unread.contract.test.ts",
         "docs/handbook/backend/notifications-inbox-push.md",
         "docs/handbook/contract-test-map.json"
       ]
@@ -32,21 +165,51 @@
       "prefixes": [
         "app/chat.tsx",
         "app/group-chat.tsx",
+        "app/messenger.tsx",
         "app/request-board-messenger.tsx",
+        "components/messenger/MessengerHubRows.tsx",
         "components/MessageUnreadReceiptBadge.tsx",
         "components/LinkifiedSelectableText.tsx",
+        "lib/chat-keyboard-layout.ts",
+        "lib/direct-message-api.ts",
         "lib/group-chat-contract.ts",
+        "supabase/functions/fc-notify/",
+        "supabase/functions/group-chat/",
+        "supabase/functions/messenger-attachments/",
+        "supabase/functions/_shared/direct-message-policy.ts",
+        "supabase/functions/_shared/messenger-attachment-auth.ts",
+        "supabase/functions/_shared/group-chat-notification-event.ts",
+        "supabase/functions/_shared/group-chat-data-api-batching.ts",
+        "supabase/functions/_shared/__tests__/group-chat-notification-event_test.ts",
+        "supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts",
+        "supabase/migrations/20260729032148_direct_message_target_isolation.sql",
         "lib/message-read-receipts.ts",
         "lib/internal-chat-api.ts",
+        "lib/messenger-hub-model.ts",
+        "lib/notification-preferences-api.ts",
         "lib/request-board-api.ts",
         "web/src/app/dashboard/chat/page.tsx",
         "web/src/lib/message-read-receipts.ts"
       ],
       "requires_any": [
         "lib/__tests__/feature-contract-matrix.test.ts",
+        "lib/__tests__/chat-keyboard-layout.test.ts",
         "lib/__tests__/group-chat-mobile-source.test.ts",
+        "lib/__tests__/group-chat-edge-source.test.ts",
+        "supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts",
+        "lib/__tests__/group-chat-data-api-batching.test.ts",
+        "supabase/functions/_shared/__tests__/group-chat-notification-event_test.ts",
+        "supabase/functions/_shared/__tests__/direct-message-policy_test.ts",
+        "supabase/functions/_shared/__tests__/messenger-attachment-auth_test.ts",
+        "lib/__tests__/direct-message-target-isolation.test.ts",
+        "lib/__tests__/direct-message-service-boundary.test.ts",
         "lib/__tests__/mobile-chat-source.test.ts",
+        "lib/__tests__/messenger-v2-hub-model.test.ts",
+        "lib/__tests__/messenger-v2-hub-source.test.ts",
+        "lib/__tests__/messenger-v2-notification-settings-source.test.ts",
+        "lib/__tests__/notification-preferences-api.test.ts",
         "lib/__tests__/admin-web-chat-source.test.ts",
+        "lib/__tests__/request-board-api-contract.test.ts",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/mobile/messenger-and-content.md",
         "docs/handbook/contract-test-map.json"
@@ -67,6 +230,10 @@
         "lib/notification-route.ts",
         "scripts/ops/post-insurance-digest.mjs",
         "supabase/functions/board-",
+        "supabase/functions/_shared/board-actor-policy.ts",
+        "supabase/functions/_shared/board-list-policy.ts",
+        "supabase/functions/_shared/board-notification-event.ts",
+        "supabase/functions/_shared/__tests__/board-notification-event_test.ts",
         "web/src/app/api/admin/notices/",
         "web/src/app/dashboard/board/",
         "web/src/app/dashboard/notifications/"
@@ -74,11 +241,18 @@
       "requires_any": [
         "lib/__tests__/board-attachment-actions.test.ts",
         "lib/__tests__/board-comment-actions.test.ts",
+        "lib/__tests__/board-comment-reply-flow.test.ts",
         "lib/__tests__/board-feedback-alerts.test.ts",
         "lib/__tests__/board-reaction-state.test.ts",
         "lib/__tests__/admin-web-board-source.test.ts",
         "lib/__tests__/board-category-contract.test.ts",
+        "lib/__tests__/board-caller-auth.test.ts",
+        "lib/__tests__/board-edge-auth-policy.test.ts",
+        "lib/__tests__/board-list-automation-policy.test.ts",
+        "supabase/functions/__tests__/board-notification-retry.contract.test.ts",
+        "supabase/functions/_shared/__tests__/board-notification-event_test.ts",
         "lib/__tests__/notification-route.test.ts",
+        "web/src/lib/expo-push-delivery.test.ts",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/backend/board-api-and-notice-model.md",
         "docs/handbook/contract-test-map.json"
@@ -110,6 +284,7 @@
         "hooks/__tests__/use-login.contract.test.ts",
         "lib/__tests__/signup-completion-regression.test.ts",
         "lib/__tests__/request-board-session.test.ts",
+        "supabase/functions/_shared/__tests__/request-board-auth.test.ts",
         "web/src/lib/admin-web-login-role.test.ts",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/role-permission-matrix.md",
@@ -134,6 +309,8 @@
         "app/request-board.tsx",
         "app/request-board-requests.tsx",
         "app/request-board-review.tsx",
+        "app/request-board-create.tsx",
+        "lib/request-board-refresh-policy.ts",
         "lib/request-board-list-filters.ts",
         "lib/request-board-home-stats.ts",
         "lib/request-board-review-actions.ts",
@@ -144,6 +321,7 @@
       "requires_any": [
         "lib/__tests__/feature-contract-matrix.test.ts",
         "lib/__tests__/request-board-mobile-ui-contract.test.ts",
+        "lib/__tests__/request-board-refresh-policy.test.ts",
         "lib/__tests__/notification-route.test.ts",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/workflow-state-matrix.md",
@@ -200,12 +378,18 @@
         "lib/board-reaction-state.ts",
         "components/ImagePreviewModal.tsx",
         "components/FormInput.tsx",
+        "components/KeyboardSafeBottomBar.tsx",
+        "components/ExamApplicationTargetSelector.tsx",
+        "hooks/use-keyboard-padding.ts",
+        "lib/mobile-keyboard-layout.ts",
         "app/board.tsx",
         "app/admin-board-manage.tsx",
         "app/chat.tsx",
         "app/group-chat.tsx",
         "app/request-board-messenger.tsx",
         "scripts/audit/shared-ui-contract-audit.cjs",
+        "scripts/audit/mobile-keyboard-surface-audit.cjs",
+        "scripts/audit/mobile-keyboard-surfaces.json",
         "web/src/app/dashboard/board/",
         "web/src/app/dashboard/notifications/",
         "web/src/app/dashboard/docs/",
@@ -215,7 +399,10 @@
       ],
       "requires_any": [
         "lib/__tests__/shared-ui-action-contracts.test.ts",
+        "lib/__tests__/react-native-text-child-contract.test.ts",
         "lib/__tests__/feature-contract-matrix.test.ts",
+        "lib/__tests__/mobile-keyboard-surface-contract.test.ts",
+        "web/src/lib/expo-push-delivery.test.ts",
         "docs/handbook/shared-ui-action-contracts.md",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/contract-test-map.json"
@@ -263,6 +450,7 @@
       "id": "exam-flow-parity",
       "prefixes": [
         "lib/exam-flow-contract.ts",
+        "lib/exam-apply-history-guard.ts",
         "app/exam-apply.tsx",
         "app/exam-apply2.tsx",
         "app/exam-register.tsx",
@@ -270,6 +458,7 @@
       ],
       "requires_any": [
         "lib/__tests__/exam-flow-contract.test.ts",
+        "lib/__tests__/exam-apply-history-guard.test.ts",
         "lib/__tests__/exam-round-location-payload.test.ts",
         "lib/__tests__/exam-fees.test.ts",
         "docs/handbook/mobile/exam-flows.md",

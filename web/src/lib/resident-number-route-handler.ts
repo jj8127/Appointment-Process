@@ -1,4 +1,19 @@
-type ResidentNumberMap = Record<string, string | null>;
+import type { ResidentNumberReadResult } from '@/lib/resident-number-read-contract';
+
+export type ResidentNumberStaffSession = {
+  role: 'admin' | 'manager' | 'fc';
+  staffType: 'admin' | 'developer' | null;
+};
+
+export function canReadResidentNumbersForStaffSession(
+  session: ResidentNumberStaffSession,
+): boolean {
+  if (session.role === 'manager') return session.staffType === null;
+  if (session.role === 'admin') {
+    return session.staffType === 'admin' || session.staffType === 'developer';
+  }
+  return false;
+}
 
 type ResidentNumberRouteSession =
   | { ok: true; session: { residentDigits: string } }
@@ -6,7 +21,7 @@ type ResidentNumberRouteSession =
 
 type ResidentNumberRouteResponseBody =
   | { error: string }
-  | { ok: true; residentNumbers: ResidentNumberMap };
+  | ({ ok: true } & ResidentNumberReadResult);
 
 type ResidentNumberRouteResponse = {
   body: ResidentNumberRouteResponseBody;
@@ -20,13 +35,13 @@ type ResidentNumberRouteHandlerDeps = {
     limit: number,
     windowMs: number,
   ) => { allowed: boolean };
-  readJson: () => Promise<{ fcIds?: unknown }>;
+  readJson: () => Promise<unknown>;
   normalizeFcIds: (value: unknown) => string[];
   readResidentNumbers: (options: {
     fcIds: string[];
     staffPhone: string;
     logPrefix: string;
-  }) => Promise<ResidentNumberMap>;
+  }) => Promise<ResidentNumberReadResult>;
   logInvalidJson: (error: unknown) => void;
   logReadFailure: (error: unknown) => void;
 };
@@ -34,6 +49,7 @@ type ResidentNumberRouteHandlerDeps = {
 const RESIDENT_NUMBER_ROUTE_LOG_PREFIX = '[api/admin/resident-numbers]';
 const RESIDENT_NUMBER_RATE_LIMIT = 30;
 const RESIDENT_NUMBER_RATE_LIMIT_WINDOW_MS = 60_000;
+const RESIDENT_NUMBER_MAX_FC_IDS = 20;
 
 export async function handleResidentNumberRoutePost({
   getSession,
@@ -64,7 +80,7 @@ export async function handleResidentNumberRoutePost({
     };
   }
 
-  let body: { fcIds?: unknown };
+  let body: unknown;
   try {
     body = await readJson();
   } catch (error: unknown) {
@@ -75,23 +91,41 @@ export async function handleResidentNumberRoutePost({
     };
   }
 
-  const fcIds = normalizeFcIds(body.fcIds);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return {
+      body: { error: 'Invalid JSON payload' },
+      status: 400,
+    };
+  }
+
+  const fcIds = normalizeFcIds((body as { fcIds?: unknown }).fcIds);
+  if (fcIds.length > RESIDENT_NUMBER_MAX_FC_IDS) {
+    return {
+      body: { error: '한 번에 최대 20명까지 조회할 수 있습니다.' },
+      status: 400,
+    };
+  }
+
   if (fcIds.length === 0) {
     return {
-      body: { ok: true, residentNumbers: {} },
+      body: {
+        ok: true,
+        residentNumbers: {},
+        residentNumberStatuses: {},
+      },
       status: 200,
     };
   }
 
   try {
-    const residentNumbers = await readResidentNumbers({
+    const result = await readResidentNumbers({
       fcIds,
       staffPhone: sessionCheck.session.residentDigits,
       logPrefix: RESIDENT_NUMBER_ROUTE_LOG_PREFIX,
     });
 
     return {
-      body: { ok: true, residentNumbers },
+      body: { ok: true, ...result },
       status: 200,
     };
   } catch (error: unknown) {

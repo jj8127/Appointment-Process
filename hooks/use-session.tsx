@@ -1,6 +1,12 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { logger } from '@/lib/logger';
-import { registerPushToken } from '@/lib/notifications';
+import { getNotificationPreferences } from '@/lib/notification-preferences-api';
+import {
+  getPushPermissionStatus,
+  registerPushToken,
+  unregisterAllPushTokens,
+} from '@/lib/notifications';
 import {
   clearAuth,
   clearRequestBoardState,
@@ -16,6 +22,7 @@ import {
 } from '@/lib/request-board-session';
 import { buildPushRegistrationAttemptKey } from '@/lib/push-registration';
 import { safeStorage } from '@/lib/safe-storage';
+import { startSessionLogout } from '@/lib/session-logout';
 import { normalizeStaffType, type StaffType } from '@/lib/staff-identity';
 import { isValidMobilePhone, normalizePhone } from '@/lib/validation';
 
@@ -101,15 +108,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>(initialState);
   const [hydrated, setHydrated] = useState(false);
   const [appSessionToken, setAppSessionTokenState] = useState<string | null>(null);
+  const [pushRegistrationRevision, setPushRegistrationRevision] = useState(0);
   const [requestBoardSyncStatus, setRequestBoardSyncStatus] = useState<RequestBoardSyncStatus>('idle');
   const [requestBoardSyncError, setRequestBoardSyncError] = useState<string | null>(null);
   const requestBoardSyncPromiseRef = useRef<Promise<{ ok: boolean; error?: string; needsRelogin?: boolean }> | null>(null);
   const lastPushRegistrationKeyRef = useRef<string | null>(null);
+  const suppressedPushRegistrationKeyRef = useRef<string | null>(null);
+  const pushRegistrationForegroundRefreshKeyRef = useRef<string | null>(null);
+  const pushRegistrationPromiseRef = useRef<{
+    key: string;
+    promise: ReturnType<typeof registerPushToken>;
+  } | null>(null);
 
   const replaceAppSessionToken = useCallback(async (token: string | null) => {
-    setAppSessionTokenState(token);
     try {
       await persistStoredAppSessionToken(token);
+      setAppSessionTokenState(token);
+      setPushRegistrationRevision((current) => current + 1);
     } catch (err) {
       logger.warn('[session] app session token persist failed', err);
     }
@@ -251,10 +266,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                   : restoredRequestBoardRole,
               ),
             });
-            const restoredAppSessionToken =
+            const securedAppSessionToken = await getStoredAppSessionToken();
+            const legacyAppSessionToken =
               typeof parsed.appSessionToken === 'string' && parsed.appSessionToken.trim()
                 ? parsed.appSessionToken
-                : await getStoredAppSessionToken();
+                : null;
+            const restoredAppSessionToken = securedAppSessionToken ?? legacyAppSessionToken;
+            if (!securedAppSessionToken && legacyAppSessionToken) {
+              await persistStoredAppSessionToken(legacyAppSessionToken);
+            }
             setAppSessionTokenState(restoredAppSessionToken ?? null);
           }
         }
@@ -280,7 +300,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             readOnly: state.readOnly,
             isRequestBoardDesigner: state.isRequestBoardDesigner,
             requestBoardRole: state.requestBoardRole,
-            appSessionToken,
           };
           await safeStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
         } else {
@@ -324,7 +343,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       replaceAppSessionToken,
       ensureRequestBoardSession,
       logout: () => {
-        void clearSessionState({ clearAppSession: true });
+        startSessionLogout({
+          sessionToken: appSessionToken,
+          clearLocalSession: () => clearSessionState({ clearAppSession: true }),
+          unregisterPushTokens: unregisterAllPushTokens,
+          onLocalClearFailure: () => {
+            logger.warn('[session] local logout cleanup failed');
+          },
+          onPushUnregisterFailure: (reason) => {
+            logger.warn('[push] logout token unregister failed', { reason });
+          },
+        });
       },
       loginAs: (
         role,
@@ -347,7 +376,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           isRequestBoardDesigner,
           requestBoardRole,
         });
-        setAppSessionTokenState(nextAppSessionToken);
+        void replaceAppSessionToken(nextAppSessionToken);
         setRequestBoardSyncStatus('idle');
         setRequestBoardSyncError(null);
       },
@@ -365,29 +394,146 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    const pushRegistrationKey = buildPushRegistrationAttemptKey({
+    const pushRegistrationBaseKey = buildPushRegistrationAttemptKey({
       hydrated,
       role: state.role,
       residentId: state.residentId,
       requestBoardRole: state.requestBoardRole,
     });
+    const pushRegistrationKey = pushRegistrationBaseKey
+      ? `${pushRegistrationBaseKey}:${pushRegistrationRevision}`
+      : null;
 
-    if (!pushRegistrationKey) return;
-    if (lastPushRegistrationKeyRef.current === pushRegistrationKey) return;
+    if (!pushRegistrationKey || !appSessionToken) return;
+    const completedForCurrentSession = lastPushRegistrationKeyRef.current === pushRegistrationKey;
+    const suppressedForCurrentSession = suppressedPushRegistrationKeyRef.current === pushRegistrationKey;
+    if (
+      (completedForCurrentSession || suppressedForCurrentSession)
+      && pushRegistrationForegroundRefreshKeyRef.current !== pushRegistrationKey
+    ) return;
 
     const pushRole: 'admin' | 'fc' | 'manager' =
       state.requestBoardRole === 'designer'
         ? 'manager'
         : (state.role as 'admin' | 'fc');
 
-    const timer = setTimeout(() => {
-      lastPushRegistrationKeyRef.current = pushRegistrationKey;
-      void registerPushToken(pushRole, state.residentId, state.displayName);
-    }, 1000);
+    const retryDelaysMs = [1000, 2000, 5000, 10000] as const;
+    let attempt = 0;
+    let exhausted = false;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    return () => clearTimeout(timer);
+    const scheduleAttempt = (delayMs: number) => {
+      if (cancelled || timer || lastPushRegistrationKeyRef.current === pushRegistrationKey) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void runAttempt();
+      }, delayMs);
+    };
+
+    const runAttempt = async () => {
+      if (cancelled || lastPushRegistrationKeyRef.current === pushRegistrationKey) return;
+
+      const permissionStatus = await getPushPermissionStatus();
+      if (cancelled) return;
+      if (permissionStatus !== 'granted') {
+        // Boot/foreground refresh never opens the OS permission prompt. The
+        // settings master-ON action must call registerPushToken with
+        // { requestPermission: true } explicitly.
+        suppressedPushRegistrationKeyRef.current = pushRegistrationKey;
+        pushRegistrationForegroundRefreshKeyRef.current = pushRegistrationKey;
+        return;
+      }
+
+      try {
+        const preferences = await getNotificationPreferences();
+        if (cancelled) return;
+        if (!preferences.globalPushEnabled) {
+          suppressedPushRegistrationKeyRef.current = pushRegistrationKey;
+          pushRegistrationForegroundRefreshKeyRef.current = null;
+          return;
+        }
+      } catch {
+        attempt += 1;
+        if (attempt < retryDelaysMs.length) scheduleAttempt(retryDelaysMs[attempt]);
+        else {
+          exhausted = true;
+          logger.warn('[push] preference bootstrap retries exhausted');
+        }
+        return;
+      }
+
+      let registrationPromise = pushRegistrationPromiseRef.current;
+      if (!registrationPromise || registrationPromise.key !== pushRegistrationKey) {
+        const promise = registerPushToken(pushRole, state.residentId, state.displayName);
+        registrationPromise = { key: pushRegistrationKey, promise };
+        pushRegistrationPromiseRef.current = registrationPromise;
+        void promise.finally(() => {
+          if (pushRegistrationPromiseRef.current?.promise === promise) {
+            pushRegistrationPromiseRef.current = null;
+          }
+        });
+      }
+
+      const result = await registrationPromise.promise;
+      if (cancelled) return;
+
+      if (result.ok) {
+        suppressedPushRegistrationKeyRef.current = null;
+        lastPushRegistrationKeyRef.current = pushRegistrationKey;
+        pushRegistrationForegroundRefreshKeyRef.current = pushRegistrationKey;
+        exhausted = false;
+        return;
+      }
+
+      if (!result.retryable) {
+        suppressedPushRegistrationKeyRef.current = null;
+        lastPushRegistrationKeyRef.current = pushRegistrationKey;
+        pushRegistrationForegroundRefreshKeyRef.current = result.reason === 'permission_denied'
+          ? pushRegistrationKey
+          : null;
+        exhausted = false;
+        return;
+      }
+
+      attempt += 1;
+      if (attempt < retryDelaysMs.length) {
+        scheduleAttempt(retryDelaysMs[attempt]);
+      } else {
+        exhausted = true;
+        logger.warn('[push] registration retries exhausted', { reason: result.reason });
+      }
+    };
+
+    if (!completedForCurrentSession) {
+      scheduleAttempt(retryDelaysMs[attempt]);
+    }
+
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      const shouldRefreshCompletedRegistration =
+        pushRegistrationForegroundRefreshKeyRef.current === pushRegistrationKey;
+      if (
+        nextState !== 'active'
+        || (!exhausted && !shouldRefreshCompletedRegistration)
+        || cancelled
+      ) return;
+      lastPushRegistrationKeyRef.current = null;
+      suppressedPushRegistrationKeyRef.current = null;
+      pushRegistrationForegroundRefreshKeyRef.current = null;
+      attempt = 0;
+      exhausted = false;
+      scheduleAttempt(0);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      appStateSubscription.remove();
+    };
   }, [
     hydrated,
+    appSessionToken,
+    pushRegistrationRevision,
     state.role,
     state.residentId,
     state.displayName,

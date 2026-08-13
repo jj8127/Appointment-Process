@@ -83,17 +83,52 @@ export async function GET() {
       return NextResponse.json([]);
     }
 
-    const summaryRows = mergeAdminChatSummaryRows(
+    const rawSummaryRows = mergeAdminChatSummaryRows(
       (recentMessagesResult.data ?? []) as AdminChatMessageSummaryRow[],
       (unreadMessagesResult.data ?? []) as AdminChatMessageSummaryRow[],
     );
+    const summaryMessageIds = rawSummaryRows
+      .map((row) => String(row.id ?? '').trim())
+      .filter(Boolean);
+    const attachmentCountByMessageId = new Map<string, number>();
+    if (summaryMessageIds.length > 0) {
+      const { data: attachmentLinks, error: attachmentLinksError } = await adminSupabase
+        .from('messenger_message_attachments')
+        .select('message_id')
+        .in('message_id', summaryMessageIds);
+      if (attachmentLinksError && attachmentLinksError.code !== '42P01') throw attachmentLinksError;
+      for (const link of attachmentLinks ?? []) {
+        const messageId = String(link.message_id ?? '').trim();
+        if (!messageId) continue;
+        attachmentCountByMessageId.set(
+          messageId,
+          (attachmentCountByMessageId.get(messageId) ?? 0) + 1,
+        );
+      }
+    }
+    const summaryRows = rawSummaryRows.map((row) => ({
+      ...row,
+      attachment_count: attachmentCountByMessageId.get(String(row.id ?? '').trim()) ?? 0,
+    }));
     const summariesByPhone = buildAdminChatConversationSummaries({
       viewerId: myChatId,
       counterpartPhones: baseTargets.map((target) => target.phone),
       messages: summaryRows,
     });
 
-    return NextResponse.json(buildAdminChatTargets(fcRows, summariesByPhone));
+    const targets = buildAdminChatTargets(fcRows, summariesByPhone);
+    const { data: conversations, error: conversationError } = await adminSupabase
+      .from('garamin_direct_conversations')
+      .select('id,fc_id')
+      .in('fc_id', targets.map((target) => target.fc_id));
+    if (conversationError) throw conversationError;
+    const conversationByFcId = new Map(
+      (conversations ?? []).map((row) => [String(row.fc_id), String(row.id)]),
+    );
+    return NextResponse.json(targets.map((target) => ({
+      ...target,
+      conversation_id: conversationByFcId.get(target.fc_id) ?? null,
+    })));
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Chat list failed' },

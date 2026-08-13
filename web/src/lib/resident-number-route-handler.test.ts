@@ -1,9 +1,36 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { handleResidentNumberRoutePost } from './resident-number-route-handler.ts';
+import {
+  canReadResidentNumbersForStaffSession,
+  handleResidentNumberRoutePost,
+} from './resident-number-route-handler.ts';
 import { normalizeResidentNumberRouteFcIds } from './resident-number-route-request.ts';
 
 const normalizeFcIds = normalizeResidentNumberRouteFcIds;
+const verifiedStaffDigits = ['010', '1234', '5678'].join('');
+
+test('resident-number staff policy allows verified staff reads and denies FC sessions', () => {
+  assert.equal(canReadResidentNumbersForStaffSession({
+    role: 'admin',
+    staffType: 'admin',
+  }), true);
+  assert.equal(canReadResidentNumbersForStaffSession({
+    role: 'admin',
+    staffType: 'developer',
+  }), true);
+  assert.equal(canReadResidentNumbersForStaffSession({
+    role: 'manager',
+    staffType: null,
+  }), true);
+  assert.equal(canReadResidentNumbersForStaffSession({
+    role: 'fc',
+    staffType: null,
+  }), false);
+  assert.equal(canReadResidentNumbersForStaffSession({
+    role: 'admin',
+    staffType: null,
+  }), false);
+});
 
 test('resident-number route handler returns session failures before later work', async () => {
   let rateLimitCalls = 0;
@@ -22,7 +49,7 @@ test('resident-number route handler returns session failures before later work',
     },
     readResidentNumbers: async () => {
       readCalls += 1;
-      return {};
+      return { residentNumbers: {}, residentNumberStatuses: {} };
     },
     normalizeFcIds,
     logInvalidJson: () => undefined,
@@ -58,7 +85,7 @@ test('resident-number route handler rate-limits before parsing the body', async 
     },
     readResidentNumbers: async () => {
       readCalls += 1;
-      return {};
+      return { residentNumbers: {}, residentNumberStatuses: {} };
     },
     normalizeFcIds,
     logInvalidJson: () => undefined,
@@ -118,7 +145,7 @@ test('resident-number route handler short-circuits empty fcIds without reading r
     readJson: async () => ({ fcIds: [' ', null, undefined, ''] }),
     readResidentNumbers: async () => {
       readCalls += 1;
-      return {};
+      return { residentNumbers: {}, residentNumberStatuses: {} };
     },
     normalizeFcIds,
     logInvalidJson: () => undefined,
@@ -126,7 +153,11 @@ test('resident-number route handler short-circuits empty fcIds without reading r
   });
 
   assert.deepEqual(response, {
-    body: { ok: true, residentNumbers: {} },
+    body: {
+      ok: true,
+      residentNumbers: {},
+      residentNumberStatuses: {},
+    },
     status: 200,
   });
   assert.equal(readCalls, 0);
@@ -145,8 +176,14 @@ test('resident-number route handler reads normalized fcIds with current staff ph
     readResidentNumbers: async (options) => {
       readCalls.push(options);
       return {
-        'fc-1': '900101-1234567',
-        'fc-2': null,
+        residentNumbers: {
+          'fc-1': '900101-1234567',
+          'fc-2': null,
+        },
+        residentNumberStatuses: {
+          'fc-1': 'ready',
+          'fc-2': 'missing',
+        },
       };
     },
     normalizeFcIds,
@@ -161,6 +198,10 @@ test('resident-number route handler reads normalized fcIds with current staff ph
         'fc-1': '900101-1234567',
         'fc-2': null,
       },
+      residentNumberStatuses: {
+        'fc-1': 'ready',
+        'fc-2': 'missing',
+      },
     },
     status: 200,
   });
@@ -169,6 +210,58 @@ test('resident-number route handler reads normalized fcIds with current staff ph
     staffPhone: '01012345678',
     logPrefix: '[api/admin/resident-numbers]',
   }]);
+});
+
+test('resident-number route handler rejects non-object JSON payloads', async () => {
+  let readCalls = 0;
+  const response = await handleResidentNumberRoutePost({
+    getSession: async () => ({
+      ok: true,
+      session: { residentDigits: verifiedStaffDigits },
+    }),
+    checkRateLimit: () => ({ allowed: true }),
+    readJson: async () => null,
+    readResidentNumbers: async () => {
+      readCalls += 1;
+      return { residentNumbers: {}, residentNumberStatuses: {} };
+    },
+    normalizeFcIds,
+    logInvalidJson: () => undefined,
+    logReadFailure: () => undefined,
+  });
+
+  assert.deepEqual(response, {
+    body: { error: 'Invalid JSON payload' },
+    status: 400,
+  });
+  assert.equal(readCalls, 0);
+});
+
+test('resident-number route handler rejects more than twenty unique FC ids', async () => {
+  let readCalls = 0;
+  const response = await handleResidentNumberRoutePost({
+    getSession: async () => ({
+      ok: true,
+      session: { residentDigits: verifiedStaffDigits },
+    }),
+    checkRateLimit: () => ({ allowed: true }),
+    readJson: async () => ({
+      fcIds: Array.from({ length: 21 }, (_, index) => `fc-${index + 1}`),
+    }),
+    readResidentNumbers: async () => {
+      readCalls += 1;
+      return { residentNumbers: {}, residentNumberStatuses: {} };
+    },
+    normalizeFcIds,
+    logInvalidJson: () => undefined,
+    logReadFailure: () => undefined,
+  });
+
+  assert.deepEqual(response, {
+    body: { error: '한 번에 최대 20명까지 조회할 수 있습니다.' },
+    status: 400,
+  });
+  assert.equal(readCalls, 0);
 });
 
 test('resident-number route handler logs read failures and returns the generic 500 response', async () => {

@@ -13,7 +13,6 @@ if (!GENERAL_BOARD_CATEGORY) {
 }
 
 const CATEGORY_NAME = GENERAL_BOARD_CATEGORY.name;
-const CATEGORY_SORT_ORDER = GENERAL_BOARD_CATEGORY.sortOrder;
 const TITLE_PREFIX = '보험소식 브리핑';
 
 export function getKstDateParts(date = new Date()) {
@@ -221,6 +220,7 @@ function getSupabaseConfig(env) {
   return {
     url: requireEnv(env, 'SUPABASE_URL').replace(/\/+$/, ''),
     anonKey: requireEnv(env, 'SUPABASE_ANON_KEY'),
+    automationToken: requireEnv(env, 'BOARD_AUTOMATION_TOKEN'),
   };
 }
 
@@ -278,6 +278,7 @@ async function invokeFunction({ fetchImpl, config, name, body }) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.anonKey}`,
       apikey: config.anonKey,
+      'x-board-automation-token': config.automationToken,
     },
     body: JSON.stringify(body),
   });
@@ -389,26 +390,10 @@ export function createPostInsuranceDigestRunner({ fetchImpl = globalThis.fetch, 
       body: { actor },
     });
 
-    let categoryId = categories?.find?.((category) => category.slug === CATEGORY_SLUG)?.id;
+    const categoryId = categories?.find?.((category) => category.slug === CATEGORY_SLUG)?.id;
 
     if (!categoryId) {
-      const created = await invokeFunction({
-        fetchImpl,
-        config,
-        name: 'board-category-create',
-        body: {
-          actor,
-          name: CATEGORY_NAME,
-          slug: CATEGORY_SLUG,
-          sortOrder: CATEGORY_SORT_ORDER,
-          isActive: true,
-        },
-      });
-      categoryId = created?.id;
-    }
-
-    if (!categoryId) {
-      throw new Error('Unable to resolve general board category.');
+      throw new Error('Canonical general board category is missing; automation will not create categories.');
     }
 
     const list = await invokeFunction({

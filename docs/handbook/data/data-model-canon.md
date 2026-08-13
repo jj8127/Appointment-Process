@@ -2,15 +2,36 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-06-08
+last_verified: 2026-08-04
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
+
+## Notification delivery idempotency (2026-07-25)
+
+- `notifications.delivery_key` is a nullable server-owned idempotency key with a non-partial unique index. Null remains valid for legacy/non-idempotent sources; a non-null domain event/recipient key can resolve to only one inbox row.
+- Board create/update and notification-only retry use `board-post:<sha256(postId + updated_at)>:<recipientRole>`. The server derives all three broadcast roles and verifies the returned row before provider fanout.
+- `update_board_post_atomic` always advances `board_posts.updated_at`, including attachment-order-only commits, so every committed board update receives a distinct notification event version. The function is `security invoker`, revoked from public/anon/authenticated, and executable only by `service_role`.
+
+## 2026-07-24 시험 입금 증빙 신청 RPC 보정
+
+- `public.submit_exam_registration_with_payment_proof`의 반환 컬럼 `registration_id`와 입금 증빙 테이블의 동명 컬럼이 충돌하지 않도록, `exam_payment_proof_uploads` 조회와 갱신에서 테이블 별칭을 명시한다.
+- 이 RPC는 `security invoker`를 유지하고 `service_role`만 실행할 수 있다. `anon`과 `authenticated`에는 실행 권한을 부여하지 않는다.
+- 운영 반영 파일은 `20260724003500_fix_exam_payment_proof_registration_id_ambiguity.sql`이며 `supabase/schema.sql`에도 같은 정의를 유지한다.
+
+## 2026-07-23 시험 응시료 입금 증빙 계약
+
+- `exam-payment-proofs`는 비공개 Storage 버킷이며 JPG, PNG, WebP 이미지만 최대 10MB까지 받습니다. `anon`/`authenticated` 직접 정책은 열지 않고, 서명된 앱 세션을 검증한 `exam-payment-proof` Edge Function이 단기 signed upload URL을 발급합니다.
+- `exam_payment_proof_uploads`는 FC, 요청 UUID, 비공개 object path, 파일 메타데이터, 만료 시각, 소비 상태를 기록하는 service-role-only 업로드 장부입니다. `(fc_id, request_id)`는 재시도 멱등성 키이고, 한 시험 신청에는 현재 증빙 한 건만 연결할 수 있습니다.
+- `exam_registrations.payment_proof_attached`와 `payment_proof_policy_version`은 증빙 적용 여부를 기록합니다. 기존 모바일 호환을 위해 기본 버전은 `0`이며, 새 Edge 제출 경로는 반드시 증빙을 확인하고 버전 `1`로 저장합니다.
+- `public.submit_exam_registration_with_payment_proof`는 신청 생성/수정과 업로드 장부 연결·기존 증빙 교체를 한 트랜잭션에서 처리하는 `SECURITY INVOKER` RPC입니다. 실행 권한은 `service_role`에만 있고, FC 소유권·업로드 만료·재사용·신청당 단일 현재 증빙을 DB에서도 검증합니다.
+- 기준 migration은 `supabase/migrations/20260723040446_add_exam_payment_proofs.sql`입니다. 배포 순서는 additive migration과 Edge 확인이 먼저이고, 그 다음 증빙 필수 모바일을 배포합니다. 원격 적용과 관리자 검수 화면은 별도 릴리스 증거가 생길 때까지 완료로 보지 않습니다.
 
 ## 2026-07-06 Device Token Access Contract
 
 - `device_tokens` is service-role-only storage. The schema snapshot must not grant anon/authenticated direct table access or recreate broad direct-client RLS policies.
 - The paired migration for this contract is `supabase/migrations/20260706131220_harden_device_tokens_trusted_path.sql`.
+- The exact `device_tokens` role constraint is owned by `supabase/migrations/20260721052837_allow_manager_device_tokens.sql`; it permits `admin`, `fc`, and Request Board designer scope `manager` without restoring client table access.
 
 ## 2026-07-03 Board Category Schema Snapshot
 
@@ -100,3 +121,39 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 - `recommender_link_source` enum은 `signup | self_service | admin_override | legacy_migration`만 허용한다.
 - `referral_events.event_type` canonical set에는 `referral_linked`, `referral_changed`, `referral_cleared`가 포함되며, `referral_events.source` canonical set에는 `signup`, `self_service`, `legacy_migration`이 추가된다.
 - `public.get_invitee_referral_code(uuid)` canonical 반환값은 이제 invitee-facing current snapshot `fc_profiles.recommender_code`다. historical resolution이 필요하면 별도 admin/read model에서 처리하고, 이 helper 의미를 다시 넓히지 않는다.
+
+## 2026-07-13 원자 저장 RPC 메모
+
+- `public.update_board_post_atomic`은 게시글 field 변경과 전체 attachment order 검증·재정렬을 한 트랜잭션에서 처리한다. 전달된 attachment id 집합은 해당 post의 현재 전체 집합과 정확히 일치해야 하며 실행 권한은 `service_role`에만 있다.
+- `public.save_exam_round_atomic`은 회차와 장소 목록을 함께 저장한다. 마감일/시험일 순서, 라벨·비고 길이, 시험 유형, 장소 개수·길이·중복을 DB에서도 검증하고, 기존 신청이 참조하는 제거 대상 장소는 보존한다. 이 RPC도 `service_role`만 실행할 수 있다.
+
+## 2026-07-29 가람in 1:1 메신저 대상 분리
+
+- `garamin_direct_conversations`는 기존 앱 호환을 위한 FC당 1개 envelope로
+  유지하고, `garamin_direct_threads`가 `admin | manager | developer` 및
+  immutable actor UUID로 실제 상대를 식별한다.
+- `messages.conversation_id`는 legacy envelope, `messages.thread_id`는 실제
+  target thread를 가리킨다. 새 메시지는 두 값을 함께 저장한다.
+- 대상이 없는 기존 앱 요청은 shared admin thread로 해석한다. 기존
+  `admin` 수신 메시지는 shared에 남고, immutable sender actor가 확인되는
+  과거 manager/developer 답변만 해당 personal thread로 귀속할 수 있다.
+- direct text/file/broadcast RPC와 attachment reservation/download 권한은
+  같은 thread tuple을 검증하며, 모든 새 table/function 권한은
+  `service_role` 전용이다.
+
+## 2026-08-04 시험 회차 canonical 월
+
+- `exam_rounds.exam_month`는 `YYYY-MM-01` 형태의 non-null canonical 시험 월이다. `exam_date`가 있으면 두 값은 같은 달이어야 하고, `exam_date` null은 정확한 날짜만 미정이라는 뜻이다.
+- `20260804081357_exam_round_month_for_tbd.sql`은 실제 날짜, 이미 저장된 신청 월 snapshot, 미사용 legacy TBD 라벨 순으로 백필한다. 회차를 일의의 월로 해석할 수 없거나 active 신청 snapshot과 다르면 추측하지 않고 migration을 중단한다.
+- `save_exam_round_atomic_v2`는 명시적 `p_exam_month`를 받는 `service_role` 전용 writer다. 기존 `save_exam_round_atomic`은 정확일에서 월을 파생하거나 기존 TBD 회차의 저장된 월을 재사용하며, 월 없는 신규 TBD 작성은 fail closed한다.
+- `exam_registrations.exam_type`은 신청이 참조한 회차의 `life | nonlife` snapshot이며, 회차와 다른 종목을 저장할 수 없다. active partial unique 키 `(fc_id, exam_month, exam_type)`은 주시험·제3보험 선택 조합과 관계없이 같은 달의 생명과 손해를 각각 한 건씩 허용한다. 생명/손해를 가로지르는 별도 제3보험 unique guard는 두지 않는다.
+- 신청 RPC v2/v3는 `exam_date`가 아니라 저장된 `round.exam_month` + `round.exam_type`로 advisory lock과 active 월 유일성을 계산한다. 증빙, actor, 장소-회차, 마감일, 감사 이벤트 계약은 그대로 유지한다.
+- 신청 이력이 있는 TBD 회차는 같은 canonical 월 안의 null → 정확일 확정만 한 번 허용한다. 시험 월, 시험 종류, 확정된 날짜의 재작성은 history drift로 차단한다.
+- 구 `save_exam_round_atomic` wrapper는 exact-date caller 호환만 담당한다. 기존 TBD 회차를 명시적 month 없이 exact date로 바꾸는 implicit 전환은 wrapper와 `admin-action` 양쪽에서 fail closed하며, canonical writer는 `save_exam_round_atomic_v2`다.
+- active-slot migration preflight의 applicant collision grouping은 `fc_id IS NULL`인 탈퇴·분리 이력을 제외한다. null FC는 `(fc_id, exam_month, exam_type)` applicant slot을 만들지 않으며, 그 밖의 month/type/history 무결성 검사는 그대로 유지한다.
+
+## 2026-08-10 관리자 보조 가입 데이터 계약
+
+- `20260810070757_admin_assisted_signup_v1.sql`은 관리자가 서면 동의를 확인한 FC의 가입 프로필과 최초 비밀번호 변경 상태를 하나의 원자적 절차로 기록한다.
+- 보조 가입 관련 테이블은 RLS를 유지하고 service-role 경로에서만 기록한다. anon/authenticated 역할에는 직접 실행 권한을 부여하지 않는다.
+- 추천인 연결, 동의 증빙 메타데이터, 자격 상태, 전화 미인증 상태와 최초 비밀번호 변경 요구값은 `supabase/schema.sql`의 canonical snapshot과 동일해야 한다.

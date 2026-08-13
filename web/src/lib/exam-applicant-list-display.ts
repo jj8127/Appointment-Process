@@ -1,6 +1,7 @@
 export type ExamApplicantApplicationType = '신규신청' | '재신청';
 
 export type ExamApplicantListItem = {
+  status?: string | null;
   created_at?: string | null;
   round_id?: string | null;
   affiliation: string;
@@ -14,6 +15,7 @@ export type ExamApplicantListItem = {
   exam_type?: string | null;
   fee_paid_date?: string | null;
   is_confirmed: boolean;
+  includes_primary_exam?: boolean;
   is_third_exam?: boolean;
   application_type?: ExamApplicantApplicationType | string | null;
 };
@@ -22,6 +24,11 @@ export type ExamApplicantFilterOption = {
   value: string;
   label: string;
 };
+
+export type ExamApplicantFilterItem = Pick<
+  ExamApplicantListItem,
+  'round_id' | 'round_label' | 'exam_date' | 'exam_type' | 'is_third_exam'
+>;
 
 export type ExamApplicantExportColumnKey =
   | 'affiliation'
@@ -32,6 +39,7 @@ export type ExamApplicantExportColumnKey =
   | 'application_created_at'
   | 'subject_display'
   | 'application_type'
+  | 'application_status'
   | 'life_exam_date'
   | 'life_location'
   | 'nonlife_exam_date'
@@ -54,6 +62,7 @@ export const EXAM_APPLICANT_EXPORT_COLUMNS: ExamApplicantExportColumn[] = [
   { key: 'application_created_at', title: '시험 신청일', minWidth: 140 },
   { key: 'subject_display', title: '시험응시 과목', minWidth: 180 },
   { key: 'application_type', title: '시험 신청 구분', minWidth: 150 },
+  { key: 'application_status', title: '신청 상태', minWidth: 130 },
   { key: 'life_exam_date', title: '생명보험 응시일자', minWidth: 150 },
   { key: 'life_location', title: '생명보험 고사장', minWidth: 130 },
   { key: 'nonlife_exam_date', title: '손해보험 응시일자', minWidth: 150 },
@@ -81,6 +90,53 @@ export const EXAM_APPLICANT_TABLE_BADGE_STYLES = {
 } as const;
 
 export const EXAM_APPLICANT_ALL_FILTER_VALUE = '__all__';
+
+export const EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE = '전체';
+
+export const EXAM_APPLICANT_PINNED_QUICK_AFFILIATIONS = [
+  '2본부 박성훈',
+  '6본부 김정수',
+  '9본부 김주용',
+  '10본부 한태균',
+] as const;
+
+const EXAM_APPLICANT_QUICK_AFFILIATION_ALIASES: Record<string, string> = {
+  '6본부 김정수(박선희)': '6본부 김정수',
+  '9본부 이현욱(김주용)': '9본부 김주용',
+};
+
+export function normalizeExamApplicantQuickAffiliation(value?: string | null): string {
+  const normalized = String(value ?? '').replace(/\s+/g, ' ').trim() || '-';
+  return EXAM_APPLICANT_QUICK_AFFILIATION_ALIASES[normalized] ?? normalized;
+}
+
+function quickAffiliationOrder(value: string): number {
+  const match = value.match(/^(\d+)본부(?:\s|$)/);
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+export function buildExamApplicantQuickAffiliationOptions(
+  rows: Array<{ affiliation?: string | null }>,
+): string[] {
+  const affiliations = new Set<string>(EXAM_APPLICANT_PINNED_QUICK_AFFILIATIONS);
+  rows.forEach((row) => affiliations.add(normalizeExamApplicantQuickAffiliation(row.affiliation)));
+
+  return [
+    EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE,
+    ...Array.from(affiliations).sort((a, b) => {
+      const orderDiff = quickAffiliationOrder(a) - quickAffiliationOrder(b);
+      return orderDiff || a.localeCompare(b, 'ko');
+    }),
+  ];
+}
+
+export function matchesExamApplicantQuickAffiliation(
+  affiliation: string | null | undefined,
+  selectedAffiliation: string,
+): boolean {
+  return selectedAffiliation === EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE
+    || normalizeExamApplicantQuickAffiliation(affiliation) === selectedAffiliation;
+}
 
 const KOREAN_WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const SUBJECT_FILTER_ORDER = ['life:base', 'life:third', 'nonlife:base', 'nonlife:third', 'unknown:base', 'unknown:third'];
@@ -126,7 +182,7 @@ export function formatExamApplicantSubjectFilterLabel(subjectKey: string): strin
   }
 }
 
-export function getExamApplicantRoundFilterValue(item: ExamApplicantListItem): string {
+export function getExamApplicantRoundFilterValue(item: ExamApplicantFilterItem): string {
   const roundId = String(item.round_id ?? '').trim();
   if (roundId) return roundId;
 
@@ -138,7 +194,7 @@ export function getExamApplicantRoundFilterValue(item: ExamApplicantListItem): s
   ].join(':');
 }
 
-export function formatExamApplicantRoundFilterLabel(item: ExamApplicantListItem): string {
+export function formatExamApplicantRoundFilterLabel(item: ExamApplicantFilterItem): string {
   const dateMatch = String(item.exam_date ?? '').match(/^(\d{4}-\d{2}-\d{2})/);
   const dateLabel = dateMatch ? dateMatch[1] : '날짜 미정';
   const roundLabel = item.round_label && item.round_label !== '-' ? item.round_label : '회차 미정';
@@ -148,7 +204,7 @@ export function formatExamApplicantRoundFilterLabel(item: ExamApplicantListItem)
 }
 
 export function buildExamApplicantSubjectFilterOptions(
-  rows: ExamApplicantListItem[],
+  rows: ExamApplicantFilterItem[],
 ): ExamApplicantFilterOption[] {
   const optionByValue = new Map<string, ExamApplicantFilterOption>();
 
@@ -173,7 +229,7 @@ export function buildExamApplicantSubjectFilterOptions(
 }
 
 export function buildExamApplicantRoundFilterOptions(
-  rows: ExamApplicantListItem[],
+  rows: ExamApplicantFilterItem[],
   subjectFilterValue = EXAM_APPLICANT_ALL_FILTER_VALUE,
 ): ExamApplicantFilterOption[] {
   const optionByValue = new Map<string, ExamApplicantFilterOption>();
@@ -202,7 +258,7 @@ export function buildExamApplicantRoundFilterOptions(
 }
 
 export function isExamApplicantRoundFilterValid(
-  rows: ExamApplicantListItem[],
+  rows: ExamApplicantFilterItem[],
   subjectFilterValue: string,
   roundFilterValue: string,
 ): boolean {
@@ -213,7 +269,12 @@ export function isExamApplicantRoundFilterValid(
   );
 }
 
-export function formatExamApplicantSubject(item: ExamApplicantListItem): string {
+export function formatExamApplicantSubject(
+  item: Pick<
+    ExamApplicantListItem,
+    'exam_type' | 'round_label' | 'includes_primary_exam' | 'is_third_exam'
+  >,
+): string {
   const primarySubject = getExamApplicantPrimarySubject(item);
   const base =
     primarySubject === 'life'
@@ -222,6 +283,9 @@ export function formatExamApplicantSubject(item: ExamApplicantListItem): string 
         ? '손해보험'
         : '미정';
 
+  if (item.includes_primary_exam === false && item.is_third_exam) {
+    return '제3보험';
+  }
   if (!item.is_third_exam) {
     return base;
   }
@@ -246,8 +310,33 @@ export function formatExamApplicantSchedule(item: ExamApplicantListItem): string
   return roundLabel ? `${roundLabel}: ${dateLabel}` : dateLabel;
 }
 
-export function formatExamApplicantReceptionStatus(item: Pick<ExamApplicantListItem, 'is_confirmed'>): string {
+export function formatExamApplicantReceptionStatus(
+  item: Pick<ExamApplicantListItem, 'is_confirmed'>,
+): string {
   return item.is_confirmed ? '접수 완료' : '미접수';
+}
+
+export function formatExamApplicantApplicationStatus(
+  item: Pick<ExamApplicantListItem, 'status'>,
+): string {
+  const labels: Record<string, string> = {
+    applied: '신청 완료',
+    confirmed: '신청 완료',
+    completed: '시험 완료',
+    no_show: '미응시',
+    rejected: '반려',
+    cancelled_by_fc: '본인 취소',
+    cancelled_by_admin: '관리자 취소',
+  };
+  return labels[String(item.status ?? '')] ?? '-';
+}
+
+export function getExamApplicantApplicationStatusBadgeColor(value: string): string {
+  if (value === '반려') return 'red';
+  if (value.includes('취소')) return 'gray';
+  if (value === '시험 완료') return 'green';
+  if (value === '미응시') return 'yellow';
+  return 'blue';
 }
 
 export function formatExamApplicantFeePaidDate(item: Pick<ExamApplicantListItem, 'fee_paid_date'>): string {
@@ -286,6 +375,8 @@ export function getExamApplicantCellValue(
       return formatExamApplicantSubject(item);
     case 'application_type':
       return item.application_type || '신규신청';
+    case 'application_status':
+      return formatExamApplicantApplicationStatus(item);
     case 'life_exam_date':
       return primarySubject === 'life' ? formatExamApplicantSchedule(item) : '-';
     case 'life_location':

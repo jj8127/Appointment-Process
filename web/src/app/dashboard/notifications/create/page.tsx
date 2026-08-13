@@ -125,11 +125,20 @@ export default function CreateNoticePage() {
                 const result = await createNoticeAction({ success: false }, formData);
 
                 if (result.success) {
+                    const notificationPersistenceFailed =
+                        result.notificationWarning === 'notification_persistence_incomplete'
+                        || result.notificationWarning === 'notification_persistence_and_delivery_incomplete';
                     notifications.show({
-                        title: '전송 완료',
-                        message: result.message,
-                        color: 'teal',
-                        icon: <IconCheck size={18} />,
+                        title: notificationPersistenceFailed
+                            ? '공지 등록 완료 · 알림 등록 실패'
+                            : '전송 완료',
+                        message: notificationPersistenceFailed
+                            ? '요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.'
+                            : '알림을 보냈습니다.',
+                        color: notificationPersistenceFailed ? 'yellow' : 'teal',
+                        icon: notificationPersistenceFailed
+                            ? <IconX size={18} />
+                            : <IconCheck size={18} />,
                         autoClose: 3000,
                     });
                     router.push('/dashboard/notifications');

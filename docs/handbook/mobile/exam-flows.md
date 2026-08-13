@@ -2,10 +2,20 @@ doc_id: FC-APP-EXAM-FLOWS
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-04-14
+last_verified: 2026-08-04
 source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*.tsx
 
 # Mobile Playbook: Exam Flows
+
+## 2026-07-30 Administrator applicant list and XLSX contract
+
+- Administrator applicant tables and the XLSX export keep binary reception
+  state separate from registration lifecycle state.
+- FC cancellation, administrator cancellation, rejection, no-show, and
+  completion remain distinct in both the screen and export.
+- The workbook exports the current filtered population, preserves leading
+  zeroes in identity fields, and keeps filters, frozen rows, and proof links.
+  Semantic row color is limited to restrained confirmed and rejected states.
 
 ## 목적
 
@@ -13,7 +23,7 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 ## 진입 경로
 
-- FC: `exam-apply`, `exam-apply2`
+- FC 및 본부장·총무·개발자 대리 신청: `exam-apply`, `exam-apply2`
 - Admin/Manager: `exam-register`, `exam-register2`, `exam-manage`, `exam-manage2`
 
 ## 표시 역할
@@ -32,7 +42,8 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 ## 쓰는 데이터
 
-- FC 신청/취소
+- FC 본인 신청/취소
+- 본부장·총무·개발자의 선택 FC 대리 신청/미확정 신청 수정
 - 관리자 일정 생성/수정/삭제
 - 신청자 삭제
 - 응시료 납입 계좌 복사(클립보드)
@@ -41,13 +52,14 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 - 생명/손해 흐름이 분리됨
 - 마감일 필터 기준은 최근 정책을 따라야 함
-- `manager`는 항상 쓰기 금지
+- `manager`는 일정·신청자 관리 쓰기가 금지되지만, FC를 명시적으로 선택한 대리 신청은 허용
 - `exam-manage`, `exam-manage2`는 홈 대시보드와 같은 톤의 소속 quick filter를 제공
 - `exam-manage`, `exam-manage2`는 `exam_registrations.resident_id`와 `fc_profiles.phone`를 raw/digits/hyphenated 후보로 매칭해야 한다. exact phone match 하나만 두면 신청자 카드가 통째로 사라질 수 있다.
 - `exam-manage`, `exam-manage2`가 `exam_registrations -> exam_locations`를 embed할 때는 `exam_locations!exam_registrations_location_round_fkey`처럼 관계를 명시해야 한다. 현재 스키마는 `location_id` FK와 `(location_id, round_id)` FK가 둘 다 있어 bare `exam_locations (...)` select는 `PGRST201`로 실패하고 화면이 빈 목록처럼 보일 수 있다.
 - 주민번호 trusted read(`admin-action:getResidentNumbers`)는 보조 정보다. `appSessionToken`이 없거나 full-view 조회가 실패해도 신청자 목록 자체는 계속 보여야 하며, 주민번호 필드만 degrade되어야 한다.
 - 신청자 목록 query가 실패하면 화면은 `검색 결과가 없습니다`로 숨기지 말고 실제 오류를 보여줘야 한다.
 - `exam-apply`, `exam-apply2`는 `응시료 납입 계좌` 복사 버튼을 제공
+- 입금일은 사용자가 입력하지 않는다. 신규 v3 신청은 필수 증빙 이미지만 받고 `fee_paid_date`를 `null`로 저장하며, 과거 신청의 날짜 값은 조회·표시용으로 보존한다.
 - Android new architecture/Fabric에서는 `exam-apply*`, `exam-register*`의 main scroll ownership을 plain `ScrollView` 하나로 유지한다. `KeyboardAwareWrapper + RefreshControl + 큰 조건부 렌더` 조합은 `/referral` crash family와 같은 mount instability를 만들 수 있으므로 Android에서는 쓰지 않는다.
 
 ## 2026-06-03 관리자 시험 등록 메모
@@ -64,7 +76,7 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 ## 연관 문서
 
-- [../admin-web/exam-and-referral-ops.md](E:/hanhwa/fc-onboarding-app/docs/handbook/admin-web/exam-and-referral-ops.md)
+- [../admin-web/exam-and-referral-ops.md](../admin-web/exam-and-referral-ops.md)
 
 ## 2026-07-03 Shared Function Contract
 
@@ -77,3 +89,73 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - `exam-apply.tsx`, `exam-apply2.tsx`, `exam-register.tsx`, and `exam-register2.tsx` must use `lib/exam-flow-contract.ts` for life/nonlife route keys, query keys, notification channels, payment-account copy, selection keys, and form-state defaults.
 - Life/nonlife differences should be expressed as config in the shared contract, not as screen-local branching that can drift.
 - Regression evidence: `lib/__tests__/exam-flow-contract.test.ts`.
+
+## 2026-07-22 Admin exam registration interaction contract
+
+- `exam-register` and `exam-register2` keep one plain `ScrollView` as the Android scroll owner. A surrounding `KeyboardAvoidingView` resizes the available viewport, and the focused input is scrolled into view again after the keyboard becomes visible.
+- The location-add action is disabled while the trimmed location name is empty. Once valid text is present, it uses the solid orange accent state so enabled and disabled states are visually distinct.
+- Registered exam rounds are displayed by exam date descending. Registration deadline and creation time provide deterministic descending tie breakers.
+- Life and nonlife registration screens use the shared `sortExamRoundsNewestFirst` policy and must not implement independent ordering rules.
+
+## 2026-07-22 FC exam application availability and Realtime contract
+
+- When no round remains open for application, both application screens show `현재 신청 가능한 시험이 없습니다.` in the schedule selector while retaining recent closed rounds as read-only context.
+- Each application-screen effect creates an opaque, unique Realtime channel topic. Do not put a resident identifier in a topic, and do not reuse a topic while an earlier channel may still be leaving.
+- Register every `postgres_changes` callback before calling `subscribe()`, and remove the exact channel in the effect cleanup.
+
+## 2026-07-13 저장·알림 원자성 계약
+
+- FC 시험 신청은 등록 row를 먼저 확정한 뒤 관리자/본인 알림을 `sendExamApplyNotificationsBestEffort`로 병렬 전송한다. 일부 알림 실패는 `failedTargets` 경고로 남기되 이미 저장된 신청을 mutation 실패로 되돌리지 않으며, 사용자가 같은 신청을 중복 재시도하도록 만들지 않는다.
+- 모바일 시험 알림은 `invokeFcNotify`의 app-session 헤더 계약을 사용하고, 관리자 승인 알림은 인증 쿠키가 포함된 `/api/fc-notify` 서버 경계를 사용한다.
+- 관리자 회차 저장은 검증된 admin session과 중앙 payload parser를 거친 뒤 canonical `save_exam_round_atomic_v2` RPC로 회차와 장소를 한 트랜잭션에서 갱신한다. 구 `save_exam_round_atomic`은 정확일 caller 호환 wrapper로만 유지한다. 조회는 read-only admin session을 허용하고, 삭제는 parent round 한 건을 삭제해 FK cascade 계약을 따른다.
+
+## 2026-07-25 응시료 입금 증빙·대리 신청 계약
+
+- `submit_exam_registration_with_payment_proof`는 반환 열 `registration_id`와 upload table 열 이름이 충돌하지 않도록 모든 upload 열 참조를 table-qualified로 유지합니다.
+- Edge Function이 4xx/5xx 구조화 응답을 반환하면 앱은 `FunctionsHttpError.context`의 안전한 `message`를 표시합니다. 서버가 실제 안내를 보냈는데 일반 연결 실패로 바꾸면 안 됩니다.
+
+- `exam-apply`, `exam-apply2`는 입금일 입력 없이 이미지 1개를 필수로 받는다. JPG, PNG, WebP만 허용하고 최대 크기는 10MB다.
+- 필수값 누락은 CTA를 침묵시키지 않고 `입금 내역 캡처`를 기존 누락 항목 alert에 포함한다.
+- 사진은 private `exam-payment-proofs` bucket에 저장하며 공개 URL을 만들지 않는다. 서명된 앱 세션을 검증한 `exam-payment-proof` Edge Function만 업로드 URL을 발급하고 신청 저장/취소를 수행한다.
+- 신규 앱은 `submit_exam_registration_with_payment_proof_v3`를 사용한다. 대상 FC, 월 슬롯, 증빙 귀속, 신청 row, 행위자 감사 이벤트를 한 트랜잭션 계약으로 묶고, 기존 v1/v2 날짜 계약은 구버전 호환용으로 유지한다.
+- 기존 증빙이 있는 미확정 신청은 사진을 새로 고르지 않아도 수정할 수 있다. 새 사진을 고르면 성공한 저장 뒤 이전 object를 best effort로 정리한다.
+- 본부장·총무·개발자는 활성 FC 목록에서 이름·소속·전화번호 끝 4자리로 대상을 선택한다. body의 역할은 신뢰하지 않고 signed app session과 활성 계정 row로 행위자를 다시 확인한다.
+- FC는 다른 대상 ID를 보낼 수 없다. 직원 대리 신청은 선택 FC 기준으로 월 1회 제한과 이력을 적용하며, 대리 취소는 이 화면에서 제공하지 않는다.
+- 감사 이벤트에는 `actor_type`, 관리자/본부장 actor snapshot, `target_fc_id_snapshot`을 남긴다.
+- 호환 배포 순서는 additive migration + 새 Edge Function → 구버전 호환 확인 → 모바일 OTA/앱 → 관리자 증빙 검토 surface다. 기존 알림 복구 릴리스와 섞어 배포하지 않는다.
+
+## 2026-08-04 시험일 미정 회차의 시험 월 계약
+
+- 정확한 시험일은 `exam_rounds.exam_date`에 nullable로 보존하고, 월 1회 신청 슬롯은 월초 날짜인 `exam_rounds.exam_month`를 canonical 기준으로 삼는다.
+- 신청 이력의 `exam_registrations.exam_month` snapshot을 우선하고, 구버전 호환 기간에만 실제 시험일에서 월을 파생한다. 해석할 수 없는 null/잘못된 월 두 개를 같은 월로 비교하지 않는다.
+- 생명·손해 신청 화면은 시험일이 null이어도 canonical 시험 월이 있으면 `미정` 회차를 선택할 수 있다. 같은 FC의 같은 월 active 신청은 같은 보험 종목 안에서만 충돌하며, 생명과 손해는 각각 한 건씩 신청할 수 있다. 제3보험을 선택한 경우에도 동일하게 종목별로 판단하므로, 같은 달 생명 제3보험 신청이 손해 제3보험 신청을 막거나 그 반대가 되어서는 안 된다.
+- 각 신청 화면의 이력·현재 신청·신청 상세 딥링크는 해당 생명/손해 종목만 표시한다. 데이터 조회는 rollout 호환과 snapshot 판정을 위해 두 종목을 함께 가져올 수 있지만, 반대 종목 row를 현재 화면의 신청으로 렌더링하지 않는다.
+- rollout은 DB migration → canonical 관리자 일정 writer → 모바일 순서를 지킨다. 새 컬럼을 조회하는 앱을 DB보다 먼저 배포하지 않는다.
+- 회귀 근거는 `lib/__tests__/exam-flow-contract.test.ts`, `lib/__tests__/exam-tbd-month-contract.test.ts`다.
+
+## 2026-08-04 TBD 관리자 편집과 신청 이력 freshness 계약
+
+- `exam-register`, `exam-register2`는 form hydrate 단계에서 `exam_date = null`을 오늘 날짜로 바꾸지 않는다. TBD 회차는 저장된 `exam_month`와 nullable exact date를 함께 유지하고, 정확일 전환은 관리자가 날짜 picker에서 실제 날짜를 선택했을 때만 가능하다.
+- 두 관리자 화면은 새 payload에 `exam_date`와 `exam_month`를 함께 보낸다. legacy exact-date caller는 Edge에서 월을 파생할 수 있지만, 명시적 월 없이 기존 TBD 회차를 수정하는 구 caller는 업그레이드 안내와 함께 fail closed한다.
+- `exam-apply`, `exam-apply2`의 history query는 전역 5분 stale cache를 신뢰하지 않는다. query가 loading/fetching/error인 동안 회차 선택, round 딥링크, notification receipt 완료, 최종 신청을 모두 막고 재시도를 제공한다.
+- 최종 신청은 증빙 업로드와 mutation 전에 history를 강제 refetch하고 그 반환 row로 같은 종목·월 active 충돌을 다시 판정한다. fresh 결과에서 `cancelled`, `rejected`는 슬롯을 즉시 해제한다.
+- registration/round route target은 대상 identity·종목·route key별로 필요한 query가 준비된 뒤 한 번만 적용한다. 이후 Realtime 또는 수동 refresh가 사용자의 현재 선택을 원래 딥링크로 되돌리거나 충돌 안내를 반복해서는 안 된다.
+
+## 2026-08-08 FC 신청 내역 입금 증빙 열람 계약
+
+- `exam-apply`, `exam-apply2`의 선택된 신청 내역은 `payment_proof_attached=true`인 경우에만 `입금 내역 보기` 버튼을 표시한다.
+- 버튼을 누를 때마다 signed app session과 정확한 신청 ID를 `exam-payment-proof` Edge Function에 전달한다. 서버는 기존 actor/대상 FC 검증 뒤 `registration_id + fc_id + status=attached`가 모두 일치하는 현재 증빙만 조회한다.
+- private `exam-payment-proofs` bucket과 service-role-only 업로드 장부는 그대로 유지한다. 앱에는 storage path나 원본 파일명을 노출하지 않고 5분 만료 signed URL만 반환하며, URL은 DB·로그·로컬 저장소에 보관하지 않는다.
+- 이미지는 공용 `ImagePreviewModal`로 전체 화면에서 열고, 로딩·오류·닫기·접근성 레이블을 명시한다. 스키마/RLS, 증빙 승인·OCR·다운로드, 알림 계약은 변경하지 않는다.
+
+## 2026-08-10 Native keyboard visibility
+
+- `exam-manage` and `exam-manage2` keep their top search fields in a keyboard-retaining scroll owner and render the reject-reason card inside `KeyboardAvoidingView` on both Android and iOS.
+- `ExamApplicationTargetSelector` owns keyboard avoidance inside its native modal; the application screens must not depend on their outer scroll container to move this modal sheet.
+- These paths are included in `scripts/audit/mobile-keyboard-surfaces.json` and `lib/__tests__/mobile-keyboard-surface-contract.test.ts`. A source/build pass does not replace physical keyboard-open verification.
+
+## 2026-08-10 모바일 키보드 유지 계약
+
+- 시험 신청·등록·관리 화면의 스크롤 입력 영역은 Android와 iOS 모두 공용 `KeyboardAwareWrapper` 또는 동등한 키보드 인셋 처리를 사용한다.
+- 사용자가 입력값을 확인하며 드래그할 때 키보드를 자동으로 닫지 않으며, 포커스된 입력란은 실제 키보드 높이와 시스템 하단 인셋을 기준으로 보이는 영역에 유지한다.
+- 기기별 고정 오프셋으로 입력 영역을 올리지 않는다. 키보드와 시스템 내비게이션 바 크기는 런타임 측정값을 따른다.

@@ -1,11 +1,9 @@
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
-  Alert,
-  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -17,32 +15,19 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { Skeleton } from '@/components/LoadingSkeleton';
 import { ReferralDirectRecommenderCard } from '@/components/ReferralAncestorsChain';
-import {
-  REFERRAL_SEARCH_EMPTY_HINT,
-  REFERRAL_SEARCH_MIN_CHARS_HINT,
-  ReferralSearchField,
-  ReferralSearchResultList,
-  type ReferralSearchResult,
-} from '@/components/ReferralSearchField';
 import { ReferralTreeNode, type DescendantNode } from '@/components/ReferralTreeNode';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useMyReferralCode } from '@/hooks/use-my-referral-code';
-import { isReferralReloginError, useReferralAppSession } from '@/hooks/use-referral-app-session';
+import { isReferralReloginError } from '@/hooks/use-referral-app-session';
 import { useReferralTree } from '@/hooks/use-referral-tree';
 import { useSession } from '@/hooks/use-session';
-import { consumePendingReferralCode } from '@/lib/referral-deeplink';
-import { buildReferralGraphWebUrl } from '@/lib/referral-graph-link';
 import { buildReferralShareText } from '@/lib/referral-share';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/lib/theme';
 
 const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
-const DEFAULT_ADMIN_WEB_URL = 'https://adminweb-red.vercel.app';
-const ADMIN_WEB_URL = (process.env.EXPO_PUBLIC_ADMIN_WEB_URL ?? DEFAULT_ADMIN_WEB_URL).replace(/\/$/, '');
-const REFERRAL_GRAPH_WEB_URL = buildReferralGraphWebUrl(ADMIN_WEB_URL);
 
 function buildShareText(code: string): string {
   return buildReferralShareText({
@@ -55,8 +40,7 @@ function buildShareText(code: string): string {
 export default function ReferralPage() {
   const router = useRouter();
   const { role, readOnly, isRequestBoardDesigner } = useSession();
-  const { invokeReferralFunction } = useReferralAppSession();
-  const canUseReferralSelfService =
+  const canViewReferral =
     !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
   const {
     data: referralInfo,
@@ -78,19 +62,8 @@ export default function ReferralPage() {
 
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-
-  // 검색 상태
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<ReferralSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [selected, setSelected] = useState<ReferralSearchResult | null>(null);
-  const [saving, setSaving] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const searchReqRef = useRef(0);
-  const { referralNonce } = useLocalSearchParams<{ referralNonce?: string }>();
   const referralCode = referralInfo?.code ?? null;
   const currentRecommender = referralInfo?.recommender ?? null;
   const currentRecommenderAffiliation = referralInfo?.recommenderAffiliation ?? null;
@@ -111,113 +84,9 @@ export default function ReferralPage() {
     referralInfoError instanceof Error
       ? referralInfoError.message
       : '추천인 정보를 불러오지 못했습니다.';
-  const showRecommenderCard =
-    !currentRecommender || editMode || referralLoading || referralInfoError || referralTreeError;
-  const showRecommenderEditor =
-    !referralLoading && !referralInfoError && (!currentRecommender || editMode);
-  const showRecommenderFallbackSummary =
-    !referralLoading && !referralInfoError && Boolean(currentRecommender) && referralTreeError && !editMode;
   const openRelogin = useCallback(() => {
     router.push('/login?skipAuto=1');
   }, [router]);
-  const promptRelogin = useCallback((message?: string) => {
-    Alert.alert('세션 만료', message ?? referralReloginMessage, [
-      { text: '취소', style: 'cancel' },
-      { text: '다시 로그인', onPress: openRelogin },
-    ]);
-  }, [openRelogin, referralReloginMessage]);
-
-  // 검색
-  const runSearch = useCallback(async (q: string) => {
-    if (!canUseReferralSelfService || q.length < 2) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
-    const reqId = ++searchReqRef.current;
-    setSearching(true);
-    try {
-      const data = await invokeReferralFunction<{
-        ok: boolean; results?: ReferralSearchResult[];
-      }>('search-fc-for-referral', {
-        body: { query: q },
-        fallbackMessage: '추천인을 검색하지 못했습니다.',
-      });
-      if (reqId !== searchReqRef.current) return;
-      setSearchResults(data.results ?? []);
-    } catch (error) {
-      if (reqId === searchReqRef.current) {
-        setSearchResults([]);
-      }
-      if (isReferralReloginError(error) && reqId === searchReqRef.current) {
-        promptRelogin(error.message);
-      }
-    } finally {
-      if (reqId === searchReqRef.current) setSearching(false);
-    }
-  }, [canUseReferralSelfService, invokeReferralFunction, promptRelogin]);
-
-  // 딥링크로 전달된 추천 코드: 편집 모드 진입 후 코드로 자동 검색
-  useEffect(() => {
-    if (!referralNonce || !canUseReferralSelfService) return;
-    (async () => {
-      const code = await consumePendingReferralCode();
-      if (!code) return;
-      setEditMode(true);
-      setSearchQuery(code);
-      void runSearch(code);
-    })();
-  }, [referralNonce, canUseReferralSelfService, runSearch]);
-
-  const handleSearchChange = (text: string) => {
-    setSearchQuery(text);
-    setSelected(null);
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    if (text.length < 2) { setSearchResults([]); return; }
-    searchTimerRef.current = setTimeout(() => runSearch(text), 350);
-  };
-
-  const handleSelect = (item: ReferralSearchResult) => {
-    setSelected(item);
-    setSearchQuery('');
-    setSearchResults([]);
-    Haptics.selectionAsync();
-  };
-
-  const handleClearSelected = () => {
-    setSelected(null);
-    setSearchQuery('');
-    setSearchResults([]);
-  };
-
-  // 저장
-  const handleSave = async () => {
-    if (!canUseReferralSelfService || !selected?.code) return;
-    setSaving(true);
-    try {
-      const data = await invokeReferralFunction<{
-        ok: boolean; inviterName?: string; message?: string;
-      }>('update-my-recommender', {
-        body: { code: selected.code },
-        fallbackMessage: '추천인 저장에 실패했습니다.',
-      });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const savedName = selected.name;
-      setSelected(null);
-      setSearchQuery('');
-      setEditMode(false);
-      await Promise.all([refetchReferralInfo(), refetchReferralTree()]);
-      Alert.alert('저장 완료', `추천인이 '${data.inviterName ?? savedName}'(으)로 저장됐습니다.`);
-    } catch (error) {
-      if (isReferralReloginError(error)) {
-        promptRelogin(error.message);
-      } else {
-        Alert.alert('저장 실패', error instanceof Error ? error.message : '저장 중 오류가 발생했습니다.');
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleCopyCode = async () => {
     if (!referralCode) return;
@@ -237,19 +106,17 @@ export default function ReferralPage() {
   };
 
   const handleOpenGraphView = useCallback(() => {
-    if (!REFERRAL_GRAPH_WEB_URL) {
-      Alert.alert('페이지를 열 수 없습니다', '관리자 웹 주소가 설정되지 않았습니다.');
-      return;
-    }
-    void Linking.openURL(REFERRAL_GRAPH_WEB_URL).catch(() => {
-      Alert.alert('페이지를 열 수 없습니다', '관리자 웹 추천 관계 화면을 열지 못했습니다.');
-    });
-  }, []);
+    router.push('/referral-graph');
+  }, [router]);
+
+  const handleOpenRevenueGraphView = useCallback(() => {
+    router.push('/referral-revenue-graph');
+  }, [router]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      if (!canUseReferralSelfService) {
+      if (!canViewReferral) {
         return;
       }
       await Promise.all([refetchReferralInfo(), refetchReferralTree()]);
@@ -315,8 +182,7 @@ export default function ReferralPage() {
         code: currentRecommenderCode,
       }
       : null;
-  const showResults = searchResults.length > 0 && !selected;
-  const blockedContent = !canUseReferralSelfService;
+  const blockedContent = !canViewReferral;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
@@ -331,7 +197,7 @@ export default function ReferralPage() {
         }
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
+        keyboardDismissMode="none"
       >
         <View style={styles.pageContent}>
           {blockedContent ? (
@@ -420,190 +286,46 @@ export default function ReferralPage() {
         <Pressable
           style={({ pressed }) => [styles.graphLinkCard, pressed && { opacity: 0.7 }]}
           onPress={handleOpenGraphView}
-          accessibilityRole="link"
-          accessibilityLabel="관리자 웹에서 추천 관계 보기"
+          accessibilityRole="button"
+          accessibilityLabel="모바일 추천 관계 그래프 보기"
         >
           <View style={styles.graphLinkIconWrap}>
             <Feather name="users" size={18} color={COLORS.primary} />
           </View>
           <View style={styles.graphLinkTextWrap}>
-            <Text style={styles.graphLinkTitle}>관리자 웹에서 추천 관계 보기</Text>
-            <Text style={styles.graphLinkDesc}>추천인과 하위 연결을 한눈에 확인합니다</Text>
+            <Text style={styles.graphLinkTitle}>추천 관계 그래프로 보기</Text>
+            <Text style={styles.graphLinkDesc}>앱 안에서 하위 연결을 확대하고 살펴봅니다</Text>
           </View>
-          <Feather name="external-link" size={15} color={COLORS.gray[400]} />
+          <Feather name="chevron-right" size={17} color={COLORS.gray[400]} />
         </Pressable>
 
-        {/* ── 추천인 등록/변경 카드 ── */}
-        {showRecommenderCard && (
-        <View style={styles.recommenderCard}>
-          <View style={styles.recommenderHeader}>
-            <View style={styles.recommenderIconWrap}>
-              <Feather name="heart" size={16} color={COLORS.primary} />
+        <Pressable
+          style={({ pressed }) => [
+            styles.graphLinkCard,
+            styles.revenueGraphLinkCard,
+            pressed && { opacity: 0.7 },
+          ]}
+          onPress={handleOpenRevenueGraphView}
+          accessibilityRole="button"
+          accessibilityLabel="샘플 매출 기여 그래프 미리보기"
+          accessibilityHint="가상 조직과 가상 매출로 만든 시뮬레이션 화면을 엽니다"
+        >
+          <View style={[styles.graphLinkIconWrap, styles.revenueGraphLinkIconWrap]}>
+            <Feather name="trending-up" size={18} color="#2563eb" />
+          </View>
+          <View style={styles.graphLinkTextWrap}>
+            <View style={styles.revenueGraphTitleRow}>
+              <Text style={styles.graphLinkTitle}>매출 기여 그래프 미리보기</Text>
+              <View style={styles.sampleBadge}>
+                <Text style={styles.sampleBadgeText}>샘플</Text>
+              </View>
             </View>
-            <Text style={styles.recommenderTitle}>
-              {currentRecommender ? '추천인 변경' : '추천인 등록'}
+            <Text style={styles.graphLinkDesc}>
+              1~10단계 가상 매출과 10% 예상 배분을 확인합니다
             </Text>
           </View>
-
-          {/* 로딩 중 */}
-          {referralLoading && (
-            <Skeleton width="60%" height={20} borderRadius={4} style={{ marginBottom: SPACING.md }} />
-          )}
-
-          {/* 오류 */}
-          {!referralLoading && referralInfoError && (
-            <>
-              <Text style={styles.currentRecommenderError}>{referralInfoErrorMessage}</Text>
-              {isReferralReloginError(referralInfoError) ? (
-                <Pressable
-                  style={({ pressed }) => [styles.treeRetryBtn, pressed && { opacity: 0.85 }]}
-                  onPress={openRelogin}
-                >
-                  <Text style={styles.treeRetryBtnText}>다시 로그인</Text>
-                </Pressable>
-              ) : null}
-            </>
-          )}
-
-          {showRecommenderFallbackSummary && (
-            <>
-              <View style={styles.divider} />
-              <Text style={styles.treeFallbackHint}>
-                관계 구조를 잠시 못 불러와도 추천인은 여기서 계속 변경할 수 있어요.
-              </Text>
-              <View style={styles.currentRecommenderFallbackCard}>
-                <View style={styles.currentRecommenderFallbackAvatar}>
-                  <Feather name="user-check" size={16} color={COLORS.primary} />
-                </View>
-                <View style={styles.currentRecommenderFallbackInfo}>
-                  <Text style={styles.currentRecommenderFallbackName} numberOfLines={1}>
-                    {currentRecommender}
-                  </Text>
-                  {currentRecommenderAffiliation ? (
-                    <Text style={styles.currentRecommenderFallbackAffiliation} numberOfLines={1}>
-                      {currentRecommenderAffiliation}
-                    </Text>
-                  ) : null}
-                  {currentRecommenderCode ? (
-                    <Text style={styles.currentRecommenderFallbackCode} numberOfLines={1}>
-                      {currentRecommenderCode}
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
-              <Pressable
-                style={({ pressed }) => [styles.fallbackChangeBtn, pressed && styles.fallbackChangeBtnPressed]}
-                onPress={() => setEditMode(true)}
-              >
-                <Text style={styles.fallbackChangeBtnText}>추천인 변경하기</Text>
-              </Pressable>
-            </>
-          )}
-
-          {/* 미등록 또는 editMode */}
-          {showRecommenderEditor && (
-            <>
-              <View style={styles.divider} />
-
-              {/* 검색 입력 */}
-              <Text style={styles.inputLabel}>
-                추천인 이름으로 {currentRecommender ? '변경' : '등록'}
-              </Text>
-
-              {/* 선택된 항목이 없을 때 → 검색 입력창 */}
-              {!selected && (
-                <ReferralSearchField
-                  searchQuery={searchQuery}
-                  searching={searching}
-                  onChangeText={handleSearchChange}
-                  onClear={() => {
-                    setSearchQuery('');
-                    setSearchResults([]);
-                  }}
-                />
-              )}
-
-              {/* 검색 결과 목록 */}
-              {showResults && (
-                <ReferralSearchResultList
-                  results={searchResults}
-                  onSelect={handleSelect}
-                  showNoCodeFallback
-                />
-              )}
-
-              {/* 검색어 2글자 미만 안내 */}
-              {searchQuery.length > 0 && searchQuery.length < 2 && !selected && (
-                <Text style={styles.searchHint}>{REFERRAL_SEARCH_MIN_CHARS_HINT}</Text>
-              )}
-
-              {/* 검색 결과 없음 */}
-              {searchQuery.length >= 2 && !searching && searchResults.length === 0 && !selected && (
-                <Text style={styles.searchHint}>{REFERRAL_SEARCH_EMPTY_HINT}</Text>
-              )}
-
-              {/* 선택된 항목 표시 */}
-              {selected && (
-                <View style={styles.selectedWrap}>
-                  <View style={styles.selectedInfo}>
-                    <View style={styles.selectedAvatar}>
-                      <Feather name="user-check" size={16} color={COLORS.primary} />
-                    </View>
-                    <View style={styles.selectedText}>
-                      <Text style={styles.selectedName}>{selected.name}</Text>
-                      <Text style={styles.selectedAffiliation}>{selected.affiliation}</Text>
-                      {selected.code && (
-                        <Text style={styles.selectedCode}>{selected.code}</Text>
-                      )}
-                    </View>
-                    <Pressable onPress={handleClearSelected} hitSlop={8} style={styles.clearBtn}>
-                      <Feather name="x" size={18} color={COLORS.text.muted} />
-                    </Pressable>
-                  </View>
-
-                  {!selected.code && (
-                    <View style={styles.noCodeWarning}>
-                      <Feather name="alert-circle" size={13} color={COLORS.warning.dark} />
-                      <Text style={styles.noCodeWarningText}>이 분의 추천 코드가 없어 저장할 수 없습니다.</Text>
-                    </View>
-                  )}
-
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.saveBtn,
-                      (!selected.code || saving) && styles.saveBtnDisabled,
-                      pressed && selected.code && styles.saveBtnPressed,
-                    ]}
-                    onPress={handleSave}
-                    disabled={!selected.code || saving}
-                  >
-                    {saving
-                      ? <BrandedLoadingSpinner size="sm" color="#fff" />
-                      : <Text style={styles.saveBtnText}>저장</Text>
-                    }
-                  </Pressable>
-                </View>
-              )}
-
-              {/* 취소하기 버튼 (editMode일 때만) */}
-              {editMode && (
-                <Pressable
-                  style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.7 }]}
-                  onPress={() => {
-                    setEditMode(false);
-                    setSelected(null);
-                    setSearchQuery('');
-                    setSearchResults([]);
-                  }}
-                >
-                  <Feather name="x" size={14} color={COLORS.text.secondary} />
-                  <Text style={styles.cancelBtnText}>취소하기</Text>
-                </Pressable>
-              )}
-            </>
-          )}
-        </View>
-        )}
+          <Feather name="chevron-right" size={17} color={COLORS.gray[400]} />
+        </Pressable>
 
         {referralTreeLoading ? (
           <View style={styles.treeSkeletonWrap}>
@@ -642,14 +364,6 @@ export default function ReferralPage() {
             <View style={styles.treeSectionHeader}>
               <Feather name="heart" size={15} color={COLORS.primary} />
               <Text style={styles.treeSectionTitle}>나를 추천한 사람</Text>
-              {!!currentRecommender && !editMode && !referralLoading && !referralInfoError && (
-                <Pressable
-                  style={({ pressed }) => [styles.treeHeaderAction, pressed && styles.treeHeaderActionPressed]}
-                  onPress={() => setEditMode(true)}
-                >
-                  <Text style={styles.treeHeaderActionText}>변경하기</Text>
-                </Pressable>
-              )}
             </View>
             <View style={styles.treeSectionCard}>
               <ReferralDirectRecommenderCard recommender={directRecommenderSummary} />
@@ -987,6 +701,29 @@ const styles = StyleSheet.create({
   graphLinkTextWrap: { flex: 1, minWidth: 0 },
   graphLinkTitle: { fontSize: 14, fontWeight: '700', color: COLORS.text.primary },
   graphLinkDesc: { fontSize: 11, color: COLORS.text.muted, marginTop: 2 },
+  revenueGraphLinkCard: {
+    marginTop: -SPACING.sm,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#f8fbff',
+  },
+  revenueGraphLinkIconWrap: { backgroundColor: '#dbeafe' },
+  revenueGraphTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  sampleBadge: {
+    borderRadius: RADIUS.full,
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  sampleBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#1d4ed8',
+  },
   bottomContentSpacer: { height: SPACING['4xl'] },
 
   blockedState: {

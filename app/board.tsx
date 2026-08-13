@@ -34,6 +34,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
@@ -49,8 +50,13 @@ import {
 import { showBoardCommentActions } from '@/lib/board-comment-actions';
 import { buildBoardPostShareContent } from '@/lib/board-share-link';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
-import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import {
+  hasPresentRouteParam,
+  parseExactlyOneUuidRouteParam,
+} from '@/lib/strict-route-params';
+import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import {
   BoardDetail,
   BoardListItem,
@@ -239,12 +245,15 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
 export default function BoardScreen() {
   const router = useRouter();
   const appLogout = useAppLogout();
-  const { postId } = useLocalSearchParams<{ postId?: string }>();
+  const { postId, notificationId, notificationTarget } = useLocalSearchParams<{
+    postId?: string;
+    notificationId?: string;
+    notificationTarget?: string;
+  }>();
   const navigation = useNavigation();
   const { role, displayName, residentId, readOnly, hydrated, isRequestBoardDesigner, staffType } = useSession();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-  const keyboardPadding = useKeyboardPadding();
   const screenHeight = Dimensions.get('window').height;
   const homeHeaderTitle = buildWelcomeTitle({
     role,
@@ -287,14 +296,15 @@ export default function BoardScreen() {
     id: string;
     authorName: string;
     parentId: string;
+    threadRootId: string;
   } | null>(null);
   // undefined = not yet set (use server data), null = cleared, BoardReactionKey = selected
   const [myReactionOverride, setMyReactionOverride] = useState<BoardReactionKey | null | undefined>(undefined);
   const routePostId = useMemo(() => {
-    const value = Array.isArray(postId) ? postId[0] : postId;
-    if (typeof value !== 'string') return '';
-    return value.trim();
+    return parseExactlyOneUuidRouteParam(postId) ?? '';
   }, [postId]);
+  const hasInvalidPostRoute =
+    hasPresentRouteParam(postId) && !routePostId;
 
   // Scroll animation for bottom nav
   const lastScrollY = useSharedValue(0);
@@ -399,13 +409,26 @@ export default function BoardScreen() {
     enabled: !!actor,
   });
 
-  const { data: detailData } = useQuery({
+  const { data: detailData, isError: isDetailError } = useQuery({
     queryKey: ['board-detail', selectedPostId],
     queryFn: () => {
       if (!actor || !selectedPostId) return Promise.resolve(null as unknown as BoardDetail);
       return fetchBoardDetail(actor, selectedPostId);
     },
     enabled: !!actor && !!selectedPostId,
+  });
+  const notificationReceipt = useNotificationReceiptCompletion({
+    params: { notificationId, notificationTarget },
+    expectedTarget: !hasInvalidPostRoute && routePostId
+      ? { version: 1, kind: 'board_post', postId: routePostId }
+      : null,
+    loadState: hasInvalidPostRoute
+      ? 'error'
+      : isDetailError
+      ? 'error'
+      : detailData?.post?.id === routePostId
+        ? 'success'
+        : 'loading',
   });
 
   useEffect(() => {
@@ -616,12 +639,29 @@ export default function BoardScreen() {
 
   // Add comment mutation
   const addCommentMutation = useMutation({
-    mutationFn: async ({ postId, content, parentId }: { postId: string; content: string; parentId?: string }) => {
+    mutationFn: async ({
+      postId,
+      content,
+      parentId,
+    }: {
+      postId: string;
+      content: string;
+      parentId?: string;
+      threadRootId?: string;
+    }) => {
       if (!actor) throw new Error('로그인이 필요합니다.');
       return createBoardComment(actor, { postId, content, parentId });
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       setCommentText('');
+      setReplyTarget((current) => (
+        current?.parentId === variables.parentId ? null : current
+      ));
+      if (variables.threadRootId) {
+        setCollapsedThreadIds((current) => (
+          current.filter((commentId) => commentId !== variables.threadRootId)
+        ));
+      }
       queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
     },
@@ -744,8 +784,8 @@ export default function BoardScreen() {
       postId: selectedPost.id,
       content: commentText.trim(),
       parentId: replyTarget?.parentId,
+      threadRootId: replyTarget?.threadRootId,
     });
-    setReplyTarget(null);
   };
 
   const openCommentActions = (comment: (typeof modalComments)[number]) => {
@@ -765,7 +805,11 @@ export default function BoardScreen() {
     ));
   }, []);
 
-  const renderCommentThread = (comment: (typeof modalComments)[number], depth = 0) => {
+  const renderCommentThread = (
+    comment: (typeof modalComments)[number],
+    depth = 0,
+    threadRootId = comment.id,
+  ) => {
     const replies = threadedComments.repliesByParent.get(comment.id) ?? [];
     const isReply = depth > 0;
     const isCollapsed = depth === 0 && collapsedThreadIds.includes(comment.id);
@@ -853,7 +897,12 @@ export default function BoardScreen() {
         <View style={styles.commentActions}>
           <Pressable
             style={styles.replyButton}
-            onPress={() => setReplyTarget({ id: comment.id, authorName: comment.authorName, parentId: comment.id })}
+            onPress={() => setReplyTarget({
+              id: comment.id,
+              authorName: comment.authorName,
+              parentId: comment.id,
+              threadRootId,
+            })}
           >
             <Text style={styles.replyButtonText}>답글</Text>
           </Pressable>
@@ -873,7 +922,7 @@ export default function BoardScreen() {
         )}
         {replies.length > 0 && !isCollapsed && (
           <View style={styles.replyList}>
-            {replies.map((reply) => renderCommentThread(reply, depth + 1))}
+            {replies.map((reply) => renderCommentThread(reply, depth + 1, threadRootId))}
           </View>
         )}
       </View>
@@ -986,6 +1035,10 @@ export default function BoardScreen() {
         title={homeHeaderTitle}
         onLogout={handleLogout}
         onOpenNotifications={() => router.push('/notifications')}
+      />
+      <NotificationReceiptStatusBanner
+        state={notificationReceipt.state}
+        onRetry={() => void notificationReceipt.retryMarkRead()}
       />
       <View style={styles.pageTitleWrap}>
         <Text style={styles.title}>게시판</Text>
@@ -1276,6 +1329,7 @@ export default function BoardScreen() {
                 style={styles.modalBody}
                 contentContainerStyle={{ paddingBottom: commentBarInset + insets.bottom, flexGrow: 1 }}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="none"
               >
                 {/* 작성자 정보 */}
                 <View style={styles.modalAuthor}>
@@ -1425,7 +1479,12 @@ export default function BoardScreen() {
 
               </KeyboardAwareWrapper>
               {/* 댓글 작성 */}
-              <View style={[styles.commentBar, { paddingBottom: Math.max(insets.bottom + 16, 28) + keyboardPadding }]}>
+              <KeyboardSafeBottomBar
+                contentContainerStyle={[
+                  styles.commentBar,
+                  { paddingBottom: Math.max(insets.bottom + 16, 28) },
+                ]}
+              >
                 {replyTarget && (
                   <View style={styles.replyBanner}>
                     <Text style={styles.replyBannerText}>{replyTarget.authorName}님에게 답글</Text>
@@ -1454,7 +1513,7 @@ export default function BoardScreen() {
                     <Feather name="send" size={18} color="#fff" />
                   </Pressable>
                 </View>
-              </View>
+              </KeyboardSafeBottomBar>
             </View>
           </Animated.View>
         </View>

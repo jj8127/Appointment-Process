@@ -2,8 +2,8 @@ doc_id: FC-DATA-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-06-04
-source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql
+last_verified: 2026-08-10
+source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql + supabase/migrations/20260810070757_admin_assisted_signup_v1.sql
 
 # Data Handbook: Referral Schema And Admin RPCs
 
@@ -17,6 +17,19 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 
 - FC/본부장 self-service current read path는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다.
 - FC/본부장 self-service referral tree path는 `hooks/use-referral-tree.ts -> get-referral-tree -> get_referral_subtree(...)`다.
+- FC/본부장 native referral graph path는 `app/referral-graph.tsx -> hooks/use-referral-graph.ts -> get-referral-tree(mode='graph')`다.
+- `/referral-revenue-graph`는 `data/referral-revenue-demo.ts`의 가상 parent chain만
+  사용하는 로컬 샘플이며 이 문서의 referral schema, RPC, Edge Function 또는
+  실제 사용자 관계를 읽지 않는다. 표시된 1~10단계 10%는 UI 시뮬레이션이지
+  운영 정산 계약이 아니다.
+- 이 샘플의 native/WebView canvas는 같은 parent chain을 중심에서 바깥으로 퍼지는
+  subtree seed와 bounded settle schedule로 배치한다. world 좌표는 제한하지 않고,
+  pan/zoom 중 label·금액은 screen-space 고정 크기를 유지하며 contribution edge는
+  child에서 parent 방향을 표시한다. 이는 시각화 계약일 뿐 referral read model을
+  변경하지 않는다.
+- 선택형 `트리`도 같은 로컬 parent chain과 계산 결과만 사용하며 별도 query를 만들지
+  않는다. 새 화면은 항상 현재 원형 graph로 시작하고, tree mode에서는 원형 WebView를
+  unmount한 뒤 고정 카드 geometry만 렌더한다.
 - FC/본부장 self-service referral session guard는 `hooks/use-referral-app-session.ts -> refresh-app-session`이다.
 - referral tree의 현재 모바일 기본 surface는 `app/referral.tsx` 내부 섹션이며, `app/referral-tree.tsx`는 legacy 진입을 `/referral`로 보내는 compatibility route만 유지한다.
 - 현재 모바일 상단 surface는 ancestor chain 전체가 아니라 `get-referral-tree.ancestors`의 마지막 노드만 direct recommender 카드로 렌더링한다.
@@ -24,6 +37,7 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 - `get-my-referral-code`는 active code뿐 아니라 현재 추천인 표시 cache(`fc_profiles.recommender`)도 같은 trusted 응답으로 반환한다.
 - `app/referral.tsx`는 current recommender를 direct client `fc_profiles` query로 읽지 않고 위 self-service 응답을 사용한다.
 - `get-referral-tree`는 ancestor chain + descendant subtree를 service-role RPC로 읽고, descendant lazy expand도 같은 trusted path를 다시 사용한다.
+- additive graph mode는 signed FC/manager session의 자기 profile id를 root로 고정하고 canonical `recommender_fc_id` downline만 읽는다. body `fcId`는 graph scope를 넓힐 수 없으며 응답에는 phone/audit/mutation 필드를 포함하지 않는다. Graph eligibility는 breadth-first traversal 중 300-node 한도 전에 적용하고 manager referral shadow 관계는 보존한다. 대량 id/child/code 조회는 chunk/fixed-page 처리하며 남은 유효 slot+1에서 탐색을 멈추고, 초과 관계를 `truncated`로 알린다.
 - self-service functions(`get-my-referral-code`, `get-referral-tree`, `search-fc-for-referral`, `update-my-recommender`, legacy `get-fc-referral-code`, `get-my-invitees`)는 missing/expired/invalid app session을 구분해 반환하고, 클라이언트는 bridge token으로 1회 silent refresh 후 재시도한다.
 - `refresh-app-session`은 request_board bridge token을 다시 검증한 뒤 completed FC와 active manager만 새 referral `appSessionToken`을 발급한다. plain admin/developer phone, linked designer, signup 미완료 FC는 `forbidden`이다.
 - backend는 ancestor chain 전체를 계속 반환하더라도, 모바일 UI는 현재 마지막 ancestor 1명만 표시하는 것이 intended contract다.
@@ -35,6 +49,8 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 - 비로그인 회원가입 추천인 검색 current path는 `app/signup.tsx -> search-signup-referral`이다.
 - `search-signup-referral`은 app session 없이 호출되지만, 응답은 `name`, `affiliation`, `code`만 반환하고 전화번호/주민정보 같은 PII를 노출하지 않는다.
 - signup search 결과는 active referral code가 있는 후보만 반환해야 한다. 회원가입 화면이 결과를 선택해도 최종 payload는 기존 `referralCode` + `referralInviterFcId`만 유지하고, `validate-referral-code`를 다시 통과한 뒤 `set-password`가 확정한다.
+- 관리자 서면확인 가입은 `admin_create_assisted_signup_v1`에서 선택된 active 추천인 FC를 다시 검증하고 `apply_referral_link_state(..., source='admin_override', reason='admin_assisted_signup')`를 호출한다. 관리자 화면의 표시 문자열을 직접 `fc_profiles.recommender`에 쓰지 않는다.
+- RPC의 프로필·추천 링크·임시 자격증명·서면확인 원장은 단일 트랜잭션이다. referral 적용 실패 시 가입 완료 상태나 임시 비밀번호만 남으면 회귀다.
 
 ## 운영 함수
 

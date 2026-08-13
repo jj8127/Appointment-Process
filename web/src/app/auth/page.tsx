@@ -2,6 +2,10 @@
 
 import { useSession } from '@/hooks/use-session';
 import { resolveAdminWebLoginRole } from '@/lib/admin-web-login-role';
+import {
+    ADMIN_WEB_LOGIN_BROWSER_TIMEOUT_MS,
+    isAdminWebLoginTimeout,
+} from '@/lib/admin-web-login-timeout';
 import { logger } from '@/lib/logger';
 import { normalizeStaffType } from '@/lib/staff-identity';
 import {
@@ -18,8 +22,8 @@ import {
     Image
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, type FormEvent, useEffect, useState } from 'react';
 import { IconPhone, IconLock, IconArrowRight } from '@tabler/icons-react';
 
 const HANWHA_ORANGE = '#f36f21';
@@ -35,11 +39,21 @@ function resolveLoginErrorMessage(error: unknown) {
     const name = readErrorField(error, 'name');
     const rawMessage = readErrorField(error, 'message');
     const normalized = rawMessage.toLowerCase();
+    const isTimeout = isAdminWebLoginTimeout(error);
     const isTransportError =
         name === 'FunctionsFetchError' ||
         normalized.includes('failed to send a request to the edge function') ||
         normalized.includes('failed to fetch') ||
         normalized.includes('networkerror');
+
+    if (isTimeout) {
+        return {
+            message: '로그인 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.',
+            expected: true,
+            name,
+            rawMessage,
+        };
+    }
 
     if (isTransportError) {
         return {
@@ -62,13 +76,15 @@ function resolveLoginErrorMessage(error: unknown) {
     };
 }
 
-export default function AuthPage() {
+function AuthContent() {
     const { loginAs, role, residentId, hydrated } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [mounted, setMounted] = useState(false);
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const shouldResumeNotification = searchParams.get('notificationOpen') === '1';
 
     useEffect(() => {
         setMounted(true);
@@ -76,6 +92,10 @@ export default function AuthPage() {
 
     useEffect(() => {
         if (!hydrated) return;
+        if (shouldResumeNotification && role && residentId) {
+            window.location.replace('/api/notification-open/resume');
+            return;
+        }
         if (role === 'fc' && residentId) {
             router.replace('/dashboard/referrals/graph');
             return;
@@ -83,7 +103,7 @@ export default function AuthPage() {
         if (role === 'admin' || role === 'manager') {
             router.replace('/dashboard');
         }
-    }, [hydrated, residentId, role, router]);
+    }, [hydrated, residentId, role, router, shouldResumeNotification]);
 
     const handleLogin = async () => {
         const code = phoneInput.trim();
@@ -124,12 +144,22 @@ export default function AuthPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ phone: digits, password: passwordInput.trim() }),
+                signal: AbortSignal.timeout(ADMIN_WEB_LOGIN_BROWSER_TIMEOUT_MS),
             });
             const data = await loginResponse.json();
             if (!loginResponse.ok && !data?.message) {
                 throw new Error('로그인 요청을 처리하지 못했습니다.');
             }
             if (!data?.ok) {
+                if (data?.code === 'password_change_required') {
+                    notifications.show({
+                        title: '새 비밀번호가 필요합니다',
+                        message: '관리자가 발급한 임시 비밀번호를 본인이 사용할 새 비밀번호로 변경해주세요.',
+                        color: 'orange',
+                    });
+                    router.replace('/first-password-change');
+                    return;
+                }
                 if (data?.code === 'not_found' && data?.role !== 'admin') {
                     notifications.show({
                         title: '안내',
@@ -168,7 +198,12 @@ export default function AuthPage() {
                 return;
             }
             loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
-            router.replace(nextRole === 'fc' ? '/dashboard/referrals/graph' : '/dashboard');
+            const destination = shouldResumeNotification
+                ? '/api/notification-open/resume'
+                : nextRole === 'fc'
+                    ? '/dashboard/referrals/graph'
+                    : '/dashboard';
+            window.location.replace(destination);
         } catch (err: unknown) {
             const loginError = resolveLoginErrorMessage(err);
 
@@ -192,6 +227,11 @@ export default function AuthPage() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        void handleLogin();
     };
 
     return (
@@ -242,6 +282,8 @@ export default function AuthPage() {
 
                 {/* Login Card */}
                 <Paper
+                    component="form"
+                    onSubmit={handleSubmit}
                     shadow="xl"
                     p={40}
                     radius="xl"
@@ -281,9 +323,6 @@ export default function AuthPage() {
                             maxLength={11}
                             autoComplete="tel"
                             onChange={(event) => setPhoneInput(event.currentTarget.value.replace(/[^0-9]/g, ''))}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleLogin();
-                            }}
                             styles={{
                                 label: {
                                     fontWeight: 700,
@@ -312,9 +351,6 @@ export default function AuthPage() {
                             radius="md"
                             value={passwordInput}
                             onChange={(event) => setPasswordInput(event.currentTarget.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleLogin();
-                            }}
                             styles={{
                                 label: {
                                     fontWeight: 700,
@@ -339,7 +375,7 @@ export default function AuthPage() {
                             fullWidth
                             size="lg"
                             radius="md"
-                            onClick={handleLogin}
+                            type="submit"
                             loading={loading}
                             rightSection={<IconArrowRight size={20} stroke={2} />}
                             style={{
@@ -407,5 +443,13 @@ export default function AuthPage() {
                 </Text>
             </Container>
         </Box>
+    );
+}
+
+export default function AuthPage() {
+    return (
+        <Suspense fallback={<Box mih="100vh" bg="gray.0" />}>
+            <AuthContent />
+        </Suspense>
     );
 }

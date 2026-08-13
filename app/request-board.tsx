@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -26,6 +26,7 @@ import { useAppLogout } from '@/hooks/use-app-logout';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
@@ -38,16 +39,17 @@ import {
 } from '@/lib/request-board-api';
 import { getRequestBoardCustomerManagementRoute } from '@/lib/request-board-create-flow';
 import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
+import { getRequestBoardNotificationFeedback } from '@/lib/request-board-notification-feedback';
 import {
   computeRequestBoardHomeStats,
   type RequestBoardHomeStats,
 } from '@/lib/request-board-home-stats';
 import { canUseRequestBoardAsFc } from '@/lib/request-board-permissions';
 import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
+import { shouldSkipRequestBoardPassiveRefresh } from '@/lib/request-board-refresh-policy';
 import { normalizeDesignerRejectReason } from '@/lib/request-board-review-actions';
 import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { getRequestBoardWebBaseUrl } from '@/lib/request-board-url';
-import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
@@ -251,6 +253,8 @@ export default function RequestBoardScreen() {
   const [designerRejectModalVisible, setDesignerRejectModalVisible] = useState(false);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [requestBoardAccessError, setRequestBoardAccessError] = useState<string | null>(null);
+  const requestBoardRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const lastRequestBoardRefreshCompletedAtRef = useRef(0);
   const homeHeaderTitle = buildWelcomeTitle({
     role,
     readOnly,
@@ -280,7 +284,7 @@ export default function RequestBoardScreen() {
     isRequestBoardDesigner,
   });
   const showStats = reqStats.loaded && (hasRequestBoardFcReadAccess || !!isRequestBoardDesigner);
-  const includeRequestBoardFcInbox = role === 'admin' && requestBoardRole === 'fc';
+  const includeRequestBoardFcInbox = role === 'admin' && requestBoardRole !== null;
   const notificationInboxResidentId = useMemo(
     () => resolveNotificationInboxResidentId({
       role,
@@ -299,23 +303,40 @@ export default function RequestBoardScreen() {
   }, [hydrated, role, router]);
 
   /* ─── Data fetch ─── */
-  const fetchData = useCallback(async () => {
-    const inboxRole: 'admin' | 'fc' | null = role;
-    if (!inboxRole) return;
-    setRequestBoardAccessError(null);
+  const fetchData = useCallback((options: { force?: boolean } = {}) => {
+    const activeRefresh = requestBoardRefreshInFlightRef.current;
+    if (activeRefresh) {
+      return activeRefresh;
+    }
+    if (shouldSkipRequestBoardPassiveRefresh({
+      force: options.force,
+      nowMs: Date.now(),
+      lastCompletedAtMs: lastRequestBoardRefreshCompletedAtRef.current,
+    })) {
+      return Promise.resolve();
+    }
 
-    await Promise.allSettled([
+    const inboxRole: 'admin' | 'fc' | null = role;
+    if (!inboxRole) return Promise.resolve();
+
+    const refreshTask = (async () => {
+      setRequestBoardAccessError(null);
+
+      await Promise.allSettled([
       // Notifications from fc-notify
       (async () => {
         try {
-          const { data, error } = await supabase.functions.invoke('fc-notify', {
-            body: {
+          const { data, error } = await invokeFcNotify<{
+            ok?: boolean;
+            message?: string;
+            notifications?: NotificationItem[];
+          }>({
               type: 'inbox_list',
               role: inboxRole,
               resident_id: notificationInboxResidentId,
               limit: 100,
               include_request_board_fc: includeRequestBoardFcInbox,
-            },
+              only_request_board_categories: requestBoardRole === 'designer',
           });
           if (error) throw error;
           if (!data?.ok) throw new Error(data?.message ?? '데이터 로드 실패');
@@ -374,8 +395,17 @@ export default function RequestBoardScreen() {
       })(),
     ]);
 
-    setLoading(false);
-    setRefreshing(false);
+      setLoading(false);
+      setRefreshing(false);
+    })();
+
+    requestBoardRefreshInFlightRef.current = refreshTask;
+    return refreshTask.finally(() => {
+      if (requestBoardRefreshInFlightRef.current === refreshTask) {
+        requestBoardRefreshInFlightRef.current = null;
+        lastRequestBoardRefreshCompletedAtRef.current = Date.now();
+      }
+    });
   }, [ensureRequestBoardSession, hasRequestBoardFcReadAccess, includeRequestBoardFcInbox, isRequestBoardDesigner, notificationInboxResidentId, requestBoardRole, role]);
 
   useEffect(() => {
@@ -404,7 +434,7 @@ export default function RequestBoardScreen() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchData();
+    void fetchData({ force: true });
   };
 
   const recentNotifs = notifications.slice(0, 3);
@@ -438,7 +468,7 @@ export default function RequestBoardScreen() {
   };
 
   const openMessenger = () => {
-    router.push('/request-board-messenger' as any);
+    router.push('/messenger' as any);
   };
 
   const openFcCodes = () => {
@@ -481,7 +511,11 @@ export default function RequestBoardScreen() {
       if (!result.success) {
         throw new Error(result.error ?? result.message ?? '수락 처리에 실패했습니다.');
       }
-      await fetchData();
+      const notificationFeedback = getRequestBoardNotificationFeedback(result);
+      if (notificationFeedback) {
+        Alert.alert(notificationFeedback.title, notificationFeedback.message);
+      }
+      await fetchData({ force: true });
     } catch (err) {
       logger.warn('[request-board] designer accept failed', err);
       Alert.alert('수락 실패', toRequestBoardSessionErrorMessage(err, '수락 처리에 실패했습니다.'));
@@ -539,7 +573,12 @@ export default function RequestBoardScreen() {
         throw new Error(result.error ?? result.message ?? '거절 처리에 실패했습니다.');
       }
       resetDesignerRejectModal();
-      await fetchData();
+      const notificationFeedback = getRequestBoardNotificationFeedback(result);
+      Alert.alert(
+        notificationFeedback?.title ?? '거절 완료',
+        notificationFeedback?.message ?? '의뢰를 거절했습니다.',
+      );
+      await fetchData({ force: true });
     } catch (err) {
       logger.warn('[request-board] designer reject failed', err);
       Alert.alert('거절 실패', toRequestBoardSessionErrorMessage(err, '거절 처리에 실패했습니다.'));

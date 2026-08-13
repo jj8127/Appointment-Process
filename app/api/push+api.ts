@@ -8,7 +8,7 @@ export async function POST(request: Request) {
         const { to, title, body: messageBody, data } = body;
 
         if (!Expo.isExpoPushToken(to)) {
-            console.error(`Push token ${to} is not a valid Expo push token`);
+            console.warn('[push-api] invalid push token');
             // Return success to avoid blocking the client, but log error
             return Response.json({ status: 'ignored' });
         }
@@ -32,14 +32,20 @@ export async function POST(request: Request) {
             try {
                 const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
                 tickets.push(...ticketChunk);
-            } catch (error) {
-                console.error(error);
+            } catch {
+                console.error('[push-api] delivery failed', {
+                    reason: 'expo_delivery_failed',
+                    status: 'failed',
+                });
             }
         }
 
         return Response.json({ status: 'ok', tickets });
-    } catch (error: any) {
-        console.error('Push API Error:', error);
-        return Response.json({ error: error.message }, { status: 500 });
+    } catch {
+        console.error('[push-api] request failed', {
+            reason: 'request_processing_failed',
+            status: 'failed',
+        });
+        return Response.json({ error: 'Push request failed' }, { status: 500 });
     }
 }

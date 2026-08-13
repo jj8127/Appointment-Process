@@ -11,8 +11,12 @@ export type ExamRegistrationRow = {
   round_id?: string | null;
   resident_id: string;
   is_confirmed: boolean;
+  includes_primary_exam?: boolean | null;
   is_third_exam?: boolean | null;
   fee_paid_date?: string | null;
+  payment_proof_attached?: boolean | null;
+  rejection_reason?: string | null;
+  rejected_at?: string | null;
   exam_locations?: { location_name?: string | null } | null;
   exam_rounds?: { round_label?: string | null; exam_date?: string | null; exam_type?: string | null } | null;
 };
@@ -24,6 +28,7 @@ export type ExamApplicantBaseRow = {
   round_id: string | null;
   resident_id: string;
   is_confirmed: boolean;
+  includes_primary_exam: boolean;
   is_third_exam: boolean;
   application_type: ExamApplicantApplicationType;
   location_name: string;
@@ -31,6 +36,9 @@ export type ExamApplicantBaseRow = {
   exam_date: string | null;
   exam_type: string | null;
   fee_paid_date: string | null;
+  payment_proof_attached: boolean;
+  rejection_reason: string | null;
+  rejected_at: string | null;
 };
 
 export type ExamApplicantProfileRow = {
@@ -89,6 +97,7 @@ export function buildExamApplicantBaseRows(rows: ExamRegistrationRow[]): ExamApp
     round_id: row.round_id ?? null,
     resident_id: row.resident_id,
     is_confirmed: row.is_confirmed,
+    includes_primary_exam: row.includes_primary_exam ?? true,
     is_third_exam: row.is_third_exam ?? false,
     application_type: '신규신청',
     location_name: row.exam_locations?.location_name || '미정',
@@ -96,6 +105,9 @@ export function buildExamApplicantBaseRows(rows: ExamRegistrationRow[]): ExamApp
     exam_date: row.exam_rounds?.exam_date ?? null,
     exam_type: row.exam_rounds?.exam_type ?? null,
     fee_paid_date: row.fee_paid_date ?? null,
+    payment_proof_attached: row.payment_proof_attached ?? false,
+    rejection_reason: row.rejection_reason ?? null,
+    rejected_at: row.rejected_at ?? null,
   }));
 }
 

@@ -3,6 +3,19 @@
 import { adminSupabase } from '@/lib/admin-supabase';
 import { buildExamRoundNotificationPayload } from '@/lib/exam-round-notification';
 import { logger } from '@/lib/logger';
+import {
+    getNotificationDeliveryFeedback,
+    parseNotificationDeliveryFeedback,
+    type NotificationDeliveryFeedback,
+} from '@/lib/notification-delivery-feedback';
+import {
+    parseExamRoundDeleteInput,
+    parseExamRoundSaveInput,
+} from '@/lib/privileged-action-input-policy';
+import {
+    getVerifiedAdminSession,
+    getVerifiedReadOnlyAdminSession,
+} from '@/lib/server-session';
 
 type DeleteRoundState = {
     success: boolean;
@@ -15,17 +28,14 @@ type SaveRoundState = {
     error?: string;
     message?: string;
     roundId?: string;
+    notificationWarning?: string;
+    notificationDelivery?: NotificationDeliveryFeedback;
 };
 
-type SaveRoundPayload = {
-    roundId?: string | null;
-    exam_date: string | null;
-    registration_deadline: string;
-    round_label: string;
-    exam_type: 'life' | 'nonlife';
-    notes?: string | null;
-    locations: string[];
-    actionLabel?: '등록' | '수정';
+type NotificationDeliveryResult = {
+    ok: boolean;
+    feedback: NotificationDeliveryFeedback;
+    reason?: 'invoke_failed' | 'invalid_response' | 'not_logged';
 };
 
 const errorMessage = (err: unknown, fallback: string) => {
@@ -33,120 +43,187 @@ const errorMessage = (err: unknown, fallback: string) => {
     return fallback;
 };
 
-async function notifyExamRoundChanged(title: string, body: string, examType: 'life' | 'nonlife') {
-    const { data, error } = await adminSupabase.functions.invoke('fc-notify', {
-        body: buildExamRoundNotificationPayload({
-            title,
-            body,
-            examType,
-        }),
-    });
+const readErrorCode = (err: unknown) => {
+    if (!err || typeof err !== 'object') return '';
+    const code = (err as Record<string, unknown>).code;
+    return typeof code === 'string' ? code : '';
+};
 
-    if (error) {
-        logger.warn('[saveExamRound] fc-notify invoke failed', error);
-        return;
+const examRoundSaveErrorMessage = (err: unknown) => {
+    if (readErrorCode(err) === 'PGRST202') {
+        return '시험 일정 저장 기능의 운영 DB 설정이 아직 반영되지 않았습니다.';
     }
+    return errorMessage(err, '저장 중 오류가 발생했습니다.');
+};
 
-    if (!data?.ok) {
-        logger.warn('[saveExamRound] fc-notify returned failure', data);
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null;
+
+const readNonNegativeInteger = (value: unknown) =>
+    typeof value === 'number' && Number.isFinite(value)
+        ? Math.max(0, Math.trunc(value))
+        : 0;
+
+async function notifyExamRoundChanged(
+    title: string,
+    body: string,
+    examType: 'life' | 'nonlife',
+    examRoundId: string,
+): Promise<NotificationDeliveryResult> {
+    try {
+        const { data, error } = await adminSupabase.functions.invoke('fc-notify', {
+            body: buildExamRoundNotificationPayload({
+                title,
+                body,
+                examType,
+                examRoundId,
+            }),
+        });
+
+        if (error) {
+            return {
+                ok: false,
+                feedback: getNotificationDeliveryFeedback('persistence_failed'),
+                reason: 'invoke_failed',
+            };
+        }
+
+        const response = asRecord(data);
+        if (!response) {
+            return {
+                ok: false,
+                feedback: getNotificationDeliveryFeedback('persistence_failed'),
+                reason: 'invalid_response',
+            };
+        }
+        const canonicalFeedback = parseNotificationDeliveryFeedback(response);
+        if (canonicalFeedback) {
+            return {
+                ok: canonicalFeedback.severity === 'success'
+                    || canonicalFeedback.severity === 'info',
+                feedback: canonicalFeedback,
+            };
+        }
+        if (response.ok !== true) {
+            return {
+                ok: false,
+                feedback: getNotificationDeliveryFeedback('persistence_failed'),
+                reason: 'invalid_response',
+            };
+        }
+        if (response.logged !== true) {
+            return {
+                ok: false,
+                feedback: getNotificationDeliveryFeedback('persistence_failed'),
+                reason: 'not_logged',
+            };
+        }
+
+        const delivery = asRecord(response.delivery);
+        const accepted = readNonNegativeInteger(delivery?.accepted);
+        if (accepted < 1) {
+            return {
+                ok: true,
+                feedback: getNotificationDeliveryFeedback('no_registered_device'),
+            };
+        }
+        if (readNonNegativeInteger(response.sent) !== accepted) {
+            return {
+                ok: false,
+                feedback: getNotificationDeliveryFeedback('provider_failed'),
+            };
+        }
+        return {
+            ok: true,
+            feedback: getNotificationDeliveryFeedback('delivered'),
+        };
+    } catch {
+        return {
+            ok: false,
+            feedback: getNotificationDeliveryFeedback('persistence_failed'),
+            reason: 'invoke_failed',
+        };
     }
 }
 
 export async function saveExamRoundAction(
     prevState: SaveRoundState,
-    payload: SaveRoundPayload,
+    payload: unknown,
 ): Promise<SaveRoundState> {
     void prevState;
+    const sessionCheck = await getVerifiedAdminSession();
+    if (!sessionCheck.ok) {
+        logger.warn('[saveExamRound] unauthorized server action', { status: sessionCheck.status });
+        return { success: false, error: sessionCheck.error };
+    }
+
+    const parsedInput = parseExamRoundSaveInput(payload);
+    if (!parsedInput.ok) {
+        return { success: false, error: parsedInput.error };
+    }
+
     const {
         roundId,
         exam_date,
+        exam_month,
         registration_deadline,
         round_label,
         exam_type,
         notes,
-        locations,
-        actionLabel,
-    } = payload;
-
-    if (!registration_deadline || !exam_type || !round_label?.trim()) {
-        return { success: false, error: '필수 입력값이 누락되었습니다.' };
-    }
-
-    const normalizedLocations = Array.from(
-        new Set((locations ?? []).map((loc) => loc.trim()).filter(Boolean)),
-    );
-    if (!normalizedLocations.length) {
-        return { success: false, error: '최소 1개의 장소를 등록해주세요.' };
-    }
+        locations: normalizedLocations,
+    } = parsedInput.value;
 
     try {
-        const rowPayload = {
-            exam_date,
-            registration_deadline,
-            round_label: round_label.trim(),
-            exam_type,
-            notes: (notes ?? '').trim() || null,
-        };
-
-        let targetRoundId = roundId ?? null;
-        if (targetRoundId) {
-            const { error } = await adminSupabase
-                .from('exam_rounds')
-                .update(rowPayload)
-                .eq('id', targetRoundId);
-            if (error) throw error;
-        } else {
-            const { data, error } = await adminSupabase
-                .from('exam_rounds')
-                .insert(rowPayload)
-                .select('id')
-                .single();
-            if (error) throw error;
-            targetRoundId = data.id;
-        }
-
-        if (!targetRoundId) {
+        const { data: targetRoundId, error: saveError } = await adminSupabase.rpc(
+            'save_exam_round_atomic_v2',
+            {
+                p_round_id: roundId,
+                p_exam_date: exam_date,
+                p_exam_month: exam_month,
+                p_registration_deadline: registration_deadline,
+                p_round_label: round_label,
+                p_exam_type: exam_type,
+                p_notes: notes,
+                p_locations: normalizedLocations,
+            },
+        );
+        if (saveError) throw saveError;
+        if (typeof targetRoundId !== 'string' || !targetRoundId) {
             return { success: false, error: '시험 회차 ID를 확인할 수 없습니다.' };
         }
 
-        const { data: existingLocs, error: locFetchErr } = await adminSupabase
-            .from('exam_locations')
-            .select('id,location_name')
-            .eq('round_id', targetRoundId);
-        if (locFetchErr) throw locFetchErr;
-
-        const existingNames = new Set((existingLocs ?? []).map((loc) => loc.location_name));
-        const toAdd = normalizedLocations.filter((name) => !existingNames.has(name));
-        if (toAdd.length > 0) {
-            const { error: addErr } = await adminSupabase.from('exam_locations').insert(
-                toAdd.map((name, idx) => ({
-                    round_id: targetRoundId,
-                    location_name: name,
-                    sort_order: idx,
-                })),
-            );
-            if (addErr) throw addErr;
-        }
-
-        const toRemove = (existingLocs ?? []).filter((loc) => !normalizedLocations.includes(loc.location_name));
-        if (toRemove.length > 0) {
-            const { error: delErr } = await adminSupabase
-                .from('exam_locations')
-                .delete()
-                .in('id', toRemove.map((loc) => loc.id));
-            if (delErr && delErr.code !== '23503') throw delErr;
-        }
-
         const dateLabel = exam_date ?? '미정';
-        const actionText = actionLabel ?? (roundId ? '수정' : '등록');
+        const actionText = roundId ? '수정' : '등록';
         const title = `${dateLabel}${round_label ? ` (${round_label})` : ''} 일정 ${actionText}`;
         const body = `시험 일정이 ${actionText}되었습니다.`;
-        await notifyExamRoundChanged(title, body, exam_type);
+        const notificationResult = await notifyExamRoundChanged(title, body, exam_type, targetRoundId);
+        if (!notificationResult.ok) {
+            logger.warn('[saveExamRound] notification delivery incomplete', {
+                category: 'exam_round',
+                reason: notificationResult.reason,
+                status: 'warning',
+            });
+        }
 
-        return { success: true, message: '저장 완료', roundId: targetRoundId };
+        return {
+            success: true,
+            message: '저장 완료',
+            roundId: targetRoundId,
+            notificationWarning:
+                notificationResult.feedback.severity === 'warning'
+                || notificationResult.feedback.severity === 'error'
+                    ? 'notification_delivery_incomplete'
+                    : undefined,
+            notificationDelivery: notificationResult.feedback,
+        };
     } catch (err: unknown) {
-        logger.error('[saveExamRound] failed', err);
-        return { success: false, error: errorMessage(err, '저장 중 오류가 발생했습니다.') };
+        logger.error('[saveExamRound] failed', {
+            name: err instanceof Error ? err.name : 'DatabaseError',
+            code: readErrorCode(err) || 'unknown',
+        });
+        return { success: false, error: examRoundSaveErrorMessage(err) };
     }
 }
 
@@ -155,29 +232,41 @@ export async function fetchExamRoundsAction(): Promise<{
     data?: Array<{
         id: string;
         exam_date: string | null;
+        exam_month: string;
         registration_deadline: string;
         round_label: string;
         exam_type?: string;
         notes?: string;
+        created_at?: string;
         locations: { id: string; location_name: string }[];
     }>;
     error?: string;
 }> {
+    const sessionCheck = await getVerifiedReadOnlyAdminSession();
+    if (!sessionCheck.ok) {
+        logger.warn('[fetchExamRounds] unauthorized server action', { status: sessionCheck.status });
+        return { success: false, error: sessionCheck.error };
+    }
+
     try {
         const { data, error } = await adminSupabase
             .from('exam_rounds')
             .select(`*, exam_locations ( id, location_name )`)
-            .order('exam_date', { ascending: false });
+            .order('exam_date', { ascending: false, nullsFirst: false })
+            .order('registration_deadline', { ascending: false })
+            .order('created_at', { ascending: false });
 
         if (error) throw error;
 
         type RoundRow = {
             id: string;
             exam_date: string | null;
+            exam_month: string;
             registration_deadline: string;
             round_label: string;
             exam_type?: string;
             notes?: string;
+            created_at?: string;
             exam_locations?: { id: string; location_name: string }[] | null;
         };
         const rounds = (data ?? [] as RoundRow[]).map((r) => {
@@ -185,10 +274,12 @@ export async function fetchExamRoundsAction(): Promise<{
             return {
                 id: row.id,
                 exam_date: row.exam_date,
+                exam_month: row.exam_month,
                 registration_deadline: row.registration_deadline,
                 round_label: row.round_label,
                 exam_type: row.exam_type,
                 notes: row.notes,
+                created_at: row.created_at,
                 locations: row.exam_locations || [],
             };
         });
@@ -202,38 +293,29 @@ export async function fetchExamRoundsAction(): Promise<{
 
 export async function deleteExamRoundAction(
     prevState: DeleteRoundState,
-    payload: { roundId: string }
+    payload: unknown,
 ): Promise<DeleteRoundState> {
     void prevState;
-    const { roundId } = payload;
-
-    if (!roundId) {
-        return { success: false, error: 'roundId가 없습니다.' };
+    const sessionCheck = await getVerifiedAdminSession();
+    if (!sessionCheck.ok) {
+        logger.warn('[deleteExamRound] unauthorized server action', { status: sessionCheck.status });
+        return { success: false, error: sessionCheck.error };
     }
 
-    try {
-        logger.info('[deleteExamRound] Starting deletion', { roundId });
+    const parsedInput = parseExamRoundDeleteInput(payload);
+    if (!parsedInput.ok) {
+        return { success: false, error: parsedInput.error };
+    }
+    const { roundId } = parsedInput.value;
 
-        // 1. 시험 신청 삭제 (CASCADE 대신 명시적 삭제)
-        const { error: regError, count: regCount } = await adminSupabase
-            .from('exam_registrations')
-            .delete({ count: 'exact' })
-            .eq('round_id', roundId);
-        if (regError) throw regError;
-        logger.info('[deleteExamRound] Deleted registrations', { roundId, count: regCount });
+        try {
+            logger.info('[deleteExamRound] Starting deletion', { roundId });
 
-        // 2. 시험 장소 삭제
-        const { error: locError, count: locCount } = await adminSupabase
-            .from('exam_locations')
-            .delete({ count: 'exact' })
-            .eq('round_id', roundId);
-        if (locError) throw locError;
-        logger.info('[deleteExamRound] Deleted locations', { roundId, count: locCount });
-
-        // 3. 시험 회차 삭제
-        const { error: roundError, count: roundCount } = await adminSupabase
-            .from('exam_rounds')
-            .delete({ count: 'exact' })
+            // One database statement keeps the destructive operation atomic. The
+            // schema cascades locations and registrations from the deleted round.
+            const { error: roundError, count: roundCount } = await adminSupabase
+                .from('exam_rounds')
+                .delete({ count: 'exact' })
             .eq('id', roundId);
         if (roundError) throw roundError;
         logger.info('[deleteExamRound] Deleted round', { roundId, count: roundCount });
@@ -244,12 +326,10 @@ export async function deleteExamRoundAction(
             return { success: false, error: '시험 회차를 찾을 수 없습니다.' };
         }
 
-        logger.info('[deleteExamRound] Deletion completed', {
-            roundId,
-            deletedRegistrations: regCount,
-            deletedLocations: locCount,
-            deletedRounds: roundCount
-        });
+            logger.info('[deleteExamRound] Deletion completed', {
+                roundId,
+                deletedRounds: roundCount
+            });
 
         return { success: true, message: '삭제 완료' };
     } catch (err: unknown) {

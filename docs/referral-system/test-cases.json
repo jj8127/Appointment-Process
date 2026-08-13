@@ -387,9 +387,9 @@
     "platform": ["web", "backend"],
     "title": "`/dashboard/referrals/graph`는 linked edge 기준으로 빈 선 없이 그려지고 manager read-only를 유지한다",
     "preconditions": ["eligible FC 사이의 `recommender_fc_id` 구조화 링크가 1건 이상 존재한다", "manager 또는 admin이 그래프를 열 수 있다"],
-    "steps": ["graph API 또는 `/dashboard/referrals/graph`를 연다", "node/edge count와 manager read-only 노출 상태를 확인한다"],
-    "expected": ["visible edge는 `recommender_fc_id`를 기본으로 잡는다", "edge state는 `linked` 단일값만 사용하고 같은 pair에 중복 edge를 만들지 않는다", "manager는 graph를 볼 수 있지만 mutation CTA는 없다"],
-    "evidenceRequired": ["API 응답", "화면 캡처 또는 route 응답", "DB 확인"],
+    "steps": ["graph API 또는 `/dashboard/referrals/graph`를 연다", "node/edge count와 manager read-only 노출 상태를 확인한다", "수백 개 FC ID가 있는 fixture 또는 read-only 환경에서 추천코드 조회 URL이 bounded chunk로 나뉘는지 확인한다"],
+    "expected": ["visible edge는 `recommender_fc_id`를 기본으로 잡는다", "edge state는 `linked` 단일값만 사용하고 같은 pair에 중복 edge를 만들지 않는다", "manager는 graph를 볼 수 있지만 mutation CTA는 없다", "추천코드 조회는 ID 40개 이하 chunk로 실행되고 중복을 제거한 전역 created_at 내림차순 결과를 반환해 HTTP header overflow를 만들지 않는다"],
+    "evidenceRequired": ["API 응답", "화면 캡처 또는 route 응답", "DB 확인", "bounded query 회귀 테스트"],
     "dbAssertions": ["structured link가 존재하면 linked edge count는 0이 아니다", "legacy free-text recommender는 graph edge로 추론되지 않는다"]
   },
   {
@@ -397,11 +397,11 @@
     "area": "운영",
     "priority": "P1",
     "platform": ["web"],
-    "title": "graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label, active drag branch stability를 지원한다",
-    "preconditions": ["그래프에 node와 edge가 표시된다", "directed descendant가 있는 hub node가 존재한다"],
-    "steps": ["hub node를 drag해 위치를 바꾼다", "drag 중 dragged node와 descendant branch 움직임을 screen pixel 기준으로 측정한다", "빈 공간을 drag해 viewport를 이동한다", "`Reset`을 눌러 layout을 다시 정렬한다", "기본 상태에서 node 이름이 보이는지 확인한다"],
-    "expected": ["node drag가 hit area와 일치하게 동작한다", "directed descendants는 branch가 찢어지지 않을 만큼 따라오고 unrelated graph는 크게 재배치되지 않는다", "release 후 dragged node가 놓은 위치 근처에서 settle된다", "빈 공간 drag로 canvas를 pan할 수 있다", "reset 뒤 graph가 다시 모여 readable cluster를 만든다", "이름 라벨이 기본적으로 보이고 선택/검색/확대 시 추가 정보가 붙는다"],
-    "evidenceRequired": ["브라우저 화면 녹화 또는 캡처", "screen/client pixel drag metric"],
+    "title": "graph canvas는 node drag, pan/reset, branch stability와 dense terminal-leaf 간격을 지원한다",
+    "preconditions": ["그래프에 node와 edge가 표시된다", "directed descendant가 있는 hub node가 존재한다", "자식이 없는 node가 다수 연결된 dense hub fixture를 만들 수 있다"],
+    "steps": ["hub node를 drag해 위치를 바꾼다", "drag 중 dragged node와 descendant branch 움직임을 screen pixel 기준으로 측정한다", "빈 공간을 drag해 viewport를 이동한다", "`Reset`을 눌러 layout을 다시 정렬한다", "기본 상태에서 node 이름이 보이는지 확인한다", "dense fixture에서 terminal leaf와 child-hub bridge 목표 길이를 각각 계산한다"],
+    "expected": ["node drag가 hit area와 일치하게 동작한다", "directed descendants는 branch가 찢어지지 않을 만큼 따라오고 unrelated graph는 크게 재배치되지 않는다", "release 후 dragged node가 놓은 위치 근처에서 settle된다", "빈 공간 drag로 canvas를 pan할 수 있다", "reset 뒤 graph가 다시 모여 readable cluster를 만든다", "이름 라벨이 기본적으로 보이고 선택/검색/확대 시 추가 정보가 붙는다", "명시적인 terminal leaf edge는 118~185px band에 머물고 240-node/24-child fixture에서는 166~179px이며 child-hub branch bridge는 기존 354px를 유지한다"],
+    "evidenceRequired": ["브라우저 화면 녹화 또는 캡처", "screen/client pixel drag metric", "dense link-distance 단위 테스트"],
     "dbAssertions": []
   },
   {
@@ -607,5 +607,106 @@
     "expected": ["상단 카드에는 direct recommender 1명만 표시되고 루트까지의 전체 업라인 경로는 노출되지 않는다", "silent refresh가 성공하면 tree/direct recommender surface contract는 유지되고 stale current recommender fallback을 다시 보여주지 않는다", "direct recommender 카드 값은 `get-referral-tree` 응답의 마지막 ancestor 또는 같은 추천인 구조화 링크와 일치한다", "하단 tree는 canonical `recommender_fc_id` 링크만 반영한다", "depth 2 밖의 deeper node를 펼쳐도 실제 중첩 depth와 같은 규칙으로 보인다", "visible expandable child는 background 1단계 prefetch 대상이 될 수 있고, prefetch가 끝난 뒤 이어지는 expand는 중복 요청 없이 즉시 열린다", "bridge token도 없거나 만료된 경우 generic auth 문구 대신 `세션이 만료되었습니다. 다시 로그인해주세요.` 안내와 relogin CTA가 노출되고, tree error state에서도 CTA가 유지된다", "Android production build에서 render crash 없이 진입/편집/새로고침이 가능해야 한다"],
     "evidenceRequired": ["화면 캡처", "함수 호출 응답", "DB 확인"],
     "dbAssertions": ["직접 추천인 카드에 표시된 대상은 invitee의 `recommender_fc_id` 또는 `get-referral-tree` 응답 마지막 ancestor와 일치한다", "`get-referral-tree` descendants는 caller subtree 범위 안의 하위 관계만 반환한다"]
+  },
+  {
+    "id": "RF-SELF-04",
+    "area": "추천관계",
+    "priority": "P0",
+    "platform": [
+      "app",
+      "backend"
+    ],
+    "title": "FC/본부장 native 추천 관계 그래프는 자기 downline만 조회 전용으로 표시한다",
+    "preconditions": [
+      "FC 또는 본부장 계정이 유효한 app session 또는 복구 가능한 bridge token으로 로그인되어 있다",
+      "자기 profile을 root로 하는 canonical `recommender_fc_id` descendant fixture가 준비돼 있다",
+      "plain admin/developer 또는 designer 비대상 계정도 확인할 수 있다"
+    ],
+    "steps": [
+      "`/referral`에서 `추천 관계 그래프로 보기`를 누르고 외부 브라우저 없이 `/referral-graph`로 이동하는지 확인한다",
+      "`get-referral-tree`를 `{mode:'graph'}`로 호출하고 root/permission/node/edge 계약을 확인한다",
+      "다른 `fcId`를 body에 추가해도 graph root와 범위가 바뀌지 않는지 확인한다",
+      "한 손가락 pan, 두 손가락 pinch, 화면 맞춤, 초기화, 검색, 상태 filter, node 선택, 1~3촌 focus를 실행한다",
+      "app session과 bridge token을 모두 만료시켜 relogin CTA를 확인한다"
+    ],
+    "expected": [
+      "graph root는 signed caller 자기 FC id로 고정된다",
+      "visible edge는 canonical `fc_profiles.recommender_fc_id` downline closure만 사용한다",
+      "응답은 `permissions.canMutate=false`, `scope='downline'`이며 phone/audit/mutation 필드가 없다",
+      "현재 사용자, 모든 위촉 완료, 본등록, 사전등록 색 우선순위와 전체 하위 인원 기반 node 크기가 적용된다",
+      "깊은 계층의 좌표는 native surface 안에 유지되고 300 node를 넘는 관계는 `truncated=true`로 안내된다",
+      "pan/pinch/fit/reset과 검색·상태·관계 focus 뒤에도 canvas가 비어 있거나 crash하지 않는다",
+      "plain admin/developer/designer는 조회할 수 없고 token 복구 실패 시 다시 로그인 CTA가 보인다"
+    ],
+    "evidenceRequired": [
+      "Android 화면 캡처 또는 녹화",
+      "함수 호출 응답 필드 목록",
+      "자동화 테스트와 Android bundle 결과"
+    ],
+    "dbAssertions": [
+      "graph 조회 전후 추천 관계 current-state와 audit row count가 바뀌지 않는다",
+      "반환 edge의 각 child `recommender_fc_id`는 응답 source id와 일치한다"
+    ]
+  },
+  {
+    "id": "RF-SELF-05",
+    "area": "추천관계",
+    "priority": "P1",
+    "platform": [
+      "app"
+    ],
+    "title": "FC/본부장 매출 기여 그래프 샘플은 1~10단계만 10% 시뮬레이션에 포함한다",
+    "preconditions": [
+      "FC 또는 `admin + readOnly` 본부장 세션으로 `/referral`에 진입할 수 있다",
+      "앱 번들에 가상 parent-chain 샘플 데이터가 포함돼 있다"
+    ],
+    "steps": [
+      "기존 추천 관계 그래프 CTA 아래의 `매출 기여 그래프 미리보기`를 누른다",
+      "새 화면이 저장된 보기 상태 없이 `현재 그래프` 원형 network를 기본으로 여는지 확인한다",
+      "그래프 탭에서 원형 node와 visible edge가 관리자 웹의 실제 활성 charge/link/tension/collision/damping 계열을 참고해 반응하고, 관리자 runtime에서 꺼진 edge-crossing/sibling-angular/center/x/y force를 적용하지 않는지 확인한다",
+      "viewer가 화면 중심에 있고 A/B/C branch가 stable subtree order로 분리되며, 단일-child chain이 좌우로 반전되지 않고 바깥으로 연속 진행하는지 확인한다",
+      "eligible 관계는 하나의 주황 child→parent shaft로 보이고 A11의 중립 점선 edge에는 arrow가 없는지 확인한다",
+      "전체 맞춤 상태에서 모든 node 안에 사람 식별자와 예상 배분액이 보이고 node pair가 겹치지 않는지 확인한다",
+      "graph가 stack header 없는 full-safe-area canvas로 열리고 기본 상태에는 compact back/title/sample header와 설정 버튼만 보이는지 확인한다",
+      "native route 진입 시 landscape로 전환되고 영구 왼쪽 HUD·하단 범례 없이 graph가 거의 전체 화면을 사용하는지 확인한다",
+      "설정 버튼을 눌러 summary/filter/current graph/tree/list/fit/reset/legend/disclaimer panel을 열고 닫기·바깥 탭·Android back으로 닫는다",
+      "`트리`를 선택해 portrait로 전환한 뒤 440-wide canvas, 118x66 card, 86px depth 간격, viewer/B 중앙·A 좌측·C 우측, parent-bottom→child-top connector를 확인한다",
+      "트리에서 A11 제외 card와 점선 connector, 일반 card 상세, 단계 filter의 흐린 ancestor 금액 유지를 확인한 뒤 `현재 그래프`를 골라 기존 원형 landscape renderer로 돌아온다",
+      "빈 공간을 drag해 pan하고 node를 drag해 연결·주변 node의 실시간 반응과 release settle을 확인한다",
+      "node를 1600-unit seed surface 밖으로 멀리 옮긴 뒤 `화면 맞춤`으로 다시 찾고 `초기화`로 seed 위치를 복원한다",
+      "뒤로 나간 뒤 기존 화면이 portrait로 복원되는지 확인한다",
+      "한 손가락 pan, 두 손가락 pinch zoom, `화면 맞춤`, `초기화`를 확인한다",
+      "현재 그래프·트리·목록 탭과 전체/1~3/4~6/7~10단계 필터를 확인한다",
+      "A10을 선택해 10-edge 조상 경로 강조와 최대 1.5초 inward pulse, 상세를 확인한 뒤 2초 idle window에서 추가 frame이 없는지 확인한다",
+      "A11을 선택해 `대상 제외`, 점선 관계 edge, no-arrow/no-pulse 처리를 확인한다",
+      "네트워크를 사용할 수 없는 상태에서도 같은 샘플 화면이 렌더되는지 확인한다"
+    ],
+    "expected": [
+      "화면은 샘플 데이터이고 실제 조직·매출·정산 내역이 아님을 명시한다",
+      "새 화면의 기본 현재 그래프는 카드형 행을 선으로 잇지 않고 원형 node와 edge를 렌더하며, 보기 상태를 저장하지 않고 관리자 웹 활성 force 계열을 참고하되 full d3 runtime을 이식하지 않는다",
+      "명시적으로 선택한 트리는 원형 WebView를 unmount하고 초기 고정 3열 card geometry를 portrait로 렌더하며 같은 filtered graph nodes/edges/context와 상세 sheet를 공유한다",
+      "collision-safe landscape radial seed는 viewer를 중심에 두고 stable subtree order의 A/B/C sector를 분리하며 모든 eligible parent→child edge의 목표 반지름이 증가한다",
+      "고정 17-node canonical sample은 initial/reset/일반 settle에서 disjoint edge crossing이 0이고 첫 root joint 이후 연속 chain turn이 45도 이하이다. 이는 runtime hard clamp가 아니며 dense fanout은 subtree/collision 밀도에 따라 더 넓은 sector와 반지름을 사용할 수 있다",
+      "eligible edge는 중복 회색 선 없이 하나의 주황 child→parent shaft이며 실제 송금·정산·지급 흐름이 아니다",
+      "A11 edge는 회색 점선/no-arrow이고 eligible 선택 경로의 pulse는 1.5초 안에 종료돼 idle RAF를 남기지 않는다",
+      "각 node 안에 예상 배분액이 항상 표시되고 collision resolution 뒤 node가 서로 겹치지 않는다",
+      "viewer node에는 unfiltered 예상 유입 합계 10240000원이 보이고 edge에는 금액 label이 없다",
+      "graph mode는 전체화면 canvas이며 back/title/sample/settings만 상시 보이고 list/filter/summary/fit/reset/legend/sample warning은 설정 panel 안에서 유지된다",
+      "landscape가 기본이며 닫힌 상태는 영구 sidebar나 하단 범례를 예약하지 않고 이탈 시 portrait로 복원된다",
+      "설정 panel이 열린 동안 graph gesture가 차단되고 닫은 뒤 현재 filter와 graph 상태가 보존된다",
+      "node drag 중 주변 node가 spring·repulsion·collision으로 부드럽게 반응하고 release 뒤 idle로 안정화된다",
+      "world 좌표에는 seed surface 기반 거리 제한이 없고 pan/pinch와 화면 맞춤/초기화가 동작하며 선택 node는 ring과 상세로 식별된다",
+      "parentId에서 파생된 1~10단계 15명의 대상 매출은 102400000원이고 예상 배분액은 10240000원이다",
+      "11단계 샘플은 `대상 제외`로 표시되고 합계에 포함되지 않는다",
+      "기존 추천 관계 그래프와 Supabase/Edge/API를 import하거나 호출하지 않는다",
+      "FC와 읽기 전용 본부장 외 계정은 직접 route 진입도 차단된다"
+    ],
+    "evidenceRequired": [
+      "targeted Jest 결과",
+      "Android current-graph landscape, tree/list portrait, A10/A11 화면 확인",
+      "3회 warmed drag gfxinfo와 pulse 종료 뒤 idle frame 확인",
+      "source-boundary 검사"
+    ],
+    "dbAssertions": []
   }
 ]

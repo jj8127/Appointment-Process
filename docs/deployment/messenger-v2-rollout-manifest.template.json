@@ -1,0 +1,109 @@
+{
+  "schema_version": "1.0.0",
+  "scope": "messenger-v2-cross-repository",
+  "release_decision": "GO",
+  "canonical_phase_order": [
+    "garamin_db",
+    "garamlink_db",
+    "garamlink_server",
+    "garamin_edge"
+  ],
+  "phases": [
+    {
+      "id": "garamin_db",
+      "repository": "fc-onboarding-app",
+      "kind": "supabase_migrations",
+      "migration_order": [
+        "20260804093425_messenger_search_indexes.sql",
+        "20260804093738_add_app_push_and_messenger_room_preferences.sql",
+        "20260804113409_atomic_direct_room_mute_notifications.sql",
+        "20260808094709_canonicalize_request_board_personal_recipients_v1.sql",
+        "20260808131459_personal_admin_direct_threads_v1.sql",
+        "20260808141824_messenger_room_hub_actions_v1.sql",
+        "20260808144212_internal_messenger_summary_v1.sql",
+        "20260808151912_atomic_messenger_room_preference_patch_v1.sql"
+      ],
+      "schema_snapshot": "supabase/schema.sql",
+      "schema_snapshot_is_deploy_input": false,
+      "required_evidence": [
+        "remote migration ledger aligned",
+        "exact RPC signatures and service-role-only ACL verified",
+        "summary query plan and keyset pagination verified",
+        "personal thread and room action constraints verified"
+      ],
+      "completed": true
+    },
+    {
+      "id": "garamlink_db",
+      "repository": "request_board",
+      "kind": "supabase_migrations",
+      "manifest": "docs/handbook/data/server-service-role-acl-rollout-manifest.template.json",
+      "messenger_migration_order": [
+        "20260804092715_messenger_search_indexes.sql",
+        "20260808141847_messenger_room_notification_preferences.sql",
+        "20260808141859_messenger_room_hub_actions_v1.sql",
+        "20260808142722_messenger_notification_receipt_atomicity.sql",
+        "20260808144307_messenger_conversation_summary_pages_v1.sql",
+        "20260808152337_atomic_messenger_room_preference_patch_v1.sql",
+        "20260809135239_fix_messenger_attachment_special_forms.sql"
+      ],
+      "required_evidence": [
+        "service-role operation inventory exact",
+        "read-only ACL preflight repeated",
+        "summary RPC and room action columns verified",
+        "authenticated staging database smoke passed"
+      ],
+      "completed": true
+    },
+    {
+      "id": "garamlink_server",
+      "repository": "request_board",
+      "kind": "server_deployment",
+      "runtime_path_allowlist": [
+        "server/src/config/env.ts",
+        "server/src/lib/fcOnboardingBridge.ts",
+        "server/src/lib/messengerConversationSummaries.ts",
+        "server/src/lib/notificationPreferences.ts",
+        "server/src/lib/notificationService.ts",
+        "server/src/routes/directMessages.ts",
+        "server/src/routes/messages.ts",
+        "server/src/routes/notificationPreferences.ts"
+      ],
+      "required_evidence": [
+        "garamlink_db phase completed",
+        "server TypeScript and focused messenger contracts passed",
+        "signed actor and exact room authorization smoke passed"
+      ],
+      "completed": true
+    },
+    {
+      "id": "garamin_edge",
+      "repository": "fc-onboarding-app",
+      "kind": "edge_function_deployment",
+      "function_allowlist": [
+        "fc-notify",
+        "group-chat",
+        "messenger-attachments",
+        "notification-preferences"
+      ],
+      "bulk_deploy_allowed": false,
+      "required_evidence": [
+        "garamin_db phase completed",
+        "garamlink_db phase completed",
+        "garamlink_server phase completed",
+        "each function Deno check and focused contract passed",
+        "JWT configuration preserved for each function"
+      ],
+      "completed": true
+    }
+  ],
+  "transitional_compatibility": {
+    "baseline": "fc-notify-v93",
+    "counts_as_phase_completion": false,
+    "remove_missing_rpc_fallbacks_before_all_database_smoke": false
+  },
+  "mobile_release": {
+    "after_phase": "garamin_edge",
+    "decision": "HOLD"
+  }
+}

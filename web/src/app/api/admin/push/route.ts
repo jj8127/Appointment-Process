@@ -1,13 +1,10 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
-import { normalizeAdminDashboardUrl } from '@/lib/admin-chat-url';
-import { sendWebPush } from '@/lib/web-push';
-import { logger } from '@/lib/logger';
 
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+import { logger } from '@/lib/logger';
+import { parseNotificationTargetV1 } from '@/lib/notification-target';
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const normalizeToken = (value?: string | null) =>
   (value ?? '')
@@ -16,43 +13,14 @@ const normalizeToken = (value?: string | null) =>
     .replace(/\\n/g, '')
     .replace(/\r?\n/g, '')
     .trim();
-const ADMIN_CHAT_ID = 'admin';
-const sanitizePhoneDigits = (value?: string | null) => String(value ?? '').replace(/[^0-9]/g, '');
-
-const normalizeAdminNotificationTargetId = (value?: string | null) => {
-  const raw = String(value ?? '').trim().toLowerCase();
-  if (!raw || raw === ADMIN_CHAT_ID) return '';
-  return sanitizePhoneDigits(raw);
-};
-
-async function fetchSharedAdminResidentIds() {
-  const { data, error } = await adminClient
-    .from('admin_accounts')
-    .select('phone,staff_type')
-    .eq('active', true);
-
-  if (error) {
-    logger.error('[admin/push] shared admin account query failed:', error);
-    return [];
-  }
-
-  return Array.from(
-    new Set(
-      (data ?? [])
-        .filter((account) => account.staff_type !== 'developer')
-        .map((account) => sanitizePhoneDigits(account.phone))
-        .filter((phone) => phone.length > 0),
-    ),
-  );
-}
 
 /**
- * Protected admin web push endpoint.
- * Called by the fc-notify Edge Function to send web push to all admin browser subscribers.
+ * Compatibility endpoint for older fc-notify deployments.
  *
- * Security: Validated via one of:
- * 1) X-Admin-Push-Secret header
- * 2) Authorization Bearer service-role key (Edge Function to Next.js internal callback)
+ * The administrator product now delivers incoming work only through the
+ * canonical in-app inbox. Authentication and payload validation remain in
+ * place so legacy callers receive a bounded success response without causing
+ * browser or operating-system notification delivery.
  */
 export async function POST(req: Request) {
   const secret = normalizeToken(req.headers.get('X-Admin-Push-Secret'));
@@ -67,74 +35,46 @@ export async function POST(req: Request) {
   const apikeyAuthOk = Boolean(serviceRoleKey && apikey && apikey === serviceRoleKey);
 
   if (!secretAuthOk && !serviceRoleAuthOk && !apikeyAuthOk) {
-    const authMeta = {
+    logger.warn('[admin/push] unauthorized request', {
       hasSecret: Boolean(secret),
       hasBearer: Boolean(bearer),
       hasApikey: Boolean(apikey),
       secretConfigured: Boolean(expectedSecret),
       serviceRoleConfigured: Boolean(serviceRoleKey),
-    };
-    logger.warn('[admin/push] unauthorized request', authMeta);
+    });
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: { title?: string; body?: string; url?: string; targetId?: string | null };
+  let payload: {
+    title?: string;
+    body?: string;
+    notificationId?: string;
+    target?: unknown;
+  };
   try {
-    body = await req.json();
+    payload = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { title, body: notifBody, url, targetId } = body;
-  if (!title || !notifBody) {
-    return NextResponse.json({ error: 'Missing title or body' }, { status: 400 });
+  const notificationId = String(payload.notificationId ?? '').trim().toLowerCase();
+  if (
+    !payload.title
+    || !payload.body
+    || !UUID_PATTERN.test(notificationId)
+    || !parseNotificationTargetV1(payload.target)
+  ) {
+    return NextResponse.json(
+      { error: 'Missing or invalid notification payload' },
+      { status: 400 },
+    );
   }
 
-  const normalizedTargetId = normalizeAdminNotificationTargetId(targetId);
-  let query = adminClient
-    .from('web_push_subscriptions')
-    .select('endpoint,p256dh,auth')
-    .eq('role', 'admin');
-
-  if (normalizedTargetId) {
-    query = query.eq('resident_id', normalizedTargetId);
-  } else {
-    const sharedAdminResidentIds = await fetchSharedAdminResidentIds();
-    if (sharedAdminResidentIds.length === 0) {
-      return NextResponse.json({ ok: true, sent: 0, failed: 0 });
-    }
-    query = query.in('resident_id', sharedAdminResidentIds);
-  }
-
-  const { data: subs, error } = await query;
-
-  if (error) {
-    logger.error('[admin/push] subscriptions query failed:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  if (!subs || subs.length === 0) {
-    return NextResponse.json({ ok: true, sent: 0 });
-  }
-
-  const normalizedUrl = normalizeAdminDashboardUrl(url ?? '/dashboard');
-
-  const result = await sendWebPush(subs, {
-    title,
-    body: notifBody,
-    data: { url: normalizedUrl },
+  return NextResponse.json({
+    ok: true,
+    sent: 0,
+    failed: 0,
+    noTarget: true,
+    mode: 'in_app_only',
   });
-
-  if (result.expired.length > 0) {
-    const { error: deleteError } = await adminClient
-      .from('web_push_subscriptions')
-      .delete()
-      .in('endpoint', result.expired);
-    if (deleteError) {
-      logger.warn('[admin/push] expired subscription cleanup failed:', deleteError);
-    }
-  }
-
-  logger.debug('[admin/push] sent', { sent: result.sent, failed: result.failed });
-  return NextResponse.json({ ok: true, sent: result.sent, failed: result.failed });
 }

@@ -6,14 +6,17 @@ import { verifyOrigin, checkRateLimit } from '@/lib/csrf';
 import { adminSupabase } from '@/lib/admin-supabase';
 
 import { logger } from '@/lib/logger';
+import {
+    parseAppointmentActionInput,
+    parseFcNotificationPhone,
+} from '@/lib/privileged-action-input-policy';
+import { getVerifiedAdminSession } from '@/lib/server-session';
 type UpdateAppointmentState = {
     success: boolean;
     message?: string;
     error?: string;
+    warning?: string;
 };
-
-type AppointmentActionType = 'schedule' | 'confirm' | 'reject';
-type AppointmentCategory = 'life' | 'nonlife';
 
 const HANWHA_APPROVED_STATUSES = ['hanwha-commission-approved', 'appointment-completed', 'final-link-sent'] as const;
 
@@ -92,15 +95,15 @@ const resolveInsuranceStageStatus = (profile: {
 
 export async function updateAppointmentAction(
     prevState: UpdateAppointmentState,
-    payload: {
-        fcId: string;
-        phone: string;
-        type: AppointmentActionType;
-        category: AppointmentCategory;
-        value: string | null; // 자유 입력 일정 메모 또는 Date(YYYY-MM-DD)
-        reason?: string | null;
-    }
+    payload: unknown,
 ): Promise<UpdateAppointmentState> {
+    void prevState;
+    const sessionCheck = await getVerifiedAdminSession();
+    if (!sessionCheck.ok) {
+        logger.warn('[appointment/actions] unauthorized server action', { status: sessionCheck.status });
+        return { success: false, error: sessionCheck.error };
+    }
+
     // Security: Verify origin to prevent CSRF
     const originCheck = await verifyOrigin();
     if (!originCheck.valid) {
@@ -108,23 +111,40 @@ export async function updateAppointmentAction(
         return { success: false, error: 'Security check failed' };
     }
 
+    const parsedInput = parseAppointmentActionInput(payload);
+    if (!parsedInput.ok) {
+        return { success: false, error: parsedInput.error };
+    }
+    const { fcId, type, category, value, reason } = parsedInput.value;
+
     // Security: Rate limiting (max 20 appointment updates per minute per FC)
-    const rateLimit = checkRateLimit(`appointment:${payload.fcId}`, 20, 60000);
+    const rateLimit = checkRateLimit(`appointment:${fcId}`, 20, 60000);
     if (!rateLimit.allowed) {
-        logger.warn('[appointment/actions] Rate limit exceeded for FC:', payload.fcId);
+        logger.warn('[appointment/actions] Rate limit exceeded for FC:', fcId);
         return { success: false, error: 'Too many requests. Please try again later.' };
     }
 
-    const { fcId, phone, type, category, value, reason } = payload;
-
     const { data: currentProfile, error: profileError } = await adminSupabase
         .from('fc_profiles')
-        .select('status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,appointment_date_life,appointment_date_nonlife,life_commission_completed,nonlife_commission_completed')
+        .select('phone,status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,appointment_date_life,appointment_date_nonlife,life_commission_completed,nonlife_commission_completed')
         .eq('id', fcId)
         .single();
 
     if (profileError) {
         return { success: false, error: `프로필 조회 실패: ${profileError.message}` };
+    }
+    if (!currentProfile) {
+        return { success: false, error: '프로필을 찾을 수 없습니다.' };
+    }
+
+    const phoneResult = parseFcNotificationPhone(currentProfile.phone);
+    const notificationPhone = phoneResult.ok ? phoneResult.value : null;
+    if (!phoneResult.ok) {
+        logger.warn('[appointment/actions] notification target unavailable', {
+            category: 'push_delivery',
+            reason: 'invalid_recipient',
+            status: 'skipped',
+        });
     }
 
     if (!hasExistingInsuranceActivity(currentProfile) && !hasHanwhaApprovedPdf(currentProfile)) {
@@ -186,28 +206,30 @@ export async function updateAppointmentAction(
         }
     }
 
-    // 3. Insert Notification History
-    const { error: notifError } = await adminSupabase.from('notifications').insert({
-        title: notifTitle,
-        body: notifBody,
-        target_url: '/appointment',
-        recipient_role: 'fc',
-        resident_id: phone,
-    });
-    if (notifError) logger.error('Notification insert failed:', notifError);
-
-    // 4. Send Push Notification
-    const { success, error: pushError } = await sendPushNotification(phone, {
-        title: notifTitle,
-        body: notifBody,
-        data: { url: '/appointment' },
-        skipNotificationInsert: true,
-    });
-
-    if (!success) {
-        logger.error('[push][appointment] failed:', pushError);
+    // Notification is a post-commit side effect. Delivery failure must not report
+    // the already-persisted appointment mutation as failed.
+    let notificationWarning: string | undefined;
+    if (notificationPhone) {
+        const notificationResult = await sendPushNotification(notificationPhone, fcId, {
+            title: notifTitle,
+            body: notifBody,
+            target: { version: 1, kind: 'onboarding_section', fcId, section: 'appointment' },
+            data: { url: '/appointment' },
+        });
+        if (!('delivery' in notificationResult) || !('failures' in notificationResult)) {
+            notificationWarning = 'notification_target_unavailable';
+        } else if (
+            notificationResult.failures.some((failure) =>
+                failure === 'missing_recipient' || failure === 'recipient_mismatch')
+        ) {
+            notificationWarning = 'notification_target_unavailable';
+        } else if (!notificationResult.delivery.notificationStored) {
+            notificationWarning = 'notification_persistence_incomplete';
+        }
+    } else {
+        notificationWarning = 'notification_target_unavailable';
     }
 
     revalidatePath('/dashboard/appointment');
-    return { success: true, message: '처리 완료' };
+    return { success: true, message: '처리 완료', warning: notificationWarning };
 }

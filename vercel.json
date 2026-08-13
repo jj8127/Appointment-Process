@@ -1,5 +1,11 @@
 {
   "buildCommand": "cd web && npm run build",
   "outputDirectory": "web/.next",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/messenger-attachment-cleanup",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

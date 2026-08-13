@@ -2,6 +2,16 @@
   "version": 1,
   "rules": [
     {
+      "id": "instruction-surfaces",
+      "severity": "internal",
+      "prefixes": [
+        "supabase/functions/AGENTS.md"
+      ],
+      "requires_any": [
+        "docs/handbook/path-owner-map.json"
+      ]
+    },
+    {
       "id": "mobile-auth-gates",
       "severity": "contract",
       "prefixes": [
@@ -29,6 +39,10 @@
         "app/consent.tsx",
         "app/docs-upload.tsx",
         "app/appointment.tsx",
+        "lib/fc-basic-information.ts",
+        "lib/__tests__/fc-basic-information.test.ts",
+        "lib/__tests__/mobile-basic-information-source.test.ts",
+        "lib/__tests__/notification-producer-targets.test.ts",
         "lib/fc-workflow.ts",
         "lib/fc-workflow-core.ts",
         "types/fc.ts"
@@ -49,7 +63,11 @@
         "app/exam-register2.tsx",
         "app/exam-manage.tsx",
         "app/exam-manage2.tsx",
+        "components/ExamPaymentProof",
+        "lib/exam-application-validation.ts",
+        "lib/exam-payment-proof",
         "lib/exam-flow-contract.ts",
+        "lib/exam-apply-history-guard.ts",
         "web/src/app/dashboard/exam/",
         "web/src/app/admin/exams/",
         "web/src/app/api/admin/exam-applicants/route.ts",
@@ -59,6 +77,23 @@
       "requires_any": [
         "docs/handbook/mobile/exam-flows.md",
         "docs/handbook/admin-web/exam-and-referral-ops.md"
+      ]
+    },
+    {
+      "id": "backend-exam-payment-proof",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/exam-payment-proof/",
+        "supabase/functions/_shared/exam-payment-proof.ts",
+        "supabase/functions/_shared/__tests__/exam-payment-proof_test.ts",
+        "supabase/functions/__tests__/exam-payment-proof-contract_test.ts",
+        "supabase/migrations/20260723040446_add_exam_payment_proofs.sql"
+      ],
+      "requires_any": [
+        "docs/handbook/mobile/exam-flows.md",
+        "docs/handbook/data/storage-and-attachments.md",
+        "docs/handbook/data/data-model-canon.md",
+        "docs/handbook/shared/security-and-secret-operations.md"
       ]
     },
     {
@@ -85,6 +120,8 @@
       "prefixes": [
         "app/messenger.tsx",
         "app/chat.tsx",
+        "app/group-chat.tsx",
+        "app/request-board-messenger.tsx",
         "app/notifications.tsx",
         "app/board.tsx",
         "app/board-detail.tsx",
@@ -94,6 +131,11 @@
         "app/admin-board-manage.tsx",
         "app/admin-notice.tsx",
         "app/admin-messenger.tsx",
+        "lib/chat-keyboard-layout.ts",
+        "lib/messenger-latency-trace.ts",
+        "lib/__tests__/messenger-latency-trace.test.ts",
+        "lib/__tests__/messenger-v2-hub-source.test.ts",
+        "lib/__tests__/request-board-room-preferences-compatibility.test.ts",
         "lib/messenger-participants.ts",
         "lib/notice-route.ts"
       ],
@@ -109,12 +151,18 @@
       "prefixes": [
         "app/referral.tsx",
         "app/referral-tree.tsx",
+        "app/referral-revenue-graph.tsx",
         "hooks/use-my-referral-code.ts",
         "hooks/use-my-invitees.ts",
         "hooks/use-referral-app-session.ts",
         "hooks/use-referral-tree.ts",
         "components/ReferralAncestorsChain.tsx",
-        "components/ReferralTreeNode.tsx"
+        "components/ReferralTreeNode.tsx",
+        "components/referral-revenue-graph/",
+        "data/referral-revenue-demo.ts",
+        "lib/referral-revenue-demo.ts",
+        "lib/referral-revenue-tree-layout.ts",
+        "types/referral-revenue-graph.ts"
       ],
       "requires_any": [
         "docs/handbook/data/referral-schema-and-admin-rpcs.md",
@@ -140,7 +188,8 @@
         "web/src/app/dashboard/profile/",
         "web/src/app/dashboard/appointment/",
         "web/src/app/api/admin/fc/route.ts",
-        "web/src/app/api/admin/list/route.ts"
+        "web/src/app/api/admin/list/route.ts",
+        "web/src/lib/dashboard-fc-eligibility.ts"
       ],
       "requires_any": [
         "docs/handbook/admin-web/dashboard-lifecycle.md",
@@ -182,6 +231,7 @@
       "prefixes": [
         "supabase/functions/_shared/commission.ts",
         "supabase/functions/admin-action/",
+        "supabase/functions/__tests__/admin-action-fc-self-profile.contract.test.ts",
         "supabase/functions/fc-consent/",
         "supabase/functions/fc-submit-hanwha-commission/",
         "supabase/functions/fc-submit-appointment/",
@@ -197,10 +247,37 @@
       ]
     },
     {
+      "id": "backend-diagnostic-privacy",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/_shared/edge-diagnostic.ts",
+        "supabase/functions/_shared/__tests__/edge-diagnostic_test.ts",
+        "scripts/ci/edge-diagnostic-console-baseline.json",
+        "lib/__tests__/diagnostic-console-governance.test.ts",
+        "lib/__tests__/diagnostic-privacy-source.test.ts",
+        "lib/logger.ts",
+        "lib/__tests__/logger.test.ts",
+        "supabase/functions/set-password/index.ts",
+        "supabase/functions/fc-notify/index.ts",
+        "supabase/functions/user-presence/index.ts",
+        "supabase/functions/get-referral-tree/index.ts",
+        "supabase/functions/board-create/index.ts",
+        "supabase/functions/board-update/index.ts",
+        "supabase/functions/board-attachment-delete/index.ts",
+        "supabase/functions/board-attachment-sign/index.ts",
+        "supabase/functions/delete-account/index.ts",
+        "web/src/app/dashboard/settings/page.tsx"
+      ],
+      "requires_any": [
+        "docs/handbook/shared/security-and-secret-operations.md"
+      ]
+    },
+    {
       "id": "backend-auth-bridge",
       "severity": "contract",
       "prefixes": [
         "supabase/functions/login-with-password/",
+        "supabase/functions/complete-assisted-password/",
         "supabase/functions/request-password-reset/",
         "supabase/functions/reset-password/",
         "supabase/functions/set-password/",
@@ -210,11 +287,16 @@
         "supabase/functions/sync-request-board-session/",
         "supabase/functions/refresh-app-session/",
         "supabase/functions/delete-account/",
+        "supabase/functions/_shared/account-deletion-cleanup-outbox-model.ts",
+        "supabase/functions/_shared/__tests__/account-deletion-cleanup-outbox-model_test.ts",
+        "supabase/functions/_shared/delete-account-auth.ts",
+        "supabase/functions/_shared/__tests__/delete-account-auth_test.ts",
         "supabase/functions/_shared/manager-affiliation.ts",
         "supabase/functions/_shared/password-reset-account.ts",
         "supabase/functions/_shared/request-board-password-sync.ts",
         "supabase/functions/_shared/__tests__/request-board-password-sync.test.ts",
         "supabase/functions/_shared/request-board-auth.ts",
+        "supabase/functions/_shared/__tests__/request-board-auth.test.ts",
         "hooks/use-session.tsx",
         "web/src/hooks/use-session.tsx",
         "lib/request-board-api.ts",
@@ -236,12 +318,51 @@
         "supabase/functions/_shared/internal-chat.ts",
         "supabase/functions/_shared/notification-delivery-policy.ts",
         "supabase/functions/_shared/__tests__/notification-delivery-policy.test.ts",
+        "supabase/functions/_shared/fc-notify-auth-policy.ts",
+        "supabase/functions/_shared/expo-push-delivery.ts",
+        "supabase/functions/_shared/__tests__/expo-push-delivery.test.ts",
+        "supabase/functions/_shared/direct-message-policy.ts",
+        "supabase/functions/_shared/__tests__/direct-message-policy_test.ts",
+        "supabase/functions/_shared/direct-message-search.ts",
+        "supabase/functions/_shared/group-chat-search.ts",
+        "supabase/functions/_shared/messenger-group-search.ts",
+        "supabase/functions/_shared/general-push-preference-policy.ts",
+        "supabase/functions/_shared/__tests__/general-push-preference-policy_test.ts",
+        "supabase/functions/_shared/notification-preferences.ts",
+        "supabase/functions/_shared/__tests__/notification-preferences_test.ts",
+        "supabase/functions/_shared/__tests__/messenger-group-search_test.ts",
+        "supabase/functions/_shared/messenger-attachment-auth.ts",
+        "supabase/functions/_shared/__tests__/messenger-attachment-auth_test.ts",
+        "supabase/functions/_shared/messenger-attachment-policy.ts",
+        "supabase/functions/_shared/__tests__/messenger-attachment-policy_test.ts",
+        "supabase/functions/_shared/messenger-attachment-service.ts",
+        "supabase/functions/_shared/__tests__/messenger-attachment-service_test.ts",
+        "supabase/functions/_shared/__tests__/messenger-attachment-edge-contract_test.ts",
+        "supabase/functions/_shared/__tests__/messenger-attachment-migration-contract_test.ts",
+        "supabase/functions/_shared/notification-receipt-policy.ts",
+        "supabase/functions/_shared/__tests__/notification-receipt-policy_test.ts",
+        "supabase/functions/_shared/notification-inbox-pagination.ts",
+        "supabase/functions/_shared/notification-target.ts",
+        "supabase/functions/_shared/__tests__/notification-target_test.ts",
+        "supabase/functions/_shared/persisted-notification-delivery.ts",
+        "supabase/functions/_shared/__tests__/persisted-notification-delivery_test.ts",
         "supabase/functions/device-token-register/",
         "supabase/functions/fc-notify/",
+        "supabase/functions/messenger-attachments/",
+        "supabase/functions/notification-preferences/",
         "supabase/functions/__tests__/fc-notify-",
+        "supabase/functions/__tests__/messenger-direct-",
+        "supabase/functions/__tests__/messenger-group-",
+        "supabase/functions/__tests__/messenger-summary-performance.contract.test.ts",
+        "supabase/functions/__tests__/notification-delivery-attempt-audit.contract.test.ts",
+        "supabase/functions/__tests__/notification-preferences-source.contract.test.ts",
+        "supabase/functions/__tests__/notification-persist-before-push.contract.test.ts",
         "web/src/app/api/admin/push/route.ts",
         "web/src/app/api/web-push/subscribe/route.ts",
         "lib/mobile-unread-notification-count.ts",
+        "lib/mobile-unread-notification-count-plan.ts",
+        "lib/notification-center-read-state.ts",
+        "lib/notification-notice-checkpoint.ts",
         "lib/notifications.ts",
         "lib/system-notification-badge.ts"
       ],
@@ -255,6 +376,10 @@
       "severity": "contract",
       "prefixes": [
         "supabase/functions/_shared/group-chat.ts",
+        "supabase/functions/_shared/group-chat-notification-event.ts",
+        "supabase/functions/_shared/group-chat-data-api-batching.ts",
+        "supabase/functions/_shared/__tests__/group-chat-notification-event_test.ts",
+        "supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts",
         "supabase/functions/group-chat/"
       ],
       "requires_any": [
@@ -269,7 +394,11 @@
       "prefixes": [
         "supabase/functions/board-",
         "supabase/functions/_shared/board.ts",
+        "supabase/functions/_shared/board-actor-policy.ts",
         "supabase/functions/_shared/board-categories.ts",
+        "supabase/functions/_shared/board-list-policy.ts",
+        "supabase/functions/_shared/board-notification-event.ts",
+        "supabase/functions/_shared/__tests__/board-notification-event_test.ts",
         "supabase/functions/__tests__/board-"
       ],
       "requires_any": [

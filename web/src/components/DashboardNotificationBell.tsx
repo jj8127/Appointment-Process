@@ -1,6 +1,7 @@
 'use client';
 
-import { isDeveloperSession, type StaffType } from '@/lib/staff-identity';
+import type { StaffType } from '@/lib/staff-identity';
+import { parseNotificationTargetV1, type NotificationTargetV1 } from '@/lib/notification-target';
 import { redactSensitiveText } from '@/lib/sensitive-text';
 import {
   ActionIcon,
@@ -17,11 +18,10 @@ import {
   Text,
   UnstyledButton,
 } from '@mantine/core';
-import { useLocalStorage } from '@mantine/hooks';
 import { IconBell, IconChevronRight, IconCircleFilled, IconRefresh } from '@tabler/icons-react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 type DashboardRole = 'admin' | 'manager' | 'fc';
 
@@ -36,308 +36,152 @@ type InboxNotificationPayload = {
   title: string;
   body: string;
   category?: string | null;
+  target?: unknown;
   target_url?: string | null;
   created_at?: string | null;
-};
-
-type InboxNoticePayload = {
-  id: string;
-  title: string;
-  body: string;
-  category?: string | null;
-  created_at?: string | null;
+  read_at?: string | null;
+  dismissed_at?: string | null;
 };
 
 type InboxListResponse = {
   ok?: boolean;
   message?: string;
   notifications?: InboxNotificationPayload[];
-  notices?: InboxNoticePayload[];
 };
 
 type InboxProxyResponse = {
   ok?: boolean;
-  status?: number;
   data?: InboxListResponse;
   error?: string;
 };
 
 type HeaderNotificationItem = {
   id: string;
-  rawId: string;
   title: string;
   body: string;
-  category?: string | null;
-  targetUrl?: string | null;
-  createdAt?: string | null;
-  source: 'notification' | 'notice';
-  origin: 'request_board' | 'fc_onboarding' | 'notice';
+  category: string;
+  target: NotificationTargetV1 | null;
+  createdAt: string | null;
+  readAt: string | null;
 };
 
-const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
-const REQUEST_BOARD_CATEGORY_PREFIX = 'request_board_';
-const STORAGE_KEY_PREFIX = 'dashboard-notification-seen';
-const LIST_LIMIT = 60;
+const LIST_LIMIT = 80;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const REQUEST_BOARD_CATEGORY_LABELS: Record<string, string> = {
-  request_board_new_request: '의뢰 도착',
-  request_board_accepted: '의뢰 수락',
-  request_board_rejected: '의뢰 거절',
-  request_board_completed: '설계 완료',
-  request_board_cancelled: '의뢰 취소',
-  'request_board_fc-accepted': 'FC 승인',
-  'request_board_fc-rejected': 'FC 거절',
-  request_board_message: '새 메시지',
-  request_board_bridge_test: '연동 테스트',
-};
-
-const sanitize = (value?: string | null) => String(value ?? '').replace(/[^0-9]/g, '');
-
-const isRequestBoardCategory = (category?: string | null): boolean =>
-  (category ?? '').trim().toLowerCase().startsWith(REQUEST_BOARD_CATEGORY_PREFIX);
-
-const getCategoryLabel = (item: HeaderNotificationItem): string => {
-  if (item.source === 'notice') return '공지';
-
-  const category = (item.category ?? '').trim();
-  if (!category) return '알림';
-  const normalized = category.toLowerCase();
-  if (normalized === 'app_event') return '앱 알림';
-  if (normalized === 'group_chat_message') return '단톡방 메시지';
-  if (item.origin === 'request_board') {
-    return REQUEST_BOARD_CATEGORY_LABELS[normalized] ?? '설계요청 알림';
-  }
-  return category;
-};
-
-const getOriginLabel = (item: HeaderNotificationItem): string => {
-  if (item.origin === 'request_board') return '설계요청';
-  if (item.source === 'notice') return '공지';
-  return '온보딩';
-};
-
-const extractBoardPostId = (rawId: string): string | null => {
-  if (!rawId.startsWith(BOARD_NOTICE_ID_PREFIX)) return null;
-  const postId = rawId.slice(BOARD_NOTICE_ID_PREFIX.length).trim();
-  return postId || null;
-};
-
-const normalizeTargetUrlForWeb = (url: string): string => {
-  let trimmed = url.trim();
-  if (!trimmed) return '/dashboard';
-
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    try {
-      const parsed = new URL(trimmed);
-      trimmed = `${parsed.pathname}${parsed.search}`;
-    } catch {
-      return '/dashboard';
-    }
-  }
-
-  if (trimmed.startsWith('/dashboard/messenger')) return trimmed;
-  if (trimmed.startsWith('/dashboard/group-chat')) return trimmed;
-  if (trimmed.startsWith('/dashboard/chat')) return trimmed;
-  if (trimmed.startsWith('/dashboard/board')) return trimmed;
-  if (trimmed.startsWith('/dashboard/docs')) return trimmed;
-  if (trimmed.startsWith('/dashboard/appointment')) return trimmed;
-  if (trimmed.startsWith('/dashboard/exam')) return trimmed;
-  if (trimmed.startsWith('/dashboard/profile')) return trimmed;
-  if (trimmed.startsWith('/dashboard/settings')) return trimmed;
-  if (trimmed.startsWith('/dashboard')) return '/dashboard';
-
-  if (trimmed.startsWith('/chat')) return `/dashboard${trimmed}`;
-  if (trimmed.startsWith('/group-chat')) return '/dashboard/group-chat';
-  if (trimmed === '/admin-messenger') return '/dashboard/messenger?channel=garam';
-  if (trimmed === '/request-board-messenger') return '/dashboard/messenger?channel=request-board';
-  if (trimmed.startsWith('/board')) return `/dashboard${trimmed}`;
-  if (trimmed.startsWith('/docs-upload')) return '/dashboard/docs';
-  if (trimmed.startsWith('/appointment')) return '/dashboard/appointment';
-  if (trimmed.startsWith('/exam/apply')) return '/dashboard/exam/schedule';
-  if (trimmed.startsWith('/consent')) return '/dashboard/profile';
-  if (trimmed.startsWith('/notice-detail')) {
-    const match = trimmed.match(/[?&]id=([^&]+)/i);
-    const noticeId = match?.[1] ? decodeURIComponent(match[1]) : '';
-    return noticeId ? `/dashboard/notifications/${encodeURIComponent(noticeId)}` : '/dashboard/board';
-  }
-  if (trimmed === '/notice' || trimmed.startsWith('/dashboard/notifications')) return '/dashboard/board';
-
-  return '/dashboard';
-};
-
-const resolveRoute = (item: HeaderNotificationItem): string => {
-  if (item.source === 'notice') {
-    const boardPostId = extractBoardPostId(item.rawId);
-    if (boardPostId) {
-      return `/dashboard/board?postId=${encodeURIComponent(boardPostId)}`;
-    }
-    return `/dashboard/notifications/${encodeURIComponent(item.rawId)}`;
-  }
-
-  const category = (item.category ?? '').trim().toLowerCase();
-  if (category === 'group_chat_message') {
-    return '/dashboard/group-chat';
-  }
-  if (item.origin === 'request_board') {
-    if (category === 'request_board_message') {
-      return '/dashboard/messenger?channel=request-board';
-    }
-    return '/dashboard/messenger?channel=request-board';
-  }
-
-  if (item.targetUrl) {
-    return normalizeTargetUrlForWeb(item.targetUrl);
-  }
-
-  const text = `${item.title} ${item.body} ${category}`.toLowerCase();
-  if (text.includes('메시지') || text.includes('message')) return '/dashboard/messenger?channel=garam';
-  if (text.includes('서류') || text.includes('docs')) return '/dashboard/docs';
-  if (text.includes('시험')) return '/dashboard/exam/schedule';
-  if (text.includes('위촉')) return '/dashboard/appointment';
-  if (text.includes('게시판') || text.includes('board')) return '/dashboard/board';
-
-  return '/dashboard';
-};
-
-const formatCreatedAt = (value?: string | null): string => {
+const formatCreatedAt = (value: string | null): string => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  const now = new Date();
-  const sameDay = date.toDateString() === now.toDateString();
-  if (sameDay) {
-    return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  return date.toDateString() === new Date().toDateString()
+    ? date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' });
+};
+
+const categoryLabel = (target: NotificationTargetV1 | null, fallback: string) => {
+  if (!target) return fallback || '알림';
+  switch (target.kind) {
+    case 'fc_profile':
+    case 'onboarding_section':
+      return '온보딩';
+    case 'board_post':
+      return '게시판';
+    case 'notice':
+      return '공지';
+    case 'exam':
+      return '시험';
+    case 'garamin_direct_chat':
+    case 'group_chat':
+      return '메신저';
+    case 'request':
+    case 'request_chat':
+    case 'request_direct_chat':
+      return '설계요청';
   }
-  return date.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' });
 };
 
-const compareByCreatedAtDesc = (a: HeaderNotificationItem, b: HeaderNotificationItem) => {
-  const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-  const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-  return bTime - aTime;
-};
-
-export function DashboardNotificationBell({ role, residentId, staffType = null }: DashboardNotificationBellProps) {
-  const router = useRouter();
-  const [opened, setOpened] = useState(false);
-
-  const storageKey = useMemo(() => {
-    const identity = sanitize(residentId) || role;
-    return `${STORAGE_KEY_PREFIX}:${role}:${identity}`;
-  }, [residentId, role]);
-
-  const [seenIdList, setSeenIdList] = useLocalStorage<string[]>({
-    key: storageKey,
-    defaultValue: [],
+async function invokeInbox(body: Record<string, unknown>) {
+  const response = await fetch('/api/fc-notify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify(body),
   });
+  const payload = (await response.json().catch(() => null)) as InboxProxyResponse | null;
+  if (!response.ok || !payload?.ok || !payload.data?.ok) {
+    throw new Error(payload?.error ?? payload?.data?.message ?? '알림을 불러오지 못했습니다.');
+  }
+  return payload.data;
+}
 
-  const seenIds = useMemo(
-    () => new Set(seenIdList.filter((id): id is string => typeof id === 'string' && id.length > 0)),
-    [seenIdList],
+export function DashboardNotificationBell({
+  role,
+  residentId,
+  staffType = null,
+}: DashboardNotificationBellProps) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [opened, setOpened] = useState(false);
+  const queryKey = useMemo(
+    () => ['dashboard-header-notifications-v1', role, residentId, staffType] as const,
+    [residentId, role, staffType],
   );
+  const isPersonalAdminInbox = role === 'manager' || staffType === 'developer';
 
   const { data: items = [], isLoading, isRefetching, refetch } = useQuery({
-    queryKey: ['dashboard-header-notifications', role, residentId, staffType],
+    queryKey,
     refetchInterval: 30_000,
     queryFn: async (): Promise<HeaderNotificationItem[]> => {
-      const isDeveloper = isDeveloperSession({ role, staffType });
-      const staffPersonalInboxId = role === 'manager' || isDeveloper ? sanitize(residentId) : null;
-      const fetchInbox = async (inboxRole: 'admin' | 'fc') => {
-        const inboxResidentId = inboxRole === 'fc' ? sanitize(residentId) : staffPersonalInboxId;
-        const response = await fetch('/api/fc-notify', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            type: 'inbox_list',
-            role: inboxRole,
-            resident_id: inboxResidentId,
-            limit: LIST_LIMIT,
-          }),
-        });
-
-        const payload = (await response.json()) as InboxProxyResponse;
-        if (!response.ok || !payload.ok) {
-          throw new Error(payload.error ?? payload.data?.message ?? '알림을 불러오지 못했습니다.');
-        }
-
-        const inbox = payload.data;
-        if (!inbox?.ok) {
-          throw new Error(inbox?.message ?? '알림을 불러오지 못했습니다.');
-        }
-
-        return inbox;
-      };
-
-      const [primaryInbox, developerFcInbox] = await Promise.all([
-        fetchInbox(role === 'fc' ? 'fc' : 'admin'),
-        isDeveloper ? fetchInbox('fc') : Promise.resolve(null),
-      ]);
-
-      const mappedNotifications: HeaderNotificationItem[] = [
-        ...(primaryInbox.notifications ?? []),
-        ...((developerFcInbox?.notifications ?? []).filter((item) => isRequestBoardCategory(item.category))),
-      ].map((item) => ({
-        id: `notification:${item.id}`,
-        rawId: item.id,
-        title: redactSensitiveText(item.title, '알림'),
-        body: redactSensitiveText(item.body),
-        category: redactSensitiveText(item.category ?? '알림'),
-        targetUrl: item.target_url ? redactSensitiveText(item.target_url) : null,
-        createdAt: item.created_at ?? null,
-        source: 'notification',
-        origin: isRequestBoardCategory(item.category) ? 'request_board' : 'fc_onboarding',
-      }));
-
-      const mappedNotices: HeaderNotificationItem[] = (primaryInbox.notices ?? []).map((item) => ({
-        id: `notice:${item.id}`,
-        rawId: item.id,
-        title: redactSensitiveText(item.title, '공지'),
-        body: redactSensitiveText(item.body),
-        category: redactSensitiveText(item.category ?? '공지'),
-        targetUrl: null,
-        createdAt: item.created_at ?? null,
-        source: 'notice',
-        origin: 'notice',
-      }));
-
-      const deduped = new Map<string, HeaderNotificationItem>();
-      [...mappedNotifications, ...mappedNotices].forEach((item) => {
-        if (!deduped.has(item.id)) {
-          deduped.set(item.id, item);
-        }
+      const inboxRole = role === 'fc' ? 'fc' : 'admin';
+      const inbox = await invokeInbox({
+        type: 'inbox_list',
+        role: inboxRole,
+        resident_id: inboxRole === 'fc' || isPersonalAdminInbox
+          ? residentId.replace(/\D/g, '')
+          : null,
+        limit: LIST_LIMIT,
       });
-      return Array.from(deduped.values()).sort(compareByCreatedAtDesc);
+
+      return (inbox.notifications ?? [])
+        .filter((item) => !item.dismissed_at && UUID_PATTERN.test(String(item.id ?? '')))
+        .map((item) => ({
+          id: item.id,
+          title: redactSensitiveText(item.title, '알림'),
+          body: redactSensitiveText(item.body),
+          category: redactSensitiveText(item.category ?? '알림'),
+          target: parseNotificationTargetV1(item.target),
+          createdAt: item.created_at ?? null,
+          readAt: item.read_at ?? null,
+        }))
+        .sort((left, right) =>
+          new Date(right.createdAt ?? 0).getTime() - new Date(left.createdAt ?? 0).getTime(),
+        );
     },
   });
 
-  const markSeen = useCallback((ids: string[]) => {
-    if (ids.length === 0) return;
-    setSeenIdList((prev) => {
-      const next = new Set(Array.isArray(prev) ? prev : []);
-      ids.forEach((id) => {
-        if (!next.has(id)) {
-          next.add(id);
-        }
-      });
-      return Array.from(next).slice(-500);
-    });
-  }, [setSeenIdList]);
+  const markAllMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      if (ids.length === 0) return;
+      await invokeInbox({ type: 'inbox_mark_read', notification_ids: ids });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey });
+    },
+  });
 
-  const unreadCount = useMemo(
-    () => items.reduce((acc, item) => (seenIds.has(item.id) ? acc : acc + 1), 0),
-    [items, seenIds],
-  );
+  const unreadIds = items.filter((item) => !item.readAt).map((item) => item.id);
+  const unreadCount = unreadIds.length;
 
-  const handleOpenItem = (item: HeaderNotificationItem) => {
-    markSeen([item.id]);
+  const handleOpen = (item: HeaderNotificationItem) => {
     setOpened(false);
-    router.push(resolveRoute(item));
-  };
-
-  const markAllAsSeen = () => {
-    markSeen(items.map((item) => item.id));
+    if (!item.target) {
+      router.push(`/dashboard/notification-open/${encodeURIComponent(item.id)}?unavailable=1`);
+      return;
+    }
+    // The open route re-fetches this exact notification for the verified viewer,
+    // authorizes the exact entity, and only then creates the read receipt.
+    router.push(`/dashboard/notification-open/${encodeURIComponent(item.id)}`);
   };
 
   return (
@@ -362,12 +206,10 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
             <Text fw={700} size="sm">알림 센터</Text>
             <Group gap={6} wrap="nowrap">
               <ActionIcon
-                variant="subtle"
-                color="gray"
-                size="sm"
-                onClick={() => {
-                  void refetch();
-                }}
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  onClick={() => void refetch()}
                 aria-label="알림 목록 새로고침"
               >
                 {isRefetching ? <Loader size={14} /> : <IconRefresh size={14} stroke={1.8} />}
@@ -376,10 +218,11 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
                 variant="subtle"
                 size="compact-xs"
                 color="gray"
-                onClick={markAllAsSeen}
+                loading={markAllMutation.isPending}
                 disabled={unreadCount === 0}
+                onClick={() => markAllMutation.mutate(unreadIds)}
               >
-                모두 확인
+                모두 읽음
               </Button>
             </Group>
           </Group>
@@ -387,24 +230,20 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
         <Divider />
 
         {isLoading ? (
-          <Group justify="center" py="xl">
-            <Loader size="sm" color="orange" />
-          </Group>
+          <Group justify="center" py="xl"><Loader size="sm" color="orange" /></Group>
         ) : items.length === 0 ? (
           <Box px="md" py="xl">
-            <Text size="sm" c="dimmed" ta="center">
-              새로운 알림이 없습니다.
-            </Text>
+            <Text size="sm" c="dimmed" ta="center">새로운 알림이 없습니다.</Text>
           </Box>
         ) : (
           <ScrollArea.Autosize mah={420}>
             <Stack gap={0}>
               {items.map((item) => {
-                const unread = !seenIds.has(item.id);
+                const unread = !item.readAt;
                 return (
                   <Box key={item.id}>
                     <UnstyledButton
-                      onClick={() => handleOpenItem(item)}
+                      onClick={() => handleOpen(item)}
                       style={{
                         width: '100%',
                         padding: '10px 12px',
@@ -413,41 +252,26 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
                     >
                       <Group align="flex-start" wrap="nowrap" gap={10}>
                         <Box mt={4} w={10}>
-                          {unread ? (
-                            <IconCircleFilled size={8} style={{ color: '#f36f21' }} />
-                          ) : (
-                            <Box w={8} h={8} />
-                          )}
+                          {unread ? <IconCircleFilled size={8} color="#f36f21" /> : <Box w={8} h={8} />}
                         </Box>
-
                         <Box style={{ flex: 1, minWidth: 0 }}>
-                          <Group justify="space-between" align="center" mb={4} wrap="nowrap">
-                            <Group gap={6} wrap="nowrap">
-                              <Badge
-                                size="xs"
-                                variant="light"
-                                color={item.origin === 'request_board' ? 'blue' : item.source === 'notice' ? 'orange' : 'gray'}
-                              >
-                                {getOriginLabel(item)}
-                              </Badge>
-                              <Text size="xs" c="dimmed" lineClamp={1}>
-                                {getCategoryLabel(item)}
-                              </Text>
-                            </Group>
-                            <Text size="xs" c="dimmed">
-                              {formatCreatedAt(item.createdAt)}
-                            </Text>
+                          <Group justify="space-between" mb={4} wrap="nowrap">
+                            <Badge
+                              size="xs"
+                              variant="light"
+                              color={item.target?.kind.startsWith('request') ? 'blue' : 'orange'}
+                            >
+                              {categoryLabel(item.target, item.category)}
+                            </Badge>
+                            <Text size="xs" c="dimmed">{formatCreatedAt(item.createdAt)}</Text>
                           </Group>
-
-                          <Text size="sm" fw={unread ? 700 : 500} lineClamp={1}>
-                            {item.title}
-                          </Text>
-                          <Text size="xs" c="dimmed" lineClamp={2}>
-                            {item.body}
-                          </Text>
+                          <Text size="sm" fw={unread ? 700 : 500} lineClamp={1}>{item.title}</Text>
+                          <Text size="xs" c="dimmed" lineClamp={2}>{item.body}</Text>
+                          {!item.target ? (
+                            <Text size="xs" c="red" mt={4}>대상을 열 수 없음</Text>
+                          ) : null}
                         </Box>
-
-                        <IconChevronRight size={14} stroke={1.7} style={{ color: '#9CA3AF', marginTop: 6 }} />
+                        <IconChevronRight size={14} stroke={1.7} color="#9CA3AF" />
                       </Group>
                     </UnstyledButton>
                     <Divider />
@@ -457,33 +281,6 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
             </Stack>
           </ScrollArea.Autosize>
         )}
-
-        <Box px="md" py="xs">
-          <Group justify="space-between" wrap="nowrap">
-            <Button
-              variant="subtle"
-              size="compact-sm"
-              color="gray"
-              onClick={() => {
-                setOpened(false);
-                router.push('/dashboard/notifications');
-              }}
-            >
-              공지 관리
-            </Button>
-            <Button
-              variant="subtle"
-              size="compact-sm"
-              color="gray"
-              onClick={() => {
-                setOpened(false);
-                router.push('/dashboard/board');
-              }}
-            >
-              게시판
-            </Button>
-          </Group>
-        </Box>
       </Menu.Dropdown>
     </Menu>
   );

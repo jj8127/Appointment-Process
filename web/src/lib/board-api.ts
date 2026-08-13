@@ -1,4 +1,3 @@
-import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
 import { redactSensitiveText } from '@/lib/sensitive-text';
 
@@ -107,67 +106,144 @@ export type BoardDetail = {
   }[];
 };
 
-type InvokeResult<T> = { ok: boolean; data?: T; message?: string };
+export type BoardPushDeliveryResult = {
+  targetRole: 'admin' | 'fc';
+  ok: boolean;
+  sent: number;
+  logged: boolean;
+  failure?:
+    | 'missing_configuration'
+    | 'upstream_rejected'
+    | 'invalid_response'
+    | 'delivery_unconfirmed'
+    | 'request_failed';
+};
 
-async function extractFunctionsErrorMessage(error: unknown): Promise<string | null> {
-  if (!error || typeof error !== 'object') return null;
-  const withContext = error as {
-    context?: {
-      bodyUsed?: boolean;
-      json?: () => Promise<unknown>;
-      text?: () => Promise<string>;
-    };
+export type BoardWriteNotification = {
+  ok: boolean;
+  inbox: {
+    ok: boolean;
+    attempted: number;
   };
-  const context = withContext.context;
-  if (!context) return null;
+  push: {
+    ok: boolean;
+    attempted: number;
+    confirmed: number;
+    targets: BoardPushDeliveryResult[];
+  };
+};
 
-  if (typeof context.json === 'function' && !context.bodyUsed) {
-    try {
-      const payload = await context.json() as { message?: string; code?: string } | null;
-      if (payload?.message) return payload.message;
-      if (payload?.code) return payload.code;
-    } catch {
-      // fall through to text parsing
-    }
+export type BoardNotificationDelivery = {
+  notificationStored: boolean;
+  pushStatus: 'accepted' | 'no_registered_device' | 'provider_rejected' | 'not_attempted';
+  retryable: boolean;
+  notificationIds?: string[];
+};
+
+export type BoardNotificationRetry = {
+  postId: string;
+  eventKey: string;
+};
+
+export type BoardWriteResult = {
+  saved: boolean;
+  notification: BoardWriteNotification | null;
+  delivery: BoardNotificationDelivery | null;
+  notificationRetry: BoardNotificationRetry | null;
+  notificationWarning: string | null;
+};
+
+export type BoardCreateResult = BoardWriteResult & {
+  id: string;
+};
+
+type InvokeResult<T> = {
+  ok: boolean;
+  data?: T;
+  message?: string;
+  saved?: boolean;
+  notification?: BoardWriteNotification;
+  delivery?: BoardNotificationDelivery;
+  notificationRetry?: BoardNotificationRetry | null;
+  notificationWarning?: string | null;
+};
+
+async function invokeBoardResponse<T>(
+  name: string,
+  body: Record<string, unknown>,
+  options?: { acceptNotificationPersistenceFailure?: boolean },
+): Promise<InvokeResult<T>> {
+  const response = await fetch('/api/board', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'same-origin',
+    body: JSON.stringify({ functionName: name, body }),
+  });
+
+  let payload: InvokeResult<T> | null = null;
+  try {
+    payload = await response.json() as InvokeResult<T>;
+  } catch {
+    throw new Error('게시판 요청을 처리하지 못했습니다.');
   }
 
-  if (typeof context.text === 'function' && !context.bodyUsed) {
-    try {
-      const raw = await context.text();
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as { message?: string; code?: string };
-      if (parsed?.message) return parsed.message;
-      if (parsed?.code) return parsed.code;
-      return raw;
-    } catch {
-      return null;
-    }
+  const acceptedPersistenceFailure =
+    options?.acceptNotificationPersistenceFailure === true
+    && payload?.delivery?.notificationStored === false;
+  if (!response.ok || (!payload?.ok && !acceptedPersistenceFailure)) {
+    const fallback = response.status === 400
+      ? '요청이 올바르지 않습니다. 첨부파일 개수/용량을 확인해주세요.'
+      : '요청에 실패했습니다.';
+    throw new Error(payload?.message ?? fallback);
   }
-
-  return null;
+  return payload;
 }
 
 async function invokeBoard<T>(name: string, body: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.functions.invoke(name, { body });
-  if (error) {
-    const message = await extractFunctionsErrorMessage(error);
-    if (message) {
-      throw new Error(message);
-    }
-    const status = (error as { context?: { status?: number } })?.context?.status;
-    const fallback = status === 400
-      ? '요청이 올바르지 않습니다. 첨부파일 개수/용량을 확인해주세요.'
-      : null;
-    const rawMessage = typeof (error as { message?: unknown })?.message === 'string'
-      ? (error as { message: string }).message
-      : null;
-    throw new Error(fallback ?? rawMessage ?? '요청에 실패했습니다.');
-  }
-  const payload = data as InvokeResult<T> | null;
-  if (!payload?.ok) {
-    throw new Error(payload?.message ?? '요청에 실패했습니다.');
-  }
+  const payload = await invokeBoardResponse<T>(name, body);
   return payload.data as T;
+}
+
+function normalizeBoardWriteResult(payload: InvokeResult<unknown>): BoardWriteResult {
+  const notification = payload.notification ?? null;
+  const delivery = payload.delivery ?? null;
+  const notificationStored = delivery?.notificationStored
+    ?? (notification ? notification.inbox.ok : null);
+  const explicitWarning = typeof payload.notificationWarning === 'string'
+    && payload.notificationWarning.trim()
+    ? payload.notificationWarning.trim()
+    : null;
+
+  return {
+    // Older compatible Edge responses did not expose `saved`, while `ok: true`
+    // already meant that the durable write completed.
+    saved: payload.saved !== false,
+    notification,
+    delivery,
+    notificationRetry:
+      notificationStored === false && payload.notificationRetry
+        ? payload.notificationRetry
+        : null,
+    // Push/provider delivery is operationally retried and never turns a
+    // committed post into a partial-failure UI. Only a confirmed inbox
+    // persistence failure is actionable for the writer.
+    notificationWarning: notificationStored === false
+      ? explicitWarning ?? 'notification_persistence_failed'
+      : null,
+  };
+}
+
+async function invokeBoardWrite<T>(
+  name: 'board-create' | 'board-update',
+  body: Record<string, unknown>,
+): Promise<{ data: T } & BoardWriteResult> {
+  const payload = await invokeBoardResponse<T>(name, body);
+  return {
+    data: payload.data as T,
+    ...normalizeBoardWriteResult(payload),
+  };
 }
 
 export function buildBoardActor(session: {
@@ -252,8 +328,19 @@ export async function fetchBoardDetail(actor: BoardActor, postId: string) {
   return sanitizeBoardDetail(result);
 }
 
-export async function createBoardPost(actor: BoardActor, payload: { categoryId: string; title: string; content: string }) {
-  return invokeBoard<{ id: string }>('board-create', { actor, ...payload });
+export async function createBoardPost(
+  actor: BoardActor,
+  payload: { categoryId: string; title: string; content: string },
+): Promise<BoardCreateResult> {
+  const result = await invokeBoardWrite<{ id: string }>('board-create', { actor, ...payload });
+  return {
+    id: result.data.id,
+    saved: result.saved,
+    notification: result.notification,
+    delivery: result.delivery,
+    notificationRetry: result.notificationRetry,
+    notificationWarning: result.notificationWarning,
+  };
 }
 
 export async function updateBoardPost(actor: BoardActor, payload: {
@@ -262,8 +349,41 @@ export async function updateBoardPost(actor: BoardActor, payload: {
   title?: string;
   content?: string;
   attachmentOrder?: string[];
-}) {
-  return invokeBoard<null>('board-update', { actor, ...payload });
+}): Promise<BoardWriteResult> {
+  const result = await invokeBoardWrite<null>('board-update', { actor, ...payload });
+  return {
+    saved: result.saved,
+    notification: result.notification,
+    delivery: result.delivery,
+    notificationRetry: result.notificationRetry,
+    notificationWarning: result.notificationWarning,
+  };
+}
+
+export async function retryBoardNotification(
+  actor: BoardActor,
+  retry: BoardNotificationRetry,
+): Promise<Pick<
+  BoardWriteResult,
+  'delivery' | 'notificationRetry' | 'notificationWarning'
+>> {
+  const payload = await invokeBoardResponse<null>(
+    'board-notification-retry',
+    { actor, postId: retry.postId, eventKey: retry.eventKey },
+    { acceptNotificationPersistenceFailure: true },
+  );
+  const normalized = normalizeBoardWriteResult(payload);
+  return {
+    delivery: normalized.delivery,
+    notificationRetry: normalized.notificationRetry,
+    notificationWarning: normalized.notificationWarning,
+  };
+}
+
+export function getBoardNotificationWarningMessage(notificationWarning?: string | null) {
+  if (!notificationWarning) return null;
+  logger.warn('[board] notification delivery unconfirmed', { notificationWarning });
+  return '요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.';
 }
 
 export async function deleteBoardPost(actor: BoardActor, postId: string) {
@@ -301,7 +421,13 @@ export async function toggleCommentLike(actor: BoardActor, commentId: string) {
 export async function signBoardAttachments(
   actor: BoardActor,
   postId: string,
-  files: { fileName: string; mimeType: string; fileSize: number; fileType: 'image' | 'file' }[],
+  files: {
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    fileType: 'image' | 'file';
+    storagePath?: string;
+  }[],
 ) {
   return invokeBoard<{ storagePath: string; signedUrl: string }[]>('board-attachment-sign', {
     actor,

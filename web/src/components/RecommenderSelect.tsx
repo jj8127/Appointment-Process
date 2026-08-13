@@ -32,17 +32,13 @@ export function RecommenderSelect(props: RecommenderSelectProps) {
   const query = useQuery({
     queryKey: ['recommender-candidates', deferredSearch, props.inviteeFcId ?? null, props.value ?? null],
     queryFn: async () => {
-      const response = await fetch('/api/admin/fc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'searchRecommenders',
-          payload: {
-            query: deferredSearch,
-            excludeFcId: props.inviteeFcId ?? null,
-            selectedFcId: props.value ?? null,
-          },
-        }),
+      const params = new URLSearchParams({
+        query: deferredSearch,
+        inviteeFcId: props.inviteeFcId ?? '',
+        selectedFcId: props.value ?? '',
+      });
+      const response = await fetch(`/api/admin/fc/recommender?${params.toString()}`, {
+        credentials: 'include',
       });
       const data: unknown = await response.json().catch(() => null);
       if (!response.ok) {

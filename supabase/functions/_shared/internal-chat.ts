@@ -19,6 +19,12 @@ type ContactLike = {
   staff_type?: string | null;
 };
 
+export type DirectChatTargetSummary = {
+  last_message: string | null;
+  last_time: string | null;
+  unread_count: number;
+};
+
 type InternalChatPreview = {
   fc_id: string;
   name: string;
@@ -80,6 +86,78 @@ export function attachUnreadCountsToContacts<T extends ContactLike>(
     return {
       ...contact,
       unread_count: unreadCount,
+    };
+  });
+}
+
+export function buildDirectChatTargetSummaries(input: {
+  viewerId: string;
+  targetIds: string[];
+  messages: InternalChatMessageLike[];
+}): Record<string, DirectChatTargetSummary> {
+  const viewerId = String(input.viewerId ?? '').trim();
+  const targetIds = Array.from(new Set(
+    input.targetIds
+      .map((targetId) => String(targetId ?? '').trim())
+      .filter(Boolean),
+  ));
+  const targetSet = new Set(targetIds);
+  const summaries = targetIds.reduce<Record<string, DirectChatTargetSummary>>((acc, targetId) => {
+    acc[targetId] = {
+      last_message: null,
+      last_time: null,
+      unread_count: 0,
+    };
+    return acc;
+  }, {});
+
+  if (!viewerId || targetIds.length === 0) {
+    return summaries;
+  }
+
+  input.messages.forEach((message) => {
+    const senderId = String(message.sender_id ?? '').trim();
+    const receiverId = String(message.receiver_id ?? '').trim();
+    if (senderId !== viewerId && receiverId !== viewerId) return;
+
+    const counterpartId = senderId === viewerId ? receiverId : senderId;
+    if (!targetSet.has(counterpartId)) return;
+
+    const summary = summaries[counterpartId];
+    const createdAt = message.created_at ?? null;
+    const currentTime = summary.last_time ? new Date(summary.last_time).getTime() : 0;
+    const candidateTime = createdAt ? new Date(createdAt).getTime() : 0;
+    if (
+      createdAt
+      && !Number.isNaN(candidateTime)
+      && (!summary.last_time || candidateTime > currentTime)
+    ) {
+      summary.last_time = createdAt;
+      summary.last_message = message.content ?? null;
+    }
+
+    if (receiverId === viewerId && senderId === counterpartId && message.is_read === false) {
+      summary.unread_count += 1;
+    }
+  });
+
+  return summaries;
+}
+
+export function attachChatSummariesToContacts<T extends ContactLike>(
+  contacts: T[],
+  summaries: Record<string, DirectChatTargetSummary>,
+): (T & DirectChatTargetSummary)[] {
+  return contacts.map((contact) => {
+    const phone = sanitizePhone(contact.phone);
+    const summary = summaries[phone] ?? {
+      last_message: null,
+      last_time: null,
+      unread_count: 0,
+    };
+    return {
+      ...contact,
+      ...summary,
     };
   });
 }

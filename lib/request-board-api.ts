@@ -5,10 +5,16 @@
 import { logger } from './logger';
 import { getRequestBoardApiBaseUrl } from './request-board-url';
 import { safeStorage } from './safe-storage';
+import { sensitiveTokenStorage } from './secure-token-storage';
 import { supabase } from './supabase';
 
 const BASE_URL = getRequestBoardApiBaseUrl();
 const REQUEST_BOARD_FETCH_TIMEOUT_MS = 8000;
+const REQUEST_BOARD_NOTIFICATION_WRITE_TIMEOUT_MS = 30000;
+const REQUEST_BOARD_MESSAGE_CONTEXT_MAX_ITEMS = 41;
+
+export const REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE =
+  '메시지 위치를 확인할 수 없습니다. 대화방에서 다시 시도해 주세요.';
 
 const STORAGE_KEY_TOKEN = 'rb_jwt_token';
 const STORAGE_KEY_USER = 'rb_user';
@@ -128,6 +134,39 @@ export type RbDmMessage = {
   direct_message_attachments?: RbAttachment[];
 };
 
+export type RbMessageContextPage<T extends RbMessage | RbDmMessage> = {
+  messages: T[];
+  hasBefore: boolean;
+  hasAfter: boolean;
+  anchorId: number;
+  anchorFound: true;
+};
+
+export type RbMessageContextResult<T extends RbMessage | RbDmMessage> =
+  | { success: true; data: RbMessageContextPage<T> }
+  | { success: false; error: string; retryable: boolean };
+
+export type RbMessengerRoomRef =
+  | { type: 'request'; requestDesignerId: number }
+  | { type: 'direct'; conversationId: number };
+
+export type RbMessengerRoomPreference = {
+  room: RbMessengerRoomRef;
+  roomKey: string;
+  displayLabel?: string;
+  muted: boolean;
+  pinnedAt?: string | null;
+  leftAt?: string | null;
+};
+
+export type RbMessengerRoomPreferencesResult =
+  | { success: true; data: { rooms: RbMessengerRoomPreference[] }; supported?: boolean }
+  | { success: false; error: string; retryable: boolean };
+
+export type RbMessengerRoomPreferenceResult =
+  | { success: true; data: RbMessengerRoomPreference }
+  | { success: false; error: string; retryable: boolean };
+
 /* ─── Token Management ─── */
 
 let cachedToken: string | null = null;
@@ -166,7 +205,7 @@ async function fetchWithTimeout(
 export async function getStoredToken(): Promise<string | null> {
   if (cachedToken) return cachedToken;
   try {
-    cachedToken = await safeStorage.getItem(STORAGE_KEY_TOKEN);
+    cachedToken = await sensitiveTokenStorage.getItem(STORAGE_KEY_TOKEN);
     return cachedToken;
   } catch {
     return null;
@@ -176,7 +215,7 @@ export async function getStoredToken(): Promise<string | null> {
 export async function getStoredBridgeToken(): Promise<string | null> {
   if (cachedBridgeToken) return cachedBridgeToken;
   try {
-    cachedBridgeToken = await safeStorage.getItem(STORAGE_KEY_BRIDGE_TOKEN);
+    cachedBridgeToken = await sensitiveTokenStorage.getItem(STORAGE_KEY_BRIDGE_TOKEN);
     return cachedBridgeToken;
   } catch {
     return null;
@@ -186,7 +225,7 @@ export async function getStoredBridgeToken(): Promise<string | null> {
 export async function getStoredAppSessionToken(): Promise<string | null> {
   if (cachedAppSessionToken) return cachedAppSessionToken;
   try {
-    cachedAppSessionToken = await safeStorage.getItem(STORAGE_KEY_APP_SESSION_TOKEN);
+    cachedAppSessionToken = await sensitiveTokenStorage.getItem(STORAGE_KEY_APP_SESSION_TOKEN);
     return cachedAppSessionToken;
   } catch {
     return null;
@@ -208,32 +247,32 @@ export async function getStoredUser(): Promise<RbUser | null> {
 async function storeAuth(token: string, user: RbUser) {
   cachedToken = token;
   cachedUser = user;
-  await safeStorage.setItem(STORAGE_KEY_TOKEN, token);
+  await sensitiveTokenStorage.setItem(STORAGE_KEY_TOKEN, token);
   await safeStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
 }
 
 export async function setBridgeToken(token: string | null) {
   cachedBridgeToken = token;
   if (token) {
-    await safeStorage.setItem(STORAGE_KEY_BRIDGE_TOKEN, token);
+    await sensitiveTokenStorage.setItem(STORAGE_KEY_BRIDGE_TOKEN, token);
   } else {
-    await safeStorage.removeItem(STORAGE_KEY_BRIDGE_TOKEN);
+    await sensitiveTokenStorage.removeItem(STORAGE_KEY_BRIDGE_TOKEN);
   }
 }
 
 export async function setAppSessionToken(token: string | null) {
   cachedAppSessionToken = token;
   if (token) {
-    await safeStorage.setItem(STORAGE_KEY_APP_SESSION_TOKEN, token);
+    await sensitiveTokenStorage.setItem(STORAGE_KEY_APP_SESSION_TOKEN, token);
   } else {
-    await safeStorage.removeItem(STORAGE_KEY_APP_SESSION_TOKEN);
+    await sensitiveTokenStorage.removeItem(STORAGE_KEY_APP_SESSION_TOKEN);
   }
 }
 
 export async function clearAuth() {
   cachedToken = null;
   cachedUser = null;
-  await safeStorage.removeItem(STORAGE_KEY_TOKEN);
+  await sensitiveTokenStorage.removeItem(STORAGE_KEY_TOKEN);
   await safeStorage.removeItem(STORAGE_KEY_USER);
 }
 
@@ -407,29 +446,101 @@ export async function rbBridgeLogin(bridgeToken?: string) {
 
 /* ─── HTTP helpers ─── */
 
+type RbFetchOptions = RequestInit & {
+  timeoutMs?: number;
+  diagnosticPath?: string;
+  suppressNotFoundWarning?: boolean;
+};
+
+export type RbNotificationDelivery = {
+  confirmed: boolean;
+  sent: number;
+  attempted: number;
+  rejected: number;
+};
+
+export type RbApiResult<T = unknown> = {
+  success: boolean;
+  data?: T;
+  error?: string;
+  code?: string;
+  message?: string;
+  status?: number;
+  retryable?: boolean;
+  warning?: 'notification_delivery_incomplete';
+  notificationDelivery?: RbNotificationDelivery;
+  next_cursor?: string | null;
+  has_more?: boolean;
+  limit?: number;
+};
+
+export type RbListPage<T> = {
+  items: T[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  limit: number;
+};
+
+export type RbListReadResource =
+  | 'conversations'
+  | 'direct-conversations'
+  | 'designers'
+  | 'direct-message-users';
+
+export class RbListReadError extends Error {
+  readonly resource: RbListReadResource;
+  readonly retryable: boolean;
+  readonly code?: string;
+
+  constructor(
+    resource: RbListReadResource,
+    result: Pick<RbApiResult, 'retryable' | 'code'>,
+  ) {
+    super('GaramLink list read failed');
+    this.name = 'RbListReadError';
+    this.resource = resource;
+    this.retryable = Boolean(result.retryable);
+    if (result.code) this.code = result.code;
+  }
+}
+
+export function hasIncompleteRequestBoardNotification(
+  result: Pick<RbApiResult, 'warning' | 'notificationDelivery'>,
+): boolean {
+  return result.warning === 'notification_delivery_incomplete'
+    || result.notificationDelivery?.confirmed === false;
+}
+
 async function rbFetch<T>(
   path: string,
-  options: RequestInit = {},
+  options: RbFetchOptions = {},
   allowRetry = true,
-): Promise<{ success: boolean; data?: T; error?: string }> {
+): Promise<RbApiResult<T>> {
+  const {
+    timeoutMs = REQUEST_BOARD_FETCH_TIMEOUT_MS,
+    diagnosticPath,
+    suppressNotFoundWarning = false,
+    ...requestOptions
+  } = options;
   const token = await getStoredToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options.headers as Record<string, string> ?? {}),
+    ...(requestOptions.headers as Record<string, string> ?? {}),
   };
 
   const url = `${BASE_URL}${path}`;
+  const safeDiagnosticPath = diagnosticPath ?? path;
 
   try {
     const res = await fetchWithTimeout(url, {
-      ...options,
+      ...requestOptions,
       headers,
-    });
+    }, timeoutMs);
 
     // Only clear auth on 401 (token expired/invalid), NOT on 403 (forbidden/role mismatch)
     if (res.status === 401) {
-      logger.warn(`[rb-api] 401 Unauthorized: ${path}`);
+      logger.warn(`[rb-api] 401 Unauthorized: ${safeDiagnosticPath}`);
       if (allowRetry && path !== '/api/auth/bridge-login') {
         const relogin = await bridgeLogin();
         if (relogin.success) {
@@ -441,31 +552,46 @@ async function rbFetch<T>(
     }
 
     if (res.status === 403) {
-      logger.warn(`[rb-api] 403 Forbidden: ${path}`);
+      logger.warn(`[rb-api] 403 Forbidden: ${safeDiagnosticPath}`);
       return { success: false, error: '접근 권한이 없습니다.' };
     }
 
     if (!res.ok) {
-      logger.warn(`[rb-api] HTTP ${res.status}: ${path}`);
+      if (!(suppressNotFoundWarning && res.status === 404)) {
+        logger.warn(`[rb-api] HTTP ${res.status}: ${safeDiagnosticPath}`);
+      }
+      const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
       try {
         const errJson = await res.json();
-        return { success: false, error: errJson.error ?? `서버 오류 (${res.status})` };
+        return {
+          success: false,
+          error: errJson.error ?? `서버 오류 (${res.status})`,
+          code: typeof errJson.code === 'string' ? errJson.code : undefined,
+          retryable,
+          status: res.status,
+        };
       } catch {
-        return { success: false, error: `서버 오류 (${res.status})` };
+        return {
+          success: false,
+          error: `서버 오류 (${res.status})`,
+          retryable,
+          status: res.status,
+        };
       }
     }
 
     const json = await res.json();
 
     if (!json.success) {
-      logger.warn(`[rb-api] API error: ${path}`, json.error);
+      logger.warn(`[rb-api] API error: ${safeDiagnosticPath}`, json.error);
     }
 
     return json;
   } catch (err) {
-    logger.warn(`[rb-api] network error: ${path}`, err);
+    logger.warn(`[rb-api] network error: ${safeDiagnosticPath}`, err);
     return {
       success: false,
+      retryable: true,
       error: isAbortError(err)
         ? '가람Link 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
         : '서버에 연결할 수 없습니다.',
@@ -555,16 +681,297 @@ export async function rbCheckAuth(): Promise<{
 /* ─── Conversations (Request-based) ─── */
 
 export async function rbGetConversations(): Promise<RbConversation[]> {
-  const res = await rbFetch<RbConversation[]>('/api/messages/conversations');
-  if (res.success && res.data) {
-    logger.info(`[rb-api] conversations loaded: ${res.data.length} items`);
-    return res.data;
+  try {
+    return await rbGetConversationsOrThrow();
+  } catch {
+    return [];
   }
-  logger.warn('[rb-api] conversations failed:', res.error);
-  return [];
+}
+
+export async function rbGetConversationsOrThrow(): Promise<RbConversation[]> {
+  return rbReadAllPagesOrThrow(
+    '/api/messages/conversations',
+    'conversations',
+    'conversations',
+  );
+}
+
+export async function rbGetConversationsPageOrThrow(
+  cursor?: string | null,
+  limit = 30,
+): Promise<RbListPage<RbConversation>> {
+  return rbReadListPageOrThrow(
+    '/api/messages/conversations',
+    'conversations',
+    'conversations',
+    cursor,
+    limit,
+  );
 }
 
 /* ─── Messages ─── */
+
+type RbMessageContextKind = 'request' | 'direct';
+
+const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
+
+const hasExactKeys = (
+  value: Record<string, unknown>,
+  expectedKeys: readonly string[],
+): boolean => {
+  const actualKeys = Object.keys(value).sort();
+  const expected = [...expectedKeys].sort();
+  return actualKeys.length === expected.length
+    && actualKeys.every((key, index) => key === expected[index]);
+};
+
+const isPositiveSafeInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+
+const isValidServerTimestamp = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
+
+const isValidContextSender = (value: unknown, senderId: number): boolean => {
+  if (!isPlainRecord(value)) return false;
+  return value.id === senderId
+    && isPositiveSafeInteger(value.id)
+    && typeof value.name === 'string'
+    && value.name.length > 0
+    && typeof value.role === 'string'
+    && value.role.length > 0
+    && (
+      value.affiliation === undefined
+      || value.affiliation === null
+      || typeof value.affiliation === 'string'
+    );
+};
+
+const isValidContextAttachment = (
+  value: unknown,
+  kind: RbMessageContextKind,
+  messageId: number,
+): boolean => {
+  if (!isPlainRecord(value)) return false;
+  const relationField = kind === 'request' ? 'message_id' : 'direct_message_id';
+  return isPositiveSafeInteger(value.id)
+    && value[relationField] === messageId
+    && typeof value.file_name === 'string'
+    && value.file_name.length > 0
+    && typeof value.file_type === 'string'
+    && value.file_type.length > 0
+    && typeof value.file_size === 'number'
+    && Number.isSafeInteger(value.file_size)
+    && value.file_size >= 0
+    && typeof value.file_url === 'string'
+    && value.file_url.length > 0
+    && isValidServerTimestamp(value.created_at);
+};
+
+const isValidContextMessage = (
+  value: unknown,
+  kind: RbMessageContextKind,
+  roomId: number,
+): value is RbMessage | RbDmMessage => {
+  if (!isPlainRecord(value)) return false;
+  const roomField = kind === 'request' ? 'request_designer_id' : 'direct_conversation_id';
+  const attachmentsField = kind === 'request'
+    ? 'message_attachments'
+    : 'direct_message_attachments';
+  if (
+    !isPositiveSafeInteger(value.id)
+    || value[roomField] !== roomId
+    || !isPositiveSafeInteger(value.sender_id)
+    || typeof value.message !== 'string'
+    || typeof value.is_read !== 'boolean'
+    || !isValidServerTimestamp(value.created_at)
+    || (value.deleted_at !== undefined && value.deleted_at !== null)
+    || !isValidContextSender(value.sender, value.sender_id)
+    || !Array.isArray(value[attachmentsField])
+  ) {
+    return false;
+  }
+
+  const attachmentIds = new Set<number>();
+  for (const attachment of value[attachmentsField]) {
+    if (
+      !isValidContextAttachment(attachment, kind, value.id)
+      || !isPlainRecord(attachment)
+      || attachmentIds.has(attachment.id as number)
+    ) {
+      return false;
+    }
+    attachmentIds.add(attachment.id as number);
+  }
+  return true;
+};
+
+export function buildRbMessageContextPath(
+  kind: RbMessageContextKind,
+  roomId: number,
+  messageId: number,
+): string {
+  if (!isPositiveSafeInteger(roomId) || !isPositiveSafeInteger(messageId)) {
+    throw new Error('positive safe integer room and message IDs are required');
+  }
+  return kind === 'request'
+    ? `/api/messages/context?requestDesignerId=${roomId}&messageId=${messageId}`
+    : `/api/direct-messages/context?conversationId=${roomId}&messageId=${messageId}`;
+}
+
+async function rbReadListOrThrow<T>(
+  path: string,
+  resource: RbListReadResource,
+  loadedLabel: string,
+): Promise<T[]> {
+  const result = await rbFetch<T[]>(path);
+  if (result.success && Array.isArray(result.data)) {
+    logger.info(`[rb-api] ${loadedLabel} loaded: ${result.data.length} items`);
+    return result.data;
+  }
+  logger.warn(`[rb-api] ${loadedLabel} failed`);
+  throw new RbListReadError(resource, result);
+}
+
+function buildRbListPagePath(path: string, cursor: string | null | undefined, limit: number) {
+  const query = [`limit=${encodeURIComponent(String(limit))}`];
+  if (cursor) query.push(`cursor=${encodeURIComponent(cursor)}`);
+  return `${path}?${query.join('&')}`;
+}
+
+async function rbReadListPageOrThrow<T>(
+  path: string,
+  resource: RbListReadResource,
+  loadedLabel: string,
+  cursor?: string | null,
+  limit = 30,
+): Promise<RbListPage<T>> {
+  const result = await rbFetch<T[]>(buildRbListPagePath(path, cursor, limit), {
+    diagnosticPath: path,
+  });
+  if (result.success && Array.isArray(result.data)) {
+    // Older GaramLink deployments ignore the requested page size and return
+    // every conversation. Keep the compatibility read, but never hand an
+    // unbounded legacy payload to React Native's list/render pipeline.
+    // Older Request Board deployments ignore the requested page size and do
+    // not provide a cursor. Preserve their complete response; otherwise the
+    // truncated remainder cannot be requested. Current deployments enforce
+    // `limit` server-side and return a cursor for the next page.
+    const items = result.data;
+    const nextCursor = typeof result.next_cursor === 'string' && result.next_cursor
+      ? result.next_cursor
+      : null;
+    const hasMore = result.has_more === true && nextCursor !== null;
+    logger.info(`[rb-api] ${loadedLabel} page loaded: ${items.length} items`);
+    return {
+      items,
+      nextCursor: hasMore ? nextCursor : null,
+      hasMore,
+      limit: Number.isSafeInteger(result.limit) ? Number(result.limit) : limit,
+    };
+  }
+  logger.warn(`[rb-api] ${loadedLabel} page failed`);
+  throw new RbListReadError(resource, result);
+}
+
+async function rbReadAllPagesOrThrow<T>(
+  path: string,
+  resource: RbListReadResource,
+  loadedLabel: string,
+): Promise<T[]> {
+  const items: T[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | null = null;
+  do {
+    const page: RbListPage<T> = await rbReadListPageOrThrow<T>(
+      path,
+      resource,
+      loadedLabel,
+      cursor,
+      50,
+    );
+    items.push(...page.items);
+    cursor = page.nextCursor;
+    if (cursor && seenCursors.has(cursor)) {
+      throw new Error('GaramLink conversation pagination did not advance');
+    }
+    if (cursor) seenCursors.add(cursor);
+  } while (cursor);
+  return items;
+}
+
+export function parseRbMessageContextPage(
+  kind: 'request',
+  roomId: number,
+  messageId: number,
+  value: unknown,
+): RbMessageContextPage<RbMessage> | null;
+export function parseRbMessageContextPage(
+  kind: 'direct',
+  roomId: number,
+  messageId: number,
+  value: unknown,
+): RbMessageContextPage<RbDmMessage> | null;
+export function parseRbMessageContextPage(
+  kind: RbMessageContextKind,
+  roomId: number,
+  messageId: number,
+  value: unknown,
+): RbMessageContextPage<RbMessage | RbDmMessage> | null {
+  if (
+    !isPositiveSafeInteger(roomId)
+    || !isPositiveSafeInteger(messageId)
+    || !isPlainRecord(value)
+    || !Array.isArray(value.messages)
+    || value.messages.length === 0
+    || value.messages.length > REQUEST_BOARD_MESSAGE_CONTEXT_MAX_ITEMS
+    || typeof value.hasBefore !== 'boolean'
+    || typeof value.hasAfter !== 'boolean'
+    || value.anchorId !== messageId
+    || value.anchorFound !== true
+  ) {
+    return null;
+  }
+
+  const messageIds = new Set<number>();
+  let previousTimestamp = Number.NEGATIVE_INFINITY;
+  let previousId = 0;
+  let anchorCount = 0;
+  for (const message of value.messages) {
+    if (!isValidContextMessage(message, kind, roomId) || messageIds.has(message.id)) {
+      return null;
+    }
+    const timestamp = Date.parse(message.created_at);
+    if (
+      timestamp < previousTimestamp
+      || (timestamp === previousTimestamp && message.id <= previousId)
+    ) {
+      return null;
+    }
+    previousTimestamp = timestamp;
+    previousId = message.id;
+    messageIds.add(message.id);
+    if (message.id === messageId) anchorCount += 1;
+  }
+  if (anchorCount !== 1) return null;
+
+  return {
+    messages: value.messages as (RbMessage | RbDmMessage)[],
+    hasBefore: value.hasBefore,
+    hasAfter: value.hasAfter,
+    anchorId: messageId,
+    anchorFound: true,
+  };
+}
+
+const messageContextFailure = (retryable = false) => ({
+  success: false as const,
+  error: REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE,
+  retryable,
+});
 
 export async function rbGetMessages(
   conversationIds: number[],
@@ -582,14 +989,65 @@ export async function rbGetMessages(
   return [];
 }
 
+export async function rbMarkMessagesRead(conversationIds: readonly number[]) {
+  const ids = Array.from(new Set(conversationIds));
+  if (ids.length === 0 || ids.some((id) => !isPositiveSafeInteger(id))) {
+    return { success: false as const, error: '유효한 대화방이 아닙니다.' };
+  }
+  for (let offset = 0; offset < ids.length; offset += 50) {
+    const result = await rbFetch<{ conversationIds: number[] }>('/api/messages/read', {
+      method: 'POST',
+      diagnosticPath: '/api/messages/read',
+      body: JSON.stringify({ conversationIds: ids.slice(offset, offset + 50) }),
+    });
+    if (!result.success) {
+      return { success: false as const, error: result.error ?? '읽음 처리에 실패했습니다.' };
+    }
+  }
+  return { success: true as const };
+}
+
+export async function rbGetMessageContext(
+  requestDesignerId: number,
+  messageId: number,
+): Promise<RbMessageContextResult<RbMessage>> {
+  if (!isPositiveSafeInteger(requestDesignerId) || !isPositiveSafeInteger(messageId)) {
+    return messageContextFailure();
+  }
+  const path = buildRbMessageContextPath('request', requestDesignerId, messageId);
+  const result = await rbFetch<unknown>(path, {
+    method: 'GET',
+    diagnosticPath: '/api/messages/context',
+  });
+  if (!result.success) {
+    return messageContextFailure(Boolean(result.retryable));
+  }
+  const data = parseRbMessageContextPage(
+    'request',
+    requestDesignerId,
+    messageId,
+    result.data,
+  );
+  if (!data) {
+    logger.warn('[rb-api] invalid response: /api/messages/context');
+    return messageContextFailure();
+  }
+  return { success: true, data };
+}
+
 export async function rbSendMessage(
   requestDesignerId: number,
   message: string,
   attachments?: RbAttachmentMeta[],
+  deliveryKey?: string,
 ): Promise<{ success: boolean; data?: RbMessage; error?: string }> {
   return rbFetch<RbMessage>(`/api/messages/${requestDesignerId}`, {
     method: 'POST',
-    body: JSON.stringify({ message, ...(attachments?.length ? { attachments } : {}) }),
+    body: JSON.stringify({
+      message,
+      ...(attachments?.length ? { attachments } : {}),
+      ...(deliveryKey ? { deliveryKey } : {}),
+    }),
   });
 }
 
@@ -604,13 +1062,32 @@ export async function rbDeleteMessage(
 }
 
 export async function rbGetDmConversations(): Promise<RbDmConversation[]> {
-  const res = await rbFetch<RbDmConversation[]>('/api/direct-messages/conversations');
-  if (res.success && res.data) {
-    logger.info(`[rb-api] DM conversations loaded: ${res.data.length} items`);
-    return res.data;
+  try {
+    return await rbGetDmConversationsOrThrow();
+  } catch {
+    return [];
   }
-  logger.warn('[rb-api] DM conversations failed:', res.error);
-  return [];
+}
+
+export async function rbGetDmConversationsOrThrow(): Promise<RbDmConversation[]> {
+  return rbReadAllPagesOrThrow(
+    '/api/direct-messages/conversations',
+    'direct-conversations',
+    'DM conversations',
+  );
+}
+
+export async function rbGetDmConversationsPageOrThrow(
+  cursor?: string | null,
+  limit = 30,
+): Promise<RbListPage<RbDmConversation>> {
+  return rbReadListPageOrThrow(
+    '/api/direct-messages/conversations',
+    'direct-conversations',
+    'DM conversations',
+    cursor,
+    limit,
+  );
 }
 
 export async function rbGetPresence(
@@ -651,6 +1128,47 @@ export async function rbGetDmMessages(
   return [];
 }
 
+export async function rbMarkDmMessagesRead(conversationId: number) {
+  if (!isPositiveSafeInteger(conversationId)) {
+    return { success: false as const, error: '유효한 대화방이 아닙니다.' };
+  }
+  const result = await rbFetch<{ conversationId: number }>(
+    `/api/direct-messages/${conversationId}/read`,
+    { method: 'POST', diagnosticPath: '/api/direct-messages/:conversationId/read' },
+  );
+  return result.success
+    ? { success: true as const }
+    : { success: false as const, error: result.error ?? '읽음 처리에 실패했습니다.' };
+}
+
+export async function rbGetDirectMessageContext(
+  conversationId: number,
+  messageId: number,
+): Promise<RbMessageContextResult<RbDmMessage>> {
+  if (!isPositiveSafeInteger(conversationId) || !isPositiveSafeInteger(messageId)) {
+    return messageContextFailure();
+  }
+  const path = buildRbMessageContextPath('direct', conversationId, messageId);
+  const result = await rbFetch<unknown>(path, {
+    method: 'GET',
+    diagnosticPath: '/api/direct-messages/context',
+  });
+  if (!result.success) {
+    return messageContextFailure(Boolean(result.retryable));
+  }
+  const data = parseRbMessageContextPage(
+    'direct',
+    conversationId,
+    messageId,
+    result.data,
+  );
+  if (!data) {
+    logger.warn('[rb-api] invalid response: /api/direct-messages/context');
+    return messageContextFailure();
+  }
+  return { success: true, data };
+}
+
 export async function rbSendDmMessage(
   conversationId: number,
   message: string,
@@ -660,6 +1178,221 @@ export async function rbSendDmMessage(
     method: 'POST',
     body: JSON.stringify({ message, ...(attachments?.length ? { attachments } : {}) }),
   });
+}
+
+export function parseRbMessengerRoomRef(value: unknown): RbMessengerRoomRef | null {
+  if (!isPlainRecord(value)) return null;
+  if (
+    value.type === 'request'
+    && hasExactKeys(value, ['type', 'requestDesignerId'])
+    && isPositiveSafeInteger(value.requestDesignerId)
+  ) {
+    return { type: 'request', requestDesignerId: value.requestDesignerId };
+  }
+  if (
+    value.type === 'direct'
+    && hasExactKeys(value, ['type', 'conversationId'])
+    && isPositiveSafeInteger(value.conversationId)
+  ) {
+    return { type: 'direct', conversationId: value.conversationId };
+  }
+  return null;
+}
+
+const isValidServerDerivedRoomKey = (room: RbMessengerRoomRef, roomKey: unknown): boolean => {
+  if (typeof roomKey !== 'string') return false;
+  if (room.type === 'direct') {
+    return roomKey === `garamlink:direct:${room.conversationId}`;
+  }
+  const match = /^garamlink:request-peer:(fc|designer):([1-9][0-9]*)$/.exec(roomKey);
+  return Boolean(match && isPositiveSafeInteger(Number(match[2])));
+};
+
+export function parseRbMessengerRoomPreference(
+  value: unknown,
+): RbMessengerRoomPreference | null {
+  if (!isPlainRecord(value)) return null;
+  const legacyKeys = value.displayLabel === undefined
+    ? ['room', 'roomKey', 'muted']
+    : ['room', 'roomKey', 'displayLabel', 'muted'];
+  const currentKeys = value.displayLabel === undefined
+    ? ['room', 'roomKey', 'muted', 'pinnedAt', 'leftAt']
+    : ['room', 'roomKey', 'displayLabel', 'muted', 'pinnedAt', 'leftAt'];
+  const legacy = hasExactKeys(value, legacyKeys);
+  if (!legacy && !hasExactKeys(value, currentKeys)) return null;
+
+  const room = parseRbMessengerRoomRef(value.room);
+  if (
+    !room
+    || !isValidServerDerivedRoomKey(room, value.roomKey)
+    || typeof value.muted !== 'boolean'
+    || (!legacy && !(
+      (value.pinnedAt === null || typeof value.pinnedAt === 'string')
+      && (value.leftAt === null || typeof value.leftAt === 'string')
+    ))
+    || (typeof value.pinnedAt === 'string' && (
+      !Number.isFinite(Date.parse(value.pinnedAt))
+      || new Date(value.pinnedAt).toISOString() !== value.pinnedAt
+    ))
+    || (typeof value.leftAt === 'string' && (
+      !Number.isFinite(Date.parse(value.leftAt))
+      || new Date(value.leftAt).toISOString() !== value.leftAt
+    ))
+    || (
+      value.displayLabel !== undefined
+      && (
+        typeof value.displayLabel !== 'string'
+        || value.displayLabel.length === 0
+        || value.displayLabel !== value.displayLabel.trim()
+      )
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    room,
+    roomKey: value.roomKey as string,
+    ...(value.displayLabel === undefined
+      ? {}
+      : { displayLabel: value.displayLabel as string }),
+    muted: value.muted,
+    ...(legacy ? {} : {
+      pinnedAt: value.pinnedAt as string | null,
+      leftAt: value.leftAt as string | null,
+    }),
+  };
+}
+
+export function parseRbMessengerRoomPreferencesPayload(
+  value: unknown,
+): { rooms: RbMessengerRoomPreference[] } | null {
+  if (!isPlainRecord(value) || !hasExactKeys(value, ['rooms']) || !Array.isArray(value.rooms)) {
+    return null;
+  }
+
+  const rooms: RbMessengerRoomPreference[] = [];
+  const roomKeys = new Set<string>();
+  const roomRefs = new Set<string>();
+  for (const item of value.rooms) {
+    const preference = parseRbMessengerRoomPreference(item);
+    if (!preference) return null;
+    const roomRef = preference.room.type === 'request'
+      ? `request:${preference.room.requestDesignerId}`
+      : `direct:${preference.room.conversationId}`;
+    if (roomKeys.has(preference.roomKey) || roomRefs.has(roomRef)) return null;
+    roomKeys.add(preference.roomKey);
+    roomRefs.add(roomRef);
+    rooms.push(preference);
+  }
+  return { rooms };
+}
+
+export function buildRbMessengerRoomMutedPayload(
+  room: unknown,
+  muted: unknown,
+): { room: RbMessengerRoomRef; muted: boolean } | null {
+  const parsedRoom = parseRbMessengerRoomRef(room);
+  return parsedRoom && typeof muted === 'boolean'
+    ? { room: parsedRoom, muted }
+    : null;
+}
+
+const roomPreferenceFailure = (action: 'load' | 'save', retryable = false) => ({
+  success: false as const,
+  error: action === 'load'
+    ? '방 알림 설정을 불러오지 못했습니다. 다시 시도해 주세요.'
+    : '방 알림 설정을 저장하지 못했습니다. 다시 시도해 주세요.',
+  retryable,
+});
+
+let requestBoardRoomPreferencesSupported: boolean | null = null;
+
+export async function rbGetMessengerRoomPreferences(): Promise<RbMessengerRoomPreferencesResult> {
+  if (requestBoardRoomPreferencesSupported === false) {
+    return { success: true, data: { rooms: [] }, supported: false };
+  }
+  const result = await rbFetch<unknown>('/api/notification-preferences/rooms', {
+    method: 'GET',
+    diagnosticPath: '/api/notification-preferences/rooms',
+    suppressNotFoundWarning: true,
+  });
+  if (!result.success && result.status === 404) {
+    requestBoardRoomPreferencesSupported = false;
+    logger.info('[rb-api] room preferences unavailable; legacy server compatibility enabled');
+    return { success: true, data: { rooms: [] }, supported: false };
+  }
+  if (!result.success) {
+    return roomPreferenceFailure('load', Boolean(result.retryable));
+  }
+  const data = parseRbMessengerRoomPreferencesPayload(result.data);
+  if (!data) {
+    logger.warn('[rb-api] invalid response: /api/notification-preferences/rooms');
+    return roomPreferenceFailure('load');
+  }
+  requestBoardRoomPreferencesSupported = true;
+  return { success: true, data };
+}
+
+export async function rbSetMessengerRoomMuted(
+  room: RbMessengerRoomRef,
+  muted: boolean,
+): Promise<RbMessengerRoomPreferenceResult> {
+  const payload = buildRbMessengerRoomMutedPayload(room, muted);
+  if (!payload) return roomPreferenceFailure('save');
+  if (requestBoardRoomPreferencesSupported === false) {
+    return {
+      success: false,
+      error: '가람Link 서버 업데이트 후 방 알림 설정을 사용할 수 있습니다.',
+      retryable: false,
+    };
+  }
+
+  const result = await rbFetch<unknown>('/api/notification-preferences/rooms', {
+    method: 'PATCH',
+    diagnosticPath: '/api/notification-preferences/rooms',
+    body: JSON.stringify(payload),
+  });
+  if (!result.success) {
+    return roomPreferenceFailure('save', Boolean(result.retryable));
+  }
+  const data = parseRbMessengerRoomPreference(result.data);
+  if (!data) {
+    logger.warn('[rb-api] invalid response: /api/notification-preferences/rooms');
+    return roomPreferenceFailure('save');
+  }
+  return { success: true, data };
+}
+
+async function rbPatchMessengerRoomPreference(
+  room: RbMessengerRoomRef,
+  patch: { pinned: boolean } | { leave: true },
+): Promise<RbMessengerRoomPreferenceResult> {
+  const parsedRoom = parseRbMessengerRoomRef(room);
+  if (!parsedRoom) return roomPreferenceFailure('save');
+  if (requestBoardRoomPreferencesSupported === false) {
+    return {
+      success: false,
+      error: '가람Link 서버 업데이트 후 채팅방 설정을 사용할 수 있습니다.',
+      retryable: false,
+    };
+  }
+  const result = await rbFetch<unknown>('/api/notification-preferences/rooms', {
+    method: 'PATCH',
+    diagnosticPath: '/api/notification-preferences/rooms',
+    body: JSON.stringify({ room: parsedRoom, ...patch }),
+  });
+  if (!result.success) return roomPreferenceFailure('save', Boolean(result.retryable));
+  const data = parseRbMessengerRoomPreference(result.data);
+  return data ? { success: true, data } : roomPreferenceFailure('save');
+}
+
+export function rbSetMessengerRoomPinned(room: RbMessengerRoomRef, pinned: boolean) {
+  return rbPatchMessengerRoomPreference(room, { pinned });
+}
+
+export function rbLeaveMessengerRoom(room: RbMessengerRoomRef) {
+  return rbPatchMessengerRoomPreference(room, { leave: true });
 }
 
 /* ─── File Upload ─── */
@@ -772,7 +1505,7 @@ export type RbDesigner = {
   contact_phone?: string | null;
   contact_region?: string | null;
   contact_position?: string | null;
-  users: { id: number; name: string; email?: string; phone?: string; affiliation?: string | null } | null;
+  users: { id: number | null; name: string; email?: string; phone?: string; affiliation?: string | null } | null;
   designer_products?: { product_id: number; insurance_products: { id: number; name: string; icon?: string } }[];
 };
 
@@ -826,6 +1559,7 @@ export type RbSaveCustomerPayload = Omit<RbCustomerProfile, 'id' | 'createdAt' |
 };
 
 export type RbCreateRequestPayload = {
+  clientRequestKey: string;
   customerName: string;
   customerSsn: string;
   customerGender?: string;
@@ -884,15 +1618,17 @@ export type RbRequestUploadFile = {
 };
 
 export async function rbGetDesigners(search?: string): Promise<RbDesigner[]> {
+  try {
+    return await rbGetDesignersOrThrow(search);
+  } catch {
+    return [];
+  }
+}
+
+export async function rbGetDesignersOrThrow(search?: string): Promise<RbDesigner[]> {
   const params = new URLSearchParams({ limit: '100' });
   if (search) params.set('search', search);
-  const res = await rbFetch<RbDesigner[]>(`/api/designers?${params}`);
-  if (res.success && res.data) {
-    logger.info(`[rb-api] designers loaded: ${res.data.length} items`);
-    return res.data;
-  }
-  logger.warn('[rb-api] designers failed:', res.error);
-  return [];
+  return rbReadListOrThrow(`/api/designers?${params}`, 'designers', 'designers');
 }
 
 export async function rbGetProducts(): Promise<RbInsuranceProduct[]> {
@@ -936,18 +1672,27 @@ export async function rbGetDirectMessageUsers(
   search?: string,
   role?: 'fc' | 'designer',
 ): Promise<RbDirectMessageUser[]> {
+  try {
+    return await rbGetDirectMessageUsersOrThrow(search, role);
+  } catch {
+    return [];
+  }
+}
+
+export async function rbGetDirectMessageUsersOrThrow(
+  search?: string,
+  role?: 'fc' | 'designer',
+): Promise<RbDirectMessageUser[]> {
   const params = new URLSearchParams();
   if (search) params.set('search', search);
   if (role) params.set('role', role);
 
   const query = params.toString();
-  const res = await rbFetch<RbDirectMessageUser[]>(`/api/direct-messages/users${query ? `?${query}` : ''}`);
-  if (res.success && res.data) {
-    logger.info(`[rb-api] direct message users loaded: ${res.data.length} items`);
-    return res.data;
-  }
-  logger.warn('[rb-api] direct message users failed:', res.error);
-  return [];
+  return rbReadListOrThrow(
+    `/api/direct-messages/users${query ? `?${query}` : ''}`,
+    'direct-message-users',
+    'direct message users',
+  );
 }
 
 /* ─── Create DM Conversation ─── */
@@ -1142,7 +1887,7 @@ export type RbRequestDetail = {
 
 export async function rbCreateRequest(
   payload: RbCreateRequestPayload,
-): Promise<{ success: boolean; data?: RbRequestDetail; error?: string }> {
+): Promise<RbApiResult<RbRequestDetail>> {
   const requestPayload: RbCreateRequestPayload = {
     ...payload,
     recentHospitalization: payload.recentHospitalization,
@@ -1154,14 +1899,100 @@ export async function rbCreateRequest(
   if (!requestPayload.hospitalizationHistory && payload.recentHospitalization) {
     requestPayload.hospitalizationHistory = payload.recentHospitalization;
   }
-  return rbFetch<RbRequestDetail>('/api/requests', {
+  const requestOptions: RbFetchOptions = {
     method: 'POST',
     body: JSON.stringify(requestPayload),
-  });
+    timeoutMs: REQUEST_BOARD_NOTIFICATION_WRITE_TIMEOUT_MS,
+  };
+  const result = await rbFetch<RbRequestDetail>('/api/requests', requestOptions);
+  const isStillProcessing = result.code === 'RB_REQUEST_CREATE_STILL_PROCESSING';
+  if (result.success || (!result.retryable && !isStillProcessing)) {
+    return result;
+  }
+
+  // The server deduplicates this replay by clientRequestKey. A bounded replay
+  // recovers a committed create whose first response was lost without creating
+  // another request or repeating notifications.
+  if (isStillProcessing) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  const replayResult = await rbFetch<RbRequestDetail>('/api/requests', requestOptions);
+  if (replayResult.code !== 'RB_REQUEST_CREATE_STILL_PROCESSING') {
+    return replayResult;
+  }
+
+  // A replay can race the original transaction while it is creating child
+  // rows. Poll that explicit server state once; never retry other 409 errors.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  return rbFetch<RbRequestDetail>('/api/requests', requestOptions);
+}
+
+export type RbMessageSearchResponse<T> =
+  | { status: 'ready'; items: T[] }
+  | { status: 'error'; items: []; error: string; retryable: boolean };
+
+export function buildRbMessageSearchPath(
+  kind: 'request' | 'direct',
+  rawQuery: string,
+  conversationIds: readonly number[] = [],
+): string {
+  const query = Array.from(rawQuery.trim()).slice(0, 100).join('');
+  if (!query) throw new Error('search query is required');
+  const ids = Array.from(new Set(conversationIds))
+    .filter((id) => Number.isSafeInteger(id) && id > 0);
+  const params = new URLSearchParams({ q: query, limit: '50' });
+  if (kind === 'request' && ids.length > 0) {
+    params.set('conversationIds', ids.join(','));
+  }
+  return kind === 'request'
+    ? `/api/messages/search?${params.toString()}`
+    : `/api/direct-messages/search?${params.toString()}`;
+}
+
+export function mapRbMessageSearchItems<T>(items: unknown): T[] {
+  return Array.isArray(items) ? items.slice(0, 50) as T[] : [];
+}
+
+function mapRbMessageSearchResponse<T>(result: RbApiResult<T[]>): RbMessageSearchResponse<T> {
+  if (!result.success) {
+    return {
+      status: 'error',
+      items: [],
+      error: result.error ?? '가람Link 메시지를 검색하지 못했습니다.',
+      retryable: Boolean(result.retryable),
+    };
+  }
+  return {
+    status: 'ready',
+    items: mapRbMessageSearchItems<T>(result.data),
+  };
+}
+
+export async function rbSearchMessages(
+  query: string,
+  conversationIds: readonly number[] = [],
+): Promise<RbMessageSearchResponse<RbMessage>> {
+  const path = buildRbMessageSearchPath('request', query, conversationIds);
+  return mapRbMessageSearchResponse(await rbFetch<RbMessage[]>(path, {
+    method: 'GET',
+    diagnosticPath: '/api/messages/search',
+  }));
+}
+
+export async function rbSearchDirectMessages(
+  query: string,
+): Promise<RbMessageSearchResponse<RbDmMessage>> {
+  const path = buildRbMessageSearchPath('direct', query);
+  return mapRbMessageSearchResponse(await rbFetch<RbDmMessage[]>(path, {
+    method: 'GET',
+    diagnosticPath: '/api/direct-messages/search',
+  }));
 }
 
 export async function rbGetRequestList(): Promise<RbRequestListItem[]> {
-  const res = await rbFetch<unknown>('/api/requests?limit=100&page=1&ssnView=full');
+  const res = await rbFetch<unknown>(
+    '/api/requests?limit=100&page=1&ssnView=masked&includeAttachments=false',
+  );
   if (!res.success || res.data == null) return [];
   if (Array.isArray(res.data)) return res.data as RbRequestListItem[];
   const obj = res.data as Record<string, unknown>;
@@ -1178,7 +2009,7 @@ export async function rbGetRequestDetail(id: number): Promise<RbRequestDetail | 
 export async function rbApproveDesign(
   requestId: number,
   designerId: number,
-): Promise<{ success: boolean; error?: string; message?: string }> {
+): Promise<RbApiResult> {
   return rbFetch(`/api/requests/${requestId}/designers/${designerId}/fc-accept`, {
     method: 'POST',
   });
@@ -1188,7 +2019,7 @@ export async function rbRejectDesign(
   requestId: number,
   designerId: number,
   reason: string,
-): Promise<{ success: boolean; error?: string; message?: string }> {
+): Promise<RbApiResult> {
   return rbFetch(`/api/requests/${requestId}/designers/${designerId}/fc-reject`, {
     method: 'POST',
     body: JSON.stringify({ reason }),
@@ -1199,7 +2030,7 @@ export async function rbAcceptRequest(
   requestId: number,
   designerId: number,
   requestDesignerId?: number,
-): Promise<{ success: boolean; data?: RbDesignerAssignment; error?: string; message?: string }> {
+): Promise<RbApiResult<RbDesignerAssignment>> {
   return rbFetch<RbDesignerAssignment>(`/api/requests/${requestId}/designers/${designerId}/accept`, {
     method: 'POST',
     body: JSON.stringify({ requestDesignerId }),
@@ -1211,7 +2042,7 @@ export async function rbRejectRequest(
   designerId: number,
   reason?: string,
   requestDesignerId?: number,
-): Promise<{ success: boolean; data?: RbDesignerAssignment; error?: string; message?: string }> {
+): Promise<RbApiResult<RbDesignerAssignment>> {
   return rbFetch<RbDesignerAssignment>(`/api/requests/${requestId}/designers/${designerId}/reject`, {
     method: 'POST',
     body: JSON.stringify({ reason, requestDesignerId }),
@@ -1227,7 +2058,7 @@ export async function rbCompleteRequest(
     attachments?: RbRequestAttachmentInput[];
     requestDesignerId?: number;
   },
-): Promise<{ success: boolean; data?: RbDesignerAssignment; error?: string; message?: string }> {
+): Promise<RbApiResult<RbDesignerAssignment>> {
   return rbFetch<RbDesignerAssignment>(`/api/requests/${requestId}/designers/${designerId}/complete`, {
     method: 'POST',
     body: JSON.stringify(payload ?? {}),

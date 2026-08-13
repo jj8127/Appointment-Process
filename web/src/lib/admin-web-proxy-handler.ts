@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 
 import { resolveAdminWebRouteAccess } from './admin-web-route-access';
 import { isAdminWebPublicPath } from './admin-web-public-paths';
+import { ASSISTED_PASSWORD_CHANGE_COOKIE } from './assisted-password-change-cookie';
 
 const SESSION_COOKIE_NAMES = ['session_role', 'session_resident', 'session_display', 'session_staff_type'] as const;
 const FC_GRAPH_SESSION_COOKIE = 'fc_graph_session';
@@ -10,7 +11,13 @@ const STAFF_SESSION_COOKIE = 'staff_session';
 const WEB_APP_SESSION_COOKIE = 'web_app_session';
 
 function clearSessionCookies(response: NextResponse) {
-  for (const cookieName of [...SESSION_COOKIE_NAMES, FC_GRAPH_SESSION_COOKIE, STAFF_SESSION_COOKIE, WEB_APP_SESSION_COOKIE]) {
+  for (const cookieName of [
+    ...SESSION_COOKIE_NAMES,
+    FC_GRAPH_SESSION_COOKIE,
+    STAFF_SESSION_COOKIE,
+    WEB_APP_SESSION_COOKIE,
+    ASSISTED_PASSWORD_CHANGE_COOKIE,
+  ]) {
     response.cookies.set(cookieName, '', { path: '/', maxAge: 0 });
   }
   return response;

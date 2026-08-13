@@ -1,0 +1,153 @@
+.applicantRow {
+  cursor: pointer;
+  transition: box-shadow 160ms ease;
+}
+
+.applicantRow td {
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.applicantRow[data-reception='confirmed'] td {
+  background-color: #fff8f1 !important;
+}
+
+.applicantRow[data-reception='pending'] td {
+  background-color: #f8fafc !important;
+}
+
+.applicantRow[data-reception='confirmed']:hover td,
+.applicantRow[data-reception='confirmed']:focus-visible td {
+  background-color: #ffedd5 !important;
+}
+
+.applicantRow[data-reception='pending']:hover td,
+.applicantRow[data-reception='pending']:focus-visible td {
+  background-color: #eef2f7 !important;
+}
+
+.applicantRow:focus-visible {
+  outline: 2px solid #f37321;
+  outline-offset: -2px;
+}
+
+.applicantRow[data-reception='confirmed'] td:first-child {
+  box-shadow: inset 4px 0 0 #f37321;
+}
+
+.applicantRow[data-reception='pending'] td:first-child {
+  box-shadow: inset 4px 0 0 #cbd5e1;
+}
+
+.applicantRow[data-reception='pending']:hover td:first-child,
+.applicantRow[data-reception='pending']:focus-visible td:first-child {
+  box-shadow: inset 4px 0 0 #64748b;
+}
+
+.floatingIdentityTooltip {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(17, 24, 39, 0.78);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(2px);
+}
+
+.topFilterDropdown {
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+}
+
+.topFilterHeading {
+  background: #fafafa;
+}
+
+.topFilterOptions {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 8px;
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+.topFilterItem {
+  min-height: 48px;
+  margin-bottom: 4px;
+  border-radius: 10px;
+  color: #374151;
+}
+
+.topFilterItem:last-child {
+  margin-bottom: 0;
+}
+
+.topFilterItem:hover {
+  background: #fff7ed;
+}
+
+.topFilterItem[data-selected] {
+  background: #fff1e6;
+  color: #d95f13;
+}
+
+.roundDateBadge {
+  flex: 0 0 auto;
+  min-width: 96px;
+  padding: 5px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.topFilterItem[data-selected] .roundDateBadge {
+  border-color: #f7b27d;
+  background: #fff7ed;
+  color: #d95f13;
+}
+
+.statCard {
+  width: 100%;
+  min-height: 112px;
+  cursor: pointer;
+  appearance: none;
+  background: #ffffff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.statCard:hover {
+  transform: translateY(-2px);
+  border-color: #cbd5e1;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.09);
+}
+
+.statCard:focus-visible {
+  outline: 2px solid #f37321;
+  outline-offset: 2px;
+}
+
+.statCard[data-active] {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.statCard[data-tone='confirmed'] {
+  border-left: 4px solid #f37321;
+}
+
+.statCard[data-tone='confirmed'][data-active] {
+  border-color: #f37321;
+  background: #fff7ed;
+  box-shadow: 0 8px 20px rgba(243, 115, 33, 0.14);
+}
+
+.statCard[data-tone='pending'][data-active] {
+  border-color: #475569;
+  background: #f8fafc;
+}

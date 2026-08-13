@@ -213,8 +213,9 @@ describe('cross-surface feature contract matrix', () => {
         'lib/__tests__/exam-fees.test.ts',
       ]),
     );
-    expect(notificationRouteTestSource).toContain('resolveRequestBoardNotificationRoute');
-    expect(notificationRouteTestSource).toContain('request_board_message');
+    expect(notificationRouteTestSource).toContain('strict notification routing boundary');
+    expect(notificationRouteTestSource).toContain('parseNotificationPushData');
+    expect(notificationRouteTestSource).toContain('buildNotificationTargetRoute');
     expect(externalUrlTestSource).toContain('normalizeExternalUrl');
     expect(externalUrlTestSource).toContain('stripTrailingUrlPunctuation');
     expect(requestBoardSessionTestSource).toContain('canUseRequestBoardSession');

@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const STAFF_SESSION_COOKIE = 'staff_session';
 export const STAFF_SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
@@ -15,6 +15,7 @@ type StaffSessionPayload = {
 
 type SessionSecretOptions = {
   secret?: string;
+  previousSecret?: string;
 };
 
 type CreateStaffSessionOptions = SessionSecretOptions & {
@@ -30,18 +31,36 @@ type VerifyStaffSessionOptions = SessionSecretOptions & {
   nowMs?: number;
 };
 
-function getStaffSessionSecret(explicitSecret?: string) {
-  const secret = explicitSecret
-    ?? process.env.STAFF_SESSION_SECRET
-    ?? process.env.AUTH_SECRET
-    ?? process.env.NEXTAUTH_SECRET
-    ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+type StaffSessionDevelopmentGlobal = typeof globalThis & {
+  __staffSessionDevelopmentSecret?: string;
+};
 
-  if (!secret || secret.trim().length < 16) {
+function getDevelopmentStaffSessionSecret() {
+  if (process.env.NODE_ENV !== 'development') {
+    return undefined;
+  }
+
+  const developmentGlobal = globalThis as StaffSessionDevelopmentGlobal;
+  developmentGlobal.__staffSessionDevelopmentSecret ??= randomBytes(32).toString('base64url');
+  return developmentGlobal.__staffSessionDevelopmentSecret;
+}
+
+function getStaffSessionSecrets(explicitSecret?: string, explicitPreviousSecret?: string) {
+  const currentSecret = explicitSecret
+    ?? process.env.STAFF_SESSION_SECRET
+    ?? getDevelopmentStaffSessionSecret();
+  const previousSecret = explicitPreviousSecret
+    ?? (explicitSecret === undefined ? process.env.STAFF_SESSION_PREVIOUS_SECRET : undefined);
+
+  if (!currentSecret || currentSecret.trim().length < 16) {
     throw new Error('Staff session secret is not configured.');
   }
 
-  return secret;
+  if (previousSecret !== undefined && previousSecret.trim().length < 16) {
+    throw new Error('Staff session previous secret is not configured correctly.');
+  }
+
+  return { currentSecret, previousSecret };
 }
 
 function signPayload(payload: string, secret: string) {
@@ -86,7 +105,7 @@ export function createStaffSessionValue({
   ttlSeconds = STAFF_SESSION_MAX_AGE_SECONDS,
   secret: explicitSecret,
 }: CreateStaffSessionOptions) {
-  const secret = getStaffSessionSecret(explicitSecret);
+  const { currentSecret } = getStaffSessionSecrets(explicitSecret);
   const nowSeconds = Math.floor(nowMs / 1000);
   const payload = encodePayload({
     v: 1,
@@ -95,7 +114,7 @@ export function createStaffSessionValue({
     iat: nowSeconds,
     exp: nowSeconds + ttlSeconds,
   });
-  const signature = signPayload(payload, secret);
+  const signature = signPayload(payload, currentSecret);
   return `${payload}.${signature}`;
 }
 
@@ -106,6 +125,7 @@ export function verifyStaffSessionValue(
     expectedResidentDigits,
     nowMs = Date.now(),
     secret: explicitSecret,
+    previousSecret: explicitPreviousSecret,
   }: VerifyStaffSessionOptions = {},
 ) {
   const rawValue = String(value ?? '').trim();
@@ -114,9 +134,18 @@ export function verifyStaffSessionValue(
     return null;
   }
 
-  const secret = getStaffSessionSecret(explicitSecret);
-  const expectedSignature = signPayload(payloadPart, secret);
-  if (!safeEqual(signaturePart, expectedSignature)) {
+  const { currentSecret, previousSecret } = getStaffSessionSecrets(
+    explicitSecret,
+    explicitPreviousSecret,
+  );
+  const currentSignature = signPayload(payloadPart, currentSecret);
+  const previousSignature = previousSecret
+    ? signPayload(payloadPart, previousSecret)
+    : null;
+  if (
+    !safeEqual(signaturePart, currentSignature)
+    && (!previousSignature || !safeEqual(signaturePart, previousSignature))
+  ) {
     return null;
   }
 

@@ -1,31 +1,52 @@
 import { checkRateLimit, SECURITY_HEADERS } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
-import { handleResidentNumberRoutePost } from '@/lib/resident-number-route-handler';
+import {
+  canReadResidentNumbersForStaffSession,
+  handleResidentNumberRoutePost,
+} from '@/lib/resident-number-route-handler';
 import { normalizeResidentNumberRouteFcIds } from '@/lib/resident-number-route-request';
-import { readResidentNumbersWithFallback } from '@/lib/server-resident-numbers';
+import { readResidentNumbersWithFallbackDetailed } from '@/lib/server-resident-numbers';
 import { getVerifiedServerSession } from '@/lib/server-session';
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
+const RESIDENT_NUMBER_RESPONSE_HEADERS = {
+  ...SECURITY_HEADERS,
+  'Cache-Control': 'private, no-cache, no-store, max-age=0, must-revalidate',
+  Expires: '0',
+  Pragma: 'no-cache',
+  Vary: 'Cookie',
+};
+
 export async function POST(req: Request) {
   const response = await handleResidentNumberRoutePost({
-    getSession: () => getVerifiedServerSession({
-      allowedRoles: ['admin', 'manager'],
-      requireActive: true,
-    }),
+    getSession: async () => {
+      const sessionCheck = await getVerifiedServerSession({
+        allowedRoles: ['admin', 'manager'],
+        requireActive: true,
+      });
+      if (!sessionCheck.ok) return sessionCheck;
+      if (!canReadResidentNumbersForStaffSession(sessionCheck.session)) {
+        return { ok: false, status: 403, error: 'Forbidden' };
+      }
+      return sessionCheck;
+    },
     checkRateLimit,
     readJson: async () => req.json(),
     normalizeFcIds: normalizeResidentNumberRouteFcIds,
-    readResidentNumbers: readResidentNumbersWithFallback,
-    logInvalidJson: (error) => {
-      logger.error('[api/admin/resident-numbers] invalid json', error);
+    readResidentNumbers: ({ fcIds, staffPhone, logPrefix }) =>
+      readResidentNumbersWithFallbackDetailed({ fcIds, staffPhone, logPrefix }),
+    logInvalidJson: () => {
+      logger.warn('[api/admin/resident-numbers] invalid json');
     },
-    logReadFailure: (error) => {
-      logger.error('[api/admin/resident-numbers] failed', error);
+    logReadFailure: () => {
+      logger.error('[api/admin/resident-numbers] failed');
     },
   });
 
   return NextResponse.json(response.body, {
     status: response.status,
-    headers: SECURITY_HEADERS,
+    headers: RESIDENT_NUMBER_RESPONSE_HEADERS,
   });
 }

@@ -3,9 +3,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Linking from 'expo-linking';
 import * as NavigationBar from 'expo-navigation-bar';
 import * as Notifications from 'expo-notifications';
-import { Stack, router } from 'expo-router';
+import { Stack, router, useRootNavigationState } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
@@ -20,11 +20,36 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import FcTourTooltip from '@/components/FcTourTooltip';
 import { ToastProvider } from '@/components/Toast';
 import { useAppPresenceHeartbeat } from '@/hooks/use-app-presence-heartbeat';
-import { SessionProvider } from '@/hooks/use-session';
+import { SessionProvider, useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import { logger } from '@/lib/logger';
-import { resolvePushNotificationRoute } from '@/lib/notification-route';
+import {
+  buildNotificationTargetRoute,
+  parseNotificationPushData,
+} from '@/lib/notification-target';
+import { authorizeNotificationOpen } from '@/lib/notification-open-authorization';
+import {
+  bootstrapNotificationNavigation,
+  clearNativeNotificationResponseIfCurrent,
+  notificationCaptureMatches,
+  processNotificationResponseSafely,
+} from '@/lib/notification-bootstrap';
+import {
+  markNotificationBootstrapReady,
+  markNotificationNavigationIdle,
+  markNotificationNavigationPending,
+  subscribeNotificationDestinationAcceptance,
+} from '@/lib/notification-navigation-coordinator';
+import {
+  buildPendingNotificationOwnerBinding,
+  clearPendingNotificationNavigation,
+  createPendingNotificationNavigation,
+  getPendingNotificationNavigation,
+  pendingNotificationOwnerMatches,
+  savePendingNotificationNavigation,
+  type PendingNotificationNavigation,
+} from '@/lib/pending-notification-navigation';
 import { savePendingReferralCode } from '@/lib/referral-deeplink';
 import { safeStorage } from '@/lib/safe-storage';
 import { withSentryRoot } from '@/lib/sentry';
@@ -97,7 +122,6 @@ const GARAMIN_LIGHT_THEME = {
 if (Platform.OS !== 'web') {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
       shouldShowBanner: true,
@@ -110,6 +134,328 @@ SplashScreen.preventAutoHideAsync();
 
 function PresenceBootstrap() {
   useAppPresenceHeartbeat();
+  return null;
+}
+
+function NotificationNavigationBootstrap() {
+  const {
+    hydrated,
+    role,
+    residentId,
+    appSessionToken,
+  } = useSession();
+  const rootNavigationState = useRootNavigationState();
+  const [pending, setPending] =
+    useState<PendingNotificationNavigation | null>(null);
+  const [invalidTargetPending, setInvalidTargetPending] = useState(false);
+  const handledResponseIdsRef = useRef(new Map<string, number>());
+  const acceptedNotificationIdsRef = useRef(new Set<string>());
+  const dispatchedNotificationIdsRef = useRef(new Set<string>());
+  const verifyingNotificationIdsRef = useRef(new Set<string>());
+  const responseQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingRef = useRef<PendingNotificationNavigation | null>(null);
+  const mountedRef = useRef(true);
+  const ownerBinding = useMemo(
+    () => buildPendingNotificationOwnerBinding({
+      role,
+      residentId,
+      appSessionToken,
+    }),
+    [appSessionToken, residentId, role],
+  );
+  const ownerBindingRef = useRef(ownerBinding);
+  const sessionBindingKey = JSON.stringify(ownerBinding ?? null);
+  const sessionBindingKeyRef = useRef(sessionBindingKey);
+  pendingRef.current = pending;
+  ownerBindingRef.current = ownerBinding;
+  sessionBindingKeyRef.current = sessionBindingKey;
+
+  const getResponseKey = useCallback((response: unknown) => {
+    const candidate = response as {
+      notification?: {
+        request?: {
+          identifier?: string;
+          content?: { data?: unknown };
+        };
+      };
+      actionIdentifier?: string;
+    } | null;
+    const request = candidate?.notification?.request;
+    const parsed = parseNotificationPushData(request?.content?.data);
+    return String(
+      request?.identifier
+      ?? parsed?.notificationId
+      ?? candidate?.actionIdentifier
+      ?? '',
+    ).trim();
+  }, []);
+
+  const clearNativeResponseIfCurrent = useCallback(async (response: unknown) => {
+    if (
+      typeof Notifications.clearLastNotificationResponseAsync !== 'function'
+    ) {
+      return;
+    }
+    await clearNativeNotificationResponseIfCurrent({
+      capturedResponse: response,
+      getResponseKey,
+      getCurrentResponse: () => (
+        typeof Notifications.getLastNotificationResponse === 'function'
+          ? Notifications.getLastNotificationResponse()
+          : Notifications.getLastNotificationResponseAsync()
+      ),
+      clearCurrentResponse: () =>
+        Notifications.clearLastNotificationResponseAsync(),
+    });
+  }, [getResponseKey]);
+
+  const clearForUnavailableTarget = useCallback(async (expected?: {
+    notificationId: string;
+    target: PendingNotificationNavigation['target'];
+  }) => {
+    if (
+      expected
+      && !notificationCaptureMatches(pendingRef.current, expected)
+    ) {
+      return;
+    }
+    markNotificationNavigationPending();
+    pendingRef.current = null;
+    setPending(null);
+    acceptedNotificationIdsRef.current.clear();
+    dispatchedNotificationIdsRef.current.clear();
+    verifyingNotificationIdsRef.current.clear();
+    await clearPendingNotificationNavigation(expected);
+    if (mountedRef.current) setInvalidTargetPending(true);
+  }, []);
+
+  const captureResponse = useCallback(async (response: unknown) => {
+    const responseCandidate = response as {
+      notification?: {
+        request?: {
+          content?: { data?: unknown };
+        };
+      };
+    } | null;
+    const responseKey = getResponseKey(response);
+    const handledAt = responseKey
+      ? handledResponseIdsRef.current.get(responseKey)
+      : undefined;
+    if (handledAt !== undefined && Date.now() - handledAt < 2_000) return;
+
+    const parsed = parseNotificationPushData(
+      responseCandidate?.notification?.request?.content?.data,
+    );
+    if (!parsed) {
+      await clearForUnavailableTarget();
+      if (responseKey) handledResponseIdsRef.current.set(responseKey, Date.now());
+      return;
+    }
+    markNotificationNavigationPending();
+    acceptedNotificationIdsRef.current.delete(parsed.notificationId);
+    dispatchedNotificationIdsRef.current.delete(parsed.notificationId);
+    const candidate = createPendingNotificationNavigation({
+      ...parsed,
+      owner: ownerBindingRef.current,
+    });
+    setInvalidTargetPending(false);
+    pendingRef.current = candidate;
+    setPending(candidate);
+    if (responseKey) handledResponseIdsRef.current.set(responseKey, Date.now());
+    try {
+      const saved = await savePendingNotificationNavigation({
+        ...parsed,
+        owner: ownerBindingRef.current,
+      });
+      if (
+        !mountedRef.current
+        || !notificationCaptureMatches(pendingRef.current, candidate)
+      ) {
+        return;
+      }
+      pendingRef.current = saved;
+      setPending(saved);
+    } catch {
+      await clearForUnavailableTarget({
+        notificationId: candidate.notificationId,
+        target: candidate.target,
+      });
+    }
+  }, [clearForUnavailableTarget, getResponseKey]);
+
+  const enqueueResponse = useCallback((response: unknown) => {
+    const process = () =>
+      processNotificationResponseSafely({
+        response,
+        captureResponse,
+        clearNativeResponseIfCurrent,
+        onCleanupFailure: () => {
+          logger.warn('[notification-navigation] native response cleanup failed');
+        },
+      });
+    const next = responseQueueRef.current.then(process, process);
+    responseQueueRef.current = next.catch(() => undefined);
+    return next;
+  }, [captureResponse, clearNativeResponseIfCurrent]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const subscription =
+      Notifications.addNotificationResponseReceivedListener((response) => {
+        void enqueueResponse(response).catch(() => {
+          logger.warn('[notification-navigation] response capture failed');
+        });
+      });
+
+    const restore = async () => {
+      const restored = await getPendingNotificationNavigation();
+      if (!mountedRef.current) return;
+      if (!pendingRef.current && restored) {
+        pendingRef.current = restored;
+        setPending(restored);
+        markNotificationNavigationPending();
+      }
+    };
+    const restoredTask = responseQueueRef.current.then(restore, restore);
+    responseQueueRef.current = restoredTask.catch(() => undefined);
+
+    void bootstrapNotificationNavigation({
+      restorePending: () => restoredTask,
+      getInitialResponse: () => (
+        typeof Notifications.getLastNotificationResponse === 'function'
+          ? Notifications.getLastNotificationResponse()
+          : Notifications.getLastNotificationResponseAsync()
+      ),
+      isNotificationResponse: (response) =>
+        Boolean((response as { notification?: unknown } | null)?.notification),
+      enqueueResponse,
+      hasPending: () => Boolean(pendingRef.current),
+      markReady: markNotificationBootstrapReady,
+      onRestoreFailure: () => {
+        logger.warn('[notification-navigation] pending restore failed');
+      },
+      onInitialResponseFailure: () => {
+        logger.warn('[notification-navigation] initial response capture failed');
+      },
+    });
+    return () => {
+      mountedRef.current = false;
+      subscription?.remove?.();
+    };
+  }, [clearForUnavailableTarget, enqueueResponse]);
+
+  useEffect(
+    () => subscribeNotificationDestinationAcceptance((notificationId) => {
+      dispatchedNotificationIdsRef.current.delete(notificationId);
+      acceptedNotificationIdsRef.current.add(notificationId);
+      if (pendingRef.current?.notificationId !== notificationId) return;
+      pendingRef.current = null;
+      setPending(null);
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    if (!hydrated || !role || !rootNavigationState?.key) return;
+    if (invalidTargetPending) {
+      setInvalidTargetPending(false);
+      router.push('/notifications?targetError=unavailable');
+      markNotificationNavigationIdle();
+      return;
+    }
+    if (!pending) return;
+    if (
+      acceptedNotificationIdsRef.current.has(pending.notificationId)
+      || dispatchedNotificationIdsRef.current.has(pending.notificationId)
+    ) {
+      return;
+    }
+    if (!pending.owner) {
+      if (!ownerBinding) {
+        void clearForUnavailableTarget({
+          notificationId: pending.notificationId,
+          target: pending.target,
+        });
+        return;
+      }
+      const rebound = createPendingNotificationNavigation({
+        notificationId: pending.notificationId,
+        target: pending.target,
+        owner: ownerBinding,
+      });
+      pendingRef.current = rebound;
+      setPending(rebound);
+      void savePendingNotificationNavigation({
+        notificationId: rebound.notificationId,
+        target: rebound.target,
+        owner: ownerBinding,
+      }).catch(() =>
+        clearForUnavailableTarget({
+          notificationId: rebound.notificationId,
+          target: rebound.target,
+        })
+      );
+      return;
+    }
+    if (!pendingNotificationOwnerMatches(pending.owner, ownerBinding)) {
+      void clearForUnavailableTarget({
+        notificationId: pending.notificationId,
+        target: pending.target,
+      });
+      return;
+    }
+    const verificationKey = `${pending.notificationId}:${sessionBindingKey}`;
+    if (verifyingNotificationIdsRef.current.has(verificationKey)) return;
+    verifyingNotificationIdsRef.current.add(verificationKey);
+    const pendingAtStart = pending;
+    const sessionAtStart = sessionBindingKey;
+
+    void (async () => {
+      const authorization = await authorizeNotificationOpen({
+        notificationId: pendingAtStart.notificationId,
+        target: pendingAtStart.target,
+      });
+      verifyingNotificationIdsRef.current.delete(verificationKey);
+      if (
+        !mountedRef.current
+        || sessionBindingKeyRef.current !== sessionAtStart
+        || pendingRef.current?.notificationId !== pendingAtStart.notificationId
+      ) {
+        return;
+      }
+      if (!authorization.ok) {
+        await clearForUnavailableTarget({
+          notificationId: pendingAtStart.notificationId,
+          target: pendingAtStart.target,
+        });
+        return;
+      }
+      const route = buildNotificationTargetRoute({
+        target: pendingAtStart.target,
+        notificationId: pendingAtStart.notificationId,
+        viewerRole: role,
+      });
+      if (!route) {
+        await clearForUnavailableTarget({
+          notificationId: pendingAtStart.notificationId,
+          target: pendingAtStart.target,
+        });
+        return;
+      }
+      dispatchedNotificationIdsRef.current.add(pendingAtStart.notificationId);
+      router.push(route as never);
+    })();
+  }, [
+    clearForUnavailableTarget,
+    hydrated,
+    invalidTargetPending,
+    ownerBinding,
+    pending,
+    role,
+    rootNavigationState?.key,
+    sessionBindingKey,
+  ]);
+
   return null;
 }
 
@@ -235,69 +581,13 @@ function RootLayout() {
     })();
   }, []);
 
-  // Push notification taps should deep-link through the same mobile route normalizer as the inbox.
-  useEffect(() => {
-    let sub: any;
-    let Notifications: any;
-    const handledResponseIds = new Set<string>();
-
-    const handleNotificationResponse = (response: any) => {
-      const notification = response?.notification;
-      const request = notification?.request;
-      const responseId =
-        request?.identifier
-        ?? response?.actionIdentifier
-        ?? JSON.stringify(request?.content?.data ?? {});
-
-      if (responseId && handledResponseIds.has(responseId)) return;
-      if (responseId) handledResponseIds.add(responseId);
-
-      const nextUrl = resolvePushNotificationRoute(request?.content);
-      router.push(nextUrl as any);
-    };
-
-    (async () => {
-      try {
-        Notifications = await import('expo-notifications');
-        const initialResponse =
-          typeof Notifications.getLastNotificationResponse === 'function'
-            ? Notifications.getLastNotificationResponse()
-            : null;
-        if (initialResponse?.notification) {
-          handleNotificationResponse(initialResponse);
-        } else if (typeof Notifications.getLastNotificationResponseAsync === 'function') {
-          const asyncInitialResponse = await Notifications.getLastNotificationResponseAsync();
-          if (asyncInitialResponse?.notification) {
-            handleNotificationResponse(asyncInitialResponse);
-          }
-        }
-
-        sub = Notifications.addNotificationResponseReceivedListener((response: any) => {
-          try {
-            handleNotificationResponse(response);
-          } catch (err) {
-            logger.warn('[push] navigation handler failed', err);
-          }
-        });
-      } catch (err) {
-        logger.warn('push navigation listener failed', err);
-      }
-    })();
-    return () => {
-      if (sub?.remove) sub.remove();
-    };
-  }, []);
-
-  if (!loaded) {
-    return null;
-  }
-
   return (
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1, position: 'relative', backgroundColor: DEFAULT_SCREEN_BACKGROUND }}>
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
             <SessionProvider>
+              <NotificationNavigationBootstrap />
               <PresenceBootstrap />
               <AppAlertProvider>
                 <ToastProvider>
@@ -360,6 +650,15 @@ function RootLayout() {
                             }}
                           />
                           <Stack.Screen
+                            name="first-password-change"
+                            options={{
+                              ...authHeader,
+                              title: '새 비밀번호 설정',
+                              headerBackVisible: false,
+                              gestureEnabled: false,
+                            }}
+                          />
+                          <Stack.Screen
                             name="signup-verify"
                             options={{
                               ...authHeader,
@@ -405,6 +704,7 @@ function RootLayout() {
                             name="messenger"
                             options={{
                               ...baseHeader,
+                              headerShown: false,
                               title: '메신저',
                               headerLeft: () => (
                                 <Pressable
@@ -418,7 +718,11 @@ function RootLayout() {
                           />
                           <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
+                          <Stack.Screen name="messenger-search" options={{ headerShown: false }} />
+                          <Stack.Screen name="new-conversation" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
+                          <Stack.Screen name="notification-settings" options={{ headerShown: false }} />
+                          <Stack.Screen name="muted-conversations" options={{ headerShown: false }} />
 
                           <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
                           <Stack.Screen name="appointment" options={{ ...baseHeader, title: '생명/손해 위촉' }} />
@@ -439,6 +743,8 @@ function RootLayout() {
                           <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
                           <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
                           <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
+                          <Stack.Screen name="referral-graph" options={{ ...baseHeader, title: '추천 관계 그래프' }} />
+                          <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '매출 기여 그래프' }} />
                         </Stack>
 
                         <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
@@ -496,6 +802,15 @@ function RootLayout() {
                             }}
                           />
                           <Stack.Screen
+                            name="first-password-change"
+                            options={{
+                              ...authHeader,
+                              title: '새 비밀번호 설정',
+                              headerBackVisible: false,
+                              gestureEnabled: false,
+                            }}
+                          />
+                          <Stack.Screen
                             name="signup-verify"
                             options={{
                               ...authHeader,
@@ -530,6 +845,7 @@ function RootLayout() {
                             name="messenger"
                             options={{
                               ...baseHeader,
+                              headerShown: false,
                               title: '메신저',
                               headerLeft: () => (
                                 <Pressable
@@ -543,7 +859,11 @@ function RootLayout() {
                           />
                           <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
+                          <Stack.Screen name="messenger-search" options={{ headerShown: false }} />
+                          <Stack.Screen name="new-conversation" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
+                          <Stack.Screen name="notification-settings" options={{ headerShown: false }} />
+                          <Stack.Screen name="muted-conversations" options={{ headerShown: false }} />
 
                           <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
                       <Stack.Screen name="appointment" options={{ ...baseHeader, title: '생명/손해 위촉' }} />
@@ -564,6 +884,8 @@ function RootLayout() {
                           <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
                           <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
                           <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
+                          <Stack.Screen name="referral-graph" options={{ ...baseHeader, title: '추천 관계 그래프' }} />
+                          <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '매출 기여 그래프' }} />
                         </Stack>
                         <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
                       </>

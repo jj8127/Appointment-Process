@@ -12,6 +12,7 @@ type GroupChatMessageLike = {
   message_type?: 'text' | 'image' | 'file' | string | null;
   file_name?: string | null;
   content?: string | null;
+  attachments?: { name?: string | null }[] | null;
 };
 
 type GroupChatMemberLike = {
@@ -59,6 +60,14 @@ export function getGroupChatMemberStatusTone(member: GroupChatMemberLike): Group
 export function getGroupChatReplyLabel(message?: GroupChatMessageLike | null) {
   if (!message) return '';
   if (message.deleted_at) return '삭제된 메시지';
+  const attachmentNames = (message.attachments ?? [])
+    .map((attachment) => safeDecodeFileName(attachment.name))
+    .filter(Boolean);
+  if (attachmentNames.length > 0) {
+    return attachmentNames.length === 1
+      ? attachmentNames[0]
+      : `${attachmentNames[0]} 외 ${attachmentNames.length - 1}개`;
+  }
   if (message.message_type === 'image') return '사진';
   if (message.message_type === 'file') return safeDecodeFileName(message.file_name) || '파일';
   return message.content ?? '';
@@ -66,6 +75,10 @@ export function getGroupChatReplyLabel(message?: GroupChatMessageLike | null) {
 
 export function getGroupChatMessageCopyText(message?: GroupChatMessageLike | null) {
   if (!message || message.deleted_at) return '';
+  const attachmentNames = (message.attachments ?? [])
+    .map((attachment) => safeDecodeFileName(attachment.name))
+    .filter(Boolean);
+  if (attachmentNames.length > 0) return attachmentNames.join('\n');
   if (message.message_type === 'file') return safeDecodeFileName(message.file_name) || message.content || '';
   return message.content ?? '';
 }

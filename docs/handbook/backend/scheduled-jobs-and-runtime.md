@@ -2,10 +2,33 @@ doc_id: FC-BACKEND-SCHEDULED-RUNTIME
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-03-26
+last_verified: 2026-07-29
 source_of_truth: supabase/functions/docs-deadline-reminder/index.ts + supabase/functions/user-presence/index.ts + hooks/use-app-presence-heartbeat.ts
 
 # Backend Runbook: Scheduled Jobs And Runtime
+
+## 2026-07-29 Persisted reminder target contract
+
+- `docs-deadline-reminder` persists a typed `onboarding_section/docs_upload`
+  target with the exact FC actor before attempting push delivery.
+- A same-day reminder is reusable only when its persisted recipient role,
+  actor, resident identifier, and typed target all validate. A malformed or
+  mismatched row fails closed instead of authorizing delivery.
+- Expo payloads carry the persisted `notificationId` and the same typed target,
+  so notification-center reads and deep links acknowledge the authoritative
+  inbox row rather than a client-generated identifier.
+
+## 2026-07-23 Reminder delivery checkpoint
+
+- The production scheduler must call `docs-deadline-reminder` with an `Authorization` header whose value is exactly `Bearer <SUPABASE_SERVICE_ROLE_KEY>`. An anon key, user JWT, or `apikey` header alone is not authorized; Edge `verify_jwt` is only the outer gateway check and is not the job's authorization boundary.
+- Keep the service-role value in the scheduler secret store. Never put the value or raw authorization header in job output, diagnostics, or this handbook.
+- `docs-deadline-reminder` advances `docs_deadline_last_notified_at` only after the Expo provider accepts every attempted delivery ticket. Zero-attempt, partial, rejected, and timed-out deliveries remain retryable.
+- Before token lookup, the reminder evaluates the FC actor's global and `operations` push preferences. An explicit opt-out advances the daily checkpoint without calling Expo; a preference lookup failure is fail-closed, increments only the bounded warning count, and leaves the checkpoint retryable.
+- Provider rejection, transport failure, or an empty eligible-token set remains retryable and must not advance the reminder checkpoint.
+- Before inserting the reminder inbox row, the job checks for the same FC and `docs-deadline` category inside the current KST calendar-day boundary. An existing row skips only the inbox insert; token lookup and push retry still run.
+- This query-before-insert prevents sequential retry duplicates without a schema migration. Concurrent invocations can still race until a database uniqueness constraint or atomic RPC is introduced, so the scheduler must avoid overlapping runs.
+- Runtime responses and diagnostics expose only bounded delivery counts and fixed reason codes; they never include tokens, recipient identifiers, or provider response bodies.
+- Every Expo chunk has a 10-second deadline so a stalled provider cannot consume the whole Edge handler budget. Timeout handling uses the same aggregate delivery warning contract.
 
 ## 2026-07-06 Presence Route Auth Contract
 

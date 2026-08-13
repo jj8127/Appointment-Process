@@ -21,8 +21,11 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { supabase } from '@/lib/supabase';
+import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
+import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { logger } from '@/lib/logger';
+import { isNotificationUuid } from '@/lib/notification-target';
+import { supabase } from '@/lib/supabase';
 
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
@@ -141,26 +144,26 @@ export default function AdminNoticeScreen() {
   };
 
   // 공지 등록 후 모든 FC에게 알림 + 푸시 전송
-  const notifyAllFcs = async (titleText: string, bodyText: string, categoryText?: string, url?: string) => {
-    try {
-      const { data, error } = await supabase.functions.invoke('fc-notify', {
-        body: {
-          type: 'notify',
-          target_role: 'fc',
-          target_id: null,
-          title: `공지: ${titleText}`,
-          body: bodyText,
-          category: categoryText || '공지',
-          url: url ?? '/notice',
-        },
-      });
-      if (error) throw error;
-      if (!data?.ok) {
-        throw new Error(data?.message ?? '공지 알림 전송 실패');
-      }
-    } catch (pushErr) {
-      logger.warn('notifyAllFcs push error', { error: pushErr });
-    }
+  const notifyAllFcs = async (
+    noticeId: string,
+    titleText: string,
+    bodyText: string,
+    categoryText?: string,
+  ) => {
+    return invokeFcNotifyForDelivery({
+      type: 'notify',
+      target_role: 'fc',
+      target_id: null,
+      title: `공지: ${titleText}`,
+      body: bodyText,
+      category: categoryText || '공지',
+      url: `/notice-detail?id=${noticeId}`,
+      target: {
+        version: 1,
+        kind: 'notice',
+        noticeId,
+      },
+    });
   };
 
   const submit = async () => {
@@ -205,14 +208,34 @@ export default function AdminNoticeScreen() {
         .single();
       if (error) throw error;
 
-      const noticeUrl = insertedNotice?.id ? `/notice-detail?id=${insertedNotice.id}` : '/notice';
-      await notifyAllFcs(title.trim(), body.trim(), category.trim(), noticeUrl);
-      Alert.alert('등록 완료', '공지사항이 성공적으로 등록되었습니다.');
+      const noticeId = String(insertedNotice?.id ?? '').trim();
+      const notifyCreatedNotice = isNotificationUuid(noticeId)
+        ? () => notifyAllFcs(
+            noticeId,
+            title.trim(),
+            body.trim(),
+            category.trim(),
+          )
+        : null;
+      const notificationDelivery = notifyCreatedNotice
+        ? await notifyCreatedNotice()
+        : {
+            confirmed: false as const,
+            notificationStored: false as const,
+            reason: 'invalid_recipient' as const,
+          };
       setTitle('');
       setBody('');
       setCategory('공지사항');
       setImages([]);
       setFiles([]);
+      presentPostCommitNotificationDelivery({
+        delivery: notificationDelivery,
+        retryNotification: notifyCreatedNotice ?? (async () => notificationDelivery),
+        successTitle: '등록 완료',
+        successMessage: '공지사항이 성공적으로 등록되었습니다.',
+        notificationLabel: 'FC 공지',
+      });
     } catch (err: any) {
       Alert.alert('등록 실패', err?.message ?? '오류가 발생했습니다.');
     } finally {
@@ -230,7 +253,10 @@ export default function AdminNoticeScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}>
+      <KeyboardAwareWrapper
+        contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}
+        keyboardDismissMode="none"
+      >
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>공지사항 등록</Text>

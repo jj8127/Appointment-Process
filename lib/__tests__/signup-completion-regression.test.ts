@@ -28,19 +28,35 @@ describe('signup completion regression guards', () => {
       'utf8',
     );
 
-    expect(source).toContain('if (referralCode && !resolvedReferral)');
+    expect(source).toContain('if (!referralCode || !resolvedReferral)');
     expect(source).toContain("code: 'referral_invalid'");
     expect(source).toContain('const referralResetPayload: Record<string, unknown> = referralCode');
 
+    const alreadySetIndex = source.indexOf("return fail('already_set'");
+    const referralRequiredIndex = source.indexOf('if (!referralCode || !resolvedReferral)');
     const referralApplyIndex = source.indexOf('const applyResult = await applyReferralLinkState');
     const credentialUpsertIndex = source.indexOf('password_hash: passwordHash');
     const signupCompletedIndex = source.indexOf('Mark signup as completed');
 
+    expect(alreadySetIndex).toBeGreaterThan(-1);
+    expect(referralRequiredIndex).toBeGreaterThan(alreadySetIndex);
     expect(referralApplyIndex).toBeGreaterThan(-1);
     expect(credentialUpsertIndex).toBeGreaterThan(-1);
     expect(signupCompletedIndex).toBeGreaterThan(-1);
     expect(referralApplyIndex).toBeLessThan(credentialUpsertIndex);
     expect(referralApplyIndex).toBeLessThan(signupCompletedIndex);
+  });
+
+  it('requires the validated stored referral again on the password screen', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'app', 'signup-password.tsx'),
+      'utf8',
+    );
+
+    const referralGuardIndex = source.indexOf('if (!hasValidStoredSignupReferral(payload))');
+    const setPasswordInvokeIndex = source.indexOf("supabase.functions.invoke('set-password'");
+    expect(referralGuardIndex).toBeGreaterThan(-1);
+    expect(setPasswordInvokeIndex).toBeGreaterThan(referralGuardIndex);
   });
 
   it('keeps signup referral eligibility aligned for manager referral shadow profiles', () => {
@@ -68,5 +84,18 @@ describe('signup completion regression guards', () => {
     expect(setPasswordSource).toContain(
       'inviterProfile.signup_completed !== true && inviterProfile.is_manager_referral_shadow !== true',
     );
+  });
+
+  it('keeps signup OTP diagnostics free of destinations, codes, and provider bodies', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'supabase', 'functions', 'request-signup-otp', 'index.ts'),
+      'utf8',
+    );
+
+    expect(source).not.toContain("console.log('[TEST MODE] OTP code for'");
+    expect(source).not.toContain('profileId, authDeleteError.message');
+    expect(source).not.toContain('const text = await res.text()');
+    expect(source).toContain("reason: 'auth_cleanup_failed'");
+    expect(source).toContain("console.info('[request-signup-otp] test delivery simulated')");
   });
 });

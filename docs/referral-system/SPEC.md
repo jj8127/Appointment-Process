@@ -142,15 +142,109 @@
 17. lazy expand로 읽어온 subtree의 `node_depth`는 subtree root 기준 상대 depth이므로, 화면 캐시에 합치기 전에 현재 `/referral` root 기준 absolute depth로 정규화해야 한다. tree row 들여쓰기/강조 스타일은 transport `node.depth`가 아니라 현재 렌더 depth 규칙을 따라야 한다.
 18. 사용자가 어떤 branch를 펼치면, 이미 보이는 직속 자식 중 `하위가 더 있는데 아직 direct child가 캐시에 없는 노드`는 백그라운드로 1단계만 순차 prefetch할 수 있다. 이 prefetch는 spinner를 점유하거나 현재 expand를 block하면 안 된다.
 19. 상단 direct recommender 카드는 `get-referral-tree`가 성공했는데 ancestor가 없으면 빈 상태를 그대로 보여야 한다. 이 경우 `get-my-referral-code`의 legacy/current recommender cache를 다시 fallback으로 보여 stale 추천인을 노출하면 안 된다.
-20. 본부장 전용 `PC 브라우저에서 그래프 뷰로 보기`는 보조 링크일 뿐이고, FC에게는 노출하지 않는다. 모바일 기본 surface는 그래프가 아니라 self-service tree/drill-down이다.
-21. `app/referral.tsx`는 별도의 flat `초대 상태 목록`을 더 이상 기본 surface로 렌더링하지 않는다. 현재 모바일 self-service 하위 관계 노출은 `내가 추천한 사람들` tree 섹션 하나로 정리한다.
-22. self-service로 추천인을 저장하면 같은 화면의 `get-my-referral-code`와 `get-referral-tree`를 함께 다시 불러와, 현재 추천인 표시와 direct recommender 카드가 재진입 없이 즉시 동기화돼야 한다.
-23. `get-referral-tree`가 일시 실패해도 기존 추천인이 있는 사용자는 같은 `/referral` 화면 안에서 추천인 변경 UI를 계속 열 수 있어야 한다. tree 성공 렌더가 유일한 변경 CTA가 되면 안 된다.
-24. `/referral`의 Android 기본 컨테이너는 `KeyboardAwareScrollView` 같은 third-party keyboard-aware wrapper에 의존하지 않는다. 검색 입력이 화면 상단에 있어도 안정적으로 보이도록 일반 `ScrollView` + 명시적 하단 패딩을 우선 사용하고, render-stability를 키보드 자동 스크롤보다 우선한다.
-25. referral self-service는 앱 전체 로그인 세션과 별개 `appSessionToken`을 사용한다. 사용자가 앱 안에서 로그인된 상태여도 이 토큰이 없거나 만료되면 referral trusted path는 자동 복구 또는 재로그인 안내를 수행해야 한다.
-26. 모바일 client는 referral read/write 전에 저장된 `appSessionToken`을 우선 사용하고, 없거나 만료면 저장된 `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 호출해 새 referral `appSessionToken`을 무중단 재발급한다.
-27. `requestBoardBridgeToken`까지 없거나 만료된 경우에는 `/referral`이 generic `인증이 필요합니다.` 대신 `세션이 만료되었습니다. 다시 로그인해주세요.`와 relogin CTA를 보여야 한다.
-28. `refresh-app-session`은 FC와 본부장(manager source role)만 허용한다. plain admin/developer, linked request_board designer, inactive manager, signup 미완료 FC는 새 referral `appSessionToken`을 발급받을 수 없다.
+20. `/referral`의 `추천 관계 그래프로 보기`는 외부 관리자 웹 URL을 열지 않고 앱 내부 `/referral-graph`로 이동하며 FC와 본부장 self-service 사용자에게 동일하게 노출한다.
+21. `/referral-graph`는 signed app-session의 자기 FC를 root로 고정한 downline-only read surface다. request body의 `fcId`로 다른 root를 선택할 수 없고, plain admin/developer/designer는 허용하지 않는다.
+22. 모바일 graph edge source는 canonical `fc_profiles.recommender_fc_id`뿐이다. 응답에는 전화번호·감사 이벤트를 포함하지 않고 `permissions.canMutate=false`, `scope='downline'`를 명시한다.
+23. 모바일 graph는 deterministic radial layout, pan/pinch, fit/reset, 이름·소속·추천코드 검색, 등록 상태 filter, 선택 node 기준 1~3촌 focus, read-only 상세를 지원한다. node 색 우선순위는 현재 사용자 → 모든 위촉 완료 → 본등록 완료 → 사전등록이며 크기는 전체 하위 인원 수의 로그 스케일을 사용한다. 깊이별 폭과 형제 최소 각도 구간을 반영한 뒤 고정 surface 안으로 비례 압축해, 300 node의 균일·불균형 조직도 모두 최대 확대에서 선택 가능한 간격을 유지한다. 네이티브 view/접근성 tree 보호를 위해 유효 node 최대 300개까지만 breadth-first로 읽고, 한도 전에 직원·설계매니저 제외 규칙을 적용하며, 남은 관계가 있으면 `truncated=true`로 알린다. canonical 관계 경로의 manager referral shadow는 일반 descendant처럼 보존한다. desktop force physics와 node drag는 모바일 첫 delivery 범위가 아니다.
+24. `/referral`의 기존 추천 관계 graph CTA는 그대로 유지하고, 바로 아래에 별도
+    `/referral-revenue-graph` 샘플 미리보기 CTA를 둘 수 있다. 이 화면의 조직·인물·
+    매출은 모두 로컬 가상 데이터이며 실제 referral tree나 사용자 데이터와 결합하지
+    않는다.
+25. 샘플 매출 기여 graph는 raw node의 `depth`를 신뢰하지 않고 `parentId` 체인으로
+    viewer 기준 단계를 파생한다. viewer 아래 1~10단계의 모든 샘플 구성원에
+    `rateBps=1000`을 단순 적용하고, 11단계 이상은 표시할 수 있지만 합계와 예상
+    배분 대상에서는 제외한다. 화면에는 `샘플 데이터`, `실제 조직·매출·정산 내역이
+    아님`, `시뮬레이션`을 명시한다. 새 화면 진입의 기본 `현재 그래프`는 카드 목록을
+    선으로 잇는 형태가 아니라 기존 추천 관계 그래프와 같은 원형 node/edge
+    network여야 하며, 보기 선택은 저장하지 않는다.
+    상호작용 물리는 관리자 웹의 실제 활성 force 계열인 many-body repulsion,
+    degree-aware link spring, link tension, collision, alpha decay, velocity damping을
+    기준으로 한다. 다만 관리자 웹의 실제 `alphaDecay=0.016`은 비교 가능한 baseline
+    값으로 보존하고, 모바일 release는 프레임 예산을 제한하기 위해
+    `initialAlpha=0.32`, `decayMultiplier=0.94`, `stopThreshold=0.014`의 별도 settle
+    계약을 사용한다. 따라서 값 단위 runtime parity를 뜻하지 않는다. 관리자 웹
+    `균형` preset이 해석한 `centerStrength=0.024`도 참고 값이지만 실제 runtime은
+    `center`, `x`, `y` force를 명시적으로 끄므로 모바일도
+    모든 node를 가운데로 당기는 전역 중심력을 적용하지 않는다. 대신 viewer를
+    논리 원점에 둔 collision-safe 가로형 방사 seed를 결정론적으로 만들고, A/B/C
+    direct branch를 서로 다른 sector에 배정하며 depth가 증가할수록 목표 반지름을
+    늘린다. 상호작용 중에는 약한 O(n) 방사 목표와 bounded viewer anchor/rebase만
+    추가하고 pointer로 잡힌 node 하나만 고정한다. 모바일 성능과 번들 크기를
+    우선하므로 관리자 웹의 `d3-force` runtime이나 전체 seed-layout을 그대로
+    이식하지 않는다. 네이티브에서는 기존에 설치된 `react-native-webview` 안의 외부
+    요청 없는 로컬 HTML 단일 `<canvas>`에서 draw와 physics를 처리하고, React/SVG
+    node별 프레임 갱신을 만들지 않는다. 이 화면의 parity는 관리자 웹 활성 force
+    계열에 기반한 부드러운 반응, 원형 node/edge, 금액 가시성, 겹침 방지,
+    pan/pinch, node drag 반응과 감쇠 settle까지이며 desktop runtime byte-level
+    동등성은 범위 밖이다.
+    각 node 원 안에는 사람 식별자와 예상 배분액을 전체 맞춤 상태에서도 항상
+    표시한다. 한 손가락 pan, 두 손가락 pinch zoom, 화면 맞춤, 초기화, node 선택
+    상세를 지원하며, 11단계 제외 node와 연결 edge는 점선·회색 계열로 구분하고,
+    단계 filter가 적용돼도 선택 대상의 viewer 연결 경로를 보존한다. 회색 edge는
+    샘플 조직 관계이고, eligible edge에는 child에서 parent와 viewer 쪽으로 향하는
+    주황 arrow를 겹쳐 샘플 기여 계산 방향을 표시한다. 11단계 node의 edge는
+    회색 점선이며 arrow가 없다. 선택한 eligible node의 전체 조상 경로는 정적으로
+    강조하고 inward pulse는 최대 1.5초 뒤 종료해 idle RAF를 남기지 않는다. 1·3·6·10
+    단계 guide ring으로 viewer 중심에서 바깥으로 깊어지는 방향을 보조한다. viewer
+    node에는 unfiltered canonical 예상 유입 합계 `10,240,000원`을 표시하고 각
+    eligible node에는 자기 예상 배분액을 유지하며 edge에는 금액을 쓰지 않는다.
+    이 arrow는 실제 송금·정산·지급 흐름이 아니라 샘플 기여 계산 방향이다. graph mode는
+    stack header와 문서형 summary page를 숨기고 safe area 전체를 canvas로 사용한다.
+    빈 공간 drag는 pan, node 위에서 시작한 drag는 node 고정 이동으로 해석하며,
+    인접·주변 node가 같은 spring·repulsion·collision force로 실시간 반응한다.
+    release 뒤에는 위 모바일 전용 alpha schedule과 관리자 기준 velocity damping으로
+    bounded settle을 수행한 뒤 idle 상태로 종료한다.
+    node 이름·단계·금액 label은 screen pixel 크기로 캐시해 그리며 zoom 중에도 글자
+    크기가 변하지 않는다. node 원과 edge만 graph zoom을 따른다.
+    idle drag/zoom badge는 상시 노출하지 않고 물리 반응 또는 확대·맞춤 직후에만
+    일시적으로 표시한다.
+    native route가 focus된 graph mode일 때만 landscape로 잠근다. graph 설정이나
+    graph node 상세도 landscape를 유지한다. 트리·목록 mode와 해당 상세는 portrait를
+    사용하고, route blur·unmount·header/Android back 시에는 portrait를 먼저
+    복원한다. 기본 landscape에서는 작은 back/title/sample header와 설정 버튼만
+    남겨 graph가 거의 전체 화면을 사용한다. summary·filter·목록·fit/reset·범례와
+    상세 안내는 설정 버튼을 눌렀을 때만 임시 panel로 열리고 바깥 탭·닫기·Android
+    back으로 닫힌다.
+    초기 배치는 깊이마다 좌우로 반전하는 lane을 사용하지 않는다. 관리자 웹 seed의
+    parent-relative forward 원칙을 경량화해 root child와 subtree 순서를 고정하고,
+    parent/child collision envelope와 resolved link distance로 다음 depth ring의 최소
+    전진 각도를 계산한다. 고정 17-node canonical A/B/C 샘플은 진입·초기화·일반
+    release settle에서 endpoint를 공유하지 않는 edge 교차가 0개여야 하고, A
+    단일-child chain은 첫 root joint 이후 연속 edge 방향 변화가 45도 이하여야 한다.
+    45도는 이 fixture의 회귀 기준이지 runtime 각도 clamp가 아니다. 자식·subtree가
+    많아지면 collision envelope와 필요한 branch sector가 커지면서 각도 간격과 반지름을
+    동적으로 늘리고, 복잡한 그래프의 불가피한 꺾임이나 교차는 허용한다. 이 보장은 매 frame
+    `edge-crossing` force를 추가하지 않고 deterministic seed와 기존 O(n) radial target으로
+    달성한다. eligible 관계는 회색 base line 위에 주황 arrow를 이중으로 그리지 않고
+    child→parent 주황 방향선 하나만 그린다. 제외 관계만 회색 점선/no-arrow를 유지한다.
+    drag와 physics의 graph world 좌표는 초기 1600-unit seed surface로 clamp하지 않는다.
+    유한한 좌표라면 surface 밖까지 이동할 수 있고 link/tension은 복원력일 뿐 위치 상한이
+    아니다. `화면 맞춤`은 일반 pinch 최소 배율보다 작은 scale도 계산해 멀어진 node를
+    다시 담고, `초기화`는 deterministic seed로 복구한다.
+    사용자가 `트리`를 명시적으로 선택하면 원형 WebView/SVG renderer를 숨긴 채
+    유지하지 않고 unmount한 뒤, 초기 시안의 고정 3열 카드 계층을 별도 컴포넌트로
+    표시한다. 트리는 440-wide canvas, 118x66 card, 86px depth 간격과 viewer/B 중앙,
+    A 좌측, C 우측 배치를 사용하며 parent card 하단과 child card 상단을 선으로 잇는다.
+    같은 `graphNodes`, `graphEdges`, `focusedGraphNodeIds`를 사용해 단계 filter의 viewer
+    연결 경로를 유지하고, context card는 흐리게 보이되 현재 금액/status label을
+    보존한다. card 높이는 connector geometry와 같은 66px로 고정하고 시각 text는
+    card 안에서 축소 적응시키되, 접근성 label은 이름·단계·전체 금액·context 상태를
+    생략하지 않는다. 트리도 같은 node 상세·샘플 고지·11단계 제외 계약을 공유한다.
+26. 샘플 화면은 FC와 `admin + readOnly` 본부장에게만 노출하고 designer/plain
+    admin/developer는 차단한다. 다만 로컬 상수 외 데이터를 읽지 않으므로
+    app-session refresh, referral API, Supabase client, Edge Function 또는 금융
+    query를 호출하지 않는다.
+27. 샘플 화면의 `10%`와 `1~10단계`는 사용자 검토용 UI 가정이다. 실제 적용 단계,
+    기준 매출, 반올림, 취소·환수, 확정·지급 트리거와 개인정보 공개 범위는 계속
+    미확정이며 실제 연동 전에 이 문서를 다시 갱신해야 한다.
+28. `app/referral.tsx`는 별도의 flat `초대 상태 목록`을 더 이상 기본 surface로 렌더링하지 않는다. 현재 모바일 self-service 하위 관계 노출은 `내가 추천한 사람들` tree 섹션 하나로 정리한다.
+29. self-service로 추천인을 저장하면 같은 화면의 `get-my-referral-code`와 `get-referral-tree`를 함께 다시 불러와, 현재 추천인 표시와 direct recommender 카드가 재진입 없이 즉시 동기화돼야 한다.
+30. `get-referral-tree`가 일시 실패해도 기존 추천인이 있는 사용자는 같은 `/referral` 화면 안에서 추천인 변경 UI를 계속 열 수 있어야 한다. tree 성공 렌더가 유일한 변경 CTA가 되면 안 된다.
+31. `/referral`의 Android 기본 컨테이너는 `KeyboardAwareScrollView` 같은 third-party keyboard-aware wrapper에 의존하지 않는다. 검색 입력이 화면 상단에 있어도 안정적으로 보이도록 일반 `ScrollView` + 명시적 하단 패딩을 우선 사용하고, render-stability를 키보드 자동 스크롤보다 우선한다.
+32. referral self-service는 앱 전체 로그인 세션과 별개 `appSessionToken`을 사용한다. 사용자가 앱 안에서 로그인된 상태여도 이 토큰이 없거나 만료되면 referral trusted path는 자동 복구 또는 재로그인 안내를 수행해야 한다.
+33. 모바일 client는 referral read/write 전에 저장된 `appSessionToken`을 우선 사용하고, 없거나 만료면 저장된 `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 호출해 새 referral `appSessionToken`을 무중단 재발급한다.
+34. `requestBoardBridgeToken`까지 없거나 만료된 경우에는 `/referral`과 `/referral-graph`가 generic `인증이 필요합니다.` 대신 `세션이 만료되었습니다. 다시 로그인해주세요.`와 relogin CTA를 보여야 한다.
+35. `refresh-app-session`은 FC와 본부장(manager source role)만 허용한다. plain admin/developer, linked request_board designer, inactive manager, signup 미완료 FC는 새 referral `appSessionToken`을 발급받을 수 없다.
 
 ## 5. 식별자 규칙
 
@@ -294,12 +388,11 @@
   - layout/physics는 Obsidian Graph View의 읽기 경험을 참고하되, 추천인 트리 특성에 맞춘 hybrid force-directed 배치다. 초기 seed는 deterministic component packing을 사용해 큰 connected component를 중앙에 가깝게 두고, hub direct child는 부모를 원형으로 둘러싸는 star/pinwheel seed를 받으며, isolated node는 과도하게 큰 외곽 원을 만들지 않는 제한된 golden-angle 분포를 사용한다.
   - `연결 없는 사람 숨기기` switch는 orphan toggle처럼 isolated node만 숨기며, 기본값은 전체 관계 파악을 위해 `false`다.
   - 사용자 설정은 `Center force`, `Repel force`, `Link force`, `Link distance` 4개만 노출한다. 저장 key는 `referral-graph-physics-settings-v16`이며 기본값은 center `0.5`, repel `10`, link force `1`, link distance `250`이다.
-  - runtime force는 d3 `charge`/기존 `link`를 기본으로 하고, `link-tension`, `branch-bend`, `sibling-angular`, `node-separation`, `visual-cluster-separation`, `component-separation`, `cluster-envelope`, `component-envelope`, `cluster-gravity`, `component-cohesion`, `drag-spring` 보조 force를 사용한다. `x/y center`, `radial-containment`, `isolated-ring`, `drop-tether`, legacy `component-gravity` 계열은 사용하지 않는다.
-  - 중심 보정은 고정 반경 containment가 아니라 cluster 단위 `cluster-gravity`로만 약하게 적용한다. 현재 기준은 `deadZoneRadius=340`, singleton `520`, `gravityScale=120`, `softening=210`, `strength=0.01`, `maxVelocity=4.5`, `minAlpha=0.002`이며, 가장자리에서 클러스터를 꺼내 보는 drag 상호작용을 막으면 안 된다.
-  - 링크 길이는 degree/child 여부에 따라 동적으로 계산한다. leaf spoke는 짧게 유지하고, child hub 간 bridge는 leaf보다 길지만 비정상적으로 늘어나지 않도록 `link-tension`과 `drag-spring`이 목표 길이를 복원한다.
-  - node drag 중에는 사용자가 잡은 node를 pointer 위치에 맞추고, directed descendant만 depth-damped follower로 이동시킨다. direct child는 branch가 찢어지지 않을 만큼 강하게 따라오고, deeper descendant는 더 유연하게 따라와 큰 하위조직이 딱딱한 물체처럼 움직이지 않아야 한다. ancestor, sibling, unrelated node는 follower 대상이 아니다.
-  - active drag 중에는 사용자 입력과 layout force가 싸우지 않도록 base link force를 비활성화하고 charge/collision과 custom layout force를 낮추거나 일시 중지한다. `sibling-angular`, `edge-crossing`, cluster/component separation 같은 전역 정렬은 pointer-down 동안 re-layout을 만들지 않아야 하며, release 후 settle mode에서만 다시 작동한다.
-  - release 시 dragged node와 follower의 임시 고정을 해제하되 manual target을 유지해 사용자가 놓은 위치 근처에서 부드럽게 안정화한다. live QA는 graph unit이 아니라 screen/client pixel 기준(pointer 거리, follower 이동, unrelated drift, release 후 거리)으로 판단한다.
+  - runtime force는 d3 `charge`/기존 `link`, `link-tension`, `collision`, `component-separation`, pointer drag, `max-link-stretch`, drag-locality를 사용한다. 현재 `branch-bend`, `sibling-angular`, `edge-crossing`, `node-separation`, cluster/component envelope·gravity·cohesion, global `center/x/y`, radial containment, isolated ring, drag spring은 명시적으로 비활성이다.
+  - 링크 길이는 degree/child 여부에 따라 동적으로 계산한다. `sourceHasChildren=true`이고 `targetHasChildren=false`인 terminal leaf spoke는 deterministic `118..185px` band를 사용하며 240-node/24-child fixture에서는 `166..179px`에 머문다. child hub bridge는 기존 긴 branch 간격(같은 fixture `354px`)을 유지하며 leaf 단축 때문에 함께 줄어들면 안 된다. `link-tension`은 release 뒤 목표 길이를 복원하고 active drag의 `max-link-stretch`는 drag-start 길이의 1.2배를 지킨다.
+  - node drag 중에는 사용자가 잡은 node 하나만 pointer 위치에 `fx/fy`로 고정한다. direct neighbor와 2-hop 이상 node는 고정하거나 같은 delta로 옮기지 않고, 평소와 같은 link·link-tension·charge·collision force가 A-B-C 순으로 전달돼 거리에 따라 유연하게 반응해야 한다.
+  - active drag 중에도 연결 force를 유지한다. drag 시작 시 각 edge 길이의 `1.2x`를 최대 stretch로 적용해 긴 chain도 끊어지지 않게 하되 unrelated component는 screen pixel 기준으로 안정적이어야 한다.
+  - release 시 dragged node의 `fx/fy`를 해제하고 simulation을 reheat해 기존 velocity와 spring momentum으로 부드럽게 안정화한다. live QA는 graph unit이 아니라 screen/client pixel 기준(pointer 거리, direct/indirect neighbor 이동, unrelated drift, release 후 거리)으로 판단한다.
   - `배치 초기화`는 runtime position을 지우고 현재 필터 기준 deterministic component/star/orphan seed layout으로 다시 시작한다.
   - manager는 graph page 진입과 조회는 가능하지만 계속 read-only다.
 - `backfill_missing_codes`는 수동 실행형 idempotent batch로만 운영하고, 1회 호출당 최대 100명만 처리한다.

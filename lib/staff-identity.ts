@@ -1,4 +1,4 @@
-import { ADMIN_CHAT_ID, sanitizePhone } from '@/lib/messenger-participants';
+import { sanitizePhone } from '@/lib/messenger-participants';
 
 export type StaffType = 'admin' | 'developer' | null;
 export type AppSessionRole = 'admin' | 'fc' | null;
@@ -38,10 +38,7 @@ export function getStaffChatActorId(input: {
   readOnly?: boolean;
   staffType?: StaffType;
 }) {
-  if (input.readOnly || input.staffType === 'developer') {
-    return sanitizePhone(input.residentId);
-  }
-  return ADMIN_CHAT_ID;
+  return sanitizePhone(input.residentId);
 }
 
 export function getStaffChatSenderName(input: {
@@ -56,7 +53,8 @@ export function getStaffChatSenderName(input: {
   if (input.staffType === 'developer') {
     return input.displayName?.trim() || '개발자';
   }
-  return '총무팀';
+  const name = input.displayName?.trim().replace(/\s*총무\s*$/, '').trim();
+  return name ? `${name}총무` : '총무';
 }
 
 export function getBoardAuthorRoleLabel(role: BoardDisplayRole) {

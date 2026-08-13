@@ -1,4 +1,4 @@
-type ResidentNumberMap = Record<string, string | null>;
+import type { ResidentNumberReadResult } from '@/lib/resident-number-read-contract';
 
 type ResidentNumberEdgeFallbackFetch = (
   url: string,
@@ -21,7 +21,8 @@ type ResidentNumberEdgeFallbackResponseParser = (options: {
   data: unknown;
 }) => {
   ok: true;
-  residentNumbers: ResidentNumberMap;
+  residentNumbers: ResidentNumberReadResult['residentNumbers'];
+  residentNumberStatuses: ResidentNumberReadResult['residentNumberStatuses'];
 } | {
   ok: false;
   message: string;
@@ -53,7 +54,7 @@ export async function readResidentNumbersFromEdgeFallback({
   logError,
   buildRequest,
   parseResponse,
-}: ReadResidentNumbersFromEdgeFallbackOptions): Promise<ResidentNumberMap> {
+}: ReadResidentNumbersFromEdgeFallbackOptions): Promise<ResidentNumberReadResult> {
   if (!supabaseUrl || !serviceKey) {
     const missingEnv = [
       !supabaseUrl ? 'NEXT_PUBLIC_SUPABASE_URL' : null,
@@ -87,11 +88,13 @@ export async function readResidentNumbersFromEdgeFallback({
     logError(`${logPrefix} resident-number edge function failed`, {
       ...runtimeDetails,
       status: resp.status,
-      body: data,
     });
 
-    throw new Error(`Resident-number edge fallback failed after ${directFallbackDescription}: ${parsed.message}`);
+    throw new Error(`Resident-number edge fallback failed after ${directFallbackDescription}.`);
   }
 
-  return parsed.residentNumbers;
+  return {
+    residentNumbers: parsed.residentNumbers,
+    residentNumberStatuses: parsed.residentNumberStatuses,
+  };
 }

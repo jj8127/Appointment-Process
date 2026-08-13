@@ -58,6 +58,7 @@ credentials/
 # local codex/mcp settings
 .codex/
 .codex-tmp/
+/.vscode/mcp.json
 .claude/settings.local.json
 .idea/
 
@@ -72,7 +73,9 @@ Claude-Code-Usage-Monitor/
 testsprite_tests/
 coverage/
 nul
+/deno.lock
 supabase/.temp/
+supabase/**/.temp/
 
 # Vercel deployment
 .vercel

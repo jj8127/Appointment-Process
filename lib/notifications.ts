@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 import { logger } from './logger';
 import { getStoredAppSessionToken } from './request-board-api';
@@ -7,19 +7,93 @@ import { supabase } from './supabase';
 
 let handlerSet = false;
 
+export type PushTokenRegistrationResult =
+  | { ok: true; retryable: false; reason: 'registered' }
+  | {
+      ok: false;
+      retryable: boolean;
+      reason:
+        | 'unsupported_platform'
+        | 'unsupported_client'
+        | 'physical_device_required'
+        | 'permission_denied'
+        | 'session_unavailable'
+        | 'registration_failed';
+    };
+
+export type PushPermissionStatus = 'granted' | 'denied' | 'undetermined' | 'unavailable';
+
+export type PushTokenUnregisterResult =
+  | { ok: true; retryable: false; reason: 'unregistered' }
+  | { ok: false; retryable: boolean; reason: 'session_unavailable' | 'unregister_failed' };
+
+const PUSH_TOKEN_UNREGISTER_TIMEOUT_MS = 5_000;
+
+export async function getPushPermissionStatus(): Promise<PushPermissionStatus> {
+  if (Platform.OS === 'web') return 'unavailable';
+  try {
+    const Notifications = await import('expo-notifications');
+    const { status } = await Notifications.getPermissionsAsync();
+    return status === 'granted' || status === 'denied' || status === 'undetermined'
+      ? status
+      : 'undetermined';
+  } catch {
+    return 'unavailable';
+  }
+}
+
+export async function openPushNotificationSettings() {
+  if (Platform.OS === 'web') return false;
+  try {
+    await Linking.openSettings();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function unregisterAllPushTokens(
+  providedSessionToken?: string,
+): Promise<PushTokenUnregisterResult> {
+  const sessionToken = providedSessionToken?.trim() || await getStoredAppSessionToken();
+  if (!sessionToken) {
+    return { ok: false, retryable: true, reason: 'session_unavailable' };
+  }
+  try {
+    const { data, error } = await supabase.functions.invoke<{ ok?: boolean }>(
+      'device-token-register',
+      {
+        method: 'DELETE',
+        body: { disableAll: true },
+        headers: { 'x-app-session-token': sessionToken },
+        timeout: PUSH_TOKEN_UNREGISTER_TIMEOUT_MS,
+      },
+    );
+    return !error && data?.ok === true
+      ? { ok: true, retryable: false, reason: 'unregistered' }
+      : { ok: false, retryable: true, reason: 'unregister_failed' };
+  } catch {
+    return { ok: false, retryable: true, reason: 'unregister_failed' };
+  }
+}
+
 export async function registerPushToken(
   role: 'admin' | 'fc' | 'manager',
   residentId: string,
   displayName: string,
   providedExpoPushToken?: string,
-) {
+  options: { requestPermission?: boolean } = {},
+): Promise<PushTokenRegistrationResult> {
   try {
-    if (Platform.OS === 'web') return;
-    logger.debug('registerPushToken start', { role, residentId });
+    if (Platform.OS === 'web') {
+      return { ok: false, retryable: false, reason: 'unsupported_platform' };
+    }
+    void residentId;
+    logger.debug('registerPushToken start', { role });
     // Expo Go cannot issue push tokens; use an EAS build
     if (Constants.appOwnership === 'expo') {
       logger.warn('[push] Expo Go cannot issue push tokens. Please use an EAS build.');
-      return;
+      return { ok: false, retryable: false, reason: 'unsupported_client' };
     }
 
     const Device = await import('expo-device');
@@ -28,7 +102,6 @@ export async function registerPushToken(
     if (!handlerSet) {
       Notifications.setNotificationHandler({
         handleNotification: async () => ({
-          shouldShowAlert: true,
           shouldPlaySound: true,
           shouldSetBadge: false,
           shouldShowBanner: true,
@@ -57,19 +130,21 @@ export async function registerPushToken(
       });
     }
 
-    if (!Device.isDevice) return;
+    if (!Device.isDevice) {
+      return { ok: false, retryable: false, reason: 'physical_device_required' };
+    }
 
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     logger.debug('push permission existingStatus', existingStatus);
     let finalStatus = existingStatus;
-    if (existingStatus !== 'granted') {
+    if (existingStatus !== 'granted' && options.requestPermission === true) {
       const { status } = await Notifications.requestPermissionsAsync();
       logger.debug('push permission requested status', status);
       finalStatus = status;
     }
     if (finalStatus !== 'granted') {
       logger.debug('push permission not granted, skip token register');
-      return;
+      return { ok: false, retryable: false, reason: 'permission_denied' };
     }
 
     const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.expoConfig?.extra?.projectId;
@@ -77,12 +152,15 @@ export async function registerPushToken(
       ? { data: providedExpoPushToken }
       : await Notifications.getExpoPushTokenAsync({ projectId });
     const expoToken = token.data;
-    logger.debug('getExpoPushTokenAsync token', { projectId, expoToken, reused: Boolean(providedExpoPushToken) });
+    logger.debug('getExpoPushTokenAsync completed', {
+      projectIdConfigured: Boolean(projectId),
+      reused: Boolean(providedExpoPushToken),
+    });
 
     const sessionToken = await getStoredAppSessionToken();
     if (!sessionToken) {
       logger.warn('[push] missing app session token, skip trusted registration');
-      return;
+      return { ok: false, retryable: true, reason: 'session_unavailable' };
     }
 
     const { data, error: registerError } = await supabase.functions.invoke<{ ok?: boolean; role?: string }>(
@@ -96,11 +174,18 @@ export async function registerPushToken(
         headers: { 'x-app-session-token': sessionToken },
       },
     );
-    logger.debug('[push] trusted register resp', { role, residentId, serverRole: data?.role, error: registerError });
-    if (registerError || data?.ok === false) {
-      throw registerError ?? new Error('device-token-register failed');
+    logger.debug('[push] trusted register completed', {
+      requestedRole: role,
+      serverRole: data?.role,
+      ok: !registerError && data?.ok === true,
+    });
+    if (registerError || data?.ok !== true) {
+      logger.warn('[push] trusted register failed', { reason: 'registration_failed' });
+      return { ok: false, retryable: true, reason: 'registration_failed' };
     }
-  } catch (err) {
-    logger.warn('registerPushToken failed', err);
+    return { ok: true, retryable: false, reason: 'registered' };
+  } catch {
+    logger.warn('registerPushToken failed', { reason: 'registration_failed' });
+    return { ok: false, retryable: true, reason: 'registration_failed' };
   }
 }

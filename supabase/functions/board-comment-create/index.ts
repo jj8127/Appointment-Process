@@ -1,5 +1,22 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { buildCorsHeaders, json, parseJson, requireActor, supabase , dbError } from '../_shared/board.ts';
+import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
+import type { NotificationTargetV1 } from '../_shared/notification-target.ts';
+
+async function resolveRecipientActorId(role: string, residentId: string): Promise<string | null> {
+  const table = role === 'fc'
+    ? 'fc_profiles'
+    : role === 'manager'
+      ? 'manager_accounts'
+      : 'admin_accounts';
+  let query = supabase.from(table).select('id').eq('phone', residentId);
+  query = role === 'fc'
+    ? query.eq('signup_completed', true)
+    : query.eq('active', true);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  return typeof data?.id === 'string' ? data.id : null;
+}
 
 type Payload = {
   actor?: {
@@ -25,8 +42,8 @@ serve(async (req: Request) => {
   const body = await parseJson<Payload>(req);
   if (!body) return json({ ok: false, code: 'invalid_json', message: 'Invalid JSON' }, 400, origin);
 
-  const actorCheck = await requireActor(body, origin);
-  if (!actorCheck.ok) return actorCheck.response;
+  const actorCheck = await requireActor(req, body, 'board-comment-create', origin);
+  if (actorCheck.ok === false) return actorCheck.response;
 
   const postId = body.postId;
   const content = (body.content ?? '').trim();
@@ -118,17 +135,64 @@ serve(async (req: Request) => {
     });
   }
 
+  let notificationStored = true;
+  let notificationIds: string[] = [];
   if (recipients.size > 0) {
-    const notificationRows = Array.from(recipients.values()).map((recipient) => ({
-      recipient_role: recipient.role,
-      resident_id: recipient.residentId,
-      title: 'New comment',
-      body: post.title ?? 'New comment',
-      category: parentId ? 'board_reply' : 'board_comment',
-      target_url: `/board?postId=${postId}`,
-    }));
-    await supabase.from('notifications').insert(notificationRows);
+    try {
+      const target: NotificationTargetV1 = { version: 1, kind: 'board_post', postId };
+      const notificationRows = await Promise.all(
+        Array.from(recipients.values()).map(async (recipient) => ({
+          recipient_role: recipient.role,
+          resident_id: recipient.residentId,
+          recipient_actor_id: await resolveRecipientActorId(recipient.role, recipient.residentId),
+          title: 'New comment',
+          body: post.title ?? 'New comment',
+          category: parentId ? 'board_reply' : 'board_comment',
+          target,
+          target_url: `/board?postId=${postId}`,
+        })),
+      );
+      const actorBoundRows = notificationRows.filter((row) => Boolean(row.recipient_actor_id));
+      if (actorBoundRows.length !== notificationRows.length) {
+        notificationStored = false;
+      } else {
+        const { data: persistedRows, error: notificationError } = await supabase
+          .from('notifications')
+          .insert(actorBoundRows)
+          .select('id,target,recipient_role,recipient_actor_id,resident_id');
+        if (notificationError || (persistedRows?.length ?? 0) !== actorBoundRows.length) {
+          notificationStored = false;
+        } else {
+          notificationIds = (persistedRows ?? []).flatMap((row) => {
+            const expected = actorBoundRows.find((candidate) =>
+              candidate.recipient_actor_id === row.recipient_actor_id
+            );
+            if (!expected) return [];
+            const validation = validatePersistedNotificationForDelivery(row, {
+              target,
+              recipientRole: expected.recipient_role as 'admin' | 'fc' | 'manager',
+              recipientActorId: expected.recipient_actor_id,
+              residentId: expected.resident_id,
+            });
+            return validation.ok ? [validation.notificationId] : [];
+          });
+          notificationStored = notificationIds.length === actorBoundRows.length;
+        }
+      }
+    } catch {
+      notificationStored = false;
+    }
   }
 
-  return json({ ok: true, data: { id: created.id } }, 200, origin);
+  return json({
+    ok: true,
+    data: { id: created.id },
+    notification: {
+      notificationStored,
+      pushStatus: 'not_attempted',
+      retryable: !notificationStored,
+      ...(notificationIds.length > 0 ? { notificationIds } : {}),
+    },
+    notificationWarning: notificationStored ? null : 'notification_delivery_incomplete',
+  }, 200, origin);
 });

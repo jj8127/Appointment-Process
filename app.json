@@ -2,7 +2,7 @@
   "expo": {
     "name": "가람 in",
     "slug": "fc-onboarding-app",
-    "version": "4.0.14",
+    "version": "4.2.4",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
     "scheme": "hanwhafcpass",
@@ -29,6 +29,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
+      "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
       "package": "com.jj8127.Garam_in"
     },

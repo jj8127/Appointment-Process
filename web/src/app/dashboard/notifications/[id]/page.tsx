@@ -24,6 +24,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
 import { useSession } from '@/hooks/use-session';
+import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 
@@ -181,6 +182,7 @@ export default function NotificationDetailPage() {
 
           {!isLoading && !isError && data ? (
             <Stack gap="md">
+              <NotificationDestinationReady />
               <Group justify="space-between" align="center">
                 <Badge variant="light" color="blue" radius="sm">
                   {data.category || '공지'}

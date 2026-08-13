@@ -1,5 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
+import { getStoredAppSessionToken } from '@/lib/request-board-api';
+import { isNotificationUuid } from '@/lib/notification-target';
 
 export type BoardActorRole = 'admin' | 'manager' | 'fc';
 export type BoardDisplayRole = 'admin' | 'manager' | 'fc' | 'developer';
@@ -106,7 +108,111 @@ export type BoardDetail = {
   }[];
 };
 
-type InvokeResult<T> = { ok: boolean; data?: T; message?: string };
+export type BoardPushDeliveryResult = {
+  targetRole: 'admin' | 'fc';
+  ok: boolean;
+  sent: number;
+  logged: boolean;
+  failure?:
+    | 'missing_configuration'
+    | 'upstream_rejected'
+    | 'invalid_response'
+    | 'delivery_unconfirmed'
+    | 'request_failed';
+};
+
+export type BoardWriteNotification = {
+  ok: boolean;
+  inbox: {
+    ok: boolean;
+    attempted: number;
+  };
+  push: {
+    ok: boolean;
+    attempted: number;
+    confirmed: number;
+    targets: BoardPushDeliveryResult[];
+  };
+};
+
+export type BoardNotificationDelivery = {
+  notificationStored: boolean;
+  pushStatus:
+    | 'accepted'
+    | 'no_registered_device'
+    | 'provider_rejected'
+    | 'not_attempted';
+  retryable: boolean;
+  notificationIds?: string[];
+};
+
+export type BoardNotificationRetry = {
+  postId: string;
+  eventKey: string;
+};
+
+export type BoardWriteResult = {
+  saved: boolean;
+  notification: BoardWriteNotification | null;
+  delivery: BoardNotificationDelivery | null;
+  notificationRetry: BoardNotificationRetry | null;
+  notificationWarning: string | null;
+};
+
+export type BoardCreateResult = BoardWriteResult & {
+  id: string;
+};
+
+type InvokeResult<T> = {
+  ok: boolean;
+  data?: T;
+  message?: string;
+  saved?: boolean;
+  notification?: BoardWriteNotification;
+  delivery?: unknown;
+  notificationRetry?: unknown;
+  notificationWarning?: string | null;
+};
+
+export type BoardFunctionName =
+  | 'board-attachment-delete'
+  | 'board-attachment-finalize'
+  | 'board-attachment-sign'
+  | 'board-categories-list'
+  | 'board-category-create'
+  | 'board-category-update'
+  | 'board-comment-create'
+  | 'board-comment-delete'
+  | 'board-comment-like-toggle'
+  | 'board-comment-update'
+  | 'board-create'
+  | 'board-delete'
+  | 'board-detail'
+  | 'board-list'
+  | 'board-notification-retry'
+  | 'board-pin'
+  | 'board-reaction-toggle'
+  | 'board-update';
+
+type BoardInvokeOptions = {
+  body: Record<string, unknown>;
+  headers: Record<string, string>;
+};
+
+type BoardInvokeTransport = (
+  name: BoardFunctionName,
+  options: BoardInvokeOptions,
+) => Promise<{ data: unknown; error: unknown }>;
+
+export class BoardSessionError extends Error {
+  readonly code = 'missing_app_session';
+  readonly status = 401;
+
+  constructor(message = '게시판 세션이 없습니다. 다시 로그인해주세요.') {
+    super(message);
+    this.name = 'BoardSessionError';
+  }
+}
 
 async function extractFunctionsErrorMessage(error: unknown): Promise<string | null> {
   if (!error || typeof error !== 'object') return null;
@@ -146,8 +252,26 @@ async function extractFunctionsErrorMessage(error: unknown): Promise<string | nu
   return null;
 }
 
-async function invokeBoard<T>(name: string, body: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.functions.invoke(name, { body });
+async function invokeBoardResponseWithDeps<T>(
+  name: BoardFunctionName,
+  body: Record<string, unknown>,
+  deps: {
+    getStoredAppSessionToken: () => Promise<string | null>;
+    invoke: BoardInvokeTransport;
+  },
+): Promise<InvokeResult<T>> {
+  const storedAppSessionToken = await deps.getStoredAppSessionToken();
+  const appSessionToken = String(storedAppSessionToken ?? '').trim();
+  if (!appSessionToken) {
+    throw new BoardSessionError();
+  }
+
+  const { data, error } = await deps.invoke(name, {
+    body,
+    headers: {
+      'x-app-session-token': appSessionToken,
+    },
+  });
   if (error) {
     const message = await extractFunctionsErrorMessage(error);
     if (message) {
@@ -164,9 +288,147 @@ async function invokeBoard<T>(name: string, body: Record<string, unknown>): Prom
   }
   const payload = data as InvokeResult<T> | null;
   if (!payload?.ok) {
+    if (
+      name === 'board-notification-retry'
+      && parseBoardNotificationDelivery(payload?.delivery)?.notificationStored
+        === false
+      && parseBoardNotificationRetry(payload?.notificationRetry)
+    ) {
+      return payload as InvokeResult<T>;
+    }
     throw new Error(payload?.message ?? '요청에 실패했습니다.');
   }
+  return payload;
+}
+
+export async function invokeBoardWithDeps<T>(
+  name: BoardFunctionName,
+  body: Record<string, unknown>,
+  deps: {
+    getStoredAppSessionToken: () => Promise<string | null>;
+    invoke: BoardInvokeTransport;
+  },
+): Promise<T> {
+  const payload = await invokeBoardResponseWithDeps<T>(name, body, deps);
   return payload.data as T;
+}
+
+function parseBoardNotificationDelivery(
+  value: unknown,
+): BoardNotificationDelivery | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const delivery = value as Record<string, unknown>;
+  const pushStatus = delivery.pushStatus;
+  if (
+    typeof delivery.notificationStored !== 'boolean'
+    || typeof delivery.retryable !== 'boolean'
+    || (
+      pushStatus !== 'accepted'
+      && pushStatus !== 'no_registered_device'
+      && pushStatus !== 'provider_rejected'
+      && pushStatus !== 'not_attempted'
+    )
+  ) {
+    return null;
+  }
+  const notificationIds = Array.isArray(delivery.notificationIds)
+    && delivery.notificationIds.every(isNotificationUuid)
+    ? delivery.notificationIds.map((id) => String(id).toLowerCase())
+    : undefined;
+  return {
+    notificationStored: delivery.notificationStored,
+    pushStatus,
+    retryable: delivery.retryable,
+    ...(notificationIds ? { notificationIds } : {}),
+  };
+}
+
+function parseBoardNotificationRetry(
+  value: unknown,
+): BoardNotificationRetry | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const retry = value as Record<string, unknown>;
+  const postId =
+    typeof retry.postId === 'string' ? retry.postId.toLowerCase() : '';
+  const eventKey =
+    typeof retry.eventKey === 'string' ? retry.eventKey.trim() : '';
+  if (
+    !isNotificationUuid(postId)
+    || !/^board-post:[0-9a-f]{64}$/.test(eventKey)
+  ) {
+    return null;
+  }
+  return { postId, eventKey };
+}
+
+function normalizeBoardWriteResult(payload: InvokeResult<unknown>): BoardWriteResult {
+  const notification = payload.notification ?? null;
+  const delivery = parseBoardNotificationDelivery(payload.delivery);
+  const notificationRetry = parseBoardNotificationRetry(payload.notificationRetry);
+  const explicitWarning = typeof payload.notificationWarning === 'string'
+    && payload.notificationWarning.trim()
+    ? payload.notificationWarning.trim()
+    : null;
+
+  return {
+    // Older compatible Edge responses did not expose `saved`, while `ok: true`
+    // already meant that the durable write completed.
+    saved: payload.saved !== false,
+    notification,
+    delivery,
+    notificationRetry,
+    notificationWarning: delivery
+      ? (
+        delivery.notificationStored
+          ? null
+          : explicitWarning ?? 'notification_delivery_incomplete'
+      )
+      : notification
+      ? (
+        notification.inbox.ok === false
+          ? explicitWarning ?? 'notification_delivery_incomplete'
+          : null
+      )
+      : explicitWarning,
+  };
+}
+
+export async function invokeBoardWriteWithDeps<T>(
+  name: 'board-create' | 'board-update',
+  body: Record<string, unknown>,
+  deps: {
+    getStoredAppSessionToken: () => Promise<string | null>;
+    invoke: BoardInvokeTransport;
+  },
+): Promise<{ data: T } & BoardWriteResult> {
+  const payload = await invokeBoardResponseWithDeps<T>(name, body, deps);
+  return {
+    data: payload.data as T,
+    ...normalizeBoardWriteResult(payload),
+  };
+}
+
+async function invokeBoard<T>(name: BoardFunctionName, body: Record<string, unknown>): Promise<T> {
+  return invokeBoardWithDeps<T>(name, body, {
+    getStoredAppSessionToken,
+    invoke: async (functionName, options) => {
+      const { data, error } = await supabase.functions.invoke(functionName, options);
+      return { data, error };
+    },
+  });
+}
+
+async function invokeBoardWrite<T>(
+  name: 'board-create' | 'board-update',
+  body: Record<string, unknown>,
+): Promise<{ data: T } & BoardWriteResult> {
+  return invokeBoardWriteWithDeps<T>(name, body, {
+    getStoredAppSessionToken,
+    invoke: async (functionName, options) => {
+      const { data, error } = await supabase.functions.invoke(functionName, options);
+      return { data, error };
+    },
+  });
 }
 
 export function buildBoardActor(session: {
@@ -212,8 +474,19 @@ export async function fetchBoardDetail(actor: BoardActor, postId: string) {
   return invokeBoard<BoardDetail>('board-detail', { actor, postId });
 }
 
-export async function createBoardPost(actor: BoardActor, payload: { categoryId: string; title: string; content: string }) {
-  return invokeBoard<{ id: string }>('board-create', { actor, ...payload });
+export async function createBoardPost(
+  actor: BoardActor,
+  payload: { categoryId: string; title: string; content: string },
+): Promise<BoardCreateResult> {
+  const result = await invokeBoardWrite<{ id: string }>('board-create', { actor, ...payload });
+  return {
+    id: result.data.id,
+    saved: result.saved,
+    notification: result.notification,
+    delivery: result.delivery,
+    notificationRetry: result.notificationRetry,
+    notificationWarning: result.notificationWarning,
+  };
 }
 
 export async function updateBoardPost(actor: BoardActor, payload: {
@@ -222,8 +495,72 @@ export async function updateBoardPost(actor: BoardActor, payload: {
   title?: string;
   content?: string;
   attachmentOrder?: string[];
-}) {
-  return invokeBoard<null>('board-update', { actor, ...payload });
+}): Promise<BoardWriteResult> {
+  const result = await invokeBoardWrite<null>('board-update', { actor, ...payload });
+  return {
+    saved: result.saved,
+    notification: result.notification,
+    delivery: result.delivery,
+    notificationRetry: result.notificationRetry,
+    notificationWarning: result.notificationWarning,
+  };
+}
+
+export async function retryBoardNotificationWithDeps(
+  actor: BoardActor,
+  retry: BoardNotificationRetry,
+  deps: {
+    getStoredAppSessionToken: () => Promise<string | null>;
+    invoke: BoardInvokeTransport;
+  },
+): Promise<Pick<
+  BoardWriteResult,
+  'delivery' | 'notificationRetry' | 'notificationWarning'
+>> {
+  const postId = retry.postId.toLowerCase();
+  const eventKey = retry.eventKey.trim();
+  if (
+    !isNotificationUuid(postId)
+    || !/^board-post:[0-9a-f]{64}$/.test(eventKey)
+  ) {
+    throw new Error('알림 재시도 정보가 올바르지 않습니다.');
+  }
+  const payload = await invokeBoardResponseWithDeps<null>(
+    'board-notification-retry',
+    { actor, postId, eventKey },
+    deps,
+  );
+  const normalized = normalizeBoardWriteResult(payload);
+  return {
+    delivery: normalized.delivery,
+    notificationRetry: normalized.notificationRetry,
+    notificationWarning: normalized.notificationWarning,
+  };
+}
+
+export async function retryBoardNotification(
+  actor: BoardActor,
+  retry: BoardNotificationRetry,
+) {
+  return retryBoardNotificationWithDeps(actor, retry, {
+    getStoredAppSessionToken,
+    invoke: async (functionName, options) => {
+      const { data, error } = await supabase.functions.invoke(
+        functionName,
+        options,
+      );
+      return { data, error };
+    },
+  });
+}
+
+export function getBoardNotificationWarningMessage(notificationWarning?: string | null) {
+  if (!notificationWarning) return null;
+  logger.warn('[board] notification delivery unconfirmed', { notificationWarning });
+  if (notificationWarning === 'notification_delivery_incomplete') {
+    return '게시글은 저장됐지만 알림을 등록하지 못했습니다. 게시글을 다시 저장하지 마세요.';
+  }
+  return '게시글은 저장됐지만 알림 등록 상태를 확인하지 못했습니다. 게시글을 다시 저장하지 마세요.';
 }
 
 export async function deleteBoardPost(actor: BoardActor, postId: string) {
@@ -261,7 +598,13 @@ export async function toggleCommentLike(actor: BoardActor, commentId: string) {
 export async function signBoardAttachments(
   actor: BoardActor,
   postId: string,
-  files: { fileName: string; mimeType: string; fileSize: number; fileType: 'image' | 'file' }[],
+  files: {
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    fileType: 'image' | 'file';
+    storagePath?: string;
+  }[],
 ) {
   return invokeBoard<{ storagePath: string; signedUrl: string }[]>('board-attachment-sign', {
     actor,

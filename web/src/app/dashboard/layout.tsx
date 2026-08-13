@@ -2,6 +2,7 @@
 
 import { useSession } from '@/hooks/use-session';
 import { DashboardNotificationBell } from '@/components/DashboardNotificationBell';
+import { NotificationReadAcknowledger } from '@/components/NotificationReadAcknowledger';
 import { getDashboardRoleLabel, getDashboardRoleSubLabel } from '@/lib/staff-identity';
 import { AppShell, Avatar, Burger, Group, Menu, NavLink, Text, UnstyledButton, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
@@ -16,6 +17,7 @@ import {
   IconMessage,
   IconNews,
   IconSettings,
+  IconUserPlus,
   IconUsers
 } from '@tabler/icons-react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -56,6 +58,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       return [
         { label: '홈', icon: IconHome, href: '/dashboard' },
+        ...(role === 'admin' && !isReadOnly
+          ? [{ label: '서면확인 회원가입', icon: IconUserPlus, href: '/dashboard/fc-signup' }]
+          : []),
         { label: '문서 관리', icon: IconFileText, href: '/dashboard/docs' },
         { label: '생명/손해 위촉', icon: IconLink, href: '/dashboard/appointment' },
         { label: '추천인 그래프', icon: IconGraph, href: '/dashboard/referrals/graph' },
@@ -67,7 +72,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { label: '시험 신청자', icon: IconUsers, href: '/dashboard/exam/applicants' },
       ];
     },
-    [role],
+    [isReadOnly, role],
   );
 
   useEffect(() => {
@@ -118,6 +123,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       navbar={{ width: navbarWidth, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding="md"
     >
+      <NotificationReadAcknowledger />
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">
           <Group wrap="nowrap">

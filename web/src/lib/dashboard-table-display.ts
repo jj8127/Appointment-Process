@@ -2,6 +2,7 @@ import dayjs from 'dayjs';
 
 export const DASHBOARD_FC_LIST_COLUMNS = [
   { key: 'fc', label: 'FC 정보', width: 200, align: 'left' },
+  { key: 'residentNumber', label: '주민등록번호', width: 150, align: 'center' },
   { key: 'phone', label: '연락처', width: 110, align: 'center' },
   { key: 'signupDate', label: '가입일', width: 120, align: 'center' },
   { key: 'affiliation', label: '소속', width: 150, align: 'center' },
@@ -12,6 +13,30 @@ export const DASHBOARD_FC_LIST_COLUMNS = [
 ] as const;
 
 export const DASHBOARD_FC_LIST_COLUMN_COUNT = DASHBOARD_FC_LIST_COLUMNS.length;
+
+export type DashboardResidentNumberCell =
+  | { status: 'loading' }
+  | { status: 'ready'; value: string }
+  | { status: 'missing' }
+  | { status: 'unavailable' }
+  | { status: 'error' };
+
+export const formatDashboardResidentNumberCell = (
+  cell?: DashboardResidentNumberCell,
+): string => {
+  switch (cell?.status) {
+    case 'loading':
+      return '조회 중';
+    case 'ready':
+      return cell.value;
+    case 'missing':
+      return '미입력';
+    case 'unavailable':
+    case 'error':
+    default:
+      return '조회 불가';
+  }
+};
 
 type CredentialRelation =
   | { password_set_at?: unknown }

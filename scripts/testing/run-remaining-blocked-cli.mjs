@@ -92,13 +92,14 @@ async function parseRes(res) {
   }
 }
 
-async function fcFn({ supabaseUrl, anonKey, fn, body }) {
+async function fcFn({ supabaseUrl, anonKey, fn, body, appSessionToken }) {
   const res = await fetch(`${supabaseUrl}/functions/v1/${fn}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${anonKey}`,
       apikey: anonKey,
+      ...(appSessionToken ? { 'x-app-session-token': appSessionToken } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -370,17 +371,41 @@ async function run() {
     const actorManager = { role: 'manager', residentId: managerPhone, displayName: managerName };
     const actorFc = { role: 'fc', residentId: fcPhone, displayName: 'TC_FC' };
 
-    const cat = await fcFn({ supabaseUrl, anonKey, fn: 'board-category-create', body: {
-      actor: actorAdmin, name: `TC_CAT_${seed}`, slug: `tc-${seed}`, isActive: true, sortOrder: 999,
-    } });
-    assertTrue(cat.ok && cat.data?.ok === true, 'board category create failed', { cat });
-    const categoryId = cat.data.data.id;
-    cleanup.boardCategoryIds.add(categoryId);
+    const loginForBoard = async (phoneValue, passwordValue, expectedRole) => {
+      const login = await fcFn({
+        supabaseUrl,
+        anonKey,
+        fn: 'login-with-password',
+        body: { phone: phoneValue, password: passwordValue },
+      });
+      const appSessionToken = String(login.data?.appSessionToken ?? '').trim();
+      assertTrue(
+        login.ok && login.data?.ok === true && login.data?.role === expectedRole && appSessionToken,
+        'board actor login failed',
+        { expectedRole, login },
+      );
+      return appSessionToken;
+    };
+    const [adminAppSession, managerAppSession, fcAppSession] = await Promise.all([
+      loginForBoard(adminPhone, adminPassword, 'admin'),
+      loginForBoard(managerPhone, managerPassword, 'manager'),
+      loginForBoard(fcPhone, fcPassword, 'fc'),
+    ]);
 
-    const managerPost = await fcFn({ supabaseUrl, anonKey, fn: 'board-create', body: {
+    const categories = await fcFn({
+      supabaseUrl,
+      anonKey,
+      fn: 'board-categories-list',
+      appSessionToken: adminAppSession,
+      body: { actor: actorAdmin },
+    });
+    const categoryId = categories.data?.data?.find?.((category) => category.slug === 'general')?.id;
+    assertTrue(categories.ok && categories.data?.ok === true && categoryId, 'canonical board category missing', { categories });
+
+    const managerPost = await fcFn({ supabaseUrl, anonKey, fn: 'board-create', appSessionToken: managerAppSession, body: {
       actor: actorManager, categoryId, title: `M_${seed}`, content: 'manager',
     } });
-    const adminPost = await fcFn({ supabaseUrl, anonKey, fn: 'board-create', body: {
+    const adminPost = await fcFn({ supabaseUrl, anonKey, fn: 'board-create', appSessionToken: adminAppSession, body: {
       actor: actorAdmin, categoryId, title: `A_${seed}`, content: 'admin',
     } });
     assertTrue(managerPost.ok && adminPost.ok, 'board create failed');
@@ -389,40 +414,40 @@ async function run() {
     cleanup.boardPostIds.add(managerPostId);
     cleanup.boardPostIds.add(adminPostId);
 
-    const updateOwn = await fcFn({ supabaseUrl, anonKey, fn: 'board-update', body: {
+    const updateOwn = await fcFn({ supabaseUrl, anonKey, fn: 'board-update', appSessionToken: managerAppSession, body: {
       actor: actorManager, postId: managerPostId, title: `M2_${seed}`, content: 'updated',
     } });
-    const denyOther = await fcFn({ supabaseUrl, anonKey, fn: 'board-update', body: {
+    const denyOther = await fcFn({ supabaseUrl, anonKey, fn: 'board-update', appSessionToken: managerAppSession, body: {
       actor: actorManager, postId: adminPostId, title: 'deny',
     } });
     assertTrue(updateOwn.ok && denyOther.status === 403, 'manager permission regression', { updateOwn, denyOther });
 
-    const sign = await fcFn({ supabaseUrl, anonKey, fn: 'board-attachment-sign', body: {
+    const sign = await fcFn({ supabaseUrl, anonKey, fn: 'board-attachment-sign', appSessionToken: adminAppSession, body: {
       actor: actorAdmin, postId: adminPostId,
-      files: [{ fileName: 'a.png', mimeType: 'image/png', fileSize: 100, fileType: 'image' }, { fileName: 'b.pdf', mimeType: 'application/pdf', fileSize: 100, fileType: 'file' }],
+      files: [{ fileName: 'a.png', mimeType: 'image/png', fileSize: 3, fileType: 'image' }, { fileName: 'b.pdf', mimeType: 'application/pdf', fileSize: 3, fileType: 'file' }],
     } });
     assertTrue(sign.ok && sign.data?.ok === true, 'attachment sign failed');
     const signed = sign.data.data;
     await fetch(signed[0].signedUrl, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: Buffer.from('img') });
     await fetch(signed[1].signedUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: Buffer.from('pdf') });
-    const finalize = await fcFn({ supabaseUrl, anonKey, fn: 'board-attachment-finalize', body: {
+    const finalize = await fcFn({ supabaseUrl, anonKey, fn: 'board-attachment-finalize', appSessionToken: adminAppSession, body: {
       actor: actorAdmin, postId: adminPostId,
       files: [
-        { storagePath: signed[0].storagePath, fileName: 'a.png', fileSize: 100, mimeType: 'image/png', fileType: 'image', sortOrder: 0 },
-        { storagePath: signed[1].storagePath, fileName: 'b.pdf', fileSize: 100, mimeType: 'application/pdf', fileType: 'file', sortOrder: 1 },
+        { storagePath: signed[0].storagePath, fileName: 'a.png', fileSize: 3, mimeType: 'image/png', fileType: 'image', sortOrder: 0 },
+        { storagePath: signed[1].storagePath, fileName: 'b.pdf', fileSize: 3, mimeType: 'application/pdf', fileType: 'file', sortOrder: 1 },
       ],
     } });
     assertTrue(finalize.ok && finalize.data?.ok === true, 'attachment finalize failed');
 
-    const comment = await fcFn({ supabaseUrl, anonKey, fn: 'board-comment-create', body: {
+    const comment = await fcFn({ supabaseUrl, anonKey, fn: 'board-comment-create', appSessionToken: fcAppSession, body: {
       actor: actorFc, postId: adminPostId, content: 'c1',
     } });
     assertTrue(comment.ok && comment.data?.ok === true, 'comment create failed');
     const commentId = comment.data.data.id;
-    await fcFn({ supabaseUrl, anonKey, fn: 'board-comment-like-toggle', body: { actor: actorAdmin, commentId } });
-    await fcFn({ supabaseUrl, anonKey, fn: 'board-reaction-toggle', body: { actor: actorFc, postId: adminPostId, reactionType: 'heart' } });
+    await fcFn({ supabaseUrl, anonKey, fn: 'board-comment-like-toggle', appSessionToken: adminAppSession, body: { actor: actorAdmin, commentId } });
+    await fcFn({ supabaseUrl, anonKey, fn: 'board-reaction-toggle', appSessionToken: fcAppSession, body: { actor: actorFc, postId: adminPostId, reactionType: 'heart' } });
 
-    const pin = await fcFn({ supabaseUrl, anonKey, fn: 'board-pin', body: { actor: actorAdmin, postId: adminPostId, isPinned: true } });
+    const pin = await fcFn({ supabaseUrl, anonKey, fn: 'board-pin', appSessionToken: adminAppSession, body: { actor: actorAdmin, postId: adminPostId, isPinned: true } });
     assertTrue(pin.ok && pin.data?.ok === true, 'pin failed');
     const latest = await fcFn({ supabaseUrl, anonKey, fn: 'fc-notify', body: { type: 'latest_notice' } });
     assertTrue(latest.ok && latest.data?.ok === true, 'latest_notice failed');

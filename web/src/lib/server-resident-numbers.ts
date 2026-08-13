@@ -3,13 +3,16 @@ import { logger } from '@/lib/logger';
 import { readResidentNumbersFromEdgeFallback } from '@/lib/resident-number-edge-executor';
 import { buildResidentNumberEdgeFallbackRequest } from '@/lib/resident-number-edge-fallback';
 import { parseResidentNumberEdgeFallbackResponse } from '@/lib/resident-number-edge-response';
+import type {
+  ResidentNumberMap,
+  ResidentNumberReadResult,
+  ResidentNumberStatusMap,
+} from '@/lib/resident-number-read-contract';
 import {
   type DirectDecryptMode,
   type DirectFallbackReason,
   resolveResidentNumberDirectDecryptMode,
 } from '@/lib/resident-number-runtime';
-
-type ResidentNumberMap = Record<string, string | null>;
 
 type DirectReadOutcome =
   | {
@@ -18,6 +21,7 @@ type DirectReadOutcome =
       directMode: DirectDecryptMode;
       identityKeyConfigured: true;
       residentNumbers: ResidentNumberMap;
+      residentNumberStatuses: ResidentNumberStatusMap;
     }
   | {
       source: 'edge-function';
@@ -25,6 +29,7 @@ type DirectReadOutcome =
       directMode: DirectDecryptMode;
       identityKeyConfigured: boolean;
       residentNumbers: null;
+      residentNumberStatuses: null;
       reason: DirectFallbackReason;
       error?: unknown;
     };
@@ -115,6 +120,40 @@ async function decryptResidentNumber(value: string, key: CryptoKey): Promise<str
   }
 }
 
+async function readEncryptedResidentNumberRows(
+  fcIds: string[],
+  key: CryptoKey,
+): Promise<ResidentNumberReadResult> {
+  const residentNumbers: ResidentNumberMap = Object.fromEntries(fcIds.map((fcId) => [fcId, null]));
+  const residentNumberStatuses: ResidentNumberStatusMap = Object.fromEntries(
+    fcIds.map((fcId) => [fcId, 'missing']),
+  );
+  const { data: rows, error } = await adminSupabase
+    .from('fc_identity_secure')
+    .select('fc_id,resident_number_encrypted')
+    .in('fc_id', fcIds);
+
+  if (error) {
+    throw error;
+  }
+
+  for (const row of rows ?? []) {
+    const fcId = String(row.fc_id ?? '').trim();
+    const encrypted = typeof row.resident_number_encrypted === 'string'
+      ? row.resident_number_encrypted
+      : '';
+    if (!fcId || !encrypted) continue;
+    const decrypted = await decryptResidentNumber(encrypted, key);
+    residentNumbers[fcId] = decrypted;
+    residentNumberStatuses[fcId] = decrypted ? 'ready' : 'unavailable';
+  }
+
+  return {
+    residentNumbers,
+    residentNumberStatuses,
+  };
+}
+
 async function inspectDirectResidentNumberRead(
   fcIds: string[],
   logPrefix: string,
@@ -129,6 +168,7 @@ async function inspectDirectResidentNumberRead(
       directMode,
       identityKeyConfigured: Boolean(identityKey),
       residentNumbers: null,
+      residentNumberStatuses: null,
       reason: 'mode_disabled',
     };
   }
@@ -140,6 +180,7 @@ async function inspectDirectResidentNumberRead(
       directMode,
       identityKeyConfigured: Boolean(identityKey),
       residentNumbers: null,
+      residentNumberStatuses: null,
       reason: 'report_only',
     };
   }
@@ -151,34 +192,22 @@ async function inspectDirectResidentNumberRead(
       directMode,
       identityKeyConfigured: false,
       residentNumbers: null,
+      residentNumberStatuses: null,
       reason: 'missing_identity_key',
     };
   }
 
   try {
     const key = await importAesKeyForDecrypt(identityKey);
-    const residentNumbers: ResidentNumberMap = Object.fromEntries(fcIds.map((fcId) => [fcId, null]));
     const chunkSize = 100;
+    const residentNumbers: ResidentNumberMap = {};
+    const residentNumberStatuses: ResidentNumberStatusMap = {};
 
     for (let i = 0; i < fcIds.length; i += chunkSize) {
       const chunk = fcIds.slice(i, i + chunkSize);
-      const { data: rows, error } = await adminSupabase
-        .from('fc_identity_secure')
-        .select('fc_id,resident_number_encrypted')
-        .in('fc_id', chunk);
-
-      if (error) {
-        throw error;
-      }
-
-      for (const row of rows ?? []) {
-        const fcId = String(row.fc_id ?? '').trim();
-        const encrypted = typeof row.resident_number_encrypted === 'string'
-          ? row.resident_number_encrypted
-          : '';
-        if (!fcId || !encrypted) continue;
-        residentNumbers[fcId] = await decryptResidentNumber(encrypted, key);
-      }
+      const chunkResult = await readEncryptedResidentNumberRows(chunk, key);
+      Object.assign(residentNumbers, chunkResult.residentNumbers);
+      Object.assign(residentNumberStatuses, chunkResult.residentNumberStatuses);
     }
 
     return {
@@ -187,6 +216,7 @@ async function inspectDirectResidentNumberRead(
       directMode,
       identityKeyConfigured: true,
       residentNumbers,
+      residentNumberStatuses,
     };
   } catch (error: unknown) {
     return {
@@ -195,6 +225,7 @@ async function inspectDirectResidentNumberRead(
       directMode,
       identityKeyConfigured: true,
       residentNumbers: null,
+      residentNumberStatuses: null,
       reason: 'direct_failed',
       error,
     };
@@ -251,18 +282,24 @@ type ReadResidentNumbersWithFallbackOptions = {
   logPrefix?: string;
 };
 
-export async function readResidentNumbersWithFallback({
+export async function readResidentNumbersWithFallbackDetailed({
   fcIds,
   staffPhone,
   logPrefix = '[server-resident-numbers]',
-}: ReadResidentNumbersWithFallbackOptions): Promise<ResidentNumberMap> {
+}: ReadResidentNumbersWithFallbackOptions): Promise<ResidentNumberReadResult> {
   if (fcIds.length === 0) {
-    return {};
+    return {
+      residentNumbers: {},
+      residentNumberStatuses: {},
+    };
   }
 
   const directRead = await inspectDirectResidentNumberRead(fcIds, logPrefix);
   if (directRead.source === 'direct') {
-    return directRead.residentNumbers;
+    return {
+      residentNumbers: directRead.residentNumbers,
+      residentNumberStatuses: directRead.residentNumberStatuses,
+    };
   }
 
   const runtimeDetails = buildRuntimeDetails(fcIds, directRead);
@@ -290,4 +327,11 @@ export async function readResidentNumbersWithFallback({
     buildRequest: buildResidentNumberEdgeFallbackRequest,
     parseResponse: parseResidentNumberEdgeFallbackResponse,
   });
+}
+
+export async function readResidentNumbersWithFallback(
+  options: ReadResidentNumbersWithFallbackOptions,
+): Promise<ResidentNumberMap> {
+  const result = await readResidentNumbersWithFallbackDetailed(options);
+  return result.residentNumbers;
 }

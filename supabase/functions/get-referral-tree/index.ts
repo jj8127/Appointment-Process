@@ -5,6 +5,7 @@ import {
   requireAppSessionFromRequest,
   type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
 const corsHeaders = {
@@ -44,9 +45,15 @@ type TreeRpcRow = {
 type ProfileRow = {
   id: string;
   name: string | null;
+  phone: string | null;
   affiliation: string | null;
   recommender_fc_id: string | null;
   is_manager_referral_shadow: boolean | null;
+  signup_completed: boolean | null;
+  appointment_date_life: string | null;
+  appointment_date_nonlife: string | null;
+  life_commission_completed: boolean | null;
+  nonlife_commission_completed: boolean | null;
 };
 
 type EdgeSource = 'linked';
@@ -85,6 +92,37 @@ type ReferralDescendant = {
   relationshipSource: 'linked';
 };
 
+type ReferralGraphNode = {
+  id: string;
+  name: string;
+  affiliation: string;
+  activeCode: string | null;
+  nodeStatus: 'has_active_code' | 'code_disabled' | 'missing_code';
+  signupCompleted: boolean;
+  allCommissionsCompleted: boolean;
+  directInviteeCount: number;
+  totalDescendantCount: number;
+  isViewer: boolean;
+};
+
+type ReferralGraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+};
+
+const QUERY_ID_CHUNK_SIZE = 100;
+const QUERY_PAGE_SIZE = 500;
+const MOBILE_GRAPH_MAX_NODES = 300;
+
+function chunkIds(ids: string[], size = QUERY_ID_CHUNK_SIZE) {
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += size) {
+    chunks.push(ids.slice(index, index + size));
+  }
+  return chunks;
+}
+
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -121,20 +159,92 @@ async function fetchProfilesByIds(ids: string[]) {
     return new Map<string, ProfileRow>();
   }
 
-  const { data, error } = await supabase
-    .from('fc_profiles')
-    .select('id, name, affiliation, recommender_fc_id, is_manager_referral_shadow')
-    .in('id', uniqueIds);
-
-  if (error) {
-    throw error;
-  }
-
   const map = new Map<string, ProfileRow>();
-  for (const row of (data ?? []) as ProfileRow[]) {
-    map.set(row.id, row);
+  for (const idsChunk of chunkIds(uniqueIds)) {
+    const { data, error } = await supabase
+      .from('fc_profiles')
+      .select(
+        'id, name, phone, affiliation, recommender_fc_id, is_manager_referral_shadow, signup_completed, appointment_date_life, appointment_date_nonlife, life_commission_completed, nonlife_commission_completed',
+      )
+      .in('id', idsChunk);
+
+    if (error) {
+      throw error;
+    }
+
+    for (const row of (data ?? []) as ProfileRow[]) {
+      map.set(row.id, row);
+    }
   }
   return map;
+}
+
+async function fetchCodeHistoryByFcIds(ids: string[]) {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  if (uniqueIds.length === 0) {
+    return new Set<string>();
+  }
+
+  const history = new Set<string>();
+  for (const idsChunk of chunkIds(uniqueIds)) {
+    let offset = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from('referral_codes')
+        .select('fc_id')
+        .in('fc_id', idsChunk)
+        .order('id', { ascending: true })
+        .range(offset, offset + QUERY_PAGE_SIZE - 1);
+
+      if (error) {
+        throw error;
+      }
+
+      const rows = (data ?? []) as { fc_id: string | null }[];
+      for (const row of rows) {
+        if (row.fc_id) history.add(row.fc_id);
+      }
+      if (rows.length < QUERY_PAGE_SIZE) break;
+      offset += QUERY_PAGE_SIZE;
+    }
+  }
+  return history;
+}
+
+async function fetchExcludedStaffPhones() {
+  const phones = new Set<string>();
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('admin_accounts')
+      .select('phone')
+      .order('id', { ascending: true })
+      .range(offset, offset + QUERY_PAGE_SIZE - 1);
+
+    if (error) {
+      throw error;
+    }
+
+    const rows = (data ?? []) as { phone: string | null }[];
+    for (const row of rows) {
+      const phone = cleanPhone(row.phone ?? '');
+      if (phone.length === 11) phones.add(phone);
+    }
+    if (rows.length < QUERY_PAGE_SIZE) break;
+    offset += QUERY_PAGE_SIZE;
+  }
+
+  return phones;
+}
+
+function isGraphEligibleProfile(profile: ProfileRow, excludedStaffPhones: Set<string>) {
+  const phone = cleanPhone(profile.phone ?? '');
+  return (
+    phone.length === 11
+    && !String(profile.affiliation ?? '').includes('설계매니저')
+    && !excludedStaffPhones.has(phone)
+  );
 }
 
 async function fetchActiveCodesByFcIds(ids: string[]) {
@@ -143,22 +253,24 @@ async function fetchActiveCodesByFcIds(ids: string[]) {
     return new Map<string, string | null>();
   }
 
-  const { data, error } = await supabase
-    .from('referral_codes')
-    .select('fc_id, code, created_at, id')
-    .in('fc_id', uniqueIds)
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false });
-
-  if (error) {
-    throw error;
-  }
-
   const map = new Map<string, string | null>();
-  for (const row of (data ?? []) as { fc_id: string; code: string | null }[]) {
-    if (!map.has(row.fc_id)) {
-      map.set(row.fc_id, row.code ?? null);
+  for (const idsChunk of chunkIds(uniqueIds)) {
+    const { data, error } = await supabase
+      .from('referral_codes')
+      .select('fc_id, code, created_at, id')
+      .in('fc_id', idsChunk)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    for (const row of (data ?? []) as { fc_id: string; code: string | null }[]) {
+      if (!map.has(row.fc_id)) {
+        map.set(row.fc_id, row.code ?? null);
+      }
     }
   }
   return map;
@@ -170,33 +282,102 @@ async function fetchChildEdges(parentIds: string[]) {
     return [] as EdgeRecord[];
   }
 
-  const { data: structuredRows, error: structuredError } = await supabase
-    .from('fc_profiles')
-    .select('id, recommender_fc_id, is_manager_referral_shadow')
-    .in('recommender_fc_id', uniqueParentIds);
+  const edgeMap = new Map<string, EdgeRecord>();
+  for (const parentIdsChunk of chunkIds(uniqueParentIds)) {
+    let offset = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from('fc_profiles')
+        .select('id, recommender_fc_id, is_manager_referral_shadow')
+        .in('recommender_fc_id', parentIdsChunk)
+        .order('id', { ascending: true })
+        .range(offset, offset + QUERY_PAGE_SIZE - 1);
 
-  if (structuredError) {
-    throw structuredError;
+      if (error) {
+        throw error;
+      }
+
+      const rows = (data ?? []) as {
+        id: string;
+        recommender_fc_id: string | null;
+        is_manager_referral_shadow: boolean | null;
+      }[];
+      for (const row of rows) {
+        const parentFcId = row.recommender_fc_id ?? null;
+        if (!parentFcId || row.id === parentFcId || row.is_manager_referral_shadow === true) {
+          continue;
+        }
+
+        const key = `${parentFcId}:${row.id}`;
+        edgeMap.set(key, {
+          parentFcId,
+          childFcId: row.id,
+          relationshipSource: 'linked',
+        });
+      }
+      if (rows.length < QUERY_PAGE_SIZE) break;
+      offset += QUERY_PAGE_SIZE;
+    }
+  }
+
+  return Array.from(edgeMap.values());
+}
+
+async function fetchGraphChildEdges(
+  parentIds: string[],
+  excludedStaffPhones: Set<string>,
+  limit: number,
+) {
+  const uniqueParentIds = Array.from(new Set(parentIds.filter(Boolean)));
+  const safeLimit = Math.max(1, Math.trunc(limit));
+  if (uniqueParentIds.length === 0) {
+    return [] as EdgeRecord[];
   }
 
   const edgeMap = new Map<string, EdgeRecord>();
+  for (const parentIdsChunk of chunkIds(uniqueParentIds)) {
+    let offset = 0;
+    while (edgeMap.size < safeLimit) {
+      const pageSize = QUERY_PAGE_SIZE;
+      const { data, error } = await supabase
+        .from('fc_profiles')
+        .select(
+          'id, name, phone, affiliation, recommender_fc_id, is_manager_referral_shadow, signup_completed, appointment_date_life, appointment_date_nonlife, life_commission_completed, nonlife_commission_completed',
+        )
+        .in('recommender_fc_id', parentIdsChunk)
+        .order('id', { ascending: true })
+        .range(offset, offset + pageSize - 1);
 
-  for (const row of (structuredRows ?? []) as {
-    id: string;
-    recommender_fc_id: string | null;
-    is_manager_referral_shadow: boolean | null;
-  }[]) {
-    const parentFcId = row.recommender_fc_id ?? null;
-    if (!parentFcId || row.id === parentFcId || row.is_manager_referral_shadow === true) {
-      continue;
+      if (error) {
+        throw error;
+      }
+
+      const rows = (data ?? []) as ProfileRow[];
+      for (const profile of rows) {
+        const parentFcId = profile.recommender_fc_id ?? null;
+        if (
+          !parentFcId
+          || profile.id === parentFcId
+          || !isGraphEligibleProfile(profile, excludedStaffPhones)
+        ) {
+          continue;
+        }
+
+        const key = `${parentFcId}:${profile.id}`;
+        edgeMap.set(key, {
+          parentFcId,
+          childFcId: profile.id,
+          relationshipSource: 'linked',
+        });
+        if (edgeMap.size >= safeLimit) {
+          break;
+        }
+      }
+
+      if (rows.length < pageSize) break;
+      offset += rows.length;
     }
-
-    const key = `${parentFcId}:${row.id}`;
-    edgeMap.set(key, {
-      parentFcId,
-      childFcId: row.id,
-      relationshipSource: 'linked',
-    });
+    if (edgeMap.size >= safeLimit) break;
   }
 
   return Array.from(edgeMap.values());
@@ -233,12 +414,24 @@ function collectReachableDescendants(
   return reachable;
 }
 
-async function buildFallbackTreeRows(rootFcId: string, depth: number) {
-  const safeDepth = Math.max(1, Math.min(5, Math.trunc(depth || 2)));
+async function buildFallbackTreeRows(
+  rootFcId: string,
+  depth: number,
+  options?: {
+    maxDescendants?: number;
+    includeManagerReferralShadows?: boolean;
+    loadChildEdges?: (parentIds: string[], limit?: number) => Promise<EdgeRecord[]>;
+  },
+) {
+  const safeDepth = Math.max(1, Math.min(20, Math.trunc(depth || 2)));
+  const maxDescendants = options?.maxDescendants == null
+    ? null
+    : Math.max(1, Math.trunc(options.maxDescendants));
+  const loadChildEdges = options?.loadChildEdges ?? fetchChildEdges;
   const profileMap = await fetchProfilesByIds([rootFcId]);
   const rootProfile = profileMap.get(rootFcId);
   if (!rootProfile) {
-    return [] as TreeRpcRow[];
+    return { rows: [] as TreeRpcRow[], truncated: false };
   }
 
   const ancestorRows: TreeRpcRow[] = [];
@@ -281,10 +474,27 @@ async function buildFallbackTreeRows(rootFcId: string, depth: number) {
 
   let frontier = [rootFcId];
   let traversalDepth = 0;
+  let traversalTruncated = false;
 
   while (frontier.length > 0 && traversalDepth < 20) {
     traversalDepth += 1;
-    const edges = await fetchChildEdges(frontier);
+    const remainingSlots = maxDescendants == null
+      ? null
+      : Math.max(0, maxDescendants - (seenDescendants.size - 1));
+    if (remainingSlots === 0) {
+      const overflowEdges = await loadChildEdges(frontier, 1);
+      traversalTruncated = traversalTruncated || overflowEdges.length > 0;
+      break;
+    }
+
+    const edgeLimit = remainingSlots == null ? undefined : remainingSlots + 1;
+    const loadedEdges = await loadChildEdges(frontier, edgeLimit);
+    const edges = remainingSlots == null
+      ? loadedEdges
+      : loadedEdges.slice(0, remainingSlots);
+    if (remainingSlots != null && loadedEdges.length > remainingSlots) {
+      traversalTruncated = true;
+    }
     const nextFrontier: string[] = [];
 
     for (const edge of edges) {
@@ -301,14 +511,19 @@ async function buildFallbackTreeRows(rootFcId: string, depth: number) {
 
     for (const edge of edges) {
       const childProfile = childProfiles.get(edge.childFcId);
-      if (!childProfile || childProfile.is_manager_referral_shadow === true) {
+      if (
+        !childProfile
+        || (
+          options?.includeManagerReferralShadows !== true
+          && childProfile.is_manager_referral_shadow === true
+        )
+      ) {
         continue;
       }
 
-      subtreeIds.add(edge.childFcId);
-
       if (!seenDescendants.has(edge.childFcId)) {
         seenDescendants.add(edge.childFcId);
+        subtreeIds.add(edge.childFcId);
         depthByNode.set(edge.childFcId, traversalDepth);
         chosenParentByChild.set(edge.childFcId, {
           parentFcId: edge.parentFcId,
@@ -402,7 +617,10 @@ async function buildFallbackTreeRows(rootFcId: string, depth: number) {
     row.active_code = codes.get(row.fc_id) ?? null;
   }
 
-  return [rootRow, ...ancestorRows, ...descendantRows];
+  return {
+    rows: [rootRow, ...ancestorRows, ...descendantRows],
+    truncated: traversalTruncated,
+  };
 }
 
 async function loadTreeRows(rootFcId: string, depth: number) {
@@ -416,18 +634,23 @@ async function loadTreeRows(rootFcId: string, depth: number) {
   }
 
   try {
-    const rows = await buildFallbackTreeRows(rootFcId, depth);
-    return { rows };
-  } catch (fallbackError) {
-    console.error('[get-referral-tree] rpc and fallback both failed', {
-      rpcError: error.message,
-      fallbackError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+    const fallback = await buildFallbackTreeRows(rootFcId, depth);
+    return { rows: fallback.rows };
+  } catch {
+    reportEdgeDiagnostic({
+      event: 'referral_tree.load',
+      reason: 'rpc_and_fallback_failed',
+      retryable: true,
+      errorClass: 'database',
     });
     return { error };
   }
 }
 
-async function resolveSelfProfile(session: SessionPayload) {
+async function resolveSelfProfile(
+  session: SessionPayload,
+  options?: { allowManagerShadowBootstrap?: boolean },
+) {
   const sessionPhone = cleanPhone(session.phone ?? '');
   if (sessionPhone.length !== 11) {
     return {
@@ -501,7 +724,11 @@ async function resolveSelfProfile(session: SessionPayload) {
     ? await profileQuery.eq('id', sessionFcId).maybeSingle()
     : await profileQuery.eq('phone', sessionPhone).maybeSingle();
 
-  if (!profileResult.data?.id && managerAccount?.id) {
+  if (
+    !profileResult.data?.id
+    && managerAccount?.id
+    && options?.allowManagerShadowBootstrap !== false
+  ) {
     const ensureError = await ensureManagerReferralShadowProfile(sessionPhone, managerAccount.name);
     if (ensureError) {
       return { error: json({ ok: false, code: 'db_error', message: ensureError.message }, 500) };
@@ -602,6 +829,148 @@ function sortDescendants(a: ReferralDescendant, b: ReferralDescendant) {
   return (a.name ?? '').localeCompare(b.name ?? '', 'ko');
 }
 
+function mapGraphNode(
+  row: TreeRpcRow,
+  profile: ProfileRow,
+  codeHistory: Set<string>,
+  rootFcId: string,
+): ReferralGraphNode {
+  const activeCode = row.active_code ?? null;
+  const lifeCompleted = Boolean(
+    profile.life_commission_completed || profile.appointment_date_life,
+  );
+  const nonlifeCompleted = Boolean(
+    profile.nonlife_commission_completed || profile.appointment_date_nonlife,
+  );
+
+  return {
+    id: row.fc_id,
+    name: profile.name?.trim() || '이름 없음',
+    affiliation: profile.affiliation?.trim() || '소속 미지정',
+    activeCode,
+    nodeStatus: activeCode
+      ? 'has_active_code'
+      : codeHistory.has(row.fc_id)
+        ? 'code_disabled'
+        : 'missing_code',
+    signupCompleted: profile.signup_completed === true,
+    allCommissionsCompleted: lifeCompleted && nonlifeCompleted,
+    directInviteeCount: Number(row.direct_invitee_count ?? 0),
+    totalDescendantCount: Number(row.total_descendant_count ?? 0),
+    isViewer: row.fc_id === rootFcId,
+  };
+}
+
+async function resolveReferralGraph(session: SessionPayload) {
+  if (session.role !== 'fc' && session.role !== 'manager') {
+    return fail('forbidden', '추천 관계 그래프를 조회할 수 없는 계정입니다.', 403);
+  }
+
+  const resolved = await resolveSelfProfile(session, {
+    allowManagerShadowBootstrap: false,
+  });
+  if ('error' in resolved && resolved.error) {
+    if (resolved.error.status >= 500) {
+      reportEdgeDiagnostic({
+        event: 'referral_tree.load',
+        reason: 'rpc_and_fallback_failed',
+        retryable: true,
+        errorClass: 'database',
+      });
+      return fail('db_error', '추천 관계 그래프를 불러오지 못했습니다.', 500);
+    }
+    return resolved.error;
+  }
+
+  const rootFcId = resolved.profile?.id ? String(resolved.profile.id) : null;
+  if (!rootFcId) {
+    return fail('not_found', '추천 관계를 조회할 계정을 찾을 수 없습니다.', 404);
+  }
+
+  try {
+    const excludedStaffPhones = await fetchExcludedStaffPhones();
+    const fallback = await buildFallbackTreeRows(rootFcId, 20, {
+      maxDescendants: MOBILE_GRAPH_MAX_NODES - 1,
+      includeManagerReferralShadows: true,
+      loadChildEdges: (parentIds, limit) => fetchGraphChildEdges(
+        parentIds,
+        excludedStaffPhones,
+        limit ?? MOBILE_GRAPH_MAX_NODES,
+      ),
+    });
+    const graphRows = fallback.rows
+      .filter((row) => row.is_ancestor !== true && row.node_depth >= 0)
+      .sort((a, b) => a.node_depth - b.node_depth || a.fc_id.localeCompare(b.fc_id));
+    const rootRow = graphRows.find((row) => row.fc_id === rootFcId && row.node_depth === 0);
+    if (!rootRow) {
+      return fail('not_found', '추천 관계를 찾을 수 없습니다.', 404);
+    }
+
+    const graphIds = Array.from(new Set(graphRows.map((row) => row.fc_id)));
+    const [profiles, codeHistory] = await Promise.all([
+      fetchProfilesByIds(graphIds),
+      fetchCodeHistoryByFcIds(graphIds),
+    ]);
+    const visibleIds = new Set(graphIds);
+
+    const nodes = graphRows
+      .map((row) => {
+        const profile = profiles.get(row.fc_id);
+        return profile ? mapGraphNode(row, profile, codeHistory, rootFcId) : null;
+      })
+      .filter((node): node is ReferralGraphNode => node !== null)
+      .sort((a, b) => {
+        if (a.isViewer !== b.isViewer) return a.isViewer ? -1 : 1;
+        return a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id);
+      });
+
+    const edgeMap = new Map<string, ReferralGraphEdge>();
+    for (const row of graphRows) {
+      const source = row.parent_fc_id ?? null;
+      const target = row.fc_id;
+      if (!source || source === target || !visibleIds.has(source) || !visibleIds.has(target)) {
+        continue;
+      }
+
+      const id = `${source}->${target}`;
+      edgeMap.set(id, { id, source, target });
+    }
+
+    const boundaryIds = graphRows
+      .filter((row) => row.node_depth >= 20)
+      .map((row) => row.fc_id);
+    const boundaryEdges = await fetchGraphChildEdges(
+      boundaryIds,
+      excludedStaffPhones,
+      1,
+    );
+    const truncated =
+      fallback.truncated
+      || boundaryEdges.length > 0;
+
+    return json({
+      ok: true,
+      mode: 'graph',
+      nodes,
+      edges: Array.from(edgeMap.values()).sort((a, b) => a.id.localeCompare(b.id)),
+      permissions: {
+        canMutate: false,
+        scope: 'downline',
+        rootFcId,
+      },
+      truncated,
+    });
+  } catch {
+    reportEdgeDiagnostic({
+      event: 'referral_tree.load',
+      reason: 'rpc_and_fallback_failed',
+      retryable: true,
+      errorClass: 'database',
+    });
+    return fail('db_error', '추천 관계 그래프를 불러오지 못했습니다.', 500);
+  }
+}
+
 async function resolveReferralTree(req: Request, session: SessionPayload) {
   let body: { fcId?: string; depth?: number } = {};
 
@@ -687,8 +1056,18 @@ serve(async (req: Request) => {
   }
 
   const sessionResult = await requireAppSessionFromRequest(req);
-  if (!sessionResult.ok) {
+  if (sessionResult.ok === false) {
     return fail(sessionResult.code, sessionResult.message, sessionResult.status);
+  }
+
+  let mode: unknown = null;
+  try {
+    mode = (await req.clone().json() as { mode?: unknown }).mode;
+  } catch {
+    mode = null;
+  }
+  if (mode === 'graph') {
+    return resolveReferralGraph(sessionResult.session);
   }
 
   return resolveReferralTree(req, sessionResult.session);

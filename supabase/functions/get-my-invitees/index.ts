@@ -101,7 +101,7 @@ async function resolveSelfProfile(session: SessionPayload) {
 
   if (!profileResult.data?.id && managerAccount) {
     const ensureResult = await ensureManagerReferralShadowProfile(supabase, sessionPhone, managerAccount.name);
-    if (!ensureResult.ok) {
+    if (ensureResult.ok === false) {
       return { error: json({ ok: false, code: 'db_error', message: ensureResult.message }, 500) };
     }
 
@@ -139,12 +139,12 @@ serve(async (req: Request) => {
   }
 
   const sessionResult = await requireAppSessionFromRequest(req);
-  if (!sessionResult.ok) {
+  if (sessionResult.ok === false) {
     return fail(sessionResult.code, sessionResult.message, sessionResult.status);
   }
 
   const resolved = await resolveSelfProfile(sessionResult.session);
-  if ('error' in resolved) {
+  if (resolved.error) {
     return resolved.error;
   }
 

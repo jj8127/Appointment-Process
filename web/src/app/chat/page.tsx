@@ -1,7 +1,6 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
-import { supabase } from '@/lib/supabase';
 import {
   ActionIcon,
   Avatar,
@@ -24,8 +23,22 @@ import type React from 'react';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import { buildAdminDashboardChatUrl } from '@/lib/admin-chat-url';
-import { logger } from '@/lib/logger';
-import { getWebStaffChatActorId, getWebStaffSenderName } from '@/lib/staff-identity';
+import {
+  MessengerAttachmentList,
+  MessengerAttachmentPicker,
+} from '@/components/MessengerAttachments';
+import {
+  prepareMessengerAttachmentBatch,
+  uploadMessengerAttachmentBatch,
+  type MessengerAttachmentMetadata,
+  type PreparedMessengerAttachmentBatch,
+} from '@/lib/messenger-attachment-client';
+import { validateMessengerAttachmentCommitResponse } from '@/lib/messenger-attachment-commit';
+import {
+  notificationFeedbackColor,
+  parseNotificationDeliveryFeedback,
+} from '@/lib/notification-delivery-feedback';
+import { getWebStaffChatActorId } from '@/lib/staff-identity';
 type Message = {
   id: string;
   content: string;
@@ -36,11 +49,13 @@ type Message = {
   message_type?: 'text' | 'image' | 'file';
   file_url?: string | null;
   file_name?: string | null;
+  file_size?: number | null;
+  attachments?: MessengerAttachmentMetadata[];
 };
 
 type ChatMessage = Message & {
   localId?: string;
-  sendStatus?: 'sending' | 'sent' | 'failed';
+  sendStatus?: 'sending' | 'sent' | 'failed' | 'notification-failed' | 'notification-invalid';
   errorMessage?: string | null;
 };
 
@@ -49,12 +64,13 @@ const CHARCOAL = '#111827';
 const sanitize = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
 
 function ChatContent() {
-  const { role, residentId, hydrated, staffType, displayName } = useSession();
+  const { role, residentId, hydrated, staffType } = useSession();
   const params = useSearchParams();
   const router = useRouter();
 
   const targetIdParam = params.get('targetId') ?? '';
   const targetNameParam = params.get('targetName') ?? '';
+  const conversationIdParam = (params.get('conversationId') ?? '').trim().toLowerCase();
 
   const myId = useMemo(() => {
     if (role === 'admin' || role === 'manager') {
@@ -74,17 +90,25 @@ function ChatContent() {
     },
     [otherId, role, targetNameParam],
   );
-  const senderName = useMemo(
-    () => getWebStaffSenderName({ role, residentId, staffType, displayName }),
-    [displayName, residentId, role, staffType],
-  );
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState(conversationIdParam);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const deletedIdsRef = useRef<Set<string>>(new Set());
+  const pendingAttachmentDeliveryRef = useRef<{
+    clientMessageId: string;
+    batch: PreparedMessengerAttachmentBatch;
+    intentIds?: string[];
+  } | null>(null);
+  const attachmentNotificationReplayRef = useRef(new Map<string, {
+    batch: PreparedMessengerAttachmentBatch;
+    intentIds: string[];
+  }>());
+  const refreshMessagesRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     if (!hydrated) return;
@@ -106,95 +130,74 @@ function ChatContent() {
     });
   };
 
-  // Initial fetch
   useEffect(() => {
     if (!hydrated) return;
     if (!myId || !otherId) return;
 
     const fetchMessages = async () => {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*')
-        .or(
-          `and(sender_id.eq.${myId},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${myId})`,
-        )
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        logger.warn('[chat] fetch error', error.message);
-        return;
+      let activeConversationId = conversationId;
+      if (!activeConversationId) {
+        const resolveResponse = await fetch('/api/fc-notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          cache: 'no-store',
+          body: JSON.stringify({
+            type: 'resolve_garamin_direct_conversation',
+            target_id: otherId,
+          }),
+        });
+        const resolvePayload = await resolveResponse.json().catch(() => null);
+        activeConversationId = String(resolvePayload?.data?.conversation?.id ?? '').trim();
+        if (!resolveResponse.ok || !resolvePayload?.ok || !activeConversationId) return;
+        setConversationId(activeConversationId);
       }
-      const filtered = (data ?? []).filter((m) => !deletedIdsRef.current.has(m.id));
-      setMessages(filtered.map((m) => ({ ...m, sendStatus: 'sent' })));
+      const response = await fetch('/api/fc-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        cache: 'no-store',
+        body: JSON.stringify({
+          type: 'direct_message_list',
+          conversation_id: activeConversationId,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      const rows = payload?.data?.messages;
+      if (!response.ok || !payload?.ok || !Array.isArray(rows)) return;
+      const filtered = rows.filter((m: Message) => !deletedIdsRef.current.has(m.id));
+      setMessages((current) => filtered.map((message) => {
+        const existing = current.find((item) => item.id === message.id);
+        if (
+          existing?.sendStatus === 'notification-failed'
+          || existing?.sendStatus === 'notification-invalid'
+        ) {
+          return {
+            ...message,
+            localId: existing.localId,
+            sendStatus: existing.sendStatus,
+            errorMessage: existing.errorMessage,
+          };
+        }
+        return { ...message, sendStatus: 'sent' };
+      }));
       scrollToBottom();
-
-      // mark read for incoming
-      const unreadIds = filtered.filter((m) => m.sender_id === otherId && !m.is_read).map((m) => m.id);
-      if (unreadIds.length > 0) {
-        await supabase.from('messages').update({ is_read: true }).in('id', unreadIds);
-      }
+      await fetch('/api/fc-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          type: 'direct_message_mark_read',
+          conversation_id: activeConversationId,
+        }),
+      });
     };
+    refreshMessagesRef.current = fetchMessages;
 
-    fetchMessages();
-  }, [hydrated, myId, otherId]);
-
-  // Realtime subscription
-  useEffect(() => {
-    if (!hydrated || !myId || !otherId) return;
-
-    const channel = supabase
-      .channel(`chat-${myId}-${otherId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
-        async (payload) => {
-          if (payload.eventType === 'DELETE') {
-            const deletedId = (payload.old as { id?: string } | undefined)?.id;
-            if (deletedId) {
-              deletedIdsRef.current.add(deletedId);
-              setMessages((prev) => prev.filter((m) => m.id !== deletedId));
-              return;
-            }
-          }
-          const newMsg = payload.new as Message;
-          const related =
-            (newMsg.sender_id === myId && newMsg.receiver_id === otherId) ||
-            (newMsg.sender_id === otherId && newMsg.receiver_id === myId);
-          if (!related) return;
-
-          if (payload.eventType === 'INSERT') {
-            setMessages((prev) => {
-              const exists = prev.some((m) => m.id === newMsg.id);
-              if (exists) return prev.map((m) => (m.id === newMsg.id ? { ...newMsg, sendStatus: 'sent' } : m));
-              const pendingIdx = prev.findIndex(
-                (m) =>
-                  m.sendStatus === 'sending' &&
-                  m.sender_id === newMsg.sender_id &&
-                  m.receiver_id === newMsg.receiver_id &&
-                  m.content === newMsg.content,
-              );
-              if (pendingIdx !== -1) {
-                const next = [...prev];
-                next[pendingIdx] = { ...newMsg, sendStatus: 'sent' };
-                return next;
-              }
-              return [...prev, { ...newMsg, sendStatus: 'sent' }];
-            });
-            scrollToBottom();
-            if (newMsg.sender_id === otherId && !newMsg.is_read) {
-              await supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id);
-            }
-          } else if (payload.eventType === 'UPDATE') {
-            setMessages((prev) => prev.map((m) => (m.id === newMsg.id ? { ...newMsg, sendStatus: 'sent' } : m)));
-          }
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [hydrated, myId, otherId]);
+    void fetchMessages();
+    const intervalId = window.setInterval(() => void fetchMessages(), 15_000);
+    return () => window.clearInterval(intervalId);
+  }, [conversationId, hydrated, myId, otherId, targetNameParam]);
 
   const upsertLocalMessage = (msg: ChatMessage) => {
     setMessages((prev) => {
@@ -208,9 +211,16 @@ function ChatContent() {
     });
   };
 
-  const sendMessageContent = async (content: string, reuseLocalId?: string) => {
-    if (!content.trim() || !myId || !otherId) return;
-    const localId = reuseLocalId ?? `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const sendMessageContent = async (
+    content: string,
+    reuseLocalId?: string,
+    explicitAttachmentReplay?: {
+      batch: PreparedMessengerAttachmentBatch;
+      intentIds: string[];
+    },
+  ) => {
+    if ((!content.trim() && selectedFiles.length === 0 && !explicitAttachmentReplay) || !myId || !otherId) return;
+    const localId = reuseLocalId ?? crypto.randomUUID();
     const now = new Date().toISOString();
 
     upsertLocalMessage({
@@ -228,77 +238,108 @@ function ChatContent() {
     setLoading(true);
 
     try {
-      const { data: inserted, error } = await supabase
-        .from('messages')
-        .insert({
-          sender_id: myId,
-          receiver_id: otherId,
+      if (!conversationId) throw new Error('direct_conversation_unavailable');
+      let attachmentDelivery = explicitAttachmentReplay
+        ? { clientMessageId: localId, ...explicitAttachmentReplay }
+        : pendingAttachmentDeliveryRef.current?.clientMessageId === localId
+          ? pendingAttachmentDeliveryRef.current
+          : null;
+      if (!attachmentDelivery && selectedFiles.length > 0) {
+        attachmentDelivery = {
+          clientMessageId: localId,
+          batch: await prepareMessengerAttachmentBatch({
+            files: selectedFiles,
+            context: { kind: 'direct', conversationId },
+            content,
+          }),
+        };
+        pendingAttachmentDeliveryRef.current = attachmentDelivery;
+      }
+      if (attachmentDelivery && !attachmentDelivery.intentIds) {
+        const upload = await uploadMessengerAttachmentBatch(attachmentDelivery.batch);
+        if (upload.state === 'committed') {
+          pendingAttachmentDeliveryRef.current = null;
+          setSelectedFiles([]);
+          setInput('');
+          setMessages((current) => current.filter((message) => message.id !== localId));
+          await refreshMessagesRef.current();
+          return;
+        }
+        attachmentDelivery.intentIds = upload.intentIds;
+      }
+      const response = await fetch('/api/fc-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          type: 'direct_message_send',
+          conversation_id: conversationId,
+          client_message_id: localId,
           content,
-          message_type: 'text',
-          is_read: false,
+          ...(attachmentDelivery
+            ? {
+                attachment_intent_ids: attachmentDelivery.intentIds,
+                delivery_key: attachmentDelivery.batch.deliveryKey,
+                payload_fingerprint: attachmentDelivery.batch.payloadFingerprint,
+              }
+            : {}),
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      const inserted = payload?.data?.message as Message | undefined;
+      if (!response.ok || !payload?.ok || !inserted?.id) {
+        throw new Error('direct_message_send_failed');
+      }
+      if (
+        attachmentDelivery
+        && !validateMessengerAttachmentCommitResponse({
+          attachmentCommit: payload?.data?.attachmentCommit,
+          message: inserted,
+          expectedAttachmentCount: attachmentDelivery.batch.files.length,
         })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      upsertLocalMessage({
-        ...inserted,
-        sendStatus: 'sent',
-        errorMessage: null,
-      });
-
-      const isReceiverAdmin = otherId === 'admin';
-      const recipientRole = isReceiverAdmin ? 'admin' : 'fc';
-      const residentIdForPush = isReceiverAdmin ? null : otherId;
-      const notiBody = content;
-
-      const { error: notifErr } = await supabase.from('notifications').insert({
-        title: '새 메시지',
-        body: notiBody,
-        category: 'message',
-        target_url: recipientRole === 'admin' ? `/chat?targetId=${myId}&targetName=FC` : '/chat',
-        recipient_role: recipientRole,
-        resident_id: residentIdForPush,
-      });
-      if (notifErr) {
-        upsertLocalMessage({
-          ...inserted,
-          sendStatus: 'sent',
-          errorMessage: `[알림 기록 실패] ${notifErr.message}`,
-        });
+      ) {
+        throw new Error('invalid_attachment_commit_response');
       }
 
-      try {
-        const resp = await fetch('/api/fc-notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'message',
-            target_role: recipientRole,
-            target_id: residentIdForPush,
-            message: notiBody,
-            sender_id: myId,
-            sender_name: senderName,
-          }),
+      const deliveryFeedback = parseNotificationDeliveryFeedback(payload?.data);
+      const notificationFailed = deliveryFeedback?.state === 'persistence_failed';
+      const notificationInvalid = deliveryFeedback?.state === 'invalid_recipient';
+      upsertLocalMessage({
+        ...inserted,
+        localId,
+        sendStatus: notificationFailed
+          ? 'notification-failed'
+          : notificationInvalid
+            ? 'notification-invalid'
+            : 'sent',
+        errorMessage: notificationFailed
+          ? '메시지는 전송됐지만 알림을 등록하지 못했습니다.'
+          : notificationInvalid
+            ? '메시지는 전송됐지만 알림 수신자를 확인할 수 없습니다.'
+            : null,
+      });
+      if (notificationFailed && attachmentDelivery?.intentIds) {
+        attachmentNotificationReplayRef.current.set(inserted.id, {
+          batch: attachmentDelivery.batch,
+          intentIds: attachmentDelivery.intentIds,
         });
-        const data = await resp.json().catch(() => null);
-        if (!resp.ok) {
-          upsertLocalMessage({
-            ...inserted,
-            sendStatus: 'sent',
-            errorMessage: `[알림 전송 실패] status ${resp.status} ${data?.error ?? ''}`,
-          });
-        }
-        logger.debug('[notify] fc-notify proxy response', { status: resp.status, ok: resp.ok, data });
-      } catch (err: unknown) {
-        const error = err as Error;
-        upsertLocalMessage({
-          ...inserted,
-          sendStatus: 'sent',
-          errorMessage: `[알림 전송 실패] ${error?.message ?? String(err)}`,
+      } else {
+        attachmentNotificationReplayRef.current.delete(inserted.id);
+      }
+      pendingAttachmentDeliveryRef.current = null;
+      setSelectedFiles([]);
+      setInput('');
+
+      if (deliveryFeedback && deliveryFeedback.severity !== 'success') {
+        notifications.show({
+          title: deliveryFeedback.title,
+          message: notificationFailed
+            ? '요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다. 알림만 다시 시도해 주세요.'
+            : notificationInvalid
+              ? '메시지는 전송됐지만 알림 수신자를 확인할 수 없습니다.'
+              : deliveryFeedback.message,
+          color: notificationFeedbackColor(deliveryFeedback),
         });
-        logger.warn('[notify] fc-notify proxy error', err);
       }
     } catch (err: unknown) {
       const error = err as Error;
@@ -320,9 +361,8 @@ function ChatContent() {
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || !myId || !otherId) return;
+    if ((!input.trim() && selectedFiles.length === 0) || !myId || !otherId) return;
     const content = input.trim();
-    setInput('');
     await sendMessageContent(content);
   };
 
@@ -394,6 +434,8 @@ function ChatContent() {
                   const isMe = msg.sender_id === myId;
                   const isSending = msg.sendStatus === 'sending';
                   const isFailed = msg.sendStatus === 'failed';
+                  const isNotificationFailed = msg.sendStatus === 'notification-failed';
+                  const isNotificationInvalid = msg.sendStatus === 'notification-invalid';
                   return (
                     <Group key={msg.id} justify={isMe ? 'flex-end' : 'flex-start'} align="flex-end" gap={8}>
                       {!isMe && (
@@ -433,7 +475,11 @@ function ChatContent() {
                             {msg.file_name || '파일 보기'}
                           </Text>
                         )}
-                        {(isSending || isFailed || msg.errorMessage) && (
+                        <MessengerAttachmentList
+                          attachments={msg.attachments}
+                          ownMessage={isMe}
+                        />
+                        {(isSending || isFailed || isNotificationFailed || isNotificationInvalid || msg.errorMessage) && (
                           <Group gap={6} mt={6} align="center">
                             {isSending && (
                               <Text size="xs" c={isMe ? 'white' : 'dimmed'}>
@@ -448,6 +494,16 @@ function ChatContent() {
                                 </Text>
                               </>
                             )}
+                            {isNotificationFailed && (
+                              <Text size="xs" c={isMe ? '#fff5f5' : '#fa5252'}>
+                                알림 등록 실패
+                              </Text>
+                            )}
+                            {isNotificationInvalid && (
+                              <Text size="xs" c={isMe ? '#fff5f5' : '#fa5252'}>
+                                알림 수신자 확인 필요
+                              </Text>
+                            )}
                             {msg.errorMessage && (
                               <Text size="xs" c={isMe ? '#fff5f5' : 'dimmed'}>
                                 {msg.errorMessage}
@@ -460,6 +516,21 @@ function ChatContent() {
                                 color={isMe ? 'gray.0' : 'red'}
                                 onClick={() => sendMessageContent(msg.content, msg.localId ?? msg.id)}
                                 aria-label="재전송"
+                              >
+                                <IconRefresh size={14} />
+                              </ActionIcon>
+                            )}
+                            {isNotificationFailed && (
+                              <ActionIcon
+                                size="sm"
+                                variant="subtle"
+                                color={isMe ? 'gray.0' : 'red'}
+                                onClick={() => sendMessageContent(
+                                  msg.content,
+                                  msg.localId ?? msg.id,
+                                  attachmentNotificationReplayRef.current.get(msg.id),
+                                )}
+                                aria-label="알림만 재시도"
                               >
                                 <IconRefresh size={14} />
                               </ActionIcon>
@@ -498,12 +569,25 @@ function ChatContent() {
             marginBottom: 12, // 입력창을 화면 맨 아래에서 살짝 띄워서 여유 공간 확보
           }}
         >
+          <MessengerAttachmentPicker
+            files={selectedFiles}
+            onChange={(files) => {
+              pendingAttachmentDeliveryRef.current = null;
+              setSelectedFiles(files);
+            }}
+            disabled={loading || !isReady}
+          />
           <Group align="flex-end" gap={8}>
             <Textarea
               style={{ flex: 1 }}
               placeholder="메시지 입력"
               value={input}
-              onChange={(e) => setInput(e.currentTarget.value)}
+              onChange={(e) => {
+                if (pendingAttachmentDeliveryRef.current) {
+                  pendingAttachmentDeliveryRef.current = null;
+                }
+                setInput(e.currentTarget.value);
+              }}
               onKeyDown={(e) => {
                 if (e.nativeEvent.isComposing) return;
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -523,7 +607,7 @@ function ChatContent() {
               variant="filled"
               radius="xl"
               onClick={sendMessage}
-              disabled={!input.trim() || loading || !isReady}
+              disabled={(!input.trim() && selectedFiles.length === 0) || loading || !isReady}
               loading={loading}
               mb={4} // Align with bottom of textarea
             >

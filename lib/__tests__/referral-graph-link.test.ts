@@ -20,18 +20,52 @@ describe('referral graph web link helpers', () => {
     );
   });
 
-  it('shows the admin referral relationship link on the referral page for every referral self-service user', () => {
+  it('opens the native referral graph from the referral page', () => {
     const referralPageSource = readFileSync(join(process.cwd(), 'app/referral.tsx'), 'utf8');
 
-    expect(referralPageSource).toContain('buildReferralGraphWebUrl');
-    expect(referralPageSource).toContain("DEFAULT_ADMIN_WEB_URL = 'https://adminweb-red.vercel.app'");
-    expect(referralPageSource).toContain('process.env.EXPO_PUBLIC_ADMIN_WEB_URL ?? DEFAULT_ADMIN_WEB_URL');
-    expect(referralPageSource).toContain('관리자 웹에서 추천 관계 보기');
-    expect(referralPageSource).toContain('추천인과 하위 연결을 한눈에 확인합니다');
-    expect(referralPageSource).toContain("Alert.alert('페이지를 열 수 없습니다'");
-    expect(referralPageSource).not.toContain('REFERRAL_GRAPH_WEB_URL ? (');
-    expect(referralPageSource).not.toContain('추천인 그래프 뷰로 보기');
-    expect(referralPageSource).not.toContain('isManager && !!ADMIN_WEB_URL');
-    expect(referralPageSource).not.toContain('PC 브라우저에서 그래프 뷰로 보기');
+    expect(referralPageSource).toContain("router.push('/referral-graph')");
+    expect(referralPageSource).toContain('추천 관계 그래프로 보기');
+    expect(referralPageSource).toContain('앱 안에서 하위 연결을 확대하고 살펴봅니다');
+    expect(referralPageSource).not.toContain('buildReferralGraphWebUrl');
+    expect(referralPageSource).not.toContain('Linking.openURL');
+    expect(referralPageSource).not.toContain('EXPO_PUBLIC_ADMIN_WEB_URL');
+  });
+
+  it('renders the native graph through a density-bounded SVG surface', () => {
+    const canvasSource = readFileSync(
+      join(process.cwd(), 'components/referral-graph/ReferralGraphCanvas.tsx'),
+      'utf8',
+    );
+
+    expect(canvasSource).toContain(
+      'getReferralGraphRenderSurfaceSize(PixelRatio.get())',
+    );
+    expect(canvasSource).toContain('width={GRAPH_RENDER_SURFACE_SIZE}');
+    expect(canvasSource).toContain('height={GRAPH_RENDER_SURFACE_SIZE}');
+    expect(canvasSource).toContain(
+      '{ scale: scale.value / GRAPH_RENDER_COORDINATE_SCALE }',
+    );
+    expect(canvasSource).toContain('getReferralGraphNodeScreenRadius(');
+    expect(canvasSource).toContain(
+      'GRAPH_RENDER_COORDINATE_SCALE / Math.max(graphScale.value, 0.001)',
+    );
+    expect(canvasSource).toContain(
+      'screenRadius * getNodeVisualScale(graphScale.value) + NODE_LABEL_GAP',
+    );
+    expect(canvasSource).toContain('const NODE_VISUAL_MAX_SCALE = 1.4');
+    expect(canvasSource).toContain('getNodeVisualScale(graphScale.value)');
+    expect(canvasSource).toContain('const ReferralGraphNodeMarker = memo');
+    expect(canvasSource).toContain('const ReferralGraphNodeLabel = memo');
+    expect(canvasSource).toContain('style={styles.nodeLabelLayer}');
+    expect(canvasSource.indexOf('<ReferralGraphNodeMarker')).toBeLessThan(
+      canvasSource.indexOf('<ReferralGraphNodeLabel'),
+    );
+    expect(canvasSource).toContain("textShadowColor: '#f8fafc'");
+    expect(canvasSource).not.toContain('SvgText');
+    expect(canvasSource).not.toContain('<Circle');
+    expect(canvasSource).not.toContain('const minimumScreenRadius');
+    expect(canvasSource).not.toContain('Math.min(34, 11 /');
+    expect(canvasSource).not.toContain('width={REFERRAL_GRAPH_SURFACE_SIZE}');
+    expect(canvasSource).not.toContain('height={REFERRAL_GRAPH_SURFACE_SIZE}');
   });
 });

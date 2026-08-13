@@ -34,8 +34,46 @@ const ncpAccessKey = getEnv('NCP_SENS_ACCESS_KEY') ?? getEnv('NCP_ACCESS_KEY');
 const ncpSecretKey = getEnv('NCP_SENS_SECRET_KEY') ?? getEnv('NCP_SECRET_KEY');
 const ncpServiceId = getEnv('NCP_SENS_SERVICE_ID') ?? getEnv('NCP_SMS_SERVICE_ID');
 const ncpSmsFrom = getEnv('NCP_SENS_SMS_FROM') ?? getEnv('NCP_SMS_SENDER');
-const testSmsMode = (getEnv('TEST_SMS_MODE') ?? '').toLowerCase() === 'true';
-const testSmsCode = getEnv('TEST_SMS_CODE') ?? '123456';
+
+export function resolveSignupTestSmsConfig(env: Record<string, string | undefined>) {
+  const enabled = (env.TEST_SMS_MODE ?? '').trim().toLowerCase() === 'true';
+  if (!enabled) {
+    return { enabled: false, code: '' };
+  }
+
+  const isHostedDeployment = Boolean((env.DENO_DEPLOYMENT_ID ?? '').trim());
+  const isProductionEnvironment = [
+    env.NODE_ENV,
+    env.DENO_ENV,
+    env.APP_ENV,
+    env.ENVIRONMENT,
+    env.SUPABASE_ENV,
+    env.VERCEL_ENV,
+  ].some((value) => ['production', 'prod'].includes((value ?? '').trim().toLowerCase()));
+
+  if (isHostedDeployment || isProductionEnvironment) {
+    throw new Error('Test SMS mode must not be enabled in production.');
+  }
+
+  const code = (env.TEST_SMS_CODE ?? '').trim();
+  if (!/^\d{6}$/.test(code)) {
+    throw new Error('A six-digit test SMS code is required when test mode is enabled.');
+  }
+
+  return { enabled: true, code };
+}
+
+const signupTestSmsConfig = resolveSignupTestSmsConfig({
+  TEST_SMS_MODE: getEnv('TEST_SMS_MODE'),
+  TEST_SMS_CODE: getEnv('TEST_SMS_CODE'),
+  DENO_DEPLOYMENT_ID: getEnv('DENO_DEPLOYMENT_ID'),
+  NODE_ENV: getEnv('NODE_ENV'),
+  DENO_ENV: getEnv('DENO_ENV'),
+  APP_ENV: getEnv('APP_ENV'),
+  ENVIRONMENT: getEnv('ENVIRONMENT'),
+  SUPABASE_ENV: getEnv('SUPABASE_ENV'),
+  VERCEL_ENV: getEnv('VERCEL_ENV'),
+});
 
 if (!supabaseUrl) {
   throw new Error('Missing required environment variable: SUPABASE_URL');
@@ -43,7 +81,7 @@ if (!supabaseUrl) {
 if (!serviceKey) {
   throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
 }
-if (!testSmsMode && (!ncpAccessKey || !ncpSecretKey || !ncpServiceId || !ncpSmsFrom)) {
+if (!signupTestSmsConfig.enabled && (!ncpAccessKey || !ncpSecretKey || !ncpServiceId || !ncpSmsFrom)) {
   throw new Error('Missing required NCP SMS credentials (NCP_SENS_ACCESS_KEY, NCP_SENS_SECRET_KEY, NCP_SENS_SERVICE_ID, NCP_SENS_SMS_FROM)');
 }
 
@@ -74,7 +112,10 @@ async function cleanupPartialSignupArtifacts(fcId: string, linkedProfileIds: str
   for (const profileId of linkedProfileIds) {
     const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profileId);
     if (authDeleteError) {
-      console.warn('[request-signup-otp] auth cleanup failed', profileId, authDeleteError.message ?? authDeleteError);
+      console.warn('[request-signup-otp] auth cleanup failed', {
+        reason: 'auth_cleanup_failed',
+        status: authDeleteError.status ?? 'unknown',
+      });
     }
   }
 
@@ -106,7 +147,7 @@ async function hmacSignature(message: string, secretKey: string) {
 }
 
 async function sendOtpSms(to: string, code: string) {
-  if (testSmsMode) {
+  if (signupTestSmsConfig.enabled) {
     return { ok: true, status: 200 };
   }
   if (!ncpAccessKey || !ncpSecretKey || !ncpServiceId || !ncpSmsFrom) {
@@ -138,15 +179,14 @@ async function sendOtpSms(to: string, code: string) {
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    return { ok: false, status: res.status, message: text || 'SMS 전송 실패' };
+    return { ok: false, status: res.status, message: 'SMS 전송에 실패했습니다.' };
   }
   return { ok: true, status: 200 };
 }
 
 function generateOtpCode() {
-  if (testSmsMode && /^\d{6}$/.test(testSmsCode)) {
-    return testSmsCode;
+  if (signupTestSmsConfig.enabled) {
+    return signupTestSmsConfig.code;
   }
   const bytes = crypto.getRandomValues(new Uint32Array(1));
   const value = bytes[0] % 900000;
@@ -372,10 +412,10 @@ serve(async (req: Request) => {
     );
   }
 
-  if (testSmsMode) {
+  if (signupTestSmsConfig.enabled) {
     // Security: Never expose OTP code in response, even in test mode
-    // Log server-side only for debugging
-    console.log('[TEST MODE] OTP code for', phone, ':', code);
+    // Keep diagnostics useful without disclosing the phone number or OTP.
+    console.info('[request-signup-otp] test delivery simulated');
     return json({ ok: true, sent: true, test_mode: true });
   }
   return json({ ok: true, sent: true });

@@ -57,11 +57,26 @@ export function getSignupReferralSelectionError(
   searchQuery: string,
   selectedReferral: ReferralSearchResult | null,
 ): string | null {
-  if (!String(searchQuery ?? '').trim() || selectedReferral) {
+  if (selectedReferral) {
     return null;
   }
 
-  return '추천인을 적용하려면 검색 결과에서 한 명을 선택하거나 입력값을 지워주세요.';
+  if (!String(searchQuery ?? '').trim()) {
+    return '추천인을 검색해 선택해주세요.';
+  }
+
+  return '추천인을 적용하려면 검색 결과에서 한 명을 선택해주세요.';
+}
+
+export function hasValidStoredSignupReferral(
+  payload: Pick<StoredSignupReferral, 'recommender' | 'referralCode' | 'referralInviterFcId'>,
+): boolean {
+  const code = String(payload.referralCode ?? '').trim().toUpperCase();
+  return (
+    /^[A-Z0-9]{8}$/.test(code)
+    && Boolean(String(payload.referralInviterFcId ?? '').trim())
+    && Boolean(String(payload.recommender ?? '').trim())
+  );
 }
 
 export function runSinglePendingReferralApply(

@@ -18,8 +18,8 @@ export type ButtonSize = 'sm' | 'md' | 'lg';
 export interface ButtonProps {
   // Content
   children: React.ReactNode;
-  leftIcon?: React.ReactNode;
-  rightIcon?: React.ReactNode;
+  leftIcon?: React.ReactElement;
+  rightIcon?: React.ReactElement;
 
   // Behavior
   onPress?: () => void;

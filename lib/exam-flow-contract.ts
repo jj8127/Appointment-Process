@@ -1,9 +1,16 @@
 import type { ExamRoundWithLocations } from '@/types/exam';
+import {
+  isNotificationUuid,
+  type NotificationTarget,
+} from '@/lib/notification-target';
 
 export type ExamFlowType = 'life' | 'nonlife';
 
 export const INVALID_EXAM_LOCATION_MESSAGE =
   '선택한 응시 지역이 해당 시험 회차에 속하지 않습니다. 응시 지역을 다시 선택해주세요.';
+
+export const INVALID_EXAM_MONTH_MESSAGE =
+  '시험 월 정보를 확인할 수 없습니다. 관리자에게 문의해주세요.';
 
 type ExamFlowConfig = {
   examType: ExamFlowType;
@@ -62,7 +69,15 @@ export type ExamNotifyPayload = {
   body: string;
   category: 'exam_apply' | 'exam_round';
   url: string;
+  target: Extract<NotificationTarget, { kind: 'exam' }>;
 };
+
+export type ExamApplyNotificationPayloads = {
+  admin: ExamNotifyPayload;
+  fcSelf: ExamNotifyPayload;
+};
+
+export type ExamApplyNotificationTarget = keyof ExamApplyNotificationPayloads;
 
 export type ExamRoundFormState = {
   selectedRoundId: string | null;
@@ -70,21 +85,246 @@ export type ExamRoundFormState = {
     roundLabel: string;
     notes: string;
   };
-  examDate: Date;
+  examDate: Date | null;
+  examMonth: Date | null;
+  isExamDateTbd: boolean;
   deadlineDate: Date;
   locationInput: string;
   locationOrder: string;
   draftLocations: { id: string; name: string; order: number }[];
 };
 
+export type ExamRoundDatePayload = {
+  exam_date: string | null;
+  exam_month: string;
+};
+
 type ExistingExamApplicationSelection = {
   location_id?: string | null;
+  includes_primary_exam?: boolean | null;
   is_third_exam?: boolean | null;
   fee_paid_date?: string | null;
 } | null;
 
+export const EXAM_MONTH_SLOT_STATUSES = [
+  'applied',
+  'confirmed',
+  'completed',
+  'no_show',
+] as const;
+
+type ActiveExamOwnershipRegistration = {
+  id: string;
+  fc_id?: string | null;
+  resident_id?: string | null;
+  status?: string | null;
+};
+
+type ExamOwnershipProfile = {
+  id: string;
+  phone?: string | null;
+};
+
+export type ActiveExamOwnershipValidation =
+  | { ok: true }
+  | {
+      ok: false;
+      registrationId: string;
+      reason: 'missing_fc' | 'identity_mismatch';
+    };
+
+const normalizeExamOwnershipIdentity = (value?: string | null): string | null => {
+  const digits = String(value ?? '').replace(/[^0-9]/g, '');
+  return digits || null;
+};
+
+export function isExamMonthSlotConsumed(status?: string | null): boolean {
+  return EXAM_MONTH_SLOT_STATUSES.includes(
+    String(status ?? '') as (typeof EXAM_MONTH_SLOT_STATUSES)[number],
+  );
+}
+
+export function isExamRegistrationVisibleInHistory(
+  status?: string | null,
+): boolean {
+  return !['cancelled_by_fc', 'cancelled_by_admin'].includes(
+    String(status ?? ''),
+  );
+}
+
+export function validateActiveExamOwnershipFixture(
+  registrations: readonly ActiveExamOwnershipRegistration[],
+  profiles: readonly ExamOwnershipProfile[],
+): ActiveExamOwnershipValidation {
+  const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+
+  for (const registration of registrations) {
+    if (!isExamMonthSlotConsumed(registration.status)) continue;
+    if (!registration.fc_id) {
+      return {
+        ok: false,
+        registrationId: registration.id,
+        reason: 'missing_fc',
+      };
+    }
+
+    const profile = profilesById.get(registration.fc_id);
+    if (
+      !profile
+      || normalizeExamOwnershipIdentity(profile.phone)
+        !== normalizeExamOwnershipIdentity(registration.resident_id)
+    ) {
+      return {
+        ok: false,
+        registrationId: registration.id,
+        reason: 'identity_mismatch',
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
+export function getExamMonthKey(examDate?: string | null): string | null {
+  const normalized = String(examDate ?? '').trim();
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-\d{2}$/.exec(normalized);
+  return match ? `${match[1]}-${match[2]}` : null;
+}
+
+type ExamRoundMonthSource = {
+  exam_month?: string | null;
+  exam_date?: string | null;
+  exam_type?: string | null;
+};
+
+type ExamRegistrationMonthSource = {
+  exam_month?: string | null;
+  exam_type?: string | null;
+  exam_rounds?: ExamRoundMonthSource | null;
+};
+
+const getCanonicalExamMonthKey = (examMonth: string): string | null => {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-01$/.exec(examMonth.trim());
+  return match ? `${match[1]}-${match[2]}` : null;
+};
+
+export function getExamRoundMonthKey(
+  round?: ExamRoundMonthSource | null,
+): string | null {
+  if (!round) return null;
+
+  if (round.exam_month !== undefined) {
+    return typeof round.exam_month === 'string'
+      ? getCanonicalExamMonthKey(round.exam_month)
+      : null;
+  }
+
+  return getExamMonthKey(round.exam_date);
+}
+
+export function getExamRegistrationMonthKey(
+  registration?: ExamRegistrationMonthSource | null,
+): string | null {
+  if (!registration) return null;
+
+  if (registration.exam_month !== undefined) {
+    return typeof registration.exam_month === 'string'
+      ? getCanonicalExamMonthKey(registration.exam_month)
+      : null;
+  }
+
+  return getExamRoundMonthKey(registration.exam_rounds);
+}
+
+const parseExamFlowType = (value?: string | null): ExamFlowType | null => {
+  return value === 'life' || value === 'nonlife' ? value : null;
+};
+
+export function getExamRegistrationFlowType(
+  registration?: ExamRegistrationMonthSource | null,
+): ExamFlowType | null {
+  if (!registration) return null;
+
+  if (registration.exam_type !== undefined) {
+    return parseExamFlowType(registration.exam_type);
+  }
+
+  return parseExamFlowType(registration.exam_rounds?.exam_type);
+}
+
+export function isExamRegistrationInRoundMonth(
+  registration: ExamRegistrationMonthSource,
+  round: ExamRoundMonthSource,
+  expectedExamType: ExamFlowType,
+): boolean {
+  if (getExamRegistrationFlowType(registration) !== expectedExamType) {
+    return false;
+  }
+
+  const roundMonth = getExamRoundMonthKey(round);
+  const registrationMonth = getExamRegistrationMonthKey(registration);
+
+  return roundMonth !== null
+    && registrationMonth !== null
+    && registrationMonth === roundMonth;
+}
+
+export function formatExamRegistrationStatus(status?: string | null): string {
+  const labels: Record<string, string> = {
+    applied: '신청 완료',
+    confirmed: '접수 완료',
+    completed: '시험 완료',
+    no_show: '미응시',
+    rejected: '반려',
+    cancelled_by_fc: 'FC 취소',
+    cancelled_by_admin: '관리자 취소',
+  };
+  return labels[String(status ?? '')] ?? '상태 확인 필요';
+}
+
+export function formatExamSubjectSelection({
+  examType,
+  includesPrimaryExam,
+  isThirdExam,
+}: {
+  examType?: string | null;
+  includesPrimaryExam?: boolean | null;
+  isThirdExam?: boolean | null;
+}): string {
+  const primaryLabel = examType === 'nonlife' ? '손해' : '생명';
+  if (includesPrimaryExam && isThirdExam) return `${primaryLabel}, 제3`;
+  if (includesPrimaryExam) return primaryLabel;
+  if (isThirdExam) return '제3';
+  return '-';
+}
+
 export function getExamFlowConfig(examType: ExamFlowType): ExamFlowConfig {
   return EXAM_FLOW_CONFIGS[examType];
+}
+
+let examApplyRealtimeChannelSequence = 0;
+
+export function createExamApplyRealtimeChannelTopic(
+  prefix: ExamFlowConfig['applyRealtimeChannelPrefix'],
+): string {
+  examApplyRealtimeChannelSequence += 1;
+  return `${prefix}-${Date.now().toString(36)}-${examApplyRealtimeChannelSequence.toString(36)}`;
+}
+
+export function sortExamRoundsNewestFirst(
+  rounds: readonly ExamRoundWithLocations[],
+): ExamRoundWithLocations[] {
+  return [...rounds].sort((a, b) => {
+    const examDateOrder = String(b.exam_date ?? '').localeCompare(String(a.exam_date ?? ''));
+    if (examDateOrder !== 0) return examDateOrder;
+
+    const deadlineOrder = String(b.registration_deadline ?? '').localeCompare(
+      String(a.registration_deadline ?? ''),
+    );
+    if (deadlineOrder !== 0) return deadlineOrder;
+
+    return String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''));
+  });
 }
 
 export function getExamFeeAccountCopyText(examType: ExamFlowType) {
@@ -117,6 +357,47 @@ const toFormDate = (value: string | null | undefined, fallback: Date): Date => {
   return parsed ?? new Date(fallback.getTime());
 };
 
+const toLocalYmd = (value: Date): string =>
+  `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(
+    value.getDate(),
+  ).padStart(2, '0')}`;
+
+const toExamMonthStart = (value: Date): Date =>
+  new Date(value.getFullYear(), value.getMonth(), 1);
+
+const toCanonicalExamMonthDate = (value?: string | null): Date | null => {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-01$/.exec(String(value ?? '').trim());
+  if (!match) return null;
+
+  return new Date(Number(match[1]), Number(match[2]) - 1, 1);
+};
+
+export function getExamRoundDatePayload({
+  examDate,
+  examMonth,
+  isExamDateTbd,
+}: Pick<ExamRoundFormState, 'examDate' | 'examMonth' | 'isExamDateTbd'>): ExamRoundDatePayload {
+  if (isExamDateTbd) {
+    if (!examMonth || Number.isNaN(examMonth.getTime())) {
+      throw new Error('시험일 미정 회차는 시험 월을 선택해주세요.');
+    }
+
+    return {
+      exam_date: null,
+      exam_month: toLocalYmd(toExamMonthStart(examMonth)),
+    };
+  }
+
+  if (!examDate || Number.isNaN(examDate.getTime())) {
+    throw new Error('정확한 시험일을 선택해주세요.');
+  }
+
+  return {
+    exam_date: toLocalYmd(examDate),
+    exam_month: toLocalYmd(toExamMonthStart(examDate)),
+  };
+}
+
 export function getExamRoundSelectionState(round: ExamRoundWithLocations) {
   return {
     selectedRoundId: round.id,
@@ -134,6 +415,7 @@ export function getExamApplyRestoredSelectionState({
   if (!existingForRound) {
     return {
       selectedLocationId: null,
+      wantsPrimary: true,
       wantsThird: false,
       feePaidDate: null,
       tempFeePaidDate: null,
@@ -145,6 +427,10 @@ export function getExamApplyRestoredSelectionState({
     selectedLocationId: isLocationInRound(selectedRound, existingForRound.location_id)
       ? existingForRound.location_id ?? null
       : null,
+    wantsPrimary:
+      existingForRound.includes_primary_exam != null
+        ? !!existingForRound.includes_primary_exam
+        : true,
     wantsThird: existingForRound.is_third_exam != null ? !!existingForRound.is_third_exam : false,
     feePaidDate: restoredFeePaidDate,
     tempFeePaidDate: restoredFeePaidDate,
@@ -159,6 +445,8 @@ export function getExamRoundCreateFormState(now = new Date()): ExamRoundFormStat
       notes: '',
     },
     examDate: new Date(now.getTime()),
+    examMonth: toExamMonthStart(now),
+    isExamDateTbd: false,
     deadlineDate: new Date(now.getTime()),
     locationInput: '',
     locationOrder: '0',
@@ -170,13 +458,20 @@ export function getExamRoundEditFormState(
   round: ExamRoundWithLocations,
   fallback = new Date(),
 ): ExamRoundFormState {
+  const examDate = toDate(round.exam_date);
+  const isExamDateTbd = round.exam_date === null;
+
   return {
     selectedRoundId: round.id,
     roundForm: {
       roundLabel: round.round_label ?? '',
       notes: round.notes ?? '',
     },
-    examDate: toFormDate(round.exam_date, fallback),
+    examDate,
+    examMonth:
+      toCanonicalExamMonthDate(round.exam_month)
+      ?? (examDate ? toExamMonthStart(examDate) : null),
+    isExamDateTbd,
     deadlineDate: toFormDate(round.registration_deadline, fallback),
     locationInput: '',
     locationOrder: '0',
@@ -186,17 +481,22 @@ export function getExamRoundEditFormState(
 
 export function buildExamApplyNotificationPayloads({
   examType,
+  examRegistrationId,
   actor,
   residentId,
   examTitle,
   locationName,
 }: {
   examType: ExamFlowType;
+  examRegistrationId: string;
   actor: string;
   residentId: string;
   examTitle: string;
   locationName?: string | null;
-}): { admin: ExamNotifyPayload; fcSelf: ExamNotifyPayload } {
+}): ExamApplyNotificationPayloads {
+  if (!isNotificationUuid(examRegistrationId)) {
+    throw new Error('invalid_exam_registration_notification_target');
+  }
   const config = getExamFlowConfig(examType);
   const title = `${actor}님이 ${examTitle}을 신청하였습니다.`;
   const body = locationName
@@ -207,11 +507,17 @@ export function buildExamApplyNotificationPayloads({
     admin: {
       type: 'notify',
       target_role: 'admin',
-      target_id: residentId,
+      target_id: null,
       title,
       body,
       category: 'exam_apply',
       url: config.manageRoute,
+      target: {
+        version: 1,
+        kind: 'exam',
+        examType,
+        examRegistrationId,
+      },
     },
     fcSelf: {
       type: 'notify',
@@ -221,19 +527,76 @@ export function buildExamApplyNotificationPayloads({
       body: `${examTitle}${locationName ? ` (${locationName})` : ''} 접수가 완료되었습니다.`,
       category: 'exam_apply',
       url: config.applyRoute,
+      target: {
+        version: 1,
+        kind: 'exam',
+        examType,
+        examRegistrationId,
+      },
     },
+  };
+}
+
+/**
+ * Exam registration has already been committed before this helper runs. Delivery
+ * failures are therefore reported as metadata and must never turn the saved
+ * application into a mutation failure that invites a duplicate retry.
+ */
+export async function sendExamApplyNotificationsBestEffort(
+  payloads: ExamApplyNotificationPayloads,
+  notify: (payload: ExamNotifyPayload) => Promise<void>,
+  targets: readonly ExamApplyNotificationTarget[] = ['admin', 'fcSelf'],
+): Promise<{
+  failedTargets: ExamApplyNotificationTarget[];
+  invalidTargets: ExamApplyNotificationTarget[];
+}> {
+  const entries = [
+    ['admin', payloads.admin],
+    ['fcSelf', payloads.fcSelf],
+  ] as const satisfies readonly (
+    readonly [ExamApplyNotificationTarget, ExamNotifyPayload]
+  )[];
+  const selectedEntries = entries.filter(([target]) => targets.includes(target));
+  const results = await Promise.allSettled(
+    selectedEntries.map(([, payload]) =>
+      Promise.resolve().then(() => notify(payload))
+    ),
+  );
+
+  return {
+    failedTargets: results.flatMap((result, index) =>
+      result.status === 'rejected'
+      && (
+        !(result.reason instanceof Error)
+        || result.reason.message !== 'notification_invalid_recipient'
+      )
+        ? [selectedEntries[index][0]]
+        : [],
+    ),
+    invalidTargets: results.flatMap((result, index) =>
+      result.status === 'rejected'
+      && result.reason instanceof Error
+      && result.reason.message === 'notification_invalid_recipient'
+        ? [selectedEntries[index][0]]
+        : [],
+    ),
   };
 }
 
 export function buildExamRoundNotificationPayload({
   examType,
+  examRoundId,
   title,
   body,
 }: {
   examType: ExamFlowType;
+  examRoundId: string;
   title: string;
   body: string;
 }): ExamNotifyPayload {
+  if (!isNotificationUuid(examRoundId)) {
+    throw new Error('invalid_exam_round_notification_target');
+  }
   return {
     type: 'notify',
     target_role: 'fc',
@@ -242,5 +605,11 @@ export function buildExamRoundNotificationPayload({
     body,
     category: 'exam_round',
     url: getExamFlowConfig(examType).applyRoute,
+    target: {
+      version: 1,
+      kind: 'exam',
+      examType,
+      examRoundId,
+    },
   };
 }

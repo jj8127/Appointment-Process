@@ -1,10 +1,16 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
+import {
+  deliverBoardAttachments,
+  type BoardAttachmentManifest,
+} from '@/lib/board-attachment-delivery';
 import { getBoardAuthorAvatarColor, getBoardAuthorBadgeColor, getBoardAuthorRoleLabel } from '@/lib/staff-identity';
 import {
   BoardDetail,
   BoardListItem,
+  BoardNotificationRetry,
   buildBoardActor,
   createBoardComment,
   createBoardPost,
@@ -16,6 +22,8 @@ import {
   fetchBoardList,
   finalizeBoardAttachments,
   formatFileSize,
+  getBoardNotificationWarningMessage,
+  retryBoardNotification,
   signBoardAttachments,
   toggleBoardReaction,
   toggleCommentLike,
@@ -123,6 +131,13 @@ type WebAttachment = {
   fileType: 'image' | 'file';
   previewUrl?: string;
 };
+type PendingBoardAttachmentRetry = {
+  postId: string;
+  operation: 'create' | 'update';
+  notificationWarning: string | null;
+  notificationRetry: BoardNotificationRetry | null;
+  manifest: BoardAttachmentManifest | null;
+};
 const MAX_ATTACHMENTS = 20;
 
 const resolveCategoryBadgeColor = (categoryName: string): string => {
@@ -184,15 +199,24 @@ export default function BoardPage() {
   const [newPost, setNewPost] = useState({ title: '', content: '' });
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
-  const [replyTarget, setReplyTarget] = useState<{ id: string; authorName: string } | null>(null);
+  const [replyTarget, setReplyTarget] = useState<{
+    id: string;
+    authorName: string;
+    threadRootId: string;
+  } | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
   const [collapsedThreadIds, setCollapsedThreadIds] = useState<string[]>([]);
+  const [isThreadInitialized, setIsThreadInitialized] = useState(false);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const isEditMode = !!editingPostId;
   const [attachments, setAttachments] = useState<WebAttachment[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<BoardDetail['attachments']>([]);
   const [didLoadEdit, setDidLoadEdit] = useState(false);
+  const [pendingAttachmentRetry, setPendingAttachmentRetry] =
+    useState<PendingBoardAttachmentRetry | null>(null);
+  const [pendingNotificationRetry, setPendingNotificationRetry] =
+    useState<BoardNotificationRetry | null>(null);
 
   const { data: categories = [] } = useQuery({
     queryKey: ['board-categories', actor?.role, actor?.residentId],
@@ -212,7 +236,6 @@ export default function BoardPage() {
     enabled: !!actor && !!editingPostId,
   });
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   // 초기 카테고리 설정: categoryId가 null이고 categories가 로드되면 첫번째 카테고리 선택
   useEffect(() => {
     if (!categoryId && categories.length > 0) {
@@ -235,18 +258,12 @@ export default function BoardPage() {
   }, [editingPostId]);
 
   useEffect(() => {
-    if (!selectedPostId) {
-      setReplyTarget(null);
-      setEditingCommentId(null);
-      setEditingCommentText('');
-      setCollapsedThreadIds([]);
-      return;
-    }
     setReplyTarget(null);
     setEditingCommentId(null);
     setEditingCommentText('');
+    setCollapsedThreadIds([]);
+    setIsThreadInitialized(false);
   }, [selectedPostId]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const { data: listData, isLoading, error, isError, refetch } = useQuery({
     queryKey: ['board-posts', actor?.role, actor?.residentId],
@@ -270,7 +287,6 @@ export default function BoardPage() {
     return posts.filter((post) => post.title.toLowerCase().includes(q) || post.contentPreview.toLowerCase().includes(q));
   }, [posts, searchQuery]);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!routePostId) return;
     if (selectedPostId === routePostId) return;
@@ -287,7 +303,6 @@ export default function BoardPage() {
       setCommentText('');
     }
   }, [isLoading, posts, routePostId, selectedPostId]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const { data: detailData } = useQuery({
     queryKey: ['board-detail', selectedPostId],
@@ -350,22 +365,19 @@ export default function BoardPage() {
     return { roots, repliesByParent };
   }, [modalComments]);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!selectedPostId || modalComments.length === 0) return;
-    setCollapsedThreadIds((prev) => {
-      if (prev.length > 0) return prev;
-      const next = threadedComments.roots
-        .filter((comment) => (threadedComments.repliesByParent.get(comment.id) ?? []).length > 0)
-        .map((comment) => comment.id);
-      return next;
-    });
-  }, [modalComments, selectedPostId, threadedComments]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+    if (!selectedPostId || isThreadInitialized || modalComments.length === 0) return;
+    const initialCollapsed = threadedComments.roots
+      .filter((comment) => (threadedComments.repliesByParent.get(comment.id) ?? []).length > 0)
+      .map((comment) => comment.id);
+    setCollapsedThreadIds(initialCollapsed);
+    setIsThreadInitialized(true);
+  }, [isThreadInitialized, modalComments, selectedPostId, threadedComments]);
 
   const canManagePost = (post?: BoardPost | null) =>
     actor?.role === 'admin' || (actor?.role === 'manager' && !!post?.isMine);
   const handleOpenCreate = () => {
+    setPendingAttachmentRetry(null);
     setEditingPostId(null);
     setNewPost({ title: '', content: '' });
     setCategoryId(categories[0]?.id ?? null);
@@ -378,8 +390,17 @@ export default function BoardPage() {
     setExistingAttachments([]);
     open();
   };
-  const handleCloseComposer = () => {
+  const handleCloseComposer = (force = false) => {
+    if (pendingAttachmentRetry && !force) {
+      notifications.show({
+        title: '첨부 재시도 필요',
+        message: '저장된 게시글의 첨부 처리를 먼저 완료해주세요.',
+        color: 'yellow',
+      });
+      return;
+    }
     close();
+    setPendingAttachmentRetry(null);
     setEditingPostId(null);
     setNewPost({ title: '', content: '' });
     setCategoryId(null);
@@ -396,31 +417,60 @@ export default function BoardPage() {
     mutationFn: async () => {
       if (!actor) throw new Error('로그인이 필요합니다.');
       if (!categoryId) throw new Error('카테고리를 선택해주세요.');
-      const { id } = await createBoardPost(actor, {
+      const createResult = await createBoardPost(actor, {
         categoryId,
         title: newPost.title.trim(),
         content: newPost.content.trim(),
       });
-      await uploadAttachments(id);
-      return { id };
+      const attachmentResult = await uploadAttachments(createResult.id, null);
+      return {
+        id: createResult.id,
+        notificationWarning: createResult.notificationWarning,
+        notificationRetry: createResult.notificationRetry,
+        attachmentIncomplete: !attachmentResult.complete,
+        attachmentManifest: attachmentResult.manifest,
+      };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
+      setPendingNotificationRetry(result.notificationRetry);
+      if (result.attachmentIncomplete) {
+        setPendingAttachmentRetry({
+          postId: result.id,
+          operation: 'create',
+          notificationWarning: result.notificationWarning,
+          notificationRetry: result.notificationRetry,
+          manifest: result.attachmentManifest,
+        });
+        const notificationWarningMessage =
+          getBoardNotificationWarningMessage(result.notificationWarning);
+        notifications.show({
+          title: '게시글 저장 완료 · 첨부 확인 필요',
+          message: [
+            '게시글은 저장되었습니다. 게시글을 다시 작성하지 말고 첨부만 다시 시도해주세요.',
+            notificationWarningMessage,
+          ].filter(Boolean).join(' '),
+          color: 'yellow',
+        });
+        return;
+      }
+      const notificationWarningMessage =
+        getBoardNotificationWarningMessage(result.notificationWarning);
+      if (notificationWarningMessage) {
+        notifications.show({
+          title: '게시글 작성 완료 · 알림함 등록 실패',
+          message: notificationWarningMessage,
+          color: 'yellow',
+        });
+        handleCloseComposer(true);
+        return;
+      }
       notifications.show({
         title: '게시글 작성 완료',
         message: '게시글이 성공적으로 작성되었습니다.',
         color: 'green',
       });
-      setNewPost({ title: '', content: '' });
-      setEditingPostId(null);
-      setAttachments((prev) => {
-        prev.forEach((item) => {
-          if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-        });
-        return [];
-      });
-      setExistingAttachments([]);
-      close();
+      handleCloseComposer(true);
     },
     onError: (error: Error) => {
       notifications.show({
@@ -435,33 +485,62 @@ export default function BoardPage() {
     mutationFn: async () => {
       if (!actor || !editingPostId) throw new Error('로그인이 필요합니다.');
       if (!categoryId) throw new Error('카테고리를 선택해주세요.');
-      await updateBoardPost(actor, {
+      const updateResult = await updateBoardPost(actor, {
         postId: editingPostId,
         categoryId,
         title: newPost.title.trim(),
         content: newPost.content.trim(),
       });
-      await uploadAttachments(editingPostId);
-      return { id: editingPostId };
+      const attachmentResult = await uploadAttachments(editingPostId, null);
+      return {
+        id: editingPostId,
+        notificationWarning: updateResult.notificationWarning,
+        notificationRetry: updateResult.notificationRetry,
+        attachmentIncomplete: !attachmentResult.complete,
+        attachmentManifest: attachmentResult.manifest,
+      };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       queryClient.invalidateQueries({ queryKey: ['board-detail', editingPostId] });
+      setPendingNotificationRetry(result.notificationRetry);
+      if (result.attachmentIncomplete) {
+        setPendingAttachmentRetry({
+          postId: result.id,
+          operation: 'update',
+          notificationWarning: result.notificationWarning,
+          notificationRetry: result.notificationRetry,
+          manifest: result.attachmentManifest,
+        });
+        const notificationWarningMessage =
+          getBoardNotificationWarningMessage(result.notificationWarning);
+        notifications.show({
+          title: '게시글 저장 완료 · 첨부 확인 필요',
+          message: [
+            '게시글은 저장되었습니다. 게시글을 다시 수정하지 말고 첨부만 다시 시도해주세요.',
+            notificationWarningMessage,
+          ].filter(Boolean).join(' '),
+          color: 'yellow',
+        });
+        return;
+      }
+      const notificationWarningMessage =
+        getBoardNotificationWarningMessage(result.notificationWarning);
+      if (notificationWarningMessage) {
+        notifications.show({
+          title: '게시글 수정 완료 · 알림함 등록 실패',
+          message: notificationWarningMessage,
+          color: 'yellow',
+        });
+        handleCloseComposer(true);
+        return;
+      }
       notifications.show({
         title: '게시글 수정 완료',
         message: '게시글이 성공적으로 수정되었습니다.',
         color: 'green',
       });
-      setNewPost({ title: '', content: '' });
-      setEditingPostId(null);
-      setAttachments((prev) => {
-        prev.forEach((item) => {
-          if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-        });
-        return [];
-      });
-      setExistingAttachments([]);
-      close();
+      handleCloseComposer(true);
     },
     onError: (error: Error) => {
       notifications.show({
@@ -598,15 +677,29 @@ export default function BoardPage() {
   });
 
   const addCommentMutation = useMutation({
-    mutationFn: async ({ content, parentId }: { content: string; parentId?: string | null }) => {
+    mutationFn: async ({
+      content,
+      parentId,
+    }: {
+      content: string;
+      parentId?: string | null;
+      threadRootId?: string;
+    }) => {
       if (!actor || !selectedPostId) throw new Error('로그인이 필요합니다.');
       return createBoardComment(actor, { postId: selectedPostId, content, parentId: parentId ?? undefined });
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       setCommentText('');
-      setReplyTarget(null);
+      setReplyTarget((current) => (
+        current?.id === variables.parentId ? null : current
+      ));
+      if (variables.threadRootId) {
+        setCollapsedThreadIds((current) => (
+          current.filter((commentId) => commentId !== variables.threadRootId)
+        ));
+      }
       notifications.show({
         title: '댓글 작성 완료',
         message: '댓글이 성공적으로 작성되었습니다.',
@@ -797,43 +890,145 @@ export default function BoardPage() {
     }
   }, [actor, editingPostId, queryClient]);
 
-  const uploadAttachments = async (targetPostId: string) => {
-    if (!actor || attachments.length === 0) return;
-    const signPayload = attachments.map((item) => ({
-      fileName: item.file.name,
-      mimeType: item.file.type || 'application/octet-stream',
-      fileSize: item.file.size,
-      fileType: item.fileType,
-    }));
-    const signed = await signBoardAttachments(actor, targetPostId, signPayload);
-    for (let i = 0; i < signed.length; i += 1) {
-      const fileItem = attachments[i];
-      const upload = signed[i];
-      const response = await fetch(upload.signedUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': fileItem.file.type || 'application/octet-stream',
-        },
-        body: fileItem.file,
-      });
-      if (!response.ok) {
-        throw new Error(`${fileItem.file.name} 업로드에 실패했습니다.`);
-      }
+  const uploadAttachments = async (
+    targetPostId: string,
+    pendingManifest: BoardAttachmentManifest | null,
+  ) => {
+    if (!actor) {
+      return { complete: false, manifest: pendingManifest };
     }
-    await finalizeBoardAttachments(
-      actor,
-      targetPostId,
-      attachments.map((item, index) => ({
-        storagePath: signed[index].storagePath,
+    return deliverBoardAttachments(
+      attachments.map((item) => ({
+        source: item.file,
         fileName: item.file.name,
-        fileSize: item.file.size,
         mimeType: item.file.type || 'application/octet-stream',
+        fileSize: item.file.size,
         fileType: item.fileType,
       })),
+      pendingManifest,
+      {
+        sign: (files) => signBoardAttachments(actor, targetPostId, files),
+        upload: async (file, signedUrl, mimeType) => {
+          const response = await fetch(signedUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': mimeType },
+            body: file,
+          });
+          if (!response.ok) {
+            throw new Error('attachment_upload_incomplete');
+          }
+        },
+        finalize: async (files) => {
+          await finalizeBoardAttachments(actor, targetPostId, files);
+        },
+        areFinalized: async (storagePaths) => {
+          const detail = await fetchBoardDetail(actor, targetPostId);
+          const finalizedPaths = new Set(
+            detail.attachments.map((attachment) => attachment.storagePath),
+          );
+          return storagePaths.every((storagePath) => finalizedPaths.has(storagePath));
+        },
+      },
     );
   };
 
+  const retryAttachmentMutation = useMutation({
+    mutationFn: async () => {
+      if (!pendingAttachmentRetry) {
+        throw new Error('attachment_retry_not_available');
+      }
+      const attachmentResult = await uploadAttachments(
+        pendingAttachmentRetry.postId,
+        pendingAttachmentRetry.manifest,
+      );
+      if (!attachmentResult.complete) {
+        return {
+          complete: false as const,
+          retry: {
+            ...pendingAttachmentRetry,
+            manifest: attachmentResult.manifest,
+          },
+        };
+      }
+      return { complete: true as const, retry: pendingAttachmentRetry };
+    },
+    onSuccess: (result) => {
+      if (!result.complete) {
+        setPendingAttachmentRetry(result.retry);
+        notifications.show({
+          title: '게시글 저장 완료 · 첨부 확인 필요',
+          message: '게시글은 이미 저장되어 있습니다. 게시글을 다시 작성하지 말고 첨부만 다시 시도해주세요.',
+          color: 'yellow',
+        });
+        return;
+      }
+      const retry = result.retry;
+      queryClient.invalidateQueries({ queryKey: ['board-posts'] });
+      queryClient.invalidateQueries({ queryKey: ['board-detail', retry.postId] });
+      const notificationWarningMessage =
+        getBoardNotificationWarningMessage(retry.notificationWarning);
+      if (notificationWarningMessage) {
+        notifications.show({
+          title: '첨부 전송 완료 · 알림함 등록 실패',
+          message: notificationWarningMessage,
+          color: 'yellow',
+        });
+        handleCloseComposer(true);
+        return;
+      }
+      notifications.show({
+        title: '첨부 전송 완료',
+        message: '이미 저장된 게시글에 첨부파일을 전송했습니다.',
+        color: 'green',
+      });
+      handleCloseComposer(true);
+    },
+    onError: () => {
+      notifications.show({
+        title: '게시글 저장 완료 · 첨부 확인 필요',
+        message: '게시글은 이미 저장되어 있습니다. 게시글을 다시 작성하지 말고 첨부만 다시 시도해주세요.',
+        color: 'yellow',
+      });
+    },
+  });
+
+  const retryNotificationMutation = useMutation({
+    mutationFn: async () => {
+      if (!actor || !pendingNotificationRetry) {
+        throw new Error('재시도할 게시글 알림이 없습니다.');
+      }
+      return retryBoardNotification(actor, pendingNotificationRetry);
+    },
+    onSuccess: (result) => {
+      setPendingNotificationRetry(result.notificationRetry);
+      if (result.delivery?.notificationStored === true) {
+        notifications.show({
+          title: '알림함 등록 완료',
+          message: '수신자 알림함에 게시글 알림을 등록했습니다.',
+          color: 'green',
+        });
+        return;
+      }
+      notifications.show({
+        title: '알림함 등록 실패',
+        message: '요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.',
+        color: 'yellow',
+      });
+    },
+    onError: (error: Error) => {
+      notifications.show({
+        title: '알림 재시도 실패',
+        message: error.message || '게시글 알림만 다시 시도하지 못했습니다.',
+        color: 'red',
+      });
+    },
+  });
+
   const handleCreateOrUpdate = () => {
+    if (pendingAttachmentRetry) {
+      retryAttachmentMutation.mutate();
+      return;
+    }
     if (!newPost.title.trim() || !newPost.content.trim()) {
       notifications.show({
         title: '입력 오류',
@@ -875,7 +1070,11 @@ export default function BoardPage() {
       });
       return;
     }
-    addCommentMutation.mutate({ content: commentText.trim(), parentId: replyTarget?.id ?? null });
+    addCommentMutation.mutate({
+      content: commentText.trim(),
+      parentId: replyTarget?.id ?? null,
+      threadRootId: replyTarget?.threadRootId,
+    });
   };
 
   const toggleThread = (commentId: string) => {
@@ -886,7 +1085,11 @@ export default function BoardPage() {
     ));
   };
 
-  const renderCommentThread = (comment: BoardDetail['comments'][number], depth = 0) => {
+  const renderCommentThread = (
+    comment: BoardDetail['comments'][number],
+    depth = 0,
+    threadRootId = comment.id,
+  ) => {
     const replies = threadedComments.repliesByParent.get(comment.id) ?? [];
     const isCollapsed = depth === 0 && collapsedThreadIds.includes(comment.id);
     const isEditing = editingCommentId === comment.id;
@@ -1001,7 +1204,11 @@ export default function BoardPage() {
               <Button
                 size="xs"
                 variant="subtle"
-                onClick={() => setReplyTarget({ id: comment.id, authorName: comment.authorName })}
+                onClick={() => setReplyTarget({
+                  id: comment.id,
+                  authorName: comment.authorName,
+                  threadRootId,
+                })}
               >
                 답글
               </Button>
@@ -1040,7 +1247,7 @@ export default function BoardPage() {
 
         {!isCollapsed && replies.length > 0 && (
           <Stack gap="xs">
-            {replies.map((reply) => renderCommentThread(reply, depth + 1))}
+            {replies.map((reply) => renderCommentThread(reply, depth + 1, threadRootId))}
           </Stack>
         )}
       </Stack>
@@ -1056,6 +1263,7 @@ export default function BoardPage() {
       });
       return;
     }
+    setPendingAttachmentRetry(null);
     setEditingPostId(post.id);
     setAttachments((prev) => {
       prev.forEach((item) => {
@@ -1096,6 +1304,7 @@ export default function BoardPage() {
 
   return (
     <Container size="lg" py="xl">
+      {routePostId && detailData?.post?.id === routePostId ? <NotificationDestinationReady /> : null}
       <Stack gap="xl">
         {/* 헤더 */}
         <Group justify="space-between" align="flex-start">
@@ -1131,6 +1340,30 @@ export default function BoardPage() {
             variant="light"
           >
             본부장은 게시글을 작성할 수 있으며, 본인 게시글만 수정/삭제할 수 있습니다.
+          </Alert>
+        )}
+
+        {pendingNotificationRetry && (
+          <Alert
+            icon={<IconInfoCircle size={20} />}
+            title="게시글 저장 완료 · 알림함 등록 실패"
+            color="yellow"
+            variant="light"
+          >
+            <Group justify="space-between" align="center">
+              <Text size="sm">
+                요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.
+              </Text>
+              <Button
+                size="xs"
+                variant="light"
+                color="yellow"
+                loading={retryNotificationMutation.isPending}
+                onClick={() => retryNotificationMutation.mutate()}
+              >
+                알림만 다시 시도
+              </Button>
+            </Group>
           </Alert>
         )}
 
@@ -1332,14 +1565,35 @@ export default function BoardPage() {
       {/* 게시글 작성 모달 */}
       <Modal
         opened={opened}
-        onClose={handleCloseComposer}
-        title={<Text fw={700} size="lg">{isEditMode ? '게시글 수정' : '새 게시글 작성'}</Text>}
+        onClose={() => handleCloseComposer()}
+        closeOnClickOutside={!pendingAttachmentRetry}
+        closeOnEscape={!pendingAttachmentRetry}
+        withCloseButton={!pendingAttachmentRetry}
+        title={(
+          <Text fw={700} size="lg">
+            {pendingAttachmentRetry
+              ? '저장된 게시글 첨부 재시도'
+              : isEditMode
+                ? '게시글 수정'
+                : '새 게시글 작성'}
+          </Text>
+        )}
         size="lg"
         padding="xl"
         radius="md"
         centered
       >
         <Stack gap="md">
+          {pendingAttachmentRetry && (
+            <Alert
+              icon={<IconInfoCircle size={20} />}
+              title="게시글 저장 완료 · 첨부 확인 필요"
+              color="yellow"
+              variant="light"
+            >
+              게시글은 이미 저장되었습니다. 아래 버튼은 게시글을 다시 만들거나 수정하지 않고 첨부만 다시 전송합니다.
+            </Alert>
+          )}
           <Select
             label="카테고리"
             placeholder="카테고리를 선택하세요"
@@ -1350,7 +1604,7 @@ export default function BoardPage() {
             value={categoryId}
             onChange={setCategoryId}
             searchable
-            disabled={!canWrite}
+            disabled={!canWrite || !!pendingAttachmentRetry}
           />
           <TextInput
             label="제목"
@@ -1358,7 +1612,7 @@ export default function BoardPage() {
             size="md"
             value={newPost.title}
             onChange={(e) => setNewPost({ ...newPost, title: e.currentTarget.value })}
-            disabled={!canWrite}
+            disabled={!canWrite || !!pendingAttachmentRetry}
           />
 
           <Textarea
@@ -1369,7 +1623,7 @@ export default function BoardPage() {
             size="md"
             value={newPost.content}
             onChange={(e) => setNewPost({ ...newPost, content: e.currentTarget.value })}
-            disabled={!canWrite}
+            disabled={!canWrite || !!pendingAttachmentRetry}
           />
 
           <Stack gap="xs">
@@ -1381,7 +1635,7 @@ export default function BoardPage() {
                 accept="image/*"
                 multiple
                 onChange={(files) => appendAttachments(files, 'image')}
-                disabled={!canWrite}
+                disabled={!canWrite || !!pendingAttachmentRetry}
               >
                 {(props) => (
                   <Button
@@ -1397,7 +1651,7 @@ export default function BoardPage() {
               <FileButton
                 multiple
                 onChange={(files) => appendAttachments(files, 'file')}
-                disabled={!canWrite}
+                disabled={!canWrite || !!pendingAttachmentRetry}
               >
                 {(props) => (
                   <Button
@@ -1451,7 +1705,7 @@ export default function BoardPage() {
                             aria-label="기존 첨부파일 삭제"
                             variant="subtle"
                             color="red"
-                            disabled={!canWrite}
+                            disabled={!canWrite || !!pendingAttachmentRetry}
                             onClick={() => void removeExistingAttachment(file)}
                           >
                             <IconTrash size={16} />
@@ -1487,6 +1741,7 @@ export default function BoardPage() {
                       <ActionIcon
                         variant="subtle"
                         color="gray"
+                        disabled={!!pendingAttachmentRetry}
                         onClick={() => removeAttachment(file.id)}
                       >
                         <IconX size={16} />
@@ -1499,7 +1754,11 @@ export default function BoardPage() {
           </Stack>
 
           <Group justify="flex-end" mt="md">
-            <Button variant="default" onClick={handleCloseComposer}>
+            <Button
+              variant="default"
+              onClick={() => handleCloseComposer()}
+              disabled={!!pendingAttachmentRetry}
+            >
               취소
             </Button>
             <Button
@@ -1507,9 +1766,17 @@ export default function BoardPage() {
               gradient={{ from: 'orange', to: 'red' }}
               onClick={handleCreateOrUpdate}
               disabled={!canWrite}
-              loading={createPostMutation.isPending || updatePostMutation.isPending}
+              loading={
+                createPostMutation.isPending
+                || updatePostMutation.isPending
+                || retryAttachmentMutation.isPending
+              }
             >
-              {isEditMode ? '수정 완료' : '작성 완료'}
+              {pendingAttachmentRetry
+                ? '첨부 다시 시도'
+                : isEditMode
+                  ? '수정 완료'
+                  : '작성 완료'}
             </Button>
           </Group>
         </Stack>

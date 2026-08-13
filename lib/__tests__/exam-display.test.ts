@@ -1,6 +1,7 @@
 import {
   buildExamInfo,
   buildExamPhoneCandidates,
+  formatExamRegistrationSubjectLabel,
   formatExamResidentNumber,
   formatExamYmd,
   normalizeExamSingle,
@@ -42,6 +43,29 @@ describe('exam display helpers', () => {
     })).toContain('1회');
   });
 
+  it('shows only the subjects selected in an exam registration', () => {
+    expect(formatExamRegistrationSubjectLabel({
+      examType: 'life',
+      includesPrimaryExam: true,
+      isThirdExam: false,
+    })).toBe('생명');
+    expect(formatExamRegistrationSubjectLabel({
+      examType: 'life',
+      includesPrimaryExam: false,
+      isThirdExam: true,
+    })).toBe('제3보');
+    expect(formatExamRegistrationSubjectLabel({
+      examType: 'life',
+      includesPrimaryExam: true,
+      isThirdExam: true,
+    })).toBe('생명/제3보');
+    expect(formatExamRegistrationSubjectLabel({
+      examType: 'nonlife',
+      includesPrimaryExam: true,
+      isThirdExam: true,
+    })).toBe('손해/제3보');
+  });
+
   it('keeps life and nonlife exam manage screens on shared helpers', () => {
     for (const source of [
       readRepoFile('app/exam-manage.tsx'),
@@ -50,6 +74,9 @@ describe('exam display helpers', () => {
       expect(source).toContain("from '@/lib/exam-display'");
       expect(source).toContain('formatExamResidentNumber');
       expect(source).toContain('buildExamInfo');
+      expect(source).toContain('formatExamRegistrationSubjectLabel');
+      expect(source).toContain('label="응시 과목"');
+      expect(source).not.toContain('label="제3보험" value={a.thirdExam ? \'응시\' : \'-\'}');
       expect(source).not.toContain('function formatResidentNumber');
       expect(source).not.toContain('function normalizeSingle');
       expect(source).not.toContain('function buildPhoneCandidates');

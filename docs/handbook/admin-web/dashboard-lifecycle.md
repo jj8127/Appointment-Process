@@ -2,8 +2,8 @@ doc_id: FC-ADMIN-DASHBOARD-LIFECYCLE
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-06-08
-source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/app/api/admin/list/route.ts + web/src/lib/dashboard-table-display.ts + web/src/lib/shared.ts
+last_verified: 2026-08-10
+source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/dashboard/fc-signup/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/app/api/admin/list/route.ts + web/src/app/api/admin/assisted-signup/route.ts + web/src/lib/admin-assisted-signup-server.ts + web/src/lib/dashboard-table-display.ts + web/src/lib/shared.ts
 
 # Admin Web Playbook: Dashboard Lifecycle
 
@@ -15,6 +15,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 
 - `/dashboard`
 - `/dashboard/profile/[id]`
+- `/dashboard/fc-signup`
 - `/`와 `/auth`는 dashboard 진입 직전 단계이며, 최종 staff 진입 판정은 middleware cookie session과 `use-session` restore가 같은 snapshot을 공유해야 한다.
 - `/` root entry는 세션 복원 뒤 로더에 머무르면 안 되며, staff session이면 `/dashboard`, 그 외에는 `/auth`로 즉시 resolve되어야 한다.
 
@@ -50,6 +51,9 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 ## 상태/분기
 
 - `manager`는 같은 화면을 보더라도 write action이 비활성
+- `서면확인 회원가입` 메뉴와 `/dashboard/fc-signup` 실행 권한은 활성 admin/developer session만 가진다. manager/read-only session에는 메뉴를 숨기고 직접 접근도 서버에서 거부한다.
+- 가입 화면은 `SMS 인증 없음`, 실행 관리자, 고정 검증 근거를 상단에 명확히 표시한다. 추천인은 trusted 검색 결과에서 선택하고 이름 문자열만으로 확정하지 않는다.
+- 제출은 동의일·내부 증빙 참조번호·고정 확인문 동의·임시 비밀번호를 모두 요구한다. 성공 후에는 FC가 첫 로그인에서 새 비밀번호를 설정해야 함을 운영자에게 알린다.
 - protected dashboard/admin layout은 middleware가 이미 통과시킨 staff session을 restore gap 때문에 다시 `/auth`로 밀어내면 안 된다.
 - FC 상세 모달은 `보증 보험 동의 / 서류 관리 / 다위촉 / 생명/손해 위촉` 4탭 구조
 - FC 상세 모달 헤더는 `/api/admin/resident-numbers` trusted path를 통해 주민등록번호 full-view와 생년월일을 바로 보여준다. 실패 시 masked fallback으로 돌리지 않고 조회 실패를 그대로 표시한다.
@@ -59,7 +63,9 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - `/dashboard/profile/[id]`는 브라우저 anon Supabase client로 `fc_profiles`를 직접 읽지 않는다. 상세 기본정보와 `fc_documents`는 `/api/admin/fc`의 read-only `getProfile` action을 통해 service-role 서버 경로에서 조회해야 하며, singular-query `406`을 브라우저가 직접 받는 구현은 회귀로 본다.
 - FC 상세 모달과 `/dashboard/profile/[id]`는 `추천인` 아래에 invitee의 `가입 시 사용한 추천코드`를 함께 표시한다. confirmed attribution의 historical code가 우선이고, 그것이 없을 때만 inviter 현재 활성 코드 또는 구조화 링크 fallback을 사용하며, 모두 없으면 `-`로 유지한다.
 - temp-id, allowance, docs, hanwha, appointment, commission flag가 서로 상태 합성에 영향
-- 대시보드 상단 KPI 카드는 별도 summary table이 아니라 `/api/admin/list`로 받은 FC 배열을 client에서 다시 집계한다. `총 인원`은 디자이너를 제외한 `signup_completed` FC 수이며 하단 문구는 `가입 완료 FC 현황`으로 맞춘다.
+- 대시보드 상단 KPI 카드는 별도 summary table이 아니라 `/api/admin/list`로 받은 FC 배열을 client에서 다시 집계한다. `총 인원`은 디자이너 소속 표식과 활성 `manager_accounts` canonical phone을 모두 제외한 `signup_completed` FC 수이며 하단 문구는 `가입 완료 FC 현황`으로 맞춘다.
+- `/api/admin/list`의 소속 옵션과 legacy normalization은 `1본부`부터 `10본부`까지 지원한다. `10본부 [본부장: 한태균]`은 canonical `10본부 한태균`으로 내려주며, 두 자리 본부 번호를 한 자리 prefix로 오인하지 않는다.
+- 세 KPI 카드는 키보드 접근 가능한 목록 필터다. `보증 보험 동의 승인 대기`와 `서류검토 대기`를 누르면 아래 FC 목록이 카드 집계와 같은 파생 상태로 좁혀지고, 같은 카드를 다시 누르거나 `총 인원`을 누르면 전체로 복귀한다. 단계 탭을 선택하면 카드 필터는 해제되며 검색어는 유지한다.
 - `/dashboard` FC 목록 테이블 컬럼은 `web/src/lib/dashboard-table-display.ts`의 `DASHBOARD_FC_LIST_COLUMNS`를 기준으로 렌더링한다. `가입일`은 `/api/admin/list`가 `fc_credentials.password_set_at`을 우선 사용하고 없으면 `created_at`으로 보정한 `signup_completed_at`을 내려준다.
 - `보증 보험 동의 승인 대기` 카드는 raw `status === allowance-pending` 전체가 아니라, workflow step 1에 있으면서 `getAllowanceDisplayState` 기준 `entered` 또는 `prescreen` 상태인 FC만 센다. 반려(`rejected`)나 미입력(`missing`)은 `승인 필요`로 보지 않는다.
 - `서류검토 대기` 카드는 workflow step 2에 있으면서 `getDocProgress`가 `in-progress`인 FC만 센다. 즉 실제 업로드가 있어 검토가 필요한 건만 포함하고, `docs-requested`(업로드 전)나 `rejected`(재제출 대기)는 제외한다.
@@ -117,7 +123,17 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - request-board 메신저 이동은 `NEXT_PUBLIC_REQUEST_BOARD_URL`이 설정된 경우에만 열고, 값이 없거나 잘못된 배포에서 production URL로 fallback하지 않는다.
 - `/api/admin/fc`와 `/dashboard`는 resident-number full-view contract를 계속 trusted server path 기준으로 유지한다. direct decrypt가 빠진 런타임에서는 edge fallback/degraded 상태를 로그로 남기되, 권한 있는 사용자의 full-view 자체를 마스킹 정책으로 바꾸지 않는다.
 
+## 2026-07-13 privileged action 입력 계약
+
+- 서류 상태와 생명/손해 위촉 server action은 privileged DB 접근 전에 verified admin session, origin, rate limit, 중앙 payload parser를 순서대로 통과해야 한다. 호출자는 payload에 `phone`을 보내지 않는다.
+- 알림 수신 전화번호는 server action이 `fcId`로 현재 `fc_profiles.phone`을 다시 읽고 11자리 canonical 값으로 검증해 사용한다. 브라우저가 제공한 전화번호를 notification/push recipient로 신뢰하지 않는다.
+- 시험 회차 저장/삭제도 같은 session·payload 경계를 사용하며, 저장은 `save_exam_round_atomic`으로 회차와 장소를 원자적으로 반영한다. 등록/수정 문구는 client `actionLabel`이 아니라 server의 `roundId` 유무로 결정한다.
+
 ## 연관 문서
 
-- [../workflow-state-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/workflow-state-matrix.md)
-- [../backend/admin-operations-api.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/admin-operations-api.md)
+- [../workflow-state-matrix.md](../workflow-state-matrix.md)
+- [../backend/admin-operations-api.md](../backend/admin-operations-api.md)
+## 2026-08-10 관리자 보조 가입 배포 경계
+
+- 관리자 보조 가입 폼의 검증 스키마와 가입 선택지는 Vercel 프로젝트 루트인 `web/` 내부 모듈에서 해석되어야 한다.
+- `web/src/lib/admin-assisted-signup-contract.ts`가 저장소 상위 별칭에 의존하면 원격 패키징 경계에서 누락될 수 있으므로, 웹 루트 내부의 검증·선택지 모듈만 다시 내보낸다.

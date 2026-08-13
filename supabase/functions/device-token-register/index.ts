@@ -12,6 +12,7 @@ type RequestBody = {
   expoPushToken?: string;
   platform?: string;
   displayName?: string | null;
+  disableAll?: boolean;
 };
 
 type DeviceTokenRole = 'admin' | 'fc' | 'manager';
@@ -154,19 +155,29 @@ serve(async (req: Request) => {
   }
 
   const expoPushToken = cleanString(body.expoPushToken, 512);
-  if (!expoPushToken) {
-    return fail('missing_push_token', 'Expo push token is required');
-  }
 
   if (req.method === 'DELETE') {
-    const { error } = await supabase
+    if (body.disableAll !== true && !expoPushToken) {
+      return fail('missing_push_token', 'Expo push token or disableAll is required');
+    }
+    if (body.disableAll === true && expoPushToken) {
+      return fail('ambiguous_delete', 'Choose one token or disableAll');
+    }
+    // Trust boundary: actor-wide deletion is derived entirely from the signed
+    // session. A caller cannot provide another resident or effective role.
+    let deleteQuery = supabase
       .from('device_tokens')
       .delete()
-      .eq('expo_push_token', expoPushToken)
-      .eq('resident_id', owner.residentId);
+      .eq('resident_id', owner.residentId)
+      .eq('role', owner.role);
+    if (expoPushToken) deleteQuery = deleteQuery.eq('expo_push_token', expoPushToken);
+    const { error } = await deleteQuery;
     if (error) return fail('db_error', error.message, 500);
-    return json({ ok: true });
+    return json({ ok: true, disabledAll: body.disableAll === true });
   }
+
+  if (!expoPushToken) return fail('missing_push_token', 'Expo push token is required');
+  if (body.disableAll === true) return fail('invalid_registration', 'disableAll is only valid for DELETE');
 
   const platform = cleanString(body.platform, 32) || 'unknown';
   const displayName = cleanString(body.displayName, 120) || owner.displayName || null;

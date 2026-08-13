@@ -1,12 +1,16 @@
 import dayjs from 'dayjs';
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
-import {
-  applyRecommenderSelection,
-  searchRecommenderCandidates,
-} from '@/lib/admin-referrals';
 import { adminSupabase } from '@/lib/admin-supabase';
-import { sendPushNotificationToResident } from '@/lib/push-notification-service';
+import { resolveAdminTempIdUpdate } from '@/lib/admin-temp-id-update';
+import {
+  persistNotificationToResident,
+  sendPushNotificationToResident,
+  sendPushNotificationToResidentDevices,
+  type NotificationPersistenceResult,
+  type PushPayload,
+  type PushNotificationResult,
+} from '@/lib/push-notification-service';
 import {
   hasAppointmentWorkflowEvidence,
   hasHanwhaApprovedPdf,
@@ -15,6 +19,11 @@ import {
 import { normalizeFcDocumentStoragePath } from '@/lib/admin-fc-doc-storage';
 import { validateHanwhaPdfPayload } from '@/lib/admin-hanwha-pdf-payload';
 import { logger } from '@/lib/logger';
+import { parseNotificationTargetV1 } from '@/lib/notification-target';
+import {
+  hasRetiredLegacyRecommenderMutationFields,
+  isRetiredLegacyRecommenderSearchAction,
+} from '@/lib/recommender-relation-route-handler';
 import { buildPhoneCandidates, getVerifiedServerSession } from '@/lib/server-session';
 
 type AdminAction =
@@ -33,8 +42,7 @@ type AdminAction =
   | 'signDoc'
   | 'sendReminder'
   | 'getInviteeReferralCode'
-  | 'getReferralCode'
-  | 'searchRecommenders';
+  | 'getReferralCode';
 
 type AdminSession = {
   role: 'admin';
@@ -87,6 +95,90 @@ const DAWICHOK_URL_SIGNAL_STATUSES = new Set([
   'appointment-completed',
   'final-link-sent',
 ]);
+
+function notificationResponse(result: {
+  success: boolean;
+  delivery: {
+    notificationStored: boolean;
+    pushStatus: 'accepted' | 'no_registered_device' | 'provider_rejected' | 'not_attempted';
+    retryable: boolean;
+    notificationId?: string;
+  };
+} | null) {
+  if (!result) return {};
+  return {
+    notification: result,
+    delivery: result.delivery,
+    ...(result.delivery.notificationStored
+      ? {}
+      : { warning: 'notification_persistence_incomplete' }),
+  };
+}
+
+async function resolveCanonicalFcNotificationRecipient(fcId: string): Promise<string | null> {
+  const { data: profile, error } = await adminSupabase
+    .from('fc_profiles')
+    .select('phone')
+    .eq('id', fcId)
+    .maybeSingle();
+
+  const phone = typeof profile?.phone === 'string' ? profile.phone.trim() : '';
+  const phoneDigits = phone.replace(/\D/g, '');
+  if (error || !profile || !/^010\d{8}$/.test(phoneDigits)) {
+    logger.warn('[api/admin/fc] canonical notification recipient unavailable', {
+      category: 'admin_fc_notification',
+      reason: error ? 'database_lookup_failed' : 'invalid_or_missing_recipient',
+      status: 'incomplete',
+    });
+    return null;
+  }
+
+  return phoneDigits;
+}
+
+async function sendPushNotificationToCanonicalFc(
+  fcId: string,
+  payload: PushPayload,
+): Promise<PushNotificationResult> {
+  const phoneDigits = await resolveCanonicalFcNotificationRecipient(fcId);
+  if (!phoneDigits) {
+    return sendPushNotificationToResident('', payload, fcId);
+  }
+
+  return sendPushNotificationToResident(phoneDigits, payload, fcId);
+}
+
+async function queuePushNotificationToCanonicalFc(
+  fcId: string,
+  payload: PushPayload,
+): Promise<NotificationPersistenceResult> {
+  const phoneDigits = await resolveCanonicalFcNotificationRecipient(fcId);
+  if (!phoneDigits) {
+    return {
+      success: false,
+      notificationId: null,
+      delivery: {
+        notificationStored: false,
+        pushStatus: 'not_attempted',
+        retryable: false,
+      },
+      inbox: { attempted: false, logged: false },
+    };
+  }
+
+  const persistence = await persistNotificationToResident(phoneDigits, payload, fcId);
+  if (persistence.success) {
+    after(async () => {
+      await sendPushNotificationToResidentDevices(
+        phoneDigits,
+        payload,
+        persistence.notificationId,
+        fcId,
+      );
+    });
+  }
+  return persistence;
+}
 
 async function getValidatedCookieSession(): Promise<SessionErrorResult | SessionSuccessResult<CookieSession>> {
   const sessionCheck = await getVerifiedServerSession({ allowedRoles: ['admin', 'manager'] });
@@ -349,6 +441,10 @@ export async function POST(req: Request) {
   }
 
   try {
+    if (isRetiredLegacyRecommenderSearchAction(action)) {
+      return badRequest('추천인 검색은 추천인 관계 전용 경로에서만 사용할 수 있습니다.');
+    }
+
     if (action === 'createHanwhaPdfUploadUrl' || action === 'deleteHanwhaPdf') {
       const validatedPayload = validateHanwhaPdfPayload(action, payload);
       if (!validatedPayload.ok) {
@@ -435,50 +531,56 @@ export async function POST(req: Request) {
 
     if (action === 'updateProfile') {
       const adminSession = sessionCheck.session as AdminSession;
-      const { fcId, data, phone } = payload as {
+      const { fcId, data } = payload as {
         fcId?: string;
         data?: Record<string, unknown>;
-        phone?: string;
       };
       if (!fcId || !data) return badRequest('fcId and data are required');
       const scopeError = await requireFcProfileScope(adminSession, fcId);
       if (scopeError) return scopeError;
+      if (hasRetiredLegacyRecommenderMutationFields(data)) {
+        return badRequest('추천인 관계는 추천인 관계 전용 경로에서만 수정할 수 있습니다.');
+      }
 
       const updateData = { ...data };
-      const hasStructuredRecommender = Object.prototype.hasOwnProperty.call(updateData, 'recommenderFcId');
-      const nextRecommenderFcId = hasStructuredRecommender
-        ? (String(updateData.recommenderFcId ?? '').trim() || null)
-        : null;
-      const recommenderOverrideReason = String(updateData.recommenderOverrideReason ?? '').trim();
-
-      delete updateData.recommenderFcId;
-      delete updateData.recommenderOverrideReason;
 
       const hasTempIdUpdate = Object.prototype.hasOwnProperty.call(updateData, 'temp_id');
+      let tempIdChanged = false;
+      let nextTempId: string | null = null;
+      if (hasTempIdUpdate && updateData.temp_id != null && typeof updateData.temp_id !== 'string') {
+        return badRequest('temp_id must be a string or null');
+      }
+
       if (hasTempIdUpdate) {
-        if (typeof updateData.temp_id === 'string') {
-          updateData.temp_id = updateData.temp_id.trim() || null;
-        } else if (updateData.temp_id == null) {
-          updateData.temp_id = null;
-        }
-      }
-
-      if (Object.prototype.hasOwnProperty.call(updateData, 'recommender')) {
-        return badRequest('추천인은 목록에서 선택해주세요.');
-      }
-
-      if (
-        hasTempIdUpdate &&
-        updateData.temp_id &&
-        !Object.prototype.hasOwnProperty.call(updateData, 'status')
-      ) {
         const { data: currentProfile, error: currentProfileError } = await adminSupabase
           .from('fc_profiles')
-          .select('status')
+          .select('status,temp_id')
           .eq('id', fcId)
           .maybeSingle();
         if (currentProfileError) throw currentProfileError;
-        if (currentProfile?.status === 'draft') {
+
+        const tempIdUpdate = resolveAdminTempIdUpdate(currentProfile?.temp_id, updateData.temp_id);
+        tempIdChanged = tempIdUpdate.changed;
+        nextTempId = tempIdUpdate.nextTempId;
+
+        // The server owns the issuance transition. A stale client must not move a
+        // draft profile when it resubmits the same temporary ID.
+        if (updateData.status === 'temp-id-issued') {
+          delete updateData.status;
+        }
+
+        if (!tempIdChanged) {
+          delete updateData.temp_id;
+        } else {
+          updateData.temp_id = nextTempId;
+        }
+
+        if (
+          tempIdChanged &&
+          nextTempId &&
+          !Object.prototype.hasOwnProperty.call(updateData, 'status') &&
+          currentProfile?.status === 'draft'
+        ) {
           updateData.status = 'temp-id-issued';
         }
       }
@@ -491,21 +593,7 @@ export async function POST(req: Request) {
         if (updateError) throw updateError;
       }
 
-      if (hasStructuredRecommender) {
-        await applyRecommenderSelection({
-          actor: {
-            actorPhone: adminSession.residentDigits,
-            actorRole: 'admin',
-            actorStaffType: adminSession.staffType,
-          },
-          inviteeFcId: fcId,
-          inviterFcId: nextRecommenderFcId,
-          reason: recommenderOverrideReason,
-        });
-      }
-
-      const tempId = typeof updateData['temp_id'] === 'string' ? updateData['temp_id'] : null;
-      const shouldNotifyTemp = Boolean(tempId);
+      const shouldNotifyTemp = tempIdChanged && Boolean(nextTempId);
       let updatedProfile: Record<string, unknown> | null = null;
       const { data: profile, error: profileError } = await adminSupabase
         .from('fc_profiles')
@@ -518,39 +606,32 @@ export async function POST(req: Request) {
         updatedProfile = profile as Record<string, unknown> | null;
       }
 
-      if (shouldNotifyTemp && phone) {
+      let notificationResult: PushNotificationResult | null = null;
+      if (shouldNotifyTemp && nextTempId) {
         const title = '임시번호 발급';
-        const body = `임시사번: ${tempId} 이 발급되었습니다.`;
-        try {
-          await adminSupabase.from('notifications').insert({
-            title,
-            body,
-            target_url: '/consent',
-            recipient_role: 'fc',
-            resident_id: phone,
-          });
-          await sendPushNotificationToResident(phone, { title, body, data: { url: '/consent' }, skipNotificationInsert: true });
-          logger.debug('[api/admin/fc] temp-id notified', { fcId, name: profile?.name });
-        } catch (notifyError) {
-          logger.warn('[api/admin/fc] temp-id notification failed', {
-            fcId,
-            phone,
-            error: notifyError instanceof Error ? notifyError.message : String(notifyError),
-          });
-        }
+        const body = `임시사번: ${nextTempId} 이 발급되었습니다.`;
+        notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
+          title,
+          body,
+          target: { version: 1, kind: 'onboarding_section', fcId, section: 'consent' },
+          data: { url: '/consent' },
+        });
       }
 
-      return NextResponse.json({ ok: true, profile: updatedProfile });
+      return NextResponse.json({
+        ok: true,
+        profile: updatedProfile,
+        ...notificationResponse(notificationResult),
+      });
     }
 
     if (action === 'updateStatus') {
-      const { fcId, status, title, msg, extra: rawExtra, phone } = payload as {
+      const { fcId, status, title, msg, extra: rawExtra } = payload as {
         fcId?: string;
         status?: string;
         title?: string;
         msg?: string;
         extra?: Record<string, unknown>;
-        phone?: string;
       };
       if (!fcId || !status) return badRequest('fcId and status are required');
       const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
@@ -629,16 +710,15 @@ export async function POST(req: Request) {
         .select();
 
       logger.debug('[api/admin/fc] updateStatus result', {
-        fcId,
-        status,
+        category: 'admin_fc_update',
+        resultStatus: updateError ? 'failed' : 'completed',
         updatedCount: updatedData?.length,
-        updatedData,
-        error: updateError
       });
 
       if (updateError) throw updateError;
 
-      if (msg && phone) {
+      let notificationResult: PushNotificationResult | null = null;
+      if (msg) {
         const finalTitle = title || '상태 업데이트';
         let url = '/notifications';
         if (status === 'allowance-consented') url = '/docs-upload';
@@ -646,18 +726,26 @@ export async function POST(req: Request) {
         else if (status === 'hanwha-commission-approved') url = '/hanwha-commission';
         else if (status === 'temp-id-issued') url = '/consent';
 
-        await adminSupabase.from('notifications').insert({
+        notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
           title: finalTitle,
           body: msg,
-          target_url: url,
-          recipient_role: 'fc',
-          resident_id: phone,
+          target: {
+            version: 1,
+            kind: 'onboarding_section',
+            fcId,
+            section: status === 'allowance-consented'
+              ? 'docs_upload'
+              : status === 'docs-approved' || status === 'hanwha-commission-approved'
+                ? 'hanwha_commission'
+                : status === 'temp-id-issued'
+                  ? 'consent'
+                  : 'home',
+          },
+          data: { url },
         });
-
-        await sendPushNotificationToResident(phone, { title: finalTitle, body: msg, data: { url }, skipNotificationInsert: true });
       }
 
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, ...notificationResponse(notificationResult) });
     }
 
     if (action === 'updateAllowanceDate') {
@@ -751,7 +839,7 @@ export async function POST(req: Request) {
 
       const { data: profile, error: profileError } = await adminSupabase
         .from('fc_profiles')
-        .select('status,phone')
+        .select('status')
         .eq('id', fcId)
         .maybeSingle();
       if (profileError) throw profileError;
@@ -771,33 +859,26 @@ export async function POST(req: Request) {
         .eq('id', fcId);
       if (updateError) throw updateError;
 
-      const phone = String(profile.phone ?? '').trim();
-      if (phone) {
-        const title = '다위촉 URL 안내';
-        const msg = '카카오톡으로 전송된 다위촉 URL을 진행해 주세요.';
-        const url = '/hanwha-commission';
-        try {
-          await adminSupabase.from('notifications').insert({
-            title,
-            body: msg,
-            target_url: url,
-            recipient_role: 'fc',
-            resident_id: phone,
-          });
-          await sendPushNotificationToResident(phone, { title, body: msg, data: { url }, skipNotificationInsert: true });
-        } catch (notifyError) {
-          logger.warn('[api/admin/fc] Dawichok URL signal notification failed', {
-            fcId,
-            phone,
-            error: notifyError instanceof Error ? notifyError.message : String(notifyError),
-          });
-        }
-      }
+      const title = '다위촉 URL 안내';
+      const msg = '카카오톡으로 전송된 다위촉 URL을 진행해 주세요.';
+      const url = '/hanwha-commission';
+      const notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
+        title,
+        body: msg,
+        target: {
+          version: 1,
+          kind: 'onboarding_section',
+          fcId,
+          section: 'hanwha_commission',
+        },
+        data: { url },
+      });
 
       return NextResponse.json({
         ok: true,
         dawichok_url_sent_at: sentAt,
         dawichok_url_sent_by: sentBy,
+        ...notificationResponse(notificationResult),
       });
     }
 
@@ -886,12 +967,11 @@ export async function POST(req: Request) {
     }
 
     if (action === 'updateDocsRequest') {
-      const { fcId, types, deadline, phone, currentDeadline } = payload as {
+      const { fcId, types, deadline, currentDeadline } = payload as {
         fcId?: string;
         types?: string[];
         deadline?: string | null;
         currentDeadline?: string | null;
-        phone?: string;
       };
       if (!fcId || !Array.isArray(types)) return badRequest('fcId and types are required');
       const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
@@ -983,29 +1063,24 @@ export async function POST(req: Request) {
         .eq('id', fcId);
       if (profileUpdateError) throw profileUpdateError;
 
-      if (phone) {
-        const title = '필수 서류 등록 알림';
-        const body = '관리자가 필수 서류 목록을 갱신하였습니다. 확인 후 제출해주세요.';
-        await adminSupabase.from('notifications').insert({
-          title,
-          body,
-          target_url: '/docs-upload',
-          recipient_role: 'fc',
-          resident_id: phone,
-        });
-        await sendPushNotificationToResident(phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
-      }
+      const title = '필수 서류 등록 알림';
+      const body = '관리자가 필수 서류 목록을 갱신하였습니다. 확인 후 제출해주세요.';
+      const notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
+        title,
+        body,
+        target: { version: 1, kind: 'onboarding_section', fcId, section: 'docs_upload' },
+        data: { url: '/docs-upload' },
+      });
 
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, ...notificationResponse(notificationResult) });
     }
 
     if (action === 'updateDocStatus') {
-      const { fcId, docType, status, reviewerNote, phone } = payload as {
+      const { fcId, docType, status, reviewerNote } = payload as {
         fcId?: string;
         docType?: string;
         status?: string;
         reviewerNote?: string | null;
-        phone?: string;
       };
       if (!fcId || !docType || !status) return badRequest('fcId, docType, and status are required');
       const normalizedStatus = String(status).trim();
@@ -1054,40 +1129,50 @@ export async function POST(req: Request) {
 
       const { allApproved } = await syncProfileAfterDocMutation(fcId);
 
-      if (normalizedStatus === 'rejected' && phone) {
+      let notificationResult: NotificationPersistenceResult | null = null;
+      if (normalizedStatus === 'rejected') {
         const title = '서류 반려 안내';
         const reasonText = trimmedReviewerNote || '사유 없음';
         const body = `제출하신 [${docType}] 서류가 반려되었습니다.\n사유: ${reasonText}`;
-        await adminSupabase.from('notifications').insert({
+        notificationResult = await queuePushNotificationToCanonicalFc(fcId, {
           title,
           body,
-          target_url: '/docs-upload',
-          recipient_role: 'fc',
-          resident_id: phone,
+          target: { version: 1, kind: 'onboarding_section', fcId, section: 'docs_upload' },
+          data: { url: '/docs-upload' },
           category: '서류',
         });
-        await sendPushNotificationToResident(phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
-      }
-
-      if (allApproved && phone) {
+      } else if (normalizedStatus === 'approved' && allApproved) {
         const title = '서류 검토 완료';
         const body = '모든 서류가 승인되었습니다. 다위촉 단계로 진행해주세요.';
-        await adminSupabase.from('notifications').insert({
+        notificationResult = await queuePushNotificationToCanonicalFc(fcId, {
           title,
           body,
-          target_url: '/hanwha-commission',
-          recipient_role: 'fc',
-          resident_id: phone,
-        });
-        await sendPushNotificationToResident(phone, {
-          title,
-          body,
+          target: {
+            version: 1,
+            kind: 'onboarding_section',
+            fcId,
+            section: 'hanwha_commission',
+          },
           data: { url: '/hanwha-commission' },
-          skipNotificationInsert: true,
+          category: '서류',
+        });
+      } else if (normalizedStatus === 'approved') {
+        const title = '서류 승인 안내';
+        const body = `제출하신 [${docType}] 서류가 승인되었습니다.`;
+        notificationResult = await queuePushNotificationToCanonicalFc(fcId, {
+          title,
+          body,
+          target: { version: 1, kind: 'onboarding_section', fcId, section: 'docs_upload' },
+          data: { url: '/docs-upload' },
+          category: '서류',
         });
       }
 
-      return NextResponse.json({ ok: true, allApproved });
+      return NextResponse.json({
+        ok: true,
+        allApproved,
+        ...notificationResponse(notificationResult),
+      });
     }
 
     if (action === 'deleteDocFile') {
@@ -1131,24 +1216,35 @@ export async function POST(req: Request) {
     }
 
     if (action === 'sendReminder') {
-      const { phone, title, body, url } = payload as {
-        phone?: string;
+      const { fcId, title, body, url, target: rawTarget } = payload as {
+        fcId?: string;
         title?: string;
         body?: string;
         url?: string;
+        target?: unknown;
       };
-      if (!phone || !title || !body) return badRequest('phone, title, body are required');
+      if (!fcId || !title || !body) return badRequest('fcId, title, body are required');
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
 
-      await adminSupabase.from('notifications').insert({
+      const target = parseNotificationTargetV1(rawTarget);
+      if (!target) return badRequest('A valid notification target is required');
+      if (
+        ('fcId' in target && target.fcId !== fcId)
+        || target.kind === 'request'
+        || target.kind === 'request_chat'
+        || target.kind === 'request_direct_chat'
+      ) {
+        return badRequest('Notification target does not match the FC');
+      }
+      const notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
         title,
         body,
-        target_url: url ?? '/notifications',
-        recipient_role: 'fc',
-        resident_id: phone,
+        target,
+        data: { url: url ?? '/notifications' },
       });
 
-        await sendPushNotificationToResident(phone, { title, body, data: url ? { url } : undefined, skipNotificationInsert: true });
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, ...notificationResponse(notificationResult) });
     }
 
     if (action === 'getReferralCode' || action === 'getInviteeReferralCode') {
@@ -1169,22 +1265,6 @@ export async function POST(req: Request) {
         inviteeReferralCode: signupReferralCode,
         referralCode: signupReferralCode,
       });
-    }
-
-    if (action === 'searchRecommenders') {
-      const { query, excludeFcId, selectedFcId } = payload as {
-        query?: string;
-        excludeFcId?: string | null;
-        selectedFcId?: string | null;
-      };
-
-      const result = await searchRecommenderCandidates({
-        query,
-        excludeFcId,
-        selectedFcId,
-      });
-
-      return NextResponse.json({ ok: true, ...result });
     }
 
     return badRequest('Unknown action');

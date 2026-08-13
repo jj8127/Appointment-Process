@@ -2,10 +2,16 @@ doc_id: FC-DATA-IDENTITY-PII
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-03-26
-source_of_truth: supabase/schema.sql + supabase/functions/store-identity/index.ts + web/src/app/api/admin/resident-numbers/route.ts
+last_verified: 2026-07-12
+source_of_truth: supabase/schema.sql + supabase/functions/store-identity/index.ts + web/src/lib/server-session.ts + web/src/lib/staff-identity.ts + web/src/app/api/admin/resident-numbers/route.ts
 
 # Data Handbook: Identity And PII
+
+## 2026-07-12 Server-derived web identity
+
+- Privileged web routes derive role, phone, display name, and admin/developer subtype from a verified signed session plus the active database row; request body and JS-readable session state are not identity sources.
+- An FC signed session is valid only when its signed `fcId` and phone resolve to the same completed profile.
+- Chat sender ids/names use the shared `web/src/lib/staff-identity.ts` contract on both caller and server policy so regular admin (`총무팀`), developer, and FC names cannot drift into authorization failures or forged notification identity.
 
 ## 규칙
 

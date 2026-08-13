@@ -1,10 +1,13 @@
 export const GROUP_CHAT_UPLOAD_BUCKET = 'chat-uploads';
 export const GROUP_CHAT_UPLOAD_PREFIX = 'group-chat/';
 export const MAX_GROUP_CHAT_UPLOAD_BYTES = 20 * 1024 * 1024;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ALLOWED_GROUP_CHAT_ACTIONS = new Set([
   'group_chat_bootstrap',
   'group_chat_send',
+  'group_chat_notification_retry',
   'group_chat_mark_read',
   'group_chat_preferences',
   'group_chat_reaction_set',
@@ -27,7 +30,6 @@ export const ALLOWED_GROUP_CHAT_UPLOAD_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/zip',
 ]);
 
 export const ALLOWED_GROUP_CHAT_UPLOAD_EXTENSIONS = new Set([
@@ -44,7 +46,6 @@ export const ALLOWED_GROUP_CHAT_UPLOAD_EXTENSIONS = new Set([
   'xlsx',
   'ppt',
   'pptx',
-  'zip',
 ]);
 
 const GROUP_CHAT_REACTIONS = new Set(['👍', '❤️', '😂', '😮', '😢', '👏']);
@@ -133,9 +134,38 @@ export function normalizeGroupChatProxyPayload(
         : 'text';
     const content = cleanString(raw.content, 2000);
     const replyToMessageId = cleanOptionalId(raw.reply_to_message_id);
+    const attachmentIntentIds = Array.isArray(raw.attachment_intent_ids)
+      ? raw.attachment_intent_ids.map((value) => cleanOptionalId(value)?.toLowerCase() ?? null)
+      : [];
+    const deliveryKey = cleanOptionalId(raw.delivery_key)?.toLowerCase() ?? null;
+    const payloadFingerprint = cleanString(raw.payload_fingerprint, 64).toLowerCase();
+    const hasAttachments = attachmentIntentIds.length > 0;
+    if (
+      attachmentIntentIds.length > 10
+      || attachmentIntentIds.some((id) => !id || !UUID_PATTERN.test(id))
+      || new Set(attachmentIntentIds).size !== attachmentIntentIds.length
+      || (
+        hasAttachments
+        && (
+          !deliveryKey
+          || !UUID_PATTERN.test(deliveryKey)
+          || !/^[0-9a-f]{64}$/.test(payloadFingerprint)
+        )
+      )
+      || (
+        !hasAttachments
+        && (
+          raw.delivery_key !== undefined
+          || raw.payload_fingerprint !== undefined
+          || raw.attachment_intent_ids !== undefined
+        )
+      )
+    ) {
+      return { ok: false, status: 400, message: 'Invalid group chat attachment delivery' };
+    }
 
     if (messageType === 'text') {
-      if (!content) {
+      if (!content && !hasAttachments) {
         return { ok: false, status: 400, message: 'Message content is required' };
       }
       return {
@@ -144,6 +174,13 @@ export function normalizeGroupChatProxyPayload(
           type,
           content,
           message_type: 'text',
+          ...(hasAttachments
+            ? {
+                attachment_intent_ids: attachmentIntentIds,
+                delivery_key: deliveryKey,
+                payload_fingerprint: payloadFingerprint,
+              }
+            : {}),
           ...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
         },
       };
@@ -164,6 +201,26 @@ export function normalizeGroupChatProxyPayload(
         file_name: cleanGroupChatUploadFileName(cleanString(raw.file_name, 180)),
         file_size: cleanFileSize(raw.file_size),
         ...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
+      },
+    };
+  }
+
+  if (type === 'group_chat_notification_retry') {
+    const messageId = cleanOptionalId(raw.message_id);
+    const retryToken = cleanString(raw.retry_token, 512);
+    if (!messageId || !retryToken) {
+      return {
+        ok: false,
+        status: 400,
+        message: 'Message id and notification retry token are required',
+      };
+    }
+    return {
+      ok: true,
+      payload: {
+        type,
+        message_id: messageId,
+        retry_token: retryToken,
       },
     };
   }
@@ -254,5 +311,5 @@ export function isAllowedGroupChatUploadFile(input: { name: string; type?: strin
   const mimeType = String(input.type ?? '').trim().toLowerCase();
   const extension = getGroupChatUploadExtension(input.name);
   return ALLOWED_GROUP_CHAT_UPLOAD_MIME_TYPES.has(mimeType)
-    || ALLOWED_GROUP_CHAT_UPLOAD_EXTENSIONS.has(extension);
+    && ALLOWED_GROUP_CHAT_UPLOAD_EXTENSIONS.has(extension);
 }
