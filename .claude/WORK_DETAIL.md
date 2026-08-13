@@ -13989,3 +13989,26 @@ Verification:
 - Paired a Galaxy S26 over wireless ADB, installed an isolated QA package without replacing the Play-installed 4.2.3 app, and reached the authenticated referral graph. The user manually confirmed zoom behavior as normal.
 - Removed the temporary instrumentation app, local QA APKs, screenshots, dependency links, and build scripts. The isolated QA app remains installed for comparison; production data and the production app were not changed.
 - No OTA, native/Store release, Git push, migration, database write, or external deployment occurred. Release status remains `HOLD` until explicit rollout approval and final commit-based release evidence.
+
+<a id="20260813-garamin-423-local-release-preparation-audit"></a>
+## 2026-08-13 | GaramIn 4.2.3 local release-preparation audit
+
+**Git preparation**:
+- Preserved all pre-existing user-owned changes and organized them into local commits for administrator-web deploy-root packaging, app version 4.2.3 alignment, and referral-graph Android recovery.
+- The primary `release/garamin-4.2.2-clean-20260809` worktree was clean after the commits. No stash, reset, restore, force operation, push, or branch publication was used.
+
+**Clean commit verification**:
+- Created a detached clean worktree at referral commit `7959cf1`, installed root and administrator-web dependencies with their committed lockfiles, and disabled all Sentry uploads.
+- Passed: root and web `npm ci`, `git diff --check`, documentation governance, integrated governance, root lint, root TypeScript, Expo web export, web lint, web TypeScript, and Next 16 production build.
+- Passed focused changed-contract verification: administrator-assisted signup packaging plus referral graph helper/source contracts (`3` suites / `23` tests).
+- Passed S26 device evidence from the implementation session: isolated QA install, authenticated graph open, manual pinch confirmation, and production app 4.2.3 left unchanged.
+
+**Repository-wide blockers**:
+- Composite receipt `quality-full-20260813-053226` is `FAILED`; the primary environmental failure class is the intentionally empty dependency directories in the primary FC and Request Board checkouts.
+- In the clean FC worktree, the baseline commit reproduces 10 failing suites / 14 failing tests across pre-existing Exam, Messenger, Presence, and notification source contracts. Two additional inventory tests fail only because their scanner intentionally excludes any checkout below `.codex-tmp`.
+- The all-Node gate also contains one pre-existing admin-login source-contract mismatch and the explicitly external real-data referral test, which fails closed when Supabase environment access is absent.
+- The pre-existing Board Edge smoke and all-Function Deno type check remain red. The root audit reports 11 high / 0 critical advisories; the web audit reports zero.
+- These failures are outside the referral/rendering and deploy-root packaging diff and require a separately authorized cross-feature remediation. Repository-wide release verdict remains `HOLD`.
+
+**Boundaries**:
+- No Git push, PR, OTA, Store/native release, Vercel deployment, Edge deployment, migration, production query/write, or release upload occurred.

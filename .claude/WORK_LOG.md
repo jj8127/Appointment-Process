@@ -1194,3 +1194,11 @@
 - Focused Jest passes 3 suites / 23 tests; root TypeScript and scoped ESLint pass; a Sentry-disabled arm64 Android release build and Sentry-disabled administrator-web production build pass. The user confirmed pinch zoom behavior on the paired Galaxy S26.
 - Production app 4.2.3 remained installed and unchanged. No OTA, Store release, Git push, migration, database write, or external deployment occurred; release remains HOLD pending explicit rollout approval.
 - Details: [WORK_DETAIL.md#20260813-referral-graph-android-rendering-recovery](WORK_DETAIL.md#20260813-referral-graph-android-rendering-recovery)
+
+## 2026-08-13 GaramIn 4.2.3 local release-preparation audit
+
+- Organized the previously user-owned worktree into three scoped local commits: administrator-web packaging, app-version alignment, and referral-graph Android recovery.
+- A clean detached worktree at the referral fix commit passed root/web lockfile installs, diff and governance checks, root/web lint and TypeScript, Expo web export, and the Next 16 production build. The paired Galaxy S26 remained reachable over wireless ADB without re-pairing.
+- Full-release comparison confirmed no new failing contract from these commits, but the baseline commit already contains 10 failing suites / 14 failing tests plus Board smoke and Edge type-check failures. Root dependency audit also retains 11 known high advisories; web audit is zero.
+- Worktree cleanup and local commit preparation are complete. Git push, OTA, Store/native release, database change, and external deployment were not performed. Repository-wide release status remains HOLD pending a separate authorized remediation of the baseline gates.
+- Details: [WORK_DETAIL.md#20260813-garamin-423-local-release-preparation-audit](WORK_DETAIL.md#20260813-garamin-423-local-release-preparation-audit)
