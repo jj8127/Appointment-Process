@@ -12927,7 +12927,7 @@ revoke all on function public.patch_messenger_room_preference_v1(uuid, text, tex
   from public, anon, authenticated;
 grant execute on function public.patch_messenger_room_preference_v1(uuid, text, text, text, boolean, timestamptz)
   to service_role;
--- 20260810054317_admin_assisted_signup_v1.sql
+-- 20260810070757_admin_assisted_signup_v1.sql
 -- Administrator-assisted FC signup based on a documented written-consent check.
 -- This is an alternate verification basis. It must never mark phone OTP as verified.
 

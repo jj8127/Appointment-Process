@@ -150,6 +150,12 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 ## 2026-08-10 Native keyboard visibility
 
-- `exam-manage` and `exam-manage2` keep their top search fields in a drag-dismissable scroll owner and render the reject-reason card inside `KeyboardAvoidingView` on both Android and iOS.
+- `exam-manage` and `exam-manage2` keep their top search fields in a keyboard-retaining scroll owner and render the reject-reason card inside `KeyboardAvoidingView` on both Android and iOS.
 - `ExamApplicationTargetSelector` owns keyboard avoidance inside its native modal; the application screens must not depend on their outer scroll container to move this modal sheet.
 - These paths are included in `scripts/audit/mobile-keyboard-surfaces.json` and `lib/__tests__/mobile-keyboard-surface-contract.test.ts`. A source/build pass does not replace physical keyboard-open verification.
+
+## 2026-08-10 모바일 키보드 유지 계약
+
+- 시험 신청·등록·관리 화면의 스크롤 입력 영역은 Android와 iOS 모두 공용 `KeyboardAwareWrapper` 또는 동등한 키보드 인셋 처리를 사용한다.
+- 사용자가 입력값을 확인하며 드래그할 때 키보드를 자동으로 닫지 않으며, 포커스된 입력란은 실제 키보드 높이와 시스템 하단 인셋을 기준으로 보이는 영역에 유지한다.
+- 기기별 고정 오프셋으로 입력 영역을 올리지 않는다. 키보드와 시스템 내비게이션 바 크기는 런타임 측정값을 따른다.

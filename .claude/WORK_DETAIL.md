@@ -13950,7 +13950,16 @@ Verification:
 - Passed: Sentry-disabled Expo web export and Sentry-disabled admin-web production build.
 - Root TypeScript and Edge Deno checks remain blocked by the concurrent pre-existing `AssistedPasswordChangeTokenParseResult` missing type in `supabase/functions/_shared/request-board-auth.ts`, outside this Board repair.
 - Workspace governance still reports unrelated concurrent assisted-signup/auth/schema ownership gaps; this repair updated its Board owner document, work log/detail, contract matrix, and mistake ledger.
+<a id="20260810-production-migration-history-parity"></a>
+## 2026-08-10 | Production migration history parity
 
+**Change**:
+- Renamed the administrator-assisted signup migration from local version `20260810054317` to the production history version `20260810070757` and updated every source-of-truth reference.
+- Preserved the migration SQL contract; the production-history fetch differed only by its generated trailing statement terminator.
+
+**Verification**:
+- Supabase linked-project dry-run reports the remote database is up to date with no pending migrations, seeds, or roles.
+- No schema statement was re-executed and no production record was read or changed during this parity repair.
 <a id="20260810-admin-assisted-signup-production-rollout"></a>
 ## 2026-08-10 | Administrator-assisted signup production rollout
 
@@ -13968,7 +13977,6 @@ Verification:
 - Focused assisted-signup Jest passes 3 suites / 19 tests, including the Vercel web-root packaging regression contract. Administrator-web TypeScript and scoped root/web ESLint pass.
 - Production advisor findings are informational only for the intentionally service-role-only unused tables/indexes. The clean root install still reports the documented 11 pre-existing high dependency audit paths; the web subtree reports zero.
 - No exam application or mobile OTA/Store release occurred. Subjects retain responsibility for choosing their own final passwords on first login. The task created no commit or push and preserved unrelated worktree changes.
-
 <a id="20260813-referral-graph-android-rendering-recovery"></a>
 ## 2026-08-13 | Referral graph Android rendering recovery
 

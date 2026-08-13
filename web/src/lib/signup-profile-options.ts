@@ -19,3 +19,6 @@ export const SIGNUP_CARRIER_OPTIONS = [
   'KT 알뜰폰',
   'LGU+ 알뜰폰',
 ] as const;
+
+export type SignupAffiliation = (typeof SIGNUP_AFFILIATION_OPTIONS)[number];
+export type SignupCarrier = (typeof SIGNUP_CARRIER_OPTIONS)[number];

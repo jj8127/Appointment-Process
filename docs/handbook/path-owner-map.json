@@ -277,6 +277,7 @@
       "severity": "contract",
       "prefixes": [
         "supabase/functions/login-with-password/",
+        "supabase/functions/complete-assisted-password/",
         "supabase/functions/request-password-reset/",
         "supabase/functions/reset-password/",
         "supabase/functions/set-password/",

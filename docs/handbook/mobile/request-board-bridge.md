@@ -121,3 +121,9 @@ source_of_truth: app/request-board*.tsx + lib/chat-keyboard-layout.ts + lib/requ
 - 알림 딥링크로 과거 메시지 컨텍스트를 연 경우 상단 배너는 서버가 보고한 앞·뒤 생략 범위에 맞는 안내 문구를 표시하고, 최신 메시지 복귀 동작을 유지한다.
 - 방 전환·메시지·알림 설정의 실제 최신성 경계는 사용 중인 sequence/ref만 소유한다. 실행 경로에서 읽히지 않는 중복 generation, preference key, route-consumption 선언을 배포 계약처럼 남겨두지 않는다.
 - 이 정리는 Request Board 세션, 권한, 방 식별자, 읽음 처리, 알림 영수증 또는 메시지 조회 API 계약을 변경하지 않는다.
+
+## 2026-08-10 메신저·입력 화면 키보드 계약
+
+- 설계 요청의 `실시간 메신저` 진입은 가람in 메신저 V2 경로인 `/messenger`를 사용한다.
+- Request Board 메신저와 FC 코드·검토 입력 화면은 드래그 중 키보드를 유지하고, 전송 실패 복원 시 사용자가 새로 입력한 내용이나 첨부를 덮어쓰지 않는다.
+- 하단 입력 바는 `KeyboardSafeBottomBar`가 측정한 키보드·안전영역 인셋을 사용한다. 기기별 고정 여백이나 Android 내비게이션 모드 가정은 허용하지 않는다.

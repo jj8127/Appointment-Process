@@ -3,7 +3,7 @@ owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
 last_verified: 2026-08-10
-source_of_truth: env contracts + reset-password functions + assisted-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + supabase/functions/fc-notify/index.ts + supabase/migrations/*internal_messenger_summary_v1.sql + supabase/migrations/20260810054317_admin_assisted_signup_v1.sql + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/admin/assisted-signup/route.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
+source_of_truth: env contracts + reset-password functions + assisted-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + supabase/functions/fc-notify/index.ts + supabase/migrations/*internal_messenger_summary_v1.sql + supabase/migrations/20260810070757_admin_assisted_signup_v1.sql + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
 

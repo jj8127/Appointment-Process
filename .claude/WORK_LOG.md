@@ -1179,14 +1179,17 @@
 - Full Jest passes 236 suites / 1,465 tests; TypeScript, zero-warning Expo lint, 34/34 keyboard audit, and diff check pass. A Samsung local debug smoke confirmed lower-field visibility and retained keyboard during a short drag before wireless ADB disconnected.
 - No follow-up OTA, native/Store release, Edge deployment, Git push, or unrelated production write was performed; release remains HOLD.
 - Details: [WORK_DETAIL.md#20260810-profile-keyboard-follow-up](WORK_DETAIL.md#20260810-profile-keyboard-follow-up)
+## 2026-08-10 Production migration history parity
 
+- Aligned the administrator-assisted signup migration filename with the already-applied production history version and updated its handbook, schema snapshot, and test references.
+- A linked Supabase dry-run reports zero pending database changes; the migration was not re-executed.
+- Details: [WORK_DETAIL.md#20260810-production-migration-history-parity](WORK_DETAIL.md#20260810-production-migration-history-parity)
 ## 2026-08-10 Administrator-assisted signup production rollout
 
 - Applied the ordered assisted-signup migration, deployed the five required authentication Edge Functions, and published a clean administrator-web artifact to the production alias.
 - Created exactly two user-approved accounts through a signed administrator session. Aggregate-only verification confirms written-consent provenance, phone-unverified truth, forced first-password change, expected referral links/events, and the requested license state for both records.
 - Added a web-root-local validation contract so the Vercel project packages every required module, plus a regression source-contract test. No exam application, mobile OTA/Store release, commit, push, or additional account occurred.
 - Details: [WORK_DETAIL.md#20260810-admin-assisted-signup-production-rollout](WORK_DETAIL.md#20260810-admin-assisted-signup-production-rollout)
-
 ## 2026-08-13 Referral graph Android rendering recovery
 
 - Matched the reported Galaxy S26 / Android 16 failure to the density-amplified native SVG bitmap path and capped the physical backing surface while preserving the 1,800-unit logical graph.
