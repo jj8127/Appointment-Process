@@ -5694,3 +5694,17 @@
   - `lib/__tests__/referral-graph-native.test.ts`
   - `lib/__tests__/referral-graph-link.test.ts`
   - Galaxy S26 Android 16 open, pinch-out, pinch-in, and no-crash smoke.
+
+## 2026-08-13 | Empty primary dependency directories blocked Expo release tooling
+
+- Symptom:
+  - `npm run eas:build:android` failed before EAS submission because Expo could not resolve the `expo-router` config plugin from the primary checkout.
+- Root cause:
+  - Release cleanup restored `node_modules` to an intentionally empty placeholder state even though the next approved release command depended on the primary checkout's installed packages.
+- Permanent guardrail:
+  - Before EAS config, update, or build commands, require a lockfile-backed dependency install in the exact checkout that will run the command.
+  - A clean Git worktree does not imply a release-runnable dependency state; verify `npx expo config --json` before starting a paid or long-running native build.
+- Verification:
+  - Root `npm ci` completed from the committed lockfile.
+  - `npx expo config --json` succeeded.
+  - Android production build `979d7c8d-4ae5-4c48-9c42-b92ed2f703bb` completed as app 4.2.4 / version code 74 / runtime 4.2.4.

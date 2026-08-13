@@ -1205,3 +1205,11 @@
 - Full-release comparison confirmed no new failing contract from these commits, but the baseline commit already contains 10 failing suites / 14 failing tests plus Board smoke and Edge type-check failures. Root dependency audit also retains 11 known high advisories; web audit is zero.
 - Worktree cleanup and local commit preparation are complete. Git push, OTA, Store/native release, database change, and external deployment were not performed. Repository-wide release status remains HOLD pending a separate authorized remediation of the baseline gates.
 - Details: [WORK_DETAIL.md#20260813-garamin-423-local-release-preparation-audit](WORK_DETAIL.md#20260813-garamin-423-local-release-preparation-audit)
+
+## 2026-08-13 GaramIn 4.2.3 OTA and Android 4.2.4 production build
+
+- Published the release branch through `d03f7d5`, including the referral-graph recovery and the user-owned app version 4.2.4 bump.
+- Published Android and iOS OTA group `caf4a6a8-c4f7-49ce-a841-2c5572c4c46f` to the production branch from clean commit `48dc271` with runtime 4.2.3.
+- Restored the primary checkout's lockfile dependencies after empty `node_modules` prevented Expo plugin resolution, then completed Android production build `979d7c8d-4ae5-4c48-9c42-b92ed2f703bb` as app 4.2.4, version code 74, runtime 4.2.4.
+- No Play Store submission, staged rollout, iOS native build, database, Edge Function, or web deployment was performed. Repository-wide baseline gate findings remain tracked separately.
+- Details: [WORK_DETAIL.md#20260813-garamin-423-ota-424-android-build](WORK_DETAIL.md#20260813-garamin-423-ota-424-android-build)

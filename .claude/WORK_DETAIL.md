@@ -14020,3 +14020,26 @@ Verification:
 
 **Boundaries**:
 - No Git push, PR, OTA, Store/native release, Vercel deployment, Edge deployment, migration, production query/write, or release upload occurred.
+
+<a id="20260813-garamin-423-ota-424-android-build"></a>
+## 2026-08-13 | GaramIn 4.2.3 OTA and Android 4.2.4 production build
+
+**Git publication**:
+- Pushed the release branch through merge commit `48dc271`, then preserved the user's app version 4.2.4 change as `d03f7d5` and pushed it to the same branch.
+- Pre-push governance passed for both publication ranges. The branch was even with its upstream after each push.
+
+**Production OTA**:
+- Used a detached clean worktree at `48dc271` so the OTA remained runtime 4.2.3 and could be received by the installed 4.2.3 binary.
+- Published production update group `caf4a6a8-c4f7-49ce-a841-2c5572c4c46f` for Android and iOS at 100% availability.
+- Android update ID: `019ff9c5-9ef1-73ec-9def-216dd75a1dd4`; iOS update ID: `019ff9c5-9ef1-73ca-938a-eb4c0a21732b`.
+- EAS reports runtime 4.2.3 and Git commit `48dc271f54d9053441cd56901db48969e323e422` for both updates.
+
+**Android native build repair and result**:
+- The first local production build command failed before submission because the primary checkout's deliberately empty `node_modules` could not resolve the `expo-router` config plugin.
+- Reinstalled the committed root lockfile with `npm ci`; `npx expo config --json` then completed successfully and the production build no longer reproduced the plugin-resolution error.
+- Completed EAS Android production build `979d7c8d-4ae5-4c48-9c42-b92ed2f703bb` from `d03f7d5` as app 4.2.4, version code 74, runtime 4.2.4, Store-distribution AAB.
+- Artifact: `https://expo.dev/artifacts/eas/jrEPlaM48KZfgriqSv44SIbbBAPZY4vnQDtcA6jLTrY.aab`.
+
+**Boundaries**:
+- No Play Store submission or rollout, iOS native build, Vercel deployment, Supabase migration/function deployment, production data access, or secret mutation occurred.
+- The previously documented repository-wide baseline test, Deno, Board smoke, and dependency-audit findings were not changed by this publication and remain a separate remediation lane.
