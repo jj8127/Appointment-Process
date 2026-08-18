@@ -100,7 +100,9 @@ export default function AdminBoardScreen() {
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<LocalAttachment[]>([]);
   const [didLoadPost, setDidLoadPost] = useState(false);
+  const [deletingAttachment, setDeletingAttachment] = useState(false);
   const pickingRef = useRef(false);
+  const deletingAttachmentRef = useRef(false);
 
   const existingImages = useMemo(
     () => existingAttachments.filter(isImageAttachment),
@@ -169,6 +171,10 @@ export default function AdminBoardScreen() {
   }, [actor?.role, detailData, didLoadPost, router]);
 
   const handleSubmit = async () => {
+    if (deletingAttachmentRef.current) {
+      Alert.alert('첨부 삭제 중', '첨부파일 삭제가 완료된 후 다시 시도해주세요.');
+      return;
+    }
     if (!canWrite) {
       Alert.alert('접근 불가', '관리자만 게시글을 작성할 수 있습니다.');
       return;
@@ -341,6 +347,9 @@ export default function AdminBoardScreen() {
         text: '삭제',
         style: 'destructive',
         onPress: async () => {
+          if (deletingAttachmentRef.current) return;
+          deletingAttachmentRef.current = true;
+          setDeletingAttachment(true);
           try {
             await deleteBoardAttachments(actor, postId, [file.id]);
             setExistingAttachments((prev) => prev.filter((item) => item.id !== file.id));
@@ -349,6 +358,9 @@ export default function AdminBoardScreen() {
           } catch (error) {
             logBoardError('attachment-delete', error);
             Alert.alert('오류', '첨부파일 삭제에 실패했습니다.');
+          } finally {
+            deletingAttachmentRef.current = false;
+            setDeletingAttachment(false);
           }
         },
       },
@@ -489,10 +501,10 @@ export default function AdminBoardScreen() {
                 style={({ pressed }) => [
                   styles.headerSubmitButton,
                   pressed && { opacity: 0.75 },
-                  (loading || !canWrite || !categoryId || !title.trim() || !content.trim()) && styles.headerSubmitButtonDisabled,
+                  (loading || deletingAttachment || !canWrite || !categoryId || !title.trim() || !content.trim()) && styles.headerSubmitButtonDisabled,
                 ]}
                 onPress={handleSubmit}
-                disabled={loading || !canWrite || !categoryId || !title.trim() || !content.trim()}
+                disabled={loading || deletingAttachment || !canWrite || !categoryId || !title.trim() || !content.trim()}
               >
                 <Text style={styles.headerSubmitButtonText}>게시글 수정</Text>
               </Pressable>
@@ -715,7 +727,7 @@ export default function AdminBoardScreen() {
 
         <Button
           onPress={handleSubmit}
-          disabled={loading || !canWrite || !categoryId || !title.trim() || !content.trim()}
+          disabled={loading || deletingAttachment || !canWrite || !categoryId || !title.trim() || !content.trim()}
           loading={loading}
           variant="primary"
           size="lg"

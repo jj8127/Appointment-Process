@@ -51,4 +51,14 @@ describe('board attachment actions', () => {
       expect(source).not.toContain('openExternalUrl(item.signedUrl).catch');
     }
   });
+
+  it('blocks board submission while an existing attachment is being deleted', () => {
+    const source = readRepoFile('app/admin-board.tsx');
+
+    expect(source).toContain('if (deletingAttachmentRef.current) {');
+    expect(source).toContain("Alert.alert('첨부 삭제 중', '첨부파일 삭제가 완료된 후 다시 시도해주세요.')");
+    expect(source).toContain('disabled={loading || deletingAttachment || !canWrite');
+    expect(source).toContain('deletingAttachmentRef.current = true');
+    expect(source).toContain('deletingAttachmentRef.current = false');
+  });
 });

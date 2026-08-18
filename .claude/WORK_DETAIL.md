@@ -7,6 +7,33 @@
 
 ---
 
+## <a id="20260818-sentry-board-attachment-delete-save-race"></a> 2026-08-18 | Sentry board attachment delete/save race guard
+
+**Background**:
+- Sentry `REACT-NATIVE-B` showed `board-attachment-delete` succeeding immediately before `board-update` rejected a stale attachment order with `attachment count mismatch`.
+- The edit screen allowed submission while an existing attachment deletion request was still in flight.
+
+**Changes**:
+- Track existing-attachment deletion synchronously with a ref and in render state.
+- Block both submit entry points until deletion settles, while preserving the existing delete error recovery path.
+- Added a source contract regression assertion for the race guard.
+
+**Files**:
+- `app/admin-board.tsx`
+- `lib/__tests__/board-attachment-actions.test.ts`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**Verification**:
+- `npm test -- --runInBand lib/__tests__/board-attachment-actions.test.ts`
+- `npm run lint`
+- `npx tsc --noEmit --pretty false`
+- Guarded web export with Sentry uploads disabled
+- `node scripts/ci/check-governance.mjs`
+- `git diff --check`
+
+---
+
 ## <a id="20260707-node24-ci-admin-web"></a> 2026-07-07 | Node 24 CI and admin web runtime alignment
 
 **Background**:

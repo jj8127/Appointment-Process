@@ -17,6 +17,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-08-18
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 08-18 | Sentry `REACT-NATIVE-B` attachment-delete/save race guard | `app/admin-board.tsx`, `lib/__tests__/board-attachment-actions.test.ts` | [detail](WORK_DETAIL.md#20260818-sentry-board-attachment-delete-save-race) |
+
 ## 2026-07-07
 
 | Date | Work | Key files | Detail |
