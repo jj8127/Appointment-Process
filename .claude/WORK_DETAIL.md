@@ -14043,3 +14043,21 @@ Verification:
 **Boundaries**:
 - No Play Store submission or rollout, iOS native build, Vercel deployment, Supabase migration/function deployment, production data access, or secret mutation occurred.
 - The previously documented repository-wide baseline test, Deno, Board smoke, and dependency-audit findings were not changed by this publication and remain a separate remediation lane.
+
+<a id="20260818-garamin-425-android-drawing-order-candidate"></a>
+## 2026-08-18 | GaramIn 4.2.5 Android drawing-order clean candidate
+
+**Scope and Git boundary**:
+- Created a separate local branch/worktree from exact clean commit `ca8b46ef279edb512fe58d43dd1cb29ebfb04a6d`.
+- Transferred only `app.json`, `scripts/prepare.js`, the drawing-order applicator, its Expo config plugin, and its focused test from the protected dirty primary worktree. The app/runtime version is 4.2.5.
+- The primary worktree's referral allowance-flow implementation and separate command-document edit remain in place and are excluded from this candidate. Generated `android/` and installed dependency sources remain ignored build evidence.
+
+**Build contract**:
+- Root prepare pins React Native 0.81.5, patches `ReactSwipeRefreshLayout.getChildDrawingOrder` to preserve valid AndroidX results and replace only out-of-range indices, and keeps matching Hermes on its Maven AAR during ReactAndroid source compilation.
+- The Expo settings plugin runs after `expo-build-properties`, regenerates ReactAndroid source substitution, removes only Hermes source substitution, and installs a Gradle fail-closed patch preflight.
+- A lockfile-backed offline `npm ci` completed in the exact candidate worktree and applied both native source patches. Full candidate verification and the final local commit are recorded in the central release-gate harness.
+
+**Boundary and release state**:
+- No dependency or lockfile update, referral feature integration, Git push, EAS build, OTA, Store submission, credential inspection, production access, or rollout is authorized or performed here.
+- Existing 4.2.4/versionCode 74 predates this fix and must not be submitted. The user's future EAS build must resolve to a versionCode greater than 74.
+- Local build readiness can pass, but publication remains `HOLD` until a new signed artifact, Android 13/16 stress, staged rollout, and Play crash-cluster monitoring are complete.

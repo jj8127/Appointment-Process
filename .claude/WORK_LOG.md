@@ -1213,3 +1213,11 @@
 - Restored the primary checkout's lockfile dependencies after empty `node_modules` prevented Expo plugin resolution, then completed Android production build `979d7c8d-4ae5-4c48-9c42-b92ed2f703bb` as app 4.2.4, version code 74, runtime 4.2.4.
 - No Play Store submission, staged rollout, iOS native build, database, Edge Function, or web deployment was performed. Repository-wide baseline gate findings remain tracked separately.
 - Details: [WORK_DETAIL.md#20260813-garamin-423-ota-424-android-build](WORK_DETAIL.md#20260813-garamin-423-ota-424-android-build)
+
+## 2026-08-18 GaramIn 4.2.5 Android drawing-order clean candidate
+
+- Created the local-only `release/garamin-4.2.5-android-drawing-order-20260818` worktree from clean source `ca8b46e`, without moving or deleting the primary worktree's referral allowance-flow and command-document changes.
+- Set app/runtime identity to 4.2.5 and carried only the fail-closed ReactSwipeRefreshLayout drawing-order guard, its Expo/prepare build wiring, and focused regression test.
+- A lockfile-backed offline root install completed and applied the pinned RN 0.81.5 source patches. Candidate-specific build-readiness verification is recorded in the linked detail and central harness.
+- No Git push, EAS build, OTA, Store submission, credential access, production write, or rollout was performed. The pre-fix 4.2.4/code 74 artifact is not a release candidate.
+- Details: [WORK_DETAIL.md#20260818-garamin-425-android-drawing-order-candidate](WORK_DETAIL.md#20260818-garamin-425-android-drawing-order-candidate)

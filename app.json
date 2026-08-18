@@ -2,7 +2,7 @@
   "expo": {
     "name": "가람 in",
     "slug": "fc-onboarding-app",
-    "version": "4.2.4",
+    "version": "4.2.5",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
     "scheme": "hanwhafcpass",
@@ -47,10 +47,12 @@
           "project": "react-native"
         }
       ],
+      "./plugins/with-android-drawing-order-fix",
       [
         "expo-build-properties",
         {
           "android": {
+            "buildReactNativeFromSource": true,
             "enableMinifyInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
             "kotlinVersion": "2.1.20",

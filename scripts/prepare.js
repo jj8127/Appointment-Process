@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 const { execSync } = require("node:child_process");
+const {
+  applyAndroidDrawingOrderFix,
+} = require("./patches/apply-android-drawing-order-fix.cjs");
 
 function run(command) {
   return execSync(command, {
@@ -40,6 +43,8 @@ function unsetLocalHooksPath() {
 function installHusky() {
   execSync("npx husky", { stdio: "inherit" });
 }
+
+applyAndroidDrawingOrderFix();
 
 if (!inGitRepository()) {
   process.exit(0);
