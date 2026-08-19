@@ -10,6 +10,11 @@ const CONFIG_PLUGIN_RELATIVE_PATH = path.join(
   "plugins",
   "with-android-drawing-order-fix.js",
 );
+const GRADLE_JVMARGS_KEY = "org.gradle.jvmargs";
+const GRADLE_JVMARGS_UPSTREAM_VALUE =
+  "-Xmx2048m -XX:MaxMetaspaceSize=512m";
+const GRADLE_JVMARGS_REQUIRED_VALUE =
+  "-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8";
 const PATCH_MARKER = "GaramIn Android drawing-order guard";
 const TARGET_RELATIVE_PATH = path.join(
   "ReactAndroid",
@@ -95,6 +100,51 @@ const PATCH_BLOCK = `  /**
 
 function countOccurrences(source, needle) {
   return source.split(needle).length - 1;
+}
+
+function patchAndroidGradleProperties(properties) {
+  if (!Array.isArray(properties)) {
+    throw new Error(
+      "[android-drawing-order-fix] Generated gradle.properties has an unsupported parsed structure.",
+    );
+  }
+
+  const matchingPropertyIndexes = [];
+  properties.forEach((property, index) => {
+    if (
+      property?.type === "property" &&
+      property.key === GRADLE_JVMARGS_KEY
+    ) {
+      matchingPropertyIndexes.push(index);
+    }
+  });
+
+  if (matchingPropertyIndexes.length !== 1) {
+    throw new Error(
+      `[android-drawing-order-fix] Generated gradle.properties must contain exactly one ${GRADLE_JVMARGS_KEY} property; found ${matchingPropertyIndexes.length}.`,
+    );
+  }
+
+  const propertyIndex = matchingPropertyIndexes[0];
+  const property = properties[propertyIndex];
+  if (property.value === GRADLE_JVMARGS_REQUIRED_VALUE) {
+    return { changed: false, properties };
+  }
+
+  if (property.value !== GRADLE_JVMARGS_UPSTREAM_VALUE) {
+    throw new Error(
+      `[android-drawing-order-fix] Generated gradle.properties contains an unsupported ${GRADLE_JVMARGS_KEY} value: ${property.value}`,
+    );
+  }
+
+  return {
+    changed: true,
+    properties: properties.map((item, index) =>
+      index === propertyIndex
+        ? { ...item, value: GRADLE_JVMARGS_REQUIRED_VALUE }
+        : item,
+    ),
+  };
 }
 
 function assertNoReservedSettingsFragments(source) {
@@ -355,7 +405,12 @@ function assertBuildConsumesPatchedSource(
     path.join(repoRoot, CONFIG_PLUGIN_RELATIVE_PATH),
     "utf8",
   );
-  for (const snippet of ["withSettingsGradle", "patchAndroidSettingsGradle"]) {
+  for (const snippet of [
+    "withGradleProperties",
+    "withSettingsGradle",
+    "patchAndroidGradleProperties",
+    "patchAndroidSettingsGradle",
+  ]) {
     if (countOccurrences(configPluginSource, snippet) < 1) {
       throw new Error(
         `[android-drawing-order-fix] Expo config plugin is missing required wiring: ${snippet}`,
@@ -371,6 +426,28 @@ function assertBuildConsumesPatchedSource(
       );
     }
     validateGeneratedSettings(fs.readFileSync(settingsPath, "utf8"));
+
+    const gradlePropertiesPath = path.join(
+      repoRoot,
+      "android",
+      "gradle.properties",
+    );
+    if (!fs.existsSync(gradlePropertiesPath)) {
+      throw new Error(
+        "[android-drawing-order-fix] Generated android/gradle.properties is missing. Run Expo prebuild before the Android build.",
+      );
+    }
+    const { AndroidConfig } = require("expo/config-plugins");
+    const gradlePropertiesResult = patchAndroidGradleProperties(
+      AndroidConfig.Properties.parsePropertiesFile(
+        fs.readFileSync(gradlePropertiesPath, "utf8"),
+      ),
+    );
+    if (gradlePropertiesResult.changed) {
+      throw new Error(
+        `[android-drawing-order-fix] android/gradle.properties must set ${GRADLE_JVMARGS_KEY}=${GRADLE_JVMARGS_REQUIRED_VALUE}. Run Expo prebuild before the Android build.`,
+      );
+    }
   }
 }
 
@@ -442,6 +519,9 @@ module.exports = {
   EXPO_REACT_NATIVE_SOURCE_BUILD_BLOCK,
   CONFIG_PLUGIN_ID,
   FORBIDDEN_SETTINGS_SNIPPETS,
+  GRADLE_JVMARGS_KEY,
+  GRADLE_JVMARGS_REQUIRED_VALUE,
+  GRADLE_JVMARGS_UPSTREAM_VALUE,
   GRADLE_PATCH_BLOCK,
   GRADLE_PATCH_MARKER,
   GRADLE_UPSTREAM_BLOCK,
@@ -456,6 +536,7 @@ module.exports = {
   SETTINGS_PATCH_MARKER,
   applyAndroidDrawingOrderFix,
   assertBuildConsumesPatchedSource,
+  patchAndroidGradleProperties,
   patchAndroidSettingsGradle,
   patchReactAndroidGradle,
   patchReactSwipeRefreshLayout,

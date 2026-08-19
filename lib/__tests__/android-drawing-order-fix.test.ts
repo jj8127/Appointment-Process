@@ -35,9 +35,23 @@ type SettingsGradleMod = (config: {
   modResults: { contents: string; language: string };
 }) => Promise<{ modResults: { contents: string } }>;
 
+type GradleProperty =
+  | { type: "comment"; value: string }
+  | { type: "empty" }
+  | { type: "property"; key: string; value: string };
+
+type GradlePropertiesMod = (config: {
+  [key: string]: unknown;
+  modRequest: Record<string, never>;
+  modResults: GradleProperty[];
+}) => Promise<{ modResults: GradleProperty[] }>;
+
 const {
   CONFIG_PLUGIN_ID,
   EXPO_REACT_NATIVE_SOURCE_BUILD_BLOCK,
+  GRADLE_JVMARGS_KEY,
+  GRADLE_JVMARGS_REQUIRED_VALUE,
+  GRADLE_JVMARGS_UPSTREAM_VALUE,
   GRADLE_PATCH_BLOCK,
   GRADLE_PATCH_MARKER,
   GRADLE_UPSTREAM_BLOCK,
@@ -47,6 +61,7 @@ const {
   PATCHED_REACT_NATIVE_SOURCE_BUILD_BLOCK,
   SETTINGS_PATCH_BLOCK,
   assertBuildConsumesPatchedSource,
+  patchAndroidGradleProperties,
   patchAndroidSettingsGradle,
   patchReactAndroidGradle,
   patchReactSwipeRefreshLayout,
@@ -56,6 +71,9 @@ const {
 } = require("../../scripts/patches/apply-android-drawing-order-fix.cjs") as {
   CONFIG_PLUGIN_ID: string;
   EXPO_REACT_NATIVE_SOURCE_BUILD_BLOCK: string;
+  GRADLE_JVMARGS_KEY: string;
+  GRADLE_JVMARGS_REQUIRED_VALUE: string;
+  GRADLE_JVMARGS_UPSTREAM_VALUE: string;
   PATCH_ANCHOR: string;
   PATCH_BLOCK: string;
   PATCH_MARKER: string;
@@ -68,6 +86,10 @@ const {
     repoRoot: string,
     options?: { requireGeneratedSettings?: boolean },
   ) => void;
+  patchAndroidGradleProperties: (properties: GradleProperty[]) => {
+    changed: boolean;
+    properties: GradleProperty[];
+  };
   patchAndroidSettingsGradle: (source: string) => {
     changed: boolean;
     source: string;
@@ -103,8 +125,66 @@ const generatedSettingsSource = `includeBuild(expoAutolinking.reactNative) {
   }
 }
 `;
+const generatedGradleProperties: GradleProperty[] = [
+  { type: "comment", value: "Project-wide Gradle settings." },
+  {
+    type: "property",
+    key: GRADLE_JVMARGS_KEY,
+    value: GRADLE_JVMARGS_UPSTREAM_VALUE,
+  },
+  { type: "property", key: "android.useAndroidX", value: "true" },
+];
 
 describe("Android drawing-order native patch", () => {
+  test("pins one supported Gradle daemon property without mutating the parsed input", () => {
+    const result = patchAndroidGradleProperties(generatedGradleProperties);
+
+    expect(result.changed).toBe(true);
+    expect(result.properties).not.toBe(generatedGradleProperties);
+    expect(result.properties).toContainEqual({
+      type: "property",
+      key: GRADLE_JVMARGS_KEY,
+      value: GRADLE_JVMARGS_REQUIRED_VALUE,
+    });
+    expect(generatedGradleProperties).toContainEqual({
+      type: "property",
+      key: GRADLE_JVMARGS_KEY,
+      value: GRADLE_JVMARGS_UPSTREAM_VALUE,
+    });
+    expect(result.properties).toContainEqual({
+      type: "property",
+      key: "android.useAndroidX",
+      value: "true",
+    });
+  });
+
+  test("keeps the required Gradle daemon property idempotent", () => {
+    const once = patchAndroidGradleProperties(generatedGradleProperties);
+    const twice = patchAndroidGradleProperties(once.properties);
+
+    expect(twice).toEqual({ changed: false, properties: once.properties });
+  });
+
+  test("fails closed on missing, duplicate, or drifted Gradle daemon properties", () => {
+    const property = generatedGradleProperties[1];
+
+    expect(() => patchAndroidGradleProperties([])).toThrow(
+      `exactly one ${GRADLE_JVMARGS_KEY} property; found 0`,
+    );
+    expect(() =>
+      patchAndroidGradleProperties([property, property]),
+    ).toThrow(`exactly one ${GRADLE_JVMARGS_KEY} property; found 2`);
+    expect(() =>
+      patchAndroidGradleProperties([
+        {
+          type: "property",
+          key: GRADLE_JVMARGS_KEY,
+          value: "-Xmx3072m -XX:MaxMetaspaceSize=768m",
+        },
+      ]),
+    ).toThrow(`unsupported ${GRADLE_JVMARGS_KEY} value`);
+  });
+
   test("guards only an invalid AndroidX child index", () => {
     const result = patchReactSwipeRefreshLayout(supportedSource);
 
@@ -369,6 +449,92 @@ includeBuild ( expoAutolinking.reactNative ) {}
     expect(repeated.modResults.contents).toBe(first.modResults.contents);
   });
 
+  test("executes the real Expo Gradle-properties mod stack repeatedly without changing worker GRADLE_OPTS", async () => {
+    const previousGradleOpts = process.env.GRADLE_OPTS;
+    process.env.GRADLE_OPTS = "-Dorg.gradle.daemon=false";
+
+    try {
+      const withDrawingOrderMod = withAndroidDrawingOrderFix({
+        name: "fixture",
+        slug: "fixture",
+      });
+      const configured = withBuildProperties(withDrawingOrderMod, {
+        android: { buildReactNativeFromSource: true },
+      }) as {
+        [key: string]: unknown;
+        mods: { android: { gradleProperties: GradlePropertiesMod } };
+      };
+      const first = await configured.mods.android.gradleProperties({
+        ...configured,
+        modRequest: {},
+        modResults: generatedGradleProperties,
+      });
+      const repeated = await configured.mods.android.gradleProperties({
+        ...configured,
+        modRequest: {},
+        modResults: first.modResults,
+      });
+
+      expect(first.modResults).toContainEqual({
+        type: "property",
+        key: GRADLE_JVMARGS_KEY,
+        value: GRADLE_JVMARGS_REQUIRED_VALUE,
+      });
+      expect(repeated.modResults).toEqual(first.modResults);
+      expect(process.env.GRADLE_OPTS).toBe("-Dorg.gradle.daemon=false");
+    } finally {
+      if (previousGradleOpts === undefined) {
+        delete process.env.GRADLE_OPTS;
+      } else {
+        process.env.GRADLE_OPTS = previousGradleOpts;
+      }
+    }
+  });
+
+  test.each([
+    ["missing", []],
+    [
+      "duplicate",
+      [generatedGradleProperties[1], generatedGradleProperties[1]],
+    ],
+    [
+      "drifted",
+      [
+        {
+          type: "property",
+          key: GRADLE_JVMARGS_KEY,
+          value: "-Xmx3072m -XX:MaxMetaspaceSize=768m",
+        },
+      ],
+    ],
+  ] as [string, GradleProperty[]][])(
+    "fails the real Expo Gradle-properties mod stack on a %s property",
+    async (_caseName, properties) => {
+      const withDrawingOrderMod = withAndroidDrawingOrderFix({
+        name: "fixture",
+        slug: "fixture",
+      });
+      const configured = withBuildProperties(withDrawingOrderMod, {
+        android: { buildReactNativeFromSource: true },
+      }) as {
+        [key: string]: unknown;
+        mods: { android: { gradleProperties: GradlePropertiesMod } };
+      };
+
+      await expect(
+        configured.mods.android.gradleProperties({
+          ...configured,
+          modRequest: {},
+          modResults: properties,
+        }),
+      ).rejects.toThrow(
+        _caseName === "drifted"
+          ? `unsupported ${GRADLE_JVMARGS_KEY} value`
+          : `exactly one ${GRADLE_JVMARGS_KEY} property`,
+      );
+    },
+  );
+
   test("fails closed when generated source-build settings drift", () => {
     expect(() => patchAndroidSettingsGradle("unexpected settings")).toThrow(
       "does not contain exactly one supported React Native source-build entry",
@@ -482,7 +648,7 @@ includeBuild ( expoAutolinking.reactNative ) {}
       );
       writeFileSync(
         join(fixtureRoot, "plugins", "with-android-drawing-order-fix.js"),
-        "withSettingsGradle(config, patchAndroidSettingsGradle);",
+        "withSettingsGradle(config, patchAndroidSettingsGradle); withGradleProperties(config, patchAndroidGradleProperties);",
       );
       writeFileSync(
         join(fixtureRoot, "android", "settings.gradle"),
