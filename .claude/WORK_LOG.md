@@ -19,6 +19,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-08-19
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 08-19 | EAS build 76의 CMake 3.30.5 누락을 진단하고 Android post-install 설치·검증, release gate, 반복 prebuild 메모리 계약을 보강한 뒤 짧은 물리 경로에서 전체 release AAB를 검증 | `scripts/eas/install-android-cmake.cjs`, Android drawing-order config plugin/applicator, release gate, focused tests | [detail](WORK_DETAIL.md#20260819-garamin-425-eas-cmake-bootstrap) |
+
 ## 2026-08-10
 
 | Date | Work | Key files | Detail |
