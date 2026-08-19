@@ -14061,3 +14061,20 @@ Verification:
 - No dependency or lockfile update, referral feature integration, Git push, EAS build, OTA, Store submission, credential inspection, production access, or rollout is authorized or performed here.
 - Existing 4.2.4/versionCode 74 predates this fix and must not be submitted. The user's future EAS build must resolve to a versionCode greater than 74.
 - Local build readiness can pass, but publication remains `HOLD` until a new signed artifact, Android 13/16 stress, staged rollout, and Play crash-cluster monitoring are complete.
+
+<a id="20260819-garamin-425-release-path-and-prebuild-hardening"></a>
+## 2026-08-19 | GaramIn 4.2.5 release-path and repeat-prebuild hardening
+
+**Failure closure**:
+- The failed remote prebuild came from the protected dirty primary checkout at base `ca8b46e`, whose Expo settings plugins still used the known-bad order. The intended clean candidate remained at local commit `3425eb0` with the corrected order.
+- Added a release-context gate rooted at the script's own real path. Android production now requires the exact 4.2.5 release branch, a clean tracked/untracked worktree, an ignored generated `android/`, the expected EAS project, the source-build plugin order, and the installed/generated native patch checks.
+- The lower-level EAS wrapper repeats the Android production verification, pins platform/profile, and invokes pinned EAS CLI through npm's JavaScript entrypoint with `shell:false`. Direct lower-level invocation and Windows shell metacharacter forwarding therefore cannot bypass or reinterpret the gate.
+
+**Repeat-prebuild contract**:
+- The settings patcher now recognizes only three exact states: the first Expo source-build block, the stable React-only patched block, and one exact Expo block appended after a stable patched block by a repeated prebuild.
+- The repeated state is normalized byte-for-byte to the stable state. Multiple, partial, reordered, or noncanonical source/Hermes fragments fail closed, including single-quoted Hermes substitutions and whitespace-mutated duplicate includes.
+
+**Local evidence and boundary**:
+- Focused Jest passes 2 suites / 42 tests; scoped ESLint and full TypeScript pass.
+- Two consecutive non-clean Android prebuilds pass and keep `android/settings.gradle` at the same SHA-256. The native patch `--check`, app release Kotlin, ReactAndroid release Kotlin, and release JS bundle pass with Sentry upload disabled.
+- No EAS build, push, OTA, Store submission, credential operation, production access, or rollout occurred. Publication remains `HOLD`; the user owns the future build and deployment.

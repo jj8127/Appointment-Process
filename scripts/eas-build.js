@@ -1,159 +1,181 @@
 #!/usr/bin/env node
+/* global __dirname */
 
+const path = require("node:path");
+const fs = require("node:fs");
 const { execSync, spawnSync } = require("node:child_process");
+const {
+  validateEasArgs,
+  verifyAndroidReleaseContext,
+} = require("./release/android-release-context.cjs");
 
 const MIN_EAS_CLI_VERSION = "18.3.0";
+const REPO_ROOT = path.resolve(__dirname, "..");
 
-function run(command) {
-  return execSync(command, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
-}
-
-function getLocalHooksPath() {
+function getLocalHooksPath(repoRoot = REPO_ROOT) {
   try {
-    return run("git config --local --get core.hooksPath");
+    return execSync("git config --local --get core.hooksPath", {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
   } catch {
     return "";
   }
 }
 
-function unsetLocalHooksPath() {
+function unsetLocalHooksPath(repoRoot = REPO_ROOT) {
   try {
-    execSync("git config --local --unset core.hooksPath", { stdio: "ignore" });
+    execSync("git config --local --unset core.hooksPath", {
+      cwd: repoRoot,
+      stdio: "ignore",
+    });
   } catch {
     // no-op
   }
 }
 
-function printUsageAndExit() {
-  console.error(
+function usageError() {
+  return new Error(
     "Usage: node ./scripts/eas-build.js <android|ios> [profile] [additional eas args...]",
   );
-  process.exit(1);
 }
 
-function parseSemver(version) {
-  const match = version.match(/(\d+)\.(\d+)\.(\d+)/);
-  if (!match) {
-    return null;
+function resolveNpxCliPath({
+  nodePath = process.execPath,
+  npmExecPath = process.env.npm_execpath,
+  exists = fs.existsSync,
+} = {}) {
+  const candidates = [];
+  if (npmExecPath) {
+    candidates.push(path.join(path.dirname(npmExecPath), "npx-cli.js"));
   }
+  candidates.push(
+    path.join(
+      path.dirname(nodePath),
+      "node_modules",
+      "npm",
+      "bin",
+      "npx-cli.js",
+    ),
+  );
 
-  return match.slice(1).map((segment) => Number(segment));
+  const resolved = candidates.find((candidate) => exists(candidate));
+  if (!resolved) {
+    throw new Error(
+      "[eas-build] Unable to locate npm's npx-cli.js for a shell-free EAS invocation.",
+    );
+  }
+  return resolved;
 }
 
-function compareSemver(left, right) {
-  const leftParts = parseSemver(left);
-  const rightParts = parseSemver(right);
-  if (!leftParts || !rightParts) {
-    return 0;
-  }
-
-  for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) {
-      return leftParts[index] - rightParts[index];
-    }
-  }
-
-  return 0;
-}
-
-function getGlobalEasVersion() {
-  const useShell = process.platform === "win32";
-  const result = spawnSync("eas", ["--version"], {
-    encoding: "utf8",
-    env: process.env,
-    shell: useShell,
-  });
-
-  if (result.error && result.error.code === "ENOENT") {
-    return null;
-  }
-
-  if (typeof result.status === "number" && result.status !== 0) {
-    return null;
-  }
-
-  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
-  const match = output.match(/eas-cli\/(\d+\.\d+\.\d+)/);
-  return match?.[1] ?? null;
-}
-
-function resolveEasInvocation() {
-  const globalVersion = getGlobalEasVersion();
-
-  if (globalVersion && compareSemver(globalVersion, MIN_EAS_CLI_VERSION) >= 0) {
-    return {
-      command: "eas",
-      args: [],
-      reason: null,
-    };
-  }
-
-  const reason = globalVersion
-    ? `[eas-build] Global eas-cli ${globalVersion} is older than required ${MIN_EAS_CLI_VERSION}; using npx eas-cli@${MIN_EAS_CLI_VERSION}.`
-    : `[eas-build] Global eas-cli was not found; using npx eas-cli@${MIN_EAS_CLI_VERSION}.`;
-
+function resolveEasInvocation(options = {}) {
+  const nodePath = options.nodePath ?? process.execPath;
   return {
-    command: "npx",
-    args: ["--yes", `eas-cli@${MIN_EAS_CLI_VERSION}`],
-    reason,
+    command: nodePath,
+    args: [
+      resolveNpxCliPath({ ...options, nodePath }),
+      "--yes",
+      `eas-cli@${MIN_EAS_CLI_VERSION}`,
+    ],
+    reason: `[eas-build] Using pinned eas-cli ${MIN_EAS_CLI_VERSION} through npm's shell-free Node entrypoint.`,
   };
 }
 
-const [platform, profileOrArg, ...rest] = process.argv.slice(2);
-if (!platform) {
-  printUsageAndExit();
+function parseBuildRequest(argv) {
+  const [platform, profileOrArg, ...rest] = argv;
+  if (platform !== "android" && platform !== "ios") {
+    throw usageError();
+  }
+
+  const profile =
+    profileOrArg && !profileOrArg.startsWith("-")
+      ? profileOrArg
+      : "production";
+  const extraArgs =
+    profileOrArg && profileOrArg.startsWith("-")
+      ? [profileOrArg, ...rest]
+      : rest;
+  return { platform, profile, extraArgs };
 }
 
-if (platform !== "android" && platform !== "ios") {
-  printUsageAndExit();
-}
-
-const profile = profileOrArg && !profileOrArg.startsWith("-")
-  ? profileOrArg
-  : "production";
-const extraArgs = profileOrArg && profileOrArg.startsWith("-")
-  ? [profileOrArg, ...rest]
-  : rest;
-
-const hooksPath = getLocalHooksPath();
-if (hooksPath.startsWith(".husky")) {
-  unsetLocalHooksPath();
-  console.log(
-    `[eas-build] Removed local core.hooksPath (${hooksPath}) before EAS build.`,
-  );
-}
-
-const args = [
-  "build",
-  "--platform",
-  platform,
-  "--profile",
-  profile,
-  ...extraArgs,
-];
-
-function runEas(buildArgs) {
-  const useShell = process.platform === "win32";
+function runEas(
+  buildArgs,
+  { repoRoot = REPO_ROOT, spawn = spawnSync } = {},
+) {
   const invocation = resolveEasInvocation();
 
   if (invocation.reason) {
     console.log(invocation.reason);
   }
 
-  return spawnSync(invocation.command, [...invocation.args, ...buildArgs], {
+  return spawn(invocation.command, [...invocation.args, ...buildArgs], {
+    cwd: repoRoot,
     stdio: "inherit",
     env: process.env,
-    shell: useShell,
+    shell: false,
+    windowsHide: false,
   });
 }
 
-const result = runEas(args);
+function runBuild(
+  argv,
+  {
+    repoRoot = REPO_ROOT,
+    verify = verifyAndroidReleaseContext,
+    getHooksPath = getLocalHooksPath,
+    unsetHooksPath = unsetLocalHooksPath,
+    runEasCommand = runEas,
+  } = {},
+) {
+  const { platform, profile, extraArgs } = parseBuildRequest(argv);
 
-if (typeof result.status === "number") {
-  process.exit(result.status);
+  if (platform === "android" && profile === "production") {
+    validateEasArgs(extraArgs);
+    verify({ repoRoot });
+  }
+
+  const hooksPath = getHooksPath(repoRoot);
+  if (hooksPath.startsWith(".husky")) {
+    unsetHooksPath(repoRoot);
+    console.log(
+      `[eas-build] Removed local core.hooksPath (${hooksPath}) before EAS build.`,
+    );
+  }
+
+  const result = runEasCommand(
+    [
+      "build",
+      "--platform",
+      platform,
+      "--profile",
+      profile,
+      ...extraArgs,
+    ],
+    { repoRoot },
+  );
+
+  if (result.error) {
+    throw result.error;
+  }
+  return typeof result.status === "number" ? result.status : 1;
 }
 
-process.exit(1);
+if (require.main === module) {
+  try {
+    process.exitCode = runBuild(process.argv.slice(2));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+}
+
+module.exports = {
+  MIN_EAS_CLI_VERSION,
+  REPO_ROOT,
+  parseBuildRequest,
+  resolveEasInvocation,
+  resolveNpxCliPath,
+  runBuild,
+  runEas,
+};

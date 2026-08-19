@@ -121,6 +121,17 @@ npm start
 
 별도 터미널에서 승인된 emulator/device가 있을 때만 `npm run android` 또는 `npm run ios`를 실행한다. EAS 명령은 local run이 아니다.
 
+### GaramIn 4.2.5 Android production 후보
+
+이 후보는 반드시 전용 clean worktree의 package script로만 검증하고 시작한다. 현재 작업 디렉터리에 의존하지 않도록 `--prefix`에 절대 경로를 준다.
+
+```powershell
+npm --prefix D:\hanhwa\fc-onboarding-app-android-drawing-order-20260818 run eas:verify:android
+npm --prefix D:\hanhwa\fc-onboarding-app-android-drawing-order-20260818 run eas:build:android -- --non-interactive
+```
+
+첫 명령은 네트워크 build를 시작하지 않는다. 두 명령 모두 스크립트 자체 위치를 저장소 root로 사용하며, 정확한 release branch/version/EAS project, clean worktree, ignored generated Android 설정, Expo plugin 순서, RN 0.81.5 native patch를 fail-closed로 확인한다. 하위 `scripts/eas-build.js android production` 직접 실행도 같은 검증을 반복한다. dirty primary checkout이나 raw `npx eas build`는 이 릴리스의 지원 경로가 아니다.
+
 ### Admin web
 
 ```powershell

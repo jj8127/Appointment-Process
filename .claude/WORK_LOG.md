@@ -1221,3 +1221,12 @@
 - A lockfile-backed offline root install completed and applied the pinned RN 0.81.5 source patches. Candidate-specific build-readiness verification is recorded in the linked detail and central harness.
 - No Git push, EAS build, OTA, Store submission, credential access, production write, or rollout was performed. The pre-fix 4.2.4/code 74 artifact is not a release candidate.
 - Details: [WORK_DETAIL.md#20260818-garamin-425-android-drawing-order-candidate](WORK_DETAIL.md#20260818-garamin-425-android-drawing-order-candidate)
+
+## 2026-08-19 GaramIn 4.2.5 release-path and repeat-prebuild hardening
+
+- Bound Android production verification to the script-owned 4.2.5 clean worktree and repeated the same fail-closed check in the lower-level EAS wrapper.
+- Removed Windows shell execution from forwarded EAS arguments by using the pinned npm JavaScript entrypoint, while keeping Android/production fixed.
+- Made generated settings normalization idempotent across repeated Expo prebuilds and reject noncanonical or accumulated React/Hermes source-build fragments.
+- Focused Jest passes 2 suites / 42 tests; ESLint, TypeScript, two consecutive Android prebuilds with an identical settings hash, native preflight, app/ReactAndroid release Kotlin, and release JS bundling pass with Sentry upload disabled.
+- No EAS build, push, OTA, Store submission, production access, or rollout occurred. Release remains HOLD.
+- Details: [WORK_DETAIL.md#20260819-garamin-425-release-path-and-prebuild-hardening](WORK_DETAIL.md#20260819-garamin-425-release-path-and-prebuild-hardening)

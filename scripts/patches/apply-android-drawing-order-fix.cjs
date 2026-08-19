@@ -42,6 +42,20 @@ const HERMES_SOURCE_SUBSTITUTIONS = [
   'substitute(module("com.facebook.react:hermes-android")).using(project(":packages:react-native:ReactAndroid:hermes-engine"))',
   'substitute(module("com.facebook.react:hermes-engine")).using(project(":packages:react-native:ReactAndroid:hermes-engine"))',
 ];
+const EXPO_REACT_NATIVE_SOURCE_BUILD_BLOCK = `includeBuild(expoAutolinking.reactNative) {
+  dependencySubstitution {
+    ${REACT_SOURCE_SUBSTITUTIONS[0]}
+    ${REACT_SOURCE_SUBSTITUTIONS[1]}
+    ${HERMES_SOURCE_SUBSTITUTIONS[0]}
+    ${HERMES_SOURCE_SUBSTITUTIONS[1]}
+  }
+}`;
+const PATCHED_REACT_NATIVE_SOURCE_BUILD_BLOCK = `includeBuild(expoAutolinking.reactNative) {
+  dependencySubstitution {
+    ${REACT_SOURCE_SUBSTITUTIONS[0]}
+    ${REACT_SOURCE_SUBSTITUTIONS[1]}
+  }
+}`;
 const SETTINGS_PATCH_MARKER = "GaramIn Android drawing-order source preflight";
 const SETTINGS_PATCH_BLOCK = `// ${SETTINGS_PATCH_MARKER}.
 def drawingOrderPatchScript = new File(
@@ -62,6 +76,8 @@ const FORBIDDEN_SETTINGS_SNIPPETS = [
   'substitute(module("com.facebook.react:hermes-android"))',
   'substitute(module("com.facebook.react:hermes-engine"))',
 ];
+const RESERVED_SETTINGS_PATTERN =
+  /includeBuild\s*\(\s*expoAutolinking\.reactNative\s*\)|com\.facebook\.react:(?:react-android|react-native|hermes-android|hermes-engine)|GaramIn Android drawing-order source preflight|drawingOrderPatchScript|apply-android-drawing-order-fix\.cjs/;
 const PATCH_BLOCK = `  /**
    * ${PATCH_MARKER}.
    *
@@ -79,6 +95,14 @@ const PATCH_BLOCK = `  /**
 
 function countOccurrences(source, needle) {
   return source.split(needle).length - 1;
+}
+
+function assertNoReservedSettingsFragments(source) {
+  if (RESERVED_SETTINGS_PATTERN.test(source)) {
+    throw new Error(
+      "[android-drawing-order-fix] Generated settings.gradle contains an unsupported or partial React Native source-build block.",
+    );
+  }
 }
 
 function patchReactSwipeRefreshLayout(source) {
@@ -136,53 +160,115 @@ function patchReactAndroidGradle(source) {
 
 function patchAndroidSettingsGradle(source) {
   const normalizedSource = source.replace(/\r\n/g, "\n");
-  const requiredSourceSnippets = [
+  const sourceEntrySnippets = [
     "includeBuild(expoAutolinking.reactNative)",
     ...REACT_SOURCE_SUBSTITUTIONS,
   ];
+  const sourceEntryCounts = sourceEntrySnippets.map((snippet) =>
+    countOccurrences(normalizedSource, snippet),
+  );
+  const hermesCounts = HERMES_SOURCE_SUBSTITUTIONS.map((snippet) =>
+    countOccurrences(normalizedSource, snippet),
+  );
+  const markerCount = countOccurrences(
+    normalizedSource,
+    SETTINGS_PATCH_MARKER,
+  );
+  const markerBlockCount = countOccurrences(
+    normalizedSource,
+    SETTINGS_PATCH_BLOCK,
+  );
+  const expoBlockCount = countOccurrences(
+    normalizedSource,
+    EXPO_REACT_NATIVE_SOURCE_BUILD_BLOCK,
+  );
+  const patchedBlockCount = countOccurrences(
+    normalizedSource,
+    PATCHED_REACT_NATIVE_SOURCE_BUILD_BLOCK,
+  );
 
-  for (const snippet of requiredSourceSnippets) {
-    if (countOccurrences(normalizedSource, snippet) !== 1) {
-      throw new Error(
-        `[android-drawing-order-fix] Generated settings.gradle does not contain exactly one supported React Native source-build entry: ${snippet}`,
-      );
-    }
+  if (markerCount > 0 && (markerCount !== 1 || markerBlockCount !== 1)) {
+    throw new Error(
+      `[android-drawing-order-fix] ${SETTINGS_PATCH_MARKER} exists but its body or dependency substitutions do not match the expected patch.`,
+    );
   }
 
-  if (normalizedSource.includes(SETTINGS_PATCH_MARKER)) {
-    if (
-      countOccurrences(normalizedSource, SETTINGS_PATCH_MARKER) !== 1 ||
-      countOccurrences(normalizedSource, SETTINGS_PATCH_BLOCK) !== 1 ||
-      HERMES_SOURCE_SUBSTITUTIONS.some((snippet) =>
-        normalizedSource.includes(snippet),
-      )
-    ) {
-      throw new Error(
-        `[android-drawing-order-fix] ${SETTINGS_PATCH_MARKER} exists but its body or dependency substitutions do not match the expected patch.`,
-      );
-    }
+  const isFreshExpoState =
+    markerCount === 0 &&
+    markerBlockCount === 0 &&
+    expoBlockCount === 1 &&
+    patchedBlockCount === 0 &&
+    sourceEntryCounts.every((count) => count === 1) &&
+    hermesCounts.every((count) => count === 1);
+  const isStablePatchedState =
+    markerCount === 1 &&
+    markerBlockCount === 1 &&
+    expoBlockCount === 0 &&
+    patchedBlockCount === 1 &&
+    sourceEntryCounts.every((count) => count === 1) &&
+    hermesCounts.every((count) => count === 0);
+  const isRepeatedPrebuildState =
+    markerCount === 1 &&
+    markerBlockCount === 1 &&
+    expoBlockCount === 1 &&
+    patchedBlockCount === 1 &&
+    sourceEntryCounts.every((count) => count === 2) &&
+    hermesCounts.every((count) => count === 1) &&
+    normalizedSource.trimEnd().endsWith(EXPO_REACT_NATIVE_SOURCE_BUILD_BLOCK);
+
+  if (isStablePatchedState) {
+    validateGeneratedSettings(source);
     return { changed: false, source };
   }
 
-  for (const snippet of HERMES_SOURCE_SUBSTITUTIONS) {
-    if (countOccurrences(normalizedSource, snippet) !== 1) {
+  if (!isFreshExpoState && !isRepeatedPrebuildState) {
+    if (markerCount === 0) {
+      const invalidSourceSnippetIndex = sourceEntryCounts.findIndex(
+        (count) => count !== 1,
+      );
+      if (invalidSourceSnippetIndex >= 0) {
+        throw new Error(
+          `[android-drawing-order-fix] Generated settings.gradle does not contain exactly one supported React Native source-build entry: ${sourceEntrySnippets[invalidSourceSnippetIndex]}`,
+        );
+      }
+
+      const invalidHermesIndex = hermesCounts.findIndex((count) => count !== 1);
+      if (invalidHermesIndex >= 0) {
+        throw new Error(
+          `[android-drawing-order-fix] Generated settings.gradle does not contain exactly one supported Hermes source substitution: ${HERMES_SOURCE_SUBSTITUTIONS[invalidHermesIndex]}`,
+        );
+      }
+
+      const snippet =
+        sourceEntrySnippets[0];
       throw new Error(
-        `[android-drawing-order-fix] Generated settings.gradle does not contain exactly one supported Hermes source substitution: ${snippet}`,
+        `[android-drawing-order-fix] Generated settings.gradle contains an unsupported React Native source-build block near: ${snippet}`,
       );
     }
+    throw new Error(
+      `[android-drawing-order-fix] ${SETTINGS_PATCH_MARKER} exists but its body or dependency substitutions do not match the expected patch.`,
+    );
   }
+
+  let retainedSource = normalizedSource.replace(
+    EXPO_REACT_NATIVE_SOURCE_BUILD_BLOCK,
+    "",
+  );
+  if (isRepeatedPrebuildState) {
+    retainedSource = retainedSource
+      .replace(PATCHED_REACT_NATIVE_SOURCE_BUILD_BLOCK, "")
+      .replace(SETTINGS_PATCH_BLOCK, "");
+  }
+
+  assertNoReservedSettingsFragments(retainedSource);
+
+  const canonicalSource = `${retainedSource.trimEnd()}\n\n${PATCHED_REACT_NATIVE_SOURCE_BUILD_BLOCK}\n\n${SETTINGS_PATCH_BLOCK}\n`;
+  validateGeneratedSettings(canonicalSource);
 
   const eol = source.includes("\r\n") ? "\r\n" : "\n";
-  const retainedLines = source
-    .split(/\r?\n/)
-    .filter((line) => !HERMES_SOURCE_SUBSTITUTIONS.includes(line.trim()));
-  while (retainedLines.at(-1) === "") {
-    retainedLines.pop();
-  }
-
   return {
     changed: true,
-    source: `${retainedLines.join(eol)}${eol}${eol}${SETTINGS_PATCH_BLOCK.replaceAll("\n", eol)}${eol}`,
+    source: canonicalSource.replaceAll("\n", eol),
   };
 }
 
@@ -242,6 +328,11 @@ function validateGeneratedSettings(settingsSource) {
       `[android-drawing-order-fix] Generated settings.gradle does not contain the exact ${SETTINGS_PATCH_MARKER} block.`,
     );
   }
+
+  const residualSource = normalizedSource
+    .replace(PATCHED_REACT_NATIVE_SOURCE_BUILD_BLOCK, "")
+    .replace(SETTINGS_PATCH_BLOCK, "");
+  assertNoReservedSettingsFragments(residualSource);
 }
 
 function validateBuildWiring(appConfig, settingsSource) {
@@ -348,6 +439,7 @@ if (require.main === module) {
 
 module.exports = {
   EXPECTED_REACT_NATIVE_VERSION,
+  EXPO_REACT_NATIVE_SOURCE_BUILD_BLOCK,
   CONFIG_PLUGIN_ID,
   FORBIDDEN_SETTINGS_SNIPPETS,
   GRADLE_PATCH_BLOCK,
@@ -356,6 +448,7 @@ module.exports = {
   PATCH_ANCHOR,
   PATCH_BLOCK,
   PATCH_MARKER,
+  PATCHED_REACT_NATIVE_SOURCE_BUILD_BLOCK,
   REACT_SOURCE_SUBSTITUTIONS,
   REQUIRED_SETTINGS_SNIPPETS,
   HERMES_SOURCE_SUBSTITUTIONS,
