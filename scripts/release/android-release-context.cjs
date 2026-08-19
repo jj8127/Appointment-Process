@@ -8,12 +8,16 @@ const {
   applyAndroidDrawingOrderFix,
   validateAppConfig,
 } = require("../patches/apply-android-drawing-order-fix.cjs");
+const {
+  EXPECTED_CMAKE_VERSION,
+} = require("../eas/install-android-cmake.cjs");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const EXPECTED_BRANCH =
   "release/garamin-4.2.5-android-drawing-order-20260818";
 const EXPECTED_APP_VERSION = "4.2.5";
 const EXPECTED_EAS_PROJECT_ID = "6e9a1f11-8b60-46f9-8af2-168188dbf3db";
+const EXPECTED_CMAKE_HOOK = "node ./scripts/eas/install-android-cmake.cjs";
 
 function fail(message) {
   throw new Error(`[android-release-context] ${message}`);
@@ -70,6 +74,9 @@ function collectReleaseContext(repoRoot = REPO_ROOT) {
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"),
   );
+  const easConfig = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, "eas.json"), "utf8"),
+  );
 
   return {
     repoRoot,
@@ -83,7 +90,11 @@ function collectReleaseContext(repoRoot = REPO_ROOT) {
     androidSettingsExists: fs.existsSync(
       path.join(repoRoot, "android", "settings.gradle"),
     ),
+    cmakeInstallerExists: fs.existsSync(
+      path.join(repoRoot, "scripts", "eas", "install-android-cmake.cjs"),
+    ),
     appConfig,
+    easConfig,
     packageJson,
   };
 }
@@ -124,6 +135,17 @@ function validateReleaseContext(context) {
     !context.packageJson.scripts.prepare.includes("./scripts/prepare.js")
   ) {
     fail("package.json no longer runs the native patch from prepare.");
+  }
+  if (
+    !context.cmakeInstallerExists ||
+    context.packageJson?.scripts?.["eas-build-post-install"] !==
+      EXPECTED_CMAKE_HOOK ||
+    context.easConfig?.build?.production?.env?.CMAKE_VERSION !==
+      EXPECTED_CMAKE_VERSION
+  ) {
+    fail(
+      `EAS Android builds must install CMake ${EXPECTED_CMAKE_VERSION} through ${EXPECTED_CMAKE_HOOK}.`,
+    );
   }
 
   validateAppConfig(context.appConfig);
@@ -215,6 +237,7 @@ if (require.main === module) {
 module.exports = {
   EXPECTED_APP_VERSION,
   EXPECTED_BRANCH,
+  EXPECTED_CMAKE_HOOK,
   EXPECTED_EAS_PROJECT_ID,
   REPO_ROOT,
   collectReleaseContext,

@@ -13,6 +13,7 @@
     "eas:verify:android": "node ./scripts/release/android-release-context.cjs check",
     "eas:build:android": "node ./scripts/release/android-release-context.cjs build",
     "eas:build:ios": "node ./scripts/eas-build.js ios production --non-interactive --freeze-credentials",
+    "eas-build-post-install": "node ./scripts/eas/install-android-cmake.cjs",
     "eas:submit:ios": "npx eas-cli@18.3.0 submit -p ios --latest",
     "lint": "expo lint",
     "test": "jest",

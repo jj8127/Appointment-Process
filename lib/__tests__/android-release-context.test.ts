@@ -63,6 +63,7 @@ function createValidContext(repoRoot: string) {
     ignoredAndroidSettings: true,
     easIgnoreExists: false,
     androidSettingsExists: true,
+    cmakeInstallerExists: true,
     appConfig: {
       expo: {
         version: EXPECTED_APP_VERSION,
@@ -76,8 +77,17 @@ function createValidContext(repoRoot: string) {
         ],
       },
     },
+    easConfig: {
+      build: {
+        production: { env: { CMAKE_VERSION: "3.30.5" } },
+      },
+    },
     packageJson: {
-      scripts: { prepare: "node ./scripts/prepare.js" },
+      scripts: {
+        prepare: "node ./scripts/prepare.js",
+        "eas-build-post-install":
+          "node ./scripts/eas/install-android-cmake.cjs",
+      },
     },
   };
 }
@@ -115,6 +125,34 @@ describe("Android release context", () => {
       "missing prepare",
       { packageJson: { scripts: {} } },
       "no longer runs the native patch",
+    ],
+    [
+      "missing CMake installer",
+      { cmakeInstallerExists: false },
+      "must install CMake 3.30.5",
+    ],
+    [
+      "wrong CMake hook",
+      {
+        packageJson: {
+          scripts: {
+            prepare: "node ./scripts/prepare.js",
+            "eas-build-post-install": "echo skipped",
+          },
+        },
+      },
+      "must install CMake 3.30.5",
+    ],
+    [
+      "wrong production CMake version",
+      {
+        easConfig: {
+          build: {
+            production: { env: { CMAKE_VERSION: "3.22.1" } },
+          },
+        },
+      },
+      "must install CMake 3.30.5",
     ],
   ])("rejects %s", (_label, override, expectedMessage) => {
     expect(() =>
@@ -283,6 +321,9 @@ describe("Android release context", () => {
       join(process.cwd(), "scripts", "eas-build.js"),
       "utf8",
     );
+    const easConfig = JSON.parse(
+      readFileSync(join(process.cwd(), "eas.json"), "utf8"),
+    );
 
     expect(packageJson.scripts["eas:verify:android"]).toContain(
       "android-release-context.cjs check",
@@ -290,6 +331,10 @@ describe("Android release context", () => {
     expect(packageJson.scripts["eas:build:android"]).toContain(
       "android-release-context.cjs build",
     );
+    expect(packageJson.scripts["eas-build-post-install"]).toBe(
+      "node ./scripts/eas/install-android-cmake.cjs",
+    );
+    expect(easConfig.build.production.env.CMAKE_VERSION).toBe("3.30.5");
     expect(easBuildSource).toContain(
       'const REPO_ROOT = path.resolve(__dirname, "..");',
     );

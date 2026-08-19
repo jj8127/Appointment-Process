@@ -1230,3 +1230,11 @@
 - Focused Jest passes 2 suites / 42 tests; ESLint, TypeScript, two consecutive Android prebuilds with an identical settings hash, native preflight, app/ReactAndroid release Kotlin, and release JS bundling pass with Sentry upload disabled.
 - No EAS build, push, OTA, Store submission, production access, or rollout occurred. Release remains HOLD.
 - Details: [WORK_DETAIL.md#20260819-garamin-425-release-path-and-prebuild-hardening](WORK_DETAIL.md#20260819-garamin-425-release-path-and-prebuild-hardening)
+
+## 2026-08-19 GaramIn 4.2.5 EAS CMake bootstrap
+
+- Classified the clean build 76 Gradle failure as a missing CMake 3.30.5 toolchain in the EAS SDK 54 image, after prebuild and the drawing-order source substitution had already passed.
+- Added a shell-free Android EAS post-install bootstrap for the exact SDK CMake package, pinned the Gradle CMake version in the production profile, and extended the release gate and focused tests to fail closed on toolchain drift.
+- Focused tests, lint, TypeScript, repeat prebuild, real hook execution, and the remote-failing arm64 configure task pass. A final short-physical-path local bundle check remains the last local proof before the next user-owned EAS retry.
+- No EAS retry, push, OTA, Store submission, production write, credential mutation, or rollout occurred. Release remains HOLD.
+- Details: [WORK_DETAIL.md#20260819-garamin-425-eas-cmake-bootstrap](WORK_DETAIL.md#20260819-garamin-425-eas-cmake-bootstrap)

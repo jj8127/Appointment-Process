@@ -14078,3 +14078,20 @@ Verification:
 - Focused Jest passes 2 suites / 42 tests; scoped ESLint and full TypeScript pass.
 - Two consecutive non-clean Android prebuilds pass and keep `android/settings.gradle` at the same SHA-256. The native patch `--check`, app release Kotlin, ReactAndroid release Kotlin, and release JS bundle pass with Sentry upload disabled.
 - No EAS build, push, OTA, Store submission, credential operation, production access, or rollout occurred. Publication remains `HOLD`; the user owns the future build and deployment.
+
+<a id="20260819-garamin-425-eas-cmake-bootstrap"></a>
+## 2026-08-19 | GaramIn 4.2.5 EAS CMake bootstrap
+
+**Remote failure classification**:
+- The user-started production build `ae022b3b-1112-4e79-b124-394788ba8a1d` used the intended clean commit `83420cca96055f05c7eda0cd176b77d8bae2c626`, passed prebuild, and failed in ReactAndroid source compilation because the EAS SDK 54 image did not contain CMake 3.30.5.
+- React Native 0.81.5 selects CMake 3.30.5 for `ReactAndroid` when `CMAKE_VERSION` is unset. The local SDK contained that version, so the previous Kotlin and configure checks did not expose the remote image gap.
+
+**Repair contract**:
+- Added an Android-only `eas-build-post-install` Node hook. It resolves the configured Android SDK, installs the exact `cmake;3.30.5` package through `sdkmanager` without a command shell when absent, and then executes the installed binary to verify its exact version.
+- Production `eas.json` pins `CMAKE_VERSION=3.30.5`. The release-context gate requires the installer, exact lifecycle hook, and exact production build variable before it permits an Android production upload.
+- The hook skips non-Android EAS builds and fails closed on missing/conflicting SDK roots, missing SDK manager, install failure, missing output, a mismatched Gradle CMake version, or a mismatched installed binary.
+
+**Local evidence and boundary**:
+- Focused Jest passes 3 suites / 53 tests; targeted ESLint, full TypeScript, JSON parsing, real Android-hook execution, two repeat prebuilds with an identical generated-settings hash, and the exact remote-failing arm64 CMake configure task pass.
+- A direct long-path Windows bundle attempt reached native compilation but hit the host path-length limit. A drive-mapped retry compiled all four ReactAndroid ABIs but was intentionally not accepted as final proof because React Native codegen rejects mixed physical and mapped drive roots. Final full-bundle proof is recorded separately after an exact-commit short physical worktree build.
+- No EAS retry, push, OTA, Store submission, production write, credential mutation, or rollout was performed. Build 76 failed and is not a release artifact; publication remains `HOLD`.
