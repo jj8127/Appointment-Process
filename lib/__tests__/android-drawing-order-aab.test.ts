@@ -11,8 +11,11 @@ const verifier =
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   require("../../scripts/release/verify-android-drawing-order-aab.cjs") as {
     APK_ANALYZER_MAIN_CLASS: string;
+    MAX_ANALYZER_OUTPUT_BYTES: number;
+    MAX_PACKAGE_INVENTORY_OUTPUT_BYTES: number;
     TARGET_CLASS: string;
     TARGET_METHOD: string;
+    analyzerOutputLimit: (args: string[]) => number;
     parseCliArgs: (
       argv: string[],
       options?: { cwd?: string; repoRoot?: string },
@@ -152,7 +155,6 @@ describe("final Android drawing-order AAB verification", () => {
     const calls: string[][] = [];
     const outputByCommand: Record<string, string> = {
       "files list": filesOutput,
-      "dex packages": packagesOutput,
       "dex code": codeOutput,
     };
 
@@ -160,6 +162,11 @@ describe("final Android drawing-order AAB verification", () => {
       ...fixture,
       runAnalyzer(args) {
         calls.push(args);
+        if (args[0] === "dex" && args[1] === "packages") {
+          return args.includes("base/dex/classes.dex")
+            ? packagesOutput
+            : "P d 1\t1\t1\tfixture.empty";
+        }
         return outputByCommand[args.slice(0, 2).join(" ")];
       },
     });
@@ -177,6 +184,18 @@ describe("final Android drawing-order AAB verification", () => {
         "dex",
         "packages",
         "--defined-only",
+        "--files",
+        "base/dex/classes.dex",
+        "--proguard-mappings",
+        resolve(fixture.mappingPath),
+        resolve(fixture.aabPath),
+      ],
+      [
+        "dex",
+        "packages",
+        "--defined-only",
+        "--files",
+        "base/dex/classes2.dex",
         "--proguard-mappings",
         resolve(fixture.mappingPath),
         resolve(fixture.aabPath),
@@ -331,9 +350,23 @@ describe("shell-free apkanalyzer execution", () => {
     ]);
     expect(spawn.mock.calls[0][2]).toMatchObject({
       encoding: "utf8",
+      maxBuffer: verifier.MAX_ANALYZER_OUTPUT_BYTES,
       shell: false,
       windowsHide: true,
     });
+  });
+
+  it("uses a larger but bounded buffer only for one-DEX package inventories", () => {
+    expect(verifier.analyzerOutputLimit(["files", "list"])).toBe(
+      verifier.MAX_ANALYZER_OUTPUT_BYTES,
+    );
+    expect(verifier.analyzerOutputLimit(["dex", "code"])).toBe(
+      verifier.MAX_ANALYZER_OUTPUT_BYTES,
+    );
+    expect(verifier.analyzerOutputLimit(["dex", "packages"])).toBe(
+      verifier.MAX_PACKAGE_INVENTORY_OUTPUT_BYTES,
+    );
+    expect(verifier.MAX_PACKAGE_INVENTORY_OUTPUT_BYTES).toBe(32 * 1024 * 1024);
   });
 
   it("reports Java startup failures clearly", () => {
@@ -347,6 +380,22 @@ describe("shell-free apkanalyzer execution", () => {
     expect(() =>
       verifier.runApkAnalyzer(["files", "list"], { runtime, spawn }),
     ).toThrow(/Unable to start shell-free apkanalyzer.*ENOENT/i);
+  });
+
+  it("reports bounded-buffer exhaustion without accepting the artifact", () => {
+    const error = Object.assign(new Error("spawnSync java ENOBUFS"), {
+      code: "ENOBUFS",
+    });
+    const spawn = jest.fn(() => ({
+      error,
+      signal: null,
+      status: null,
+      stderr: "",
+      stdout: "partial inventory",
+    }));
+    expect(() =>
+      verifier.runApkAnalyzer(["dex", "packages"], { runtime, spawn }),
+    ).toThrow(/exceeded the bounded 32 MiB output limit.*without accepting/i);
   });
 
   it("reports non-zero analyzer exits with bounded diagnostics", () => {

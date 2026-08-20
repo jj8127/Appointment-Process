@@ -31,7 +31,8 @@ const TARGET_CLASS =
 const TARGET_METHOD = "getChildDrawingOrder(II)I";
 const APK_ANALYZER_MAIN_CLASS =
   "com.android.tools.apk.analyzer.ApkAnalyzerCli";
-const MAX_ANALYZER_OUTPUT_BYTES = 16 * 1024 * 1024;
+const MAX_ANALYZER_OUTPUT_BYTES = 4 * 1024 * 1024;
+const MAX_PACKAGE_INVENTORY_OUTPUT_BYTES = 32 * 1024 * 1024;
 
 function fail(message) {
   throw new Error(`[android-drawing-order-aab] ${message}`);
@@ -167,6 +168,12 @@ function summarizeCommandFailure(result) {
   return diagnostic.slice(0, 2_000);
 }
 
+function analyzerOutputLimit(analyzerArgs) {
+  return analyzerArgs[0] === "dex" && analyzerArgs[1] === "packages"
+    ? MAX_PACKAGE_INVENTORY_OUTPUT_BYTES
+    : MAX_ANALYZER_OUTPUT_BYTES;
+}
+
 function runApkAnalyzer(
   analyzerArgs,
   { runtime, spawn = spawnSync, env = process.env } = {},
@@ -183,6 +190,7 @@ function runApkAnalyzer(
     fail("apkanalyzer arguments must be NUL-free strings.");
   }
 
+  const maxBuffer = analyzerOutputLimit(analyzerArgs);
   const result = spawn(
     runtime.javaExecutable,
     [
@@ -195,12 +203,18 @@ function runApkAnalyzer(
     {
       encoding: "utf8",
       env,
-      maxBuffer: MAX_ANALYZER_OUTPUT_BYTES,
+      maxBuffer,
       shell: false,
       windowsHide: true,
     },
   );
 
+  if (result.error?.code === "ENOBUFS") {
+    const command = analyzerArgs.slice(0, 2).join(" ") || "unknown";
+    fail(
+      `apkanalyzer ${command} exceeded the bounded ${Math.floor(maxBuffer / (1024 * 1024))} MiB output limit; verification stopped without accepting the artifact.`,
+    );
+  }
   if (result.error) {
     fail(`Unable to start shell-free apkanalyzer: ${result.error.message}`);
   }
@@ -233,6 +247,13 @@ function validateDexFileList(output) {
     fail("AAB does not contain a base/dex/classes*.dex artifact.");
   }
   return dexFiles;
+}
+
+function toAnalyzerDexEntry(dexFile) {
+  if (!/^\/base\/dex\/classes(?:\d+)?\.dex$/.test(dexFile)) {
+    fail(`Refusing unexpected DEX entry path: ${dexFile}`);
+  }
+  return dexFile.slice(1);
 }
 
 function validatePackageInventory(output) {
@@ -407,14 +428,21 @@ function verifyAndroidDrawingOrderAab({
     "--files-only",
     resolvedAabPath,
   ]);
-  const packagesOutput = analyzer([
-    "dex",
-    "packages",
-    "--defined-only",
-    "--proguard-mappings",
-    resolvedMappingPath,
-    resolvedAabPath,
-  ]);
+  const dexFiles = validateDexFileList(filesOutput);
+  const packagesOutput = dexFiles
+    .map((dexFile) =>
+      analyzer([
+        "dex",
+        "packages",
+        "--defined-only",
+        "--files",
+        toAnalyzerDexEntry(dexFile),
+        "--proguard-mappings",
+        resolvedMappingPath,
+        resolvedAabPath,
+      ]),
+    )
+    .join("\n");
   const codeOutput = analyzer([
     "dex",
     "code",
@@ -430,7 +458,9 @@ function verifyAndroidDrawingOrderAab({
   return {
     aabPath: resolvedAabPath,
     mappingPath: resolvedMappingPath,
-    ...verifyAnalyzerOutputs({ filesOutput, packagesOutput, codeOutput }),
+    dexFiles,
+    ...validatePackageInventory(packagesOutput),
+    ...validateStrictDexGuard(codeOutput),
   };
 }
 
@@ -531,9 +561,12 @@ module.exports = {
   APK_ANALYZER_MAIN_CLASS,
   DEFAULT_AAB_PATH,
   DEFAULT_MAPPING_PATH,
+  MAX_ANALYZER_OUTPUT_BYTES,
+  MAX_PACKAGE_INVENTORY_OUTPUT_BYTES,
   REPO_ROOT,
   TARGET_CLASS,
   TARGET_METHOD,
+  analyzerOutputLimit,
   parseCliArgs,
   resolveAndroidSdkRoot,
   resolveApkAnalyzerRuntime,

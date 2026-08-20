@@ -14096,3 +14096,23 @@ Verification:
 - Focused Jest passes 3 suites / 60 tests; targeted ESLint, full TypeScript, JSON parsing, real Android-hook execution, and two repeat prebuilds pass. Generated `gradle.properties` is byte-stable at SHA-256 `1B01B089630AE5497E0FE72790F58902F40CBA2C5345204A8BC312501E7B1C57`, and the exact remote-failing arm64 CMake configure task passes.
 - Exact code commit `489608fa787d646ce3af1e8ed60afcf1b307c7d2` was verified from the clean physical short worktree `D:\g425`. With `GRADLE_OPTS` removed and Sentry upload disabled, `:app:bundleRelease` passed all 1,135 tasks and produced a local 81,005,048-byte AAB (SHA-256 `F9A0A3D859B4E73160ED9C4A4CBE9902305772D0D8E7295BB4AE7145A2BDDD08`). This artifact is local build evidence, not a Store artifact.
 - No EAS retry, push, OTA, Store submission, production write, credential mutation, or rollout was performed. Build 76 failed and is not a release artifact; publication remains `HOLD`.
+
+<a id="20260820-garamin-425-prebuilt-reactandroid-instrumentation"></a>
+## 2026-08-20 | GaramIn 4.2.5 prebuilt ReactAndroid instrumentation
+
+**Why the build path changed**:
+- User-started EAS build 77 reached the Free worker's exact 45-minute limit while Gradle was still compiling the four-ABI ReactAndroid source tree. The preceding install, doctor, prebuild, and Metro phases were normal; no Gradle exception caused the cancellation.
+- Replaced `buildReactNativeFromSource` and its CMake bootstrap with the official Maven `com.facebook.react:react-android:0.81.5` AAR. A tracked AGP 8.11 plugin now instruments only `com.facebook.react.views.swiperefresh.ReactSwipeRefreshLayout` and adds the same bounds guard.
+
+**Fail-closed contract**:
+- Release, debug, and debugOptimized variants pin the exact official AAR and target-class hashes, class/superclass/method shape, AGP and React Native versions, and exactly one external Maven component. Source-project substitution, unexpected artifacts, duplicate targets, pre-existing overrides, or transform drift stop the build.
+- Valid AndroidX drawing indices pass through unchanged. Only a negative or `>= childCount` result falls back to the framework-provided `drawingPosition`; no React state, refresh callback, touch behavior, JNI, Hermes, Prefab resource, or iOS path is modified.
+- The transformed class is verified after AGP instrumentation. A separate release verifier opens the same AAB and R8 mapping and requires one target class/method plus the exact DEX control-flow skeleton.
+
+**Local release proof**:
+- Local implementation commit `264f9a3cda728b501350a832b40ef4202e9d5d9d` passes the clean branch/version/release-context gate. Focused Jest passes 3 suites / 77 tests; TypeScript, scoped ESLint, syntax/JSON checks, tracked Gradle plugin build, release/debugOptimized transform checks, and two byte-stable prebuilds pass.
+- A clean physical short-path build at `D:\g425` completed `:app:bundleRelease` in 9m12s (1,118 tasks). The build verified the official release AAR input and the instrumented output class, completed R8/lint/native compilation, and resolved `react-android:0.81.5` as an external release AAR rather than a source project.
+- The local AAB is 80,818,056 bytes with SHA-256 `029AACCBC342255EFFDE0CDB7A1CFE42B9C5D406153C78FF86FC9629C6381FB9`; it contains `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64` libraries and two base DEX files. The final AAB verifier found exactly one guarded class/method across those DEX files and matched its strict superclass-call, lower/upper-bound, valid-return, and fallback control flow. This artifact is verification evidence only and was not uploaded or submitted.
+
+**Boundary and release state**:
+- No EAS retry, Git push, OTA, Store submission, credential operation, production access, device interaction, or rollout was performed. Publication remains `HOLD` until the same committed candidate passes the user-owned EAS build, Android 13/16 RefreshControl/navigation stress, staged rollout, and Play crash-cluster monitoring.

@@ -19,6 +19,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-08-20
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 08-20 | ReactAndroid 전체 소스 빌드를 제거하고 공식 RN 0.81.5 AAR의 단일 RefreshControl 클래스만 AGP 8.11로 계측해 45분 EAS 제한 원인을 제거했으며, 전체 release AAB와 최종 DEX 계약을 검증 | tracked Gradle instrumentation plugin, Expo/prepare/release gates, AAB verifier, focused tests | [detail](WORK_DETAIL.md#20260820-garamin-425-prebuilt-reactandroid-instrumentation) |
+
 ## 2026-08-19
 
 | Date | Work | Key files | Detail |
