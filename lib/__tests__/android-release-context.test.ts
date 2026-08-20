@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,13 +6,16 @@ const {
   EXPECTED_APP_VERSION,
   EXPECTED_BRANCH,
   EXPECTED_EAS_PROJECT_ID,
+  EXPECTED_TRACKED_INSTRUMENTATION_PATHS,
   runReleaseCommand,
   validateReleaseContext,
+  verifyAndroidReleaseContext,
   // eslint-disable-next-line @typescript-eslint/no-require-imports
 } = require("../../scripts/release/android-release-context.cjs") as {
   EXPECTED_APP_VERSION: string;
   EXPECTED_BRANCH: string;
   EXPECTED_EAS_PROJECT_ID: string;
+  EXPECTED_TRACKED_INSTRUMENTATION_PATHS: string[];
   runReleaseCommand: (
     args: string[],
     dependencies: {
@@ -27,6 +30,16 @@ const {
     },
   ) => number;
   validateReleaseContext: (context: Record<string, unknown>) => unknown;
+  verifyAndroidReleaseContext: (dependencies: {
+    repoRoot: string;
+    collectContext: jest.Mock;
+    verifyInstrumentation: jest.Mock;
+  }) => {
+    repoRoot: string;
+    branch: string;
+    head: string;
+    version: string;
+  };
 };
 const {
   runBuild,
@@ -60,10 +73,12 @@ function createValidContext(repoRoot: string) {
     head: "abcdef0",
     status: "",
     trackedAndroidPaths: "",
+    trackedInstrumentationPaths: `${EXPECTED_TRACKED_INSTRUMENTATION_PATHS.join("\n")}\n`,
     ignoredAndroidSettings: true,
     easIgnoreExists: false,
     androidSettingsExists: true,
-    cmakeInstallerExists: true,
+    androidAppBuildExists: true,
+    legacyCmakeInstallerExists: false,
     appConfig: {
       expo: {
         version: EXPECTED_APP_VERSION,
@@ -72,21 +87,21 @@ function createValidContext(repoRoot: string) {
           "./plugins/with-android-drawing-order-fix",
           [
             "expo-build-properties",
-            { android: { buildReactNativeFromSource: true } },
+            { android: { buildReactNativeFromSource: false } },
           ],
         ],
       },
     },
     easConfig: {
       build: {
-        production: { env: { CMAKE_VERSION: "3.30.5" } },
+        production: {
+          env: { EXPO_PUBLIC_SENTRY_ENVIRONMENT: "production" },
+        },
       },
     },
     packageJson: {
       scripts: {
         prepare: "node ./scripts/prepare.js",
-        "eas-build-post-install":
-          "node ./scripts/eas/install-android-cmake.cjs",
       },
     },
   };
@@ -104,17 +119,50 @@ describe("Android release context", () => {
     jest.restoreAllMocks();
   });
 
-  test("accepts only the exact clean 4.2.5 release context", () => {
-    expect(() => validateReleaseContext(createValidContext(fixtureRoot))).not.toThrow();
+  test("accepts only the exact clean prebuilt-instrumented 4.2.5 context", () => {
+    expect(() =>
+      validateReleaseContext(createValidContext(fixtureRoot)),
+    ).not.toThrow();
   });
 
   test.each([
     ["wrong branch", { branch: "release/other" }, "Expected branch"],
     ["detached HEAD", { branch: "" }, "detached HEAD"],
     ["dirty tree", { status: " M app.json\n" }, "worktree is dirty"],
-    ["tracked android", { trackedAndroidPaths: "android/settings.gradle\n" }, "must remain untracked"],
-    ["missing generated settings", { androidSettingsExists: false }, "is missing"],
-    ["unignored generated settings", { ignoredAndroidSettings: false }, "is missing"],
+    [
+      "tracked android",
+      { trackedAndroidPaths: "android/settings.gradle\n" },
+      "must remain untracked",
+    ],
+    [
+      "missing tracked instrumentation source",
+      {
+        trackedInstrumentationPaths: `${EXPECTED_TRACKED_INSTRUMENTATION_PATHS.slice(0, -1).join("\n")}\n`,
+      },
+      "exact EAS archive contract",
+    ],
+    [
+      "unexpected tracked instrumentation file",
+      {
+        trackedInstrumentationPaths: `${EXPECTED_TRACKED_INSTRUMENTATION_PATHS.join("\n")}\ngradle-plugins/react-android-drawing-order-guard/extra.gradle\n`,
+      },
+      "exact EAS archive contract",
+    ],
+    [
+      "missing generated settings",
+      { androidSettingsExists: false },
+      "Gradle wiring is missing",
+    ],
+    [
+      "missing generated app build",
+      { androidAppBuildExists: false },
+      "Gradle wiring is missing",
+    ],
+    [
+      "unignored generated settings",
+      { ignoredAndroidSettings: false },
+      "Gradle wiring is missing",
+    ],
     ["new easignore", { easIgnoreExists: true }, ".easignore"],
     [
       "wrong app version",
@@ -124,35 +172,36 @@ describe("Android release context", () => {
     [
       "missing prepare",
       { packageJson: { scripts: {} } },
-      "no longer runs the native patch",
+      "no longer validates the instrumentation contract",
     ],
     [
-      "missing CMake installer",
-      { cmakeInstallerExists: false },
-      "must install CMake 3.30.5",
+      "legacy CMake installer",
+      { legacyCmakeInstallerExists: true },
+      "CMake bootstrap must remain removed",
     ],
     [
-      "wrong CMake hook",
+      "legacy CMake hook",
       {
         packageJson: {
           scripts: {
             prepare: "node ./scripts/prepare.js",
-            "eas-build-post-install": "echo skipped",
+            "eas-build-post-install":
+              "node ./scripts/eas/install-android-cmake.cjs",
           },
         },
       },
-      "must install CMake 3.30.5",
+      "CMake bootstrap must remain removed",
     ],
     [
-      "wrong production CMake version",
+      "legacy CMake environment pin",
       {
         easConfig: {
           build: {
-            production: { env: { CMAKE_VERSION: "3.22.1" } },
+            production: { env: { CMAKE_VERSION: "3.30.5" } },
           },
         },
       },
-      "must install CMake 3.30.5",
+      "CMake bootstrap must remain removed",
     ],
   ])("rejects %s", (_label, override, expectedMessage) => {
     expect(() =>
@@ -163,13 +212,59 @@ describe("Android release context", () => {
     ).toThrow(expectedMessage as string);
   });
 
-  test("rejects the failed EAS plugin order", () => {
-    const context = createValidContext(fixtureRoot);
-    context.appConfig.expo.plugins.reverse();
+  test("rejects source-build true and the failed Expo plugin order", () => {
+    const sourceBuildContext = createValidContext(fixtureRoot);
+    sourceBuildContext.appConfig.expo.plugins[1] = [
+      "expo-build-properties",
+      { android: { buildReactNativeFromSource: true } },
+    ];
+    expect(() => validateReleaseContext(sourceBuildContext)).toThrow(
+      "buildReactNativeFromSource=false",
+    );
 
-    expect(() => validateReleaseContext(context)).toThrow(
+    const reversedContext = createValidContext(fixtureRoot);
+    reversedContext.appConfig.expo.plugins.reverse();
+    expect(() => validateReleaseContext(reversedContext)).toThrow(
       "before expo-build-properties",
     );
+  });
+
+  test("verifies generated settings and app wiring after context validation", () => {
+    const collectContext = jest.fn(() => createValidContext(fixtureRoot));
+    const verifyInstrumentation = jest.fn();
+
+    expect(
+      verifyAndroidReleaseContext({
+        repoRoot: fixtureRoot,
+        collectContext,
+        verifyInstrumentation,
+      }),
+    ).toEqual({
+      repoRoot: fixtureRoot,
+      branch: EXPECTED_BRANCH,
+      head: "abcdef0",
+      version: EXPECTED_APP_VERSION,
+    });
+    expect(collectContext).toHaveBeenCalledWith(fixtureRoot);
+    expect(verifyInstrumentation).toHaveBeenCalledWith({
+      repoRoot: fixtureRoot,
+      requireGeneratedAndroid: true,
+    });
+  });
+
+  test("does not verify generated instrumentation when the context fails", () => {
+    const invalidContext = createValidContext(fixtureRoot);
+    invalidContext.androidAppBuildExists = false;
+    const verifyInstrumentation = jest.fn();
+
+    expect(() =>
+      verifyAndroidReleaseContext({
+        repoRoot: fixtureRoot,
+        collectContext: jest.fn(() => invalidContext),
+        verifyInstrumentation,
+      }),
+    ).toThrow("Gradle wiring is missing");
+    expect(verifyInstrumentation).not.toHaveBeenCalled();
   });
 
   test("check mode verifies without spawning EAS", () => {
@@ -313,7 +408,7 @@ describe("Android release context", () => {
     );
   });
 
-  test("package and lower-level EAS wrapper keep the candidate cwd pinned", () => {
+  test("package and wrappers pin cwd while legacy CMake bootstrap stays absent", () => {
     const packageJson = JSON.parse(
       readFileSync(join(process.cwd(), "package.json"), "utf8"),
     );
@@ -331,10 +426,13 @@ describe("Android release context", () => {
     expect(packageJson.scripts["eas:build:android"]).toContain(
       "android-release-context.cjs build",
     );
-    expect(packageJson.scripts["eas-build-post-install"]).toBe(
-      "node ./scripts/eas/install-android-cmake.cjs",
-    );
-    expect(easConfig.build.production.env.CMAKE_VERSION).toBe("3.30.5");
+    expect(packageJson.scripts["eas-build-post-install"]).toBeUndefined();
+    expect(easConfig.build.production.env.CMAKE_VERSION).toBeUndefined();
+    expect(
+      existsSync(
+        join(process.cwd(), "scripts", "eas", "install-android-cmake.cjs"),
+      ),
+    ).toBe(false);
     expect(easBuildSource).toContain(
       'const REPO_ROOT = path.resolve(__dirname, "..");',
     );

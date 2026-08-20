@@ -1,22 +1,15 @@
 import {
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
-const {
-  updateAndroidSettingsGradle,
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-} = require("expo-build-properties/build/android.js") as {
-  updateAndroidSettingsGradle: (options: {
-    contents: string;
-    buildFromSource: boolean;
-  }) => string;
-};
 const withBuildProperties =
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   require("expo-build-properties").withBuildProperties as (
@@ -29,7 +22,7 @@ const withAndroidDrawingOrderFix =
     config: Record<string, unknown>,
   ) => Record<string, unknown>;
 
-type SettingsGradleMod = (config: {
+type GradleTextMod = (config: {
   [key: string]: unknown;
   modRequest: Record<string, never>;
   modResults: { contents: string; language: string };
@@ -47,45 +40,46 @@ type GradlePropertiesMod = (config: {
 }) => Promise<{ modResults: GradleProperty[] }>;
 
 const {
+  APP_PLUGIN_BLOCK,
+  APP_PLUGIN_MARKER,
   CONFIG_PLUGIN_ID,
-  EXPO_REACT_NATIVE_SOURCE_BUILD_BLOCK,
   GRADLE_JVMARGS_KEY,
   GRADLE_JVMARGS_REQUIRED_VALUE,
   GRADLE_JVMARGS_UPSTREAM_VALUE,
-  GRADLE_PATCH_BLOCK,
-  GRADLE_PATCH_MARKER,
-  GRADLE_UPSTREAM_BLOCK,
-  PATCH_ANCHOR,
-  PATCH_BLOCK,
-  PATCH_MARKER,
-  PATCHED_REACT_NATIVE_SOURCE_BUILD_BLOCK,
-  SETTINGS_PATCH_BLOCK,
-  assertBuildConsumesPatchedSource,
+  INSTRUMENTATION_PLUGIN_ID,
+  LEGACY_REACT_SOURCE_BUILD_BLOCK,
+  LEGACY_SOURCE_PREFLIGHT_BLOCK,
+  SETTINGS_PLUGIN_BLOCK,
+  SETTINGS_PLUGIN_MARKER,
+  assertBuildUsesPrebuiltInstrumentation,
+  patchAndroidAppBuildGradle,
   patchAndroidGradleProperties,
   patchAndroidSettingsGradle,
-  patchReactAndroidGradle,
-  patchReactSwipeRefreshLayout,
-  validateBuildWiring,
+  validateAppConfig,
+  validateGeneratedAppBuildGradle,
   validateGeneratedSettings,
+  validateTrackedInstrumentationPlugin,
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-} = require("../../scripts/patches/apply-android-drawing-order-fix.cjs") as {
+} = require("../../scripts/patches/android-drawing-order-instrumentation.cjs") as {
+  APP_PLUGIN_BLOCK: string;
+  APP_PLUGIN_MARKER: string;
   CONFIG_PLUGIN_ID: string;
-  EXPO_REACT_NATIVE_SOURCE_BUILD_BLOCK: string;
   GRADLE_JVMARGS_KEY: string;
   GRADLE_JVMARGS_REQUIRED_VALUE: string;
   GRADLE_JVMARGS_UPSTREAM_VALUE: string;
-  PATCH_ANCHOR: string;
-  PATCH_BLOCK: string;
-  PATCH_MARKER: string;
-  PATCHED_REACT_NATIVE_SOURCE_BUILD_BLOCK: string;
-  GRADLE_PATCH_BLOCK: string;
-  GRADLE_PATCH_MARKER: string;
-  GRADLE_UPSTREAM_BLOCK: string;
-  SETTINGS_PATCH_BLOCK: string;
-  assertBuildConsumesPatchedSource: (
+  INSTRUMENTATION_PLUGIN_ID: string;
+  LEGACY_REACT_SOURCE_BUILD_BLOCK: string;
+  LEGACY_SOURCE_PREFLIGHT_BLOCK: string;
+  SETTINGS_PLUGIN_BLOCK: string;
+  SETTINGS_PLUGIN_MARKER: string;
+  assertBuildUsesPrebuiltInstrumentation: (
     repoRoot: string,
-    options?: { requireGeneratedSettings?: boolean },
+    options?: { requireGeneratedAndroid?: boolean },
   ) => void;
+  patchAndroidAppBuildGradle: (source: string) => {
+    changed: boolean;
+    source: string;
+  };
   patchAndroidGradleProperties: (properties: GradleProperty[]) => {
     changed: boolean;
     properties: GradleProperty[];
@@ -94,36 +88,25 @@ const {
     changed: boolean;
     source: string;
   };
-  patchReactAndroidGradle: (source: string) => {
-    changed: boolean;
-    source: string;
-  };
-  patchReactSwipeRefreshLayout: (source: string) => {
-    changed: boolean;
-    source: string;
-  };
-  validateBuildWiring: (appConfig: unknown, settingsSource: string) => void;
-  validateGeneratedSettings: (settingsSource: string) => void;
+  validateAppConfig: (appConfig: unknown) => void;
+  validateGeneratedAppBuildGradle: (source: string) => void;
+  validateGeneratedSettings: (source: string) => void;
+  validateTrackedInstrumentationPlugin: (repoRoot: string) => void;
 };
 
-const supportedSource = `public class ReactSwipeRefreshLayout {
-${PATCH_ANCHOR}
-    // Existing React Native implementation.
-  }
+const generatedSettingsSource = `pluginManagement {
+  def reactNativeGradlePlugin = "fixture"
 }
+
+plugins {
+  id("com.facebook.react.settings")
+}
+
+rootProject.name = "fixture"
 `;
-const supportedGradleSource = `dependencies {
-${GRADLE_UPSTREAM_BLOCK}
-}
-`;
-const generatedSettingsSource = `includeBuild(expoAutolinking.reactNative) {
-  dependencySubstitution {
-    substitute(module("com.facebook.react:react-android")).using(project(":packages:react-native:ReactAndroid"))
-    substitute(module("com.facebook.react:react-native")).using(project(":packages:react-native:ReactAndroid"))
-    substitute(module("com.facebook.react:hermes-android")).using(project(":packages:react-native:ReactAndroid:hermes-engine"))
-    substitute(module("com.facebook.react:hermes-engine")).using(project(":packages:react-native:ReactAndroid:hermes-engine"))
-  }
-}
+const generatedAppBuildSource = `apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
 `;
 const generatedGradleProperties: GradleProperty[] = [
   { type: "comment", value: "Project-wide Gradle settings." },
@@ -135,8 +118,56 @@ const generatedGradleProperties: GradleProperty[] = [
   { type: "property", key: "android.useAndroidX", value: "true" },
 ];
 
-describe("Android drawing-order native patch", () => {
-  test("pins one supported Gradle daemon property without mutating the parsed input", () => {
+function validAppConfig() {
+  return {
+    expo: {
+      plugins: [
+        CONFIG_PLUGIN_ID,
+        [
+          "expo-build-properties",
+          { android: { buildReactNativeFromSource: false } },
+        ],
+      ],
+    },
+  };
+}
+
+function copyTrackedPlugin(fixtureRoot: string) {
+  const sourceRoot = join(
+    process.cwd(),
+    "gradle-plugins",
+    "react-android-drawing-order-guard",
+  );
+  const destinationRoot = join(
+    fixtureRoot,
+    "gradle-plugins",
+    "react-android-drawing-order-guard",
+  );
+  const relativePaths = [
+    "settings.gradle.kts",
+    "build.gradle.kts",
+    "drawing-order-guard.pro",
+    join(
+      "src",
+      "main",
+      "java",
+      "com",
+      "garamin",
+      "build",
+      "ReactAndroidDrawingOrderGuardPlugin.java",
+    ),
+  ];
+
+  for (const relativePath of relativePaths) {
+    const destinationPath = join(destinationRoot, relativePath);
+    mkdirSync(dirname(destinationPath), { recursive: true });
+    copyFileSync(join(sourceRoot, relativePath), destinationPath);
+  }
+  return destinationRoot;
+}
+
+describe("Android drawing-order prebuilt instrumentation", () => {
+  test("pins one supported Gradle daemon property without mutating input", () => {
     const result = patchAndroidGradleProperties(generatedGradleProperties);
 
     expect(result.changed).toBe(true);
@@ -150,11 +181,6 @@ describe("Android drawing-order native patch", () => {
       type: "property",
       key: GRADLE_JVMARGS_KEY,
       value: GRADLE_JVMARGS_UPSTREAM_VALUE,
-    });
-    expect(result.properties).toContainEqual({
-      type: "property",
-      key: "android.useAndroidX",
-      value: "true",
     });
   });
 
@@ -171,9 +197,9 @@ describe("Android drawing-order native patch", () => {
     expect(() => patchAndroidGradleProperties([])).toThrow(
       `exactly one ${GRADLE_JVMARGS_KEY} property; found 0`,
     );
-    expect(() =>
-      patchAndroidGradleProperties([property, property]),
-    ).toThrow(`exactly one ${GRADLE_JVMARGS_KEY} property; found 2`);
+    expect(() => patchAndroidGradleProperties([property, property])).toThrow(
+      `exactly one ${GRADLE_JVMARGS_KEY} property; found 2`,
+    );
     expect(() =>
       patchAndroidGradleProperties([
         {
@@ -185,370 +211,271 @@ describe("Android drawing-order native patch", () => {
     ).toThrow(`unsupported ${GRADLE_JVMARGS_KEY} value`);
   });
 
-  test("guards only an invalid AndroidX child index", () => {
-    const result = patchReactSwipeRefreshLayout(supportedSource);
-
-    expect(result.changed).toBe(true);
-    expect(result.source).toContain(PATCH_BLOCK);
-    expect(result.source).toContain(
-      "return if (childIndex in 0 until childCount) childIndex else drawingPosition",
-    );
-    expect(result.source.indexOf(PATCH_MARKER)).toBeLessThan(
-      result.source.indexOf(PATCH_ANCHOR),
-    );
-  });
-
-  test("is idempotent", () => {
-    const once = patchReactSwipeRefreshLayout(supportedSource);
-    const twice = patchReactSwipeRefreshLayout(once.source);
-
-    expect(twice).toEqual({ changed: false, source: once.source });
-  });
-
-  test("fails closed when the pinned native source shape changes", () => {
-    expect(() => patchReactSwipeRefreshLayout("unexpected source")).toThrow(
-      "does not match the supported React Native layout",
-    );
-  });
-
-  test("fails closed when an existing patch body is ambiguous", () => {
-    expect(() =>
-      patchReactSwipeRefreshLayout(`// ${PATCH_MARKER}\n${supportedSource}`),
-    ).toThrow("exists but its body does not match");
-  });
-
-  test("keeps Hermes on the pinned Maven AAR during the RN source build", () => {
-    const once = patchReactAndroidGradle(supportedGradleSource);
-    const twice = patchReactAndroidGradle(once.source);
-
-    expect(once.changed).toBe(true);
-    expect(once.source).toContain(GRADLE_PATCH_BLOCK);
-    expect(once.source).not.toContain(GRADLE_UPSTREAM_BLOCK);
-    expect(twice).toEqual({ changed: false, source: once.source });
-    expect(() => patchReactAndroidGradle(`// ${GRADLE_PATCH_MARKER}`)).toThrow(
-      "body does not match",
-    );
-  });
-
-  test("rewrites generated settings once and keeps React Native source-built", () => {
+  test("inserts the composite plugin inside pluginManagement exactly once", () => {
     const once = patchAndroidSettingsGradle(generatedSettingsSource);
     const twice = patchAndroidSettingsGradle(once.source);
 
     expect(once.changed).toBe(true);
-    expect(once.source).toContain(SETTINGS_PATCH_BLOCK);
-    expect(once.source).toContain("com.facebook.react:react-android");
-    expect(once.source).toContain("com.facebook.react:react-native");
-    expect(once.source).not.toContain("com.facebook.react:hermes-android");
-    expect(once.source).not.toContain("com.facebook.react:hermes-engine");
+    expect(once.source).toContain(SETTINGS_PLUGIN_BLOCK);
+    expect(once.source.indexOf(SETTINGS_PLUGIN_BLOCK)).toBeGreaterThan(
+      once.source.indexOf("pluginManagement {"),
+    );
+    expect(once.source.indexOf(SETTINGS_PLUGIN_BLOCK)).toBeLessThan(
+      once.source.indexOf("\n}"),
+    );
     expect(twice).toEqual({ changed: false, source: once.source });
+    expect(() => validateGeneratedSettings(once.source)).not.toThrow();
   });
 
-  test("normalizes the exact block appended by a repeated Expo prebuild", () => {
-    const firstExpoPass = updateAndroidSettingsGradle({
-      contents: 'rootProject.name = "fixture"\n',
-      buildFromSource: true,
-    });
-    const firstPatch = patchAndroidSettingsGradle(firstExpoPass);
-    const repeatedExpoPass = updateAndroidSettingsGradle({
-      contents: firstPatch.source,
-      buildFromSource: true,
-    });
-    const repeatedPatch = patchAndroidSettingsGradle(repeatedExpoPass);
+  test("preserves CRLF while keeping the settings patch idempotent", () => {
+    const input = generatedSettingsSource.replaceAll("\n", "\r\n");
+    const once = patchAndroidSettingsGradle(input);
+    const twice = patchAndroidSettingsGradle(once.source);
 
-    expect(repeatedExpoPass.split(EXPO_REACT_NATIVE_SOURCE_BUILD_BLOCK)).toHaveLength(2);
-    expect(repeatedExpoPass.split(PATCHED_REACT_NATIVE_SOURCE_BUILD_BLOCK)).toHaveLength(2);
-    expect(repeatedPatch).toEqual({
-      changed: true,
-      source: firstPatch.source,
-    });
-    expect(patchAndroidSettingsGradle(repeatedPatch.source)).toEqual({
-      changed: false,
-      source: firstPatch.source,
-    });
+    expect(twice).toEqual({ changed: false, source: once.source });
+    expect(once.source).toContain("\r\n");
+    expect(once.source.replaceAll("\r\n", "")).not.toContain("\n");
   });
 
-  test("normalizes repeated Expo prebuilds without accumulating blocks", () => {
-    let patchedSource = patchAndroidSettingsGradle(
-      updateAndroidSettingsGradle({
-        contents: 'rootProject.name = "fixture"\n',
-        buildFromSource: true,
-      }),
-    ).source;
-
-    for (let pass = 0; pass < 3; pass += 1) {
-      const repeatedSource = updateAndroidSettingsGradle({
-        contents: patchedSource,
-        buildFromSource: true,
-      });
-      const result = patchAndroidSettingsGradle(repeatedSource);
-      expect(result.source).toBe(patchedSource);
-      patchedSource = result.source;
-    }
-  });
-
-  test("preserves CRLF while normalizing a repeated Expo prebuild", () => {
-    const firstPatch = patchAndroidSettingsGradle(
-      updateAndroidSettingsGradle({
-        contents: 'rootProject.name = "fixture"\n',
-        buildFromSource: true,
-      }).replaceAll("\n", "\r\n"),
-    );
-    const repeatedInput = updateAndroidSettingsGradle({
-      contents: firstPatch.source,
-      buildFromSource: true,
-    }).replace(/(?<!\r)\n/g, "\r\n");
-    const repeatedPatch = patchAndroidSettingsGradle(repeatedInput);
-
-    expect(repeatedPatch.source).toBe(firstPatch.source);
-    expect(repeatedPatch.source).toContain("\r\n");
-    expect(repeatedPatch.source.replaceAll("\r\n", "")).not.toContain("\n");
-  });
-
-  test("fails closed on multiply appended or partial repeated Expo blocks", () => {
-    const firstPatch = patchAndroidSettingsGradle(generatedSettingsSource);
-    const repeatedInput = updateAndroidSettingsGradle({
-      contents: firstPatch.source,
-      buildFromSource: true,
-    });
-    const multiplyAppended = updateAndroidSettingsGradle({
-      contents: repeatedInput,
-      buildFromSource: true,
-    });
-    const partialAppend = repeatedInput.replace(
-      '    substitute(module("com.facebook.react:hermes-engine")).using(project(":packages:react-native:ReactAndroid:hermes-engine"))\n',
-      "",
-    );
-
-    expect(() => patchAndroidSettingsGradle(multiplyAppended)).toThrow(
-      "body or dependency substitutions do not match",
-    );
-    expect(() => patchAndroidSettingsGradle(partialAppend)).toThrow(
-      "body or dependency substitutions do not match",
-    );
-  });
-
-  test("rejects noncanonical reserved entries added to a stable patched file", () => {
-    const stableSource = patchAndroidSettingsGradle(generatedSettingsSource).source;
-    const singleQuotedHermes = `${stableSource}
-substitute(module('com.facebook.react:hermes-android')).using(project(':packages:react-native:ReactAndroid:hermes-engine'))
-`;
-    const spacedDuplicateInclude = `${stableSource}
-includeBuild ( expoAutolinking.reactNative ) {}
-`;
-
-    for (const tamperedSource of [singleQuotedHermes, spacedDuplicateInclude]) {
-      expect(() => patchAndroidSettingsGradle(tamperedSource)).toThrow(
-        "unsupported or partial React Native source-build block",
-      );
-      expect(() => validateGeneratedSettings(tamperedSource)).toThrow(
-        "unsupported or partial React Native source-build block",
-      );
-    }
-  });
-
-  test("accepts the pinned Expo build-properties generated source block", () => {
-    const expoGeneratedSettings = updateAndroidSettingsGradle({
-      contents: 'rootProject.name = "fixture"\n',
-      buildFromSource: true,
-    });
-    const result = patchAndroidSettingsGradle(expoGeneratedSettings);
+  test("migrates only the exact legacy source-build and preflight pair", () => {
+    const legacySource = `${generatedSettingsSource}\n${LEGACY_REACT_SOURCE_BUILD_BLOCK}\n\n${LEGACY_SOURCE_PREFLIGHT_BLOCK}\n`;
+    const result = patchAndroidSettingsGradle(legacySource);
 
     expect(result.changed).toBe(true);
-    expect(result.source).toContain(SETTINGS_PATCH_BLOCK);
-    expect(result.source).toContain("com.facebook.react:react-android");
-    expect(result.source).not.toContain("com.facebook.react:hermes-android");
+    expect(result.source).toContain(SETTINGS_PLUGIN_BLOCK);
+    expect(result.source).not.toContain("expoAutolinking.reactNative)");
+    expect(result.source).not.toContain("drawingOrderPatchScript");
+    expect(patchAndroidSettingsGradle(result.source)).toEqual({
+      changed: false,
+      source: result.source,
+    });
   });
 
-  test("applies the registered Expo settings mod after build-properties", async () => {
-    const expoGeneratedSettings = updateAndroidSettingsGradle({
-      contents: 'rootProject.name = "fixture"\n',
-      buildFromSource: true,
-    });
-    const configured = withAndroidDrawingOrderFix({
-      name: "fixture",
-      slug: "fixture",
-    }) as {
-      [key: string]: unknown;
-      mods: { android: { settingsGradle: SettingsGradleMod } };
-    };
-    const result = await configured.mods.android.settingsGradle({
-      ...configured,
-      modRequest: {},
-      modResults: {
-        contents: expoGeneratedSettings,
-        language: "groovy",
-      },
-    });
+  test("rejects partial, duplicated, or noncanonical legacy source wiring", () => {
+    const partialLegacy = `${generatedSettingsSource}\n${LEGACY_REACT_SOURCE_BUILD_BLOCK}\n`;
+    const duplicatedLegacy = `${generatedSettingsSource}\n${LEGACY_REACT_SOURCE_BUILD_BLOCK}\n${LEGACY_SOURCE_PREFLIGHT_BLOCK}\n${LEGACY_REACT_SOURCE_BUILD_BLOCK}\n`;
+    const noncanonicalLegacy = `${generatedSettingsSource}\nincludeBuild ( expoAutolinking.reactNative ) {}`;
 
-    expect(result.modResults.contents).toContain(SETTINGS_PATCH_BLOCK);
-    expect(result.modResults.contents).toContain(
-      "com.facebook.react:react-android",
-    );
-    expect(result.modResults.contents).not.toContain(
-      "com.facebook.react:hermes-android",
-    );
-  });
-
-  test("executes the real Expo mod stack in the required plugin order", async () => {
-    const withDrawingOrderMod = withAndroidDrawingOrderFix({
-      name: "fixture",
-      slug: "fixture",
-    });
-    const configured = withBuildProperties(withDrawingOrderMod, {
-      android: { buildReactNativeFromSource: true },
-    }) as {
-      [key: string]: unknown;
-      mods: { android: { settingsGradle: SettingsGradleMod } };
-    };
-    const result = await configured.mods.android.settingsGradle({
-      ...configured,
-      modRequest: {},
-      modResults: {
-        contents: 'rootProject.name = "fixture"\n',
-        language: "groovy",
-      },
-    });
-
-    expect(result.modResults.contents).toContain(SETTINGS_PATCH_BLOCK);
-    expect(result.modResults.contents).toContain(
-      "com.facebook.react:react-android",
-    );
-    expect(result.modResults.contents).not.toContain(
-      "com.facebook.react:hermes-android",
-    );
-  });
-
-  test("executes the real Expo mod stack repeatedly on generated settings", async () => {
-    const withDrawingOrderMod = withAndroidDrawingOrderFix({
-      name: "fixture",
-      slug: "fixture",
-    });
-    const configured = withBuildProperties(withDrawingOrderMod, {
-      android: { buildReactNativeFromSource: true },
-    }) as {
-      [key: string]: unknown;
-      mods: { android: { settingsGradle: SettingsGradleMod } };
-    };
-    const first = await configured.mods.android.settingsGradle({
-      ...configured,
-      modRequest: {},
-      modResults: {
-        contents: 'rootProject.name = "fixture"\n',
-        language: "groovy",
-      },
-    });
-    const repeated = await configured.mods.android.settingsGradle({
-      ...configured,
-      modRequest: {},
-      modResults: {
-        contents: first.modResults.contents,
-        language: "groovy",
-      },
-    });
-
-    expect(repeated.modResults.contents).toBe(first.modResults.contents);
-  });
-
-  test("executes the real Expo Gradle-properties mod stack repeatedly without changing worker GRADLE_OPTS", async () => {
-    const previousGradleOpts = process.env.GRADLE_OPTS;
-    process.env.GRADLE_OPTS = "-Dorg.gradle.daemon=false";
-
-    try {
-      const withDrawingOrderMod = withAndroidDrawingOrderFix({
-        name: "fixture",
-        slug: "fixture",
-      });
-      const configured = withBuildProperties(withDrawingOrderMod, {
-        android: { buildReactNativeFromSource: true },
-      }) as {
-        [key: string]: unknown;
-        mods: { android: { gradleProperties: GradlePropertiesMod } };
-      };
-      const first = await configured.mods.android.gradleProperties({
-        ...configured,
-        modRequest: {},
-        modResults: generatedGradleProperties,
-      });
-      const repeated = await configured.mods.android.gradleProperties({
-        ...configured,
-        modRequest: {},
-        modResults: first.modResults,
-      });
-
-      expect(first.modResults).toContainEqual({
-        type: "property",
-        key: GRADLE_JVMARGS_KEY,
-        value: GRADLE_JVMARGS_REQUIRED_VALUE,
-      });
-      expect(repeated.modResults).toEqual(first.modResults);
-      expect(process.env.GRADLE_OPTS).toBe("-Dorg.gradle.daemon=false");
-    } finally {
-      if (previousGradleOpts === undefined) {
-        delete process.env.GRADLE_OPTS;
-      } else {
-        process.env.GRADLE_OPTS = previousGradleOpts;
-      }
+    for (const source of [partialLegacy, duplicatedLegacy, noncanonicalLegacy]) {
+      expect(() => patchAndroidSettingsGradle(source)).toThrow(
+        "unsupported or partial legacy React Native source-build block",
+      );
     }
   });
 
-  test.each([
-    ["missing", []],
-    [
-      "duplicate",
-      [generatedGradleProperties[1], generatedGradleProperties[1]],
-    ],
-    [
-      "drifted",
-      [
-        {
-          type: "property",
-          key: GRADLE_JVMARGS_KEY,
-          value: "-Xmx3072m -XX:MaxMetaspaceSize=768m",
-        },
-      ],
-    ],
-  ] as [string, GradleProperty[]][])(
-    "fails the real Expo Gradle-properties mod stack on a %s property",
-    async (_caseName, properties) => {
-      const withDrawingOrderMod = withAndroidDrawingOrderFix({
-        name: "fixture",
-        slug: "fixture",
-      });
-      const configured = withBuildProperties(withDrawingOrderMod, {
-        android: { buildReactNativeFromSource: true },
-      }) as {
-        [key: string]: unknown;
-        mods: { android: { gradleProperties: GradlePropertiesMod } };
-      };
+  test("rejects a partial or duplicated settings instrumentation block", () => {
+    const stableSource = patchAndroidSettingsGradle(
+      generatedSettingsSource,
+    ).source;
 
-      await expect(
-        configured.mods.android.gradleProperties({
-          ...configured,
-          modRequest: {},
-          modResults: properties,
-        }),
-      ).rejects.toThrow(
-        _caseName === "drifted"
-          ? `unsupported ${GRADLE_JVMARGS_KEY} value`
-          : `exactly one ${GRADLE_JVMARGS_KEY} property`,
-      );
-    },
-  );
-
-  test("fails closed when generated source-build settings drift", () => {
-    expect(() => patchAndroidSettingsGradle("unexpected settings")).toThrow(
-      "does not contain exactly one supported React Native source-build entry",
-    );
     expect(() =>
       patchAndroidSettingsGradle(
-        generatedSettingsSource.replace(
-          'substitute(module("com.facebook.react:hermes-engine")).using(project(":packages:react-native:ReactAndroid:hermes-engine"))',
-          "",
-        ),
+        stableSource.replace(SETTINGS_PLUGIN_BLOCK, `// ${SETTINGS_PLUGIN_MARKER}`),
       ),
-    ).toThrow(
-      "does not contain exactly one supported Hermes source substitution",
+    ).toThrow("body is missing, duplicated, or modified");
+    expect(() =>
+      patchAndroidSettingsGradle(`${stableSource}\n${SETTINGS_PLUGIN_BLOCK}`),
+    ).toThrow("body is missing, duplicated, or modified");
+  });
+
+  test("applies the Android app plugin at the top exactly once", () => {
+    const once = patchAndroidAppBuildGradle(generatedAppBuildSource);
+    const twice = patchAndroidAppBuildGradle(once.source);
+
+    expect(once.changed).toBe(true);
+    expect(once.source.startsWith(`${APP_PLUGIN_BLOCK}\n`)).toBe(true);
+    expect(once.source).toContain(INSTRUMENTATION_PLUGIN_ID);
+    expect(twice).toEqual({ changed: false, source: once.source });
+    expect(() => validateGeneratedAppBuildGradle(once.source)).not.toThrow();
+  });
+
+  test("rejects a partial or duplicated Android app plugin block", () => {
+    const stableSource = patchAndroidAppBuildGradle(
+      generatedAppBuildSource,
+    ).source;
+
+    expect(() =>
+      patchAndroidAppBuildGradle(
+        stableSource.replace(APP_PLUGIN_BLOCK, `// ${APP_PLUGIN_MARKER}`),
+      ),
+    ).toThrow("app plugin block is missing, duplicated, or modified");
+    expect(() =>
+      patchAndroidAppBuildGradle(`${stableSource}\n${APP_PLUGIN_BLOCK}`),
+    ).toThrow("app plugin block is missing, duplicated, or modified");
+  });
+
+  test("requires the ordered config plugin and an explicit prebuilt ReactAndroid contract", () => {
+    expect(() => validateAppConfig(validAppConfig())).not.toThrow();
+    expect(() =>
+      validateAppConfig({
+        expo: {
+          plugins: [
+            CONFIG_PLUGIN_ID,
+            ["expo-build-properties", { android: {} }],
+          ],
+        },
+      }),
+    ).toThrow("buildReactNativeFromSource=false");
+    expect(() =>
+      validateAppConfig({
+        expo: {
+          plugins: [
+            CONFIG_PLUGIN_ID,
+            [
+              "expo-build-properties",
+              { android: { buildReactNativeFromSource: true } },
+            ],
+          ],
+        },
+      }),
+    ).toThrow("buildReactNativeFromSource=false");
+    expect(() =>
+      validateAppConfig({
+        expo: {
+          plugins: [
+            [
+              "expo-build-properties",
+              { android: { buildReactNativeFromSource: false } },
+            ],
+            CONFIG_PLUGIN_ID,
+          ],
+        },
+      }),
+    ).toThrow("before expo-build-properties");
+  });
+
+  test("executes the real Expo settings, app, and properties mod stack repeatedly", async () => {
+    const withDrawingOrderMod = withAndroidDrawingOrderFix({
+      name: "fixture",
+      slug: "fixture",
+    });
+    const configured = withBuildProperties(withDrawingOrderMod, {
+      android: { buildReactNativeFromSource: false },
+    }) as {
+      [key: string]: unknown;
+      mods: {
+        android: {
+          settingsGradle: GradleTextMod;
+          appBuildGradle: GradleTextMod;
+          gradleProperties: GradlePropertiesMod;
+        };
+      };
+    };
+    const settings = await configured.mods.android.settingsGradle({
+      ...configured,
+      modRequest: {},
+      modResults: {
+        contents: generatedSettingsSource,
+        language: "groovy",
+      },
+    });
+    const repeatedSettings = await configured.mods.android.settingsGradle({
+      ...configured,
+      modRequest: {},
+      modResults: {
+        contents: settings.modResults.contents,
+        language: "groovy",
+      },
+    });
+    const app = await configured.mods.android.appBuildGradle({
+      ...configured,
+      modRequest: {},
+      modResults: {
+        contents: generatedAppBuildSource,
+        language: "groovy",
+      },
+    });
+    const repeatedApp = await configured.mods.android.appBuildGradle({
+      ...configured,
+      modRequest: {},
+      modResults: {
+        contents: app.modResults.contents,
+        language: "groovy",
+      },
+    });
+    const properties = await configured.mods.android.gradleProperties({
+      ...configured,
+      modRequest: {},
+      modResults: generatedGradleProperties,
+    });
+    const repeatedProperties = await configured.mods.android.gradleProperties({
+      ...configured,
+      modRequest: {},
+      modResults: properties.modResults,
+    });
+
+    expect(settings.modResults.contents).toContain(SETTINGS_PLUGIN_BLOCK);
+    expect(settings.modResults.contents).not.toContain(
+      "expoAutolinking.reactNative)",
     );
+    expect(repeatedSettings.modResults.contents).toBe(
+      settings.modResults.contents,
+    );
+    expect(app.modResults.contents.startsWith(`${APP_PLUGIN_BLOCK}\n`)).toBe(
+      true,
+    );
+    expect(repeatedApp.modResults.contents).toBe(app.modResults.contents);
+    expect(properties.modResults).toContainEqual({
+      type: "property",
+      key: GRADLE_JVMARGS_KEY,
+      value: GRADLE_JVMARGS_REQUIRED_VALUE,
+    });
+    expect(repeatedProperties.modResults).toEqual(properties.modResults);
+  });
+
+  test("validates the tracked fail-closed AGP instrumentation plugin", () => {
+    expect(() =>
+      validateTrackedInstrumentationPlugin(process.cwd()),
+    ).not.toThrow();
+    expect(() =>
+      assertBuildUsesPrebuiltInstrumentation(process.cwd()),
+    ).not.toThrow();
+  });
+
+  test("rejects missing or drifted tracked instrumentation sources", () => {
+    const fixtureRoot = mkdtempSync(
+      join(tmpdir(), "garamin-instrumentation-plugin-"),
+    );
+    try {
+      const pluginRoot = copyTrackedPlugin(fixtureRoot);
+      const rulesPath = join(pluginRoot, "drawing-order-guard.pro");
+      unlinkSync(rulesPath);
+      expect(() => validateTrackedInstrumentationPlugin(fixtureRoot)).toThrow(
+        "Tracked Gradle plugin file is missing",
+      );
+
+      copyFileSync(
+        join(
+          process.cwd(),
+          "gradle-plugins",
+          "react-android-drawing-order-guard",
+          "drawing-order-guard.pro",
+        ),
+        rulesPath,
+      );
+      const implementationPath = join(
+        pluginRoot,
+        "src",
+        "main",
+        "java",
+        "com",
+        "garamin",
+        "build",
+        "ReactAndroidDrawingOrderGuardPlugin.java",
+      );
+      writeFileSync(
+        implementationPath,
+        readFileSync(implementationPath, "utf8").replace(
+          "751dfdb935c8e66ab23dc15ac7e072a7d95fba6b7d8fb48d97ece3a2f171b0f5",
+          "drifted",
+        ),
+      );
+      expect(() => validateTrackedInstrumentationPlugin(fixtureRoot)).toThrow(
+        "Tracked Gradle plugin implementation contract is missing",
+      );
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
   });
 
   test.each([-1, 0, 1, 2, 3])(
@@ -576,107 +503,21 @@ includeBuild ( expoAutolinking.reactNative ) {}
     },
   );
 
-  test("requires ordered Expo plugin and generated Gradle source-build wiring", () => {
-    const patchedSettingsSource = patchAndroidSettingsGradle(
-      generatedSettingsSource,
-    ).source;
-    const appConfig = {
-      expo: {
-        plugins: [
-          CONFIG_PLUGIN_ID,
-          [
-            "expo-build-properties",
-            { android: { buildReactNativeFromSource: true } },
-          ],
-        ],
-      },
-    };
-
-    expect(() =>
-      validateBuildWiring(appConfig, patchedSettingsSource),
-    ).not.toThrow();
-    expect(() =>
-      validateBuildWiring({ expo: { plugins: [] } }, patchedSettingsSource),
-    ).toThrow("buildReactNativeFromSource=true");
-    expect(() =>
-      validateBuildWiring(
-        {
-          expo: {
-            plugins: [
-              [
-                "expo-build-properties",
-                { android: { buildReactNativeFromSource: true } },
-              ],
-              CONFIG_PLUGIN_ID,
-            ],
-          },
-        },
-        patchedSettingsSource,
-      ),
-    ).toThrow("before expo-build-properties");
-    expect(() => validateBuildWiring(appConfig, "")).toThrow(
-      "does not consume and verify the patched React Native source",
-    );
-    expect(() =>
-      validateBuildWiring(
-        appConfig,
-        `${patchedSettingsSource}\nsubstitute(module("com.facebook.react:hermes-android"))`,
-      ),
-    ).toThrow("must keep pinned Hermes on the Maven AAR");
-  });
-
-  test("lets prepare repair dependencies before stale generated settings block Gradle", () => {
-    const fixtureRoot = mkdtempSync(
-      join(tmpdir(), "garamin-drawing-order-wiring-"),
-    );
-    try {
-      mkdirSync(join(fixtureRoot, "plugins"));
-      mkdirSync(join(fixtureRoot, "android"));
-      writeFileSync(
-        join(fixtureRoot, "app.json"),
-        JSON.stringify({
-          expo: {
-              plugins: [
-                CONFIG_PLUGIN_ID,
-                [
-                  "expo-build-properties",
-                  { android: { buildReactNativeFromSource: true } },
-                ],
-              ],
-          },
-        }),
-      );
-      writeFileSync(
-        join(fixtureRoot, "plugins", "with-android-drawing-order-fix.js"),
-        "withSettingsGradle(config, patchAndroidSettingsGradle); withGradleProperties(config, patchAndroidGradleProperties);",
-      );
-      writeFileSync(
-        join(fixtureRoot, "android", "settings.gradle"),
-        "stale generated settings",
-      );
-
-      expect(() => assertBuildConsumesPatchedSource(fixtureRoot)).not.toThrow();
-      expect(() =>
-        assertBuildConsumesPatchedSource(fixtureRoot, {
-          requireGeneratedSettings: true,
-        }),
-      ).toThrow("does not consume and verify the patched React Native source");
-    } finally {
-      rmSync(fixtureRoot, { recursive: true, force: true });
-    }
-  });
-
-  test("runs from prepare before the no-Git early exit", () => {
+  test("runs instrumentation validation from prepare before the no-Git exit", () => {
     const prepareSource = readFileSync(
       join(process.cwd(), "scripts", "prepare.js"),
       "utf8",
     );
+    const verificationCall =
+      "verifyAndroidDrawingOrderInstrumentation();";
 
-    expect(
-      prepareSource.indexOf("applyAndroidDrawingOrderFix();"),
-    ).toBeGreaterThan(-1);
-    expect(
-      prepareSource.indexOf("applyAndroidDrawingOrderFix();"),
-    ).toBeLessThan(prepareSource.indexOf("if (!inGitRepository())"));
+    expect(prepareSource.indexOf(verificationCall)).toBeGreaterThan(-1);
+    expect(prepareSource.indexOf(verificationCall)).toBeLessThan(
+      prepareSource.indexOf("if (!inGitRepository())"),
+    );
+    expect(prepareSource).toContain(
+      "./patches/android-drawing-order-instrumentation.cjs",
+    );
+    expect(prepareSource).not.toContain("applyAndroidDrawingOrderFix");
   });
 });

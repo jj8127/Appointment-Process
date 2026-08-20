@@ -52,7 +52,7 @@
         "expo-build-properties",
         {
           "android": {
-            "buildReactNativeFromSource": true,
+            "buildReactNativeFromSource": false,
             "enableMinifyInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
             "kotlinVersion": "2.1.20",

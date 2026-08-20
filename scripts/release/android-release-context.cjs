@@ -5,19 +5,22 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const {
-  applyAndroidDrawingOrderFix,
+  verifyAndroidDrawingOrderInstrumentation,
   validateAppConfig,
-} = require("../patches/apply-android-drawing-order-fix.cjs");
-const {
-  EXPECTED_CMAKE_VERSION,
-} = require("../eas/install-android-cmake.cjs");
+} = require("../patches/android-drawing-order-instrumentation.cjs");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const EXPECTED_BRANCH =
   "release/garamin-4.2.5-android-drawing-order-20260818";
 const EXPECTED_APP_VERSION = "4.2.5";
 const EXPECTED_EAS_PROJECT_ID = "6e9a1f11-8b60-46f9-8af2-168188dbf3db";
-const EXPECTED_CMAKE_HOOK = "node ./scripts/eas/install-android-cmake.cjs";
+const EXPECTED_TRACKED_INSTRUMENTATION_PATHS = [
+  "gradle-plugins/react-android-drawing-order-guard/.gitignore",
+  "gradle-plugins/react-android-drawing-order-guard/build.gradle.kts",
+  "gradle-plugins/react-android-drawing-order-guard/drawing-order-guard.pro",
+  "gradle-plugins/react-android-drawing-order-guard/settings.gradle.kts",
+  "gradle-plugins/react-android-drawing-order-guard/src/main/java/com/garamin/build/ReactAndroidDrawingOrderGuardPlugin.java",
+];
 
 function fail(message) {
   throw new Error(`[android-release-context] ${message}`);
@@ -62,6 +65,11 @@ function collectReleaseContext(repoRoot = REPO_ROOT) {
     "--",
     "android",
   ]).stdout;
+  const trackedInstrumentationPaths = runGit(repoRoot, [
+    "ls-files",
+    "--",
+    "gradle-plugins/react-android-drawing-order-guard",
+  ]).stdout;
   const ignoredAndroidSettings =
     runGit(
       repoRoot,
@@ -85,12 +93,16 @@ function collectReleaseContext(repoRoot = REPO_ROOT) {
     head,
     status,
     trackedAndroidPaths,
+    trackedInstrumentationPaths,
     ignoredAndroidSettings,
     easIgnoreExists: fs.existsSync(path.join(repoRoot, ".easignore")),
     androidSettingsExists: fs.existsSync(
       path.join(repoRoot, "android", "settings.gradle"),
     ),
-    cmakeInstallerExists: fs.existsSync(
+    androidAppBuildExists: fs.existsSync(
+      path.join(repoRoot, "android", "app", "build.gradle"),
+    ),
+    legacyCmakeInstallerExists: fs.existsSync(
       path.join(repoRoot, "scripts", "eas", "install-android-cmake.cjs"),
     ),
     appConfig,
@@ -114,9 +126,31 @@ function validateReleaseContext(context) {
   if (context.trackedAndroidPaths.trim().length > 0) {
     fail("Generated android/ content must remain untracked for the EAS archive.");
   }
-  if (!context.androidSettingsExists || !context.ignoredAndroidSettings) {
+  const trackedInstrumentationPaths = context.trackedInstrumentationPaths
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .sort();
+  const expectedInstrumentationPaths = [
+    ...EXPECTED_TRACKED_INSTRUMENTATION_PATHS,
+  ].sort();
+  if (
+    trackedInstrumentationPaths.length !== expectedInstrumentationPaths.length ||
+    trackedInstrumentationPaths.some(
+      (entry, index) => entry !== expectedInstrumentationPaths[index],
+    )
+  ) {
     fail(
-      "Generated android/settings.gradle is missing or is not excluded from the EAS archive.",
+      "Tracked drawing-order Gradle plugin files do not match the exact EAS archive contract.",
+    );
+  }
+  if (
+    !context.androidSettingsExists ||
+    !context.androidAppBuildExists ||
+    !context.ignoredAndroidSettings
+  ) {
+    fail(
+      "Generated Android Gradle wiring is missing or is not excluded from the EAS archive.",
     );
   }
   if (context.easIgnoreExists) {
@@ -134,17 +168,15 @@ function validateReleaseContext(context) {
     typeof context.packageJson?.scripts?.prepare !== "string" ||
     !context.packageJson.scripts.prepare.includes("./scripts/prepare.js")
   ) {
-    fail("package.json no longer runs the native patch from prepare.");
+    fail("package.json no longer validates the instrumentation contract from prepare.");
   }
   if (
-    !context.cmakeInstallerExists ||
-    context.packageJson?.scripts?.["eas-build-post-install"] !==
-      EXPECTED_CMAKE_HOOK ||
-    context.easConfig?.build?.production?.env?.CMAKE_VERSION !==
-      EXPECTED_CMAKE_VERSION
+    context.legacyCmakeInstallerExists ||
+    context.packageJson?.scripts?.["eas-build-post-install"] !== undefined ||
+    context.easConfig?.build?.production?.env?.CMAKE_VERSION !== undefined
   ) {
     fail(
-      `EAS Android builds must install CMake ${EXPECTED_CMAKE_VERSION} through ${EXPECTED_CMAKE_HOOK}.`,
+      "Legacy ReactAndroid source-build CMake bootstrap must remain removed.",
     );
   }
 
@@ -155,10 +187,10 @@ function validateReleaseContext(context) {
 function verifyAndroidReleaseContext({
   repoRoot = REPO_ROOT,
   collectContext = collectReleaseContext,
-  verifyNativePatch = applyAndroidDrawingOrderFix,
+  verifyInstrumentation = verifyAndroidDrawingOrderInstrumentation,
 } = {}) {
   const context = validateReleaseContext(collectContext(repoRoot));
-  verifyNativePatch({ repoRoot, check: true });
+  verifyInstrumentation({ repoRoot, requireGeneratedAndroid: true });
   return {
     repoRoot,
     branch: context.branch,
@@ -237,8 +269,8 @@ if (require.main === module) {
 module.exports = {
   EXPECTED_APP_VERSION,
   EXPECTED_BRANCH,
-  EXPECTED_CMAKE_HOOK,
   EXPECTED_EAS_PROJECT_ID,
+  EXPECTED_TRACKED_INSTRUMENTATION_PATHS,
   REPO_ROOT,
   collectReleaseContext,
   runReleaseCommand,
