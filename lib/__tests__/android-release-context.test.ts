@@ -6,7 +6,9 @@ const {
   EXPECTED_APP_VERSION,
   EXPECTED_BRANCH,
   EXPECTED_EAS_PROJECT_ID,
+  EXPECTED_LINK_FIX_TEST_URL,
   EXPECTED_TRACKED_INSTRUMENTATION_PATHS,
+  REPO_ROOT,
   runReleaseCommand,
   validateReleaseContext,
   verifyAndroidReleaseContext,
@@ -15,7 +17,9 @@ const {
   EXPECTED_APP_VERSION: string;
   EXPECTED_BRANCH: string;
   EXPECTED_EAS_PROJECT_ID: string;
+  EXPECTED_LINK_FIX_TEST_URL: string;
   EXPECTED_TRACKED_INSTRUMENTATION_PATHS: string[];
+  REPO_ROOT: string;
   runReleaseCommand: (
     args: string[],
     dependencies: {
@@ -104,6 +108,15 @@ function createValidContext(repoRoot: string) {
         prepare: "node ./scripts/prepare.js",
       },
     },
+    externalUrlSource: [
+      "await Linking.openURL(normalized);",
+      "if (!isHttpUrl(normalized)) throw error;",
+      "await WebBrowser.openBrowserAsync(normalized);",
+    ].join("\n"),
+    externalUrlTestSource: [
+      EXPECTED_LINK_FIX_TEST_URL,
+      "expect(mockedCanOpenURL).not.toHaveBeenCalled();",
+    ].join("\n"),
   };
 }
 
@@ -119,10 +132,37 @@ describe("Android release context", () => {
     jest.restoreAllMocks();
   });
 
-  test("accepts only the exact clean prebuilt-instrumented 4.2.5 context", () => {
+  test("accepts only the exact clean prebuilt-instrumented 4.2.8 context", () => {
     expect(() =>
       validateReleaseContext(createValidContext(fixtureRoot)),
     ).not.toThrow();
+  });
+
+  test("pins the exact 4.2.8 release identity", () => {
+    expect(EXPECTED_BRANCH).toBe(
+      "release/garamin-4.2.8-link-fix-20260831",
+    );
+    expect(EXPECTED_APP_VERSION).toBe("4.2.8");
+  });
+
+  test("rejects messenger link opener or regression drift", () => {
+    const legacyPreflight = createValidContext(fixtureRoot);
+    legacyPreflight.externalUrlSource += "\nLinking.canOpenURL(normalized);";
+    expect(() => validateReleaseContext(legacyPreflight)).toThrow(
+      "capability preflight",
+    );
+
+    const missingFallback = createValidContext(fixtureRoot);
+    missingFallback.externalUrlSource = "await Linking.openURL(normalized);";
+    expect(() => validateReleaseContext(missingFallback)).toThrow(
+      "direct-open or HTTP fallback contract",
+    );
+
+    const missingRegression = createValidContext(fixtureRoot);
+    missingRegression.externalUrlTestSource = "";
+    expect(() => validateReleaseContext(missingRegression)).toThrow(
+      "regression coverage",
+    );
   });
 
   test.each([
@@ -410,14 +450,14 @@ describe("Android release context", () => {
 
   test("package and wrappers pin cwd while legacy CMake bootstrap stays absent", () => {
     const packageJson = JSON.parse(
-      readFileSync(join(process.cwd(), "package.json"), "utf8"),
+      readFileSync(join(REPO_ROOT, "package.json"), "utf8"),
     );
     const easBuildSource = readFileSync(
-      join(process.cwd(), "scripts", "eas-build.js"),
+      join(REPO_ROOT, "scripts", "eas-build.js"),
       "utf8",
     );
     const easConfig = JSON.parse(
-      readFileSync(join(process.cwd(), "eas.json"), "utf8"),
+      readFileSync(join(REPO_ROOT, "eas.json"), "utf8"),
     );
 
     expect(packageJson.scripts["eas:verify:android"]).toContain(
@@ -430,7 +470,7 @@ describe("Android release context", () => {
     expect(easConfig.build.production.env.CMAKE_VERSION).toBeUndefined();
     expect(
       existsSync(
-        join(process.cwd(), "scripts", "eas", "install-android-cmake.cjs"),
+        join(REPO_ROOT, "scripts", "eas", "install-android-cmake.cjs"),
       ),
     ).toBe(false);
     expect(easBuildSource).toContain(

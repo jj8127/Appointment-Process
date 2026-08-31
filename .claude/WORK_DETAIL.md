@@ -14116,3 +14116,24 @@ Verification:
 
 **Boundary and release state**:
 - No EAS retry, Git push, OTA, Store submission, credential operation, production access, device interaction, or rollout was performed. Publication remains `HOLD` until the same committed candidate passes the user-owned EAS build, Android 13/16 RefreshControl/navigation stress, staged rollout, and Play crash-cluster monitoring.
+
+<a id="20260831-garamin-428-link-safe-android-candidate"></a>
+## 2026-08-31 | GaramIn 4.2.8 link-safe Android candidate
+
+**Incident closure**:
+- The messenger link failure was caused by treating Android `Linking.canOpenURL` as a reliable launch gate. A false result prevented valid HTTPS/Zoom links from reaching the system opener even though `Linking.openURL` could handle them.
+- `openExternalUrl` now attempts the real system launch directly. Only a failed HTTP(S) launch falls back to Expo WebBrowser; non-web schemes still preserve their original failure semantics.
+- Regression coverage uses a sanitized Zoom-shaped URL and asserts that the preflight is never called, the external launcher is attempted, and its failure reaches the browser fallback. No real meeting identifier, password, or user data is retained.
+
+**Release-path contract**:
+- Stable local root: `D:\hanhwa\fc-onboarding-app-release`.
+- Verification: `npm run eas:verify:android`.
+- User-owned remote build entrypoint after verification: `npm run eas:build:android -- --non-interactive`.
+- The release gate requires the exact branch, app/runtime 4.2.8, a clean worktree, generated Android wiring, prebuilt ReactAndroid drawing-order instrumentation, and the link-opener implementation/test contract. It fails before EAS starts on any drift.
+
+**Local evidence and boundary**:
+- Lockfile-backed `npm ci` completed with Sentry uploads disabled and without modifying dependencies or the lockfile.
+- Focused Jest passes 8 suites / 129 tests, including external URLs, release context, drawing-order source/AAB contracts, feature/shared action contracts, Sentry upload guard, and group-chat source wiring. Expo lint and full TypeScript pass.
+- The full Jest run passes 235 suites / 1,571 tests and reports 9 failing suites / 13 failing tests. Running those exact nine suites at unchanged base `1d62224a44560c6ace19e04e4c2dcc6d1dc728bc` reproduces the identical 13 failures, so they remain a pre-existing source-format contract baseline outside this link/build-path increment.
+- The canonical release-gate harness owns the final clean-commit, generated Android, local release AAB, DEX guard, hash, and handoff evidence so this repository record does not require a post-build product commit.
+- No Git push, EAS remote build, OTA, Store submission, credential operation, production access, device action, or rollout was performed. Publication remains `HOLD`.

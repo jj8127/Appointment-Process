@@ -5,12 +5,16 @@ const appRoot = join(__dirname, '..', '..', 'app');
 const componentRoot = join(__dirname, '..', '..', 'components');
 const workspaceRoot = join(__dirname, '..', '..');
 
+function readSourceFile(filePath: string) {
+  return readFileSync(filePath, 'utf8').replace(/\r\n?/g, '\n');
+}
+
 function readAppFile(fileName: string) {
-  return readFileSync(join(appRoot, fileName), 'utf8');
+  return readSourceFile(join(appRoot, fileName));
 }
 
 function readComponentFile(fileName: string) {
-  return readFileSync(join(componentRoot, fileName), 'utf8');
+  return readSourceFile(join(componentRoot, fileName));
 }
 
 describe('group chat mobile wiring', () => {
@@ -299,13 +303,9 @@ describe('group chat mobile wiring', () => {
   it('routes each group-chat push by its exact room and notification receipt', () => {
     const notificationSource = readAppFile('notifications.tsx');
     const groupChatSource = readAppFile('group-chat.tsx');
-    const targetSource = readFileSync(
-      join(workspaceRoot, 'lib', 'notification-target.ts'),
-      'utf8',
-    );
-    const edgeSource = readFileSync(
+    const targetSource = readSourceFile(join(workspaceRoot, 'lib', 'notification-target.ts'));
+    const edgeSource = readSourceFile(
       join(workspaceRoot, 'supabase', 'functions', 'group-chat', 'index.ts'),
-      'utf8',
     );
 
     expect(edgeSource).toContain(
@@ -333,7 +333,7 @@ describe('group chat mobile wiring', () => {
   });
 
   it('registers push tokens from mobile admin sessions too', () => {
-    const sessionSource = readFileSync(join(workspaceRoot, 'hooks', 'use-session.tsx'), 'utf8');
+    const sessionSource = readSourceFile(join(workspaceRoot, 'hooks', 'use-session.tsx'));
     const homeSource = readAppFile('index.tsx');
 
     expect(sessionSource).toContain('buildPushRegistrationAttemptKey');

@@ -156,7 +156,7 @@ npx tsc --noEmit
 # 개발 서버
 npm start
 
-# 빌드
+# 로컬/테스트용 preview 빌드 (운영 Android 출시용 아님)
 eas build --platform android --profile preview
 ```
 

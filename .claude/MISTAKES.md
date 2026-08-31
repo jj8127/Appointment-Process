@@ -5708,3 +5708,19 @@
   - Root `npm ci` completed from the committed lockfile.
   - `npx expo config --json` succeeded.
   - Android production build `979d7c8d-4ae5-4c48-9c42-b92ed2f703bb` completed as app 4.2.4 / version code 74 / runtime 4.2.4.
+
+## 2026-08-31 | Disposable release worktree path remained in the build command
+
+- Symptom:
+  - `npm --prefix D:\hanhwa\fc-onboarding-app-android-drawing-order-20260818 ...` failed with `ENOENT` after that one-off worktree directory had been removed.
+  - The caller had already changed into the live repository, but `--prefix` overrode that location and forced npm to search the stale path for `package.json`.
+- Root cause:
+  - The guarded release command embedded a version-and-date-specific absolute worktree path in handoff and onboarding documentation.
+  - Worktree lifecycle and command documentation were not updated together.
+- Permanent guardrail:
+  - Keep the active Android candidate at `D:\hanhwa\fc-onboarding-app-release` and run repo-relative package scripts from that directory.
+  - The only supported sequence is `npm run eas:verify:android` followed by `npm run eas:build:android -- --non-interactive` after verification passes.
+  - The verification script owns the repository root and rejects wrong branch, dirty state, app version, EAS project, link-fix regression, generated Android wiring, or native instrumentation drift before any network build starts.
+- Verification:
+  - Developer onboarding, command reference, and production build guidance use the stable worktree and package scripts without a disposable `--prefix` path.
+  - The 4.2.8 release-context tests exercise exact identity, path-independent reads, link-fix drift, and no-network check mode.

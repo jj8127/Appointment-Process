@@ -75,8 +75,11 @@ npm run build    # Build for production
 
 ### Building & Deployment
 ```bash
-# Mobile app builds (update version first!)
-eas build --platform android --profile production
+# Android production build: only from D:\hanhwa\fc-onboarding-app-release
+npm run eas:verify:android
+npm run eas:build:android -- --non-interactive
+
+# iOS production build (update version first!)
 eas build --platform ios --profile production
 
 # Submit latest iOS build to App Store Connect

@@ -121,13 +121,14 @@ npm start
 
 별도 터미널에서 승인된 emulator/device가 있을 때만 `npm run android` 또는 `npm run ios`를 실행한다. EAS 명령은 local run이 아니다.
 
-### GaramIn 4.2.5 Android production 후보
+### GaramIn Android production 후보
 
-이 후보는 반드시 전용 clean worktree의 package script로만 검증하고 시작한다. 현재 작업 디렉터리에 의존하지 않도록 `--prefix`에 절대 경로를 준다.
+운영 후보는 고정된 clean worktree에서만 검증하고 시작한다. 일회성 버전·날짜 경로를 `--prefix`로 명령에 박아 넣지 않는다.
 
 ```powershell
-npm --prefix D:\hanhwa\fc-onboarding-app-android-drawing-order-20260818 run eas:verify:android
-npm --prefix D:\hanhwa\fc-onboarding-app-android-drawing-order-20260818 run eas:build:android -- --non-interactive
+Set-Location D:\hanhwa\fc-onboarding-app-release
+npm run eas:verify:android
+npm run eas:build:android -- --non-interactive
 ```
 
 첫 명령은 네트워크 build를 시작하지 않는다. 두 명령 모두 스크립트 자체 위치를 저장소 root로 사용하며, 정확한 release branch/version/EAS project, clean worktree, ignored generated Android 설정, Expo plugin 순서, RN 0.81.5와 AGP 8.11.0, 공식 Maven `react-android` AAR 해시, 단일 클래스 drawing-order 계측 계약을 fail-closed로 확인한다. 이 후보는 React Native 전체 소스 빌드와 CMake 설치 hook을 사용하지 않는다. Expo prebuild가 추적되는 Gradle 계측 plugin을 연결하고, release 빌드는 공식 prebuilt ReactAndroid에서 대상 클래스 하나의 입력과 변환 결과를 모두 검증한다. 하위 `scripts/eas-build.js android production` 직접 실행도 같은 release-context 검증을 반복한다. dirty primary checkout이나 raw `npx eas build`는 이 릴리스의 지원 경로가 아니다.

@@ -11,9 +11,11 @@ const {
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const EXPECTED_BRANCH =
-  "release/garamin-4.2.5-android-drawing-order-20260818";
-const EXPECTED_APP_VERSION = "4.2.5";
+  "release/garamin-4.2.8-link-fix-20260831";
+const EXPECTED_APP_VERSION = "4.2.8";
 const EXPECTED_EAS_PROJECT_ID = "6e9a1f11-8b60-46f9-8af2-168188dbf3db";
+const EXPECTED_LINK_FIX_TEST_URL =
+  "https://us06web.zoom.us/j/00000000000?pwd=test-token";
 const EXPECTED_TRACKED_INSTRUMENTATION_PATHS = [
   "gradle-plugins/react-android-drawing-order-guard/.gitignore",
   "gradle-plugins/react-android-drawing-order-guard/build.gradle.kts",
@@ -108,6 +110,14 @@ function collectReleaseContext(repoRoot = REPO_ROOT) {
     appConfig,
     easConfig,
     packageJson,
+    externalUrlSource: fs.readFileSync(
+      path.join(repoRoot, "lib", "open-external-url.ts"),
+      "utf8",
+    ),
+    externalUrlTestSource: fs.readFileSync(
+      path.join(repoRoot, "lib", "__tests__", "external-url.test.ts"),
+      "utf8",
+    ),
   };
 }
 
@@ -178,6 +188,26 @@ function validateReleaseContext(context) {
     fail(
       "Legacy ReactAndroid source-build CMake bootstrap must remain removed.",
     );
+  }
+  if (context.externalUrlSource.includes("Linking.canOpenURL(")) {
+    fail("Messenger link opening must not use the Android capability preflight.");
+  }
+  for (const requiredSnippet of [
+    "await Linking.openURL(normalized);",
+    "if (!isHttpUrl(normalized)) throw error;",
+    "await WebBrowser.openBrowserAsync(normalized);",
+  ]) {
+    if (!context.externalUrlSource.includes(requiredSnippet)) {
+      fail("Messenger link opening is missing the direct-open or HTTP fallback contract.");
+    }
+  }
+  if (
+    !context.externalUrlTestSource.includes(EXPECTED_LINK_FIX_TEST_URL) ||
+    !context.externalUrlTestSource.includes(
+      "expect(mockedCanOpenURL).not.toHaveBeenCalled();",
+    )
+  ) {
+    fail("Messenger link regression coverage is missing or drifted.");
   }
 
   validateAppConfig(context.appConfig);
@@ -270,6 +300,7 @@ module.exports = {
   EXPECTED_APP_VERSION,
   EXPECTED_BRANCH,
   EXPECTED_EAS_PROJECT_ID,
+  EXPECTED_LINK_FIX_TEST_URL,
   EXPECTED_TRACKED_INSTRUMENTATION_PATHS,
   REPO_ROOT,
   collectReleaseContext,

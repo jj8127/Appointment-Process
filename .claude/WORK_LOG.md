@@ -1250,3 +1250,12 @@
 - Focused tests, lint, TypeScript, repeat prebuild, real hook execution, and the remote-failing arm64 configure task pass. A final short-physical-path local bundle check remains the last local proof before the next user-owned EAS retry.
 - No EAS retry, push, OTA, Store submission, production write, credential mutation, or rollout occurred. Release remains HOLD.
 - Details: [WORK_DETAIL.md#20260819-garamin-425-eas-cmake-bootstrap](WORK_DETAIL.md#20260819-garamin-425-eas-cmake-bootstrap)
+
+## 2026-08-31 GaramIn 4.2.8 link-safe Android candidate
+
+- Created the stable local release worktree `D:\hanhwa\fc-onboarding-app-release` on `release/garamin-4.2.8-link-fix-20260831` from the verified 4.2.5 prebuilt-ReactAndroid candidate.
+- Removed the Android `Linking.canOpenURL` preflight for messenger HTTPS links, retained direct external launch, and added an HTTP(S)-only in-app browser fallback plus a sanitized Zoom-shaped regression.
+- Bound Android verification to app/runtime 4.2.8, the exact release branch, the drawing-order instrumentation contract, and the link-opening regression. Production commands now use the stable worktree and package scripts instead of a deleted one-off `npm --prefix` path.
+- Focused Jest passes 8 suites / 129 tests; full Expo lint and TypeScript pass. The full Jest run passes 235 suites / 1,571 tests and reproduces the exact same pre-existing 9-suite / 13-test source-contract baseline failures at the unchanged base commit. Final local AAB/DEX evidence is recorded in the canonical release-gate harness after the clean commit is built.
+- No Git push, EAS remote build, OTA, Store submission, credential operation, production access, or rollout was performed. Publication remains HOLD.
+- Details: [WORK_DETAIL.md#20260831-garamin-428-link-safe-android-candidate](WORK_DETAIL.md#20260831-garamin-428-link-safe-android-candidate)

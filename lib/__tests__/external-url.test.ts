@@ -1,9 +1,31 @@
+import * as WebBrowser from 'expo-web-browser';
+import { Linking } from 'react-native';
+
 import {
   formatExternalUrlDisplayText,
   isHttpUrl,
   normalizeExternalUrl,
   stripTrailingUrlPunctuation,
 } from '@/lib/external-url';
+import { openExternalUrl } from '@/lib/open-external-url';
+
+jest.mock('expo-web-browser', () => ({
+  openBrowserAsync: jest.fn(),
+  WebBrowserResultType: {
+    OPENED: 'opened',
+  },
+}));
+
+jest.mock('react-native', () => ({
+  Linking: {
+    canOpenURL: jest.fn(),
+    openURL: jest.fn(),
+  },
+}));
+
+const mockedOpenBrowserAsync = WebBrowser.openBrowserAsync as jest.MockedFunction<typeof WebBrowser.openBrowserAsync>;
+const mockedCanOpenURL = Linking.canOpenURL as jest.MockedFunction<typeof Linking.canOpenURL>;
+const mockedOpenURL = Linking.openURL as jest.MockedFunction<typeof Linking.openURL>;
 
 describe('external url helpers', () => {
   it('preserves http and https urls', () => {
@@ -38,5 +60,37 @@ describe('external url helpers', () => {
     expect(formatExternalUrlDisplayText('https://www.example.com/very/long/path/to/article?utm_source=test', 28)).toBe(
       'example.com/very/long/pat...',
     );
+  });
+});
+
+describe('openExternalUrl', () => {
+  beforeEach(() => {
+    jest.resetAllMocks();
+  });
+
+  it('opens an HTTPS meeting link without relying on the Android capability preflight', async () => {
+    const url = 'https://us06web.zoom.us/j/00000000000?pwd=test-token';
+    mockedCanOpenURL.mockResolvedValue(false);
+    mockedOpenURL.mockResolvedValue(undefined);
+
+    await expect(
+      openExternalUrl(url, { preferExternalBrowser: true }),
+    ).resolves.toBe(url);
+
+    expect(mockedCanOpenURL).not.toHaveBeenCalled();
+    expect(mockedOpenBrowserAsync).not.toHaveBeenCalled();
+    expect(mockedOpenURL).toHaveBeenCalledWith(url);
+  });
+
+  it('falls back to the in-app browser when an external web-link launch fails', async () => {
+    mockedOpenURL.mockRejectedValue(new Error('NO_EXTERNAL_HANDLER'));
+    mockedOpenBrowserAsync.mockResolvedValue({ type: WebBrowser.WebBrowserResultType.OPENED });
+
+    await expect(
+      openExternalUrl('https://example.com/message', { preferExternalBrowser: true }),
+    ).resolves.toBe('https://example.com/message');
+
+    expect(mockedOpenURL).toHaveBeenCalledWith('https://example.com/message');
+    expect(mockedOpenBrowserAsync).toHaveBeenCalledWith('https://example.com/message');
   });
 });
