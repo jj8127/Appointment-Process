@@ -41,7 +41,10 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('DocumentPicker.getDocumentAsync');
     expect(source).toContain('ImagePicker.launchImageLibraryAsync');
     expect(source).toContain('keyboardShouldPersistTaps="handled"');
-    expect(source).toContain('supabase.removeChannel(channel)');
+    expect(source).toContain('return subscribeGroupChatMessages({');
+    expect(source).toContain('client: supabase');
+    expect(source).toContain('roomId: room.id');
+    expect(source).not.toContain('.channel(`group-chat-room-${room.id}`)');
   });
 
   it('renders internet URLs as tappable, underlined links in group chat messages', () => {

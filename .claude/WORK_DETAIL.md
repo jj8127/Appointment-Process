@@ -7,6 +7,19 @@
 
 ---
 
+## <a id="20260904-sentry-main-integration"></a> 2026-09-04 | Sentry incident and scheduled-report repair integration
+
+- Mainline base: `6f4c2de`. Port only this task's fixes from the separate `25d0b84` release-candidate checkout; retain that checkout and unrelated dirty work.
+- Fixes: serialize board attachment edits with save/picker operations, allocate realtime topics for every effect setup with stale callback suppression, and defer FC-code list refresh until modal dismissal.
+- Diagnostics: allowlisted screen names and validated Expo runtime/update metadata help identify unknown native crashes without route parameters or account data.
+- Reporting: recent 24-hour and all-time unresolved queries have independent completeness; pagination exhaustion, timestamp validation and failures are report facts independent of PR/rollout status.
+- Main does not contain the release-only native referral graph. Its existing raster cap and high-density regression remain in the release repair checkout; this PR does not import that feature or native release history.
+- The current release's home-message service migration for C is also absent from main. Its source verification remains release-specific; this PR does not import the unrelated direct-message backend rollout.
+- Publication and merge are user-authorized; this change does not build, publish, or submit a native binary/OTA, deploy backend functions, modify the database, or mark Sentry issues resolved. Device adoption remains unverified.
+- Validation: all 110 Jest suites / 576 tests, 23 collector Node tests, mobile TypeScript, `npm run lint`, strict governance and guarded Expo web export (46 static routes) pass. Upload credentials were cleared and the export used synthetic public configuration. Exact base/head governance is rerun on the integration commit before publication.
+- Verification tooling: existing Node/Deno test exclusions are made independent of the worktree root because Jest on Windows misinterprets the separator before `.codex-worktrees`. No test ownership or production dependency changes; mobile race suites remain collected.
+- The existing navigation-background source test normalizes CRLF to LF before checking the same multiline layout contract, so a Windows checkout does not create a false failure.
+
 ## <a id="20260707-node24-ci-admin-web"></a> 2026-07-07 | Node 24 CI and admin web runtime alignment
 
 **Background**:

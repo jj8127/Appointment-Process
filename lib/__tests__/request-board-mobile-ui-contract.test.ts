@@ -10,6 +10,28 @@ describe('request-board mobile UI contracts', () => {
   const messengerSource = readFileSync(join(process.cwd(), 'app/request-board-messenger.tsx'), 'utf8');
   const sessionSource = readFileSync(join(process.cwd(), 'hooks/use-session.tsx'), 'utf8');
 
+  it('defers FC code mutation refresh until the native modal has closed', () => {
+    const mutationBlock = fcCodesSource.slice(
+      fcCodesSource.indexOf('const handleSave = async () => {'),
+      fcCodesSource.indexOf('/* ─── Render ─── */'),
+    );
+    expect(fcCodesSource).toContain('useModalDeferredRefresh({');
+    expect(fcCodesSource).toContain("visibleModal: editModalVisible ? 'edit' : deleteTarget !== null ? 'delete' : null");
+    expect(fcCodesSource).toContain("animationType={Platform.OS === 'android' ? 'none' : 'slide'}");
+    expect(fcCodesSource).toContain("animationType={Platform.OS === 'android' ? 'none' : 'fade'}");
+    expect(fcCodesSource).toContain("onDismiss={() => onModalDismiss('edit')}");
+    expect(fcCodesSource).toContain("onDismiss={() => onModalDismiss('delete')}");
+    expect(mutationBlock.match(/requestRefresh\(\);/g)).toHaveLength(2);
+    expect(mutationBlock).not.toContain('await fetchData()');
+    expect(fcCodesSource).not.toContain('fetchData();');
+    expect(fcCodesSource).toContain('if (!canCommit()) return;');
+    expect(fcCodesSource.match(/if \(!canOpenModal\(\)\) return;/g)).toHaveLength(3);
+    expect(fcCodesSource.match(/setEditModalVisible\(true\)/g)).toHaveLength(2);
+    expect(fcCodesSource).toContain('onPress={() => openAdd(name)}');
+    expect(mutationBlock).toContain('if (generation === editModalGeneration.current) closeEditModal();');
+    expect(mutationBlock).toContain('if (generation === deleteModalGeneration.current) closeDeleteModal();');
+  });
+
   it('keeps the 설계코드 회사명 suggestions scrollable instead of limiting them to six rows', () => {
     const filteredCompanyNamesBlock = fcCodesSource.slice(
       fcCodesSource.indexOf('const filteredCompanyNames = useMemo'),

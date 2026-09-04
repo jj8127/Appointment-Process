@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Keyboard,
@@ -23,6 +23,7 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
+import { useModalDeferredRefresh } from '@/hooks/use-modal-deferred-refresh';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
@@ -84,12 +85,14 @@ export default function RequestBoardFcCodesScreen() {
   const [formCodeValue, setFormCodeValue] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const editModalGeneration = useRef(0);
 
   // Inline autocomplete suggestions
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<RbFcCode | null>(null);
+  const deleteModalGeneration = useRef(0);
 
   // Missing companies panel
   const [missingPanelVisible, setMissingPanelVisible] = useState(false);
@@ -102,7 +105,7 @@ export default function RequestBoardFcCodesScreen() {
   });
 
   /* ─── Fetch ─── */
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (canCommit: () => boolean) => {
     if (!canManageCodes) {
       setFetchError('설계코드 관리는 FC 계정에서만 사용할 수 있습니다.');
       setLoading(false);
@@ -120,22 +123,31 @@ export default function RequestBoardFcCodesScreen() {
         rbGetFcCodes(),
         rbGetCompanyNames(),
       ]);
+      if (!canCommit()) return;
       setCodes(codesData);
       setCompanyNames(namesData);
     } catch (err) {
+      if (!canCommit()) return;
       logger.warn('[fc-codes] fetch failed', err);
       setFetchError(
         toRequestBoardSessionErrorMessage(err, '설계코드 데이터를 불러오지 못했습니다.'),
       );
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (canCommit()) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [canManageCodes, ensureRequestBoardSession]);
 
+  const { requestRefresh, onModalDismiss, canOpenModal } = useModalDeferredRefresh({
+    visibleModal: editModalVisible ? 'edit' : deleteTarget !== null ? 'delete' : null,
+    refresh: fetchData,
+  });
+
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    requestRefresh();
+  }, [fetchData, requestRefresh]);
 
   useEffect(() => {
     if (!hydrated || canManageCodes) return;
@@ -144,7 +156,7 @@ export default function RequestBoardFcCodesScreen() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchData();
+    requestRefresh();
   };
 
   /* ─── Derived data ─── */
@@ -191,16 +203,23 @@ export default function RequestBoardFcCodesScreen() {
   }, [activeCodes, formInsurerName]);
 
   /* ─── Modal actions ─── */
-  const openAdd = () => {
+  const openAdd = (insurerName = '') => {
+    if (!canOpenModal()) return;
+    editModalGeneration.current += 1;
+    setSaving(false);
     setEditingCode(null);
-    setFormInsurerName('');
+    setFormInsurerName(insurerName);
     setFormCodeValue('');
     setFormError(null);
     setShowSuggestions(false);
+    if (insurerName) setMissingPanelVisible(false);
     setEditModalVisible(true);
   };
 
   const openEdit = (code: RbFcCode) => {
+    if (!canOpenModal()) return;
+    editModalGeneration.current += 1;
+    setSaving(false);
     setEditingCode(code);
     setFormInsurerName(code.insurer_name);
     setFormCodeValue(code.code_value);
@@ -210,6 +229,8 @@ export default function RequestBoardFcCodesScreen() {
   };
 
   const closeEditModal = () => {
+    editModalGeneration.current += 1;
+    setSaving(false);
     setEditModalVisible(false);
     setShowSuggestions(false);
   };
@@ -224,6 +245,7 @@ export default function RequestBoardFcCodesScreen() {
       return;
     }
 
+    const generation = editModalGeneration.current;
     setSaving(true);
     setFormError(null);
 
@@ -238,27 +260,38 @@ export default function RequestBoardFcCodesScreen() {
         const res = await rbCreateFcCode(formInsurerName.trim(), formCodeValue.trim());
         if (!res.success) throw new Error(res.error ?? '등록에 실패했습니다.');
       }
-      closeEditModal();
-      await fetchData();
+      requestRefresh();
+      if (generation === editModalGeneration.current) closeEditModal();
     } catch (err) {
-      setFormError(toRequestBoardSessionErrorMessage(err, '저장에 실패했습니다.'));
+      if (generation === editModalGeneration.current) {
+        setFormError(toRequestBoardSessionErrorMessage(err, '저장에 실패했습니다.'));
+      }
     } finally {
-      setSaving(false);
+      if (generation === editModalGeneration.current) setSaving(false);
     }
   };
 
   const confirmDelete = (code: RbFcCode) => {
+    if (!canOpenModal()) return;
+    deleteModalGeneration.current += 1;
     setDeleteTarget(code);
+  };
+
+  const closeDeleteModal = () => {
+    deleteModalGeneration.current += 1;
+    setDeleteTarget(null);
   };
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
+    const generation = deleteModalGeneration.current;
     try {
       const res = await rbDeleteFcCode(deleteTarget.id);
       if (!res.success) throw new Error(res.error ?? '삭제에 실패했습니다.');
-      setDeleteTarget(null);
-      await fetchData();
+      requestRefresh();
+      if (generation === deleteModalGeneration.current) closeDeleteModal();
     } catch (err) {
+      if (generation !== deleteModalGeneration.current) return;
       const msg = toRequestBoardSessionErrorMessage(err, '삭제에 실패했습니다.');
       Alert.alert('오류', msg);
     }
@@ -326,7 +359,7 @@ export default function RequestBoardFcCodesScreen() {
               !canManageCodes && { opacity: 0.5 },
               pressed && canManageCodes && { opacity: 0.8 },
             ]}
-            onPress={openAdd}
+            onPress={() => openAdd()}
             disabled={!canManageCodes}
           >
             <Feather name="plus" size={16} color="#fff" />
@@ -401,15 +434,7 @@ export default function RequestBoardFcCodesScreen() {
                 <Pressable
                   key={name}
                   style={styles.missingCompanyChip}
-                  onPress={() => {
-                    setFormInsurerName(name);
-                    setFormCodeValue('');
-                    setFormError(null);
-                    setShowSuggestions(false);
-                    setEditingCode(null);
-                    setMissingPanelVisible(false);
-                    setEditModalVisible(true);
-                  }}
+                  onPress={() => openAdd(name)}
                 >
                   <Text style={styles.missingCompanyText}>{name}</Text>
                   <Feather name="plus" size={11} color="#B45309" />
@@ -459,9 +484,10 @@ export default function RequestBoardFcCodesScreen() {
       {/* Add/Edit Modal */}
       <Modal
         visible={editModalVisible}
-        animationType="slide"
+        animationType={Platform.OS === 'android' ? 'none' : 'slide'}
         transparent
         onRequestClose={closeEditModal}
+        onDismiss={() => onModalDismiss('edit')}
       >
         <KeyboardAvoidingView
           style={styles.modalOverlay}
@@ -593,9 +619,10 @@ export default function RequestBoardFcCodesScreen() {
       {/* Delete Confirmation Modal */}
       <Modal
         visible={!!deleteTarget}
-        animationType="fade"
+        animationType={Platform.OS === 'android' ? 'none' : 'fade'}
         transparent
-        onRequestClose={() => setDeleteTarget(null)}
+        onRequestClose={closeDeleteModal}
+        onDismiss={() => onModalDismiss('delete')}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.confirmBox}>
@@ -612,7 +639,7 @@ export default function RequestBoardFcCodesScreen() {
             <View style={styles.confirmBtns}>
               <Pressable
                 style={[styles.modalBtn, styles.cancelBtn, { flex: 1 }]}
-                onPress={() => setDeleteTarget(null)}
+                onPress={closeDeleteModal}
               >
                 <Text style={styles.cancelBtnText}>취소</Text>
               </Pressable>

@@ -11,8 +11,10 @@ module.exports = {
     '/node_modules/',
     '<rootDir>/.codex-tmp/',
     '<rootDir>/web/.next/',
-    '<rootDir>/web/src/lib/.*\\.test\\.ts$',
-    '<rootDir>/supabase/functions/_shared/__tests__/request-board-password-sync\\.test\\.ts$',
+    // Keep owning-runner exclusions independent of Windows worktree names:
+    // Jest treats the separator before a dot directory in <rootDir> as an escape.
+    '/web/src/lib/.*\\.test\\.ts$',
+    '/supabase/functions/_shared/__tests__/request-board-password-sync\\.test\\.ts$',
   ],
   watchPathIgnorePatterns: [
     '<rootDir>/.codex-tmp/',

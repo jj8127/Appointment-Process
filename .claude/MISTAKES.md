@@ -30,6 +30,14 @@
 - Verification:
 ```
 
+## 2026-09-04 | Async repair boundaries | render state and screen lifetime were too broad
+
+- Symptom: attachment deletion could overlap saving, and a group-chat effect restart could retrieve an already subscribed realtime channel.
+- Root cause: disabled UI is delayed until React renders; a screen-stable channel suffix also survives effect cleanup/setup. Both leave same-tick or deferred cleanup races open.
+- Permanent guardrail: acquire one synchronous attachment/save operation lock, publish the current attachment snapshot before releasing it, allocate a nonidentifying topic for each effect setup, and disable stale callbacks before asynchronous channel removal.
+- Verification: board composer race tests and realtime tests model deferred requests, same-tick actions, overlapping cleanup and late callbacks. Source compilation alone is not device adoption evidence.
+- Modal refresh guardrail: cancelling a queued callback alone is insufficient after a fetch starts. Key dismissal by dialog and check refresh/mutation generations again before applying asynchronous results to a reopened screen.
+
 ## 2026-07-07 | CI Audit Repo Identity | audit tests assumed the local folder name
 - Symptom:
   - GitHub Actions CI failed in `shared-ui-action-contracts.test.ts` and `shared-function-contracts.test.ts` because the audit inventory reported `Appointment-Process` instead of `fc-onboarding-app`.
@@ -2758,9 +2766,10 @@
   - `npm run ops:sentry-triage` intentionally used the default 24h repair window, but the runbook did not explicitly say that `no-issues` only applied to that window.
   - Earlier worktree runs also failed when `SENTRY_READ_AUTH_TOKEN` was not available, so read-token preflight needed to stay explicit in every automation contract.
 - Permanent guardrail:
-  - Keep daily repair default triage at 24h; use `npm run ops:sentry-triage -- --last-seen-days 7 --summary-only` for seven-day reports.
+  - The legacy one-window command defaults to 24h; scheduled reports must use separate recent-24-hour and all-time unresolved queries (`--daily-report`), not a seven-day or fourteen-day substitute for backlog.
   - Do not add GaramLink repair work to the GaramIn automation. Use the separate `daily-garamlink-sentry-repair-pr` automation from `D:\hanhwa\request_board`.
   - Every Sentry automation must fail closed when `SENTRY_READ_AUTH_TOKEN` is missing and must never use `SENTRY_AUTH_TOKEN` for reads.
+  - 2026-09-04 recurrence: truthy fallback converted explicit empty statsPeriod to 24h, and grounding's phase stop was misread as whole-run termination. Preserve empty all-time scope, continue the authorized review after grounding, require pagination exhaustion and timestamp checks, and report skipped/partial/blocked totals as unknown. The issue API's start/end alone can return historical groups; use explicit lastSeen predicates and validate returned timestamps. Use the actual `production` environment, not `prod`.
 - Related files:
   - `scripts/ops/sentry-daily-triage.mjs`
   - `scripts/ops/sentry-daily-triage.test.mjs`

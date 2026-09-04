@@ -7,6 +7,13 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 
 # Mobile Playbook: GaramLink Bridge
 
+## FC code modal refresh ordering
+
+- Successful code save/delete closes its modal before refreshing the list. Pending refresh is coalesced and cancelled when a modal reopens or the screen unmounts.
+- Android code dialogs use no native close animation and schedule refresh after the closed state commits. iOS waits for its native dismiss callback. Native build configuration is unchanged.
+- Edit/delete dismissal is tracked separately; iOS cannot reopen a dialog before the previous native dismissal. Refresh responses check their lifetime before changing state, and late save/delete completions cannot close a newer dialog.
+- This removes a known overlap path; it does not prove that this screen caused every historical Android drawing-order crash. Device reproduction and release adoption remain explicit gates.
+
 ## 2026-07-03 Messenger Bridge Contract Notes
 
 - `app/request-board-messenger.tsx` must follow the same messenger interaction contract as direct and group chat: link rendering/opening, long-press action menu, copy/delete actions, and numeric unread count display where read-state data exists.

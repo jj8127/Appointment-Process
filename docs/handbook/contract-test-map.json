@@ -3,6 +3,30 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "sentry-incident-async-regressions",
+      "prefixes": [
+        "lib/board-composer-operation.ts",
+        "lib/group-chat-realtime.ts",
+        "hooks/use-modal-deferred-refresh.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/board-composer-operation.test.ts",
+        "lib/__tests__/group-chat-realtime.test.ts",
+        "docs/handbook/mobile/messenger-and-content.md",
+        "docs/handbook/mobile/request-board-bridge.md"
+      ]
+    },
+    {
+      "id": "sentry-daily-query-completeness",
+      "prefixes": [
+        "scripts/ops/sentry-daily-triage.mjs"
+      ],
+      "requires_any": [
+        "scripts/ops/sentry-daily-triage.test.mjs",
+        "docs/handbook/operations-runbook.md"
+      ]
+    },
+    {
       "id": "priority-security-boundaries",
       "prefixes": [
         "app/dashboard.tsx",

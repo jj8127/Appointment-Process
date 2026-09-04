@@ -17,6 +17,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-09-04
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 09-04 | Mainline Sentry attachment/realtime/modal repairs, privacy-safe crash context and complete daily backlog reporting; native rollout pending | `app/admin-board.tsx`, `app/group-chat.tsx`, `app/request-board-fc-codes.tsx`, `lib/sentry.ts`, `scripts/ops/sentry-daily-triage.mjs` | [→ 상세](WORK_DETAIL.md#20260904-sentry-main-integration) |
+
 ## 2026-07-07
 
 | Date | Work | Key files | Detail |

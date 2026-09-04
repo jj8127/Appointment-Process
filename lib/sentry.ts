@@ -1,9 +1,11 @@
 import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import type { ComponentType } from 'react';
 import * as Sentry from '@sentry/react-native';
 
 import { sanitizeSentryContext, sanitizeSentryEvent } from '@/lib/sentry-sanitize';
 import { setSentryAddBreadcrumb, setSentryCaptureException } from '@/lib/sentry-monitor';
+import { getSentryUpdateTags, SENTRY_SCREEN_NAMES } from '@/lib/sentry-runtime-context';
 
 const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN?.trim();
 const environment =
@@ -37,6 +39,15 @@ if (dsn) {
     },
   });
 
+  Sentry.setTags({
+    ...getSentryUpdateTags({
+      runtimeVersion: Updates.runtimeVersion,
+      updateId: Updates.updateId,
+      isEmbeddedLaunch: Updates.isEmbeddedLaunch,
+    }),
+    'app.screen': 'startup',
+  });
+
   setSentryCaptureException((error, context) => {
     Sentry.captureException(error, {
       extra: context ? (sanitizeSentryContext(context) as Record<string, unknown>) : undefined,
@@ -54,5 +65,17 @@ export const withSentryRoot = <T extends ComponentType<Record<string, never>>>(c
   if (!dsn) return component;
   return Sentry.wrap(component) as T;
 };
+
+export function recordSentryScreen(screen: string): void {
+  if (!dsn) return;
+  const safeScreen = SENTRY_SCREEN_NAMES.has(screen) ? screen : 'unknown';
+  Sentry.setTag('app.screen', safeScreen);
+  Sentry.addBreadcrumb({
+    category: 'navigation',
+    message: 'Screen changed',
+    level: 'info',
+    data: { screen: safeScreen },
+  });
+}
 
 export { Sentry };

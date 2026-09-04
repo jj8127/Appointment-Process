@@ -74,7 +74,9 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + data/*
 - Dry run: `npm run ops:sentry-triage -- --dry-run`.
 - Seven-day report: `npm run ops:sentry-triage -- --last-seen-days 7 --summary-only`. This uses `statsPeriod=14d` plus an explicit `lastSeen:>=YYYY-MM-DD` query because Sentry may reject `statsPeriod=7d`.
 - Sentry scope: org `hanhwa-lifelab`, projects `react-native` and `garamin-web`, production unresolved fatal/error issues. `garamin-web` was created on 2026-06-16 as a Next.js Sentry project in team `hanhwa-lifelab`.
-- `no-issues` from the default triage command means no unresolved fatal/error issue in the default 24h repair window. It does not mean the unresolved backlog is empty.
+- Scheduled reports use `node scripts/ops/sentry-daily-triage.mjs --daily-report --summary-only`: separate recent 24-hour activity and all-time unresolved backlog. A zero recent count never means the backlog is empty.
+- All-time queries preserve explicit empty `statsPeriod`; recent queries include explicit `lastSeen` bounds, and returned timestamps are checked. Use the real `production` environment. Exhaust pagination or report PARTIAL; skipped, failed, and incomplete counts are unknown.
+- Grounding ends the orientation phase only. Continue the authorized Sentry review afterward. Report issue evidence, local source, PR state, and deployed adoption separately; an open PR or a merged source fix alone is not service resolution.
 - GaramLink Sentry repair is intentionally separate: use automation `daily-garamlink-sentry-repair-pr` from `D:\hanhwa\request_board` for project `garamlink-client`.
 - Token rule: Sentry reads must use `SENTRY_READ_AUTH_TOKEN` only. `SENTRY_AUTH_TOKEN` is release/source-map upload only and must not be used as a read fallback.
 - Worktree env rule: `npm run ops:sentry-triage` reads `.env` / `.env.local` from both the linked worktree and the primary checkout resolved by `git rev-parse --git-common-dir`. Keep the read token in the user environment or the primary checkout `.env.local`; never copy secrets into Codex worktrees or commit them.
