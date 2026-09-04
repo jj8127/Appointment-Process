@@ -64,6 +64,13 @@ const sanitizeString = (value: string): string => {
 };
 
 const sanitizeValueForKey = (key: string, value: unknown, depth: number): unknown => {
+  // OTA bundle IDs can accidentally resemble a phone number across UUID groups.
+  // Preserve only this strict technical-release field, never arbitrary IDs.
+  if (
+    key === 'expo.update_id'
+    && typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+  ) return value;
   if (keyIncludes(key, SECRET_KEY_PARTS)) return '[REDACTED]';
   if (keyIncludes(key, FILE_KEY_PARTS)) return '[REDACTED_FILE]';
   if (keyIncludes(key, NAME_KEY_PARTS)) return '[REDACTED_NAME]';

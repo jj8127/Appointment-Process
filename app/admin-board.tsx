@@ -24,6 +24,10 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import {
+  createBoardComposerOperationGate,
+  type BoardComposerOperation,
+} from '@/lib/board-composer-operation';
 import { openExternalUrl } from '@/lib/open-external-url';
 import {
   buildBoardActor,
@@ -53,6 +57,8 @@ type LocalAttachment = {
   fileSize: number;
   fileType: 'image' | 'file';
 };
+
+type AttachmentUpdate = LocalAttachment[] | ((previous: LocalAttachment[]) => LocalAttachment[]);
 
 const isImageAttachment = (attachment: LocalAttachment) => attachment.fileType === 'image';
 
@@ -97,12 +103,35 @@ export default function AdminBoardScreen() {
   const [contentHeight, setContentHeight] = useState(200);
   const [loading, setLoading] = useState(false);
   const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
-  const [existingAttachments, setExistingAttachments] = useState<LocalAttachment[]>([]);
+  const [attachments, setAttachmentsState] = useState<LocalAttachment[]>([]);
+  const [existingAttachments, setExistingAttachmentsState] = useState<LocalAttachment[]>([]);
+  const attachmentsRef = useRef<LocalAttachment[]>([]);
+  const existingAttachmentsRef = useRef<LocalAttachment[]>([]);
   const [didLoadPost, setDidLoadPost] = useState(false);
-  const [deletingAttachment, setDeletingAttachment] = useState(false);
-  const pickingRef = useRef(false);
-  const deletingAttachmentRef = useRef(false);
+  const [operationGate] = useState(createBoardComposerOperationGate);
+  const [composerOperation, setComposerOperation] = useState<BoardComposerOperation | null>(null);
+  const [postSaved, setPostSaved] = useState(false);
+  const postSavedRef = useRef(false);
+  const canEditComposer = canWrite && !composerOperation && !postSaved;
+  const editorContextRef = useRef({ actor, postId, mounted: true });
+  editorContextRef.current.actor = actor;
+  editorContextRef.current.postId = postId;
+
+  useEffect(() => {
+    const editorContext = editorContextRef.current;
+    editorContext.mounted = true;
+    return () => { editorContext.mounted = false; };
+  }, []);
+
+  // Publish snapshots before unlocking, even if React has not committed a render.
+  const setAttachments = useCallback((next: AttachmentUpdate) => {
+    attachmentsRef.current = typeof next === 'function' ? next(attachmentsRef.current) : next;
+    setAttachmentsState(attachmentsRef.current);
+  }, []);
+  const setExistingAttachments = useCallback((next: AttachmentUpdate) => {
+    existingAttachmentsRef.current = typeof next === 'function' ? next(existingAttachmentsRef.current) : next;
+    setExistingAttachmentsState(existingAttachmentsRef.current);
+  }, []);
 
   const existingImages = useMemo(
     () => existingAttachments.filter(isImageAttachment),
@@ -168,13 +197,9 @@ export default function AdminBoardScreen() {
       }))),
     );
     setDidLoadPost(true);
-  }, [actor?.role, detailData, didLoadPost, router]);
+  }, [actor?.role, detailData, didLoadPost, router, setExistingAttachments]);
 
-  const handleSubmit = async () => {
-    if (deletingAttachmentRef.current) {
-      Alert.alert('첨부 삭제 중', '첨부파일 삭제가 완료된 후 다시 시도해주세요.');
-      return;
-    }
+  const submitPost = async () => {
     if (!canWrite) {
       Alert.alert('접근 불가', '관리자만 게시글을 작성할 수 있습니다.');
       return;
@@ -204,11 +229,11 @@ export default function AdminBoardScreen() {
           categoryId,
           title: title.trim(),
           content: content.trim(),
-          attachmentOrder: existingAttachments.map((file) => file.id),
+          attachmentOrder: existingAttachmentsRef.current.map((file) => file.id),
         });
       }
-      if (attachments.length > 0) {
-        const signPayload = attachments.map((file) => ({
+      if (attachmentsRef.current.length > 0) {
+        const signPayload = attachmentsRef.current.map((file) => ({
           fileName: file.fileName,
           mimeType: file.mimeType,
           fileSize: file.fileSize,
@@ -217,7 +242,7 @@ export default function AdminBoardScreen() {
         const signed = await signBoardAttachments(actor, targetPostId, signPayload);
 
         for (let i = 0; i < signed.length; i += 1) {
-          const target = attachments[i];
+          const target = attachmentsRef.current[i];
           const upload = signed[i];
           const response = await fetch(target.uri);
           const body = Platform.OS === 'web' ? await response.blob() : await response.arrayBuffer();
@@ -234,13 +259,13 @@ export default function AdminBoardScreen() {
         await finalizeBoardAttachments(
           actor,
           targetPostId,
-          attachments.map((file, index) => ({
+          attachmentsRef.current.map((file, index) => ({
             storagePath: signed[index].storagePath,
             fileName: file.fileName,
             fileSize: file.fileSize,
             mimeType: file.mimeType,
             fileType: file.fileType,
-            sortOrder: existingAttachments.length + index,
+            sortOrder: existingAttachmentsRef.current.length + index,
           })),
         );
       }
@@ -249,6 +274,8 @@ export default function AdminBoardScreen() {
         queryClient.invalidateQueries({ queryKey: ['board-detail', targetPostId] });
       }
 
+      postSavedRef.current = true;
+      setPostSaved(true);
       Alert.alert(isEditMode ? '게시글 수정 완료' : '게시글 작성 완료', isEditMode ? '게시글이 수정되었습니다.' : '게시글이 성공적으로 작성되었습니다.', [
         {
           text: '확인',
@@ -268,7 +295,26 @@ export default function AdminBoardScreen() {
     }
   };
 
+  const handleSubmit = async () => {
+    if (postSavedRef.current) return;
+    const finish = operationGate.start('save');
+    if (!finish) {
+      if (operationGate.current !== 'save') {
+        Alert.alert('첨부 처리 중', '첨부파일 처리가 완료된 후 다시 시도해주세요.');
+      }
+      return;
+    }
+    setComposerOperation('save');
+    try {
+      await submitPost();
+    } finally {
+      finish();
+      if (editorContextRef.current.mounted) setComposerOperation(null);
+    }
+  };
+
   const addAttachments = (nextFiles: LocalAttachment[]) => {
+    if (!canEditComposer) return;
     setAttachments((prev) => {
       const merged = groupImagesFirst([...prev, ...nextFiles]);
       if (merged.length > MAX_ATTACHMENTS) {
@@ -280,15 +326,20 @@ export default function AdminBoardScreen() {
   };
 
   const pickImages = async () => {
-    if (pickingRef.current || !canWrite) return;
-    pickingRef.current = true;
+    if (!canEditComposer || postSavedRef.current) return;
+    const finish = operationGate.start('pick-attachment');
+    if (!finish) return;
+    setComposerOperation('pick-attachment');
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsMultipleSelection: true,
         quality: 0.8,
       });
-      if (!result.canceled) {
+      if (!result.canceled
+        && editorContextRef.current.mounted
+        && editorContextRef.current.actor === actor
+        && editorContextRef.current.postId === postId) {
         const items = result.assets.map((asset) => ({
           id: `${asset.assetId ?? asset.uri}-${Date.now()}`,
           uri: asset.uri,
@@ -303,20 +354,26 @@ export default function AdminBoardScreen() {
       logBoardError('pick-image', error);
       Alert.alert('오류', '이미지를 불러오는데 실패했습니다.');
     } finally {
-      pickingRef.current = false;
+      finish();
+      if (editorContextRef.current.mounted) setComposerOperation(null);
     }
   };
 
   const pickFiles = async () => {
-    if (pickingRef.current || !canWrite) return;
-    pickingRef.current = true;
+    if (!canEditComposer || postSavedRef.current) return;
+    const finish = operationGate.start('pick-attachment');
+    if (!finish) return;
+    setComposerOperation('pick-attachment');
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: '*/*',
         copyToCacheDirectory: true,
         multiple: true,
       });
-      if (!result.canceled) {
+      if (!result.canceled
+        && editorContextRef.current.mounted
+        && editorContextRef.current.actor === actor
+        && editorContextRef.current.postId === postId) {
         const items = result.assets.map((asset) => ({
           id: `${asset.uri}-${Date.now()}`,
           uri: asset.uri,
@@ -331,27 +388,38 @@ export default function AdminBoardScreen() {
       logBoardError('pick-file', error);
       Alert.alert('오류', '파일을 불러오는데 실패했습니다.');
     } finally {
-      pickingRef.current = false;
+      finish();
+      if (editorContextRef.current.mounted) setComposerOperation(null);
     }
   };
 
-  const removeAttachment = (id: string) => {
+  const removeAttachment = useCallback((id: string) => {
+    if (!canEditComposer || operationGate.current || postSavedRef.current) return;
     setAttachments((prev) => prev.filter((item) => item.id !== id));
-  };
+  }, [canEditComposer, operationGate, setAttachments]);
 
   const removeExistingAttachment = useCallback((file: LocalAttachment) => {
-    if (!actor || !postId) return;
+    if (!actor || !postId || !canEditComposer || operationGate.current) return;
     Alert.alert('첨부 삭제', `'${file.fileName}' 첨부파일을 삭제할까요?`, [
       { text: '취소', style: 'cancel' },
       {
         text: '삭제',
         style: 'destructive',
         onPress: async () => {
-          if (deletingAttachmentRef.current) return;
-          deletingAttachmentRef.current = true;
-          setDeletingAttachment(true);
+          // The confirmation can outlive the render that opened it.
+          if (!editorContextRef.current.mounted
+            || editorContextRef.current.actor !== actor
+            || editorContextRef.current.postId !== postId
+            || postSavedRef.current
+            || !existingAttachmentsRef.current.some((item) => item.id === file.id)) return;
+          const finish = operationGate.start('delete-attachment');
+          if (!finish) return;
+          setComposerOperation('delete-attachment');
           try {
             await deleteBoardAttachments(actor, postId, [file.id]);
+            if (!editorContextRef.current.mounted
+              || editorContextRef.current.actor !== actor
+              || editorContextRef.current.postId !== postId) return;
             setExistingAttachments((prev) => prev.filter((item) => item.id !== file.id));
             queryClient.invalidateQueries({ queryKey: ['board-detail', postId] });
             queryClient.invalidateQueries({ queryKey: ['board-posts'] });
@@ -359,21 +427,23 @@ export default function AdminBoardScreen() {
             logBoardError('attachment-delete', error);
             Alert.alert('오류', '첨부파일 삭제에 실패했습니다.');
           } finally {
-            deletingAttachmentRef.current = false;
-            setDeletingAttachment(false);
+            finish();
+            if (editorContextRef.current.mounted) setComposerOperation(null);
           }
         },
       },
     ]);
-  }, [actor, postId, queryClient]);
+  }, [actor, canEditComposer, operationGate, postId, queryClient, setExistingAttachments]);
 
   const handleExistingImageDragEnd = useCallback((orderedImages: LocalAttachment[]) => {
+    if (!canEditComposer || operationGate.current || postSavedRef.current) return;
     setExistingAttachments((prev) => replaceImageOrder(prev, orderedImages));
-  }, []);
+  }, [canEditComposer, operationGate, setExistingAttachments]);
 
   const handleNewImageDragEnd = useCallback((orderedImages: LocalAttachment[]) => {
+    if (!canEditComposer || operationGate.current || postSavedRef.current) return;
     setAttachments((prev) => replaceImageOrder(prev, orderedImages));
-  }, []);
+  }, [canEditComposer, operationGate, setAttachments]);
 
   const renderExistingImageItem = useCallback(
     ({ item, drag, isActive, getIndex }: RenderItemParams<LocalAttachment>) => (
@@ -407,6 +477,7 @@ export default function AdminBoardScreen() {
               pressed && { opacity: 0.7 },
             ]}
             onLongPress={drag}
+            disabled={!canEditComposer}
             delayLongPress={180}
           >
             <View style={styles.attachmentOrderBadge}>
@@ -421,13 +492,13 @@ export default function AdminBoardScreen() {
             pressed && { opacity: 0.6 },
           ]}
           onPress={() => removeExistingAttachment(item)}
-          disabled={isActive}
+          disabled={isActive || !canEditComposer}
         >
           <Feather name="trash-2" size={16} color={MUTED} />
         </Pressable>
       </View>
     ),
-    [existingImages.length, removeExistingAttachment],
+    [canEditComposer, existingImages.length, removeExistingAttachment],
   );
 
   const renderNewImageItem = useCallback(
@@ -454,6 +525,7 @@ export default function AdminBoardScreen() {
               pressed && { opacity: 0.7 },
             ]}
             onLongPress={drag}
+            disabled={!canEditComposer}
             delayLongPress={180}
           >
             <View style={styles.attachmentOrderBadge}>
@@ -468,13 +540,13 @@ export default function AdminBoardScreen() {
             pressed && { opacity: 0.6 },
           ]}
           onPress={() => removeAttachment(item.id)}
-          disabled={isActive}
+          disabled={isActive || !canEditComposer}
         >
           <Feather name="x" size={16} color={MUTED} />
         </Pressable>
       </View>
     ),
-    [newImages.length],
+    [canEditComposer, newImages.length, removeAttachment],
   );
 
   return (
@@ -501,10 +573,10 @@ export default function AdminBoardScreen() {
                 style={({ pressed }) => [
                   styles.headerSubmitButton,
                   pressed && { opacity: 0.75 },
-                  (loading || deletingAttachment || !canWrite || !categoryId || !title.trim() || !content.trim()) && styles.headerSubmitButtonDisabled,
+                  (loading || composerOperation !== null || postSaved || !canWrite || !categoryId || !title.trim() || !content.trim()) && styles.headerSubmitButtonDisabled,
                 ]}
                 onPress={handleSubmit}
-                disabled={loading || deletingAttachment || !canWrite || !categoryId || !title.trim() || !content.trim()}
+                disabled={loading || composerOperation !== null || postSaved || !canWrite || !categoryId || !title.trim() || !content.trim()}
               >
                 <Text style={styles.headerSubmitButtonText}>게시글 수정</Text>
               </Pressable>
@@ -538,7 +610,7 @@ export default function AdminBoardScreen() {
                       pressed && { opacity: 0.7 },
                     ]}
                     onPress={() => setCategoryId(category.id)}
-                    disabled={!canWrite}
+                    disabled={!canEditComposer}
                   >
                     <Text style={[styles.categoryChipText, isSelected && styles.categoryChipTextActive]}>
                       {category.name}
@@ -554,7 +626,7 @@ export default function AdminBoardScreen() {
             placeholder="게시글 제목을 입력하세요"
             value={title}
             onChangeText={setTitle}
-            editable={!!canWrite}
+            editable={!!canEditComposer}
           />
 
           <View style={styles.field}>
@@ -568,7 +640,7 @@ export default function AdminBoardScreen() {
               multiline
               textAlignVertical="top"
               scrollEnabled={false}
-              editable={!!canWrite}
+              editable={!!canEditComposer}
               onContentSizeChange={(e) => {
                 const nextHeight = Math.max(200, e.nativeEvent.contentSize.height);
                 if (nextHeight !== contentHeight) setContentHeight(nextHeight);
@@ -583,10 +655,10 @@ export default function AdminBoardScreen() {
                 style={({ pressed }) => [
                   styles.attachmentButton,
                   pressed && { opacity: 0.7 },
-                  !canWrite && styles.attachmentButtonDisabled,
+                  !canEditComposer && styles.attachmentButtonDisabled,
                 ]}
                 onPress={pickImages}
-                disabled={!canWrite}
+                disabled={!canEditComposer}
               >
                 <Feather name="image" size={16} color={HANWHA_ORANGE} />
                 <Text style={styles.attachmentButtonText}>이미지</Text>
@@ -595,10 +667,10 @@ export default function AdminBoardScreen() {
                 style={({ pressed }) => [
                   styles.attachmentButton,
                   pressed && { opacity: 0.7 },
-                  !canWrite && styles.attachmentButtonDisabled,
+                  !canEditComposer && styles.attachmentButtonDisabled,
                 ]}
                 onPress={pickFiles}
-                disabled={!canWrite}
+                disabled={!canEditComposer}
               >
                 <Feather name="paperclip" size={16} color={HANWHA_ORANGE} />
                 <Text style={styles.attachmentButtonText}>파일</Text>
@@ -660,6 +732,7 @@ export default function AdminBoardScreen() {
                             pressed && { opacity: 0.6 },
                           ]}
                           onPress={() => removeExistingAttachment(file)}
+                          disabled={!canEditComposer}
                         >
                           <Feather name="trash-2" size={16} color={MUTED} />
                         </Pressable>
@@ -712,6 +785,7 @@ export default function AdminBoardScreen() {
                             pressed && { opacity: 0.6 },
                           ]}
                           onPress={() => removeAttachment(file.id)}
+                          disabled={!canEditComposer}
                         >
                           <Feather name="x" size={16} color={MUTED} />
                         </Pressable>
@@ -727,7 +801,7 @@ export default function AdminBoardScreen() {
 
         <Button
           onPress={handleSubmit}
-          disabled={loading || deletingAttachment || !canWrite || !categoryId || !title.trim() || !content.trim()}
+          disabled={loading || composerOperation !== null || postSaved || !canWrite || !categoryId || !title.trim() || !content.trim()}
           loading={loading}
           variant="primary"
           size="lg"

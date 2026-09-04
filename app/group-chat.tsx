@@ -36,6 +36,7 @@ import {
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { classifyGroupChatError } from '@/lib/group-chat-error';
+import { subscribeGroupChatMessages } from '@/lib/group-chat-realtime';
 import {
   formatGroupChatTime,
   getGroupChatMemberStatusTone,
@@ -283,37 +284,27 @@ export default function GroupChatScreen() {
 
   useEffect(() => {
     if (!room?.id) return undefined;
-    const channel = supabase
-      .channel(`group-chat-room-${room.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'group_chat_messages',
-          filter: `room_id=eq.${room.id}`,
-        },
-        (payload) => {
-          const nextMessage = payload.new as GroupChatMessage;
-          if (!nextMessage?.id) return;
-          const existingMessage = messagesRef.current.find((message) => message.id === nextMessage.id);
-          applyMessages([
-            {
-              ...nextMessage,
-              unread_count: existingMessage?.unread_count ?? nextMessage.unread_count ?? 0,
-            },
-            ...messagesRef.current,
-          ]);
-          void groupChatMarkRead(nextMessage.id).catch((error) => {
-            logger.debug('[group-chat] mark read after realtime failed', error);
-          });
-        },
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
+    return subscribeGroupChatMessages({
+      client: supabase,
+      roomId: room.id,
+      onInsert: (nextMessage) => {
+        if (!nextMessage?.id) return;
+        const existingMessage = messagesRef.current.find((message) => message.id === nextMessage.id);
+        applyMessages([
+          {
+            ...nextMessage,
+            unread_count: existingMessage?.unread_count ?? nextMessage.unread_count ?? 0,
+          },
+          ...messagesRef.current,
+        ]);
+        void groupChatMarkRead(nextMessage.id).catch((error) => {
+          logger.debug('[group-chat] mark read after realtime failed', error);
+        });
+      },
+      onCleanupFailure: () => {
+        logger.debug('[group-chat] realtime channel cleanup failed');
+      },
+    });
   }, [applyMessages, room?.id]);
 
   const handleRefresh = useCallback(() => {

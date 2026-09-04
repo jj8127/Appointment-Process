@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Linking from 'expo-linking';
 import * as NavigationBar from 'expo-navigation-bar';
 import * as Notifications from 'expo-notifications';
-import { Stack, router } from 'expo-router';
+import { Stack, router, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable } from 'react-native';
@@ -27,7 +27,8 @@ import { logger } from '@/lib/logger';
 import { resolvePushNotificationRoute } from '@/lib/notification-route';
 import { savePendingReferralCode } from '@/lib/referral-deeplink';
 import { safeStorage } from '@/lib/safe-storage';
-import { withSentryRoot } from '@/lib/sentry';
+import { recordSentryScreen, withSentryRoot } from '@/lib/sentry';
+import { getSentryScreenName } from '@/lib/sentry-runtime-context';
 
 import {
   AntDesign,
@@ -116,6 +117,12 @@ function PresenceBootstrap() {
 function RootLayout() {
   const isWeb = Platform.OS === 'web';
   const enableTourGuide = Platform.OS === 'android';
+  const segments = useSegments();
+  const diagnosticScreen = getSentryScreenName(segments);
+
+  useEffect(() => {
+    recordSentryScreen(diagnosticScreen);
+  }, [diagnosticScreen]);
 
   useInAppUpdate();
 

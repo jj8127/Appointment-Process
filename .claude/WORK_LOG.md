@@ -17,11 +17,11 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
-## 2026-08-18
+## 2026-09-04
 
 | Date | Work | Key files | Detail |
 |---|---|---|---|
-| 08-18 | Sentry `REACT-NATIVE-B` attachment-delete/save race guard | `app/admin-board.tsx`, `lib/__tests__/board-attachment-actions.test.ts` | [detail](WORK_DETAIL.md#20260818-sentry-board-attachment-delete-save-race) |
+| 09-04 | Mainline Sentry attachment/realtime/modal repairs, privacy-safe crash context and complete daily backlog reporting; native rollout pending | `app/admin-board.tsx`, `app/group-chat.tsx`, `app/request-board-fc-codes.tsx`, `lib/sentry.ts`, `scripts/ops/sentry-daily-triage.mjs` | [→ 상세](WORK_DETAIL.md#20260904-sentry-main-integration) |
 
 ## 2026-07-07
 
