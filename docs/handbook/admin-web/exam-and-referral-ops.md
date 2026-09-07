@@ -54,3 +54,7 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 
 - [../data/referral-schema-and-admin-rpcs.md](E:/hanhwa/fc-onboarding-app/docs/handbook/data/referral-schema-and-admin-rpcs.md)
 - [../backend/admin-operations-api.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/admin-operations-api.md)
+
+## 2026-09-07 prior graph interaction parity
+
+Restore the previously accepted July Canvas/physics runtime on current main: direct pointer tracking, drag-start 1.2x link stretch cap, compact 118..185-unit terminal spokes and longer child-hub bridges. Preserve existing graph read scope and current auth/batched-read/inbox fixes. RF-ADMIN-08 and deterministic/browser verification distinguish runtime parity from a successful API response.

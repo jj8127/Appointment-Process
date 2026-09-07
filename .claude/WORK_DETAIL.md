@@ -7,6 +7,15 @@
 
 ---
 
+## <a id="20260907-admin-graph-runtime-restore"></a> 2026-09-07 | Restore prior admin graph runtime
+
+- User reported that previously changed graph behavior was absent after the incident repair deployment. Comparing production `86be21d` with immutable release snapshot `5f19ec9` identifies five differing graph runtime/test files; the graph page shell itself is unchanged.
+- Restore `ReferralGraphCanvas`, physics, interaction/physics tests and the updated separately invoked operational test file from that snapshot. Pointer tracking pins only the dragged node, neighboring springs stay live, active edge length is bounded against its drag-start snapshot, and dense terminal spokes remain in the 118..185 world-unit range without compressing child-hub bridges.
+- Keep auth, 40-ID batching, canonical inbox and staff push repairs already on main. No native/allowance/backend/schema import and no unrelated dirty source changes.
+- Verification: 141 deterministic graph tests and 576 root tests in 110 suites pass when run from repository root; an initial web-cwd attempt exposed existing relative test paths and was rerun correctly. Full web lint and production TypeScript/build pass. The five restored graph files match the immutable release snapshot exactly. Operational real-data test source is synchronized but its production-database execution is not claimed.
+- Browser: synthetic two-component 447-node/445-edge graph; approximately 294px pointer drag, two active samples with zero pointer gap, 6.4px unrelated-component drift during sampled active frames, approximately 58px direct-neighbor displacement and released node unpinned. Free physics settles after release; final position is not promised to remain at the cursor. Pan, fit and reset work; no browser console errors.
+- Existing deployment authorization applies to this reported correction. Final source/deployment/CI state is recorded in the canonical `web-login-graph-20260907` harness.
+
 ## <a id="20260907-web-login-graph-inbox"></a> 2026-09-07 | Admin web login, referral reads and inbox
 
 - Base: deployed main commit `753437589662989301b36602da284bece216fd47`; isolated repair checkout preserves unrelated release work.

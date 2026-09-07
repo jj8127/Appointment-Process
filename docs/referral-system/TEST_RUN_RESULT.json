@@ -380,15 +380,16 @@
       "platform": [
         "web"
       ],
-      "title": "graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label, active drag branch stability를 지원한다",
+      "title": "관리자 추천인 그래프의 최신 포인터/링크/말단 간격 동작을 유지한다",
       "status": "PASS",
-      "owner": "Codex role E2E harness",
-      "executedAt": "2026-06-19T05:59:43.128Z",
+      "owner": "Codex synthetic graph restoration QA",
+      "executedAt": "2026-09-07T08:07:38.044Z",
       "evidence": [
-        "Graph unit/simulation suite passed 42/42 via npx -y tsx --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-responsive.test.ts from repo root.",
-        "Authenticated admin_web FC graph browser QA passed without storing cookie values: /api/admin/referrals/graph returned 200, /dashboard/referrals/graph rendered a visible 1261x668 canvas, sampled canvas pixels were nonblank, ?? ??? was visible/clickable, a canvas drag was attempted, and console/page error counts stayed 0."
+        "141 deterministic graph tests PASS",
+        "Synthetic browser: 447 nodes/445 edges; active pointer gap 0px in 2 samples; unrelated active drift 6.4px; direct neighbor moved 58px; release unpinned",
+        "Pan/fit/reset and no console errors"
       ],
-      "notes": "Session cookies were used only inside the browser context; cookie values, JWTs, tokens, and signed URLs were not printed or persisted."
+      "notes": "Local synthetic interaction verification; source restored from immutable release snapshot. Production-data simulation was not executed; final deployment result is tracked separately in the canonical harness."
     },
     {
       "caseId": "RF-ADMIN-09",

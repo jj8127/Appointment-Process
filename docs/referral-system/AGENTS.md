@@ -174,6 +174,8 @@
 
 ## 2026-09-07: bounded admin web reads
 
+- Prior accepted administrator graph behavior must be compared across page, Canvas and physics modules before calling an incident deployment current. Restore pointer tracking, active link stretch bounds and terminal spacing without importing native features or undoing signed authentication/read batching.
+
 - Referral code and inviter/invitee event reads must split normalized unique IDs into batches of at most 40. Merge duplicate events by ID and apply global descending creation order.
 - A failed batch must fail the read; never publish a partial graph as a successful complete result.
 - Login and inbox changes must preserve signed sessions, active-account verification, manager read-only access and FC graph privacy.

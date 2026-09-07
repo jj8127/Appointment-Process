@@ -32,6 +32,8 @@
 
 ## 2026-09-07 | Admin web rollout lineage | release fixes absent from deployed main
 
+- User-visible parity guardrail: an incident-only API repair does not restore earlier graph interaction work. Compare the graph page, canvas and physics modules against the prior accepted branch, even when the page shell matches, and report source/runtime parity separately from API health.
+
 - Symptom: deployed login/session hints, referral reads and inbox proxy failed while a separate release checkout already held related fixes.
 - Root cause: deployment lineage lacked atomic login navigation, bounded referral filters and the current verified inbox viewer contract.
 - Why it was missed: local branch correctness did not establish what the production alias served.

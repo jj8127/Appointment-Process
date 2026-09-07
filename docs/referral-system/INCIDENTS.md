@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-09-07` 기준 등록된 추천인 이슈는 `24건`이다.
+- `2026-09-07` 기준 등록된 추천인 이슈는 `25건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,7 +46,8 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
-| INC-024 | 2026-09-07 | 운영 웹 추천인 목록/그래프 대량 필터 요청 실패 | `RF-ADMIN-11` | local fix verified; deployment pending |
+| INC-025 | 2026-09-07 | 장애 복구 배포에서 이전 그래프 상호작용 개선 누락 | `RF-ADMIN-08` | local restoration verified; deployment follows |
+| INC-024 | 2026-09-07 | 운영 웹 추천인 목록/그래프 대량 필터 요청 실패 | `RF-ADMIN-11` | deployed and verified at 86be21d |
 | INC-023 | 2026-06-08 | 설정 화면 추천코드 공유가 예전 direct deep-link 문구를 계속 사용함 | `RF-LINK-06` | fixed |
 | INC-022 | 2026-04-26 | 관리자 추천인 그래프 체크리스트 미완료 상태를 완료처럼 보고함 | `RF-ADMIN-08` | monitoring |
 | INC-021 | 2026-04-25 | 관리자 추천인 그래프가 Obsidian 동등성 요청 뒤에도 custom force 누적으로 불안정해짐 | `RF-ADMIN-08` | monitoring |
@@ -70,6 +71,16 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-025 | 2026-09-07 | 장애 복구 배포에서 이전 그래프 상호작용 개선 누락
+
+- symptom: API 오류 복구 후에도 이전 노드 드래그/배치 개선이 운영 화면에 반영되지 않음.
+- rootCause: 운영 main 기반의 좁은 장애 복구에 이전 release의 Canvas/physics 변경을 포함하지 않음. 페이지 파일은 동일해 페이지 단독 비교로는 누락을 발견할 수 없었음.
+- fix: `5f19ec9`의 그래프 전용 런타임/테스트 5개 파일 복원. 최근 인증/조회/알림/푸시 수정은 유지.
+- linkedCases: `RF-ADMIN-08`
+- evidence: 그래프 단위/시뮬레이션 141개 PASS; 합성 447명 브라우저에서 포인터 추적 오차 0px, 주변 노드 반응, release 고정 해제, pan/fit/reset 및 콘솔 오류 없음 확인.
+- reproduction: `web/scripts/incident-fixture.mjs --branched`와 합성 production-mode preview에서 관리자 계정으로 그래프를 연다.
+- notes: 실제 데이터 레코드/브라우저 DOM을 증적에 저장하지 않는다. 최종 배포 상태는 canonical harness를 확인한다.
 
 ## INC-024 | 2026-09-07 | 운영 웹 추천인 목록/그래프 대량 필터 요청 실패
 

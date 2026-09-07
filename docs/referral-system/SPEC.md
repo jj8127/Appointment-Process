@@ -294,12 +294,12 @@
   - layout/physics는 Obsidian Graph View의 읽기 경험을 참고하되, 추천인 트리 특성에 맞춘 hybrid force-directed 배치다. 초기 seed는 deterministic component packing을 사용해 큰 connected component를 중앙에 가깝게 두고, hub direct child는 부모를 원형으로 둘러싸는 star/pinwheel seed를 받으며, isolated node는 과도하게 큰 외곽 원을 만들지 않는 제한된 golden-angle 분포를 사용한다.
   - `연결 없는 사람 숨기기` switch는 orphan toggle처럼 isolated node만 숨기며, 기본값은 전체 관계 파악을 위해 `false`다.
   - 사용자 설정은 `Center force`, `Repel force`, `Link force`, `Link distance` 4개만 노출한다. 저장 key는 `referral-graph-physics-settings-v16`이며 기본값은 center `0.5`, repel `10`, link force `1`, link distance `250`이다.
-  - runtime force는 d3 `charge`/기존 `link`를 기본으로 하고, `link-tension`, `branch-bend`, `sibling-angular`, `node-separation`, `visual-cluster-separation`, `component-separation`, `cluster-envelope`, `component-envelope`, `cluster-gravity`, `component-cohesion`, `drag-spring` 보조 force를 사용한다. `x/y center`, `radial-containment`, `isolated-ring`, `drop-tether`, legacy `component-gravity` 계열은 사용하지 않는다.
-  - 중심 보정은 고정 반경 containment가 아니라 cluster 단위 `cluster-gravity`로만 약하게 적용한다. 현재 기준은 `deadZoneRadius=340`, singleton `520`, `gravityScale=120`, `softening=210`, `strength=0.01`, `maxVelocity=4.5`, `minAlpha=0.002`이며, 가장자리에서 클러스터를 꺼내 보는 drag 상호작용을 막으면 안 된다.
-  - 링크 길이는 degree/child 여부에 따라 동적으로 계산한다. leaf spoke는 짧게 유지하고, child hub 간 bridge는 leaf보다 길지만 비정상적으로 늘어나지 않도록 `link-tension`과 `drag-spring`이 목표 길이를 복원한다.
-  - node drag 중에는 사용자가 잡은 node를 pointer 위치에 맞추고, directed descendant만 depth-damped follower로 이동시킨다. direct child는 branch가 찢어지지 않을 만큼 강하게 따라오고, deeper descendant는 더 유연하게 따라와 큰 하위조직이 딱딱한 물체처럼 움직이지 않아야 한다. ancestor, sibling, unrelated node는 follower 대상이 아니다.
-  - active drag 중에는 사용자 입력과 layout force가 싸우지 않도록 base link force를 비활성화하고 charge/collision과 custom layout force를 낮추거나 일시 중지한다. `sibling-angular`, `edge-crossing`, cluster/component separation 같은 전역 정렬은 pointer-down 동안 re-layout을 만들지 않아야 하며, release 후 settle mode에서만 다시 작동한다.
-  - release 시 dragged node와 follower의 임시 고정을 해제하되 manual target을 유지해 사용자가 놓은 위치 근처에서 부드럽게 안정화한다. live QA는 graph unit이 아니라 screen/client pixel 기준(pointer 거리, follower 이동, unrelated drift, release 후 거리)으로 판단한다.
+  - runtime은 charge, link, link-tension, collision, component-separation, drag-locality, drag-pointer, max-link-stretch를 사용한다. center/x/y, layout-memory, edge-crossing, sibling-angular, branch-bend, envelope/gravity/tether 계열은 현재 Canvas에서 비활성이다.
+  - 자유 이동을 막는 중심 복귀나 고정 반경 containment를 추가하지 않는다. component-separation은 active drag 중 중지되며 다른 연결 집단의 불필요한 재배치를 줄인다.
+  - 링크 길이는 degree/child 여부에 따라 계산한다. 말단 leaf는 118..185 world-unit 범위로 짧게 유지하고 child-hub bridge는 더 길게 둔다. 드래그 시작 시 링크 길이를 저장하고 active max-link-stretch force가 기준의 1.2배를 상한으로 투영한다.
+  - node drag 중 잡은 노드만 pointer 위치에 고정하고 나머지 노드는 살아 있는 spring/collision에 반응한다. 전체 component를 rigid translation하거나 배경을 강제로 고정하지 않는다.
+  - active drag 중 기존 charge/link/collision 동작을 유지하고 drag-pointer를 max-link-stretch보다 먼저 적용한다. 포인터가 잡은 endpoint는 link cap 때문에 뒤로 밀리지 않아야 한다.
+  - release 시 pointer target, 임시 fx/fy와 drag-start snapshot을 해제하고 자유 물리의 settle을 허용한다. 놓은 좌표에 영구 고정하지 않는다. QA는 포인터 오차, 연결 노드 반응, unrelated drift, release 고정 해제와 pan/fit/reset을 screen/client px로 측정한다.
   - `배치 초기화`는 runtime position을 지우고 현재 필터 기준 deterministic component/star/orphan seed layout으로 다시 시작한다.
   - manager는 graph page 진입과 조회는 가능하지만 계속 read-only다.
 - `backfill_missing_codes`는 수동 실행형 idempotent batch로만 운영하고, 1회 호출당 최대 100명만 처리한다.

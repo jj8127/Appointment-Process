@@ -19,6 +19,8 @@
 
 ## 2026-09-07
 
+Restored prior administrator graph pointer tracking, drag-start link stretch bounds and compact terminal-leaf spacing from the immutable July release lineage. Current auth, bounded reads, inbox and push corrections are retained. [→ 상세](WORK_DETAIL.md#20260907-admin-graph-runtime-restore)
+
 | Date | Work | Key files | Detail |
 |---|---|---|---|
 | 09-07 | Admin web login/referral/inbox deployed; staff push delivery-channel follow-up and cross-runner regression sync | `web/src/app/api`, `web/src/lib/admin-referrals.ts`, `web/scripts/incident-runtime.test.mjs` | [detail](WORK_DETAIL.md#20260907-web-login-graph-inbox) |

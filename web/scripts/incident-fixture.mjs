@@ -2,10 +2,15 @@
 import { createServer } from 'node:http';
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+// Optional multi-component sample for pointer/follower/unrelated-motion browser QA.
+const branched = process.argv.includes('--branched');
+const parentIndex = (index) => !branched ? (index ? 0 : null)
+  : index === 0 || index === 399 ? null : index < 5 ? 0 : index < 399 ? 1 + ((index - 5) % 4) : 399;
 const profiles = Array.from({ length: 447 }, (_, index) => ({
   id: id(index + 1), name: `Fixture ${index + 1}`, phone: String(1010000000 + index).padStart(11, '0'),
   affiliation: 'Synthetic QA', signup_completed: true, is_manager_referral_shadow: false,
-  recommender: index ? 'Fixture 1' : null, recommender_fc_id: index ? id(1) : null,
+  recommender: parentIndex(index) === null ? null : `Fixture ${parentIndex(index) + 1}`,
+  recommender_fc_id: parentIndex(index) === null ? null : id(parentIndex(index) + 1),
   life_commission_completed: true, nonlife_commission_completed: true,
   appointment_date_life: null, appointment_date_nonlife: null,
 }));

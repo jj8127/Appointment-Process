@@ -303,6 +303,8 @@ supabase secrets list --project-ref <project-ref>
 
 ### Progress Ledger
 
+- `2026-09-07 | Restore prior admin graph runtime | Port the five July graph runtime/test files omitted from the incident-only deploy; retain current auth/batched reads/inbox/push | ReferralGraphCanvas, graph physics and tests | 141 deterministic graph tests, synthetic 447-node browser drag/pan/fit/reset, lint/type/build PASS; deployment verification follows`
+
 - `2026-09-07 | Admin web deployment follow-up | Align manager browser subscription with the staff admin delivery channel and update root inbox regression assertions | web-push subscribe, incident runtime fixture, admin-web-chat-source test | Synthetic role-check RED to GREEN; 576 root tests, 4 built-route tests, lint and web type/build passed`
 
 - `2026-09-07 | Admin web incident repair | Restore atomic login hints/navigation, bounded referral reads and verified inbox viewer on production lineage | web auth/referral/inbox routes, helpers and regression fixtures | Synthetic HTTP/browser, focused tests, lint/type/build verification; no publication or production write`

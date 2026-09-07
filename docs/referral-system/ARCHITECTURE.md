@@ -302,3 +302,7 @@ completed FC 또는 active manager 로그인 성공
   - confirmed attribution이 있는 invitee는 자동 backfill
   - 활성 코드 보유 FC 중 이름 유일 매칭이면 자동 backfill
   - 나머지는 `/dashboard/referrals` 레거시 검토 큐에서 수동 선택
+
+## Administrator graph runtime restoration (2026-09-07)
+
+The page shell delegates physics and pointer handling to `ReferralGraphCanvas` and `referral-graph-physics`. Production parity checks compare all three layers, not the page alone. The restored runtime uses pointer pinning only during the gesture, drag-start link-length projection and compact terminal leaf targets, then releases into free physics. Existing server graph scope, 40-ID batches and notification/session repairs remain unchanged. Local-only debug datasets support privacy-safe synthetic browser coordinates; they are not exposed on the production hostname.
