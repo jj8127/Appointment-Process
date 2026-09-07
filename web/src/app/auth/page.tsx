@@ -2,6 +2,7 @@
 
 import { useSession } from '@/hooks/use-session';
 import { resolveAdminWebLoginRole } from '@/lib/admin-web-login-role';
+import { ADMIN_WEB_LOGIN_BROWSER_TIMEOUT_MS, isAdminWebLoginTimeout } from '@/lib/admin-web-login-timeout';
 import { logger } from '@/lib/logger';
 import { normalizeStaffType } from '@/lib/staff-identity';
 import {
@@ -19,7 +20,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { IconPhone, IconLock, IconArrowRight } from '@tabler/icons-react';
 
 const HANWHA_ORANGE = '#f36f21';
@@ -35,6 +36,9 @@ function resolveLoginErrorMessage(error: unknown) {
     const name = readErrorField(error, 'name');
     const rawMessage = readErrorField(error, 'message');
     const normalized = rawMessage.toLowerCase();
+    if (isAdminWebLoginTimeout(error)) {
+        return { message: '로그인 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.', expected: true, name, rawMessage };
+    }
     const isTransportError =
         name === 'FunctionsFetchError' ||
         normalized.includes('failed to send a request to the edge function') ||
@@ -68,6 +72,8 @@ export default function AuthPage() {
     const [passwordInput, setPasswordInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [mounted, setMounted] = useState(false);
+    const loginInFlight = useRef(false);
+    const navigationStarted = useRef(false);
     const router = useRouter();
 
     useEffect(() => {
@@ -75,7 +81,7 @@ export default function AuthPage() {
     }, []);
 
     useEffect(() => {
-        if (!hydrated) return;
+        if (!hydrated || navigationStarted.current) return;
         if (role === 'fc' && residentId) {
             router.replace('/dashboard/referrals/graph');
             return;
@@ -86,6 +92,7 @@ export default function AuthPage() {
     }, [hydrated, residentId, role, router]);
 
     const handleLogin = async () => {
+        if (loginInFlight.current || navigationStarted.current) return;
         const code = phoneInput.trim();
         if (!code) {
             notifications.show({
@@ -96,6 +103,7 @@ export default function AuthPage() {
             return;
         }
 
+        loginInFlight.current = true;
         setLoading(true);
 
         try {
@@ -124,6 +132,7 @@ export default function AuthPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ phone: digits, password: passwordInput.trim() }),
+                signal: AbortSignal.timeout(ADMIN_WEB_LOGIN_BROWSER_TIMEOUT_MS),
             });
             const data = await loginResponse.json();
             if (!loginResponse.ok && !data?.message) {
@@ -167,8 +176,10 @@ export default function AuthPage() {
                 setLoading(false);
                 return;
             }
+            navigationStarted.current = true;
             loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
-            router.replace(nextRole === 'fc' ? '/dashboard/referrals/graph' : '/dashboard');
+            const destination = nextRole === 'fc' ? '/dashboard/referrals/graph' : '/dashboard';
+            window.location.replace(destination);
         } catch (err: unknown) {
             const loginError = resolveLoginErrorMessage(err);
 
@@ -190,8 +201,14 @@ export default function AuthPage() {
                 color: 'red',
             });
         } finally {
+            loginInFlight.current = false;
             setLoading(false);
         }
+    };
+
+    const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        void handleLogin();
     };
 
     return (
@@ -242,6 +259,8 @@ export default function AuthPage() {
 
                 {/* Login Card */}
                 <Paper
+                    component="form"
+                    onSubmit={handleSubmit}
                     shadow="xl"
                     p={40}
                     radius="xl"
@@ -281,9 +300,6 @@ export default function AuthPage() {
                             maxLength={11}
                             autoComplete="tel"
                             onChange={(event) => setPhoneInput(event.currentTarget.value.replace(/[^0-9]/g, ''))}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleLogin();
-                            }}
                             styles={{
                                 label: {
                                     fontWeight: 700,
@@ -312,9 +328,6 @@ export default function AuthPage() {
                             radius="md"
                             value={passwordInput}
                             onChange={(event) => setPasswordInput(event.currentTarget.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleLogin();
-                            }}
                             styles={{
                                 label: {
                                     fontWeight: 700,
@@ -339,7 +352,7 @@ export default function AuthPage() {
                             fullWidth
                             size="lg"
                             radius="md"
-                            onClick={handleLogin}
+                            type="submit"
                             loading={loading}
                             rightSection={<IconArrowRight size={20} stroke={2} />}
                             style={{

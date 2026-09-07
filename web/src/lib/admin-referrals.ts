@@ -1,4 +1,5 @@
 import 'server-only';
+import { chunkReferralEventFcIds, mergeReferralEventChunks } from '@/lib/admin-referral-event-query';
 
 import { buildPhoneCandidates, type VerifiedServerSession } from '@/lib/server-session';
 import type {
@@ -428,17 +429,23 @@ async function fetchReferralCodes(fcIds: string[]) {
     return [] as ReferralCodeRow[];
   }
 
-  const { data, error } = await adminSupabase
-    .from('referral_codes')
-    .select('id,fc_id,code,is_active,created_at,disabled_at')
-    .in('fc_id', fcIds)
-    .order('created_at', { ascending: false });
+  const codeChunks = await Promise.all(
+    chunkReferralEventFcIds(fcIds).map(async (chunk) => {
+      const { data, error } = await adminSupabase
+        .from('referral_codes')
+        .select('id,fc_id,code,is_active,created_at,disabled_at')
+        .in('fc_id', chunk)
+        .order('created_at', { ascending: false });
 
-  if (error) {
-    throw error;
-  }
+      if (error) {
+        throw error;
+      }
 
-  return (data ?? []) as ReferralCodeRow[];
+      return (data ?? []) as ReferralCodeRow[];
+    }),
+  );
+
+  return mergeReferralEventChunks(codeChunks);
 }
 
 async function fetchReferralEvents(fcIds: string[]) {
@@ -446,18 +453,25 @@ async function fetchReferralEvents(fcIds: string[]) {
     return [] as ReferralEventRow[];
   }
 
-  const { data, error } = await adminSupabase
-    .from('referral_events')
-    .select('id,inviter_fc_id,invitee_fc_id,referral_code,event_type,metadata,created_at')
-    .or(`inviter_fc_id.in.(${fcIds.join(',')}),invitee_fc_id.in.(${fcIds.join(',')})`)
-    .in('event_type', [...CODE_EVENT_TYPES])
-    .order('created_at', { ascending: false });
+  const eventChunks = await Promise.all(
+    chunkReferralEventFcIds(fcIds).map(async (chunk) => {
+      const joinedFcIds = chunk.join(',');
+      const { data, error } = await adminSupabase
+        .from('referral_events')
+        .select('id,inviter_fc_id,invitee_fc_id,referral_code,event_type,metadata,created_at')
+        .or(`inviter_fc_id.in.(${joinedFcIds}),invitee_fc_id.in.(${joinedFcIds})`)
+        .in('event_type', [...CODE_EVENT_TYPES])
+        .order('created_at', { ascending: false });
 
-  if (error) {
-    throw error;
-  }
+      if (error) {
+        throw error;
+      }
 
-  return (data ?? []) as ReferralEventRow[];
+      return (data ?? []) as ReferralEventRow[];
+    }),
+  );
+
+  return mergeReferralEventChunks(eventChunks);
 }
 
 function buildCodeMaps(codes: ReferralCodeRow[]) {

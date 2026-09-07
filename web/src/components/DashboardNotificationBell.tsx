@@ -1,6 +1,6 @@
 'use client';
 
-import { isDeveloperSession, type StaffType } from '@/lib/staff-identity';
+import { type StaffType } from '@/lib/staff-identity';
 import { redactSensitiveText } from '@/lib/sensitive-text';
 import {
   ActionIcon,
@@ -240,10 +240,7 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
     queryKey: ['dashboard-header-notifications', role, residentId, staffType],
     refetchInterval: 30_000,
     queryFn: async (): Promise<HeaderNotificationItem[]> => {
-      const isDeveloper = isDeveloperSession({ role, staffType });
-      const staffPersonalInboxId = role === 'manager' || isDeveloper ? sanitize(residentId) : null;
-      const fetchInbox = async (inboxRole: 'admin' | 'fc') => {
-        const inboxResidentId = inboxRole === 'fc' ? sanitize(residentId) : staffPersonalInboxId;
+      const fetchInbox = async () => {
         const response = await fetch('/api/fc-notify', {
           method: 'POST',
           headers: {
@@ -251,8 +248,6 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
           },
           body: JSON.stringify({
             type: 'inbox_list',
-            role: inboxRole,
-            resident_id: inboxResidentId,
             limit: LIST_LIMIT,
           }),
         });
@@ -270,14 +265,10 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
         return inbox;
       };
 
-      const [primaryInbox, developerFcInbox] = await Promise.all([
-        fetchInbox(role === 'fc' ? 'fc' : 'admin'),
-        isDeveloper ? fetchInbox('fc') : Promise.resolve(null),
-      ]);
+      const primaryInbox = await fetchInbox();
 
       const mappedNotifications: HeaderNotificationItem[] = [
         ...(primaryInbox.notifications ?? []),
-        ...((developerFcInbox?.notifications ?? []).filter((item) => isRequestBoardCategory(item.category))),
       ].map((item) => ({
         id: `notification:${item.id}`,
         rawId: item.id,

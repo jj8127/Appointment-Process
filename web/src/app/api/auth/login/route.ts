@@ -18,6 +18,8 @@ import {
 import { adminSupabase } from '@/lib/admin-supabase';
 import { buildPhoneCandidates } from '@/lib/phone-candidates';
 import { logger } from '@/lib/logger';
+import { setAdminWebSessionCookies } from '@/lib/admin-web-session-cookies';
+import { ADMIN_WEB_LOGIN_UPSTREAM_TIMEOUT_MS, isAdminWebLoginTimeout } from '@/lib/admin-web-login-timeout';
 
 type LoginResponse = {
   ok?: boolean;
@@ -69,13 +71,16 @@ export async function POST(req: Request) {
     const supabase = createSupabaseFunctionClient();
     const { data, error } = await supabase.functions.invoke<LoginResponse>('login-with-password', {
       body: { phone, password },
+      timeout: ADMIN_WEB_LOGIN_UPSTREAM_TIMEOUT_MS,
     });
 
     if (error) {
       throw error;
     }
 
-    const response = NextResponse.json(data ?? { ok: false, message: '로그인 결과를 확인할 수 없습니다.' });
+    const publicData = { ...data };
+    delete publicData.appSessionToken;
+    const response = NextResponse.json(data ? publicData : { ok: false, message: '로그인 결과를 확인할 수 없습니다.' });
     const appSessionToken = String(data?.appSessionToken ?? '').trim();
     response.cookies.set(WEB_APP_SESSION_COOKIE, data?.ok && appSessionToken ? appSessionToken : '', {
       httpOnly: true,
@@ -95,8 +100,7 @@ export async function POST(req: Request) {
 
       if (profileError || !profileRow?.id) {
         logger.warn('[api/auth/login] FC profile not found after password login', {
-          phone: residentDigits,
-          error: profileError?.message,
+          reason: profileError ? 'profile_lookup_failed' : 'profile_missing',
         });
         return NextResponse.json(
           { ok: false, message: 'FC 계정 정보를 확인할 수 없습니다.' },
@@ -161,9 +165,20 @@ export async function POST(req: Request) {
       });
     }
 
+    if (data?.ok && (data.role === 'admin' || data.role === 'manager' || data.role === 'fc')) {
+      setAdminWebSessionCookies(response, {
+        role: data.role,
+        residentId: normalizeDigits(data.residentId ?? phone),
+        displayName: data.displayName,
+        staffType: data.staffType,
+      });
+    }
     return response;
   } catch (error) {
-    logger.error('[api/auth/login] failed', error);
+    if (isAdminWebLoginTimeout(error)) {
+      return NextResponse.json({ ok: false, message: '로그인 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.' }, { status: 504 });
+    }
+    logger.error('[api/auth/login] failed', { reason: error instanceof Error ? error.name : 'login_error' });
     return NextResponse.json(
       { ok: false, message: '로그인 요청을 처리하지 못했습니다.' },
       { status: 500 },

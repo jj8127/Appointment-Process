@@ -607,5 +607,36 @@
     "expected": ["상단 카드에는 direct recommender 1명만 표시되고 루트까지의 전체 업라인 경로는 노출되지 않는다", "silent refresh가 성공하면 tree/direct recommender surface contract는 유지되고 stale current recommender fallback을 다시 보여주지 않는다", "direct recommender 카드 값은 `get-referral-tree` 응답의 마지막 ancestor 또는 같은 추천인 구조화 링크와 일치한다", "하단 tree는 canonical `recommender_fc_id` 링크만 반영한다", "depth 2 밖의 deeper node를 펼쳐도 실제 중첩 depth와 같은 규칙으로 보인다", "visible expandable child는 background 1단계 prefetch 대상이 될 수 있고, prefetch가 끝난 뒤 이어지는 expand는 중복 요청 없이 즉시 열린다", "bridge token도 없거나 만료된 경우 generic auth 문구 대신 `세션이 만료되었습니다. 다시 로그인해주세요.` 안내와 relogin CTA가 노출되고, tree error state에서도 CTA가 유지된다", "Android production build에서 render crash 없이 진입/편집/새로고침이 가능해야 한다"],
     "evidenceRequired": ["화면 캡처", "함수 호출 응답", "DB 확인"],
     "dbAssertions": ["직접 추천인 카드에 표시된 대상은 invitee의 `recommender_fc_id` 또는 `get-referral-tree` 응답 마지막 ancestor와 일치한다", "`get-referral-tree` descendants는 caller subtree 범위 안의 하위 관계만 반환한다"]
+  },
+  {
+    "id": "RF-ADMIN-11",
+    "area": "관리자 추천인 조회",
+    "priority": "P0",
+    "platform": [
+      "web"
+    ],
+    "title": "대량 추천인 조회와 로그인/알림 세션 계약을 운영 웹 경로에서 유지한다",
+    "preconditions": [
+      "실제 사용자 데이터 없는 localhost fixture 447명과 production-mode Next preview 준비"
+    ],
+    "steps": [
+      "한 번의 전체 ID 필터가 요청 길이 제한으로 실패하는지 재현한다",
+      "가상 계정 로그인 후 목록/그래프와 역할별 알림을 조회한다",
+      "무서명/위조 viewer/교차 출처/본부장 쓰기를 검증한다"
+    ],
+    "expected": [
+      "그래프 447명/446개 연결, 목록 전체 447명과 페이지 20명",
+      "각 코드/이벤트 필터는 40개 ID 이하, 중복 이벤트 제거 및 전역 정렬",
+      "로그인 힌트/서명 쿠키 동시 발급, 알림 viewer는 검증된 서버 세션에서 도출",
+      "FC 그래프는 허용 범위와 개인정보 마스킹 유지"
+    ],
+    "evidenceRequired": [
+      "Node regression result",
+      "Built-route HTTP result",
+      "Synthetic browser render"
+    ],
+    "dbAssertions": [
+      "실제 DB 및 Edge Function 쓰기 없음"
+    ]
   }
 ]

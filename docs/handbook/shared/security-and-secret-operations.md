@@ -53,3 +53,7 @@ source_of_truth: env contracts + reset-password functions + admin service-role c
 - `set-password`는 회원가입 추천인 확정 시 `supabase/functions/_shared/referral-link.ts`의 `applyReferralLinkState(...)`를 통해서만 invitee current-state를 쓴다. OTP/password 경로가 `fc_profiles` 추천인 컬럼을 ad-hoc update로 따로 건드리면 security/contract regression으로 본다.
 - admin web browser push는 `NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY`, `WEB_PUSH_SUBJECT`, `ADMIN_PUSH_SECRET`가 모두 있을 때만 fully configured 상태다. preview 배포처럼 값이 빠진 환경에서는 실패를 숨기지 말고 “설정되지 않은 배포” 상태를 명시적으로 보여줘야 한다.
 - admin web의 request-board deep link는 `NEXT_PUBLIC_REQUEST_BOARD_URL`이 없으면 production fallback으로 새면 안 된다. 설정이 빠진 배포에서는 disabled 상태로 남겨야 한다.
+
+## 2026-09-07 verified web session metadata
+
+`getVerifiedServerSession` returns display name and admin/developer subtype from the active database record after signature and role/phone checks. FC validation also binds the signed profile ID to the matched profile and checks signup completion when active access is required. The inbox proxy uses this trusted subtype for scope; browser display/staff-type cookies are hints only. Verification failure logs expose only the role and error class, never account identifiers or raw backend errors. Regression: local synthetic runtime tests verify forged-cookie rejection and role-derived inbox scope.

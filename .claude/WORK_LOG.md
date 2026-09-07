@@ -17,6 +17,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-09-07
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 09-07 | Admin web login, referral read and inbox incident repair on deployed commit lineage; local validation, publication pending | `web/src/app/api`, `web/src/lib/admin-referrals.ts`, `web/scripts/incident-runtime.test.mjs` | [detail](WORK_DETAIL.md#20260907-web-login-graph-inbox) |
+
 ## 2026-09-04
 
 | Date | Work | Key files | Detail |

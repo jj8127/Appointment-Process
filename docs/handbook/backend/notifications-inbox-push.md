@@ -93,3 +93,9 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 - Web push/Expo fanout implementation belongs in `web/src/lib/push-notification-service.ts` and must remain server-only.
 - `web/src/app/actions.ts` is only an authenticated server-action wrapper around that service. API routes that already verified a signed admin session should call the service directly.
 - Mobile startup registration should reuse an Expo token that was already fetched in the registration effect instead of calling `getExpoPushTokenAsync` twice for the same attempt.
+
+## 2026-09-07 web inbox viewer binding
+
+For `/api/fc-notify` `inbox_list`, require a matching Origin (or Referer) and a signed active admin/manager/FC session. Ignore browser-supplied viewer identity and scope. Ordinary admin reads the shared inbox; developer and manager use their personal staff scope with Request Board FC inclusion; FC uses its own scope. The server supplies `viewer_actor_role` and `viewer_actor_phone` to the existing Edge Function. Limit is clamped to 1..200 and the upstream call is bounded. One dashboard request replaces the developer's duplicate fallback fetch. No push send or Edge Function deployment is part of this repair.
+
+Regression: `web/src/lib/fc-notify-inbox-policy.test.ts` and `web/scripts/incident-runtime.test.mjs` cover canonical role scopes, forged input, missing signatures and cross-origin rejection using synthetic identities.

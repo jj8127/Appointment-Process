@@ -321,3 +321,7 @@
 8. 원격 DB rollout이 늦어진 환경을 어떻게 감시할지
 
 미확정 항목을 코드에서 임의로 결정하지 말고, 결정 후 이 문서를 먼저 갱신한다.
+
+## 2026-09-07: admin web read transport
+
+The graph/list contract is unchanged. Code and both event-direction filters are batched to at most 40 unique nonempty IDs; merged events are deduplicated by ID and globally sorted newest first. Any batch failure fails the complete read. Session-derived scope and FC privacy masking are applied as before. RF-ADMIN-11 exercises 447 synthetic profiles through built Next routes, with publication tracked separately.

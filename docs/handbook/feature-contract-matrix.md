@@ -28,3 +28,7 @@ This matrix defines business behavior that must stay consistent across GaramIn m
 ## Governance Rule
 
 `docs/handbook/contract-test-map.json` maps contract-sensitive files to the documents or tests that must change with them. `scripts/ci/check-governance.mjs` enforces that map for changed files, so feature-critical edits must include either updated contract evidence or an intentional map change.
+
+## 2026-09-07 admin web incident maintenance
+
+Login UI hints are emitted atomically with signed HttpOnly cookies; password login uses one form submission and hard navigation after success. Inbox viewer identity is derived from the verified active server session and trusted staff subtype, never browser viewer fields. The proxy rejects cross-origin inbox requests. Referral list/graph code and event filters are batched at 40 IDs with complete-result failure semantics. See RF-ADMIN-11 and web/scripts/incident-runtime.test.mjs; production publication remains a separate gate.

@@ -30,6 +30,14 @@
 - Verification:
 ```
 
+## 2026-09-07 | Admin web rollout lineage | release fixes absent from deployed main
+
+- Symptom: deployed login/session hints, referral reads and inbox proxy failed while a separate release checkout already held related fixes.
+- Root cause: deployment lineage lacked atomic login navigation, bounded referral filters and the current verified inbox viewer contract.
+- Why it was missed: local branch correctness did not establish what the production alias served.
+- Permanent guardrail: resolve the alias to an immutable commit before repair; port only relevant changes and run built-route tests with a large synthetic referral fixture and forged viewer inputs. Treat local PASS and production rollout as separate facts.
+- Verification: `web/scripts/incident-runtime.test.mjs` exercises the actual built routes; browser evidence uses synthetic accounts only. Publication remains pending.
+
 ## 2026-09-04 | Async repair boundaries | render state and screen lifetime were too broad
 
 - Symptom: attachment deletion could overlap saving, and a group-chat effect restart could retrieve an already subscribed realtime channel.

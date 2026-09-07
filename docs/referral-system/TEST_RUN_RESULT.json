@@ -651,6 +651,24 @@
         "FC referral graph session surfaces permitted referral graph access; staff APIs remain forbidden for FC session."
       ],
       "notes": ""
+    },
+    {
+      "caseId": "RF-ADMIN-11",
+      "area": "관리자 추천인 조회",
+      "priority": "P0",
+      "platform": [
+        "web"
+      ],
+      "title": "대량 추천인 조회와 로그인/알림 세션 계약을 운영 웹 경로에서 유지한다",
+      "status": "PASS",
+      "owner": "Codex local synthetic incident harness",
+      "executedAt": "2026-09-07T07:21:29.465Z",
+      "evidence": [
+        "web/scripts/incident-runtime.test.mjs: 3 integration tests passed against built Next routes",
+        "Synthetic browser: 447 nodes, 446 edges, canvas rendered, loading ended, no app console errors",
+        "Focused batching, session, inbox, login timeout and cookie regression tests"
+      ],
+      "notes": "Local synthetic verification only. Production authenticated verification NOT_RUN; deployment pending authorization. No real account login, database changes or notification sends."
     }
   ]
 }

@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-06-08` 기준 등록된 추천인 이슈는 `23건`이다.
+- `2026-09-07` 기준 등록된 추천인 이슈는 `24건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-024 | 2026-09-07 | 운영 웹 추천인 목록/그래프 대량 필터 요청 실패 | `RF-ADMIN-11` | local fix verified; deployment pending |
 | INC-023 | 2026-06-08 | 설정 화면 추천코드 공유가 예전 direct deep-link 문구를 계속 사용함 | `RF-LINK-06` | fixed |
 | INC-022 | 2026-04-26 | 관리자 추천인 그래프 체크리스트 미완료 상태를 완료처럼 보고함 | `RF-ADMIN-08` | monitoring |
 | INC-021 | 2026-04-25 | 관리자 추천인 그래프가 Obsidian 동등성 요청 뒤에도 custom force 누적으로 불안정해짐 | `RF-ADMIN-08` | monitoring |
@@ -69,6 +70,18 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-024 | 2026-09-07 | 운영 웹 추천인 목록/그래프 대량 필터 요청 실패
+
+- symptom: 운영 목록/그래프 API 500과 알림 API 401이 반복되어 그래프 표시를 방해함.
+- trigger: 전체 FC ID를 한 번의 코드 필터 및 양방향 이벤트 필터에 넣는 요청.
+- rootCause: 운영 커밋에는 조회 분할과 현재 알림 viewer 계약 반영이 빠져 있음. 가상 447명 데이터로 기존 요청 길이 제한 실패를 재현했으며 운영 로그는 Bad Request 집계까지만 확인함.
+- fix: 40개 ID 이하로 코드/이벤트 조회를 분할하고 이벤트를 중복 제거/정렬. 알림 viewer는 동일 출처 요청의 서명 검증 세션에서 도출. 로그인 응답에 UI 쿠키를 함께 발급하고 로그인 후 문서를 새로 탐색함.
+- linkedCases: `RF-ADMIN-11`
+- evidence: `web/scripts/incident-runtime.test.mjs`, `web/src/lib/admin-referral-event-query.test.ts`, `web/src/lib/fc-notify-inbox-policy.test.ts`; 합성 계정 브라우저에서 447명/446개 연결 및 로딩 종료 확인.
+- reproduction: localhost fixture와 production-mode Next preview를 실행하고 runtime test를 실행한다. fixture에는 실제 계정/토큰/레코드가 없다.
+- regressionCheck: 관리자/개발자/본부장/FC 알림 범위, 무서명/교차 출처 차단, 본부장 쓰기 차단과 FC 그래프 개인정보 제한 확인.
+- notes: 로컬 수정 검증만 완료. 운영 배포/인증 재검증은 미실행이며 DB/Edge Function 변경 없음. 익명 VM의 startTime 오류는 GoogleChrome/web-vitals#792와 동일한 DevTools 스택으로 별도 취급.
 
 ## INC-023 | 2026-06-08 | 설정 화면 추천코드 공유가 예전 direct deep-link 문구를 계속 사용함
 

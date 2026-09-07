@@ -171,3 +171,10 @@
 - `[장애 이력](./INCIDENTS.md)` — 과거 문제와 회귀 케이스를 확인할 때
 - `[테스트 데이터 규칙](./fixtures/README.md)` — 추천인 테스트 계정/초기화 기준을 확인할 때
 - `[검증 SQL 초안](./queries.sql)` — DB 정합성을 직접 확인할 때
+
+## 2026-09-07: bounded admin web reads
+
+- Referral code and inviter/invitee event reads must split normalized unique IDs into batches of at most 40. Merge duplicate events by ID and apply global descending creation order.
+- A failed batch must fail the read; never publish a partial graph as a successful complete result.
+- Login and inbox changes must preserve signed sessions, active-account verification, manager read-only access and FC graph privacy.
+- Regression: RF-ADMIN-11 and web/scripts/incident-runtime.test.mjs use synthetic data only; local PASS never implies production rollout.

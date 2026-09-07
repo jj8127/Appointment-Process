@@ -5,6 +5,8 @@ import { sendWebPush } from '@/lib/web-push';
 import { redactSensitiveStrings } from '@/lib/sensitive-text';
 
 import { logger } from '@/lib/logger';
+import { getVerifiedServerSession } from '@/lib/server-session';
+import { buildVerifiedInboxPayload, isSameOriginInboxRequest } from '@/lib/fc-notify-inbox-policy';
 // Validate environment variables at module load time
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -99,12 +101,30 @@ export async function POST(req: Request) {
   }
 
   // Validate body
-  if (!body || typeof body !== 'object') {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
   body = redactSensitiveStrings(body);
 
   try {
+    // The current Edge inbox requires a verified viewer, even for service-role calls.
+    // Never promote actor fields received from a browser into trusted service claims.
+    delete body.viewer_actor_id;
+    delete body.viewer_actor_role;
+    delete body.viewer_actor_phone;
+    if (body.type === 'inbox_list') {
+      if (!isSameOriginInboxRequest(req)) {
+        return NextResponse.json({ error: 'Cross-origin inbox request is not allowed' }, { status: 403 });
+      }
+      const sessionCheck = await getVerifiedServerSession({
+        allowedRoles: ['admin', 'manager', 'fc'],
+        requireActive: true,
+      });
+      if (!sessionCheck.ok) {
+        return NextResponse.json({ error: sessionCheck.error }, { status: sessionCheck.status });
+      }
+      body = buildVerifiedInboxPayload({ limit: body.limit }, sessionCheck.session);
+    }
     // Handle web push notifications for admin-targeted notify events (docs, exam, consent, etc.)
     if (body.type === 'notify' && body.target_role === 'admin') {
       const title = body.title ?? '새 알림';
@@ -219,6 +239,7 @@ export async function POST(req: Request) {
         'Authorization': `Bearer ${serviceKey}`,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
     });
 
     const text = await resp.text();

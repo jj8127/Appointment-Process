@@ -121,3 +121,9 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 
 - [../workflow-state-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/workflow-state-matrix.md)
 - [../backend/admin-operations-api.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/admin-operations-api.md)
+
+## 2026-09-07 login session transition
+
+The auth page submits a form once, bounds the browser wait to 20 seconds, and hard-navigates after the successful proxy response. The upstream password request has a 15-second timeout. Login responses set the four UI hints alongside signed HttpOnly cookies, and logout expires both. App-session tokens stay in HttpOnly cookies and are omitted from public JSON. UI hints do not authorize API calls; signatures and active records remain mandatory. Cookie values are encoded by NextResponse once, including Korean display names.
+
+Regression: login timeout/source/cookie tests plus `web/scripts/incident-runtime.test.mjs`; built-route and browser fixtures contain no real user data.

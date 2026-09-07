@@ -7,6 +7,17 @@
 
 ---
 
+## <a id="20260907-web-login-graph-inbox"></a> 2026-09-07 | Admin web login, referral reads and inbox
+
+- Base: deployed main commit `753437589662989301b36602da284bece216fd47`; isolated repair checkout preserves unrelated release work.
+- Login: set UI hints with signed HttpOnly cookies in the same response; submit one form, bound upstream/browser waits, hard-navigate after success and clear hints on logout. Keep app-session tokens out of browser JSON.
+- Referral list/graph: query codes and both event directions in batches of at most 40 IDs; deduplicate and globally sort merged events. Scope/privacy and manager read-only permissions remain enforced.
+- Inbox: require same-origin and a verified active server session, derive actor and staff subtype from trusted records, discard caller-supplied viewer fields, and retain personal developer/manager inbox behavior.
+- Verification: synthetic fixture reproduces oversized-request rejection; built Next routes return 447 nodes and 446 edges, validate all four viewer types and reject forged/unauthenticated/cross-origin requests. Browser login renders the graph without app console errors. Focused Node tests, lint, TypeScript and a production-mode build cover the patch.
+- Build uses synthetic localhost configuration with Sentry upload disabled. It is QA evidence only; any publication needs a fresh build using existing deployment configuration.
+- Anonymous `et.reportAllChanges`/`startTime` stack matches upstream Chrome DevTools issue [GoogleChrome/web-vitals#792](https://github.com/GoogleChrome/web-vitals/issues/792); no app monitoring suppression added.
+- Publication: user authorized production deployment on 2026-09-07. Publish this reviewed patch through the existing main/Vercel integration; final deployment state is recorded in the canonical web-login-graph-20260907 harness. No database/Edge Function changes or notification sends.
+
 ## <a id="20260904-sentry-main-integration"></a> 2026-09-04 | Sentry incident and scheduled-report repair integration
 
 - Mainline base: `6f4c2de`. Port only this task's fixes from the separate `25d0b84` release-candidate checkout; retain that checkout and unrelated dirty work.
