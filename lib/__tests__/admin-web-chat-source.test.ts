@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { buildVerifiedInboxPayload } from '../../web/src/lib/fc-notify-inbox-policy';
 
 const root = join(__dirname, '..', '..');
 const chatPagePath = join(root, 'web', 'src', 'app', 'dashboard', 'chat', 'page.tsx');
@@ -105,12 +106,27 @@ describe('admin web direct chat list source', () => {
     expect(page).not.toContain('if (!chatList || chatList.length === 0 || !deepLinkedTargetId) return null');
   });
 
-  it('scopes web header notifications like direct chat: shared admin for staff, personal for developers and managers', () => {
+  it('binds header inbox scope to verified server roles instead of browser claims', () => {
     const notificationBell = readFileSync(notificationBellPath, 'utf8');
+    const route = readFileSync(fcNotifyRoutePath, 'utf8');
+    const identity = { residentId: '01000000003', residentDigits: '01000000003', displayName: 'QA' };
 
-    expect(notificationBell).toContain("const staffPersonalInboxId = role === 'manager' || isDeveloper ? sanitize(residentId) : null");
-    expect(notificationBell).toContain("const inboxResidentId = inboxRole === 'fc' ? sanitize(residentId) : staffPersonalInboxId");
-    expect(notificationBell).toContain("isDeveloper ? fetchInbox('fc') : Promise.resolve(null)");
+    expect(notificationBell).not.toContain('resident_id:');
+    expect(route).toContain('getVerifiedServerSession(');
+    expect(route).toContain('buildVerifiedInboxPayload({ limit: body.limit }, sessionCheck.session)');
+    for (const [role, staffType, personal, includeFc] of [
+      ['admin', 'admin', false, false],
+      ['admin', 'developer', true, true],
+      ['manager', null, true, true],
+      ['fc', null, true, false],
+    ] as const) {
+      expect(buildVerifiedInboxPayload({}, { ...identity, role, staffType })).toMatchObject({
+        resident_id: personal ? identity.residentDigits : null,
+        include_request_board_fc: includeFc,
+        viewer_actor_role: role,
+        viewer_actor_phone: identity.residentDigits,
+      });
+    }
   });
 
   it('does not send shared admin web push to developer browser subscriptions', () => {

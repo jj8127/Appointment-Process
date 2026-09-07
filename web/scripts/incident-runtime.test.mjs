@@ -24,6 +24,23 @@ const login = async (phone) => {
   return { cookie, role: data.role };
 };
 
+test('staff browser subscriptions use the admin delivery channel while manager identity and permissions remain personal', async () => {
+  const subscribe = (cookie) => fetch(`${base}/api/web-push/subscribe`, {
+    method: 'POST', headers: { cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subscription: { endpoint: 'https://push.example.invalid/synthetic', keys: { p256dh: 'synthetic-key', auth: 'synthetic-auth' } } }),
+  });
+  assert.equal((await subscribe('')).status, 401);
+  const fc = await login('01010000000');
+  assert.equal((await subscribe(fc.cookie)).status, 403);
+  for (const phone of ['01000000001', '01000000002', '01000000003']) {
+    const { cookie, role } = await login(phone);
+    assert.equal((await subscribe(cookie)).status, 200);
+    const stats = await (await fetch(`${upstream}/health`)).json();
+    assert.deepEqual(stats.lastWebPushSubscriber, { role: 'admin', residentId: phone });
+    if (phone === '01000000003') assert.equal(role, 'manager');
+  }
+});
+
 test('reproduces oversized legacy code and event filters without production data', async () => {
   const ids = Array.from({ length: 447 }, (_, n) => `00000000-0000-4000-8000-${String(n+1).padStart(12, '0')}`);
   for (const [table, key, filter] of [

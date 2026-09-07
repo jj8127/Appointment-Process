@@ -50,6 +50,16 @@ createServer(async (req, res) => {
   }
   if (url.pathname.startsWith('/rest/v1/')) {
     const table = url.pathname.slice('/rest/v1/'.length);
+    if (table === 'web_push_subscriptions' && req.method === 'POST') {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      if (!['admin', 'fc'].includes(body.role)) {
+        return reply({ message: 'web_push_subscriptions_role_check', code: '23514' }, 400);
+      }
+      stats.lastWebPushSubscriber = { role: body.role, residentId: body.resident_id };
+      return reply({});
+    }
     const filter = url.searchParams.get('fc_id') ?? url.searchParams.get('or') ?? '';
     if (['referral_codes', 'referral_events'].includes(table)) {
       const ids = Array.from(new Set(filter.match(/[0-9a-f]{8}-[0-9a-f-]{27}/g) ?? []));

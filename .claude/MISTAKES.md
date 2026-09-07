@@ -36,7 +36,8 @@
 - Root cause: deployment lineage lacked atomic login navigation, bounded referral filters and the current verified inbox viewer contract.
 - Why it was missed: local branch correctness did not establish what the production alias served.
 - Permanent guardrail: resolve the alias to an immutable commit before repair; port only relevant changes and run built-route tests with a large synthetic referral fixture and forged viewer inputs. Treat local PASS and production rollout as separate facts.
-- Verification: `web/scripts/incident-runtime.test.mjs` exercises the actual built routes; browser evidence uses synthetic accounts only. Publication remains pending.
+- Verification: `web/scripts/incident-runtime.test.mjs` exercises the actual built routes; browser evidence uses synthetic accounts only. Initial production graph/inbox verification passed; manager subscription follow-up is covered by the same fixture.
+- Follow-up guardrails: when moving scope logic from browser to server, update owning-runner source assertions as well as web tests. Keep subscription delivery channels aligned with sender queries; session roles must not become incompatible storage discriminators.
 
 ## 2026-09-04 | Async repair boundaries | render state and screen lifetime were too broad
 

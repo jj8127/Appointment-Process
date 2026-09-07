@@ -39,7 +39,9 @@ export async function POST(request: Request) {
     .upsert(
       {
         resident_id: sessionCheck.session.residentDigits,
-        role: sessionCheck.session.role,
+        // Staff web delivery queries the admin channel for both admins and managers.
+        // The verified session and resident_id retain the actor's own permissions/scope.
+        role: 'admin',
         endpoint,
         p256dh,
         auth,
