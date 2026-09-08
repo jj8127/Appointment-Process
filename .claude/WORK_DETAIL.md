@@ -14137,3 +14137,11 @@ Verification:
 - The full Jest run passes 235 suites / 1,571 tests and reports 9 failing suites / 13 failing tests. Running those exact nine suites at unchanged base `1d62224a44560c6ace19e04e4c2dcc6d1dc728bc` reproduces the identical 13 failures, so they remain a pre-existing source-format contract baseline outside this link/build-path increment.
 - The canonical release-gate harness owns the final clean-commit, generated Android, local release AAB, DEX guard, hash, and handoff evidence so this repository record does not require a post-build product commit.
 - No Git push, EAS remote build, OTA, Store submission, credential operation, production access, device action, or rollout was performed. Publication remains `HOLD`.
+
+## <a id="20260908-mobile-admin-exam-proof"></a> 2026-09-08 Mobile administrator exam proof restoration
+
+Release checkout base: `25d0b84`; main dirty checkout preserved. Both management routes now load proof presence and retain the matched applicant FC id, then reuse the existing signed-session image preview. Viewing remains available independently of edit permission. Missing profiles cannot fall back to the staff identity. Backend and storage are unchanged.
+
+Five focused suites/37 tests, full TypeScript, targeted lint, Android Hermes export (3,113 modules), source-map verification of both routes, governance and harness audit pass. Actual device and publication remain HOLD. Canonical task: `D:/hanhwa/.codex/harness/exam-admin-proof-restore-20260908`.
+
+User explicitly approved the Android 4.2.8 production OTA on 2026-09-08. Channel routing and production Supabase environment were verified read-only. Publication is pending from the scoped local commit.

@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { ExamPaymentProofHistoryButton } from '@/components/ExamPaymentProofHistoryButton';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import {
@@ -73,6 +74,7 @@ type ExamRegistrationRaw = {
   includes_primary_exam?: boolean | null;
   is_third_exam?: boolean | null;
   fee_paid_date?: string | null;
+  payment_proof_attached?: boolean | null;
   rejection_reason?: string | null;
   created_at: string;
   exam_rounds: ExamRoundRef | ExamRoundRef[] | null;
@@ -89,6 +91,8 @@ type FcProfile = {
 
 type ApplicantRow = {
   registrationId: string;
+  fcId: string | null;
+  paymentProofAttached: boolean;
   residentId: string;
   headQuarter: string;
   name: string;
@@ -109,7 +113,7 @@ async function fetchApplicantsNonlife(adminPhone: string, appSessionToken: strin
     .from('exam_registrations')
     .select(
       `
-      id, resident_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, rejection_reason, created_at,
+      id, resident_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, created_at,
       exam_rounds!exam_registrations_round_exam_type_fkey!inner ( exam_type, exam_date, round_label ),
       exam_locations!exam_registrations_location_round_fkey ( location_name )
     `,
@@ -167,6 +171,8 @@ async function fetchApplicantsNonlife(adminPhone: string, appSessionToken: strin
       .find(Boolean);
     result.push({
       registrationId: reg.id,
+      fcId: profile?.id ?? null,
+      paymentProofAttached: reg.payment_proof_attached === true,
       residentId: key,
       headQuarter: profile?.affiliation ?? '-',
       name: profile?.name ?? '이름없음',
@@ -492,6 +498,20 @@ export default function ExamManageNonlifeScreen() {
             })}
           />
           <InfoLabelValue label="응시료 납입일" value={formatExamYmd(a.feePaidDate)} />
+          {a.paymentProofAttached && a.fcId ? (
+            <ExamPaymentProofHistoryButton
+              key={`${residentId}:${a.registrationId}:${a.fcId}`}
+              appSessionToken={appSessionToken}
+              registrationId={a.registrationId}
+              targetFcId={a.fcId}
+            />
+          ) : (
+            <InfoLabelValue
+              label="입금 내역"
+              value={a.paymentProofAttached ? '신청자 정보를 확인할 수 없습니다.' : '첨부 없음'}
+              fullWidth
+            />
+          )}
           {a.rejectionReason ? <InfoLabelValue label="반려 사유" value={a.rejectionReason} fullWidth /> : null}
           <InfoLabelValue label="주소" value={a.address} fullWidth />
         </View>

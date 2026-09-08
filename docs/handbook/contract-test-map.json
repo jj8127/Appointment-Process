@@ -65,7 +65,9 @@
         "supabase/functions/_shared/exam-payment-proof.ts",
         "supabase/functions/_shared/__tests__/exam-payment-proof_test.ts",
         "supabase/functions/__tests__/exam-payment-proof-contract_test.ts",
-        "supabase/migrations/20260723040446_add_exam_payment_proofs.sql"
+        "supabase/migrations/20260723040446_add_exam_payment_proofs.sql",
+        "app/exam-manage.tsx",
+        "app/exam-manage2.tsx"
       ],
       "requires_any": [
         "lib/__tests__/exam-application-validation.test.ts",
@@ -76,7 +78,8 @@
         "supabase/functions/__tests__/exam-payment-proof-contract_test.ts",
         "docs/handbook/mobile/exam-flows.md",
         "docs/handbook/data/storage-and-attachments.md",
-        "docs/handbook/contract-test-map.json"
+        "docs/handbook/contract-test-map.json",
+        "lib/__tests__/exam-manage-payment-proof.test.ts"
       ]
     },
     {

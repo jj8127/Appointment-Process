@@ -1259,3 +1259,9 @@
 - Focused Jest passes 8 suites / 129 tests; full Expo lint and TypeScript pass. The full Jest run passes 235 suites / 1,571 tests and reproduces the exact same pre-existing 9-suite / 13-test source-contract baseline failures at the unchanged base commit. Final local AAB/DEX evidence is recorded in the canonical release-gate harness after the clean commit is built.
 - No Git push, EAS remote build, OTA, Store submission, credential operation, production access, or rollout was performed. Publication remains HOLD.
 - Details: [WORK_DETAIL.md#20260831-garamin-428-link-safe-android-candidate](WORK_DETAIL.md#20260831-garamin-428-link-safe-android-candidate)
+
+## 2026-09-08 Mobile administrator exam proof restoration
+
+- Connected both release-source exam applicant management screens to the existing private proof preview, including explicit no-attachment and unresolved-applicant states.
+- Five focused suites/37 tests, full TypeScript, scoped lint, Android Hermes export and governance pass. No OTA, native release, backend deployment, DB change or Git push.
+- [→ 상세](WORK_DETAIL.md#20260908-mobile-admin-exam-proof)

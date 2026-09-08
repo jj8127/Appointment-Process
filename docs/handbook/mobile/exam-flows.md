@@ -159,3 +159,10 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - 시험 신청·등록·관리 화면의 스크롤 입력 영역은 Android와 iOS 모두 공용 `KeyboardAwareWrapper` 또는 동등한 키보드 인셋 처리를 사용한다.
 - 사용자가 입력값을 확인하며 드래그할 때 키보드를 자동으로 닫지 않으며, 포커스된 입력란은 실제 키보드 높이와 시스템 하단 인셋을 기준으로 보이는 영역에 유지한다.
 - 기기별 고정 오프셋으로 입력 영역을 올리지 않는다. 키보드와 시스템 내비게이션 바 크기는 런타임 측정값을 따른다.
+
+## 2026-09-08 관리자 신청자 입금 증빙 열람
+
+- `exam-manage`, `exam-manage2`는 `payment_proof_attached`를 조회하고, 기존 전화번호 정규화 조회로 찾은 FC id를 신청 row에 보존한다.
+- 첨부된 사진은 공용 `ExamPaymentProofHistoryButton`에 정확한 신청 ID, 대상 FC ID와 signed app session을 전달해 연다. 조회 권한은 편집 가능 여부와 분리하므로 총무·개발자 및 조회 전용 본부장도 열람할 수 있다.
+- 미첨부는 `첨부 없음`, 첨부되었으나 신청자 profile이 없으면 `신청자 정보를 확인할 수 없습니다.`로 표시한다. 대상 누락을 로그인 직원 ID로 대체하지 않는다.
+- 생명·손해 모두 실행형 route/query 테스트로 대상 매핑과 화면 상태를 검증한다. 실제 기기 및 운영 배포 여부는 별도 근거로 관리한다.
