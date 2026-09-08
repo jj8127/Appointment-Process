@@ -36,3 +36,5 @@ Login UI hints are emitted atomically with signed HttpOnly cookies; password log
 Staff web-push storage uses the existing admin delivery channel for verified admin/manager sessions, retaining each actor's personal resident ID and manager read-only authorization. This aligns subscription writes with sender selection and existing role constraints; no database migration is needed. Runtime regression covers the prior manager 500 and rejects FC/unsigned requests.
 
 Admin graph release parity includes the Canvas and physics modules as well as the page/API. Restored pointer tracking, gesture-scoped edge stretching and compact leaf targets are covered by RF-ADMIN-08; read-only authorization and recent API recovery remain unchanged.
+
+- 2026-09-08 applicant export: canonical filtered-row XLSX retains the accepted 18-column layout, status styling, literal identifiers and protected 30-day proof hyperlinks. Workbook binary tests plus the synthetic built-route authorization/batching tests guard export parity.

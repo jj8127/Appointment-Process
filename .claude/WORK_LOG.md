@@ -17,6 +17,10 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-09-08
+
+- 관리자 시험 신청자 다운로드에서 이전 XLSX 변경 누락을 확인하고 18개 열, 서식, 틀 고정, 필터, 상태 구분과 증빙 링크 발급을 복원했다. [상세](WORK_DETAIL.md#20260908-applicant-workbook-restore)
+
 ## 2026-09-07
 
 Restored prior administrator graph pointer tracking, drag-start link stretch bounds and compact terminal-leaf spacing from the immutable July release lineage. Current auth, bounded reads, inbox and push corrections are retained. [→ 상세](WORK_DETAIL.md#20260907-admin-graph-runtime-restore)

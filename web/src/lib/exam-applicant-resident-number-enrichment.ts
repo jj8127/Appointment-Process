@@ -11,6 +11,8 @@ export type ExamRegistrationRow = {
   round_id?: string | null;
   resident_id: string;
   is_confirmed: boolean;
+  includes_primary_exam?: boolean | null;
+  payment_proof_attached?: boolean | null;
   is_third_exam?: boolean | null;
   fee_paid_date?: string | null;
   exam_locations?: { location_name?: string | null } | null;
@@ -24,6 +26,8 @@ export type ExamApplicantBaseRow = {
   round_id: string | null;
   resident_id: string;
   is_confirmed: boolean;
+  includes_primary_exam: boolean;
+  payment_proof_attached: boolean;
   is_third_exam: boolean;
   application_type: ExamApplicantApplicationType;
   location_name: string;
@@ -89,6 +93,8 @@ export function buildExamApplicantBaseRows(rows: ExamRegistrationRow[]): ExamApp
     round_id: row.round_id ?? null,
     resident_id: row.resident_id,
     is_confirmed: row.is_confirmed,
+    includes_primary_exam: row.includes_primary_exam ?? true,
+    payment_proof_attached: row.payment_proof_attached ?? false,
     is_third_exam: row.is_third_exam ?? false,
     application_type: '신규신청',
     location_name: row.exam_locations?.location_name || '미정',

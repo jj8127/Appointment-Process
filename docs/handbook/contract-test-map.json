@@ -3,6 +3,19 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "exam-applicant-workbook-parity",
+      "prefixes": [
+        "web/src/lib/exam-applicant-workbook",
+        "web/src/app/api/admin/exam-applicants/payment-proof-export/",
+        "web/src/app/dashboard/exam/applicants/page.tsx"
+      ],
+      "requires_any": [
+        "web/src/lib/exam-applicant-workbook.test.ts",
+        "web/scripts/exam-workbook-runtime.test.mjs",
+        "docs/handbook/admin-web/exam-and-referral-ops.md"
+      ]
+    },
+    {
       "id": "sentry-incident-async-regressions",
       "prefixes": [
         "lib/board-composer-operation.ts",

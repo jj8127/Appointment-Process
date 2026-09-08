@@ -2,6 +2,18 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+test('restored export separates rejected applications and third-only subjects', async () => {
+  const mod = await import('./exam-applicant-list-display.ts');
+  assert.equal(mod.formatExamApplicantApplicationStatus({ status: 'rejected' }), '반려');
+  assert.equal(mod.formatExamApplicantApplicationStatus({ status: 'cancelled_by_fc' }), '본인 취소');
+  assert.equal(mod.formatExamApplicantApplicationStatus({ status: 'confirmed' }), '신청 완료');
+  assert.equal(mod.formatExamApplicantApplicationStatus({ status: 'unknown' }), '-');
+  const item = { affiliation: '', name: '', resident_id: '', address: '', phone: '',
+    location_name: '', round_label: '', exam_date: null, is_confirmed: false,
+    exam_type: 'life', includes_primary_exam: false, is_third_exam: true };
+  assert.equal(mod.formatExamApplicantSubject(item), '제3보험');
+});
+
 test('exam applicant list display columns follow the confirmed admin workbook order', async () => {
   const mod = await import('./exam-applicant-list-display.ts').catch(() => null);
 
@@ -17,6 +29,7 @@ test('exam applicant list display columns follow the confirmed admin workbook or
       '시험 신청일',
       '시험응시 과목',
       '시험 신청 구분',
+      '신청 상태',
       '생명보험 응시일자',
       '생명보험 고사장',
       '손해보험 응시일자',

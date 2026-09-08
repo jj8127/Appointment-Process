@@ -5,6 +5,8 @@
 
 ## 기록 규칙
 
+- Restoring a production incident from an older branch can omit previously accepted download behavior even when the page renders. Compare the artifact builder, export columns, file extension and required read/link endpoints against the accepted release, then inspect generated workbook structure; a page/API smoke check alone does not prove export parity.
+
 - 아래 경우에만 기록합니다.
   - 이미 고쳤다고 생각했던 동작이 다시 깨진 경우
   - 화면/route/function 사이 계약이 서로 달라져 사용자-visible 문제가 생긴 경우

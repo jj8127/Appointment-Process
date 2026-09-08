@@ -7,6 +7,14 @@
 
 ---
 
+## <a id="20260908-applicant-workbook-restore"></a> 2026-09-08 | Restore applicant workbook export
+
+- Production e8ca8c4 retained the older unstyled CSV exporter. The prior 5f19ec9 release snapshot contains an 18-column XLSX with title, fixed headers/identity columns, filters, widths, status styling and protected 30-day proof links. Restore that builder and lazy export flow on current production rather than importing unrelated exam decision/detail flows.
+- Add application status to the shared column contract and carry includes_primary_exam/payment_proof_attached through the existing trusted read API. Keep mutations and authorization unchanged. Metadata-only Supabase checks confirm both columns, proof table and private bucket already exist; no database changes or production downloads.
+- Restore the verified admin/manager proof-export route with UUID validation, bounded requests, deduplication, 100-path batches and no-store output. Null JSON payloads return 400. Retain the existing staff session implementation and keep FC denied.
+- Verification: 22 focused workbook/display/enrichment tests, three built-route tests and 576 root tests pass; web lint/type/build pass. Binary XLSX assertions inspect frozen panes, auto-filter, styles, text identifiers, literal formula-like text and hyperlink relationships. Synthetic browser download produced an 18-column/three-applicant workbook with A4:R7 filter, frozen panes and expected statuses; browser console errors were zero. The browser download-event observer timed out, but the known synthetic downloaded file was independently validated. Final deployment/CI identity is recorded in the existing canonical harness.
+- Existing deployment authorization covers correction of the omitted export. Original dirty checkout remains untouched. No native/backend migration or production notification send.
+
 ## <a id="20260907-admin-graph-runtime-restore"></a> 2026-09-07 | Restore prior admin graph runtime
 
 - User reported that previously changed graph behavior was absent after the incident repair deployment. Comparing production `86be21d` with immutable release snapshot `5f19ec9` identifies five differing graph runtime/test files; the graph page shell itself is unchanged.

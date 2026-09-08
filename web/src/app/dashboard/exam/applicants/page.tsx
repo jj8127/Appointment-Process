@@ -45,6 +45,7 @@ import {
     type ExamApplicantExportColumnKey,
     type ExamApplicantFilterOption,
 } from '@/lib/exam-applicant-list-display';
+import { buildExamPaymentProofExportLinkMap, type ExamPaymentProofExportLink } from '@/lib/exam-payment-proof-admin';
 import { supabase } from '@/lib/supabase';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -73,6 +74,8 @@ type Applicant = {
     exam_type?: string | null;
     fee_paid_date?: string | null;
     is_confirmed: boolean;
+    includes_primary_exam?: boolean;
+    payment_proof_attached?: boolean;
     is_third_exam?: boolean;
     application_type?: string | null;
 };
@@ -291,6 +294,7 @@ async function notifyFcExamApprovalStatus(item: Applicant, isConfirmed: boolean)
 export default function ExamApplicantsPage() {
     const queryClient = useQueryClient();
     const { isReadOnly, hydrated, role } = useSession();
+    const [isExporting, setIsExporting] = useState(false);
     const [filters, setFilters] = useState<FilterState>({});
     const [quickAffiliation, setQuickAffiliation] = useState('전체');
     const [examSubjectFilter, setExamSubjectFilter] = useState(EXAM_APPLICANT_ALL_FILTER_VALUE);
@@ -532,36 +536,95 @@ export default function ExamApplicantsPage() {
         },
     });
 
-    // --- CSV Download ---
-    const handleDownloadCsv = () => {
+    // --- XLSX Download ---
+    const handleDownloadExcel = async () => {
         if (filteredRows.length === 0) {
             notifications.show({ title: '알림', message: '다운로드할 데이터가 없습니다.', color: 'blue' });
             return;
         }
 
-        const headers = EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => column.title);
-        const asExcelText = (value: string) => `="${String(value).replace(/"/g, '""')}"`;
-        const pRows = filteredRows.map((item) =>
-            EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => {
-                const value = getRowValue(item, column.key);
-                return column.key === 'phone' || column.key === 'resident_id'
-                    ? asExcelText(value)
-                    : value;
-            }),
-        );
+        setIsExporting(true);
+        try {
+            const attachedRegistrationIds = filteredRows
+                .filter((item) => item.payment_proof_attached)
+                .map((item) => item.id);
+            let proofLinks = new Map<string, ExamPaymentProofExportLink>();
 
-        const csvContent = [
-            headers.join(','),
-            ...pRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
-        ].join('\n');
+            if (attachedRegistrationIds.length > 0) {
+                const response = await fetch('/api/admin/exam-applicants/payment-proof-export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    cache: 'no-store',
+                    body: JSON.stringify({ registrationIds: attachedRegistrationIds }),
+                });
+                const json: unknown = await response.json().catch(() => null);
+                const rawLinks =
+                    isRecord(json) && Array.isArray(json.links)
+                        ? json.links
+                        : [];
+                const links = rawLinks.filter((value): value is ExamPaymentProofExportLink => (
+                    isRecord(value)
+                    && typeof value.registrationId === 'string'
+                    && typeof value.storagePath === 'string'
+                    && typeof value.signedUrl === 'string'
+                ));
 
-        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `exam_applicants_${dayjs().format('YYYYMMDD')}.csv`;
-        link.click();
-        URL.revokeObjectURL(url);
+                if (
+                    !response.ok
+                    || !isRecord(json)
+                    || json.ok !== true
+                    || links.length !== rawLinks.length
+                    || links.length !== attachedRegistrationIds.length
+                ) {
+                    const message =
+                        isRecord(json) && typeof json.error === 'string'
+                            ? json.error
+                            : '입금 증빙 링크를 발급하지 못했습니다.';
+                    throw new Error(message);
+                }
+                proofLinks = buildExamPaymentProofExportLinkMap(links);
+            }
+
+            const headers = [
+                ...EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => column.title),
+                '접수 상태',
+                '입금 증빙 경로',
+                '입금 증빙 URL (30일 유효)',
+            ];
+            const workbookRows = filteredRows.map((item) => {
+                const proofLink = proofLinks.get(item.id);
+                return {
+                    values: [
+                        ...EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => {
+                            return getRowValue(item, column.key);
+                        }),
+                        formatExamApplicantReceptionStatus(item),
+                        proofLink?.storagePath ?? '-',
+                        proofLink?.signedUrl ?? '-',
+                    ],
+                    isConfirmed: item.is_confirmed,
+                    proofUrl: proofLink?.signedUrl ?? null,
+                };
+            });
+
+            const { downloadExamApplicantWorkbook } = await import(
+                '@/lib/exam-applicant-workbook'
+            );
+            await downloadExamApplicantWorkbook({
+                headers,
+                rows: workbookRows,
+                generatedAt: new Date(),
+                fileName: `exam_applicants_${dayjs().format('YYYYMMDD')}.xlsx`,
+            });
+        } catch (exportError: unknown) {
+            const message = exportError instanceof Error
+                ? exportError.message
+                : '엑셀 파일을 만들지 못했습니다.';
+            notifications.show({ title: '엑셀 다운로드 실패', message, color: 'red' });
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     const renderHeader = (title: string, field: ColumnField, minWidth?: number) => {
@@ -690,7 +753,8 @@ export default function ExamApplicantsPage() {
                             leftSection={<IconDownload size={16} />}
                             variant="filled"
                             color="green"
-                            onClick={handleDownloadCsv}
+                            onClick={handleDownloadExcel}
+                            loading={isExporting}
                             radius="md"
                         >
                             엑셀 다운로드

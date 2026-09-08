@@ -57,7 +57,7 @@ async function listApplicants(staffPhone: string, roundId?: string) {
   const { data, error } = await adminSupabase
     .from('exam_registrations')
     .select(`
-      id, status, created_at, round_id, resident_id, is_confirmed, is_third_exam, fee_paid_date,
+      id, status, created_at, round_id, resident_id, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached,
       exam_locations!exam_registrations_location_round_fkey ( location_name ),
       exam_rounds ( round_label, exam_date, exam_type )
     `)

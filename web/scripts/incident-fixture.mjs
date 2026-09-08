@@ -1,4 +1,4 @@
-// Synthetic localhost-only upstream for the login/referral/inbox regression.
+// Synthetic localhost-only upstream for login/referral/inbox and workbook regression.
 import { createServer } from 'node:http';
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -53,8 +53,29 @@ createServer(async (req, res) => {
     }
     return reply({ ok: true, notifications: [], notices: [] });
   }
+  if (url.pathname === '/functions/v1/admin-action') {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (body.action !== 'getResidentNumbers') return reply({ ok: false }, 400);
+    return reply({ ok: true, residentNumbers: Object.fromEntries(body.payload.fcIds.map(id => [id, 'SYNTHETIC-ID'])) });
+  }
   if (url.pathname.startsWith('/rest/v1/')) {
     const table = url.pathname.slice('/rest/v1/'.length);
+    if (table === 'exam_payment_proof_uploads') {
+      const ids = (url.searchParams.get('registration_id') ?? '').match(/[0-9a-f]{8}-[0-9a-f-]{27}/g) ?? [];
+      return reply(ids.map(registration_id => ({ registration_id, storage_path: `synthetic/${registration_id}.png` })));
+    }
+    if (table === 'exam_registrations') {
+      return reply(profiles.slice(0, 3).map((profile, index) => ({
+        id: id(index + 1), resident_id: profile.phone, status: index === 1 ? 'rejected' : 'applied',
+        created_at: '2026-09-01T00:00:00Z', round_id: id(900), is_confirmed: index === 0,
+        includes_primary_exam: index !== 2, is_third_exam: index === 2, payment_proof_attached: index === 0,
+        fee_paid_date: index === 0 ? '2026-08-31' : null,
+        exam_locations: { location_name: 'Synthetic location' },
+        exam_rounds: { round_label: 'Synthetic round', exam_date: '2026-09-20', exam_type: 'life' },
+      })));
+    }
     if (table === 'web_push_subscriptions' && req.method === 'POST') {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
@@ -85,6 +106,15 @@ createServer(async (req, res) => {
       if (value?.startsWith('in.')) rows = rows.filter(row => value.includes(String(row[key])));
     }
     return reply(req.headers.accept?.includes('application/vnd.pgrst.object+json') ? rows[0] ?? null : rows);
+  }
+  if (url.pathname === '/storage/v1/object/sign/exam-payment-proofs') {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (body.expiresIn !== 30 * 24 * 60 * 60 || body.paths.length > 100) {
+      return reply({ error: 'Unexpected synthetic signing request' }, 400);
+    }
+    return reply(body.paths.map(path => ({ path, signedURL: `/object/sign/exam-payment-proofs/${path}?token=synthetic` })));
   }
   return reply({ error: 'Synthetic endpoint not implemented' }, 404);
 }).listen(55491, '127.0.0.1', () => console.log('Synthetic upstream ready on 127.0.0.1:55491'));

@@ -1,6 +1,7 @@
 export type ExamApplicantApplicationType = '신규신청' | '재신청';
 
 export type ExamApplicantListItem = {
+  status?: string | null;
   created_at?: string | null;
   round_id?: string | null;
   affiliation: string;
@@ -14,6 +15,7 @@ export type ExamApplicantListItem = {
   exam_type?: string | null;
   fee_paid_date?: string | null;
   is_confirmed: boolean;
+  includes_primary_exam?: boolean;
   is_third_exam?: boolean;
   application_type?: ExamApplicantApplicationType | string | null;
 };
@@ -32,6 +34,7 @@ export type ExamApplicantExportColumnKey =
   | 'application_created_at'
   | 'subject_display'
   | 'application_type'
+  | 'application_status'
   | 'life_exam_date'
   | 'life_location'
   | 'nonlife_exam_date'
@@ -54,6 +57,7 @@ export const EXAM_APPLICANT_EXPORT_COLUMNS: ExamApplicantExportColumn[] = [
   { key: 'application_created_at', title: '시험 신청일', minWidth: 140 },
   { key: 'subject_display', title: '시험응시 과목', minWidth: 180 },
   { key: 'application_type', title: '시험 신청 구분', minWidth: 150 },
+  { key: 'application_status', title: '신청 상태', minWidth: 130 },
   { key: 'life_exam_date', title: '생명보험 응시일자', minWidth: 150 },
   { key: 'life_location', title: '생명보험 고사장', minWidth: 130 },
   { key: 'nonlife_exam_date', title: '손해보험 응시일자', minWidth: 150 },
@@ -222,6 +226,9 @@ export function formatExamApplicantSubject(item: ExamApplicantListItem): string 
         ? '손해보험'
         : '미정';
 
+  if (item.includes_primary_exam === false && item.is_third_exam) {
+    return '제3보험';
+  }
   if (!item.is_third_exam) {
     return base;
   }
@@ -248,6 +255,21 @@ export function formatExamApplicantSchedule(item: ExamApplicantListItem): string
 
 export function formatExamApplicantReceptionStatus(item: Pick<ExamApplicantListItem, 'is_confirmed'>): string {
   return item.is_confirmed ? '접수 완료' : '미접수';
+}
+
+export function formatExamApplicantApplicationStatus(
+  item: Pick<ExamApplicantListItem, 'status'>,
+): string {
+  const labels: Record<string, string> = {
+    applied: '신청 완료',
+    confirmed: '신청 완료',
+    completed: '시험 완료',
+    no_show: '미응시',
+    rejected: '반려',
+    cancelled_by_fc: '본인 취소',
+    cancelled_by_admin: '관리자 취소',
+  };
+  return labels[String(item.status ?? '')] ?? '-';
 }
 
 export function formatExamApplicantFeePaidDate(item: Pick<ExamApplicantListItem, 'fee_paid_date'>): string {
@@ -286,6 +308,8 @@ export function getExamApplicantCellValue(
       return formatExamApplicantSubject(item);
     case 'application_type':
       return item.application_type || '신규신청';
+    case 'application_status':
+      return formatExamApplicantApplicationStatus(item);
     case 'life_exam_date':
       return primarySubject === 'life' ? formatExamApplicantSchedule(item) : '-';
     case 'life_location':
