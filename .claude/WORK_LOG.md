@@ -1265,3 +1265,9 @@
 - Connected both release-source exam applicant management screens to the existing private proof preview, including explicit no-attachment and unresolved-applicant states.
 - Five focused suites/37 tests, full TypeScript, scoped lint, Android Hermes export and governance pass. No OTA, native release, backend deployment, DB change or Git push.
 - [→ 상세](WORK_DETAIL.md#20260908-mobile-admin-exam-proof)
+
+## 2026-09-08 Exam proof production OTA publication
+
+- With explicit approval, published the restored mobile exam proof viewing to production Android runtime 4.2.8 from clean source `d51f8f9`. The production manifest and downloaded bundle match the verified artifact.
+- Physical-device acceptance remains; no Git push, DB/backend change, Store/native or iOS release.
+- [→ 상세](WORK_DETAIL.md#20260908-exam-proof-production-ota)

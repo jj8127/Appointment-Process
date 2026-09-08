@@ -14145,3 +14145,11 @@ Release checkout base: `25d0b84`; main dirty checkout preserved. Both management
 Five focused suites/37 tests, full TypeScript, targeted lint, Android Hermes export (3,113 modules), source-map verification of both routes, governance and harness audit pass. Actual device and publication remain HOLD. Canonical task: `D:/hanhwa/.codex/harness/exam-admin-proof-restore-20260908`.
 
 User explicitly approved the Android 4.2.8 production OTA on 2026-09-08. Channel routing and production Supabase environment were verified read-only. Publication is pending from the scoped local commit.
+
+## <a id="20260908-exam-proof-production-ota"></a> 2026-09-08 Exam proof production OTA
+
+User-approved Android-only runtime 4.2.8 publication at 13:51 KST. Source d51f8f991f0cdf37d54ea024becc2bb255b3fb1e; group 04af071a-e101-428b-87d6-22b3ac636244; update 01a07f5b-c28f-7ea1-9808-d956e9bb47b9. The active production channel selects this update. Downloaded launch bundle SHA-256 a6dc9ef107f47cf5da7fa3a3893a47213bdf635803f72ee18f570ed3c3ef0f3f matches the production-environment artifact.
+
+Rebuilt with cleared Metro cache under EAS production Supabase variables plus the existing production build-profile Sentry settings. Presence of required public client values and both proof routes was checked inside the bundle without retaining their values. Supabase/Edge, native runtime, iOS and Git remote remain unchanged.
+
+Focused verification remains 5 suites/37 tests, full TypeScript and targeted lint PASS. Actual handset proof opening is not claimed. Source-map upload was disabled. Canonical evidence: D:/hanhwa/.codex/harness/exam-admin-proof-restore-20260908.

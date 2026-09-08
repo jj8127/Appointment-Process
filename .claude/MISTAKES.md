@@ -5724,3 +5724,9 @@
 - Verification:
   - Developer onboarding, command reference, and production build guidance use the stable worktree and package scripts without a disposable `--prefix` path.
   - The 4.2.8 release-context tests exercise exact identity, path-independent reads, link-fix drift, and no-network check mode.
+
+## 2026-09-08 | Metro export cache across environment changes
+
+- Symptom: an export under production environment reused the prior environment-free bundle; required public client values were absent despite a successful bundle command.
+- Cause: Metro transform cache survived the environment switch. A compile/export success did not prove runtime configuration.
+- Guardrail: for OTA, clear the Metro cache after switching environments, verify required production client values are embedded without printing them, and publish that exact artifact with skip-bundler. Validate the served manifest and asset hash after publication.
