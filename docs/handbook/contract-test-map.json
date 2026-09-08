@@ -3,6 +3,21 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "mobile-messenger-photo-preview",
+      "prefixes": [
+        "components/MessengerAttachmentImage.tsx",
+        "hooks/use-messenger-image-preview.ts",
+        "lib/messenger-attachment-api.ts",
+        "app/chat.tsx",
+        "app/group-chat.tsx"
+      ],
+      "requires_any": [
+        "lib/__tests__/messenger-image-preview.test.js",
+        "lib/__tests__/messenger-attachment-api.test.ts",
+        "docs/handbook/mobile/messenger-and-content.md"
+      ]
+    },
+    {
       "id": "edge-diagnostic-privacy",
       "prefixes": [
         "supabase/functions/_shared/edge-diagnostic.ts",

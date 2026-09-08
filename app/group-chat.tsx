@@ -34,6 +34,7 @@ import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
+import { MessengerAttachmentImage } from '@/components/MessengerAttachmentImage';
 import {
   MessageSelectCopySheet,
   MessengerMessageActionSheet,
@@ -66,7 +67,8 @@ import {
   MESSENGER_ATTACHMENT_MIME_BY_EXTENSION,
   prepareMessengerAttachmentBatch,
   removeSelectedMessengerAttachment,
-  uploadMessengerAttachmentBatch,
+  sendMessengerAttachmentBatch,
+  MessengerAttachmentCommitUncertainError,
   type PreparedMessengerAttachmentBatch,
   type SelectedMessengerAttachment,
 } from '@/lib/messenger-attachment-api';
@@ -848,27 +850,23 @@ export default function GroupChatScreen() {
     let notificationRetry: GroupChatNotificationRetry | null = null;
     let shouldShowDeliveryWarning = false;
     const commit = async () => {
-      let attachmentIntentIds: string[] | null = null;
       if (input.attachmentBatch) {
-        const uploadResult = await uploadMessengerAttachmentBatch(
+        return sendMessengerAttachmentBatch(
           input.attachmentBatch,
+          (attachmentIntentIds) => groupChatSend({
+            content: input.content,
+            messageType: input.messageType,
+            replyToMessageId: input.replyToMessageId,
+            attachmentIntentIds,
+            deliveryKey: input.attachmentBatch!.deliveryKey,
+            payloadFingerprint: input.attachmentBatch!.payloadFingerprint,
+          }),
         );
-        if (uploadResult.state === 'committed') {
-          return { state: 'committed' as const };
-        }
-        attachmentIntentIds = uploadResult.intentIds;
       }
       const result = await groupChatSend({
         content: input.content,
         messageType: input.messageType,
         replyToMessageId: input.replyToMessageId,
-        ...(input.attachmentBatch && attachmentIntentIds
-          ? {
-              attachmentIntentIds,
-              deliveryKey: input.attachmentBatch.deliveryKey,
-              payloadFingerprint: input.attachmentBatch.payloadFingerprint,
-            }
-          : {}),
       });
       return { state: 'sent' as const, result };
     };
@@ -878,9 +876,9 @@ export default function GroupChatScreen() {
       try {
         return await commit();
       } catch (error) {
-        if (!input.attachmentBatch) throw error;
+        if (!(error instanceof MessengerAttachmentCommitUncertainError)) throw error;
         logger.warn('[group-chat] attachment send result unavailable');
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
           Alert.alert(
             '전송 확인 필요',
             '파일 메시지 전송 결과를 확인하지 못했습니다. 같은 요청으로 다시 확인하면 중복 전송되지 않습니다.',
@@ -889,7 +887,7 @@ export default function GroupChatScreen() {
               {
                 text: '다시 확인',
                 onPress: () => {
-                  void commitWithRetry().then(resolve);
+                  void commitWithRetry().then(resolve, reject);
                 },
               },
             ],
@@ -1339,7 +1337,13 @@ export default function GroupChatScreen() {
               selectable={false}
             />
           ) : null}
-          {item.attachments.map((attachment) => (
+          {item.attachments.map((attachment) => attachment.mimeType.startsWith('image/') ? (
+            <MessengerAttachmentImage
+              key={attachment.id}
+              attachmentId={attachment.id}
+              onLongPress={() => openMessageActions(item)}
+            />
+          ) : (
             <Pressable
               key={attachment.id}
               style={[
@@ -1441,7 +1445,7 @@ export default function GroupChatScreen() {
         selectable={false}
       />
     );
-  }, []);
+  }, [openMessageActions]);
 
   const renderItem = useCallback(({ item }: { item: GroupChatMessage }) => {
     const isMe = item.sender_actor_id === actor?.id;
@@ -1488,6 +1492,10 @@ export default function GroupChatScreen() {
                 isMe ? styles.bubbleMe : styles.bubbleOther,
                 item.message_type === 'image' && !item.deleted_at && styles.bubbleImage,
                 item.message_type === 'file' && !item.deleted_at && styles.bubbleFile,
+                !item.deleted_at && !item.content && !item.reply_to_message_id
+                  && item.attachments.length > 0
+                  && item.attachments.every((attachment) => attachment.mimeType.startsWith('image/'))
+                  && styles.bubblePhotos,
                 isHighlighted && styles.anchorMessageBubble,
               ]}
             >
@@ -2031,6 +2039,7 @@ const styles = StyleSheet.create({
   bubbleOther: { backgroundColor: '#fff', borderTopLeftRadius: 2, borderWidth: 1, borderColor: '#F3F4F6' },
   bubbleImage: { paddingHorizontal: 4, paddingVertical: 4 },
   bubbleFile: { paddingHorizontal: 8, paddingVertical: 8 },
+  bubblePhotos: { paddingHorizontal: 0, paddingVertical: 0, backgroundColor: 'transparent', borderWidth: 0, elevation: 0, shadowOpacity: 0 },
   anchorMessageBubble: {
     borderWidth: 2,
     borderColor: HANWHA_ORANGE,

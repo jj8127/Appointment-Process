@@ -55,7 +55,8 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('multiple: true');
     expect(source).toContain('appendMessengerAttachmentCandidates');
     expect(source).toContain('prepareMessengerAttachmentBatch');
-    expect(source).toContain('uploadMessengerAttachmentBatch');
+    expect(source).toContain('sendMessengerAttachmentBatch');
+    expect(source).toContain('<MessengerAttachmentImage');
     expect(source).toContain('openAuthorizedMessengerAttachment');
     expect(source).toContain('ImagePicker.launchImageLibraryAsync');
     expect(source).toContain('accessibilityLabel="사진 첨부"');

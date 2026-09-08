@@ -475,8 +475,9 @@ async function readFunctionErrorPayload(error: unknown) {
 
 async function invokeMessengerAttachmentFunction<T>(
   body: Record<string, unknown>,
+  sessionToken?: string,
 ) {
-  const appSessionToken = await getStoredAppSessionToken();
+  const appSessionToken = sessionToken ?? await getStoredAppSessionToken();
   if (!appSessionToken) {
     throw new MessengerAttachmentError(
       MESSENGER_ATTACHMENT_ERROR_COPY.missingSession,
@@ -737,8 +738,51 @@ export function formatMessengerAttachmentSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
+export class MessengerAttachmentCommitUncertainError extends Error {
+  constructor() {
+    super('메시지 저장 결과를 확인하지 못했습니다.');
+    this.name = 'MessengerAttachmentCommitUncertainError';
+  }
+}
+
+// Upload errors are definite failures. Only a failed commit response needs
+// reconciliation; the same delivery key can confirm a saved message without
+// uploading again or sending a second message.
+export async function sendMessengerAttachmentBatch<T>(
+  batch: PreparedMessengerAttachmentBatch,
+  commit: (intentIds: string[]) => Promise<T>,
+): Promise<{ state: 'sent'; result: T } | { state: 'committed' }> {
+  const upload = await uploadMessengerAttachmentBatch(batch);
+  if (upload.state === 'committed') return { state: 'committed' };
+  try {
+    return { state: 'sent', result: await commit(upload.intentIds) };
+  } catch (error) {
+    // Preserve explicit authentication/validation failures. They must not be
+    // disguised as a connectivity problem with an endless retry prompt.
+    const status = error && typeof error === 'object' && 'status' in error
+      ? Number(error.status) : undefined;
+    if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+      throw error;
+    }
+    try {
+      const recovered = await requestUploadIntents(batch);
+      if (recovered.state === 'committed') return { state: 'committed' };
+    } catch {
+      // Unavailable recovery is not evidence that the original commit failed.
+    }
+    throw new MessengerAttachmentCommitUncertainError();
+  }
+}
+
 export async function createMessengerAttachmentDownloadUrl(
   attachmentId: string,
+) {
+  return (await createMessengerAttachmentPreviewUrl(attachmentId)).signedUrl;
+}
+
+export async function createMessengerAttachmentPreviewUrl(
+  attachmentId: string,
+  sessionToken?: string,
 ) {
   const id = normalizeUuid(attachmentId, 'invalid_attachment_id');
   const response = await invokeMessengerAttachmentFunction<{
@@ -748,7 +792,7 @@ export async function createMessengerAttachmentDownloadUrl(
   }>({
     type: 'download_url_create',
     attachmentId: id,
-  });
+  }, sessionToken);
   const download =
     response.download
     && typeof response.download === 'object'
@@ -773,5 +817,5 @@ export async function createMessengerAttachmentDownloadUrl(
       { code: 'invalid_attachment_download_response' },
     );
   }
-  return signedUrl;
+  return { signedUrl, expiresAt: download.expiresAt };
 }

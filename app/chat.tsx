@@ -26,6 +26,7 @@ import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
+import { MessengerAttachmentImage } from '@/components/MessengerAttachmentImage';
 import {
   MessageSelectCopySheet,
   MessengerMessageActionSheet,
@@ -80,7 +81,8 @@ import {
   MESSENGER_ATTACHMENT_MIME_BY_EXTENSION,
   prepareMessengerAttachmentBatch,
   removeSelectedMessengerAttachment,
-  uploadMessengerAttachmentBatch,
+  sendMessengerAttachmentBatch,
+  MessengerAttachmentCommitUncertainError,
   type MessengerAttachmentMetadata,
   type PreparedMessengerAttachmentBatch,
   type SelectedMessengerAttachment,
@@ -1258,17 +1260,10 @@ export default function ChatScreen() {
       if (!attachmentBatch) {
         return { state: 'sent', result: await sendCommittedMessage(null) };
       }
-      const uploadResult = await uploadMessengerAttachmentBatch(
-        attachmentBatch,
-      );
-      if (uploadResult.state === 'committed') {
-        return { state: 'committed' };
-      }
-      uploadedIntentIds = uploadResult.intentIds;
-      return {
-        state: 'sent',
-        result: await sendCommittedMessage(uploadedIntentIds),
-      };
+      return sendMessengerAttachmentBatch(attachmentBatch, (intentIds) => {
+        uploadedIntentIds = intentIds;
+        return sendCommittedMessage(intentIds);
+      });
     };
     const commitMessageWithRetry = async (): Promise<
       Awaited<ReturnType<typeof commitMessage>> | null
@@ -1276,11 +1271,11 @@ export default function ChatScreen() {
       try {
         return await commitMessage();
       } catch (error) {
-        logger.warn('sendMessage error', {
-          error: error instanceof Error ? error.message : String(error),
-          conversationId: resolvedConversation.id,
-          clientMessageId,
-        });
+        logger.warn('[chat] send result unavailable');
+        if (attachmentBatch && !(error instanceof MessengerAttachmentCommitUncertainError)) {
+          Alert.alert('전송 실패', error instanceof Error ? error.message : '파일을 전송하지 못했습니다.');
+          return null;
+        }
         return new Promise((resolve) => {
           Alert.alert(
             '전송 확인 필요',
@@ -1576,7 +1571,13 @@ export default function ChatScreen() {
               linkPressBehavior="open"
             />
           ) : null}
-          {item.attachments.map((attachment) => (
+          {item.attachments.map((attachment) => attachment.mimeType.startsWith('image/') ? (
+            <MessengerAttachmentImage
+              key={attachment.id}
+              attachmentId={attachment.id}
+              onLongPress={() => openMessageActions(item)}
+            />
+          ) : (
             <TouchableOpacity
               key={attachment.id}
               style={[
@@ -1753,6 +1754,9 @@ export default function ChatScreen() {
                     paddingHorizontal: 8,
                     paddingVertical: 8,
                   },
+                  !item.content && item.attachments.length > 0
+                    && item.attachments.every((attachment) => attachment.mimeType.startsWith('image/'))
+                    && styles.bubblePhotos,
                 ]}>
                 {renderMessageContent(item, isMe)}
               </View>
@@ -2500,6 +2504,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   bubbleMe: { backgroundColor: HANWHA_ORANGE, borderTopRightRadius: 2 },
+  bubblePhotos: { paddingHorizontal: 0, paddingVertical: 0, backgroundColor: 'transparent', borderWidth: 0, elevation: 0, shadowOpacity: 0 },
   bubbleOther: { backgroundColor: '#ffffff', borderTopLeftRadius: 2, borderWidth: 1, borderColor: '#F3F4F6' },
   msgText: { fontSize: 15, lineHeight: 22, flexWrap: 'wrap', flexShrink: 1, width: '100%' },
   msgTextMe: { color: '#ffffff', fontWeight: '500' },

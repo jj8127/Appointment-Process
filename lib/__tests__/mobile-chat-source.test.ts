@@ -32,8 +32,9 @@ describe('mobile direct chat source', () => {
     expect(sendSource).toContain('clientMessageId,');
     expect(sendSource).toContain('const commitMessage = async');
     expect(sendSource).toContain('commitMessageWithRetry()');
-    expect(sendSource).toContain('uploadMessengerAttachmentBatch');
-    expect(sendSource).toContain("uploadResult.state === 'committed'");
+    expect(sendSource).toContain('sendMessengerAttachmentBatch');
+    expect(source).toContain('<MessengerAttachmentImage');
+    expect(sendSource).toContain("commitResult.state === 'committed'");
     expect(sendSource).toContain('attachmentBatchRef.current');
     expect(sendSource).toContain('const notificationDelivery = sendResult.delivery');
     expect(sendSource).toContain('notificationDelivery.notificationStored === false');

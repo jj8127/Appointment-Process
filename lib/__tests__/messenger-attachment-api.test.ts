@@ -71,8 +71,11 @@ jest.mock('../supabase', () => ({
 import {
   appendMessengerAttachmentCandidates,
   createMessengerAttachmentDownloadUrl,
+  createMessengerAttachmentPreviewUrl,
+  MessengerAttachmentCommitUncertainError,
   MAX_MESSENGER_ATTACHMENT_BYTES,
   prepareMessengerAttachmentBatch,
+  sendMessengerAttachmentBatch,
   uploadMessengerAttachmentBatch,
 } from '../messenger-attachment-api';
 
@@ -88,6 +91,75 @@ describe('native messenger attachment API', () => {
     mockInvoke.mockReset();
     mockUploadToSignedUrl.mockReset();
     mockStorageFrom.mockClear();
+  });
+
+  async function recoveryFixture() {
+    const files = await appendMessengerAttachmentCandidates([], [{ uri: 'fixture', name: 'fixture.txt', mimeType: 'text/plain' }]);
+    const batch = await prepareMessengerAttachmentBatch({ files, context: { kind: 'group', roomId: CONVERSATION_A }, content: '', deliveryKey: DELIVERY_KEY });
+    const pending = { data: {
+      ok: true, state: 'pending', deliveryKey: batch.deliveryKey, payloadFingerprint: batch.payloadFingerprint,
+      expiresAt: '2030-01-01T00:00:00Z', intents: [{ id: INTENT_ID, clientFileId: files[0].clientFileId, order: 0,
+        upload: { bucket: 'messenger-attachments-v2', path: 'fixture', token: 'fixture', signedUrl: 'https://example.invalid/fixture' } }],
+    }, error: null };
+    const committed = { data: {
+      ok: true, state: 'committed', deliveryKey: batch.deliveryKey, payloadFingerprint: batch.payloadFingerprint,
+      expiresAt: null, intents: [], committed: { batchId: BATCH_ID, messageIds: [MESSAGE_ID] },
+    }, error: null };
+    mockUploadToSignedUrl.mockResolvedValue({ data: {}, error: null });
+    return { batch, pending, committed };
+  }
+
+  test('recovers a lost commit response without uploading or sending a duplicate', async () => {
+    const { batch, pending, committed } = await recoveryFixture();
+    mockInvoke.mockResolvedValueOnce(pending).mockResolvedValueOnce(committed);
+    const commit = jest.fn().mockRejectedValue(new Error('response lost'));
+    await expect(sendMessengerAttachmentBatch(batch, commit)).resolves.toEqual({ state: 'committed' });
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledWith([INTENT_ID]);
+    expect(mockUploadToSignedUrl).toHaveBeenCalledTimes(1);
+    expect(mockInvoke.mock.calls[1][1].body).toEqual(mockInvoke.mock.calls[0][1].body);
+  });
+
+  test('never resends when the same delivery key is already committed', async () => {
+    const { batch, committed } = await recoveryFixture();
+    mockInvoke.mockResolvedValueOnce(committed);
+    const commit = jest.fn();
+    await expect(sendMessengerAttachmentBatch(batch, commit)).resolves.toEqual({ state: 'committed' });
+    expect(commit).not.toHaveBeenCalled();
+    expect(mockUploadToSignedUrl).not.toHaveBeenCalled();
+  });
+
+  test('reports an unresolved commit honestly when recovery is still pending', async () => {
+    const { batch, pending } = await recoveryFixture();
+    mockInvoke.mockResolvedValue(pending);
+    const commit = jest.fn().mockRejectedValue(new Error('timeout'));
+    await expect(sendMessengerAttachmentBatch(batch, commit)).rejects.toBeInstanceOf(MessengerAttachmentCommitUncertainError);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(mockUploadToSignedUrl).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not report an upload failure as an unknown message commit', async () => {
+    const { batch, pending } = await recoveryFixture();
+    mockInvoke.mockResolvedValue(pending);
+    mockUploadToSignedUrl.mockResolvedValue({ error: { statusCode: 500 } });
+    const commit = jest.fn();
+    await expect(sendMessengerAttachmentBatch(batch, commit)).rejects.toMatchObject({ code: 'attachment_upload_failed' });
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  test.each([400, 401, 403, 409, 410, 413, 415, 422])('preserves an explicit server rejection (%s)', async (status) => {
+    const { batch, pending } = await recoveryFixture();
+    mockInvoke.mockResolvedValue(pending);
+    const error = Object.assign(new Error('attachment rejected'), { status });
+    await expect(sendMessengerAttachmentBatch(batch, jest.fn().mockRejectedValue(error))).rejects.toBe(error);
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
+
+  test('keeps the commit unknown if its recovery check also fails', async () => {
+    const { batch, pending } = await recoveryFixture();
+    mockInvoke.mockResolvedValueOnce(pending).mockRejectedValueOnce(new Error('offline'));
+    await expect(sendMessengerAttachmentBatch(batch, jest.fn().mockRejectedValue(new Error('offline'))))
+      .rejects.toBeInstanceOf(MessengerAttachmentCommitUncertainError);
   });
 
   test('keeps picker cancel and exact reselection cumulative without duplicate ids', async () => {
@@ -398,6 +470,11 @@ describe('native messenger attachment API', () => {
       },
       headers: { 'x-app-session-token': 'app-session-token' },
     });
+    await expect(createMessengerAttachmentPreviewUrl(INTENT_ID, 'current-session'))
+      .resolves.toEqual({ signedUrl, expiresAt: '2026-07-25T12:00:00.000Z' });
+    expect(mockInvoke).toHaveBeenLastCalledWith('messenger-attachments', expect.objectContaining({
+      headers: { 'x-app-session-token': 'current-session' },
+    }));
 
     const source = readFileSync(
       join(__dirname, '..', 'messenger-attachment-api.ts'),

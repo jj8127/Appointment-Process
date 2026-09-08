@@ -2,7 +2,7 @@ doc_id: FC-APP-MESSENGER-CONTENT
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-08-08
+last_verified: 2026-09-08
 source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversation.tsx + app/notification-settings.tsx + app/muted-conversations.tsx + app/chat.tsx + app/group-chat.tsx + app/request-board-messenger.tsx + lib/messenger-hub-model.ts + lib/messenger-search-model.ts + lib/notification-preferences-api.ts + lib/chat-keyboard-layout.ts + app/board*.tsx + app/notice*.tsx + app/notifications.tsx
 
 # Mobile Playbook: Messenger And Content
@@ -50,6 +50,9 @@ source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversa
 - All messenger bubbles must keep a long-press/action-menu path for copy, select-copy where supported, and delete where the sender/role is allowed.
 - Long-press presentation must use `components/MessengerMessageActionSheet.tsx`; capability differences such as reaction, reply, notice, and delete must be props on the shared sheet rather than separate per-screen menus.
 - Message attachment cards must stay actionable from the same bubble surface and must not replace the text/link action contract.
+- Private V2 image attachments in direct and group messages render through `MessengerAttachmentImage` using `useMessengerImagePreview`. Images preserve aspect ratio within a 240px width / 380px height limit; image-only bubbles have no document card or orange padding. Documents retain their existing file cards. Image long press opens the same message actions.
+- Preview URL requests use the signed session and the existing authorized download endpoint, are limited to four concurrent requests, and discard queued/late results after attachment, account or focus changes. URLs stay in component memory; inline images disable disk caching. Full-screen opens reauthorize and reuse `ImagePreviewModal`; denied/failed images offer a retry without exposing an object path.
+- `sendMessengerAttachmentBatch` distinguishes upload/server rejection from unknown commit results. A lost commit response performs one same-delivery-key reconciliation without another upload or send. A committed result refreshes history; pending/unavailable results keep the existing explicit retry flow. The delivery fingerprint and selected draft survive retries. This does not prove that every production send failure is fixed.
 - Message attachment opens in `app/chat.tsx` and `app/group-chat.tsx` must use `openMessengerAttachment` from `lib/messenger-attachment-actions.ts`, not direct `Linking.openURL`, so external opening and failure alerts stay identical across messenger surfaces.
 - Linkified message/body text must route link options through `showLinkifiedTextOptions` and `openLinkExternallyWithFeedback` from `lib/linkified-text-actions.ts`, so link opening, copy feedback, and select-copy guidance stay identical anywhere `LinkifiedSelectableText` is used.
 - Native attachment/PDF downloads in `app/request-board-messenger.tsx` and `app/hanwha-commission.tsx` must use `downloadRemoteFileToUserStorage` from `lib/native-file-actions.ts`, not direct `FileSystem.downloadAsync` or `StorageAccessFramework`, so Android/iOS save behavior stays identical.

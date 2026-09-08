@@ -118,6 +118,13 @@
       "id": "mobile-messaging-content",
       "severity": "behavior",
       "prefixes": [
+        "components/MessengerAttachmentImage.tsx",
+        "hooks/use-messenger-image-preview.ts",
+        "lib/messenger-attachment-api.ts",
+        "lib/__tests__/messenger-image-preview.test.js",
+        "lib/__tests__/messenger-attachment-api.test.ts",
+        "lib/__tests__/group-chat-mobile-source.test.ts",
+        "lib/__tests__/mobile-chat-source.test.ts",
         "app/messenger.tsx",
         "app/chat.tsx",
         "app/group-chat.tsx",

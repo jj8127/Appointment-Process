@@ -1,5 +1,16 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20260908-messenger-photo-recovery"></a> 2026-09-08 Messenger image preview and send recovery
+
+The V2 attachment branch rendered every attachment as a document card, including images. Direct/group routes now render image MIME types through the shared private preview component; document actions are unchanged. Image-only messages remove padding, preserve aspect ratio, and retain the parent message action menu. The hook reauthorizes full-screen opens, ignores stale account/attachment/focus results and bounds URL requests to four; inline native image disk caching is disabled.
+
+Attachment sends distinguish failures before commit and explicit server rejections from unknown commit responses. A lost commit response reconciles the same delivery key once without uploading or sending again. Pending or unavailable recovery remains unknown and does not claim success. The original exam proof OTA remains published, but the user's Google Play 4.2.8 screenshot still shows the old route after reinstall; physical-device acceptance remains HOLD.
+
+Read-only production aggregates found recent group upload intents still pending/expired and one uploaded object with matching declared size/MIME but no completed message batch. This is a diagnostic clue, not attribution to the user's image or a proven root cause. No private content, file path, user identity or credential was retained. Existing group Edge v22 and required RPC signatures are present. No backend/schema patch, messenger OTA, iOS/native/Store release or Git push occurred.
+
+Executable component/hook tests cover inline images, aspect ratio, fresh full-screen authorization, image failure/retry, stale responses, logout/focus clearing and request concurrency. API tests cover commit recovery without duplicate sends and explicit server failures. A synthetic React Native Web adapter rendered the real component/hook at phone width with zero console errors and successful open/close; native image decoding and native gestures remain device checks. Final compiler/lint/export and harness results are recorded in the canonical task at `D:/hanhwa/.codex/harness/exam-admin-proof-restore-20260908`.
+Final checks PASS: seven suites / 85 tests, full TypeScript, scoped ESLint, governance and Android/iOS Hermes exports under production client configuration. Sentry upload disabled. Messenger publication and native acceptance remain HOLD; underlying production send finalization error remains unknown.
+
 ## <a id="20260808-mobile-exam-payment-proof-history"></a> 2026-08-08 | Mobile exam payment-proof history preview
 
 **Scope**:

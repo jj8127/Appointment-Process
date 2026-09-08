@@ -1,5 +1,11 @@
 # 작업 로그
 
+## 2026-09-08 Messenger image preview and send recovery
+
+- Added private inline image previews to direct/group messages, retained document cards and long press, and bounded session-scoped URL loading with retry and full-screen authorization.
+- Added same-delivery-key reconciliation for missing commit responses and separated explicit upload/rejection failures. Production group attachment storage failure remains under investigation; no new deployment is claimed.
+- Local verification and release status: [→ 상세](WORK_DETAIL.md#20260908-messenger-photo-recovery)
+
 > AI Agent는 매 세션 시작 시 이 파일을 먼저 읽고, 작업 시작 전에 최신 앵커를 확인하세요.
 > 상세 이력: [WORK_DETAIL.md](WORK_DETAIL.md)
 
