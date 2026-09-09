@@ -1,5 +1,11 @@
 # 작업 로그
 
+## 2026-09-09 실제 빌드 checkout의 앱 버전 정합화
+
+- 사용자는 개발 폴더의 버전을 4.2.11로 변경했지만, 실제 EAS 명령은 4.2.8인 `fc-onboarding-app-release`에서 실행됐다. 제출 로그와 Apple 오류에서 4.2.8(102)를 확인했다.
+- release `app.json`과 Android 버전 검사 상수를 4.2.11로 맞추고 실제 파일/검사 버전 일치 회귀 검증을 추가했다. 기존 branch 이름과 prebuilt Android 계측 전략은 유지한다.
+- `appVersionSource=remote`의 자동 증가는 빌드 번호만 변경한다. 표시 버전은 빌드 checkout의 `expo.version`이며, `appVersion` runtime policy도 새 버전을 따른다. 새 원격 빌드·제출은 사용자가 수행한다.
+
 ## 2026-09-09 미커밋 수정 GitHub 게시 준비
 
 - 사용자가 연결된 GitHub에 미커밋 작업 전체를 커밋·푸시하도록 승인했다. 기존 4.2.8 릴리스 브랜치의 이력을 보존하고, 시작 업데이트 알림 멈춤 수정과 실제 세션 로그아웃 통합 회귀 검증을 추가한다.

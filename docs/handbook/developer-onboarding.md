@@ -123,6 +123,8 @@ npm start
 
 ### GaramIn Android production 후보
 
+실제 빌드 대상은 `D:\hanhwa\fc-onboarding-app-release`의 설정이다. `D:\hanhwa\fc-onboarding-app`은 별도 checkout이므로 그곳의 `app.json`을 바꿔도 release 빌드에는 반영되지 않는다. 현재 release 앱 버전은 **4.2.11**이다. 다음 버전으로 변경할 때는 release `app.json`의 `expo.version`과 `scripts/release/android-release-context.cjs`의 `EXPECTED_APP_VERSION`을 함께 갱신하고 커밋한다. 브랜치명의 4.2.8은 생성 당시 이름이며 앱 버전의 근거가 아니다.
+
 운영 후보는 고정된 clean worktree에서만 검증하고 시작한다. 일회성 버전·날짜 경로를 `--prefix`로 명령에 박아 넣지 않는다.
 
 ```powershell
@@ -134,6 +136,17 @@ npm run eas:build:android -- --non-interactive
 첫 명령은 네트워크 build를 시작하지 않는다. 두 명령 모두 스크립트 자체 위치를 저장소 root로 사용하며, 정확한 release branch/version/EAS project, clean worktree, ignored generated Android 설정, Expo plugin 순서, RN 0.81.5와 AGP 8.11.0, 공식 Maven `react-android` AAR 해시, 단일 클래스 drawing-order 계측 계약을 fail-closed로 확인한다. 이 후보는 React Native 전체 소스 빌드와 CMake 설치 hook을 사용하지 않는다. Expo prebuild가 추적되는 Gradle 계측 plugin을 연결하고, release 빌드는 공식 prebuilt ReactAndroid에서 대상 클래스 하나의 입력과 변환 결과를 모두 검증한다. 하위 `scripts/eas-build.js android production` 직접 실행도 같은 release-context 검증을 반복한다. dirty primary checkout이나 raw `npx eas build`는 이 릴리스의 지원 경로가 아니다.
 
 로컬 `bundleRelease` 산출물을 확인할 때는 `npm run android:verify:aab`를 실행한다. 이 검사는 R8 mapping을 적용한 최종 AAB의 DEX를 읽어 대상 클래스와 guard 메서드가 각각 정확히 하나인지, 상위 drawing-order 결과의 하한·상한 검사와 fallback이 그대로 남았는지 확인한다.
+
+### GaramIn iOS production 후보
+
+```powershell
+Set-Location D:\hanhwa\fc-onboarding-app-release
+node -p "require('./app.json').expo.version"
+# 현재 기대값: 4.2.11
+npm run eas:build:ios
+```
+
+`eas.json`의 remote/autoIncrement 설정은 `ios.buildNumber`와 `android.versionCode`만 증가시킨다. 스토어 표시 버전은 위 checkout의 `expo.version`이며 `runtimeVersion.policy=appVersion`도 이 값을 따른다. 완료된 4.2.8 빌드는 설정을 바꿔도 수정되지 않는다. 새 버전으로 새 빌드를 완료하고 그 결과를 제출해야 한다. 자세한 구분은 [Expo 앱 버전 문서](https://docs.expo.dev/build-reference/app-versions/)를 따른다.
 
 ### Admin web
 

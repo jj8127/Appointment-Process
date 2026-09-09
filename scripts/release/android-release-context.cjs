@@ -12,7 +12,7 @@ const {
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const EXPECTED_BRANCH =
   "release/garamin-4.2.8-link-fix-20260831";
-const EXPECTED_APP_VERSION = "4.2.8";
+const EXPECTED_APP_VERSION = "4.2.11";
 const EXPECTED_EAS_PROJECT_ID = "6e9a1f11-8b60-46f9-8af2-168188dbf3db";
 const EXPECTED_LINK_FIX_TEST_URL =
   "https://us06web.zoom.us/j/00000000000?pwd=test-token";

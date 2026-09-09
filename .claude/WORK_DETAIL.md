@@ -1,5 +1,13 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20260909-build-checkout-version"></a> 2026-09-09 Build checkout version mismatch
+
+The user's sanitized terminal evidence starts in `D:/hanhwa/fc-onboarding-app-release`, validates v4.2.8, increments only iOS buildNumber 101→102, and submits App Version 4.2.8. Apple rejects that closed version train. The separately edited development checkout is already 4.2.11, but the release checkout still resolved to 4.2.8 through Expo's local config API. `scripts/eas-build.js` anchors EAS cwd to its own repository; no dynamic config or tracked native iOS project overrides this value.
+
+Align release `expo.version` and the Android release guard with the user's existing intended 4.2.11. Keep the historical branch identity, project ID, native instrumentation and remote build-number management. The `appVersion` policy now identifies the next binary runtime as 4.2.11. Add a guard/config consistency regression and clarify the actual folder/version check in build instructions. Existing completed build 102 is immutable; this patch requires a new user-initiated native build and submission. No build, credential operation, submission or database change is performed by this fix.
+
+Local verification: release-context suite 29/29, scoped ESLint, governance and whitespace checks PASS; Expo config resolves version 4.2.11 with appVersion runtime policy. The full Android no-network preflight is checked again after committing, because it intentionally requires a clean worktree.
+
 ## <a id="20260909-pending-work-publication"></a> 2026-09-09 Pending-work publication preparation
 
 The user explicitly authorized committing and pushing all pending Appointment-Process work. Preserve this release branch separately from the development branch, including its existing native, exam, messenger and logout commits. The new release snapshot contains startup update-alert recovery, lifecycle ownership, iOS version/cooldown handling and an actual SessionProvider logout integration regression. Runtime 4.2.8 is unchanged. Exact final commit and remote verification are recorded in the existing canonical task handoff. Git publication does not deploy an app, apply a migration or establish corrected-device acceptance; the user owns builds and deployments.

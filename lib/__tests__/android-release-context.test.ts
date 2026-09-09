@@ -132,17 +132,23 @@ describe("Android release context", () => {
     jest.restoreAllMocks();
   });
 
-  test("accepts only the exact clean prebuilt-instrumented 4.2.8 context", () => {
+  test("accepts only the exact clean prebuilt-instrumented 4.2.11 context", () => {
     expect(() =>
       validateReleaseContext(createValidContext(fixtureRoot)),
     ).not.toThrow();
   });
 
-  test("pins the exact 4.2.8 release identity", () => {
+  test("pins the 4.2.11 app version on the existing release branch", () => {
     expect(EXPECTED_BRANCH).toBe(
       "release/garamin-4.2.8-link-fix-20260831",
     );
-    expect(EXPECTED_APP_VERSION).toBe("4.2.8");
+    expect(EXPECTED_APP_VERSION).toBe("4.2.11");
+  });
+
+  test("keeps the real build checkout version aligned with the release guard", () => {
+    const appConfig = JSON.parse(readFileSync(join(REPO_ROOT, "app.json"), "utf8"));
+    expect(appConfig.expo.version).toBe(EXPECTED_APP_VERSION);
+    expect(appConfig.expo.runtimeVersion).toEqual({ policy: "appVersion" });
   });
 
   test("rejects messenger link opener or regression drift", () => {
