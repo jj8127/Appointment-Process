@@ -3,6 +3,16 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "mobile-startup-alert-update",
+      "prefixes": ["components/AppAlertProvider.tsx", "hooks/useInAppUpdate", "hooks/in-app-update-lifecycle.ts"],
+      "requires_any": ["components/__tests__/AppAlertProvider.test.js", "docs/handbook/shared-ui-action-contracts.md"]
+    },
+    {
+      "id": "mobile-logout-navigation",
+      "prefixes": ["hooks/use-app-logout.ts", "app/index.tsx", "app/home-lite.tsx", "app/settings.tsx", "app/board.tsx", "app/admin-board-manage.tsx", "app/request-board.tsx"],
+      "requires_any": ["lib/__tests__/app-logout-navigation.test.js", "lib/__tests__/logout-source-contract.test.ts", "docs/handbook/mobile/auth-and-gates.md"]
+    },
+    {
       "id": "edge-diagnostic-privacy",
       "prefixes": [
         "supabase/functions/_shared/edge-diagnostic.ts",
@@ -36,12 +46,16 @@
         "components/referral-revenue-graph/",
         "data/referral-revenue-demo.ts",
         "lib/referral-revenue-demo.ts",
+        "lib/referral-revenue-flow.ts",
+        "lib/referral-revenue-flow-layout.ts",
         "lib/referral-revenue-graph-native.ts",
         "lib/referral-revenue-tree-layout.ts",
         "types/referral-revenue-graph.ts"
       ],
       "requires_any": [
         "lib/__tests__/referral-revenue-demo.test.ts",
+        "lib/__tests__/referral-revenue-flow.test.ts",
+        "lib/__tests__/referral-revenue-flow-layout.test.ts",
         "lib/__tests__/referral-revenue-graph-native.test.ts",
         "lib/__tests__/referral-revenue-tree-layout.test.ts",
         "lib/__tests__/referral-revenue-demo-source.test.ts",

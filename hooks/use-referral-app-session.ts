@@ -189,6 +189,8 @@ export function useReferralAppSession() {
       body?: Record<string, unknown>;
       fallbackMessage: string;
       retryOnSessionFailure?: boolean;
+      /** Read with the currently signed token only; never restore, refresh, replace, or clear session storage. */
+      requireCurrentToken?: boolean;
     },
   ): Promise<TResponse> => {
     const execute = async (token: string) => {
@@ -217,6 +219,16 @@ export function useReferralAppSession() {
       return data;
     };
 
+    if (options.requireCurrentToken) {
+      const currentToken = appSessionToken?.trim();
+      if (!currentToken) {
+        throw new ReferralAppSessionError('로그인 후 다시 확인해주세요.', {
+          code: 'missing_app_session', needsRelogin: true,
+        });
+      }
+      return execute(currentToken);
+    }
+
     const retryOnSessionFailure = options.retryOnSessionFailure !== false;
     const token = await ensureReferralAppSession();
 
@@ -231,7 +243,7 @@ export function useReferralAppSession() {
       const refreshedToken = await refreshReferralAppSession();
       return execute(refreshedToken);
     }
-  }, [ensureReferralAppSession, refreshReferralAppSession]);
+  }, [appSessionToken, ensureReferralAppSession, refreshReferralAppSession]);
 
   return {
     appSessionToken,

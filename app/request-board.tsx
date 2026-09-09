@@ -295,13 +295,6 @@ export default function RequestBoardScreen() {
     [readOnly, residentId, role, staffType],
   );
 
-  useEffect(() => {
-    if (!hydrated) return;
-    if (!role) {
-      router.replace('/login');
-    }
-  }, [hydrated, role, router]);
-
   /* ─── Data fetch ─── */
   const fetchData = useCallback((options: { force?: boolean } = {}) => {
     const activeRefresh = requestBoardRefreshInFlightRef.current;

@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Alert, Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Animated from 'react-native-reanimated';
@@ -21,7 +21,7 @@ const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
 
 export default function SettingsScreen() {
-  const { role, residentId, displayName, logout, isRequestBoardDesigner, readOnly, hydrated, staffType, appSessionToken } = useSession();
+  const { role, residentId, displayName, isRequestBoardDesigner, readOnly, hydrated, staffType, appSessionToken } = useSession();
   const appLogout = useAppLogout();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
@@ -41,13 +41,6 @@ export default function SettingsScreen() {
     !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
   const canDeleteAccount =
     role === 'fc' && !readOnly && Boolean(residentId) && Boolean(appSessionToken);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    if (!role) {
-      router.replace('/login');
-    }
-  }, [hydrated, role]);
 
   const handleDelete = () => {
     if (!canDeleteAccount) {
@@ -77,8 +70,7 @@ export default function SettingsScreen() {
         throw new Error(data?.error ?? '계정 삭제에 실패했습니다. 다시 시도해주세요.');
       }
       Alert.alert('삭제 완료', '계정과 관련 데이터가 삭제되었습니다.');
-      logout();
-      router.replace('/login');
+      appLogout();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '계정 삭제 중 오류가 발생했습니다.';
       Alert.alert('삭제 실패', message);

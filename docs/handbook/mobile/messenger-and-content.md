@@ -7,6 +7,10 @@ source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversa
 
 # Mobile Playbook: Messenger And Content
 
+## 2026-09-09 Logout transition
+
+Board and admin-board logout redirects are owned by focused `useAppLogout` after local session clearing. Retained background screens must not run another null-role replacement. Message/board mutation policy is unchanged. Regression: `lib/__tests__/app-logout-navigation.test.js` and `lib/__tests__/logout-source-contract.test.ts`.
+
 ## 목적
 
 - 내부 메신저, 알림센터, 게시판, 공지 상세의 동작을 묶어 설명

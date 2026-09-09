@@ -145,91 +145,35 @@
 20. `/referral`의 `추천 관계 그래프로 보기`는 외부 관리자 웹 URL을 열지 않고 앱 내부 `/referral-graph`로 이동하며 FC와 본부장 self-service 사용자에게 동일하게 노출한다.
 21. `/referral-graph`는 signed app-session의 자기 FC를 root로 고정한 downline-only read surface다. request body의 `fcId`로 다른 root를 선택할 수 없고, plain admin/developer/designer는 허용하지 않는다.
 22. 모바일 graph edge source는 canonical `fc_profiles.recommender_fc_id`뿐이다. 응답에는 전화번호·감사 이벤트를 포함하지 않고 `permissions.canMutate=false`, `scope='downline'`를 명시한다.
-23. 모바일 graph는 deterministic radial layout, pan/pinch, fit/reset, 이름·소속·추천코드 검색, 등록 상태 filter, 선택 node 기준 1~3촌 focus, read-only 상세를 지원한다. node 색 우선순위는 현재 사용자 → 모든 위촉 완료 → 본등록 완료 → 사전등록이며 크기는 전체 하위 인원 수의 로그 스케일을 사용한다. 깊이별 폭과 형제 최소 각도 구간을 반영한 뒤 고정 surface 안으로 비례 압축해, 300 node의 균일·불균형 조직도 모두 최대 확대에서 선택 가능한 간격을 유지한다. 네이티브 view/접근성 tree 보호를 위해 유효 node 최대 300개까지만 breadth-first로 읽고, 한도 전에 직원·설계매니저 제외 규칙을 적용하며, 남은 관계가 있으면 `truncated=true`로 알린다. canonical 관계 경로의 manager referral shadow는 일반 descendant처럼 보존한다. desktop force physics와 node drag는 모바일 첫 delivery 범위가 아니다.
+23. 모바일 graph는 deterministic radial layout, pan/pinch, fit/reset, 이름·소속·추천코드 검색, 등록 상태 filter, 선택 node 기준 1~3촌 focus, read-only 상세를 지원한다. node 색 우선순위는 현재 사용자 → 모든 위촉 완료 → 본등록 완료 → 사전등록이며 크기는 전체 하위 인원 수의 로그 스케일을 사용한다. 추천 관계 화면은 이름 영역을 포함한 하위 가지 가중치로 각도를 배분하고, 방사 방향의 빈 위치에 노드를 배치해 원과 표시 이름의 충돌을 막는다. 논리 좌표는 압축하지 않으며 SVG는 현재 화면 좌표만 물리 2048px 이내의 bitmap에 그린다. 축소 시 선택·현재 사용자·하위 인원이 많은 노드의 이름을 우선 배치하고 공간이 부족한 이름은 생략하며, 읽기 배율에서는 모든 이름과 선택 간격을 확보한다. 이동 중에는 culling 갱신과 독립적인 공통 pan 좌표를 유지한다. 확대·축소 중 이름·금액 레이어를 숨기지 않고 기존 배치를 연속 변환하며, 유효 제스처 종료 후 120ms 동안 새 동작이 없을 때 배치를 재계산한다. 확대된 라벨 전체 크기를 기준으로 viewport 표시 여부를 판단하고, 실패한 pinch 종료나 터치 시작 강조가 표시를 점멸시키지 않게 한다. Android 핀치는 raw touch count가 두 개 미만이면 마지막 focal update를 무시하며 시작 기준점과 현재 기준점을 분리해 손가락 해제 시 화면이 밀리지 않게 한다. 배율 badge는 이름 layer 위에 표시한다. 매출 흐름 화면의 기존 공용 배치 함수는 유지한다. 네이티브 view/접근성 tree 보호를 위해 유효 node 최대 300개까지만 breadth-first로 읽고, 한도 전에 직원·설계매니저 제외 규칙을 적용하며, 남은 관계가 있으면 `truncated=true`로 알린다. canonical 관계 경로의 manager referral shadow는 일반 descendant처럼 보존한다. desktop force physics와 node drag는 모바일 첫 delivery 범위가 아니다.
+    성능 구현은 같은 배치를 유지하면서 관계선을 단일 SVG path와 공통 카메라 변환으로 그린다. 노드와 이름의 이동은 공통 부모 변환으로 처리하며, 이름 레이어는 제스처 중에도 연속 표시하고 배율이 안정된 뒤 배치만 갱신한다. 화면 밖 요소는 이름·터치 영역을 포함한 여유 영역 기준으로 렌더 대상에서 제외하지만 전체 조회 데이터와 화면을 가로지르는 선은 유지한다. 화면 읽기 기능이 켜졌거나 감지 중이면 모든 노드의 접근성 요소를 유지한다. 이름 충돌 검사의 공간 인덱스는 기존 표시 결과와 우선순위를 보존한다. 검색 입력은 즉시 표시하고 그래프 적용만 짧게 묶으며, 지우기·초기화·검색 제출은 즉시 적용한다.
 24. `/referral`의 기존 추천 관계 graph CTA는 그대로 유지하고, 바로 아래에 별도
     `/referral-revenue-graph` 샘플 미리보기 CTA를 둘 수 있다. 이 화면의 조직·인물·
     매출은 모두 로컬 가상 데이터이며 실제 referral tree나 사용자 데이터와 결합하지
     않는다.
-25. 샘플 매출 기여 graph는 raw node의 `depth`를 신뢰하지 않고 `parentId` 체인으로
-    viewer 기준 단계를 파생한다. viewer 아래 1~10단계의 모든 샘플 구성원에
-    `rateBps=1000`을 단순 적용하고, 11단계 이상은 표시할 수 있지만 합계와 예상
-    배분 대상에서는 제외한다. 화면에는 `샘플 데이터`, `실제 조직·매출·정산 내역이
-    아님`, `시뮬레이션`을 명시한다. 새 화면 진입의 기본 `현재 그래프`는 카드 목록을
-    선으로 잇는 형태가 아니라 기존 추천 관계 그래프와 같은 원형 node/edge
-    network여야 하며, 보기 선택은 저장하지 않는다.
-    상호작용 물리는 관리자 웹의 실제 활성 force 계열인 many-body repulsion,
-    degree-aware link spring, link tension, collision, alpha decay, velocity damping을
-    기준으로 한다. 다만 관리자 웹의 실제 `alphaDecay=0.016`은 비교 가능한 baseline
-    값으로 보존하고, 모바일 release는 프레임 예산을 제한하기 위해
-    `initialAlpha=0.32`, `decayMultiplier=0.94`, `stopThreshold=0.014`의 별도 settle
-    계약을 사용한다. 따라서 값 단위 runtime parity를 뜻하지 않는다. 관리자 웹
-    `균형` preset이 해석한 `centerStrength=0.024`도 참고 값이지만 실제 runtime은
-    `center`, `x`, `y` force를 명시적으로 끄므로 모바일도
-    모든 node를 가운데로 당기는 전역 중심력을 적용하지 않는다. 대신 viewer를
-    논리 원점에 둔 collision-safe 가로형 방사 seed를 결정론적으로 만들고, A/B/C
-    direct branch를 서로 다른 sector에 배정하며 depth가 증가할수록 목표 반지름을
-    늘린다. 상호작용 중에는 약한 O(n) 방사 목표와 bounded viewer anchor/rebase만
-    추가하고 pointer로 잡힌 node 하나만 고정한다. 모바일 성능과 번들 크기를
-    우선하므로 관리자 웹의 `d3-force` runtime이나 전체 seed-layout을 그대로
-    이식하지 않는다. 네이티브에서는 기존에 설치된 `react-native-webview` 안의 외부
-    요청 없는 로컬 HTML 단일 `<canvas>`에서 draw와 physics를 처리하고, React/SVG
-    node별 프레임 갱신을 만들지 않는다. 이 화면의 parity는 관리자 웹 활성 force
-    계열에 기반한 부드러운 반응, 원형 node/edge, 금액 가시성, 겹침 방지,
-    pan/pinch, node drag 반응과 감쇠 settle까지이며 desktop runtime byte-level
-    동등성은 범위 밖이다.
-    각 node 원 안에는 사람 식별자와 예상 배분액을 전체 맞춤 상태에서도 항상
-    표시한다. 한 손가락 pan, 두 손가락 pinch zoom, 화면 맞춤, 초기화, node 선택
-    상세를 지원하며, 11단계 제외 node와 연결 edge는 점선·회색 계열로 구분하고,
-    단계 filter가 적용돼도 선택 대상의 viewer 연결 경로를 보존한다. 회색 edge는
-    샘플 조직 관계이고, eligible edge에는 child에서 parent와 viewer 쪽으로 향하는
-    주황 arrow를 겹쳐 샘플 기여 계산 방향을 표시한다. 11단계 node의 edge는
-    회색 점선이며 arrow가 없다. 선택한 eligible node의 전체 조상 경로는 정적으로
-    강조하고 inward pulse는 최대 1.5초 뒤 종료해 idle RAF를 남기지 않는다. 1·3·6·10
-    단계 guide ring으로 viewer 중심에서 바깥으로 깊어지는 방향을 보조한다. viewer
-    node에는 unfiltered canonical 예상 유입 합계 `10,240,000원`을 표시하고 각
-    eligible node에는 자기 예상 배분액을 유지하며 edge에는 금액을 쓰지 않는다.
-    이 arrow는 실제 송금·정산·지급 흐름이 아니라 샘플 기여 계산 방향이다. graph mode는
-    stack header와 문서형 summary page를 숨기고 safe area 전체를 canvas로 사용한다.
-    빈 공간 drag는 pan, node 위에서 시작한 drag는 node 고정 이동으로 해석하며,
-    인접·주변 node가 같은 spring·repulsion·collision force로 실시간 반응한다.
-    release 뒤에는 위 모바일 전용 alpha schedule과 관리자 기준 velocity damping으로
-    bounded settle을 수행한 뒤 idle 상태로 종료한다.
-    node 이름·단계·금액 label은 screen pixel 크기로 캐시해 그리며 zoom 중에도 글자
-    크기가 변하지 않는다. node 원과 edge만 graph zoom을 따른다.
-    idle drag/zoom badge는 상시 노출하지 않고 물리 반응 또는 확대·맞춤 직후에만
-    일시적으로 표시한다.
-    native route가 focus된 graph mode일 때만 landscape로 잠근다. graph 설정이나
-    graph node 상세도 landscape를 유지한다. 트리·목록 mode와 해당 상세는 portrait를
-    사용하고, route blur·unmount·header/Android back 시에는 portrait를 먼저
-    복원한다. 기본 landscape에서는 작은 back/title/sample header와 설정 버튼만
-    남겨 graph가 거의 전체 화면을 사용한다. summary·filter·목록·fit/reset·범례와
-    상세 안내는 설정 버튼을 눌렀을 때만 임시 panel로 열리고 바깥 탭·닫기·Android
-    back으로 닫힌다.
-    초기 배치는 깊이마다 좌우로 반전하는 lane을 사용하지 않는다. 관리자 웹 seed의
-    parent-relative forward 원칙을 경량화해 root child와 subtree 순서를 고정하고,
-    parent/child collision envelope와 resolved link distance로 다음 depth ring의 최소
-    전진 각도를 계산한다. 고정 17-node canonical A/B/C 샘플은 진입·초기화·일반
-    release settle에서 endpoint를 공유하지 않는 edge 교차가 0개여야 하고, A
-    단일-child chain은 첫 root joint 이후 연속 edge 방향 변화가 45도 이하여야 한다.
-    45도는 이 fixture의 회귀 기준이지 runtime 각도 clamp가 아니다. 자식·subtree가
-    많아지면 collision envelope와 필요한 branch sector가 커지면서 각도 간격과 반지름을
-    동적으로 늘리고, 복잡한 그래프의 불가피한 꺾임이나 교차는 허용한다. 이 보장은 매 frame
-    `edge-crossing` force를 추가하지 않고 deterministic seed와 기존 O(n) radial target으로
-    달성한다. eligible 관계는 회색 base line 위에 주황 arrow를 이중으로 그리지 않고
-    child→parent 주황 방향선 하나만 그린다. 제외 관계만 회색 점선/no-arrow를 유지한다.
-    drag와 physics의 graph world 좌표는 초기 1600-unit seed surface로 clamp하지 않는다.
-    유한한 좌표라면 surface 밖까지 이동할 수 있고 link/tension은 복원력일 뿐 위치 상한이
-    아니다. `화면 맞춤`은 일반 pinch 최소 배율보다 작은 scale도 계산해 멀어진 node를
-    다시 담고, `초기화`는 deterministic seed로 복구한다.
-    사용자가 `트리`를 명시적으로 선택하면 원형 WebView/SVG renderer를 숨긴 채
-    유지하지 않고 unmount한 뒤, 초기 시안의 고정 3열 카드 계층을 별도 컴포넌트로
-    표시한다. 트리는 440-wide canvas, 118x66 card, 86px depth 간격과 viewer/B 중앙,
-    A 좌측, C 우측 배치를 사용하며 parent card 하단과 child card 상단을 선으로 잇는다.
-    같은 `graphNodes`, `graphEdges`, `focusedGraphNodeIds`를 사용해 단계 filter의 viewer
-    연결 경로를 유지하고, context card는 흐리게 보이되 현재 금액/status label을
-    보존한다. card 높이는 connector geometry와 같은 66px로 고정하고 시각 text는
-    card 안에서 축소 적응시키되, 접근성 label은 이름·단계·전체 금액·context 상태를
-    생략하지 않는다. 트리도 같은 node 상세·샘플 고지·11단계 제외 계약을 공유한다.
+25. 증원수당 샘플 화면은 raw node의 `depth`를 신뢰하지 않고 `parentId` 체인으로
+    나 기준 단계를 파생한다. 1~10단계의 샘플 구성원에 `rateBps=1000`을 단순
+    적용하고, 11단계 이상은 관계에는 표시하되 합계와 예상 배분에서 제외한다.
+    화면에는 `샘플 데이터`, `실제 조직·매출·정산 내역이 아님`을 명시한다.
+    화면은 기존 증원수당 physics/WebView renderer와 트리·목록 mode를 사용하지 않고,
+    `/referral-graph`와 같은 deterministic radial layout, 원형 node, 관계선, 한 손가락
+    pan, 두 손가락 pinch, 화면 맞춤, 초기화, 선택 상세 UI를 사용한다. 실제 추천 관계
+    화면의 data hook이나 component는 가져오지 않고 순수 layout helper만 공유한다.
+    각 배분 대상 node의 예상액은 child에서 parent 방향으로 모든 조상 관계선을
+    거슬러 나에게 이동한다. 한 관계선을 지나는 하위 예상액은 합산해 주황색 방향선과
+    금액 label로 표시한다. 11단계 제외 관계는 회색 점선이며 금액 방향선을 그리지
+    않는다. 단계 filter가 적용되면 선택 단계의 기여액만 합산하되 viewer까지의 조상
+    context는 흐리게 보존한다. 선택 node의 전체 조상 경로는 정적으로 강조한다.
+    viewer node는 현재 filter의 합계를, eligible node는 자기 예상 배분액을 표시한다.
+    축소할수록 node와 이름·금액 label도 함께 작아져 서로 가리지 않으며, 확대 시에는
+    최대 visual scale을 제한한다. fit 이동은 system reduced-motion 설정을 따른다.
+    node 식별자는 원 안에 두고 개인 예상액은 node 아래 한 줄로 분리한다. edge 합계
+    label은 node·개인 예상액·다른 edge label과 겹치지 않는 screen-space 후보만
+    사용하며, 공간이 부족하면 선택 경로와 viewer 직결 합계를 우선한다. pan/pinch가
+    끝난 뒤 viewport 안쪽 6dp에 완전히 들어오지 않는 금액 label과 caption은 생략한다.
+    viewer 기준 기본 화면은 78%, 현재 단계 filter의 기여 node 묶음은 84%로 중심
+    배치하고 `전체 보기`만 전체 관계를 fit한다. fit/reset toolbar는 graph viewport
+    밖에 둔다.
 26. 샘플 화면은 FC와 `admin + readOnly` 본부장에게만 노출하고 designer/plain
     admin/developer는 차단한다. 다만 로컬 상수 외 데이터를 읽지 않으므로
     app-session refresh, referral API, Supabase client, Edge Function 또는 금융
@@ -245,6 +189,7 @@
 33. 모바일 client는 referral read/write 전에 저장된 `appSessionToken`을 우선 사용하고, 없거나 만료면 저장된 `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 호출해 새 referral `appSessionToken`을 무중단 재발급한다.
 34. `requestBoardBridgeToken`까지 없거나 만료된 경우에는 `/referral`과 `/referral-graph`가 generic `인증이 필요합니다.` 대신 `세션이 만료되었습니다. 다시 로그인해주세요.`와 relogin CTA를 보여야 한다.
 35. `refresh-app-session`은 FC와 본부장(manager source role)만 허용한다. plain admin/developer, linked request_board designer, inactive manager, signup 미완료 FC는 새 referral `appSessionToken`을 발급받을 수 없다.
+36. `/referral-allowance`의 게시 자료 기반 시범 그래프는 수당을 기여자 node ID에 연결한다. 해당 노드 바로 옆의 카드에 이름·직접 수당·하위 계보 포함 총수당을 함께 표시하고 관계선 옆에는 금액을 두지 않는다. 카드 전체가 다른 이름·카드·노드와 겹치면 이름만 우선 배치하며 확대 후 공간이 생기면 금액도 표시한다. 양수·음수·0원과 그래프 생략 인원을 포함한 전체 계보 합계는 유지한다. 일반 추천 관계 그래프의 이름 전용 배치는 유지한다.
 
 ## 5. 식별자 규칙
 
@@ -414,3 +359,56 @@
 8. 원격 DB rollout이 늦어진 환경을 어떻게 감시할지
 
 미확정 항목을 코드에서 임의로 결정하지 말고, 결정 후 이 문서를 먼저 갱신한다.
+
+## 11. 2026-09-07 지정 본부장 증원수당 시범 계약
+
+이 절은 한 계정에 한정된 실제 월별 자료의 조회 계약이다. 기존
+`/referral-revenue-graph`와 가상 데이터·샘플 계산 계약은 그대로 유지한다.
+일반 추천 보상 전체에 대한 지급 정책이나 실제 지급 승인을 확정하지 않는다.
+
+- 실제 화면은 `/referral-allowance`다. `/referral`의 수당 CTA는 서버의
+  `get-my-referral-allowance(action='access')`가 현재 본부장을 `enabled=true`로
+  확인했을 때만 실제 화면으로 연결한다. 비대상 계정은 기존 샘플 진입을 유지하며,
+  조회 오류를 실제 금액이나 샘플 금액의 성공 응답으로 대체하지 않는다.
+- 서버의 singleton `referral_allowance_pilot`이 활성 본부장 계정 UUID,
+  대응 FC UUID, 원본의 외부 사번과 설정 revision을 보관한다. 이름은 관리자 검색에만
+  사용하고, 실제 대상의 이름·계정 ID를 코드·문서·테스트에 고정하지 않는다.
+  관리자는 같은 사람임을 확인한 뒤 이 한 쌍만 연결한다. 설정 변경·중지·재활성화는
+  revision을 증가시키며 이전 revision의 게시 자료를 다시 노출하지 않는다.
+- 모바일 읽기는 현재 서명된 app-session의 `manager` 역할과 활성 계정,
+  대응 FC identity, 현재 pilot 설정을 매 요청 검증한다. FC·일반 관리자·개발자·
+  designer에게 조회 범위를 확대하지 않는다. body는 `action`과 선택적 `month`만
+  받으며 actor·수령인·조회 대상 ID를 클라이언트가 지정하지 못한다.
+- 수당 요청은 `requireCurrentToken: true`로 현재 메모리의 app-session만 사용한다.
+  이 요청을 계기로 저장소에서 토큰을 복원하거나 자동 refresh·교체·삭제하지 않는다.
+  토큰 부재·만료는 재로그인 또는 조회 실패로 처리하며 일반 추천 조회의 silent
+  refresh 동작과 혼동하지 않는다. 계정·월·화면 전환 및 접근 회수 시 기존 명세를 숨긴다.
+- 확정된 시범 정책은 `recruitment-2026-09-07-snapshot-pilot-v1`,
+  `eligibilityBasis='uploaded_snapshot'`이다. 최초 자료는 업적월 `2026-06`,
+  실제 지급일 `2026-08-01`, 운영자가 선택한 참고일 `2026-07-31`을 사용한다.
+  지급월은 업적월 M+2이고 참고일은 지급일 이하여야 한다. 참고일은 당시 계보·인사의
+  역사적 상태가 검증됐다는 뜻이 아니다.
+- 사용자가 승인한 7~8월 계보와 인사 원본의 실제 기준일은 `sourceSnapshotDates`에
+  정렬·중복 제거하여 보존한다. 원본 날짜를 7월 31일이나 업적월 말로 바꾸지 않는다.
+  참고일 이후 원본이 하나라도 있으면 `usesLaterSnapshot=true`로 명세에 표시한다.
+  인사 원본 날짜도 포함하며, 정규 양식은 실제 원본 날짜 목록을 명시해야 한다.
+- `/dashboard/referrals/allowances`에서 관리자가 월별 XLSX를 업로드하고, 날짜·사번·
+  계보·재적·금액을 검증한 draft를 검토한 뒤 명시적으로 게시한다. 업로드만으로
+  앱에 노출하지 않는다. 원본 XLSX는 저장하지 않고 해당 수령인의 계산 snapshot과
+  출처 hash·정책·검토/게시 metadata만 저장한다. 서버의 제한된 압축 해제·좌표 검사와
+  검증된 엔트리 재압축을 거친 파일만 파서에 전달한다.
+- 명세는 당월 신규 산정으로 한정하며 전월 이월금 합산·본부지원금·별도 시상을
+  포함하지 않는다. 실제 지급 승인이 아니다. 월별 합계와 전체 기여 FP 목록이
+  기본 화면이며, 관계 그래프는 사용자가 열었을 때만 표시한다. 그래프의 표시 한도로
+  생략된 사람도 명세 합계와 전체 목록에는 포함한다.
+- `20260907053913_referral_allowance_pilot.sql`과 `supabase/schema.sql`의
+  service-only 테이블·RPC가 원자적 draft 생성/게시, 불변 snapshot, 현재 설정
+  revision 격리, 동일 월 게시본 하나를 보장한다. `anon`/`authenticated`는
+  RLS 및 grant 경계에서 테이블과 RPC를 직접 사용할 수 없다.
+- 검증 근거는 공유 계산기·모바일 표시/진입·업로드·서명 권한 테스트와 격리된
+  PGlite SQL 실행이다. PGlite의 단일 연결 실행은 전체 Supabase 또는 다중 연결
+  동시성 검증을 대신하지 않는다. 사용자 승인에 따라 additive migration을 운영에
+  적용했고, `get-my-referral-allowance` v1은 custom signed auth로 ACTIVE 상태다.
+  지정 singleton을 활성화하고 2026년 6월 명세 한 건을 게시했다. 원격의 개인정보 없는
+  집계 검증으로 명세/작업자 일치, 대상 enabled·비대상 disabled, RLS/grant의 직접
+  클라이언트 접근 차단을 확인했다. 공개 모바일·웹 릴리스와 실제 기기 인수 검증은 HOLD다.

@@ -20,6 +20,19 @@ describe('explicit mobile logout source contract', () => {
     expect(source).toContain('appLogout();');
     expect(source).not.toContain('isLoggingOut');
     expect(source).not.toContain('setIsLoggingOut');
+    expect(source).toContain('if (!hydrated || !role)');
+    expect(source).toContain('key="session-transition"');
+  });
+
+  test('logout screens use the focused hook rather than competing null-role redirects', () => {
+    for (const file of ['index', 'home-lite', 'settings', 'board', 'admin-board-manage', 'request-board']) {
+      const source = readRootFile(`app/${file}.tsx`);
+      expect(source).not.toMatch(/if \(!role\)\s*\{\s*router\.replace/);
+    }
+    const layout = readRootFile('app/_layout.tsx');
+    expect(layout).not.toContain("removeItem('session_role')");
+    expect(layout).toContain('<HomeLiteLogoutBackButton />');
+    expect(layout).toContain('onPress={logout}');
   });
 
   test('session logout delegates local-first cleanup to the coordinator', () => {

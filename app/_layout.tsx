@@ -51,7 +51,6 @@ import {
   type PendingNotificationNavigation,
 } from '@/lib/pending-notification-navigation';
 import { savePendingReferralCode } from '@/lib/referral-deeplink';
-import { safeStorage } from '@/lib/safe-storage';
 import { withSentryRoot } from '@/lib/sentry';
 
 import {
@@ -131,6 +130,17 @@ if (Platform.OS !== 'web') {
 }
 
 SplashScreen.preventAutoHideAsync();
+
+function HomeLiteLogoutBackButton() {
+  const { logout } = useSession();
+  // HomeLiteScreen's focused logout hook owns the login navigation.
+  return (
+    <Pressable onPress={logout} accessibilityRole="button" accessibilityLabel="로그아웃"
+      style={{ padding: 8, marginLeft: -8 }}>
+      <Feather name="arrow-left" size={24} color="#000" />
+    </Pressable>
+  );
+}
 
 function PresenceBootstrap() {
   useAppPresenceHeartbeat();
@@ -463,8 +473,6 @@ function RootLayout() {
   const isWeb = Platform.OS === 'web';
   const enableTourGuide = Platform.OS === 'android';
 
-  useInAppUpdate();
-
   useEffect(() => {
     function extractReferralCode(url: string | null): string | null {
       if (!url) return null;
@@ -521,6 +529,9 @@ function RootLayout() {
   const [loaded, setLoaded] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+
+  // Own startup update checks once, after the alert host and splash are ready.
+  useInAppUpdate(!showSplash && (loaded || isWeb));
 
   useEffect(() => {
     let isMounted = true;
@@ -609,18 +620,7 @@ function RootLayout() {
                               ...baseHeader,
                               title: '홈',
                               headerLeft: () => (
-                                <Pressable
-                                  onPress={async () => {
-                                    // 로그아웃 처리
-                                    await safeStorage.removeItem('session_role');
-                                    await safeStorage.removeItem('session_resident');
-                                    await safeStorage.removeItem('session_name');
-                                    await safeStorage.removeItem('session_readonly');
-                                    router.replace('/login');
-                                  }}
-                                  style={{ padding: 8, marginLeft: -8 }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
+                                <HomeLiteLogoutBackButton />
                               ),
                             }}
                           />
@@ -744,7 +744,8 @@ function RootLayout() {
                           <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
                           <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                           <Stack.Screen name="referral-graph" options={{ ...baseHeader, title: '추천 관계 그래프' }} />
-                          <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '매출 기여 그래프' }} />
+                          <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '증원수당 흐름' }} />
+                          <Stack.Screen name="referral-allowance" options={{ ...baseHeader, title: '월별 증원수당' }} />
                         </Stack>
 
                         <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
@@ -761,18 +762,7 @@ function RootLayout() {
                               ...baseHeader,
                               title: '홈',
                               headerLeft: () => (
-                                <Pressable
-                                  onPress={async () => {
-                                    // 로그아웃 처리
-                                    await safeStorage.removeItem('session_role');
-                                    await safeStorage.removeItem('session_resident');
-                                    await safeStorage.removeItem('session_name');
-                                    await safeStorage.removeItem('session_readonly');
-                                    router.replace('/login');
-                                  }}
-                                  style={{ padding: 8, marginLeft: -8 }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
+                                <HomeLiteLogoutBackButton />
                               ),
                             }}
                           />
@@ -885,7 +875,8 @@ function RootLayout() {
                           <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
                           <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                           <Stack.Screen name="referral-graph" options={{ ...baseHeader, title: '추천 관계 그래프' }} />
-                          <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '매출 기여 그래프' }} />
+                          <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '증원수당 흐름' }} />
+                          <Stack.Screen name="referral-allowance" options={{ ...baseHeader, title: '월별 증원수당' }} />
                         </Stack>
                         <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
                       </>

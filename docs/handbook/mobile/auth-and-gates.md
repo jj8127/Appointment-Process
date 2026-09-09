@@ -2,8 +2,8 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-08-10
-source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx
+last_verified: 2026-09-09
+source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx + hooks/use-referral-allowance.ts + app/referral-allowance.tsx
 
 # Mobile Playbook: Auth And Gates
 
@@ -16,6 +16,13 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 - 새 비밀번호 변경이 성공한 뒤에도 자동 로그인하지 않는다. 사용자는 새 비밀번호로 다시 로그인해야 정상 앱/bridge 세션을 받을 수 있다.
 
 ## 2026-08-10 Explicit Logout Contract
+
+### 2026-09-09 Focused logout navigation and native transition
+
+- `useAppLogout` owns login redirects for its six mobile screen callers. It starts local logout, then replaces with `/login?skipAuto=1` only after hydration and a cleared role, and only while focused. Retained background screens cannot issue competing redirects. Duplicate taps/effect runs are suppressed; later login resets the guard.
+- Both home-lite header variants clear the actual SessionProvider session, replacing obsolete `session_*` key deletion. Successful account deletion exits through the same action; the deletion API is unchanged.
+- Signed-out home uses a separately keyed transition root so the administrator tree is not reconciled into FC fallback content. Canonical release commit `99f34f4` records a prior Android Fabric existing-parent/addViewAt failure. This task reconciles that correction into main; historical native evidence is not a fresh acceptance pass.
+- Regression: `lib/__tests__/app-logout-navigation.test.js`, `lib/__tests__/logout-source-contract.test.ts` and session integration tests. Corrected native-device acceptance and publication remain separate gates.
 
 - 명시적 로그아웃은 FC·관리자·본부장·개발자·설계매니저 모두 로컬 세션 종료가 권한 원천이다. 원격 푸시 토큰 해제나 가람Link 정리가 늦거나 실패해도 로컬 `role`, 앱 세션 토큰, 저장 세션을 비우는 동작을 기다리게 하면 안 된다.
 - 홈과 공통 로그아웃 액션은 `/login?skipAuto=1`로 이동해, 같은 이벤트 프레임에 남아 있는 이전 세션 snapshot이 로그인 화면에서 landing route로 되돌리는 경합을 막는다.
@@ -122,40 +129,38 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 - `hooks/use-session.tsx`는 mobile push 등록의 단일 owner입니다. transient 실패는 bounded retry하고, 성공·권한 거부·retry 소진 후 foreground 복귀 시 현재 signed session으로 다시 등록해 서버 token row 유실이나 권한 변경을 복구합니다. 지원하지 않는 platform/client/device 결과는 process 동안 terminal로 유지합니다.
 - 신규 가입·로그인에서 받은 `appSessionToken`은 push 등록보다 먼저 secure storage에 저장하고, token replacement마다 registration revision을 증가시켜 동일 role/resident 세션도 trusted 등록을 다시 실행해야 합니다. restore가 legacy session JSON의 토큰을 발견하면 secure storage로 이관한 뒤 새 JSON에는 자격증명을 포함하지 않습니다.
 
-## 2026-07-30 매출 기여 그래프 런타임 계약
+## 2026-08-15 추천 관계 기반 증원수당 흐름 계약
 
-- `/referral-revenue-graph`의 네이티브 graph는 기존 `react-native-webview` 안의
-  외부 요청 없는 로컬 HTML 단일 Canvas에서 draw와 physics를 처리한다. node별
-  SVG/native Text를 drag frame마다 다시 그리는 경로를 추가하지 않는다.
-- 상호작용 물리는 관리자 웹 추천인 graph에서 실제로 활성인
-  charge·degree-aware link·link tension·collision·alpha/velocity damping 계열을
-  참고한다. 관리자 runtime에서 꺼진 `center/x/y` force는 모바일 전역 중심력으로
-  복원하지 않는다. 모바일은 viewer 중심의 collision-safe landscape radial seed와
-  약한 depth target, bounded viewer anchor/rebase를 사용하며 pointer로 잡은 node
-  하나만 고정한다. 관리자 `d3-force` runtime 전체를 이식하거나 package를 추가하지
-  않는다.
-- 1·3·6·10단계 guide ring은 viewer 중심에서 바깥으로 깊어지는 방향을 나타낸다.
-  회색 edge는 샘플 조직 관계이고 주황 child→parent arrow는 viewer 쪽 10% 샘플 기여
-  계산 방향이다. A11은 회색 점선/no-arrow이며 실제 송금·정산·지급 흐름으로
-  해석하지 않는다. eligible node 선택 경로의 inward pulse는 최대 1.5초 뒤 끝나고
-  event-driven RAF가 idle로 돌아가야 한다.
-- viewer node는 unfiltered 샘플 예상 유입 합계 10,240,000원을 표시하고 eligible
-  node는 자기 예상 배분액을 유지한다. edge에 금액 label을 추가하지 않는다.
-- WebView bridge는 `{type:'select-node', nodeId}`만 허용하고 앱은 현재 로컬 sample
-  node map에 존재하는 ID만 상세 선택으로 수락한다. file/universal file access,
-  mixed content, DOM storage, 외부 navigation은 비활성 상태를 유지한다.
-- node 이름·단계·금액 label은 screen-pixel 크기로 캐시하므로 pinch/fit/reset 중
-  글자 크기가 변하지 않는다. node 원과 edge만 graph scale을 따른다.
-- 새 route mount의 기본값은 저장되지 않는 `현재 그래프`다. 사용자가 명시적으로
-  `트리` 또는 `목록`을 선택할 수 있지만 다음 fresh mount는 다시 현재 그래프로 연다.
-- focus된 graph 및 graph 설정/상세는 landscape다. 트리·목록과 해당 상세는 portrait이며,
-  header/Android back, route blur, unmount에서는 portrait를 먼저 요청한다.
-  orientation 요청은 last-request-wins로 처리해 늦게 끝난 landscape 요청이 이탈 후
-  다시 적용되지 않게 한다.
-- 트리는 기존 graph node/edge/context와 상세 sheet를 공유하는 로컬 presentation일
-  뿐이다. tree mode에서는 원형 WebView를 반드시 unmount하며, 실제 referral 권한이나
-  data-read surface를 추가하지 않는다.
+- `/referral-revenue-graph`는 FC와 `admin + readOnly` 본부장에게만 보이는 로컬 샘플
+  화면이다. 샘플 상수 외 데이터를 읽지 않으며 app-session refresh, 실제 referral
+  query, Supabase, Edge Function, 네트워크 요청을 시작하지 않는다.
+- 화면은 `/referral-graph`와 같은 deterministic radial node/edge, pan/pinch,
+  fit/reset UI를 사용한다. 순수 layout helper만 공유하고 실제 graph component와
+  data hook은 사용하지 않는다.
+- 기존 증원수당 physics/WebView, node drag, orientation lock, graph/tree/list mode는
+  현재 route에서 사용하지 않는다.
+- 주황 방향선은 eligible node의 샘플 예상액이 child→parent→viewer로 합산되는 경로다.
+  같은 관계선을 지나는 금액을 더해 edge label로 표시한다. 제외 관계는 회색
+  점선/no-flow다. 이는 실제 송금·정산·지급 흐름이 아니다.
+- node와 이름·금액 label은 graph scale을 함께 따라 zoom out 시 작아지고, zoom in
+  시 visual max scale에서 멈춘다. fit animation은 system reduced-motion 설정을 따른다.
+- node 식별자는 원 안에, 개인 예상액은 node 아래에 둔다. edge 합계는 node·개인
+  예상액·다른 edge 합계와 겹치지 않는 후보 위치만 사용하고 선택 경로와 viewer 직결
+  합계를 우선한다. pan/pinch 종료 후 viewport 안쪽 6dp에 완전히 들어오지 않는 금액
+  label/caption은 생략한다. 기본 viewport는 viewer를 78%, 현재 filter 기여 node를
+  84%로 중심 배치하며 `전체 보기`와 `초기화`는 graph 밖 toolbar에 둔다.
 - 신규 package, 실제 referral API/DB, 정산 데이터는 이 샘플 경로에 추가하지 않는다.
+
+## 2026-09-07 월별 증원수당 조회
+
+- `/referral`은 FC 또는 읽기 전용 본부장 UI에서 서버 access를 확인하고 허용된 계정만 실제 `/referral-allowance`로 이동한다. 일반 관리자/개발자/설계매니저는 수령인 조회 대상이 아니다. 최종 권한은 signed FC/manager session과 현재 `referral_allowance_recipients`의 해당 FC 설정이다.
+- 조회는 현재 appSessionToken을 요구한다. 이 hook은 토큰 저장소 복구·갱신을 수행하지 않으며 기존 추천인 session 복구 계약은 유지한다. action/month만 보내고 수령인 UUID를 body에서 받지 않는다. 계정/토큰/월/권한 변경 시 이전 명세를 숨기고 늦은 응답을 무시하며 query를 취소·제거한다. 명세를 로컬 영구 저장하지 않는다.
+- 실제 데이터가 없는 달·오류·권한 회수는 가상 금액으로 대체하지 않는다. 기본 화면은 월별 합계와 가상화 목록이며, 관계 그래프는 요청할 때만 최대 300개 연결 노드를 렌더링한다. 생략 인원도 전체 금액과 목록에 포함한다.
+- 선택 상세는 이름·매출 산정 기준·내 수당만 표시한다. 그래프에는 해당 노드 옆에 이름/직접 수당/하위 포함 총수당을 하나의 카드로 배치한다. 관계선에는 금액을 두지 않는다. 공간이 부족하면 이름을 우선 표시하며, 확대 후 더 많은 금액을 보여준다. 부호와 전체 명세 합계를 유지한다.
+- 그래프 모달은 자체 gesture root, 그래프/상세 모달은 자체 safe-area provider를 갖는다. 이동·확대 중 라벨은 연속 변환하고 제스처 종료 후 배치만 갱신한다. 본인 명세 외 정보로 조회 범위를 넓히지 않는다.
+- `uploaded_snapshot`의 최초 자료는 6월 실적·8월 1일 지급·7월 31일 참고다. 실제 7~8월 원본 날짜와 usesLaterSnapshot을 공개하고 과거의 확정 인사 이력으로 설명하지 않는다. 전월 이월금 합산·본부지원금·별도 시상·실제 지급 승인은 제외한다.
+- 대상자별 설정 revision의 현재 published 명세만 제공한다. 개별 중지/재활성화는 다른 사람에게 영향을 주지 않는다. 관리자 source UI는 여러 FC/본부장을 선택해 각각 검토·업로드·게시할 수 있다.
+- 승인된 backend 확장은 migration `20260907115710`과 Edge v2로 적용했다. 19명(기존 본부장 1명, 신규 FC 18명)의 6월 명세는 원본과 정확히 일치하며 24명은 사용자 지시로 보류했다. 단위/SQL/타입/린트 검증과 익명 401 검증을 마쳤다. 앱 변경은 현재 로컬 개발 빌드에 있으며 공개 OTA/스토어·웹 배포와 실제 기기 인수 검증은 별도다.
 
 ## 연관 문서
 

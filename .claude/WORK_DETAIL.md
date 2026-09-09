@@ -1,5 +1,23 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20260909-pending-work-publication"></a> 2026-09-09 Pending-work publication preparation
+
+The user explicitly authorized committing and pushing all pending work in the connected Appointment-Process repository. Preserve the current development and release branch histories separately. The development snapshot includes referral graph layout/search/rendering, fictional revenue-flow preview, the mobile/web/schema/Edge allowance feature, Android drawing-order protection, and startup-alert/logout recovery. App version 4.2.11 is preserved from the current worktree. Git publication does not apply migrations, publish an OTA, build a binary or submit a Store release.
+
+Publication review found that the previously untracked stress fixture retained production-derived relationships. Its original is retained only under ignored `.codex-tmp`; the committed replacement uses independent deterministic fictional branches and name lengths. All 178 graph tests pass with unchanged stress assertions; the fictional 295-node fixture reproduces the old overlap failure while the corrected layout has zero measured overlaps and crossings. Existing earlier runtime evidence remains historical and does not establish a device run of the replacement fixture. Incidental `web/deno.lock` is now ignored. No credentials or private records are included in the pending publication.
+
+Additional local verification: 25 mobile/native suites / 324 tests, 26 web workbook/canonical tests, 14 isolated SQL tests, 5 Edge authentication tests, root/web TypeScript, scoped ESLint, Android patch check and Edge Deno check pass. Startup/logout validation remains recorded below. Exact final commit hashes, remote verification and full-suite results belong in the existing canonical task handoff.
+
+The full local Jest pass initially reported 260/261 suites and 1791/1792 tests passing. Its only failure was a preexisting source-contract assertion requiring LF against a Windows CRLF schema; both relevant presence functions matched HEAD after newline normalization. The test reader now normalizes CRLF without changing any SQL assertions, and its two tests pass. This is test portability only; no presence behavior changed.
+
+## <a id="20260909-startup-overlay-logout"></a> 2026-09-09 Startup overlay and logout recurrence
+
+User clarified the startup failure is iOS: restart → update alert → App Store displays Open → return to a dim home without dialog. The root and Home both mounted the store check. Shared AlertCard reused its previous close opacity (zero) when another alert replaced the queue head; its opening effect did not rerun. Renderer regressions reproduced six failures. The correction renders the card without animation-dependent visibility, gives queued alerts identity and consumes an action once before callback dispatch. Repeated press, callback error and interrupted animation are covered.
+
+The main checkout also lacked canonical release `99f34f4` logout correction. Reconciled the exact focused after-clear navigation, six duplicate route guards, keyed signed-out home and actual home-lite session logout while preserving unrelated work. Real SessionProvider integration uses fictional roles/tokens and unresolved persistence/network boundaries; it proves local clearing and one login route, not native-device acceptance.
+
+Update lifecycle and final check results are maintained in `.codex/harness/startup-overlay-logout-20260909`. No external publication, database change or Git push. Native iOS/device and runtime-compatible release gates remain HOLD until evidenced.
+
 ## <a id="20260808-mobile-exam-payment-proof-history"></a> 2026-08-08 | Mobile exam payment-proof history preview
 
 **Scope**:
@@ -14043,3 +14061,27 @@ Verification:
 **Boundaries**:
 - No Play Store submission or rollout, iOS native build, Vercel deployment, Supabase migration/function deployment, production data access, or secret mutation occurred.
 - The previously documented repository-wide baseline test, Deno, Board smoke, and dependency-audit findings were not changed by this publication and remain a separate remediation lane.
+
+<a id="20260815-referral-allowance-flow"></a>
+## 2026-08-15 | Referral-based allowance flow graph
+
+**Product change**:
+- `/referral-revenue-graph` now uses the same deterministic radial node/edge, pan/pinch, fit/reset, selection, and zoom badge language as the native referral relationship graph.
+- The route no longer mounts the previous physics/WebView canvas or its graph/tree/list mode switch. The existing real `/referral-graph` component and data hook remain unchanged.
+- Each fictional eligible node contributes its sample amount along every child-to-parent relationship toward the viewer. Shared relationships show the aggregate amount; the eleventh-level relationship stays visible as a gray dashed no-flow edge.
+- Nodes, names, node amounts, and edge amount labels shrink with graph zoom and stop growing at bounded visual maxima. Fit motion follows the system reduced-motion setting.
+- After Android 411dp evidence reproduced overlap at 136%, node identifiers moved inside circles, personal amounts remained as one compact caption, edge totals gained deterministic screen-space collision avoidance, and selected-path/viewer-adjacent totals gained priority.
+- The canvas controls moved into a fixed toolbar. The viewer default uses a readable 78% focus scale, while a depth filter centers its contributing cohort at 84%; `전체 보기` remains the explicit full-graph fit action.
+- Pan/pinch completion now snapshots scale and translation. Edge totals and personal captions that do not fit fully inside the viewport's 6dp safe inset are omitted, preventing clipped pills without making stable labels jump to a new collision candidate.
+
+**Data and safety**:
+- The screen still uses only `data/referral-revenue-demo.ts`. It does not read a real referral graph, sales, settlement, payout, API, Edge Function, Supabase, or database source.
+- The displayed 1-10 level, 10% behavior remains an explicitly fictional UI assumption and is not an approved payout formula.
+- The pre-existing user-owned `docs/guides/명령어 모음집.txt` edit was preserved and not modified.
+
+**Verification and boundaries**:
+- Passed focused referral verification: 9 suites / 60 tests, including new direct, multi-level aggregate, filtered-context, and excluded-flow cases.
+- Passed the repaired referral regression set: 18 suites / 118 tests. Pure geometry checks cover 42%, 58%, 78%, 100%, 136%, and 140% without visible label-to-node or label-to-label overlap; viewport containment and selected dense-branch priority are also fixed by tests.
+- Android emulator 1080x2400 / 420dpi (411dp logical width) verified the clean 78% viewer default, centered 84% `4~6단계` A4-A6 cohort, post-pan edge cleanup, selected A4 path, and accessible detail sheet without the reported overlap or clipped amount pills.
+- Passed root TypeScript, zero-warning scoped ESLint, handbook/index JSON parsing, feature-contract coverage, and workspace harness audit.
+- No physical-device visual check, actual account/data read, deployment, OTA, Store/native release, Git commit, push, migration, or destructive cleanup was performed. Release remains `HOLD` pending device confirmation and separately authorized rollout.

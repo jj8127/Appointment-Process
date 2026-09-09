@@ -107,72 +107,31 @@ completed FC 또는 active manager 로그인 성공
 - `/referral`은 화면 로그인 세션과 referral self-service `appSessionToken`이 분리돼 있어도, 현재 token 부재/만료 시 저장된 `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 시도하고 실패 시에만 relogin CTA를 보여준다.
 - 네이티브 추천 관계 graph: `app/referral.tsx -> app/referral-graph.tsx -> hooks/use-referral-graph.ts -> get-referral-tree(mode='graph')`
 - graph canvas는 `react-native-svg` + Gesture Handler/Reanimated로 deterministic radial layout, pan/pinch, fit/reset, node selection을 처리하고 desktop d3 physics와 런타임 position을 공유하지 않는다. 깊이별 node 수로 반지름을 늘리고 형제마다 최소 각도 구간을 먼저 예약해 넓거나 불균형한 300-node 조직도에서도 최대 확대 터치 간격을 보존한다.
-- 로컬 매출 기여 샘플: `app/referral.tsx -> app/referral-revenue-graph.tsx -> data/referral-revenue-demo.ts -> lib/referral-revenue-demo.ts -> current graph/tree/list/detail`
-- 매출 기여 샘플은 `parentId` chain에서 viewer 기준 depth를 파생하고 1~10단계에만
-  10% 샘플 예상액을 계산한다. 이 흐름에는 query hook, app-session refresh,
-  Supabase client, Edge Function, DB/RPC 또는 기존 `get-referral-tree(mode='graph')`
-  응답이 참여하지 않는다.
-- 네이티브 graph 탭은 기존 `react-native-webview`의 외부 요청 없는 로컬 HTML에서
-  단일 `<canvas>` draw loop와 physics loop를 함께 실행한다.
-  `lib/referral-revenue-graph-native.ts`가 관리자 웹에서 실제로 활성인 balanced
-  free-physics 계열인 charge·degree-aware link spring·link tension·collision과
-  velocity damping, 비교용 alpha baseline 및 topology를 준비한다. 관리자
-  `alphaDecay=0.016`은 감사 가능한 baseline으로 남기되 모바일 release runtime은
-  제한된 프레임 예산을 위해
-  `SAMPLE_REVENUE_MOBILE_SETTLE={initialAlpha:0.32,decayMultiplier:0.94,stopThreshold:0.014}`
-  를 사용하므로 alpha 값 단위 parity를 주장하지 않는다. 관리자 runtime은
-  `center`, `x`, `y` force를 명시적으로 비활성화하므로 resolved preset의
-  `centerStrength=0.024`를 모바일 전역 중심력으로 적용하지 않는다. 모바일 초기
-  위치는 viewer 원점, 분리된 A/B/C branch sector, 깊이별 증가 반지름을 가진
-  collision-safe landscape radial seed다. 깊이별 좌우 반전 lane 대신 subtree를
-  stable order로 묶고, parent/child collision 반지름과 resolved link distance로 다음
-  ring의 전진 각도를 계산해 긴 single-child chain이 한 방향으로 완만하게 진행한다.
-  canonical sample은 초기/일반 settle 모두 disjoint edge crossing 0을 유지하며 별도
-  quadratic crossing force는 실행하지 않는다. WebView 내부 mutable numeric array는
-  기존 force 계열에 약한 radial target과 bounded viewer anchor/rebase를 더해
-  drag/settle frame을 처리하며 pointer-fixed node만 목표 force에서 제외한다. 이
-  구조는 React commit과 SVG/native Text의 node별 rasterization을 frame path에서
-  제거한다. 웹 플랫폼에는 기존 SVG/Reanimated renderer를 fallback으로 유지한다.
-  canvas는 시작 지점 hit-test로 empty-space pan과 node drag를 분기하고,
-  두 pointer pinch, fit/reset, 선택 ring을 처리한다. fit/reset은 viewer를 viewport
-  중심에 두고 1·3·6·10단계 guide ring이 중심에서 바깥으로 증가하는 depth를
-  설명한다. eligible edge는 중복 회색 base line 없이 child에서 parent 방향의 주황
-  arrow shaft 하나로 그린다. 11단계 A11 edge는 회색 점선이고
-  arrow가 없다. eligible node 선택 시 전체 조상 경로를 정적으로 강조하고 inward
-  pulse는 최대 1.5초만 실행한 뒤 event-driven RAF를 idle로 돌린다. viewer node는
-  unfiltered canonical 합계 10,240,000원을, 각 eligible node는 자기 예상 배분액을
-  표시하며 edge에는 금액을 렌더하지 않는다. node 이름·단계·금액은
-  offscreen canvas에 고정 screen-pixel 크기로 캐시하므로 zoom 중에도 글자 크기는
-  변하지 않는다. release 뒤 `requestAnimationFrame` loop가 모바일 전용 alpha
-  schedule과 관리자 기준 velocity damping으로 bounded settle한 뒤 종료된다.
-  HTML source는 node/edge/physics 상수만 직렬화하며 외부 URL이나 실제 사용자
-  데이터를 읽지 않는다. bridge는 검증된 `{type:'select-node', nodeId}`만 앱으로
-  보내고, React Native 측은 현재 node map에 존재하는 ID만 상세 선택으로 수락한다.
-  file/universal file access, mixed content, DOM storage, 외부 navigation은 허용하지
+- 로컬 증원수당 흐름 샘플:
+  `app/referral.tsx -> app/referral-revenue-graph.tsx -> data/referral-revenue-demo.ts -> lib/referral-revenue-demo.ts + lib/referral-revenue-flow.ts -> ReferralRevenueFlowCanvas/detail`
+- 샘플은 `parentId` chain에서 나 기준 depth를 파생하고 1~10단계에만 10% 예상액을
+  계산한다. query hook, app-session refresh, Supabase client, Edge Function, DB/RPC,
+  실제 `get-referral-tree(mode='graph')` 응답은 참여하지 않는다.
+- `ReferralRevenueFlowCanvas`는 실제 추천 관계 graph의 순수 radial layout/fit helper를
+  사용해 동일한 원형 node·관계선·pan/pinch·fit/reset UI를 만든다. 실제 graph의
+  component나 data hook은 import하지 않고, 실제 `/referral-graph` 화면도 변경하지
   않는다.
-  drag/physics 좌표는 seed surface 경계로 clamp하지 않고 finite guard만 적용한다.
-  pan은 원래대로 무제한이며 fit은 pinch 최소 배율 아래도 허용해 먼 node까지 다시
-  viewport에 담는다. reset은 원래 deterministic seed와 fit을 복원한다. SVG fallback도
-  동일 좌표 계약을 사용하고 edge layer의 overflow를 visible로 둔다.
-  graph route는 stack header를 숨기고 back/title/sample header와 설정 trigger만
-  canvas 위에 상시 overlay한다. summary·filter·list·fit/reset·legend·disclaimer는
-  `Modal` 설정 panel 안에 있으며 panel open 동안 graph gesture를 차단한다.
-  관리자 웹의 `d3-force` package나 전체 component/hub seed-layout runtime은
-  import하지 않고 실제 활성 force 계열과 resolved balanced 상수만 참고하므로 새
-  package나 desktop runtime 크기를 추가하지 않는다.
-  `expo-screen-orientation`은 focus와 view mode를 함께 본다. focused graph와 graph
-  설정/상세는 `LANDSCAPE`, 트리·목록과 해당 상세는 `PORTRAIT_UP`이며 blur·unmount·
-  header/Android back에서도 portrait를 요청한다. last-request-wins coordinator가
-  늦게 끝난 landscape 요청이 트리·목록·이탈 뒤 다시 적용되는 race를 막는다.
-- route-local mode는 `graph | tree | list`이며 초기값은 항상 `graph`이고 저장하지
-  않는다. `graph`는 기존 원형 WebView/SVG renderer를 그대로 쓰고, `tree`는 그
-  renderer를 unmount한 뒤 `ReferralRevenueTreeView`와
-  `lib/referral-revenue-tree-layout.ts`의 고정 로컬 샘플 geometry를 사용한다. 두
-  presentation은 같은 filtered graph node/edge/context와 detail sheet를 공유한다.
-  기본 graph canvas 안에 카드형 `ScrollView`를 다시 넣는 것은 여전히 금지한다.
-- `/referral-revenue-graph`의 타입·계산·컴포넌트는 기존 추천 관계 graph와
-  분리한다. 향후 실제 금융 데이터 연결은 별도 원장·권한·trusted API·정책 버전
-  계약을 먼저 정의한 뒤 새 increment로 구현한다.
+- 각 eligible node의 예상액은 child에서 parent 방향으로 viewer까지 전달된다.
+  `lib/referral-revenue-flow.ts`는 같은 관계선을 지나는 모든 선택 기여액을 합산하며,
+  화면은 회색 관계선 위에 주황 방향선·화살표·합산 금액 label을 표시한다. 제외
+  관계는 회색 점선/no-flow다. 단계 filter는 viewer 조상 context를 보존하면서 선택
+  단계 금액만 합산한다.
+- physics, WebView, node drag, orientation lock, graph/tree/list mode는 현재 route에서
+  사용하지 않는다. node와 이름·금액 label은 graph scale을 함께 따르므로 축소할수록
+  작아지고 확대 시 각각의 visual max scale에서 멈춘다. fit animation은 system
+  reduced-motion 설정을 따른다.
+- flow canvas는 node 식별자를 원 안에 두고 개인 예상액과 edge 합계를 별도 층으로
+  렌더링한다. edge 합계는 screen-space 충돌 회피 후보를 사용하며 선택 경로와 viewer
+  직결 합계를 우선한다. pan/pinch 종료 snapshot 기준으로 viewport 안쪽 6dp에 완전히
+  들어오는 금액 label/caption만 렌더링한다. viewer 기준 기본 화면은 78%, 단계 filter는
+  84%로 중심 배치하고, 전체 fit과 reset은 canvas 밖 toolbar에서 실행한다.
+- 향후 실제 금융 데이터 연결은 별도 원장·권한·trusted API·정책 버전 계약을 먼저
+  정의한 뒤 새 increment로 구현한다.
 - `/referral-tree` route는 legacy 진입 호환용으로 `/referral` redirect만 유지한다.
 
 ### 3.2 Backend / Edge Function Layer

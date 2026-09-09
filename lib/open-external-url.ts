@@ -8,11 +8,9 @@ type OpenExternalUrlOptions = {
 };
 
 async function openWithLinking(normalized: string) {
-  const supported = await Linking.canOpenURL(normalized);
-  if (!supported) {
-    throw new Error(`UNSUPPORTED_URL:${normalized}`);
-  }
-
+  // Android package-visibility rules can make canOpenURL return false even when
+  // ACTION_VIEW can open the link. openURL remains the source of truth and rejects
+  // when no installed app can handle the URL.
   await Linking.openURL(normalized);
 }
 
@@ -23,7 +21,12 @@ export async function openExternalUrl(rawUrl: string, options?: OpenExternalUrlO
   }
 
   if (options?.preferExternalBrowser) {
-    await openWithLinking(normalized);
+    try {
+      await openWithLinking(normalized);
+    } catch (error) {
+      if (!isHttpUrl(normalized)) throw error;
+      await WebBrowser.openBrowserAsync(normalized);
+    }
     return normalized;
   }
 

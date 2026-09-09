@@ -1,4 +1,13 @@
-앱 빌드: [시작 전에 버전 업데이트 필수]npm run eas:build:android  / npm run eas:build:ios
+앱 빌드: [시작 전에 버전 업데이트 필수]
+Set-Location D:\hanhwa\fc-onboarding-app-release
+
+npm run eas:verify:android
+npm run eas:build:android -- --non-interactive
+
+Set-Location D:\hanhwa\fc-onboarding-app-release
+npm run eas:build:ios
+
+
 iOS 번들ID 등록/Apple 점검 페이지 오류 우회:
     1) Apple 로그인 자동등록을 건너뛰고 기존 원격 인증서로 빌드
        npm run eas:build:ios -- --non-interactive --freeze-credentials
@@ -11,7 +20,7 @@ iOS 번들ID 등록/Apple 점검 페이지 오류 우회:
     3) Play Console > App bundle explorer > 해당 AAB > Deobfuscation files에 mapping.txt 업로드
 앱 실행+설치: npm run android (stale 무선 ADB 항목 자동 제외)
 웹 실행:cd web & npm run dev
-아이폰 빌드 제출: eas submit -p ios --latest
+아이폰 빌드 제출: npm run eas:submit:ios
 
 ios에서 테스트
     npx expo start 하고 Expo Go 모드로 전환 -> QR코드 스캔

@@ -7,6 +7,12 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 # Mobile Playbook: FC Onboarding
 
+## 2026-09-09 Logout transition
+
+Startup store checks now belong only to the root after splash readiness; Home mounting or returning from the store cannot start another check. The shared alert queue remains visible and dismissible independently of animation completion. Regression: `hooks/__tests__/use-in-app-update.test.ts`, `components/__tests__/AppAlertProvider.test.js`.
+
+Home and home-lite delegate navigation to focused `useAppLogout` after local session clearing. Signed-out home uses a separately keyed transition root, never the FC fallback of a cleared administrator session. Both home-lite header variants clear SessionProvider state. Regression: `lib/__tests__/app-logout-navigation.test.js` and `lib/__tests__/logout-source-contract.test.ts`. Native acceptance remains required.
+
 ## 2026-08-10 기존 FC 기본 정보 수정 계약
 
 - Home > 기본 정보는 서명된 FC 앱 세션으로 `admin-action:getOwnProfile`을 호출하고, 서버가 세션의 `fcId`와 전화번호 후보를 함께 검증해 한 개의 본인 프로필만 반환한다. 화면이 임의 `fcId`를 선택하거나 익명 `fc_profiles` 조회 결과를 편집 권한으로 사용하지 않는다.

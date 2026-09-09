@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -18,8 +18,9 @@ import {
   isReferralReloginError,
 } from '@/hooks/use-referral-app-session';
 import { useReferralGraph } from '@/hooks/use-referral-graph';
+import { useReferralGraphSearch } from '@/hooks/use-referral-graph-search';
+import { createReferralGraphFilter } from '@/lib/referral-graph-filter';
 import {
-  filterReferralGraphNodes,
   getReferralGraphNeighborhood,
 } from '@/lib/referral-graph-native';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/lib/theme';
@@ -56,7 +57,7 @@ export default function ReferralGraphPage() {
     refetch,
     canUseReferralGraph,
   } = useReferralGraph();
-  const [searchTerm, setSearchTerm] = useState('');
+  const { searchTerm, appliedSearchTerm, setSearchTerm, flushSearchTerm } = useReferralGraphSearch();
   const [statusFilter, setStatusFilter] = useState<ReferralGraphStatusFilter>('all');
   const [selectedNode, setSelectedNode] = useState<ReferralGraphNode | null>(null);
   const [detailNode, setDetailNode] = useState<ReferralGraphNode | null>(null);
@@ -72,24 +73,17 @@ export default function ReferralGraphPage() {
     ),
     [data?.edges, focusHops, selectedNode],
   );
-  const visibleNodes = useMemo(
-    () => filterReferralGraphNodes({
-      nodes: data?.nodes ?? [],
-      searchTerm,
+  const selectVisibleGraph = useMemo(
+    () => createReferralGraphFilter(data?.nodes ?? [], data?.edges ?? []),
+    [data?.nodes, data?.edges],
+  );
+  const { nodes: visibleNodes, edges: visibleEdges } = useMemo(
+    () => selectVisibleGraph({
+      searchTerm: appliedSearchTerm,
       statusFilter,
       neighborhood,
     }),
-    [data?.nodes, neighborhood, searchTerm, statusFilter],
-  );
-  const visibleNodeIds = useMemo(
-    () => new Set(visibleNodes.map((node) => node.id)),
-    [visibleNodes],
-  );
-  const visibleEdges = useMemo(
-    () => (data?.edges ?? []).filter(
-      (edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target),
-    ),
-    [data?.edges, visibleNodeIds],
+    [selectVisibleGraph, neighborhood, appliedSearchTerm, statusFilter],
   );
   const totalDescendants = data?.nodes.find((node) => node.isViewer)?.totalDescendantCount
     ?? Math.max(0, (data?.nodes.length ?? 1) - 1);
@@ -98,10 +92,10 @@ export default function ReferralGraphPage() {
     : '추천 관계 그래프를 불러오지 못했습니다.';
   const needsRelogin = isReferralReloginError(error);
 
-  const handleNodeSelect = (node: ReferralGraphNode) => {
+  const handleNodeSelect = useCallback((node: ReferralGraphNode) => {
     setSelectedNode(node);
     setDetailNode(node);
-  };
+  }, []);
 
   const handleReset = () => {
     setSearchTerm('');
@@ -199,6 +193,7 @@ export default function ReferralGraphPage() {
             <TextInput
               value={searchTerm}
               onChangeText={setSearchTerm}
+              onSubmitEditing={flushSearchTerm}
               style={styles.searchInput}
               placeholder="이름, 소속, 추천 코드 검색"
               placeholderTextColor={COLORS.text.muted}

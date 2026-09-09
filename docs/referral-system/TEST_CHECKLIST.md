@@ -67,50 +67,22 @@
 - `RF-SELF-02` FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 `fc_profiles.recommender_*` snapshot / `referral_events` audit trail을 함께 갱신하고, 저장 직후 같은 화면의 direct recommender/current recommender가 재진입 없이 즉시 갱신됨
 - `RF-SELF-03` FC/본부장 self-service `app/referral.tsx`는 `나를 추천한 사람` 카드에 direct recommender 1명만 노출하고 `내가 추천한 사람들` tree는 canonical `recommender_fc_id` 링크만 반영해야 하며, `depth:2` 초기 로드 뒤 descendant lazy expand가 absolute depth 스타일을 유지하고 1단계 background prefetch로 다음 expand를 보조해야 하며, direct recommender card + subtree drill-down이 caller 자기 서브트리 범위 안에서만 동작하고 tree read 실패 시에도 기존 추천인 사용자는 같은 화면에서 변경 UI를 계속 열 수 있으며 Android production build에서 render crash(`ReactClippingViewManager.addView`, `dispatchGetDisplayList null child`) 없이 진입/편집/새로고침이 가능해야 함
 - `RF-SELF-04` FC/본부장 `/referral-graph`는 외부 웹 URL 없이 네이티브 route로 진입하고, signed 자기 root의 canonical downline만 phone/audit/mutation 없이 표시하며 pan/pinch, fit/reset, 검색/상태/1~3촌 focus, node 상세, relogin 상태를 지원함
+  - 밀집 배치: 독립적으로 생성한 가상 관계 fixture(295 nodes/294 edges, 21개 루트 분기, 깊이 8)와 별형·불균형·깊은 트리에서 전체 보기/31%/100%/최대 확대의 원·표시 이름 충돌이 0이어야 한다. 공개 fixture에는 실제 조직 관계나 이름 길이를 사용하지 않는다. 읽기 배율에서 모든 이름이 배치되고 원 중심 간 선택 간격이 확보돼야 한다. 논리 공간을 확대해도 Android bitmap 한도를 지키며, 실제 기기의 pinch 종료/취소·선택·큰 글꼴 검증은 수치 테스트와 별도로 기록한다.
+  - Android 회귀: 두 손가락 확대 후 한 손가락을 먼저 떼어도 focal node가 밀리지 않아야 한다. raw touch count로 POINTER_UP 마지막 update를 제외하고, 이동·선택·취소·fit/reset을 실제 입력으로 검증한다. 이름은 배율 badge 위에 그려지면 안 된다. `scripts/testing/referral-graph-emulator/`의 오프라인 실제 Canvas 실행은 API 37에서 21개 assertion/캡처 8장으로 통과했으며, 운영 route 인증·상세 sheet와 실기기/TalkBack/큰 글꼴은 별도 gate다.
 - `RF-SELF-05` FC/본부장 `/referral-revenue-graph` 샘플 미리보기는 실제
-  referral/API/DB 호출 없이 가상 parent chain의 1~10단계 15명만 10% 예상
-  배분 합계에 포함하고 11단계는 `대상 제외`로 표시하며, `샘플 데이터`와
-  `실제 정산 아님`을 현재 그래프·트리·목록·상세에서 명확히 알림. 새 화면은 보기
-  선택을 저장하지 않고 항상 `현재 그래프`로 시작하며, 이 기본 graph는 카드형
-  조직도가 아니라 기존 추천 관계 그래프처럼 원형 node와 visible edge를 사용함.
-  관리자 웹의 실제 활성 charge/link/tension/collision/damping 계열을 참고하되,
-  관리자 runtime에서 꺼진 `center/x/y`를 모바일 전역 중심력으로 되살리지 않음.
-  viewer 중심 collision-safe landscape radial seed는 A/B/C branch sector를 분리하고
-  모든 eligible parent→child edge에서 depth 목표 반지름이 증가해야 함. 전체 node
-  pair는 원래 collision 반지름에 5px 여유를 더한 envelope를 만족하고 production
-  800x360 canvas/inset 안에 포함돼야 함. 네이티브 draw/physics는 외부 요청 없는 로컬
-  WebView의 단일 HTML Canvas loop에서 처리해 drag frame마다 React/SVG node별
-  redraw를 만들지 않음. 모든 node 원 안에 예상 배분액이 항상 보이고 collision pass
-  뒤 node pair가 겹치지 않으며 pan/pinch, 화면 맞춤, 초기화, node 선택 상세를
-  지원함. graph는 safe-area 전체화면 HUD canvas로 열리고 node drag 중 주변 node가
-  spring/repulsion/collision으로 반응한 뒤 release settle이 idle로 끝남. 확대
-  `100%→200%` 중 node/edge는 확대되지만 이름·단계·금액 글자는 같은 screen-pixel
-  크기를 유지함. focused graph와 graph 설정/상세는 landscape, 트리·목록과 해당 상세는
-  portrait이며 header/Android back, route blur, unmount 뒤 portrait로 복원함.
-  설정 panel에 summary/filter/tree/list/fit/reset/legend/disclaimer가 있고 닫기·바깥 탭·
-  Android back으로 닫히며 단계 filter 뒤에도 viewer 연결 경로를 보존함. 1·3·6·10
-  단계 guide ring과 child→parent 주황 arrow가 중심에서 바깥으로 퍼지는 depth 및
-  viewer 쪽 샘플 기여 계산 방향을 함께 설명해야 함. 회색 base edge는 관계 구조이고
-  A11 edge는 회색 점선/no-arrow임. viewer node에는 unfiltered 합계 10,240,000원이
-  보이고 edge에는 금액 label이 없어야 함. A10 선택 경로는 정적으로 강조되고 inward
-  pulse는 최대 1.5초 뒤 끝나 RAF가 idle이어야 하며 A11 선택은 arrow/pulse를 만들지
-  않아야 함. Android gfxinfo 기준 동일 eligible node의 warmed 900ms drag를 3회
-  측정해 각 run의 janky frame이 5% 미만이고 slow bitmap upload가 0인지 확인하며
-  slow UI thread도 함께 기록함. 고정 17-node canonical A/B/C seed와 51-frame normal settle의
-  disjoint edge crossing은 각각 0이고, A single-child chain의 첫 root joint 이후 최대
-  turn은 45도 이하이며 깊이별 angular step은 한 방향이어야 함. 이 45도 assertion은
-  fixture 회귀값이고 runtime hard clamp가 아니며, dense fanout은 subtree/collision 기반
-  sector와 반지름 확장을 허용해야 함. drag/release 좌표는
-  `70..1530`으로 clamp되지 않고 surface 밖 유한 좌표를 유지하며, ±50,000 outlier도
-  화면 맞춤으로 pinch 최소 배율 아래까지 축소해 inset 안에 복구돼야 함. eligible
-  edge는 주황 방향선 하나만 렌더하고 회색 base line을 이중으로 겹치지 않아야 함.
-  `트리` 선택 시 원형 renderer는 unmount되고 초기 440-wide 고정 3열 카드 계층이
-  portrait로 열려야 함. 118x66 card, 86px depth 간격, viewer/B 중앙·A 좌측·C 우측,
-  parent-bottom→child-top connector, A11 점선 제외 상태를 유지함. 단계 filter의 흐린
-  ancestor card는 선택 불가지만 금액/status label을 잃지 않고, 일반 card 선택은 기존
-  상세 sheet를 열어야 함. 다시 `현재 그래프`를 고르면 기존 원형 renderer와
-  landscape가 복원돼야 함. 큰 글자 설정에서도 card는 connector와 같은 66px 높이를
-  유지하고 visual text는 card 안에 맞추며 접근성 label은 전체 금액을 읽어야 함
+  referral/API/DB 호출 없이 가상 parent chain의 1~10단계 15명만 10% 예상 배분에
+  포함하고 11단계는 `대상 제외`로 표시하며, `샘플 데이터`와 `실제 정산 아님`을
+  화면·상세에서 명확히 알림. 기존 physics/WebView와 graph/tree/list mode는 route에서
+  사용하지 않고, `/referral-graph`와 같은 deterministic radial 원형 node/edge,
+  pan/pinch, 화면 맞춤, 초기화, node 상세를 사용함. 각 eligible node의 금액은
+  child→parent→viewer 방향의 주황 선으로 표시하고, 같은 관계선을 지나는 하위 금액은
+  합산 label로 보여야 함. A 경로의 viewer 연결선은 641만원/10명, B 경로는
+  229만원/3명이며 A10→A11은 회색 점선/no-flow여야 함. 단계 filter는 선택 단계의
+  금액만 합산하면서 viewer까지의 흐린 ancestor context를 보존하고, node 선택은 전체
+  조상 금액 경로를 정적으로 강조해야 함. zoom out 시 node와 이름·금액 label이 함께
+  작아져 서로 가리지 않고 zoom in 시 visual max scale에서 멈춰야 함. fit animation은
+  system reduced-motion을 따라야 하며 신규 package, orientation lock, node drag,
+  실제 정산 데이터는 추가하지 않음
 
 ### 5.2 초대링크
 

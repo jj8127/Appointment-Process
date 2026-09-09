@@ -42,18 +42,17 @@ describe('referral graph web link helpers', () => {
     );
     expect(canvasSource).toContain('width={GRAPH_RENDER_SURFACE_SIZE}');
     expect(canvasSource).toContain('height={GRAPH_RENDER_SURFACE_SIZE}');
-    expect(canvasSource).toContain(
-      '{ scale: scale.value / GRAPH_RENDER_COORDINATE_SCALE }',
-    );
     expect(canvasSource).toContain('getReferralGraphNodeScreenRadius(');
-    expect(canvasSource).toContain(
-      'GRAPH_RENDER_COORDINATE_SCALE / Math.max(graphScale.value, 0.001)',
-    );
-    expect(canvasSource).toContain(
-      'screenRadius * getNodeVisualScale(graphScale.value) + NODE_LABEL_GAP',
-    );
-    expect(canvasSource).toContain('const NODE_VISUAL_MAX_SCALE = 1.4');
-    expect(canvasSource).toContain('getNodeVisualScale(graphScale.value)');
+    expect(canvasSource).toContain('projectReferralGraphPoint(');
+    expect(canvasSource).toContain('useAnimatedProps(');
+    expect(canvasSource).toContain('buildReadableReferralGraphLayout(');
+    expect(canvasSource).toContain('buildReferralGraphLabels(');
+    expect(canvasSource).toContain('clampReadableReferralGraphScale(');
+    expect(canvasSource).toContain('.onFinalize(');
+    expect(canvasSource).not.toContain('opacity: Math.abs(scale.value - displayScale)');
+    expect(canvasSource).not.toContain('panX.value - renderCamera.panX');
+    expect(canvasSource).toContain('if (!pinchActive.value) return;');
+    expect(canvasSource).not.toContain('GRAPH_RENDER_COORDINATE_SCALE');
     expect(canvasSource).toContain('const ReferralGraphNodeMarker = memo');
     expect(canvasSource).toContain('const ReferralGraphNodeLabel = memo');
     expect(canvasSource).toContain('style={styles.nodeLabelLayer}');

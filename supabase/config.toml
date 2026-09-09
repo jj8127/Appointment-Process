@@ -1,0 +1,5 @@
+project_id = "fc-onboarding-app"
+
+# Authentication is the signed custom app session, checked inside this function.
+[functions.get-my-referral-allowance]
+verify_jwt = false

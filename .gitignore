@@ -74,6 +74,7 @@ testsprite_tests/
 coverage/
 nul
 /deno.lock
+/web/deno.lock
 supabase/.temp/
 supabase/**/.temp/
 

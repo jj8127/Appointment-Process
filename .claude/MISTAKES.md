@@ -1,5 +1,19 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-09-09 | Alert lifecycle | 닫힌 카드의 투명도를 다음 알림이 재사용함
+
+- Symptom: 업데이트 알림에서 스토어를 열고 복귀하면 회색 배경만 남고 터치가 차단된다.
+- Root cause: 루트와 홈이 업데이트 확인을 각각 실행했다. 첫 알림을 닫으며 opacity를 0으로 바꾼 뒤, 같은 AlertCard 인스턴스가 다음 알림을 받아 시작 effect가 다시 실행되지 않았다. 행동 실행도 애니메이션 완료 콜백에 의존했다.
+- Guardrail: 시작 확인 owner를 하나로 유지하고 알림마다 identity를 부여한다. 가시성과 닫기는 애니메이션 완료에 의존하지 않으며, 항목을 한 번만 소비한 뒤 콜백을 실행한다.
+- Verification: 실제 provider를 실행하는 `components/__tests__/AppAlertProvider.test.js`에서 수정 전 6개 실패, 수정 후 7개 통과. iOS 실제 기기 수락 검증과 배포는 별도다.
+
+## 2026-09-05 | Android pinch | 손가락을 뗀 마지막 focal 이벤트를 확대 계산에 사용함
+
+- Symptom: 추천 그래프 핀치를 끝내면 중심 노드가 손가락에서 벗어나 화면 밖으로 밀렸다.
+- Root cause: Android `POINTER_UP`의 `numberOfPointers`에는 뗀 손가락이 포함되지만 focal 좌표는 남은 손가락으로 바뀐다. scale 이벤트의 pointer count만 검사해도 막을 수 없었다.
+- Guardrail: `onTouchesDown/Up`의 실제 `numberOfTouches`를 추적하고 두 터치 미만의 update를 무시한다. 시작 focal과 현재 focal을 분리하며, 핀치 종료/취소 후 이름 배치를 복원한다.
+- Verification: 익명 295-node 실제 구조를 사용한 SDK instrumentation에서 핀치 종료 후 중심 이동 0x1px, 이동·선택·취소·fit/reset 포함 21개 assertion 통과. 회귀 코드는 `scripts/testing/referral-graph-emulator/java/com/garamin/graphqa/GraphInstrumentation.java`에 있다.
+
 ## 2026-08-08 | Edge deploy encoding | PowerShell 기본 인코딩으로 함수 소스를 번들링함
 
 - Symptom: Supabase 배포 도구에 `Get-Content -Raw` 결과를 전달하자 한글 문자열의 따옴표 경계가 훼손되어 서버 번들러가 TypeScript parse 오류로 배포를 거부했다. 기존 v12는 그대로 유지됐지만 첫 요청이 불필요하게 실패했다.

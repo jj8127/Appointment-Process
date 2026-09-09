@@ -1,0 +1,17 @@
+// Local QA only: separate package/output, embedded anonymous bundle, no INTERNET permission.
+def script = gradle.startParameter.initScripts.find { it.name == 'offline.init.gradle' }
+def repo = new File(script.parentFile, '../../..').canonicalFile
+def qa = new File(repo, '.codex-tmp/referral-emulator-apk')
+gradle.beforeProject { p ->
+    if (p.path == ':app' && p.rootDir.canonicalFile == new File(repo, 'android').canonicalFile) {
+        p.layout.buildDirectory.set(new File(qa, 'build'))
+        p.afterEvaluate {
+            p.android.buildTypes.release.applicationIdSuffix = '.referralqa'
+            p.android.sourceSets.release.manifest.srcFile(new File(repo, 'scripts/testing/referral-graph-emulator/AndroidManifest.xml'))
+            p.android.sourceSets.release.assets.srcDir(new File(qa, 'assets'))
+        }
+        p.tasks.configureEach { t ->
+            if (t.name == 'createBundleReleaseJsAndAssets' || t.name == 'processReleaseGoogleServices') t.enabled = false
+        }
+    }
+}

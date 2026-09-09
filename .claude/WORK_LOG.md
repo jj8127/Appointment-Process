@@ -1,5 +1,17 @@
 # 작업 로그
 
+## 2026-09-09 미커밋 작업 정리 및 GitHub 게시 준비
+
+- 사용자가 연결된 GitHub에 현재 프로젝트의 미커밋 작업 전체를 커밋·푸시하도록 승인했다. 추천 그래프·증원수당·Android 보정·시작 알림·로그아웃 수정과 관련 문서/회귀 검증을 현재 개발 브랜치에 함께 보존한다.
+- 공개 테스트 fixture는 독립적으로 생성한 가상 295-node 자료로 교체했다. 기존 자료와 실행 산출물은 Git 제외 로컬 경로에 보존하며, 우발적으로 생성된 `web/deno.lock`도 제외한다.
+- 그래프 178 tests, 모바일 관련 324 tests, 웹 파서 26 tests, SQL 14 tests, Edge 인증 5 tests와 타입·범위 린트를 통과했다. 빌드·앱 배포·DB 적용은 이번 Git 게시에 포함하지 않는다.
+
+## 2026-09-09 시작 알림·로그아웃 재발 조사
+
+- 사용자 iOS 재현 순서(재시작 → 업데이트 안내 → App Store 열기 → 배경만 남음)에 해당하는 공유 알림 opacity 재사용 결함을 실제 provider 테스트로 재현하고 수정했다. 업데이트 체크를 루트 한 곳으로 통일하고 iOS 단일 조회·취소 가능한 안내·동일 버전 24시간 재표시 제한을 적용했다.
+- main에 없던 릴리스 `99f34f4`의 단일 focused 로그아웃·signed-out home 분리 수정을 보존 이식했다. 이전 Android native 충돌 기록은 과거 증거이며 새 기기 통과로 주장하지 않는다.
+- 로컬 완료: 관련 13 suites/78 tests, 양 checkout 타입·린트·governance, iOS/Android Hermes export 통과. 사용자 지시로 빌드·배포는 사용자가 맡으며 실제 기기 통과나 배포 완료를 주장하지 않는다. 단일 기록: [하네스](../.codex/harness/startup-overlay-logout-20260909/handoff.md).
+
 > AI Agent는 매 세션 시작 시 이 파일을 먼저 읽고, 작업 시작 전에 최신 앵커를 확인하세요.
 > 상세 이력: [WORK_DETAIL.md](WORK_DETAIL.md)
 
@@ -20,6 +32,19 @@
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
 ## 2026-08-10
+
+### 2026-09-07 추천 관계 그래프 렌더링 최적화
+
+- 후속 무선 개발 빌드 프로젝트 로드 timeout을 PC manifest 요청에서도 재현했다. Metro 워커 2개 제한·생성 폴더 제외 후 서버를 재시작해 manifest와 Android bundle HTTP 200을 확인했다. 기기 앱 재열기는 자동 승인 정책으로 거부돼 사용자가 개발 클라이언트 홈에서 localhost:8081을 열어 확인한다.
+
+- 기존 배치를 유지하며 연결선을 단일 SVG 경로로 묶고, 노드·이름 이동을 공통 변환으로 처리했다. 화면 밖 요소는 보수적인 여유 영역으로 제외하며 화면 읽기 기능에는 전체 노드를 유지한다. 이름 충돌 결과를 보존하는 공간 인덱스와 검색 입력 병합·동일 결과 재사용을 추가했다.
+- 로컬 161개 테스트, 모바일 타입·린트·governance 통과. 가상 300명/1배율에서 렌더 대상 노드 300→28, 전체보기 300명 유지. 실제 휴대폰 성능 수치는 아니며 사용자가 직접 실제 테스트를 진행하기로 해 추가 기기 검증은 중단했다. 배포 없음. [검증 기록](../.codex/harness/native-referral-graph-20260726/qa-report.md).
+
+### 2026-09-05 추천 관계 그래프 밀집 배치
+
+- 추천 관계 화면에 이름 영역을 고려한 방사형 배치, 좌표 비압축, 화면 좌표 기반의 제한된 SVG 렌더링, 배율별 이름 충돌 처리를 적용했다. 매출 흐름의 공용 기존 배치는 유지했다.
+- 사용자 승인 실제 하위 관계를 익명 구조(295 nodes/294 edges)로 검증: 31% 원 겹침 1,094→0쌍, 표시 이름 충돌 0쌍. Jest 85개, 타입·린트, governance 통과. 후속 Hanhwa_FC 에뮬레이터(API 37)에서 실제 Canvas의 확대·축소·이동·선택·핀치 취소·fit/reset 21개 assertion과 캡처 8장을 확보했다. 핀치 손가락 해제 시 위치 이동과 배율 배지 가림을 수정했으며, 오프라인 별도 QA APK 빌드/실행이 통과했다. 관계선 교차 1곳과 실기기·TalkBack 등 별도 gate는 남는다. 배포 없음, 릴리스 HOLD.
+- 상세: [현재 검증 기록](../.codex/harness/native-referral-graph-20260726/qa-report.md).
 
 | Date | Work | Key files | Detail |
 |---|---|---|---|
@@ -1213,3 +1238,25 @@
 - Restored the primary checkout's lockfile dependencies after empty `node_modules` prevented Expo plugin resolution, then completed Android production build `979d7c8d-4ae5-4c48-9c42-b92ed2f703bb` as app 4.2.4, version code 74, runtime 4.2.4.
 - No Play Store submission, staged rollout, iOS native build, database, Edge Function, or web deployment was performed. Repository-wide baseline gate findings remain tracked separately.
 - Details: [WORK_DETAIL.md#20260813-garamin-423-ota-424-android-build](WORK_DETAIL.md#20260813-garamin-423-ota-424-android-build)
+
+## 2026-08-15 Referral-based allowance flow graph
+
+- Replaced the mounted allowance physics/WebView and tree/list presentations with a single native radial relationship graph that follows the existing referral graph interaction language.
+- Added child-to-parent sample amount aggregation, edge amount labels, selected-path emphasis, excluded no-flow relationships, and zoom-aware node/label sizing.
+- Reworked the Android small-screen UI after 411dp/136% evidence showed node, personal amount, and edge-total overlap: identifiers now sit inside nodes, edge totals use deterministic collision avoidance, controls live outside the canvas, and the viewer/filter viewports use readable 78%/84% focus scales.
+- Focused referral tests pass 9 suites / 60 tests; TypeScript, scoped ESLint, JSON contracts, and harness audit pass. No actual referral/sales/settlement data, API, database, deployment, OTA, Store release, commit, or push was used.
+- Post-repair verification passes 18 referral suites / 118 tests, including collision-free scales 42%, 58%, 78%, 100%, 136%, and 140% plus viewport-edge suppression; TypeScript, scoped ESLint, governance, harness audit, and Android emulator default/filter/pan/detail checks pass.
+- Details: [WORK_DETAIL.md#20260815-referral-allowance-flow](WORK_DETAIL.md#20260815-referral-allowance-flow)
+
+## 2026-09-07 Recruitment allowance single-account pilot
+
+- Implemented signed administrator monthly Excel upload, calculation/review/publication, and a server-scoped mobile monthly statement with an optional graph capped at 300 connected nodes. Existing fictional demo data remains isolated; the statement uses all selected contribution rows.
+- Confirmed June performance, August 1 payment date and July 31 pilot reference with user-approved July/August genealogy. Actual source dates, including August 8 HR data and later genealogy, are retained and disclosed. Current-month new calculations exclude previous carry settlement and actual payment approval.
+- Reconciled the designated 36-person branch and 12 contributors exactly against the original workbook result. Applied only migration `20260907053913_referral_allowance_pilot.sql`, deployed `get-my-referral-allowance` ACTIVE v1 with custom signed authentication, and published one June snapshot for one pilot under the user-selected developer actor. Aggregate checks verify exact snapshot/actor attribution, target-only access, revoked client grants and anonymous HTTP 401/no-store.
+- Calculation 31 tests, mobile regression 42 tests, workbook/canonical parsing 26 tests, SQL execution 12 tests and Edge auth 4 tests pass; affected TypeScript/ESLint and Sentry-disabled web production build pass. Governance and canonical harness audit pass. Device acceptance is user-owned. No public mobile/web release, native build, OTA, commit or push occurred.
+- Canonical task: `.codex/harness/referral-allowance-pilot-20260907`; bounded backend pilot is applied, public rollout remains HOLD. Prior graph/Metro work, unrelated dirty changes and clean release checkout are preserved.
+- Device screenshot follow-up: fixed modal-local safe-area and Android gesture-root boundaries, reduced selected-person detail to sales basis and own contribution, and preserved fractional source performance display. Navigation/display/readable-graph 62 tests, root TypeScript and scoped ESLint pass. Physical pinch/bottom-spacing retest remains user-owned; no backend write or deployment occurred for this follow-up.
+- Added user-requested edge amounts: direct viewer contribution and full branch total, preserving signed amounts and graph-omitted descendants. Collision-aware text placement shares the existing camera layer and is optional for the shared graph. Final targeted graph/allowance checks pass 5 suites / 75 tests plus TypeScript/ESLint; device retest remains user-owned.
+- Gesture flicker follow-up: removed whole-label opacity toggling, pan-coordinate rebasing on culling commits, and transient press highlights. Added continuous label transforms, transformed-extent culling, idle-only reflow and failed-pinch guards. Seven focused suites / 104 tests, TypeScript and ESLint pass; actual flicker acceptance remains user-owned. No deployment or backend change.
+- Moved direct/full-branch allowance amounts from edges to their contributing nodes. Each node now owns one name/direct/total card with shared collision bounds and compact-name fallback, using the existing continuous camera layer. Eight focused suites / 162 tests, root TypeScript and scoped ESLint pass; signed totals include omitted graph descendants. Device visual acceptance remains user-owned; no backend change or deployment.
+- User-authorized expansion: reconciled all 200 relationships in four source charts. Filled 25 verified null links through the audited RPC; existing non-null changes are zero. Preserved 21 conflicting links, two disallowed admin-parent candidates and 122 unresolved identity relationships. The user explicitly deferred 24 recipients (12 missing app identities, 12 unresolved source branches). Applied per-recipient migration `20260907115710` and Edge v2, then published/reconciled June statements for 19 people (original manager plus 18 new FCs) under the selected developer actor. Original snapshot/revision remains unchanged. SQL 14, auth 5 and mobile/calculation/navigation 50 tests, affected type/lint/Deno checks and no-upload web build pass. User reports are outside source/harness; no OTA, public web release, commit or push.

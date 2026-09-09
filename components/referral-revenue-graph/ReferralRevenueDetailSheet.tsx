@@ -12,7 +12,7 @@ type Props = {
 };
 
 const DISCLAIMER =
-  '샘플 데이터 · 실제 조직, 매출, 정산 내역이 아닙니다. 표시된 하위 구성원의 샘플 매출에 10%를 단순 적용한 화면 예시입니다.';
+  '샘플 데이터 · 실제 조직, 매출, 정산 내역이 아닙니다. 1~10단계 샘플 매출의 10%를 단순 적용한 화면 예시입니다.';
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -74,7 +74,7 @@ export function ReferralRevenueDetailSheet({ node, onClose }: Props) {
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.depthPill}>
               <Text style={styles.depthPillText}>
-                viewer 기준 {node.depth}단계
+                나 기준 {node.depth}단계
               </Text>
             </View>
             <Text style={styles.pathLabel}>관계 경로</Text>
@@ -84,7 +84,7 @@ export function ReferralRevenueDetailSheet({ node, onClose }: Props) {
               <View style={styles.detailList}>
                 <DetailRow label="샘플 매출" value={formatSampleRevenueKrw(node.salesKrw)} />
                 <DetailRow label="샘플 적용률" value={rate} />
-                <DetailRow label="예상 배분액" value={expected} />
+                <DetailRow label="나에게 이동하는 예상액" value={expected} />
                 <DetailRow
                   label="대상 상태"
                   value={node.eligible ? '1~10단계 대상' : '11단계부터 대상 제외'}

@@ -1,6 +1,5 @@
-import fs from 'fs';
-import path from 'path';
-import vm from 'vm';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const ROOT = path.resolve(__dirname, '../..');
 
@@ -8,43 +7,36 @@ function read(relativePath: string) {
   return fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
 }
 
-describe('referral revenue demo screen source contract', () => {
+describe('referral allowance flow screen source contract', () => {
   const screen = read('app/referral-revenue-graph.tsx');
-  const canvas = read(
-    'components/referral-revenue-graph/ReferralRevenueGraphCanvas.tsx',
+  const flowCanvas = read(
+    'components/referral-revenue-graph/ReferralRevenueFlowCanvas.tsx',
   );
-  const nativeCanvas = read(
-    'components/referral-revenue-graph/ReferralRevenueGraphWebViewCanvas.tsx',
-  );
-  const tree = read(
-    'components/referral-revenue-graph/ReferralRevenueTreeView.tsx',
-  );
-  const treeLayout = read('lib/referral-revenue-tree-layout.ts');
+  const flowModel = read('lib/referral-revenue-flow.ts');
   const detail = read(
     'components/referral-revenue-graph/ReferralRevenueDetailSheet.tsx',
   );
-  const combined = `${screen}\n${canvas}\n${tree}\n${treeLayout}\n${detail}`;
+  const combined = `${screen}\n${flowCanvas}\n${flowModel}\n${detail}`;
 
-  it('stays completely local and independent from the real referral graph', () => {
+  it('stays fictional and local while reusing only referral graph UI helpers', () => {
     expect(combined).not.toMatch(/\bfetch\s*\(/);
     expect(combined).not.toMatch(/supabase/i);
     expect(combined).not.toMatch(/useQuery|queryClient|refetch/);
+    expect(combined).not.toMatch(/useReferralGraph|use-referral-graph/);
     expect(combined).not.toMatch(/components\/referral-graph/);
-    expect(combined).not.toMatch(/use-referral-graph|referral-graph-native/);
+    expect(flowCanvas).toContain("from '@/lib/referral-graph-native'");
+    expect(screen).toContain('REFERRAL_REVENUE_DEMO_RAW_NODES');
   });
 
-  it('shows the exact simulation scope and disclaimers', () => {
-    expect(screen).toContain(
-      '샘플 범위: viewer 아래 1~10단계 · 각 구성원 샘플 매출의 10%',
-    );
-    expect(screen).toContain(
-      '11단계부터는 대상에서 제외됩니다. 실제 조직·매출·정산 내역이 아닙니다.',
-    );
+  it('states the exact sample boundary without presenting it as a payout rule', () => {
     expect(combined).toContain(
-      '샘플 데이터 · 실제 조직, 매출, 정산 내역이 아닙니다. 표시된 하위 구성원의 샘플 매출에 10%를 단순 적용한 화면 예시입니다.',
+      '샘플 데이터 · 실제 조직, 매출, 정산 내역이 아닙니다.',
     );
-    expect(screen).toContain('시뮬레이션');
+    expect(screen).toContain(
+      '1~10단계 샘플 매출의 10%를 단순 적용한 화면 예시입니다.',
+    );
     expect(screen).toContain('샘플');
+    expect(screen).toContain('조회 전용');
   });
 
   it('gates direct entry with the current local session only', () => {
@@ -54,423 +46,99 @@ describe('referral revenue demo screen source contract', () => {
     expect(screen).toContain("role === 'admin' && readOnly");
   });
 
-  it('provides selected state and accessible touch controls', () => {
-    expect(screen).toContain('accessibilityRole="tab"');
-    expect(screen).toContain('accessibilityState={{ selected }}');
-    expect(screen).toContain('accessibilityRole="button"');
-    expect(screen).toContain('TOUCH_TARGET.min');
-    expect(canvas).toContain('accessible={false}');
-    expect(canvas).toContain('importantForAccessibility="no"');
-    expect(canvas).toContain('accessibilityRole="summary"');
-    expect(canvas).toContain('accessibilityLabel={`${node.name}');
-    expect(nativeCanvas).toContain('const padding = 28;');
+  it('uses one relationship-style flow canvas instead of the retired renderers', () => {
+    expect(screen).toContain('<ReferralRevenueFlowCanvas');
+    expect(screen).not.toContain('ReferralRevenueGraphCanvas');
+    expect(screen).not.toContain('ReferralRevenueGraphWebViewCanvas');
+    expect(screen).not.toContain('ReferralRevenueTreeView');
+    expect(screen).not.toContain("type ViewMode = 'graph' | 'tree' | 'list'");
+    expect(screen).not.toContain('viewMode');
+  });
+
+  it('renders the referral relationship graph interaction and radial layout', () => {
+    expect(flowCanvas).toContain('GestureDetector');
+    expect(flowCanvas).toContain('Gesture.Pan()');
+    expect(flowCanvas).toContain('Gesture.Pinch()');
+    expect(flowCanvas).toContain('buildReferralGraphLayout');
+    expect(flowCanvas).toContain('getReferralGraphFitViewport');
+    expect(flowCanvas).toContain('getReferralGraphNodeScreenRadius');
+    expect(flowCanvas).toContain('styles.nodeCircle');
+    expect(flowCanvas).toContain('styles.zoomBadge');
+    expect(screen).toContain('증원수당 흐름 그래프 화면 맞춤');
+    expect(screen).toContain('증원수당 흐름 그래프 초기화');
+  });
+
+  it('draws aggregated child-to-parent money movement on top of relationships', () => {
+    expect(flowCanvas).toContain('buildSampleRevenueEdgeFlows');
+    expect(flowCanvas).toContain('flow.amountKrw > 0');
+    expect(flowCanvas).toContain('x1={child.x}');
+    expect(flowCanvas).toContain('x2={parent.x}');
+    expect(flowCanvas).toContain('getArrowPoints(parent, child, displayScale)');
+    expect(flowCanvas).toContain('<Polygon');
+    expect(flowCanvas).toContain('formatSampleRevenueFlowKrw(flow.amountKrw)');
+    expect(flowCanvas).toContain('buildRevenueFlowLabelLayouts');
+    expect(screen).toContain('중심의 나에게 합산됩니다');
+    expect(screen).toContain('나에게 이동');
+  });
+
+  it('keeps excluded relationships visible without drawing a money flow', () => {
+    expect(flowCanvas).toContain(
+      'strokeDasharray={flow.amountKrw <= 0 ? "5 5" : undefined}',
+    );
+    expect(flowCanvas).toContain("if (!node.eligible) return '대상 제외'");
+    expect(screen).toContain('대상 제외');
+    expect(flowModel).toContain('!contributor.eligible');
+  });
+
+  it('shrinks nodes and labels as the user zooms out and caps zoom-in growth', () => {
+    expect(flowCanvas).toContain('getNodeVisualScale');
+    expect(flowCanvas).toContain('getLabelVisualScale');
+    expect(flowCanvas).toContain('NODE_VISUAL_MAX_SCALE = 1.4');
+    expect(flowCanvas).toContain('LABEL_VISUAL_MIN_SCALE = 0.42');
+    expect(flowCanvas).toContain('scale: getNodeVisualScale(graphScale.value)');
+    expect(flowCanvas).toContain('scale: getLabelVisualScale(graphScale.value)');
+    expect(flowCanvas).toContain(
+      'GRAPH_RENDER_COORDINATE_SCALE / Math.max(graphScale.value, 0.001)',
+    );
+  });
+
+  it('retains explicit ancestor context for filtered money paths', () => {
+    expect(screen).toContain('getSampleRevenueGraphContextNodes');
+    expect(screen).toContain('focusedNodeIds={focusedGraphNodeIds}');
+    expect(flowCanvas).toContain('const contributorNodeIds = useMemo');
+    expect(flowCanvas).toContain('{ contributorNodeIds }');
+    expect(flowCanvas).toContain('if (!focused) return null');
+  });
+
+  it('keeps graph controls outside the drawable viewport', () => {
+    expect(screen).toContain('styles.canvasToolbar');
+    expect(screen).toContain('styles.canvasViewport');
+    expect(screen).not.toContain("canvasActions: {\n    position: 'absolute'");
+  });
+
+  it('highlights the selected path and keeps detail as an accessible modal', () => {
+    expect(flowCanvas).toContain('selectedPath.edgeIds.has(flow.id)');
+    expect(flowCanvas).toContain('selectedPath.nodeIds.has(node.id)');
+    expect(flowCanvas).toContain('accessibilityRole="button"');
+    expect(flowCanvas).toContain('accessibilityLabel={`${node.name}');
+    expect(screen).toContain('금액 이동 경로 강조 해제');
     expect(detail).toContain('accessibilityViewIsModal');
   });
 
-  it('labels depth and excluded nodes without relying on color', () => {
-    expect(combined).toContain('{node.depth}단계');
-    expect(combined).toContain('대상 제외');
-    expect(canvas).toContain('strokeDasharray="5 5"');
-    expect(canvas).toContain('{excluded ? (');
-    expect(screen).toContain('돈의 이동을 의미하지 않습니다');
+  it('keeps fit motion short and follows the system reduced-motion setting', () => {
+    expect(flowCanvas).toContain('ReduceMotion.System');
+    expect(flowCanvas).toContain('withTiming(viewport.scale, timing)');
+    expect(flowCanvas).not.toContain('withRepeat');
+    expect(flowCanvas).not.toContain('setInterval');
   });
 
-  it('keeps filtered graph nodes connected through explicit ancestor context', () => {
-    expect(screen).toContain('getSampleRevenueGraphContextNodes');
-    expect(screen).toContain('focusedNodeIds={focusedGraphNodeIds}');
-    expect(combined).toContain('연결 경로');
-    expect(canvas).not.toMatch(
-      /isContext\s*\?\s*['"](?:연결 경로|경로)['"]/u,
-    );
-  });
-
-  it('keeps the current circular graph as the non-persisted default view', () => {
-    expect(screen).toContain("type ViewMode = 'graph' | 'tree' | 'list'");
-    expect(screen).toContain("useState<ViewMode>('graph')");
-    expect(screen).not.toContain("useState<ViewMode>('tree')");
-    expect(screen).not.toMatch(/AsyncStorage|localStorage|persistView/i);
-    expect(screen).toContain("if (viewMode === 'graph')");
-    expect(screen).toContain('<ReferralRevenueGraphCanvas');
-    expect(screen).toContain("viewMode === 'tree' ? (");
-    expect(screen).toContain('<ReferralRevenueTreeView');
-  });
-
-  it('offers accessible current-graph, tree, and list choices', () => {
-    expect(screen).toContain("label: '현재 그래프'");
-    expect(screen).toContain("accessibilityLabel: '현재 그래프 보기'");
-    expect(screen).toContain("accessibilityLabel: '트리 보기'");
-    expect(screen).toContain("accessibilityLabel: '목록 보기'");
-    expect(screen).toContain("handleViewModeChange('tree')");
-    expect(screen).toContain('VIEW_OPTIONS.map');
-    expect(screen).toContain('accessibilityState={{ selected }}');
-  });
-
-  it('restores the initial card tree as an isolated local renderer', () => {
-    expect(tree).toContain('SAMPLE_REVENUE_TREE_CANVAS_WIDTH');
-    expect(tree).toContain('<ScrollView');
-    expect(tree).toContain('<Svg');
-    expect(tree).toContain('<Line');
-    expect(tree).toContain('getSampleRevenueTreeConnector');
-    expect(tree).toContain("strokeDasharray={excluded ? '5 5' : undefined}");
-    expect(tree).toContain('disabled={isViewer || isContext}');
-    expect(tree).toContain('onPress={() => onSelectNode(node)}');
-    expect(tree).toContain('selectedNodeId === node.id');
-    expect(tree).toContain('`${amountLabel}, 연결 경로`');
-    expect(tree).toContain(
-      'height: Math.max(SAMPLE_REVENUE_TREE_NODE_HEIGHT, TOUCH_TARGET.min)',
-    );
-    expect(tree).not.toContain(
-      'minHeight: Math.max(SAMPLE_REVENUE_TREE_NODE_HEIGHT, TOUCH_TARGET.min)',
-    );
-    expect(tree).toContain('adjustsFontSizeToFit');
-    expect(tree).toContain('maxFontSizeMultiplier={1.2}');
-    expect(tree).not.toMatch(/isContext\s*\?\s*['"]연결 경로['"]/u);
-    expect(canvas).not.toContain('ReferralRevenueTreeView');
-    expect(canvas).not.toContain('<ScrollView');
-  });
-
-  it('renders a referral-graph-style interactive node-edge network', () => {
-    expect(canvas).toContain('GestureDetector');
-    expect(canvas).toContain('Gesture.Pan()');
-    expect(canvas).toContain('Gesture.Pinch()');
-    expect(canvas).toContain('styles.nodeCircle');
-    expect(canvas).toContain('<AnimatedRevenueEdge');
-    expect(canvas).toContain('buildSampleRevenueGraphLayout');
-    expect(canvas).toContain('formatSampleRevenueNodeAmount');
-    expect(canvas).toContain('stepSampleRevenueInteractivePhysics');
-    expect(canvas).toContain('beginNodeDrag');
-    expect(canvas).toContain('updateNodeDrag');
-    expect(canvas).toContain('endNodeDrag');
-    expect(canvas).toContain('물리 반응 중');
-    expect(canvas).toContain('{physicsActive && (');
-    expect(canvas).toContain('{zoomVisible && (');
-    expect(canvas).toContain('setTimeout(() =>');
-    expect(canvas).toContain('getSampleRevenueGraphFitViewport');
-    expect(canvas).toContain('zoomBadge');
-    expect(canvas).not.toContain('<ScrollView');
-    expect(canvas).not.toContain('NODE_WIDTH');
-    expect(screen).toContain('매출 기여 그래프 화면 맞춤');
-    expect(screen).toContain('매출 기여 그래프 초기화');
-    expect(screen).toContain('headerShown: false');
-    expect(canvas).toContain('노드는 끌어서 움직이며');
-    expect(screen).toContain('useWindowDimensions');
-    expect(screen).toContain('OrientationLock.LANDSCAPE');
-    expect(screen).toContain('OrientationLock.PORTRAIT_UP');
-    expect(screen).toContain("goBackOrReplace(router, '/referral')");
-    expect(screen).toContain('const [controlsOpen, setControlsOpen] = useState(false)');
-    expect(screen).toContain("'그래프 설정 열기'");
-    expect(screen).toContain('필터 적용 중');
-    expect(screen).toContain('accessibilityState={{ expanded: controlsOpen }}');
-    expect(screen).toContain('accessibilityViewIsModal');
-    expect(screen).toContain('settingsPanelLandscape');
-    expect(screen).toContain('대상 샘플 매출');
-    expect(screen).toContain('model.summary.eligibleSalesKrw');
-    expect(screen).toContain("{'\\n'}{DISCLAIMER}");
-    expect(screen).toContain('COMPACT_LANDSCAPE_FIT_INSETS');
-    expect(screen).toContain('left: 16');
-    expect(screen).not.toContain('immersiveBottomHudLandscape');
-    expect(screen).not.toContain('left: 292');
-  });
-
-  it('keeps expensive graph work stable and coalesces drag frames', () => {
-    expect(screen).toContain('} = useMemo(() => {');
-    expect(screen).toContain('}, [depthFilter]);');
-    expect(canvas).toContain('prepareSampleRevenueGraphPhysicsTopology');
-    expect(canvas).toContain('topology,');
-    expect(canvas).toContain('dragFrameRef');
-    expect(canvas).toContain('pendingDragRef');
-    expect(canvas).toContain('requestAnimationFrame(() => {');
-    expect(canvas).toContain('cancelPendingNodeDrag');
-  });
-
-  it('keeps drag and settle frames off the React render path', () => {
-    const commitMotion = canvas
-      .split('const commitMotion = useCallback')[1]
-      .split('const syncRenderPositions = useCallback')[0];
-    const updateNodeDrag = canvas
-      .split('const updateNodeDrag = useCallback')[1]
-      .split('const endNodeDrag = useCallback')[0];
-
-    expect(canvas).not.toContain('setMotion');
-    expect(commitMotion).toContain('motionCoordinates.value =');
-    expect(commitMotion).not.toContain('setRenderPositions');
-    expect(updateNodeDrag).not.toContain('syncRenderPositions');
-    expect(canvas).toContain('AnimatedRevenueEdge');
-    expect(canvas).toContain('AnimatedRevenueNode');
-    expect(canvas).toContain('AnimatedRevenueHitTarget');
-    expect(canvas).toContain('x1: coordinates.value[sourceIndex * 2]');
-    expect(canvas).toContain('x2: coordinates.value[targetIndex * 2]');
-    expect(canvas).toContain('{ translateX: x - radius }');
-    expect(canvas).toContain('{ translateY: y - radius }');
-    expect(canvas).not.toContain('<SvgText');
-    expect(canvas).not.toContain('<AnimatedG');
-  });
-
-  it('preserves viewer totals and local node amounts through the animated child', () => {
-    expect(canvas).toContain(
-      '예상 유입 합계 +${formatCompactSampleRevenueKrw(expectedTotalKrw)}',
-    );
-    expect(canvas).toContain('· 대상 제외');
-    expect(canvas).toContain(": '제외'");
-    expect(canvas).toContain('amountLabel={amountLabel}');
-    expect(canvas).toContain('nodeAmountLabel={nodeAmountLabel}');
-  });
-
-  it('keeps graph labels screen-sized on the UI thread while pinching', () => {
-    expect(canvas).toContain('const inverseScaleStyle = useAnimatedStyle');
-    expect(canvas).toContain('scale: 1 / Math.max(');
-    expect(canvas).toContain('styles.nodeLabelStack');
-    expect(canvas).toContain('styles.selectedNodeLabel');
-    expect(canvas).not.toContain('SvgText');
-
-    const pinchUpdate = canvas
-      .split('const pinchGesture')[1]
-      .split('.onUpdate((event) => {')[1]
-      .split('.onEnd(() => {')[0];
-    expect(pinchUpdate).not.toContain('runOnJS');
-    expect(pinchUpdate).not.toContain('setDisplayScale');
-  });
-
-  it('keeps far-fit pointer mapping and pinch gestures continuous', () => {
-    const nativePointerMapping = nativeCanvas
-      .split('const screenToGraph =')[1]
-      .split('const createTextCache')[0];
-    const nativePinch = nativeCanvas
-      .split('const beginPinch = () => {')[1]
-      .split("canvas.addEventListener('pointerdown'")[0];
-    const fallbackPan = canvas
-      .split('const panGesture')[1]
-      .split('const pinchGesture')[0];
-    const fallbackPinch = canvas
-      .split('const pinchGesture')[1]
-      .split('const graphGesture')[0];
-
-    expect(nativePointerMapping).toContain(
-      'const currentScale = finitePositiveScale(view.scale)',
-    );
-    expect(nativePointerMapping).not.toContain('Math.max(view.scale, 0.001)');
-    expect(nativePinch).toContain(
-      'minScale: Math.min(',
-    );
-    expect(nativePinch).toContain('pinch.minScale');
-    expect(nativePinch).not.toContain(
-      'pinch.scale * distance / pinch.distance,\n        config.minScale',
-    );
-    expect(fallbackPan).toContain(
-      'const currentScale = finitePositiveScale(scale.value)',
-    );
-    expect(fallbackPan).not.toContain('SAMPLE_REVENUE_GRAPH_MIN_SCALE');
-    expect(fallbackPinch).toContain(
-      'const startScale = finitePositiveScale(baseScale.value)',
-    );
-    expect(fallbackPinch).toContain(
-      'const gestureMinScale = Math.min(',
-    );
-    expect(fallbackPinch).toContain('const ratio = nextScale / startScale');
-    expect(fallbackPinch).not.toContain(
-      'Math.max(baseScale.value, 0.001)',
-    );
-  });
-
-  it('uses one native canvas draw loop instead of per-node Android view redraws', () => {
-    expect(canvas).toContain("Platform.OS !== 'web'");
-    expect(canvas).toContain('ReferralRevenueGraphWebViewCanvas');
-    expect(nativeCanvas).toContain("canvas.getContext('2d'");
-    expect(nativeCanvas).toContain('requestAnimationFrame(loop)');
-    expect(nativeCanvas).toContain('stepPhysics(0.24');
-    expect(nativeCanvas).toContain(
-      'settleAlpha *= settle.decayMultiplier',
-    );
-    expect(nativeCanvas).toContain("cacheContext.font = '800 11px");
-    expect(nativeCanvas).toContain("cacheContext.font = '800 7px");
-    expect(nativeCanvas).toContain('window.ReactNativeWebView?.postMessage');
-    expect(nativeCanvas).toContain('androidLayerType="hardware"');
-    expect(nativeCanvas).not.toContain('setState(');
-    expect(nativeCanvas).toContain('frameRequestId = requestAnimationFrame(loop)');
-    expect(nativeCanvas).toContain('if (!runtimeEnabled || frameRequestId != null)');
-    expect(nativeCanvas).toContain('setActive: (nextActive) =>');
-    expect(nativeCanvas).toContain(
-      'window.__revenueGraph?.setActive(${isFocused})',
-    );
-  });
-
-  it('keeps the embedded WebView runtime syntactically executable', () => {
-    const embeddedScript = nativeCanvas
-      .split('<script>')[1]
-      .split('</script>')[0]
-      .replace('${payload}', '{}');
-
-    expect(() => new vm.Script(embeddedScript)).not.toThrow();
-  });
-
-  it('keeps the viewer centered with weak radial guidance over admin-style forces', () => {
-    expect(nativeCanvas).toContain('radialGuidance.viewerAnchorStrength');
-    expect(nativeCanvas).toContain('radialGuidance.viewerAnchorMaxImpulse');
-    expect(nativeCanvas).toContain('radialGuidance.targetStrength');
-    expect(nativeCanvas).toContain('radialGuidance.targetMaxImpulse');
-    expect(nativeCanvas).toContain('viewer?.x ?? center');
-    expect(nativeCanvas).toContain('node.radialOffsetX');
-    expect(nativeCanvas).toContain('node.radialOffsetY');
-    expect(nativeCanvas).toContain('if (fixedIndex < 0 && viewer)');
-    expect(nativeCanvas).toContain('for (const node of nodes)');
-    expect(nativeCanvas).toContain('node.x += offsetX');
-    expect(nativeCanvas).toContain('node.y += offsetY');
-    expect(nativeCanvas).not.toContain(
-      '(center - node.x) * physics.centerStrength',
-    );
-    expect(nativeCanvas).toContain('const rings = config.rings');
-    expect(nativeCanvas).toContain("ring.depth + '단계'");
-    expect(screen).toContain(
-      'expectedTotalKrw={model.summary.expectedAllocationKrw}',
-    );
-    expect(nativeCanvas).toContain(
-      '예상 유입 합계 +${formatCompactSampleRevenueKrw(expectedTotalKrw)}',
-    );
-  });
-
-  it('draws bounded child-to-parent contribution direction without edge amounts', () => {
-    const drawEdges = nativeCanvas
-      .split('for (let edgeIndex = 0; edgeIndex < edges.length; edgeIndex += 1)')[1]
-      .split('for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1)')[0];
-    const loop = nativeCanvas
-      .split('const loop = (now) => {')[1]
-      .split('const nearestNode')[0];
-
-    expect(nativeCanvas).toContain('const parent = nodes[edge.sourceIndex]');
-    expect(nativeCanvas).toContain('const child = nodes[edge.targetIndex]');
-    expect(nativeCanvas).toContain('const dx = parentX - childX');
-    expect(nativeCanvas).toContain('const availableGap = distance');
-    expect(nativeCanvas).toContain('if (availableGap < 2) return null');
-    expect(nativeCanvas).toContain('drawContributionArrow');
-    expect(nativeCanvas).toContain('edge.revenueEligible');
-    expect(nativeCanvas).toContain('selectedPathEdgeIndexes');
-    expect(nativeCanvas).toContain('const flowPulseMaxDuration = 1500');
-    expect(nativeCanvas).toContain('selectedPathEdgeSet.has(edgeIndex)');
-    expect(drawEdges).toContain('if (!edge.revenueEligible)');
-    expect(drawEdges).not.toContain('ctx.stroke();\n        if (edge.revenueEligible)');
-    expect(drawEdges).not.toContain('fillText');
-    expect(loop).toContain('flowPulseVisible');
-    expect(loop).toContain('flowPulseUntil = 0');
-    expect(canvas).toContain('getSampleRevenueContributionPath');
-    expect(canvas).toContain('const AnimatedPath');
-    expect(canvas).toContain('const dx = parentX - childX');
-    expect(canvas).toContain('highlighted={highlightedEdgeIds.has(edge.id)}');
-    expect(canvas).toContain('{excluded ? (');
-    expect(screen).toContain('하위 → 나 기여 방향');
-    expect(screen).toContain('실제 돈의 이동을 의미하지 않습니다');
-  });
-
-  it('does not start node physics before drag intent or select a cancelled pointer', () => {
-    const pointerDown = nativeCanvas
-      .split("canvas.addEventListener('pointerdown'")[1]
-      .split("canvas.addEventListener('pointermove'")[0];
-    const pointerMove = nativeCanvas
-      .split("canvas.addEventListener('pointermove'")[1]
-      .split('const finishPointer')[0];
-    const finishPointer = nativeCanvas
-      .split('const finishPointer')[1]
-      .split("canvas.addEventListener('contextmenu'")[0];
-
-    expect(nativeCanvas).toContain('const dragActivationDistance = 6');
-    expect(pointerDown).toContain('activePhysics = false');
-    expect(pointerDown).not.toContain('activePhysics = true');
-    expect(pointerMove).toContain('movedDistance > dragActivationDistance');
-    expect(pointerMove).toContain('activePhysics = true');
-    expect(finishPointer).toContain('if (!cancelled && !dragMoved)');
-    expect(finishPointer).toContain("(event) => finishPointer(event, true)");
-    expect(finishPointer).toContain(
-      'settleAlpha = !cancelled && dragMoved ? settle.initialAlpha : 0',
-    );
-    expect(finishPointer).toContain('if (!cancelled && dragMoved)');
-    expect(finishPointer).toContain(
-      'stepPhysics(0.24, releasedDragIndex, pendingDragPosition)',
-    );
-  });
-
-  it('keeps graph world coordinates unbounded while fit and reset stay available', () => {
-    const nativePhysics = nativeCanvas
-      .split('const stepPhysics = (alpha, fixedIndex, fixedPosition) => {')[1]
-      .split('const getEdgeGeometry')[0];
-    const fallbackDrag = canvas
-      .split('const commitNodeDragSample = useCallback')[1]
-      .split('const handleLayout = useCallback')[0];
-
-    expect(nativePhysics).not.toContain('config.surfaceSize - 70');
-    expect(nativePhysics).not.toContain('node.x = clamp(node.x + node.vx');
-    expect(nativePhysics).not.toContain('node.y = clamp(node.y + node.vy');
-    expect(fallbackDrag).not.toContain(
-      'SAMPLE_REVENUE_GRAPH_SURFACE_SIZE - 70',
-    );
-    expect(canvas).toContain('style={styles.edgeLayer}');
-    expect(canvas).toContain("overflow: 'visible'");
-    expect(screen).toContain('handleGraphFit');
-    expect(screen).toContain('handleGraphReset');
-  });
-
-  it('keeps the local WebView bridge revisioned, selectable, and offline', () => {
-    expect(nativeCanvas).toContain('Content-Security-Policy');
-    expect(nativeCanvas).toContain("connect-src 'none'");
-    expect(nativeCanvas).toContain("navigate-to 'none'");
-    expect(nativeCanvas).toContain('bridgeRevision: config.bridgeRevision');
-    expect(nativeCanvas).toContain("nativeUrl === 'about:blank'");
-    expect(nativeCanvas).toContain("nativeUrl === 'null'");
-    expect(nativeCanvas).toContain(
-      "message.documentUrl !== 'about:blank'",
-    );
-    expect(nativeCanvas).toContain('documentUrl: window.location.href');
-    expect(nativeCanvas).toContain(
-      'message.bridgeRevision !== bridgeRevision',
-    );
-    expect(nativeCanvas).toContain('&& !node.isViewer');
-    expect(nativeCanvas).toContain('focusedNodeIds.has(node.id)');
-    expect(nativeCanvas).toContain('setSupportMultipleWindows={false}');
-    expect(nativeCanvas).toContain("request.url === 'about:blank'");
-    expect(nativeCanvas).toContain("const key = leftId + ':' + rightId");
-    expect(nativeCanvas).toContain('(hash >>> 0) / 0xffffffff');
-    expect(nativeCanvas).not.toContain('http://');
-    expect(nativeCanvas).not.toContain('https://');
-  });
-
-  it('passes UI gesture identity into every node-drag callback', () => {
-    expect(canvas).toContain('nodeDragGestureSequence.value += 1');
-    expect(canvas).toContain('gestureContextToken,');
-    expect(canvas).toContain('nodeDragGestureToken.value,');
-    expect(canvas).toContain('transitionNodeDragSession');
-    expect(canvas).toContain('useIsFocused');
-    expect(canvas).toContain('if (!isFocused)');
-    expect(canvas).toContain('allocateNodeDragContextToken');
-    expect(canvas).not.toContain('gestureContextRef');
-    expect(canvas).toContain("type: 'unmount'");
-    expect(canvas).toContain("type: 'cancel'");
-  });
-
-  it('clears the physics badge on blur without setting state on unmount', () => {
-    const lifecycle = canvas
-      .split('useLayoutEffect(() => {')[1]
-      .split('useEffect(() => {')[0];
-    const blurBranch = lifecycle
-      .split('if (!isFocused) {')[1]
-      .split('return undefined;')[0];
-    const unmountCleanup = lifecycle.split('return () => {')[1];
-
-    expect(lifecycle).toContain('topologyRef.current = topology');
-    expect(
-      canvas.split('useLayoutEffect(() => {')[0],
-    ).not.toContain('topologyRef.current = topology');
-    expect(blurBranch).toContain('cancelSettle()');
-    expect(blurBranch).toContain('cancelPendingNodeDrag()');
-    expect(blurBranch).toContain('setPhysicsActive(false)');
-    expect(unmountCleanup).not.toContain('setPhysicsActive');
-  });
-
-  it('restores portrait whenever the graph route is not focused in graph mode', () => {
-    expect(screen).toContain('useFocusEffect');
-    expect(screen).toContain('getReferralRevenueDesiredOrientation');
-    expect(screen).toContain("orientationCoordinator.request('portrait')");
-    expect(screen).toContain('viewMode,');
-    expect(screen).toContain('headerBackVisible: false');
-    expect(screen).toContain('headerLeft: () =>');
-    expect(screen).toContain('onPress={handleBack}');
-    expect(screen).not.toContain('let active = true');
+  it('does not retain the retired physics, WebView, or orientation UI path', () => {
+    expect(screen).not.toContain('expo-screen-orientation');
+    expect(screen).not.toContain('OrientationLock');
+    expect(screen).not.toContain('controlsOpen');
+    expect(flowCanvas).not.toContain('WebView');
+    expect(flowCanvas).not.toContain('stepSampleRevenueInteractivePhysics');
+    expect(flowCanvas).not.toContain('beginNodeDrag');
+    expect(flowCanvas).not.toContain('물리 반응 중');
   });
 });

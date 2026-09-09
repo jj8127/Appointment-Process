@@ -2,8 +2,8 @@ doc_id: FC-DATA-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-08-10
-source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql + supabase/migrations/20260810070757_admin_assisted_signup_v1.sql
+last_verified: 2026-09-07
+source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql + supabase/migrations/20260810070757_admin_assisted_signup_v1.sql + supabase/migrations/20260907053913_referral_allowance_pilot.sql + supabase/migrations/20260907115710_referral_allowance_recipients.sql
 
 # Data Handbook: Referral Schema And Admin RPCs
 
@@ -22,14 +22,14 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
   사용하는 로컬 샘플이며 이 문서의 referral schema, RPC, Edge Function 또는
   실제 사용자 관계를 읽지 않는다. 표시된 1~10단계 10%는 UI 시뮬레이션이지
   운영 정산 계약이 아니다.
-- 이 샘플의 native/WebView canvas는 같은 parent chain을 중심에서 바깥으로 퍼지는
-  subtree seed와 bounded settle schedule로 배치한다. world 좌표는 제한하지 않고,
-  pan/zoom 중 label·금액은 screen-space 고정 크기를 유지하며 contribution edge는
-  child에서 parent 방향을 표시한다. 이는 시각화 계약일 뿐 referral read model을
-  변경하지 않는다.
-- 선택형 `트리`도 같은 로컬 parent chain과 계산 결과만 사용하며 별도 query를 만들지
-  않는다. 새 화면은 항상 현재 원형 graph로 시작하고, tree mode에서는 원형 WebView를
-  unmount한 뒤 고정 카드 geometry만 렌더한다.
+- 이 샘플은 추천 관계 graph의 순수 radial layout/fit helper로 같은 원형 node·관계선·
+  pan/pinch·fit/reset UI를 만들지만, 실제 graph data hook이나 component는 사용하지
+  않는다. 기존 physics/WebView와 선택형 graph/tree/list mode도 현재 route에서
+  사용하지 않는다.
+- 각 대상 node의 샘플 예상액은 child→parent 방향으로 viewer까지 전달되고, 같은
+  관계선을 지나는 금액은 합산 label로 보인다. 제외 관계는 회색 점선/no-flow다.
+  node와 label은 zoom out 시 함께 작아진다. 이는 시각화 계약일 뿐 referral read
+  model이나 운영 정산 계약을 변경하지 않는다.
 - FC/본부장 self-service referral session guard는 `hooks/use-referral-app-session.ts -> refresh-app-session`이다.
 - referral tree의 현재 모바일 기본 surface는 `app/referral.tsx` 내부 섹션이며, `app/referral-tree.tsx`는 legacy 진입을 `/referral`로 보내는 compatibility route만 유지한다.
 - 현재 모바일 상단 surface는 ancestor chain 전체가 아니라 `get-referral-tree.ancestors`의 마지막 노드만 direct recommender 카드로 렌더링한다.
@@ -88,3 +88,15 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 
 - 1차 schema migration만 보면 불완전합니다.
 - admin foundation migration까지 반영된 현재 계약을 기준으로 읽습니다.
+
+## 2026-09-07 월별 증원수당 대상자 계약
+
+- 실제 명세 조회는 `hooks/use-referral-allowance.ts -> get-my-referral-allowance -> read_referral_allowance_pilot`이다. 가상 데모와 현재 DB 추천 계보를 월별 수당 snapshot의 대체 자료로 사용하지 않는다.
+- `20260907115710_referral_allowance_recipients.sql`은 초기 단일 설정을 대상자별 `referral_allowance_recipients`로 옮기며 기존 게시 명세/revision은 보존한다. 수령인 FC UUID와 외부 사번은 각각 유일하고 manager UUID는 본부장만 갖는다. FC는 가입 완료·manager/admin identity 없음, 본부장은 같은 정규화 전화번호에 대응하는 활성 manager와 completed/shadow FC가 필요하다. 설계매니저는 제외한다.
+- 테이블 RLS와 public/anon/authenticated 권한 회수를 유지한다. 기존 이름의 configure/create-draft/publish/read RPC는 service-only SECURITY INVOKER이며, 현재는 각 수령인 행을 잠그고 검증한다. 클라이언트는 수령인이나 actor를 선택할 수 없다.
+- 관리자 API는 서명된 활성 admin과 같은 Origin을 요구한다. GET의 beneficiaryFcId는 관리자용 대상자 선택이며 해당 수령인의 이력/명세로 제한한다. 업로드는 대상 ID와 예상 설정 revision을 함께 보내고 원본 사번을 서버에서 구한다. 게시 시 draft ID·출처 hash·draft revision·설정 revision을 다시 검증한다.
+- 설정·생성·게시의 잠금과 불변 snapshot, 수령인/월별 단일 게시본 및 동일 출처 업로드의 멱등성을 유지한다. 한 대상자의 중지·변경은 다른 대상에게 영향을 주지 않는다. 새 설정 revision에서는 이전 게시본을 열지 않는다.
+- 정책 `recruitment-2026-09-07-snapshot-pilot-v1`은 업로드 원본의 재적/직급·10단계·부호 있는 수당을 사용한다. 첫 자료는 6월 실적, 8월 1일 지급, 7월 31일 참고이며 실제 7~8월 원본 날짜와 이후 원본 사용 여부를 별도로 표시한다. 원본 XLSX/전화번호/사번을 공개 snapshot에 저장하지 않는다. ZIP/좌표/용량, 캐시 대상업적의 원천 열 계산, 날짜/노드/금액 보존 제약을 유지한다.
+- Edge는 signed FC/manager의 정확한 profile과 수령인 행을 매번 확인한다. body에는 action/month만 허용한다. 응답은 그 사람의 게시된 월 목록과 선택 명세뿐이며 익명 요청은 401/no-store다.
+- 사용자 승인으로 migration `20260907115710`, Edge v2 ACTIVE, 19명(18명 신규)의 6월 게시가 완료됐다. 각 명세와 작업자/원본 결과가 일치하고 기존 시범 revision은 1이다. 보류 24명은 별도 사용자 명단으로 정리했다. 공개 모바일/웹 배포와 실기기 검증은 별도다.
+- 계보 4개·200개 관계를 DB와 대조해 null 연결 25건만 기존 audited RPC로 추가했다. non-null 변경 0건, 기존 불일치 21건 유지, 관리자 상위자 후보 2건과 신원 미확정 122건 보류다. 역할 규칙을 우회하거나 계정을 만들지 않았다.

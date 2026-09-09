@@ -6,17 +6,31 @@
 ---
 
 ## Current Goal (현재 목표)
-- 모든 핵심 Phase 완료 ✅
-- 로깅 전환 완료 ✅
-- SMS 인증 시스템 프로덕션 모드 설정 완료 ✅
-- 본부장 권한 UI 개선 완료 (색상 차별화) ✅
-- 모바일 게시판 UI/관리자 게시판 UI (UI only) 구현 ✅
-- 게시판 백엔드 설계/Edge Functions 초안 완료 ✅
-- 추가 개선 항목 대기 중 (필요 시 진행)
+> 2026-08-22 기준. 진행 스코프는 `.codex/harness/INDEX.json` 활성 태스크와 연동됨.
+
+**진행 중 (미커밋 WIP로 작업트리에 존재 — 임의 정리 금지)**
+- 추천 수당 플로우 그래프: `lib/referral-revenue-flow.ts`, `lib/referral-revenue-flow-layout.ts`,
+  `components/referral-revenue-graph/ReferralRevenueFlowCanvas.tsx` + 테스트 3종 (신규, untracked)
+- Android drawing-order 수정 검증: `lib/__tests__/android-drawing-order-fix.test.ts` (untracked)
+- 관련 문서 갱신: `docs/referral-system/*`, `docs/handbook/*` 다수 수정 중
+
+**최근 완료 라인 (브랜치 release/garamin-4.2.2-clean-20260809, HEAD ca8b46e)**
+- 2026-08-13: v4.2.3→4.2.4 릴리즈 준비, 고밀도 그래프 렌더링 안정화, assisted signup 웹 패키징
+- 2026-08-10: 관리자 대리가입(administrator-assisted FC signup), 프로필 기본정보 편집 복구,
+  메신저 키보드/빈방 안정화, 대형 채팅방 알림 fanout 배치 처리, 게시글 답글 대상 보존
+- 2026-08 이전: 로그아웃 세션 신뢰성, 그룹 채팅 알림 복구, 모바일 기본정보 하이드레이션 등
+  (상세는 INDEX.json 태스크별 harness 문서 참조)
+
+**레거시 Phase 1~8 (게시판/SMS/권한/컴포넌트 통일)**: 전부 완료 ✅ — 이력은 아래 Done 섹션 참조.
 
 ---
 
 ## Done (완료된 작업)
+
+### 세션 (2026-08-22) — 워크스페이스 위생·회복
+- [x] 아카이브 사본에서 유실된 계약 테스트 포팅:
+      `lib/__tests__/exam-admin-applicants-relation-contract.test.ts` (jest PASS 검증 완료)
+- [x] 본 파일(context.md) 상태 갱신 (마지막 갱신 2026-01-20 → 2026-08-22)
 
 ### 현재 세션 (2026-01-20)
 **설정 화면 정리**
@@ -486,8 +500,10 @@ node test-sms.js 01012345678
 ---
 
 ## Last Updated
-- **Date**: 2026-01-20
-- **By**: AI Assistant
-- **Session**: 설정 화면 정리
+- **Date**: 2026-08-22
+- **By**: Ox Alpha (opencode) — 워크스페이스 정비 세션
 - **Status**:
-  - 디버깅용 “알림 채널” 섹션 제거 완료
+  - context.md 갱신 (7개월 공백 해소)
+  - 유실 계약 테스트 포팅 + jest PASS
+  - 참고: HANDOVER.md는 프로토콜 문서라 내용 유효 — 상태는 본 파일 기준
+- **이력**: 2026-01-20 설정 화면 정리(디버깅용 알림 채널 섹션 제거) / 그 이전 이력은 Done 섹션 참조

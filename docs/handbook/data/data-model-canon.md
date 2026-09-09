@@ -2,10 +2,21 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-08-04
+last_verified: 2026-09-07
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
+
+## 2026-09-07 월별 증원수당 대상자 데이터
+
+- 원본 migration `20260907053913` 이후 `20260907115710_referral_allowance_recipients.sql`은 `referral_allowance_recipients`를 추가하고 기존 단일 시범 설정을 그대로 이관한다. 기존 게시 snapshot과 revision은 바꾸지 않는다. `referral_allowance_pilot`은 초기 설정 기록이며 현재 권한 조회는 recipients를 사용한다.
+- 수령인 FC UUID가 기본키이며 외부 사번은 유일하다. 본부장의 manager UUID는 선택적·유일 값이고 일반 FC는 null이다. 관리자 연결 확인과 SQL 검증은 정규화 전화번호·유일 FC identity·현재 가입/manager 상태를 확인하며 admin/designer를 제외한다. 일반 FC는 가입 완료와 manager identity 없음이 필요하다. 역할을 변경하거나 이름만으로 권한을 주지 않는다.
+- 설정 revision은 수령인별로 증가한다. 한 대상의 변경·중지·재활성화는 다른 대상의 게시본에 영향을 주지 않는다. imports는 당시 계정 쌍·외부 사번·업적월·지급일·참고일·출처 hash·정책·설정 revision·draft revision·작업자를 기록한다. snapshot은 불변이며 draft → published → superseded로만 전환한다. 수령인/업적월별 현재 게시본은 하나다.
+- 모든 수당 테이블은 RLS를 활성화하고 public/anon/authenticated 직접 접근을 금지한다. configure/create/publish/read는 service-only SECURITY INVOKER다. Edge는 현재 서명된 FC/manager만 해석하고 정확한 수령인 행을 재조회한다. 일반 관리자 쓰기 권한은 별도 활성 admin 경계에서만 허용한다.
+- 원본 XLSX를 보관하지 않고 해당 수령인 10단계 명세만 저장한다. 공개 명세에 전화번호·외부 사번은 없다. 정책 `recruitment-2026-09-07-snapshot-pilot-v1` / `uploaded_snapshot`, 지급월 M+2, 참고일 ≤ 지급일, 날짜/금액/수령인/보존 제약을 유지한다. 최종 대상업적은 소수 2자리까지, 실제 수당은 안전 정수로 검증한다.
+- 6월 실적·8월 1일 지급·7월 31일 참고일을 유지한다. 실제 7~8월 원본 날짜는 sourceSnapshotDates에 보존하고 usesLaterSnapshot을 명시한다. 이전 이월금·별도 시상·실제 지급 승인은 포함하지 않는다.
+- 승인된 확장 후 Edge v2 ACTIVE, 19명(기존 본부장과 신규 FC 18명)의 6월 게시본·원본·작업자·조회 응답이 일치한다. 사용자가 보류한 24명은 등록하지 않았다. 계보 보완은 기존 audited RPC로 null 연결 25건만 추가했고 기존 non-null 연결 변경은 0건이다. 기기 검증·공개 모바일/웹 릴리스는 HOLD다.
+- PGlite SQL 14개 테스트는 기존 시범 이관, FC/manager 간 격리, 개별 권한 회수, 게시 불변성/재시도 및 직접 접근 차단을 검증한다. 이는 다중 연결/실기기 인수 검증을 대신하지 않는다.
 
 ## Notification delivery idempotency (2026-07-25)
 

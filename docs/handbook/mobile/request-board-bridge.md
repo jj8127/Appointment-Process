@@ -7,6 +7,10 @@ source_of_truth: app/request-board*.tsx + lib/chat-keyboard-layout.ts + lib/requ
 
 # Mobile Playbook: GaramLink Bridge
 
+## 2026-09-09 Logout transition
+
+Request Board home delegates logout navigation to focused `useAppLogout` after local session clearing. The duplicate null-role redirect is removed; background home screens do not navigate during another screen's logout. Bridge authentication/synchronization and permissions are unchanged. Regression: `lib/__tests__/app-logout-navigation.test.js` and `lib/__tests__/logout-source-contract.test.ts`.
+
 ## 2026-07-23 상태 변경 후 알림 부분 실패 계약
 
 - Request Board의 생성·수락·거절·완료·설계 승인/거절 응답은 `warning`과 제한된 `notificationDelivery` 집계를 보존한다.

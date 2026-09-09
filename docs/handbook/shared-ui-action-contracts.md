@@ -2,10 +2,18 @@ doc_id: FC-SHARED-UI-ACTION-CONTRACTS
 owner_repo: fc-onboarding-app
 owner_area: shared-ui
 audience: developer
-last_verified: 2026-08-10
+last_verified: 2026-09-09
 source_of_truth: components/* + app/* + hooks/use-keyboard-padding.ts + web/src/* + scripts/audit/shared-ui-contract-audit.cjs + scripts/audit/shared-function-contract-audit.cjs + scripts/audit/mobile-keyboard-surface-audit.cjs
 
 # Shared UI Action Contracts
+
+## 2026-09-09 Alert lifecycle and store return
+
+Shared alerts render visible content without opacity worklets or animation-completion action dispatch. Every queued item has a unique identity. A button or cancel action claims and removes only that item before invoking its callback; duplicate presses, synchronous follow-up alerts and throwing callbacks cannot consume another item or strand a blocker. Preserve the noncancelable default and explicit cancel actions. The modal uses no native transition animation when handing off to a store or route.
+
+`components/__tests__/AppAlertProvider.test.js` executes the actual provider with persisted animation values and interrupted-completion conditions. The former implementation fails six cases, including a second queued card at opacity zero; corrected behavior passes. Native iOS store-return acceptance is separate from this renderer evidence.
+
+Startup update checks are owned only by the root after splash readiness. An unmounted owner ignores late results; remounts share the pending check and cannot present twice. iOS uses one checked response, native installed version, matching bundle ID, valid store ID and minimum-OS eligibility. The optional alert can be canceled and opens the same Korean storefront. Persist only the non-sensitive installed/store version pair and timestamp for a 24-hour reminder cooldown; no account data. A Store `Open` response must not trap the app. `hooks/__tests__/use-in-app-update.test.ts` covers these conditions. The user's exact Store availability discrepancy is not proven without installed-binary/storefront evidence.
 
 Shared business actions must be governed by feature contracts before screen-level styling. The goal is not to force one component across React Native and web, but to keep equivalent behavior identical.
 

@@ -161,6 +161,8 @@
         "components/referral-revenue-graph/",
         "data/referral-revenue-demo.ts",
         "lib/referral-revenue-demo.ts",
+        "lib/referral-revenue-flow.ts",
+        "lib/referral-revenue-flow-layout.ts",
         "lib/referral-revenue-tree-layout.ts",
         "types/referral-revenue-graph.ts"
       ],
@@ -423,6 +425,23 @@
       "requires_any": [
         "docs/handbook/data/referral-schema-and-admin-rpcs.md",
         "docs/handbook/shared/security-and-secret-operations.md",
+        "docs/handbook/mobile/auth-and-gates.md"
+      ]
+    },
+    {
+      "id": "backend-referral-allowance-pilot",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/get-my-referral-allowance/",
+        "supabase/functions/_shared/referral-allowance-auth.ts",
+        "supabase/functions/_shared/__tests__/referral-allowance-auth_test.ts",
+        "supabase/migrations/20260907053913_referral_allowance_pilot.sql",
+        "supabase/migrations/20260907115710_referral_allowance_recipients.sql",
+        "supabase/tests/referral-allowance-sql.test.mjs"
+      ],
+      "requires_any": [
+        "docs/handbook/data/referral-schema-and-admin-rpcs.md",
+        "docs/handbook/data/data-model-canon.md",
         "docs/handbook/mobile/auth-and-gates.md"
       ]
     },

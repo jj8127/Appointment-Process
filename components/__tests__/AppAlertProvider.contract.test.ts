@@ -15,14 +15,14 @@ describe('AppAlertProvider source contract', () => {
     expect(source).not.toContain('<Feather');
   });
 
-  it('passes a serializable button index through runOnJS instead of a button object', () => {
+  it('keeps alert action dispatch independent of the animation worklet runtime', () => {
     const source = fs.readFileSync(
       path.join(process.cwd(), 'components', 'AppAlertProvider.tsx'),
       'utf8',
     );
 
-    expect(source).toContain('runOnJS(onButtonPress)(buttonIndex)');
-    expect(source).not.toContain('runOnJS(onButtonPress)(button)');
+    expect(source).not.toContain('runOnJS');
+    expect(source).not.toContain("from 'react-native-reanimated'");
   });
 
   it('resolves only valid alert button indexes', () => {
