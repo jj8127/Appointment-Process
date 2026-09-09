@@ -2,10 +2,14 @@ doc_id: FC-APP-MESSENGER-CONTENT
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-09-08
+last_verified: 2026-09-09
 source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversation.tsx + app/notification-settings.tsx + app/muted-conversations.tsx + app/chat.tsx + app/group-chat.tsx + app/request-board-messenger.tsx + lib/messenger-hub-model.ts + lib/messenger-search-model.ts + lib/notification-preferences-api.ts + lib/chat-keyboard-layout.ts + app/board*.tsx + app/notice*.tsx + app/notifications.tsx
 
 # Mobile Playbook: Messenger And Content
+
+## 2026-09-09 Logout transition
+
+Board and admin-board logout redirects are owned by the focused `useAppLogout` hook after local session clearing. Retained background screens must not run another null-role replacement; message and board mutation policy is unchanged. Regression: `lib/__tests__/app-logout-navigation.test.js` and `lib/__tests__/logout-source-contract.test.ts`.
 
 ## 목적
 

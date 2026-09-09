@@ -1,5 +1,11 @@
 # 작업 로그
 
+## 2026-09-09 Logout white-screen recovery
+
+- User reproduced a white screen on connected production Android build 81. Scoped logs identified Fabric existing-parent/addViewAt failure and ReactHost teardown; raw logs and private UI content were discarded.
+- Centralized focused logout navigation, guarded duplicate actions, removed the signed-out home role transition and corrected legacy home-lite header cleanup. Local checks pass; corrected device acceptance and additional deployment remain HOLD.
+- [상세](WORK_DETAIL.md#20260909-logout-white-screen)
+
 ## 2026-09-08 Messenger image preview and send recovery
 
 - Added private inline image previews to direct/group messages, retained document cards and long press, and bounded session-scoped URL loading with retry and full-screen authorization.

@@ -479,13 +479,6 @@ export default function AdminBoardManageScreen() {
     setRefreshing(false);
   }, [refetch]);
 
-  useEffect(() => {
-    if (!hydrated) return;
-    if (!role) {
-      router.replace('/login');
-    }
-  }, [hydrated, role, router]);
-
   const handleLogout = () => {
     appLogout();
   };

@@ -2,7 +2,7 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-08-10
+last_verified: 2026-09-09
 source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx
 
 # Mobile Playbook: Auth And Gates
@@ -16,6 +16,13 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 - 새 비밀번호 변경이 성공한 뒤에도 자동 로그인하지 않는다. 사용자는 새 비밀번호로 다시 로그인해야 정상 앱/bridge 세션을 받을 수 있다.
 
 ## 2026-08-10 Explicit Logout Contract
+
+### 2026-09-09 Focused logout navigation and native transition
+
+- `useAppLogout` owns login redirects for its six mobile screen callers. It starts local logout, then replaces with `/login?skipAuto=1` only after hydration and a cleared role, and only while focused. Screens retained behind settings must not issue competing redirects. Duplicate taps and repeated effect runs are suppressed; later login resets the guard.
+- The home-lite header clears the actual SessionProvider session instead of obsolete `session_*` keys. Successful account deletion also exits through the shared logout action; the deletion API is unchanged.
+- Home uses a separately keyed transition root when the role is absent, avoiding reconciliation of the authenticated admin tree into FC fallback content. A device-reproduced Fabric existing-parent/addViewAt failure destroyed the React surface during logout.
+- `lib/__tests__/app-logout-navigation.test.js` executes the actual hook with focused/background screens and pending cleanup. Corrected-bundle native acceptance remains required; JavaScript checks do not prove the native failure is resolved.
 
 - 명시적 로그아웃은 FC·관리자·본부장·개발자·설계매니저 모두 로컬 세션 종료가 권한 원천이다. 원격 푸시 토큰 해제나 가람Link 정리가 늦거나 실패해도 로컬 `role`, 앱 세션 토큰, 저장 세션을 비우는 동작을 기다리게 하면 안 된다.
 - 홈과 공통 로그아웃 액션은 `/login?skipAuto=1`로 이동해, 같은 이벤트 프레임에 남아 있는 이전 세션 snapshot이 로그인 화면에서 landing route로 되돌리는 경합을 막는다.

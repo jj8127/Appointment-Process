@@ -51,7 +51,6 @@ import {
   type PendingNotificationNavigation,
 } from '@/lib/pending-notification-navigation';
 import { savePendingReferralCode } from '@/lib/referral-deeplink';
-import { safeStorage } from '@/lib/safe-storage';
 import { withSentryRoot } from '@/lib/sentry';
 
 import {
@@ -131,6 +130,17 @@ if (Platform.OS !== 'web') {
 }
 
 SplashScreen.preventAutoHideAsync();
+
+function HomeLiteLogoutBackButton() {
+  const { logout } = useSession();
+  // HomeLiteScreen's focused logout hook owns the login navigation.
+  return (
+    <Pressable onPress={logout} accessibilityRole="button" accessibilityLabel="로그아웃"
+      style={{ padding: 8, marginLeft: -8 }}>
+      <Feather name="arrow-left" size={24} color="#000" />
+    </Pressable>
+  );
+}
 
 function PresenceBootstrap() {
   useAppPresenceHeartbeat();
@@ -609,18 +619,7 @@ function RootLayout() {
                               ...baseHeader,
                               title: '홈',
                               headerLeft: () => (
-                                <Pressable
-                                  onPress={async () => {
-                                    // 로그아웃 처리
-                                    await safeStorage.removeItem('session_role');
-                                    await safeStorage.removeItem('session_resident');
-                                    await safeStorage.removeItem('session_name');
-                                    await safeStorage.removeItem('session_readonly');
-                                    router.replace('/login');
-                                  }}
-                                  style={{ padding: 8, marginLeft: -8 }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
+                                <HomeLiteLogoutBackButton />
                               ),
                             }}
                           />
@@ -761,18 +760,7 @@ function RootLayout() {
                               ...baseHeader,
                               title: '홈',
                               headerLeft: () => (
-                                <Pressable
-                                  onPress={async () => {
-                                    // 로그아웃 처리
-                                    await safeStorage.removeItem('session_role');
-                                    await safeStorage.removeItem('session_resident');
-                                    await safeStorage.removeItem('session_name');
-                                    await safeStorage.removeItem('session_readonly');
-                                    router.replace('/login');
-                                  }}
-                                  style={{ padding: 8, marginLeft: -8 }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
+                                <HomeLiteLogoutBackButton />
                               ),
                             }}
                           />

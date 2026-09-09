@@ -2,10 +2,14 @@ doc_id: FC-APP-ONBOARDING
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-08-10
+last_verified: 2026-09-09
 source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + app/exam-apply.tsx + app/exam-apply2.tsx + lib/fc-basic-information.ts + lib/fc-workflow.ts + lib/home-latest-notice.ts + lib/notice-route.ts + supabase/functions/admin-action/index.ts
 
 # Mobile Playbook: FC Onboarding
+
+## 2026-09-09 Logout transition
+
+Home and home-lite delegate logout navigation to the focused `useAppLogout` hook. Signed-out home uses a separately keyed transition root, never the FC fallback of a just-cleared admin session. Both home-lite header variants clear the actual SessionProvider session. Corrected native acceptance remains required. Regression: `lib/__tests__/app-logout-navigation.test.js` and `lib/__tests__/logout-source-contract.test.ts`.
 
 ## 2026-08-10 기존 FC 기본 정보 수정 계약
 

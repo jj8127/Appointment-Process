@@ -1038,13 +1038,6 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (!role) {
-      router.replace('/login');
-    }
-  }, [hydrated, role]);
-
-  useEffect(() => {
-    if (!hydrated) return;
     if (isRequestBoardDesigner) {
       router.replace('/request-board');
     }
@@ -1183,9 +1176,11 @@ export default function Home() {
     };
   }, [role, myFc?.id, refetchMyFc]);
 
-  if (!hydrated) {
+  // Do not reconcile the admin tree into the FC fallback while logout navigation
+  // commits. A distinct root also prevents Fabric from reparenting those views.
+  if (!hydrated || !role) {
     return (
-      <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <SafeAreaView key="session-transition" style={styles.safe} edges={['left', 'right', 'bottom']}>
         <BrandedLoadingState variant="home" />
       </SafeAreaView>
     );

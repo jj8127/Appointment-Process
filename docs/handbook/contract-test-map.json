@@ -3,6 +3,23 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "mobile-logout-navigation",
+      "prefixes": [
+        "hooks/use-app-logout.ts",
+        "app/index.tsx",
+        "app/home-lite.tsx",
+        "app/settings.tsx",
+        "app/board.tsx",
+        "app/admin-board-manage.tsx",
+        "app/request-board.tsx"
+      ],
+      "requires_any": [
+        "lib/__tests__/app-logout-navigation.test.js",
+        "lib/__tests__/logout-source-contract.test.ts",
+        "docs/handbook/mobile/auth-and-gates.md"
+      ]
+    },
+    {
       "id": "mobile-messenger-photo-preview",
       "prefixes": [
         "components/MessengerAttachmentImage.tsx",
@@ -447,12 +464,12 @@
     },
     {
       "id": "fc-workflow-parity",
-        "prefixes": [
-          "lib/fc-workflow.ts",
-          "lib/fc-workflow-core.ts",
-          "web/src/lib/fc-workflow-core.ts",
-          "web/src/lib/fc-workflow.ts",
-          "web/src/lib/shared.ts",
+      "prefixes": [
+        "lib/fc-workflow.ts",
+        "lib/fc-workflow-core.ts",
+        "web/src/lib/fc-workflow-core.ts",
+        "web/src/lib/fc-workflow.ts",
+        "web/src/lib/shared.ts",
         "web/src/app/dashboard/page.tsx",
         "web/src/app/api/admin/fc/route.ts"
       ],

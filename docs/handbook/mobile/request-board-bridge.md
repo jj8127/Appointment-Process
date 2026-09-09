@@ -2,10 +2,14 @@ doc_id: FC-APP-REQUEST-BOARD-BRIDGE
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-08-04
+last_verified: 2026-09-09
 source_of_truth: app/request-board*.tsx + lib/chat-keyboard-layout.ts + lib/request-board-api.ts + lib/request-board-session.ts + request_board/server/src/routes/messages.ts
 
 # Mobile Playbook: GaramLink Bridge
+
+## 2026-09-09 Logout transition
+
+The Request Board home delegates explicit logout navigation to the focused `useAppLogout` hook after local session clearing. Its former duplicate null-role redirect is removed. Bridge authentication/synchronization and permissions are unchanged; retained background home screens do not navigate during another screen's logout. Regression: `lib/__tests__/app-logout-navigation.test.js` and `lib/__tests__/logout-source-contract.test.ts`.
 
 ## 2026-07-23 상태 변경 후 알림 부분 실패 계약
 

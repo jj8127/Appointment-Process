@@ -974,13 +974,6 @@ export default function BoardScreen() {
   const modalHeaderPaddingTop = Math.max(insets.top - 12, 8);
   const modalTopGap = Math.max(insets.top + 12, 24);
   const commentBarInset = 96;
-  useEffect(() => {
-    if (!hydrated) return;
-    if (!role) {
-      router.replace('/login');
-    }
-  }, [hydrated, role, router]);
-
   const handleLogout = () => {
     appLogout();
   };

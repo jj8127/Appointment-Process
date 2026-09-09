@@ -1,5 +1,13 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20260909-logout-white-screen"></a> 2026-09-09 Logout white-screen recovery
+
+User authorized wireless ADB access and reproduced the white screen on version 4.2.8/code 81 (non-debuggable). The app remained alive and resumed with no rendered application controls. Current-process logs show Fabric addViewAt/existing-parent failure and ReactHost teardown. Historical dev-launcher crashes are not attributed to this event. After scoped diagnostics the app was relaunched without clearing data; this is not corrected-bundle acceptance.
+
+The actual logout hook waits for a cleared local role, redirects the focused screen once, and suppresses repeated taps and background-screen redirects. Redundant guards were removed from six callers. Home renders a separately keyed signed-out transition root rather than FC fallback content. Both home-lite header branches clear the real session. Successful account deletion uses the same logout action without changing the deletion API.
+
+Five suites / 22 tests, full TypeScript and scoped ESLint pass. Android runtime 4.2.8 production-environment export passes, SHA-256 6b7965fee5ebdd8ba814bf47e99cdee2f493abbeb1469e17595cbb514a76a98f, with Sentry upload disabled. Corrected physical-device acceptance and new deployment remain HOLD. No backend/DB write, native/Store release or Git push occurred. Existing messenger and exam work remains in the canonical photo-recovery task.
+
 ## <a id="20260908-messenger-photo-recovery"></a> 2026-09-08 Messenger image preview and send recovery
 
 The V2 attachment branch rendered every attachment as a document card, including images. Direct/group routes now render image MIME types through the shared private preview component; document actions are unchanged. Image-only messages remove padding, preserve aspect ratio, and retain the parent message action menu. The hook reauthorizes full-screen opens, ignores stale account/attachment/focus results and bounds URL requests to four; inline native image disk caching is disabled.

@@ -49,7 +49,6 @@ export default function HomeLiteScreen() {
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
-      router.replace('/login');
       return;
     }
     if (role === 'admin') {
