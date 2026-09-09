@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const read = (relativePath: string) =>
-  readFileSync(join(process.cwd(), relativePath), 'utf8');
+  readFileSync(join(process.cwd(), relativePath), 'utf8').replace(/\r\n/g, '\n');
 
 describe('user presence phone ambiguity migration', () => {
   const foundation = read(

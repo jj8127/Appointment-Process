@@ -41,7 +41,6 @@ import {
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
-import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
 import { formatLicenseStatuses } from '@/lib/license-statuses';
@@ -453,7 +452,6 @@ const getLinkIcon = (href: string) => {
 };
 
 export default function Home() {
-  useInAppUpdate(); // Check for Android updates on mount
   const { role, residentId, displayName, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
   const appLogout = useAppLogout();
   const { mode, notificationId, notificationTarget } = useLocalSearchParams<{

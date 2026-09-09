@@ -1,5 +1,17 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20260909-pending-work-publication"></a> 2026-09-09 Pending-work publication preparation
+
+The user explicitly authorized committing and pushing all pending Appointment-Process work. Preserve this release branch separately from the development branch, including its existing native, exam, messenger and logout commits. The new release snapshot contains startup update-alert recovery, lifecycle ownership, iOS version/cooldown handling and an actual SessionProvider logout integration regression. Runtime 4.2.8 is unchanged. Exact final commit and remote verification are recorded in the existing canonical task handoff. Git publication does not deploy an app, apply a migration or establish corrected-device acceptance; the user owns builds and deployments.
+
+Full local Jest initially reported 241/250 suites and 1652/1665 tests passing. All nine failing source-contract suites and their 42 inspected source/dependency paths matched preexisting HEAD; Windows CRLF caused the 13 literal-LF assertion failures. Normalize CRLF only at those nine tests' file-reading boundaries, retaining every assertion and production implementation. The normal rerun passes all 9 suites / 70 tests and scoped ESLint. Final complete-suite results are recorded in the canonical task QA report.
+
+## <a id="20260909-startup-overlay-logout"></a> 2026-09-09 Startup overlay recurrence
+
+User clarified the startup failure is iOS: restart → update alert → App Store displays Open → return to dim home. Root and Home both mounted the store check. Shared AlertCard reused previous close opacity (zero) for a second queued alert without rerunning its opening effect. Renderer regressions reproduced six failures. The correction removes animation-dependent visibility/dismissal, identifies queue items and consumes callbacks once before execution. Existing `99f34f4` logout changes remain intact; a new actual SessionProvider integration verifies local clearing and one login route across five role variants while storage/network cleanup never resolves.
+
+This is local source/test evidence. Installed iOS 4.2.9 source/runtime alignment has not been established by local Git, while this checkout identifies itself as runtime 4.2.8. Do not publish an OTA across those runtimes or claim corrected-device acceptance. One canonical record owns both checkouts: `D:/hanhwa/fc-onboarding-app/.codex/harness/startup-overlay-logout-20260909`. No external publication, database change or Git push.
+
 ## <a id="20260909-logout-white-screen"></a> 2026-09-09 Logout white-screen recovery
 
 User authorized wireless ADB access and reproduced the white screen on version 4.2.8/code 81 (non-debuggable). The app remained alive and resumed with no rendered application controls. Current-process logs show Fabric addViewAt/existing-parent failure and ReactHost teardown. Historical dev-launcher crashes are not attributed to this event. After scoped diagnostics the app was relaunched without clearing data; this is not corrected-bundle acceptance.

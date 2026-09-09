@@ -473,8 +473,6 @@ function RootLayout() {
   const isWeb = Platform.OS === 'web';
   const enableTourGuide = Platform.OS === 'android';
 
-  useInAppUpdate();
-
   useEffect(() => {
     function extractReferralCode(url: string | null): string | null {
       if (!url) return null;
@@ -531,6 +529,9 @@ function RootLayout() {
   const [loaded, setLoaded] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+
+  // Own startup update checks once, after the alert host and splash are ready.
+  useInAppUpdate(!showSplash && (loaded || isWeb));
 
   useEffect(() => {
     let isMounted = true;

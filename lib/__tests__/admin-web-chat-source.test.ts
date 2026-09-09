@@ -1,5 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync as readRawFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+const readFileSync = (filePath: string, encoding: 'utf8') =>
+  readRawFileSync(filePath, encoding).replace(/\r\n/g, '\n');
 
 const root = join(__dirname, '..', '..');
 const chatPagePath = join(root, 'web', 'src', 'app', 'dashboard', 'chat', 'page.tsx');

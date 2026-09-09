@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const source = readFileSync(join(process.cwd(), 'app/group-chat.tsx'), 'utf8');
+const source = readFileSync(join(process.cwd(), 'app/group-chat.tsx'), 'utf8').replace(/\r\n/g, '\n');
 
 function readMillisecondConstant(name: string) {
   const match = source.match(new RegExp(`const ${name} = ([\\d_]+);`));

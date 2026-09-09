@@ -7,6 +7,10 @@ source_of_truth: code + tests + request_board/docs/handbook/feature-contract-mat
 
 # Feature Contract Matrix
 
+## 2026-09-09 Mobile startup and session exit
+
+Queued alerts remain visible without animation-completion dependencies and claim each action exactly once. Native startup checks have one root owner. Focused logout navigation follows local session clearing; retained screens cannot compete, and signed-out Home has a distinct transition root. Runtime evidence: `components/__tests__/AppAlertProvider.test.js`, `hooks/__tests__/use-in-app-update.test.ts`, `lib/__tests__/app-logout-session.integration.test.js`. Native-device and runtime-compatible rollout acceptance remain separate.
+
 This matrix defines business behavior that must stay consistent across GaramIn mobile, GaramIn admin web, and GaramLink bridge surfaces. Screen-level implementations may differ, but these contracts must not drift.
 
 ## 2026-07-30 Contract update

@@ -1,5 +1,17 @@
 # 작업 로그
 
+## 2026-09-09 미커밋 수정 GitHub 게시 준비
+
+- 사용자가 연결된 GitHub에 미커밋 작업 전체를 커밋·푸시하도록 승인했다. 기존 4.2.8 릴리스 브랜치의 이력을 보존하고, 시작 업데이트 알림 멈춤 수정과 실제 세션 로그아웃 통합 회귀 검증을 추가한다.
+- 관련 13 suites/78 tests, 타입·범위 린트·governance 및 기존 iOS/Android 로컬 export를 확인했다. Git 게시는 앱 배포나 실제 기기 검증 완료를 의미하지 않는다.
+- 전체 Jest에서 기존 소스 검사 9곳의 Windows 줄바꿈 의존성을 확인해 파일 읽기 경계만 보정했다. 검증 조건과 제품 코드는 유지했으며 해당 9 suites/70 tests 및 범위 린트가 통과했다.
+
+## 2026-09-09 iOS 시작 업데이트 알림 멈춤 재발
+
+- 업데이트 안내 → App Store 열기 → 배경만 남는 재현 흐름에서 공유 AlertCard의 opacity 재사용 결함을 확인했다. 실제 provider 테스트는 이전 구현에서 6개 실패, 수정 후 7개 통과했다. 알림 닫기/행동은 animation 완료에 의존하지 않고 한 번만 실행한다.
+- 기존 `99f34f4` 로그아웃 수정은 보존했다. 시작 확인 owner를 루트로 통일하고 iOS 단일 조회·취소 가능한 안내·동일 버전 24시간 재표시 제한을 적용했다.
+- 로컬 완료: 관련 13 suites/78 tests, 양 checkout 타입·린트·governance, iOS/Android Hermes export 통과. 사용자 지시로 빌드·배포는 사용자가 맡으며 실제 기기 통과나 배포 완료를 주장하지 않는다. 단일 task record: `D:/hanhwa/fc-onboarding-app/.codex/harness/startup-overlay-logout-20260909`.
+
 ## 2026-09-09 Logout white-screen recovery
 
 - User reproduced a white screen on connected production Android build 81. Scoped logs identified Fabric existing-parent/addViewAt failure and ReactHost teardown; raw logs and private UI content were discarded.

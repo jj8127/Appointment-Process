@@ -9,10 +9,10 @@ const migrationPath = path.join(
 );
 
 const read = (relativePath: string) =>
-  fs.readFileSync(path.join(root, relativePath), 'utf8');
+  fs.readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n/g, '\n');
 
 describe('personal plain-admin direct-message contract', () => {
-  const migration = fs.readFileSync(migrationPath, 'utf8');
+  const migration = fs.readFileSync(migrationPath, 'utf8').replace(/\r\n/g, '\n');
   const schema = read('supabase/schema.sql');
   const edge = read('supabase/functions/fc-notify/index.ts');
   const policy = read('supabase/functions/_shared/direct-message-policy.ts');

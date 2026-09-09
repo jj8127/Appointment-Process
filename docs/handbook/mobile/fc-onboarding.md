@@ -9,6 +9,8 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 ## 2026-09-09 Logout transition
 
+Startup store checks now belong only to the root after splash readiness; Home mounting or returning from the store cannot start another check. The shared alert queue remains visible and dismissible independently of animation completion. Regression: `hooks/__tests__/use-in-app-update.test.ts`, `components/__tests__/AppAlertProvider.test.js`.
+
 Home and home-lite delegate logout navigation to the focused `useAppLogout` hook. Signed-out home uses a separately keyed transition root, never the FC fallback of a just-cleared admin session. Both home-lite header variants clear the actual SessionProvider session. Corrected native acceptance remains required. Regression: `lib/__tests__/app-logout-navigation.test.js` and `lib/__tests__/logout-source-contract.test.ts`.
 
 ## 2026-08-10 기존 FC 기본 정보 수정 계약

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const read = (relativePath: string) =>
-  readFileSync(join(process.cwd(), relativePath), 'utf8');
+  readFileSync(join(process.cwd(), relativePath), 'utf8').replace(/\r\n/g, '\n');
 
 describe('group-chat notification-only retry contract', () => {
   const edge = read('supabase/functions/group-chat/index.ts');

@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const root = path.resolve(__dirname, '..', '..');
 const read = (relativePath: string) =>
-  readFileSync(path.join(root, relativePath), 'utf8');
+  readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n/g, '\n');
 
 const migrationName =
   '20260724131931_exam_bundle_monthly_slot_and_decisions.sql';

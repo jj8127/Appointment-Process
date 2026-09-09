@@ -4,7 +4,7 @@ import { join } from 'node:path';
 const source = readFileSync(
   join(process.cwd(), 'supabase/functions/group-chat/index.ts'),
   'utf8',
-);
+).replace(/\r\n/g, '\n');
 
 function sliceBetween(startNeedle: string, endNeedle: string) {
   const start = source.indexOf(startNeedle);

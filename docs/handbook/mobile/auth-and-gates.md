@@ -19,6 +19,8 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 
 ### 2026-09-09 Focused logout navigation and native transition
 
+- Follow-up verification adds `lib/__tests__/app-logout-session.integration.test.js`: actual SessionProvider, coordinator and focused hook clear the session before exactly one login replacement across five role variants while storage/network cleanup remain pending. Native login rendering is not mocked-test evidence. Startup update checks are root-owned after splash readiness and use the shared non-blocking alert lifecycle; see the shared UI action contract.
+
 - `useAppLogout` owns login redirects for its six mobile screen callers. It starts local logout, then replaces with `/login?skipAuto=1` only after hydration and a cleared role, and only while focused. Screens retained behind settings must not issue competing redirects. Duplicate taps and repeated effect runs are suppressed; later login resets the guard.
 - The home-lite header clears the actual SessionProvider session instead of obsolete `session_*` keys. Successful account deletion also exits through the shared logout action; the deletion API is unchanged.
 - Home uses a separately keyed transition root when the role is absent, avoiding reconciliation of the authenticated admin tree into FC fallback content. A device-reproduced Fabric existing-parent/addViewAt failure destroyed the React surface during logout.

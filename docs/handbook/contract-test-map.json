@@ -3,6 +3,11 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "mobile-startup-alert-update",
+      "prefixes": ["components/AppAlertProvider.tsx", "hooks/useInAppUpdate", "hooks/in-app-update-lifecycle.ts"],
+      "requires_any": ["components/__tests__/AppAlertProvider.test.js", "docs/handbook/shared-ui-action-contracts.md"]
+    },
+    {
       "id": "mobile-logout-navigation",
       "prefixes": [
         "hooks/use-app-logout.ts",

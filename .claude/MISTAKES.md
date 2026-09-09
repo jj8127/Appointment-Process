@@ -1,5 +1,12 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-09-09 | Alert lifecycle | 닫힌 카드의 투명도를 다음 알림이 재사용함
+
+- Symptom: 업데이트 알림에서 스토어를 열고 복귀하면 회색 배경만 남고 터치가 차단된다.
+- Root cause: 루트와 홈이 업데이트 확인을 각각 실행했다. 첫 알림을 닫으며 opacity를 0으로 바꾼 뒤, 같은 AlertCard 인스턴스가 다음 알림을 받아 시작 effect가 다시 실행되지 않았다. 행동 실행도 애니메이션 완료 콜백에 의존했다.
+- Guardrail: 시작 확인 owner를 하나로 유지하고 알림마다 identity를 부여한다. 가시성과 닫기는 애니메이션 완료에 의존하지 않으며, 항목을 한 번만 소비한 뒤 콜백을 실행한다.
+- Verification: 실제 provider를 실행하는 `components/__tests__/AppAlertProvider.test.js`에서 수정 전 6개 실패, 수정 후 7개 통과. iOS 실제 기기 수락 검증과 배포는 별도다.
+
 ## 2026-08-08 | Edge deploy encoding | PowerShell 기본 인코딩으로 함수 소스를 번들링함
 
 - Symptom: Supabase 배포 도구에 `Get-Content -Raw` 결과를 전달하자 한글 문자열의 따옴표 경계가 훼손되어 서버 번들러가 TypeScript parse 오류로 배포를 거부했다. 기존 v12는 그대로 유지됐지만 첫 요청이 불필요하게 실패했다.

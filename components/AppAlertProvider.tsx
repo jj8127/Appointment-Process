@@ -1,16 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import Animated, {
-  FadeIn,
-  FadeOut,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming
-} from 'react-native-reanimated';
-
-import { ALERT_VARIANTS, ANIMATION, COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { ALERT_VARIANTS, COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { inferAlertVariantFromTitle, inferUserFacingAlertFallback, toUserFacingAlertMessage } from '@/lib/user-facing-error';
 import StatusGlyph from '@/components/StatusGlyph';
 import {
@@ -27,6 +17,7 @@ type AppAlertOptions = {
 };
 
 type AppAlert = {
+  id: number;
   title: string;
   message?: string;
   buttons: AppAlertButton[];
@@ -80,8 +71,6 @@ function getVariantConfig(variant: AlertVariant = 'info') {
   return ALERT_VARIANTS[variant];
 }
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
 function AlertCard({
   alert,
   onButtonPress,
@@ -89,46 +78,22 @@ function AlertCard({
   alert: AppAlert;
   onButtonPress: (buttonIndex?: number) => void;
 }) {
-  const scale = useSharedValue(0.9);
-  const opacity = useSharedValue(0);
   const variant = getVariantConfig(alert.options?.variant);
   const isStacked = (alert.buttons?.length ?? 0) > 2;
 
-  useEffect(() => {
-    scale.value = withSpring(1, ANIMATION.spring.bouncy);
-    opacity.value = withTiming(1, { duration: ANIMATION.duration.fast });
-  }, [opacity, scale]);
-
-  const animatedCardStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
-  }));
-
-  const handleClose = useCallback(
-    (buttonIndex?: number) => {
-      scale.value = withTiming(0.9, { duration: ANIMATION.duration.fast });
-      opacity.value = withTiming(0, { duration: ANIMATION.duration.fast }, (finished) => {
-        if (finished) {
-          runOnJS(onButtonPress)(buttonIndex);
-        }
-      });
-    },
-    [onButtonPress, opacity, scale],
-  );
-
   return (
-    <AnimatedPressable
+    <Pressable
       style={styles.backdrop}
       onPress={() => {
         if (alert.options?.cancelable) {
           const cancelButtonIndex = alert.buttons.findIndex((button) => button.style === 'cancel');
-          handleClose(cancelButtonIndex >= 0 ? cancelButtonIndex : undefined);
+          onButtonPress(cancelButtonIndex >= 0 ? cancelButtonIndex : undefined);
         }
       }}
-      entering={FadeIn.duration(ANIMATION.duration.fast)}
-      exiting={FadeOut.duration(ANIMATION.duration.fast)}
     >
-      <Animated.View style={[styles.card, animatedCardStyle]}>
+      {/* Modal visibility must never depend on a worklet or animation callback.
+          Store navigation/backgrounding can interrupt those callbacks. */}
+      <View style={styles.card} onStartShouldSetResponder={() => true} accessibilityViewIsModal>
         {/* Icon */}
         <View style={[styles.iconCircle, { backgroundColor: variant.iconBg }]}>
           <StatusGlyph
@@ -162,20 +127,23 @@ function AlertCard({
                   isStacked ? styles.buttonFull : styles.buttonCompact,
                   pressed && styles.buttonPressed,
                 ]}
-                onPress={() => handleClose(index)}
+                accessibilityRole="button"
+                onPress={() => onButtonPress(index)}
               >
                 <Text style={buttonStyle.text}>{button.text ?? '확인'}</Text>
               </Pressable>
             );
           })}
         </View>
-      </Animated.View>
-    </AnimatedPressable>
+      </View>
+    </Pressable>
   );
 }
 
 export function AppAlertProvider({ children }: { children: React.ReactNode }) {
   const [queue, setQueue] = useState<AppAlert[]>([]);
+  const queueRef = useRef<AppAlert[]>([]);
+  const nextId = useRef(0);
   const currentAlert = queue[0] ?? null;
   const showRef = useRef<AppAlertHandler>(() => { });
 
@@ -189,22 +157,24 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
       ...options,
       variant: options?.variant ?? inferAlertVariantFromTitle(title),
     };
-    setQueue((prev) => [...prev, { title, message: normalizedMessage, buttons: normalizedButtons, options: normalizedOptions }]);
-  }, []);
-
-  const dismissAlert = useCallback(() => {
-    setQueue((prev) => prev.slice(1));
+    const alert = { id: ++nextId.current, title, message: normalizedMessage, buttons: normalizedButtons, options: normalizedOptions };
+    queueRef.current = [...queueRef.current, alert];
+    setQueue(queueRef.current);
   }, []);
 
   const handleButtonPress = useCallback(
     (buttonIndex?: number) => {
-      const button = resolveAlertButtonByIndex(currentAlert?.buttons ?? [], buttonIndex);
+      if (!currentAlert || queueRef.current[0]?.id !== currentAlert.id) return;
+      const button = resolveAlertButtonByIndex(currentAlert.buttons, buttonIndex);
+      // Claim and remove before invoking user code: a repeated press, thrown
+      // action, synchronous navigation or follow-up alert cannot strand the modal.
+      queueRef.current = queueRef.current.slice(1);
+      setQueue(queueRef.current);
       if (hasCallableAlertAction(button)) {
         button.onPress();
       }
-      dismissAlert();
     },
-    [currentAlert?.buttons, dismissAlert],
+    [currentAlert],
   );
 
   useEffect(() => {
@@ -224,19 +194,15 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
   const handleBackdropPress = useCallback(() => {
     if (!currentAlert?.options?.cancelable) return;
     const cancelButtonIndex = currentAlert.buttons.findIndex((button) => button.style === 'cancel');
-    const cancelButton = resolveAlertButtonByIndex(currentAlert.buttons, cancelButtonIndex);
-    if (hasCallableAlertAction(cancelButton)) {
-      cancelButton.onPress();
-    }
-    dismissAlert();
-  }, [currentAlert?.buttons, currentAlert?.options?.cancelable, dismissAlert]);
+    handleButtonPress(cancelButtonIndex >= 0 ? cancelButtonIndex : undefined);
+  }, [currentAlert, handleButtonPress]);
 
   return (
     <AlertContext.Provider value={showAlert}>
       {children}
-      <Modal visible={!!currentAlert} transparent statusBarTranslucent onRequestClose={handleBackdropPress}>
+      <Modal visible={!!currentAlert} transparent animationType="none" statusBarTranslucent onRequestClose={handleBackdropPress}>
         {currentAlert && (
-          <AlertCard alert={currentAlert} onButtonPress={handleButtonPress} />
+          <AlertCard key={currentAlert.id} alert={currentAlert} onButtonPress={handleButtonPress} />
         )}
       </Modal>
     </AlertContext.Provider>
