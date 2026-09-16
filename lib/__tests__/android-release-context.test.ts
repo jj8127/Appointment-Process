@@ -132,17 +132,17 @@ describe("Android release context", () => {
     jest.restoreAllMocks();
   });
 
-  test("accepts only the exact clean prebuilt-instrumented 4.2.11 context", () => {
+  test("accepts only the exact clean prebuilt-instrumented 4.2.12 context", () => {
     expect(() =>
       validateReleaseContext(createValidContext(fixtureRoot)),
     ).not.toThrow();
   });
 
-  test("pins the 4.2.11 app version on the existing release branch", () => {
+  test("pins the 4.2.12 app version on the existing release branch", () => {
     expect(EXPECTED_BRANCH).toBe(
       "release/garamin-4.2.8-link-fix-20260831",
     );
-    expect(EXPECTED_APP_VERSION).toBe("4.2.11");
+    expect(EXPECTED_APP_VERSION).toBe("4.2.12");
   });
 
   test("keeps the real build checkout version aligned with the release guard", () => {
@@ -454,7 +454,7 @@ describe("Android release context", () => {
     );
   });
 
-  test("package and wrappers pin cwd while legacy CMake bootstrap stays absent", () => {
+  test("npm build aliases use the main source while historical release protection stays intact", () => {
     const packageJson = JSON.parse(
       readFileSync(join(REPO_ROOT, "package.json"), "utf8"),
     );
@@ -467,10 +467,16 @@ describe("Android release context", () => {
     );
 
     expect(packageJson.scripts["eas:verify:android"]).toContain(
-      "android-release-context.cjs check",
+      "../fc-onboarding-app/scripts/eas-build.js android production --dry-run",
     );
     expect(packageJson.scripts["eas:build:android"]).toContain(
-      "android-release-context.cjs build",
+      "../fc-onboarding-app/scripts/eas-build.js android production",
+    );
+    expect(packageJson.scripts["eas:verify:ios"]).toContain(
+      "../fc-onboarding-app/scripts/eas-build.js ios production --dry-run",
+    );
+    expect(packageJson.scripts["eas:build:ios"]).toContain(
+      "../fc-onboarding-app/scripts/eas-build.js ios production --non-interactive --freeze-credentials",
     );
     expect(packageJson.scripts["eas-build-post-install"]).toBeUndefined();
     expect(easConfig.build.production.env.CMAKE_VERSION).toBeUndefined();

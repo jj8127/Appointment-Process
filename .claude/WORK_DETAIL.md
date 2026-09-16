@@ -1,5 +1,25 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20260916-github-publication"></a> 2026-09-16 GitHub publication scope
+
+The user authorized committing and pushing every current development/release worktree change while retaining both existing branches. This historical release snapshot includes the preserved login-navigation fix, version alignment, current-main-source npm build/verify aliases and associated docs/tests. Main-source build behavior and verification are recorded in `D:/hanhwa/fc-onboarding-app/.claude/WORK_DETAIL.md#20260916-main-build-source`; the alias/release-context suite passes 29 tests. Git publication does not perform a native build, Store submission, OTA, database change or device install. Local and remote commit equality is checked after publishing.
+
+## <a id="20260916-build-checkout-version"></a> 2026-09-16 Build checkout version 4.2.12
+
+The user edited development `app.json` to 4.2.12 but ran the version command from `D:/hanhwa/fc-onboarding-app-release`, which still contained 4.2.11. These are separate Git worktrees with no automatic source or version synchronization. Preserve the existing release branch and unrelated login changes. Align release `expo.version`, `EXPECTED_APP_VERSION`, the existing release-context regression and current build documentation with 4.2.12. Clarify the actual config path in the development command guide.
+
+Local Expo config resolves 4.2.12 and retains the `appVersion` runtime policy. The real Android preflight correctly stops at the dirty-worktree guard; no clean-tree bypass, commit, push, native build, Store submission, installed-app update or feature-source transfer was performed.
+
+Verification: existing Android release-context suite 29/29, scoped ESLint, governance and whitespace checks pass. The version query and Expo config API both resolve 4.2.12, matching the release guard.
+
+## <a id="20260914-login-after-logout"></a> 2026-09-14 Login navigation after logout
+
+The installed mobile app report matches a reproducible route defect: logout opens `/login?skipAuto=1`, and the login screen's session effect keeps returning even after a new login succeeds. Record explicit login success in screen state and release this guard only after authentication returns success. Keep session-derived destinations, hydration readiness, stale-session suppression and pending-notification navigation priority. Credential preference persistence cannot delay the successful landing.
+
+The actual login screen renderer regression in `lib/__tests__/login-navigation.test.js` initially fails 9 of 10 cases. The corrected source passes administrator, FC and designer relogin; pending/failed login; delayed session propagation/hydration; pending/failed credential persistence; notification priority; ordinary session restoration; and unmount cancellation. Register this runtime regression in the existing `role-session-visibility` contract mapping.
+
+Both development and release checkouts pass the same focused 8 suites / 39 tests, full root TypeScript and scoped ESLint. Release Android/iOS offline Hermes exports pass (3,116/3,117 modules), with no production environment load or remote upload; this establishes local compilation only. No commit, push, OTA, remote build, Store submission, database change or corrected-device verification was performed for this fix. Existing app-building/distribution ownership and prior harness lifecycle remain unchanged.
+
 ## <a id="20260909-build-checkout-version"></a> 2026-09-09 Build checkout version mismatch
 
 The user's sanitized terminal evidence starts in `D:/hanhwa/fc-onboarding-app-release`, validates v4.2.8, increments only iOS buildNumber 101→102, and submits App Version 4.2.8. Apple rejects that closed version train. The separately edited development checkout is already 4.2.11, but the release checkout still resolved to 4.2.8 through Expo's local config API. `scripts/eas-build.js` anchors EAS cwd to its own repository; no dynamic config or tracked native iOS project overrides this value.

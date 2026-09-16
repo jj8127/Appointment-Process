@@ -2,7 +2,7 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-09-09
+last_verified: 2026-09-14
 source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx
 
 # Mobile Playbook: Auth And Gates
@@ -16,6 +16,12 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 - 새 비밀번호 변경이 성공한 뒤에도 자동 로그인하지 않는다. 사용자는 새 비밀번호로 다시 로그인해야 정상 앱/bridge 세션을 받을 수 있다.
 
 ## 2026-08-10 Explicit Logout Contract
+
+### 2026-09-14 Login after explicit logout
+
+- `/login?skipAuto=1` suppresses stale-session automatic entry only until a new manual login succeeds. Pending or failed login keeps that protection active.
+- Successful login resumes the existing hydrated session landing route and respects pending notification navigation. Saving login preferences must not delay this transition. The effect cancels pending navigation on unmount.
+- Runtime regression: `lib/__tests__/login-navigation.test.js`. Both checkouts pass the related 8 suites / 39 tests, TypeScript and scoped ESLint; release Android/iOS offline Hermes exports pass. These local checks do not establish installed-device recovery or deployment.
 
 ### 2026-09-09 Focused logout navigation and native transition
 
