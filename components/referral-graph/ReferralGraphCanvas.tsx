@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, type LayoutChangeEvent, PixelRatio, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, type LayoutChangeEvent, PixelRatio, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { type SharedValue, cancelAnimation, runOnJS, useAnimatedProps, useAnimatedReaction, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
@@ -22,6 +22,7 @@ import { getReferralGraphLabelRect, getReferralGraphLabelScale, isReferralGraphL
 import { getReferralGraphNodeAmountMetrics, type ReferralGraphNodeAmounts } from '@/lib/referral-graph-node-amounts';
 
 const GRAPH_RENDER_SURFACE_SIZE = getReferralGraphRenderSurfaceSize(PixelRatio.get());
+const IS_WEB = Platform.OS === 'web';
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 type Camera = {
@@ -239,12 +240,18 @@ export const ReferralGraphCanvas = memo(function ReferralGraphCanvas({ nodes, ed
   const labelLayerStyle = useAnimatedStyle(() => ({
     transform: [{ scale: getReferralGraphLabelScale(scale.value, displayScale) }],
   }));
-  const edgeProps = useAnimatedProps(() => ({
+  const edgeProps = useAnimatedProps(() => {
     // One native path update replaces one endpoint mapper per edge. Its geometry
     // stays in logical coordinates; only the bounded SVG viewport is rasterized.
-    matrix: [scale.value, 0, 0, scale.value, canvasSize.width / 2 + panX.value, canvasSize.height / 2 + panY.value],
-    strokeWidth: 1.4 / Math.max(scale.value, 0.000001),
-  }));
+    const matrix: [number, number, number, number, number, number] = [
+      scale.value, 0, 0, scale.value, canvasSize.width / 2 + panX.value, canvasSize.height / 2 + panY.value,
+    ];
+    return {
+      // SVG on web consumes transform; the native renderer consumes matrix.
+      ...(IS_WEB ? { transform: matrix } : { matrix }),
+      strokeWidth: 1.4 / Math.max(scale.value, 0.000001),
+    };
+  });
 
   const applyFit = useCallback((animated: boolean) => {
     if (canvasSize.width <= 0 || canvasSize.height <= 0) return;

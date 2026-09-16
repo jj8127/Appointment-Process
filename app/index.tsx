@@ -76,6 +76,7 @@ const SHORTCUT_TOUR_TEXTS = [
   '생명/손해 위촉 진행 단계예요.',
   '총무/설계매니저와 대화할 수 있어요.',
   '추천인 코드를 확인하고 친구를 초대할 수 있어요.',
+  '공개된 수당 내역과 기여 흐름을 그래프로 확인할 수 있어요.',
 ];
 
 // Android Crash Fix: Strips Moti props on Android to prevent Reanimated from attaching to unmounting views
@@ -165,6 +166,12 @@ const quickLinksManagerExam: QuickLink[] = [
   ...quickLinksAdminExam,
 ];
 
+const allowanceLink: QuickLink = {
+  href: '/referral-allowance',
+  title: '수당 그래프',
+  description: '나의 수당과 기여 흐름 확인',
+};
+
 const fcHomeSteps = [
   { key: 'consent', label: '보증 보험 동의', fullLabel: '보증 보험 동의' },
   { key: 'docs', label: '문서제출', fullLabel: '문서제출' },
@@ -212,7 +219,7 @@ const buildFcQuickLinks = (profile?: FcProfile | null): QuickLink[] => {
         quickLinksFcBase[4],
       ];
 
-  return [...workflowLinks, hanwhaLink, insuranceLink, quickLinksFcBase[5], referralLink];
+  return [...workflowLinks, hanwhaLink, insuranceLink, quickLinksFcBase[5], referralLink, allowanceLink];
 };
 
 const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Promise<CountsResult> => {
@@ -446,6 +453,7 @@ const getLinkIcon = (href: string) => {
   if (href.includes('appointment')) return 'smartphone'; // 위촉
   if (href.includes('messenger')) return 'message-circle'; // 메신저
   if (href.includes('chat')) return 'message-circle'; // 1:1 문의
+  if (href.includes('referral-allowance')) return 'bar-chart-2'; // 수당 그래프
   if (href.includes('referral')) return 'gift'; // 추천인 코드
 
   return 'chevron-right';
@@ -897,9 +905,11 @@ export default function Home() {
   const quickLinks =
     role === 'admin'
       ? isManagerExam
-        ? quickLinksManagerExam
+        ? canUseReferralSelfService
+          ? [...quickLinksManagerExam, managerReferralLink, allowanceLink]
+          : quickLinksManagerExam
         : readOnly && canUseReferralSelfService
-        ? [...adminQuickLinks, managerReferralLink]
+        ? [...adminQuickLinks, managerReferralLink, allowanceLink]
         : adminQuickLinks
       : buildFcQuickLinks(myFc as FcProfile | null | undefined);
   const profileName = typeof myFc?.name === 'string' ? myFc.name.trim() : '';

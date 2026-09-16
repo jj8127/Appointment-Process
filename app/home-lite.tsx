@@ -157,6 +157,18 @@ export default function HomeLiteScreen() {
               <Text style={styles.linkText}>업무 공지와 운영 안내를 확인하세요.</Text>
             </Pressable>
           </View>
+          {hydrated && role === 'fc' && !isRequestBoardDesigner ? (
+            <View style={styles.linkGrid}>
+              <Pressable style={styles.linkCard} onPress={() => router.push('/referral-allowance')}
+                accessibilityRole="button" accessibilityLabel="수당 그래프">
+                <View style={styles.linkIcon}>
+                  <Feather name="bar-chart-2" size={18} color={COLORS.primary} />
+                </View>
+                <Text style={styles.linkTitle}>수당 그래프</Text>
+                <Text style={styles.linkText}>공개된 수당 내역과 기여 흐름을 확인하세요.</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.section}>

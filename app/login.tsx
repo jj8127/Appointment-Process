@@ -37,6 +37,7 @@ export default function LoginScreen() {
     const [phoneInput, setPhoneInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const [rememberPassword, setRememberPassword] = useState(false);
+    const [manualLoginSucceeded, setManualLoginSucceeded] = useState(false);
     const keyboardPadding = useKeyboardPadding();
     const rememberPasswordPressInHandledRef = useRef(false);
 
@@ -63,7 +64,7 @@ export default function LoginScreen() {
     }, []);
 
     useEffect(() => {
-        if (skipAutoRedirect) return;
+        if (skipAutoRedirect && !manualLoginSucceeded) return;
         if (!hydrated) return;
         const nextRoute = resolveSessionLandingRoute({
             role,
@@ -79,7 +80,7 @@ export default function LoginScreen() {
         return () => {
             active = false;
         };
-    }, [hydrated, isRequestBoardDesigner, residentId, role, skipAutoRedirect]);
+    }, [hydrated, isRequestBoardDesigner, manualLoginSucceeded, residentId, role, skipAutoRedirect]);
 
     const toggleRememberPassword = useCallback(() => {
         setRememberPassword((current) => {
@@ -109,6 +110,9 @@ export default function LoginScreen() {
     const handleLogin = async () => {
         const success = await login(phoneInput, passwordInput);
         if (!success) return;
+        // Logout suppresses stale-session auto entry, but a new successful login
+        // must resume the session-driven landing without waiting on preferences.
+        setManualLoginSucceeded(true);
 
         try {
             await setSavedLoginCredentials({

@@ -3,13 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { AppState } from 'react-native';
 
-import type { ReferralAllowanceAccessResponse, ReferralAllowanceStatement, ReferralAllowanceStatementResponse } from '@/types/referral-allowance';
+import { parseReferralAllowanceResponse } from '@/lib/referral-allowance-response';
 
 import { ReferralAppSessionError, useReferralAppSession } from './use-referral-app-session';
 import { useSession } from './use-session';
-
-type AllowanceResponse = (ReferralAllowanceAccessResponse | ReferralAllowanceStatementResponse)
-  & { statement?: ReferralAllowanceStatement | null };
 
 let nextSessionScope = 0;
 
@@ -36,7 +33,9 @@ function useAllowanceQuery(action: 'access' | 'statement', month?: string) {
   // Only an opaque, in-memory scope enters the query key. Tokens and account identifiers do not.
   const identity = JSON.stringify([session.residentId, session.role, session.readOnly,
     session.isRequestBoardDesigner, session.hydrated, Boolean(session.appSessionToken)]);
-  const scope = useMemo(() => ({ identity, id: ++nextSessionScope }), [identity]).id;
+  // Token replacement renews this in-memory owner; only its numeric ID enters the cache.
+  const scope = useMemo(() => ({ identity, token: session.appSessionToken, id: ++nextSessionScope }),
+    [identity, session.appSessionToken]).id;
   const needsLogin = session.hydrated && (session.role === 'fc' || (session.role === 'admin' && session.readOnly))
     && !session.isRequestBoardDesigner && Boolean(session.residentId) && !session.appSessionToken;
   const localSessionError = useMemo(() => needsLogin
@@ -55,7 +54,7 @@ function useAllowanceQuery(action: 'access' | 'statement', month?: string) {
     queryFn: async ({ signal }) => {
       const request = ++requestSequence.current;
       const owner = identity;
-      const data = await invokeReferralFunction<AllowanceResponse>('get-my-referral-allowance', {
+      const data = await invokeReferralFunction<{ ok?: boolean }>('get-my-referral-allowance', {
         body: action === 'access' ? { action } : { action, ...(month ? { month } : {}) },
         fallbackMessage: '증원수당 내역을 불러오지 못했습니다. 다시 시도해주세요.',
         requireCurrentToken: true,
@@ -64,18 +63,7 @@ function useAllowanceQuery(action: 'access' | 'statement', month?: string) {
         || currentRequestContext.current !== requestContext) {
         throw new Error('종료된 수당 조회 요청입니다.');
       }
-      if (typeof data.enabled !== 'boolean'
-        || (data.enabled && (!Array.isArray(data.availableMonths)
-          || data.availableMonths.some((item) => !/^\d{4}-(0[1-9]|1[0-2])$/.test(item))))) {
-        throw new Error('수당 조회 응답을 확인하지 못했습니다. 다시 시도해주세요.');
-      }
-      if (action === 'statement' && data.enabled && data.statement === undefined) {
-        throw new Error('수당 내역 응답을 확인하지 못했습니다. 다시 시도해주세요.');
-      }
-      if (month && data.statement && data.statement.performanceMonth !== month) {
-        throw new Error('선택한 월의 수당 내역을 확인하지 못했습니다. 다시 시도해주세요.');
-      }
-      return data;
+      return parseReferralAllowanceResponse(data, action, month);
     },
     enabled: canRequest && isFocused,
     staleTime: 0,
@@ -124,7 +112,7 @@ export function useReferralAllowanceAccess() {
   const mode = query.isLoading ? 'loading'
     : query.error ? 'error'
     : query.data?.enabled ? 'enabled'
-    : 'sample';
+    : 'empty';
   return { ...query, mode, enabled: mode === 'enabled' };
 }
 

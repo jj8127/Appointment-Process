@@ -20,7 +20,6 @@ import { ReferralDirectRecommenderCard } from '@/components/ReferralAncestorsCha
 import { ReferralTreeNode, type DescendantNode } from '@/components/ReferralTreeNode';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useMyReferralCode } from '@/hooks/use-my-referral-code';
-import { useReferralAllowanceAccess } from '@/hooks/use-referral-allowance';
 import { isReferralReloginError } from '@/hooks/use-referral-app-session';
 import { useReferralTree } from '@/hooks/use-referral-tree';
 import { useSession } from '@/hooks/use-session';
@@ -41,7 +40,6 @@ function buildShareText(code: string): string {
 export default function ReferralPage() {
   const router = useRouter();
   const { role, readOnly, isRequestBoardDesigner } = useSession();
-  const allowanceAccess = useReferralAllowanceAccess();
   const canViewReferral =
     !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
   const {
@@ -110,22 +108,6 @@ export default function ReferralPage() {
   const handleOpenGraphView = useCallback(() => {
     router.push('/referral-graph');
   }, [router]);
-
-  const handleOpenRevenueGraphView = useCallback(() => {
-    if (allowanceAccess.mode === 'enabled') {
-      router.push('/referral-allowance');
-      return;
-    }
-    if (allowanceAccess.mode !== 'sample') {
-      if (isReferralReloginError(allowanceAccess.error)) {
-        router.push('/login?skipAuto=1');
-        return;
-      }
-      allowanceAccess.retry();
-      return;
-    }
-    router.push('/referral-revenue-graph');
-  }, [router, allowanceAccess]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -309,42 +291,6 @@ export default function ReferralPage() {
           <View style={styles.graphLinkTextWrap}>
             <Text style={styles.graphLinkTitle}>추천 관계 그래프로 보기</Text>
             <Text style={styles.graphLinkDesc}>앱 안에서 하위 연결을 확대하고 살펴봅니다</Text>
-          </View>
-          <Feather name="chevron-right" size={17} color={COLORS.gray[400]} />
-        </Pressable>
-
-        <Pressable
-          style={({ pressed }) => [
-            styles.graphLinkCard,
-            styles.revenueGraphLinkCard,
-            pressed && { opacity: 0.7 },
-          ]}
-          onPress={handleOpenRevenueGraphView}
-          accessibilityRole="button"
-          disabled={allowanceAccess.mode === 'loading'}
-          accessibilityState={{ disabled: allowanceAccess.mode === 'loading' }}
-          accessibilityLabel={allowanceAccess.mode === 'enabled' ? '월별 증원수당 내역 보기'
-            : allowanceAccess.mode === 'sample' ? '샘플 증원수당 흐름 미리보기' : '증원수당 조회 권한 다시 확인'}
-          accessibilityHint={allowanceAccess.mode === 'sample' ? '가상 추천 관계와 가상 매출로 만든 금액 흐름 화면을 엽니다'
-            : '월별 공개된 증원수당 명세를 확인합니다'}
-        >
-          <View style={[styles.graphLinkIconWrap, styles.revenueGraphLinkIconWrap]}>
-            <Feather name="share-2" size={18} color="#ea580c" />
-          </View>
-          <View style={styles.graphLinkTextWrap}>
-            <View style={styles.revenueGraphTitleRow}>
-              <Text style={styles.graphLinkTitle}>{allowanceAccess.mode === 'enabled' ? '월별 증원수당 내역'
-                : allowanceAccess.mode === 'sample' ? '증원수당 흐름 미리보기'
-                  : allowanceAccess.mode === 'loading' ? '증원수당 조회 확인 중' : '증원수당 조회 다시 확인'}</Text>
-              {allowanceAccess.mode === 'sample' ? <View style={styles.sampleBadge}>
-                <Text style={styles.sampleBadgeText}>샘플</Text>
-              </View> : null}
-            </View>
-            <Text style={styles.graphLinkDesc}>
-              {allowanceAccess.mode === 'enabled' ? '당월 지급예정액과 FP별 기여 내역을 확인합니다'
-                : allowanceAccess.mode === 'sample' ? '추천 관계를 따라 예상 금액이 합산되는 경로를 확인합니다'
-                  : allowanceAccess.mode === 'loading' ? '공개된 수당 내역의 조회 권한을 확인합니다' : '연결 상태를 확인한 뒤 눌러서 다시 시도해주세요'}
-            </Text>
           </View>
           <Feather name="chevron-right" size={17} color={COLORS.gray[400]} />
         </Pressable>
@@ -723,29 +669,6 @@ const styles = StyleSheet.create({
   graphLinkTextWrap: { flex: 1, minWidth: 0 },
   graphLinkTitle: { fontSize: 14, fontWeight: '700', color: COLORS.text.primary },
   graphLinkDesc: { fontSize: 11, color: COLORS.text.muted, marginTop: 2 },
-  revenueGraphLinkCard: {
-    marginTop: -SPACING.sm,
-    borderColor: '#fed7aa',
-    backgroundColor: '#fffaf5',
-  },
-  revenueGraphLinkIconWrap: { backgroundColor: '#ffedd5' },
-  revenueGraphTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  sampleBadge: {
-    borderRadius: RADIUS.full,
-    backgroundColor: '#ffedd5',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-  },
-  sampleBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#c2410c',
-  },
   bottomContentSpacer: { height: SPACING['4xl'] },
 
   blockedState: {

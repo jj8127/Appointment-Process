@@ -50,6 +50,8 @@ This matrix defines business behavior that must stay consistent across GaramIn m
 
 ## Governance Rule
 
+2026-09-16 allowance client follow-up: FC/manager home opens a standalone graph-first allowance page without a data-availability menu gate. Referral relationships no longer link to actual/sample allowance. Missing enrollment or published data produces explicit missing-information guidance; error/login states remain separate. `components/__tests__/referral-allowance-screen.test.tsx`, allowance hook/navigation tests and `docs/handbook/mobile/auth-and-gates.md` cover the client contract. No new recipient registration, production data mutation or client release is part of this source change.
+
 `docs/handbook/contract-test-map.json` maps contract-sensitive files to the documents or tests that must change with them. `scripts/ci/check-governance.mjs` enforces that map for changed files, so feature-critical edits must include either updated contract evidence or an intentional map change.
 # 2026-07-24 시험 신청 상세 입금 증빙 배치
 

@@ -1,11 +1,16 @@
-앱 빌드: [시작 전에 버전 업데이트 필수]
-Set-Location D:\hanhwa\fc-onboarding-app-release
-
+앱 빌드: [fc-onboarding-app의 코드와 app.json을 그대로 사용]
+    버전은 D:\hanhwa\fc-onboarding-app\app.json의 expo.version 한 곳에서만 변경한다.
+    별도 release 폴더 복사나 EXPECTED_APP_VERSION 수정은 필요 없다.
+    저장된 코드와 빌드 대상에 포함되는 새 파일을 사용한다. Git에 커밋되지 않은 수정도 빌드 입력이다.
+    아래 verify 명령은 원격 빌드 없이 실제 경로·버전·Android 보호 패치를 확인한다.
+Set-Location D:\hanhwa\fc-onboarding-app
+node -p "require('./app.json').expo.version"
 npm run eas:verify:android
-npm run eas:build:android -- --non-interactive
-
-Set-Location D:\hanhwa\fc-onboarding-app-release
+npm run eas:verify:ios
+npm run eas:build:android
 npm run eas:build:ios
+    release 폴더의 기존 npm 빌드 명령도 fc-onboarding-app의 빌드 스크립트로 연결된다.
+    이미 설치된 앱이나 완료된 빌드는 바뀌지 않는다. 새 빌드가 필요하다.
 
 
 iOS 번들ID 등록/Apple 점검 페이지 오류 우회:

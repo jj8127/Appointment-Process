@@ -3,6 +3,16 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "mobile-build-source",
+      "prefixes": ["scripts/eas-build.js", "scripts/release/verify-build-source.cjs", "scripts/patches/android-drawing-order-instrumentation.cjs", "plugins/with-android-drawing-order-fix.js", "gradle-plugins/react-android-drawing-order-guard/"],
+      "requires_any": ["lib/__tests__/eas-build.test.ts", "lib/__tests__/build-source.test.ts", "lib/__tests__/android-drawing-order-fix.test.ts", "lib/__tests__/android-drawing-order-aab.test.ts"]
+    },
+    {
+      "id": "mobile-referral-allowance",
+      "prefixes": ["app/referral-allowance.tsx", "hooks/use-referral-allowance.ts", "lib/referral-allowance-display.ts", "lib/referral-allowance-response.ts"],
+      "requires_any": ["components/__tests__/referral-allowance-screen.test.tsx", "hooks/__tests__/use-referral-allowance.test.ts", "lib/__tests__/referral-allowance-navigation.test.ts", "lib/__tests__/referral-allowance-display.test.ts", "lib/__tests__/referral-allowance-response.test.ts"]
+    },
+    {
       "id": "mobile-startup-alert-update",
       "prefixes": ["components/AppAlertProvider.tsx", "hooks/useInAppUpdate", "hooks/in-app-update-lifecycle.ts"],
       "requires_any": ["components/__tests__/AppAlertProvider.test.js", "docs/handbook/shared-ui-action-contracts.md"]
@@ -296,6 +306,7 @@
       ],
       "requires_any": [
         "hooks/__tests__/use-login.contract.test.ts",
+        "lib/__tests__/login-navigation.test.js",
         "lib/__tests__/signup-completion-regression.test.ts",
         "lib/__tests__/request-board-session.test.ts",
         "supabase/functions/_shared/__tests__/request-board-auth.test.ts",

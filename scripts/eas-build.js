@@ -1,159 +1,157 @@
 #!/usr/bin/env node
+/* global __dirname */
 
-const { execSync, spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const { verifyBuildSource } = require("./release/verify-build-source.cjs");
 
-const MIN_EAS_CLI_VERSION = "18.3.0";
+const EAS_CLI_VERSION = "18.3.0";
+const REPO_ROOT = path.resolve(__dirname, "..");
 
-function run(command) {
-  return execSync(command, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+function fail(message) {
+  throw new Error(`[eas-build] ${message}`);
 }
 
-function getLocalHooksPath() {
-  try {
-    return run("git config --local --get core.hooksPath");
-  } catch {
-    return "";
+function parseBuildRequest(argv) {
+  if (!Array.isArray(argv) || argv.some((arg) => typeof arg !== "string" || arg.includes("\0"))) {
+    fail("Build arguments must be strings without null bytes.");
   }
-}
-
-function unsetLocalHooksPath() {
-  try {
-    execSync("git config --local --unset core.hooksPath", { stdio: "ignore" });
-  } catch {
-    // no-op
+  const [platform, profileOrArg, ...rest] = argv;
+  if (platform !== "android" && platform !== "ios") {
+    fail("Usage: node ./scripts/eas-build.js <android|ios> [profile] [--dry-run] [additional eas args...]");
   }
-}
-
-function printUsageAndExit() {
-  console.error(
-    "Usage: node ./scripts/eas-build.js <android|ios> [profile] [additional eas args...]",
-  );
-  process.exit(1);
-}
-
-function parseSemver(version) {
-  const match = version.match(/(\d+)\.(\d+)\.(\d+)/);
-  if (!match) {
-    return null;
+  const hasProfile = profileOrArg !== undefined && !profileOrArg.startsWith("-");
+  const profile = hasProfile ? profileOrArg : "production";
+  if (!profile || profile.trim() !== profile) {
+    fail("The build profile must be a non-empty name without surrounding whitespace.");
   }
-
-  return match.slice(1).map((segment) => Number(segment));
-}
-
-function compareSemver(left, right) {
-  const leftParts = parseSemver(left);
-  const rightParts = parseSemver(right);
-  if (!leftParts || !rightParts) {
-    return 0;
-  }
-
-  for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) {
-      return leftParts[index] - rightParts[index];
+  const forwarded = hasProfile ? rest : [profileOrArg, ...rest].filter((arg) => arg !== undefined);
+  for (const arg of forwarded) {
+    if (arg === "--" || /^--(?:platform|profile)(?:=|$)/.test(arg) || /^-[pe](?:[^-]|$)/.test(arg)) {
+      fail("Platform and profile must be selected using the wrapper's positional arguments, not additional EAS flags.");
+    }
+    if (arg.startsWith("--dry-run=")) {
+      fail("--dry-run does not accept a value.");
     }
   }
-
-  return 0;
-}
-
-function getGlobalEasVersion() {
-  const useShell = process.platform === "win32";
-  const result = spawnSync("eas", ["--version"], {
-    encoding: "utf8",
-    env: process.env,
-    shell: useShell,
-  });
-
-  if (result.error && result.error.code === "ENOENT") {
-    return null;
-  }
-
-  if (typeof result.status === "number" && result.status !== 0) {
-    return null;
-  }
-
-  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
-  const match = output.match(/eas-cli\/(\d+\.\d+\.\d+)/);
-  return match?.[1] ?? null;
-}
-
-function resolveEasInvocation() {
-  const globalVersion = getGlobalEasVersion();
-
-  if (globalVersion && compareSemver(globalVersion, MIN_EAS_CLI_VERSION) >= 0) {
-    return {
-      command: "eas",
-      args: [],
-      reason: null,
-    };
-  }
-
-  const reason = globalVersion
-    ? `[eas-build] Global eas-cli ${globalVersion} is older than required ${MIN_EAS_CLI_VERSION}; using npx eas-cli@${MIN_EAS_CLI_VERSION}.`
-    : `[eas-build] Global eas-cli was not found; using npx eas-cli@${MIN_EAS_CLI_VERSION}.`;
-
   return {
-    command: "npx",
-    args: ["--yes", `eas-cli@${MIN_EAS_CLI_VERSION}`],
-    reason,
+    platform,
+    profile,
+    dryRun: forwarded.includes("--dry-run"),
+    extraArgs: forwarded.filter((arg) => arg !== "--dry-run"),
   };
 }
 
-const [platform, profileOrArg, ...rest] = process.argv.slice(2);
-if (!platform) {
-  printUsageAndExit();
-}
-
-if (platform !== "android" && platform !== "ios") {
-  printUsageAndExit();
-}
-
-const profile = profileOrArg && !profileOrArg.startsWith("-")
-  ? profileOrArg
-  : "production";
-const extraArgs = profileOrArg && profileOrArg.startsWith("-")
-  ? [profileOrArg, ...rest]
-  : rest;
-
-const hooksPath = getLocalHooksPath();
-if (hooksPath.startsWith(".husky")) {
-  unsetLocalHooksPath();
-  console.log(
-    `[eas-build] Removed local core.hooksPath (${hooksPath}) before EAS build.`,
-  );
-}
-
-const args = [
-  "build",
-  "--platform",
-  platform,
-  "--profile",
-  profile,
-  ...extraArgs,
-];
-
-function runEas(buildArgs) {
-  const useShell = process.platform === "win32";
-  const invocation = resolveEasInvocation();
-
-  if (invocation.reason) {
-    console.log(invocation.reason);
+function readConfig(filePath, readFile = fs.readFileSync) {
+  try {
+    const value = JSON.parse(readFile(filePath, "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      fail("Configuration must be an object.");
+    }
+    return value;
+  } catch {
+    fail(`Unable to read a valid ${path.basename(filePath)} in the build source directory.`);
   }
+}
 
-  return spawnSync(invocation.command, [...invocation.args, ...buildArgs], {
+function resolveNpxCliPath({
+  nodePath = process.execPath,
+  npmExecPath = process.env.npm_execpath,
+  exists = fs.existsSync,
+} = {}) {
+  const candidates = [
+    ...(npmExecPath ? [path.join(path.dirname(npmExecPath), "npx-cli.js")] : []),
+    path.join(path.dirname(nodePath), "node_modules", "npm", "bin", "npx-cli.js"),
+    path.resolve(path.dirname(nodePath), "..", "lib", "node_modules", "npm", "bin", "npx-cli.js"),
+  ];
+  const resolved = candidates.find((candidate) => exists(candidate));
+  if (!resolved) {
+    fail("Unable to locate npm's npx-cli.js. Install Node.js with npm before building.");
+  }
+  return resolved;
+}
+
+function createBuildPlan(argv, {
+  repoRoot = REPO_ROOT,
+  readFile = fs.readFileSync,
+  nodePath = process.execPath,
+  npmExecPath = process.env.npm_execpath,
+  exists = fs.existsSync,
+} = {}) {
+  const request = parseBuildRequest(argv);
+  const root = path.resolve(repoRoot);
+  // Read on every invocation: require(app.json) would retain a stale version in its module cache.
+  const appConfig = readConfig(path.join(root, "app.json"), readFile);
+  const version = appConfig.expo?.version;
+  if (typeof version !== "string" || version.trim() !== version ||
+      !/^\d+\.\d+\.\d+(?:-[\da-zA-Z.-]+)?(?:\+[\da-zA-Z.-]+)?$/.test(version)) {
+    fail("app.json expo.version must contain a valid application version (for example, 4.2.12).");
+  }
+  const easConfig = readConfig(path.join(root, "eas.json"), readFile);
+  if (!easConfig.build || !Object.prototype.hasOwnProperty.call(easConfig.build, request.profile) ||
+      !easConfig.build[request.profile] || typeof easConfig.build[request.profile] !== "object" ||
+      Array.isArray(easConfig.build[request.profile])) {
+    fail(`The requested build profile '${request.profile}' is not configured in eas.json.`);
+  }
+  return {
+    ...request,
+    repoRoot: root,
+    version,
+    command: nodePath,
+    args: [
+      resolveNpxCliPath({ nodePath, npmExecPath, exists }),
+      "--yes",
+      `eas-cli@${EAS_CLI_VERSION}`,
+      "build",
+      "--platform", request.platform,
+      "--profile", request.profile,
+      ...request.extraArgs,
+    ],
+  };
+}
+
+function runBuild(argv, {
+  spawn = spawnSync,
+  logger = console,
+  env = process.env,
+  validatePlan = verifyBuildSource,
+  ...planOptions
+} = {}) {
+  const plan = createBuildPlan(argv, planOptions);
+  validatePlan(plan);
+  logger.log(`[eas-build] Build source: ${plan.repoRoot}`);
+  logger.log(`[eas-build] Platform: ${plan.platform} | Profile: ${plan.profile} | App version: ${plan.version}`);
+  logger.log(`[eas-build] Using pinned eas-cli ${EAS_CLI_VERSION}.`);
+  if (plan.dryRun) {
+    logger.log("[eas-build] Dry run complete. No EAS command was launched and no files or Git hooks were changed.");
+    return 0;
+  }
+  const result = spawn(plan.command, plan.args, {
+    cwd: plan.repoRoot,
     stdio: "inherit",
-    env: process.env,
-    shell: useShell,
+    env,
+    shell: false,
+    windowsHide: true,
   });
+  if (result.error) throw result.error;
+  return typeof result.status === "number" ? result.status : 1;
 }
 
-const result = runEas(args);
-
-if (typeof result.status === "number") {
-  process.exit(result.status);
+if (require.main === module) {
+  try {
+    process.exitCode = runBuild(process.argv.slice(2));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }
 
-process.exit(1);
+module.exports = {
+  EAS_CLI_VERSION,
+  REPO_ROOT,
+  parseBuildRequest,
+  resolveNpxCliPath,
+  createBuildPlan,
+  runBuild,
+};

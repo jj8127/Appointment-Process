@@ -7,6 +7,13 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 # Mobile Playbook: FC Onboarding
 
+## 2026-09-16 수당 그래프 홈 진입
+
+- FC·본부장 홈은 `추천인 코드` 옆에 `수당 그래프`를 표시하고 독립 `/referral-allowance`로 바로 이동한다. 본부장 시험 관리 탭에도 개인 바로가기를 제공한다. 일반 관리자·개발자·설계매니저에게 개인 수당 메뉴를 추가하지 않는다.
+- 홈 메뉴는 수당 자료 조회 결과에 따라 숨기거나 샘플로 보내지 않는다. 독립 페이지에서 서명된 사용자 권한을 검사하고, 자료가 없으면 `아직 등록된 수당 정보가 없습니다` 안내와 새로 확인을 제공한다.
+- 신원정보 입력 전 FC의 `home-lite`에도 같은 수당 그래프 바로가기를 제공한다. 정식 홈 전환과 기존 업무 메뉴의 신원정보 입력 조건은 유지한다. 회귀 검증: `lib/__tests__/home-lite-allowance.test.ts`.
+- 게시 자료가 있으면 그래프를 먼저 열고 상세 내역 탭으로 월별 합계와 FP 목록을 전환한다. 기존 추천 관계 페이지의 수당·샘플 진입은 제거한다. 검증은 allowance 화면·hook·navigation 테스트를 따른다.
+
 ## 2026-09-09 Logout transition
 
 Startup store checks now belong only to the root after splash readiness; Home mounting or returning from the store cannot start another check. The shared alert queue remains visible and dismissible independently of animation completion. Regression: `hooks/__tests__/use-in-app-update.test.ts`, `components/__tests__/AppAlertProvider.test.js`.

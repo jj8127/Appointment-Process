@@ -2,7 +2,7 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-09-09
+last_verified: 2026-09-14
 source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx + hooks/use-referral-allowance.ts + app/referral-allowance.tsx
 
 # Mobile Playbook: Auth And Gates
@@ -16,6 +16,12 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 - 새 비밀번호 변경이 성공한 뒤에도 자동 로그인하지 않는다. 사용자는 새 비밀번호로 다시 로그인해야 정상 앱/bridge 세션을 받을 수 있다.
 
 ## 2026-08-10 Explicit Logout Contract
+
+### 2026-09-14 Login after explicit logout
+
+- `/login?skipAuto=1` suppresses stale-session automatic entry only until a new manual login succeeds. Pending or failed login keeps that protection active.
+- Successful login resumes the existing hydrated session landing route and respects pending notification navigation. Saving login preferences must not delay this transition. The effect cancels pending navigation on unmount.
+- Runtime regression: `lib/__tests__/login-navigation.test.js`. Both checkouts pass the related 8 suites / 39 tests, TypeScript and scoped ESLint; release Android/iOS offline Hermes exports pass. These local checks do not establish installed-device recovery or deployment.
 
 ### 2026-09-09 Focused logout navigation and native transition
 
@@ -153,11 +159,14 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 
 ## 2026-09-07 월별 증원수당 조회
 
-- `/referral`은 FC 또는 읽기 전용 본부장 UI에서 서버 access를 확인하고 허용된 계정만 실제 `/referral-allowance`로 이동한다. 일반 관리자/개발자/설계매니저는 수령인 조회 대상이 아니다. 최종 권한은 signed FC/manager session과 현재 `referral_allowance_recipients`의 해당 FC 설정이다.
+- FC·읽기 전용 본부장 홈의 `수당 그래프` 바로가기는 자료 유무와 관계없이 독립 `/referral-allowance`로 이동한다. 본부장 시험 탭에도 같은 바로가기를 제공한다. `/referral`은 추천 관계만 다루며 수당·샘플 그래프 진입을 제공하지 않는다. 일반 관리자/개발자/설계매니저는 개인 수당 바로가기·조회 대상이 아니다. 최종 권한은 signed FC/manager session과 현재 `referral_allowance_recipients`의 해당 FC 설정이다.
 - 조회는 현재 appSessionToken을 요구한다. 이 hook은 토큰 저장소 복구·갱신을 수행하지 않으며 기존 추천인 session 복구 계약은 유지한다. action/month만 보내고 수령인 UUID를 body에서 받지 않는다. 계정/토큰/월/권한 변경 시 이전 명세를 숨기고 늦은 응답을 무시하며 query를 취소·제거한다. 명세를 로컬 영구 저장하지 않는다.
-- 실제 데이터가 없는 달·오류·권한 회수는 가상 금액으로 대체하지 않는다. 기본 화면은 월별 합계와 가상화 목록이며, 관계 그래프는 요청할 때만 최대 300개 연결 노드를 렌더링한다. 생략 인원도 전체 금액과 목록에 포함한다.
+- 독립 페이지는 게시된 월별 수당 그래프를 기본으로 열고 `상세 내역` 탭에서 월별 합계·산정 근거·가상화 FP 목록을 제공한다. 그래프 탭에서만 최대 300개 연결 노드를 렌더링하며 생략 인원도 전체 금액과 목록에 포함한다. 대상 설정이나 게시 자료가 없으면 `아직 등록된 수당 정보가 없습니다` 및 자료 등록 후 확인 안내·새로 확인 버튼을 표시한다. 로딩·통신 오류·재로그인은 빈 자료와 구분하며 가상 금액이나 0원으로 대체하지 않는다.
+- 같은 계정의 토큰 교체도 불투명 query scope를 새로 만들어 이전 응답·오류를 차단한다. 토큰은 cache key나 로그에 넣지 않는다. 선택 상세는 해당 명세 객체에 귀속되므로 갱신 명세에서 같은 node ID를 재사용해도 상세가 자동 재개되지 않는다. 선택 월이 비어도 다른 공개 월 선택은 유지한다.
+- 응답 envelope·명세 필드·노드 관계·안전한 금액/합계를 검증한 후 화면에 전달한다. 잘못된 응답은 개인정보 없는 조회 오류로 처리하며 정상적인 null 명세와 구분한다. 검증은 게시 금액을 다시 계산하거나 보정하지 않는다.
 - 선택 상세는 이름·매출 산정 기준·내 수당만 표시한다. 그래프에는 해당 노드 옆에 이름/직접 수당/하위 포함 총수당을 하나의 카드로 배치한다. 관계선에는 금액을 두지 않는다. 공간이 부족하면 이름을 우선 표시하며, 확대 후 더 많은 금액을 보여준다. 부호와 전체 명세 합계를 유지한다.
-- 그래프 모달은 자체 gesture root, 그래프/상세 모달은 자체 safe-area provider를 갖는다. 이동·확대 중 라벨은 연속 변환하고 제스처 종료 후 배치만 갱신한다. 본인 명세 외 정보로 조회 범위를 넓히지 않는다.
+- 본문 그래프는 페이지 safe area 안의 gesture root를 사용하고 FP 상세 모달은 자체 safe-area provider를 갖는다. 이동·확대 중 라벨은 연속 변환하고 제스처 종료 후 배치만 갱신한다. 본인 명세 외 정보로 조회 범위를 넓히지 않는다.
+- 작은 화면은 월 선택·지급예정액을 간결하게 배치하고 그래프 높이가 남은 공간에 맞춰 줄어들도록 한다. 공용 SVG 관계선은 같은 카메라 행렬을 웹에서는 `transform`, 네이티브에서는 `matrix`로 전달해 확대·이동 후에도 노드에 정렬한다.
 - `uploaded_snapshot`의 최초 자료는 6월 실적·8월 1일 지급·7월 31일 참고다. 실제 7~8월 원본 날짜와 usesLaterSnapshot을 공개하고 과거의 확정 인사 이력으로 설명하지 않는다. 전월 이월금 합산·본부지원금·별도 시상·실제 지급 승인은 제외한다.
 - 대상자별 설정 revision의 현재 published 명세만 제공한다. 개별 중지/재활성화는 다른 사람에게 영향을 주지 않는다. 관리자 source UI는 여러 FC/본부장을 선택해 각각 검토·업로드·게시할 수 있다.
 - 승인된 backend 확장은 migration `20260907115710`과 Edge v2로 적용했다. 19명(기존 본부장 1명, 신규 FC 18명)의 6월 명세는 원본과 정확히 일치하며 24명은 사용자 지시로 보류했다. 단위/SQL/타입/린트 검증과 익명 401 검증을 마쳤다. 앱 변경은 현재 로컬 개발 빌드에 있으며 공개 OTA/스토어·웹 배포와 실제 기기 인수 검증은 별도다.

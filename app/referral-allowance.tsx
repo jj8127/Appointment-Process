@@ -33,66 +33,100 @@ function ErrorState({ error, retry }: { error: unknown; retry: () => void }) {
     </Pressable></View>;
 }
 
+function EmptyState({ retry }: { retry: () => void }) {
+  return <View style={styles.state}>
+    <View style={styles.emptyIcon}><Feather name="bar-chart-2" size={30} color={COLORS.primaryDark} /></View>
+    <Text style={[styles.title, styles.stateText]}>아직 등록된 수당 정보가 없습니다</Text>
+    <Text style={[styles.body, styles.stateText]}>수당 자료가 등록되면 이곳에서 월별 수당과 그래프를 확인할 수 있습니다.</Text>
+    <Pressable style={styles.action} onPress={retry} accessibilityRole="button">
+      <Text style={styles.actionText}>새로 확인</Text>
+    </Pressable>
+  </View>;
+}
+
 export default function ReferralAllowancePage() {
   const access = useReferralAllowanceAccess();
   return <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
     {access.isLoading ? <LoadingState /> : access.error ? <ErrorState error={access.error} retry={access.retry} />
-      : access.enabled ? <AllowanceStatement key={access.scope} initialMonths={access.data?.enabled ? access.data.availableMonths : []} />
-        : <View style={styles.state}><Feather name="lock" size={28} color={COLORS.text.secondary} />
-          <Text style={styles.title}>조회 대상 계정이 아닙니다</Text>
-          <Text style={styles.body}>이 계정에는 공개된 증원수당 명세가 제공되지 않습니다.</Text></View>}
+      : access.enabled ? <AllowanceStatement key={access.scope} />
+        : <EmptyState retry={access.retry} />}
   </SafeAreaView>;
 }
 
-function AllowanceStatement({ initialMonths }: { initialMonths: string[] }) {
+function MonthSelector({ months, selectedMonth, onChangeMonth }: {
+  months: string[]; selectedMonth?: string; onChangeMonth: (month: string) => void;
+}) {
+  return <ScrollView horizontal style={styles.monthScroller} showsHorizontalScrollIndicator={false}
+    contentContainerStyle={styles.months} accessibilityLabel="수당 실적월 선택">
+    {months.map((item) => <Pressable key={item} accessibilityRole="button"
+      accessibilityState={{ selected: item === selectedMonth }}
+      style={[styles.month, item === selectedMonth && styles.monthSelected]} onPress={() => onChangeMonth(item)}>
+      <Text style={[styles.monthText, item === selectedMonth && styles.monthSelectedText]}>{formatReferralAllowanceMonth(item)}</Text>
+    </Pressable>)}
+  </ScrollView>;
+}
+
+function AllowanceStatement() {
   const [month, setMonth] = useState<string>();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [graphOpen, setGraphOpen] = useState(false);
+  const [selection, setSelection] = useState<{ statement: ReferralAllowanceStatement; id: string } | null>(null);
+  const [view, setView] = useState<'graph' | 'details'>('graph');
   const query = useReferralAllowance(month);
   const statement = query.statement;
-  const months = query.availableMonths.length ? query.availableMonths : initialMonths;
+  const months = query.availableMonths;
+  const selectedId = selection?.statement === statement ? selection.id : null;
   const changeMonth = (next: string) => {
-    setSelectedId(null);
-    setGraphOpen(false);
+    setSelection(null);
     setMonth(next);
   };
 
   if (query.error) return <ErrorState error={query.error} retry={query.retry} />;
   if (query.isLoading) return <LoadingState />;
-  if (!query.enabled) return <View style={styles.state}><Text style={styles.title}>수당 조회 권한을 확인해주세요</Text>
-    <Text style={styles.body}>현재 계정의 공개 내역을 확인할 수 없습니다.</Text></View>;
-  if (!statement) return <View style={styles.state}><Feather name="file-text" size={28} color={COLORS.text.secondary} />
-    <Text style={styles.title}>아직 공개된 수당 내역이 없습니다</Text>
-    <Text style={styles.body}>월별 명세가 공개되면 이 화면에서 확인할 수 있습니다.</Text>
-    <Pressable style={styles.action} onPress={query.retry} accessibilityRole="button"><Text style={styles.actionText}>새로 확인</Text></Pressable>
+  if (!query.enabled || !statement || statement.nodes.length === 0) return <View style={styles.content}>
+    {query.enabled && months.length > 0 ? <View style={styles.pageHeader}>
+      <View style={styles.headingRow}><MonthSelector months={months} selectedMonth={month} onChangeMonth={changeMonth} /></View>
+    </View> : null}
+    <EmptyState retry={query.retry} />
   </View>;
 
   return <StatementContent statement={statement} months={months} onChangeMonth={changeMonth}
-    selectedId={selectedId} onSelect={setSelectedId} graphOpen={graphOpen} onToggleGraph={() => setGraphOpen((value) => !value)}
+    selectedId={selectedId} onSelect={(id) => setSelection(id === null ? null : { statement, id })} view={view} onChangeView={setView}
     onRefresh={query.retry} />;
 }
 
-function StatementContent({ statement, months, onChangeMonth, selectedId, onSelect, graphOpen, onToggleGraph, onRefresh }: {
+function StatementContent({ statement, months, onChangeMonth, selectedId, onSelect, view, onChangeView, onRefresh }: {
   statement: ReferralAllowanceStatement; months: string[]; onChangeMonth: (month: string) => void;
   selectedId: string | null; onSelect: (id: string | null) => void;
-  graphOpen: boolean; onToggleGraph: () => void; onRefresh: () => void;
+  view: 'graph' | 'details'; onChangeView: (view: 'graph' | 'details') => void; onRefresh: () => void;
 }) {
   const rows = useMemo(() => statement.nodes.filter((node) => !node.isBeneficiary), [statement]);
   const selected = useMemo(() => statement.nodes.find((node) => node.id === selectedId), [statement, selectedId]);
-  return <><FlatList data={rows} keyExtractor={(node) => node.id} contentContainerStyle={styles.list}
-    initialNumToRender={12} maxToRenderPerBatch={12} windowSize={5}
-    ListHeaderComponent={<View style={styles.header}>
-      <View style={styles.headingRow}><View><Text style={styles.eyebrow}>당월 신규 산정</Text>
-        <Text style={styles.monthTitle}>{formatReferralAllowanceMonth(statement.performanceMonth)}</Text></View>
+  return <View style={styles.content}>
+    <View style={styles.pageHeader}>
+      <View style={styles.headingRow}>
+        <MonthSelector months={months} selectedMonth={statement.performanceMonth} onChangeMonth={onChangeMonth} />
         <Pressable style={styles.iconButton} onPress={onRefresh} accessibilityRole="button" accessibilityLabel="수당 내역 새로 확인">
-          <Feather name="refresh-cw" size={19} color={COLORS.primaryDark} /></Pressable></View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.months}>
-        {months.map((item) => <Pressable key={item} accessibilityRole="button"
-          accessibilityState={{ selected: item === statement.performanceMonth }}
-          style={[styles.month, item === statement.performanceMonth && styles.monthSelected]} onPress={() => onChangeMonth(item)}>
-          <Text style={[styles.monthText, item === statement.performanceMonth && styles.monthSelectedText]}>{formatReferralAllowanceMonth(item)}</Text>
-        </Pressable>)}
-      </ScrollView>
+          <Feather name="refresh-cw" size={19} color={COLORS.primaryDark} /></Pressable>
+      </View>
+      <View style={styles.viewTabs} accessibilityRole="tablist">
+        {([{ value: 'graph', label: '수당 그래프' }, { value: 'details', label: '상세 내역' }] as const).map((tab) =>
+          <Pressable key={tab.value} accessibilityRole="tab" accessibilityState={{ selected: view === tab.value }}
+            style={[styles.viewTab, view === tab.value && styles.viewTabSelected]} onPress={() => onChangeView(tab.value)}>
+            <Text style={[styles.viewTabText, view === tab.value && styles.viewTabSelectedText]}>{tab.label}</Text>
+          </Pressable>)}
+      </View>
+    </View>
+    {view === 'graph' ? <GestureHandlerRootView style={styles.graphPage}>
+      <View style={styles.graphSummary} accessibilityRole="summary">
+        <View style={styles.headingRow}>
+        <Text style={styles.paymentLabel}>당월 신규 지급예정액</Text>
+        <Text style={styles.graphPaymentAmount}>{formatReferralAllowanceKrw(statement.summary.newPaymentKrw)}</Text>
+        </View>
+        <Text style={styles.meta}>전월 이월금 제외 · 실제 입금액과 다를 수 있습니다.</Text>
+      </View>
+      <AllowanceGraph statement={statement} selectedId={selectedId} onSelect={onSelect} />
+    </GestureHandlerRootView> : <FlatList data={rows} keyExtractor={(node) => node.id} contentContainerStyle={styles.list}
+      initialNumToRender={12} maxToRenderPerBatch={12} windowSize={5}
+      ListHeaderComponent={<View style={styles.header}>
       <View style={styles.paymentCard} accessibilityRole="summary">
         <Text style={styles.paymentLabel}>당월 신규 지급예정액</Text>
         <Text style={styles.paymentAmount}>{formatReferralAllowanceKrw(statement.summary.newPaymentKrw)}</Text>
@@ -109,10 +143,6 @@ function StatementContent({ statement, months, onChangeMonth, selectedId, onSele
       <Text style={styles.meta}>계보·인사 원본 기준일: {statement.sourceSnapshotDates.join(' · ')}</Text>
       {statement.usesLaterSnapshot ? <Text style={styles.noteText}>기준일 이후의 계보·인사 원본 자료가 포함된 시범 참조입니다. 기준일 당시의 확정 계보·자격 이력은 아닙니다.</Text> : null}
       <Text style={styles.body}>FP별 최종 대상실적의 10%를 만원 단위로 절사한 금액을 기준으로 산정합니다. 음수 기여액도 합계에 반영합니다.</Text>
-      <Pressable style={styles.graphButton} onPress={onToggleGraph} accessibilityRole="button"
-        accessibilityState={{ expanded: graphOpen }}><Feather name="git-branch" size={19} color={COLORS.primaryDark} />
-        <Text style={styles.graphButtonText}>{graphOpen ? '기여 관계 그래프 닫기' : '기여 관계 그래프 보기'}</Text>
-        <Feather name={graphOpen ? 'chevron-up' : 'chevron-down'} size={17} color={COLORS.text.secondary} /></Pressable>
       <View style={styles.headingRow}><Text style={styles.title}>전체 FP 내역</Text><Text style={styles.count}>{rows.length.toLocaleString('ko-KR')}명</Text></View>
       <Text style={styles.meta}>금액을 누르면 해당 FP의 매출과 내 수당을 확인할 수 있습니다.</Text>
     </View>}
@@ -124,20 +154,7 @@ function StatementContent({ statement, months, onChangeMonth, selectedId, onSele
         <Text style={styles.meta}>{item.depth}단계{item.affiliation ? ` · ${item.affiliation}` : ''}</Text></View>
       <Text style={[styles.personAmount, item.contributionKrw < 0 && styles.negative]}>{formatReferralAllowanceKrw(item.contributionKrw, true)}</Text>
       <Feather name="chevron-right" size={17} color={COLORS.text.secondary} />
-    </Pressable>} />
-    {graphOpen ? <Modal visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={onToggleGraph}>
-      {/* Android Modals need their own native gesture root and window insets. */}
-      <GestureHandlerRootView style={styles.modalRoot}>
-        <SafeAreaProvider>
-          <SafeAreaView style={styles.graphModal}>
-            <View style={styles.headingRow}><Text style={styles.title}>기여 관계 그래프</Text>
-              <Pressable onPress={onToggleGraph} style={styles.iconButton} accessibilityRole="button" accessibilityLabel="기여 관계 그래프 닫기">
-                <Feather name="x" size={20} color={COLORS.text.secondary} /></Pressable></View>
-            <AllowanceGraph statement={statement} selectedId={selectedId} onSelect={onSelect} />
-          </SafeAreaView>
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
-    </Modal> : null}
+    </Pressable>} />}
     <Modal visible={Boolean(selected)} transparent animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => onSelect(null)}>
       <SafeAreaProvider>
         <SafeAreaView style={styles.modalBackdrop}>
@@ -147,7 +164,7 @@ function StatementContent({ statement, months, onChangeMonth, selectedId, onSele
           </View>
         </SafeAreaView>
       </SafeAreaProvider>
-    </Modal></>;
+    </Modal></View>;
 }
 
 function AmountRow({ label, amount, signed = false, performance = false }: { label: string; amount: number; signed?: boolean; performance?: boolean }) {
@@ -189,22 +206,33 @@ function AllowanceGraph({ statement, selectedId, onSelect }: {
       selectedNodeId={selectedId} onSelectNode={selectNode} fitRequestId={fit} resetRequestId={0}
       getNodeAccessibilityLabel={describeNode} nodeAmounts={nodeAmounts} /></View>
     <Text style={styles.graphCaption}>이름 아래 직접: 해당 FP로부터 받는 수당 · 총: 하위 계보 포함. 확대하면 더 많은 금액이 표시됩니다.
-      {graph.omittedNodeCount > 0 ? ` 화면 부하를 줄이기 위해 ${graph.omittedNodeCount}명은 그래프에 생략했습니다. 위 금액 합계와 전체 FP 내역에는 모두 포함됩니다.` : ''}</Text>
+      {graph.omittedNodeCount > 0 ? ` 화면 부하를 줄이기 위해 ${graph.omittedNodeCount}명은 그래프에 생략했습니다. 금액 합계와 상세 내역의 전체 FP 내역에는 모두 포함됩니다.` : ''}</Text>
   </View>;
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.background.secondary },
+  content: { flex: 1 },
   state: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 28, gap: 14 },
+  stateText: { textAlign: 'center' },
+  emptyIcon: { width: 72, height: 72, borderRadius: RADIUS.lg, backgroundColor: COLORS.primaryPale, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  pageHeader: { paddingHorizontal: SPACING.md, paddingTop: SPACING.md, gap: 12 },
+  viewTabs: { flexDirection: 'row', padding: 4, borderRadius: RADIUS.md, backgroundColor: COLORS.border.light },
+  viewTab: { flex: 1, minHeight: TOUCH_TARGET.min, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.sm },
+  viewTabSelected: { backgroundColor: COLORS.white },
+  viewTabText: { fontSize: 14, fontWeight: '600', color: COLORS.text.secondary },
+  viewTabSelectedText: { color: COLORS.primaryDark, fontWeight: '700' },
+  graphPage: { flex: 1, padding: SPACING.md, gap: 12 },
+  graphSummary: { gap: 5 },
+  graphPaymentAmount: { fontSize: 24, fontWeight: '800', color: COLORS.text.primary, fontVariant: ['tabular-nums'], flexShrink: 1 },
   list: { padding: SPACING.md, paddingBottom: 32 },
   header: { gap: 14, paddingBottom: 12 },
   headingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  eyebrow: { color: COLORS.primaryDark, fontSize: 12, fontWeight: '700', marginBottom: 5 },
-  monthTitle: { color: COLORS.text.primary, fontSize: 25, fontWeight: '800' },
   title: { color: COLORS.text.primary, fontSize: 17, fontWeight: '700', flexShrink: 1 },
   body: { color: COLORS.text.secondary, fontSize: 13, lineHeight: 21 },
   meta: { color: COLORS.text.secondary, fontSize: 11, lineHeight: 18 },
   months: { gap: 8 },
+  monthScroller: { flex: 1 },
   month: { minHeight: TOUCH_TARGET.min, borderRadius: RADIUS.full, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border.light, justifyContent: 'center', paddingHorizontal: 14 },
   monthSelected: { backgroundColor: COLORS.primaryPale, borderColor: COLORS.primary },
   monthText: { color: COLORS.text.secondary, fontSize: 12, fontWeight: '600' },
@@ -222,12 +250,9 @@ const styles = StyleSheet.create({
   action: { minHeight: TOUCH_TARGET.min, paddingHorizontal: 22, justifyContent: 'center', borderRadius: RADIUS.md, backgroundColor: COLORS.primary },
   actionText: { color: COLORS.white, fontSize: 14, fontWeight: '700' },
   iconButton: { width: TOUCH_TARGET.min, height: TOUCH_TARGET.min, alignItems: 'center', justifyContent: 'center' },
-  graphButton: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, backgroundColor: COLORS.white, borderRadius: RADIUS.md, paddingHorizontal: 14 },
-  graphButtonText: { flex: 1, fontSize: 14, fontWeight: '700', color: COLORS.text.primary },
-  graphModal: { flex: 1, backgroundColor: COLORS.background.secondary, padding: SPACING.md, gap: 12 },
   graphCard: { flex: 1, backgroundColor: COLORS.white, borderRadius: RADIUS.lg, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.border.light },
   graphToolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 12 },
-  graphViewport: { flex: 1, minHeight: 220 },
+  graphViewport: { flex: 1, minHeight: 0 },
   graphCaption: { color: COLORS.text.secondary, fontSize: 11, lineHeight: 18, padding: 12 },
   count: { color: COLORS.primaryDark, fontSize: 13, fontWeight: '700' },
   personRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.white, borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.border.light, padding: 14, marginBottom: 8, minHeight: 66 },
@@ -236,7 +261,6 @@ const styles = StyleSheet.create({
   personName: { color: COLORS.text.primary, fontSize: 14, fontWeight: '700' },
   personAmount: { color: COLORS.text.primary, fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'], flexShrink: 1 },
   detail: { backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.primary, borderRadius: RADIUS.lg, padding: 16, gap: 13 },
-  modalRoot: { flex: 1 },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: COLORS.background.overlay, padding: SPACING.md },
   modalSheet: { maxHeight: '85%', borderRadius: RADIUS.lg, overflow: 'hidden' },
 });

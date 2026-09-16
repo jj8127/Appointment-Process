@@ -745,7 +745,7 @@ function RootLayout() {
                           <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                           <Stack.Screen name="referral-graph" options={{ ...baseHeader, title: '추천 관계 그래프' }} />
                           <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '증원수당 흐름' }} />
-                          <Stack.Screen name="referral-allowance" options={{ ...baseHeader, title: '월별 증원수당' }} />
+                          <Stack.Screen name="referral-allowance" options={{ ...baseHeader, title: '수당 그래프' }} />
                         </Stack>
 
                         <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
@@ -876,7 +876,7 @@ function RootLayout() {
                           <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                           <Stack.Screen name="referral-graph" options={{ ...baseHeader, title: '추천 관계 그래프' }} />
                           <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '증원수당 흐름' }} />
-                          <Stack.Screen name="referral-allowance" options={{ ...baseHeader, title: '월별 증원수당' }} />
+                          <Stack.Screen name="referral-allowance" options={{ ...baseHeader, title: '수당 그래프' }} />
                         </Stack>
                         <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
                       </>

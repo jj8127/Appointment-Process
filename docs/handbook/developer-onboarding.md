@@ -121,6 +121,25 @@ npm start
 
 별도 터미널에서 승인된 emulator/device가 있을 때만 `npm run android` 또는 `npm run ios`를 실행한다. EAS 명령은 local run이 아니다.
 
+### 앱 빌드 소스와 버전
+
+코드와 표시 버전의 기준은 `D:\hanhwa\fc-onboarding-app`이다. 버전은 이 폴더의 `app.json`에서 `expo.version`만 변경한다. 버전 검사 상수나 release 폴더를 함께 수정하지 않는다. Android/iOS npm 빌드 명령은 스크립트가 있는 저장소를 작업 경로로 고정하고 호출할 때마다 현재 버전을 다시 읽는다. 미커밋 수정과 빌드에서 제외되지 않은 새 파일도 현재 소스에 포함되며 다른 브랜치로 복사하지 않는다.
+
+```powershell
+Set-Location D:\hanhwa\fc-onboarding-app
+npm run eas:verify:android
+npm run eas:verify:ios
+# 실제 원격 빌드를 시작할 때
+npm run eas:build:android
+npm run eas:build:ios
+```
+
+`eas:verify:*` 또는 빌드 명령의 `-- --dry-run`은 로컬 경로·버전·아카이브 입력만 확인하며 EAS 요청이나 Git hook 변경을 실행하지 않는다. 기존 `fc-onboarding-app-release`의 npm 빌드/검증 명령도 주 개발 폴더로 연결된다. 과거 release 전용 스크립트·고정 브랜치·버전 상수는 현재 빌드 경로에서 사용하지 않는다.
+
+생성된 `android/`와 `ios/`는 아카이브에서 제외해 EAS prebuild가 현재 `app.json`으로 네이티브 버전을 생성하도록 한다. 임의 `.easignore` 또는 네이티브 소스 포함은 사전 검사에서 중단한다. Android는 RN 0.81.5 공식 AAR와 AGP 8.11.0의 drawing-order 계측 보호를 사용하고 전체 ReactAndroid 소스 빌드는 사용하지 않는다. config plugin 순서, Gradle plugin 입력, prepare 검사를 원격 빌드 전에 확인한다. 기존 생성 폴더를 사용하는 로컬 `npm run android`는 별도 흐름이므로 앱 설정 변경 후 prebuild 반영 여부를 확인한다.
+
+`eas.json`의 remote/autoIncrement는 빌드 번호만 관리한다. 표시 버전과 `appVersion` runtime은 주 개발 폴더의 `expo.version`을 따른다. 기존 설치 앱과 완료된 빌드는 변경되지 않으며 새 빌드·설치/제출이 필요하다. [Expo 앱 버전 문서](https://docs.expo.dev/build-reference/app-versions/), [네이티브 생성 문서](https://docs.expo.dev/workflow/continuous-native-generation/)를 따른다.
+
 ### Admin web
 
 ```powershell
