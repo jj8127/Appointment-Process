@@ -1,5 +1,11 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-09-22 | OTA export 환경 변수와 Metro 캐시
+
+- 반복 원인: production 환경 변수를 추가해도 이전 Metro 변환 캐시가 재사용되어 Android·iOS Hermes 번들에 운영 Sentry DSN이 빠졌다. export 성공만으로 환경 변수 반영을 판단하면 오류 수집을 꺼뜨릴 수 있다.
+- 재발 방지: 배포 환경이 바뀌면 해당 production 환경과 함께 `expo export --clear`를 실행하고, 게시할 최종 번들의 공개 설정을 검사한다. 비공개 환경 값이나 원문 번들을 증거 로그로 출력하지 않는다.
+- 검증: 동일 hermesc의 합성 문자열 대조군과 실제 bytecode decode에서 캐시 초기화 전 두 플랫폼 모두 DSN 누락, 초기화 후 모두 포함을 확인했다. 최종 OTA 다운로드 해시도 해당 산출물과 일치한다.
+
 ## 2026-09-22 | 시험 등록 포커스 이벤트 수명
 
 - 반복 원인: 생명·손해 화면 모두 React Native SyntheticEvent를 requestAnimationFrame 안에서 다시 읽었다. 이벤트 해제 후 target이 null이 되어 ScrollView.measureLayout이 실패했다.
