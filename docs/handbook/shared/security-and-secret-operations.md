@@ -7,6 +7,12 @@ source_of_truth: env contracts + reset-password functions + assisted-password fu
 
 # Security And Secret Operations
 
+## Headquarters display-name and account boundaries (2026-09-22)
+
+- The current tenth-headquarters affiliation label is `10본부 이수민`; legacy headquarters/team labels normalize to it. Name-to-affiliation resolution provides display/bridge context only and cannot create a manager account or grant a role.
+- Changing a displayed headquarters name does not authorize copying another person's credentials, changing account identity, or redirecting manager responsibilities. Account and manager-mapping changes require an unambiguous requested target and scope.
+- A live label rollout must keep `fc-notify` normalization and `affiliation_manager_mappings.affiliation` consistent. Recipient authority remains the active mapping and active account, never the displayed name alone. Verification records only aggregate counts and excludes recipient identifiers.
+
 ## 2026-08-10 관리자 서면확인 회원가입 경계
 
 - 실행 권한은 verified server session 기준 활성 `admin` 또는 `developer`뿐이다. `manager`와 read-only session은 조회·실행 모두 허용하지 않는다.

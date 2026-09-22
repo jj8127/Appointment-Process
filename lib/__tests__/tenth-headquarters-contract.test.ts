@@ -7,7 +7,8 @@ const root = join(__dirname, '..', '..');
 
 describe('10본부 계약', () => {
   it('maps the manager name to the canonical headquarters label', () => {
-    expect(resolveManagerAffiliation(' 한태균 ')).toBe('10본부 한태균');
+    expect(resolveManagerAffiliation(' 이수민 ')).toBe('10본부 이수민');
+    expect(resolveManagerAffiliation(' 한태균 ')).toBe('10본부 이수민');
   });
 
   it.each([
@@ -18,7 +19,7 @@ describe('10본부 계약', () => {
     'web/src/app/api/admin/list/route.ts',
   ])('keeps 10본부 in %s', (relativePath) => {
     const source = readFileSync(join(root, relativePath), 'utf8');
-    expect(source).toContain("'10본부 한태균'");
+    expect(source).toContain("'10본부 이수민'");
   });
 
   it.each([

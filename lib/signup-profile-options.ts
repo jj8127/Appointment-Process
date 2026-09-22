@@ -8,7 +8,7 @@ export const SIGNUP_AFFILIATION_OPTIONS = [
   '7본부 이동훈',
   '8본부 정승철',
   '9본부 이현욱(김주용)',
-  '10본부 한태균',
+  '10본부 이수민',
 ] as const;
 
 export const SIGNUP_CARRIER_OPTIONS = [

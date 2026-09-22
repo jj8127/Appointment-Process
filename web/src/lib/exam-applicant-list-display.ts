@@ -97,7 +97,7 @@ export const EXAM_APPLICANT_PINNED_QUICK_AFFILIATIONS = [
   '2본부 박성훈',
   '6본부 김정수',
   '9본부 김주용',
-  '10본부 한태균',
+  '10본부 이수민',
 ] as const;
 
 const EXAM_APPLICANT_QUICK_AFFILIATION_ALIASES: Record<string, string> = {
@@ -107,6 +107,7 @@ const EXAM_APPLICANT_QUICK_AFFILIATION_ALIASES: Record<string, string> = {
 
 export function normalizeExamApplicantQuickAffiliation(value?: string | null): string {
   const normalized = String(value ?? '').replace(/\s+/g, ' ').trim() || '-';
+  if (/^10\s*(본부|팀)/.test(normalized)) return '10본부 이수민';
   return EXAM_APPLICANT_QUICK_AFFILIATION_ALIASES[normalized] ?? normalized;
 }
 

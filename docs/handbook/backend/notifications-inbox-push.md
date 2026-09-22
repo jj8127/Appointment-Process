@@ -12,6 +12,12 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 - 원격 실패는 `session_unavailable` 또는 `unregister_failed` 같은 fixed reason만 기록한다. app-session token, Expo token, 전화번호, 사용자 이름, raw Edge 응답과 thrown value는 진단에 포함하지 않는다.
 - `lib/session-logout.ts`는 local-first orchestration의 SSOT이고, `lib/notifications.ts`는 bounded Edge 호출의 SSOT다.
 
+## Headquarters affiliation label rollout (2026-09-22)
+
+- Dashboard and `fc-notify` normalize current and legacy tenth-headquarters labels to `10본부 이수민`. The affiliation text is a lookup key, not role authority.
+- FC update recipient resolution uses the normalized label to find active `affiliation_manager_mappings`, then confirms active manager accounts. Deploy the label normalizer and mapping-label update together so an exact-label mismatch cannot omit the intended manager.
+- Display-name changes preserve the mapped recipient unless the user separately specifies manager responsibility transfer. Do not send real notifications as a label-change test.
+
 ## Notification-center acknowledgement boundary (2026-07-27)
 
 - A successfully loaded mobile notification center acknowledges every visible

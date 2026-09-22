@@ -277,12 +277,40 @@ test('exam applicant quick affiliations pin requested headquarters and match leg
       '6본부 김정수',
       '8본부 정승철',
       '9본부 김주용',
-      '10본부 한태균',
+      '10본부 이수민',
     ],
   );
   assert.equal(mod.matchesExamApplicantQuickAffiliation('6본부 김정수(박선희)', '6본부 김정수'), true);
   assert.equal(mod.matchesExamApplicantQuickAffiliation('9본부 이현욱(김주용)', '9본부 김주용'), true);
   assert.equal(mod.matchesExamApplicantQuickAffiliation('1본부 서선미', '2본부 박성훈'), false);
+});
+
+test('tenth headquarters quick filter merges current and legacy labels without matching other headquarters', async () => {
+  const mod = await import('./exam-applicant-list-display.ts').catch(() => null);
+  assert.ok(mod, 'exam applicant list display module should exist');
+
+  const aliases = [
+    '10본부 이수민',
+    '10본부 한태균',
+    '10본부 [본부장: 한태균]',
+    '10본부 [본부장: 이수민]',
+    '10팀(직할) : 한태균 본부장님',
+    '10팀(직할) : 이수민 본부장님',
+    ' 10 본부  한태균 ',
+  ];
+
+  assert.deepStrictEqual(
+    mod.buildExamApplicantQuickAffiliationOptions(aliases.map((affiliation) => ({ affiliation }))),
+    ['전체', '2본부 박성훈', '6본부 김정수', '9본부 김주용', '10본부 이수민'],
+  );
+  for (const affiliation of aliases) {
+    assert.equal(mod.normalizeExamApplicantQuickAffiliation(affiliation), '10본부 이수민');
+    assert.equal(mod.matchesExamApplicantQuickAffiliation(affiliation, '10본부 이수민'), true);
+  }
+  for (const affiliation of ['1본부 서선미', '11본부', '100본부']) {
+    assert.equal(mod.normalizeExamApplicantQuickAffiliation(affiliation), affiliation);
+    assert.equal(mod.matchesExamApplicantQuickAffiliation(affiliation, '10본부 이수민'), false);
+  }
 });
 
 test('top exam applicant round filters narrow by selected subject and format labels', async () => {

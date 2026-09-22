@@ -1,5 +1,11 @@
 # 작업 상세 로그 (Work Detail)
 
+## 2026-09-22 Tenth headquarters display-name preparation
+
+The requested current affiliation label is 10본부 이수민. Mobile signup/FC creation/dashboard, web signup/administrator listing, exam quick filters, and notification normalization use the new canonical label while retaining legacy headquarters/team aliases. The manager-name display resolver accepts the requested and former names without creating an account or changing a signed role. The production-base web worktree receives only the existing administrator-list normalizer change, including correct two-digit headquarters matching; newer development-only signup and quick-filter features are not ported.
+
+This is local preparation. The user was asked whether the request covers only displayed affiliation names or also manager-account authority and responsibility transfer. No manager account, production affiliation/mapping row, notification, Edge Function deployment, web deployment, or OTA publication has been changed for this follow-up. The preceding exam-recovery deployments remain the current production versions. Live label rollout must coordinate the notification normalizer and affiliation-manager mapping so exact-label lookup continues to resolve the same intended recipient. Mobile affiliation/messenger checks pass 13 tests; mobile TypeScript and scoped ESLint pass. Web quick-filter behavior checks pass 16 tests, including legacy labels and avoiding other headquarters.
+
 ## 2026-09-22 Exam schedule registration recovery
 
 Production web commit 2d0b9ba omitted the required exam month. A focused production-base hotfix 6915d61 uses verified administrator sessions and canonical atomic v2 saves, with explicit TBD month and legacy create routing. Deployment dpl_53hhXAoagk4oyxLz6GKfMyhtKphJ is READY and promoted to adminweb-red.vercel.app. SQL fixture checks (25), save-policy tests (17), built signed-session HTTP checks (24), web type/lint/build and governance checks pass. No production test exam or notification was created; browser UI was unavailable.
