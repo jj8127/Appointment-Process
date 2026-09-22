@@ -2,12 +2,13 @@
 
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { ActionIcon, Badge, Box, Button, Center, Group, Loader, Paper, ScrollArea, Slider, Stack, Switch, Text, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Center, Group, Loader, Paper, ScrollArea, SegmentedControl, Slider, Stack, Switch, Text, TextInput, Tooltip } from '@mantine/core';
 import { useDisclosure, useLocalStorage, useViewportSize } from '@mantine/hooks';
 import { IconAdjustmentsHorizontal, IconArrowLeft, IconFocus2, IconRefresh, IconSearch, IconSettings, IconX } from '@tabler/icons-react';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
+import type { ReferralClusterGraphCanvasProps } from '@/components/referrals/ReferralClusterGraphCanvas';
 import type { ReferralGraphCanvasProps } from '@/components/referrals/ReferralGraphCanvas';
 import { GraphNodeDrawer } from '@/components/referrals/GraphNodeDrawer';
 import { useSession } from '@/hooks/use-session';
@@ -36,6 +37,11 @@ const ReferralGraphCanvas = dynamic<ReferralGraphCanvasProps>(
       </Center>
     ),
   },
+);
+
+const ReferralClusterGraphCanvas = dynamic<ReferralClusterGraphCanvasProps>(
+  () => import('@/components/referrals/ReferralClusterGraphCanvas').then((module) => module.ReferralClusterGraphCanvas),
+  { ssr: false, loading: () => <Center h="100%"><Loader color="orange" /></Center> },
 );
 
 const STATUS_FILTERS = [
@@ -153,6 +159,7 @@ export default function ReferralGraphPage() {
   const [enabledStatuses, setEnabledStatuses] = useState<StatusFilterKey[]>(STATUS_FILTERS.map((item) => item.key));
   const [fitRequestId, setFitRequestId] = useState(0);
   const [resetLayoutRequestId, setResetLayoutRequestId] = useState(0);
+  const [layoutMode, setLayoutMode] = useState<'cluster' | 'free'>('cluster');
   const [physicsPanelOpen, setPhysicsPanelOpen] = useState(false);
   const [storedPhysicsSettings, setStoredPhysicsSettings] = useLocalStorage<ReferralGraphPhysicsSettings>({
     key: 'referral-graph-physics-settings-v18-natural',
@@ -424,6 +431,7 @@ export default function ReferralGraphPage() {
         }}
       >
         <Stack gap={isMobileGraph ? 'xs' : 'sm'}>
+          <SegmentedControl aria-label="그래프 배치 방식" value={layoutMode} onChange={(value) => { setLayoutMode(value as 'cluster' | 'free'); setPhysicsPanelOpen(false); }} data={[{ value: 'cluster', label: '집단 배치' }, { value: 'free', label: '자유 배치' }]} size="xs" style={{ alignSelf: 'flex-start' }} />
           <Group
             justify="space-between"
             wrap={responsiveLayout.headerStacked ? 'wrap' : 'nowrap'}
@@ -491,7 +499,7 @@ export default function ReferralGraphPage() {
               >
                 {isMobileGraph ? '화면 맞춤' : '화면 맞춤'}
               </Button>
-              <Tooltip label="배치를 초기 원형 구조로 다시 정리합니다." withArrow>
+              <Tooltip label={layoutMode === 'cluster' ? '고정된 집단 배치 전체를 다시 보여줍니다.' : '배치를 초기 원형 구조로 다시 정리합니다.'} withArrow>
                 <Button
                   size={isMobileGraph ? 'compact-sm' : 'xs'}
                   variant="light"
@@ -680,7 +688,7 @@ export default function ReferralGraphPage() {
               </Text>
             </Stack>
           </Center>
-        ) : visibleNodes.length === 0 ? (
+        ) : visibleNodes.length === 0 && (layoutMode === 'free' || allNodes.length === 0) ? (
           <Center h="100%">
             <Stack align="center" gap="xs">
               <Text c="dimmed" size="sm">
@@ -691,6 +699,21 @@ export default function ReferralGraphPage() {
               </Button>
             </Stack>
           </Center>
+        ) : layoutMode === 'cluster' ? (
+          <ReferralClusterGraphCanvas
+            layoutNodes={allNodes}
+            layoutEdges={allEdges}
+            nodes={visibleNodes}
+            edges={visibleEdges}
+            selectedNodeId={effectiveSelectedNodeId}
+            searchTerm={deferredSearchTerm}
+            descendantCountByNodeId={descendantCountByNodeId}
+            fitRequestId={fitRequestId}
+            resetLayoutRequestId={resetLayoutRequestId}
+            onNodeClick={handleNodeClick}
+            width={canvasSize.width}
+            height={canvasSize.height}
+          />
         ) : (
           <ReferralGraphCanvas
             nodes={visibleNodes}
@@ -708,7 +731,7 @@ export default function ReferralGraphPage() {
           />
         )}
 
-        <Tooltip label="배치 설정" withArrow>
+        {layoutMode === 'free' ? <Tooltip label="배치 설정" withArrow>
           <ActionIcon
             variant="filled"
             radius="xl"
@@ -725,7 +748,7 @@ export default function ReferralGraphPage() {
           >
             <IconSettings size={18} />
           </ActionIcon>
-        </Tooltip>
+        </Tooltip> : null}
 
         <Paper
           withBorder
@@ -848,7 +871,7 @@ export default function ReferralGraphPage() {
           </Stack>
         </Paper>
 
-        {physicsPanelOpen ? (
+        {layoutMode === 'free' && physicsPanelOpen ? (
           <Paper
             radius="lg"
             withBorder

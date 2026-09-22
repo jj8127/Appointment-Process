@@ -58,10 +58,14 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - 그래프 edge는 `fc_profiles.recommender_fc_id` 기반 current-state를 기준으로 그리고, graph 안에서 mutation CTA를 열지 않는다.
 - 그래프 노드는 `life_commission_completed`/`appointment_date_life`와 `nonlife_commission_completed`/`appointment_date_nonlife`가 모두 완료 evidence일 때 초록색으로 표시한다. 초록은 추천코드 상태를 바꾸지 않는 별도 위촉 완료 강조색이다.
 - 그래프 범례는 색상 기준으로 읽는다: 초록=생명·손해 위촉 모두 완료, 주황=추천코드 사용 중, 노랑 표시=본부장 강조 또는 예전 기록 확인 테두리, 회색=추천코드 없음/중지.
-- Obsidian Graph View를 참고하되 추천인 tree 가독성에 맞춘 hybrid layout 계약을 유지한다. runtime은 d3 `charge`와 기존 `link`에 link tension, branch bend, sibling angular separation, node/cluster separation, weak cluster gravity, drag rope constraint를 보조 force로 더한다.
-- 초기 seed는 component 크기순 중앙 배치, hub child star/pinwheel, 제한된 isolated golden-angle 분포를 제공한다. isolated node 기본 노출과 toggle은 UI 필터 계약이며, runtime에서 강제 outer ring force를 쓰지 않는다.
-- node drag는 pointer 대상 노드 하나만 임시 `fx/fy`로 고정한다. direct·2-hop 이상 연결 노드는 별도 고정이나 같은-delta 이동 없이 평소 link·link-tension·charge·collision force로 단계적으로 반응하고, drag 시작 edge 길이의 `1.2x` 최대 stretch를 지킨다. release는 `fx/fy` hard pin 해제와 simulation reheat를 수행해 spring momentum을 이어가며 decaying drop tether를 주입하지 않는다.
-- 물리 slider는 `Center force`, `Repel force`, `Link force`, `Link distance` 네 항목이며 범위와 기본값은 Obsidian 의미를 따른다.
+- 기본 `집단 배치`는 부모와 직접 말단 자식을 하나의 집단으로 분리한다. 전체 노드의 ID·반경·관계만 Web Worker에 전달해 한 번 계산하며, Canvas2D에서 고정 좌표와 경로를 재사용한다. 검색·상태 필터·선택·이동·확대/축소는 배치를 다시 계산하지 않는다.
+- 여러 독립 계보는 가장 큰 계보를 중앙에 두고 나머지 계보와 고립 노드를 동심원 둘레에 배치한다. 각 계보를 둘러싼 원 사이에 최소 64px의 기하 간격을 두며, 전체 배치 과정은 각 계보 내부 좌표를 평행 이동만 한다. 행/열 shelf 배치를 사용하지 않는다.
+- 집단 배치의 트리 골격은 교차 없는 초기 배치를 사용하고 간격·노드 관통·교차 검사를 통과하는 이동만 허용한다. 여러 독립 계보와 고립 노드도 분리하며, 큰 계보는 반복 압축을 생략하는 기하 배치로 계산량을 제한한다. 순환/다중 부모 관계는 배치 골격에서 분리해도 원래 유효 연결선을 화면에서 삭제하지 않으며, 이런 비트리 관계의 무교차는 보장하지 않는다.
+- 집단 배치의 말단선은 최소 1.1 CSS px, 집단 간 선은 최소 1.25 CSS px를 유지한다. 카메라 조작은 이벤트가 발생할 때만 그리기를 예약한다. Worker 오류/시간 초과는 다시 시도 안내로 표시한다. 수동 화면 맞춤은 표시 중인 사람들의 범위를 사용한다.
+- 기존 `자유 배치`는 선택 가능한 호환 모드로 보존하고 비활성 renderer는 unmount한다. 이 모드의 runtime은 d3 `charge`와 기존 `link`에 link tension, branch bend, sibling angular separation, node/cluster separation, weak cluster gravity, drag rope constraint를 보조 force로 더한다.
+- 자유 배치의 초기 seed는 component 크기순 중앙 배치, hub child star/pinwheel, 제한된 isolated golden-angle 분포를 제공한다. isolated node 기본 노출과 toggle은 두 모드 공통 UI 필터 계약이며, runtime에서 강제 outer ring force를 쓰지 않는다.
+- 자유 배치의 node drag는 pointer 대상 노드 하나만 임시 `fx/fy`로 고정한다. direct·2-hop 이상 연결 노드는 별도 고정이나 같은-delta 이동 없이 평소 link·link-tension·charge·collision force로 단계적으로 반응하고, drag 시작 edge 길이의 `1.2x` 최대 stretch를 지킨다. release는 `fx/fy` hard pin 해제와 simulation reheat를 수행해 spring momentum을 이어가며 decaying drop tether를 주입하지 않는다.
+- 자유 배치에서 물리 slider는 `Center force`, `Repel force`, `Link force`, `Link distance` 네 항목이며 범위와 기본값은 Obsidian 의미를 따른다.
 - 기본 이름 label은 숨기지 않고, 추천코드 detail은 선택/검색 상태에서만 확장한다.
 
 ## 2026-08-04 시험일 미정 회차 운영

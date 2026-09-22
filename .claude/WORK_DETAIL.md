@@ -1,5 +1,15 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20260917-admin-referral-clusters"></a> 2026-09-17 Admin referral clusters
+
+User review corrected the global outline: independent components had been shelf-packed into rows even though each family was clustered. Components now use enclosing disks with the largest family at the center and smaller families/isolates distributed over full concentric rings. The packing preserves internal geometry by translation only, maintains 64px envelope clearance, remains deterministic, and leaves a single family unchanged. Two additional spatial regression cases cover mixed families, standalone trees, isolates, geometry preservation and shuffled input; all 20 layout tests pass.
+
+Applied the standalone graph structure rules to the actual admin web graph page. The new default cluster mode uses a deterministic, geometry-only Web Worker and Canvas2D; it adds no Skia/CanvasKit dependency. Parent hubs own direct terminal children, independent forests and isolates have separate envelopes, and compaction accepts only moves preserving disk/edge clearance and planar tree edges. Large forests use bounded analytical placement. Cyclic/multiparent edges are excluded only from the placement skeleton and retained by the original visible-edge renderer.
+
+Full-data coordinates are independent of search, status, hop depth and selection. Camera changes schedule drawing only when needed and preserve cached paths/hit geometry. Terminal/backbone strokes retain at least 1.1/1.25 CSS pixels at overview zoom. Names remain available while selection/search expands code detail, and the accessible person list opens the existing drawer. Existing status colors, node radius calculation, auth/API scope and read-only graph behavior remain intact. The old force renderer and its physics controls remain in an optional free mode and unmount when inactive.
+
+Local validation uses fictional graph fixtures and network-mocked browser requests. No production topology or customer records were copied into the repository, and no deployment, DB mutation or Git push is part of this change. See the current task harness for exact test and browser acceptance evidence.
+
 ## <a id="20260916-github-publication"></a> 2026-09-16 GitHub publication scope
 
 The user explicitly authorized committing and pushing all current changes in the development and historical release worktrees to the connected Appointment-Process repository. Keep the two existing branches and histories. The development snapshot includes the standalone allowance screen, response/session/selection safeguards, home entries, login recovery, current-checkout EAS source/version workflow and prebuilt Android drawing-order protection. The historical release snapshot retains its login/version edits and forwards supported npm builds to the main source. Include the existing mistake ledger, handbook and regression coverage changes; ignored local harnesses, dependency caches and build outputs remain outside Git.
