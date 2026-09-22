@@ -322,10 +322,12 @@ export default function ExamRegisterScreen() {
   const scrollFocusedInputIntoView = useCallback(
     (event: RNFocusEvent) => {
       if (Platform.OS === 'web') return;
-      focusedInputTargetRef.current = event.target;
+      const target = event.target;
+      if (target == null) return;
+      focusedInputTargetRef.current = target;
       requestAnimationFrame(() => {
         scrollViewRef.current?.scrollResponderScrollNativeHandleToKeyboard(
-          event.target,
+          target,
           28,
           true,
         );

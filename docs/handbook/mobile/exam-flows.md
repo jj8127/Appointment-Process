@@ -159,3 +159,9 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - 시험 신청·등록·관리 화면의 스크롤 입력 영역은 Android와 iOS 모두 공용 `KeyboardAwareWrapper` 또는 동등한 키보드 인셋 처리를 사용한다.
 - 사용자가 입력값을 확인하며 드래그할 때 키보드를 자동으로 닫지 않으며, 포커스된 입력란은 실제 키보드 높이와 시스템 하단 인셋을 기준으로 보이는 영역에 유지한다.
 - 기기별 고정 오프셋으로 입력 영역을 올리지 않는다. 키보드와 시스템 내비게이션 바 크기는 런타임 측정값을 따른다.
+
+## 2026-09-22 시험 등록 입력 이벤트 수명
+
+- 생명·손해 등록 화면은 포커스 이벤트의 target을 동기적으로 복사하고 null을 차단한 뒤 requestAnimationFrame을 예약한다. 비동기 콜백에서 pooled SyntheticEvent를 다시 읽지 않는다.
+- 이벤트 해제 뒤에도 저장한 입력 대상만 사용하며, 프레임 실행 전에 스크롤 화면이 unmount되면 측정을 생략한다.
+- 회귀 근거: `lib/__tests__/exam-register-focus-event-lifecycle.test.ts`는 설치된 React Native production 이벤트 해제 및 ScrollView 코드를 사용해 두 화면·Android/iOS·Fabric/legacy 조합을 실행한다.

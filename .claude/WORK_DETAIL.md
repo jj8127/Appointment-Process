@@ -1,5 +1,11 @@
 # 작업 상세 로그 (Work Detail)
 
+## 2026-09-22 Exam schedule registration recovery
+
+Production web commit 2d0b9ba omitted the required exam month. A focused production-base hotfix 6915d61 uses verified administrator sessions and canonical atomic v2 saves, with explicit TBD month and legacy create routing. Deployment dpl_53hhXAoagk4oyxLz6GKfMyhtKphJ is READY and promoted to adminweb-red.vercel.app. SQL fixture checks (25), save-policy tests (17), built signed-session HTTP checks (24), web type/lint/build and governance checks pass. No production test exam or notification was created; browser UI was unavailable.
+
+The app independently deferred reading RN SyntheticEvent.target until requestAnimationFrame after pooling released the event. Both exam-register screens now snapshot a non-null target synchronously. Actual installed RN production event/ScrollView source reproduces the original failure and validates the fix: 12 regression cases pass, targeted lint and mobile TypeScript pass. This matches the observed Sentry error class, but that event has no attributable screen/build SHA. Mobile delivery remains pending; no OTA/native release or Git push performed.
+
 ## <a id="20260917-admin-referral-clusters"></a> 2026-09-17 Admin referral clusters
 
 User review corrected the global outline: independent components had been shelf-packed into rows even though each family was clustered. Components now use enclosing disks with the largest family at the center and smaller families/isolates distributed over full concentric rings. The packing preserves internal geometry by translation only, maintains 64px envelope clearance, remains deterministic, and leaves a single family unchanged. Two additional spatial regression cases cover mixed families, standalone trees, isolates, geometry preservation and shuffled input; all 20 layout tests pass.

@@ -1,5 +1,11 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-09-22 | 시험 등록 포커스 이벤트 수명
+
+- 반복 원인: 생명·손해 화면 모두 React Native SyntheticEvent를 requestAnimationFrame 안에서 다시 읽었다. 이벤트 해제 후 target이 null이 되어 ScrollView.measureLayout이 실패했다.
+- 재발 방지: 이벤트 처리 시 필요한 대상 값을 동기적으로 복사하고 null을 차단한 뒤, 비동기 콜백에서는 복사한 값만 사용한다.
+- 검증: 실제 RN production 이벤트 해제·ScrollView 메서드를 사용하는 exam-register-focus-event-lifecycle 회귀 테스트 12/12 통과.
+
 ## 2026-09-14 | Login navigation | 로그아웃 보호가 다음 로그인까지 차단함
 
 - Symptom: 로그아웃 후 로그인 인증은 성공하지만 로그인 화면에 그대로 머문다.
