@@ -1,5 +1,11 @@
 # 작업 상세 로그 (Work Detail)
 
+## 2026-09-28 Exam cancellation production publication
+
+User-authorized deployment c9364f92116136c20311a096bda8bb0c0ec64693 is READY as dpl_4FUQ7J68cFVTA94rUK8N1MyyNNqg and promoted to adminweb-red.vercel.app. Supabase RPC signature, results and service-only ACL were verified read-only. Staged and final URLs returned auth 200 and the new cancellation handler's unauthenticated 401 response. No real applicant mutation, DB migration, Git push, mobile build or OTA was performed.
+
+The last verified mobile OTA source c425c5251c96ff8fa590047f387e0652095b4e98, runtime 4.2.13, already supports administrator cancellation, slot release and a fresh history query before reapplication. Exact relevant mobile files match current source. Real authenticated acceptance and device refresh are not claimed. Canonical evidence remains D:/hanhwa/fc-onboarding-app/.codex/harness/exam-applicant-cancel-20260928/.
+
 ## 2026-09-22 Tenth headquarters display-name preparation
 
 The requested current affiliation label is 10본부 이수민. Mobile signup/FC creation/dashboard, web signup/administrator listing, exam quick filters, and notification normalization use the new canonical label while retaining legacy headquarters/team aliases. The manager-name display resolver accepts the requested and former names without creating an account or changing a signed role. The production-base web worktree receives only the existing administrator-list normalizer change, including correct two-digit headquarters matching; newer development-only signup and quick-filter features are not ported.
