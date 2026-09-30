@@ -7,6 +7,13 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 # Mobile Playbook: Exam Flows
 
+## 2026-09-30 대리 신청 FC 목록 조회 복구
+
+- 생명·손해 화면은 `useExamApplicationTargets`로 목록 조회와 선택 상태를 공유한다. 계정·서명 세션이 바뀌면 이전 요청과 선택 결과를 폐기하고 새로 조회한다. 쿼리 키에는 토큰이나 전화번호를 넣지 않는다.
+- FC 목록 로딩, 조회 오류, 정상 빈 목록, 검색어 불일치를 구분한다. 실패를 `검색 결과가 없습니다`로 표시하지 않고 모달 안팎에서 재시도를 제공한다.
+- `exam-payment-proof`의 구조화 오류 코드와 안내를 보존한다. 세션 누락·만료·무효 상태는 `/login?skipAuto=1`로 재로그인한다. 총무는 기존 `refresh-app-session`의 복구 대상이 아니므로 해당 경로를 자동 호출하지 않는다.
+- 회귀 검증은 API 응답·hook의 실제 TanStack Query 재시도·selector 렌더러 테스트로 수행한다. 로컬 검증은 운영 최초 실패 원인이나 실기기 반영을 확정하지 않는다.
+
 ## 2026-07-30 Administrator applicant list and XLSX contract
 
 - Administrator applicant tables and the XLSX export keep binary reception

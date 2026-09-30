@@ -1,5 +1,11 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-09-30 | FC 목록 조회 실패를 빈 검색 결과로 표시
+
+- 반복 원인: 대리신청 화면이 `data = []`와 `isLoading`만 사용하고 query 오류를 버렸다. 세션 토큰이 없어서 조회가 비활성화된 경우도 정상 빈 목록으로 처리했다.
+- 재발 방지: 목록의 로딩·오류·빈 결과를 구분하고, 구조화된 인증 오류에는 재로그인, 일시 오류에는 재시도를 제공한다. 계정·세션이 바뀌면 이전 목록과 선택을 폐기한다. 총무를 지원하지 않는 세션 갱신 API를 임의로 재사용하지 않는다.
+- 검증: `exam-application-target-api`, `use-exam-application-targets`, `exam-application-target-selector` 실행 테스트에서 세션 누락·만료, 재시도 성공, 계정 변경, 실제 검색·선택을 확인한다.
+
 ## 2026-09-22 | OTA export 환경 변수와 Metro 캐시
 
 - 반복 원인: production 환경 변수를 추가해도 이전 Metro 변환 캐시가 재사용되어 Android·iOS Hermes 번들에 운영 Sentry DSN이 빠졌다. export 성공만으로 환경 변수 반영을 판단하면 오류 수집을 꺼뜨릴 수 있다.

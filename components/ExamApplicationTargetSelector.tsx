@@ -19,6 +19,9 @@ type Props = {
   value: ExamApplicationTarget | null;
   onChange: (target: ExamApplicationTarget) => void;
   isLoading?: boolean;
+  errorMessage?: string | null;
+  onRetry?: () => void;
+  onLogin?: () => void;
   disabled?: boolean;
 };
 
@@ -29,6 +32,9 @@ export function ExamApplicationTargetSelector({
   value,
   onChange,
   isLoading = false,
+  errorMessage = null,
+  onRetry,
+  onLogin,
   disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -45,6 +51,27 @@ export function ExamApplicationTargetSelector({
     }),
     [normalizedSearch, targets],
   );
+  const visibleTargets = isLoading || errorMessage ? [] : filteredTargets;
+  const errorContent = errorMessage ? (
+    <View style={styles.errorState}>
+      <Text accessibilityRole="alert" style={styles.error}>{errorMessage}</Text>
+      {onLogin || onRetry ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={onLogin ? '다시 로그인' : 'FC 목록 다시 불러오기'}
+          disabled={disabled}
+          onPress={onLogin ? () => {
+            setSearch('');
+            setOpen(false);
+            onLogin();
+          } : onRetry}
+          style={({ pressed }) => [styles.retry, disabled && styles.disabled, pressed && styles.pressed]}
+        >
+          <Text style={styles.retryText}>{onLogin ? '다시 로그인' : '다시 시도'}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  ) : null;
 
   const selectTarget = (target: ExamApplicationTarget) => {
     onChange(target);
@@ -59,11 +86,11 @@ export function ExamApplicationTargetSelector({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="시험 신청 대상 FC 선택"
-        disabled={disabled || isLoading}
+        disabled={disabled}
         onPress={() => setOpen(true)}
         style={({ pressed }) => [
           styles.selector,
-          (disabled || isLoading) && styles.disabled,
+          disabled && styles.disabled,
           pressed && styles.pressed,
         ]}
       >
@@ -79,6 +106,7 @@ export function ExamApplicationTargetSelector({
         </View>
         <Feather name="chevron-down" size={20} color="#6B7280" />
       </Pressable>
+      {!isLoading ? errorContent : null}
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <KeyboardAvoidingView
@@ -109,12 +137,18 @@ export function ExamApplicationTargetSelector({
               />
             </View>
             <FlatList
-              data={filteredTargets}
+              data={visibleTargets}
               keyExtractor={(item) => item.fcId}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="none"
-              contentContainerStyle={filteredTargets.length === 0 ? styles.emptyList : undefined}
-              ListEmptyComponent={<Text style={styles.empty}>검색 결과가 없습니다.</Text>}
+              contentContainerStyle={visibleTargets.length === 0 ? styles.emptyList : undefined}
+              ListEmptyComponent={isLoading ? (
+                <Text style={styles.empty}>FC 목록을 불러오는 중...</Text>
+              ) : errorContent ?? (
+                <Text style={styles.empty}>
+                  {normalizedSearch ? '검색 결과가 없습니다.' : '신청 가능한 FC가 없습니다.'}
+                </Text>
+              )}
               renderItem={({ item }) => (
                 <Pressable
                   onPress={() => selectTarget(item)}
@@ -202,4 +236,8 @@ const styles = StyleSheet.create({
   rowMeta: { color: '#6B7280', fontSize: 12 },
   emptyList: { flexGrow: 1, justifyContent: 'center' },
   empty: { color: '#6B7280', textAlign: 'center' },
+  errorState: { alignItems: 'center', gap: 10, paddingVertical: 10 },
+  error: { color: '#B91C1C', textAlign: 'center', fontSize: 13 },
+  retry: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, backgroundColor: '#FFF7ED' },
+  retryText: { color: '#C2410C', fontSize: 13, fontWeight: '700' },
 });

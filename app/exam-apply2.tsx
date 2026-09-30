@@ -25,6 +25,7 @@ import { ExamPaymentProofField } from '@/components/ExamPaymentProofField';
 import { ExamPaymentProofHistoryButton } from '@/components/ExamPaymentProofHistoryButton';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
+import { useExamApplicationTargets } from '@/hooks/use-exam-application-targets';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useSession } from '@/hooks/use-session';
 import { canUseFcExamApply, isExamProxyApplicationActor } from '@/lib/exam-role';
@@ -58,7 +59,6 @@ import {
 import {
   cancelExamApplicationWithPaymentProof,
   discardExamPaymentProofUpload,
-  listExamApplicationTargets,
   prepareExamPaymentProofUpload,
   submitExamApplicationWithPaymentProof,
   uploadExamPaymentProof,
@@ -398,7 +398,6 @@ export default function ExamApplyScreen() {
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [wantsNonlife, setWantsNonlife] = useState(true);
   const [wantsThird, setWantsThird] = useState(false);
-  const [selectedTarget, setSelectedTarget] = useState<ExamApplicationTarget | null>(null);
   const [selectedPaymentProof, setSelectedPaymentProof] =
     useState<ExamPaymentProofSelection | null>(null);
   const preparedPaymentProofRef = useRef<{
@@ -436,14 +435,14 @@ export default function ExamApplyScreen() {
 
   const allRounds = useMemo(() => rounds ?? [], [rounds]);
   const {
-    data: applicationTargets = [],
+    targets: applicationTargets,
+    selectedTarget,
+    selectTarget: setSelectedTarget,
     isLoading: isLoadingApplicationTargets,
+    errorMessage: applicationTargetsError,
+    needsRelogin: applicationTargetsNeedRelogin,
     refetch: refetchApplicationTargets,
-  } = useQuery<ExamApplicationTarget[]>({
-    queryKey: ['exam-application-targets', role, readOnly, staffType],
-    enabled: canApplyExam && isProxyApplication && !!appSessionToken,
-    queryFn: () => listExamApplicationTargets(appSessionToken ?? ''),
-  });
+  } = useExamApplicationTargets();
   const applicationResidentId = isProxyApplication
     ? selectedTarget?.residentId ?? null
     : residentId;
@@ -840,7 +839,7 @@ export default function ExamApplyScreen() {
     setSelectedRoundId(null);
     setSelectedLocationId(null);
     setSelectedTarget(target);
-  }, [discardPreparedPaymentProof, selectedTarget?.fcId]);
+  }, [discardPreparedPaymentProof, selectedTarget?.fcId, setSelectedTarget]);
 
   const applyMutation = useMutation({
     mutationFn: async ({ existingProofAttachedForSubmit }: {
@@ -1220,6 +1219,9 @@ export default function ExamApplyScreen() {
               targets={applicationTargets}
               value={selectedTarget}
               isLoading={isLoadingApplicationTargets}
+              errorMessage={applicationTargetsError}
+              onRetry={() => { void refetchApplicationTargets(); }}
+              onLogin={applicationTargetsNeedRelogin ? () => router.push('/login?skipAuto=1') : undefined}
               disabled={applyMutation.isPending}
               onChange={(target) => {
                 void selectApplicationTarget(target);

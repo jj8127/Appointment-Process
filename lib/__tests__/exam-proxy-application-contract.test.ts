@@ -79,7 +79,10 @@ describe('staff proxy exam application contract', () => {
     (path) => {
       const source = read(path);
       expect(source).toContain('<ExamApplicationTargetSelector');
-      expect(source).toContain('listExamApplicationTargets');
+      expect(source).toContain('useExamApplicationTargets');
+      expect(source).toContain('errorMessage={applicationTargetsError}');
+      expect(source).toContain('void refetchApplicationTargets()');
+      expect(source).toContain("router.push('/login?skipAuto=1')");
       expect(source).toContain('applicationTargetFcId');
       expect(source).not.toContain('DateTimePicker');
       expect(source).not.toContain('setFeePaidDate');

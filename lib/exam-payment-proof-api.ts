@@ -37,7 +37,40 @@ export type ExamApplicationTarget = {
   phoneLast4: string;
 };
 
-async function getFunctionErrorMessage(error: unknown): Promise<string | null> {
+const RELOGIN_ERROR_CODES = new Set([
+  'missing_app_session',
+  'expired_app_session',
+  'invalid_app_session',
+  'invalid_session',
+  'actor_not_found',
+]);
+
+export class ExamPaymentProofApiError extends Error {
+  readonly code?: string;
+  readonly needsRelogin: boolean;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'ExamPaymentProofApiError';
+    this.code = code;
+    this.needsRelogin = Boolean(code && RELOGIN_ERROR_CODES.has(code));
+  }
+}
+
+type FunctionFailure = Pick<FunctionEnvelope<unknown>, 'code' | 'message'>;
+
+function normalizeFunctionFailure(payload: FunctionFailure | null | undefined): FunctionFailure {
+  return {
+    code: typeof payload?.code === 'string' && payload.code.trim()
+      ? payload.code.trim()
+      : undefined,
+    message: typeof payload?.message === 'string' && payload.message.trim()
+      ? payload.message.trim()
+      : undefined,
+  };
+}
+
+async function getFunctionErrorFailure(error: unknown): Promise<FunctionFailure | null> {
   if (!error || typeof error !== 'object') return null;
   const context = (error as {
     context?: {
@@ -51,9 +84,7 @@ async function getFunctionErrorMessage(error: unknown): Promise<string | null> {
 
   try {
     const payload = await context.json() as FunctionEnvelope<unknown> | null;
-    return typeof payload?.message === 'string' && payload.message.trim()
-      ? payload.message.trim()
-      : null;
+    return normalizeFunctionFailure(payload);
   } catch {
     return null;
   }
@@ -65,7 +96,10 @@ async function invokeExamPaymentProof<T>(
 ): Promise<T> {
   const token = appSessionToken.trim();
   if (!token) {
-    throw new Error('시험 신청을 계속하려면 다시 로그인해주세요.');
+    throw new ExamPaymentProofApiError(
+      '시험 신청을 계속하려면 다시 로그인해주세요.',
+      'missing_app_session',
+    );
   }
 
   const { data, error } = await supabase.functions.invoke<FunctionEnvelope<T>>(
@@ -79,8 +113,12 @@ async function invokeExamPaymentProof<T>(
   );
 
   if (error || !data?.ok || !data.data) {
-    const serverMessage = data?.message ?? await getFunctionErrorMessage(error);
-    throw new Error(serverMessage ?? '시험 신청 서버에 연결하지 못했습니다.');
+    const dataFailure = normalizeFunctionFailure(data);
+    const httpFailure = await getFunctionErrorFailure(error);
+    throw new ExamPaymentProofApiError(
+      dataFailure.message ?? httpFailure?.message ?? '시험 신청 서버에 연결하지 못했습니다.',
+      dataFailure.code ?? httpFailure?.code,
+    );
   }
   return data.data;
 }
@@ -105,6 +143,20 @@ export async function listExamApplicationTargets(appSessionToken: string) {
     appSessionToken,
     { action: 'list_targets' },
   );
+  if (!Array.isArray(result.targets) || !result.targets.every((target) => (
+    target !== null
+    && typeof target === 'object'
+    && typeof target.fcId === 'string'
+    && typeof target.residentId === 'string'
+    && typeof target.name === 'string'
+    && typeof target.affiliation === 'string'
+    && typeof target.phoneLast4 === 'string'
+  ))) {
+    throw new ExamPaymentProofApiError(
+      'FC 목록을 불러오지 못했습니다. 다시 시도해주세요.',
+      'invalid_response',
+    );
+  }
   return result.targets;
 }
 

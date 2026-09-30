@@ -1,5 +1,11 @@
 # 작업 상세 로그 (Work Detail)
 
+## 2026-09-30 Exam proxy target search recovery (local only)
+
+The reported staff selector displayed an empty result even with no search term. Both application routes discarded target-query errors and used an empty default array; a restored staff session without an app token also disabled the query without an explanation. The API now preserves structured error codes, and a shared hook separates loading, failure, missing session and successful empty results. Session/account changes discard previous results and selection without putting identifiers or tokens in query keys. A login action closes the native selector and opens `/login?skipAuto=1`; transient failures retry in place. Staff sessions cannot use the existing FC/manager refresh endpoint.
+
+Verified 80 focused API/hook/component/source tests, mobile TypeScript and scoped ESLint. Tests include expired sessions, token replacement, retry recovery, stale-response isolation, malformed responses and name/affiliation/last-four search. Governance and diff checks accompany the handoff. Starting branch was `release/garamin-4.2.2-clean-20260809`, HEAD `1567f606618d784599f65e6109747c3dfe24992b`, with no tracked or untracked changes. The user subsequently authorized worktree tidying, commit and GitHub push; publication keeps this branch's five pre-existing unpushed commits intact and adds the focused 15-file fix. No production queries, deployment, OTA or physical-device verification occurred. The original server failure is unconfirmed; session expiry is a reproducible possibility, not an established production diagnosis.
+
 ## 2026-09-28 Exam cancellation production publication
 
 User-authorized deployment c9364f92116136c20311a096bda8bb0c0ec64693 is READY as dpl_4FUQ7J68cFVTA94rUK8N1MyyNNqg and promoted to adminweb-red.vercel.app. Supabase RPC signature, results and service-only ACL were verified read-only. Staged and final URLs returned auth 200 and the new cancellation handler's unauthenticated 401 response. No real applicant mutation, DB migration, Git push, mobile build or OTA was performed.

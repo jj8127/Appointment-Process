@@ -7,6 +7,10 @@ source_of_truth: components/* + app/* + hooks/use-keyboard-padding.ts + web/src/
 
 # Shared UI Action Contracts
 
+## 2026-09-30 Exam target selector recovery
+
+`ExamApplicationTargetSelector` distinguishes loading, safe query errors, an empty eligible population and a search miss. Error actions are available before opening and inside the native modal. Retry keeps the modal and search text; relogin closes the modal and clears its search before opening the login route. Failed or pending queries must not offer cached rows for selection. Executable coverage is in `components/__tests__/exam-application-target-selector.test.tsx` and `hooks/__tests__/use-exam-application-targets.test.ts`.
+
 ## 2026-09-09 Alert lifecycle and store return
 
 Shared alerts render visible content without opacity worklets or animation-completion action dispatch. Every queued item has a unique identity. A button or cancel action claims and removes only that item before invoking its callback; duplicate presses, synchronous follow-up alerts and throwing callbacks cannot consume another item or strand a blocker. Preserve the noncancelable default and explicit cancel actions. The modal uses no native transition animation when handing off to a store or route.
