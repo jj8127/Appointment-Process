@@ -1,6 +1,8 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { QueryReadError, requiresQueryLogin } from '@/lib/query-read-error';
 import { resolveRequestBoardMessengerConfig } from '@/lib/request-board-url';
 import { getDashboardRoleLabel, getWebStaffChatActorId, isDeveloperSession } from '@/lib/staff-identity';
 import {
@@ -44,7 +46,7 @@ async function invokeFcNotifyProxy<T>(body: Record<string, unknown>) {
   });
   const payload = await response.json().catch(() => null) as FcNotifyProxyEnvelope<T> | null;
   if (!response.ok || !payload?.ok) {
-    throw new Error(payload?.error ?? 'fc-notify proxy request failed');
+    throw new QueryReadError(response.status);
   }
   return payload.data as T;
 }
@@ -81,95 +83,61 @@ export default function MessengerHubPage() {
     }
   }, [hydrated, requestBoardConfig, role, router, searchParams]);
 
-  const { data: counts, isLoading, refetch } = useQuery({
-    queryKey: ['dashboard-messenger-hub-counts', role, residentId],
+  const { data: counts, isLoading, isError, error, isFetching, refetch } = useQuery({
+    queryKey: ['dashboard-messenger-hub-counts', role, residentId, staffType, isReadOnly],
     enabled: hydrated && Boolean(role),
     queryFn: async () => {
-      const myChatId =
-        role === 'admin' || role === 'manager'
-          ? getWebStaffChatActorId({ role, residentId, staffType })
-          : sanitize(residentId);
-
-      const internalViewerRole: 'admin' | 'fc' = role === 'fc' ? 'fc' : 'admin';
-      let internalUnreadCount = 0;
-
-      let internalUnreadData: { ok?: boolean; count?: number } | null = null;
-      let internalUnreadError: unknown = null;
-      try {
-        internalUnreadData = await invokeFcNotifyProxy<{ ok?: boolean; count?: number }>({
-          type: 'internal_unread_count',
-          viewer_id: myChatId,
-          viewer_role: internalViewerRole,
-          viewer_staff_type: staffType,
-          viewer_read_only: isReadOnly,
-          viewer_is_request_board_designer: false,
-        });
-      } catch (error) {
-        internalUnreadError = error;
-      }
-
-      if (internalUnreadError || !internalUnreadData?.ok) throw internalUnreadError ?? new Error('unread_count_failed');
-      internalUnreadCount = Number(internalUnreadData.count ?? 0) || 0;
-
-      let groupChatUnreadCount = 0;
-      if (role !== 'fc') {
-        try {
-          const groupChatResponse = await fetch('/api/group-chat', {
+      const myChatId = role === 'admin' || role === 'manager'
+        ? getWebStaffChatActorId({ role, residentId, staffType })
+        : sanitize(residentId);
+      const isPersonalAdminInbox = role === 'manager' || isDeveloperSession({ role, isReadOnly, staffType });
+      const results = await Promise.allSettled([
+        (async () => {
+          const data = await invokeFcNotifyProxy<{ ok?: boolean; count?: number }>({
+            type: 'internal_unread_count',
+            viewer_id: myChatId,
+            viewer_role: role === 'fc' ? 'fc' : 'admin',
+            viewer_staff_type: staffType,
+            viewer_read_only: isReadOnly,
+            viewer_is_request_board_designer: false,
+          });
+          if (!data?.ok || !Number.isSafeInteger(data.count) || Number(data.count) < 0) throw new QueryReadError();
+          return Number(data.count);
+        })(),
+        (async () => {
+          if (role === 'fc') return 0;
+          const response = await fetch('/api/group-chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ type: 'group_chat_bootstrap', limit: 1 }),
           });
-          const groupChatData = await groupChatResponse.json();
-          if (groupChatResponse.ok && groupChatData?.ok) {
-            groupChatUnreadCount = Number(groupChatData.unread_count ?? 0) || 0;
-          }
-        } catch {
-          groupChatUnreadCount = 0;
-        }
-      }
-
-      const isPersonalAdminInbox =
-        role === 'manager' || isDeveloperSession({ role, isReadOnly, staffType });
-      const requestBoardRole: 'admin' | 'fc' = role === 'fc' ? 'fc' : 'admin';
-      const requestBoardResidentId = role === 'fc' || isPersonalAdminInbox
-        ? sanitize(residentId)
-        : null;
-
-      let data: { ok?: boolean; notifications?: InboxNotification[] } | null = null;
-      let error: unknown = null;
-      try {
-        data = await invokeFcNotifyProxy<{ ok?: boolean; notifications?: InboxNotification[] }>({
-          type: 'inbox_list',
-          role: requestBoardRole,
-          resident_id: requestBoardResidentId,
-          limit: 150,
-        });
-      } catch (err) {
-        error = err;
-      }
-
-      if (error || !data?.ok) {
-        return {
-          internalUnread: internalUnreadCount,
-          requestBoardUnread: 0,
-          groupChatUnread: groupChatUnreadCount,
-        };
-      }
-
-      const notifications: InboxNotification[] = Array.isArray(data.notifications)
-        ? (data.notifications as InboxNotification[])
-        : [];
-      const requestBoardUnread = notifications.filter((item) =>
-        (item.category ?? '').trim().toLowerCase() === 'request_board_message',
-      ).length;
-
+          const data = await response.json().catch(() => null);
+          if (!response.ok || !data?.ok) throw new QueryReadError(response.status);
+          if (!Number.isSafeInteger(data.unread_count) || data.unread_count < 0) throw new QueryReadError();
+          return data.unread_count as number;
+        })(),
+        (async () => {
+          const data = await invokeFcNotifyProxy<{ ok?: boolean; notifications?: InboxNotification[] }>({
+            type: 'inbox_list',
+            role: role === 'fc' ? 'fc' : 'admin',
+            resident_id: role === 'fc' || isPersonalAdminInbox ? sanitize(residentId) : null,
+            limit: 150,
+          });
+          if (!data?.ok || !Array.isArray(data.notifications)) throw new QueryReadError();
+          return data.notifications.filter((item) =>
+            (item.category ?? '').trim().toLowerCase() === 'request_board_message',
+          ).length;
+        })(),
+      ]);
       return {
-        internalUnread: internalUnreadCount,
-        requestBoardUnread,
-        groupChatUnread: groupChatUnreadCount,
+        internalUnread: results[0].status === 'fulfilled' ? results[0].value : null,
+        groupChatUnread: results[1].status === 'fulfilled' ? results[1].value : null,
+        requestBoardUnread: results[2].status === 'fulfilled' ? results[2].value : null,
+        errors: results.flatMap((result) => result.status === 'rejected' ? [result.reason as unknown] : []),
       };
     },
   });
+  const countError = isError ? error : counts?.errors.find(requiresQueryLogin) ?? counts?.errors[0];
 
   if (!hydrated) {
     return null;
@@ -198,6 +166,10 @@ export default function MessengerHubPage() {
         </Text>
       </Stack>
 
+      {(isError || (counts?.errors.length ?? 0) > 0) && (
+        <QueryErrorAlert error={countError} onRetry={refetch} isFetching={isFetching} subject="미확인 수" />
+      )}
+
       {isLoading ? (
         <Group justify="center" py="xl">
           <Loader color={HANWHA_ORANGE} />
@@ -218,9 +190,11 @@ export default function MessengerHubPage() {
                     </Text>
                   </div>
                 </Group>
-                {(counts?.internalUnread ?? 0) > 0 && (
+                {counts?.internalUnread == null ? (
+                  <Badge color="gray" size="sm" variant="light">미확인 수 확인 불가</Badge>
+                ) : counts.internalUnread > 0 && (
                   <Badge color="red" size="sm" variant="filled">
-                    미확인 {counts?.internalUnread}
+                    미확인 {counts.internalUnread}
                   </Badge>
                 )}
               </Group>
@@ -263,9 +237,11 @@ export default function MessengerHubPage() {
                     </Text>
                   </div>
                 </Group>
-                {(counts?.groupChatUnread ?? 0) > 0 && (
+                {counts?.groupChatUnread == null ? (
+                  <Badge color="gray" size="sm" variant="light">미확인 수 확인 불가</Badge>
+                ) : counts.groupChatUnread > 0 && (
                   <Badge color="orange" size="sm" variant="filled">
-                    미확인 {counts?.groupChatUnread}
+                    미확인 {counts.groupChatUnread}
                   </Badge>
                 )}
               </Group>
@@ -304,7 +280,9 @@ export default function MessengerHubPage() {
                   <Badge color="gray" size="sm" variant="light">
                     연결 필요
                   </Badge>
-                ) : (counts?.requestBoardUnread ?? 0) > 0 && (
+                ) : counts?.requestBoardUnread == null ? (
+                  <Badge color="gray" size="sm" variant="light">미확인 수 확인 불가</Badge>
+                ) : counts.requestBoardUnread > 0 && (
                   <Badge color="blue" size="sm" variant="filled">
                     미확인 {counts?.requestBoardUnread}
                   </Badge>

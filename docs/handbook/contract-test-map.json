@@ -3,6 +3,11 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "read-failure-recovery",
+      "prefixes": ["components/QueryReadState.tsx", "hooks/use-board-editor-source.ts", "hooks/use-read-session-scope.ts", "lib/home-read-state.ts", "lib/request-board-read-state.ts", "web/src/components/QueryErrorAlert.tsx", "web/src/lib/query-read-error.ts", "web/src/lib/board-edit-detail.ts"],
+      "requires_any": ["components/__tests__/mobile-read-states.test.tsx", "hooks/__tests__/use-board-editor-source.test.ts", "lib/__tests__/board-read-recovery.test.ts", "lib/__tests__/request-board-read-state.test.ts", "web/src/lib/board-read-state-runtime.test.mjs"]
+    },
+    {
       "id": "mobile-build-source",
       "prefixes": ["scripts/eas-build.js", "scripts/release/verify-build-source.cjs", "scripts/patches/android-drawing-order-instrumentation.cjs", "plugins/with-android-drawing-order-fix.js", "gradle-plugins/react-android-drawing-order-guard/"],
       "requires_any": ["lib/__tests__/eas-build.test.ts", "lib/__tests__/build-source.test.ts", "lib/__tests__/android-drawing-order-fix.test.ts", "lib/__tests__/android-drawing-order-aab.test.ts"]

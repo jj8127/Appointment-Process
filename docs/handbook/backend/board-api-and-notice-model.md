@@ -9,6 +9,14 @@ contract_guard_2026_07_03: mobile board/notice screens, admin board/notification
 
 # Backend Runbook: Board API And Notice Model
 
+## 2026-09-30 원문 조회와 편집 저장 경계
+
+- 목록의 `contentPreview`는 요약 표시용이며 `board-update`의 본문으로 재사용하지 않는다. 모바일·웹 편집기는 현재 게시글의 완전한 상세 응답을 확인한 뒤 편집과 저장을 허용한다.
+- 상세 실패·지연·다른 게시글의 늦은 응답은 저장 가능한 초기값이 아니다. 백그라운드 재조회는 입력 중인 초안을 덮어쓰지 않는다.
+- 클라이언트는 signed-session 오류 상태를 보존해 재로그인과 일시 오류 재시도를 구분한다. 서버 권한·원자적 저장·첨부 후속 처리 계약은 유지한다.
+- 계정 변경 시 상세 화면의 댓글 초안·선택·미리보기를 초기화한다. 반응·댓글 좋아요 요청은 클릭 당시 대상을 유지하며, 성공·실패 응답은 요청 당시 캐시에 반영한다. 다른 글로 이동한 뒤 이전 응답이 현재 글의 선택 상태나 데이터를 덮어쓰면 안 된다.
+- 이미 게시글을 저장한 뒤의 첨부 전송 재시도는 원문·카테고리 재조회 오류와 관계없이 제공하며 원래 저장 요청을 반복하지 않는다.
+
 ## 2026-08-10 Reply commit and visibility contract
 
 - Mobile and admin-web composers retain the entered content and selected reply target until `board-comment-create` succeeds. A failed request must remain retryable as the same reply and must not silently become a top-level comment.

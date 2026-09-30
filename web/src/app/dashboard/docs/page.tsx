@@ -1,5 +1,7 @@
 'use client';
 
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+
 import {
     Badge,
     Box,
@@ -120,7 +122,7 @@ export default function DocumentsPage() {
     const [targetDocForReject, setTargetDocForReject] = useState<DocumentRow | null>(null);
 
     // Data Fetching
-    const { data: documents, isLoading } = useQuery<DocumentRow[]>({
+    const { data: documents, isLoading, isError, error, refetch, isFetching } = useQuery<DocumentRow[]>({
         queryKey: ['documents-list'],
         queryFn: async () => {
             const { data, error } = await supabase
@@ -439,7 +441,7 @@ export default function DocumentsPage() {
                                 py={6}
                                 style={{ borderRadius: 999, minHeight: 34 }}
                             >
-                                미처리 <Badge size="xs" circle ml={6} color="orange">{pendingReviewCount}</Badge>
+                                미처리 <Badge size="xs" circle ml={6} color="orange">{documents ? pendingReviewCount : '—'}</Badge>
                             </Tabs.Tab>
                             <Tabs.Tab
                                 value="approved"
@@ -473,6 +475,8 @@ export default function DocumentsPage() {
                 </Stack>
             </Paper>
 
+            {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!documents} subject="서류 목록" />}
+
             <Paper shadow="sm" radius="lg" withBorder style={{ overflow: 'hidden' }} pos="relative" bg="white">
                 <LoadingOverlay visible={isLoading} overlayProps={{ blur: 2 }} zIndex={10} loaderProps={{ color: 'orange' }} />
                 <ScrollArea h="calc(100vh - 280px)" type="auto">
@@ -497,7 +501,7 @@ export default function DocumentsPage() {
                                             <ThemeIcon size={60} radius="xl" color="gray.2" variant="light">
                                                 <IconList size={30} color={MUTED} />
                                             </ThemeIcon>
-                                            <Text c="dimmed" fw={500}>해당 조건의 서류가 존재하지 않습니다.</Text>
+                                            <Text c="dimmed" fw={500}>{isLoading ? '서류 목록을 불러오는 중입니다.' : isError ? '서류 목록을 확인할 수 없습니다.' : '해당 조건의 서류가 존재하지 않습니다.'}</Text>
                                         </Stack>
                                     </Table.Td>
                                 </Table.Tr>

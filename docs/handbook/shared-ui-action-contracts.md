@@ -7,6 +7,12 @@ source_of_truth: components/* + app/* + hooks/use-keyboard-padding.ts + web/src/
 
 # Shared UI Action Contracts
 
+## 2026-09-30 Failed reads and complete edit sources
+
+Empty lists and zero counters describe successful reads only. Initial failures show safe feedback and retry; background failures either hide an unverified selection or label retained same-owner data as stale. Missing or expired signed sessions expose the existing login route rather than repeatedly retrying an unusable session. No token or private identifier belongs in a query key or diagnostic evidence.
+
+Board detail and edit surfaces must distinguish a list preview from a complete detail response. Only a matching, successfully loaded post can initialize an editor or enable its save action. Once initialized, refetches must not replace the user's draft. Account/post changes invalidate the previous source; delayed responses cannot restore another editor's data. Native login actions close the current modal before navigating.
+
 ## 2026-09-30 Exam target selector recovery
 
 `ExamApplicationTargetSelector` distinguishes loading, safe query errors, an empty eligible population and a search miss. Error actions are available before opening and inside the native modal. Retry keeps the modal and search text; relogin closes the modal and clears its search before opening the login route. Failed or pending queries must not offer cached rows for selection. Executable coverage is in `components/__tests__/exam-application-target-selector.test.tsx` and `hooks/__tests__/use-exam-application-targets.test.ts`.

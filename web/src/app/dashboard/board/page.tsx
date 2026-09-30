@@ -2,12 +2,15 @@
 
 import { useSession } from '@/hooks/use-session';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { buildBoardEditPayload, canHydrateBoardEdit } from '@/lib/board-edit-detail';
 import {
   deliverBoardAttachments,
   type BoardAttachmentManifest,
 } from '@/lib/board-attachment-delivery';
 import { getBoardAuthorAvatarColor, getBoardAuthorBadgeColor, getBoardAuthorRoleLabel } from '@/lib/staff-identity';
 import {
+  type BoardActor,
   BoardDetail,
   BoardListItem,
   BoardNotificationRetry,
@@ -87,12 +90,17 @@ const REACTION_TYPES = [
 type ReactionKey = (typeof REACTION_TYPES)[number]['id'];
 type ReactionCounts = Record<ReactionKey, number>;
 type ReactionMutationContext = {
+  detailKey: readonly string[];
+  listKey: readonly string[];
   previousDetail?: BoardDetail;
   previousList?: { items: BoardPost[]; nextCursor?: string | null };
 };
 type CommentLikeMutationContext = {
+  detailKey: readonly string[];
   previousDetail?: BoardDetail;
 };
+type ReactionMutationVariables = { actor: BoardActor; postId: string; reactionType: ReactionKey };
+type CommentLikeMutationVariables = { actor: BoardActor; postId: string; commentId: string };
 
 const buildReactionCounts = (counts?: Partial<ReactionCounts>): ReactionCounts => ({
   like: counts?.like ?? 0,
@@ -179,6 +187,12 @@ const buildPlaceholderPost = (postId: string): BoardPost => {
 };
 
 export default function BoardPage() {
+  const { role, residentId, isReadOnly } = useSession();
+  // A different signed-in actor must never inherit another actor's editor or detail state.
+  return <BoardContent key={`${role ?? ''}:${residentId ?? ''}:${isReadOnly ? 'read' : 'write'}`} />;
+}
+
+function BoardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { role, residentId, displayName, isReadOnly } = useSession();
@@ -212,13 +226,14 @@ export default function BoardPage() {
   const isEditMode = !!editingPostId;
   const [attachments, setAttachments] = useState<WebAttachment[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<BoardDetail['attachments']>([]);
-  const [didLoadEdit, setDidLoadEdit] = useState(false);
+  const [loadedEditPostId, setLoadedEditPostId] = useState<string | null>(null);
+  const editReady = !!editingPostId && loadedEditPostId === editingPostId;
   const [pendingAttachmentRetry, setPendingAttachmentRetry] =
     useState<PendingBoardAttachmentRetry | null>(null);
   const [pendingNotificationRetry, setPendingNotificationRetry] =
     useState<BoardNotificationRetry | null>(null);
 
-  const { data: categories = [] } = useQuery({
+  const categoriesQuery = useQuery({
     queryKey: ['board-categories', actor?.role, actor?.residentId],
     queryFn: () => {
       if (!actor) return Promise.resolve([]);
@@ -227,35 +242,44 @@ export default function BoardPage() {
     enabled: !!actor,
   });
 
-  const { data: editDetailData } = useQuery({
-    queryKey: ['board-detail', editingPostId, 'edit'],
-    queryFn: () => {
+  const categories = useMemo(() => categoriesQuery.data ?? [], [categoriesQuery.data]);
+
+  const editDetailQuery = useQuery({
+    queryKey: ['board-detail', editingPostId, 'edit', actor?.role, actor?.residentId],
+    queryFn: async () => {
       if (!actor || !editingPostId) return Promise.resolve(null as unknown as BoardDetail);
-      return fetchBoardDetail(actor, editingPostId);
+      const detail = await fetchBoardDetail(actor, editingPostId);
+      if (detail?.post?.id !== editingPostId || typeof detail.post.content !== 'string') {
+        throw new Error('게시글 원문을 불러오지 못했습니다.');
+      }
+      return detail;
     },
     enabled: !!actor && !!editingPostId,
   });
 
+  const editDetailData = editDetailQuery.data;
+
   // 초기 카테고리 설정: categoryId가 null이고 categories가 로드되면 첫번째 카테고리 선택
   useEffect(() => {
-    if (!categoryId && categories.length > 0) {
+    if (!editingPostId && !categoryId && categories.length > 0) {
       setCategoryId(categories[0].id);
     }
-  }, [categories, categoryId]);
+  }, [categories, categoryId, editingPostId]);
 
   // 수정 모드 데이터 로드
   useEffect(() => {
-    if (!editDetailData?.post || !editingPostId || didLoadEdit) return;
+    if (!editDetailData || !canHydrateBoardEdit({
+      postId: editingPostId,
+      loadedPostId: loadedEditPostId,
+      detail: editDetailData,
+      isSuccess: editDetailQuery.isSuccess,
+      isFetching: editDetailQuery.isFetching,
+    })) return;
     setNewPost({ title: editDetailData.post.title, content: editDetailData.post.content });
     setCategoryId(editDetailData.post.categoryId);
     setExistingAttachments(editDetailData.attachments ?? []);
-    setDidLoadEdit(true);
-  }, [didLoadEdit, editDetailData, editingPostId]);
-
-  useEffect(() => {
-    setDidLoadEdit(false);
-    setExistingAttachments([]);
-  }, [editingPostId]);
+    setLoadedEditPostId(editingPostId);
+  }, [loadedEditPostId, editDetailData, editingPostId, editDetailQuery.isSuccess, editDetailQuery.isFetching]);
 
   useEffect(() => {
     setReplyTarget(null);
@@ -304,31 +328,21 @@ export default function BoardPage() {
     }
   }, [isLoading, posts, routePostId, selectedPostId]);
 
-  const { data: detailData } = useQuery({
-    queryKey: ['board-detail', selectedPostId],
-    queryFn: () => {
+  const detailQuery = useQuery({
+    queryKey: ['board-detail', selectedPostId, actor?.role, actor?.residentId],
+    queryFn: async () => {
       if (!actor || !selectedPostId) return Promise.resolve(null as unknown as BoardDetail);
-      return fetchBoardDetail(actor, selectedPostId);
+      const detail = await fetchBoardDetail(actor, selectedPostId);
+      if (detail?.post?.id !== selectedPostId || typeof detail.post.content !== 'string') {
+        throw new Error('게시글 원문을 불러오지 못했습니다.');
+      }
+      return detail;
     },
     enabled: !!actor && !!selectedPostId,
   });
 
-  const modalPost = detailData?.post ?? (selectedPost
-    ? {
-      id: selectedPost.id,
-      categoryId: selectedPost.categoryId,
-      title: selectedPost.title,
-      content: selectedPost.contentPreview,
-      authorName: selectedPost.authorName,
-      authorRole: selectedPost.authorRole,
-      createdAt: selectedPost.createdAt,
-      updatedAt: selectedPost.updatedAt,
-      editedAt: selectedPost.editedAt,
-      isPinned: selectedPost.isPinned,
-      isMine: selectedPost.isMine,
-      viewCount: selectedPost.stats.viewCount ?? 0,
-    }
-    : null);
+  const detailData = detailQuery.data?.post.id === selectedPostId ? detailQuery.data : undefined;
+  const modalPost = detailData?.post ?? null;
   const modalAttachments = detailData?.attachments ?? [];
   const existingAttachmentCount = existingAttachments.length;
   const modalImageAttachments = modalAttachments.filter((file) => file.fileType === 'image' && file.signedUrl);
@@ -379,6 +393,7 @@ export default function BoardPage() {
   const handleOpenCreate = () => {
     setPendingAttachmentRetry(null);
     setEditingPostId(null);
+    setLoadedEditPostId(null);
     setNewPost({ title: '', content: '' });
     setCategoryId(categories[0]?.id ?? null);
     setAttachments((prev) => {
@@ -402,6 +417,7 @@ export default function BoardPage() {
     close();
     setPendingAttachmentRetry(null);
     setEditingPostId(null);
+    setLoadedEditPostId(null);
     setNewPost({ title: '', content: '' });
     setCategoryId(null);
     setAttachments((prev) => {
@@ -484,16 +500,16 @@ export default function BoardPage() {
   const updatePostMutation = useMutation({
     mutationFn: async () => {
       if (!actor || !editingPostId) throw new Error('로그인이 필요합니다.');
-      if (!categoryId) throw new Error('카테고리를 선택해주세요.');
-      const updateResult = await updateBoardPost(actor, {
+      const payload = buildBoardEditPayload({
         postId: editingPostId,
+        loadedPostId: loadedEditPostId,
         categoryId,
-        title: newPost.title.trim(),
-        content: newPost.content.trim(),
+        draft: newPost,
       });
-      const attachmentResult = await uploadAttachments(editingPostId, null);
+      const updateResult = await updateBoardPost(actor, payload);
+      const attachmentResult = await uploadAttachments(payload.postId, null);
       return {
-        id: editingPostId,
+        id: payload.postId,
         notificationWarning: updateResult.notificationWarning,
         notificationRetry: updateResult.notificationRetry,
         attachmentIncomplete: !attachmentResult.complete,
@@ -502,7 +518,7 @@ export default function BoardPage() {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
-      queryClient.invalidateQueries({ queryKey: ['board-detail', editingPostId] });
+      queryClient.invalidateQueries({ queryKey: ['board-detail', result.id] });
       setPendingNotificationRetry(result.notificationRetry);
       if (result.attachmentIncomplete) {
         setPendingAttachmentRetry({
@@ -559,7 +575,7 @@ export default function BoardPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       if (selectedPostId) {
-        queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
+        queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId, actor?.role, actor?.residentId] });
       }
       notifications.show({
         title: '게시글 삭제 완료',
@@ -580,18 +596,15 @@ export default function BoardPage() {
   const reactionMutation = useMutation<
     { myReaction: ReactionKey | null },
     Error,
-    ReactionKey,
+    ReactionMutationVariables,
     ReactionMutationContext | undefined
   >({
-    mutationFn: async (reactionType: ReactionKey) => {
-      if (!actor || !selectedPostId) throw new Error('로그인이 필요합니다.');
-      return toggleBoardReaction(actor, selectedPostId, reactionType);
+    mutationFn: async ({ actor: requestActor, postId, reactionType }) => {
+      return toggleBoardReaction(requestActor, postId, reactionType);
     },
-    onMutate: async (reactionType) => {
-      if (!actor || !selectedPostId) return undefined;
-
-      const detailKey = ['board-detail', selectedPostId];
-      const listKey = ['board-posts', actor.role, actor.residentId];
+    onMutate: async ({ actor: requestActor, postId, reactionType }) => {
+      const detailKey = ['board-detail', postId, requestActor.role, requestActor.residentId];
+      const listKey = ['board-posts', requestActor.role, requestActor.residentId];
 
       await queryClient.cancelQueries({ queryKey: detailKey });
       await queryClient.cancelQueries({ queryKey: listKey });
@@ -617,7 +630,7 @@ export default function BoardPage() {
         queryClient.setQueryData(listKey, {
           ...previousList,
           items: previousList.items.map((item) => (
-            item.id === selectedPostId
+            item.id === postId
               ? {
                 ...item,
                 reactions: { ...nextCounts },
@@ -632,7 +645,7 @@ export default function BoardPage() {
       }
 
       setSelectedPost((prev) => {
-        if (!prev || prev.id !== selectedPostId) return prev;
+        if (!prev || prev.id !== postId) return prev;
         return {
           ...prev,
           reactions: { ...nextCounts },
@@ -643,16 +656,14 @@ export default function BoardPage() {
         };
       });
 
-      return { previousDetail, previousList };
+      return { detailKey, listKey, previousDetail, previousList };
     },
     onError: (error: Error, _reactionType, context) => {
-      const detailKey = ['board-detail', selectedPostId];
-      const listKey = actor ? ['board-posts', actor.role, actor.residentId] : ['board-posts'];
       if (context?.previousDetail) {
-        queryClient.setQueryData(detailKey, context.previousDetail);
+        queryClient.setQueryData(context.detailKey, context.previousDetail);
       }
       if (context?.previousList) {
-        queryClient.setQueryData(listKey, context.previousList);
+        queryClient.setQueryData(context.listKey, context.previousList);
       }
       notifications.show({
         title: '오류',
@@ -660,10 +671,9 @@ export default function BoardPage() {
         color: 'red',
       });
     },
-    onSuccess: (data) => {
-      if (!data || !selectedPostId) return;
-      const detailKey = ['board-detail', selectedPostId];
-      queryClient.setQueryData<BoardDetail>(detailKey, (current) => {
+    onSuccess: (data, _variables, context) => {
+      if (!data || !context) return;
+      queryClient.setQueryData<BoardDetail>(context.detailKey, (current) => {
         if (!current) return current;
         return {
           ...current,
@@ -689,7 +699,7 @@ export default function BoardPage() {
       return createBoardComment(actor, { postId: selectedPostId, content, parentId: parentId ?? undefined });
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
+      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId, actor?.role, actor?.residentId] });
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       setCommentText('');
       setReplyTarget((current) => (
@@ -721,7 +731,7 @@ export default function BoardPage() {
       return updateBoardComment(actor, { commentId, content });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
+      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId, actor?.role, actor?.residentId] });
       setEditingCommentId(null);
       setEditingCommentText('');
       notifications.show({
@@ -745,7 +755,7 @@ export default function BoardPage() {
       return deleteBoardComment(actor, commentId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
+      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId, actor?.role, actor?.residentId] });
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       notifications.show({
         title: '댓글 삭제 완료',
@@ -765,16 +775,14 @@ export default function BoardPage() {
   const toggleCommentLikeMutation = useMutation<
     { liked: boolean; likeCount: number },
     Error,
-    string,
+    CommentLikeMutationVariables,
     CommentLikeMutationContext | undefined
   >({
-    mutationFn: async (commentId: string) => {
-      if (!actor) throw new Error('로그인이 필요합니다.');
-      return toggleCommentLike(actor, commentId);
+    mutationFn: async ({ actor: requestActor, commentId }) => {
+      return toggleCommentLike(requestActor, commentId);
     },
-    onMutate: async (commentId: string) => {
-      if (!selectedPostId) return undefined;
-      const detailKey = ['board-detail', selectedPostId];
+    onMutate: async ({ actor: requestActor, postId, commentId }) => {
+      const detailKey = ['board-detail', postId, requestActor.role, requestActor.residentId];
       await queryClient.cancelQueries({ queryKey: detailKey });
       const previousDetail = queryClient.getQueryData<BoardDetail>(detailKey);
 
@@ -797,12 +805,11 @@ export default function BoardPage() {
         });
       }
 
-      return { previousDetail };
+      return { detailKey, previousDetail };
     },
     onError: (error: Error, _commentId, context) => {
-      const detailKey = ['board-detail', selectedPostId];
       if (context?.previousDetail) {
-        queryClient.setQueryData(detailKey, context.previousDetail);
+        queryClient.setQueryData(context.detailKey, context.previousDetail);
       }
       notifications.show({
         title: '오류',
@@ -810,10 +817,9 @@ export default function BoardPage() {
         color: 'red',
       });
     },
-    onSuccess: (data, commentId) => {
-      if (!selectedPostId) return;
-      const detailKey = ['board-detail', selectedPostId];
-      queryClient.setQueryData<BoardDetail>(detailKey, (current) => {
+    onSuccess: (data, { commentId }, context) => {
+      if (!context) return;
+      queryClient.setQueryData<BoardDetail>(context.detailKey, (current) => {
         if (!current) return current;
         return {
           ...current,
@@ -1029,6 +1035,8 @@ export default function BoardPage() {
       retryAttachmentMutation.mutate();
       return;
     }
+    if (categoriesQuery.isError) return;
+    if (isEditMode && !editReady) return;
     if (!newPost.title.trim() || !newPost.content.trim()) {
       notifications.show({
         title: '입력 오류',
@@ -1058,7 +1066,8 @@ export default function BoardPage() {
   };
 
   const handleReaction = (reactionType: ReactionKey) => {
-    reactionMutation.mutate(reactionType);
+    if (!actor || !selectedPostId) return;
+    reactionMutation.mutate({ actor, postId: selectedPostId, reactionType });
   };
 
   const handleAddComment = () => {
@@ -1222,7 +1231,10 @@ export default function BoardPage() {
                 <ActionIcon
                   variant="subtle"
                   color={comment.isLiked ? 'red' : 'gray'}
-                  onClick={() => toggleCommentLikeMutation.mutate(comment.id)}
+                  onClick={() => {
+                    if (!actor || !selectedPostId) return;
+                    toggleCommentLikeMutation.mutate({ actor, postId: selectedPostId, commentId: comment.id });
+                  }}
                 >
                   <IconHeart size={16} />
                 </ActionIcon>
@@ -1265,13 +1277,16 @@ export default function BoardPage() {
     }
     setPendingAttachmentRetry(null);
     setEditingPostId(post.id);
+    setLoadedEditPostId(null);
+    setExistingAttachments([]);
+    setCategoryId(null);
     setAttachments((prev) => {
       prev.forEach((item) => {
         if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
       });
       return [];
     });
-    setNewPost({ title: post.title, content: post.contentPreview });
+    setNewPost({ title: '', content: '' });
     open();
   };
 
@@ -1386,20 +1401,14 @@ export default function BoardPage() {
         {/* 게시글 목록 */}
         <Stack gap="md">
           {isError && (
-            <Alert color="red" title="오류 발생" withCloseButton onClose={() => refetch()}>
-              게시글을 불러오는데 실패했습니다.
-              {error instanceof Error ? ` (${error.message})` : ''}
-              <Button size="xs" variant="outline" color="red" onClick={() => refetch()} mt="xs">
-                다시 시도
-              </Button>
-            </Alert>
+            <QueryErrorAlert error={error} onRetry={refetch} hasData={!!listData} subject="게시글 목록" />
           )}
           {isLoading && (
             <Text size="sm" c="dimmed">
               게시글을 불러오는 중입니다...
             </Text>
           )}
-          {!isLoading && filteredPosts.length === 0 && (
+          {!isLoading && !isError && filteredPosts.length === 0 && (
             <Text size="sm" c="dimmed">
               등록된 게시글이 없습니다.
             </Text>
@@ -1566,9 +1575,9 @@ export default function BoardPage() {
       <Modal
         opened={opened}
         onClose={() => handleCloseComposer()}
-        closeOnClickOutside={!pendingAttachmentRetry}
-        closeOnEscape={!pendingAttachmentRetry}
-        withCloseButton={!pendingAttachmentRetry}
+        closeOnClickOutside={!pendingAttachmentRetry && !updatePostMutation.isPending}
+        closeOnEscape={!pendingAttachmentRetry && !updatePostMutation.isPending}
+        withCloseButton={!pendingAttachmentRetry && !updatePostMutation.isPending}
         title={(
           <Text fw={700} size="lg">
             {pendingAttachmentRetry
@@ -1584,6 +1593,9 @@ export default function BoardPage() {
         centered
       >
         <Stack gap="md">
+          {categoriesQuery.isError && <QueryErrorAlert error={categoriesQuery.error} onRetry={categoriesQuery.refetch} isFetching={categoriesQuery.isFetching} subject="카테고리" />}
+          {isEditMode && editDetailQuery.isError && <QueryErrorAlert error={editDetailQuery.error} onRetry={editDetailQuery.refetch} isFetching={editDetailQuery.isFetching} hasData={editReady} subject="게시글 원문" />}
+          {isEditMode && !editReady && !editDetailQuery.isError && <Text role="status" c="dimmed">게시글 원문을 불러오는 중입니다.</Text>}
           {pendingAttachmentRetry && (
             <Alert
               icon={<IconInfoCircle size={20} />}
@@ -1604,7 +1616,7 @@ export default function BoardPage() {
             value={categoryId}
             onChange={setCategoryId}
             searchable
-            disabled={!canWrite || !!pendingAttachmentRetry}
+            disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
           />
           <TextInput
             label="제목"
@@ -1612,7 +1624,7 @@ export default function BoardPage() {
             size="md"
             value={newPost.title}
             onChange={(e) => setNewPost({ ...newPost, title: e.currentTarget.value })}
-            disabled={!canWrite || !!pendingAttachmentRetry}
+            disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
           />
 
           <Textarea
@@ -1623,7 +1635,7 @@ export default function BoardPage() {
             size="md"
             value={newPost.content}
             onChange={(e) => setNewPost({ ...newPost, content: e.currentTarget.value })}
-            disabled={!canWrite || !!pendingAttachmentRetry}
+            disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
           />
 
           <Stack gap="xs">
@@ -1635,7 +1647,7 @@ export default function BoardPage() {
                 accept="image/*"
                 multiple
                 onChange={(files) => appendAttachments(files, 'image')}
-                disabled={!canWrite || !!pendingAttachmentRetry}
+                disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
               >
                 {(props) => (
                   <Button
@@ -1651,7 +1663,7 @@ export default function BoardPage() {
               <FileButton
                 multiple
                 onChange={(files) => appendAttachments(files, 'file')}
-                disabled={!canWrite || !!pendingAttachmentRetry}
+                disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
               >
                 {(props) => (
                   <Button
@@ -1705,7 +1717,7 @@ export default function BoardPage() {
                             aria-label="기존 첨부파일 삭제"
                             variant="subtle"
                             color="red"
-                            disabled={!canWrite || !!pendingAttachmentRetry}
+                            disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
                             onClick={() => void removeExistingAttachment(file)}
                           >
                             <IconTrash size={16} />
@@ -1757,7 +1769,7 @@ export default function BoardPage() {
             <Button
               variant="default"
               onClick={() => handleCloseComposer()}
-              disabled={!!pendingAttachmentRetry}
+              disabled={!!pendingAttachmentRetry || updatePostMutation.isPending}
             >
               취소
             </Button>
@@ -1765,7 +1777,7 @@ export default function BoardPage() {
               variant="gradient"
               gradient={{ from: 'orange', to: 'red' }}
               onClick={handleCreateOrUpdate}
-              disabled={!canWrite}
+              disabled={!canWrite || (!pendingAttachmentRetry && ((isEditMode && !editReady) || categoriesQuery.isError))}
               loading={
                 createPostMutation.isPending
                 || updatePostMutation.isPending
@@ -1829,6 +1841,8 @@ export default function BoardPage() {
         centered
         overlayProps={{ blur: 3 }}
       >
+        {detailQuery.isError && <QueryErrorAlert error={detailQuery.error} onRetry={detailQuery.refetch} isFetching={detailQuery.isFetching} hasData={!!detailData} subject="게시글 상세" />}
+        {!modalPost && !detailQuery.isError && <Text role="status" c="dimmed">게시글을 불러오는 중입니다.</Text>}
         {modalPost && (
           <Stack gap="xl">
             {/* 게시글 내용 */}

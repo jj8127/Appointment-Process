@@ -1,5 +1,8 @@
 'use client';
 
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { QueryReadError } from '@/lib/query-read-error';
+
 import {
   ActionIcon,
   Alert,
@@ -614,18 +617,14 @@ export default function DashboardPage() {
     }
   };
 
-  const { data: fcs, isLoading } = useQuery({
+  const { data: fcs, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['dashboard-list', role, residentId],
     queryFn: async () => {
       const resp = await fetch('/api/admin/list');
       const payload: unknown = await resp.json().catch(() => null);
 
       if (!resp.ok) {
-        const message =
-          payload && typeof payload === 'object' && 'error' in payload
-            ? String((payload as { error?: string }).error || '')
-            : '';
-        throw new Error(message || '데이터 로딩 실패');
+        throw new QueryReadError(resp.status);
       }
 
       const data = Array.isArray(payload)
@@ -636,7 +635,6 @@ export default function DashboardPage() {
       if (!Array.isArray(data)) {
         throw new Error('FC 목록 응답 형식이 올바르지 않습니다.');
       }
-      logger.debug('[DEBUG] Web: Fetched FC List:', JSON.stringify(data, null, 2));
       return data;
     },
     enabled: hydrated && (role === 'admin' || role === 'manager'),
@@ -2042,7 +2040,7 @@ export default function DashboardPage() {
               </ThemeIcon>
             </Group>
             <Group align="flex-end" gap="xs">
-              <Text fw={800} size="2.5rem" lh={1}>{metrics.total}</Text>
+              <Text fw={800} size="2.5rem" lh={1}>{fcs ? metrics.total : '—'}</Text>
               <Text c="dimmed" size="sm" mb={6}>명</Text>
             </Group>
             <Group justify="space-between" mt="md" gap="xs">
@@ -2071,7 +2069,7 @@ export default function DashboardPage() {
               </ThemeIcon>
             </Group>
             <Group align="flex-end" gap="xs">
-              <Text fw={800} size="2.5rem" lh={1}>{metrics.pendingAllowance}</Text>
+              <Text fw={800} size="2.5rem" lh={1}>{fcs ? metrics.pendingAllowance : '—'}</Text>
               <Text c="dimmed" size="sm" mb={6}>건</Text>
             </Group>
             <Group justify="space-between" mt="md" gap="xs">
@@ -2100,7 +2098,7 @@ export default function DashboardPage() {
               </ThemeIcon>
             </Group>
             <Group align="flex-end" gap="xs">
-              <Text fw={800} size="2.5rem" lh={1}>{metrics.pendingDocs}</Text>
+              <Text fw={800} size="2.5rem" lh={1}>{fcs ? metrics.pendingDocs : '—'}</Text>
               <Text c="dimmed" size="sm" mb={6}>건</Text>
             </Group>
             <Group justify="space-between" mt="md" gap="xs">
@@ -2109,6 +2107,8 @@ export default function DashboardPage() {
             </Group>
           </Card>
         </SimpleGrid>
+
+        {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!fcs} subject="FC 목록" />}
 
         {/* Quick Actions */}
         <Paper p="md" radius="md" withBorder bg="gray.0">
@@ -2211,7 +2211,7 @@ export default function DashboardPage() {
                           <ThemeIcon size={60} radius="xl" color="gray" variant="light">
                             <IconSearch size={30} />
                           </ThemeIcon>
-                          <Text c="dimmed" fw={500}>조건에 맞는 데이터가 없습니다.</Text>
+                          <Text c="dimmed" fw={500}>{isLoading ? 'FC 목록을 불러오는 중입니다.' : isError ? 'FC 목록을 확인할 수 없습니다.' : '조건에 맞는 데이터가 없습니다.'}</Text>
                         </Stack>
                       </Table.Td>
                     </Table.Tr>
@@ -2240,7 +2240,7 @@ export default function DashboardPage() {
         <Paper p="md" radius="md" withBorder>
           <Group justify="space-between">
             <Text size="sm" c="dimmed">
-              전체 {filteredData.length}명 중 {paginatedData.length}명 표시 (페이지 {currentPage}/{totalPages})
+              {fcs ? `전체 ${filteredData.length}명 중 ${paginatedData.length}명 표시 (페이지 ${currentPage}/${totalPages})` : isError ? 'FC 목록 확인 불가' : 'FC 목록 조회 중'}
             </Text>
           </Group>
         </Paper>

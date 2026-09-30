@@ -21,6 +21,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import { QueryReadState } from '@/components/QueryReadState';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
@@ -40,11 +41,13 @@ import {
 } from '@/lib/fc-workflow';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
+import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useSession } from '@/hooks/use-session';
 import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
 import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
+import { formatHomeCount } from '@/lib/home-read-state';
 import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
 import { createHomeRealtimeChannelTopic } from '@/lib/home-realtime-channel';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
@@ -254,37 +257,20 @@ const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
 ];
 
 const fetchLatestNotice = async (): Promise<LatestNoticeSummary | null> => {
-  try {
-    const { data, error } = await invokeFcNotify<LatestNoticeResponse>({ type: 'latest_notice' });
-    if (error) throw error;
-    if (!data?.ok) {
-      throw new Error(data?.message ?? '최신 공지를 불러오지 못했습니다.');
-    }
-    return data.notice ?? null;
-  } catch (err: unknown) {
-    logger.debug('[Home] latest notice error', err);
-    return null;
-  }
+  const { data, error } = await invokeFcNotify<LatestNoticeResponse>({ type: 'latest_notice' });
+  if (error) throw error;
+  if (!data?.ok) throw new Error(data?.message ?? '최신 공지를 불러오지 못했습니다.');
+  return data.notice ?? null;
 };
 
 const fetchLatestAdminMessage = async (residentId: string) => {
-  if (!residentId) {
-    logger.debug('[Home] residentId 없음');
-    return null;
-  }
-  try {
-    const conversation = await resolveGaraminDirectConversation({
-      targetId: null,
-    });
-    const result = await fetchGaraminDirectMessages(conversation.id);
-    const latestIncoming = [...result.messages]
-      .reverse()
-      .find((message) => message.receiver_id === residentId);
-    return latestIncoming ?? null;
-  } catch (err) {
-    logger.warn('[Home] latest admin msg error', err);
-    return null;
-  }
+  if (!residentId) throw new Error('메시지를 조회할 로그인 정보가 없습니다.');
+  const conversation = await resolveGaraminDirectConversation({ targetId: null });
+  const result = await fetchGaraminDirectMessages(conversation.id);
+  const latestIncoming = [...result.messages]
+    .reverse()
+    .find((message) => message.receiver_id === residentId);
+  return latestIncoming ?? null;
 };
 
 const fetchFcStatus = async (residentId: string) => {
@@ -499,6 +485,7 @@ export default function Home() {
   });
 
   const [adminHomeTab, setAdminHomeTab] = useState<'onboarding' | 'exam'>('onboarding');
+  const sessionScope = useReadSessionScope();
   const [refreshing, setRefreshing] = useState(false);
 
   const examHomeSurface = resolveExamHomeSurface({ role, readOnly, adminHomeTab });
@@ -832,9 +819,12 @@ export default function Home() {
   const {
     data: counts,
     isLoading,
+    isError: countsError,
+    error: countsReadError,
+    isFetching: countsFetching,
     refetch: refetchCounts,
   } = useQuery({
-    queryKey: ['fc-counts', role, residentId],
+    queryKey: ['fc-counts', role, residentId, sessionScope],
     queryFn: () => fetchCounts(role, residentId),
     enabled: !!role,
   });
@@ -843,10 +833,15 @@ export default function Home() {
 
   const {
     data: latestNotice,
+    isLoading: latestNoticeLoading,
+    isError: latestNoticeError,
+    error: latestNoticeReadError,
+    isFetching: latestNoticeFetching,
     refetch: refetchLatestNotice,
   } = useQuery({
-    queryKey: ['latest-notice'],
+    queryKey: ['latest-notice', sessionScope],
     queryFn: fetchLatestNotice,
+    enabled: hydrated && !!role,
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnReconnect: true,
@@ -855,18 +850,22 @@ export default function Home() {
   const {
     data: examStats,
     isLoading: examStatsLoading,
+    isError: examStatsError,
+    error: examStatsReadError,
+    isFetching: examStatsFetching,
     refetch: refetchExamStats,
   } = useQuery({
-    queryKey: ['exam-stats'],
+    queryKey: ['exam-stats', sessionScope],
     queryFn: fetchExamStats,
     enabled: showsExamManagementHome,
   });
   const {
     data: latestAdminMsg,
     isLoading: latestAdminMsgLoading,
+    isError: latestAdminMsgError,
     refetch: refetchLatestAdminMsg,
   } = useQuery({
-    queryKey: ['latest-admin-msg', residentId],
+    queryKey: ['latest-admin-msg', residentId, sessionScope],
     queryFn: () => fetchLatestAdminMessage(residentId),
     enabled: role === 'fc' && !!residentId,
   });
@@ -1258,7 +1257,9 @@ export default function Home() {
 
 
 
-          {isFc ? (
+          {latestNoticeError ? (
+            <QueryReadState error={latestNoticeReadError} message="최신 공지를 불러오지 못했습니다." onRetry={() => void refetchLatestNotice()} retrying={latestNoticeFetching} />
+          ) : isFc ? (
             <View collapsable={false}>
               <AndroidSafeMotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
                 <TourGuideZone
@@ -1270,7 +1271,7 @@ export default function Home() {
                     onPress={handleOpenLatestNotice}>
                     <View style={styles.noticeDot} />
                     <Text style={styles.noticeText} numberOfLines={1}>
-                      {formatLatestNoticeLabel(latestNotice)}
+                      {latestNoticeLoading ? '최신 공지를 불러오는 중...' : formatLatestNoticeLabel(latestNotice)}
                     </Text>
                     <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
                   </Pressable>
@@ -1284,7 +1285,7 @@ export default function Home() {
                 onPress={handleOpenLatestNotice}>
                 <View style={styles.noticeDot} />
                 <Text style={styles.noticeText} numberOfLines={1}>
-                  {formatLatestNoticeLabel(latestNotice)}
+                  {latestNoticeLoading ? '최신 공지를 불러오는 중...' : formatLatestNoticeLabel(latestNotice)}
                 </Text>
                 <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
               </Pressable>
@@ -1368,6 +1369,7 @@ export default function Home() {
                       {isManagerExam ? '신청자 현황을 확인하고 필요한 시험을 접수하세요' : '등록 · 신청자 메뉴만 모았습니다'}
                     </Text>
                   </View>
+                  {examStatsError && <QueryReadState error={examStatsReadError} message="시험 현황을 불러오지 못했습니다." onRetry={() => void refetchExamStats()} retrying={examStatsFetching} />}
                   <Pressable
                     style={({ pressed }) => [styles.examStatRow, pressed && styles.pressedOpacity]}
                     onPress={() => handlePressLink('/exam-manage')}
@@ -1379,12 +1381,12 @@ export default function Home() {
                     <View style={styles.examStatChips}>
                       <View style={styles.examStatChip}>
                         <Text style={styles.examStatChipLabel}>응시자</Text>
-                        <Text style={styles.examStatChipValue}>{examStats?.lifeTotal ?? 0}명</Text>
+                        <Text style={styles.examStatChipValue}>{formatHomeCount(examStats?.lifeTotal, examStatsError)}</Text>
                       </View>
                       <View style={[styles.examStatChip, styles.examStatChipPending]}>
                         <Text style={styles.examStatChipLabel}>미접수</Text>
                         <Text style={[styles.examStatChipValue, styles.examStatChipValuePending]}>
-                          {examStats?.lifePending ?? 0}명
+                          {formatHomeCount(examStats?.lifePending, examStatsError)}
                         </Text>
                       </View>
                     </View>
@@ -1400,12 +1402,12 @@ export default function Home() {
                     <View style={styles.examStatChips}>
                       <View style={styles.examStatChip}>
                         <Text style={styles.examStatChipLabel}>응시자</Text>
-                        <Text style={styles.examStatChipValue}>{examStats?.nonlifeTotal ?? 0}명</Text>
+                        <Text style={styles.examStatChipValue}>{formatHomeCount(examStats?.nonlifeTotal, examStatsError)}</Text>
                       </View>
                       <View style={[styles.examStatChip, styles.examStatChipPending]}>
                         <Text style={styles.examStatChipLabel}>미접수</Text>
                         <Text style={[styles.examStatChipValue, styles.examStatChipValuePending]}>
-                          {examStats?.nonlifePending ?? 0}명
+                          {formatHomeCount(examStats?.nonlifePending, examStatsError)}
                         </Text>
                       </View>
                     </View>
@@ -1417,7 +1419,9 @@ export default function Home() {
                     <Text style={styles.sectionTitle}>현황 요약</Text>
                   </View>
                   <View style={styles.metricsGrid}>
-                    {isLoading ? (
+                    {countsError ? (
+                      <QueryReadState error={countsReadError} message="FC 현황을 불러오지 못했습니다." onRetry={() => void refetchCounts()} retrying={countsFetching} />
+                    ) : isLoading ? (
                       <>
                         <Skeleton width="48%" height={90} />
                         <Skeleton width="48%" height={90} />
@@ -1430,7 +1434,7 @@ export default function Home() {
                           <MetricCard
                             key={metric.label}
                             label={metric.label}
-                            value={`${counts?.steps?.[metric.key] ?? 0}명`}
+                            value={formatHomeCount(counts.steps[metric.key], countsError)}
                             onPress={() => handleStatClick(metric.key)}
                           />
                         ))}
@@ -1780,7 +1784,7 @@ export default function Home() {
                           <Text style={styles.ctaBadgeText}>관리자 할 일</Text>
                         </View>
                         <Text style={styles.ctaTitle}>
-                          {isLoading ? '현황 조회 중...' : `서류 대기 ${counts?.steps?.step4 ?? 0}건`}
+                          {countsError ? '서류 대기 현황 확인 불가' : isLoading || !counts ? '현황 조회 중...' : `서류 대기 ${counts.steps.step4}건`}
                         </Text>
                         <Text style={styles.ctaSub}>승인을 기다리는 FC 서류를 검토해주세요.</Text>
                       </View>
@@ -1808,7 +1812,9 @@ export default function Home() {
                             <Text style={styles.ctaSub} numberOfLines={2}>
                               {latestAdminMsgLoading
                                 ? '메시지 불러오는 중...'
-                                : latestAdminMsg?.content
+                                : latestAdminMsgError
+                                  ? '최근 메시지를 확인할 수 없습니다. 메신저에서 다시 확인해주세요.'
+                                  : latestAdminMsg?.content
                                   ? latestAdminMsg.content
                                   : '최근 총무팀 메시지를 확인하세요.'}
                             </Text>
@@ -1855,7 +1861,9 @@ export default function Home() {
                         <Text style={styles.ctaSub} numberOfLines={2}>
                           {latestAdminMsgLoading
                             ? '메시지 불러오는 중...'
-                            : latestAdminMsg?.content
+                            : latestAdminMsgError
+                                  ? '최근 메시지를 확인할 수 없습니다. 메신저에서 다시 확인해주세요.'
+                                  : latestAdminMsg?.content
                               ? latestAdminMsg.content
                               : '최근 총무팀 메시지를 확인하세요.'}
                         </Text>

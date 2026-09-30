@@ -241,11 +241,12 @@ export async function fetchExamRoundsAction(): Promise<{
         locations: { id: string; location_name: string }[];
     }>;
     error?: string;
+    status?: number;
 }> {
     const sessionCheck = await getVerifiedReadOnlyAdminSession();
     if (!sessionCheck.ok) {
         logger.warn('[fetchExamRounds] unauthorized server action', { status: sessionCheck.status });
-        return { success: false, error: sessionCheck.error };
+        return { success: false, error: sessionCheck.error, status: sessionCheck.status };
     }
 
     try {

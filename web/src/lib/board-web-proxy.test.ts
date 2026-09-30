@@ -108,7 +108,8 @@ describe('admin web board proxy', () => {
     assert.match(routeSource, /createWebGroupChatAppSessionToken/);
     assert.match(routeSource, /SUPABASE_SERVICE_ROLE_KEY/);
 
-    assert.match(loginRouteSource, /appSessionToken:\s*rawAppSessionToken/);
+    assert.match(loginRouteSource, /const rawAppSessionToken\s*=\s*loginData\.appSessionToken/);
+    assert.match(loginRouteSource, /delete publicLoginData\.appSessionToken/);
     assert.match(loginRouteSource, /NextResponse\.json\(publicLoginData/);
     assert.doesNotMatch(loginRouteSource, /NextResponse\.json\(data\s*(?:\?\?|\))/);
   });

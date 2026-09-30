@@ -72,10 +72,10 @@ import {
 import {
   rbCreateRequest,
   rbDeleteCustomer,
-  rbGetCustomers,
-  rbGetDesigners,
-  rbGetFcCodes,
-  rbGetProducts,
+  rbGetCustomersOrThrow,
+  rbGetDesignersOrThrow,
+  rbGetFcCodesOrThrow,
+  rbGetProductsOrThrow,
   rbGetRequestDetail,
   rbSaveCustomer,
   rbSendMessage,
@@ -91,7 +91,8 @@ import {
   mapRequestBoardProductsToMobileCatalog,
   type MobileRequestProduct,
 } from '@/lib/request-board-mobile-products';
-import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
+import { createReadScope } from '@/lib/request-board-read-state';
+import { isRequestBoardSessionReauthError, toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 type StepKey = 'customer' | 'newCustomer' | 'compose' | 'sent';
@@ -610,6 +611,8 @@ export default function RequestBoardCreateScreen() {
   const insets = useSafeAreaInsets();
   const {
     role,
+    residentId,
+    appSessionToken,
     readOnly,
     staffType,
     hydrated,
@@ -621,6 +624,10 @@ export default function RequestBoardCreateScreen() {
   const [step, setStep] = useState<StepKey>(() => resolveRequestBoardCreateInitialStep(entry));
   const [loading, setLoading] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
+  const dataReadScope = useRef(createReadScope());
+  const sessionReadKey = `${residentId ?? ''}:${appSessionToken ?? ''}`;
+  dataReadScope.current.setScope(sessionReadKey);
   const [submitting, setSubmitting] = useState(false);
   const [customers, setCustomers] = useState<RbCustomerProfile[]>([]);
   const [products, setProducts] = useState<MobileRequestProduct[]>([]);
@@ -680,47 +687,84 @@ export default function RequestBoardCreateScreen() {
   });
 
   const loadData = useCallback(async () => {
+    if (!dataReadScope.current.matches(sessionReadKey)) return;
     if (!hydrated) return;
     if (!canUseCreateFlow) {
       setLoading(false);
       return;
     }
+    const isCurrent = dataReadScope.current.issue();
+    hasLoadedInitialRequestDataRef.current = false;
     try {
       setLoading(true);
+      setDataError(null);
       setCatalogLoading(true);
       const sync = await ensureRequestBoardSession();
       if (!sync.ok) {
         throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
       }
 
-      const customerRowsPromise = rbGetCustomers();
+      if (!isCurrent()) return;
+      const customerRowsPromise = rbGetCustomersOrThrow();
       const catalogRowsPromise = Promise.all([
-        rbGetProducts(),
-        rbGetDesigners(),
-        rbGetFcCodes(),
+        rbGetProductsOrThrow(),
+        rbGetDesignersOrThrow(),
+        rbGetFcCodesOrThrow(),
       ]);
 
-      const customerRows = await customerRowsPromise;
-      setCustomers(customerRows);
-      setLoading(false);
-
-      const [productRows, designerRows, codeRows] = await catalogRowsPromise;
-
-      setProducts(mapRequestBoardProductsToMobileCatalog(productRows).products);
-      setDesigners(designerRows);
-      setFcCodes(codeRows);
+      await Promise.all([
+        customerRowsPromise.then((customerRows) => {
+          if (!isCurrent()) return;
+          setCustomers(customerRows);
+          setLoading(false);
+        }),
+        catalogRowsPromise.then(([productRows, designerRows, codeRows]) => {
+          if (!isCurrent()) return;
+          setProducts(mapRequestBoardProductsToMobileCatalog(productRows).products);
+          setDesigners(designerRows);
+          setFcCodes(codeRows);
+        }),
+      ]);
+      if (!isCurrent()) return;
       hasLoadedInitialRequestDataRef.current = true;
     } catch (err) {
-      logger.warn('[request-board-create] load failed', err);
-      Alert.alert(
-        '데이터 로드 실패',
-        toRequestBoardSessionErrorMessage(err, '설계 요청 데이터를 불러오지 못했습니다.'),
-      );
-    } finally {
-      setCatalogLoading(false);
+      if (!isCurrent()) return;
+      // Cancel other parallel completions after either required branch fails.
+      dataReadScope.current.invalidate();
       setLoading(false);
+      setCatalogLoading(false);
+      logger.warn('[request-board-create] load failed', err);
+      setDataError(toRequestBoardSessionErrorMessage(err, '설계 요청 데이터를 불러오지 못했습니다.'));
+    } finally {
+      if (isCurrent()) {
+        setCatalogLoading(false);
+        setLoading(false);
+      }
     }
-  }, [canUseCreateFlow, ensureRequestBoardSession, hydrated]);
+  }, [canUseCreateFlow, ensureRequestBoardSession, hydrated, sessionReadKey]);
+
+  useEffect(() => {
+    const readGuard = dataReadScope.current;
+    hasLoadedInitialRequestDataRef.current = false;
+    setCustomers([]);
+    setProducts([]);
+    setDesigners([]);
+    setFcCodes([]);
+    setSelectedCustomer(null);
+    setNewCustomer(createEmptyCustomerPayload());
+    setEditingCustomerId(null);
+    setDeletingCustomerId(null);
+    setSentRequestIds([]);
+    setPendingAttachmentDelivery(null);
+    setRequestNotificationFeedback(null);
+    setSelectedDesignerIds([]);
+    setSelectedProductIds([]);
+    setRequestText('');
+    setAttachments([]);
+    setSheetVisible(false);
+    requestCreateIntentRef.current = null;
+    return () => readGuard.invalidate();
+  }, [sessionReadKey]);
 
   useEffect(() => {
     void loadData();
@@ -733,6 +777,8 @@ export default function RequestBoardCreateScreen() {
       const refreshDesignerCodeData = async () => {
         if (!hydrated || !canUseCreateFlow || !hasLoadedInitialRequestDataRef.current) return;
 
+        const isCurrent = dataReadScope.current.issue();
+        setCatalogLoading(true);
         try {
           const sync = await ensureRequestBoardSession();
           if (!sync.ok) {
@@ -740,15 +786,20 @@ export default function RequestBoardCreateScreen() {
           }
 
           const [designerRows, codeRows] = await Promise.all([
-            rbGetDesigners(),
-            rbGetFcCodes(),
+            rbGetDesignersOrThrow(),
+            rbGetFcCodesOrThrow(),
           ]);
 
-          if (!isActive) return;
+          if (!isActive || !isCurrent()) return;
+          setDataError(null);
           setDesigners(designerRows);
           setFcCodes(codeRows);
         } catch (err) {
+          if (!isActive || !isCurrent()) return;
           logger.warn('[request-board-create] focus refresh failed', err);
+          setDataError(toRequestBoardSessionErrorMessage(err, '설계매니저와 설계코드를 갱신하지 못했습니다.'));
+        } finally {
+          if (isCurrent()) setCatalogLoading(false);
         }
       };
 
@@ -813,6 +864,7 @@ export default function RequestBoardCreateScreen() {
   ).filter((productName) => REQUEST_TEMPLATES[productName]);
 
   const canSubmit =
+    !dataError && !catalogLoading && hasLoadedInitialRequestDataRef.current &&
     !!selectedCustomer &&
     selectedProductIds.length > 0 &&
     selectedDesignerIds.length > 0 &&
@@ -1176,6 +1228,10 @@ export default function RequestBoardCreateScreen() {
   };
 
   const submitRequest = async (retryFailedOnly = false) => {
+    if (dataError || catalogLoading || !hasLoadedInitialRequestDataRef.current) {
+      Alert.alert('조회 확인 필요', '설계 요청 데이터를 다시 불러온 뒤 시도해주세요.');
+      return;
+    }
     if (!selectedCustomer) {
       Alert.alert('고객 선택', '설계를 요청할 고객을 선택해주세요.');
       return;
@@ -2172,10 +2228,36 @@ export default function RequestBoardCreateScreen() {
         </View>
       ) : null}
 
-      {loading ? (
+      {step === 'sent' && dataError ? (
+        <View style={styles.sentWarning} accessibilityRole="alert">
+          <Text style={styles.sentWarningText}>{dataError}</Text>
+          <Pressable accessibilityRole="button" disabled={loading} onPress={() => void loadData()} style={styles.sentRetryButton}>
+            <Text style={styles.sentRetryText}>데이터 다시 불러오기</Text>
+          </Pressable>
+          {isRequestBoardSessionReauthError(dataError) ? (
+            <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}>
+              <Text style={styles.sentRetryText}>다시 로그인</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {loading && step !== 'sent' ? (
         <View style={styles.loading}>
           <ActivityIndicator color={COLORS.primary} size="large" />
           <Text style={styles.loadingText}>설계 요청 데이터를 불러오는 중입니다</Text>
+        </View>
+      ) : dataError && step !== 'sent' ? (
+        <View style={styles.loading} accessibilityRole="alert">
+          <Text style={styles.loadingText}>{dataError}</Text>
+          <Pressable accessibilityRole="button" onPress={() => void loadData()} style={styles.cta}>
+            <Text style={styles.ctaText}>다시 시도</Text>
+          </Pressable>
+          {isRequestBoardSessionReauthError(dataError) ? (
+            <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}>
+              <Text style={styles.loadingText}>다시 로그인</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : (
         <KeyboardAvoidingView
@@ -2211,7 +2293,7 @@ export default function RequestBoardCreateScreen() {
       )}
 
       <DesignerBottomSheet
-        visible={sheetVisible}
+        visible={sheetVisible && !dataError && !catalogLoading}
         designers={designers}
         selectedDesignerIds={selectedDesignerIds}
         selectedProductIds={selectedProductIds}

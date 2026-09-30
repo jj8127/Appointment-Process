@@ -7,6 +7,12 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 
 # Mobile Playbook: Auth And Gates
 
+## 2026-09-30 목록 조회의 재로그인 처리
+
+- 조회 오류를 빈 목록이나 0명으로 바꾸지 않는다. 구조화된 인증 오류와 HTTP 401은 재로그인이 필요한 상태로 유지하고 기존 `/login?skipAuto=1` 경로를 사용한다.
+- 게시판 조회는 `BoardSessionError`와 `BoardApiError`의 status/code/needsRelogin을 사용한다. 역할 부족 등 일반 403 오류를 무조건 세션 만료로 바꾸지 않는다.
+- 계정·서명 세션이 바뀌면 게시글 원문·선택·진행 중 조회는 이전 세션의 자료를 새 편집기로 넘기지 않는다. 불투명한 메모리 범위만 query key에 사용한다.
+
 ## 2026-08-10 관리자 서면확인 가입 후 첫 로그인 계약
 
 - `admin_written_consent` 가입은 SMS OTP 가입의 우회 플래그가 아니라 별도 검증 근거다. 해당 프로필은 `signup_completed=true`여도 `phone_verified=false`를 유지한다.

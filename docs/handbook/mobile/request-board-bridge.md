@@ -7,6 +7,14 @@ source_of_truth: app/request-board*.tsx + lib/chat-keyboard-layout.ts + lib/requ
 
 # Mobile Playbook: GaramLink Bridge
 
+## 2026-09-30 조회 실패 복구
+
+- 대화·대상·메시지·고객·상품·설계매니저·FC 코드·회사명 조회는 해당 화면에서 `OrThrow` API를 사용한다. 실패를 `[]`로 바꾸지 않고 성공한 빈 응답과 구분한다. 기존 호환 API의 다른 호출자는 유지한다.
+- 메신저의 부분 실패는 안내와 재시도를 제공하고, 같은 계정·대화에서 이미 읽은 내용은 보존한다. 계정·세션·대화가 바뀌면 이전 응답과 화면 데이터를 재사용하지 않는다.
+- 설계코드의 빈 목록에도 새로고침을 제공한다. 설계요청 필수 조회가 실패하면 코드 미등록으로 판단하거나 제출하지 않는다. focus 복귀 시 조회하는 설계매니저·코드에는 같은 실패 처리를 적용하고 작성 내용은 유지한다.
+- 이번 조회 실패 수정에서 사용자가 누르는 재로그인 버튼을 제공한다. 만료 안내 뒤 `/login?skipAuto=1`로 이동하며 자동 로그아웃은 실행하지 않는다. 이 복구 동선은 아래 2026-06-08의 당시 안내 문구 전용 범위를 대체한다.
+- 회귀 검증: `lib/__tests__/request-board-strict-reads.test.ts`, `lib/__tests__/request-board-read-state.test.ts`.
+
 ## 2026-09-09 Logout transition
 
 Request Board home delegates logout navigation to focused `useAppLogout` after local session clearing. The duplicate null-role redirect is removed; background home screens do not navigate during another screen's logout. Bridge authentication/synchronization and permissions are unchanged. Regression: `lib/__tests__/app-logout-navigation.test.js` and `lib/__tests__/logout-source-contract.test.ts`.

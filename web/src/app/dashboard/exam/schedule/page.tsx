@@ -1,5 +1,8 @@
 'use client';
 
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { QueryReadError } from '@/lib/query-read-error';
+
 import {
     ActionIcon,
     Alert,
@@ -146,12 +149,12 @@ export default function ExamSchedulePage() {
     });
 
     // --- Fetch Data ---
-    const { data: rounds, isLoading } = useQuery({
+    const { data: rounds, isLoading, isError, error, refetch, isFetching } = useQuery({
         queryKey: ['exam-rounds'],
         queryFn: async () => {
             const { fetchExamRoundsAction } = await import('./actions');
             const result = await fetchExamRoundsAction();
-            if (!result.success) throw new Error(result.error || '조회 실패');
+            if (!result.success) throw new QueryReadError(result.status);
             return (result.data ?? []) as ExamRound[];
         },
     });
@@ -381,6 +384,8 @@ export default function ExamSchedulePage() {
                 </Alert>
             )}
 
+            {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!rounds} subject="시험 일정" />}
+
             {viewMode === 'list' ? (
                 <Paper shadow="sm" radius="lg" withBorder style={{ overflow: 'hidden' }}>
                     <ScrollArea>
@@ -400,7 +405,7 @@ export default function ExamSchedulePage() {
                                 ) : rows && rows.length > 0 ? (
                                     rows
                                 ) : (
-                                    <Table.Tr><Table.Td colSpan={5} align="center" py={60} c="dimmed">등록된 일정이 없습니다.</Table.Td></Table.Tr>
+                                    <Table.Tr><Table.Td colSpan={5} align="center" py={60} c="dimmed">{isError ? '시험 일정을 확인할 수 없습니다.' : '등록된 일정이 없습니다.'}</Table.Td></Table.Tr>
                                 )}
                             </Table.Tbody>
                         </Table>
@@ -496,7 +501,7 @@ export default function ExamSchedulePage() {
                                 <Group justify="space-between" mb="sm">
                                     <Text fw={700} size="sm">다가오는 시험</Text>
                                     <Badge variant="outline" color="gray" radius="xl">
-                                        {rounds?.length ?? 0}건
+                                        {rounds ? `${rounds.length}건` : isError ? '확인 불가' : '조회 중'}
                                     </Badge>
                                 </Group>
                                 <Stack gap="xs">
@@ -516,7 +521,7 @@ export default function ExamSchedulePage() {
                                         </Paper>
                                     ))}
                                     {!sortedRounds.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).length && (
-                                        <Text size="xs" c="dimmed">예정된 일정이 없습니다.</Text>
+                                        <Text size="xs" c="dimmed">{isLoading ? '시험 일정을 불러오는 중입니다.' : isError ? '시험 일정을 확인할 수 없습니다.' : '예정된 일정이 없습니다.'}</Text>
                                     )}
                                 </Stack>
                             </Paper>

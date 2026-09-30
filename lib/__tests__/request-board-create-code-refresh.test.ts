@@ -14,7 +14,7 @@ describe('request board create FC code refresh', () => {
     expect(source).toContain('hasLoadedInitialRequestDataRef');
     expect(source).toMatch(/useFocusEffect\(\s*useCallback\(\(\) => \{/);
     expect(source).toMatch(/const refreshDesignerCodeData = async \(\) => \{/);
-    expect(source).toMatch(/rbGetDesigners\(\),\s*[\r\n]+\s*rbGetFcCodes\(\),/);
+    expect(source).toMatch(/rbGetDesignersOrThrow\(\),\s*[\r\n]+\s*rbGetFcCodesOrThrow\(\),/);
     expect(source).toMatch(/setDesigners\(designerRows\);\s*[\r\n]+\s*setFcCodes\(codeRows\);/);
     expect(source).toMatch(/logger\.warn\('\[request-board-create\] focus refresh failed'/);
   });

@@ -43,6 +43,8 @@ import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
 import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
+import { useSession } from '@/hooks/use-session';
+import { createReadScope } from '@/lib/request-board-read-state';
 import { classifyGroupChatError } from '@/lib/group-chat-error';
 import {
   formatGroupChatTime,
@@ -263,6 +265,7 @@ const MemberListRow = memo(function MemberListRow({
 
 export default function GroupChatScreen() {
   const router = useRouter();
+  const { residentId, appSessionToken } = useSession();
   const { roomId, anchorMessageId, notificationId, notificationTarget } =
     useLocalSearchParams<{
       roomId?: string;
@@ -326,6 +329,10 @@ export default function GroupChatScreen() {
   const [noticeUpdating, setNoticeUpdating] = useState(false);
   const [permissionUpdatingIds, setPermissionUpdatingIds] = useState<Set<string>>(() => new Set());
   const [roomLoadFailed, setRoomLoadFailed] = useState(false);
+  const [roomLoadError, setRoomLoadError] = useState<ReturnType<typeof classifyGroupChatError> | null>(null);
+  const roomReadScope = useRef(createReadScope());
+  const roomReadKey = `${residentId ?? ''}:${appSessionToken ?? ''}:${roomId ?? 'canonical'}`;
+  roomReadScope.current.setScope(roomReadKey);
   const [anchorLoadFailed, setAnchorLoadFailed] = useState(false);
   const [anchorHasHistoryGap, setAnchorHasHistoryGap] = useState(false);
   const [anchorNavigationDismissed, setAnchorNavigationDismissed] = useState(false);
@@ -401,9 +408,11 @@ export default function GroupChatScreen() {
   }, [anchorRouteKey, hasAnchorRouteParam, hasInvalidAnchorRoute, hasInvalidRoomRoute]);
 
   const load = useCallback(async (options?: { silent?: boolean }) => {
+    if (!roomReadScope.current.matches(roomReadKey)) return;
+    const isCurrent = roomReadScope.current.issue();
     try {
-      setRoomLoadFailed(false);
       const data = await groupChatBootstrap(MESSAGE_LIMIT);
+      if (!isCurrent()) return;
       setRoom(data.room);
       setActor(data.actor);
       setMemberCount(data.member_count);
@@ -448,7 +457,7 @@ export default function GroupChatScreen() {
           anchorContextRequestGenerationRef.current = requestGeneration;
           try {
             const context = await groupChatContext(contextRoomId, routeAnchorMessageId);
-            if (anchorContextRequestGenerationRef.current !== requestGeneration) return;
+            if (!isCurrent() || anchorContextRequestGenerationRef.current !== requestGeneration) return;
             if (
               context.roomRef.roomId !== data.room.id
               || context.anchorMessageId !== routeAnchorMessageId
@@ -466,7 +475,7 @@ export default function GroupChatScreen() {
             setAnchorHasHistoryGap(context.hasBefore || context.hasAfter);
             setAnchorLoadFailed(false);
           } catch {
-            if (anchorContextRequestGenerationRef.current !== requestGeneration) return;
+            if (!isCurrent() || anchorContextRequestGenerationRef.current !== requestGeneration) return;
             logger.warn('[group-chat] anchor context unavailable', {
               reason: 'anchor_context_unavailable',
             });
@@ -493,6 +502,9 @@ export default function GroupChatScreen() {
       }
       // Full bootstrap rows precede display-only context rows so canonical
       // message metadata wins whenever the bounded windows overlap.
+      if (!isCurrent()) return;
+      setRoomLoadFailed(false);
+      setRoomLoadError(null);
       applyMessages([...data.messages, ...contextMessages, ...localMessages]);
       const topMessageId = data.messages[0]?.id ?? null;
       if (topMessageId) {
@@ -501,14 +513,18 @@ export default function GroupChatScreen() {
         });
       }
     } catch (error) {
+      if (!isCurrent()) return;
       setRoomLoadFailed(true);
+      setRoomLoadError(classifyGroupChatError(error));
       logger.warn('[group-chat] load failed', error);
       if (!options?.silent) {
         showGroupChatErrorAlert(error);
       }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (isCurrent()) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [
     anchorNavigationDismissed,
@@ -516,7 +532,31 @@ export default function GroupChatScreen() {
     hasInvalidRoomRoute,
     routeAnchorMessageId,
     routeRoomId,
+    roomReadKey,
   ]);
+
+  useEffect(() => {
+    const readGuard = roomReadScope.current;
+    setRoom(null);
+    setActor(null);
+    setMembers([]);
+    setMemberCount(0);
+    setNotice(null);
+    setCanSendMessages(false);
+    setText('');
+    setSelectedAttachments([]);
+    setReplyTarget(null);
+    setActionMessage(null);
+    setSelectCopyMessage(null);
+    setMemberListVisible(false);
+    setRoomLoadFailed(false);
+    setRoomLoadError(null);
+    anchorContextRef.current = null;
+    anchorContextRequestGenerationRef.current += 1;
+    applyMessages([]);
+    setLoading(true);
+    return () => readGuard.invalidate();
+  }, [residentId, appSessionToken, roomId, applyMessages]);
 
   useFocusEffect(
     useCallback(() => {
@@ -635,6 +675,7 @@ export default function GroupChatScreen() {
           filter: `room_id=eq.${room.id}`,
         },
         (payload) => {
+          if (!roomReadScope.current.matches(roomReadKey)) return;
           const nextMessage = payload.new as GroupChatMessage;
           if (!nextMessage?.id) return;
           const existingMessage = messagesRef.current.find((message) => message.id === nextMessage.id);
@@ -656,7 +697,7 @@ export default function GroupChatScreen() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [applyMessages, room?.id]);
+  }, [applyMessages, room?.id, roomReadKey]);
 
   const handleRefresh = useCallback(() => {
     if (anchorLoadFailed) {
@@ -1614,6 +1655,16 @@ export default function GroupChatScreen() {
         </View>
       ) : null}
 
+      {roomLoadError ? (
+        <View style={styles.anchorUnavailableBanner} accessibilityRole="alert">
+          <Text style={styles.anchorUnavailableText}>{roomLoadError.message}</Text>
+          <Pressable accessibilityRole="button" disabled={refreshing} onPress={handleRefresh} style={styles.anchorLatestButton}>
+            <Text style={styles.anchorLatestButtonText}>다시 시도</Text>
+          </Pressable>
+          {roomLoadError.title === '단톡방 세션 확인 필요' ? <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}><Text style={styles.anchorLatestButtonText}>다시 로그인</Text></Pressable> : null}
+        </View>
+      ) : null}
+
       {loading ? (
         <MessengerLoadingState variant="group-chat" />
       ) : (
@@ -1635,7 +1686,7 @@ export default function GroupChatScreen() {
             ListEmptyComponent={
               <View style={styles.emptyCard}>
                 <Feather name="message-circle" size={28} color="#D1D5DB" />
-                <Text style={styles.emptyText}>아직 메시지가 없습니다.</Text>
+                <Text style={styles.emptyText}>{roomLoadFailed ? '대화를 불러오지 못했습니다.' : '아직 메시지가 없습니다.'}</Text>
               </View>
             }
           />
@@ -1811,7 +1862,7 @@ export default function GroupChatScreen() {
             <View style={styles.memberSheetHeader}>
               <View>
                 <Text style={styles.memberSheetTitle}>대화상대</Text>
-                <Text style={styles.memberSheetSubtitle}>{memberCount.toLocaleString('ko-KR')}명 참여</Text>
+                <Text style={styles.memberSheetSubtitle}>{roomLoadFailed ? '참여자 정보 갱신 필요' : `${memberCount.toLocaleString('ko-KR')}명 참여`}</Text>
               </View>
               <Pressable style={styles.memberCloseButton} onPress={() => setMemberListVisible(false)}>
                 <Feather name="x" size={22} color={CHARCOAL} />
@@ -1852,7 +1903,8 @@ export default function GroupChatScreen() {
               ListEmptyComponent={
                 <View style={styles.memberEmpty}>
                   <Feather name="search" size={24} color="#D1D5DB" />
-                  <Text style={styles.memberEmptyText}>검색 결과가 없습니다.</Text>
+                  <Text style={styles.memberEmptyText}>{roomLoadFailed ? '참여자 정보를 불러오지 못했습니다.' : '검색 결과가 없습니다.'}</Text>
+                  {roomLoadFailed ? <Pressable accessibilityRole="button" disabled={refreshing} onPress={handleRefresh}><Text style={styles.anchorLatestButtonText}>다시 시도</Text></Pressable> : null}
                 </View>
               }
             />

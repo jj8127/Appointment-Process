@@ -18,6 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
+import { QueryReadState } from '@/components/QueryReadState';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
@@ -107,7 +108,7 @@ export default function NoticeScreen() {
     }
   }, [isRequestBoardDesigner, role]);
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, error: noticesError, refetch } = useQuery({
     queryKey: ['notices', 'list', role, residentId],
     queryFn: () => fetchNotices(role, residentId),
     enabled: hydrated,
@@ -196,13 +197,10 @@ export default function NoticeScreen() {
         )}
 
         {isError && (
-          <View style={styles.emptyBox}>
-            <Feather name="alert-circle" size={24} color="#EF4444" />
-            <Text style={styles.errorText}>공지를 불러오지 못했습니다.</Text>
-          </View>
+          <QueryReadState error={noticesError} message="공지를 불러오지 못했습니다." onRetry={() => void refetch()} />
         )}
 
-        {!isLoading && !notices.length && (
+        {!isLoading && !isError && !notices.length && (
           <View style={styles.emptyBox}>
             <Feather name="inbox" size={40} color="#E5E7EB" />
             <Text style={styles.emptyText}>등록된 공지가 없습니다.</Text>

@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useMemo, useState } from 'react';
 
 import type { RecommenderCandidate } from '@/types/referrals';
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { QueryReadError } from '@/lib/query-read-error';
 
 type SearchRecommendersResponse = {
   ok: true;
@@ -42,11 +44,10 @@ export function RecommenderSelect(props: RecommenderSelectProps) {
       });
       const data: unknown = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(
-          data && typeof data === 'object' && 'error' in data
-            ? String((data as { error?: string }).error ?? '추천인 후보를 불러오지 못했습니다.')
-            : '추천인 후보를 불러오지 못했습니다.',
-        );
+        throw new QueryReadError(response.status);
+      }
+      if (!data || typeof data !== 'object' || !('candidates' in data) || !Array.isArray(data.candidates)) {
+        throw new QueryReadError();
       }
       return data as SearchRecommendersResponse;
     },
@@ -84,8 +85,11 @@ export function RecommenderSelect(props: RecommenderSelectProps) {
           props.onChange(nextCandidate);
         }}
         disabled={props.disabled}
-        nothingFoundMessage={query.isFetching ? '후보를 불러오는 중입니다.' : '검색 결과가 없습니다.'}
+        nothingFoundMessage={query.isFetching ? '후보를 불러오는 중입니다.' : query.isError ? '후보를 불러오지 못했습니다.' : '검색 결과가 없습니다.'}
       />
+      {query.isError && (
+        <QueryErrorAlert error={query.error} onRetry={query.refetch} isFetching={query.isFetching} hasData={!!query.data} subject="추천인 후보" />
+      )}
       {selectedCandidate ? (
         <Text size="xs" c="dimmed">
           선택됨: {selectedCandidate.label}

@@ -167,7 +167,7 @@ describe('board write notification callers', () => {
     expect(mobileSource).toContain('setPendingAttachmentRetry({');
     expect(mobileSource).toContain('pendingAttachmentRetry.manifest');
     expect(mobileSource).toContain('manifest: attachmentResult.manifest');
-    expect(mobileSource).toContain('const canEditComposer = canWrite && !pendingAttachmentRetry');
+    expect(mobileSource).toContain('const canEditComposer = canWrite && canEditPost && isSourceReady && !pendingAttachmentRetry');
     expect(mobileSource).toContain('editable={!!canEditComposer}');
     expect(mobileSource).toContain('disabled={!canEditComposer}');
     expect(mobileSource).toContain("BackHandler.addEventListener('hardwareBackPress'");
@@ -183,7 +183,7 @@ describe('board write notification callers', () => {
     expect(webSource).toContain('setPendingAttachmentRetry({');
     expect(webSource).toContain('pendingAttachmentRetry.manifest');
     expect(webSource).toContain('manifest: attachmentResult.manifest');
-    expect(webSource).toContain('closeOnClickOutside={!pendingAttachmentRetry}');
+    expect(webSource).toContain('closeOnClickOutside={!pendingAttachmentRetry && !updatePostMutation.isPending}');
     expect(webSource.indexOf('const createResult = await createBoardPost('))
       .toBeLessThan(webSource.indexOf('await uploadAttachments(createResult.id, null)'));
     expect(webSource).toContain('게시글은 이미 저장되었습니다.');

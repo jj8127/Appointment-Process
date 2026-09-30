@@ -73,13 +73,13 @@ import {
   rbCreateDmConversation,
   rbDeleteDmMessage,
   rbDeleteMessage,
-  rbGetConversations,
+  rbGetConversationsOrThrow,
   rbGetDirectMessageContext,
-  rbGetDirectMessageUsers,
-  rbGetDesigners,
-  rbGetDmConversations,
-  rbGetDmMessages,
-  rbGetMessages,
+  rbGetDirectMessageUsersOrThrow,
+  rbGetDesignersOrThrow,
+  rbGetDmConversationsOrThrow,
+  rbGetDmMessagesOrThrow,
+  rbGetMessagesOrThrow,
   rbGetMessengerRoomPreferences,
   rbGetMessageContext,
   rbGetPresence,
@@ -88,7 +88,8 @@ import {
   rbSetMessengerRoomMuted,
   rbUploadAttachments,
 } from '@/lib/request-board-api';
-import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
+import { createReadScope } from '@/lib/request-board-read-state';
+import { isRequestBoardSessionReauthError, toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
@@ -374,7 +375,10 @@ export default function RequestBoardMessengerScreen() {
     platform: Platform.OS,
     safeAreaBottom: insets.bottom,
   });
-  const { residentId, ensureRequestBoardSession, requestBoardSyncError } = useSession();
+  const { residentId, appSessionToken, ensureRequestBoardSession, requestBoardSyncError } = useSession();
+
+  const requestBoardSyncErrorRef = useRef(requestBoardSyncError);
+  requestBoardSyncErrorRef.current = requestBoardSyncError;
 
   // Auth
   const [authState, setAuthState] = useState<'checking' | 'ready' | 'error'>('checking');
@@ -383,6 +387,8 @@ export default function RequestBoardMessengerScreen() {
 
   // Conversations + Designers
   const [conversations, setConversations] = useState<UnifiedConversation[]>([]);
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
   const [directoryUsers, setDirectoryUsers] = useState<DirectoryItem[]>([]);
   const [convLoading, setConvLoading] = useState(true);
   const [convRefreshing, setConvRefreshing] = useState(false);
@@ -393,6 +399,14 @@ export default function RequestBoardMessengerScreen() {
 
   // Chat detail
   const [activeConv, setActiveConv] = useState<UnifiedConversation | null>(null);
+  const activeConversationRef = useRef<string | null>(null);
+  const accountReadScope = useRef(createReadScope());
+  const conversationReadScope = useRef(createReadScope());
+  const messageReadScope = useRef(createReadScope());
+  const sessionReadKey = `${residentId ?? ''}:${appSessionToken ?? ''}`;
+  accountReadScope.current.setScope(sessionReadKey);
+  conversationReadScope.current.setScope(sessionReadKey);
+  messageReadScope.current.setScope(`${sessionReadKey}:${activeConv?.id ?? ''}`);
   const [messages, setMessages] = useState<UnifiedMessage[]>([]);
   const [actionMessage, setActionMessage] = useState<UnifiedMessage | null>(null);
   const [selectCopyMessage, setSelectCopyMessage] = useState<UnifiedMessage | null>(null);
@@ -706,15 +720,18 @@ export default function RequestBoardMessengerScreen() {
 
   /* ─── Auth Flow ─── */
   const ensureAuth = useCallback(async () => {
+    if (!accountReadScope.current.matches(sessionReadKey)) return;
     setAuthError('');
     setAuthState('checking');
+    const isCurrent = accountReadScope.current.issue();
     const sync = await ensureRequestBoardSession({ force: true });
+    if (!isCurrent()) return;
     if (!sync.ok) {
       setRbUser(null);
       setAuthState('error');
       setAuthError(
         toRequestBoardSessionErrorMessage(
-          sync.error ?? requestBoardSyncError,
+          sync.error ?? requestBoardSyncErrorRef.current,
           '가람Link 계정 연결에 실패했습니다.',
         ),
       );
@@ -722,6 +739,7 @@ export default function RequestBoardMessengerScreen() {
     }
 
     const { authenticated, user, error: authError } = await rbCheckAuth();
+    if (!isCurrent()) return;
     if (authenticated && user) {
       setRbUser(user);
       setAuthState('ready');
@@ -732,35 +750,75 @@ export default function RequestBoardMessengerScreen() {
     setAuthState('error');
     setAuthError(
       toRequestBoardSessionErrorMessage(
-        authError ?? requestBoardSyncError,
+        authError ?? requestBoardSyncErrorRef.current,
         '가람Link 계정 연결에 실패했습니다. 앱에서 다시 로그인한 뒤 시도해주세요.',
       ),
     );
-  }, [ensureRequestBoardSession, requestBoardSyncError]);
+  }, [ensureRequestBoardSession, sessionReadKey]);
 
   useEffect(() => {
-    ensureAuth();
-  }, [residentId, ensureAuth]);
+    const accountGuard = accountReadScope.current;
+    const conversationGuard = conversationReadScope.current;
+    const messageGuard = messageReadScope.current;
+    setRbUser(null);
+    setConversations([]);
+    setDirectoryUsers([]);
+    setPresenceByPhone({});
+    setActiveConv(null);
+    activeConversationRef.current = null;
+    setMessages([]);
+    messagesRef.current = [];
+    latestMessagesRef.current = [];
+    anchorContextMessagesRef.current = [];
+    anchorContextSequenceRef.current += 1;
+    setLoadedConversationId(null);
+    setMsgError('');
+    setConvError('');
+    setInputText('');
+    setPendingFiles([]);
+    setActionMessage(null);
+    setSelectCopyMessage(null);
+    setPreviewImage(null);
+    setConversationSettingsVisible(false);
+    return () => {
+      accountGuard.invalidate();
+      conversationGuard.invalidate();
+      messageGuard.invalidate();
+    };
+  }, [sessionReadKey]);
+
+  useEffect(() => {
+    void ensureAuth();
+  }, [ensureAuth]);
 
   /* ─── Conversation + Designer List ─── */
   const loadConversations = useCallback(async () => {
-    if (authState !== 'ready' || !rbUser) return;
-    setConvError('');
+    if (authState !== 'ready' || !rbUser || !conversationReadScope.current.matches(sessionReadKey)) return;
+    const isCurrent = conversationReadScope.current.issue();
     try {
       logger.info(`[messenger] loading conversations for user ${rbUser.id} (${rbUser.role})`);
 
       // Fetch conversations and designers in parallel
       // Use Promise.allSettled to avoid one failure killing everything
       const directoryPromise = rbUser.role === 'fc'
-        ? rbGetDesigners().then((users) => ({ kind: 'designers' as const, users }))
-        : rbGetDirectMessageUsers(undefined, 'fc').then((users) => ({ kind: 'fc-users' as const, users }));
+        ? rbGetDesignersOrThrow().then((users) => ({ kind: 'designers' as const, users }))
+        : rbGetDirectMessageUsersOrThrow(undefined, 'fc').then((users) => ({ kind: 'fc-users' as const, users }));
 
       const [reqResult, dmResult, directoryResult] = await Promise.allSettled([
-        rbGetConversations(),
-        rbGetDmConversations(),
+        rbGetConversationsOrThrow(),
+        rbGetDmConversationsOrThrow(),
         directoryPromise,
       ]);
 
+      if (!isCurrent()) return;
+      const failures = [reqResult, dmResult, directoryResult].filter((result) => result.status === 'rejected');
+      setConvError(failures.length
+        ? failures.some((result) => isRequestBoardSessionReauthError(result.reason))
+          ? toRequestBoardSessionErrorMessage(failures.find((result) => isRequestBoardSessionReauthError(result.reason))?.reason)
+          : failures.length === 3
+            ? '대화와 대상 목록을 불러오지 못했습니다. 다시 시도해주세요.'
+            : '일부 대화 또는 대상 목록을 갱신하지 못했습니다. 다시 시도해주세요.'
+        : '');
       const reqConvs = reqResult.status === 'fulfilled' ? reqResult.value : [];
       const dmConvs = dmResult.status === 'fulfilled' ? dmResult.value : [];
       const directoryPayload = directoryResult.status === 'fulfilled' ? directoryResult.value : null;
@@ -776,8 +834,10 @@ export default function RequestBoardMessengerScreen() {
         `[messenger] fetched: ${reqConvs.length} request convs, ${dmConvs.length} DM convs, ${directoryPayload?.users.length ?? 0} directory users`,
       );
 
-      const unified: UnifiedConversation[] = [];
-      const participantUserIds = new Set<number>();
+      const unified: UnifiedConversation[] = conversationsRef.current.filter((conversation) =>
+        conversation.type === 'request' ? reqResult.status === 'rejected' : dmResult.status === 'rejected');
+      const participantUserIds = new Set<number>(unified.flatMap((conversation) =>
+        conversation.participantUserId ? [conversation.participantUserId] : []));
 
       for (const c of reqConvs) {
         const isFC = rbUser.role === 'fc';
@@ -850,13 +910,6 @@ export default function RequestBoardMessengerScreen() {
 
       logger.info(`[messenger] total visible conversations: ${sortedVisibleConversations.length}`);
 
-      if (visibleConversations.length === 0 && reqConvs.length === 0 && dmConvs.length === 0) {
-        // Both returned empty - might be an auth or data issue
-        if (reqResult.status === 'rejected' || dmResult.status === 'rejected') {
-          setConvError('대화 목록을 불러오는데 실패했습니다. 아래로 당겨서 다시 시도해주세요.');
-        }
-      }
-
       const nextDirectoryUsers: DirectoryItem[] = rbUser.role === 'fc'
         ? ((directoryPayload?.kind === 'designers' ? directoryPayload.users : []) as RbDesigner[])
             .filter((designer): designer is RbDesigner & {
@@ -893,15 +946,18 @@ export default function RequestBoardMessengerScreen() {
               };
             });
 
-      setDirectoryUsers(nextDirectoryUsers);
+      if (directoryResult.status === 'fulfilled') setDirectoryUsers(nextDirectoryUsers);
     } catch (err) {
+      if (!isCurrent()) return;
       logger.warn('[messenger] load conversations failed', err);
       setConvError('대화 목록을 불러오는데 실패했습니다. 아래로 당겨서 다시 시도해주세요.');
     } finally {
-      setConvLoading(false);
-      setConvRefreshing(false);
+      if (isCurrent()) {
+        setConvLoading(false);
+        setConvRefreshing(false);
+      }
     }
-  }, [authState, rbUser]);
+  }, [authState, rbUser, sessionReadKey]);
 
   useEffect(() => {
     if (authState === 'ready') {
@@ -1056,24 +1112,28 @@ export default function RequestBoardMessengerScreen() {
 
   /* ─── Chat Detail ─── */
   const loadMessages = useCallback(async (conv: UnifiedConversation) => {
-    if (!rbUser) return;
+    if (!rbUser || activeConversationRef.current !== conv.id
+      || !messageReadScope.current.matches(`${sessionReadKey}:${conv.id}`)) return;
+    const isCurrent = messageReadScope.current.issue();
     setMsgLoading(true);
-    setMsgError('');
-    setLoadedConversationId(null);
+
     try {
       let raw: (RbMessage | RbDmMessage)[] = [];
       if (conv.type === 'request') {
-        raw = await rbGetMessages(conv.conversationIds, 100);
+        raw = await rbGetMessagesOrThrow(conv.conversationIds, 100);
       } else {
-        raw = await rbGetDmMessages(conv.primaryConversationId, 100);
+        raw = await rbGetDmMessagesOrThrow(conv.primaryConversationId, 100);
       }
 
+      if (!isCurrent() || activeConversationRef.current !== conv.id) return;
       const mapped = mergeMessagesDesc(
         raw
           .filter((message) => !('deleted_at' in message && message.deleted_at))
           .map(mapRawMessageToUnified),
       );
 
+      latestMessagesRef.current = mapped;
+      setMsgError('');
       setMessages(
         hasAnchorMessageParam && matchesRouteConversationTarget(conv)
           ? mergeMessagesDesc([...mapped, ...anchorContextMessagesRef.current])
@@ -1081,10 +1141,11 @@ export default function RequestBoardMessengerScreen() {
       );
       setLoadedConversationId(conv.id);
     } catch (err) {
+      if (!isCurrent()) return;
       logger.warn('[messenger] load messages failed', err);
-      setMsgError('대화 내용을 불러오지 못했습니다. 다시 시도해 주세요.');
+      setMsgError(toRequestBoardSessionErrorMessage(err, '대화 내용을 불러오지 못했습니다. 다시 시도해 주세요.'));
     } finally {
-      setMsgLoading(false);
+      if (isCurrent()) setMsgLoading(false);
     }
   }, [
     hasAnchorMessageParam,
@@ -1092,6 +1153,7 @@ export default function RequestBoardMessengerScreen() {
     matchesRouteConversationTarget,
     mergeMessagesDesc,
     rbUser,
+    sessionReadKey,
   ]);
 
   useEffect(() => {
@@ -1113,6 +1175,15 @@ export default function RequestBoardMessengerScreen() {
     }
 
     setConvError('');
+    activeConversationRef.current = targetConversation.id;
+    messageReadScope.current.setScope(`${residentId ?? ''}:${appSessionToken ?? ''}:${targetConversation.id}`);
+    setMessages([]);
+    messagesRef.current = [];
+    latestMessagesRef.current = [];
+    anchorContextMessagesRef.current = [];
+    anchorContextSequenceRef.current += 1;
+    setMsgError('');
+    setLoadedConversationId(null);
     setActiveConv(targetConversation);
     setInputText('');
     setPendingFiles([]);
@@ -1125,6 +1196,8 @@ export default function RequestBoardMessengerScreen() {
     loadMessages,
     matchesRouteConversationTarget,
     notificationConversationId,
+    residentId,
+    appSessionToken,
   ]);
 
   useEffect(() => {
@@ -1227,6 +1300,15 @@ export default function RequestBoardMessengerScreen() {
   });
 
   const openConversation = (conv: UnifiedConversation) => {
+    activeConversationRef.current = conv.id;
+    messageReadScope.current.setScope(`${residentId ?? ''}:${appSessionToken ?? ''}:${conv.id}`);
+    setMessages([]);
+    messagesRef.current = [];
+    latestMessagesRef.current = [];
+    anchorContextMessagesRef.current = [];
+    anchorContextSequenceRef.current += 1;
+    setMsgError('');
+    setLoadedConversationId(null);
     setActiveConv(conv);
     setInputText('');
     setPendingFiles([]);
@@ -1505,6 +1587,8 @@ export default function RequestBoardMessengerScreen() {
   const handleBack = () => {
     if (activeConv) {
       setActiveConv(null);
+      activeConversationRef.current = null;
+      messageReadScope.current.invalidate();
       setMessages([]);
       setPendingFiles([]);
       setPreviewImage(null);
@@ -1746,7 +1830,7 @@ export default function RequestBoardMessengerScreen() {
               { marginTop: SPACING.sm },
               pressed && { opacity: 0.7 },
             ]}
-            onPress={() => router.replace('/login')}
+            onPress={() => router.replace('/login?skipAuto=1')}
           >
             <Text style={styles.retryBtnText}>앱 로그인 화면으로 이동</Text>
           </Pressable>
@@ -1862,6 +1946,16 @@ export default function RequestBoardMessengerScreen() {
             </View>
           ) : null}
 
+        {msgError ? (
+          <View style={styles.anchorContextBanner} accessibilityRole="alert">
+            <Text style={styles.anchorContextBannerText}>{msgError}</Text>
+            <Pressable accessibilityRole="button" disabled={msgLoading} onPress={() => void loadMessages(activeConv)}>
+              <Text style={styles.anchorContextRetryText}>다시 시도</Text>
+            </Pressable>
+            {isRequestBoardSessionReauthError(msgError) ? <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}><Text style={styles.anchorContextRetryText}>다시 로그인</Text></Pressable> : null}
+          </View>
+        ) : null}
+
         {/* Messages + Input */}
         <View style={{ flex: 1 }}>
           {msgLoading && messages.length === 0 ? (
@@ -1874,8 +1968,8 @@ export default function RequestBoardMessengerScreen() {
           ) : messages.length === 0 ? (
             <View style={styles.emptyChatWrap}>
               <Feather name="message-circle" size={36} color={COLORS.gray[200]} />
-              <Text style={styles.emptyChatText}>아직 메시지가 없습니다</Text>
-              <Text style={styles.emptyChatSub}>첫 메시지를 보내보세요</Text>
+              <Text style={styles.emptyChatText}>{msgError ? '대화를 확인할 수 없습니다' : '아직 메시지가 없습니다'}</Text>
+              {!msgError ? <Text style={styles.emptyChatSub}>첫 메시지를 보내보세요</Text> : null}
             </View>
           ) : (
             <FlatList<UnifiedMessage>
@@ -2292,6 +2386,16 @@ export default function RequestBoardMessengerScreen() {
           )}
         </View>
       </View>
+
+      {convError ? (
+        <View style={styles.anchorContextBanner} accessibilityRole="alert">
+          <Text style={styles.anchorContextBannerText}>{convError}</Text>
+          <Pressable accessibilityRole="button" disabled={convLoading} onPress={() => { setConvLoading(true); void loadConversations(); }}>
+            <Text style={styles.anchorContextRetryText}>다시 시도</Text>
+          </Pressable>
+          {isRequestBoardSessionReauthError(convError) ? <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}><Text style={styles.anchorContextRetryText}>다시 로그인</Text></Pressable> : null}
+        </View>
+      ) : null}
 
       {/* List */}
       {convLoading ? (

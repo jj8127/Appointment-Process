@@ -1,5 +1,8 @@
 'use client';
 
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { QueryReadError } from '@/lib/query-read-error';
+
 import {
     ActionIcon,
     Badge,
@@ -69,10 +72,11 @@ async function fetchNotices(): Promise<NoticeItem[]> {
     const data = (await res.json().catch(() => ({}))) as NoticesResponse;
 
     if (!res.ok || !data?.ok) {
-        throw new Error(data?.error ?? '공지 목록을 불러오지 못했습니다.');
+        throw new QueryReadError(res.status);
     }
 
-    return data.notices ?? [];
+    if (!Array.isArray(data.notices)) throw new QueryReadError();
+    return data.notices;
 }
 
 export default function NotificationsPage() {
@@ -112,7 +116,7 @@ export default function NotificationsPage() {
     };
 
     // Fetch Notices
-    const { data: noticesData, isLoading } = useQuery({
+    const { data: noticesData, isLoading, isError, error, refetch, isFetching } = useQuery({
         queryKey: ['notices', role],
         queryFn: fetchNotices,
         enabled: hydrated && (role === 'admin' || role === 'manager'),
@@ -278,6 +282,8 @@ export default function NotificationsPage() {
                 </Group>
             </Paper>
 
+            {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!noticesData} subject="공지 목록" />}
+
             <Paper shadow="sm" radius="md" withBorder pos="relative">
                 <LoadingOverlay visible={isLoading} overlayProps={{ blur: 2 }} />
                 <ScrollArea>
@@ -297,7 +303,7 @@ export default function NotificationsPage() {
                             ) : (
                                 <Table.Tr>
                                     <Table.Td colSpan={5} align="center" py={40}>
-                                        <Text c="dimmed">등록된 공지사항이 없습니다.</Text>
+                                        <Text c="dimmed">{isLoading ? '공지 목록을 불러오는 중입니다.' : isError ? '공지 목록을 확인할 수 없습니다.' : '등록된 공지사항이 없습니다.'}</Text>
                                     </Table.Td>
                                 </Table.Tr>
                             )}

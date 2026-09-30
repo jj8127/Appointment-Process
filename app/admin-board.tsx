@@ -22,8 +22,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { QueryReadState } from '@/components/QueryReadState';
 import { RefreshButton } from '@/components/RefreshButton';
+import { useBoardEditorSource } from '@/hooks/use-board-editor-source';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useSession } from '@/hooks/use-session';
 import {
   deliverBoardAttachments,
@@ -44,6 +47,7 @@ import {
   retryBoardNotification,
   signBoardAttachments,
   type BoardNotificationRetry,
+  type BoardActor,
   updateBoardPost,
 } from '@/lib/board-api';
 
@@ -93,17 +97,22 @@ const replaceImageOrder = (
 };
 
 export default function AdminBoardScreen() {
-  const router = useRouter();
+  const sessionScope = useReadSessionScope();
   const params = useLocalSearchParams<{ postId?: string }>();
   const postId = parseExactlyOneUuidRouteParam(params.postId);
   const { role, displayName, residentId, readOnly } = useSession();
-  const queryClient = useQueryClient();
-  const keyboardPadding = useKeyboardPadding();
-
   const actor = useMemo(
     () => buildBoardActor({ role, residentId, displayName, readOnly }),
     [displayName, readOnly, residentId, role],
   );
+  // A route/account change owns a fresh draft and cannot reuse a late response.
+  return <AdminBoardComposer key={`${sessionScope}:${postId}`} actor={actor} postId={postId} sessionScope={sessionScope} />;
+}
+
+function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor | null; postId: string | null; sessionScope: number }) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const keyboardPadding = useKeyboardPadding();
   const canWrite = actor?.role === 'admin' || actor?.role === 'manager';
   const isEditMode = !!postId;
   const screenTitle = isEditMode ? '게시글 수정' : '게시글 작성';
@@ -116,11 +125,9 @@ export default function AdminBoardScreen() {
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<LocalAttachment[]>([]);
-  const [didLoadPost, setDidLoadPost] = useState(false);
   const [pendingAttachmentRetry, setPendingAttachmentRetry] =
     useState<PendingBoardAttachmentRetry | null>(null);
   const pickingRef = useRef(false);
-  const canEditComposer = canWrite && !pendingAttachmentRetry;
 
   useEffect(() => {
     if (!pendingAttachmentRetry) return undefined;
@@ -151,7 +158,7 @@ export default function AdminBoardScreen() {
     [attachments],
   );
 
-  const { data: categories = [] } = useQuery({
+  const { data: categories = [], isError: isCategoriesError, error: categoriesError, isPending: isCategoriesPending, isFetching: isCategoriesFetching, refetch: refetchCategories } = useQuery({
     queryKey: ['board-categories', actor?.role, actor?.residentId],
     queryFn: () => {
       if (!actor) return Promise.resolve([]);
@@ -160,14 +167,21 @@ export default function AdminBoardScreen() {
     enabled: !!actor,
   });
 
-  const { data: detailData } = useQuery({
-    queryKey: ['board-detail', postId],
+  const { data: detailData, isError: isDetailError, error: detailError, isFetching: isDetailFetching, refetch: refetchDetail } = useQuery({
+    queryKey: ['board-detail', postId, sessionScope],
     queryFn: () => {
       if (!actor || !postId) return Promise.resolve(null);
       return fetchBoardDetail(actor, postId);
     },
     enabled: !!actor && !!postId,
   });
+
+  const { source: initialDetail, ready: isSourceReady } = useBoardEditorSource(
+    String(sessionScope), postId, detailData, isDetailError,
+  );
+  const canEditPost = !isEditMode || actor?.role !== 'manager' || initialDetail?.post.isMine === true;
+  const canEditComposer = canWrite && canEditPost && isSourceReady && !pendingAttachmentRetry;
+  const canSubmitContent = canEditComposer && !isCategoriesError && !isCategoriesPending && categories.length > 0;
 
   useEffect(() => {
     if (!isEditMode && !categoryId && categories.length > 0) {
@@ -176,19 +190,18 @@ export default function AdminBoardScreen() {
   }, [categories, categoryId, isEditMode]);
 
   useEffect(() => {
-    if (!detailData?.post || didLoadPost) return;
-    if (actor?.role === 'manager' && !detailData.post.isMine) {
+    if (!initialDetail) return;
+    if (actor?.role === 'manager' && !initialDetail.post.isMine) {
       Alert.alert('권한 없음', '본인 게시글만 수정할 수 있습니다.', [
         { text: '확인', onPress: () => router.back() },
       ]);
-      setDidLoadPost(true);
       return;
     }
-    setTitle(detailData.post.title);
-    setContent(detailData.post.content);
-    setCategoryId(detailData.post.categoryId);
+    setTitle(initialDetail.post.title);
+    setContent(initialDetail.post.content);
+    setCategoryId(initialDetail.post.categoryId);
     setExistingAttachments(
-      groupImagesFirst(detailData.attachments.map((file) => ({
+      groupImagesFirst(initialDetail.attachments.map((file) => ({
         id: file.id,
         uri: file.signedUrl ?? '',
         fileName: file.fileName,
@@ -197,8 +210,7 @@ export default function AdminBoardScreen() {
         fileType: file.fileType,
       }))),
     );
-    setDidLoadPost(true);
-  }, [actor?.role, detailData, didLoadPost, router]);
+  }, [actor?.role, initialDetail, router]);
 
   const uploadSelectedAttachments = async (
     targetPostId: string,
@@ -379,6 +391,10 @@ export default function AdminBoardScreen() {
       } finally {
         setLoading(false);
       }
+      return;
+    }
+    if (!canSubmitContent) {
+      Alert.alert('조회 필요', '게시글과 카테고리를 불러온 뒤 다시 시도해주세요.');
       return;
     }
     if (!title.trim() || !content.trim()) {
@@ -696,14 +712,14 @@ export default function AdminBoardScreen() {
                   (
                     loading
                     || !canWrite
-                    || (!pendingAttachmentRetry && (!categoryId || !title.trim() || !content.trim()))
+                    || (!pendingAttachmentRetry && (!canSubmitContent || !categoryId || !title.trim() || !content.trim()))
                   ) && styles.headerSubmitButtonDisabled,
                 ]}
                 onPress={handleSubmit}
                 disabled={
                   loading
                   || !canWrite
-                  || (!pendingAttachmentRetry && (!categoryId || !title.trim() || !content.trim()))
+                  || (!pendingAttachmentRetry && (!canSubmitContent || !categoryId || !title.trim() || !content.trim()))
                 }
               >
                 <Text style={styles.headerSubmitButtonText}>
@@ -711,7 +727,7 @@ export default function AdminBoardScreen() {
                 </Text>
               </Pressable>
             )}
-            <RefreshButton />
+            <RefreshButton onPress={async () => { await Promise.all([refetchCategories(), ...(isEditMode ? [refetchDetail()] : [])]); }} />
           </View>
         </View>
 
@@ -730,13 +746,25 @@ export default function AdminBoardScreen() {
           </View>
         )}
 
+        {isEditMode && !isSourceReady && (
+          <QueryReadState
+            error={detailError}
+            message={isDetailError ? '수정할 게시글을 불러오지 못했습니다.' : '수정할 게시글을 불러오는 중...'}
+            onRetry={isDetailError ? () => void refetchDetail() : undefined}
+            retrying={isDetailFetching}
+          />
+        )}
         <View style={styles.form}>
           <View style={styles.field}>
             <Text style={styles.label}>카테고리</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
-              {categories.length === 0 && (
+              {isCategoriesError ? (
+                <QueryReadState error={categoriesError} message="카테고리를 불러오지 못했습니다." onRetry={() => void refetchCategories()} retrying={isCategoriesFetching} />
+              ) : isCategoriesPending ? (
                 <Text style={styles.categoryEmpty}>카테고리를 불러오는 중입니다.</Text>
-              )}
+              ) : categories.length === 0 ? (
+                <Text style={styles.categoryEmpty}>등록된 카테고리가 없습니다.</Text>
+              ) : null}
               {categories.map((category) => {
                 const isSelected = category.id === categoryId;
                 return (
@@ -942,7 +970,7 @@ export default function AdminBoardScreen() {
           disabled={
             loading
             || !canWrite
-            || (!pendingAttachmentRetry && (!categoryId || !title.trim() || !content.trim()))
+            || (!pendingAttachmentRetry && (!canSubmitContent || !categoryId || !title.trim() || !content.trim()))
           }
           loading={loading}
           variant="primary"

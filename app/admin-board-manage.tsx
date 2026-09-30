@@ -1,3 +1,4 @@
+import { QueryReadState } from '@/components/QueryReadState';
 import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
@@ -41,6 +42,7 @@ import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { ReactionPicker, DEFAULT_REACTIONS } from '@/components/ReactionPicker';
 import { useAppLogout } from '@/hooks/use-app-logout';
+import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useSession } from '@/hooks/use-session';
 import { openBoardAttachment } from '@/lib/board-attachment-actions';
 import { showBoardFeedbackAlert } from '@/lib/board-feedback-alerts';
@@ -96,6 +98,7 @@ type ReactionMutationContext = {
   previousMyReaction: BoardReactionKey | null | undefined;
 };
 type CommentLikeMutationContext = {
+  detailKey: (string | number)[];
   previousDetail?: BoardDetail;
 };
 type PreviewModalState = {
@@ -207,6 +210,11 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
 }
 
 export default function AdminBoardManageScreen() {
+  const sessionScope = useReadSessionScope();
+  return <AdminBoardManageContent key={sessionScope} sessionScope={sessionScope} />;
+}
+
+function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
   const router = useRouter();
   const appLogout = useAppLogout();
   const navigation = useNavigation();
@@ -366,7 +374,7 @@ export default function AdminBoardManageScreen() {
   }));
 
   // Queries
-  const { data: listData, isLoading, isError, refetch } = useQuery({
+  const { data: listData, isLoading, isError, error: listError, refetch } = useQuery({
     queryKey: buildBoardListQueryKey({
       actorRole: actor?.role,
       residentId: actor?.residentId,
@@ -391,8 +399,8 @@ export default function AdminBoardManageScreen() {
   });
 
   const selectedPostId = selectedPost?.id ?? null;
-  const { data: detailData } = useQuery({
-    queryKey: ['board-detail', selectedPostId],
+  const { data: detailData, isError: isDetailError, error: detailError, isFetching: isDetailFetching, refetch: refetchDetail } = useQuery({
+    queryKey: ['board-detail', selectedPostId, sessionScope],
     queryFn: () => {
       if (!actor || !selectedPostId) return Promise.resolve(null as unknown as BoardDetail);
       return fetchBoardDetail(actor, selectedPostId);
@@ -412,22 +420,8 @@ export default function AdminBoardManageScreen() {
     (rawCategoryId?: string | null) => categoryNameMap.get(rawCategoryId ?? '') ?? '일반',
     [categoryNameMap],
   );
-  const modalPost = detailData?.post ?? (selectedPost
-    ? {
-      id: selectedPost.id,
-      categoryId: selectedPost.categoryId,
-      title: selectedPost.title,
-      content: selectedPost.contentPreview,
-      authorName: selectedPost.authorName,
-      authorRole: selectedPost.authorRole,
-      createdAt: selectedPost.createdAt,
-      updatedAt: selectedPost.updatedAt,
-      editedAt: selectedPost.editedAt,
-      isPinned: selectedPost.isPinned,
-      isMine: selectedPost.isMine,
-      viewCount: selectedPost.stats.viewCount ?? 0,
-    }
-    : null);
+  const hasCompleteDetail = detailData?.post.id === selectedPostId && !isDetailError;
+  const modalPost = hasCompleteDetail ? detailData?.post : null;
   const modalAttachments = useMemo(() => detailData?.attachments ?? [], [detailData?.attachments]);
   const fallbackReactions = selectedPost?.reactions ?? {
     like: 0,
@@ -501,7 +495,7 @@ export default function AdminBoardManageScreen() {
     onMutate: async ({ postId, reactionType }) => {
       if (!actor) return undefined;
 
-      const detailKey = ['board-detail', postId];
+      const detailKey = ['board-detail', postId, sessionScope];
       const previousDetail = queryClient.getQueryData<BoardDetail>(detailKey);
       const previousMyReaction = myReactionOverride;
       const currentCounts = buildBoardReactionCounts(previousDetail?.reactions ?? modalReactions);
@@ -524,17 +518,19 @@ export default function AdminBoardManageScreen() {
       return { previousDetail, previousMyReaction };
     },
     onError: (error, variables, context) => {
-      const detailKey = ['board-detail', variables.postId];
+      const detailKey = ['board-detail', variables.postId, sessionScope];
       if (context?.previousDetail) {
         queryClient.setQueryData(detailKey, context.previousDetail);
       }
-      setMyReactionOverride(context?.previousMyReaction);
+      if (selectedPostId === variables.postId) {
+        setMyReactionOverride(context?.previousMyReaction);
+      }
       logBoardError('reaction', error);
       showBoardFeedbackAlert(Alert.alert, 'reaction-failed');
     },
     onSuccess: (data, variables) => {
       if (!data) return;
-      const detailKey = ['board-detail', variables.postId];
+      const detailKey = ['board-detail', variables.postId, sessionScope];
       queryClient.setQueryData<BoardDetail>(detailKey, (current) => {
         if (!current) return current;
         return {
@@ -545,7 +541,9 @@ export default function AdminBoardManageScreen() {
           },
         };
       });
-      setMyReactionOverride(data.myReaction ?? null);
+      if (selectedPostId === variables.postId) {
+        setMyReactionOverride(data.myReaction ?? null);
+      }
     },
   });
 
@@ -574,7 +572,7 @@ export default function AdminBoardManageScreen() {
           current.filter((commentId) => commentId !== variables.threadRootId)
         ));
       }
-      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
+      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId, sessionScope] });
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
     },
     onError: (error) => {
@@ -595,7 +593,7 @@ export default function AdminBoardManageScreen() {
     },
     onMutate: async (commentId: string) => {
       if (!actor || !selectedPostId) return undefined;
-      const detailKey = ['board-detail', selectedPostId];
+      const detailKey = ['board-detail', selectedPostId, sessionScope];
       await queryClient.cancelQueries({ queryKey: detailKey });
       const previousDetail = queryClient.getQueryData<BoardDetail>(detailKey);
 
@@ -618,20 +616,18 @@ export default function AdminBoardManageScreen() {
         });
       }
 
-      return { previousDetail };
+      return { detailKey, previousDetail };
     },
     onError: (error, _commentId, context) => {
-      const detailKey = ['board-detail', selectedPostId];
       if (context?.previousDetail) {
-        queryClient.setQueryData(detailKey, context.previousDetail);
+        queryClient.setQueryData(context.detailKey, context.previousDetail);
       }
       logBoardError('comment-like', error);
       showBoardFeedbackAlert(Alert.alert, 'comment-like-failed');
     },
-    onSuccess: (data, commentId) => {
-      if (!selectedPostId) return;
-      const detailKey = ['board-detail', selectedPostId];
-      queryClient.setQueryData<BoardDetail>(detailKey, (current) => {
+    onSuccess: (data, commentId, context) => {
+      if (!context) return;
+      queryClient.setQueryData<BoardDetail>(context.detailKey, (current) => {
         if (!current) return current;
         return {
           ...current,
@@ -660,7 +656,7 @@ export default function AdminBoardManageScreen() {
     onSuccess: () => {
       setEditingCommentId(null);
       setEditingCommentText('');
-      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
+      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId, sessionScope] });
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
     },
     onError: (error) => {
@@ -677,7 +673,7 @@ export default function AdminBoardManageScreen() {
     onSuccess: () => {
       setEditingCommentId(null);
       setEditingCommentText('');
-      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
+      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId, sessionScope] });
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
     },
     onError: (error) => {
@@ -694,7 +690,7 @@ export default function AdminBoardManageScreen() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       if (selectedPostId) {
-        queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId] });
+        queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId, sessionScope] });
       }
       animateCloseModal();
     },
@@ -1098,13 +1094,10 @@ export default function AdminBoardManageScreen() {
           )}
 
           {isError && (
-            <View style={styles.emptyBox}>
-              <Feather name="alert-circle" size={32} color="#EF4444" />
-              <Text style={styles.errorText}>게시글을 불러오지 못했습니다.</Text>
-            </View>
+            <QueryReadState error={listError} message="게시글을 불러오지 못했습니다." onRetry={() => void refetch()} />
           )}
 
-          {!isLoading && filteredPosts.length === 0 && (
+          {!isLoading && !isError && filteredPosts.length === 0 && (
             <View style={styles.emptyBox}>
               <Feather name="inbox" size={40} color={BORDER} />
               <Text style={styles.emptyText}>등록된 게시글이 없습니다.</Text>
@@ -1298,6 +1291,14 @@ export default function AdminBoardManageScreen() {
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="none"
               >
+                {!hasCompleteDetail ? (
+                  <QueryReadState
+                    error={detailError}
+                    message={isDetailError ? '게시글 상세를 불러오지 못했습니다.' : '게시글을 불러오는 중...'}
+                    onRetry={isDetailError ? () => void refetchDetail() : undefined}
+                    retrying={isDetailFetching}
+                  />
+                ) : (<>
               {/* 작성자 정보 */}
                 <View style={styles.modalAuthor}>
                   <View style={styles.avatar}>
@@ -1461,9 +1462,10 @@ export default function AdminBoardManageScreen() {
                 )}
               </View>
 
+                </>)}
               </KeyboardAwareWrapper>
               {/* 댓글 작성 */}
-              <KeyboardSafeBottomBar
+              {hasCompleteDetail && <KeyboardSafeBottomBar
                 contentContainerStyle={[
                   styles.commentBar,
                   { paddingBottom: Math.max(insets.bottom, 12) },
@@ -1497,7 +1499,7 @@ export default function AdminBoardManageScreen() {
                     <Feather name="send" size={18} color="#fff" />
                   </Pressable>
                 </View>
-              </KeyboardSafeBottomBar>
+              </KeyboardSafeBottomBar>}
 
               {showActionSheet && selectedPost && canManageSelected && (
                 <View style={styles.actionSheetOverlay}>

@@ -485,20 +485,32 @@ export type RbListReadResource =
   | 'conversations'
   | 'direct-conversations'
   | 'designers'
-  | 'direct-message-users';
+  | 'direct-message-users'
+  | 'messages'
+  | 'direct-messages'
+  | 'products'
+  | 'customers'
+  | 'fc-codes'
+  | 'company-names';
 
 export class RbListReadError extends Error {
   readonly resource: RbListReadResource;
+  readonly status?: number;
   readonly retryable: boolean;
   readonly code?: string;
 
   constructor(
     resource: RbListReadResource,
-    result: Pick<RbApiResult, 'retryable' | 'code'>,
+    result: Pick<RbApiResult, 'retryable' | 'code' | 'status'>,
   ) {
-    super('GaramLink list read failed');
+    super(result.status === 401
+      ? '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.'
+      : result.status === 403
+        ? '접근 권한이 없습니다.'
+        : '가람Link 데이터를 불러오지 못했습니다. 다시 시도해주세요.');
     this.name = 'RbListReadError';
     this.resource = resource;
+    this.status = result.status;
     this.retryable = Boolean(result.retryable);
     if (result.code) this.code = result.code;
   }
@@ -548,12 +560,12 @@ async function rbFetch<T>(
         }
       }
       await clearAuth();
-      return { success: false, error: '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.' };
+      return { success: false, status: 401, error: '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.' };
     }
 
     if (res.status === 403) {
       logger.warn(`[rb-api] 403 Forbidden: ${safeDiagnosticPath}`);
-      return { success: false, error: '접근 권한이 없습니다.' };
+      return { success: false, status: 403, error: '접근 권한이 없습니다.' };
     }
 
     if (!res.ok) {
@@ -973,6 +985,18 @@ const messageContextFailure = (retryable = false) => ({
   retryable,
 });
 
+export async function rbGetMessagesOrThrow(
+  conversationIds: number[],
+  limit = 50,
+): Promise<RbMessage[]> {
+  if (conversationIds.length === 0) return [];
+  return rbReadListOrThrow(
+    `/api/messages/by-conversations?ids=${conversationIds.join(',')}&markRead=true&limit=${limit}`,
+    'messages',
+    'messages',
+  );
+}
+
 export async function rbGetMessages(
   conversationIds: number[],
   limit = 50,
@@ -1112,6 +1136,17 @@ export async function rbGetPresence(
   }
   logger.warn('[rb-api] presence fetch failed:', res.error);
   return [];
+}
+
+export async function rbGetDmMessagesOrThrow(
+  conversationId: number,
+  limit = 50,
+): Promise<RbDmMessage[]> {
+  return rbReadListOrThrow(
+    `/api/direct-messages/${conversationId}?limit=${limit}`,
+    'direct-messages',
+    'DM messages',
+  );
 }
 
 export async function rbGetDmMessages(
@@ -1631,11 +1666,19 @@ export async function rbGetDesignersOrThrow(search?: string): Promise<RbDesigner
   return rbReadListOrThrow(`/api/designers?${params}`, 'designers', 'designers');
 }
 
+export async function rbGetProductsOrThrow(): Promise<RbInsuranceProduct[]> {
+  return rbReadListOrThrow('/api/designers/products/list', 'products', 'products');
+}
+
 export async function rbGetProducts(): Promise<RbInsuranceProduct[]> {
   const res = await rbFetch<RbInsuranceProduct[]>('/api/designers/products/list');
   if (res.success && Array.isArray(res.data)) return res.data;
   logger.warn('[rb-api] products failed:', res.error);
   return [];
+}
+
+export async function rbGetCustomersOrThrow(): Promise<RbCustomerProfile[]> {
+  return rbReadListOrThrow('/api/customers?ssnView=full', 'customers', 'customers');
 }
 
 export async function rbGetCustomers(): Promise<RbCustomerProfile[]> {
@@ -2160,10 +2203,18 @@ export type RbFcCode = {
   updated_at: string;
 };
 
+export async function rbGetFcCodesOrThrow(): Promise<RbFcCode[]> {
+  return rbReadListOrThrow('/api/fc-codes', 'fc-codes', 'fc-codes');
+}
+
 export async function rbGetFcCodes(): Promise<RbFcCode[]> {
   const res = await rbFetch<RbFcCode[]>('/api/fc-codes');
   if (res.success && Array.isArray(res.data)) return res.data;
   return [];
+}
+
+export async function rbGetCompanyNamesOrThrow(): Promise<string[]> {
+  return rbReadListOrThrow('/api/fc-codes/company-names', 'company-names', 'company-names');
 }
 
 export async function rbGetCompanyNames(): Promise<string[]> {

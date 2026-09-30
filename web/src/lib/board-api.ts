@@ -196,7 +196,7 @@ async function invokeBoardResponse<T>(
     const fallback = response.status === 400
       ? '요청이 올바르지 않습니다. 첨부파일 개수/용량을 확인해주세요.'
       : '요청에 실패했습니다.';
-    throw new Error(payload?.message ?? fallback);
+    throw Object.assign(new Error(payload?.message ?? fallback), { status: response.status });
   }
   return payload;
 }

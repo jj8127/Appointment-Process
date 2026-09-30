@@ -167,6 +167,7 @@ type InvokeResult<T> = {
   ok: boolean;
   data?: T;
   message?: string;
+  code?: string;
   saved?: boolean;
   notification?: BoardWriteNotification;
   delivery?: unknown;
@@ -207,6 +208,7 @@ type BoardInvokeTransport = (
 export class BoardSessionError extends Error {
   readonly code = 'missing_app_session';
   readonly status = 401;
+  readonly needsRelogin = true;
 
   constructor(message = '게시판 세션이 없습니다. 다시 로그인해주세요.') {
     super(message);
@@ -214,7 +216,21 @@ export class BoardSessionError extends Error {
   }
 }
 
-async function extractFunctionsErrorMessage(error: unknown): Promise<string | null> {
+export class BoardApiError extends Error {
+  readonly needsRelogin: boolean;
+
+  constructor(message: string, readonly status?: number, readonly code?: string) {
+    super(message);
+    this.name = 'BoardApiError';
+    this.needsRelogin = status === 401 || [
+      'missing_app_session', 'expired_app_session', 'invalid_app_session',
+    ].includes(code ?? '');
+  }
+}
+
+type BoardFunctionFailure = { message: string; code?: string };
+
+async function extractFunctionsFailure(error: unknown): Promise<BoardFunctionFailure | null> {
   if (!error || typeof error !== 'object') return null;
   const withContext = error as {
     context?: {
@@ -229,8 +245,8 @@ async function extractFunctionsErrorMessage(error: unknown): Promise<string | nu
   if (typeof context.json === 'function' && !context.bodyUsed) {
     try {
       const payload = await context.json() as { message?: string; code?: string } | null;
-      if (payload?.message) return payload.message;
-      if (payload?.code) return payload.code;
+      if (payload?.message) return { message: payload.message, code: payload.code };
+      if (payload?.code) return { message: payload.code, code: payload.code };
     } catch {
       // fall through to text parsing
     }
@@ -241,9 +257,9 @@ async function extractFunctionsErrorMessage(error: unknown): Promise<string | nu
       const raw = await context.text();
       if (!raw) return null;
       const parsed = JSON.parse(raw) as { message?: string; code?: string };
-      if (parsed?.message) return parsed.message;
-      if (parsed?.code) return parsed.code;
-      return raw;
+      if (parsed?.message) return { message: parsed.message, code: parsed.code };
+      if (parsed?.code) return { message: parsed.code, code: parsed.code };
+      return { message: raw };
     } catch {
       return null;
     }
@@ -273,18 +289,18 @@ async function invokeBoardResponseWithDeps<T>(
     },
   });
   if (error) {
-    const message = await extractFunctionsErrorMessage(error);
-    if (message) {
-      throw new Error(message);
-    }
+    const failure = await extractFunctionsFailure(error);
     const status = (error as { context?: { status?: number } })?.context?.status;
+    if (failure) {
+      throw new BoardApiError(failure.message, status, failure.code);
+    }
     const fallback = status === 400
       ? '요청이 올바르지 않습니다. 첨부파일 개수/용량을 확인해주세요.'
       : null;
     const rawMessage = typeof (error as { message?: unknown })?.message === 'string'
       ? (error as { message: string }).message
       : null;
-    throw new Error(fallback ?? rawMessage ?? '요청에 실패했습니다.');
+    throw new BoardApiError(fallback ?? rawMessage ?? '요청에 실패했습니다.', status);
   }
   const payload = data as InvokeResult<T> | null;
   if (!payload?.ok) {
@@ -296,7 +312,7 @@ async function invokeBoardResponseWithDeps<T>(
     ) {
       return payload as InvokeResult<T>;
     }
-    throw new Error(payload?.message ?? '요청에 실패했습니다.');
+    throw new BoardApiError(payload?.message ?? '요청에 실패했습니다.', undefined, payload?.code);
   }
   return payload;
 }

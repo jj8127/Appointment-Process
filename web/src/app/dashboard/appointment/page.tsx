@@ -1,5 +1,7 @@
 'use client';
 
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+
 import {
   ActionIcon,
   Badge,
@@ -249,7 +251,7 @@ export default function AppointmentPage() {
     nonLifeDate?: Date | null;
   }>>({});
 
-  const { data: fcs, isLoading, refetch } = useQuery({
+  const { data: fcs, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['appointment-fcs'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -662,6 +664,8 @@ export default function AppointmentPage() {
           </Group>
         </Group>
 
+        {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!fcs} subject="위촉 대상 FC" />}
+
         <Paper p="md" radius="lg" withBorder shadow="sm" bg="white" style={{ overflow: 'hidden' }}>
           <LoadingOverlay visible={isLoading} overlayProps={{ blur: 1 }} />
           <ScrollArea h="calc(100vh - 250px)" type="auto">
@@ -716,7 +720,7 @@ export default function AppointmentPage() {
                 ) : (
                   <Table.Tr>
                     <Table.Td colSpan={5} align="center" py={40} c="dimmed">
-                      {isLoading ? '로딩 중...' : '조건에 맞는 FC가 없습니다.'}
+                      {isLoading ? '로딩 중...' : isError ? 'FC 목록을 확인할 수 없습니다.' : '조건에 맞는 FC가 없습니다.'}
                     </Table.Td>
                   </Table.Tr>
                 )}

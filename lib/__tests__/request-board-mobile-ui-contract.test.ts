@@ -435,10 +435,10 @@ describe('request-board mobile UI contracts', () => {
       createSource.indexOf('const loadData = useCallback'),
       createSource.indexOf('useEffect(() => {', createSource.indexOf('const loadData = useCallback')),
     );
-    expect(loadBlock).toContain('const customerRowsPromise = rbGetCustomers();');
+    expect(loadBlock).toContain('const customerRowsPromise = rbGetCustomersOrThrow();');
     expect(loadBlock).toContain('const catalogRowsPromise = Promise.all([');
     expect(loadBlock.indexOf('setLoading(false);')).toBeLessThan(
-      loadBlock.indexOf('await catalogRowsPromise'),
+      loadBlock.indexOf('catalogRowsPromise.then('),
     );
     expect(createSource).toContain('if (catalogLoading)');
     expect(createSource).toContain('상품·설계 매니저 정보를 불러오는 중입니다');

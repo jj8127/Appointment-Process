@@ -7,6 +7,14 @@ source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversa
 
 # Mobile Playbook: Messenger And Content
 
+## 2026-09-30 Read failure recovery
+
+- Embedded GaramLink messenger, codes and request/customer screens use strict list reads. A failed read rejects; it never becomes a successful empty list or a false missing-code decision. Existing tolerant API wrappers remain only for compatibility with callers outside this migration.
+- Conversation/message reads belong to the current account and conversation. A refresh failure preserves that owner's last successful history with error feedback; late results from an older scope are ignored. Contact-list partial failures remain visible.
+- Codes and request forms expose retry even when no list rendered. Required lookup failure blocks submission until recovery. Group-chat failures remain visible after an alert is dismissed.
+- Board detail reads expose loading/error/retry before body, attachments and comments. A preview is not a complete post, and failed reads must not render a fabricated zero-comment result.
+- Board composers distinguish category loading/failure/empty, require complete current edit data, preserve drafts on refetch and prevent save while the edit source is unverified.
+
 ## 2026-09-09 Logout transition
 
 Board and admin-board logout redirects are owned by focused `useAppLogout` after local session clearing. Retained background screens must not run another null-role replacement. Message/board mutation policy is unchanged. Regression: `lib/__tests__/app-logout-navigation.test.js` and `lib/__tests__/logout-source-contract.test.ts`.

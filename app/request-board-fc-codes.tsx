@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Keyboard,
@@ -30,12 +30,13 @@ import { canManageRequestBoardFcCodes } from '@/lib/request-board-permissions';
 import {
   rbCreateFcCode,
   rbDeleteFcCode,
-  rbGetCompanyNames,
-  rbGetFcCodes,
+  rbGetCompanyNamesOrThrow,
+  rbGetFcCodesOrThrow,
   rbUpdateFcCode,
   type RbFcCode,
 } from '@/lib/request-board-api';
-import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
+import { createReadScope } from '@/lib/request-board-read-state';
+import { isRequestBoardSessionReauthError, toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 /* ─── Helpers ─── */
@@ -60,6 +61,8 @@ export default function RequestBoardFcCodesScreen() {
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
   const {
     role,
+    residentId,
+    appSessionToken,
     readOnly,
     staffType,
     hydrated,
@@ -68,6 +71,10 @@ export default function RequestBoardFcCodesScreen() {
     ensureRequestBoardSession,
   } = useSession();
 
+  const readScope = useRef(createReadScope());
+  const sessionReadKey = `${residentId ?? ''}:${appSessionToken ?? ''}`;
+  readScope.current.setScope(sessionReadKey);
+  const [hasLoadedData, setHasLoadedData] = useState(false);
   const [codes, setCodes] = useState<RbFcCode[]>([]);
   const [companyNames, setCompanyNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,38 +110,57 @@ export default function RequestBoardFcCodesScreen() {
 
   /* ─── Fetch ─── */
   const fetchData = useCallback(async () => {
+    if (!readScope.current.matches(sessionReadKey)) return;
     if (!canManageCodes) {
       setFetchError('설계코드 관리는 FC 계정에서만 사용할 수 있습니다.');
       setLoading(false);
       setRefreshing(false);
       return;
     }
-    setFetchError(null);
+    const isCurrent = readScope.current.issue();
     try {
       const sync = await ensureRequestBoardSession();
       if (!sync.ok) {
         throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
       }
 
+      if (!isCurrent()) return;
       const [codesData, namesData] = await Promise.all([
-        rbGetFcCodes(),
-        rbGetCompanyNames(),
+        rbGetFcCodesOrThrow(),
+        rbGetCompanyNamesOrThrow(),
       ]);
+      if (!isCurrent()) return;
+      setFetchError(null);
+      setHasLoadedData(true);
       setCodes(codesData);
       setCompanyNames(namesData);
     } catch (err) {
+      if (!isCurrent()) return;
       logger.warn('[fc-codes] fetch failed', err);
       setFetchError(
         toRequestBoardSessionErrorMessage(err, '설계코드 데이터를 불러오지 못했습니다.'),
       );
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (isCurrent()) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, [canManageCodes, ensureRequestBoardSession]);
+  }, [canManageCodes, ensureRequestBoardSession, sessionReadKey]);
 
   useEffect(() => {
-    fetchData();
+    const readGuard = readScope.current;
+    setCodes([]);
+    setCompanyNames([]);
+    setHasLoadedData(false);
+    setLoading(true);
+    setEditModalVisible(false);
+    setDeleteTarget(null);
+    return () => readGuard.invalidate();
+  }, [sessionReadKey]);
+
+  useEffect(() => {
+    void fetchData();
   }, [fetchData]);
 
   useEffect(() => {
@@ -327,7 +353,7 @@ export default function RequestBoardFcCodesScreen() {
               pressed && canManageCodes && { opacity: 0.8 },
             ]}
             onPress={openAdd}
-            disabled={!canManageCodes}
+            disabled={!canManageCodes || loading || Boolean(fetchError) || !hasLoadedData}
           >
             <Feather name="plus" size={16} color="#fff" />
             <Text style={styles.addBtnText}>추가</Text>
@@ -340,6 +366,10 @@ export default function RequestBoardFcCodesScreen() {
         <View style={styles.errorBanner}>
           <Feather name="alert-circle" size={14} color={COLORS.error} />
           <Text style={styles.errorBannerText}>{fetchError}</Text>
+          <Pressable accessibilityRole="button" disabled={loading || refreshing} onPress={handleRefresh}>
+            <Text style={styles.errorBannerText}>다시 시도</Text>
+          </Pressable>
+          {isRequestBoardSessionReauthError(fetchError) ? <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}><Text style={styles.errorBannerText}>다시 로그인</Text></Pressable> : null}
         </View>
       )}
 
@@ -364,9 +394,9 @@ export default function RequestBoardFcCodesScreen() {
 
         <View style={styles.metaRow}>
           <Text style={styles.metaCount}>
-            총 <Text style={styles.metaCountBold}>{filteredCodes.length}</Text>개
+            {fetchError || !hasLoadedData ? '코드 수 확인 필요' : `총 ${filteredCodes.length}개`}
           </Text>
-          {missingCompanies.length > 0 && (
+          {!fetchError && hasLoadedData && missingCompanies.length > 0 && (
             <Pressable
               style={[
                 styles.missingChip,
@@ -388,7 +418,7 @@ export default function RequestBoardFcCodesScreen() {
         </View>
 
         {/* Missing companies expanded */}
-        {missingPanelVisible && missingCompanies.length > 0 && (
+        {!fetchError && hasLoadedData && missingPanelVisible && missingCompanies.length > 0 && (
           <View style={styles.missingPanel}>
             <Text style={styles.missingPanelTitle}>
               코드 미등록 회사 {missingCompanies.length}개
@@ -425,6 +455,8 @@ export default function RequestBoardFcCodesScreen() {
         <View style={styles.loadingWrap}>
           <BrandedLoadingState variant="request-board-fc-codes" layout="section" />
         </View>
+      ) : fetchError && codes.length === 0 ? (
+        <View style={styles.emptyWrap}><Text style={styles.emptyText}>설계코드를 확인할 수 없습니다</Text></View>
       ) : filteredCodes.length === 0 ? (
         <View style={styles.emptyWrap}>
           <Feather name="tag" size={40} color={COLORS.gray[200]} />
@@ -436,6 +468,9 @@ export default function RequestBoardFcCodesScreen() {
               ? '검색어를 변경해보세요'
               : '"추가" 버튼을 눌러 코드를 등록해보세요'}
           </Text>
+          <Pressable accessibilityRole="button" disabled={refreshing} onPress={handleRefresh}>
+            <Text style={styles.emptySubText}>다시 불러오기</Text>
+          </Pressable>
         </View>
       ) : (
         <Animated.FlatList

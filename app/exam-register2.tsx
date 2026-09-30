@@ -22,6 +22,7 @@ import {
 import type { FocusEvent as RNFocusEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { QueryReadState } from '@/components/QueryReadState';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { invokeAdminAction } from '@/lib/admin-action-api';
@@ -218,6 +219,7 @@ export default function ExamRegisterScreen() {
     data: rounds,
     isLoading,
     isError,
+    error: roundsError,
     isFetching,
     refetch,
   } = useQuery({
@@ -664,6 +666,8 @@ export default function ExamRegisterScreen() {
               <View style={styles.emptyState}>
                 <Text style={styles.emptyCaption}>불러오는 중...</Text>
               </View>
+            ) : isError ? (
+              <QueryReadState error={roundsError} message="시험 일정을 불러오지 못했습니다." onRetry={() => void refetch()} retrying={isFetching} />
             ) : !sortedRounds.length ? (
               <View style={styles.emptyState}>
                 <Feather name="calendar" size={38} color="#D1D5DB" />
