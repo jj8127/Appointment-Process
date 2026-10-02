@@ -7,6 +7,13 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + scripts/ops/*
 
 # 운영 런북
 
+## 관리자 웹 배포 검증 (2026-10-02)
+
+- Vercel `admin_web`의 Root Directory는 `web`이며 저장소 밖 소스 포함 옵션을 켠다. `next.config.ts`의 `outputFileTracingRoot`와 `turbopack.root`는 모두 저장소 루트로 지정한다. Next가 Vercel의 tracing 기본값으로 Turbopack 경계를 좁히면 공유 인증·수당 모듈을 찾지 못한다.
+- `web/src/lib/next-build-root.test.mjs`는 실제 Next 설정 로더에 웹 폴더 tracing 기본값을 주입하여 두 경로와 공유 파일 포함 여부를 검증한다.
+- 매 배포마다 소스 커밋, 최종 READY, 의도한 운영 alias, 영향 경로 HTTP 응답, 배포 후 제한된 오류 조회를 확인한다. 업로드·로컬 빌드·Git push 성공만으로 배포 성공을 보고하지 않는다. 실제 로그인 검증을 하지 못했으면 이를 별도로 명시한다.
+- 최신 미리보기 소스의 계정 세대 변경에는 별도 백엔드 배포 순서가 있다. 빌드 복구를 위해 이 미리보기를 운영 alias로 승격하지 않는다.
+
 ## 현재 판정
 
 **릴리스 HOLD**

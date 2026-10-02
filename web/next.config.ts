@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
   experimental: {
     externalDir: true,
   },
+  // Keep Vercel's tracing default from narrowing Turbopack to the web folder.
+  outputFileTracingRoot: path.resolve(__dirname, '..'),
   outputFileTracingExcludes: {
     '/api/agent-room': ['./next.config.ts'],
   },

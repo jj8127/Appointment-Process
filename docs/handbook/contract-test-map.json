@@ -476,6 +476,7 @@
         "web/next.config.ts"
       ],
       "requires_any": [
+        "web/src/lib/next-build-root.test.mjs",
         "lib/__tests__/agent-room-build-tracing.test.ts",
         "docs/handbook/contract-test-map.json"
       ]

@@ -1,5 +1,11 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-02 | 로컬 성공만으로 Vercel 공유 소스 경로를 검증함
+
+- 원인: Next의 `outputFileTracingRoot` 기본값이 배포 환경변수로 바뀌면 명시한 `turbopack.root`까지 덮어쓴다. 외부 소스 포함 옵션만 수정해도 같은 누락 오류가 남는다.
+- 재발 방지: 모노레포 웹의 두 루트를 같은 저장소 경로로 지정한다. 실제 설정 로더에 Vercel의 좁은 tracing 기본값을 주입하는 회귀 테스트와 원격 최종 READY·alias·응답·오류 확인을 유지한다.
+
+
 ## 2026-10-02 | 분리된 CI 작업을 개발용 의존성으로 검증함
 
 - 원인: SQL CI는 fixture 의존성만 설치하지만 실제 Edge 실행 테스트는 루트 TypeScript를 참조했다. 개발 환경의 기존 node_modules가 누락을 가려 hosted CI에서 실패했다.

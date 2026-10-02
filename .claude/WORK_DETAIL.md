@@ -1,5 +1,12 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20261002-vercel-build-root"></a> 2026-10-02 Vercel build root repair
+
+The board-only production hotfix is READY at deployment `dpl_DCngTs3im5DryF6mQdFjokBV4J1w`, source `5caa59f4ac0d84fb1647ce9a42edac81c1bd8ee9`. The public alias resolves to this source; `/auth` returns 200 and unauthenticated `/api/board` returns the expected 401. The bounded post-deploy runtime query returned no 5xx. Authenticated production board contents were not inspected.
+
+Preview retries of `092a1fc` still failed after enabling `sourceFilesOutsideRootDirectory`. Their sanitized build warnings identified a different root: Next 16.2.11 replaced the configured repository Turbopack root with Vercel's narrower `outputFileTracingRoot` default. The fix explicitly assigns the same repository root to both. An actual Next configuration-loader test fails before the fix and passes after it, with the four shared source files inside the normalized root. The latest preview must be verified READY separately; no promotion of its pending backend-generation contracts is authorized by this build repair. Deployment IDs and final checks are kept in the canonical `admin-web-session-forwarding-20261002` harness.
+
+
 ## <a id="20261002-followup-stabilization"></a> 2026-10-02 Follow-up stabilization
 
 ### Operational evidence
