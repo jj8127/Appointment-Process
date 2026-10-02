@@ -74,7 +74,7 @@ const queryClient = new QueryClient({
       retry: 1, // 실패 시 1회만 재시도
     },
     mutations: {
-      retry: 1, // Mutation 실패 시 1회만 재시도
+      retry: false, // Writes require an explicit idempotent retry policy.
     },
   },
 });

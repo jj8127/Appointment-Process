@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   createRequestBoardBridgeToken,
   getEnv,
-  parseAppSessionToken,
+  parseAppSessionTokenDetailed,
   parseDesignerCompanyNameFromAffiliation,
 } from '../_shared/request-board-auth.ts';
 import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
@@ -73,10 +73,9 @@ serve(async (req: Request) => {
     return fail('missing_session_token', '앱 세션 토큰이 없습니다.');
   }
 
-  const session = await parseAppSessionToken(sessionToken);
-  if (!session) {
-    return fail('invalid_session_token', '앱 세션 토큰이 유효하지 않습니다.', 401);
-  }
+  const parsed = await parseAppSessionTokenDetailed(sessionToken);
+  if (parsed.ok === false) return fail(parsed.code, parsed.message, parsed.status ?? 401);
+  const session = parsed.payload;
 
   const phone = cleanPhone(session.phone);
   if (phone.length !== 11) {
@@ -107,7 +106,7 @@ serve(async (req: Request) => {
       return fail('request_board_not_applicable', '총무 계정은 가람Link 요청 주체가 아닙니다.', 403);
     }
 
-    const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, 'fc');
+    const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, 'fc', undefined, session);
     if (!requestBoardBridgeToken) {
       return fail('bridge_secret_missing', '브릿지 토큰을 발급할 수 없습니다.', 500);
     }
@@ -143,6 +142,7 @@ serve(async (req: Request) => {
       manager.phone,
       'manager',
       resolveManagerAffiliation(manager.name),
+      session,
     );
     if (!requestBoardBridgeToken) {
       return fail('bridge_secret_missing', '브릿지 토큰을 발급할 수 없습니다.', 500);
@@ -180,6 +180,7 @@ serve(async (req: Request) => {
     profile.phone,
     requestBoardRole,
     requestBoardRole === 'fc' ? profile.affiliation ?? null : undefined,
+    session,
   );
 
   if (!requestBoardBridgeToken) {

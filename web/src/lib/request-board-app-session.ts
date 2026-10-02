@@ -1,8 +1,15 @@
 import { createHmac } from 'node:crypto';
+import { parseAppSessionTokenDetailed } from '../../../supabase/functions/_shared/request-board-auth.ts';
+import {
+  sessionGenerationClaims,
+  verifySessionGeneration,
+  type SessionGenerationClaims,
+  type SessionGenerationLookup,
+} from '../../../supabase/functions/_shared/session-generation.ts';
 
 type AppSessionSourceRole = 'fc' | 'admin' | 'manager';
 
-type AppSessionTokenPayload = {
+type AppSessionTokenPayload = SessionGenerationClaims & {
   kind: 'fc_onboarding_session';
   phone: string;
   role: AppSessionSourceRole;
@@ -33,7 +40,20 @@ function getWebAppSessionTtlSeconds() {
     : DEFAULT_WEB_APP_SESSION_TTL_SECONDS;
 }
 
-export function createWebGroupChatAppSessionToken(phone: string, role: AppSessionSourceRole) {
+export const lookupWebSessionGeneration: SessionGenerationLookup = (input, purpose) =>
+  verifySessionGeneration(input, purpose, {
+    supabaseUrl: (process.env.SUPABASE_URL ?? '').trim() || process.env.NEXT_PUBLIC_SUPABASE_URL,
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  });
+
+export const verifyWebLoginAppSession = (token: string) =>
+  parseAppSessionTokenDetailed(token, lookupWebSessionGeneration);
+
+export function createWebGroupChatAppSessionToken(
+  phone: string,
+  role: AppSessionSourceRole,
+  generation: SessionGenerationClaims,
+) {
   const secret = getRequestBoardAppSessionSecret();
   if (!secret) return null;
 
@@ -42,6 +62,7 @@ export function createWebGroupChatAppSessionToken(phone: string, role: AppSessio
     kind: 'fc_onboarding_session',
     phone,
     role,
+    ...sessionGenerationClaims(generation),
     iat: nowSec,
     exp: nowSec + getWebAppSessionTtlSeconds(),
   };

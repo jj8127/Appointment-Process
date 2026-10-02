@@ -7,6 +7,14 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 
 # Cross-Repo Bridge Contract
 
+## 2026-10-02 Bridge freshness (prepared)
+
+- GaramLink verifies the signed bridge role locally, then calls GaramIn `verify-request-board-session` before DB/JWT creation. That Edge function validates the canonical credential generation and returns only ok/role; missing configuration or service failure stays HTTP503 and must not erase a newer client session.
+- GaramIn app-to-bridge and bridge-to-app conversion preserve the verified generation. A stale bridge must never mint a new current app token or a new GaramLink JWT.
+- GaramLink JWTs already issued before a password change are a separate authorization boundary. Checking a bridge only during exchange does not instantly revoke those existing JWTs; do not claim it does.
+- The new verifier and its required function URL/gateway credentials must be ready before deploying the GaramLink caller. Additive generation schema precedes issuers; trigger activation comes last.
+
+
 ## 2026-07-03 API And Messenger Contract Notes
 
 - `lib/request-board-api.ts` must remain the GaramIn bridge boundary for GaramLink requests, messages, direct messages, attachments, and delete actions.

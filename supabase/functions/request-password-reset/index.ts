@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import { findPasswordResetAccount } from '../_shared/password-reset-account.ts';
+import { processPasswordResetChallenge } from '../_shared/password-reset-challenge.ts';
 
 type Payload = {
   phone?: string;
@@ -83,7 +84,6 @@ if (!passwordResetTestSmsConfig.enabled && (!ncpAccessKey || !ncpSecretKey || !n
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const encoder = new TextEncoder();
-const RESET_COOLDOWN_SECONDS = 60;
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -158,8 +158,7 @@ async function sendResetSms(to: string, code: string) {
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    return { ok: false, status: res.status, message: text || 'SMS 전송 실패' };
+    return { ok: false, status: 502, message: 'SMS 전송에 실패했습니다. 잠시 후 다시 시도해주세요.' };
   }
   return { ok: true, status: 200 };
 }
@@ -201,8 +200,7 @@ serve(async (req: Request) => {
 
   const { account, error: accountError } = await findPasswordResetAccount(supabase, phone);
   if (accountError) {
-    const message = accountError instanceof Error ? accountError.message : '계정 조회 중 오류가 발생했습니다.';
-    return json({ ok: false, code: 'db_error', message }, 500);
+    return json({ ok: false, code: 'db_error', message: '계정 조회 중 오류가 발생했습니다.' }, 500);
   }
 
   if (!account) {
@@ -225,36 +223,12 @@ serve(async (req: Request) => {
     return fail('not_set', '비밀번호가 아직 설정되지 않았습니다.');
   }
 
-  if (account.resetSentAt) {
-    const sentAt = new Date(account.resetSentAt);
-    const elapsed = (Date.now() - sentAt.getTime()) / 1000;
-    if (elapsed < RESET_COOLDOWN_SECONDS) {
-      return json({ ok: false, code: 'cooldown', message: '잠시 후 다시 시도해주세요.' }, 429);
-    }
-  }
-
   const code = generateResetCode();
   const tokenHash = await sha256Base64(code);
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-  const resetSentAt = new Date().toISOString();
-
-  const resetUpdatePayload = {
-    reset_token_hash: tokenHash,
-    reset_token_expires_at: expiresAt,
-    reset_sent_at: resetSentAt,
-  };
-
-  const updateResult =
-    account.kind === 'admin'
-      ? await supabase.from('admin_accounts').update(resetUpdatePayload).eq('id', account.id)
-      : account.kind === 'manager'
-        ? await supabase.from('manager_accounts').update(resetUpdatePayload).eq('id', account.id)
-        : await supabase.from('fc_credentials').update(resetUpdatePayload).eq('fc_id', account.id);
-
-  const { error: updateError } = updateResult;
-
-  if (updateError) {
-    return json({ ok: false, code: 'db_error', message: updateError.message }, 500);
+  const challengeResult = await processPasswordResetChallenge(supabase, account, { action: 'issue', tokenHash });
+  if (challengeResult.ok === false) {
+    const { status, ...failure } = challengeResult;
+    return json(failure, status);
   }
 
   const smsResult = await sendResetSms(phone, code);

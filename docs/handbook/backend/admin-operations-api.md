@@ -7,6 +7,12 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 
 # Backend Runbook: Admin Operations API
 
+## 2026-10-02 Password-change session freshness (prepared)
+
+- `admin-action` and the shared board actor gate validate the signed session's account UUID and credential generation before using its authority. Password hash or salt changes increment only that account's generation; old tokens cannot refresh into the current generation.
+- Inactive, deleted or replaced accounts and stale generations require login. A database or network failure during freshness verification returns HTTP503 and must remain retryable instead of being treated as a successful empty result or a global logout.
+- Rollout order is additive generation schema/RPC, all issuing and enforcing Edge/web/bridge paths, then the separate trigger-activation migration. Source-only validation does not establish production coverage.
+
 ## 2026-08-10 FC self-service basic-information boundary
 
 - `admin-action:getOwnProfile`과 `updateOwnProfile`은 이름과 달리 관리자 권한을 공유하지 않는 서명된 FC 본인 전용 액션이다. 요청 body의 대상 ID는 받지 않고 앱 세션의 `fcId`를 사용하며, legacy 토큰에 `fcId`가 없을 때만 세션 전화번호가 정확히 한 프로필로 해석되는 경우에 한해 보정한다.

@@ -4,7 +4,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   getAppSessionTokenFromRequest,
   getEnv,
-  parseAppSessionToken,
+  parseAppSessionTokenDetailed,
   parseDesignerCompanyNameFromAffiliation,
 } from '../_shared/request-board-auth.ts';
 import {
@@ -71,8 +71,9 @@ async function resolveActor(req: Request): Promise<
 > {
   const token = getAppSessionTokenFromRequest(req);
   if (!token) return { ok: false, status: 401, code: 'missing_session_token' };
-  const session = await parseAppSessionToken(token);
-  if (!session) return { ok: false, status: 401, code: 'invalid_session_token' };
+  const parsed = await parseAppSessionTokenDetailed(token);
+  if (parsed.ok === false) return { ok: false, status: parsed.status ?? 401, code: parsed.code };
+  const session = parsed.payload;
   const phone = cleanPhone(session.phone);
   if (phone.length !== 11) return { ok: false, status: 401, code: 'invalid_session_actor' };
 

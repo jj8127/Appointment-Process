@@ -7,6 +7,11 @@ source_of_truth: web/src/app/dashboard/notifications/* + web/src/app/dashboard/b
 
 # Admin Web Playbook: Notice, Board, Chat
 
+## 2026-10-02 Comment operation IDs
+
+Admin web shares the mobile comment operation lifetime: an unchanged failed draft keeps its request ID, successful completion releases it, and a different account/post/reply/content creates a new ID. SQL persists the comment and notifications atomically; request-ID conflicts do not overwrite an existing comment. Backend migration/RPC deployment must precede the updated web client. The legacy API body remains supported for existing apps.
+
+
 ## 포함 화면
 
 - `/dashboard/notifications/*`

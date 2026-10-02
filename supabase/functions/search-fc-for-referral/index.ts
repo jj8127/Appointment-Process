@@ -117,7 +117,7 @@ serve(async (req: Request) => {
   if (req.method !== 'POST') return fail('method_not_allowed', 'Method not allowed', 405);
 
   const sessionResult = await requireAppSessionFromRequest(req);
-  if (sessionResult.ok === false) return fail(sessionResult.code, sessionResult.message);
+  if (sessionResult.ok === false) return fail(sessionResult.code, sessionResult.message, sessionResult.status);
 
   const caller = await resolveCallerFcId(sessionResult.session);
   if (!caller) return fail('forbidden', '검색할 수 없는 계정입니다.');

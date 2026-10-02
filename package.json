@@ -30,7 +30,14 @@
     "qa:validate:integrated": "node ./scripts/testing/validate-integrated-test-run.mjs",
     "governance:install-hook": "node ./scripts/ci/install-governance-hook.mjs",
     "governance:pre-push": "node ./scripts/ci/pre-push-governance.mjs",
-    "prepare": "node ./scripts/prepare.js"
+    "prepare": "node ./scripts/prepare.js",
+    "typecheck": "tsc --noEmit --pretty false",
+    "test:discovery": "node scripts/ci/run-discovered-tests.mjs --list",
+    "test:tools": "node scripts/ci/run-discovered-tests.mjs tools-node",
+    "test:edge:node": "node scripts/ci/run-discovered-tests.mjs edge-node",
+    "test:edge:deno": "node scripts/ci/run-discovered-tests.mjs edge-deno",
+    "test:sql:pglite": "node scripts/ci/run-discovered-tests.mjs sql-pglite",
+    "test:sql:postgres": "node scripts/ci/run-discovered-tests.mjs sql-postgres"
   },
   "dependencies": {
     "@actbase/react-daum-postcode": "^1.0.4",

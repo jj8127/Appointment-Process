@@ -186,7 +186,7 @@ serve(async (req: Request) => {
 
   const { data: admin, error: adminError } = await supabase
     .from('admin_accounts')
-    .select('id,name,phone,password_hash,password_salt,failed_count,locked_until,password_set_at,active,staff_type')
+    .select('id,name,phone,password_hash,password_salt,failed_count,locked_until,password_set_at,active,staff_type,session_version')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -266,8 +266,8 @@ serve(async (req: Request) => {
       });
     }
 
-    const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, requestBoardBridgeRole);
-    const appSessionToken = await createAppSessionToken(admin.phone, 'admin', staffType);
+    const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, requestBoardBridgeRole, undefined, { accountKind: 'admin', accountId: admin.id, sessionVersion: admin.session_version });
+    const appSessionToken = await createAppSessionToken(admin.phone, 'admin', staffType, undefined, { accountKind: 'admin', accountId: admin.id, sessionVersion: admin.session_version });
     return json({
       ok: true,
       role: 'admin',
@@ -282,7 +282,7 @@ serve(async (req: Request) => {
 
   const { data: manager, error: managerError } = await supabase
     .from('manager_accounts')
-    .select('id,name,phone,password_hash,password_salt,failed_count,locked_until,password_set_at,active')
+    .select('id,name,phone,password_hash,password_salt,failed_count,locked_until,password_set_at,active,session_version')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -389,8 +389,9 @@ serve(async (req: Request) => {
       manager.phone,
       'manager',
       managerAffiliation,
+      { accountKind: 'manager', accountId: manager.id, sessionVersion: manager.session_version },
     );
-    const appSessionToken = await createAppSessionToken(manager.phone, 'manager');
+    const appSessionToken = await createAppSessionToken(manager.phone, 'manager', undefined, undefined, { accountKind: 'manager', accountId: manager.id, sessionVersion: manager.session_version });
     return json({
       ok: true,
       role: 'manager',
@@ -420,7 +421,7 @@ serve(async (req: Request) => {
 
   const { data: creds, error: credsError } = await supabase
     .from('fc_credentials')
-    .select('password_hash,password_salt,failed_count,locked_until,password_set_at,must_change_password')
+    .select('password_hash,password_salt,failed_count,locked_until,password_set_at,must_change_password,session_version')
     .eq('fc_id', profile.id)
     .maybeSingle();
 
@@ -544,8 +545,9 @@ serve(async (req: Request) => {
     profile.phone,
     requestBoardRole,
     requestBoardRole === 'fc' ? profile.affiliation ?? null : undefined,
+    { accountKind: 'fc', accountId: profile.id, sessionVersion: creds.session_version },
   );
-  const appSessionToken = await createAppSessionToken(profile.phone, 'fc', undefined, profile.id);
+  const appSessionToken = await createAppSessionToken(profile.phone, 'fc', undefined, profile.id, { accountKind: 'fc', accountId: profile.id, sessionVersion: creds.session_version });
   return json({
     ok: true,
     role: 'fc',

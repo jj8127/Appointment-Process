@@ -1,5 +1,38 @@
 # 작업 로그
 
+## 2026-10-02 출시 확인과 후속 안정화
+
+- Android 4.2.14(89)는 10:45:32 KST에 PUBLISHED로 확인했다. 아래 10월 1일 IN_REVIEW 기록은 당시 상태다. 지정 계정의 SMS 수신·비밀번호 변경을 사용자 승인하에 확인했고, 가람인 로그인 전에 가람Link 로그인을 먼저 검증해 재설정 동기화 성공을 확인했다. 관리자 API 로그인도 통과했다. 계정 정보는 기록하지 않는다.
+- 새 후속 후보에는 계정별 비밀번호 변경 세션 무효화, 댓글 요청 ID와 원자적 중복 방지, 관리자 웹 로그아웃·새 로그인·캐시 경쟁 방지, 오류 경계 중복 Sentry 전송 제거가 포함된다. 운영 89에는 이 후보가 포함되지 않는다.
+- Node·Deno·SQL 테스트 자동 발견과 별도 로컬 PostgreSQL CI를 추가했다. 실데이터 조회 테스트는 일반 CI에서 제외하며 실행 중 외부 네트워크와 서비스 자격 증명을 차단한다.
+- 관련 동시성·응답 유실 테스트, 앱·웹 타입 검사, Sentry 업로드를 끈 웹 빌드와 엄격 거버넌스가 통과했다. 전체 통합 결과·Git 상태·새 배포 순서는 [후속 상세](WORK_DETAIL.md#20261002-followup-stabilization)와 canonical harness에 기록한다.
+- 실기기 관리자 시험 화면과 Play Vitals는 각각 USB 기기 연결, 별도 Reporting API 활성화가 필요하다. 후속 migration·Edge·웹·앱 운영 배포는 아직 수행하지 않았다.
+
+
+## 2026-10-01 비밀번호 재설정 백엔드 운영 배포
+
+- 사용자 승인에 따라 두 DB migration을 각각 커밋한 뒤 `request-password-reset` v44·`reset-password` v46을 운영에 배포했다. 제약 3개 validated, 카운터 컬럼의 `NOT NULL`·기본값 `0` 메타데이터, service-role 전용 RPC 권한, ACTIVE·JWT 검증 유지와 원격 소스 일치를 확인했다. 고객 행의 카운터 값은 조회하지 않았다.
+- 잠금 대기 3초·문장 실행 30초 제한과 `NOT VALID` 후 별도 `VALIDATE`를 적용했다. 실제 PostgreSQL 17.6 동시 연결 10개, PGlite 16개, 관련 정책 10개 테스트가 통과했다. 빈 본문 호출은 두 함수 모두 HTTP 200 / `phone_required`였다.
+- Android 4.2.14(89) 빌드는 16:36:35 KST에 완료됐고, 원본 AAB의 manifest·컴파일된 Supabase 프로젝트·drawing-order guard·bundletool 검증을 통과했다. 16:52 KST에는 AAB에서 만든 APK로 FC 로그인→홈→생명시험→인증된 GaramLink→생명시험 재진입→손해시험 조회를 통과했으며, 이 검증 흐름에서 오류 경계·네트워크 오류·충돌은 관측되지 않았다. 관리자 경로 거부·복귀만 확인했으므로 관리자 시험관리 재구독 기기 검증은 미실행이다.
+- 사용자 Play 권한 설정 후 업로드 권한 문제가 해결됐다. 버전 89 원본 AAB의 서버 해시 일치, production 구성·Google validate 통과를 확인하고 17:08:45.668 KST에 commit해 앱 업로드·프로덕션 심사 제출을 완료했다. 17:09:35 KST 읽기 전용 확인에서 버전 89는 `IN_REVIEW`, 기존 버전 88은 `PUBLISHED`였다. 버전 89의 실제 게시는 아직 완료되지 않았다.
+- 임시 네이티브 테스트 세션·probe·에뮬레이터 정리를 완료했다. Vitals 조회는 별도 Developer Reporting API의 `SERVICE_DISABLED`로 불가하며, 해결된 Play 출시 권한 문제와 구분한다.
+- GaramLink 운영 `main`의 `43fa523c`에 핵심 모듈 복구가 이미 포함되어 있고 Chrome 검증을 마쳐 추가 웹 배포를 생략했다.
+- 아래 두 10월 1일 항목은 배포 전 조사·로컬 준비 당시 기록이다. 현재 단계와 검증 한계는 [→ 운영 배포 상세](WORK_DETAIL.md#20261001-password-reset-production-rollout)에 기록한다.
+
+## 2026-10-01 시험 관리 채널 오류 후속 수정
+
+- Sentry Q와 같은 구독 중 채널 callback 재등록 오류를 설치된 SDK에서 재현했다. 생명·손해 관리 화면은 effect별 고유 채널을 소유하고, 종료된 구독의 callback을 무시하도록 수정했다.
+- 가람링크 로그인 모듈 실패 복구도 사용자 후속 요청으로 함께 진행한다. 검증 결과는 기존 canonical harness와 아래 상세 기록에 보존한다.
+- 운영 배포·OTA·DB 적용·Git push는 수행하지 않았다.
+- [→ 상세](WORK_DETAIL.md#20261001-realtime-and-module-recovery)
+
+## 2026-10-01 비밀번호 재설정 원자 처리·오류 보고 조사
+
+- OTP 발급·5회 오답 제한·일회성 소비·비밀번호 변경을 service-role RPC로 통합하는 로컬 수정과 검증을 진행했다.
+- Sentry production 최근 14일 오류와 접근 가능한 Play 보고를 읽기 전용 조사했다. 원본 이벤트·사용자 정보·비밀값은 기록하지 않는다.
+- 운영 migration·Edge 배포·Git push는 수행하지 않았다. 상세 검증과 외부 접근 한계는 같은 작업의 canonical harness에 기록한다.
+- [→ 상세](WORK_DETAIL.md#20261001-password-reset-reported-bugs)
+
 ## 2026-09-30 조회 실패·빈 결과 혼동 수정
 
 - 후속 조사에서 확인한 앱·관리자 웹·가람Link 조회 실패 표시를 수정한다. 목록 실패를 빈 결과로, 현황 실패를 0명으로 표시하지 않고 재시도·재로그인 동선을 제공한다.

@@ -1,10 +1,11 @@
 // Isolated PGlite SQL execution. Install @electric-sql/pglite@0.5.8 only into
-// .codex-tmp/referral-allowance-sql-test, then run this file with node --test.
+// scripts/ci/fixtures, then run npm run test:sql:pglite.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { createRequire } from 'node:module';
 
-const { PGlite } = await import(new URL('../../.codex-tmp/referral-allowance-sql-test/node_modules/@electric-sql/pglite/dist/index.js', import.meta.url));
+const { PGlite } = createRequire(import.meta.url)(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
 const migration = await readFile(new URL('../migrations/20260907053913_referral_allowance_pilot.sql', import.meta.url), 'utf8');
 const recipientsMigration = await readFile(new URL('../migrations/20260907115710_referral_allowance_recipients.sql', import.meta.url), 'utf8');
 const admin = '40000000-0000-4000-8000-000000000001';

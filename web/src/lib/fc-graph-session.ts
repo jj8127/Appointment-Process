@@ -1,9 +1,10 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { parseSessionGenerationClaims, type OptionalSessionGenerationClaims } from '../../../supabase/functions/_shared/session-generation.ts';
 
 export const FC_GRAPH_SESSION_COOKIE = 'fc_graph_session';
 export const FC_GRAPH_SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
 
-type FcGraphSessionPayload = {
+type FcGraphSessionPayload = OptionalSessionGenerationClaims & {
   v: 1;
   role: 'fc';
   fcId: string;
@@ -16,7 +17,7 @@ type SessionSecretOptions = {
   secret?: string;
 };
 
-type CreateSessionOptions = SessionSecretOptions & {
+type CreateSessionOptions = SessionSecretOptions & OptionalSessionGenerationClaims & {
   fcId: string;
   residentDigits: string;
   nowMs?: number;
@@ -69,6 +70,7 @@ function decodePayload(value: string): FcGraphSessionPayload | null {
       || typeof parsed.residentDigits !== 'string'
       || typeof parsed.iat !== 'number'
       || typeof parsed.exp !== 'number'
+      || !parseSessionGenerationClaims(parsed)
     ) {
       return null;
     }
@@ -84,6 +86,9 @@ export function createFcGraphSessionValue({
   nowMs = Date.now(),
   ttlSeconds = FC_GRAPH_SESSION_MAX_AGE_SECONDS,
   secret: explicitSecret,
+  accountKind,
+  accountId,
+  sessionVersion,
 }: CreateSessionOptions) {
   const secret = getSessionSecret(explicitSecret);
   const nowSeconds = Math.floor(nowMs / 1000);
@@ -94,6 +99,7 @@ export function createFcGraphSessionValue({
     residentDigits,
     iat: nowSeconds,
     exp: nowSeconds + ttlSeconds,
+    ...(accountKind !== undefined ? { accountKind, accountId, sessionVersion } : {}),
   });
   const signature = signPayload(payload, secret);
   return `${payload}.${signature}`;

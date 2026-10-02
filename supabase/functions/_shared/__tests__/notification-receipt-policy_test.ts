@@ -51,11 +51,11 @@ Deno.test('targeted notification requires the exact immutable recipient actor', 
   if (!afterPhoneChange.authorized || afterPhoneChange.audience !== 'targeted') {
     throw new Error('immutable actor ownership must survive a phone change');
   }
-  if (foreign.authorized || foreign.reason !== 'recipient_actor_mismatch') {
+  if (foreign.authorized !== false || foreign.reason !== 'recipient_actor_mismatch') {
     throw new Error('foreign targeted actor must be denied');
   }
   if (
-    unresolvedLegacy.authorized
+    unresolvedLegacy.authorized !== false
     || unresolvedLegacy.reason !== 'target_actor_missing'
   ) {
     throw new Error('unbound legacy target must fail closed');
@@ -86,7 +86,7 @@ Deno.test('true broadcast allows a second viewer in the intended role', () => {
   if (!second.authorized || second.audience !== 'broadcast') {
     throw new Error('second intended viewer should receive an independent receipt');
   }
-  if (wrongRole.authorized || wrongRole.reason !== 'role_scope_mismatch') {
+  if (wrongRole.authorized !== false || wrongRole.reason !== 'role_scope_mismatch') {
     throw new Error('broadcast must remain scoped to its intended role');
   }
 });
@@ -108,7 +108,7 @@ Deno.test('request-board FC fallback still requires exact actor ownership', () =
     { ...requestBoardRow, recipient_actor_id: ACTOR_B },
     designerViewer,
   );
-  if (mismatch.authorized || mismatch.reason !== 'recipient_actor_mismatch') {
+  if (mismatch.authorized !== false || mismatch.reason !== 'recipient_actor_mismatch') {
     throw new Error('request-board fallback must not weaken actor ownership');
   }
 });
@@ -130,7 +130,7 @@ Deno.test('personal administrator inbox denies shared broadcasts', () => {
     recipient_role: 'admin',
   }), personalAdmin);
 
-  if (broadcast.authorized || broadcast.reason !== 'broadcast_not_allowed') {
+  if (broadcast.authorized !== false || broadcast.reason !== 'broadcast_not_allowed') {
     throw new Error('personal admin must not inherit the shared administrator broadcast');
   }
   if (!targeted.authorized || targeted.audience !== 'targeted') {
@@ -156,10 +156,10 @@ Deno.test('receipt set authorization distinguishes missing and foreign rows befo
     fcViewer,
   );
 
-  if (missing.authorized || missing.status !== 404 || missing.reason !== 'missing') {
+  if (missing.authorized !== false || missing.status !== 404 || missing.reason !== 'missing') {
     throw new Error('missing notification must return 404');
   }
-  if (foreign.authorized || foreign.status !== 403 || foreign.reason !== 'denied') {
+  if (foreign.authorized !== false || foreign.status !== 403 || foreign.reason !== 'denied') {
     throw new Error('foreign notification must return 403');
   }
   if (!allowed.authorized || allowed.rows.length !== 1) {

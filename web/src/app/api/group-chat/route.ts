@@ -75,6 +75,7 @@ export async function POST(req: Request) {
   const appSessionToken = cookieAppSessionToken || createWebGroupChatAppSessionToken(
     sessionCheck.session.residentDigits,
     sessionCheck.session.role,
+    sessionCheck.session,
   );
   if (!appSessionToken) {
     return json({

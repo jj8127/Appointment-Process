@@ -71,11 +71,12 @@ describe('board comment reply flow', () => {
     }
   });
 
-  it('persists the selected parent id in the Edge Function insert', () => {
+  it('passes the selected parent to the atomic SQL operation, which validates the thread', () => {
     const edgeFunction = readRepoFile('supabase/functions/board-comment-create/index.ts');
+    const sql = readRepoFile('supabase/migrations/20261002020937_board_comment_idempotency.sql');
 
-    expect(edgeFunction).toContain(".eq('id', parentId)");
-    expect(edgeFunction).toContain('parent.post_id !== postId');
-    expect(edgeFunction).toContain('parent_id: parentId');
+    expect(edgeFunction).toContain('p_parent_id: body.parentId ?? null');
+    expect(sql).toContain('v_parent.post_id <> p_post_id');
+    expect(sql).toContain('values (p_post_id, p_parent_id, v_content');
   });
 });

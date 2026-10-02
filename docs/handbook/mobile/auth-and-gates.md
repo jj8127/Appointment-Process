@@ -7,6 +7,21 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 
 # Mobile Playbook: Auth And Gates
 
+## 2026-10-02 Password-change session generations (prepared)
+
+- Signed app/bridge sessions carry canonical account kind, account UUID and credential generation. Missing generation claims are compatible only with legacy generation zero; malformed/partial claims fail closed.
+- Password changes increment that account's generation in the credential transaction. Old app tokens, bridge tokens and refresh/exchange paths must fail after activation. Issuers sign the generation read with the password hash they actually verified, never a later lookup of the current generation.
+- Unavailable freshness verification is a temporary service failure, not proof of an invalid login. Existing signing-key rotation still permits only current and immediately previous keys.
+- Additive schema and issuer/verifier deployment must complete before enabling the password-change trigger. This local follow-up is not part of already published 4.2.14(89).
+
+
+## 2026-10-01 비밀번호 재설정 인증번호 제한
+
+- 재설정 인증번호는 15분간 유효하며 5회 오답이면 해당 코드로 더 이상 변경할 수 없다. 사용자는 기존 60초 발급 간격이 지난 뒤 새 코드를 요청한다. 이 제한은 일반 로그인을 잠그지 않는다.
+- 발급·오답 횟수·코드 소비·비밀번호 저장은 서버의 같은 DB 트랜잭션 경계를 사용한다. 동일 코드의 중복 제출은 한 번만 성공하고 성공한 요청만 가람Link 비밀번호 동기화를 수행한다.
+- 모바일·웹의 기존 `ok:false` 및 `message` 표시 계약을 유지한다. `attempts_exhausted`는 새 코드 요청 안내이며, 발급 `cooldown`은 기존 HTTP 429를 유지한다. RPC 미적용·DB 장애를 인증 성공이나 직접 쓰기 fallback으로 처리하지 않는다.
+- 운영 적용은 추가 마이그레이션과 `request-password-reset`·`reset-password` Edge 배포가 필요하다. 앱 화면 변경이나 모바일 스토어 배포는 이 수정의 필수 단계가 아니다.
+
 ## 2026-09-30 목록 조회의 재로그인 처리
 
 - 조회 오류를 빈 목록이나 0명으로 바꾸지 않는다. 구조화된 인증 오류와 HTTP 401은 재로그인이 필요한 상태로 유지하고 기존 `/login?skipAuto=1` 경로를 사용한다.

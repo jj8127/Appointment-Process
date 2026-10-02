@@ -3,29 +3,176 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "ci-test-discovery",
+      "prefixes": [
+        "scripts/ci/run-discovered-tests.mjs",
+        "scripts/ci/test-network-boundary.mjs",
+        ".github/workflows/ci.yml"
+      ],
+      "requires_any": [
+        "scripts/ci/run-discovered-tests.test.mjs"
+      ]
+    },
+    {
+      "id": "error-boundary-telemetry",
+      "prefixes": [
+        "components/ErrorBoundary.tsx"
+      ],
+      "requires_any": [
+        "components/__tests__/ErrorBoundary.telemetry.test.ts"
+      ]
+    },
+    {
+      "id": "web-session-transition",
+      "prefixes": [
+        "web/src/hooks/use-session.tsx",
+        "web/src/app/auth/page.tsx",
+        "web/src/lib/client-session-transition.ts"
+      ],
+      "requires_any": [
+        "web/src/lib/client-session-transition.test.ts",
+        "web/src/lib/client-session-provider.test.mjs"
+      ]
+    },
+    {
+      "id": "board-comment-idempotency",
+      "prefixes": [
+        "supabase/functions/board-comment-create/",
+        "supabase/migrations/20261002020937_board_comment_idempotency.sql",
+        "lib/board-comment-request.ts",
+        "web/src/lib/board-comment-request.ts"
+      ],
+      "requires_any": [
+        "supabase/tests/board-comment-idempotency.test.mjs",
+        "supabase/tests/board-comment-postgres.test.mjs",
+        "lib/__tests__/board-comment-request.test.ts"
+      ]
+    },
+    {
+      "id": "credential-session-generations",
+      "prefixes": [
+        "supabase/functions/_shared/session-generation.ts",
+        "supabase/functions/_shared/request-board-session-verification.ts",
+        "supabase/functions/verify-request-board-session/",
+        "supabase/migrations/20261002021018_credential_session_generations.sql",
+        "supabase/migrations/20261002022754_activate_credential_session_generations.sql",
+        "web/src/lib/server-session.ts",
+        "web/src/lib/request-board-app-session.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/session-generation.test.ts",
+        "supabase/tests/session-generation-postgres.test.mjs",
+        "web/src/lib/server-session-generation.test.mjs"
+      ]
+    },
+    {
+      "id": "password-reset-atomic-challenge",
+      "prefixes": [
+        "supabase/functions/request-password-reset/",
+        "supabase/functions/reset-password/",
+        "supabase/functions/_shared/password-reset-challenge.ts",
+        "supabase/migrations/20261001071216_password_reset_atomic_challenges.sql",
+        "supabase/migrations/20261001071222_password_reset_validate_challenge_counters.sql"
+      ],
+      "requires_any": [
+        "supabase/tests/password-reset-challenge-sql.test.mjs",
+        "supabase/tests/password-reset-challenge-postgres.test.mjs",
+        "web/src/lib/password-reset-request-security-source.test.ts",
+        "web/src/lib/reset-password-security-source.test.ts"
+      ]
+    },
+    {
+      "id": "exam-management-realtime-lifecycle",
+      "prefixes": [
+        "app/exam-manage.tsx",
+        "app/exam-manage2.tsx",
+        "lib/exam-realtime-channel.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/exam-realtime-channel.test.js",
+        "docs/handbook/mobile/exam-flows.md"
+      ]
+    },
+    {
       "id": "read-failure-recovery",
-      "prefixes": ["components/QueryReadState.tsx", "hooks/use-board-editor-source.ts", "hooks/use-read-session-scope.ts", "lib/home-read-state.ts", "lib/request-board-read-state.ts", "web/src/components/QueryErrorAlert.tsx", "web/src/lib/query-read-error.ts", "web/src/lib/board-edit-detail.ts"],
-      "requires_any": ["components/__tests__/mobile-read-states.test.tsx", "hooks/__tests__/use-board-editor-source.test.ts", "lib/__tests__/board-read-recovery.test.ts", "lib/__tests__/request-board-read-state.test.ts", "web/src/lib/board-read-state-runtime.test.mjs"]
+      "prefixes": [
+        "components/QueryReadState.tsx",
+        "hooks/use-board-editor-source.ts",
+        "hooks/use-read-session-scope.ts",
+        "lib/home-read-state.ts",
+        "lib/request-board-read-state.ts",
+        "web/src/components/QueryErrorAlert.tsx",
+        "web/src/lib/query-read-error.ts",
+        "web/src/lib/board-edit-detail.ts"
+      ],
+      "requires_any": [
+        "components/__tests__/mobile-read-states.test.tsx",
+        "hooks/__tests__/use-board-editor-source.test.ts",
+        "lib/__tests__/board-read-recovery.test.ts",
+        "lib/__tests__/request-board-read-state.test.ts",
+        "web/src/lib/board-read-state-runtime.test.mjs"
+      ]
     },
     {
       "id": "mobile-build-source",
-      "prefixes": ["scripts/eas-build.js", "scripts/release/verify-build-source.cjs", "scripts/patches/android-drawing-order-instrumentation.cjs", "plugins/with-android-drawing-order-fix.js", "gradle-plugins/react-android-drawing-order-guard/"],
-      "requires_any": ["lib/__tests__/eas-build.test.ts", "lib/__tests__/build-source.test.ts", "lib/__tests__/android-drawing-order-fix.test.ts", "lib/__tests__/android-drawing-order-aab.test.ts"]
+      "prefixes": [
+        "scripts/eas-build.js",
+        "scripts/release/verify-build-source.cjs",
+        "scripts/patches/android-drawing-order-instrumentation.cjs",
+        "plugins/with-android-drawing-order-fix.js",
+        "gradle-plugins/react-android-drawing-order-guard/"
+      ],
+      "requires_any": [
+        "lib/__tests__/eas-build.test.ts",
+        "lib/__tests__/build-source.test.ts",
+        "lib/__tests__/android-drawing-order-fix.test.ts",
+        "lib/__tests__/android-drawing-order-aab.test.ts"
+      ]
     },
     {
       "id": "mobile-referral-allowance",
-      "prefixes": ["app/referral-allowance.tsx", "hooks/use-referral-allowance.ts", "lib/referral-allowance-display.ts", "lib/referral-allowance-response.ts"],
-      "requires_any": ["components/__tests__/referral-allowance-screen.test.tsx", "hooks/__tests__/use-referral-allowance.test.ts", "lib/__tests__/referral-allowance-navigation.test.ts", "lib/__tests__/referral-allowance-display.test.ts", "lib/__tests__/referral-allowance-response.test.ts"]
+      "prefixes": [
+        "app/referral-allowance.tsx",
+        "hooks/use-referral-allowance.ts",
+        "lib/referral-allowance-display.ts",
+        "lib/referral-allowance-response.ts"
+      ],
+      "requires_any": [
+        "components/__tests__/referral-allowance-screen.test.tsx",
+        "hooks/__tests__/use-referral-allowance.test.ts",
+        "lib/__tests__/referral-allowance-navigation.test.ts",
+        "lib/__tests__/referral-allowance-display.test.ts",
+        "lib/__tests__/referral-allowance-response.test.ts"
+      ]
     },
     {
       "id": "mobile-startup-alert-update",
-      "prefixes": ["components/AppAlertProvider.tsx", "hooks/useInAppUpdate", "hooks/in-app-update-lifecycle.ts"],
-      "requires_any": ["components/__tests__/AppAlertProvider.test.js", "docs/handbook/shared-ui-action-contracts.md"]
+      "prefixes": [
+        "components/AppAlertProvider.tsx",
+        "hooks/useInAppUpdate",
+        "hooks/in-app-update-lifecycle.ts"
+      ],
+      "requires_any": [
+        "components/__tests__/AppAlertProvider.test.js",
+        "docs/handbook/shared-ui-action-contracts.md"
+      ]
     },
     {
       "id": "mobile-logout-navigation",
-      "prefixes": ["hooks/use-app-logout.ts", "app/index.tsx", "app/home-lite.tsx", "app/settings.tsx", "app/board.tsx", "app/admin-board-manage.tsx", "app/request-board.tsx"],
-      "requires_any": ["lib/__tests__/app-logout-navigation.test.js", "lib/__tests__/logout-source-contract.test.ts", "docs/handbook/mobile/auth-and-gates.md"]
+      "prefixes": [
+        "hooks/use-app-logout.ts",
+        "app/index.tsx",
+        "app/home-lite.tsx",
+        "app/settings.tsx",
+        "app/board.tsx",
+        "app/admin-board-manage.tsx",
+        "app/request-board.tsx"
+      ],
+      "requires_any": [
+        "lib/__tests__/app-logout-navigation.test.js",
+        "lib/__tests__/logout-source-contract.test.ts",
+        "docs/handbook/mobile/auth-and-gates.md"
+      ]
     },
     {
       "id": "edge-diagnostic-privacy",
@@ -459,12 +606,12 @@
     },
     {
       "id": "fc-workflow-parity",
-        "prefixes": [
-          "lib/fc-workflow.ts",
-          "lib/fc-workflow-core.ts",
-          "web/src/lib/fc-workflow-core.ts",
-          "web/src/lib/fc-workflow.ts",
-          "web/src/lib/shared.ts",
+      "prefixes": [
+        "lib/fc-workflow.ts",
+        "lib/fc-workflow-core.ts",
+        "web/src/lib/fc-workflow-core.ts",
+        "web/src/lib/fc-workflow.ts",
+        "web/src/lib/shared.ts",
         "web/src/app/dashboard/page.tsx",
         "web/src/app/api/admin/fc/route.ts"
       ],

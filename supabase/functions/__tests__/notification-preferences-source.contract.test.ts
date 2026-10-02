@@ -29,7 +29,9 @@ const atomicPatchMigration = readFileSync(
 
 describe('notification preference privileged boundaries', () => {
   it('derives the immutable actor tuple and re-authorizes canonical room access', () => {
-    expect(preferences).toContain('parseAppSessionToken(token)');
+    expect(preferences).toContain('parseAppSessionTokenDetailed(token)');
+    expect(preferences).toContain('status: parsed.status ?? 401');
+    expect(preferences).not.toContain('parseAppSessionToken(token)');
     expect(preferences).toContain(".from('admin_accounts')");
     expect(preferences).toContain(".from('manager_accounts')");
     expect(preferences).toContain(".from('fc_profiles')");

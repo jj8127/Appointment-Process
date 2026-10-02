@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import * as editDetail from './board-edit-detail.ts';
 import * as queryError from './query-read-error.ts';
+import * as commentRequest from './board-comment-request.ts';
 
 const rootRequire = createRequire(new URL('../../../package.json', import.meta.url));
 const webRequire = createRequire(import.meta.url);
@@ -48,6 +49,7 @@ function loadTsx(path, mocks, globals = {}) {
   vm.runInNewContext(code, {
     exports, require: (id) => {
       if (id in mocks) return mocks[id];
+      if (id === '@/lib/board-comment-request') return commentRequest;
       if (id === 'react' || id === 'react/jsx-runtime') return rootRequire(id);
       if (id === '@mantine/core' || id === '@tabler/icons-react') return ui;
       throw new Error(`Unmocked dependency: ${id}`);
@@ -239,6 +241,37 @@ test('an in-place account switch clears the composer and cannot reuse another ac
   assert.equal(page.find('Textarea', (node) => node.props.label === '내용').props.value, '새 계정에서 조회한 원문');
   await page.close();
 });
+
+for (const changeAccount of [false, true]) {
+  test(`late comment success preserves an identical draft on another ${changeAccount ? 'account' : 'post'}`, async () => {
+    const page = makeBoard();
+    await page.setQuery(['board-detail', 'A'], success(detail('A')));
+    await page.setQuery(['board-detail', 'B'], success(detail('B')));
+    await page.view();
+    const mutation = page.mutations.find((entry) => entry.options.mutationFn.toString().includes('createBoardComment'));
+    const variables = {
+      postId: 'A', content: '같은 가상 댓글', requestId: 'synthetic-operation',
+      scope: JSON.stringify(['admin', 'synthetic-actor']),
+      detailKey: ['board-detail', 'A', 'admin', 'synthetic-actor'],
+    };
+    assert.equal(mutation.options.networkMode, 'always');
+    if (changeAccount) {
+      await page.changeActor();
+      await page.setQuery(['board-detail', 'B'], success(detail('B')));
+    }
+    await page.view(1);
+    const composer = () => page.find('Textarea', (node) => node.props.placeholder === '댓글을 입력하세요...');
+    await act(async () => composer().props.onChange({ currentTarget: { value: variables.content } }));
+    await act(async () => mutation.options.onSuccess({}, variables));
+    assert.equal(composer().props.value, variables.content);
+    assert.ok(page.invalidations.some(({ queryKey }) => JSON.stringify(queryKey) === JSON.stringify(variables.detailKey)));
+    if (changeAccount) {
+      await assert.rejects(() => mutation.options.mutationFn(variables), /로그인/);
+      assert.equal(page.notices.length, 0);
+    }
+    await page.close();
+  });
+}
 
 for (const kind of ['reaction', 'comment-like']) {
   for (const outcome of ['success', 'failure']) {

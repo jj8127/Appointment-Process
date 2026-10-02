@@ -134,7 +134,7 @@ serve(async (req: Request) => {
     }
     const parsed = await parseAppSessionTokenDetailed(appSessionToken);
     if (parsed.ok === false) {
-      return err('Unauthorized', 401);
+      return err(parsed.code === 'session_verification_unavailable' ? 'Session verification unavailable' : 'Unauthorized', parsed.status ?? 401);
     }
     session = parsed.payload;
   }

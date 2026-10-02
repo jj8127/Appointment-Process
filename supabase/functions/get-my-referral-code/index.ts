@@ -40,8 +40,8 @@ function json(body: Record<string, unknown>, status = 200) {
   });
 }
 
-function fail(code: string, message: string) {
-  return json({ ok: false, code, message });
+function fail(code: string, message: string, status = 200) {
+  return json({ ok: false, code, message }, status);
 }
 
 type SessionPayload = AppSessionTokenPayload;
@@ -229,7 +229,7 @@ serve(async (req: Request) => {
   // Verify session token from Authorization header
   const sessionResult = await requireAppSessionFromRequest(req);
   if (sessionResult.ok === false) {
-    return fail(sessionResult.code, sessionResult.message);
+    return fail(sessionResult.code, sessionResult.message, sessionResult.status);
   }
 
   const body = await readOptionalJsonBody(req);

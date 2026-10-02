@@ -42,8 +42,8 @@ Deno.test('direct lists dual-read legacy metadata and private attachments withou
   assertStringIncludes(text, 'file_size: row.file_size');
   assertStringIncludes(text, 'attachments,');
   assertStringIncludes(text, 'row.deleted_at === null');
-  assertStringIncludes(text, 'buildInternalChatSummaryRows');
-  assertStringIncludes(text, '`첨부파일 ${batchAttachments.length}개`');
+  assertStringIncludes(text, "supabase.rpc('get_internal_messenger_summaries_v1'");
+  assertMatch(text, /messages: uniqueRows\.map\([\s\S]*?normalizeMessage\([\s\S]*?attachmentsByBatch\.get\(row\.attachment_batch_id\)/);
 });
 
 Deno.test('group chat V2 is private, replay-safe, hydrated on every message surface', async () => {
@@ -52,11 +52,12 @@ Deno.test('group chat V2 is private, replay-safe, hydrated on every message surf
   assertStringIncludes(text, "'commit_group_chat_message_with_attachments_v2'");
   assertStringIncludes(text, "'legacy_attachment_upload_disabled'");
   assertStringIncludes(text, 'attachmentCommit?.replayed');
-  assertStringIncludes(text, 'message: serializeMessage(message, 0, [], messageAttachments)');
+  assertStringIncludes(text, 'message: serializeMessage(message, unreadCount, [], messageAttachments)');
   assertStringIncludes(text, 'attachmentMapForMessages(messages)');
   assertStringIncludes(text, 'attachmentMapForMessages([message])');
   assertStringIncludes(text, 'attachments: MessengerAttachmentMetadata[] = []');
-  assertStringIncludes(text, "warning: null");
+  assertStringIncludes(text, 'warning: notificationWarning(notification)');
+  assertStringIncludes(text, 'if (summary.delivery.notificationStored) return null;');
   assertNotMatch(text, /storage\/v1\/object\/public\/chat-uploads/);
 });
 

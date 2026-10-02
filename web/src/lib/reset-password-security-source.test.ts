@@ -59,11 +59,12 @@ describe('reset-password SMS bypass source contract', () => {
     );
   });
 
-  it('preserves the normal stored-token hash and expiry validation path', () => {
+  it('delegates hash verification, expiry and single-use consumption to the database transaction', () => {
     assert.match(
       resetPasswordSource,
-      /if \(!bypassToken\) \{[\s\S]*?if \(!resetTokenHash \|\| !resetTokenExpiresAt\)[\s\S]*?new Date\(resetTokenExpiresAt\)[\s\S]*?sha256Base64\(token\)[\s\S]*?tokenHash !== resetTokenHash/,
+      /sha256Base64\(token\)[\s\S]*?processPasswordResetChallenge\(supabase, account,[\s\S]*?action: 'consume'/,
     );
+    assert.doesNotMatch(resetPasswordSource, /\.update\(passwordUpdatePayload\)|tokenHash !== resetTokenHash/);
   });
 
   it('defaults to disabled when the opt-in is unset or false', () => {

@@ -1,3 +1,11 @@
+import {
+  verifySessionGeneration,
+  sessionGenerationClaims,
+  type OptionalSessionGenerationClaims,
+  type SessionGenerationClaims,
+  type SessionGenerationLookup,
+} from './session-generation.ts';
+
 const encoder = new TextEncoder();
 
 export type RequestBoardBridgeRole = 'fc' | 'designer' | 'admin' | 'manager';
@@ -18,7 +26,7 @@ type SignedTokenPayloadBase = {
   exp: number;
 };
 
-export type BridgeTokenPayload = SignedTokenPayloadBase & {
+export type BridgeTokenPayload = SignedTokenPayloadBase & OptionalSessionGenerationClaims & {
   kind: 'request_board_bridge';
   role: RequestBoardBridgeRole;
   affiliation?: string | null;
@@ -31,7 +39,7 @@ export type RequestBoardPasswordSyncAssertionPayload = SignedTokenPayloadBase & 
   nonce: string;
 };
 
-export type AppSessionTokenPayload = SignedTokenPayloadBase & {
+export type AppSessionTokenPayload = SignedTokenPayloadBase & OptionalSessionGenerationClaims & {
   kind: 'fc_onboarding_session';
   role: AppSessionSourceRole;
   staffType?: AppSessionStaffType;
@@ -56,26 +64,28 @@ type SignedTokenVerificationResult<TPayload extends SignedTokenPayloadBase> =
   | { ok: false; reason: 'invalid_token' | 'expired_token' };
 
 type AppSessionTokenParseResult =
-  | { ok: true; payload: AppSessionTokenPayload }
+  | { ok: true; payload: AppSessionTokenPayload & SessionGenerationClaims }
   | {
     ok: false;
-    code: 'invalid_app_session' | 'expired_app_session';
+    code: 'invalid_app_session' | 'expired_app_session' | 'session_verification_unavailable';
     message: string;
+    status?: number;
   };
 
 type BridgeTokenParseResult =
-  | { ok: true; payload: BridgeTokenPayload }
+  | { ok: true; payload: BridgeTokenPayload & SessionGenerationClaims }
   | {
     ok: false;
-    code: 'invalid_bridge_token' | 'expired_bridge_token';
+    code: 'invalid_bridge_token' | 'expired_bridge_token' | 'session_verification_unavailable';
     message: string;
+    status?: number;
   };
 
 type RequiredAppSessionResult =
   | { ok: true; session: AppSessionTokenPayload }
   | {
     ok: false;
-    code: 'missing_app_session' | 'invalid_app_session' | 'expired_app_session';
+    code: 'missing_app_session' | 'invalid_app_session' | 'expired_app_session' | 'session_verification_unavailable';
     message: string;
     status: number;
   };
@@ -119,6 +129,19 @@ function uniqueSecrets(values: (string | undefined | null)[]) {
 function getBridgeSigningSecret() {
   return getTrimmedEnv('REQUEST_BOARD_BRIDGE_TOKEN_SECRET') || getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET);
 }
+
+const lookupSessionGeneration: SessionGenerationLookup = (input, purpose) =>
+  verifySessionGeneration(input, purpose, {
+    supabaseUrl: getEnv('SUPABASE_URL'),
+    serviceRoleKey: getEnv('SUPABASE_SERVICE_ROLE_KEY'),
+  });
+
+const unavailableSession = {
+  ok: false as const,
+  code: 'session_verification_unavailable' as const,
+  message: '세션을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.',
+  status: 503,
+};
 
 function getPasswordSyncAssertionSigningSecret() {
   return getTrimmedEnv('REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET');
@@ -261,7 +284,8 @@ async function verifySignedTokenWithSecrets<TPayload extends SignedTokenPayloadB
 export async function createRequestBoardBridgeToken(
   phone: string,
   role: RequestBoardBridgeRole,
-  affiliation?: string | null,
+  affiliation: string | null | undefined,
+  generation: SessionGenerationClaims,
 ) {
   const secret = getBridgeSigningSecret();
   if (!secret) return null;
@@ -274,6 +298,7 @@ export async function createRequestBoardBridgeToken(
     kind: 'request_board_bridge',
     phone,
     role,
+    ...sessionGenerationClaims(generation),
     ...((role === 'fc' || role === 'manager') && String(affiliation ?? '').trim()
       ? { affiliation: String(affiliation ?? '').trim() }
       : {}),
@@ -337,8 +362,9 @@ export async function createRequestBoardPasswordSyncAssertion(
 export async function createAppSessionToken(
   phone: string,
   role: AppSessionSourceRole,
-  staffType?: AppSessionStaffType,
-  fcId?: string | null,
+  staffType: AppSessionStaffType | undefined,
+  fcId: string | null | undefined,
+  generation: SessionGenerationClaims,
 ) {
   const secret = getAppSessionSigningSecret();
   if (!secret) return null;
@@ -351,6 +377,7 @@ export async function createAppSessionToken(
     kind: 'fc_onboarding_session',
     phone,
     role,
+    ...sessionGenerationClaims(generation),
     ...(role === 'admin' && staffType ? { staffType } : {}),
     ...(role === 'fc' && String(fcId ?? '').trim() ? { fcId: String(fcId ?? '').trim() } : {}),
     iat: nowSec,
@@ -467,6 +494,7 @@ export async function hashAssistedPasswordChangeNonce(nonce: string) {
 
 export async function parseAppSessionTokenDetailed(
   token: string,
+  lookup: SessionGenerationLookup = lookupSessionGeneration,
 ): Promise<AppSessionTokenParseResult> {
   const secrets = getAppSessionVerificationSecrets();
   if (secrets.length === 0) {
@@ -525,7 +553,16 @@ export async function parseAppSessionTokenDetailed(
       message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
     };
   }
-  return { ok: true, payload };
+  const generation = await lookup(payload, 'app');
+  if (generation.ok === false) {
+    return generation.reason === 'unavailable' ? unavailableSession : {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+      status: 401,
+    };
+  }
+  return { ok: true, payload: { ...payload, ...generation.claims } };
 }
 
 export async function parseAppSessionToken(token: string) {
@@ -535,6 +572,7 @@ export async function parseAppSessionToken(token: string) {
 
 export async function parseRequestBoardBridgeTokenDetailed(
   token: string,
+  lookup: SessionGenerationLookup = lookupSessionGeneration,
 ): Promise<BridgeTokenParseResult> {
   const secrets = getBridgeVerificationSecrets();
   if (secrets.length === 0) {
@@ -581,7 +619,16 @@ export async function parseRequestBoardBridgeTokenDetailed(
     };
   }
 
-  return { ok: true, payload };
+  const generation = await lookup(payload, 'bridge');
+  if (generation.ok === false) {
+    return generation.reason === 'unavailable' ? unavailableSession : {
+      ok: false,
+      code: 'invalid_bridge_token',
+      message: '브릿지 세션이 유효하지 않습니다. 다시 로그인해주세요.',
+      status: 401,
+    };
+  }
+  return { ok: true, payload: { ...payload, ...generation.claims } };
 }
 
 export async function parseRequestBoardBridgeToken(token: string) {
@@ -624,7 +671,7 @@ export async function requireAppSessionFromRequest(
       ok: false,
       code: parsed.code,
       message: parsed.message,
-      status: 401,
+      status: parsed.status ?? 401,
     };
   }
 

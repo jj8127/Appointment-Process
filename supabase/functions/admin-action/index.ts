@@ -569,8 +569,10 @@ serve(async (req: Request) => {
       return fail(
         parsedSession.code === 'expired_app_session'
           ? 'Unauthorized: expired app session token'
-          : 'Unauthorized: missing or invalid app session token',
-        401,
+          : parsedSession.code === 'session_verification_unavailable'
+            ? 'Session verification temporarily unavailable'
+            : 'Unauthorized: missing or invalid app session token',
+        parsedSession.status ?? 401,
       );
     }
 

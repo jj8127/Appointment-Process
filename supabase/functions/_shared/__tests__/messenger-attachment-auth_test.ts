@@ -205,13 +205,22 @@ Deno.test("trusted service authentication re-resolves an active immutable FC act
 Deno.test("an explicit app session takes precedence over the proxy service key", async () => {
   const secretName = "FC_APP_SESSION_TOKEN_SECRET";
   const previousSecret = Deno.env.get(secretName);
+  const previousUrl = Deno.env.get("SUPABASE_URL");
+  const previousServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const originalFetch = globalThis.fetch;
   Deno.env.set(secretName, "attachment-app-session-test-secret-32-bytes");
+  Deno.env.set("SUPABASE_URL", "https://local.invalid");
+  Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "synthetic-session-service-key");
+  globalThis.fetch = () => Promise.resolve(new Response(JSON.stringify({
+    accountKind: "fc", accountId: FC_ID, sessionVersion: 0,
+  })));
   try {
     const token = await createAppSessionToken(
       "01011112222",
       "fc",
       undefined,
       FC_ID,
+      { accountKind: "fc", accountId: FC_ID, sessionVersion: 0 },
     );
     if (!token) throw new Error("app session token was not created");
 
@@ -261,6 +270,11 @@ Deno.test("an explicit app session takes precedence over the proxy service key",
       assertEquals(invalidSession.status, 401);
     }
   } finally {
+    globalThis.fetch = originalFetch;
+    if (previousUrl === undefined) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", previousUrl);
+    if (previousServiceKey === undefined) Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
+    else Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", previousServiceKey);
     if (previousSecret === undefined) {
       Deno.env.delete(secretName);
     } else {

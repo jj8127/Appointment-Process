@@ -6,6 +6,7 @@ import {
   findPasswordResetAccount,
 } from '../_shared/password-reset-account.ts';
 import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
+import { processPasswordResetChallenge } from '../_shared/password-reset-challenge.ts';
 
 type Payload = {
   phone?: string;
@@ -176,8 +177,7 @@ serve(async (req: Request) => {
 
   const { account, error: accountError } = await findPasswordResetAccount(supabase, phone);
   if (accountError) {
-    const message = accountError instanceof Error ? accountError.message : '계정 조회 중 오류가 발생했습니다.';
-    return json({ ok: false, code: 'db_error', message }, 500);
+    return json({ ok: false, code: 'db_error', message: '계정 조회 중 오류가 발생했습니다.' }, 500);
   }
   if (!account) {
     return fail('not_found', '등록된 계정을 찾을 수 없습니다.');
@@ -195,56 +195,22 @@ serve(async (req: Request) => {
     return fail('not_completed', '회원가입이 완료되지 않았습니다.');
   }
   const bypassToken = smsBypassConfig.enabled && token === smsBypassConfig.code;
-  if (!bypassToken) {
-    const resetTokenHash = account.resetTokenHash;
-    const resetTokenExpiresAt = account.resetTokenExpiresAt;
-    if (!resetTokenHash || !resetTokenExpiresAt) {
-      return fail('invalid_token', '인증 코드가 유효하지 않습니다.');
-    }
-
-    const expiresAt = new Date(resetTokenExpiresAt);
-    if (expiresAt < new Date()) {
-      return fail('expired_token', '인증 코드가 만료되었습니다.');
-    }
-
-    const tokenHash = await sha256Base64(token);
-    if (tokenHash !== resetTokenHash) {
-      return fail('invalid_token', '인증 코드가 유효하지 않습니다.');
-    }
-  }
+  // Development bypass still requires an issued, unexpired, unconsumed
+  // challenge. Hosted runtimes reject this opt-in before serving requests.
+  const tokenHash = bypassToken && account.resetTokenHash
+    ? account.resetTokenHash
+    : await sha256Base64(token);
 
   const saltBytes = crypto.getRandomValues(new Uint8Array(16));
   const passwordHash = await hashPassword(newPassword, saltBytes);
   const passwordSalt = toBase64(saltBytes);
 
-  const passwordUpdatePayload = {
-    password_hash: passwordHash,
-    password_salt: passwordSalt,
-    password_set_at: new Date().toISOString(),
-    failed_count: 0,
-    locked_until: null,
-    reset_token_hash: null,
-    reset_token_expires_at: null,
-    reset_sent_at: null,
-  };
-
-  const fcPasswordUpdatePayload = {
-    ...passwordUpdatePayload,
-    must_change_password: false,
-    temporary_password_issued_at: null,
-  };
-
-  const updateResult =
-    account.kind === 'admin'
-      ? await supabase.from('admin_accounts').update(passwordUpdatePayload).eq('id', account.id)
-      : account.kind === 'manager'
-        ? await supabase.from('manager_accounts').update(passwordUpdatePayload).eq('id', account.id)
-        : await supabase.from('fc_credentials').update(fcPasswordUpdatePayload).eq('fc_id', account.id);
-
-  const { error: updateError } = updateResult;
-
-  if (updateError) {
-    return json({ ok: false, code: 'db_error', message: updateError.message }, 500);
+  const challengeResult = await processPasswordResetChallenge(supabase, account, {
+    action: 'consume', tokenHash, passwordHash, passwordSalt,
+  });
+  if (challengeResult.ok === false) {
+    const { status, ...failure } = challengeResult;
+    return json(failure, status);
   }
 
   const requestBoardSyncOptions = buildRequestBoardPasswordSyncOptions(account);

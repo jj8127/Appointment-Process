@@ -74,7 +74,7 @@ serve(async (req: Request) => {
 
   const parsedBridgeToken = await parseRequestBoardBridgeTokenDetailed(bridgeToken);
   if (parsedBridgeToken.ok === false) {
-    return fail(parsedBridgeToken.code, parsedBridgeToken.message, 401);
+    return fail(parsedBridgeToken.code, parsedBridgeToken.message, parsedBridgeToken.status ?? 401);
   }
 
   const phone = cleanPhone(parsedBridgeToken.payload.phone ?? '');
@@ -111,7 +111,7 @@ serve(async (req: Request) => {
       return fail('forbidden', '추천인 세션을 발급할 수 없는 계정입니다.', 403);
     }
 
-    const appSessionToken = await createAppSessionToken(phone, 'manager');
+    const appSessionToken = await createAppSessionToken(phone, 'manager', undefined, undefined, parsedBridgeToken.payload);
     if (!appSessionToken) {
       return fail('bridge_secret_missing', '앱 세션을 발급할 수 없습니다.', 500);
     }
@@ -145,7 +145,7 @@ serve(async (req: Request) => {
     return fail('forbidden', '추천인 세션을 발급할 수 없는 계정입니다.', 403);
   }
 
-  const appSessionToken = await createAppSessionToken(phone, 'fc', undefined, profile.id);
+  const appSessionToken = await createAppSessionToken(phone, 'fc', undefined, profile.id, parsedBridgeToken.payload);
   if (!appSessionToken) {
     return fail('bridge_secret_missing', '앱 세션을 발급할 수 없습니다.', 500);
   }

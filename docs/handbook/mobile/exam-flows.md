@@ -7,6 +7,13 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 # Mobile Playbook: Exam Flows
 
+## 2026-10-01 시험 관리 Realtime 수명
+
+- 생명·손해 관리 화면은 `subscribeToExamRegistrationChanges`로 effect마다 식별정보 없는 고유 채널을 생성한다. 같은 화면이 동시에 열려도 기존 구독 객체에 callback을 다시 추가하지 않는다.
+- 모든 변경 callback은 subscribe 전에 등록한다. cleanup은 해당 effect의 채널만 제거하고, 제거가 끝나기 전에 도착한 callback도 무시한다.
+- 인증 복원·조회 권한·계정 상태에 따라 구독하며 계정 또는 서명 세션이 바뀌면 이전 구독을 정리한다. 채널 이름에 계정 ID·전화번호·세션 토큰을 넣지 않는다.
+- 설치된 SDK의 동일 topic 객체 재사용과 `.on()` 예외를 로컬에서 재현했다. 일반적인 cleanup 직후 재생성은 그 재현에서 정상 동작했으므로 모든 화면 재진입을 운영 원인으로 단정하지 않는다. 동시 화면과 제거 지연을 별도 회귀 조건으로 검증한다.
+
 ## 2026-09-30 일정 조회 실패와 빈 결과
 
 - 생명·손해 시험 등록 화면은 조회 실패를 등록된 일정 없음으로 표시하지 않는다. 오류 안내와 재시도를 빈 목록 분기보다 먼저 처리한다.

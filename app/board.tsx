@@ -1,10 +1,12 @@
+import { randomUUID } from 'expo-crypto';
+import { createCommentRequestTracker } from '@/lib/board-comment-request';
 import { QueryReadState } from '@/components/QueryReadState';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   BackHandler,
@@ -635,35 +637,54 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
     },
   });
 
+  const commentOwnerActive = useRef(true);
+  useEffect(() => {
+    commentOwnerActive.current = true;
+    return () => { commentOwnerActive.current = false; };
+  }, []);
+
+  const commentRequests = useRef(createCommentRequestTracker(randomUUID));
+
   // Add comment mutation
   const addCommentMutation = useMutation({
+    networkMode: 'always',
     mutationFn: async ({
       postId,
       content,
       parentId,
+      requestId,
+      scope,
     }: {
       postId: string;
+      requestId: string;
+      scope: string | number;
+      detailKey: readonly unknown[];
       content: string;
       parentId?: string;
       threadRootId?: string;
     }) => {
-      if (!actor) throw new Error('로그인이 필요합니다.');
-      return createBoardComment(actor, { postId, content, parentId });
+      if (!commentOwnerActive.current || !actor || scope !== sessionScope) throw new Error('로그인이 필요합니다.');
+      return createBoardComment(actor, { postId, content, parentId, requestId });
     },
     onSuccess: (_data, variables) => {
-      setCommentText('');
-      setReplyTarget((current) => (
-        current?.parentId === variables.parentId ? null : current
-      ));
-      if (variables.threadRootId) {
-        setCollapsedThreadIds((current) => (
-          current.filter((commentId) => commentId !== variables.threadRootId)
+      commentRequests.current.complete(variables.requestId);
+      if (!commentOwnerActive.current) return;
+      if (selectedPostId === variables.postId && variables.scope === sessionScope) {
+        setCommentText((current) => current.trim() === variables.content ? '' : current);
+        setReplyTarget((current) => (
+          current?.parentId === variables.parentId ? null : current
         ));
+        if (variables.threadRootId) {
+          setCollapsedThreadIds((current) => (
+            current.filter((commentId) => commentId !== variables.threadRootId)
+          ));
+        }
       }
-      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId, sessionScope] });
+      queryClient.invalidateQueries({ queryKey: variables.detailKey });
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!commentOwnerActive.current || variables.scope !== sessionScope) return;
       showBoardFeedbackAlert(Alert.alert, 'comment-create-failed');
       logBoardError('comment', error);
     },
@@ -771,12 +792,18 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
   });
 
   const handleAddComment = () => {
-    if (!selectedPost || !actor) return;
+    if (!selectedPost || !actor || addCommentMutation.isPending) return;
     if (!commentText.trim()) {
       showBoardFeedbackAlert(Alert.alert, 'empty-comment');
       return;
     }
+    const requestId = commentRequests.current.requestId({
+      scope: sessionScope, postId: selectedPost.id, parentId: replyTarget?.parentId, content: commentText,
+    });
     addCommentMutation.mutate({
+      scope: sessionScope,
+      detailKey: ['board-detail', selectedPost.id, sessionScope],
+      requestId,
       postId: selectedPost.id,
       content: commentText.trim(),
       parentId: replyTarget?.parentId,

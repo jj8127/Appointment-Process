@@ -7,6 +7,13 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 
 # Admin Web Playbook: Dashboard Lifecycle
 
+## 2026-10-02 Session transition and cache ownership
+
+- Browser login/logout cookie writes use one transition queue, plus Web Locks across cooperating tabs. Logout clears local state immediately, waits at most 15 seconds for the server request, then redirects. Login cannot overtake a pending logout response.
+- Both login and logout cancel and clear the persistent QueryClient. An opaque in-memory epoch remounts consumers so previous query observers and local view state cannot leak into the next account. Private identifiers/tokens are not used as the epoch.
+- Executable evidence: `web/src/lib/client-session-transition.test.ts` and `client-session-provider.test.mjs` exercise delayed logout, queue recovery, late query resolution and the actual provider with TanStack Query. This is prepared source, not a deployed-web claim.
+
+
 ## 2026-09-30 목록과 추천인 검색 오류
 
 - FC·위촉·문서·시험 일정·공지 목록은 조회 실패를 조건에 맞는 자료 없음으로 표시하지 않는다. 안전한 공통 오류 안내와 재시도를 제공하고, HTTP 상태가 확인된 인증 오류에는 재로그인 링크를 표시한다.

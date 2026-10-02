@@ -5,6 +5,16 @@ import {
   parseAppSessionTokenDetailed,
 } from '../../supabase/functions/_shared/request-board-auth';
 import { createWebGroupChatAppSessionToken } from '../../web/src/lib/request-board-app-session';
+import { checkSessionGeneration, type SessionGenerationLookup } from '../../supabase/functions/_shared/session-generation';
+
+const accountId = '10000000-0000-4000-8000-000000000001';
+const currentGeneration: SessionGenerationLookup = async (input) => checkSessionGeneration(input, {
+  accountKind: input.role,
+  accountId,
+  sessionVersion: 0,
+  createdAt: '2000-01-01T00:00:00Z',
+});
+const generation = { accountKind: 'admin' as const, accountId, sessionVersion: 0 };
 
 const ENV_KEYS = [
   'FC_APP_SESSION_TOKEN_SECRET',
@@ -52,8 +62,8 @@ describe('app-session HMAC key separation', () => {
   it('does not mint or accept an admin app session from the legacy bridge secret', async () => {
     process.env.REQUEST_BOARD_AUTH_BRIDGE_SECRET = 'legacy-shared-bridge-secret';
 
-    await expect(createAppSessionToken('01012345678', 'admin', 'admin')).resolves.toBeNull();
-    expect(createWebGroupChatAppSessionToken('01012345678', 'admin')).toBeNull();
+    await expect(createAppSessionToken('01012345678', 'admin', 'admin', undefined, generation)).resolves.toBeNull();
+    expect(createWebGroupChatAppSessionToken('01012345678', 'admin', generation)).toBeNull();
 
     const forgedAdminToken = buildSignedToken(
       buildPayload(),
@@ -69,9 +79,9 @@ describe('app-session HMAC key separation', () => {
     process.env.FC_APP_SESSION_TOKEN_SECRET = 'dedicated-current-app-session-secret';
     process.env.REQUEST_BOARD_AUTH_BRIDGE_SECRET = 'unrelated-legacy-bridge-secret';
 
-    const edgeToken = await createAppSessionToken('01012345678', 'admin', 'developer');
+    const edgeToken = await createAppSessionToken('01012345678', 'admin', 'developer', undefined, generation);
     expect(edgeToken).toBeTruthy();
-    await expect(parseAppSessionTokenDetailed(edgeToken!)).resolves.toMatchObject({
+    await expect(parseAppSessionTokenDetailed(edgeToken!, currentGeneration)).resolves.toMatchObject({
       ok: true,
       payload: {
         kind: 'fc_onboarding_session',
@@ -81,9 +91,9 @@ describe('app-session HMAC key separation', () => {
       },
     });
 
-    const webToken = createWebGroupChatAppSessionToken('01012345678', 'admin');
+    const webToken = createWebGroupChatAppSessionToken('01012345678', 'admin', generation);
     expect(webToken).toBeTruthy();
-    await expect(parseAppSessionTokenDetailed(webToken!)).resolves.toMatchObject({
+    await expect(parseAppSessionTokenDetailed(webToken!, currentGeneration)).resolves.toMatchObject({
       ok: true,
       payload: {
         kind: 'fc_onboarding_session',
@@ -101,7 +111,7 @@ describe('app-session HMAC key separation', () => {
       buildPayload({ role: 'manager', staffType: undefined }),
       process.env.FC_APP_SESSION_TOKEN_PREVIOUS_SECRET,
     );
-    await expect(parseAppSessionTokenDetailed(previousKeyToken)).resolves.toMatchObject({
+    await expect(parseAppSessionTokenDetailed(previousKeyToken, currentGeneration)).resolves.toMatchObject({
       ok: true,
       payload: {
         kind: 'fc_onboarding_session',

@@ -32,7 +32,7 @@ serve(async (req: Request) => {
 
   const sessionResult = await requireAppSessionFromRequest(req);
   if (sessionResult.ok === false) {
-    return fail(sessionResult.code, sessionResult.message);
+    return fail(sessionResult.code, sessionResult.message, sessionResult.status);
   }
 
   return fail(

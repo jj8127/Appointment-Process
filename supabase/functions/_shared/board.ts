@@ -168,7 +168,9 @@ export async function requireActor(
       ok: false,
       response: fail(
         sessionResult.code,
-        '게시판 기능을 사용하려면 다시 로그인해주세요.',
+        sessionResult.code === 'session_verification_unavailable'
+          ? sessionResult.message
+          : '게시판 기능을 사용하려면 다시 로그인해주세요.',
         sessionResult.status,
         origin,
       ),

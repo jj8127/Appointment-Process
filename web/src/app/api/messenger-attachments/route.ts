@@ -52,6 +52,7 @@ export async function POST(req: Request) {
   const appSessionToken = cookieToken || createWebGroupChatAppSessionToken(
     session.session.residentDigits,
     session.session.role,
+    session.session,
   );
   if (!appSessionToken) {
     return json({ ok: false, code: 'missing_app_session', message: '다시 로그인해 주세요.' }, 401);

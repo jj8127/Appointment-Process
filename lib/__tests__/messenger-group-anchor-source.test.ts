@@ -86,7 +86,7 @@ describe('group-chat bounded anchor context source contract', () => {
 
   test('scrubs stale context and gap state when revalidation loses anchor access', () => {
     const contextCatchStart = source.indexOf(
-      "catch {\n            if (anchorContextRequestGenerationRef.current !== requestGeneration) return;",
+      "catch {\n            if (!isCurrent() || anchorContextRequestGenerationRef.current !== requestGeneration) return;",
     );
     const contextCatchEnd = source.indexOf('} finally {', contextCatchStart);
     const contextCatch = source.slice(contextCatchStart, contextCatchEnd);

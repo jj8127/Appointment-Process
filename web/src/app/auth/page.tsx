@@ -8,6 +8,7 @@ import {
 } from '@/lib/admin-web-login-timeout';
 import { logger } from '@/lib/logger';
 import { normalizeStaffType } from '@/lib/staff-identity';
+import { withBrowserSessionTransition } from '@/lib/client-session-transition';
 import {
     Button,
     Container,
@@ -77,7 +78,7 @@ function resolveLoginErrorMessage(error: unknown) {
 }
 
 function AuthContent() {
-    const { loginAs, role, residentId, hydrated } = useSession();
+    const { loginAs, role, residentId, hydrated, transitioning } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -106,6 +107,7 @@ function AuthContent() {
     }, [hydrated, residentId, role, router, shouldResumeNotification]);
 
     const handleLogin = async () => {
+        if (loading || transitioning) return;
         const code = phoneInput.trim();
         if (!code) {
             notifications.show({
@@ -140,70 +142,72 @@ function AuthContent() {
                 return;
             }
 
-            const loginResponse = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone: digits, password: passwordInput.trim() }),
-                signal: AbortSignal.timeout(ADMIN_WEB_LOGIN_BROWSER_TIMEOUT_MS),
-            });
-            const data = await loginResponse.json();
-            if (!loginResponse.ok && !data?.message) {
-                throw new Error('로그인 요청을 처리하지 못했습니다.');
-            }
-            if (!data?.ok) {
-                if (data?.code === 'password_change_required') {
-                    notifications.show({
-                        title: '새 비밀번호가 필요합니다',
-                        message: '관리자가 발급한 임시 비밀번호를 본인이 사용할 새 비밀번호로 변경해주세요.',
-                        color: 'orange',
-                    });
-                    router.replace('/first-password-change');
-                    return;
-                }
-                if (data?.code === 'not_found' && data?.role !== 'admin') {
-                    notifications.show({
-                        title: '안내',
-                        message: '계정정보가 없습니다. 회원가입 페이지로 이동합니다.',
-                        color: 'orange',
-                    });
-                    router.replace('/signup');
-                    return;
-                }
-                if ((data?.code === 'needs_password_setup' || data?.code === 'not_completed') && data?.role !== 'admin') {
-                    notifications.show({
-                        title: '안내',
-                        message: '회원가입이 완료되지 않았습니다. 회원가입 페이지로 이동합니다.',
-                        color: 'orange',
-                    });
-                    router.replace('/signup');
-                    return;
-                }
-                notifications.show({
-                    title: '로그인 실패',
-                    message: data?.message ?? '오류가 발생했습니다. 다시 시도해주세요.',
-                    color: 'red',
+            await withBrowserSessionTransition(async () => {
+                const loginResponse = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone: digits, password: passwordInput.trim() }),
+                    signal: AbortSignal.timeout(ADMIN_WEB_LOGIN_BROWSER_TIMEOUT_MS),
                 });
-                setLoading(false);
-                return;
-            }
+                const data = await loginResponse.json();
+                if (!loginResponse.ok && !data?.message) {
+                    throw new Error('로그인 요청을 처리하지 못했습니다.');
+                }
+                if (!data?.ok) {
+                    if (data?.code === 'password_change_required') {
+                        notifications.show({
+                            title: '새 비밀번호가 필요합니다',
+                            message: '관리자가 발급한 임시 비밀번호를 본인이 사용할 새 비밀번호로 변경해주세요.',
+                            color: 'orange',
+                        });
+                        router.replace('/first-password-change');
+                        return;
+                    }
+                    if (data?.code === 'not_found' && data?.role !== 'admin') {
+                        notifications.show({
+                            title: '안내',
+                            message: '계정정보가 없습니다. 회원가입 페이지로 이동합니다.',
+                            color: 'orange',
+                        });
+                        router.replace('/signup');
+                        return;
+                    }
+                    if ((data?.code === 'needs_password_setup' || data?.code === 'not_completed') && data?.role !== 'admin') {
+                        notifications.show({
+                            title: '안내',
+                            message: '회원가입이 완료되지 않았습니다. 회원가입 페이지로 이동합니다.',
+                            color: 'orange',
+                        });
+                        router.replace('/signup');
+                        return;
+                    }
+                    notifications.show({
+                        title: '로그인 실패',
+                        message: data?.message ?? '오류가 발생했습니다. 다시 시도해주세요.',
+                        color: 'red',
+                    });
+                    setLoading(false);
+                    return;
+                }
 
-            const nextRole = resolveAdminWebLoginRole(data.role);
-            if (!nextRole) {
-                notifications.show({
-                    title: '로그인 실패',
-                    message: '계정 권한 정보를 확인할 수 없습니다.',
-                    color: 'red',
-                });
-                setLoading(false);
-                return;
-            }
-            loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
-            const destination = shouldResumeNotification
-                ? '/api/notification-open/resume'
-                : nextRole === 'fc'
-                    ? '/dashboard/referrals/graph'
-                    : '/dashboard';
-            window.location.replace(destination);
+                const nextRole = resolveAdminWebLoginRole(data.role);
+                if (!nextRole) {
+                    notifications.show({
+                        title: '로그인 실패',
+                        message: '계정 권한 정보를 확인할 수 없습니다.',
+                        color: 'red',
+                    });
+                    setLoading(false);
+                    return;
+                }
+                loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
+                const destination = shouldResumeNotification
+                    ? '/api/notification-open/resume'
+                    : nextRole === 'fc'
+                        ? '/dashboard/referrals/graph'
+                        : '/dashboard';
+                window.location.replace(destination);
+            });
         } catch (err: unknown) {
             const loginError = resolveLoginErrorMessage(err);
 
@@ -376,7 +380,7 @@ function AuthContent() {
                             size="lg"
                             radius="md"
                             type="submit"
-                            loading={loading}
+                            loading={loading || transitioning}
                             rightSection={<IconArrowRight size={20} stroke={2} />}
                             style={{
                                 background: `linear-gradient(135deg, ${HANWHA_ORANGE} 0%, ${HANWHA_ORANGE_DARK} 100%)`,

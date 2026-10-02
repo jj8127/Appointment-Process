@@ -7,6 +7,15 @@ source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversa
 
 # Mobile Playbook: Messenger And Content
 
+## 2026-10-02 Comment retries
+
+- Global automatic mutation retries are disabled. Reads retain their existing retry policy. A write that needs automatic retry must establish an explicit idempotency contract.
+- Mobile and admin-web comment composers assign a UUID before submission and reuse it for an unchanged failed draft, including manual retries. Changes to account scope, post, parent or trimmed content create a new operation. Only confirmed completion releases that operation.
+- `create_board_comment_idempotent` serializes `(actor_role, canonical actor_id, request_id)`, validates parent/thread membership, and commits the comment, actor-bound inbox notifications and replay response together. A payload mismatch is HTTP409. Receipts survive post/comment deletion so late retries cannot recreate deleted content.
+- Older app bodies without requestId remain accepted, but deduplication requires updated clients. The server must deploy after its migration and before the client release. New changes are not included in published 4.2.14(89).
+- Regression evidence: board-comment request/reply tests, PGlite idempotency scenarios, and real independent-connection PostgreSQL concurrency/rollback tests.
+
+
 ## 2026-09-30 Read failure recovery
 
 - Embedded GaramLink messenger, codes and request/customer screens use strict list reads. A failed read rejects; it never becomes a successful empty list or a false missing-code decision. Existing tolerant API wrappers remain only for compatibility with callers outside this migration.

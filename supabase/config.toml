@@ -3,3 +3,8 @@ project_id = "fc-onboarding-app"
 # Authentication is the signed custom app session, checked inside this function.
 [functions.get-my-referral-allowance]
 verify_jwt = false
+
+# GaramLink server calls with the existing project anon JWT. The handler also
+# verifies the signed bridge and its current canonical account generation.
+[functions.verify-request-board-session]
+verify_jwt = true

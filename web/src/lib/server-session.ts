@@ -6,12 +6,14 @@ import { FC_GRAPH_SESSION_COOKIE, verifyFcGraphSessionValue } from '@/lib/fc-gra
 import { logger } from '@/lib/logger';
 import { buildPhoneCandidates } from '@/lib/phone-candidates';
 import { STAFF_SESSION_COOKIE, verifyStaffSessionValue } from '@/lib/staff-session';
+import { lookupWebSessionGeneration } from '@/lib/request-board-app-session';
+import type { OptionalSessionGenerationClaims, SessionGenerationClaims } from '../../../supabase/functions/_shared/session-generation.ts';
 
 export { buildPhoneCandidates };
 
 export type ServerSessionRole = 'admin' | 'manager' | 'fc';
 
-export type VerifiedServerSession = {
+export type VerifiedServerSession = SessionGenerationClaims & {
   role: ServerSessionRole;
   residentId: string;
   residentDigits: string;
@@ -128,6 +130,7 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
 
   try {
     let expectedFcId: string | null = null;
+    let generationClaims: OptionalSessionGenerationClaims & { iat: number };
     if (session.role === 'fc') {
       const fcGraphSession = verifyFcGraphSessionValue(
         cookieStore.get(FC_GRAPH_SESSION_COOKIE)?.value,
@@ -137,6 +140,7 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
         return { ok: false, status: 401, error: 'Invalid FC graph session' };
       }
       expectedFcId = fcGraphSession.fcId;
+      generationClaims = fcGraphSession;
     } else {
       const staffSession = verifyStaffSessionValue(
         cookieStore.get(STAFF_SESSION_COOKIE)?.value,
@@ -148,6 +152,19 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
       if (!staffSession) {
         return { ok: false, status: 401, error: 'Invalid staff session' };
       }
+      generationClaims = staffSession;
+    }
+
+    const generation = await lookupWebSessionGeneration({
+      ...generationClaims,
+      phone: residentDigits,
+      role: session.role,
+      ...(expectedFcId ? { fcId: expectedFcId } : {}),
+    }, 'app');
+    if (!generation.ok) {
+      return generation.reason === 'unavailable'
+        ? { ok: false, status: 503, error: 'Session verification temporarily unavailable' }
+        : { ok: false, status: 401, error: 'Invalid session' };
     }
 
     const verifiedRecord = await verifyRecord(
@@ -164,6 +181,7 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
     return {
       ok: true,
       session: {
+        ...generation.claims,
         role: session.role,
         residentId: session.residentId,
         residentDigits,
@@ -200,4 +218,3 @@ export async function getVerifiedReadOnlyAdminSession(
     ...(options ?? {}),
   });
 }
-

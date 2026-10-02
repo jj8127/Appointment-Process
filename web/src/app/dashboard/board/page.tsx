@@ -1,5 +1,7 @@
 'use client';
 
+import { createCommentRequestTracker } from '@/lib/board-comment-request';
+
 import { useSession } from '@/hooks/use-session';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
@@ -77,7 +79,7 @@ import {
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 // 감정 표현 타입
@@ -686,29 +688,50 @@ function BoardContent() {
     },
   });
 
+  const commentOwnerActive = useRef(true);
+  useEffect(() => {
+    commentOwnerActive.current = true;
+    return () => { commentOwnerActive.current = false; };
+  }, []);
+
+  const commentRequests = useRef(createCommentRequestTracker(() => crypto.randomUUID()));
+
   const addCommentMutation = useMutation({
+    networkMode: 'always',
     mutationFn: async ({
       content,
+      postId,
+      requestId,
+      scope,
       parentId,
     }: {
       content: string;
+      postId: string;
+      requestId: string;
+      scope: string | number;
+      detailKey: readonly unknown[];
       parentId?: string | null;
       threadRootId?: string;
     }) => {
-      if (!actor || !selectedPostId) throw new Error('로그인이 필요합니다.');
-      return createBoardComment(actor, { postId: selectedPostId, content, parentId: parentId ?? undefined });
+      if (!commentOwnerActive.current || !actor || scope !== JSON.stringify([actor?.role, actor?.residentId])) throw new Error('로그인이 필요합니다.');
+      return createBoardComment(actor, { postId, content, parentId: parentId ?? undefined, requestId });
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['board-detail', selectedPostId, actor?.role, actor?.residentId] });
+      queryClient.invalidateQueries({ queryKey: variables.detailKey });
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
-      setCommentText('');
-      setReplyTarget((current) => (
-        current?.id === variables.parentId ? null : current
-      ));
-      if (variables.threadRootId) {
-        setCollapsedThreadIds((current) => (
-          current.filter((commentId) => commentId !== variables.threadRootId)
+      commentRequests.current.complete(variables.requestId);
+      if (!commentOwnerActive.current) return;
+      if (!commentOwnerActive.current || variables.scope !== JSON.stringify([actor?.role, actor?.residentId])) return;
+      if (selectedPostId === variables.postId && variables.scope === JSON.stringify([actor?.role, actor?.residentId])) {
+        setCommentText((current) => current.trim() === variables.content ? '' : current);
+        setReplyTarget((current) => (
+          current?.id === variables.parentId ? null : current
         ));
+        if (variables.threadRootId) {
+          setCollapsedThreadIds((current) => (
+            current.filter((commentId) => commentId !== variables.threadRootId)
+          ));
+        }
       }
       notifications.show({
         title: '댓글 작성 완료',
@@ -716,7 +739,8 @@ function BoardContent() {
         color: 'green',
       });
     },
-    onError: (error: Error) => {
+    onError: (error: Error, variables) => {
+      if (variables.scope !== JSON.stringify([actor?.role, actor?.residentId])) return;
       notifications.show({
         title: '댓글 실패',
         message: error?.message ?? '댓글 작성에 실패했습니다.',
@@ -1071,6 +1095,7 @@ function BoardContent() {
   };
 
   const handleAddComment = () => {
+    if (!actor || !selectedPostId || addCommentMutation.isPending) return;
     if (!commentText.trim()) {
       notifications.show({
         title: '입력 오류',
@@ -1079,7 +1104,15 @@ function BoardContent() {
       });
       return;
     }
+    const requestId = commentRequests.current.requestId({
+      scope: JSON.stringify([actor.role, actor.residentId]), postId: selectedPostId,
+      parentId: replyTarget?.id, content: commentText,
+    });
     addCommentMutation.mutate({
+      scope: JSON.stringify([actor.role, actor.residentId]),
+      detailKey: ['board-detail', selectedPostId, actor.role, actor.residentId],
+      postId: selectedPostId,
+      requestId,
       content: commentText.trim(),
       parentId: replyTarget?.id ?? null,
       threadRootId: replyTarget?.threadRootId,

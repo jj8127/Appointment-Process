@@ -2,10 +2,23 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-08-10
+last_verified: 2026-10-01
 source_of_truth: env contracts + reset-password functions + assisted-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + supabase/functions/fc-notify/index.ts + supabase/migrations/*internal_messenger_summary_v1.sql + supabase/migrations/20260810070757_admin_assisted_signup_v1.sql + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
+
+## 2026-10-01 Password reset challenge transaction
+
+- `request-password-reset` and `reset-password` delegate issuance, cooldown, expiry, failed guesses and credential replacement to `process_password_reset_challenge`. A successful reset consumes the code in the same transaction as the password update.
+- The RPC locks the credential row for every operation. FC operations lock the current profile before the credential, and recheck phone plus completed signup. Staff operations recheck the current account. Time limits use the database clock after lock acquisition.
+- Each issued challenge permits at most five wrong guesses. The fifth failure persists `reset_failed_count=5`; later attempts cannot reset the password, even with the correct code. A new issuance after the existing 60-second cooldown resets this counter. Normal login lockout state is not changed by wrong reset codes.
+- Challenge expiry remains 15 minutes. Successful consumption clears the code and expiry while preserving the issuance cooldown. Expected denials return a bounded result instead of raising an exception that would roll back the failure counter.
+- Only `service_role` can execute the RPC. PUBLIC, anon and authenticated have no execution grant. Edge callers pass the server-resolved account kind, ID and phone; caller-provided account authority is not accepted. Unknown/missing RPC and malformed database results fail closed with a generic error.
+- Hosted/production SMS bypass remains prohibited. Opt-in local bypass now also requires an issued, unexpired, unconsumed challenge. Request Board password synchronization runs only after successful consumption; losing requests must not synchronize.
+- Migration order is `20261001071216_password_reset_atomic_challenges.sql`, commit, then `20261001071222_password_reset_validate_challenge_counters.sql`, commit. Both set transaction-local lock wait to 3 seconds and statement execution to 30 seconds. The first adds `CHECK ... NOT VALID`; the second validates after the exclusive DDL locks have been released. Do not combine them into one transaction. Initial DDL can still briefly delay login/credential access.
+- Production rollout completed on 2026-10-01 in project `ubeginyxaotcamuqpmud`: both migrations applied, three constraints validated, counter columns verified as `NOT NULL` with default `0`, and service-role-only RPC ACL verified. The counter check inspected schema metadata, without reading customer-row values. `request-password-reset` v44 and `reset-password` v46 are ACTIVE with `verify_jwt=true`; remote source matches the approved deployment snapshots. Empty-body smoke calls returned HTTP 200 / `phone_required` for both functions. This smoke does not claim SMS delivery or a real-account password change.
+- Existing app request/response contracts remain compatible. Existing valid challenges and app/bridge sessions are not invalidated by the migration; session revocation remains a separate open audit finding. During any future mixed-version rollout, old consumers retain the earlier race and old issuers do not reset the new failure counter. If reset endpoints are paused for cutover, drain existing requests before reopening; pausing alone does not stop in-flight handlers.
+- Regression evidence: `supabase/tests/password-reset-challenge-sql.test.mjs` (16 PGlite tests), `supabase/tests/password-reset-challenge-postgres.test.mjs` (10 actual independent-connection PostgreSQL 17.6 tests), and the two web password-reset security contract files (10 tests). The PostgreSQL tests observe lock waits and verify timeout rollback, nonblocking validation, single-use winners, guess limits and issuance/replacement races. These local fixtures do not reproduce production traffic or external SMS/bridge delivery.
 
 ## Headquarters display-name and account boundaries (2026-09-22)
 
@@ -193,3 +206,7 @@ source_of_truth: env contracts + reset-password functions + assisted-password fu
 - Apply the additive migration before the Edge caller. Roll back the caller
   first and retain the additive function/indexes until a reviewed forward
   migration proves that no deployed caller depends on them.
+
+## 2026-10-02 Follow-up verification boundary
+
+The user-designated SMS account was reset only after explicit approval, then GaramLink login was checked before GaramIn login to avoid masking reset-sync failure with login-time sync. Evidence stores only outcome metadata. Administrator QA login succeeded; physical-device exam re-entry remains unverified. Sentry post-release GETs returned zero observed issues without a traffic denominator; Play Reporting remains disabled. Local ErrorBoundary reporting now records one Sentry exception with the original component stack; its console warning does not capture a second exception.

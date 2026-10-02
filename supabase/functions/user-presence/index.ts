@@ -2,7 +2,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
-import { getEnv, parseAppSessionToken } from '../_shared/request-board-auth.ts';
+import { getEnv, parseAppSessionTokenDetailed } from '../_shared/request-board-auth.ts';
 
 type PresenceAction = 'heartbeat' | 'offline' | 'read';
 
@@ -466,10 +466,9 @@ serve(async (req: Request) => {
     return fail('invalid_action', '유효한 액션이 아닙니다.');
   }
 
-  const session = await parseAppSessionToken(sessionToken);
-  if (!session) {
-    return fail('invalid_session_token', '앱 세션 토큰이 유효하지 않습니다.', 401);
-  }
+  const parsed = await parseAppSessionTokenDetailed(sessionToken);
+  if (parsed.ok === false) return fail(parsed.code, parsed.message, parsed.status ?? 401);
+  const session = parsed.payload;
 
   const phone = cleanPhone(session.phone);
   if (phone.length !== 11) {

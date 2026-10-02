@@ -14,6 +14,7 @@ import {
 import {
   WEB_APP_SESSION_COOKIE,
   WEB_APP_SESSION_COOKIE_MAX_AGE_SECONDS,
+  verifyWebLoginAppSession,
 } from '@/lib/request-board-app-session';
 import { adminSupabase } from '@/lib/admin-supabase';
 import {
@@ -111,6 +112,16 @@ export async function POST(req: Request) {
     delete publicLoginData.passwordChangeExpiresAt;
     const response = NextResponse.json(publicLoginData);
     const appSessionToken = String(rawAppSessionToken ?? '').trim();
+    // Bind web cookies to the exact credential generation authenticated by
+    // the upstream login. A later database read must not upgrade an old login.
+    const verifiedLogin = data?.ok ? await verifyWebLoginAppSession(appSessionToken) : null;
+    if (data?.ok && (!verifiedLogin?.ok
+      || verifiedLogin.payload.role !== data.role
+      || normalizeDigits(verifiedLogin.payload.phone) !== normalizeDigits(data.residentId ?? phone))) {
+      return NextResponse.json({ ok: false, message: '로그인 세션을 확인하지 못했습니다. 다시 시도해주세요.' }, {
+        status: verifiedLogin && !verifiedLogin.ok ? verifiedLogin.status ?? 401 : 401,
+      });
+    }
     const passwordChangeToken = String(rawPasswordChangeToken ?? '').trim();
     const passwordChangeRequired =
       loginData.ok !== true
@@ -156,6 +167,11 @@ export async function POST(req: Request) {
       const sessionValue = createFcGraphSessionValue({
         fcId: profileRow.id,
         residentDigits,
+        ...(verifiedLogin?.ok ? {
+          accountKind: verifiedLogin.payload.accountKind,
+          accountId: verifiedLogin.payload.accountId,
+          sessionVersion: verifiedLogin.payload.sessionVersion,
+        } : {}),
       });
 
       response.cookies.set(FC_GRAPH_SESSION_COOKIE, sessionValue, {
@@ -177,6 +193,11 @@ export async function POST(req: Request) {
       const sessionValue = createStaffSessionValue({
         role: data.role,
         residentDigits,
+        ...(verifiedLogin?.ok ? {
+          accountKind: verifiedLogin.payload.accountKind,
+          accountId: verifiedLogin.payload.accountId,
+          sessionVersion: verifiedLogin.payload.sessionVersion,
+        } : {}),
       });
 
       response.cookies.set(STAFF_SESSION_COOKIE, sessionValue, {

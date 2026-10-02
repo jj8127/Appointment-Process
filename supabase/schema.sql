@@ -115,6 +115,7 @@ create table if not exists public.fc_credentials (
   reset_token_hash text,
   reset_token_expires_at timestamptz,
   reset_sent_at timestamptz,
+  reset_failed_count integer not null default 0 check (reset_failed_count between 0 and 5),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -132,6 +133,7 @@ create table if not exists public.admin_accounts (
   reset_token_hash text,
   reset_token_expires_at timestamptz,
   reset_sent_at timestamptz,
+  reset_failed_count integer not null default 0 check (reset_failed_count between 0 and 5),
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -149,6 +151,7 @@ create table if not exists public.manager_accounts (
   reset_token_hash text,
   reset_token_expires_at timestamptz,
   reset_sent_at timestamptz,
+  reset_failed_count integer not null default 0 check (reset_failed_count between 0 and 5),
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -14205,3 +14208,360 @@ grant execute on function public.read_referral_allowance_pilot(uuid, uuid, text,
 
 
 comment on table public.referral_allowance_recipients is 'Server-managed per-person allowance access; no direct client grants. Existing pilot is preserved.';
+
+
+-- Password reset challenge transaction (20261001071216).
+-- Issue, count guesses, consume the challenge and update the password under
+-- the same credential-row lock. No caller may read/check/write this state.
+alter table public.admin_accounts
+  add column if not exists reset_failed_count integer not null default 0
+  check (reset_failed_count between 0 and 5);
+alter table public.manager_accounts
+  add column if not exists reset_failed_count integer not null default 0
+  check (reset_failed_count between 0 and 5);
+alter table public.fc_credentials
+  add column if not exists reset_failed_count integer not null default 0
+  check (reset_failed_count between 0 and 5);
+
+create or replace function public.process_password_reset_challenge(
+  p_action text,
+  p_account_kind text,
+  p_account_id uuid,
+  p_phone text,
+  p_token_hash text,
+  p_password_hash text default null,
+  p_password_salt text default null
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $$
+declare
+  account_table text;
+  account_key text;
+  account_row jsonb;
+  profile_row public.fc_profiles%rowtype;
+  checked_at timestamptz;
+  failed_attempts integer;
+begin
+  if coalesce(p_action, '') not in ('issue', 'consume')
+    or p_account_id is null
+    or coalesce(p_phone, '') !~ '^[0-9]{11}$'
+    or coalesce(p_token_hash, '') !~ '^[A-Za-z0-9+/]{43}=$'
+    or (p_action = 'consume' and (
+      coalesce(p_password_hash, '') !~ '^[A-Za-z0-9+/]{43}=$'
+      or coalesce(p_password_salt, '') !~ '^[A-Za-z0-9+/]{22}==$'
+    )) then
+    return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end if;
+
+  case p_account_kind
+    when 'admin' then account_table := 'admin_accounts'; account_key := 'id';
+    when 'manager' then account_table := 'manager_accounts'; account_key := 'id';
+    when 'fc' then account_table := 'fc_credentials'; account_key := 'fc_id';
+    else return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end case;
+
+  -- Match existing FC lifecycle lock order: profile, then credentials. This
+  -- also prevents completion/phone changes while a challenge is processed.
+  if p_account_kind = 'fc' then
+    select * into profile_row from public.fc_profiles
+    where id = p_account_id for update;
+    if not found or profile_row.phone is distinct from p_phone
+      or profile_row.signup_completed is distinct from true then
+      return jsonb_build_object('ok', false, 'code', 'account_unavailable');
+    end if;
+  end if;
+
+  execute format(
+    'select to_jsonb(a) from public.%I a where %I = $1 for update',
+    account_table, account_key
+  ) into account_row using p_account_id;
+  if account_row is null
+    or account_row->>'password_set_at' is null
+    or (p_account_kind <> 'fc' and (
+      account_row->>'phone' is distinct from p_phone
+      or account_row->>'active' = 'false'
+    )) then
+    return jsonb_build_object('ok', false, 'code', 'account_unavailable');
+  end if;
+
+  -- Evaluate expiry/cooldown after any lock wait, not at transaction start.
+  checked_at := clock_timestamp();
+  if p_action = 'issue' then
+    if (account_row->>'reset_sent_at')::timestamptz > checked_at - interval '60 seconds' then
+      return jsonb_build_object('ok', false, 'code', 'cooldown');
+    end if;
+    execute format(
+      'update public.%I set reset_token_hash = $2,
+       reset_token_expires_at = $3::timestamptz + interval ''15 minutes'',
+       reset_sent_at = $3, reset_failed_count = 0, updated_at = $3
+       where %I = $1', account_table, account_key
+    ) using p_account_id, p_token_hash, checked_at;
+    return jsonb_build_object('ok', true);
+  end if;
+
+  failed_attempts := (account_row->>'reset_failed_count')::integer;
+  if failed_attempts >= 5 then
+    return jsonb_build_object('ok', false, 'code', 'attempts_exhausted');
+  end if;
+  if account_row->>'reset_token_hash' is null
+    or account_row->>'reset_token_expires_at' is null then
+    return jsonb_build_object('ok', false, 'code', 'invalid_token');
+  end if;
+  if (account_row->>'reset_token_expires_at')::timestamptz <= checked_at then
+    return jsonb_build_object('ok', false, 'code', 'expired_token');
+  end if;
+  if account_row->>'reset_token_hash' is distinct from p_token_hash then
+    failed_attempts := failed_attempts + 1;
+    execute format(
+      'update public.%I set reset_failed_count = $2, updated_at = $3 where %I = $1',
+      account_table, account_key
+    ) using p_account_id, failed_attempts, checked_at;
+    -- Return, do not raise: a raised exception would roll back the counter.
+    return jsonb_build_object('ok', false, 'code',
+      case when failed_attempts >= 5 then 'attempts_exhausted' else 'invalid_token' end);
+  end if;
+
+  execute format(
+    'update public.%I set password_hash = $2, password_salt = $3,
+     password_set_at = $4, failed_count = 0, locked_until = null,
+     reset_token_hash = null, reset_token_expires_at = null,
+     reset_failed_count = 0, updated_at = $4%s where %I = $1',
+    account_table,
+    case when p_account_kind = 'fc' then
+      ', must_change_password = false, temporary_password_issued_at = null'
+      else '' end,
+    account_key
+  ) using p_account_id, p_password_hash, p_password_salt, checked_at;
+  -- Preserve reset_sent_at so success cannot bypass the issuance cooldown.
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+revoke all on function public.process_password_reset_challenge(text, text, uuid, text, text, text, text)
+  from public, anon, authenticated;
+grant execute on function public.process_password_reset_challenge(text, text, uuid, text, text, text, text)
+  to service_role;
+
+-- Credential session generations (20261002021018 + 20261002022754)
+-- Additive zero preserves every unchanged account's legacy signed sessions.
+alter table public.fc_credentials
+  add column if not exists session_version bigint not null default 0 check (session_version >= 0);
+alter table public.admin_accounts
+  add column if not exists session_version bigint not null default 0 check (session_version >= 0);
+alter table public.manager_accounts
+  add column if not exists session_version bigint not null default 0 check (session_version >= 0);
+
+create or replace function public.advance_credential_session_version()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+begin
+  -- All writers, including the existing reset/assisted/config paths, share
+  -- this transaction boundary. Failed login counters do not revoke sessions.
+  if old.password_hash is distinct from new.password_hash
+    or old.password_salt is distinct from new.password_salt then
+    new.session_version := old.session_version + 1;
+  else
+    new.session_version := old.session_version;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.advance_credential_session_version() from public, anon, authenticated;
+
+-- The service verifies the token signature before this narrow identity lookup.
+-- Null is an unavailable/inactive/mismatched account, never generation zero.
+create or replace function public.get_auth_session_generation(
+  p_phone text,
+  p_role text,
+  p_purpose text,
+  p_account_kind text default null,
+  p_account_id uuid default null
+) returns jsonb language plpgsql stable security invoker set search_path = '' as $$
+declare
+  normalized_phone text := regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g');
+  phone_candidates text[];
+  resolved_kind text;
+  resolved_id uuid;
+  resolved_version bigint;
+  resolved_created_at timestamptz;
+begin
+  if length(normalized_phone) <> 11 or p_purpose is null or p_role is null
+    or p_purpose not in ('app', 'bridge') then return null; end if;
+  phone_candidates := array[normalized_phone, btrim(p_phone),
+    substr(normalized_phone, 1, 3) || '-' || substr(normalized_phone, 4, 4) || '-' || substr(normalized_phone, 8, 4)];
+  if p_purpose = 'app' and p_role not in ('fc', 'admin', 'manager') then return null; end if;
+  if p_purpose = 'bridge' and p_role not in ('fc', 'designer', 'admin', 'manager') then return null; end if;
+  if p_account_kind is not null and p_account_kind not in ('fc', 'admin', 'manager') then return null; end if;
+
+  if p_role = 'admin' or (p_purpose = 'bridge' and p_role = 'fc') then
+    select 'admin', account.id, account.session_version, account.created_at
+      into resolved_kind, resolved_id, resolved_version, resolved_created_at
+      from public.admin_accounts account
+      where account.phone = any(phone_candidates)
+        and account.active = true and account.password_set_at is not null
+        and (p_role = 'admin' or account.staff_type = 'developer')
+        and (p_account_kind is null or p_account_kind = 'admin')
+        and (p_account_id is null or account.id = p_account_id);
+  end if;
+  if resolved_id is null and p_role = 'manager' then
+    select 'manager', account.id, account.session_version, account.created_at
+      into resolved_kind, resolved_id, resolved_version, resolved_created_at
+      from public.manager_accounts account
+      where account.phone = any(phone_candidates)
+        and account.active = true and account.password_set_at is not null
+        and (p_account_kind is null or p_account_kind = 'manager')
+        and (p_account_id is null or account.id = p_account_id);
+  end if;
+  if resolved_id is null and (p_role = 'fc' or (p_purpose = 'bridge' and p_role = 'designer')) then
+    select 'fc', profile.id, credential.session_version, profile.created_at
+      into resolved_kind, resolved_id, resolved_version, resolved_created_at
+      from public.fc_profiles profile
+      join public.fc_credentials credential on credential.fc_id = profile.id
+      where profile.phone = any(phone_candidates)
+        and profile.signup_completed = true and credential.password_set_at is not null
+        and coalesce(credential.must_change_password, false) = false
+        and (p_account_kind is null or p_account_kind = 'fc')
+        and (p_account_id is null or profile.id = p_account_id)
+        and (p_purpose = 'app' or (
+          (p_role = 'designer') = (position('설계매니저' in coalesce(profile.affiliation, '')) > 0)
+        ));
+  end if;
+  if resolved_id is null then return null; end if;
+  return jsonb_build_object('accountKind', resolved_kind, 'accountId', resolved_id,
+    'sessionVersion', resolved_version, 'createdAt', resolved_created_at);
+end;
+$$;
+revoke all on function public.get_auth_session_generation(text, text, text, text, uuid)
+  from public, anon, authenticated;
+grant execute on function public.get_auth_session_generation(text, text, text, text, uuid) to service_role;
+
+-- Activate only after every issuer and verifier has deployed generation support.
+drop trigger if exists credential_session_version on public.fc_credentials;
+create trigger credential_session_version before update on public.fc_credentials
+  for each row execute function public.advance_credential_session_version();
+drop trigger if exists credential_session_version on public.admin_accounts;
+create trigger credential_session_version before update on public.admin_accounts
+  for each row execute function public.advance_credential_session_version();
+drop trigger if exists credential_session_version on public.manager_accounts;
+create trigger credential_session_version before update on public.manager_accounts
+  for each row execute function public.advance_credential_session_version();
+
+-- Atomic board comment requests and notification receipts.
+-- Independent receipt: deleting a comment/post must not make its request reusable.
+create table public.board_comment_requests (
+  actor_role text not null check (actor_role in ('admin', 'manager', 'fc')),
+  actor_id uuid not null, request_id uuid not null, payload_hash text not null,
+  response jsonb, created_at timestamptz not null default now(),
+  primary key (actor_role, actor_id, request_id)
+);
+alter table public.board_comment_requests enable row level security;
+revoke all on public.board_comment_requests from public, anon, authenticated;
+grant select, insert, update on public.board_comment_requests to service_role;
+create policy "board_comment_requests service_role" on public.board_comment_requests
+  for all to service_role using (true) with check (true);
+
+create or replace function public.create_board_comment_idempotent(
+  p_actor_role text, p_actor_phone text, p_actor_name text,
+  p_request_id uuid, p_post_id uuid, p_parent_id uuid, p_content text
+) returns jsonb
+language plpgsql security invoker set search_path = pg_catalog, public
+as $$
+declare
+  v_actor_id uuid;
+  v_hash text;
+  v_receipt public.board_comment_requests%rowtype;
+  v_post public.board_posts%rowtype;
+  v_parent public.board_comments%rowtype;
+  v_root public.board_comments%rowtype;
+  v_thread_id uuid;
+  v_comment_id uuid;
+  v_recipient record;
+  v_recipient_id uuid;
+  v_notification_id uuid;
+  v_notification_ids jsonb := '[]'::jsonb;
+  v_notification_stored boolean := true;
+  v_response jsonb;
+  v_content text := btrim(p_content);
+begin
+  if p_request_id is null or p_post_id is null or coalesce(v_content, '') = '' then
+    raise exception using errcode = '22023', message = 'invalid_payload';
+  end if;
+  if p_actor_role = 'admin' then
+    select id into v_actor_id from public.admin_accounts where phone = p_actor_phone and active;
+  elsif p_actor_role = 'manager' then
+    select id into v_actor_id from public.manager_accounts where phone = p_actor_phone and active;
+  elsif p_actor_role = 'fc' then
+    select id into v_actor_id from public.fc_profiles where phone = p_actor_phone and signup_completed;
+  end if;
+  if v_actor_id is null then raise exception using errcode = '42501', message = 'actor_not_found'; end if;
+
+  v_hash := encode(sha256(convert_to(jsonb_build_array(p_post_id, p_parent_id, v_content)::text, 'UTF8')), 'hex');
+  insert into public.board_comment_requests(actor_role, actor_id, request_id, payload_hash)
+    values (p_actor_role, v_actor_id, p_request_id, v_hash)
+    on conflict (actor_role, actor_id, request_id) do nothing;
+  select * into strict v_receipt from public.board_comment_requests
+    where actor_role = p_actor_role and actor_id = v_actor_id and request_id = p_request_id for update;
+  if v_receipt.payload_hash <> v_hash then return jsonb_build_object('ok', false, 'code', 'request_id_conflict'); end if;
+  if v_receipt.response is not null then return v_receipt.response; end if;
+
+  select * into v_post from public.board_posts where id = p_post_id for key share;
+  if not found then raise exception using errcode = '22023', message = 'post_not_found'; end if;
+  if p_parent_id is not null then
+    select * into v_parent from public.board_comments where id = p_parent_id for key share;
+    if not found or v_parent.post_id <> p_post_id then raise exception using errcode = '22023', message = 'invalid_parent'; end if;
+    if v_parent.parent_id is not null then
+      select * into v_root from public.board_comments where id = v_parent.parent_id for key share;
+      if not found or v_root.post_id <> p_post_id or v_root.parent_id is not null then
+        raise exception using errcode = '22023', message = 'invalid_parent';
+      end if;
+      v_thread_id := v_root.id;
+    else
+      v_thread_id := v_parent.id;
+    end if;
+  end if;
+
+  insert into public.board_comments(post_id, parent_id, content, author_role, author_resident_id, author_name)
+    values (p_post_id, p_parent_id, v_content, p_actor_role, p_actor_phone, coalesce(p_actor_name, ''))
+    returning id into v_comment_id;
+
+  for v_recipient in
+    select distinct recipients.phone, recipients.role from (
+      select v_post.author_resident_id as phone, v_post.author_role as role
+      union
+      select c.author_resident_id, c.author_role from public.board_comments c
+        where p_parent_id is not null and c.post_id = p_post_id
+          and (c.id = v_thread_id or c.parent_id = v_thread_id or c.id = p_parent_id or c.parent_id = p_parent_id)
+    ) recipients where recipients.phone <> p_actor_phone
+  loop
+    v_recipient_id := null;
+    if v_recipient.role = 'admin' then
+      select id into v_recipient_id from public.admin_accounts where phone = v_recipient.phone and active;
+    elsif v_recipient.role = 'manager' then
+      select id into v_recipient_id from public.manager_accounts where phone = v_recipient.phone and active;
+    elsif v_recipient.role = 'fc' then
+      select id into v_recipient_id from public.fc_profiles where phone = v_recipient.phone and signup_completed;
+    end if;
+    if v_recipient_id is null then v_notification_stored := false; continue; end if;
+    insert into public.notifications(recipient_role, resident_id, recipient_actor_id, title, body,
+      category, target, target_url, delivery_key)
+    values (v_recipient.role, v_recipient.phone, v_recipient_id, 'New comment', coalesce(v_post.title, 'New comment'),
+      case when p_parent_id is null then 'board_comment' else 'board_reply' end,
+      jsonb_build_object('version', 1, 'kind', 'board_post', 'postId', p_post_id),
+      '/board?postId=' || p_post_id::text,
+      'board-comment:' || v_comment_id::text || ':' || v_recipient.role || ':' || v_recipient_id::text)
+    returning id into v_notification_id;
+    v_notification_ids := v_notification_ids || jsonb_build_array(v_notification_id);
+  end loop;
+
+  v_response := jsonb_build_object('ok', true, 'data', jsonb_build_object('id', v_comment_id),
+    'notification', jsonb_build_object('notificationStored', v_notification_stored,
+      'pushStatus', 'not_attempted', 'retryable', not v_notification_stored, 'notificationIds', v_notification_ids),
+    'notificationWarning', case when v_notification_stored then null else 'notification_delivery_incomplete' end);
+  update public.board_comment_requests set response = v_response
+    where actor_role = p_actor_role and actor_id = v_actor_id and request_id = p_request_id;
+  return v_response;
+end;
+$$;
+revoke all on function public.create_board_comment_idempotent(text,text,text,uuid,uuid,uuid,text) from public, anon, authenticated;
+grant execute on function public.create_board_comment_idempotent(text,text,text,uuid,uuid,uuid,text) to service_role;

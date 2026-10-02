@@ -1,7 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { createContext, Fragment, ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
     formatSessionResidentMask,
@@ -10,6 +11,7 @@ import {
 } from '@/lib/client-session-restore';
 import { logger } from '@/lib/logger';
 import { normalizeStaffType, type StaffType } from '@/lib/staff-identity';
+import { ADMIN_WEB_LOGOUT_TIMEOUT_MS, clearSessionQueries, withBrowserSessionTransition } from '@/lib/client-session-transition';
 type Role = 'admin' | 'manager' | 'fc' | null;
 
 type SessionState = {
@@ -22,8 +24,9 @@ type SessionState = {
 
 type SessionContextValue = SessionState & {
     hydrated: boolean;
+    transitioning: boolean;
     loginAs: (role: Role, residentId: string, displayName?: string, staffType?: StaffType) => void;
-    logout: (options?: { redirectTo?: string | null }) => void;
+    logout: (options?: { redirectTo?: string | null }) => Promise<void>;
     isReadOnly: boolean; // manager는 읽기 전용
 };
 
@@ -40,6 +43,15 @@ function isRole(value: unknown): value is Exclude<Role, null> {
 const initialState: SessionState = { role: null, residentId: '', residentMask: '', displayName: '', staffType: null };
 const STORAGE_KEY = 'fc-onboarding/session';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30일
+
+function clearStoredSession() {
+    try {
+        localStorage.removeItem(STORAGE_KEY);
+    } catch {
+        // Local storage is optional; server logout and queue cleanup must still run.
+        logger.warn('Session storage cleanup failed');
+    }
+}
 
 function parseCookie(name: string) {
     if (typeof document === 'undefined') return '';
@@ -102,6 +114,10 @@ function writeCookies(snapshot: Pick<SessionState, 'role' | 'residentId' | 'disp
 export function SessionProvider({ children }: { children: ReactNode }) {
     const [state, setState] = useState<SessionState>(initialState);
     const [hydrated, setHydrated] = useState(false);
+    const [transitioning, setTransitioning] = useState(false);
+    const [sessionEpoch, setSessionEpoch] = useState(0);
+    const logoutInFlight = useRef<Promise<void> | null>(null);
+    const queryClient = useQueryClient();
     const router = useRouter();
 
     useEffect(() => {
@@ -118,7 +134,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                     setState(snapshot);
                     writeCookies(snapshot);
                 } else {
-                    localStorage.removeItem(STORAGE_KEY);
+                    clearStoredSession();
                     writeCookies(null);
                 }
             } finally {
@@ -143,7 +159,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                     const encoded = obfuscate(JSON.stringify(payload));
                     localStorage.setItem(STORAGE_KEY, encoded);
                 } else {
-                    localStorage.removeItem(STORAGE_KEY);
+                    clearStoredSession();
                 }
             } catch (err) {
                 logger.warn('Session persist failed', err);
@@ -167,8 +183,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         () => ({
             ...state,
             hydrated,
+            transitioning,
             isReadOnly: isClientSessionReadOnly(state.role), // manager는 읽기 전용
             loginAs: (role, residentId, displayName = '', staffType = null) => {
+                clearSessionQueries(queryClient);
+                setSessionEpoch((epoch) => epoch + 1);
                 setState({
                     role,
                     residentId,
@@ -184,23 +203,47 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                 });
             },
             logout: (options) => {
-                if (typeof window !== 'undefined') {
-                    void fetch('/api/auth/logout', { method: 'POST', keepalive: true }).catch((error) => {
-                        logger.warn('Server logout failed', error);
-                    });
-                }
+                if (logoutInFlight.current) return logoutInFlight.current;
+                setTransitioning(true);
+                setSessionEpoch((epoch) => epoch + 1);
                 setState(initialState);
-                localStorage.removeItem(STORAGE_KEY);
+                clearSessionQueries(queryClient);
+                clearStoredSession();
                 writeCookies(null);
-                if (options?.redirectTo !== null) {
-                    router.replace(options?.redirectTo ?? '/auth');
-                }
+                const operation = withBrowserSessionTransition(async () => {
+                    try {
+                        const response = await fetch('/api/auth/logout', {
+                            method: 'POST',
+                            signal: AbortSignal.timeout(ADMIN_WEB_LOGOUT_TIMEOUT_MS),
+                        });
+                        if (!response.ok) throw new Error('Server logout rejected');
+                    } catch (error) {
+                        logger.warn('Server logout failed', error);
+                    } finally {
+                        setState(initialState);
+                        clearSessionQueries(queryClient);
+                        clearStoredSession();
+                        writeCookies(null);
+                        if (options?.redirectTo !== null) {
+                            router.replace(options?.redirectTo ?? '/auth');
+                        }
+                    }
+                }).finally(() => {
+                    logoutInFlight.current = null;
+                    setTransitioning(false);
+                });
+                logoutInFlight.current = operation;
+                return operation;
             },
         }),
-        [hydrated, router, state],
+        [hydrated, queryClient, router, state, transitioning],
     );
 
-    return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+    return (
+        <SessionContext.Provider value={value}>
+            <Fragment key={sessionEpoch}>{children}</Fragment>
+        </SessionContext.Provider>
+    );
 }
 
 export function useSession() {

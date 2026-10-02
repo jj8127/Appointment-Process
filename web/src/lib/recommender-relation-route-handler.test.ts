@@ -16,6 +16,9 @@ const session = (
   staffType: VerifiedServerSession['staffType'],
 ): VerifiedServerSession => ({
   role,
+  accountKind: role,
+  accountId: '10000000-0000-4000-8000-000000000001',
+  sessionVersion: 0,
   residentId: '010-1234-5678',
   residentDigits: '01012345678',
   displayName: '검증 사용자',

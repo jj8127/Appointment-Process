@@ -1,11 +1,12 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { parseSessionGenerationClaims, type OptionalSessionGenerationClaims } from '../../../supabase/functions/_shared/session-generation.ts';
 
 export const STAFF_SESSION_COOKIE = 'staff_session';
 export const STAFF_SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
 
 type StaffSessionRole = 'admin' | 'manager';
 
-type StaffSessionPayload = {
+type StaffSessionPayload = OptionalSessionGenerationClaims & {
   v: 1;
   role: StaffSessionRole;
   residentDigits: string;
@@ -18,7 +19,7 @@ type SessionSecretOptions = {
   previousSecret?: string;
 };
 
-type CreateStaffSessionOptions = SessionSecretOptions & {
+type CreateStaffSessionOptions = SessionSecretOptions & OptionalSessionGenerationClaims & {
   role: StaffSessionRole;
   residentDigits: string;
   nowMs?: number;
@@ -89,6 +90,7 @@ function decodePayload(value: string): StaffSessionPayload | null {
       || typeof parsed.residentDigits !== 'string'
       || typeof parsed.iat !== 'number'
       || typeof parsed.exp !== 'number'
+      || !parseSessionGenerationClaims(parsed)
     ) {
       return null;
     }
@@ -104,6 +106,9 @@ export function createStaffSessionValue({
   nowMs = Date.now(),
   ttlSeconds = STAFF_SESSION_MAX_AGE_SECONDS,
   secret: explicitSecret,
+  accountKind,
+  accountId,
+  sessionVersion,
 }: CreateStaffSessionOptions) {
   const { currentSecret } = getStaffSessionSecrets(explicitSecret);
   const nowSeconds = Math.floor(nowMs / 1000);
@@ -113,6 +118,7 @@ export function createStaffSessionValue({
     residentDigits,
     iat: nowSeconds,
     exp: nowSeconds + ttlSeconds,
+    ...(accountKind !== undefined ? { accountKind, accountId, sessionVersion } : {}),
   });
   const signature = signPayload(payload, currentSecret);
   return `${payload}.${signature}`;

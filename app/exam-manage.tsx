@@ -33,6 +33,7 @@ import {
 } from '@/lib/exam-display';
 import { logger } from '@/lib/logger';
 import { formatExamRegistrationStatus } from '@/lib/exam-flow-contract';
+import { subscribeToExamRegistrationChanges } from '@/lib/exam-realtime-channel';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import {
   hasPresentRouteParam,
@@ -246,14 +247,9 @@ export default function ExamManageLifeScreen() {
 
   // Realtime: 시험 접수 변경 시 관리자 화면 갱신
   useEffect(() => {
-    const regChannel = supabase
-      .channel('exam-manage-life-registrations')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_registrations' }, () => refetch())
-      .subscribe();
-    return () => {
-      supabase.removeChannel(regChannel);
-    };
-  }, [refetch]);
+    if (!hydrated || !canReadApplicants || !residentId) return;
+    return subscribeToExamRegistrationChanges(supabase, EXAM_TYPE, refetch);
+  }, [appSessionToken, canReadApplicants, hydrated, refetch, residentId]);
 
   const filteredApplicants = useMemo(() => {
     if (!applicants) return [];

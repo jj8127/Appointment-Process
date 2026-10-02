@@ -2,10 +2,26 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-09-07
+last_verified: 2026-10-01
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
+
+## 2026-10-02 Account generations and comment receipts (prepared)
+
+- `fc_credentials`, `admin_accounts` and `manager_accounts` carry a nonnegative session_version, initially zero. Password hash/salt changes advance the generation atomically after the revocation trigger is activated. Unchanged credentials and failed-login counters do not advance it. Issuers bind the generation read with the verified credential; refresh cannot upgrade an older session into a new generation.
+- `board_comment_requests` has the canonical actor role/UUID and operation UUID as its key, with a SHA-256 payload digest and committed response. It has no cascading foreign key to posts/comments; deletion must not make old operations reusable. RLS is enabled and only service_role accesses it or calls the invoker RPC.
+- Comment creation and its inbox notification rows use one transaction. Per-recipient delivery keys and replayed notification IDs prevent duplicate persistence. These migrations are local candidates until deployment evidence explicitly records application.
+
+
+## 2026-10-01 Password reset challenge state
+
+- Migration `20261001071216_password_reset_atomic_challenges.sql` adds `reset_failed_count` (integer, default 0, range 0–5) to `admin_accounts`, `manager_accounts` and `fc_credentials`. It retains the existing hashed code, expiry and issuance timestamp fields; no plaintext OTP is stored. It adds named `CHECK ... NOT VALID` constraints, which immediately enforce new writes without scanning existing rows under the initial exclusive table locks.
+- Commit the first migration before applying `20261001071222_password_reset_validate_challenge_counters.sql`. This second migration validates the three constraints with `SHARE UPDATE EXCLUSIVE`, allowing ordinary reads and writes. Both migrations use transaction-local `lock_timeout='3s'` and `statement_timeout='30s'`; these bound each lock wait and statement, not the total rollout time. A lock timeout aborts the migration transaction rather than waiting indefinitely. The initial DDL still requires short exclusive locks, so zero login disruption is not guaranteed.
+- `process_password_reset_challenge` is the service-role-only `SECURITY INVOKER` boundary for both issuance and consumption. It locks the credential row, and for FC locks the profile first, before checking current identity/eligibility and the database clock.
+- Issuance enforces 60 seconds and resets the failed-guess counter with a 15-minute challenge. Wrong guesses commit a bounded count. The fifth exhausts the current challenge without changing ordinary login lockout state. Successful consumption changes credentials and clears the challenge atomically, retaining the issuance cooldown.
+- PUBLIC/anon/authenticated have no RPC execution grant. `supabase/schema.sql` mirrors the final validated schema and RPC. `supabase/tests/password-reset-challenge-sql.test.mjs` passes 16 PGlite tests; `supabase/tests/password-reset-challenge-postgres.test.mjs` passes 10 tests with independent connections to disposable PostgreSQL 17.6. The latter verifies actual lock contention, timeout rollback, concurrent credential writes during validation, one successful consume, bounded guess counts and issuance/replacement races for all three account types.
+- Production verification on 2026-10-01: both migrations are recorded in project `ubeginyxaotcamuqpmud`; all three constraints are validated, counter columns are `NOT NULL` with default `0`, and RPC execution is limited to `service_role`. This verified schema metadata, without reading customer-row counter values. Both reset Edge callers were then activated. Local migration filenames match the production history identifiers above.
 
 ## 2026-09-07 월별 증원수당 대상자 데이터
 

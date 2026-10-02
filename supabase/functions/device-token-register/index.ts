@@ -4,7 +4,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   getAppSessionTokenFromRequest,
   getEnv,
-  parseAppSessionToken,
+  parseAppSessionTokenDetailed,
+  type AppSessionTokenPayload,
   parseDesignerCompanyNameFromAffiliation,
 } from '../_shared/request-board-auth.ts';
 
@@ -62,7 +63,7 @@ function cleanString(input: unknown, maxLength: number) {
   return value.length > maxLength ? value.slice(0, maxLength) : value;
 }
 
-async function resolveDeviceTokenOwner(session: NonNullable<Awaited<ReturnType<typeof parseAppSessionToken>>>) {
+async function resolveDeviceTokenOwner(session: AppSessionTokenPayload) {
   const residentId = cleanPhone(session.phone);
   if (residentId.length !== 11) {
     return { ok: false as const, status: 401, code: 'invalid_phone', message: 'Invalid session phone' };
@@ -125,10 +126,9 @@ async function requireOwner(req: Request) {
     return { ok: false as const, status: 401, code: 'missing_session_token', message: 'Missing session token' };
   }
 
-  const session = await parseAppSessionToken(token);
-  if (!session) {
-    return { ok: false as const, status: 401, code: 'invalid_session_token', message: 'Invalid session token' };
-  }
+  const parsed = await parseAppSessionTokenDetailed(token);
+  if (parsed.ok === false) return { ok: false as const, status: parsed.status ?? 401, code: parsed.code, message: parsed.message };
+  const session = parsed.payload;
 
   return resolveDeviceTokenOwner(session);
 }

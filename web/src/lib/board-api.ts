@@ -394,7 +394,7 @@ export async function pinBoardPost(actor: BoardActor, postId: string, isPinned: 
   return invokeBoard<null>('board-pin', { actor, postId, isPinned });
 }
 
-export async function createBoardComment(actor: BoardActor, payload: { postId: string; content: string; parentId?: string }) {
+export async function createBoardComment(actor: BoardActor, payload: { postId: string; content: string; parentId?: string; requestId: string }) {
   return invokeBoard<{ id: string }>('board-comment-create', { actor, ...payload });
 }
 

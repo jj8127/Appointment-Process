@@ -6,7 +6,8 @@
     "dev": "node scripts/kill-next-dev.mjs && node scripts/clean-next.mjs && next dev",
     "build": "node scripts/clean-next.mjs && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node ../scripts/ci/run-discovered-tests.mjs web-node"
   },
   "engines": {
     "node": "24.x"

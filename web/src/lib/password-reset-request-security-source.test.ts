@@ -125,7 +125,7 @@ describe('request-password-reset production test-mode boundary', () => {
   it('preserves lookup, cooldown, expiry, random code, hash-only persistence, and provider delivery', () => {
     assert.match(
       requestResetSource,
-      /findPasswordResetAccount\(supabase, phone\)[\s\S]*?account\.resetSentAt[\s\S]*?RESET_COOLDOWN_SECONDS/,
+      /findPasswordResetAccount\(supabase, phone\)[\s\S]*?processPasswordResetChallenge\(supabase, account, \{ action: 'issue'/,
     );
     assert.match(
       requestResetSource,
@@ -133,7 +133,7 @@ describe('request-password-reset production test-mode boundary', () => {
     );
     assert.match(
       requestResetSource,
-      /sha256Base64\(code\)[\s\S]*?15 \* 60 \* 1000[\s\S]*?reset_token_hash: tokenHash[\s\S]*?sendResetSms\(phone, code\)/,
+      /sha256Base64\(code\)[\s\S]*?processPasswordResetChallenge\(supabase, account[\s\S]*?tokenHash[\s\S]*?sendResetSms\(phone, code\)/,
     );
     assert.match(
       requestResetSource,

@@ -1,0 +1,9 @@
+{
+  "name": "garamin-isolated-ci-fixtures",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "pg": "8.17.2"
+  }
+}
