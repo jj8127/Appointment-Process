@@ -5,6 +5,12 @@ audience: developer, operator
 last_verified: 2026-08-10
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/group-chat-data-api-batching.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + lib/session-logout.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
 
+## Web proxy compatibility (2026-10-02)
+
+- Direct conversation resolution forwards exactly one of `target_id` and `conversation_id`. The unused key is omitted because the Edge validator treats an explicit null as a supplied identifier.
+- Internal unread requests forward the signed staff phone. The browser's legacy `admin` alias is accepted only for an ordinary verified admin and normalized before Edge forwarding; manager/developer/FC requests retain their exact identity checks.
+- `lib/__tests__/fc-notify-browser-edge-contract.test.ts` executes the actual web builder output through the actual Edge policy, covering selector shape and role-specific identity claims. This local correction is separate from the already-deployed board hotfix and build-recovery preview.
+
 ## Mobile logout push cleanup boundary (2026-08-10)
 
 - 로컬 세션 종료는 원격 `device-token-register` DELETE보다 먼저 시작한다. 푸시 토큰 해제 지연·timeout·실패가 앱의 로그아웃이나 로그인 화면 이동을 막으면 안 된다.

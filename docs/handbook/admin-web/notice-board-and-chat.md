@@ -7,6 +7,10 @@ source_of_truth: web/src/app/dashboard/notifications/* + web/src/app/dashboard/b
 
 # Admin Web Playbook: Notice, Board, Chat
 
+## 2026-10-02 알림 프록시와 Edge 요청 일치
+
+브라우저 프록시의 대화 resolver는 `target_id` 또는 `conversation_id` 하나만 전송한다. 사용하지 않는 키의 `null`도 Edge에서는 두 식별자를 동시에 제공한 것으로 판단한다. 관리자 미확인 수 요청은 검증된 직원 전화번호로 전달하며 기존 브라우저의 공용 `admin` 표시는 검증된 일반 관리자에서만 호환한다. 다른 계정 식별자와 역할 위조는 거절한다. 실제 웹 정책의 출력이 저장소의 Edge 정책을 통과하는 교차 회귀 테스트로 검증한다. 이 최신 소스 보완은 로컬 수정이며 운영 배포된 게시판 전용 소스와 구분한다.
+
 ## 2026-10-02 Comment operation IDs
 
 Admin web shares the mobile comment operation lifetime: an unchanged failed draft keeps its request ID, successful completion releases it, and a different account/post/reply/content creates a new ID. SQL persists the comment and notifications atomically; request-ID conflicts do not overwrite an existing comment. Backend migration/RPC deployment must precede the updated web client. The legacy API body remains supported for existing apps.

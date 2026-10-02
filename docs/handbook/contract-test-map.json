@@ -303,6 +303,7 @@
         "lib/__tests__/fc-notify-client.test.ts",
         "lib/__tests__/fc-notify-edge-auth-policy.test.ts",
         "lib/__tests__/fc-notify-route-auth.test.ts",
+        "lib/__tests__/fc-notify-browser-edge-contract.test.ts",
         "lib/__tests__/privileged-server-action-input-policy.test.ts",
         "lib/__tests__/sentry-build-upload-guard.test.ts",
         "lib/__tests__/react-native-text-child-contract.test.ts",

@@ -97,13 +97,14 @@ export type BrowserFcNotifyPayload =
       sender_id: string;
       sender_name: string;
     }
-  | {
+  | ({
       type: 'resolve_garamin_direct_conversation';
-      target_id: string | null;
-      conversation_id: string | null;
       viewer_actor_role: BrowserSessionRole;
       viewer_actor_phone: string;
-    }
+    } & (
+      | { target_id: string; conversation_id?: never }
+      | { conversation_id: string; target_id?: never }
+    ))
   | {
       type: 'direct_message_list' | 'direct_message_mark_read';
       conversation_id: string;
@@ -517,8 +518,7 @@ function buildResolveDirectConversationPayload(
     ok: true,
     payload: {
       type: 'resolve_garamin_direct_conversation',
-      target_id: targetId,
-      conversation_id: conversationId,
+      ...(targetId ? { target_id: targetId } : { conversation_id: conversationId! }),
       viewer_actor_role: session.role,
       viewer_actor_phone: session.residentDigits,
     },
@@ -706,16 +706,18 @@ function buildUnreadPayload(
   session: FcNotifyBrowserSession,
 ): PolicyResult<BrowserFcNotifyPayload> {
   const isManager = session.role === 'manager';
-  const isDeveloper = session.role === 'admin' && session.staffType === 'developer';
   const viewerRole: 'admin' | 'fc' = session.role === 'fc' ? 'fc' : 'admin';
-  const viewerId = session.role === 'fc' || isManager || isDeveloper
-    ? session.residentDigits
-    : 'admin';
+  const viewerId = session.residentDigits;
+  // Existing admin browsers send the shared label; Edge requires the signed actor's phone.
+  const isLegacyAdminViewer = session.role === 'admin'
+    && session.staffType !== 'developer'
+    && typeof body.viewer_id === 'string'
+    && body.viewer_id.trim() === 'admin';
   const viewerStaffType = session.role === 'admin' ? session.staffType : null;
   const viewerReadOnly = isManager;
 
   if (
-    hasMismatchedString(body, 'viewer_id', viewerId)
+    (!isLegacyAdminViewer && hasMismatchedString(body, 'viewer_id', viewerId))
     || hasMismatchedString(body, 'viewer_role', viewerRole)
     || hasMismatchedString(body, 'viewer_staff_type', viewerStaffType)
     || hasMismatchedBoolean(body, 'viewer_read_only', viewerReadOnly)
