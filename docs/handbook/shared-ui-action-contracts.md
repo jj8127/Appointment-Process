@@ -29,6 +29,8 @@ Shared business actions must be governed by feature contracts before screen-leve
 
 ## Governed Primitives
 
+Messenger timestamps, unread receipts and send status must remain within the message row. Direct/group bubbles and their image/file contents yield width to that metadata on narrow screens. The width adjustment preserves existing long-press, copy, attachment-open and download helpers; it does not change action permissions or time formatting.
+
 - Buttons and icon actions: variants, disabled/loading state, destructive styling, and touch target policy.
 - Alerts, confirms, modals, and action sheets: cancel behavior, destructive copy, close behavior, and accessibility basics.
 - Messenger actions: long press, copy, select copy, reply, notice, delete, reactions, read counts, and attachment actions.

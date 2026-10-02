@@ -7,6 +7,12 @@ source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversa
 
 # Mobile Playbook: Messenger And Content
 
+## 2026-10-03 Message width and timestamps
+
+- Direct and group message rows reserve space for the timestamp, unread receipt and send status. Bubble width is relative to the remaining row after avatar and padding, and the bubble may shrink while metadata keeps its measured width.
+- Images and file cards must also fit inside the reduced bubble. A fixed preview width or attachment minimum width must not extend into the timestamp at narrow viewport widths or larger text settings.
+- Keep link, long-press, preview and download actions unchanged when adjusting these dimensions. Verify both sent and received messages with long text and attachments; synthetic Yoga geometry does not replace physical-device font and rendering checks.
+
 ## 2026-10-02 Comment retries
 
 - Global automatic mutation retries are disabled. Reads retain their existing retry policy. A write that needs automatic retry must establish an explicit idempotency contract.

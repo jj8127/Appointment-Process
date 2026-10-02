@@ -1640,9 +1640,9 @@ export default function ChatScreen() {
           onPress={() => {
             void openMessengerAttachment(item.file_url, { logScope: 'chat' });
           }}
-          style={{ minWidth: 150, minHeight: 150 }}
+          style={styles.imageTouch}
         >
-          <Image source={{ uri: item.file_url }} style={{ width: 200, height: 200, borderRadius: 8 }} contentFit="cover" />
+          <Image source={{ uri: item.file_url }} style={styles.imagePreview} contentFit="cover" />
         </TouchableOpacity>
       );
     }
@@ -2483,7 +2483,8 @@ const styles = StyleSheet.create({
   },
   senderName: { fontSize: 12, color: MUTED, marginLeft: 2, marginBottom: 4 },
   msgContainer: { flex: 1, minWidth: 0 },
-  bubbleWrapper: { maxWidth: SCREEN_WIDTH * 0.82, width: 'auto', minWidth: 0 },
+  // Size against the remaining row width and leave room for the timestamp.
+  bubbleWrapper: { maxWidth: '82%', flexShrink: 1, width: 'auto', minWidth: 0 },
   bubbleWrapperMe: { alignSelf: 'flex-end' },
   bubbleWrapperOther: { alignSelf: 'flex-start' },
   bubble: {
@@ -2508,7 +2509,7 @@ const styles = StyleSheet.create({
   messageBubbleLine: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, width: '100%' },
   messageBubbleLineMe: { justifyContent: 'flex-end' },
   messageBubbleLineOther: { justifyContent: 'flex-start' },
-  messageSideMeta: { minWidth: 30, paddingBottom: 2 },
+  messageSideMeta: { minWidth: 30, flexShrink: 0, paddingBottom: 2 },
   messageSideMetaMe: { alignItems: 'flex-end' },
   messageSideMetaOther: { alignItems: 'flex-start' },
   timeText: { fontSize: 11, color: '#9CA3AF', marginBottom: 2, minWidth: 30 },
@@ -2594,15 +2595,18 @@ const styles = StyleSheet.create({
   fileIconBoxOther: {
     backgroundColor: '#fff',
   },
+  imageTouch: { width: 200, maxWidth: '100%' },
+  imagePreview: { width: '100%', aspectRatio: 1, borderRadius: 8 },
   fileCard: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 10,
     width: FILE_CARD_WIDTH,
     maxWidth: '100%',
-    minWidth: 190,
+    minWidth: 0,
   },
-  attachmentMessageContent: { gap: 8, minWidth: 190 },
+  attachmentMessageContent: { gap: 8, minWidth: 0, maxWidth: '100%' },
   fileCardMe: {
     backgroundColor: 'rgba(255,255,255,0.14)',
     borderWidth: 1,
@@ -2621,8 +2625,9 @@ const styles = StyleSheet.create({
   },
   fileTextWrap: {
     flex: 1,
-    flexBasis: 0,
-    minWidth: 72,
+    flexBasis: 72,
+    flexShrink: 1,
+    minWidth: 0,
     gap: 2,
   },
   fileName: {
