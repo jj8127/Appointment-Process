@@ -66,6 +66,7 @@ export function runSuite(suite, { root = repository, cacheDeno = false } = {}) {
       const dependencyRoot = join(root, 'scripts/ci/fixtures/node_modules');
       env.PGLITE_MODULE_PATH = process.env.PGLITE_MODULE_PATH || join(dependencyRoot, '@electric-sql/pglite');
       env.PG_MODULE_PATH = process.env.PG_MODULE_PATH || join(dependencyRoot, 'pg');
+      env.TYPESCRIPT_MODULE_PATH = process.env.TYPESCRIPT_MODULE_PATH || join(dependencyRoot, 'typescript');
       if (suite === 'sql-postgres') {
         const port = Number(process.env.CI_POSTGRES_PORT);
         if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('CI_POSTGRES_PORT must name an explicit disposable loopback fixture.');

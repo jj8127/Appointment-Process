@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -50,6 +50,22 @@ test('child environments omit credentials, dotenv injection, and inherited Node 
   assert.equal(env.PATH, 'fixture-path');
   for (const key of ['SENTRY_READ_AUTH_TOKEN', 'SUPABASE_SERVICE_ROLE_KEY', 'NODE_OPTIONS', 'DATABASE_URL']) assert.equal(key in env, false);
   assert.equal(env.SENTRY_AUTH_TOKEN, '');
+});
+test('isolated SQL tests resolve their compiler from fixture dependencies without root installs', () => {
+  const root = fixture({
+    'supabase/tests/compiler.test.mjs': "import assert from 'node:assert/strict'; import {createRequire} from 'node:module';\nimport test from 'node:test';\ntest('fixture compiler',()=>assert.equal(createRequire(import.meta.url)(process.env.TYPESCRIPT_MODULE_PATH).version,'fixture-only'));",
+    'scripts/ci/fixtures/node_modules/typescript/index.js': "module.exports={version:'fixture-only'};",
+  });
+  const previous = process.env.TYPESCRIPT_MODULE_PATH;
+  try {
+    delete process.env.TYPESCRIPT_MODULE_PATH;
+    copyFileSync(new URL('./test-network-boundary.mjs', import.meta.url), join(root, 'scripts/ci/test-network-boundary.mjs'));
+    assert.equal(runSuite('sql-pglite', { root }), 0);
+  } finally {
+    if (previous === undefined) delete process.env.TYPESCRIPT_MODULE_PATH;
+    else process.env.TYPESCRIPT_MODULE_PATH = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 test('default network boundary prevents fetch, HTTP, and raw TCP before connection', () => {
   const preload = new URL('./test-network-boundary.mjs', import.meta.url).href;

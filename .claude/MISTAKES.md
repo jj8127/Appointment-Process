@@ -1,5 +1,11 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-02 | 분리된 CI 작업을 개발용 의존성으로 검증함
+
+- 원인: SQL CI는 fixture 의존성만 설치하지만 실제 Edge 실행 테스트는 루트 TypeScript를 참조했다. 개발 환경의 기존 node_modules가 누락을 가려 hosted CI에서 실패했다.
+- 재발 방지: 분리된 작업의 compiler와 DB 의존성을 그 작업의 lockfile에 고정하고 명시적 경로로 전달한다. 루트 의존성이 없는 독립 임시 checkout에서 같은 설치·실행 순서를 검증한다.
+- 검증: SQL runner의 fixture 전용 compiler 회귀와 독립 설치 PGlite 전체 실행을 유지한다.
+
 ## 2026-10-01 | 화면마다 고정 이름의 Realtime 채널을 재사용함
 
 - 원인: 같은 시험 관리 화면의 구독이 겹치면 SDK가 동일 topic의 기존 객체를 돌려줘, 이미 구독한 채널에 callback을 추가하는 예외가 발생한다.

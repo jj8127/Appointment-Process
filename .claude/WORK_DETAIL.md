@@ -16,6 +16,8 @@ Version 89 publication was observed at 2026-10-02 10:45:32 KST. The user supplie
 
 ### Verification and release boundary
 
+Hosted validation of f6a2517 passed app, web, Deno and governance. Its isolated SQL job exposed a missing TypeScript fixture dependency; the fix pins TypeScript 5.9.3 and passes its module path explicitly. Vercel automatic preview failed because admin_web has rootDirectory=web and sourceFilesOutsideRootDirectory=false, excluding both existing @shared imports and new session helpers. The proposed setting change is awaiting user approval. The current production alias remains READY at c9364f9 (dpl_4FUQ7J68cFVTA94rUK8N1MyyNNqg); it was not replaced by the failed preview.
+
 The integration pass completed 2,894 tests: Jest 2,179 (282 suites), web Node 508, Edge Node 38, tooling Node 38, Deno 76, PGlite 36 and independent PostgreSQL 19. Final review then added two late-comment/account-switch cases and one blocked-storage provider case; the affected 21 board runtime cases, 6 provider/queue cases and 9 comment Jest cases passed. App/web TypeScript, scoped lint, the final no-upload Next production build and strict handbook/contract governance passed. The disposable PostgreSQL server was stopped after tests. The canonical QA report carries the final full-suite counts and any remaining gates. All follow-up source is separate from the immutable published 4.2.14 (89) artifact. No follow-up production migration, Edge deployment, web deployment or mobile release has occurred. Original rollout records below remain historical.
 
 

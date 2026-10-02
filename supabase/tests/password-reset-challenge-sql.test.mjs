@@ -196,7 +196,7 @@ test('staged constraints enforce writes before separate validation and preserve 
 // Execute the real Edge handlers and RPC adapter, replacing only account
 // lookup, SMS transport and the post-commit bridge network call.
 async function loadTs(relativePath, dependencies, globals = {}) {
-  const ts = require('typescript');
+  const ts = require(process.env.TYPESCRIPT_MODULE_PATH ?? 'typescript');
   const source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
   const code = ts.transpileModule(source, { compilerOptions: {
     target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS,
