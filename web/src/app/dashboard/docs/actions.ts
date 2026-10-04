@@ -178,7 +178,8 @@ export async function updateDocStatusAction(
 
     if (fetchError) {
         logger.error('Error fetching docs for auto-advance check:', fetchError);
-        return { success: false, error: fetchError.message };
+        revalidatePath('/dashboard');
+        return { success: true, warning: 'workflow_update_incomplete', message: '서류 상태는 저장되었습니다. 진행 상태 확인에 실패했습니다.' };
     }
 
     const docs = allDocs ?? [];
@@ -197,7 +198,8 @@ export async function updateDocStatusAction(
         .eq('id', fcId);
 
     if (profileError) {
-        return { success: false, error: profileError.message };
+        revalidatePath('/dashboard');
+        return { success: true, warning: 'workflow_update_incomplete', message: '서류 상태는 저장되었습니다. 진행 상태 반영에 실패했습니다.' };
     }
 
     let notificationWarning: string | undefined;

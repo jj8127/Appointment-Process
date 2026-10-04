@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-export const migration = await readFile(new URL('../migrations/20261002020937_board_comment_idempotency.sql', import.meta.url), 'utf8');
+export const migration = await readFile(new URL('../migrations/20261004133135_board_comment_idempotency.sql', import.meta.url), 'utf8');
 export const postId = '20000000-0000-4000-8000-000000000001';
 export const actorId = '10000000-0000-4000-8000-000000000001';
 export const fixtureSql = `

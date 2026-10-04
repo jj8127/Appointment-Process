@@ -21,6 +21,9 @@ const PERSISTENCE_WARNING_CODES = new Set([
 export function getAdminNotificationWarning(response: unknown): string | null {
   const root = asRecord(response);
   if (!root) return null;
+  if (root.warning === 'workflow_update_incomplete') {
+    return '요청은 저장됐지만 진행 상태 반영을 완료하지 못했습니다. 새로고침해 확인해주세요.';
+  }
 
   const typed = root as WarningResponse;
   const notification = asRecord(typed.notification);

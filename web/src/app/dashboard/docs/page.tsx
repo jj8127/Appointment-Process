@@ -35,38 +35,18 @@ import {
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
-import { supabase } from '@/lib/supabase';
-
-import { logger } from '@/lib/logger';
+import { fetchAdminDocuments, signAdminDocument, type AdminDocumentRow as DocumentRow } from '@/lib/admin-document-client';
 // App Design Tokens
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BACKGROUND_LIGHT = '#F9FAFB';
-
-type DocProfile = {
-    name: string | null;
-    phone: string | null;
-    affiliation: string | null;
-};
-
-type DocumentRow = {
-    id: string;
-    fc_id: string | null;
-    doc_type: string;
-    file_name: string | null;
-    storage_path: string | null;
-    status: string;
-    reviewer_note: string | null;
-    created_at: string;
-    fc_profiles?: DocProfile | null;
-};
 
 // Status Badge Helper
 const getStatusColor = (status: string) => {
@@ -115,6 +95,8 @@ export default function DocumentsPage() {
     const [previewOpened, { open: openPreview, close: closePreview }] = useDisclosure(false);
     const [selectedDoc, setSelectedDoc] = useState<DocumentRow | null>(null);
     const [signedUrl, setSignedUrl] = useState<string | null>(null);
+    const [previewError, setPreviewError] = useState<string | null>(null);
+    const previewRequest = useRef(0);
 
     // Reject Modal State
     const [rejectOpened, { open: openReject, close: closeReject }] = useDisclosure(false);
@@ -124,15 +106,7 @@ export default function DocumentsPage() {
     // Data Fetching
     const { data: documents, isLoading, isError, error, refetch, isFetching } = useQuery<DocumentRow[]>({
         queryKey: ['documents-list'],
-        queryFn: async () => {
-            const { data, error } = await supabase
-                .from('fc_documents')
-                .select('id, fc_id, doc_type, file_name, storage_path, status, reviewer_note, created_at, fc_profiles (name, phone, affiliation)')
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
-            return (data ?? []) as unknown as DocumentRow[];
-        },
+        queryFn: fetchAdminDocuments,
     });
 
     const pendingReviewCount = useMemo(
@@ -221,19 +195,21 @@ export default function DocumentsPage() {
 
     // Handlers
     const handlePreview = async (doc: DocumentRow) => {
+        const requestId = ++previewRequest.current;
         setSelectedDoc(doc);
         setSignedUrl(null);
+        setPreviewError(null);
         openPreview();
 
         const storagePath = String(doc.storage_path ?? '').trim();
         if (storagePath && storagePath !== 'deleted') {
-            const { data, error } = await supabase.storage
-                .from('fc-documents')
-                .createSignedUrl(storagePath, 3600);
-            if (data?.signedUrl) {
-                setSignedUrl(data.signedUrl);
-            } else {
-                logger.error('Signed URL Error:', error);
+            try {
+                const url = await signAdminDocument(doc.fc_id, storagePath);
+                if (requestId === previewRequest.current) setSignedUrl(url);
+            } catch (error) {
+                if (requestId === previewRequest.current) {
+                    setPreviewError(error instanceof Error ? error.message : '파일을 불러오지 못했습니다.');
+                }
             }
         }
     };
@@ -574,6 +550,11 @@ export default function DocumentsPage() {
                                         </Button>
                                     </Stack>
                                 )
+                            ) : previewError ? (
+                                <Stack align="center" gap="md">
+                                    <Text c="red">{previewError}</Text>
+                                    <Button variant="light" onClick={() => void handlePreview(selectedDoc)}>다시 시도</Button>
+                                </Stack>
                             ) : isNoFileDoc(selectedDoc) ? (
                                 <Text c="dimmed" size="lg">
                                     파일이 아직 업로드되지 않았습니다.

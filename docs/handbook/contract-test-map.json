@@ -38,14 +38,15 @@
       "id": "board-comment-idempotency",
       "prefixes": [
         "supabase/functions/board-comment-create/",
-        "supabase/migrations/20261002020937_board_comment_idempotency.sql",
+        "supabase/migrations/20261004133135_board_comment_idempotency.sql",
         "lib/board-comment-request.ts",
         "web/src/lib/board-comment-request.ts"
       ],
       "requires_any": [
         "supabase/tests/board-comment-idempotency.test.mjs",
         "supabase/tests/board-comment-postgres.test.mjs",
-        "lib/__tests__/board-comment-request.test.ts"
+        "lib/__tests__/board-comment-request.test.ts",
+        "supabase/tests/board-comment-fixture.mjs"
       ]
     },
     {
@@ -54,7 +55,7 @@
         "supabase/functions/_shared/session-generation.ts",
         "supabase/functions/_shared/request-board-session-verification.ts",
         "supabase/functions/verify-request-board-session/",
-        "supabase/migrations/20261002021018_credential_session_generations.sql",
+        "supabase/migrations/20261004133155_credential_session_generations.sql",
         "supabase/migrations/20261002022754_activate_credential_session_generations.sql",
         "web/src/lib/server-session.ts",
         "web/src/lib/request-board-app-session.ts"

@@ -73,7 +73,7 @@ describe('board comment reply flow', () => {
 
   it('passes the selected parent to the atomic SQL operation, which validates the thread', () => {
     const edgeFunction = readRepoFile('supabase/functions/board-comment-create/index.ts');
-    const sql = readRepoFile('supabase/migrations/20261002020937_board_comment_idempotency.sql');
+    const sql = readRepoFile('supabase/migrations/20261004133135_board_comment_idempotency.sql');
 
     expect(edgeFunction).toContain('p_parent_id: body.parentId ?? null');
     expect(sql).toContain('v_parent.post_id <> p_post_id');

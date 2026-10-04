@@ -433,7 +433,7 @@ export async function POST(req: Request) {
   const { action, payload } = body ?? {};
   if (!action) return badRequest('action is required');
 
-  const sessionCheck = action === 'getProfile' || action === 'getReferralCode' || action === 'getInviteeReferralCode'
+  const sessionCheck = action === 'getProfile' || action === 'getReferralCode' || action === 'getInviteeReferralCode' || action === 'signDoc'
     ? await getReadSession()
     : await getAdminSession();
   if (!sessionCheck.ok) {
@@ -1127,7 +1127,13 @@ export async function POST(req: Request) {
         .eq('doc_type', docType);
       if (updateErr) throw updateErr;
 
-      const { allApproved } = await syncProfileAfterDocMutation(fcId);
+      let allApproved: boolean;
+      try {
+        ({ allApproved } = await syncProfileAfterDocMutation(fcId));
+      } catch {
+        logger.warn('[api/admin/fc] saved document workflow incomplete');
+        return NextResponse.json({ ok: true, warning: 'workflow_update_incomplete' });
+      }
 
       let notificationResult: NotificationPersistenceResult | null = null;
       if (normalizedStatus === 'rejected') {
@@ -1197,15 +1203,43 @@ export async function POST(req: Request) {
         .eq('doc_type', docType);
       if (updateErr) throw updateErr;
 
-      await syncProfileAfterDocMutation(fcId);
+      try {
+        await syncProfileAfterDocMutation(fcId);
+      } catch {
+        logger.warn('[api/admin/fc] saved document removal workflow incomplete');
+        return NextResponse.json({ ok: true, warning: 'workflow_update_incomplete' });
+      }
 
       return NextResponse.json({ ok: true });
     }
 
     if (action === 'signDoc') {
-      const { path } = payload as { path?: string };
+      const { path, fcId: requestedFcId } = payload as { path?: string; fcId?: string };
       const normalizedPath = normalizeFcDocumentStoragePath(path);
       if (!normalizedPath) return badRequest('path is required');
+      let fcId = requestedFcId;
+      if (!fcId) {
+        const { data: doc, error: docError } = await adminSupabase.from('fc_documents')
+          .select('fc_id').eq('storage_path', normalizedPath).maybeSingle();
+        if (docError) throw docError;
+        fcId = doc?.fc_id;
+        if (!fcId) {
+          const { data: profile, error: profileError } = await adminSupabase.from('fc_profiles')
+            .select('id').eq('hanwha_commission_pdf_path', normalizedPath).maybeSingle();
+          if (profileError) throw profileError;
+          fcId = profile?.id;
+        }
+      }
+      if (!fcId) return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
+      const { data: owner, error: ownerError } = await adminSupabase.from('fc_profiles')
+        .select('hanwha_commission_pdf_path,fc_documents(storage_path)').eq('id', fcId).maybeSingle();
+      if (ownerError) throw ownerError;
+      const paths = [owner?.hanwha_commission_pdf_path, ...(owner?.fc_documents ?? []).map((doc) => doc.storage_path)];
+      if (!owner || !paths.some((storedPath) => normalizeFcDocumentStoragePath(storedPath) === normalizedPath)) {
+        return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+      }
       const { data, error } = await adminSupabase.storage
         .from('fc-documents')
         .createSignedUrl(normalizedPath, 60);

@@ -457,6 +457,7 @@ const commonListMocks = {
   '@/components/RejectReasonModal': ui,
   '@/components/NotificationDestinationReady': ui,
   '@/lib/supabase': { supabase: {} },
+  '@/lib/admin-document-client': { fetchAdminDocuments: async () => [], fetchAdminFcList: async () => [], signAdminDocument: async () => 'https://storage.example.test/synthetic' },
   '@/lib/logger': { logger: {} },
   '@/lib/show-admin-notification-warning': { showAdminNotificationWarning() {} },
   '@/lib/notification-delivery-feedback': { notificationFeedbackColor: () => 'green' },

@@ -104,7 +104,7 @@ describe('canonical notification persistence before provider delivery', () => {
       expect(source).toContain('notificationWarning');
       if (file.includes('board-comment-create')) {
         expect(source).toContain("supabase.rpc('create_board_comment_idempotent'");
-        const sql = read('supabase/migrations/20261002020937_board_comment_idempotency.sql');
+        const sql = read('supabase/migrations/20261004133135_board_comment_idempotency.sql');
         expect(sql).toContain('insert into public.notifications(');
         expect(sql).toContain("'board-comment:' || v_comment_id::text");
         expect(sql).toContain('update public.board_comment_requests set response = v_response');

@@ -137,7 +137,11 @@ test('admin mutation callers surface canonical persistence warnings through the 
   const uiSource = readSource('lib/show-admin-notification-warning.ts');
   assert.match(helperSource, /notificationStored === false/);
   assert.match(uiSource, /notifications\.show/);
-  assert.match(uiSource, /알림함 등록 실패/);
+  assert.match(uiSource, /처리 결과 확인 필요/);
+});
+
+test('saved workflow failure stays visible even when notification persistence succeeded', () => {
+  assert.match(getAdminNotificationWarning({ warning: 'workflow_update_incomplete', delivery: { notificationStored: true } }) ?? '', /요청은 저장됐지만/);
 });
 
 test('lifecycle actions classify persistence independently from push delivery', () => {

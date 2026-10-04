@@ -1,5 +1,7 @@
 'use client';
 
+import { createChatRequestGuard } from '@/lib/chat-request-guard';
+
 import { fetchPresence } from '@/lib/presence-api';
 import {
     formatPresenceLabel,
@@ -127,6 +129,11 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
 
 // --- Page Component ---
 export default function ChatPage() {
+    const { role, residentId, staffType } = useSession();
+    return <ChatAccountPage key={`${role}:${residentId}:${staffType}`} />;
+}
+
+function ChatAccountPage() {
     const { hydrated, role, residentId, staffType } = useSession();
     const [selectedFc, setSelectedFc] = useState<ChatPreview | null>(null);
     const [keyword, setKeyword] = useState('');
@@ -160,7 +167,6 @@ export default function ChatPage() {
             return Array.isArray(payload) ? (payload as ChatPreview[]) : [];
         },
         enabled: hydrated && Boolean(role) && Boolean(myChatId),
-        placeholderData: (previousData) => previousData,
         refetchInterval: CHAT_LIST_REFETCH_INTERVAL_MS,
     });
 
@@ -369,6 +375,7 @@ export default function ChatPage() {
                 <Box flex={1} style={{ display: 'flex', flexDirection: 'column' }} bg="white">
                     {activeFc ? (
                         <ChatRoom
+                            key={`${myChatId}:${activeFc.fc_id}:${activeFc.phone}`}
                             fc={activeFc}
                             presence={getPresenceSnapshot(activeFc.phone)}
                             onConversationUpdated={() => void refetchList()}
@@ -405,11 +412,21 @@ function ChatRoom({
         [residentId, role, staffType],
     );
     const [messages, setMessages] = useState<Message[]>([]);
-    const [conversationId, setConversationId] = useState<string | null>(fc.conversation_id ?? null);
+    const conversationIdRef = useRef<string | null>(fc.conversation_id ?? null);
     const [inputText, setInputText] = useState('');
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [sending, setSending] = useState(false);
+    const sendingRef = useRef(false);
+    const resolvingRef = useRef<Promise<string> | null>(null);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const viewport = useRef<HTMLDivElement>(null);
     const messagesRef = useRef<Message[]>([]);
+    const [requestGuard] = useState(createChatRequestGuard);
+    useEffect(() => {
+        requestGuard.activate();
+        resolvingRef.current = null;
+        return () => requestGuard.dispose();
+    }, [requestGuard]);
     const inputTextRef = useRef('');
     const pendingRetryRef = useRef<{ content: string; clientMessageId: string } | null>(null);
     const pendingAttachmentDeliveryRef = useRef<{
@@ -426,38 +443,39 @@ function ChatRoom({
         inputTextRef.current = inputText;
     }, [inputText]);
 
-    useEffect(() => {
-        setConversationId(fc.conversation_id ?? null);
-    }, [fc.conversation_id, fc.fc_id]);
-
     const ensureConversationId = useCallback(async () => {
-        if (conversationId) return conversationId;
-        const response = await fetch('/api/fc-notify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            cache: 'no-store',
-            body: JSON.stringify({
-                type: 'resolve_garamin_direct_conversation',
-                target_id: fc.phone,
-            }),
-        });
-        const payload = await response.json().catch(() => null);
-        const resolvedId = String(payload?.data?.conversation?.id ?? '').trim().toLowerCase();
-        if (!response.ok || !payload?.ok || !resolvedId) {
-            throw new Error('direct_conversation_unavailable');
-        }
-        setConversationId(resolvedId);
-        return resolvedId;
-    }, [conversationId, fc.phone]);
+        const ticket = requestGuard.snapshot();
+        if (!requestGuard.isCurrent(ticket)) throw new Error('chat_room_changed');
+        if (conversationIdRef.current) return conversationIdRef.current;
+        if (resolvingRef.current) return resolvingRef.current;
+        const resolution = (async () => {
+            const response = await fetch('/api/fc-notify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                signal: requestGuard.signal,
+                cache: 'no-store',
+                body: JSON.stringify({ type: 'resolve_garamin_direct_conversation', target_id: fc.phone }),
+            });
+            const payload = await response.json().catch(() => null);
+            const resolvedId = String(payload?.data?.conversation?.id ?? '').trim().toLowerCase();
+            if (!requestGuard.isCurrent(ticket)) throw new Error('chat_room_changed');
+            if (!response.ok || !payload?.ok || !resolvedId) throw new Error('direct_conversation_unavailable');
+            conversationIdRef.current = resolvedId;
+            return resolvedId;
+        })();
+        resolvingRef.current = resolution;
+        try { return await resolution; }
+        finally { if (resolvingRef.current === resolution) resolvingRef.current = null; }
+    }, [fc.phone, requestGuard]);
 
     const scrollToBottom = useCallback(() => {
         setTimeout(() => {
-            if (viewport.current) {
+            if (!requestGuard.signal.aborted && viewport.current) {
                 viewport.current.scrollTo({ top: viewport.current.scrollHeight, behavior: 'smooth' });
             }
         }, 100);
-    }, []);
+    }, [requestGuard]);
 
     const applyMessages = useCallback((rows: Message[]) => {
         const preservedRows = rows.map((row) => {
@@ -474,51 +492,65 @@ function ChatRoom({
             }
             return row;
         });
-        const sorted = sortMessagesByCreatedAt(preservedRows);
+        const pendingRows = messagesRef.current.filter((message) => message.send_status === 'sending'
+            && !preservedRows.some((row) => row.id === message.id));
+        const sorted = sortMessagesByCreatedAt([...preservedRows, ...pendingRows]);
         if (areMessagesEqual(messagesRef.current, sorted)) {
             return false;
         }
+        requestGuard.changed();
         messagesRef.current = sorted;
         setMessages(sorted);
         return true;
-    }, []);
+    }, [requestGuard]);
 
     const fetchMessages = useCallback(
         async (options?: { scrollOnChange?: boolean; notifyList?: boolean }) => {
-            const activeConversationId = await ensureConversationId();
-            const response = await fetch('/api/fc-notify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                cache: 'no-store',
-                body: JSON.stringify({
-                    type: 'direct_message_list',
-                    conversation_id: activeConversationId,
-                }),
-            });
-            const payload = await response.json().catch(() => null);
-            const data = payload?.data?.messages;
-            if (!response.ok || !payload?.ok || !Array.isArray(data)) return;
+            const ticket = requestGuard.beginList();
+            try {
+                const activeConversationId = await ensureConversationId();
+                if (!requestGuard.isCurrent(ticket)) return;
+                const response = await fetch('/api/fc-notify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    signal: requestGuard.signal,
+                    cache: 'no-store',
+                    body: JSON.stringify({
+                        type: 'direct_message_list',
+                        conversation_id: activeConversationId,
+                    }),
+                });
+                const payload = await response.json().catch(() => null);
+                const data = payload?.data?.messages;
+                if (!requestGuard.canApplyList(ticket)) return;
+                if (!response.ok || !payload?.ok || !Array.isArray(data)) throw new Error('chat_list_failed');
+                setLoadError(null);
 
-            const changed = applyMessages(data as Message[]);
-            if (changed && options?.scrollOnChange) {
-                scrollToBottom();
-            }
-            if (changed && options?.notifyList) {
-                onConversationUpdated?.();
-            }
+                const changed = applyMessages(data as Message[]);
+                if (changed && options?.scrollOnChange) {
+                    scrollToBottom();
+                }
+                if (changed && options?.notifyList) {
+                    onConversationUpdated?.();
+                }
 
-            await fetch('/api/fc-notify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    type: 'direct_message_mark_read',
-                    conversation_id: activeConversationId,
-                }),
-            });
+                if (isReadOnly || !requestGuard.isCurrent(ticket)) return;
+                await fetch('/api/fc-notify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    signal: requestGuard.signal,
+                    body: JSON.stringify({
+                        type: 'direct_message_mark_read',
+                        conversation_id: activeConversationId,
+                    }),
+                });
+            } catch {
+                if (requestGuard.isCurrent(ticket)) setLoadError('대화 내용을 불러오지 못했습니다. 다시 시도해 주세요.');
+            }
         },
-        [applyMessages, ensureConversationId, onConversationUpdated, scrollToBottom],
+        [applyMessages, ensureConversationId, isReadOnly, onConversationUpdated, requestGuard, scrollToBottom],
     );
 
     useEffect(() => {
@@ -549,9 +581,13 @@ function ChatRoom({
     }, [fetchMessages]);
 
     const handleSendMessage = async () => {
+        const ticket = requestGuard.snapshot();
+        if (isReadOnly || sendingRef.current || !requestGuard.isCurrent(ticket)) return;
         const trimmed = inputTextRef.current.trim();
         if (!trimmed && selectedFiles.length === 0) return;
 
+        sendingRef.current = true;
+        setSending(true);
         const pendingRetry = pendingRetryRef.current;
         const clientMessageId = pendingRetry?.content === trimmed
             ? pendingRetry.clientMessageId
@@ -572,12 +608,14 @@ function ChatRoom({
 
         inputTextRef.current = '';
         setInputText('');
+        requestGuard.changed();
         messagesRef.current = sortMessagesByCreatedAt([...messagesRef.current, optimisticMessage]);
         setMessages(messagesRef.current);
         scrollToBottom();
 
         try {
             const activeConversationId = await ensureConversationId();
+            if (!requestGuard.isCurrent(ticket)) return;
             let attachmentDelivery =
                 pendingAttachmentDeliveryRef.current?.clientMessageId === clientMessageId
                     ? pendingAttachmentDeliveryRef.current
@@ -591,13 +629,16 @@ function ChatRoom({
                         content: trimmed,
                     }),
                 };
+                if (!requestGuard.isCurrent(ticket)) return;
                 pendingAttachmentDeliveryRef.current = attachmentDelivery;
             }
             if (attachmentDelivery && !attachmentDelivery.intentIds) {
                 const upload = await uploadMessengerAttachmentBatch(attachmentDelivery.batch);
+                if (!requestGuard.isCurrent(ticket)) return;
                 if (upload.state === 'committed') {
                     pendingAttachmentDeliveryRef.current = null;
                     setSelectedFiles([]);
+                    requestGuard.changed();
                     messagesRef.current = messagesRef.current.filter((message) => message.id !== optimisticId);
                     setMessages(messagesRef.current);
                     void fetchMessages({ scrollOnChange: true, notifyList: true });
@@ -609,6 +650,7 @@ function ChatRoom({
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
+                signal: requestGuard.signal,
                 body: JSON.stringify({
                     type: 'direct_message_send',
                     conversation_id: activeConversationId,
@@ -624,6 +666,7 @@ function ChatRoom({
                 }),
             });
             const payload = await response.json().catch(() => null);
+            if (!requestGuard.isCurrent(ticket)) return;
             const inserted = payload?.data?.message as Message | undefined;
             if (!response.ok || !payload?.ok || !inserted?.id) {
                 throw new Error('direct_message_send_failed');
@@ -656,6 +699,7 @@ function ChatRoom({
                     ),
                     insertedMessage,
                 ]);
+                requestGuard.changed();
                 messagesRef.current = next;
                 setMessages(next);
                 scrollToBottom();
@@ -686,13 +730,16 @@ function ChatRoom({
                     });
                 }
             } else {
+                requestGuard.changed();
                 messagesRef.current = messagesRef.current.filter((message) => message.id !== optimisticId);
                 setMessages(messagesRef.current);
                 void fetchMessages({ scrollOnChange: true, notifyList: true });
             }
 
         } catch (err: unknown) {
+            if (!requestGuard.isCurrent(ticket)) return;
             pendingRetryRef.current = { content: trimmed, clientMessageId };
+            requestGuard.changed();
             messagesRef.current = messagesRef.current.filter((message) => message.id !== optimisticId);
             setMessages(messagesRef.current);
             setInputText((current) => {
@@ -705,18 +752,24 @@ function ChatRoom({
             });
             const msg = err instanceof Error ? err.message : '전송 중 오류가 발생했습니다.';
             notifications.show({ title: '전송 실패', message: msg, color: 'red' });
+        } finally {
+            if (requestGuard.isCurrent(ticket)) { sendingRef.current = false; setSending(false); }
         }
     };
 
     const handleRetryNotification = async (message: Message) => {
+        const ticket = requestGuard.snapshot();
+        if (isReadOnly || !requestGuard.isCurrent(ticket)) return;
         if (!message.client_message_id) return;
         try {
             const activeConversationId = await ensureConversationId();
+            if (!requestGuard.isCurrent(ticket)) return;
             const attachmentReplay = attachmentNotificationReplayRef.current.get(message.id);
             const response = await fetch('/api/fc-notify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
+                signal: requestGuard.signal,
                 body: JSON.stringify({
                     type: 'direct_message_send',
                     conversation_id: activeConversationId,
@@ -732,6 +785,7 @@ function ChatRoom({
                 }),
             });
             const payload = await response.json().catch(() => null);
+            if (!requestGuard.isCurrent(ticket)) return;
             const committed = payload?.data?.message as Message | undefined;
             if (!response.ok || !payload?.ok || !committed?.id) {
                 throw new Error('notification_retry_failed');
@@ -749,6 +803,7 @@ function ChatRoom({
                     }
                     : item
             ));
+            requestGuard.changed();
             messagesRef.current = next;
             setMessages(next);
             if (feedback?.state !== 'persistence_failed') {
@@ -770,6 +825,7 @@ function ChatRoom({
                     : 'green',
             });
         } catch {
+            if (!requestGuard.isCurrent(ticket)) return;
             notifications.show({
                 title: '알림 재시도 실패',
                 message: '메시지는 이미 전송됐습니다. 알림 등록만 다시 시도해 주세요.',
@@ -779,13 +835,16 @@ function ChatRoom({
     };
 
     const handleDeleteMessage = async (messageId: string) => {
+        const ticket = requestGuard.snapshot();
         if (isReadOnly) return;
         try {
             const activeConversationId = await ensureConversationId();
+            if (!requestGuard.isCurrent(ticket)) return;
             const response = await fetch('/api/fc-notify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
+                signal: requestGuard.signal,
                 body: JSON.stringify({
                     type: 'direct_message_delete',
                     conversation_id: activeConversationId,
@@ -793,12 +852,14 @@ function ChatRoom({
                 }),
             });
             const payload = await response.json().catch(() => null);
+            if (!requestGuard.isCurrent(ticket)) return;
             if (!response.ok || !payload?.ok || payload?.data?.deleted !== true) {
                 throw new Error('direct_message_delete_failed');
             }
             applyMessages(messagesRef.current.filter((message) => message.id !== messageId));
             onConversationUpdated?.();
         } catch {
+            if (!requestGuard.isCurrent(ticket)) return;
             notifications.show({
                 title: '삭제 실패',
                 message: '메시지를 삭제하지 못했습니다.',
@@ -868,6 +929,12 @@ function ChatRoom({
                 </Group>
             </Box>
 
+            {loadError ? (
+                <Group px="md" py="xs" role="alert">
+                    <Text size="sm" c="red">{loadError}</Text>
+                    <Button size="xs" variant="subtle" onClick={() => void fetchMessages({ notifyList: true })}>다시 시도</Button>
+                </Group>
+            ) : null}
             {/* Messages Area */}
             <ScrollArea flex={1} viewportRef={viewport} p="md" bg={HANWHA_ORANGE + '08'}>
                 <Stack gap="sm">
@@ -975,7 +1042,7 @@ function ChatRoom({
                         pendingAttachmentDeliveryRef.current = null;
                         setSelectedFiles(files);
                     }}
-                    disabled={isReadOnly}
+                    disabled={isReadOnly || sending}
                 />
                 <Group align="flex-end" gap={8}>
                     <Textarea
@@ -993,7 +1060,7 @@ function ChatRoom({
                             }}
                             onKeyDown={handleKeyDown}
                             radius="md"
-                            disabled={isReadOnly}
+                            disabled={isReadOnly || sending}
                     />
                     <ActionIcon
                         size="lg"
@@ -1001,7 +1068,7 @@ function ChatRoom({
                         variant="filled"
                         radius="xl"
                         onClick={handleSendMessage}
-                        disabled={isReadOnly || (!inputText.trim() && selectedFiles.length === 0)}
+                        disabled={isReadOnly || sending || (!inputText.trim() && selectedFiles.length === 0)}
                     >
                         <IconSend size={18} />
                     </ActionIcon>

@@ -1254,7 +1254,7 @@ export default function DashboardPage() {
       const resp = await fetch('/api/admin/fc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'signDoc', payload: { path: normalizedPath } }),
+        body: JSON.stringify({ action: 'signDoc', payload: { path: normalizedPath, fcId: selectedFc?.id } }),
       });
       const data = await resp.json().catch(() => null);
       const signedUrl = typeof data?.signedUrl === 'string' ? data.signedUrl : '';

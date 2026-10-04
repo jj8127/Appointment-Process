@@ -7,6 +7,13 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 
 # Admin Web Playbook: Exam And Referral Ops
 
+## 2026-10-02 시험 알림 인증 보완
+
+- 시험 접수 확정 알림은 서명된 관리자 PATCH 안에서 실제 저장 전이가 성공한 뒤 생성한다. 신청 정보에서 수신 FC UUID와 시험 UUID를 확인하며 브라우저의 직접 Edge 호출을 제거한다.
+- 같은 확정 요청을 재시도하거나 동시에 제출해도 조건부 UPDATE로 전이에 성공한 요청만 알림을 보낸다. 이미 요청 상태인 신청은 저장 성공으로 응답한다. 알림 전송 실패는 저장 성공과 별도 경고로 반환한다.
+- 일정 저장 알림에도 저장된 시험 UUID를 포함한 typed target을 전달한다. DB 스키마나 상태 전이 RPC를 새로 도입하지 않는다.
+- 이 후속 수정은 아직 운영에 배포되지 않았다. 실제 수신자 조작이나 알림 전송은 검증에 사용하지 않는다.
+
 ## 2026-07-06 Exam Applicants API Auth Contract
 
 - `/api/admin/exam-applicants` is a privileged admin web API and must use the signed server-session helper before reading or mutating applicant data.

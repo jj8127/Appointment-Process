@@ -6,11 +6,11 @@ const componentRoot = join(__dirname, '..', '..', 'components');
 const workspaceRoot = join(__dirname, '..', '..');
 
 function readAppFile(fileName: string) {
-  return readFileSync(join(appRoot, fileName), 'utf8');
+  return readFileSync(join(appRoot, fileName), 'utf8').replace(/\r\n/g, '\n');
 }
 
 function readComponentFile(fileName: string) {
-  return readFileSync(join(componentRoot, fileName), 'utf8');
+  return readFileSync(join(componentRoot, fileName), 'utf8').replace(/\r\n/g, '\n');
 }
 
 describe('group chat mobile wiring', () => {

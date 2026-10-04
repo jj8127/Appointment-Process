@@ -1,5 +1,7 @@
 'use client';
 
+import { createChatRequestGuard } from '@/lib/chat-request-guard';
+
 import { useSession } from '@/hooks/use-session';
 import {
   ActionIcon,
@@ -20,7 +22,7 @@ import { IconAlertCircle, IconArrowLeft, IconRefresh, IconSend, IconUser } from 
 import dayjs from 'dayjs';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type React from 'react';
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { buildAdminDashboardChatUrl } from '@/lib/admin-chat-url';
 import {
@@ -64,6 +66,12 @@ const CHARCOAL = '#111827';
 const sanitize = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
 
 function ChatContent() {
+  const { role, residentId, staffType } = useSession();
+  const params = useSearchParams();
+  return <ChatRoomContent key={`${role}:${residentId}:${staffType}:${params.get('targetId') ?? ''}:${params.get('conversationId') ?? ''}`} />;
+}
+
+function ChatRoomContent() {
   const { role, residentId, hydrated, staffType } = useSession();
   const params = useSearchParams();
   const router = useRouter();
@@ -92,12 +100,21 @@ function ChatContent() {
   );
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [conversationId, setConversationId] = useState(conversationIdParam);
+  const conversationIdRef = useRef(conversationIdParam);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const sendingRef = useRef(false);
+  const resolvingRef = useRef<Promise<string> | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  const [requestGuard] = useState(createChatRequestGuard);
+  useEffect(() => {
+    requestGuard.activate();
+    resolvingRef.current = null;
+    return () => requestGuard.dispose();
+  }, [requestGuard]);
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const pendingAttachmentDeliveryRef = useRef<{
     clientMessageId: string;
@@ -122,84 +139,107 @@ function ChatContent() {
     );
   }, [hydrated, role, router, targetIdParam, targetNameParam]);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
-      if (viewportRef.current) {
+      if (!requestGuard.signal.aborted && viewportRef.current) {
         viewportRef.current.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' });
       }
     });
-  };
+  }, [requestGuard]);
+
+  const ensureConversationId = useCallback(async () => {
+    const ticket = requestGuard.snapshot();
+    if (!requestGuard.isCurrent(ticket)) throw new Error('chat_room_changed');
+    if (conversationIdRef.current) return conversationIdRef.current;
+    if (resolvingRef.current) return resolvingRef.current;
+    const resolution = (async () => {
+      const response = await fetch('/api/fc-notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', signal: requestGuard.signal, cache: 'no-store',
+        body: JSON.stringify({ type: 'resolve_garamin_direct_conversation', target_id: otherId }),
+      });
+      const payload = await response.json().catch(() => null);
+      const resolvedId = String(payload?.data?.conversation?.id ?? '').trim().toLowerCase();
+      if (!requestGuard.isCurrent(ticket)) throw new Error('chat_room_changed');
+      if (!response.ok || !payload?.ok || !resolvedId) throw new Error('direct_conversation_unavailable');
+      conversationIdRef.current = resolvedId;
+      return resolvedId;
+    })();
+    resolvingRef.current = resolution;
+    try { return await resolution; }
+    finally { if (resolvingRef.current === resolution) resolvingRef.current = null; }
+  }, [otherId, requestGuard]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || role === 'admin' || role === 'manager') return;
     if (!myId || !otherId) return;
 
     const fetchMessages = async () => {
-      let activeConversationId = conversationId;
-      if (!activeConversationId) {
-        const resolveResponse = await fetch('/api/fc-notify', {
+      const ticket = requestGuard.beginList();
+      try {
+        const activeConversationId = await ensureConversationId();
+        if (!requestGuard.isCurrent(ticket)) return;
+        const response = await fetch('/api/fc-notify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
+          signal: requestGuard.signal,
           cache: 'no-store',
           body: JSON.stringify({
-            type: 'resolve_garamin_direct_conversation',
-            target_id: otherId,
+            type: 'direct_message_list',
+            conversation_id: activeConversationId,
           }),
         });
-        const resolvePayload = await resolveResponse.json().catch(() => null);
-        activeConversationId = String(resolvePayload?.data?.conversation?.id ?? '').trim();
-        if (!resolveResponse.ok || !resolvePayload?.ok || !activeConversationId) return;
-        setConversationId(activeConversationId);
+        const payload = await response.json().catch(() => null);
+        const rows = payload?.data?.messages;
+        if (!requestGuard.canApplyList(ticket)) return;
+        if (!response.ok || !payload?.ok || !Array.isArray(rows)) throw new Error('chat_list_failed');
+        setLoadError(null);
+        const filtered = rows.filter((m: Message) => !deletedIdsRef.current.has(m.id));
+        setMessages((current) => {
+          if (!requestGuard.canApplyList(ticket)) return current;
+          return [...filtered.map((message) => {
+            const existing = current.find((item) => item.id === message.id);
+            if (
+              existing?.sendStatus === 'notification-failed'
+              || existing?.sendStatus === 'notification-invalid'
+            ) {
+              return {
+                ...message,
+                localId: existing.localId,
+                sendStatus: existing.sendStatus,
+                errorMessage: existing.errorMessage,
+              };
+            }
+            return { ...message, sendStatus: 'sent' as const };
+          }), ...current.filter((message) => (message.sendStatus === 'sending' || message.sendStatus === 'failed')
+            && !filtered.some((row: Message) => row.id === message.id))];
+        });
+        scrollToBottom();
+        if (!requestGuard.isCurrent(ticket)) return;
+        await fetch('/api/fc-notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          signal: requestGuard.signal,
+          body: JSON.stringify({
+            type: 'direct_message_mark_read',
+            conversation_id: activeConversationId,
+          }),
+        });
+      } catch {
+        if (requestGuard.isCurrent(ticket)) setLoadError('대화 내용을 불러오지 못했습니다. 다시 시도해 주세요.');
       }
-      const response = await fetch('/api/fc-notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        cache: 'no-store',
-        body: JSON.stringify({
-          type: 'direct_message_list',
-          conversation_id: activeConversationId,
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      const rows = payload?.data?.messages;
-      if (!response.ok || !payload?.ok || !Array.isArray(rows)) return;
-      const filtered = rows.filter((m: Message) => !deletedIdsRef.current.has(m.id));
-      setMessages((current) => filtered.map((message) => {
-        const existing = current.find((item) => item.id === message.id);
-        if (
-          existing?.sendStatus === 'notification-failed'
-          || existing?.sendStatus === 'notification-invalid'
-        ) {
-          return {
-            ...message,
-            localId: existing.localId,
-            sendStatus: existing.sendStatus,
-            errorMessage: existing.errorMessage,
-          };
-        }
-        return { ...message, sendStatus: 'sent' };
-      }));
-      scrollToBottom();
-      await fetch('/api/fc-notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          type: 'direct_message_mark_read',
-          conversation_id: activeConversationId,
-        }),
-      });
     };
     refreshMessagesRef.current = fetchMessages;
 
     void fetchMessages();
     const intervalId = window.setInterval(() => void fetchMessages(), 15_000);
     return () => window.clearInterval(intervalId);
-  }, [conversationId, hydrated, myId, otherId, targetNameParam]);
+  }, [ensureConversationId, hydrated, myId, otherId, requestGuard, role, scrollToBottom]);
 
   const upsertLocalMessage = (msg: ChatMessage) => {
+    requestGuard.changed();
     setMessages((prev) => {
       const idx = prev.findIndex((m) => m.id === msg.id || (msg.localId && m.localId === msg.localId));
       if (idx !== -1) {
@@ -219,7 +259,10 @@ function ChatContent() {
       intentIds: string[];
     },
   ) => {
+    const ticket = requestGuard.snapshot();
+    if (role === 'manager' || sendingRef.current || !requestGuard.isCurrent(ticket)) return;
     if ((!content.trim() && selectedFiles.length === 0 && !explicitAttachmentReplay) || !myId || !otherId) return;
+    sendingRef.current = true;
     const localId = reuseLocalId ?? crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -238,7 +281,8 @@ function ChatContent() {
     setLoading(true);
 
     try {
-      if (!conversationId) throw new Error('direct_conversation_unavailable');
+      const activeConversationId = await ensureConversationId();
+      if (!requestGuard.isCurrent(ticket)) return;
       let attachmentDelivery = explicitAttachmentReplay
         ? { clientMessageId: localId, ...explicitAttachmentReplay }
         : pendingAttachmentDeliveryRef.current?.clientMessageId === localId
@@ -249,14 +293,16 @@ function ChatContent() {
           clientMessageId: localId,
           batch: await prepareMessengerAttachmentBatch({
             files: selectedFiles,
-            context: { kind: 'direct', conversationId },
+            context: { kind: 'direct', conversationId: activeConversationId },
             content,
           }),
         };
+        if (!requestGuard.isCurrent(ticket)) return;
         pendingAttachmentDeliveryRef.current = attachmentDelivery;
       }
       if (attachmentDelivery && !attachmentDelivery.intentIds) {
         const upload = await uploadMessengerAttachmentBatch(attachmentDelivery.batch);
+        if (!requestGuard.isCurrent(ticket)) return;
         if (upload.state === 'committed') {
           pendingAttachmentDeliveryRef.current = null;
           setSelectedFiles([]);
@@ -267,13 +313,15 @@ function ChatContent() {
         }
         attachmentDelivery.intentIds = upload.intentIds;
       }
+      if (!requestGuard.isCurrent(ticket)) return;
       const response = await fetch('/api/fc-notify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: requestGuard.signal,
         body: JSON.stringify({
           type: 'direct_message_send',
-          conversation_id: conversationId,
+          conversation_id: activeConversationId,
           client_message_id: localId,
           content,
           ...(attachmentDelivery
@@ -286,6 +334,7 @@ function ChatContent() {
         }),
       });
       const payload = await response.json().catch(() => null);
+      if (!requestGuard.isCurrent(ticket)) return;
       const inserted = payload?.data?.message as Message | undefined;
       if (!response.ok || !payload?.ok || !inserted?.id) {
         throw new Error('direct_message_send_failed');
@@ -342,6 +391,7 @@ function ChatContent() {
         });
       }
     } catch (err: unknown) {
+      if (!requestGuard.isCurrent(ticket)) return;
       const error = err as Error;
       upsertLocalMessage({
         id: localId,
@@ -356,7 +406,7 @@ function ChatContent() {
       });
       notifications.show({ title: '전송 실패', message: error?.message ?? '메시지 전송 중 오류', color: 'red' });
     } finally {
-      setLoading(false);
+      if (requestGuard.isCurrent(ticket)) { sendingRef.current = false; setLoading(false); }
     }
   };
 
@@ -419,6 +469,12 @@ function ChatContent() {
           </Group>
         </Box>
 
+        {loadError ? (
+          <Group px="md" py="xs" role="alert">
+            <Text size="sm" c="red">{loadError}</Text>
+            <ActionIcon aria-label="다시 시도" onClick={() => void refreshMessagesRef.current()}><IconRefresh size={16} /></ActionIcon>
+          </Group>
+        ) : null}
         {/* Messages */}
         <ScrollArea
           style={{ flex: 1 }}

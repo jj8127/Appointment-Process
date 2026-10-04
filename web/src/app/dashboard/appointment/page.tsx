@@ -37,7 +37,7 @@ import { StatusToggle } from '@/components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
-import { supabase } from '@/lib/supabase';
+import { fetchAdminFcList } from '@/lib/admin-document-client';
 import { updateAppointmentAction } from './actions';
 
 // FC Profile 타입 정의
@@ -254,15 +254,8 @@ export default function AppointmentPage() {
   const { data: fcs, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['appointment-fcs'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fc_profiles')
-        .select('*, fc_documents(*)')
-        .eq('signup_completed', true)
-        .in('status', ['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected', 'hanwha-commission-approved', 'appointment-completed', 'final-link-sent'])
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data;
+      const profiles = await fetchAdminFcList<FcProfile>();
+      return profiles.filter((profile) => ['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected', 'hanwha-commission-approved', 'appointment-completed', 'final-link-sent'].includes(profile.status ?? ''));
     },
   });
 

@@ -9,7 +9,7 @@ export function showAdminNotificationWarning(response: unknown): boolean {
   if (!message) return false;
 
   notifications.show({
-    title: '알림함 등록 실패',
+    title: '처리 결과 확인 필요',
     message,
     color: 'yellow',
   });

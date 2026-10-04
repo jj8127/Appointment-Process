@@ -189,6 +189,7 @@ export async function updateAppointmentAction(
         return { success: false, error: `업데이트 실패: ${updateError.message}` };
     }
 
+    let workflowWarning: string | undefined;
     if (type === 'confirm' || type === 'reject') {
         let nextStatus = '';
         nextStatus = resolveInsuranceStageStatus(updatedProfile);
@@ -201,7 +202,7 @@ export async function updateAppointmentAction(
 
             if (statusError) {
                 logger.error('Status update failed:', statusError);
-                // Non-fatal, but good to log
+                workflowWarning = 'workflow_update_incomplete';
             }
         }
     }
@@ -231,5 +232,6 @@ export async function updateAppointmentAction(
     }
 
     revalidatePath('/dashboard/appointment');
+    notificationWarning = workflowWarning ?? notificationWarning;
     return { success: true, message: '처리 완료', warning: notificationWarning };
 }

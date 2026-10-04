@@ -80,7 +80,7 @@ export async function GET() {
         ] = await Promise.all([
             adminSupabase
                 .from('fc_profiles')
-                .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_credentials(password_set_at), fc_documents(doc_type,storage_path,file_name,status,reviewer_note)')
+                .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_credentials(password_set_at), fc_documents(id,fc_id,doc_type,storage_path,file_name,status,reviewer_note,created_at)')
                 .eq('signup_completed', true)
                 .order('created_at', { ascending: false }),
             adminSupabase
