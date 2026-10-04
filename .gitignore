@@ -3,6 +3,14 @@
 # dependencies
 node_modules/
 
+# Keep nested admin-web outputs out of the EAS mobile upload archive.
+/web/node_modules/
+/web/.next/
+/web/.vercel/
+/web/out/
+/web/next-env.d.ts
+/.husky/_/
+
 # Expo
 .expo/
 dist/
