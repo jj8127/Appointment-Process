@@ -8,31 +8,22 @@ import {
   type AdminChatSourceRow,
 } from '@/lib/admin-chat-targets';
 import { adminSupabase } from '@/lib/admin-supabase';
-import { buildPhoneCandidates, getVerifiedReadOnlyAdminSession } from '@/lib/server-session';
-import { getWebStaffChatActorId, normalizeStaffType } from '@/lib/staff-identity';
+import { getVerifiedReadOnlyAdminSession } from '@/lib/server-session';
+
 
 export const runtime = 'nodejs';
 
 const RECENT_CHAT_SUMMARY_LIMIT = 500;
 
-async function getSessionStaffType(role: 'admin' | 'manager', residentDigits: string) {
-  if (role !== 'admin') {
-    return null;
+// Keep UUID filters below proxy URL limits, including accounts with many messages.
+const QUERY_ID_BATCH_SIZE = 100;
+function idBatches(ids: string[]) {
+  const batches: string[][] = [];
+  const uniqueIds = [...new Set(ids)];
+  for (let offset = 0; offset < uniqueIds.length; offset += QUERY_ID_BATCH_SIZE) {
+    batches.push(uniqueIds.slice(offset, offset + QUERY_ID_BATCH_SIZE));
   }
-
-  const candidates = buildPhoneCandidates(residentDigits, residentDigits);
-  const { data, error } = await adminSupabase
-    .from('admin_accounts')
-    .select('staff_type')
-    .in('phone', candidates)
-    .eq('active', true)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
-
-  return normalizeStaffType(data?.staff_type);
+  return batches;
 }
 
 export async function GET() {
@@ -47,12 +38,10 @@ export async function GET() {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const staffType = await getSessionStaffType(role, residentDigits);
-    const myChatId = getWebStaffChatActorId({
-      role,
-      residentId: residentDigits,
-      staffType,
-    });
+    const { staffType, accountId } = sessionCheck.session;
+    // New direct threads bind every staff account to its own signed phone.
+    const myChatId = residentDigits;
+    const counterpartyRole = role === 'manager' ? 'manager' : staffType === 'developer' ? 'developer' : 'admin';
 
     const [participantsResult, recentMessagesResult, unreadMessagesResult] = await Promise.all([
       adminSupabase
@@ -91,19 +80,27 @@ export async function GET() {
       .map((row) => String(row.id ?? '').trim())
       .filter(Boolean);
     const attachmentCountByMessageId = new Map<string, number>();
-    if (summaryMessageIds.length > 0) {
-      const { data: attachmentLinks, error: attachmentLinksError } = await adminSupabase
-        .from('messenger_message_attachments')
-        .select('message_id')
-        .in('message_id', summaryMessageIds);
-      if (attachmentLinksError && attachmentLinksError.code !== '42P01') throw attachmentLinksError;
-      for (const link of attachmentLinks ?? []) {
-        const messageId = String(link.message_id ?? '').trim();
-        if (!messageId) continue;
-        attachmentCountByMessageId.set(
-          messageId,
-          (attachmentCountByMessageId.get(messageId) ?? 0) + 1,
-        );
+    const requestedMessageIds = new Set(summaryMessageIds);
+    const countedBatchIds = new Set<string>();
+    for (const messageIds of idBatches(summaryMessageIds)) {
+      // Links belong to a delivery batch, whose committed_message_ids bind its messages.
+      const { data: batches, error: batchesError } = await adminSupabase
+        .from('messenger_attachment_delivery_batches')
+        .select('id,committed_message_ids,messenger_message_attachments(sort_order)')
+        .in('context_kind', ['direct', 'direct_broadcast'])
+        .eq('status', 'committed')
+        .is('deleted_at', null)
+        .overlaps('committed_message_ids', messageIds);
+      if (batchesError) throw batchesError;
+      for (const batch of batches ?? []) {
+        if (countedBatchIds.has(batch.id)) continue;
+        countedBatchIds.add(batch.id);
+        const count = Array.isArray(batch.messenger_message_attachments)
+          ? batch.messenger_message_attachments.length : 0;
+        for (const messageId of batch.committed_message_ids ?? []) {
+          if (!requestedMessageIds.has(messageId)) continue;
+          attachmentCountByMessageId.set(messageId, (attachmentCountByMessageId.get(messageId) ?? 0) + count);
+        }
       }
     }
     const summaryRows = rawSummaryRows.map((row) => ({
@@ -117,14 +114,27 @@ export async function GET() {
     });
 
     const targets = buildAdminChatTargets(fcRows, summariesByPhone);
-    const { data: conversations, error: conversationError } = await adminSupabase
-      .from('garamin_direct_conversations')
-      .select('id,fc_id')
-      .in('fc_id', targets.map((target) => target.fc_id));
-    if (conversationError) throw conversationError;
-    const conversationByFcId = new Map(
-      (conversations ?? []).map((row) => [String(row.fc_id), String(row.id)]),
-    );
+    const conversationByFcId = new Map<string, string>();
+    for (const fcIds of idBatches(targets.map((target) => target.fc_id))) {
+      const { data: conversations, error: conversationError } = await adminSupabase
+        .from('garamin_direct_conversations')
+        .select('id,fc_id')
+        .in('fc_id', fcIds);
+      if (conversationError) throw conversationError;
+      const fcByLegacyId = new Map((conversations ?? []).map((row) => [row.id, row.fc_id]));
+      if (fcByLegacyId.size === 0) continue;
+      const { data: threads, error: threadError } = await adminSupabase
+        .from('garamin_direct_threads')
+        .select('id,legacy_conversation_id')
+        .in('legacy_conversation_id', [...fcByLegacyId.keys()])
+        .eq('counterparty_role', counterpartyRole)
+        .eq('counterparty_actor_id', accountId);
+      if (threadError) throw threadError;
+      for (const thread of threads ?? []) {
+        const fcId = fcByLegacyId.get(thread.legacy_conversation_id);
+        if (fcId) conversationByFcId.set(fcId, thread.id);
+      }
+    }
     return NextResponse.json(targets.map((target) => ({
       ...target,
       conversation_id: conversationByFcId.get(target.fc_id) ?? null,

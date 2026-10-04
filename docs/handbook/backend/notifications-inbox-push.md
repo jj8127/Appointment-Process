@@ -2,8 +2,14 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-08-10
+last_verified: 2026-10-04
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/group-chat-data-api-batching.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + lib/session-logout.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
+
+## Admin chat summaries (2026-10-04)
+
+- FC attachment links belong to a delivery batch. Read attachment counts through committed, nondeleted direct batches and their `messenger_message_attachments` relation; this FC join table has no `message_id` column. Deduplicate broadcast batches across query chunks and limit UUID filters to100 IDs.
+- Staff chat display and message summaries use the verified account phone. Resolve the returned canonical thread ID using the signed account ID and its exact admin/developer/manager role; exclude shared or other-account threads.
+- `web/src/lib/admin-chat-list-runtime.test.mjs` executes the actual route against the live column contract, including205 synthetic participants, repeated batches, invalid delivery states and role isolation. `web/src/lib/staff-identity.test.ts` checks consistent staff identity.
 
 ## Web proxy compatibility (2026-10-02)
 

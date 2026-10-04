@@ -2,10 +2,15 @@ doc_id: FC-BACKEND-ADMIN-OPS
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-08-10
+last_verified: 2026-10-04
 source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admin/* + web/src/app/api/fc-delete/route.ts
 
 # Backend Runbook: Admin Operations API
+
+## 2026-10-04 Personal staff chat identity
+
+- Admin, developer and manager chat display IDs use the sanitized signed account phone, matching the mobile and Edge actor contract. The former ordinary-admin display sentinel does not identify a personal canonical thread.
+- `/api/admin/chat-list` verifies an active signed account, maps only that account's role/UUID to canonical threads, and reads attachment counts through committed delivery batches. Its actual runtime fixture enforces production columns and rejects foreign/shared thread mappings.
 
 ## 2026-10-02 Password-change session freshness (prepared)
 

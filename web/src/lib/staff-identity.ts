@@ -37,10 +37,10 @@ export function getWebStaffChatActorId(input: {
   role: WebSessionRole;
   staffType?: StaffType;
 }) {
-  if (input.role === 'manager' || (input.role === 'admin' && input.staffType === 'developer')) {
+  if (input.role === 'manager' || input.role === 'admin') {
     return String(input.residentId ?? '').replace(/[^0-9]/g, '');
   }
-  return 'admin';
+  return '';
 }
 
 export function getWebStaffSenderName(input: {
