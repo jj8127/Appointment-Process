@@ -1,5 +1,11 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20261004-release-alignment"></a> 2026-10-04 Full release alignment
+
+- Explicit user authorization covers the ordered web, GaramLink, database, Edge, native build and store rollout. The production admin alias resolves to READY deployment `dpl_6ogLkNBCkRdRr6DWZyBnGRWqg5Nz`, source `1ad9d071f8561f3b96b21c9d2eb2da7e1aa87acc`. Candidate authentication page returned 200 and the unauthenticated admin list returned 401. The existing signed-in administrator session successfully read the board, document list and a signed file link. No production business record was approved or changed.
+- Hosted CI `37207784618` passed web build, 537 web tests, SQL and Deno checks. One app source assertion still expected the former `conversationId` payload variable. The test now verifies canonical resolution, `activeConversationId` and the request lifetime guard. Focused Jest 16/16 and actual React chat 9/9 tests passed. This repair changes only a test; a replacement hosted run is still pending.
+- Initial bounded post-promotion admin 5xx count was zero. Current-day Vercel failure email search returned no notices. Android/iOS 4.2.15 builds, store publication, actual GaramLink login and final credential-generation trigger activation remain separately tracked in the canonical harness. Upload or review submission will not be described as publication.
+
 ## <a id="20261002-admin-live-verification"></a> 2026-10-02 Admin production verification and mobile timestamp layout
 
 - The user authorized the compatible production-base follow-up deployment and real authenticated board, document, chat and notification checks. Source `049736727d782c07a5afef8e79c501ee87ad6b4b` was built with remote production settings as `dpl_A8eQcTtWVnmgXojeigNLE9VeU8h4`, reached production READY, then was promoted. Lookup of `adminweb-red.vercel.app` resolved to that exact deployment/source. Auth returned200; unauthenticated board POST and admin list returned401.
