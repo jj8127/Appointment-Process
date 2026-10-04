@@ -241,7 +241,9 @@ describe('admin web direct chat list source', () => {
     expect(legacyProxySource).not.toContain('sender_id:');
     expect(legacyProxySource).not.toContain('sender_name:');
     expect(legacyProxySource).toContain("type: 'direct_message_send'");
-    expect(legacyProxySource).toContain('conversation_id: conversationId');
+    expect(legacySendSource).toContain('const activeConversationId = await ensureConversationId();');
+    expect(legacySendSource).toContain('if (!requestGuard.isCurrent(ticket)) return;');
+    expect(legacyProxySource).toContain('conversation_id: activeConversationId');
     expect(legacyProxySource).toContain('content');
     expect(legacySendSource).not.toContain('메시지는 저장됐지만 모바일 알림 전달을 확인하지 못했습니다.');
     expect(legacySendSource).not.toContain(".from('messages')");
