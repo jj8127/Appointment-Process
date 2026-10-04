@@ -12,7 +12,9 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 - Admin, developer and manager chat display IDs use the sanitized signed account phone, matching the mobile and Edge actor contract. The former ordinary-admin display sentinel does not identify a personal canonical thread.
 - `/api/admin/chat-list` verifies an active signed account, maps only that account's role/UUID to canonical threads, and reads attachment counts through committed delivery batches. Its actual runtime fixture enforces production columns and rejects foreign/shared thread mappings.
 
-## 2026-10-02 Password-change session freshness (prepared)
+## 2026-10-04 Password-change session freshness (production)
+
+- Production activation completed2026-10-04 as migration `20261004143855`, after compatible issuers/verifiers and both web surfaces. Local/live numbered histories match87 entries and all three credential-generation triggers are enabled. Existing signed admin reads and the user's actual FC-to-GaramLink bridge passed afterward. New native4.2.15 releases remain in store review, while current installed runtimes remain compatible.
 
 - `admin-action` and the shared board actor gate validate the signed session's account UUID and credential generation before using its authority. Password hash or salt changes increment only that account's generation; old tokens cannot refresh into the current generation.
 - Inactive, deleted or replaced accounts and stale generations require login. A database or network failure during freshness verification returns HTTP503 and must remain retryable instead of being treated as a successful empty result or a global logout.

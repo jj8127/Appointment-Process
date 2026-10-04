@@ -14344,7 +14344,7 @@ revoke all on function public.process_password_reset_challenge(text, text, uuid,
 grant execute on function public.process_password_reset_challenge(text, text, uuid, text, text, text, text)
   to service_role;
 
--- Credential session generations (20261004133155 + 20261002022754)
+-- Credential session generations (20261004133155 + 20261004143855)
 -- Additive zero preserves every unchanged account's legacy signed sessions.
 alter table public.fc_credentials
   add column if not exists session_version bigint not null default 0 check (session_version >= 0);

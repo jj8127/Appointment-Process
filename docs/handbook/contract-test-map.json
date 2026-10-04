@@ -56,7 +56,7 @@
         "supabase/functions/_shared/request-board-session-verification.ts",
         "supabase/functions/verify-request-board-session/",
         "supabase/migrations/20261004133155_credential_session_generations.sql",
-        "supabase/migrations/20261002022754_activate_credential_session_generations.sql",
+        "supabase/migrations/20261004143855_activate_credential_session_generations.sql",
         "web/src/lib/server-session.ts",
         "web/src/lib/request-board-app-session.ts"
       ],

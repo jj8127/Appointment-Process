@@ -13,7 +13,7 @@ const database = `session_generation_${process.pid}`;
 const config = { host: '127.0.0.1', port, user: 'otp_fixture', password: 'synthetic-local-only',
   ssl: false, connectionTimeoutMillis: 3000, options: '-c statement_timeout=8000 -c lock_timeout=6000' };
 const migration = await readFile(new URL('../migrations/20261004133155_credential_session_generations.sql', import.meta.url), 'utf8');
-const activation = await readFile(new URL('../migrations/20261002022754_activate_credential_session_generations.sql', import.meta.url), 'utf8');
+const activation = await readFile(new URL('../migrations/20261004143855_activate_credential_session_generations.sql', import.meta.url), 'utf8');
 const otpMigration = await readFile(new URL('../migrations/20261001071216_password_reset_atomic_challenges.sql', import.meta.url), 'utf8');
 const id = '10000000-0000-4000-8000-000000000001';
 const otherId = '10000000-0000-4000-8000-000000000002';

@@ -2,16 +2,18 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-10-01
+last_verified: 2026-10-04
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
-## 2026-10-02 Account generations and comment receipts (prepared)
+## 2026-10-04 Account generations and comment receipts (production)
+
+- Production history records `20261004133135_board_comment_idempotency`, `20261004133155_credential_session_generations` and activation `20261004143855_activate_credential_session_generations`. Local numbered87 migrations match live87 history entries with no pending or missing entry. Generation activation was last, after compatible issuer/verifier and web/bridge deployments; three BEFOREUPDATE triggers and service-only RPC execution were verified.
 
 - `fc_credentials`, `admin_accounts` and `manager_accounts` carry a nonnegative session_version, initially zero. Password hash/salt changes advance the generation atomically after the revocation trigger is activated. Unchanged credentials and failed-login counters do not advance it. Issuers bind the generation read with the verified credential; refresh cannot upgrade an older session into a new generation.
 - `board_comment_requests` has the canonical actor role/UUID and operation UUID as its key, with a SHA-256 payload digest and committed response. It has no cascading foreign key to posts/comments; deletion must not make old operations reusable. RLS is enabled and only service_role accesses it or calls the invoker RPC.
-- Comment creation and its inbox notification rows use one transaction. Per-recipient delivery keys and replayed notification IDs prevent duplicate persistence. These migrations are local candidates until deployment evidence explicitly records application.
+- Comment creation and its inbox notification rows use one transaction. Per-recipient delivery keys and replayed notification IDs prevent duplicate persistence. The ordered production rollout and bounded post-activation checks are recorded in the canonical release evidence.
 
 
 ## 2026-10-01 Password reset challenge state
