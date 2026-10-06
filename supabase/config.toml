@@ -8,3 +8,8 @@ verify_jwt = false
 # verifies the signed bridge and its current canonical account generation.
 [functions.verify-request-board-session]
 verify_jwt = true
+
+# Admin web uses its existing service-role transport. The handler verifies both
+# that transport and the app token signature plus canonical account generation.
+[functions.verify-app-session]
+verify_jwt = true

@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { parseAppSessionTokenDetailed } from '../../../supabase/functions/_shared/request-board-auth.ts';
+import { verifyWebLoginSessionAtIssuer } from './web-login-session-verification.ts';
 import {
   sessionGenerationClaims,
   verifySessionGeneration,
@@ -47,7 +47,11 @@ export const lookupWebSessionGeneration: SessionGenerationLookup = (input, purpo
   });
 
 export const verifyWebLoginAppSession = (token: string) =>
-  parseAppSessionTokenDetailed(token, lookupWebSessionGeneration);
+  verifyWebLoginSessionAtIssuer(token, {
+    supabaseUrl: (process.env.SUPABASE_URL ?? '').trim() || process.env.NEXT_PUBLIC_SUPABASE_URL,
+    expectedSupabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  });
 
 export function createWebGroupChatAppSessionToken(
   phone: string,

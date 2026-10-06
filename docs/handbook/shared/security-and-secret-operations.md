@@ -7,6 +7,13 @@ source_of_truth: env contracts + reset-password functions + assisted-password fu
 
 # Security And Secret Operations
 
+## 2026-10-06 Admin web login session verification
+
+- The web password-login route verifies the upstream signed app token at the issuer's `verify-app-session` Edge endpoint before setting any login cookie. It does not require an app-session signing key in the web runtime for this verification.
+- The endpoint requires both platform JWT validation and an exact match to the existing `SUPABASE_SERVICE_ROLE_KEY` Bearer transport before inspecting the app token. It reuses current/previous HMAC verification, expiry and fresh canonical credential-generation checks; request bodies cannot choose an actor or role.
+- Only the eight verified login claims are returned to the trusted server with `private, no-store`. The web validates the HTTPS configured-project endpoint, refuses redirects, bounds the request to five seconds and validates the response shape before retaining the existing role/phone matching and exact-generation cookie binding. Invalid/revoked sessions stay401; verification outages and malformed upstream responses stay503. No app token or generation response is sent to the browser JSON.
+- This repairs the missing production-web signing-key configuration without exporting or rotating the issuer's signing keys. Existing web group-chat signing configuration remains a separate requirement; mobile signing/session contracts, accounts and database privileges are unchanged.
+
 ## 2026-10-01 Password reset challenge transaction
 
 - `request-password-reset` and `reset-password` delegate issuance, cooldown, expiry, failed guesses and credential replacement to `process_password_reset_challenge`. A successful reset consumes the code in the same transaction as the password update.

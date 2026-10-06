@@ -1,5 +1,12 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20261006-web-login-verification"></a> 2026-10-06 Production web login verification repair
+
+- Trigger: the user reported the exact post-password-success login-session verification error while testing the deployed admin web. Finalfc39 CI37450858085/Governance37450858142 passed, but its production route returned401 once. Current login-with-passwordv58 is ACTIVE and issues compatible signed generation claims. The canonical generation RPC exists and had28HTTP200 responses in the bounded ten-minute window; no general RPC outage was observed.
+- Cause: matching Vercel plugin env-metadata access returned403. Its documented same-endpoint CLI fallback succeeded and confirmed production has the existing service-role key and public project URL, but neither FC_APP_SESSION_TOKEN_SECRET nor PREVIOUS. Only metadata/booleans were emitted; secret values were not retrieved or saved. The new login guard predates the board rollout and correctly fails closed when its local verifier has no key.
+- Repair: add service-role-only verify-app-session at the existing issuer, invoke the same HMAC/expiry/current-generation parser, return only the eight verified login claims, and always delegate web-login verification to that endpoint. Web checks configured HTTPS project parity, no redirects/no-store/timeout, response schema and expiry, then retains the unchanged role/phone/generation cookie binding. No bridge-secret fallback, app-key export/rotation, account/role/data/schema change or native runtime change is included.
+- Verification: Edge actual-signature/generation4tests PASS, new webhelper42+actualroute10 tests PASS, fullweb601 PASS, existing security31 PASS, app/web types/scopedlint/frozenDeno/no-uploadwebbuild54pages/Governance PASS, read-only focused security review PASS. Deploy issuer first, publish/redeploy tested web source, then retry the user's existing login and board continuation. Until actual authenticated acceptance and store submission are verified, release remains HOLD; build completion and production alias READY remain separate facts.
+
 ## <a id="20261006-board-production-rollout"></a> 2026-10-06 Board production rollout and GaramIn4.2.16
 
 - Authorization: user requested testing changes then deploying if sound, and explicitly required app/build version increments. Reused canonical admin-web-session-forwarding-20261002 records. Tests107(board mobile66 includes server34/source19, webReact27, signedEdge14), separate EAS/source55, types/lint/Deno/no-upload webbuild/Hermesexport all pass.
