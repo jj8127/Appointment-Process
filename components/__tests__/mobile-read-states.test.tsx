@@ -104,7 +104,7 @@ describe('mobile read failure presentation', () => {
   it.each(['board.tsx', 'admin-board-manage.tsx', 'notice.tsx'])('%s never renders error and legitimate empty together', async (route) => {
     const notice = route === 'notice.tsx';
     const failed = await render(`app/${route}`, ['isError &&', notice ? '!isLoading && !isError && !notices.length' : '!isLoading && !isError && filteredPosts.length === 0'], {
-      isError: true, isLoading: false, filteredPosts: [], notices: [], refetch: jest.fn(), listError: new Error('synthetic'), noticesError: new Error('synthetic'),
+      isError: true, isFetchNextPageError: false, isLoading: false, filteredPosts: [], notices: [], refetch: jest.fn(), listError: new Error('synthetic'), noticesError: new Error('synthetic'),
     });
     expect(failed.texts.join(' ')).toContain('불러오지 못했습니다');
     expect(failed.texts.join(' ')).not.toContain('등록된');
