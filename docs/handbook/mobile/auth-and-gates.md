@@ -7,6 +7,11 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 
 # Mobile Playbook: Auth And Gates
 
+## 2026-10-06 게시판 페이지 조회의 세션 범위
+
+- 게시판의 추가 페이지도 현재 로그인 계정과 불투명한 메모리 세션 범위에 속한다. 서명 토큰을 query key에 넣지 않으며, 계정 변경·토큰 교체·로그아웃 뒤 이전 페이지나 늦은 응답을 새 목록에 노출하지 않는다.
+- 추가 조회 인증 오류는 재로그인 안내를 유지하고, 일시 오류는 기존 목록과 같은 커서의 재시도를 유지한다. 회귀 근거는 `hooks/__tests__/use-board-list.test.ts`의 계정·토큰 교체·로그아웃·추가 조회 실패 사례다. 로컬 검증이며 모바일 업데이트 적용을 의미하지 않는다.
+
 ## 2026-10-02 Password-change session generations (prepared)
 
 - Signed app/bridge sessions carry canonical account kind, account UUID and credential generation. Missing generation claims are compatible only with legacy generation zero; malformed/partial claims fail closed.

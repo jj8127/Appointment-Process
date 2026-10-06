@@ -6,6 +6,7 @@ import { useSession } from '@/hooks/use-session';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { buildBoardEditPayload, canHydrateBoardEdit } from '@/lib/board-edit-detail';
+import { flattenBoardListPages } from '@/lib/board-list-pages';
 import {
   deliverBoardAttachments,
   type BoardAttachmentManifest,
@@ -77,7 +78,7 @@ import {
   IconTrash,
   IconX,
 } from '@tabler/icons-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -91,11 +92,13 @@ const REACTION_TYPES = [
 ] as const;
 type ReactionKey = (typeof REACTION_TYPES)[number]['id'];
 type ReactionCounts = Record<ReactionKey, number>;
+type BoardListPage = Awaited<ReturnType<typeof fetchBoardList>>;
+type BoardListData = InfiniteData<BoardListPage, string | undefined>;
 type ReactionMutationContext = {
   detailKey: readonly string[];
   listKey: readonly string[];
   previousDetail?: BoardDetail;
-  previousList?: { items: BoardPost[]; nextCursor?: string | null };
+  previousList?: BoardListData;
 };
 type CommentLikeMutationContext = {
   detailKey: readonly string[];
@@ -291,27 +294,28 @@ function BoardContent() {
     setIsThreadInitialized(false);
   }, [selectedPostId]);
 
-  const { data: listData, isLoading, error, isError, refetch } = useQuery({
-    queryKey: ['board-posts', actor?.role, actor?.residentId],
-    queryFn: () => {
+  const listSearch = searchQuery.trim();
+  const {
+    data: listData, isLoading, error, isError, refetch, isFetching,
+    hasNextPage, fetchNextPage, isFetchingNextPage, isFetchNextPageError,
+  } = useInfiniteQuery({
+    queryKey: ['board-posts', actor?.role, actor?.residentId, 'infinite', listSearch],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => {
       if (!actor) return Promise.resolve({ items: [], nextCursor: null });
-      return fetchBoardList(actor, { limit: 30 });
+      return fetchBoardList(actor, { limit: 30, search: listSearch || undefined, cursor: pageParam });
     },
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: !!actor,
   });
 
-  const posts = useMemo(() => listData?.items ?? [], [listData?.items]);
+  const posts = useMemo(() => flattenBoardListPages(listData?.pages), [listData?.pages]);
   const categoryNameMap = useMemo(
     () => new Map(categories.map((category) => [category.id, category.name])),
     [categories],
   );
   const resolveCategoryName = (rawCategoryId?: string | null) =>
     categoryNameMap.get(rawCategoryId ?? '') ?? '일반';
-  const filteredPosts = useMemo(() => {
-    if (!searchQuery.trim()) return posts;
-    const q = searchQuery.toLowerCase();
-    return posts.filter((post) => post.title.toLowerCase().includes(q) || post.contentPreview.toLowerCase().includes(q));
-  }, [posts, searchQuery]);
 
   useEffect(() => {
     if (!routePostId) return;
@@ -606,13 +610,13 @@ function BoardContent() {
     },
     onMutate: async ({ actor: requestActor, postId, reactionType }) => {
       const detailKey = ['board-detail', postId, requestActor.role, requestActor.residentId];
-      const listKey = ['board-posts', requestActor.role, requestActor.residentId];
+      const listKey = ['board-posts', requestActor.role, requestActor.residentId, 'infinite', listSearch];
 
       await queryClient.cancelQueries({ queryKey: detailKey });
       await queryClient.cancelQueries({ queryKey: listKey });
 
       const previousDetail = queryClient.getQueryData<BoardDetail>(detailKey);
-      const previousList = queryClient.getQueryData<{ items: BoardPost[]; nextCursor?: string | null }>(listKey);
+      const previousList = queryClient.getQueryData<BoardListData>(listKey);
       const currentCounts = buildReactionCounts(previousDetail?.reactions ?? modalReactions);
       const currentMyReaction = (previousDetail?.reactions?.myReaction ?? modalReactions.myReaction ?? null) as ReactionKey | null;
       const { nextCounts, nextMyReaction, delta } = applyReactionUpdate(currentCounts, currentMyReaction, reactionType);
@@ -631,18 +635,21 @@ function BoardContent() {
       if (previousList) {
         queryClient.setQueryData(listKey, {
           ...previousList,
-          items: previousList.items.map((item) => (
-            item.id === postId
-              ? {
-                ...item,
-                reactions: { ...nextCounts },
-                stats: {
-                  ...item.stats,
-                  reactionCount: Math.max(0, item.stats.reactionCount + delta),
-                },
-              }
-              : item
-          )),
+          pages: previousList.pages.map((page) => ({
+            ...page,
+            items: page.items.map((item) => (
+              item.id === postId
+                ? {
+                  ...item,
+                  reactions: { ...nextCounts },
+                  stats: {
+                    ...item.stats,
+                    reactionCount: Math.max(0, item.stats.reactionCount + delta),
+                  },
+                }
+                : item
+            )),
+          })),
         });
       }
 
@@ -1433,21 +1440,21 @@ function BoardContent() {
 
         {/* 게시글 목록 */}
         <Stack gap="md">
-          {isError && (
-            <QueryErrorAlert error={error} onRetry={refetch} hasData={!!listData} subject="게시글 목록" />
+          {isError && !isFetchNextPageError && (
+            <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!listData} subject="게시글 목록" />
           )}
           {isLoading && (
             <Text size="sm" c="dimmed">
               게시글을 불러오는 중입니다...
             </Text>
           )}
-          {!isLoading && !isError && filteredPosts.length === 0 && (
+          {!isLoading && !isError && posts.length === 0 && (
             <Text size="sm" c="dimmed">
               등록된 게시글이 없습니다.
             </Text>
           )}
           <AnimatePresence>
-            {filteredPosts.map((post, index) => {
+            {posts.map((post, index) => {
               const previewImages = (post.attachments ?? [])
                 .filter((file) => file.fileType === 'image' && file.signedUrl)
                 .slice(0, 3);
@@ -1457,7 +1464,7 @@ function BoardContent() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  transition={{ delay: index * 0.1 }}
+                  transition={{ delay: Math.min(index, 5) * 0.1 }}
                 >
                   <Card
                     shadow="sm"
@@ -1601,6 +1608,25 @@ function BoardContent() {
               );
             })}
           </AnimatePresence>
+          {isFetchNextPageError && (
+            <QueryErrorAlert
+              error={error}
+              onRetry={() => fetchNextPage()}
+              isFetching={isFetchingNextPage}
+              hasData={posts.length > 0}
+              subject="이전 게시글"
+            />
+          )}
+          {hasNextPage && !isFetchNextPageError && (
+            <Button
+              variant="light"
+              loading={isFetchingNextPage}
+              disabled={isFetching && !isFetchingNextPage}
+              onClick={() => { void fetchNextPage(); }}
+            >
+              이전 게시글 더 보기
+            </Button>
+          )}
         </Stack>
       </Stack>
 

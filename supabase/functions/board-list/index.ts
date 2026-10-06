@@ -17,6 +17,12 @@ import {
   isCanonicalGeneralBoardCategory,
   validateAutomationBoardListRequest,
 } from '../_shared/board-list-policy.ts';
+import {
+  boardListCursorFilter,
+  boardListNextCursor,
+  boardListSortOrders,
+  parseBoardListPagination,
+} from '../_shared/board-list-pagination.ts';
 
 type Payload = {
   actor?: {
@@ -31,9 +37,6 @@ type Payload = {
   cursor?: string;
   limit?: number;
 };
-
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 50;
 
 serve(async (req: Request) => {
   const origin = req.headers.get('origin') ?? undefined;
@@ -97,18 +100,17 @@ serve(async (req: Request) => {
     }, 200, origin);
   }
 
-  const sort = body.sort ?? 'created';
-  const order = body.order ?? 'desc';
-  const limit = Math.min(Math.max(body.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
-  const cursor = body.cursor;
+  const paginationResult = parseBoardListPagination(body);
+  if (!paginationResult.ok) {
+    return json({ ok: false, code: 'invalid_pagination', message: '게시글 조회 조건을 확인해주세요.' }, 400, origin);
+  }
+  const pagination = paginationResult.pagination;
+  const { limit } = pagination;
   const categoryId = body.categoryId;
   const search = (body.search ?? '').trim();
 
   const baseSelect =
     'id,category_id,title,content,author_name,author_role,author_resident_id,created_at,updated_at,edited_at,is_pinned,pinned_at,comment_count,reaction_count,attachment_count,view_count,search_vector';
-
-  const sortField = sort === 'latest' ? 'updated_at' : 'created_at';
-  const ascending = order === 'asc';
 
   const applyFilters = (query: any) => {
     if (categoryId) query = query.eq('category_id', categoryId);
@@ -133,20 +135,14 @@ serve(async (req: Request) => {
 
   listQuery = applyFilters(listQuery);
 
-  if (sort === 'comments') {
-    listQuery = listQuery.order('comment_count', { ascending });
-    listQuery = listQuery.order('created_at', { ascending: false });
-  } else if (sort === 'reactions') {
-    listQuery = listQuery.order('reaction_count', { ascending });
-    listQuery = listQuery.order('created_at', { ascending: false });
-  } else {
-    if (cursor) {
-      listQuery = listQuery[ascending ? 'gt' : 'lt'](sortField, cursor);
-    }
-    listQuery = listQuery.order(sortField, { ascending });
+  const cursorFilter = boardListCursorFilter(pagination);
+  if (cursorFilter) listQuery = listQuery.or(cursorFilter);
+  for (const { field, ascending } of boardListSortOrders(pagination)) {
+    listQuery = listQuery.order(field, { ascending });
   }
 
-  listQuery = listQuery.limit(limit);
+  // One extra row distinguishes a full final page from a page with more posts.
+  listQuery = listQuery.limit(limit + 1);
 
   const [pinnedResult, listResult] = await Promise.all([pinnedQuery, listQuery]);
 
@@ -157,9 +153,10 @@ serve(async (req: Request) => {
     return dbError(listResult.error, origin);
   }
 
+  const listRows = (listResult.data ?? []).slice(0, limit);
   const developerResidentIds = await resolveDeveloperResidentIds([
     ...(pinnedResult.data ?? []),
-    ...(listResult.data ?? []),
+    ...listRows,
   ]);
 
   const normalize = (row: any) => ({
@@ -183,7 +180,7 @@ serve(async (req: Request) => {
   });
 
   const pinnedItems = (pinnedResult.data ?? []).map(normalize);
-  const items = (listResult.data ?? []).map(normalize);
+  const items = listRows.map(normalize);
 
   const postIds = Array.from(new Set([...pinnedItems, ...items].map((item) => item.id)));
   const reactionMap = new Map<string, { like: number; heart: number; check: number; smile: number }>();
@@ -279,11 +276,9 @@ serve(async (req: Request) => {
   const enrichedPinned = pinnedItems.map(withExtras);
   const enrichedItems = items.map(withExtras);
 
-  const nextCursor = sort === 'comments' || sort === 'reactions'
-    ? null
-    : items.length === limit
-      ? items[items.length - 1][sortField === 'updated_at' ? 'updatedAt' : 'createdAt']
-      : null;
+  const nextCursor = (listResult.data?.length ?? 0) > limit
+    ? boardListNextCursor(listRows[listRows.length - 1], pagination)
+    : null;
 
   return json({
     ok: true,

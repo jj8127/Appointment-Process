@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import * as editDetail from './board-edit-detail.ts';
 import * as queryError from './query-read-error.ts';
 import * as commentRequest from './board-comment-request.ts';
+import * as boardListPages from './board-list-pages.ts';
 
 const rootRequire = createRequire(new URL('../../../package.json', import.meta.url));
 const webRequire = createRequire(import.meta.url);
@@ -50,6 +51,7 @@ function loadTsx(path, mocks, globals = {}) {
     exports, require: (id) => {
       if (id in mocks) return mocks[id];
       if (id === '@/lib/board-comment-request') return commentRequest;
+      if (id === '@/lib/board-list-pages') return boardListPages;
       if (id === 'react' || id === 'react/jsx-runtime') return rootRequire(id);
       if (id === '@mantine/core' || id === '@tabler/icons-react') return ui;
       throw new Error(`Unmocked dependency: ${id}`);
@@ -68,10 +70,13 @@ function makeBoard() {
   const commentLikeRequests = [];
   const notices = [];
   const invalidations = [];
+  const listRequests = [];
+  const nextPageRequests = [];
   const queryKey = (key) => JSON.stringify(key[0] === 'board-detail' && key.length <= 3
-    ? [...key, session.role, session.residentId] : key);
+    ? [...key, session.role, session.residentId]
+    : key[0] === 'board-posts' && key.length === 3 ? [...key, 'infinite', ''] : key);
   queries.set(queryKey(['board-categories', 'admin', 'synthetic-actor']), success([{ id: 'general', name: '일반' }]));
-  queries.set(queryKey(['board-posts', 'admin', 'synthetic-actor']), success({ items: [post('A'), post('B')] }));
+  queries.set(queryKey(['board-posts', 'admin', 'synthetic-actor']), success({ pages: [{ items: [post('A'), post('B')], nextCursor: null }], pageParams: [undefined] }));
   let cancelBarrier;
   const queryClient = {
     invalidateQueries: (key) => invalidations.push(key),
@@ -93,6 +98,7 @@ function makeBoard() {
     '@/lib/board-api': {
       buildBoardActor: (actor) => actor,
       fetchBoardDetail: async (_, id) => detail(id),
+      fetchBoardList: async (actor, params) => { listRequests.push({ actor, params }); return { items: [], nextCursor: null }; },
       updateBoardPost: async (_, payload) => { submissions.push(payload); return {}; },
       toggleBoardReaction: async (actor, postId, reactionType) => { reactionRequests.push({ actor, postId, reactionType }); return { myReaction: reactionType }; },
       toggleCommentLike: async (actor, commentId) => { commentLikeRequests.push({ actor, commentId }); return { liked: true, likeCount: 1 }; },
@@ -105,6 +111,17 @@ function makeBoard() {
     '@mantine/notifications': { notifications: { show: (notice) => notices.push(notice) } },
     '@tanstack/react-query': {
       useQuery(options) { queryOptions.set(queryKey(options.queryKey), options); return queries.get(queryKey(options.queryKey)) ?? initialQuery; },
+      useInfiniteQuery(options) {
+        queryOptions.set(queryKey(options.queryKey), options);
+        const state = queries.get(queryKey(options.queryKey)) ?? initialQuery;
+        const lastPage = state.data?.pages.at(-1);
+        return {
+          hasNextPage: lastPage ? options.getNextPageParam(lastPage) !== undefined : false,
+          isFetchingNextPage: false, isFetchNextPageError: false,
+          fetchNextPage() { nextPageRequests.push(options.queryKey); },
+          ...state,
+        };
+      },
       useQueryClient: () => queryClient,
       useMutation(options) {
         const slot = React.useRef(null);
@@ -124,7 +141,8 @@ function makeBoard() {
   });
   const find = (type, predicate = () => true) => renderer.root.findAllByType(type).find(predicate);
   return {
-    render, find, submissions, mutations, notices, invalidations, reactionRequests, commentLikeRequests,
+    render, find, submissions, mutations, notices, invalidations, reactionRequests, commentLikeRequests, listRequests, nextPageRequests,
+    findAll: (type) => renderer.root.findAllByType(type),
     cached: (key) => queries.get(queryKey(key))?.data,
     pauseCancellation() {
       let release;
@@ -138,11 +156,129 @@ function makeBoard() {
     async changeActor() {
       session = { ...session, residentId: 'other-synthetic-actor' };
       queries.set(queryKey(['board-categories', session.role, session.residentId]), success([{ id: 'general', name: '일반' }]));
-      queries.set(queryKey(['board-posts', session.role, session.residentId]), success({ items: [post('A'), post('B')] }));
+      queries.set(queryKey(['board-posts', session.role, session.residentId]), success({ pages: [{ items: [post('A'), post('B')], nextCursor: null }], pageParams: [undefined] }));
       await render();
     },
     async close() { await act(async () => renderer.unmount()); },
   };
+}
+
+test('web board follows the server cursor and includes older posts without repeated pins', async () => {
+  const page = makeBoard();
+  const key = ['board-posts', 'admin', 'synthetic-actor'];
+  const firstPage = { items: [{ ...post('A'), isPinned: true }, post('B')], nextCursor: 'older-page' };
+  await page.setQuery(key, success({ pages: [firstPage], pageParams: [undefined] }));
+  const options = page.queryOptions(key);
+  assert.equal(options.initialPageParam, undefined);
+  assert.equal(options.getNextPageParam(firstPage), 'older-page');
+  await options.queryFn({ pageParam: undefined });
+  await options.queryFn({ pageParam: 'older-page' });
+  assert.equal(page.listRequests[0].params.limit, 30);
+  assert.equal(page.listRequests[0].params.cursor, undefined);
+  assert.equal(page.listRequests[1].params.cursor, 'older-page');
+  assert.equal(page.listRequests[1].params.categoryId, undefined);
+  page.find('Button', (node) => node.props.children === '이전 게시글 더 보기').props.onClick();
+  assert.equal(page.nextPageRequests.length, 1);
+  const secondPage = { items: [post('A'), post('C')], nextCursor: null };
+  await page.setQuery(key, success({ pages: [firstPage, secondPage], pageParams: [undefined, 'older-page'] }));
+  assert.deepEqual(page.findAll('Title').filter((node) => node.props.order === 4).map((node) => node.props.children), ['가상 제목 A', '가상 제목 B', '가상 제목 C']);
+  assert.equal(page.find('Button', (node) => node.props.children === '이전 게시글 더 보기'), undefined);
+  assert.equal(options.getNextPageParam(secondPage), undefined);
+  await page.close();
+});
+
+test('web board search starts its own server pagination and composer category does not filter it', async () => {
+  const page = makeBoard();
+  await page.render();
+  await act(async () => page.find('TextInput', (node) => node.props.placeholder === '게시글 검색...').props.onChange({ currentTarget: { value: '  오래된 본문  ' } }));
+  const key = ['board-posts', 'admin', 'synthetic-actor', 'infinite', '오래된 본문'];
+  const options = page.queryOptions(key);
+  assert.equal(options.initialPageParam, undefined);
+  await options.queryFn({ pageParam: undefined });
+  assert.equal(page.listRequests[0].params.search, '오래된 본문');
+  assert.equal(page.listRequests[0].params.cursor, undefined);
+  assert.equal(page.find('Title', (node) => node.props.order === 4), undefined);
+  // The search can match full content beyond contentPreview, so never refilter the server result.
+  await page.setQuery(key, success({ pages: [{ items: [post('C')], nextCursor: 'searched-older' }], pageParams: [undefined] }));
+  assert.ok(page.find('Title', (node) => node.props.children === '가상 제목 C'));
+  await act(async () => page.find('Button', (node) => node.props.children === '새 게시글 작성').props.onClick());
+  await act(async () => page.find('Select', (node) => node.props.label === '카테고리').props.onChange('composer-only-category'));
+  await page.queryOptions(key).queryFn({ pageParam: 'searched-older' });
+  assert.equal(page.listRequests[1].params.search, '오래된 본문');
+  assert.equal(page.listRequests[1].params.cursor, 'searched-older');
+  assert.equal(page.listRequests[1].params.categoryId, undefined);
+  await page.close();
+});
+
+test('web board next-page failures keep loaded posts and retry the next page', async () => {
+  const page = makeBoard();
+  const key = ['board-posts', 'admin', 'synthetic-actor'];
+  const data = { pages: [{ items: [post('A')], nextCursor: 'retry-cursor' }], pageParams: [undefined] };
+  await page.setQuery(key, { ...success(data), isFetching: true, isFetchingNextPage: true });
+  assert.equal(page.find('Button', (node) => node.props.children === '이전 게시글 더 보기').props.loading, true);
+  await page.setQuery(key, { ...failure(new queryError.QueryReadError(401), data), isFetchNextPageError: true });
+  assert.ok(page.find('Title', (node) => node.props.children === '가상 제목 A'));
+  assert.equal(page.find('Text', (node) => node.props.children === '등록된 게시글이 없습니다.'), undefined);
+  const alert = page.find('QueryErrorAlert', (node) => node.props.subject === '이전 게시글');
+  assert.equal(alert.props.hasData, true);
+  assert.equal(queryError.requiresQueryLogin(alert.props.error), true);
+  alert.props.onRetry();
+  assert.equal(page.nextPageRequests.length, 1);
+  await page.setQuery(key, success({ pages: [...data.pages, { items: [post('B')], nextCursor: null }], pageParams: [undefined, 'retry-cursor'] }));
+  assert.equal(page.find('QueryErrorAlert'), undefined);
+  assert.equal(page.findAll('Title').filter((node) => node.props.order === 4).length, 2);
+  await page.close();
+});
+
+test('web board distinguishes initial failure, refresh failure, and verified empty pages', async () => {
+  const page = makeBoard();
+  const key = ['board-posts', 'admin', 'synthetic-actor'];
+  let retries = 0;
+  await page.setQuery(key, { ...failure(), refetch() { retries += 1; } });
+  assert.equal(page.find('Text', (node) => node.props.children === '등록된 게시글이 없습니다.'), undefined);
+  const initialAlert = page.find('QueryErrorAlert', (node) => node.props.subject === '게시글 목록');
+  assert.equal(initialAlert.props.hasData, false);
+  initialAlert.props.onRetry();
+  assert.equal(retries, 1);
+  const data = { pages: [{ items: [post('A')], nextCursor: null }], pageParams: [undefined] };
+  await page.setQuery(key, failure(new queryError.QueryReadError(500), data));
+  assert.ok(page.find('Title', (node) => node.props.children === '가상 제목 A'));
+  assert.equal(page.find('QueryErrorAlert').props.hasData, true);
+  await page.setQuery(key, success({ pages: [{ items: [], nextCursor: null }], pageParams: [undefined] }));
+  assert.equal(page.find('QueryErrorAlert'), undefined);
+  assert.ok(page.find('Text', (node) => node.props.children === '등록된 게시글이 없습니다.'));
+  await page.close();
+});
+
+for (const outcome of ['success', 'failure']) {
+  test(`web board reaction updates every loaded page and ${outcome === 'failure' ? 'rolls back' : 'preserves'} its infinite cache`, async () => {
+    const page = makeBoard();
+    const key = ['board-posts', 'admin', 'synthetic-actor'];
+    const data = {
+      pages: [{ items: [post('A')], nextCursor: 'older' }, { items: [post('A'), post('B')], nextCursor: null }],
+      pageParams: [undefined, 'older'],
+    };
+    await page.setQuery(key, success(data));
+    await page.setQuery(['board-detail', 'A'], success(detail('A')));
+    await page.view();
+    page.find('Tooltip', (node) => node.props.label === '좋아요').findByType('ActionIcon').props.onClick();
+    const mutation = page.mutations[3];
+    const variables = mutation.calls[0][0];
+    let context;
+    await act(async () => { context = await mutation.options.onMutate(variables); });
+    const updated = page.cached(key);
+    assert.deepEqual(Array.from(updated.pageParams), [undefined, 'older']);
+    assert.equal(updated.pages[0].items[0].stats.reactionCount, 1);
+    assert.equal(updated.pages[1].items[0].stats.reactionCount, 1);
+    assert.equal(updated.pages[1].items[1].stats.reactionCount, 0);
+    await act(async () => {
+      if (outcome === 'failure') mutation.options.onError(new Error('synthetic_write_failure'), variables, context);
+      else mutation.options.onSuccess({ myReaction: 'like' }, variables, context);
+    });
+    if (outcome === 'failure') assert.equal(page.cached(key), data);
+    else assert.equal(page.cached(key), updated);
+    await page.close();
+  });
 }
 
 test('board title-only edit cannot submit while detail is loading or failed; retry loads the full body', async () => {

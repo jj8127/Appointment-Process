@@ -16,11 +16,23 @@ const SERVICE_KEY = 'loopback-board-list-service-key-not-production';
 const AUTOMATION_TOKEN = 'loopback-board-list-automation-token-not-production';
 const AUTOMATION_PHONE = '01091000001';
 const APP_ADMIN_PHONE = '01091000002';
+const APP_ADMIN_ID = '00000000-0000-4000-8000-000000000201';
 const RAW_TITLE_SECRET = 'loopback-title-secret-not-production';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const edgeEntry = path.join(repoRoot, 'supabase', 'functions', 'board-list', 'index.ts');
 
 let state = { name: 'startup', requests: [] };
+let scenarioCount = 0;
+
+const fixturePost = (sequence, overrides = {}) => ({
+  id: `00000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`,
+  category_id: 'category-any', title: `Fictional post ${sequence}`, content: 'Synthetic board content',
+  author_name: 'Fictional author', author_role: 'fc', author_resident_id: 'fictional-actor',
+  created_at: '2026-07-12T00:00:00.123456Z', updated_at: '2026-07-12T00:00:00.123456Z',
+  edited_at: null, is_pinned: false, pinned_at: null,
+  comment_count: 4, reaction_count: 7, attachment_count: 0, view_count: 0,
+  ...overrides,
+});
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -35,6 +47,13 @@ function sendJson(response, status, payload) {
 
 function fakePostgrest(request, response) {
   const url = new URL(request.url ?? '/', `http://${HOST}`);
+  if (url.pathname === '/rest/v1/rpc/get_auth_session_generation' && request.method === 'POST') {
+    sendJson(response, 200, {
+      accountKind: 'admin', accountId: APP_ADMIN_ID, sessionVersion: 0,
+      createdAt: '2020-01-01T00:00:00.000Z',
+    });
+    return;
+  }
   const match = url.pathname.match(/^\/rest\/v1\/([^/]+)$/);
   if (!match || request.method !== 'GET') {
     sendJson(response, 500, { message: `unexpected request: ${request.method} ${url.pathname}` });
@@ -45,9 +64,9 @@ function fakePostgrest(request, response) {
   state.requests.push({ table, url });
 
   if (table === 'admin_accounts') {
-    const automation = state.name !== 'app mode preserves full list behavior';
+    const automation = !state.name.startsWith('app ');
     sendJson(response, 200, {
-      id: automation ? 'automation-admin-1' : 'app-admin-1',
+      id: automation ? 'automation-admin-1' : APP_ADMIN_ID,
       name: automation ? 'Canonical Automation Admin' : 'Canonical App Admin',
       phone: automation ? AUTOMATION_PHONE : APP_ADMIN_PHONE,
       active: true,
@@ -76,6 +95,42 @@ function fakePostgrest(request, response) {
       }]);
       return;
     }
+    if (state.name.startsWith('app pagination')) {
+      if (url.searchParams.get('is_pinned') === 'eq.true') {
+        sendJson(response, 200, [fixturePost(100, { is_pinned: true })]);
+        return;
+      }
+      const orders = url.searchParams.get('order');
+      const expectedOrders = {
+        'created asc': 'created_at.asc,id.asc', 'created desc': 'created_at.desc,id.desc',
+        'latest asc': 'updated_at.asc,id.asc', 'latest desc': 'updated_at.desc,id.desc',
+        'comments asc': 'comment_count.asc,created_at.desc,id.desc',
+        'comments desc': 'comment_count.desc,created_at.desc,id.desc',
+        'reactions asc': 'reaction_count.asc,created_at.desc,id.desc',
+        'reactions desc': 'reaction_count.desc,created_at.desc,id.desc',
+      };
+      const choice = state.name.slice('app pagination '.length);
+      assert.equal(orders, expectedOrders[choice]);
+      const ascendingTime = choice === 'created asc' || choice === 'latest asc';
+      let rows = Array.from({ length: 23 }, (_, index) => fixturePost(index + 1));
+      if (!ascendingTime) rows.reverse();
+      const filter = url.searchParams.get('or');
+      if (filter) {
+        const lastId = filter.match(/id\.(?:lt|gt)\.([0-9a-f-]{36})/)?.[1];
+        assert(lastId, 'next page must include a post ID tie breaker');
+        const boundary = rows.findIndex((row) => row.id === lastId);
+        assert(boundary >= 0);
+        // Every row has equal timestamps and counts, so only the ID tie break can advance.
+        rows = rows.slice(boundary + 1);
+      }
+      sendJson(response, 200, rows.slice(0, Number(url.searchParams.get('limit'))));
+      return;
+    }
+    sendJson(response, 200, []);
+    return;
+  }
+
+  if (table === 'board_post_reactions' || table === 'board_attachments') {
     sendJson(response, 200, []);
     return;
   }
@@ -188,6 +243,9 @@ function appToken() {
     phone: APP_ADMIN_PHONE,
     role: 'admin',
     staffType: 'admin',
+    accountKind: 'admin',
+    accountId: APP_ADMIN_ID,
+    sessionVersion: 0,
     iat: now,
     exp: now + 600,
   })).toString('base64url');
@@ -212,6 +270,7 @@ function tableRequests(table) {
 async function scenario(name, test) {
   state = { name, requests: [] };
   await test();
+  scenarioCount += 1;
   console.log(`ok - ${name}`);
 }
 
@@ -308,9 +367,38 @@ async function runScenarios() {
     );
     assert.deepEqual(
       reads.map(({ url }) => url.searchParams.get('limit')).sort(),
-      ['10', '7'],
+      ['10', '8'],
     );
     assert.equal(tableRequests('board_categories').length, 0);
+  });
+
+  for (const sort of ['created', 'latest', 'comments', 'reactions']) {
+    for (const order of ['asc', 'desc']) {
+      await scenario(`app pagination ${sort} ${order}`, async () => {
+        const headers = { 'x-app-session-token': appToken() };
+        const first = await invoke({ sort, order, limit: 20 }, headers);
+        assert.equal(first.status, 200);
+        assert.equal(first.body.data.items.filter((post) => !post.isPinned).length, 20);
+        assert.equal(first.body.data.items.filter((post) => post.isPinned).length, 1);
+        assert.equal(typeof first.body.data.nextCursor, 'string');
+        const second = await invoke({ sort, order, limit: 20, cursor: first.body.data.nextCursor }, headers);
+        assert.equal(second.status, 200);
+        assert.equal(second.body.data.nextCursor, null);
+        const unpinned = [...first.body.data.items, ...second.body.data.items].filter((post) => !post.isPinned);
+        assert.equal(unpinned.length, 23);
+        assert.equal(new Set(unpinned.map((post) => post.id)).size, 23);
+        const expected = Array.from({ length: 23 }, (_, index) => fixturePost(index + 1).id);
+        if (!(order === 'asc' && (sort === 'created' || sort === 'latest'))) expected.reverse();
+        assert.deepEqual(unpinned.map((post) => post.id), expected);
+      });
+    }
+  }
+
+  await scenario('app malformed cursor fails before post reads', async () => {
+    const result = await invoke({ cursor: 'not-a-valid-cursor' }, { 'x-app-session-token': appToken() });
+    assert.equal(result.status, 400);
+    assert.equal(result.body.code, 'invalid_pagination');
+    assert.equal(tableRequests('board_posts_with_stats').length, 0);
   });
 }
 
@@ -327,7 +415,7 @@ async function main() {
     diagnostics = edge.diagnostics;
     await waitForEdge(edgeChild, diagnostics);
     await runScenarios();
-    console.log('board-list loopback handler smoke: 5/5 passed');
+    console.log(`board-list loopback handler smoke: ${scenarioCount}/${scenarioCount} passed`);
   } catch (error) {
     const output = diagnostics();
     if (output.stdout.trim()) console.error(`\nboard-list stdout:\n${output.stdout.trim()}`);

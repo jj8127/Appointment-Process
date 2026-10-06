@@ -411,6 +411,7 @@
         "supabase/functions/_shared/board-actor-policy.ts",
         "supabase/functions/_shared/board-categories.ts",
         "supabase/functions/_shared/board-list-policy.ts",
+        "supabase/functions/_shared/board-list-pagination.ts",
         "supabase/functions/_shared/board-notification-event.ts",
         "supabase/functions/_shared/__tests__/board-notification-event_test.ts",
         "supabase/functions/__tests__/board-"

@@ -9,6 +9,7 @@ import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  ActivityIndicator,
   BackHandler,
   Dimensions,
   Image,
@@ -44,6 +45,7 @@ import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { ReactionPicker, DEFAULT_REACTIONS } from '@/components/ReactionPicker';
 import { useAppLogout } from '@/hooks/use-app-logout';
+import { useBoardList } from '@/hooks/use-board-list';
 import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useSession } from '@/hooks/use-session';
 import { openBoardAttachment } from '@/lib/board-attachment-actions';
@@ -69,7 +71,6 @@ import {
   deleteBoardPost,
   fetchBoardCategories,
   fetchBoardDetail,
-  fetchBoardList,
   formatFileSize,
   logBoardError,
   updateBoardComment,
@@ -79,8 +80,6 @@ import {
 import {
   BOARD_LIST_SORT_LABELS,
   BoardListSortOption,
-  buildBoardListParams,
-  buildBoardListQueryKey,
 } from '@/lib/board-list-query';
 
 const HANWHA_ORANGE = '#f36f21';
@@ -376,19 +375,14 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
   }));
 
   // Queries
-  const { data: listData, isLoading, isError, error: listError, refetch } = useQuery({
-    queryKey: buildBoardListQueryKey({
-      actorRole: actor?.role,
-      residentId: actor?.residentId,
-      selectedCategoryId,
-      sortOption,
-      searchQuery,
-    }),
-    queryFn: () => {
-      if (!actor) return Promise.resolve({ items: [], nextCursor: null });
-      return fetchBoardList(actor, buildBoardListParams({ selectedCategoryId, sortOption, searchQuery }));
-    },
-    enabled: !!actor,
+  const {
+    posts, isLoading, isError, error: listError, refetch,
+    hasNextPage, fetchNextPage, isFetching, isFetchingNextPage, isFetchNextPageError,
+  } = useBoardList({
+    sessionScope,
+    selectedCategoryId,
+    sortOption,
+    searchQuery,
   });
 
   const { data: categories = [] } = useQuery({
@@ -410,7 +404,6 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
     enabled: !!actor && !!selectedPostId,
   });
 
-  const posts = useMemo(() => listData?.items ?? [], [listData]);
   const categoryNameMap = useMemo(() => {
     const map = new Map<string, string>();
     categories.forEach((category) => {
@@ -954,15 +947,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
     ]);
   };
 
-  const filteredPosts = useMemo(() => {
-    if (!posts) return [];
-    if (!searchQuery.trim()) return posts;
-    const q = searchQuery.toLowerCase();
-    return posts.filter((p) => (
-      safeText(p.title).toLowerCase().includes(q)
-      || safeText(p.contentPreview).toLowerCase().includes(q)
-    ));
-  }, [posts, searchQuery]);
+  const filteredPosts = posts;
 
   const getAttachmentSummary = (attachments: BoardPost['attachments']) => {
     if (!attachments || attachments.length === 0) return null;
@@ -1120,7 +1105,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
             </>
           )}
 
-          {isError && (
+          {isError && !isFetchNextPageError && (
             <QueryReadState error={listError} message="게시글을 불러오지 못했습니다." onRetry={() => void refetch()} />
           )}
 
@@ -1140,7 +1125,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                 key={post.id}
                 from={{ opacity: 0, translateY: 10 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ delay: index * 50 }}
+                transition={{ delay: Math.min(index, 10) * 50 }}
               >
                 <Pressable
                   style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}
@@ -1268,6 +1253,27 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
               </MotiView>
             );
           })}
+          {isFetchNextPageError && (
+            <QueryReadState
+              error={listError}
+              message="이전 게시글을 불러오지 못했습니다."
+              onRetry={() => void fetchNextPage({ cancelRefetch: false })}
+              retrying={isFetching}
+            />
+          )}
+          {hasNextPage && !isFetchNextPageError && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="이전 게시글 더 보기"
+              accessibilityState={{ disabled: isFetching, busy: isFetchingNextPage }}
+              disabled={isFetching}
+              onPress={() => void fetchNextPage({ cancelRefetch: false })}
+              style={({ pressed }) => [styles.loadMoreButton, pressed && { opacity: 0.7 }]}
+            >
+              {isFetchingNextPage && <ActivityIndicator size="small" color={HANWHA_ORANGE} />}
+              <Text style={styles.loadMoreText}>{isFetchingNextPage ? '이전 게시글 불러오는 중...' : '이전 게시글 더 보기'}</Text>
+            </Pressable>
+          )}
         </View>
       </Animated.ScrollView>
 
@@ -1897,6 +1903,8 @@ const styles = StyleSheet.create({
   actionButtonDisabled: { opacity: 0.5 },
   emptyBox: { alignItems: 'center', marginTop: 60, gap: 12 },
   emptyText: { fontSize: 15, color: TEXT_MUTED },
+  loadMoreButton: { minHeight: 48, padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: '#fff' },
+  loadMoreText: { fontSize: 14, fontWeight: '700', color: HANWHA_ORANGE },
   errorText: { fontSize: 15, color: '#EF4444' },
 
   // Bottom Nav
