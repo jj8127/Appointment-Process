@@ -3,6 +3,19 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "exam-self-cancellation-deadline",
+      "prefixes": [
+        "lib/exam-cancellation-policy.ts",
+        "supabase/functions/_shared/exam-cancellation-error.ts",
+        "supabase/migrations/20261007082835_exam_self_cancellation_deadline.sql"
+      ],
+      "requires_any": [
+        "lib/__tests__/exam-cancellation-policy.test.ts",
+        "supabase/functions/_shared/__tests__/exam-cancellation-error_test.ts",
+        "supabase/tests/exam-self-cancellation-deadline-sql.test.mjs"
+      ]
+    },
+    {
       "id": "ci-test-discovery",
       "prefixes": [
         "scripts/ci/run-discovered-tests.mjs",

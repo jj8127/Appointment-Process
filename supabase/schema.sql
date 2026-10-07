@@ -5666,6 +5666,30 @@ grant execute on function public.submit_exam_registration_with_payment_proof(
   uuid, text, uuid, uuid, boolean, date, uuid
 ) to service_role;
 
+-- FC self-cancellation is allowed through the whole registration deadline day
+-- in Asia/Seoul. Trusted callers cannot supply a clock to the mutation RPC.
+create or replace function public.exam_self_cancellation_deadline_passed(
+  p_registration_deadline date,
+  p_checked_at timestamptz
+)
+returns boolean
+language sql
+immutable
+security invoker
+set search_path = pg_catalog
+as $$
+  select case
+    when p_registration_deadline is null or not isfinite(p_registration_deadline)
+      or p_checked_at is null or not isfinite(p_checked_at) then true
+    else (p_checked_at at time zone 'Asia/Seoul')::date > p_registration_deadline
+  end;
+$$;
+
+revoke all on function public.exam_self_cancellation_deadline_passed(date, timestamptz)
+  from public, anon, authenticated;
+grant execute on function public.exam_self_cancellation_deadline_passed(date, timestamptz)
+  to service_role;
+
 drop function if exists public.transition_exam_registration(
   uuid, text, text, uuid, uuid, text
 );
@@ -5695,6 +5719,7 @@ declare
   v_registration public.exam_registrations%rowtype;
   v_admin public.admin_accounts%rowtype;
   v_exam_type text;
+  v_registration_deadline date;
   v_from_status text;
   v_to_status text;
   v_reason text;
@@ -5714,19 +5739,20 @@ begin
     raise exception using errcode = 'P0002', message = 'exam_registration_not_found';
   end if;
 
-  select round_row.exam_type
-    into v_exam_type
+  select round_row.exam_type, round_row.registration_deadline
+    into v_exam_type, v_registration_deadline
     from public.exam_rounds round_row
-   where round_row.id = v_registration.round_id;
+   where round_row.id = v_registration.round_id
+   for share;
 
   if v_registration.status in ('completed', 'no_show') then
     raise exception using errcode = '55000', message = 'terminal_exam_registration';
   end if;
 
   if p_action = 'cancel_by_fc' then
-    if p_actor_type <> 'fc'
+    if p_actor_type is distinct from 'fc'
        or p_actor_fc_id is null
-       or p_actor_fc_id <> v_registration.fc_id then
+       or p_actor_fc_id is distinct from v_registration.fc_id then
       raise exception using errcode = '42501', message = 'exam_transition_forbidden';
     end if;
   else
@@ -5772,6 +5798,13 @@ begin
     when 'cancel_by_fc' then
       if v_from_status <> 'applied' then
         raise exception using errcode = '55000', message = 'invalid_exam_transition';
+      end if;
+      -- Check only after actor ownership and existing state guards, under the
+      -- registration and round locks, before any proof/history mutation.
+      if public.exam_self_cancellation_deadline_passed(v_registration_deadline, clock_timestamp()) then
+        raise exception using
+          errcode = 'P0001',
+          message = 'exam_cancellation_deadline_passed';
       end if;
       v_to_status := 'cancelled_by_fc';
     when 'cancel_by_admin' then

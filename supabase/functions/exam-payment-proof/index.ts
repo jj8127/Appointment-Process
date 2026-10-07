@@ -24,6 +24,7 @@ import {
   type ViewExamPaymentProofInput,
 } from '../_shared/exam-payment-proof.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
+import { mapExamCancellationError } from '../_shared/exam-cancellation-error.ts';
 import { requireAppSessionFromRequest } from '../_shared/request-board-auth.ts';
 
 type RequestBody =
@@ -768,14 +769,8 @@ async function cancelApplication(
     p_reason: null,
   });
   if (error) {
-    return failure(
-      'cancel_failed',
-      error.message === 'exam_registration_not_found'
-        ? '취소할 시험 신청 내역이 없습니다.'
-        : '현재 상태에서는 시험 신청을 취소할 수 없습니다.',
-      error.message === 'exam_registration_not_found' ? 404 : 409,
-      origin,
-    );
+    const mapped = mapExamCancellationError(error);
+    return failure(mapped.code, mapped.message, mapped.status, origin);
   }
 
   let cleanupWarning = false;

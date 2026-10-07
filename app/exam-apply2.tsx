@@ -9,6 +9,7 @@ import { AnimatePresence, MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  AppState,
   Platform,
   Pressable,
   RefreshControl,
@@ -36,6 +37,12 @@ import {
 } from '@/lib/exam-application-validation';
 import { showExamMonthConflictFeedback } from '@/lib/exam-month-conflict-feedback';
 import {
+  EXAM_CANCELLATION_DEADLINE_MESSAGE,
+  getExamCancellationDeadlineState,
+  getExamSelfCancellationDeadlineMessage,
+  getMillisecondsUntilNextKstDay,
+} from '@/lib/exam-cancellation-policy';
+import {
   INVALID_EXAM_LOCATION_MESSAGE,
   INVALID_EXAM_MONTH_MESSAGE,
   buildExamApplyNotificationPayloads,
@@ -57,6 +64,7 @@ import {
   type ExamNotifyPayload,
 } from '@/lib/exam-flow-contract';
 import {
+  ExamPaymentProofApiError,
   cancelExamApplicationWithPaymentProof,
   discardExamPaymentProofUpload,
   prepareExamPaymentProofUpload,
@@ -307,6 +315,9 @@ const toDate = (value?: string | null) => {
   return d;
 };
 
+const isRoundClosed = (round: ExamRoundWithLocations, now = new Date()) =>
+  getExamCancellationDeadlineState(round.registration_deadline, now) !== 'open';
+
 const formatFeePaidDate = (value?: string | null) => {
   const paidDate = toDate(value);
   return paidDate ? formatKoreanDate(paidDate) : '-';
@@ -326,6 +337,7 @@ type MyExamApply = {
   created_at: string;
   exam_rounds?: {
     exam_date: string;
+    registration_deadline: string | null;
     round_label: string | null;
     exam_type: 'life' | 'nonlife';
   } | null;
@@ -407,6 +419,24 @@ export default function ExamApplyScreen() {
   const consumedRouteHydrationKeysRef = useRef(new Set<string>());
   const [selectedApplyId, setSelectedApplyId] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [policyNow, setPolicyNow] = useState(() => new Date());
+  const [serverDeadlineBlockedIds, setServerDeadlineBlockedIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setPolicyNow(new Date()),
+      getMillisecondsUntilNextKstDay(),
+    );
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setPolicyNow(new Date());
+    });
+    return () => {
+      clearTimeout(timer);
+      subscription.remove();
+    };
+  }, [policyNow]);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -448,13 +478,9 @@ export default function ExamApplyScreen() {
     : residentId;
   const applicationTargetFcId = isProxyApplication ? selectedTarget?.fcId ?? null : null;
 
-  const isRoundClosed = (round: ExamRoundWithLocations) => {
-    const deadline = toDate(round.registration_deadline);
-    if (!deadline) return false;
-    // 신청 마감일은 당일 23:59:59까지 유효
-    deadline.setHours(23, 59, 59, 999);
-    return new Date() > deadline;
-  };
+  useEffect(() => {
+    setServerDeadlineBlockedIds(new Set());
+  }, [applicationResidentId, appSessionToken]);
 
   const selectedRound = useMemo(
     () => allRounds.find((r) => r.id === selectedRoundId) ?? null,
@@ -462,12 +488,12 @@ export default function ExamApplyScreen() {
   );
 
   const isSelectedRoundClosed = useMemo(
-    () => (selectedRound ? isRoundClosed(selectedRound) : false),
-    [selectedRound],
+    () => (selectedRound ? isRoundClosed(selectedRound, policyNow) : false),
+    [selectedRound, policyNow],
   );
   const hasAvailableRounds = useMemo(
-    () => allRounds.some((round) => !isRoundClosed(round)),
-    [allRounds],
+    () => allRounds.some((round) => !isRoundClosed(round, policyNow)),
+    [allRounds, policyNow],
   );
 
   const {
@@ -497,6 +523,7 @@ export default function ExamApplyScreen() {
         ] as const;
         const nestedColumns = [
           'exam_date',
+          'registration_deadline',
           'round_label',
           options.includeNestedExamType || options.includeFlowFilter ? 'exam_type' : null,
           options.includeExamMonth ? 'exam_month' : null,
@@ -580,7 +607,10 @@ export default function ExamApplyScreen() {
           return {
             ...d,
             exam_type: examTypeValue ?? null,
-            exam_rounds: examRounds,
+            exam_rounds: examRounds ? {
+              ...examRounds,
+              registration_deadline: examRounds.registration_deadline ?? null,
+            } : null,
             exam_locations: normalizeSingle(d.exam_locations),
           } as MyExamApply;
         });
@@ -618,6 +648,15 @@ export default function ExamApplyScreen() {
     return visibleMyApplies.find((a) => a.id === selectedApplyId)
       ?? visibleMyApplies[0];
   }, [selectedApplyId, visibleMyApplies]);
+  const currentApplyCancellationMessage = currentApply
+    && ['applied', 'confirmed'].includes(currentApply.status)
+    ? serverDeadlineBlockedIds.has(currentApply.id)
+      ? EXAM_CANCELLATION_DEADLINE_MESSAGE
+      : getExamSelfCancellationDeadlineMessage(
+          currentApply.exam_rounds?.registration_deadline,
+          policyNow,
+        )
+    : null;
   const routeRegistrationId = parseExactlyOneUuidRouteParam(registrationId);
   const routeRoundId = parseExactlyOneUuidRouteParam(roundId);
   const hasAmbiguousExamRoute =
@@ -1035,7 +1074,17 @@ export default function ExamApplyScreen() {
       if (!target) {
         throw new Error('취소할 신청 내역이 없습니다.');
       }
-
+      if (isProxyApplication || target.status !== 'applied') {
+        throw new Error('이 신청의 취소·변경은 관리자에게 문의해 주세요.');
+      }
+      if (serverDeadlineBlockedIds.has(registrationId)) {
+        throw new Error(EXAM_CANCELLATION_DEADLINE_MESSAGE);
+      }
+      // Recheck the clock when confirmation completes, even if the screen was open before midnight.
+      const deadlineMessage = getExamSelfCancellationDeadlineMessage(
+        target.exam_rounds?.registration_deadline,
+      );
+      if (deadlineMessage) throw new Error(deadlineMessage);
       if (target.is_confirmed) {
         throw new Error(lockMessage);
       }
@@ -1048,8 +1097,16 @@ export default function ExamApplyScreen() {
       Alert.alert('취소 완료', '시험 신청이 취소되었습니다.');
       refetchMyApply();
     },
-    onSettled: (_data, error) => {
+    onSettled: (_data, error, registrationId) => {
       if (error) {
+        if (
+          error instanceof ExamPaymentProofApiError
+          && error.code === 'exam_cancellation_deadline_passed'
+        ) {
+          // Keep the authoritative verdict visible even when the device clock is slow.
+          setServerDeadlineBlockedIds((previous) => new Set(previous).add(registrationId));
+          void refetchMyApply();
+        }
         const message = error instanceof Error ? error.message : '시험 신청 취소 중 오류가 발생했습니다.';
         Alert.alert('취소 실패', message);
       }
@@ -1060,6 +1117,21 @@ export default function ExamApplyScreen() {
     const target = myApplies.find((a) => a.id === registrationId);
     if (!target) {
       Alert.alert('알림', '취소할 신청 내역이 없습니다.');
+      return;
+    }
+    if (isProxyApplication || target.status !== 'applied') {
+      Alert.alert('알림', '이 신청의 취소·변경은 관리자에게 문의해 주세요.');
+      return;
+    }
+    if (serverDeadlineBlockedIds.has(registrationId)) {
+      Alert.alert('알림', EXAM_CANCELLATION_DEADLINE_MESSAGE);
+      return;
+    }
+    const deadlineMessage = getExamSelfCancellationDeadlineMessage(
+      target.exam_rounds?.registration_deadline,
+    );
+    if (deadlineMessage) {
+      Alert.alert('알림', deadlineMessage);
       return;
     }
     if (target.is_confirmed) {
@@ -1421,13 +1493,26 @@ export default function ExamApplyScreen() {
                             {formatExamRegistrationStatus(currentApply.status)}
                           </Text>
                         </View>
-                        {!isProxyApplication && currentApply.status === 'applied' && (
-                          <Pressable onPress={() => handleCancelPress(currentApply.id)}>
+                        {!isProxyApplication
+                          && currentApply.status === 'applied'
+                          && !currentApply.is_confirmed
+                          && !currentApplyCancellationMessage && (
+                          <Pressable
+                            onPress={() => handleCancelPress(currentApply.id)}
+                            disabled={cancelMutation.isPending}
+                            accessibilityRole="button"
+                            accessibilityState={{ disabled: cancelMutation.isPending }}
+                          >
                             <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>취소</Text>
                           </Pressable>
                         )}
                       </View>
                     </View>
+                    {currentApplyCancellationMessage ? (
+                      <Text accessibilityRole="alert" style={styles.emptyText}>
+                        {currentApplyCancellationMessage}
+                      </Text>
+                    ) : null}
                     {currentApply.status === 'rejected' && currentApply.rejection_reason ? (
                       <View style={styles.statusRow}>
                         <Text style={styles.statusLabel}>반려 사유</Text>
@@ -1467,7 +1552,7 @@ export default function ExamApplyScreen() {
             ) : (
               <View style={styles.listContainer}>
                 {allRounds.map((round, idx) => {
-                  const closed = isRoundClosed(round);
+                  const closed = isRoundClosed(round, policyNow);
                   const roundMonth = getRoundForMonthComparison(round);
                   const unresolvedMonth = getExamRoundMonthKey(roundMonth) === null;
                   const activeApplicationsForMonth = myApplies.filter(

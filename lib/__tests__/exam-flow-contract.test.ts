@@ -806,7 +806,7 @@ describe('exam flow contract', () => {
       if (expectation.file === 'exam-apply.tsx' || expectation.file === 'exam-apply2.tsx') {
         expect(source).toContain('sendExamApplyNotificationsBestEffort');
         expect(source).toContain('const hasAvailableRounds = useMemo(');
-        expect(source).toContain('allRounds.some((round) => !isRoundClosed(round))');
+        expect(source).toContain('allRounds.some((round) => !isRoundClosed(round, policyNow))');
         expect(source).toContain('!hasAvailableRounds');
         expect(source).toContain('현재 신청 가능한 시험이 없습니다.');
         expect(source).toContain('exam_registrations_round_exam_type_fkey');

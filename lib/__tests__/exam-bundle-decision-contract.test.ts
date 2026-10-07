@@ -140,7 +140,9 @@ describe('exam bundle database contract', () => {
       expect(transitionSource).toContain('select registration.* into v_registration');
       expect(transitionSource).toContain('for update');
       expect(transitionSource).toContain(
-        'select round_row.exam_type into v_exam_type',
+        source === schema
+          ? 'select round_row.exam_type, round_row.registration_deadline into v_exam_type, v_registration_deadline'
+          : 'select round_row.exam_type into v_exam_type',
       );
       expect(transitionSource).not.toContain(
         'into v_registration, v_exam_type',
@@ -151,8 +153,12 @@ describe('exam bundle database contract', () => {
   it('enforces the transition matrix and rejects manager or actor spoofing in SQL', () => {
     for (const source of [migration, schema]) {
       const transitionSource = canonicalFunction(source, 'transition_exam_registration');
-      expect(transitionSource).toContain("p_actor_type <> 'fc'");
-      expect(transitionSource).toContain('p_actor_fc_id <> v_registration.fc_id');
+      expect(transitionSource).toContain(source === schema
+        ? "p_actor_type is distinct from 'fc'"
+        : "p_actor_type <> 'fc'");
+      expect(transitionSource).toContain(source === schema
+        ? 'p_actor_fc_id is distinct from v_registration.fc_id'
+        : 'p_actor_fc_id <> v_registration.fc_id');
       expect(transitionSource).toContain(
         "p_actor_type not in ('admin', 'developer')",
       );

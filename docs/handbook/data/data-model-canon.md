@@ -7,6 +7,15 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
+## 2026-10-07 시험 본인 취소 마감 전이 계약
+
+- **로컬 구현·검증 완료, 운영 반영 대기.** `supabase/migrations/20261007082835_exam_self_cancellation_deadline.sql`과 `supabase/schema.sql`은 같은 RPC 계약을 유지한다. 운영 DB migration, Edge Function 및 앱 배포의 별도 승인·검증이 완료되기 전에는 적용 완료로 보고하지 않는다.
+- `transition_exam_registration`의 `cancel_by_fc`는 연결된 `exam_rounds.registration_deadline`을 DB 시각과 `Asia/Seoul` 기준으로 판정한다. 마감일은 당일 끝까지 포함하고 다음 날 00:00부터 거부한다. 회차·마감일 누락 또는 오류는 열린 일정으로 취급하지 않는다. 신청 소유권·기존 상태와 접수 확정 차단도 함께 유지한다.
+- `public.exam_self_cancellation_deadline_passed(date, timestamptz)`와 전이 RPC는 `SECURITY INVOKER` 및 `service_role` 전용 실행권을 유지한다. `PUBLIC`/`anon`/`authenticated`에 실행권을 부여하지 않는다. 실제 취소 전이는 잠긴 신청·회차와 `clock_timestamp()`로 helper를 호출하며, 요청 body의 시각을 받지 않는다. signed caller/role 검증은 Edge·관리자 API가 수행하며, 서비스 DB 역할이 사용자 역할을 대신하지 않는다.
+- 마감 거부 시 `exam_registrations`, 연결 입금 증빙 및 `exam_registration_decision_events`에 변화가 없어야 한다. 관리자 `cancel_by_admin`은 기존 `applied`/`confirmed` 전이만 유지하고, 본부장·설계매니저 쓰기나 종료 상태 되돌리기를 허용하지 않는다. 계정 삭제의 신원 분리와 과거 기록은 별도 계약이다.
+- 회귀 확인은 한국시간 마감일 마지막 시각/다음 날 경계, 다른 세션 시간대, 누락 마감일, 접수 확정·해제, 타인 신청 및 manager/designer 거부, 관리자 취소와 차단 시 무변경을 포함한다. 서버 제한을 먼저 배포하고 Edge 안내·모바일 동작을 확인한다. 구 앱 호환과 운영 DB 적용은 로컬 SQL 검사와 구분한다.
+- 용어·정확한 안내는 [모바일 정책](../mobile/exam-flows.md#2026-10-07-마감-후-본인-취소-제한-정책), 직접 회차 이동 미지원과 취소 후 새 신청 절차는 [관리자 운영 계약](../admin-web/exam-and-referral-ops.md#2026-10-07-마감-후-취소변경-운영-계약)을 따른다.
+
 ## 2026-10-04 Account generations and comment receipts (production)
 
 - Production history records `20261004133135_board_comment_idempotency`, `20261004133155_credential_session_generations` and activation `20261004143855_activate_credential_session_generations`. Local numbered87 migrations match live87 history entries with no pending or missing entry. Generation activation was last, after compatible issuer/verifier and web/bridge deployments; three BEFOREUPDATE triggers and service-only RPC execution were verified.

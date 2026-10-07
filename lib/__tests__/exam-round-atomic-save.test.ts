@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const readRepoFile = (relativePath: string) =>
-  fs.readFileSync(path.join(__dirname, '../..', relativePath), 'utf8');
+  fs.readFileSync(path.join(__dirname, '../..', relativePath), 'utf8').replace(/\r\n/g, '\n');
 
 describe('exam round atomic save contract', () => {
   const actionSource = readRepoFile('web/src/app/dashboard/exam/schedule/actions.ts');
