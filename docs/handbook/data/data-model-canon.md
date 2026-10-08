@@ -9,7 +9,7 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 ## 2026-10-07 시험 본인 취소 마감 전이 계약
 
-- **로컬 구현·검증 완료, 운영 반영 대기.** `supabase/migrations/20261007082835_exam_self_cancellation_deadline.sql`과 `supabase/schema.sql`은 같은 RPC 계약을 유지한다. 운영 DB migration, Edge Function 및 앱 배포의 별도 승인·검증이 완료되기 전에는 적용 완료로 보고하지 않는다.
+- **2026-10-08 서버 반영·검증 완료, 새 모바일 배포 대기.** `supabase/migrations/20261008060419_exam_self_cancellation_deadline.sql` 적용 후 로컬·운영 이력 88개가 일치하며 미적용·운영에만 있는 migration은 모두 0개다. 운영 helper/RPC 정의는 `supabase/schema.sql`과 일치하고 `SECURITY INVOKER`·`service_role` 전용 실행권을 확인했다. `exam-payment-proof` v15 `ACTIVE`의 배포 파일 일치·HTTP 응답·제한된 배포 후 오류 확인도 완료했다. 모바일 4.2.17의 Android/iOS 빌드·스토어 전달은 대기 상태다.
 - `transition_exam_registration`의 `cancel_by_fc`는 연결된 `exam_rounds.registration_deadline`을 DB 시각과 `Asia/Seoul` 기준으로 판정한다. 마감일은 당일 끝까지 포함하고 다음 날 00:00부터 거부한다. 회차·마감일 누락 또는 오류는 열린 일정으로 취급하지 않는다. 신청 소유권·기존 상태와 접수 확정 차단도 함께 유지한다.
 - `public.exam_self_cancellation_deadline_passed(date, timestamptz)`와 전이 RPC는 `SECURITY INVOKER` 및 `service_role` 전용 실행권을 유지한다. `PUBLIC`/`anon`/`authenticated`에 실행권을 부여하지 않는다. 실제 취소 전이는 잠긴 신청·회차와 `clock_timestamp()`로 helper를 호출하며, 요청 body의 시각을 받지 않는다. signed caller/role 검증은 Edge·관리자 API가 수행하며, 서비스 DB 역할이 사용자 역할을 대신하지 않는다.
 - 마감 거부 시 `exam_registrations`, 연결 입금 증빙 및 `exam_registration_decision_events`에 변화가 없어야 한다. 관리자 `cancel_by_admin`은 기존 `applied`/`confirmed` 전이만 유지하고, 본부장·설계매니저 쓰기나 종료 상태 되돌리기를 허용하지 않는다. 계정 삭제의 신원 분리와 과거 기록은 별도 계약이다.

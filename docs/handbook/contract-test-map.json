@@ -7,7 +7,7 @@
       "prefixes": [
         "lib/exam-cancellation-policy.ts",
         "supabase/functions/_shared/exam-cancellation-error.ts",
-        "supabase/migrations/20261007082835_exam_self_cancellation_deadline.sql"
+        "supabase/migrations/20261008060419_exam_self_cancellation_deadline.sql"
       ],
       "requires_any": [
         "lib/__tests__/exam-cancellation-policy.test.ts",

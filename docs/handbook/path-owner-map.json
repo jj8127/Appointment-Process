@@ -91,7 +91,7 @@
         "supabase/functions/exam-payment-proof/",
         "supabase/functions/_shared/exam-cancellation-error.ts",
         "supabase/functions/_shared/__tests__/exam-cancellation-error_test.ts",
-        "supabase/migrations/20261007082835_exam_self_cancellation_deadline.sql",
+        "supabase/migrations/20261008060419_exam_self_cancellation_deadline.sql",
         "supabase/tests/exam-self-cancellation-deadline-sql.test.mjs",
         "supabase/functions/_shared/exam-payment-proof.ts",
         "supabase/functions/_shared/__tests__/exam-payment-proof_test.ts",

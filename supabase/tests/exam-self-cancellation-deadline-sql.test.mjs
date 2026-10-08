@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 
 const { PGlite } = createRequire(import.meta.url)(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
-const migration = await readFile(new URL('../migrations/20261007082835_exam_self_cancellation_deadline.sql', import.meta.url), 'utf8');
+const migration = await readFile(new URL('../migrations/20261008060419_exam_self_cancellation_deadline.sql', import.meta.url), 'utf8');
 const schema = await readFile(new URL('../schema.sql', import.meta.url), 'utf8');
 const schemaStart = schema.indexOf('-- FC self-cancellation is allowed through');
 const schemaPolicy = schema.slice(schemaStart, schema.indexOf('create or replace function public.detach_exam_registration_identity_for_account_deletion(', schemaStart));

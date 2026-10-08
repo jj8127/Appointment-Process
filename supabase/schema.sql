@@ -5666,6 +5666,7 @@ grant execute on function public.submit_exam_registration_with_payment_proof(
   uuid, text, uuid, uuid, boolean, date, uuid
 ) to service_role;
 
+-- Applied migration: 20261008060419_exam_self_cancellation_deadline.sql.
 -- FC self-cancellation is allowed through the whole registration deadline day
 -- in Asia/Seoul. Trusted callers cannot supply a clock to the mutation RPC.
 create or replace function public.exam_self_cancellation_deadline_passed(
