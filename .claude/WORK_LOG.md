@@ -5,6 +5,7 @@
 - 사용자가 앱 버전 증가·빌드·배포를 승인했다. 앱 표시 버전을4.2.17로 올리고 기존 remote/autoIncrement 빌드 번호를 사용한다. 기존 정책 소스 `f267da1`의 Hosted CI37608476615·Governance37608476888은 모두 성공했다.
 - 기존 canonical 시험 정책 기록을 이어 사용하며, 운영 RPC migration→관련 Edge→Android/iOS production 빌드·원본 검증·스토어 심사 제출을 진행한다. 소스·운영 활성화·스토어 처리·실제 공개를 따로 확인한다. [→ 상세](WORK_DETAIL.md#20261008-exam-mobile-release)
 - 운영 migration `20261008060419` 적용과 `exam-payment-proof` v15 ACTIVE/JWT 유지·9파일 일치 검증을 마쳤다. local/live migration88개 일치·미적용0, 배포 후 제한된 요청3건의5xx0·새 advisor0을 확인했다. 새 버전 빌드 입력·보호 테스트106개와 Android Hermes export, SQL/오류 매핑13개·엄격 거버넌스가 통과했다. 현재 공개 버전은 두 스토어4.2.16이며, 새4.2.17 production빌드의 자동 증가 번호는 Android92/iOS108이다.
+- exactclean 게시 소스 `83b747d`의 CI37736312682·Governance37736312718 성공, sourceZIP·양플랫폼EAS입력 해시 일치와 Android92/iOS108 FINISHED·원본AAB27개/IPA25개 검증을 확인했다. Google원본해시·validate·productioncommit과 Appleexactbuild업로드·VALID·심사제출을 완료했다. 최종15:37KST Android92는 IN_REVIEW, iOS108은 WAITING_FOR_REVIEW/승인후자동공개이며 새4.2.17은 아직 미공개다. 현재 공개4.2.16과 구분하며 설치 후 화면 검증은 남긴다.
 
 ## 2026-10-07 시험 마감 이후 본인 취소 정책 변경
 

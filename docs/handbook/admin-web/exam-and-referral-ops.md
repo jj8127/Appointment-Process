@@ -9,7 +9,7 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 
 ## 2026-10-07 마감 후 취소·변경 운영 계약
 
-- **2026-10-08 서버 반영·검증 완료, 새 모바일 배포 대기.** 운영 DB migration `20261008060419_exam_self_cancellation_deadline.sql`과 `exam-payment-proof` v15 `ACTIVE`의 정의·권한·배포 파일 일치·HTTP 응답·제한된 배포 후 오류 확인을 완료했다. 모바일 4.2.17의 Android/iOS 빌드·스토어 전달은 대기 상태이며 서버 제한의 활성화와 새 앱의 설치·공개를 구분한다. 마감 계산·FC 취소 허용 표·정확한 안내 문구의 기준은 [모바일 시험 정책](../mobile/exam-flows.md#2026-10-07-마감-후-본인-취소-제한-정책)이다.
+- **2026-10-08 서버 반영·검증 및 모바일 빌드·스토어 심사 제출 완료, 새 앱 공개 대기.** 운영 DB migration `20261008060419_exam_self_cancellation_deadline.sql`과 `exam-payment-proof` v15 `ACTIVE`의 정의·권한·배포 파일 일치·HTTP 응답·제한된 배포 후 오류 확인을 완료했다. 모바일 4.2.17의 Android 92·iOS 108은 원본 산출물 검증과 스토어 전달을 마쳤으며, Android는 `IN_REVIEW`, iOS는 `WAITING_FOR_REVIEW`다. 양 플랫폼의 기존 공개 버전은 4.2.16이며 새 4.2.17 공개·실기기 검증은 대기 상태다. 마감 계산·FC 취소 허용 표·정확한 안내 문구의 기준은 [모바일 시험 정책](../mobile/exam-flows.md#2026-10-07-마감-후-본인-취소-제한-정책)이다.
 - 이전에는 미접수 `신청 완료(applied)` 신청에 마감 후 본인 취소가 가능했다. 새 정책에서는 마감 후 본인 취소를 접수 확정 여부와 관계없이 차단한다. 관리자의 `접수 완료` 처리 누락이나 `미접수`로 되돌리기는 본인 취소 허용 사유가 아니다.
 - `신청 상태(status)`와 `접수 상태(is_confirmed)`는 계속 분리 표시한다. 접수 완료를 해제하는 `unconfirm`은 신청 취소가 아니다. 취소 요청은 `관리자 취소`로 처리하여 이력을 보존한다.
 - 관리자는 canonical `/dashboard/exam/applicants` 목록에서 해당 신청을 확인한 뒤 `관리자 취소`를 실행한다. 모바일에서는 생명/손해 `exam-manage`/`exam-manage2`의 `관리자 취소`를 사용한다. 기존 서버 전이 `cancel_by_admin`은 `applied` 또는 `confirmed`에서 `cancelled_by_admin`으로 처리하며 마감 후에도 허용한다. `completed`/`no_show` 같은 종료 상태를 취소 상태로 되돌리는 권한을 추가하지 않는다.

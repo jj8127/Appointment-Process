@@ -9,7 +9,7 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 ## 2026-10-07 마감 후 본인 취소 제한 정책
 
-- **2026-10-08 서버 반영·검증 완료, 새 모바일 배포 대기.** 운영 DB migration `20261008060419_exam_self_cancellation_deadline.sql`과 `exam-payment-proof` v15 `ACTIVE`의 정의·권한·배포 파일 일치·HTTP 응답·제한된 배포 후 오류 확인을 완료했다. 모바일 4.2.17의 Android/iOS 빌드·스토어 전달은 대기 상태이며 새 앱 설치·공개나 실기기 확인 완료로 해석하지 않는다. 로컬 검증 근거는 [작업 상세](../../../.claude/WORK_DETAIL.md#20261007-exam-self-cancel-deadline)를 따른다.
+- **2026-10-08 서버 반영·검증 및 모바일 빌드·스토어 심사 제출 완료, 새 앱 공개 대기.** 운영 DB migration `20261008060419_exam_self_cancellation_deadline.sql`과 `exam-payment-proof` v15 `ACTIVE`의 정의·권한·배포 파일 일치·HTTP 응답·제한된 배포 후 오류 확인을 완료했다. 모바일 4.2.17의 Android 92·iOS 108은 원본 산출물 검증과 스토어 전달을 마쳤으며, Android는 `IN_REVIEW`, iOS는 `WAITING_FOR_REVIEW`다. 양 플랫폼의 기존 공개 버전은 4.2.16이며 새 4.2.17 공개·설치 후 실기기 확인은 아직 완료되지 않았다. 로컬 검증 근거는 [작업 상세](../../../.claude/WORK_DETAIL.md#20261007-exam-self-cancel-deadline)를 따른다.
 - 기존 동작은 FC 본인의 `status = applied` 신청에 본인 취소를 허용했으며, 취소 전이에 회차 마감일 검사가 없었다. 앱의 기존 `is_confirmed` 차단은 별도로 존재했다. 따라서 관리자가 접수를 확정하지 않은 신청은 마감 후에도 취소될 수 있었다. 이것을 마감 후 취소 허용 정책으로 계속 사용하지 않는다.
 - 새 정책은 **마감 후 본인 취소를 접수 확정 여부와 관계없이 차단**한다. 필요한 취소·회차 변경은 관리자에게 요청한다. 관리자 접수 확정 처리를 늦추거나 접수 완료를 해제해도 마감 후 본인 취소가 다시 허용되지 않는다.
 - 마감은 신청에 연결된 `exam_rounds.registration_deadline`을 기준으로 한다. `Asia/Seoul`의 마감일 당일은 포함하고, 다음 날 00:00부터 본인 취소를 차단한다. 예를 들어 마감일이 9월 27일이면 한국시간 9월 28일 00:00부터 차단한다. 시험 월·시험일·앱 기기의 현지 시간대는 취소 마감의 기준이 아니다.
