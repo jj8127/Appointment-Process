@@ -7,6 +7,14 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 
 # Mobile Playbook: Auth And Gates
 
+## 2026-10-09 서비스 선택 홈 진입
+
+- 앱 기본 시작과 FC 로그인 후 landing은 공개 서비스 홈 `/`이다. 저장 세션의 linked designer는 focused 상태에서 알림 네비게이션 결정을 기다린 뒤 `/request-board`로 이동한다.
+- 보험/FC 카드의 FC 진입은 기존 apply-gate에 `next=/?mode=insurance`를 전달한다. 비회원은 `/login?service=insurance`에서 로그인한 뒤 같은 선택을 이어간다. 본인확인 완료와 실패·재시도는 기존 gate가 판단한다. 관리자/매니저/개발자는 기존 보험 mode, designer는 기존 request-board를 사용한다. 다른 service 값·배열은 일반 landing을 사용하며 skipAuto·hydration·알림 우선순위는 유지한다.
+- 보호된 보험 mode·알림 문맥은 로그인 전에 LegacyInsuranceHome를 mount하지 않는다. signed-out 진입은 `/login?skipAuto=1`이며 명시적 로그아웃·수동 재로그인과 알림 우선순위를 보존한다.
+- 현재 회원가입은 FC용이다. 로그인 화면의 `서비스 둘러보기`는 공개 홈으로 돌아간다. 세부 계약: [서비스 선택 홈](./service-home.md).
+- 회귀: `lib/__tests__/service-home-entry.test.js`, `service-home.test.ts`, `session-landing.test.ts`, `login-navigation.test.js`.
+
 ## 2026-10-06 게시판 페이지 조회의 세션 범위
 
 - 게시판의 추가 페이지도 현재 로그인 계정과 불투명한 메모리 세션 범위에 속한다. 서명 토큰을 query key에 넣지 않으며, 계정 변경·토큰 교체·로그아웃 뒤 이전 페이지나 늦은 응답을 새 목록에 노출하지 않는다.

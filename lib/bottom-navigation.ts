@@ -1,4 +1,5 @@
 export type BottomNavPreset =
+  | 'service-hub'
   | 'fc'
   | 'admin-onboarding'
   | 'admin-exam'
@@ -6,7 +7,7 @@ export type BottomNavPreset =
   | 'request-board-designer';
 
 type BottomNavRole = 'admin' | 'fc' | null;
-type BottomNavKey = 'home' | 'board' | 'request-board' | 'settings' | 'onboarding' | 'exam';
+type BottomNavKey = 'home' | 'activity' | 'board' | 'request-board' | 'settings' | 'onboarding' | 'exam';
 
 type ResolveBottomNavPresetInput = {
   role: BottomNavRole;
@@ -17,9 +18,11 @@ type ResolveBottomNavPresetInput = {
 
 type ResolveBottomNavPresetOptions = {
   adminHomeTab?: 'onboarding' | 'exam';
+  surface?: 'service-hub';
 };
 
 const PRESET_KEYS: Record<BottomNavPreset, BottomNavKey[]> = {
+  'service-hub': ['home', 'activity', 'settings'],
   fc: ['home', 'board', 'request-board', 'settings'],
   'admin-onboarding': ['onboarding', 'exam', 'request-board', 'board', 'settings'],
   'admin-exam': ['onboarding', 'exam', 'request-board', 'board', 'settings'],
@@ -37,6 +40,8 @@ export function resolveBottomNavPreset(
   input: ResolveBottomNavPresetInput,
   options?: ResolveBottomNavPresetOptions,
 ): BottomNavPreset | null {
+  // Public service navigation is the same for guests and restored sessions.
+  if (options?.surface === 'service-hub') return 'service-hub';
   if (input.hydrated === false) return null;
   // admin(총무/본부장) 계정은 isRequestBoardDesigner 플래그와 무관하게 admin 프리셋 사용
   if (input.isRequestBoardDesigner && input.role !== 'admin') return 'request-board-designer';

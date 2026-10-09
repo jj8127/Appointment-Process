@@ -5,7 +5,7 @@ describe('resolveSessionLandingRoute', () => {
     expect(
       resolveSessionLandingRoute({
         role: 'admin',
-        residentId: '01058006018',
+        residentId: '01000000000',
         isRequestBoardDesigner: false,
       }),
     ).toBe('/');
@@ -15,20 +15,20 @@ describe('resolveSessionLandingRoute', () => {
     expect(
       resolveSessionLandingRoute({
         role: 'fc',
-        residentId: '01051078127',
+        residentId: '01000000000',
         isRequestBoardDesigner: true,
       }),
     ).toBe('/request-board');
   });
 
-  it('routes FC users with a resident id to home-lite first', () => {
+  it('routes FC users with a resident id to the service home first', () => {
     expect(
       resolveSessionLandingRoute({
         role: 'fc',
-        residentId: '01051078127',
+        residentId: '01000000000',
         isRequestBoardDesigner: false,
       }),
-    ).toBe('/home-lite');
+    ).toBe('/');
   });
 
   it('waits when an FC session is still missing its resident id', () => {
@@ -39,5 +39,8 @@ describe('resolveSessionLandingRoute', () => {
         isRequestBoardDesigner: false,
       }),
     ).toBeNull();
+    expect(resolveSessionLandingRoute({
+      role: 'fc', residentId: '', isRequestBoardDesigner: false, requestedService: 'insurance',
+    })).toBeNull();
   });
 });

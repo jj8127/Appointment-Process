@@ -7,10 +7,11 @@ source_of_truth: app/* + web/src/app/*
 
 # 화면 인벤토리
 
-## Mobile (47 routes)
+## Mobile
 
 - 인증/게이트: `login`, `signup`, `signup-verify`, `signup-password`, `reset-password`, `apply-gate`, `identity`
-- FC: `index`, `home-lite`, `fc/new`, `consent`, `docs-upload`, `hanwha-commission`, `appointment`, `exam-apply`, `exam-apply2`, `referral`, `referral-tree`(redirect), `referral-graph`, `referral-revenue-graph`(local sample)
+- 서비스 선택: `index`(공개 홈, 명시적 보험 mode/홈 알림 문맥은 기존 FC 홈), `services/index`, `services/[service]`(가족간병·통신·자동차·이용 안내), `services/activity`, `services/account`
+- FC: `home-lite`, `fc/new`, `consent`, `docs-upload`, `hanwha-commission`, `appointment`, `exam-apply`, `exam-apply2`, `referral`, `referral-tree`(redirect), `referral-graph`, `referral-revenue-graph`(local sample)
 - 공용/콘텐츠: `settings`, `notifications`, `notice`, `notice-detail`, `board`, `board-detail`, `messenger`, `messenger-search`, `new-conversation`, `chat`, `group-chat`, `notification-settings`, `muted-conversations`
 - GaramLink 연동: `request-board`, `request-board-messenger`, `request-board-requests`, `request-board-review`, `request-board-fc-codes`
 - Admin/Manager: `dashboard`, `exam-register`, `exam-register2`, `exam-manage`, `exam-manage2`, `admin-notice`, `admin-board`, `admin-board-manage`, `admin-messenger`

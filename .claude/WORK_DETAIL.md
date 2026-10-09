@@ -1,5 +1,16 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20261009-service-home-app"></a> 2026-10-09 서비스 선택 홈 앱 적용
+
+- 시작 소스는 `release/all-surfaces-20261004` / `4586194c3ed46a78ae023a1eeab1c5a48d75d225`이며 tracked/untracked 변경이 없었다. canonical 기록은 `.codex/harness/service-home-20261009/`의 다섯 문서이며 루트 INDEX에 `fc--service-home-20261009`로 등록했다. 다른 task lifecycle과 legacy archive는 보존했다.
+- 기본 index는 session hydration 뒤 공개 서비스 홈을 연다. 명시적 보험 mode와 홈 알림 receipt는 같은 파일의 기존 업무 화면을 사용한다. 저장 designer는 focused 상태에서 알림 결정을 기다린 뒤 기존 request-board로 이동한다. signed-out 보호 화면은 `/login?skipAuto=1`을 유지한다.
+- `components/service-home/`는 기존 색과 승인된 Blender PNG를 사용한다. 컨트롤러·안내·이용내역·계정 route를 연결했고 중앙 bottom-navigation에 명시적인 공개 `service-hub` surface를 추가했다. 공개 화면은 protected 업무 데이터 hook을 mount하지 않는다.
+- 보험 선택은 `/login?service=insurance`으로 전달하고 세션 landing에서 FC는 기존 apply-gate, admin/manager/developer는 보험 mode, designer는 request-board를 사용한다. 단일 허용 의도만 인정하며 hydration·FC 식별자·skipAuto·알림 우선순위를 유지한다. 가입/최초 비밀번호 변경 경유 의도 보존은 별도 구현 범위다. 미래 서비스의 신청·제휴 정산과 일반 소비자 가입 backend는 미구현이다.
+- 검증: 최종 회귀13스위트85검사 PASS, 앱 TypeScript·대상 ESLint PASS. 최종 all-platform export는 Android/iOS Hermes 각1개, Web bundle2개 및 static route62개를 생성했다. 네 안내 경로도 static export에 포함했다. 자동 Sentry upload를 비활성화했다.
+- UI 증거: 실제 Expo Web을 iframe으로 실행해 실제 innerWidth320/390/414px와 가로 넘침0을 확인했다. PNG 32/48/64px 정상 로딩, 좁은 화면 끝까지 scroll 시 안내 버튼과 하단 메뉴 분리를 확인했다. 원본 Expo 페이지에서 care/telecom/car/help/activity 및 비회원 보험/login/account 이동을 검증했다. 로컬 서버8087, 사용자 미리보기8793 `/app-preview/`, 증거/최종 export는 `D:/hanhwa/outputs/garamin-service-home-app-20261009/`에 있다.
+- 경계: 로컬 새 origin의 비회원 화면만 확인했고 실제 계정·고객 자료·PII·신청·운영 쓰기 작업을 사용하지 않았다. 실제 기기·시뮬레이터 설치와 스토어·OTA·서버 배포, Git push는 미실행이다. 로컬 완료이며 release HOLD다.
+- 워크트리 정리: 사용자 요청에 따라 서비스 홈 관련 추적14개·미추적19개, 총33개 파일을 하나의 로컬 커밋으로 보존한다. 검사한 경로에 무관한 변경·생성 파일은 없다. `git worktree list`의 현재 저장소는 주 checkout 한 개이며 별도 worktree 제거는 필요 없다. 코드가 바뀌지 않았으므로 앞서 통과한85개 검사와 타입·lint·bundle 근거를 유지하고, staging 후 거버넌스·공백·파일 목록을 확인한다. outputs의 증거/미리보기와 다른 저장소 작업은 보존한다.
+
 ## <a id="20261008-exam-mobile-release"></a> 2026-10-08 Exam policy native release
 
 - Authorization: user requested raising the app version, building and deploying after the prior verified source publication. This covers necessary release-source publication, existing exam deadline migration and exam-payment-proof Edge activation, then Android/iOS production builds and store delivery. No unrelated product/schema/role/customer-record changes or harness lifecycle/deletions are included.

@@ -54,6 +54,11 @@ const REQUEST_BOARD_DESIGNER_NAV_ITEMS: NavItem[] = [
 ];
 
 const NAV_PRESETS: Record<NavPreset, NavItem[]> = {
+  'service-hub': [
+    { key: 'home', label: '홈', icon: 'home', route: '/' },
+    { key: 'activity', label: '이용내역', icon: 'file-text', route: '/services/activity' },
+    { key: 'settings', label: '내 정보', icon: 'user', route: '/services/account' },
+  ],
   fc: FC_NAV_ITEMS,
   'admin-onboarding': ADMIN_ONBOARDING_NAV_ITEMS,
   'admin-exam': ADMIN_EXAM_NAV_ITEMS,
@@ -156,6 +161,9 @@ export function BottomNavigation({
         return (
           <Pressable
             key={item.key}
+            accessibilityRole="button"
+            accessibilityLabel={item.label}
+            accessibilityState={{ selected: isActive }}
             style={({ pressed }) => [
               styles.navItem,
               pressed && styles.navItemPressed,

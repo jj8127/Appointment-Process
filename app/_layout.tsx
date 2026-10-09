@@ -611,7 +611,7 @@ function RootLayout() {
                         androidStatusBarVisible
                         verticalOffset={0}>
                         <Stack
-                          initialRouteName="login"
+                          initialRouteName="index"
                           screenOptions={defaultStackScreenOptions}>
                           <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
                           <Stack.Screen
@@ -753,7 +753,7 @@ function RootLayout() {
                     ) : (
                       <>
                         <Stack
-                          initialRouteName="login"
+                          initialRouteName="index"
                           screenOptions={defaultStackScreenOptions}>
                           <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
                           <Stack.Screen

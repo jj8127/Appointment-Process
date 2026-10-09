@@ -31,7 +31,7 @@ import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 const AUTH_SCREEN_BACKGROUND = COLORS.primaryPale;
 
 export default function LoginScreen() {
-    const { skipAuto } = useLocalSearchParams<{ skipAuto?: string }>();
+    const { skipAuto, service } = useLocalSearchParams<{ skipAuto?: string; service?: string | string[] }>();
     const skipAutoRedirect = skipAuto === '1';
     const { role, residentId, hydrated, isRequestBoardDesigner } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
@@ -70,6 +70,7 @@ export default function LoginScreen() {
             role,
             residentId,
             isRequestBoardDesigner,
+            requestedService: service,
         });
         if (!nextRoute) return;
         let active = true;
@@ -80,7 +81,7 @@ export default function LoginScreen() {
         return () => {
             active = false;
         };
-    }, [hydrated, isRequestBoardDesigner, manualLoginSucceeded, residentId, role, skipAutoRedirect]);
+    }, [hydrated, isRequestBoardDesigner, manualLoginSucceeded, residentId, role, service, skipAutoRedirect]);
 
     const toggleRememberPassword = useCallback(() => {
         setRememberPassword((current) => {
@@ -224,7 +225,16 @@ export default function LoginScreen() {
                                 style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
                                 onPress={() => router.replace('/signup')}
                             >
-                                <Text style={styles.backButtonText}>회원가입</Text>
+                                <Text style={styles.backButtonText}>FC 회원가입</Text>
+                            </Pressable>
+                            <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel="서비스 둘러보기"
+                                disabled={loading}
+                                style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+                                onPress={() => router.replace('/')}
+                            >
+                                <Text style={styles.backButtonText}>서비스 둘러보기</Text>
                             </Pressable>
                         </MotiView>
                     </View>

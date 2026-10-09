@@ -7,6 +7,10 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 # Mobile Playbook: FC Onboarding
 
+## 2026-10-09 서비스 선택과 보험 업무
+
+기본 홈은 공용 서비스 선택 화면이다. 아래 기존 홈 업무 설명은 명시적 `/?mode=insurance`, 관리자 `mode=onboarding|exam`과 홈 알림 문맥에서 여는 보험 업무 화면에 적용한다. FC 카드 진입은 기존 apply-gate의 identity 확인을 거친다. [서비스 선택 홈](./service-home.md)에서 새 entry와 하단 메뉴 계약을 관리한다.
+
 ## 2026-09-16 수당 그래프 홈 진입
 
 - FC·본부장 홈은 `추천인 코드` 옆에 `수당 그래프`를 표시하고 독립 `/referral-allowance`로 바로 이동한다. 본부장 시험 관리 탭에도 개인 바로가기를 제공한다. 일반 관리자·개발자·설계매니저에게 개인 수당 메뉴를 추가하지 않는다.

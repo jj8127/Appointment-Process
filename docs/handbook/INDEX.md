@@ -42,6 +42,7 @@ source_of_truth: code + handbook/*
   - 역할/정체성, 브리지, 보안, ownership map
 - `mobile/`
   - Expo 앱 화면 플레이북
+  - [서비스 선택 홈](./mobile/service-home.md)
 - `admin-web/`
   - 관리자 웹 화면 플레이북
 - `backend/`

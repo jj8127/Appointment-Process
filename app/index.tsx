@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
-import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -21,6 +21,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import ServiceHub from '@/components/ServiceHub';
 import { QueryReadState } from '@/components/QueryReadState';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { AppTopActionBar } from '@/components/AppTopActionBar';
@@ -65,6 +66,8 @@ import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
+import { hasInsuranceHomeContext } from '@/lib/service-home';
+import { waitForNotificationNavigationDecision } from '@/lib/notification-navigation-coordinator';
 import type { FcProfile } from '@/types/fc';
 
 const YOUTUBE_URL = 'https://youtube.com/playlist?list=PLF5rd5c2rE9xy-VsAdwq4NEUsJQtKD7Qd&si=vKx4TDq6ww9ZgKiT';
@@ -446,6 +449,27 @@ const getLinkIcon = (href: string) => {
 };
 
 export default function Home() {
+  const params = useLocalSearchParams();
+  const { hydrated, role, isRequestBoardDesigner } = useSession();
+  if (!hydrated) return <BrandedLoadingState />;
+  if (!hasInsuranceHomeContext(params) && role && isRequestBoardDesigner) return <DesignerHomeLanding />;
+  if (!hasInsuranceHomeContext(params)) return <ServiceHub />;
+  if (!role) return <Redirect href="/login?skipAuto=1" />;
+  return <LegacyInsuranceHome />;
+}
+
+function DesignerHomeLanding() {
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    void waitForNotificationNavigationDecision().then((handled) => {
+      if (active && !handled) router.replace('/request-board');
+    });
+    return () => { active = false; };
+  }, []));
+  return <BrandedLoadingState />;
+}
+
+function LegacyInsuranceHome() {
   const { role, residentId, displayName, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
   const appLogout = useAppLogout();
   const { mode, notificationId, notificationTarget } = useLocalSearchParams<{
