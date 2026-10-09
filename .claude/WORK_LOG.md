@@ -1,5 +1,11 @@
 # 작업 로그
 
+## 2026-10-09 UX 1순위 운영 DB 적용
+
+- 사용자가 워크트리 정리·운영 DB 적용·배포·가능한 기기 검증을 승인했다. 첫 clean 게시 소스 `dc7d58f`의 검토 SQL 한 개만 Supabase plugin으로 FC 프로젝트에 적용했다. 실제 운영 history ID `20261009065353`에 canonical 파일명·schema/테스트/handbook 참조를 맞췄다.
+- 새 테이블2개 RLS·service-only ACL, invoker RPC6개 실행권한, notices JSONB를 확인했다. READ ONLY+ROLLBACK 검증18개가 실제 고객 상태 변경 없이 통과했다. 기존 advisor WARN은 변화없고 service-only 새 테이블의 예상 INFO2개가 추가됐다. Edge/소비자 배포와 기기 검증은 별도 진행한다. [→ 상세](WORK_DETAIL.md#20261009-ux-priority-one-operational-db)
+- 첫 게시 CI의 SQL fixture 순서 의존 실패는 전용 폐기 클러스터의 기존 service_role이 NOBYPASSRLS로 남는 테스트 setup 문제였다. UX fixture에서 synthetic role을 BYPASSRLS로 정합화·검증했고 전체4파일28검사와 PGlite11검사가 통과했다. 운영 SQLbytes·RLS 변경은 없다.
+
 ## 2026-10-08 시험 취소 정책 앱 빌드·배포
 
 - 사용자가 앱 버전 증가·빌드·배포를 승인했다. 앱 표시 버전을4.2.17로 올리고 기존 remote/autoIncrement 빌드 번호를 사용한다. 기존 정책 소스 `f267da1`의 Hosted CI37608476615·Governance37608476888은 모두 성공했다.

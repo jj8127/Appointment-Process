@@ -148,7 +148,7 @@ test('real board client rejects missing saved/data instead of synthesizing compl
 
 
 test('cleanup status projects a real migration column and enforces profile scope before querying', async () => {
-  const migration = readFileSync(new URL('../../../supabase/migrations/20261009052048_ux_priority_one_atomic_mutations.sql', import.meta.url), 'utf8');
+  const migration = readFileSync(new URL('../../../supabase/migrations/20261009065353_ux_priority_one_atomic_mutations.sql', import.meta.url), 'utf8');
   const columns = [...migration.match(/create table if not exists public\.fc_document_cleanup_queue \(([\s\S]*?)\);/)[1].matchAll(/^\s*(\w+)\s+(?:text|uuid|timestamptz)\b/gm)].map((match) => match[1]);
   const source = syntax('app/api/admin/fc/route.ts');
   let branch;

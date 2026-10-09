@@ -14600,7 +14600,7 @@ $$;
 revoke all on function public.create_board_comment_idempotent(text,text,text,uuid,uuid,uuid,text) from public, anon, authenticated;
 grant execute on function public.create_board_comment_idempotent(text,text,text,uuid,uuid,uuid,text) to service_role;
 
--- Prepared migration 20261009052048 (local only; no operational application).
+-- Migration 20261009065353 applied to the FC operational DB on 2026-10-09; Edge activation is a separate gate.
 -- Local preparation only. Apply and verify this migration before deploying its callers.
 -- All authority parameters come from an Edge/server verified signed session.
 create table if not exists public.fc_document_cleanup_queue (

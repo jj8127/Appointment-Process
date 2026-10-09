@@ -20,7 +20,11 @@ before(async()=>{
     if not exists(select from pg_roles where rolname='anon') then create role anon; end if;
     if not exists(select from pg_roles where rolname='authenticated') then create role authenticated; end if;
     if not exists(select from pg_roles where rolname='service_role') then create role service_role bypassrls; end if;
+    -- Other isolated SQL fixtures may have created this cluster-wide role without BYPASSRLS.
+    alter role service_role bypassrls;
   end $$;`));
+  assert.equal((await db.query("select rolbypassrls from pg_roles where rolname='service_role'")).rows[0]?.rolbypassrls,true,
+    'isolated fixture service_role must match the trusted backend RLS bypass model');
   await db.query('begin;\n'+migration+'\ncommit;');
 });
 after(async()=>{
