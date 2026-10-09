@@ -1,5 +1,6 @@
 'use client';
 
+import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import {
   Anchor,
   Badge,
@@ -106,6 +107,7 @@ export default function NotificationDetailPage() {
       });
       const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) throw new Error(json.error ?? '삭제에 실패했습니다.');
+      showAdminNotificationWarning(json);
     },
     onSuccess: () => {
       notifications.show({ title: '삭제 완료', message: '공지사항이 삭제되었습니다.', color: 'gray' });

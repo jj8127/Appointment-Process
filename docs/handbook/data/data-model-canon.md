@@ -198,3 +198,7 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 ## 2026-10-04 전체 배포 정합성
 가람in 4.2.15(Android/iOS), 관리자 웹, 가람Link, DB/Edge를 사용자 승인 범위에서 최신 소스로 맞춘다. 운영0497367의 서류·위촉 조회 경로와 파일 소유권 검증을 최신 관리자 웹에 통합하고 기존 canonical 알림·첨부 계약을 유지한다. 서류 저장 뒤 진행 상태 실패는 warning으로 반환한다. Supabase plugin이 발급한 실제 마이그레이션 버전과 로컬 파일/테스트 참조를 맞추며 세션 세대 활성화는 모든 호출자 준비 뒤 적용한다. exact Git source·빌드 입력 해시·플랫폼 완료·운영 alias·경로 응답·배포 후 오류를 확인하기 전 완료로 보고하지 않는다.
+
+## 2026-10-09 Prepared UX priority-one transaction model
+
+`20261009052048_ux_priority_one_atomic_mutations.sql` and the schema snapshot add service-only `fc_document_cleanup_queue`, `ux_creation_receipts`, document request/removal, exam removal and board/notice creation RPCs. Canonical profile reset fields and approved-file protection are preserved. The snapshot includes notice images/files JSONB columns where absent; verify actual deployed column types before activation. Synthetic PGlite plus PostgreSQL16.14 fixtures passed transaction rollback, ACL/actor checks, same-key concurrent creation and FK insert/delete races. This is a local prepared migration, not a live schema or migration-history assertion.

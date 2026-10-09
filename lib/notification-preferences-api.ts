@@ -102,8 +102,14 @@ async function invokePreferences(body: Record<string, unknown>): Promise<Notific
     body,
     headers: { 'x-app-session-token': sessionToken },
   });
+  if (data?.saved === true) throw new NotificationPreferenceWriteConfirmedError();
   if (error || !isPreferences(data)) throw new Error('notification_preferences_request_failed');
   return data;
+}
+
+export class NotificationPreferenceWriteConfirmedError extends Error {
+  readonly saved = true;
+  constructor() { super('notification_preferences_saved_refresh_failed'); }
 }
 
 export function getNotificationPreferences() {
@@ -114,7 +120,7 @@ export async function setGlobalPushEnabled(enabled: boolean) {
   const preferences = await invokePreferences({ action: 'set_global', enabled });
   if (!enabled) {
     const unregisterResult = await unregisterAllPushTokens();
-    if (!unregisterResult.ok) throw new Error('push_token_unregister_failed');
+    if (!unregisterResult.ok) throw new NotificationPreferenceWriteConfirmedError();
   }
   return preferences;
 }

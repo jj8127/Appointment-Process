@@ -121,7 +121,8 @@ function StatementContent({ statement, months, onChangeMonth, selectedId, onSele
         <Text style={styles.paymentLabel}>당월 신규 지급예정액</Text>
         <Text style={styles.graphPaymentAmount}>{formatReferralAllowanceKrw(statement.summary.newPaymentKrw)}</Text>
         </View>
-        <Text style={styles.meta}>전월 이월금 제외 · 실제 입금액과 다를 수 있습니다.</Text>
+        <Text style={styles.meta}>실적월 {statement.performanceMonth} · 지급예정일 {statement.paymentDate}</Text>
+         <Text style={styles.meta}>전월 이월금 제외 · 실제 입금액과 다를 수 있습니다.</Text>
       </View>
       <AllowanceGraph statement={statement} selectedId={selectedId} onSelect={onSelect} />
     </GestureHandlerRootView> : <FlatList data={rows} keyExtractor={(node) => node.id} contentContainerStyle={styles.list}

@@ -3,6 +3,23 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "ux-priority-one-transactions-and-recovery",
+      "prefixes": [
+        "supabase/functions/_shared/ux-mutation-contract.ts",
+        "supabase/migrations/20261009052048_ux_priority_one_atomic_mutations.sql",
+        "lib/calendar-date.ts",
+        "hooks/use-draft-exit-guard.ts",
+        "components/ProfileReadState.tsx",
+        "lib/use-read-attempt.ts"
+      ],
+      "requires_any": [
+        "supabase/tests/ux-priority-one-atomic.test.mjs",
+        "supabase/tests/ux-priority-one-postgres.test.mjs",
+        "supabase/functions/__tests__/ux-priority-one-handlers.test.mjs",
+        "lib/__tests__/calendar-date.test.ts"
+      ]
+    },
+    {
       "id": "exam-self-cancellation-deadline",
       "prefixes": [
         "lib/exam-cancellation-policy.ts",

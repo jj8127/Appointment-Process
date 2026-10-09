@@ -57,3 +57,15 @@ This matrix defines business behavior that must stay consistent across GaramIn m
 
 - 관리자/본부장 시험 신청 상세의 입금 증빙은 왼쪽 신청 정보 열이 아니라 오른쪽 `접수 상태` 카드의 상태 요약 아래에 표시한다.
 - 반응형 단일 열에서도 상태 요약 → 입금 증빙 → 접수 버튼 순서를 유지한다.
+
+## 2026-10-09 Prepared priority-one UX contracts
+
+| Domain | Contract | Evidence |
+| --- | --- | --- |
+| Destructive document/exam operations | One DB transaction, signed/current actor, existing reset/protection rules; durable bounded document cleanup visible after re-entry | `supabase/tests/ux-priority-one-atomic.test.mjs`, `supabase/tests/ux-priority-one-postgres.test.mjs`, `supabase/functions/__tests__/ux-priority-one-handlers.test.mjs` |
+| Creation/result accuracy | Stable creation key/payload returns one ID across uncertain responses; malformed receipts fail closed; committed preferences and cleanup/notification warnings remain distinct | same SQL tests, `lib/__tests__/admin-action-auth-boundary.test.ts`, `lib/__tests__/notification-preferences-api.test.ts` |
+| Draft/read safety | Ordinary dirty exit confirmation; refetch retains dirty input and confirmed approval; late account/route responses discarded; failed unread cannot clear native notifications | actual handler tests, `lib/__tests__/mobile-basic-information-source.test.ts`, `lib/__tests__/identity-gate-state.test.ts`, `lib/__tests__/mobile-unread-notification-count-plan.test.ts` |
+| Business/calendar display | Calendar-only YMD across timezones, stored TBD month, latest active pending reception, performance month versus scheduled payment date | `lib/__tests__/calendar-date.test.ts`, actual handler tests, `components/__tests__/referral-allowance-screen.test.tsx` |
+| Recovery UI | Explicit address script/HTTP/timeout retry and close; failed message draft restore plus success feedback | actual handler tests, `components/__tests__/DaumPostcode.contract.test.ts` |
+
+Local verified sources only: no operational DB/Edge deployment, production login, real object mutations, app release or physical-device acceptance. Full shared contract and rollout order are in `shared-ui-action-contracts.md`.

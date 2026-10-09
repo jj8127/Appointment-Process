@@ -206,3 +206,7 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - 생명·손해 등록 화면은 포커스 이벤트의 target을 동기적으로 복사하고 null을 차단한 뒤 requestAnimationFrame을 예약한다. 비동기 콜백에서 pooled SyntheticEvent를 다시 읽지 않는다.
 - 이벤트 해제 뒤에도 저장한 입력 대상만 사용하며, 프레임 실행 전에 스크롤 화면이 unmount되면 측정을 생략한다.
 - 회귀 근거: `lib/__tests__/exam-register-focus-event-lifecycle.test.ts`는 설치된 React Native production 이벤트 해제 및 ScrollView 코드를 사용해 두 화면·Android/iOS·Fabric/legacy 조합을 실행한다.
+
+## 2026-10-09 Local exam display and atomic round removal
+
+For TBD rounds, administrators see the saved `exam_month` and an explicit unset date. Home pending reception counts use each resident's latest lifecycle state and exclude cancelled/rejected history. A confirmed round deletion has one in-flight owner and calls `delete_exam_round_atomic_v1`: any existing registration protects the whole round; location and round deletion share one transaction. Isolated PostgreSQL tests exercise FK insertion racing deletion in both orders; production and native UI checks remain gates.

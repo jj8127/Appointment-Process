@@ -1,3 +1,7 @@
+import { useReadAttempt } from '@/lib/use-read-attempt';
+import { useReadSessionScope } from '@/hooks/use-read-session-scope';
+import { ProfileReadState } from '@/components/ProfileReadState';
+import { parseCalendarDate } from '@/lib/calendar-date';
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -60,6 +64,11 @@ const isConsentLockedStatus = (status: string | null | undefined) =>
   Boolean(status && CONSENT_LOCKED_STATUSES.includes(status as (typeof CONSENT_LOCKED_STATUSES)[number]));
 
 export default function AllowanceConsentScreen() {
+  const scope = useReadSessionScope();
+  return <AllowanceConsentScreenContent key={scope} />;
+}
+
+function AllowanceConsentScreenContent() {
   const { residentId } = useSession();
   const { notificationId, notificationTarget } = useLocalSearchParams<{
     notificationId?: string;
@@ -88,33 +97,30 @@ export default function AllowanceConsentScreen() {
 
   const maxIndex = AGREEMENT_GUIDE_IMAGES.length - 1;
 
-  useEffect(() => {
-    const load = async () => {
+  const beginRead = useReadAttempt();
+  const loadProfile = useCallback(async () => {
+    const isCurrentRead = beginRead();
+    if (!isCurrentRead()) return;
+    try {
       const phone = (residentId ?? '').replace(/[^0-9]/g, '');
-      if (!phone) return;
+      if (!phone) { setProfileLoadState('error'); return; }
       setProfileLoadState('loading');
       const { data, error } = await supabase
         .from('fc_profiles')
         .select('id, temp_id, allowance_date, career_type, allowance_reject_reason, status')
         .eq('phone', phone)
         .maybeSingle();
+      if (!isCurrentRead()) return;
       if (error || !data?.id) {
-        setProfileId(null);
         setProfileLoadState('error');
         return;
       }
       setProfileId(data.id);
       setProfileLoadState('success');
 
-      logger.debug('[DEBUG] Mobile: Fetched FC Profile in Consent:', {
-        status: data?.status,
-        rejectReason: data?.allowance_reject_reason,
-        data: JSON.stringify(data, null, 2)
-      });
-
       setTempId(data?.temp_id ?? '');
       if (data?.allowance_date) {
-        setSelectedDate(new Date(data.allowance_date));
+        setSelectedDate(parseCalendarDate(data.allowance_date));
       } else {
         setSelectedDate(null);
       }
@@ -123,9 +129,11 @@ export default function AllowanceConsentScreen() {
 
       // Fix: Check status to block edits
       setIsApproved(isConsentLockedStatus(data?.status));
-    };
-    load();
-  }, [residentId]);
+
+    } catch { if (isCurrentRead()) { setProfileLoadState('error');  } }
+  }, [beginRead, residentId]);
+
+  useEffect(() => { void loadProfile(); }, [loadProfile]);
 
   const notificationReceipt = useNotificationReceiptCompletion({
     params: { notificationId, notificationTarget },
@@ -241,35 +249,16 @@ export default function AllowanceConsentScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      const phone = (residentId ?? '').replace(/[^0-9]/g, '');
-      if (!phone) return;
-      const { data } = await supabase
-        .from('fc_profiles')
-        .select('temp_id, allowance_date, career_type, allowance_reject_reason, status')
-        .eq('phone', phone)
-        .maybeSingle();
+    try { await loadProfile(); } finally { setRefreshing(false); }
+  }, [loadProfile]);
 
-      setTempId(data?.temp_id ?? '');
-      if (data?.allowance_date) {
-        setSelectedDate(new Date(data.allowance_date));
-      } else {
-        setSelectedDate(null);
-      }
-      setCareerType(data?.career_type ?? null);
-      setRejectReason(data?.allowance_reject_reason ?? null);
-
-      setIsApproved(isConsentLockedStatus(data?.status));
-
-    } catch {
-      // ignore
-    } finally {
-      setRefreshing(false);
-    }
-  }, [residentId]);
+  if (profileLoadState !== 'success' && !(!!profileId)) return (
+    <SafeAreaView style={{ flex: 1 }}><ProfileReadState state={profileLoadState} retained={false} onRetry={() => void loadProfile()} /></SafeAreaView>
+  );
 
   return (
     <SafeAreaView style={styles.safe}>
+      <ProfileReadState state={profileLoadState} retained={!!profileId} onRetry={() => void loadProfile()} />
       <NotificationReceiptStatusBanner
         state={notificationReceipt.state}
         onRetry={() => void notificationReceipt.retryMarkRead()}

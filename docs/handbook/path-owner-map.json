@@ -2,6 +2,20 @@
   "version": 1,
   "rules": [
     {
+      "id": "ux-priority-one-shared-mutations",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/_shared/ux-mutation-contract.ts",
+        "supabase/functions/__tests__/ux-priority-one-handlers.test.mjs",
+        "supabase/migrations/20261009052048_ux_priority_one_atomic_mutations.sql"
+      ],
+      "requires_any": [
+        "docs/handbook/shared-ui-action-contracts.md",
+        "docs/handbook/backend/admin-operations-api.md",
+        "docs/handbook/data/data-model-canon.md"
+      ]
+    },
+    {
       "id": "instruction-surfaces",
       "severity": "internal",
       "prefixes": [

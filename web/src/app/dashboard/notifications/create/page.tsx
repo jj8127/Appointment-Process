@@ -26,7 +26,7 @@ import { IconArrowLeft, IconCheck, IconFile, IconPhoto, IconSend, IconUpload, Ic
 import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useRef, useState } from 'react';
 import { z } from 'zod';
 import { createNoticeAction } from '../actions';
 
@@ -55,7 +55,9 @@ const glassStyle = {
 
 export default function CreateNoticePage() {
     const router = useRouter();
-    const [isPending, startTransition] = useTransition();
+    const [isPending, setSubmitting] = useState(false);
+    const submittingRef = useRef(false);
+    const [submitPhase, setSubmitPhase] = useState('');
     const [images, setImages] = useState<FileWithPath[]>([]);
     const [files, setFiles] = useState<FileWithPath[]>([]);
 
@@ -95,6 +97,10 @@ export default function CreateNoticePage() {
     };
 
     const handleSubmit = async (values: typeof form.values) => {
+        if (submittingRef.current) return;
+        submittingRef.current = true;
+        setSubmitting(true);
+        setSubmitPhase('첨부 업로드 중');
         try {
             // Upload Images
             const imageUrls = await Promise.all(
@@ -121,7 +127,7 @@ export default function CreateNoticePage() {
             formData.append('images', JSON.stringify(imageUrls));
             formData.append('files', JSON.stringify(fileObjects));
 
-            startTransition(async () => {
+            setSubmitPhase('공지 저장 중');
                 const result = await createNoticeAction({ success: false }, formData);
 
                 if (result.success) {
@@ -153,14 +159,17 @@ export default function CreateNoticePage() {
                         form.setErrors(result.errors);
                     }
                 }
-            });
         } catch (error) {
             logger.error('File upload error', error);
             notifications.show({
                 title: '업로드 오류',
-                message: '파일 업로드 중 오류가 발생했습니다.',
+                message: '처리 결과를 확인하지 못했습니다. 입력은 유지됩니다. 공지 목록을 확인한 뒤 다시 시도해주세요.',
                 color: 'red',
             });
+        } finally {
+            submittingRef.current = false;
+            setSubmitting(false);
+            setSubmitPhase('');
         }
     };
 
@@ -298,6 +307,7 @@ export default function CreateNoticePage() {
                     style={glassStyle}
                 >
                     <LoadingOverlay visible={isPending} overlayProps={{ radius: 'lg', blur: 2 }} />
+                    {isPending ? <Text role="status" size="sm">{submitPhase}</Text> : null}
 
                     <form onSubmit={form.onSubmit(handleSubmit)}>
                         <Stack gap="xl">

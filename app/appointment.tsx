@@ -1,3 +1,7 @@
+import { useReadAttempt } from '@/lib/use-read-attempt';
+import { useReadSessionScope } from '@/hooks/use-read-session-scope';
+import { ProfileReadState } from '@/components/ProfileReadState';
+import { parseCalendarDate } from '@/lib/calendar-date';
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useLocalSearchParams } from 'expo-router';
@@ -63,6 +67,11 @@ const resolveFunctionInvokeErrorMessage = async (error: unknown, fallback: strin
 };
 
 export default function AppointmentScreen() {
+  const scope = useReadSessionScope();
+  return <AppointmentScreenContent key={scope} />;
+}
+
+function AppointmentScreenContent() {
   const { role, residentId } = useSession();
   const { notificationId, notificationTarget } = useLocalSearchParams<{
     notificationId?: string;
@@ -109,7 +118,11 @@ export default function AppointmentScreen() {
     'loading' | 'success' | 'error'
   >('loading');
 
+  const beginRead = useReadAttempt();
   const load = useCallback(async () => {
+    const isCurrentRead = beginRead();
+    if (!isCurrentRead()) return;
+    try {
     if (!residentId) return;
     const cleanPhone = residentId.replace(/[^0-9]/g, '');
     if (!cleanPhone) return;
@@ -122,10 +135,11 @@ export default function AppointmentScreen() {
       )
       .eq('phone', cleanPhone)
       .maybeSingle();
+      if (!isCurrentRead()) return;
     setLoading(false);
-    if (error) {
+    if (error || !data?.id) {
       setProfileLoadState('error');
-      Alert.alert('불러오기 실패', error.message ?? '정보를 불러오지 못했습니다.');
+      Alert.alert('불러오기 실패', error?.message ?? '정보를 불러오지 못했습니다.');
       return;
     }
     setProfileId(data?.id ?? null);
@@ -134,11 +148,11 @@ export default function AppointmentScreen() {
     setScheduleLife(data?.appointment_schedule_life ?? null);
     setScheduleNonLife(data?.appointment_schedule_nonlife ?? null);
 
-    const appLife = data?.appointment_date_life ? new Date(data.appointment_date_life) : null;
-    const appNonLife = data?.appointment_date_nonlife ? new Date(data.appointment_date_nonlife) : null;
-    const subLife = data?.appointment_date_life_sub ? new Date(data.appointment_date_life_sub) : null;
-    const subNonLife = data?.appointment_date_nonlife_sub ? new Date(data.appointment_date_nonlife_sub) : null;
-    const appHanwha = data?.hanwha_commission_date ? new Date(data.hanwha_commission_date) : null;
+    const appLife = data?.appointment_date_life ? parseCalendarDate(data.appointment_date_life) : null;
+    const appNonLife = data?.appointment_date_nonlife ? parseCalendarDate(data.appointment_date_nonlife) : null;
+    const subLife = data?.appointment_date_life_sub ? parseCalendarDate(data.appointment_date_life_sub) : null;
+    const subNonLife = data?.appointment_date_nonlife_sub ? parseCalendarDate(data.appointment_date_nonlife_sub) : null;
+    const appHanwha = data?.hanwha_commission_date ? parseCalendarDate(data.hanwha_commission_date) : null;
 
     setApprovedLife(appLife);
     setApprovedNonLife(appNonLife);
@@ -154,7 +168,9 @@ export default function AppointmentScreen() {
     // 표시값: 승인>제출>없음
     setDisplayLife(appLife || subLife || null);
     setDisplayNonLife(appNonLife || subNonLife || null);
-  }, [residentId]);
+
+    } catch { if (isCurrentRead()) { setProfileLoadState('error'); setLoading(false); } }
+  }, [beginRead, residentId]);
 
   useEffect(() => {
     load();
@@ -418,8 +434,13 @@ export default function AppointmentScreen() {
     );
   };
 
+  if (profileLoadState !== 'success' && !(!!profileId)) return (
+    <SafeAreaView style={{ flex: 1 }}><ProfileReadState state={profileLoadState} retained={false} onRetry={() => void load()} /></SafeAreaView>
+  );
+
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <ProfileReadState state={profileLoadState} retained={!!profileId} onRetry={() => void load()} />
       <NotificationReceiptStatusBanner
         state={notificationReceipt.state}
         onRetry={() => void notificationReceipt.retryMarkRead()}

@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { requireCreationReceipt } from '../_shared/ux-mutation-contract.ts';
 import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase , dbError, redactSensitiveText } from '../_shared/board.ts';
 import { isCanonicalBoardCategorySlug } from '../_shared/board-categories.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
@@ -15,6 +16,7 @@ type Payload = {
     residentId: string;
     displayName?: string;
   };
+  requestId?: string;
   categoryId?: string;
   title?: string;
   content?: string;
@@ -382,21 +384,19 @@ serve(async (req: Request) => {
     }, 403, origin);
   }
 
-  const { data, error } = await supabase
-    .from('board_posts')
-    .insert({
-      category_id: categoryId,
-      title,
-      content,
-      author_role: actorCheck.actor.role,
-      author_resident_id: actorCheck.actor.residentId,
-      author_name: redactSensitiveText(actorCheck.actor.displayName ?? '', '작성자'),
-    })
-    .select('id,updated_at')
-    .single();
+  const requestId = body.requestId ?? crypto.randomUUID(); // Compatibility for existing callers; current mobile keeps a stable key.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) return json({ ok: false, code: 'invalid_request_id' }, 400, origin);
+  const { data, error } = await supabase.rpc('create_board_post_idempotent_v1', {
+    p_actor_phone: actorCheck.actor.residentId, p_actor_role: actorCheck.actor.role,
+    p_actor_name: redactSensitiveText(actorCheck.actor.displayName ?? '', '작성자'),
+    p_request_id: requestId, p_category_id: categoryId, p_title: title, p_content: content,
+  });
 
   if (error) {
     return dbError(error, origin);
+  }
+  try { requireCreationReceipt(data, true); } catch {
+    return json({ ok: false, code: 'mutation_receipt_unverified', message: '저장 결과를 확인하지 못했습니다. 같은 요청으로 다시 확인해주세요.' }, 502, origin);
   }
 
   const notificationTitle = '새 게시글';

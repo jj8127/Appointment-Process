@@ -75,8 +75,8 @@ test('detail route loads only the selected registration and provides the recepti
 test('detail route navigates to previous and next applicants in stable list order', () => {
   assert.match(apiSource, /async function readApplicantNavigation\(registrationId: string\)/);
   assert.match(apiSource, /\.order\('created_at', \{ ascending: false \}\)[\s\S]+\.order\('id', \{ ascending: false \}\)/);
-  assert.match(apiSource, /previousId: currentIndex > 0/);
-  assert.match(apiSource, /nextId: currentIndex >= 0/);
+  assert.match(apiSource, /readNeighbor\(true\)/);
+  assert.match(apiSource, /readNeighbor\(false\)/);
   assert.match(detailSource, /aria-label="이전 신청자로 이동"/);
   assert.match(detailSource, /aria-label="다음 신청자로 이동"/);
   assert.match(detailSource, /disabled=\{!navigation\.previousId\}/);

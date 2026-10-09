@@ -1,5 +1,7 @@
 'use client';
 
+import { shouldSubmitOnEnter } from '@/lib/user-intent-policy';
+
 import { classifyGroupChatError } from '@/lib/group-chat-error';
 
 import { useSession } from '@/hooks/use-session';
@@ -420,6 +422,7 @@ export default function DashboardGroupChatPage() {
 
   const handleDelete = useCallback(async (message: GroupChatMessage) => {
     if (message.deleted_at || message.sender_actor_id !== actor?.id) return;
+    if (!window.confirm('메시지를 삭제할까요? 삭제한 메시지는 되돌릴 수 없습니다.')) return;
     try {
       const result = await groupChatDeleteMessage(message.id);
       mergeMessage(result.message);
@@ -431,8 +434,16 @@ export default function DashboardGroupChatPage() {
     }
   }, [actor?.id, mergeMessage, notice?.message_id]);
 
+  const handleClearNotice = useCallback(async () => {
+    if (!canManageNotice || noticeUpdating) return;
+    setNoticeUpdating(true);
+    try { const result = await groupChatClearNotice(); setNotice(result.notice); }
+    catch (error) { showGroupChatErrorNotification(error); }
+    finally { setNoticeUpdating(false); }
+  }, [canManageNotice, noticeUpdating]);
+
   const handleNotice = useCallback(async (message: GroupChatMessage) => {
-    if (!canManageNotice || message.deleted_at) return;
+    if (!canManageNotice || message.deleted_at || noticeUpdating) return;
     setNoticeUpdating(true);
     try {
       if (notice?.message_id === message.id) {
@@ -447,7 +458,7 @@ export default function DashboardGroupChatPage() {
     } finally {
       setNoticeUpdating(false);
     }
-  }, [canManageNotice, notice?.message_id]);
+  }, [canManageNotice, notice?.message_id, noticeUpdating]);
 
   const handleMuteToggle = useCallback(async () => {
     const nextMuted = !muted;
@@ -757,7 +768,7 @@ export default function DashboardGroupChatPage() {
                 </Box>
               </Group>
               {canManageNotice ? (
-                <ActionIcon variant="subtle" color="orange" loading={noticeUpdating} onClick={() => void groupChatClearNotice().then((result) => setNotice(result.notice))}>
+                <ActionIcon variant="subtle" color="orange" loading={noticeUpdating} onClick={() => void handleClearNotice()}>
                   <IconX size={16} />
                 </ActionIcon>
               ) : null}
@@ -848,7 +859,7 @@ export default function DashboardGroupChatPage() {
               disabled={!inputEnabled || sending || uploading}
               style={{ flex: 1 }}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
+                if (shouldSubmitOnEnter(event)) {
                   event.preventDefault();
                   void handleSend(input);
                 }

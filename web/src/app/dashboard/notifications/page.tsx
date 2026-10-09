@@ -1,5 +1,6 @@
 'use client';
 
+import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { QueryReadError } from '@/lib/query-read-error';
 
@@ -135,6 +136,7 @@ export default function NotificationsPage() {
             if (!res.ok || !data?.ok) {
                 throw new Error(data?.error ?? '삭제에 실패했습니다.');
             }
+            showAdminNotificationWarning(data);
         },
         onSuccess: () => {
             notifications.show({

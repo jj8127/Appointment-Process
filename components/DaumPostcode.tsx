@@ -1,6 +1,6 @@
 import type { JSOptions, OnCompleteParams } from '@actbase/react-daum-postcode/lib/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Linking, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import WebView, {
   type WebViewMessageEvent,
   type WebViewNavigation,
@@ -63,11 +63,28 @@ const DAUM_POSTCODE_HTML = `
     }
     function initOnReady(options) {
       window.options = options;
+      var settled = false;
+      var timer = setTimeout(function () { fail(); }, 15000);
+      function fail() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        window.ReactNativeWebView.postMessage('__postcode_state__:error');
+      }
+      function ready() {
+        if (settled) return;
+        try {
+          callback();
+          settled = true;
+          clearTimeout(timer);
+          window.ReactNativeWebView.postMessage('__postcode_state__:ready');
+        } catch (error) { fail(); }
+      }
       var script = document.createElement('script');
       script.type = 'text/javascript';
       script.src = 'https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
-      script.onreadystatechange = callback;
-      script.onload = callback;
+      script.onload = ready;
+      script.onerror = fail;
       var firstScript = document.getElementsByTagName('script')[0];
       firstScript.parentNode.insertBefore(script, firstScript);
     }
@@ -151,6 +168,7 @@ type DaumPostcodeProps = {
   jsOptions?: JSOptions;
   onSelected: (data: OnCompleteParams) => void;
   onError: (error: unknown) => void;
+  onClose?: () => void;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -158,10 +176,25 @@ export function DaumPostcode({
   jsOptions = DEFAULT_JS_OPTIONS,
   onSelected,
   onError,
+  onClose,
   style,
 }: DaumPostcodeProps) {
   const webViewRef = useRef<WebView>(null);
   const [lastDebugLine, setLastDebugLine] = useState('postcode:init');
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [attempt, setAttempt] = useState(0);
+  const failedRef = useRef(false);
+  const reportFailure = useCallback(() => {
+    if (failedRef.current) return;
+    failedRef.current = true;
+    setLoadState('error');
+    onError(new Error('postcode_load_failed'));
+  }, [onError]);
+  useEffect(() => {
+    if (loadState !== 'loading') return;
+    const timer = setTimeout(reportFailure, 20000);
+    return () => clearTimeout(timer);
+  }, [attempt, loadState, reportFailure]);
   const injectedJavaScript = useMemo(
     () => `initOnReady(${JSON.stringify(jsOptions)});void(0);`,
     [jsOptions],
@@ -197,6 +230,8 @@ export function DaumPostcode({
     ({ nativeEvent }: WebViewMessageEvent) => {
       try {
         if (nativeEvent.data) {
+          if (nativeEvent.data === '__postcode_state__:ready') { setLoadState('ready'); return; }
+          if (nativeEvent.data === '__postcode_state__:error') { reportFailure(); return; }
           if (nativeEvent.data.startsWith(DEBUG_MESSAGE_PREFIX)) {
             const debugPayload = JSON.parse(
               nativeEvent.data.slice(DEBUG_MESSAGE_PREFIX.length),
@@ -216,12 +251,11 @@ export function DaumPostcode({
         updateDebugLine('message-parse-failed');
         logger.warn('[postcode] message parse failed', {
           message: error instanceof Error ? error.message : String(error),
-          raw: nativeEvent.data,
         });
         onError(error);
       }
     },
-    [onError, onSelected, updateDebugLine],
+    [onError, onSelected, reportFailure, updateDebugLine],
   );
 
   const handleShouldStartLoad = useCallback((request: ShouldStartLoadRequest) => {
@@ -310,7 +344,8 @@ export function DaumPostcode({
       description: nativeEvent.description,
       domain: nativeEvent.domain,
     });
-  }, [updateDebugLine]);
+    reportFailure();
+  }, [reportFailure, updateDebugLine]);
 
   const handleHttpError = useCallback(({ nativeEvent }: WebViewHttpErrorEvent) => {
     updateDebugLine('httpError', { url: nativeEvent.url, code: nativeEvent.statusCode });
@@ -319,7 +354,8 @@ export function DaumPostcode({
       statusCode: nativeEvent.statusCode,
       description: nativeEvent.description,
     });
-  }, [updateDebugLine]);
+    reportFailure();
+  }, [reportFailure, updateDebugLine]);
 
   return (
     <View style={style}>
@@ -331,6 +367,7 @@ export function DaumPostcode({
         </View>
       ) : null}
       <WebView
+        key={attempt}
         ref={webViewRef}
         source={{ html: DAUM_POSTCODE_HTML, baseUrl: 'https://postcode.map.daum.net' }}
         originWhitelist={['*']}
@@ -348,11 +385,20 @@ export function DaumPostcode({
         androidLayerType="hardware"
         renderToHardwareTextureAndroid
       />
+      {loadState !== 'ready' ? <View style={styles.stateOverlay}>
+        {loadState === 'loading' ? <ActivityIndicator /> : null}
+        <Text accessibilityRole="alert">{loadState === 'loading' ? '주소 검색을 준비하고 있습니다.' : '주소 검색을 불러오지 못했습니다. 입력한 주소는 그대로 유지됩니다.'}</Text>
+        {loadState === 'error' ? <Pressable accessibilityRole="button" onPress={() => {
+          failedRef.current = false; setLoadState('loading'); setAttempt((value) => value + 1);
+        }} style={{ padding: 12 }}><Text>다시 시도</Text></Pressable> : null}
+        {onClose ? <Pressable accessibilityRole="button" onPress={onClose} style={{ padding: 12 }}><Text>주소 검색 닫기</Text></Pressable> : null}
+      </View> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  stateOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', padding: 24, gap: 12 },
   debugBanner: {
     position: 'absolute',
     top: 8,

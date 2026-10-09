@@ -1,5 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import * as ts from 'typescript';
+import { parseExamRoundDeleteInput } from '../../web/src/lib/privileged-action-input-policy';
 
 const root = path.resolve(__dirname, '..', '..');
 
@@ -103,7 +105,14 @@ describe('priority security hardening source contracts', () => {
     const deleteBody = actionSource('deleteExamRoundAction');
     expect(deleteBody).not.toContain(".from('exam_registrations')");
     expect(deleteBody).not.toContain(".from('exam_locations')");
-    expect(deleteBody).toContain(".from('exam_rounds')");
+    expect(deleteBody).not.toContain(".from('exam_rounds')");
+    expect(deleteBody).toContain("adminSupabase.rpc('delete_exam_round_atomic_v1'");
+    expect(deleteBody).toContain('p_actor_phone: sessionCheck.session.residentDigits');
+    expect(deleteBody).toContain('p_actor_role: sessionCheck.session.role');
+    expect(deleteBody).toContain('parseExamRoundDeleteInput(payload)');
+    const receiptIndex = deleteBody.indexOf('data.deleted !== true');
+    expect(receiptIndex).toBeGreaterThan(deleteBody.indexOf('await adminSupabase.rpc('));
+    expect(deleteBody.indexOf('return { success: true')).toBeGreaterThan(receiptIndex);
     const schema = readRepoFile('supabase/schema.sql');
     expect(schema).toMatch(
       /create table if not exists public\.exam_locations[\s\S]{0,500}round_id uuid not null references public\.exam_rounds \(id\) on delete cascade/,
@@ -186,5 +195,68 @@ describe('priority security hardening source contracts', () => {
     expect(webSource).not.toContain('REQUEST_BOARD_AUTH_BRIDGE_SECRET');
     expect(source).toMatch(/payload\.kind !== 'request_board_bridge'/);
     expect(source).toMatch(/payload\.kind !== 'fc_onboarding_session'/);
+  });
+});
+
+describe('actual atomic exam delete server action', () => {
+  const roundId = '10000000-0000-4000-8000-000000000001';
+  const trustedSession = { ok: true, session: { residentDigits: '01000000000', role: 'admin' } };
+
+  function loadAction(session: unknown = trustedSession, rpcResult: unknown = { data: { deleted: true }, error: null }) {
+    const source = readRepoFile('web/src/app/dashboard/exam/schedule/actions.ts');
+    const file = ts.createSourceFile('actions.ts', source, ts.ScriptTarget.Latest, true);
+    const action = file.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === 'deleteExamRoundAction');
+    const readCode = file.statements.find((node) => ts.isVariableStatement(node) && node.declarationList.declarations.some((item) => item.name.getText(file) === 'readErrorCode'));
+    if (!action || !readCode) throw new Error('Missing actual atomic exam delete action');
+    const rpc = jest.fn().mockResolvedValue(rpcResult);
+    const from = jest.fn(() => { throw new Error('Direct table mutation is forbidden'); });
+    const auth = jest.fn().mockResolvedValue(session);
+    const parse = jest.fn(parseExamRoundDeleteInput);
+    const dependencies = { adminSupabase: { rpc, from }, getVerifiedAdminSession: auth, parseExamRoundDeleteInput: parse, logger: { warn: jest.fn() } };
+    const output = ts.transpileModule(`${readCode.getText(file)}\n${action.getText(file)}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
+    const exports: { deleteExamRoundAction?: (previous: unknown, input: unknown) => Promise<{ success: boolean }> } = {};
+    new Function('exports', ...Object.keys(dependencies), output)(exports, ...Object.values(dependencies));
+    if (!exports.deleteExamRoundAction) throw new Error('Actual action did not export');
+    return { run: exports.deleteExamRoundAction, rpc, from, auth, parse };
+  }
+
+  it.each([401, 403])('rejects unverified or read-only actors before parsing or service-role IO (%s)', async (status) => {
+    const action = loadAction({ ok: false, status, error: 'synthetic-denied' });
+    expect(await action.run({}, { roundId })).toMatchObject({ success: false });
+    expect(action.parse).not.toHaveBeenCalled();
+    expect(action.rpc).not.toHaveBeenCalled();
+    expect(action.from).not.toHaveBeenCalled();
+  });
+
+  it.each([null, {}, { roundId: 'invalid' }])('rejects invalid deletion input before service-role IO: %j', async (input) => {
+    const action = loadAction();
+    expect(await action.run({}, input)).toMatchObject({ success: false });
+    expect(action.rpc).not.toHaveBeenCalled();
+    expect(action.from).not.toHaveBeenCalled();
+  });
+
+  it('passes only the verified actor to one atomic RPC and confirms its deletion receipt', async () => {
+    const action = loadAction();
+    expect(await action.run({}, { roundId, role: 'developer', residentId: 'spoofed', p_actor_phone: 'spoofed' })).toMatchObject({ success: true });
+    expect(action.rpc).toHaveBeenCalledTimes(1);
+    expect(action.rpc).toHaveBeenCalledWith('delete_exam_round_atomic_v1', {
+      p_actor_phone: trustedSession.session.residentDigits, p_actor_role: 'admin', p_round_id: roundId,
+    });
+    expect(action.from).not.toHaveBeenCalled();
+    expect(action.auth.mock.invocationCallOrder[0]).toBeLessThan(action.rpc.mock.invocationCallOrder[0]);
+  });
+
+  it.each([
+    { data: null, error: null },
+    { data: {}, error: null },
+    { data: { deleted: false }, error: null },
+    { data: { deleted: 'true' }, error: null },
+    { data: { deleted: true }, error: { code: 'PGRST202' } },
+    { data: null, error: { code: '23503' } },
+  ])('never reports success or falls back to split deletion without a confirmed RPC: %j', async (result) => {
+    const action = loadAction(trustedSession, result);
+    expect(await action.run({}, { roundId })).toMatchObject({ success: false });
+    expect(action.rpc).toHaveBeenCalledTimes(1);
+    expect(action.from).not.toHaveBeenCalled();
   });
 });

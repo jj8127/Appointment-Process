@@ -492,7 +492,7 @@ export async function fetchBoardDetail(actor: BoardActor, postId: string) {
 
 export async function createBoardPost(
   actor: BoardActor,
-  payload: { categoryId: string; title: string; content: string },
+  payload: { requestId?: string; categoryId: string; title: string; content: string },
 ): Promise<BoardCreateResult> {
   const result = await invokeBoardWrite<{ id: string }>('board-create', { actor, ...payload });
   return {

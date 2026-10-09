@@ -1,3 +1,7 @@
+import { useReadAttempt } from '@/lib/use-read-attempt';
+import { useReadSessionScope } from '@/hooks/use-read-session-scope';
+import { invokeAdminAction } from '@/lib/admin-action-api';
+import { ProfileReadState } from '@/components/ProfileReadState';
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -99,6 +103,13 @@ async function sendNotificationAndPush(
 }
 
 export default function DocsUploadScreen() {
+  const scope = useReadSessionScope();
+  const { userId } = useLocalSearchParams<{ userId?: string }>();
+  const target = parseExactlyOneUuidRouteParam(userId) ?? (hasPresentRouteParam(userId) ? 'invalid' : 'own');
+  return <DocsUploadScreenContent key={`${scope}:${target}`} />;
+}
+
+function DocsUploadScreenContent() {
   const { residentId, role } = useSession();
   const { destinationAccepted: identityGateAccepted } =
     useIdentityGate({ nextPath: '/docs-upload' });
@@ -115,6 +126,10 @@ export default function DocsUploadScreen() {
     hasPresentRouteParam(userId) && !routeUserId;
   const [fc, setFc] = useState<FcLite | null>(null);
   const [docs, setDocs] = useState<DocItem[]>([]);
+  const [cleanupPending, setCleanupPending] = useState(false);
+  const [cleanupStatusError, setCleanupStatusError] = useState(false);
+  const deletingRef = useRef(false);
+  const [deletingType, setDeletingType] = useState<string | null>(null);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
   const pickingRef = useRef(false);
@@ -135,7 +150,11 @@ export default function DocsUploadScreen() {
   const footerRoute = !isAdmin && isDocsApproved ? '/hanwha-commission' : '/';
   const footerLabel = !isAdmin && isDocsApproved ? '다위촉 URL 단계로 이동' : '홈으로 가기';
 
+  const beginRead = useReadAttempt();
+  const beginMutation = useReadAttempt();
   const loadData = useCallback(async () => {
+    const isCurrentRead = beginRead();
+    if (!isCurrentRead()) return;
     try {
       setProfileLoadState('loading');
       if (hasInvalidUserRoute) {
@@ -153,6 +172,7 @@ export default function DocsUploadScreen() {
           .select('id')
           .eq('phone', residentId)
           .maybeSingle();
+      if (!isCurrentRead()) return;
         if (idErr) throw idErr;
         targetId = profileId?.id ?? null;
       }
@@ -168,6 +188,7 @@ export default function DocsUploadScreen() {
         .select('id, temp_id, name, status, docs_deadline_at')
         .eq('id', targetId)
         .maybeSingle();
+      if (!isCurrentRead()) return;
       if (error) throw error;
       if (!profile) {
         setFc(null);
@@ -180,6 +201,7 @@ export default function DocsUploadScreen() {
         .from('fc_documents')
         .select('doc_type, storage_path, status, reviewer_note, file_name')
         .eq('fc_id', targetId);
+      if (!isCurrentRead()) return;
       if (reqErr) throw reqErr;
 
       const reqDocs: DocItem[] = (requirements ?? []).map((r) => {
@@ -206,11 +228,21 @@ export default function DocsUploadScreen() {
       setFc(profile as FcLite);
       setDocs(reqDocs);
       setProfileLoadState('success');
+      try {
+        const cleanup = await invokeAdminAction<{ cleanupPending: boolean }>(residentId ?? '', isAdmin ? 'getDocumentCleanupStatus' : 'getOwnDocumentCleanupStatus', { fcId: targetId });
+        if (!isCurrentRead()) return;
+        if (typeof cleanup.cleanupPending !== 'boolean') throw new Error('cleanup_state_unverified');
+        setCleanupPending(cleanup.cleanupPending);
+        setCleanupStatusError(false);
+      } catch {
+        if (isCurrentRead()) setCleanupStatusError(true);
+      }
     } catch (err: any) {
+      if (!isCurrentRead()) return;
       setProfileLoadState('error');
       Alert.alert('조회 오류', err?.message ?? '정보를 불러오지 못했습니다.');
     }
-  }, [hasInvalidUserRoute, isAdmin, residentId, routeUserId]);
+  }, [beginRead, hasInvalidUserRoute, isAdmin, residentId, routeUserId]);
 
   useEffect(() => {
     loadData();
@@ -465,49 +497,55 @@ export default function DocsUploadScreen() {
     }
   };
 
-  const handleDelete = async (type: string, storagePath?: string) => {
-    if (!fc) return;
-    const targetDoc = docs.find((d) => d.type === type);
-    if (targetDoc?.status === 'approved') {
-      Alert.alert('삭제 불가', '승인된 서류는 삭제할 수 없습니다.');
-      return;
+  const handleDelete = (type: string, storagePath?: string) => {
+    if (!fc || deletingRef.current || uploadingType || profileLoadState !== 'success') return;
+    if (docs.find((doc) => doc.type === type)?.status === 'approved') {
+      Alert.alert('삭제 불가', '승인된 서류는 삭제할 수 없습니다.'); return;
     }
+    const targetId = fc.id;
+    const isCurrentMutation = beginMutation();
+    Alert.alert('서류 삭제 확인', '제출한 파일을 삭제하면 서류가 미제출 상태로 바뀌고 이후 위촉 일정·완료 정보가 초기화됩니다. 삭제할까요?', [
+      { text: '취소', style: 'cancel' },
+      { text: '삭제', style: 'destructive', onPress: async () => {
+        if (deletingRef.current || !isCurrentMutation()) return;
+        deletingRef.current = true; setDeletingType(type);
+        try {
+          const result = await invokeAdminAction<{ cleanupPending: boolean }>(residentId ?? '', isAdmin ? 'deleteDocFile' : 'removeOwnDocument', {
+            fcId: targetId, docType: type, storagePath,
+          });
+          if (!isCurrentMutation()) return;
+          setDocs((previous) => previous.map((doc) => doc.type === type ? { ...doc, storagePath: undefined, uploadedUrl: undefined, originalName: undefined, status: 'pending' } : doc));
+          setFc((previous) => previous ? { ...previous, status: 'docs-pending', ...DOC_WORKFLOW_RESET_FIELDS } : previous);
+          setCleanupPending(result.cleanupPending);
+          Alert.alert('서류 삭제 완료', result.cleanupPending ? '서류 상태는 변경되었습니다. 물리 파일 정리가 보류되었습니다. 화면의 파일 정리 재시도로 마무리할 수 있습니다.' : '제출 파일을 삭제하고 서류 상태를 변경했습니다.');
+          await loadData();
+        } catch {
+          if (!isCurrentMutation()) return;
+          Alert.alert('삭제 확인 필요', '삭제 결과를 확인하지 못했습니다. 새로 불러온 상태를 확인하고 다시 시도해 주세요.');
+          await loadData();
+        } finally { if (isCurrentMutation()) { deletingRef.current = false; setDeletingType(null); } }
+      } },
+    ]);
+  };
+
+  const retryCleanup = async () => {
+    if (!fc || deletingRef.current) return;
+    const isCurrentMutation = beginMutation();
+    if (!isCurrentMutation()) return;
+    deletingRef.current = true;
+    setDeletingType('cleanup');
     try {
-      if (storagePath) {
-        await supabase.storage.from(BUCKET).remove([storagePath]);
-      }
-      const { error: dbError } = await supabase
-        .from('fc_documents')
-        .update({ storage_path: 'deleted', file_name: 'deleted.pdf', status: 'pending', reviewer_note: null })
-        .eq('fc_id', fc.id)
-        .eq('doc_type', type);
-      if (dbError) throw dbError;
-
-      const { error: profileError } = await supabase
-        .from('fc_profiles')
-        .update({
-          status: 'docs-pending',
-          ...DOC_WORKFLOW_RESET_FIELDS,
-        })
-        .eq('id', fc.id);
-      if (profileError) throw profileError;
-
-      setDocs((prev) =>
-        prev.map((doc) =>
-          doc.type === type ? { ...doc, uploadedUrl: undefined, storagePath: undefined, originalName: undefined } : doc,
-        ),
-      );
-      setFc((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: 'docs-pending',
-              ...DOC_WORKFLOW_RESET_FIELDS,
-            }
-          : prev,
-      );
-    } catch (err: any) {
-      Alert.alert('오류', err?.message ?? '삭제 실패');
+      const result = await invokeAdminAction<{ cleanupPending: boolean }>(residentId ?? '', isAdmin ? 'retryDocumentCleanup' : 'retryOwnDocumentCleanup', { fcId: fc.id });
+      if (!isCurrentMutation()) return;
+      setCleanupPending(result.cleanupPending);
+      setCleanupStatusError(false);
+      Alert.alert(result.cleanupPending ? '파일 정리 보류' : '파일 정리 완료', result.cleanupPending ? '서류 상태는 이미 변경되었습니다. 연결을 확인한 뒤 파일 정리만 다시 시도해 주세요.' : '삭제한 서류의 물리 파일 정리를 마쳤습니다.');
+    } catch {
+      if (!isCurrentMutation()) return;
+      setCleanupStatusError(true);
+      Alert.alert('파일 정리 확인 필요', '정리 결과를 확인하지 못했습니다. 연결을 확인한 뒤 파일 정리만 다시 시도해 주세요.');
+    } finally {
+      if (isCurrentMutation()) { deletingRef.current = false; setDeletingType(null); }
     }
   };
 
@@ -557,8 +595,17 @@ export default function DocsUploadScreen() {
     }
   };
 
+  if (profileLoadState !== 'success' && !(!!fc)) return (
+    <SafeAreaView style={{ flex: 1 }}><ProfileReadState state={profileLoadState} retained={false} onRetry={() => void loadData()} /></SafeAreaView>
+  );
+
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <ProfileReadState state={profileLoadState} retained={!!fc} onRetry={() => void loadData()} />
+      {cleanupPending || cleanupStatusError ? <Button disabled={!!deletingType} onPress={retryCleanup}>
+        {deletingType === 'cleanup' ? '파일 정리 중' : cleanupStatusError ? '파일 정리 상태 확인·재시도' : '파일 정리 재시도'}
+      </Button> : null}
+
       <NotificationReceiptStatusBanner
         state={notificationReceipt.state}
         onRetry={() => void notificationReceipt.retryMarkRead()}
@@ -754,7 +801,7 @@ export default function DocsUploadScreen() {
                         pressed && !isLocked && !isUploading && styles.pressed,
                       ]}
                       onPress={() => handlePick(doc.type)}
-                      disabled={isUploading || isLocked}
+                      disabled={isUploading || isLocked || !!deletingType || profileLoadState !== 'success'}
                     >
                       {isUploading ? (
                         <BrandedLoadingSpinner size="sm" color={COLORS.primary} />
@@ -772,8 +819,9 @@ export default function DocsUploadScreen() {
                       <Pressable
                         style={({ pressed }) => [styles.iconDanger, pressed && styles.pressed]}
                         onPress={() => handleDelete(doc.type, doc.storagePath)}
-                        disabled={isUploading || isLocked}
+                        disabled={isUploading || isLocked || !!deletingType || profileLoadState !== 'success'}
                       >
+                        {deletingType === doc.type ? <Text>삭제 중</Text> : null}
                         <Feather name="trash-2" size={18} color="#EF4444" />
                       </Pressable>
                     )}

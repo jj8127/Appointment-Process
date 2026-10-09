@@ -1,3 +1,7 @@
+import { useReadAttempt } from '@/lib/use-read-attempt';
+import { useReadSessionScope } from '@/hooks/use-read-session-scope';
+import { ProfileReadState } from '@/components/ProfileReadState';
+import { parseCalendarDate } from '@/lib/calendar-date';
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Stack, useLocalSearchParams } from 'expo-router';
@@ -85,6 +89,11 @@ const resolveFunctionInvokeErrorMessage = async (error: unknown, fallback: strin
 };
 
 export default function HanwhaCommissionScreen() {
+  const scope = useReadSessionScope();
+  return <HanwhaCommissionScreenContent key={scope} />;
+}
+
+function HanwhaCommissionScreenContent() {
   const { role, residentId } = useSession();
   const { notificationId, notificationTarget } = useLocalSearchParams<{
     notificationId?: string;
@@ -107,7 +116,11 @@ export default function HanwhaCommissionScreen() {
     'loading' | 'success' | 'error'
   >('loading');
 
+  const beginRead = useReadAttempt();
   const load = useCallback(async () => {
+    const isCurrentRead = beginRead();
+    if (!isCurrentRead()) return;
+    try {
     if (!residentId) return;
     const cleanPhone = residentId.replace(/[^0-9]/g, '');
     if (!cleanPhone) return;
@@ -121,11 +134,12 @@ export default function HanwhaCommissionScreen() {
       )
       .eq('phone', cleanPhone)
       .maybeSingle();
+      if (!isCurrentRead()) return;
     setLoading(false);
 
-    if (error) {
+    if (error || !data?.id) {
       setProfileLoadState('error');
-      Alert.alert('불러오기 실패', error.message ?? '정보를 불러오지 못했습니다.');
+      Alert.alert('불러오기 실패', error?.message ?? '정보를 불러오지 못했습니다.');
       return;
     }
 
@@ -134,13 +148,15 @@ export default function HanwhaCommissionScreen() {
     setProfileLoadState(nextProfile?.id ? 'success' : 'error');
 
     const approvedDate = nextProfile?.hanwha_commission_date
-      ? new Date(nextProfile.hanwha_commission_date)
+      ? parseCalendarDate(nextProfile.hanwha_commission_date)
       : null;
     const submittedDate = nextProfile?.hanwha_commission_date_sub
-      ? new Date(nextProfile.hanwha_commission_date_sub)
+      ? parseCalendarDate(nextProfile.hanwha_commission_date_sub)
       : null;
     setDisplayDate(approvedDate || submittedDate || null);
-  }, [residentId]);
+
+    } catch { if (isCurrentRead()) { setProfileLoadState('error'); setLoading(false); } }
+  }, [beginRead, residentId]);
 
   useEffect(() => {
     load();
@@ -159,7 +175,7 @@ export default function HanwhaCommissionScreen() {
   });
 
   const submittedDate = useMemo(
-    () => (profile?.hanwha_commission_date_sub ? new Date(profile.hanwha_commission_date_sub) : null),
+    () => (profile?.hanwha_commission_date_sub ? parseCalendarDate(profile.hanwha_commission_date_sub) : null),
     [profile?.hanwha_commission_date_sub],
   );
   const rejectReason = trimString(profile?.hanwha_commission_reject_reason);
@@ -379,8 +395,13 @@ export default function HanwhaCommissionScreen() {
     );
   }
 
+  if (profileLoadState !== 'success' && !(!!profile)) return (
+    <SafeAreaView style={{ flex: 1 }}><ProfileReadState state={profileLoadState} retained={false} onRetry={() => void load()} /></SafeAreaView>
+  );
+
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <ProfileReadState state={profileLoadState} retained={!!profile} onRetry={() => void load()} />
       <NotificationReceiptStatusBanner
         state={notificationReceipt.state}
         onRetry={() => void notificationReceipt.retryMarkRead()}

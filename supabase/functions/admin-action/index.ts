@@ -13,6 +13,7 @@ import {
 import type { NotificationTargetV1 } from '../_shared/notification-target.ts';
 import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
 import { drainMessengerAttachmentCleanup } from '../_shared/messenger-attachment-service.ts';
+import { requireCreationReceipt, requireDocumentReceipt, requireExamDeletionReceipt } from '../_shared/ux-mutation-contract.ts';
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -527,6 +528,34 @@ async function areAllRequestedDocsApproved(fcId: string) {
   return requestedDocs.length > 0 && requestedDocs.every((doc) => doc.status === 'approved');
 }
 
+/** DB commit owns the outcome. Physical files are retryable, bounded post-commit cleanup. */
+async function drainDocumentCleanup(fcId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.from('fc_document_cleanup_queue').select('storage_path').eq('fc_id', fcId).limit(20);
+    if (error) return true;
+    for (const row of data ?? []) {
+      const result = await supabase.storage.from('fc-documents').remove([row.storage_path]);
+      if (!result.error) await supabase.from('fc_document_cleanup_queue').delete().eq('fc_id', fcId).eq('storage_path', row.storage_path);
+    }
+    const { count, error: countError } = await supabase.from('fc_document_cleanup_queue').select('storage_path', { count: 'exact', head: true }).eq('fc_id', fcId);
+    return !!countError || !Number.isSafeInteger(count) || count === null || count < 0 || count > 0;
+  } catch { return true; }
+}
+
+async function assertDocumentCleanupScope(phone: string, role: 'admin' | 'fc', fcId: string) {
+  const { error } = await supabase.rpc('assert_ux_mutation_actor_v1', {
+    p_phone: phone, p_role: role, p_fc_id: fcId,
+  });
+  if (error) throw error;
+}
+
+async function getDocumentCleanupPending(fcId: string): Promise<boolean> {
+  const { count, error } = await supabase.from('fc_document_cleanup_queue')
+    .select('storage_path', { count: 'exact', head: true }).eq('fc_id', fcId);
+  if (error || typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) throw error ?? new Error('cleanup_state_unverified');
+  return count > 0;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -549,7 +578,7 @@ serve(async (req: Request) => {
 
   const normalizedBodyPhone = cleanPhone(adminPhone);
   const allowManagerRead = action === 'getResidentNumbers' || action === 'getInviteeReferralCode';
-  const allowFcSelfProfile = action === 'getOwnProfile' || action === 'updateOwnProfile';
+  const allowFcSelfProfile = action === 'getOwnProfile' || action === 'updateOwnProfile' || action === 'removeOwnDocument' || action === 'retryOwnDocumentCleanup' || action === 'getOwnDocumentCleanupStatus';
   const allowFcRead = action === 'getResidentNumbers' || allowFcSelfProfile;
   const authHeader = req.headers.get('Authorization') ?? '';
   const isServiceCaller = authHeader === `Bearer ${serviceKey}`;
@@ -657,7 +686,7 @@ serve(async (req: Request) => {
       }
 
       const normalized = normalizeFcBasicInformationPatch(payload.patch);
-      if (!normalized.ok) return fail(normalized.message);
+      if (normalized.ok === false) return fail(normalized.message);
 
       const phoneCandidates = buildResidentIds(trustedPhone);
       if (Object.keys(normalized.patch).length === 0) {
@@ -1125,67 +1154,19 @@ serve(async (req: Request) => {
       return json({ ok: true });
     }
 
-    // ── updateDocReqs ──
+    // ── updateDocReqs: one transaction, no success before its committed result ──
     if (action === 'updateDocReqs') {
-      const { fcId, types, deadline, currentDeadline } = payload as {
-        fcId: string;
-        types: string[];
-        deadline?: string | null;
-        currentDeadline?: string | null;
-      };
-      if (!fcId || !Array.isArray(types)) return fail('fcId and types are required');
-
-      const normalizedDeadline = deadline && /^\d{4}-\d{2}-\d{2}$/.test(deadline) ? deadline : null;
-      const shouldResetNotify = normalizedDeadline !== (currentDeadline ?? null);
-
-      const { data: currentDocs, error: fetchErr } = await supabase
-        .from('fc_documents')
-        .select('doc_type,storage_path')
-        .eq('fc_id', fcId);
-      if (fetchErr) throw fetchErr;
-
-      if (types.length === 0) {
-        await supabase.from('fc_documents').delete().eq('fc_id', fcId);
-        await supabase.from('fc_profiles').update({
-          status: 'allowance-consented',
-          docs_deadline_at: null,
-          docs_deadline_last_notified_at: null,
-        }).eq('id', fcId);
-        return json({ ok: true });
-      }
-
-      const currentTypes = (currentDocs ?? []).map((d) => d.doc_type);
-      const toDelete = (currentDocs ?? [])
-        .filter((d) => !types.includes(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'))
-        .map((d) => d.doc_type);
-      const toAdd = types.filter((t) => !currentTypes.includes(t));
-
-      if (toDelete.length) {
-        await supabase.from('fc_documents').delete().eq('fc_id', fcId).in('doc_type', toDelete);
-      }
-      if (toAdd.length) {
-        const rows = toAdd.map((t) => ({
-          fc_id: fcId,
-          doc_type: t,
-          status: 'pending',
-          file_name: '',
-          storage_path: '',
-        }));
-        const { error: insertErr } = await supabase.from('fc_documents').insert(rows);
-        if (insertErr) throw insertErr;
-      }
-
-      const profileUpdate: Record<string, string | null> = {
-        docs_deadline_at: normalizedDeadline,
-      };
-      if (shouldResetNotify) profileUpdate.docs_deadline_last_notified_at = null;
-      const { error: profileError } = await supabase
-        .from('fc_profiles')
-        .update({ status: 'docs-requested', ...profileUpdate })
-        .eq('id', fcId);
-      if (profileError) throw profileError;
-
-      return json({ ok: true });
+      const { fcId, types, deadline } = payload;
+      if (typeof fcId !== 'string' || !Array.isArray(types) || types.some((type) => typeof type !== 'string')) return fail('invalid document request');
+      if (deadline && (typeof deadline !== 'string' || !isCanonicalYmd(deadline))) return fail('invalid document deadline');
+      const { data, error } = await supabase.rpc('update_fc_document_requests_atomic_v1', {
+        p_actor_phone: trustedPhone, p_actor_role: 'admin', p_fc_id: fcId,
+        p_types: types, p_deadline: deadline || null,
+      });
+      if (error) throw error;
+      const receipt = requireDocumentReceipt(data, 'updated');
+      const cleanupPending = await drainDocumentCleanup(fcId);
+      return json({ ok: true, ...receipt, cleanupPending });
     }
 
     // ── updateDocStatus ──
@@ -1232,27 +1213,37 @@ serve(async (req: Request) => {
       return json({ ok: true, allApproved });
     }
 
-    // ── deleteDocFile ──
-    if (action === 'deleteDocFile') {
-      const { fcId, docType, storagePath } = payload as {
-        fcId: string;
-        docType: string;
-        storagePath?: string | null;
-      };
-      if (!fcId || !docType) return fail('fcId and docType are required');
-
-      if (storagePath) {
-        const { error: storageErr } = await supabase.storage.from('fc-documents').remove([storagePath]);
-        if (storageErr) throw storageErr;
-      }
-      const { error } = await supabase
-        .from('fc_documents')
-        .update({ storage_path: 'deleted', file_name: 'deleted.pdf', status: 'pending', reviewer_note: null })
-        .eq('fc_id', fcId)
-        .eq('doc_type', docType);
+    if (['retryDocumentCleanup', 'retryOwnDocumentCleanup', 'getDocumentCleanupStatus', 'getOwnDocumentCleanupStatus'].includes(action)) {
+      const isOwn = action === 'retryOwnDocumentCleanup' || action === 'getOwnDocumentCleanupStatus';
+      const fcId = isOwn ? ownFcId : payload.fcId;
+      if (typeof fcId !== 'string' || !fcId) return fail('document target required');
+      await assertDocumentCleanupScope(trustedPhone, isOwn ? 'fc' : 'admin', fcId);
+      const cleanupPending = action.startsWith('get')
+        ? await getDocumentCleanupPending(fcId) : await drainDocumentCleanup(fcId);
+      return json({ ok: true, cleanupPending });
+    }
+    // Source path and approved-state checks are locked in the DB, not trusted from the UI.
+    if (action === 'deleteDocFile' || action === 'removeOwnDocument') {
+      const fcId = action === 'removeOwnDocument' ? ownFcId : payload.fcId;
+      const { docType, storagePath } = payload;
+      if (!fcId || typeof docType !== 'string') return fail('document target required');
+      const { data, error } = await supabase.rpc('remove_fc_document_atomic_v1', {
+        p_actor_phone: trustedPhone, p_actor_role: action === 'removeOwnDocument' ? 'fc' : 'admin',
+        p_fc_id: fcId, p_doc_type: docType, p_expected_storage_path: storagePath ?? null,
+      });
       if (error) throw error;
-      await syncProfileAfterDocMutation(fcId);
-      return json({ ok: true });
+      const receipt = requireDocumentReceipt(data, 'deleted');
+      const cleanupPending = await drainDocumentCleanup(fcId);
+      return json({ ok: true, ...receipt, cleanupPending });
+    }
+    if (action === 'createNotice') {
+      const { requestId, notice } = payload;
+      if (typeof requestId !== 'string' || !notice || typeof notice !== 'object') return fail('notice request required');
+      const { data, error } = await supabase.rpc('create_notice_idempotent_v1', {
+        p_actor_phone: trustedPhone, p_actor_role: 'admin', p_request_id: requestId, p_notice: notice,
+      });
+      if (error) throw error;
+      return json({ ok: true, notice: requireCreationReceipt(data) });
     }
 
     // ── upsertExamRound ──
@@ -1348,28 +1339,15 @@ serve(async (req: Request) => {
       return json({ ok: true, roundId: targetRoundId });
     }
 
-    // ── deleteExamRound ──
+    // ── deleteExamRound: check, child delete and parent delete share the same transaction ──
     if (action === 'deleteExamRound') {
-      const { roundId } = payload as { roundId: string };
-      if (!roundId) return fail('roundId is required');
-
-      const { count: registrationCount, error: registrationCountError } = await supabase
-        .from('exam_registrations')
-        .select('id', { count: 'exact', head: true })
-        .eq('round_id', roundId);
-      if (registrationCountError) throw registrationCountError;
-      if ((registrationCount ?? 0) > 0) {
-        return fail('Registration-bearing exam rounds cannot be deleted.', 409);
-      }
-      await supabase.from('exam_locations').delete().eq('round_id', roundId);
-
-      const { error: deleteRoundErr } = await supabase
-        .from('exam_rounds')
-        .delete()
-        .eq('id', roundId);
-      if (deleteRoundErr) throw deleteRoundErr;
-
-      return json({ ok: true });
+      const { roundId } = payload;
+      if (typeof roundId !== 'string') return fail('roundId is required');
+      const { data, error } = await supabase.rpc('delete_exam_round_atomic_v1', {
+        p_actor_phone: trustedPhone, p_actor_role: 'admin', p_round_id: roundId,
+      });
+      if (error) throw error;
+      return json({ ok: true, ...requireExamDeletionReceipt(data) });
     }
 
     // ── transitionExamRegistration / legacy deleteExamRegistration ──

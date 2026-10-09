@@ -1,3 +1,4 @@
+import { cleanupFailed } from '@/lib/upstream-response-policy';
 import { NextResponse } from 'next/server';
 
 import { adminSupabase } from '@/lib/admin-supabase';
@@ -44,7 +45,8 @@ function extractChatUploadPath(fileUrl: string): string | null {
 
 async function removeStorageObjects(bucket: string, paths: string[]) {
   if (paths.length === 0) return false;
-  const { error } = await adminSupabase.storage.from(bucket).remove(paths);
+  const failed = await cleanupFailed(() => adminSupabase.storage.from(bucket).remove(paths));
+  const error = failed;
   if (error) {
     logger.warn('[api/fc-delete] post-commit storage cleanup failed', {
       bucket,
@@ -100,6 +102,9 @@ export async function POST(req: Request) {
   }
 
   const result = (data ?? {}) as AccountDeleteResult;
+  if (result.deleted !== true) {
+    return NextResponse.json({ error: '삭제 결과를 확인할 수 없습니다. 목록을 새로고침하여 확인해 주세요.' }, { status: 502 });
+  }
   const proofPaths = readStringArray(result.proof_paths);
   const documentPaths = readStringArray(result.document_paths);
   const boardPaths = readStringArray(result.board_attachment_paths);
@@ -119,21 +124,20 @@ export async function POST(req: Request) {
 
   let authCleanupWarning = false;
   for (const authUserId of authUserIds) {
-    const { error: authError } = await adminSupabase.auth.admin.deleteUser(authUserId);
-    if (authError) authCleanupWarning = true;
+    if (await cleanupFailed(() => adminSupabase.auth.admin.deleteUser(authUserId))) authCleanupWarning = true;
   }
 
   const postCommitCleanupFailed =
     cleanupWarnings.some(Boolean) || authCleanupWarning;
-  const { error: outboxError } = UUID_PATTERN.test(cleanupOutboxId)
-    ? await adminSupabase.rpc('record_account_deletion_cleanup_attempt_v1', {
+  const outboxError = UUID_PATTERN.test(cleanupOutboxId)
+    ? await cleanupFailed(async () => await adminSupabase.rpc('record_account_deletion_cleanup_attempt_v1', {
       p_outbox_id: cleanupOutboxId,
       p_succeeded: !postCommitCleanupFailed,
       p_error_code: postCommitCleanupFailed
         ? 'post_commit_cleanup_partial_failure'
         : null,
-    })
-    : { error: new Error('cleanup_outbox_id_missing') };
+    }))
+    : true;
 
   return NextResponse.json({
     ok: true,

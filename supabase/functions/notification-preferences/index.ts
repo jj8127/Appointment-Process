@@ -223,7 +223,7 @@ async function canAccessRoom(actor: ResolvedActor, rawRoomKey: string) {
     : { ok: false as const, status: 403, code: 'room_forbidden' };
 }
 
-async function bootstrap(actor: ResolvedActor) {
+async function bootstrap(actor: ResolvedActor, writeCommitted = false) {
   const tuple = { actor_id: actor.id, actor_role: actor.role };
   const [globalResult, categoryResult, roomResult] = await Promise.all([
     supabase.from('app_push_preferences').select('enabled').match(tuple).maybeSingle(),
@@ -236,7 +236,7 @@ async function bootstrap(actor: ResolvedActor) {
       .order('updated_at', { ascending: false }),
   ]);
   if (globalResult.error || categoryResult.error || roomResult.error) {
-    return fail('preference_lookup_failed', 500);
+    return writeCommitted ? json({ ok: false, saved: true, code: 'preference_read_failed_after_write' }, 200) : fail('preference_lookup_failed', 500);
   }
   const storedCategories = new Map(
     (categoryResult.data ?? []).map((row) => [row.category, row.enabled !== false]),
@@ -284,7 +284,7 @@ serve(async (req: Request) => {
       enabled: action.enabled,
       updated_at: updatedAt,
     }, { onConflict: 'actor_id,actor_role' });
-    return error ? fail('preference_write_failed', 500) : bootstrap(resolved.actor);
+    return error ? fail('preference_write_failed', 500) : bootstrap(resolved.actor, true);
   }
   if (action.action === 'set_category') {
     const { error } = await supabase.from('app_push_category_preferences').upsert({
@@ -293,7 +293,7 @@ serve(async (req: Request) => {
       enabled: action.enabled,
       updated_at: updatedAt,
     }, { onConflict: 'actor_id,actor_role,category' });
-    return error ? fail('preference_write_failed', 500) : bootstrap(resolved.actor);
+    return error ? fail('preference_write_failed', 500) : bootstrap(resolved.actor, true);
   }
 
   const access = await canAccessRoom(resolved.actor, action.roomKey);
@@ -310,5 +310,5 @@ serve(async (req: Request) => {
         : null,
     p_updated_at: updatedAt,
   });
-  return error ? fail('preference_write_failed', 500) : bootstrap(resolved.actor);
+  return error ? fail('preference_write_failed', 500) : bootstrap(resolved.actor, true);
 });

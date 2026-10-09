@@ -403,6 +403,7 @@ export default function IdentityScreen() {
             </Button>
           </View>
           <DaumPostcode
+            onClose={() => setShowAddressSearch(false)}
             style={{ flex: 1 }}
             jsOptions={{ animation: true }}
             onSelected={(data: any) => {

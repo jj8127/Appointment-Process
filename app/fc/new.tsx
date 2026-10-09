@@ -1,3 +1,6 @@
+import { useReadAttempt } from '@/lib/use-read-attempt';
+import { useReadSessionScope } from '@/hooks/use-read-session-scope';
+import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
 import { Feather } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
@@ -187,6 +190,11 @@ async function sendNotificationAndPush(
 }
 
 export default function FcNewScreen() {
+  const scope = useReadSessionScope();
+  return <FcNewScreenContent key={scope} />;
+}
+
+function FcNewScreenContent() {
   const { from } = useLocalSearchParams<{ from?: string }>();
   const fromParam = Array.isArray(from) ? from[0] : from;
   const queryClient = useQueryClient();
@@ -228,7 +236,7 @@ export default function FcNewScreen() {
   const addressDetailRef = useRef<TextInput>(null);
   const registrationGateAlertShown = useRef(false);
 
-  const { control, handleSubmit, setValue, reset, formState } = useForm<FormValues>({
+  const { control, handleSubmit, setValue, reset, formState, watch } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       affiliation: '',
@@ -243,6 +251,19 @@ export default function FcNewScreen() {
     },
     mode: 'onBlur',
   });
+
+  const draftBaseline = useRef<string | null>(null);
+  const submittingRef = useRef(false);
+  const beginSubmit = useReadAttempt();
+  const draftDirtyRef = useRef(false);
+  const [savedExit, setSavedExit] = useState(false);
+  const draftSignature = JSON.stringify([watch(), emailLocal, emailDomain, customDomain, carrier, selectedAffiliation]);
+  const draftDirty = draftBaseline.current !== null && draftSignature !== draftBaseline.current;
+  draftDirtyRef.current = draftDirty;
+  const allowSavedExit = useDraftExitGuard(draftDirty && !savedExit, submitting && !savedExit);
+  useEffect(() => {
+    if (profileLoadState === 'ready' && draftBaseline.current === null) draftBaseline.current = draftSignature;
+  }, [draftSignature, profileLoadState]);
 
   const updateEmailValue = useCallback((local: string, domain: string, custom: string) => {
     const domainToUse = domain === '직접입력' ? custom : domain;
@@ -274,11 +295,16 @@ export default function FcNewScreen() {
     };
   }, [pendingAddressDetailFocus, showAddressSearch]);
 
+  const beginRead = useReadAttempt();
   const loadExisting = useCallback(async (phone?: string) => {
+    const isCurrentRead = beginRead();
+    if (!isCurrentRead()) return;
     const normalizedKey = normalizePhone(phone ?? phoneFromSession ?? '');
+    if (draftDirtyRef.current) {
+      Alert.alert('작성 내용 유지', '작성 중인 내용이 있어 새로 불러오지 않았습니다. 저장하거나 취소한 뒤 다시 불러와 주세요.');
+      return;
+    }
     setProfileLoadState('loading');
-    setExistingProfile(null);
-    setExistingResidentNumberFull(null);
 
     if (!normalizedKey) {
       setProfileLoadState('error');
@@ -291,6 +317,8 @@ export default function FcNewScreen() {
         'getOwnProfile',
         {},
       );
+      if (!isCurrentRead()) return;
+      if (draftDirtyRef.current) { setProfileLoadState('ready'); return; }
       const profile = result.profile;
 
       if (role === 'fc' && !canOpenFcProfileRegistration(profile)) {
@@ -304,6 +332,7 @@ export default function FcNewScreen() {
 
       const formValues = buildFcBasicInformationFormValues(profile);
       const matchedAffiliation = normalizeAffiliationLabel(formValues.affiliation);
+      draftBaseline.current = null;
       reset({ ...formValues, affiliation: matchedAffiliation });
       setSelectedAffiliation(matchedAffiliation);
       setCarrier(formValues.carrier);
@@ -330,16 +359,19 @@ export default function FcNewScreen() {
         const residentResult = await invokeAdminAction<{
           residentNumbers: Record<string, string | null>;
         }>(normalizedKey, 'getResidentNumbers', { fcIds: [profile.id] });
+        if (!isCurrentRead()) return;
         const full = residentResult.residentNumbers?.[profile.id];
         setExistingResidentNumberFull(typeof full === 'string' && full ? full : null);
       } catch {
+      if (!isCurrentRead()) return;
         logger.warn('[fc/new] resident number unavailable', { reason: 'resident_lookup_failed' });
       }
     } catch {
+      if (!isCurrentRead()) return;
       logger.warn('[fc/new] basic information unavailable', { reason: 'profile_load_failed' });
       setProfileLoadState('error');
     }
-  }, [phoneFromSession, reset, role]);
+  }, [beginRead, phoneFromSession, reset, role]);
 
   useEffect(() => {
     loadExisting();
@@ -350,11 +382,15 @@ export default function FcNewScreen() {
   }, [emailLocal, emailDomain, customDomain, updateEmailValue]);
 
   const onSubmit = async (values: FormValues) => {
+    if (submittingRef.current) return;
     if (profileLoadState !== 'ready' || !existingProfile) {
       Alert.alert('정보 확인 필요', '기본 정보를 다시 불러온 뒤 수정해주세요.');
       return;
     }
 
+    const isCurrentSubmit = beginSubmit();
+    if (!isCurrentSubmit()) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const phoneDigits = normalizePhone(phoneFromSession ?? '');
@@ -420,8 +456,10 @@ export default function FcNewScreen() {
         const { error: identityErr } = await supabase.functions.invoke('store-identity', {
           body: identityPayload,
         });
+        if (!isCurrentSubmit()) return;
         if (identityErr) {
           const rawMessage = await extractFunctionErrorMessage(identityErr, '신원 정보 저장에 실패했습니다.');
+          if (!isCurrentSubmit()) return;
           logger.warn('[fc/new] store-identity failed', { reason: 'identity_save_failed' });
           Alert.alert('저장 실패', mapStoreIdentityErrorMessage(rawMessage));
           return;
@@ -433,6 +471,7 @@ export default function FcNewScreen() {
         'updateOwnProfile',
         { patch },
       );
+      if (!isCurrentSubmit()) return;
       const savedProfile = updateResult.profile;
 
       queryClient.invalidateQueries({ queryKey: ['my-fc-status'] });
@@ -445,21 +484,27 @@ export default function FcNewScreen() {
         savedProfile.id,
       );
       const notificationDelivery = await notifyProfileSaved();
+      if (!isCurrentSubmit()) return;
 
+      allowSavedExit();
+      setSavedExit(true);
+      reset(values);
       loginAs('fc', phoneDigits, values.name, null, false, false, null, appSessionToken);
       presentPostCommitNotificationDelivery({
+        canAct: isCurrentSubmit,
         delivery: notificationDelivery,
         retryNotification: notifyProfileSaved,
         successTitle: '저장 완료',
         successMessage: '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.',
         notificationLabel: '관리자',
-        onDone: () => router.replace('/'),
+        onDone: () => { if (isCurrentSubmit()) router.replace('/'); },
       });
     } catch {
+      if (!isCurrentSubmit()) return;
       logger.warn('[fc/new] basic information save failed', { reason: 'profile_save_failed' });
       Alert.alert('저장 실패', '기본 정보를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
-      setSubmitting(false);
+      if (isCurrentSubmit()) { submittingRef.current = false; setSubmitting(false); }
     }
   };
 
@@ -617,6 +662,7 @@ export default function FcNewScreen() {
               return (
                 <Pressable
                   key={opt}
+                  disabled={submitting}
                   style={[styles.affiliationItem, active && styles.affiliationActive]}
                   onPress={() => {
                     setSelectedAffiliation(opt);
@@ -636,6 +682,7 @@ export default function FcNewScreen() {
             label="이름"
             placeholder="홍길동"
             name="name"
+            editable={!submitting}
             inputRef={nameRef} // Passed ref
             errors={formState.errors}
             returnKeyType="next"
@@ -667,7 +714,7 @@ export default function FcNewScreen() {
                 <Text style={styles.error}>{formState.errors.carrier?.message}</Text>
               ) : null}
             </View>
-            <Pressable style={styles.selectBox} onPress={() => setShowCarrierPicker(true)}>
+            <Pressable disabled={submitting} style={styles.selectBox} onPress={() => setShowCarrierPicker(true)}>
               <TextInput
                 style={[styles.input, styles.inputWithIcon]}
                 placeholder="통신사 선택"
@@ -696,6 +743,7 @@ export default function FcNewScreen() {
             <View style={styles.emailRow}>
               <TextInput
                 ref={emailLocalRef}
+                editable={!submitting}
                 style={[styles.input, styles.emailLocal]}
                 placeholder="이메일 아이디"
                 placeholderTextColor={PLACEHOLDER}
@@ -713,6 +761,7 @@ export default function FcNewScreen() {
                 <View style={styles.emailDomainBox}>
                   <Pressable
                     style={styles.emailDomainSelect}
+                    disabled={submitting}
                     onPress={() => setShowDomainPicker(true)}
                   >
                     <Text
@@ -731,6 +780,7 @@ export default function FcNewScreen() {
                 {emailDomain === '직접입력' ? (
                   <TextInput
                     ref={customDomainRef}
+                    editable={!submitting}
                     style={[styles.input, styles.customDomainInput]}
                     placeholder="직접 입력"
                     placeholderTextColor={PLACEHOLDER}
@@ -777,6 +827,7 @@ export default function FcNewScreen() {
                 render={({ field: { onChange, value } }) => (
                   <TextInput
                     ref={residentFrontRef}
+                    editable={!submitting}
                     style={[styles.input, styles.residentInput]}
                     placeholder="앞 6자리"
                     placeholderTextColor={PLACEHOLDER}
@@ -797,6 +848,7 @@ export default function FcNewScreen() {
                 render={({ field: { onChange, value } }) => (
                   <TextInput
                     ref={residentBackRef}
+                    editable={!submitting}
                     style={[styles.input, styles.residentInput]}
                     placeholder="뒷 7자리"
                     placeholderTextColor={PLACEHOLDER}
@@ -822,11 +874,12 @@ export default function FcNewScreen() {
               ) : null}
             </View>
             <Text style={styles.helperText}>기본 주소는 주소 검색으로 입력해주세요.</Text>
-            <Pressable style={styles.searchButton} onPress={() => setShowAddressSearch(true)}>
+            <Pressable disabled={submitting} style={styles.searchButton} onPress={() => setShowAddressSearch(true)}>
               <Text style={styles.searchButtonText}>주소 검색</Text>
             </Pressable>
             <Pressable
               onPress={() => setShowAddressSearch(true)}
+              disabled={submitting}
               accessibilityRole="button"
               accessibilityLabel="주소 다시 검색"
             >
@@ -858,6 +911,7 @@ export default function FcNewScreen() {
             label="상세주소"
             placeholder="상세주소 입력"
             name="addressDetail"
+            editable={!submitting}
             errors={formState.errors}
             inputRef={addressDetailRef}
             returnKeyType="done"
@@ -968,6 +1022,7 @@ export default function FcNewScreen() {
             </Pressable>
           </View>
           <DaumPostcode
+            onClose={() => setShowAddressSearch(false)}
             style={{ flex: 1 }}
             jsOptions={{ animation: true }}
             onSelected={(data: any) => {

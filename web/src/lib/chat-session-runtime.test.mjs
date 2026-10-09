@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import vm from 'node:vm';
+import * as userIntentPolicy from './user-intent-policy.ts';
 import { createChatRequestGuard } from './chat-request-guard.ts';
 
 const require = createRequire(new URL('../../../package.json', import.meta.url));
@@ -25,6 +26,7 @@ function harness(route = 'dashboard/chat', role = 'admin') {
   const refetch = () => {};
   let chatList = [target("A"), target("B", "room-B")];
   const mocks = {
+    '@/lib/user-intent-policy': userIntentPolicy,
     '@/hooks/use-session': { useSession: () => session },
     'next/navigation': { useSearchParams: () => params, useRouter: () => ({ replace() {}, back() {} }) },
     '@tanstack/react-query': { useQuery: () => ({ data: chatList, refetch }) },
@@ -69,6 +71,7 @@ function harness(route = 'dashboard/chat', role = 'admin') {
     async select(name) { await act(async () => { renderer.root.findAllByType('Box').find((node) => node.props.onClick && node.findAllByType('Text').some((text) => text.props.children === name)).props.onClick(); }); },
     async resolve(type, data, status = 200) { const pending = requests.find((r) => r.type === type && !r.done); assert.ok(pending, type); pending.done = true; await act(async () => pending.resolve(data, status)); return pending; },
     async send(text) { await act(async () => renderer.root.findByType('Textarea').props.onChange({ currentTarget: { value: text } })); await act(async () => { void renderer.root.findAllByType('ActionIcon').find((node) => node.findAllByType('IconSend').length).props.onClick(); }); },
+    async key(text, event) { await act(async () => renderer.root.findByType('Textarea').props.onChange({ currentTarget: { value: text } })); await act(async () => renderer.root.findByType('Textarea').props.onKeyDown(event)); },
     async poll() { await act(async () => { for (const fn of intervals.values()) fn(); }); },
     async account(id) { session = { ...session, residentId: id }; await act(async () => renderer.update(React.createElement(exports.default))); },
     async conversation(id, conversationId) { chatList = chatList.map((row) => row.fc_id === id ? { ...row, conversation_id: conversationId } : row); await act(async () => renderer.update(React.createElement(exports.default))); },
@@ -160,4 +163,14 @@ test('list sequence and revision guard reject out-of-order and pre-mutation snap
   guard.changed(); assert.equal(guard.canApplyList(latest), false);
   const mutation = guard.snapshot(); guard.dispose(); guard.activate();
   assert.equal(guard.isCurrent(mutation), false);
+});
+
+
+test('dashboard Korean IME completion keeps the draft and does not send', async () => {
+  const h = harness(); await h.mount(); await h.select('B');
+  await h.key('한글', { key: 'Enter', shiftKey: false, nativeEvent: { isComposing: true }, preventDefault() { throw new Error('must not consume composition'); } });
+  assert.equal(h.requests.some((row) => row.type === 'direct_message_send'), false);
+  await h.key('한글', { key: 'Enter', shiftKey: false, nativeEvent: { keyCode: 229 }, preventDefault() { throw new Error('must not consume composition'); } });
+  assert.equal(h.requests.some((row) => row.type === 'direct_message_send'), false);
+  await h.close();
 });

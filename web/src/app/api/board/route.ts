@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { isBoardSuccess, parseUpstreamResponse } from '@/lib/upstream-response-policy';
 import { NextResponse } from 'next/server';
 
 import {
@@ -119,20 +120,8 @@ export async function POST(req: Request) {
       },
     );
     const raw = await response.text();
-    let payload: Record<string, unknown>;
-    try {
-      const parsed = raw ? JSON.parse(raw) : null;
-      payload = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : { ok: response.ok };
-    } catch {
-      payload = {
-        ok: false,
-        code: 'invalid_board_response',
-        message: '게시판 요청을 처리하지 못했습니다.',
-      };
-    }
-
+    const payload = parseUpstreamResponse(raw);
+    if (!payload || (response.ok && payload.ok === true && !isBoardSuccess(normalized.functionName, payload))) return json({ ok: false, code: 'invalid_board_response', message: '게시판 처리 결과를 확인하지 못했습니다. 상태를 확인한 뒤 다시 시도해주세요.' }, 502);
     return json(payload, response.status);
   } catch {
     return json({

@@ -69,7 +69,7 @@ export default function SettingsScreen() {
       if (!data?.ok || !data?.deleted) {
         throw new Error(data?.error ?? '계정 삭제에 실패했습니다. 다시 시도해주세요.');
       }
-      Alert.alert('삭제 완료', '계정과 관련 데이터가 삭제되었습니다.');
+      Alert.alert('삭제 완료', '계정 삭제가 완료되었습니다. 일부 대화와 업무 이력은 보존될 수 있습니다.');
       appLogout();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '계정 삭제 중 오류가 발생했습니다.';
@@ -183,7 +183,7 @@ export default function SettingsScreen() {
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>계정 삭제</Text>
-          <Text style={styles.sectionText}>계정을 삭제하면 모든 데이터가 영구적으로 제거됩니다.</Text>
+          <Text style={styles.sectionText}>계정 로그인과 연결된 프로필은 삭제됩니다. 다른 사람이 작성한 대화와 업무 이력 등 일부 기록은 남을 수 있습니다. 삭제 후에는 이 계정으로 로그인할 수 없습니다.</Text>
           <Pressable
             style={[
               styles.deleteButton,
@@ -238,7 +238,7 @@ export default function SettingsScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>계정 삭제</Text>
-            <Text style={styles.modalText}>계정을 삭제하면 모든 데이터가 영구적으로 제거됩니다.</Text>
+            <Text style={styles.modalText}>계정 로그인과 연결된 프로필은 삭제됩니다. 다른 사람이 작성한 대화와 업무 이력 등 일부 기록은 남을 수 있습니다. 삭제 후에는 이 계정으로 로그인할 수 없습니다.</Text>
             <View style={styles.modalButtons}>
               <Pressable
                 style={[styles.modalButton, styles.modalCancel]}

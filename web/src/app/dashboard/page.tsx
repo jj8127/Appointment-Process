@@ -1,5 +1,6 @@
 'use client';
 
+import { requireMutationSuccess } from '@/lib/user-intent-policy';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { QueryReadError } from '@/lib/query-read-error';
 
@@ -458,12 +459,17 @@ export default function DashboardPage() {
   >(null);
   const [rejectSubmitting, setRejectSubmitting] = useState(false);
 
+  const reminderPendingRef = useRef(false);
+  const [reminderPending, setReminderPending] = useState(false);
+
+  const [documentCleanupFcId, setDocumentCleanupFcId] = useState<string | null>(null);
+
   // 확인 모달 상태
   const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure(false);
   const [confirmConfig, setConfirmConfig] = useState<{
     title: string;
     message: string;
-    onConfirm: () => void;
+    onConfirm: () => void | Promise<unknown>;
     confirmLabel?: string;
     color?: string;
   } | null>(null);
@@ -471,7 +477,7 @@ export default function DashboardPage() {
   const showConfirm = (config: {
     title: string;
     message: string;
-    onConfirm: () => void;
+    onConfirm: () => void | Promise<unknown>;
     confirmLabel?: string;
     color?: string;
   }) => {
@@ -479,11 +485,21 @@ export default function DashboardPage() {
     openConfirm();
   };
 
-  const handleConfirm = () => {
-    if (confirmConfig?.onConfirm) {
-      confirmConfig.onConfirm();
+  const [confirmSubmitting, setConfirmSubmitting] = useState(false);
+  const confirmSubmittingRef = useRef(false);
+  const handleConfirm = async () => {
+    if (!confirmConfig || confirmSubmittingRef.current) return;
+    confirmSubmittingRef.current = true;
+    setConfirmSubmitting(true);
+    try {
+      await confirmConfig.onConfirm();
+      closeConfirm();
+    } catch {
+      notifications.show({ title: '처리 결과 확인 필요', message: '요청 결과를 확인하지 못했습니다. 입력은 유지됩니다. 최신 상태를 확인한 뒤 다시 시도해주세요.', color: 'red' });
+    } finally {
+      confirmSubmittingRef.current = false;
+      setConfirmSubmitting(false);
     }
-    closeConfirm();
   };
 
   const updateSelectedFc = (updates: Partial<FCProfileWithDocuments>) => {
@@ -635,6 +651,7 @@ export default function DashboardPage() {
       if (!Array.isArray(data)) {
         throw new Error('FC 목록 응답 형식이 올바르지 않습니다.');
       }
+      requireMutationSuccess(data);
       return data;
     },
     enabled: hydrated && (role === 'admin' || role === 'manager'),
@@ -801,6 +818,7 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '위촉 상태 저장 실패');
       }
+      requireMutationSuccess(data);
       return data;
     },
     onSuccess: (data) => {
@@ -938,9 +956,11 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '업데이트 실패');
       }
+      requireMutationSuccess(data);
       return data;
     },
     onSuccess: (response) => {
+      if (response?.cleanupPending && selectedFc) setDocumentCleanupFcId(selectedFc.id);
       showAdminNotificationWarning(response);
       notifications.show({ title: '요청 완료', message: '서류 목록이 갱신되었습니다.', color: 'blue' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
@@ -983,6 +1003,7 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '상태 업데이트 실패');
       }
+      requireMutationSuccess(data);
       return data;
     },
     onSuccess: (response, variables) => {
@@ -1030,7 +1051,7 @@ export default function DashboardPage() {
       }
 
       // deleted 플래그 확인
-      if ('deleted' in data && !data.deleted) {
+      if (data.ok !== true || data.deleted !== true) {
         logger.warn('[Web][deleteFc] delete returned false', {
           status: resp.status,
           errorCode: 'delete_not_confirmed',
@@ -1044,9 +1065,11 @@ export default function DashboardPage() {
         status: resp.status,
         deletedCount: 1,
       });
+      requireMutationSuccess(data);
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data?.cleanupWarning) notifications.show({ title: '파일 정리 확인 필요', message: 'FC 삭제는 완료됐습니다. 일부 파일 정리가 남아 있습니다. 삭제 요청을 반복하지 마세요.', color: 'yellow' });
       logger.debug('[Web][deleteFc] onSuccess', { deletedCount: 1 });
       notifications.show({ title: '삭제 완료', message: 'FC 정보가 삭제되었습니다.', color: 'gray' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
@@ -1416,6 +1439,33 @@ export default function DashboardPage() {
 
   const handleApproveHanwha = () => triggerHanwhaPdfUpload();
 
+  const documentCleanupStatus = useQuery({
+    queryKey: ['document-cleanup-status', selectedFc?.id],
+    enabled: Boolean(selectedFc?.id) && !isReadOnly,
+    queryFn: async () => {
+      const response = await fetch('/api/admin/fc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'getDocumentCleanupStatus', payload: { fcId: selectedFc!.id } }) });
+      const data = await response.json();
+      if (!response.ok || data?.ok !== true || typeof data.cleanupPending !== 'boolean') throw new QueryReadError(response.status);
+      return data as { cleanupPending: boolean };
+    },
+  });
+
+  const retryDocumentCleanupMutation = useMutation({
+    mutationFn: async (fcId: string) => {
+      const response = await fetch('/api/admin/fc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'retryDocumentCleanup', payload: { fcId } }) });
+      const data: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new Error('파일 정리 결과를 확인하지 못했습니다.');
+      requireMutationSuccess(data);
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['document-cleanup-status'] });
+      if (!data.cleanupPending) setDocumentCleanupFcId(null);
+      else showAdminNotificationWarning(data);
+    },
+    onError: () => notifications.show({ title: '파일 정리 확인 필요', message: '업무 변경은 완료됐습니다. 파일 정리만 다시 시도해주세요.', color: 'yellow' }),
+  });
+
   const handleDeleteDocFile = async (doc: FCDocument) => {
     if (!selectedFc) return;
     if (doc?.status === 'approved') {
@@ -1451,6 +1501,9 @@ export default function DashboardPage() {
             throw new Error(message || '파일 삭제 중 오류가 발생했습니다.');
           }
 
+          requireMutationSuccess(data);
+          showAdminNotificationWarning(data);
+          if (data.cleanupPending) setDocumentCleanupFcId(selectedFc.id);
           setSelectedFc((prev: FCProfileWithDocuments | null) =>
             prev
               ? {
@@ -1518,6 +1571,7 @@ export default function DashboardPage() {
 
     const executeTransition = () => {
       startAppointmentTransition(async () => {
+        try {
         const result = await updateAppointmentAction(
           { success: false },
           {
@@ -1554,6 +1608,9 @@ export default function DashboardPage() {
           }
         } else {
           notifications.show({ title: '오류', message: result.error, color: 'red' });
+        }
+        } catch {
+          notifications.show({ title: '처리 결과 확인 필요', message: '서버 응답을 확인할 수 없습니다. 목록을 새로고침하여 상태를 확인해 주세요.', color: 'red' });
         }
       });
     };
@@ -2258,6 +2315,11 @@ export default function DashboardPage() {
       >
         {selectedFc && (
           <>
+            {documentCleanupStatus.isError && !isReadOnly ? <QueryErrorAlert error={documentCleanupStatus.error} onRetry={() => documentCleanupStatus.refetch()} subject="파일 정리 상태" /> : null}
+            {(documentCleanupFcId === selectedFc.id || documentCleanupStatus.data?.cleanupPending) ? <Alert color="yellow" mb="md" title="일부 파일 정리가 남아 있습니다">
+              서류 변경은 완료됐습니다. 삭제나 요청 변경을 반복하지 마세요.
+              <Button size="xs" mt="xs" disabled={isReadOnly} loading={retryDocumentCleanupMutation.isPending} onClick={() => retryDocumentCleanupMutation.mutate(selectedFc.id)}>파일 정리만 다시 시도</Button>
+            </Alert> : null}
             <Group mb="xl" align="flex-start">
               <Avatar size="lg" color="orange" radius="xl">
                 {selectedFc.name?.slice(0, 1) || '?'}
@@ -2611,8 +2673,12 @@ export default function DashboardPage() {
                       variant="light"
                       color={isReadOnly ? "gray" : "orange"}
                       leftSection={<IconSend size={16} />}
-                      disabled={isReadOnly}
+                      loading={reminderPending} disabled={isReadOnly || reminderPending}
                       onClick={async () => {
+                        if (reminderPendingRef.current) return;
+                        reminderPendingRef.current = true;
+                        setReminderPending(true);
+                        try {
                         // Resolve the current notification recipient from the stable FC id on the server.
                         const notificationResult = await sendPushNotificationForFc(selectedFc.id, {
                           title: '진행 요청',
@@ -2660,6 +2726,9 @@ export default function DashboardPage() {
                           message: '알림을 보냈습니다.',
                           color: 'blue',
                         });
+                        } catch {
+                          notifications.show({ title: '알림 결과 확인 필요', message: '전송 결과를 확인하지 못했습니다. 잠시 후 알림 상태를 확인해주세요.', color: 'red' });
+                        } finally { reminderPendingRef.current = false; setReminderPending(false); }
                       }}
                     >
                       재촉 알림
@@ -3290,7 +3359,7 @@ export default function DashboardPage() {
       {/* 확인 모달 */}
       <Modal
         opened={confirmOpened}
-        onClose={closeConfirm}
+        onClose={() => { if (!confirmSubmitting) closeConfirm(); }}
         title={<Text fw={700}>{confirmConfig?.title}</Text>}
         size="sm"
         padding="lg"
@@ -3301,12 +3370,12 @@ export default function DashboardPage() {
         <Stack gap="md">
           <Text size="sm">{confirmConfig?.message}</Text>
           <Group justify="flex-end">
-            <Button variant="default" onClick={closeConfirm}>
+            <Button variant="default" disabled={confirmSubmitting} onClick={closeConfirm}>
               취소
             </Button>
             <Button
               color={confirmConfig?.color || 'blue'}
-              onClick={handleConfirm}
+              loading={confirmSubmitting} onClick={() => void handleConfirm()}
             >
               {confirmConfig?.confirmLabel || '확인'}
             </Button>

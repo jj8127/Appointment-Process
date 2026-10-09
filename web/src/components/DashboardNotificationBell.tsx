@@ -1,5 +1,9 @@
 'use client';
 
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { QueryReadError } from '@/lib/query-read-error';
+import { notifications } from '@mantine/notifications';
+
 import type { StaffType } from '@/lib/staff-identity';
 import { parseNotificationTargetV1, type NotificationTargetV1 } from '@/lib/notification-target';
 import { redactSensitiveText } from '@/lib/sensitive-text';
@@ -110,7 +114,7 @@ async function invokeInbox(body: Record<string, unknown>) {
   });
   const payload = (await response.json().catch(() => null)) as InboxProxyResponse | null;
   if (!response.ok || !payload?.ok || !payload.data?.ok) {
-    throw new Error(payload?.error ?? payload?.data?.message ?? '알림을 불러오지 못했습니다.');
+    throw new QueryReadError(response.status);
   }
   return payload.data;
 }
@@ -129,7 +133,7 @@ export function DashboardNotificationBell({
   );
   const isPersonalAdminInbox = role === 'manager' || staffType === 'developer';
 
-  const { data: items = [], isLoading, isRefetching, refetch } = useQuery({
+  const { data: items = [], isLoading, isRefetching, error: inboxError, isSuccess, refetch } = useQuery({
     queryKey,
     refetchInterval: 30_000,
     queryFn: async (): Promise<HeaderNotificationItem[]> => {
@@ -165,6 +169,7 @@ export function DashboardNotificationBell({
       if (ids.length === 0) return;
       await invokeInbox({ type: 'inbox_mark_read', notification_ids: ids });
     },
+    onError: () => notifications.show({ title: '읽음 처리 실패', message: '알림을 읽음으로 저장하지 못했습니다. 다시 시도해주세요.', color: 'red' }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey });
     },
@@ -188,8 +193,8 @@ export function DashboardNotificationBell({
     <Menu opened={opened} onChange={setOpened} shadow="md" width={420} position="bottom-end" withinPortal>
       <Menu.Target>
         <Indicator
-          disabled={unreadCount === 0}
-          label={unreadCount > 99 ? '99+' : unreadCount}
+          disabled={unreadCount === 0 && !inboxError}
+          label={inboxError ? '?' : unreadCount > 99 ? '99+' : unreadCount}
           size={18}
           color="red"
           offset={5}
@@ -219,7 +224,7 @@ export function DashboardNotificationBell({
                 size="compact-xs"
                 color="gray"
                 loading={markAllMutation.isPending}
-                disabled={unreadCount === 0}
+                disabled={unreadCount === 0 || Boolean(inboxError) || !isSuccess}
                 onClick={() => markAllMutation.mutate(unreadIds)}
               >
                 모두 읽음
@@ -229,9 +234,10 @@ export function DashboardNotificationBell({
         </Box>
         <Divider />
 
+        {inboxError ? <Box p="sm"><QueryErrorAlert error={inboxError} onRetry={refetch} isFetching={isRefetching} hasData={items.length > 0} subject="알림" /></Box> : null}
         {isLoading ? (
           <Group justify="center" py="xl"><Loader size="sm" color="orange" /></Group>
-        ) : items.length === 0 ? (
+        ) : items.length === 0 && isSuccess && !inboxError ? (
           <Box px="md" py="xl">
             <Text size="sm" c="dimmed" ta="center">새로운 알림이 없습니다.</Text>
           </Box>

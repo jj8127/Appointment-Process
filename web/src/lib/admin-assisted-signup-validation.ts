@@ -122,7 +122,7 @@ export const adminAssistedSignupSchema = z.object({
     context.addIssue({
       code: 'custom',
       path: ['consentObtainedOn'],
-      message: '서면 확인일은 오늘부터 90일 이내의 날짜여야 합니다.',
+      message: '서면 확인일은 오늘을 포함한 최근 90일 이내의 과거 날짜의 날짜여야 합니다.',
     });
   }
 });

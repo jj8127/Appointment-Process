@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import vm from 'node:vm';
+import * as userIntentPolicy from './user-intent-policy.ts';
 import * as editDetail from './board-edit-detail.ts';
 import * as queryError from './query-read-error.ts';
 import * as commentRequest from './board-comment-request.ts';
@@ -634,6 +635,7 @@ for (const [path, emptyText, subject] of [
 test('dashboard failed FC reads do not display empty-list text or invented zero KPIs', async () => {
   const page = simplePage('../app/dashboard/page.tsx', {
     ...commonListMocks,
+    '@/lib/user-intent-policy': userIntentPolicy,
     '@/hooks/use-resident-number': { useResidentNumber: () => ({}) },
     '@/hooks/use-visible-page-resident-numbers': { useVisiblePageResidentNumbers: () => new Map() },
     '@/lib/admin-file-open': {},

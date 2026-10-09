@@ -100,3 +100,7 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 
 - [../data/referral-schema-and-admin-rpcs.md](../data/referral-schema-and-admin-rpcs.md)
 - [../backend/admin-operations-api.md](../backend/admin-operations-api.md)
+
+## 2026-10-09 Local schedule and allowance accuracy
+
+Admin round deletion now follows the shared service-only atomic RPC and protects every registration-bearing round, with safe notification/result feedback and pending controls. TBD schedule display retains the stored month. Allowance UI and exports use the explicitly selected statement's performance month/payment date rather than an assumed June label. Local checks do not establish operator/browser/production acceptance.

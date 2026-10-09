@@ -168,3 +168,7 @@ Home and home-lite delegate navigation to focused `useAppLogout` after local ses
 - FC의 정보 제출·서류 등록·위촉 입력이 저장되면 화면에는 해당 업무의 정상 성공 피드백만 표시한다.
 - 후속 inbox/push 전달 미확인은 저장 성공을 경고 상태로 바꾸지 않으며, `notification_delivery_incomplete` 같은 진단 코드와 개인정보 없는 개발 로그로만 남긴다.
 - 첨부 업로드처럼 사용자가 직접 요청한 핵심 작업 자체가 실패한 경우의 재시도 안내는 계속 표시한다.
+
+## 2026-10-09 Local read and draft preservation
+
+Document, consent and commission pages block initial unknown data from becoming zero progress or a pending business state. A failed refresh keeps last confirmed approval/profile data with retry feedback; session/route keys and read-attempt ownership reject late responses. Basic-information refresh preserves dirty values and ordinary exit requires a discard decision. Calendar-only selection keeps the saved YMD in each timezone. Document deletion now confirms the downstream reset and uses the transactional/cleanup contract in `shared-ui-action-contracts.md`; device acceptance and migration activation remain separate.

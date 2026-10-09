@@ -1,3 +1,4 @@
+import { cleanupFailed } from '@/lib/upstream-response-policy';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { checkRateLimit, SECURITY_HEADERS } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
@@ -319,7 +320,7 @@ async function getNoticeById(id: string): Promise<NoticeRow | null> {
   return notice ? sanitizeNoticeRow(notice) : null;
 }
 
-async function deleteBoardNoticeByPostId(postId: string): Promise<void> {
+async function deleteBoardNoticeByPostId(postId: string): Promise<boolean> {
   const attachments = await getBoardAttachmentsByPostId(postId);
   const storagePaths = attachments
     .map((row) => row.storage_path)
@@ -332,18 +333,7 @@ async function deleteBoardNoticeByPostId(postId: string): Promise<void> {
 
   if (postDeleteError) throw postDeleteError;
 
-  if (storagePaths.length > 0) {
-    const { error: storageError } = await adminSupabase.storage
-      .from(BOARD_ATTACHMENT_BUCKET)
-      .remove(storagePaths);
-    if (storageError) {
-      logger.warn('[api/admin/notices] board attachment cleanup failed', {
-        postId,
-        count: storagePaths.length,
-        message: storageError.message,
-      });
-    }
-  }
+  return storagePaths.length > 0 ? cleanupFailed(() => adminSupabase.storage.from(BOARD_ATTACHMENT_BUCKET).remove(storagePaths)) : false;
 }
 
 export async function GET(req: Request) {
@@ -496,8 +486,9 @@ export async function DELETE(req: Request) {
       }
     }
 
+    let cleanupWarning = false;
     if (boardPostId) {
-      await deleteBoardNoticeByPostId(boardPostId);
+      cleanupWarning = await deleteBoardNoticeByPostId(boardPostId);
     } else {
       const { error } = await adminSupabase.from('notices').delete().eq('id', id);
       if (error) {
@@ -505,7 +496,7 @@ export async function DELETE(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true }, { headers: SECURITY_HEADERS });
+    return NextResponse.json({ ok: true, cleanupWarning }, { headers: SECURITY_HEADERS });
   } catch (err: unknown) {
     const error = err as Error;
     logger.error('[api/admin/notices][DELETE] failed', error);

@@ -83,6 +83,7 @@ export default function SettingsPage() {
         ok?: boolean;
         deleted?: boolean;
         code?: string;
+        cleanupWarning?: boolean;
       } | null;
       if (!response.ok) {
         throw new Error('계정 삭제 요청에 실패했습니다.');
@@ -93,8 +94,8 @@ export default function SettingsPage() {
 
       notifications.show({
         title: '계정 삭제 완료',
-        message: '계정과 관련 데이터가 삭제되었습니다.',
-        color: 'green',
+        message: data.cleanupWarning ? '계정 삭제는 완료됐습니다. 일부 파일 정리가 남아 있습니다. 계정 삭제를 다시 요청하지 마세요.' : '계정 삭제가 완료되었습니다. 법적 보존 대상은 안내된 정책에 따라 보관됩니다.',
+        color: data.cleanupWarning ? 'yellow' : 'green',
       });
       setOpened(false);
       logout();

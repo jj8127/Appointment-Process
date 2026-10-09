@@ -309,31 +309,14 @@ export async function deleteExamRoundAction(
     }
     const { roundId } = parsedInput.value;
 
-        try {
-            logger.info('[deleteExamRound] Starting deletion', { roundId });
-
-            // One database statement keeps the destructive operation atomic. The
-            // schema cascades locations and registrations from the deleted round.
-            const { error: roundError, count: roundCount } = await adminSupabase
-                .from('exam_rounds')
-                .delete({ count: 'exact' })
-            .eq('id', roundId);
-        if (roundError) throw roundError;
-        logger.info('[deleteExamRound] Deleted round', { roundId, count: roundCount });
-
-        // 검증: 시험 회차가 실제로 삭제되었는지 확인
-        if (roundCount === 0) {
-            logger.warn('[deleteExamRound] No round deleted', { roundId });
-            return { success: false, error: '시험 회차를 찾을 수 없습니다.' };
-        }
-
-            logger.info('[deleteExamRound] Deletion completed', {
-                roundId,
-                deletedRounds: roundCount
-            });
-
+    try {
+        const { data, error } = await adminSupabase.rpc('delete_exam_round_atomic_v1', {
+            p_actor_phone: sessionCheck.session.residentDigits, p_actor_role: sessionCheck.session.role, p_round_id: roundId,
+        });
+        if (error) throw error;
+        if (!data || data.deleted !== true) return { success: false, error: '시험 회차 삭제 결과를 확인하지 못했습니다.' };
         return { success: true, message: '삭제 완료' };
     } catch (err: unknown) {
-        return { success: false, error: errorMessage(err, '삭제 중 오류가 발생했습니다.') };
+        return { success: false, error: readErrorCode(err) === 'PGRST202' ? '시험 일정 삭제 기능이 아직 준비되지 않았습니다.' : readErrorCode(err) === '23503' ? '신청자가 있는 회차는 삭제할 수 없습니다. 신청 이력을 보존해주세요.' : '삭제 결과를 확인하지 못했습니다. 일정 목록을 새로 불러와 확인해주세요.' };
     }
 }

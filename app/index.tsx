@@ -50,7 +50,7 @@ import { logger } from '@/lib/logger';
 import { formatHomeCount } from '@/lib/home-read-state';
 import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
 import { createHomeRealtimeChannelTopic } from '@/lib/home-realtime-channel';
-import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
+import { fetchMobileUnreadNotificationCountOrThrow } from '@/lib/mobile-unread-notification-count';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
 import { resolveHomeLatestNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
@@ -352,7 +352,7 @@ const fetchExamStats = async (): Promise<ExamStats> => {
         : 'exam_rounds!inner(exam_type)';
       const { data, error } = await supabase
         .from('exam_registrations')
-        .select(`resident_id, is_confirmed, created_at, ${relation}`)
+        .select(`resident_id, is_confirmed, status, created_at, ${relation}`)
         .order('resident_id', { ascending: true })
         .order('created_at', { ascending: true });
 
@@ -375,15 +375,15 @@ const fetchExamStats = async (): Promise<ExamStats> => {
           });
         }
 
-        const latestByResident = new Map<string, boolean>();
+        const latestByResident = new Map<string, { confirmed: boolean; status: string }>();
         rows.forEach((row: any) => {
           const residentId = row.resident_id;
           if (!residentId || !existingResidents.has(residentId)) return;
-          latestByResident.set(residentId, Boolean(row.is_confirmed));
+          latestByResident.set(residentId, { confirmed: Boolean(row.is_confirmed), status: String(row.status ?? 'applied') });
         });
 
         const total = latestByResident.size;
-        const pending = Array.from(latestByResident.values()).filter((v) => !v).length;
+        const pending = Array.from(latestByResident.values()).filter((v) => !v.confirmed && !['cancelled', 'rejected'].includes(v.status)).length;
         return { total, pending };
       }
 
@@ -962,11 +962,12 @@ export default function Home() {
   const {
     data: unreadNotifCount = 0,
     refetch: refetchNotifCount,
-    isFetched: hasFetchedUnreadNotifCount,
+    isSuccess: hasFetchedUnreadNotifCount,
+    isError: unreadNotifError,
   } = useQuery({
     queryKey: ['unread-notif-count', role, notificationInboxResidentId, requestBoardRole],
     queryFn: () =>
-      fetchMobileUnreadNotificationCount({
+      fetchMobileUnreadNotificationCountOrThrow({
         role,
         residentId: notificationInboxResidentId,
         requestBoardRole,
@@ -975,7 +976,7 @@ export default function Home() {
   });
 
   useEffect(() => {
-    if (!hasFetchedUnreadNotifCount) {
+    if (!hasFetchedUnreadNotifCount || unreadNotifError) {
       return;
     }
 
@@ -983,7 +984,7 @@ export default function Home() {
       context: 'home-unread-count',
       dismissPresentedWhenZero: true,
     });
-  }, [hasFetchedUnreadNotifCount, unreadNotifCount]);
+  }, [hasFetchedUnreadNotifCount, unreadNotifCount, unreadNotifError]);
 
   // Refresh home badges and FC progress when returning to the screen.
   useFocusEffect(
@@ -1231,7 +1232,7 @@ export default function Home() {
             title={homeHeaderTitle}
             onLogout={handleLogout}
             onOpenNotifications={() => router.push('/notifications')}
-            notificationCount={unreadNotifCount}
+            notificationCount={hasFetchedUnreadNotifCount && !unreadNotifError ? unreadNotifCount : undefined}
           />
 
           {role === 'admin' && (

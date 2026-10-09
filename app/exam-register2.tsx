@@ -1,3 +1,4 @@
+import { formatExamCalendarDate } from '@/lib/calendar-date';
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -550,6 +551,7 @@ export default function ExamRegisterScreen() {
     },
   });
 
+  const deletingRoundRef = useRef(false);
   const deleteRound = useMutation({
     mutationFn: async (id: string) => {
       assertCanEdit();
@@ -559,6 +561,7 @@ export default function ExamRegisterScreen() {
       refetch();
     },
     onSettled: (_data, error) => {
+      deletingRoundRef.current = false;
       if (error) {
         const message = error instanceof Error ? error.message : '삭제 중 오류가 발생했습니다.';
         Alert.alert('삭제 실패', message);
@@ -572,7 +575,11 @@ export default function ExamRegisterScreen() {
       '해당 시험 일정과 지역 목록이 모두 삭제됩니다. 계속하시겠습니까?',
       [
         { text: '취소', style: 'cancel' },
-        { text: '삭제', style: 'destructive', onPress: () => deleteRound.mutate(id) },
+        { text: '삭제', style: 'destructive', onPress: () => {
+          if (deletingRoundRef.current) return;
+          deletingRoundRef.current = true;
+          deleteRound.mutate(id);
+        } },
       ],
     );
   };
@@ -691,7 +698,7 @@ export default function ExamRegisterScreen() {
                       {/* 내용 */}
                       <View style={styles.roundContent}>
                         <Text style={[styles.roundTitle, isSelected && styles.roundTitleActive]}>
-                          {formatDate(round.exam_date)}
+                          {formatExamCalendarDate(round.exam_date, round.exam_month)}
                           {round.round_label ? (
                             <Text style={styles.roundLabelInline}> · {round.round_label}</Text>
                           ) : null}
@@ -729,7 +736,7 @@ export default function ExamRegisterScreen() {
                         </Pressable>
                         <Pressable
                           onPress={() => handleDeleteRound(round.id)}
-                          disabled={!canEdit}
+                          disabled={!canEdit || deleteRound.isPending}
                           style={({ pressed }) => [
                             styles.actionBtn,
                             styles.deleteActionBtn,
@@ -739,7 +746,7 @@ export default function ExamRegisterScreen() {
                         >
                           <Feather name="trash-2" size={12} color={canEdit ? '#b91c1c' : '#9CA3AF'} />
                           <Text style={[styles.actionBtnText, styles.deleteBtnText, !canEdit && styles.badgeTextDisabled]}>
-                            삭제
+                            {deleteRound.isPending && deleteRound.variables === round.id ? '삭제 중' : '삭제'}
                           </Text>
                         </Pressable>
                       </View>
@@ -766,7 +773,7 @@ export default function ExamRegisterScreen() {
                     <View style={[styles.formModeDot, isEditMode && styles.formModeDotEdit]} />
                     <Text style={styles.formModeLabel}>
                       {isEditMode
-                        ? `수정 중: ${formatDate(selectedRound?.exam_date ?? '')}${selectedRound?.round_label ? ` · ${selectedRound.round_label}` : ''}`
+                        ? `수정 중: ${formatExamCalendarDate(selectedRound?.exam_date, selectedRound?.exam_month)}${selectedRound?.round_label ? ` · ${selectedRound.round_label}` : ''}`
                         : '새 시험 일정 등록'}
                     </Text>
                   </View>

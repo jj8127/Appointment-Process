@@ -1,5 +1,6 @@
 'use client';
 
+import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { useSession } from '@/hooks/use-session';
 import {
     ActionIcon,
@@ -490,6 +491,7 @@ export default function ExamApplicantsPage() {
         );
     }, [baseFilteredRows, filters.is_confirmed]);
 
+    // A failed background read retains the last-good counts with an explicit label.
     // --- Stats ---
     const stats = useMemo(() => {
         const total = baseFilteredRows.length;
@@ -541,6 +543,7 @@ export default function ExamApplicantsPage() {
                         : '시험 신청 상태 변경에 실패했습니다.';
                 throw new Error(message);
             }
+            showAdminNotificationWarning(json);
             return { item, isConfirmed, nextStatus };
         },
         onSuccess: ({ item, isConfirmed, nextStatus }) => {
@@ -583,6 +586,7 @@ export default function ExamApplicantsPage() {
                         : '시험 신청 반려에 실패했습니다.',
                 );
             }
+            showAdminNotificationWarning(json);
             return item;
         },
         onSuccess: (item) => {
@@ -633,6 +637,7 @@ export default function ExamApplicantsPage() {
                 throw new Error(message);
             }
 
+            showAdminNotificationWarning(json);
             return item;
         },
         onSuccess: (item) => {
@@ -939,6 +944,7 @@ export default function ExamApplicantsPage() {
                         kind="round"
                     />
                 </Group>
+                {applicantsError && applicants ? <Text size="sm" c="orange">통계는 이전 조회 자료입니다. 최신 결과를 다시 확인해주세요.</Text> : null}
                 <Group grow align="stretch">
                     <Paper
                         component="button"
@@ -957,7 +963,7 @@ export default function ExamApplicantsPage() {
                             <Text size="xs" c="dimmed" fw={700} tt="uppercase">총 신청자 (현재 필터)</Text>
                             {!selectedReceptionStatus && <Badge size="xs" variant="light" color="gray">전체 보기</Badge>}
                         </Group>
-                        <Text fw={700} size="xl" mt="xs">{stats.total}명</Text>
+                        <Text fw={700} size="xl" mt="xs" title={applicantsError ? '이전 조회 자료' : undefined}>{applicants ? `${stats.total}명` : isLoading ? '조회 중' : '확인 불가'}</Text>
                     </Paper>
                     <Paper
                         component="button"
@@ -976,7 +982,7 @@ export default function ExamApplicantsPage() {
                             <Text size="xs" c="orange" fw={700} tt="uppercase">접수 완료</Text>
                             {selectedReceptionStatus === '접수 완료' && <Badge size="xs" color="orange">선택됨</Badge>}
                         </Group>
-                        <Text fw={700} size="xl" mt="xs" c="orange">{stats.confirmed}명</Text>
+                        <Text fw={700} size="xl" mt="xs" c="orange">{applicants ? `${stats.confirmed}명` : isLoading ? '조회 중' : '확인 불가'}</Text>
                     </Paper>
                     <Paper
                         component="button"
@@ -995,7 +1001,7 @@ export default function ExamApplicantsPage() {
                             <Text size="xs" c="dimmed" fw={700} tt="uppercase">미접수</Text>
                             {selectedReceptionStatus === '미접수' && <Badge size="xs" variant="filled" color="dark">선택됨</Badge>}
                         </Group>
-                        <Text fw={700} size="xl" mt="xs">{stats.pending}명</Text>
+                        <Text fw={700} size="xl" mt="xs" title={applicantsError ? '이전 조회 자료' : undefined}>{applicants ? `${stats.pending}명` : isLoading ? '조회 중' : '확인 불가'}</Text>
                     </Paper>
                 </Group>
 

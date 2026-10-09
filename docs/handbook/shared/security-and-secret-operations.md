@@ -217,3 +217,7 @@ source_of_truth: env contracts + reset-password functions + assisted-password fu
 ## 2026-10-02 Follow-up verification boundary
 
 The user-designated SMS account was reset only after explicit approval, then GaramLink login was checked before GaramIn login to avoid masking reset-sync failure with login-time sync. Evidence stores only outcome metadata. Administrator QA login succeeded; physical-device exam re-entry remains unverified. Sentry post-release GETs returned zero observed issues without a traffic denominator; Play Reporting remains disabled. Local ErrorBoundary reporting now records one Sentry exception with the original component stack; its console warning does not capture a second exception.
+
+## 2026-10-09 Local privileged mutation boundary
+
+The new UX mutation RPCs, creation receipts and document cleanup queue remain service-only with RLS enabled and PUBLIC/anon/authenticated access revoked. Signed Edge/web sessions supply actor identity; current active administrator or completed non-shadow own-FC facts are rechecked, including before FC cleanup reads/retries. Account-phone comparisons normalize punctuation. Cleanup status returns no raw paths or rows. Tests use synthetic loopback databases and no real login, storage, notifications or production records. These local changes require separately authorized migration and caller rollout.

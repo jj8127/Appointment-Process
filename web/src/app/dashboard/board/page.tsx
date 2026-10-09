@@ -412,6 +412,7 @@ function BoardContent() {
     open();
   };
   const handleCloseComposer = (force = false) => {
+    if (!force && (createPostMutation.isPending || updatePostMutation.isPending)) return;
     if (pendingAttachmentRetry && !force) {
       notifications.show({
         title: '첨부 재시도 필요',
@@ -420,6 +421,8 @@ function BoardContent() {
       });
       return;
     }
+    if (!force && (newPost.title.trim() || newPost.content.trim() || attachments.length > 0 || editingPostId)
+      && !window.confirm('작성 중인 내용과 첨부를 버릴까요?')) return;
     close();
     setPendingAttachmentRetry(null);
     setEditingPostId(null);

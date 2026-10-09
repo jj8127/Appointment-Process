@@ -37,3 +37,7 @@ source_of_truth: supabase/schema.sql + supabase/functions/board-attachment-* + m
 - CSV/Excel export는 활성 admin/manager 요청 시에만 현재 `attached` row의 opaque path와 30일 signed URL을 발급한다. 이 URL은 전달받은 브라우저의 admin web 세션 없이 열리므로 bearer capability로 취급하며, 영구 public URL로 바꾸거나 DB·로그에 저장하지 않는다.
 - 신규 앱 저장은 `payment_proof_policy_version=1`과 `payment_proof_attached=true`를 함께 기록한다. 기존 row와 구버전 앱 호환을 위해 additive migration의 기본 version은 0이며, 전환 완료 후 별도 강화 migration으로 기본값과 차단 정책을 올린다.
 - 신청 취소는 DB row를 먼저 삭제한 뒤 현재 proof object를 best effort로 제거한다. 제거 실패는 고정 진단 이벤트만 남기고 별도 운영 정리 대상으로 분류한다.
+
+## 2026-10-09 Prepared document cleanup recovery
+
+Document state and profile reset commit with a durable `fc_document_cleanup_queue` entry, including any commission PDF whose metadata is reset. Bounded post-commit cleanup treats storage failure, queue deletion failure and unknown confirmation counts as pending. Re-entry status and cleanup-only retry stay reachable from mobile and admin web. Queue paths are never returned to clients; FC queue access is mediated by own-scope Edge actions and current database actor validation. Real Storage behavior and rollout remain gates; SQL/local mocks do not establish real object deletion.

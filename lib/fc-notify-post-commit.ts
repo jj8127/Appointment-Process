@@ -16,12 +16,15 @@ export type PresentPostCommitNotificationInput =
     delivery: FcNotifyDeliveryResult;
     retryNotification: () => Promise<FcNotifyDeliveryResult>;
     onDone?: () => void;
+    canAct?: () => boolean;
   };
 
 function presentDeliveryResult(
   input: PresentPostCommitNotificationInput,
   isRetry: boolean,
 ): void {
+  if (input.canAct && !input.canAct()) return;
+  const onDone = () => { if (!input.canAct || input.canAct()) input.onDone?.(); };
   const kind = getFcNotifyDeliveryUiKind(input.delivery);
   if (kind === 'complete') {
     Alert.alert(
@@ -29,7 +32,7 @@ function presentDeliveryResult(
       isRetry
         ? `${input.notificationLabel} 알림을 등록했습니다.`
         : input.successMessage,
-      [{ text: '확인', onPress: input.onDone }],
+      [{ text: '확인', onPress: onDone }],
     );
     return;
   }
@@ -37,7 +40,7 @@ function presentDeliveryResult(
     Alert.alert(
       input.successTitle,
       input.successMessage,
-      [{ text: '확인', onPress: input.onDone }],
+      [{ text: '확인', onPress: onDone }],
     );
     return;
   }
@@ -45,12 +48,13 @@ function presentDeliveryResult(
     Alert.alert(
       `${input.successTitle} · 알림 대상 오류`,
       `${input.successMessage}\n\n알림을 받을 사용자를 확인할 수 없습니다. 관리자에게 대상 계정 상태를 확인해주세요.`,
-      [{ text: '확인', onPress: input.onDone }],
+      [{ text: '확인', onPress: onDone }],
     );
     return;
   }
 
   const retry = async () => {
+    if (input.canAct && !input.canAct()) return;
     const retryDelivery = await input.retryNotification();
     presentDeliveryResult(
       { ...input, delivery: retryDelivery },
@@ -61,7 +65,7 @@ function presentDeliveryResult(
     `${input.successTitle} · 알림 등록 실패`,
     `${input.successMessage}\n\n${input.notificationLabel} 알림을 등록하지 못했습니다. 저장된 내용은 다시 제출하지 말고 알림만 다시 등록해 주세요.`,
     [
-      { text: '나중에', onPress: input.onDone },
+      { text: '나중에', onPress: onDone },
       { text: '알림 다시 등록', onPress: () => void retry() },
     ],
   );

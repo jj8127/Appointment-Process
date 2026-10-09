@@ -28,7 +28,7 @@ import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { logger } from '@/lib/logger';
-import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
+import { fetchMobileUnreadNotificationCountOrThrow } from '@/lib/mobile-unread-notification-count';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
 import { openExternalUrl } from '@/lib/open-external-url';
 import {
@@ -252,6 +252,7 @@ export default function RequestBoardScreen() {
   const [designerRejectReason, setDesignerRejectReason] = useState('');
   const [designerRejectModalVisible, setDesignerRejectModalVisible] = useState(false);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const [unreadNotifVerified, setUnreadNotifVerified] = useState(false);
   const [requestBoardAccessError, setRequestBoardAccessError] = useState<string | null>(null);
   const requestBoardRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const lastRequestBoardRefreshCompletedAtRef = useRef(0);
@@ -353,15 +354,16 @@ export default function RequestBoardScreen() {
         // Unread notification count (same contract as home header bell)
         (async () => {
           try {
-            const count = await fetchMobileUnreadNotificationCount({
+            const count = await fetchMobileUnreadNotificationCountOrThrow({
               role: inboxRole,
               residentId: notificationInboxResidentId,
               requestBoardRole,
             });
             setUnreadNotifCount(count);
+            setUnreadNotifVerified(true);
           } catch (err) {
             logger.warn('request-board unread notification count fetch failed', err);
-            setUnreadNotifCount(0);
+            setUnreadNotifVerified(false);
         }
       })(),
 
@@ -505,9 +507,7 @@ export default function RequestBoardScreen() {
         throw new Error(result.error ?? result.message ?? '수락 처리에 실패했습니다.');
       }
       const notificationFeedback = getRequestBoardNotificationFeedback(result);
-      if (notificationFeedback) {
-        Alert.alert(notificationFeedback.title, notificationFeedback.message);
-      }
+      Alert.alert(notificationFeedback?.title ?? '수락 완료', notificationFeedback?.message ?? '의뢰를 수락했습니다. 목록은 별도로 갱신합니다.');
       await fetchData({ force: true });
     } catch (err) {
       logger.warn('[request-board] designer accept failed', err);
@@ -585,7 +585,7 @@ export default function RequestBoardScreen() {
   };
 
   useEffect(() => {
-    if (loading) {
+    if (loading || !unreadNotifVerified) {
       return;
     }
 
@@ -593,7 +593,7 @@ export default function RequestBoardScreen() {
       context: 'request-board-unread-count',
       dismissPresentedWhenZero: true,
     });
-  }, [loading, unreadNotifCount]);
+  }, [loading, unreadNotifCount, unreadNotifVerified]);
 
   const handleLogout = () => {
     appLogout();
@@ -655,7 +655,7 @@ export default function RequestBoardScreen() {
         title={homeHeaderTitle}
         onLogout={handleLogout}
         onOpenNotifications={openNotifications}
-        notificationCount={unreadNotifCount}
+        notificationCount={unreadNotifVerified ? unreadNotifCount : undefined}
       />
       <View style={styles.pageTitleWrap}>
         <Text style={styles.pageTitle}>설계 요청</Text>

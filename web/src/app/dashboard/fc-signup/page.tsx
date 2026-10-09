@@ -438,7 +438,7 @@ export default function AdminAssistedSignupPage() {
                 required
                 type="date"
                 label="서면 확인일"
-                description="오늘부터 90일 이내"
+                description="오늘을 포함한 최근 90일 이내의 과거 날짜"
                 value={form.consentObtainedOn}
                 onChange={(event) => setField('consentObtainedOn', event.currentTarget.value)}
               />

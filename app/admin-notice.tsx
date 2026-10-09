@@ -1,3 +1,8 @@
+import * as Crypto from 'expo-crypto';
+import { invokeAdminAction } from '@/lib/admin-action-api';
+import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
+import { useReadSessionScope } from '@/hooks/use-read-session-scope';
+import { useReadAttempt } from '@/lib/use-read-attempt';
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -40,7 +45,12 @@ type AttachedFile = {
 };
 
 export default function AdminNoticeScreen() {
-  const { role, readOnly } = useSession();
+  const scope = useReadSessionScope();
+  return <AdminNoticeComposer key={scope} />;
+}
+
+function AdminNoticeComposer() {
+  const { role, readOnly, residentId } = useSession();
   const keyboardPadding = useKeyboardPadding();
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -50,8 +60,13 @@ export default function AdminNoticeScreen() {
   const [images, setImages] = useState<AttachedFile[]>([]);
   const [files, setFiles] = useState<AttachedFile[]>([]);
   const pickingRef = useRef(false);
+  const submitRef = useRef(false);
+  const beginSubmit = useReadAttempt();
+  const createIntent = useRef<{ requestId: string; notice: Record<string, unknown> } | null>(null);
+  useDraftExitGuard(!!(title.trim() || body.trim() || images.length || files.length), loading);
 
   const pickImage = async () => {
+    if (loading || createIntent.current) return;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
@@ -75,7 +90,7 @@ export default function AdminNoticeScreen() {
   };
 
   const pickFile = async () => {
-    if (pickingRef.current) return;
+    if (pickingRef.current || loading || createIntent.current) return;
     pickingRef.current = true;
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -167,6 +182,7 @@ export default function AdminNoticeScreen() {
   };
 
   const submit = async () => {
+    if (submitRef.current) return;
     if (role !== 'admin') {
       Alert.alert('접근 불가', '관리자만 등록할 수 있습니다.');
       return;
@@ -179,34 +195,33 @@ export default function AdminNoticeScreen() {
       Alert.alert('입력 필요', '제목과 내용을 모두 입력해주세요.');
       return;
     }
+    submitRef.current = true;
+    const isCurrentSubmit = beginSubmit();
+    if (!isCurrentSubmit()) return;
     setLoading(true);
     try {
-      // 1. Upload Images
-      const uploadedImages = await Promise.all(
+      // Upload once for a creation intent. Retry only its stable payload/key.
+      const uploadedImages = createIntent.current ? [] : await Promise.all(
         images.map((img) => uploadToSupabase(img, 'images'))
       );
+      if (!isCurrentSubmit()) return;
 
       // 2. Upload Files
-      const uploadedFiles = await Promise.all(
+      const uploadedFiles = createIntent.current ? [] : await Promise.all(
         files.map((file) => uploadToSupabase(file, 'files'))
       );
+      if (!isCurrentSubmit()) return;
 
       const imageUrls = uploadedImages.map((img) => img.url); // Store array of strings for simplicity if schema is text[] or jsonb specific
       // Or if schema is jsonb array of objects, verify implementation_plan.
       // Plan said: images (JSONB array of strings), files (JSONB array of objects)
 
-      const { data: insertedNotice, error } = await supabase
-        .from('notices')
-        .insert({
-        title: title.trim(),
-        body: body.trim(),
-        category: category.trim() || '공지사항',
-        images: imageUrls,
-        files: uploadedFiles,
-        })
-        .select('id')
-        .single();
-      if (error) throw error;
+      createIntent.current ??= { requestId: Crypto.randomUUID(), notice: {
+        title: title.trim(), body: body.trim(), category: category.trim() || '공지사항', images: imageUrls, files: uploadedFiles,
+      } };
+      const result = await invokeAdminAction<{ notice: { id: string } }>(residentId ?? '', 'createNotice', createIntent.current);
+      if (!isCurrentSubmit()) return;
+      const insertedNotice = result.notice;
 
       const noticeId = String(insertedNotice?.id ?? '').trim();
       const notifyCreatedNotice = isNotificationUuid(noticeId)
@@ -224,30 +239,36 @@ export default function AdminNoticeScreen() {
             notificationStored: false as const,
             reason: 'invalid_recipient' as const,
           };
+      if (!isCurrentSubmit()) return;
+      createIntent.current = null;
       setTitle('');
       setBody('');
       setCategory('공지사항');
       setImages([]);
       setFiles([]);
       presentPostCommitNotificationDelivery({
+        canAct: isCurrentSubmit,
         delivery: notificationDelivery,
         retryNotification: notifyCreatedNotice ?? (async () => notificationDelivery),
         successTitle: '등록 완료',
         successMessage: '공지사항이 성공적으로 등록되었습니다.',
         notificationLabel: 'FC 공지',
       });
-    } catch (err: any) {
-      Alert.alert('등록 실패', err?.message ?? '오류가 발생했습니다.');
+    } catch {
+      if (!isCurrentSubmit()) return;
+      Alert.alert('등록 확인 필요', createIntent.current ? '서버 저장 결과를 확인하지 못했습니다. 등록 버튼을 다시 누르면 같은 공지만 확인·재시도합니다.' : '공지 등록을 완료하지 못했습니다. 작성 내용은 유지됩니다.');
     } finally {
-      setLoading(false);
+      if (isCurrentSubmit()) { submitRef.current = false; setLoading(false); }
     }
   };
 
   const removeImage = (index: number) => {
+    if (loading || createIntent.current) return;
     setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const removeFile = (index: number) => {
+    if (loading || createIntent.current) return;
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -270,14 +291,16 @@ export default function AdminNoticeScreen() {
             label="카테고리"
             placeholder="예: 공지사항, 긴급, 이벤트"
             value={category}
-            onChangeText={setCategory}
+            editable={!loading && !createIntent.current}
+              onChangeText={setCategory}
           />
 
           <FormInput
             label="제목"
             placeholder="제목을 입력하세요"
             value={title}
-            onChangeText={setTitle}
+            editable={!loading && !createIntent.current}
+              onChangeText={setTitle}
           />
 
           <View style={styles.field}>
@@ -287,6 +310,7 @@ export default function AdminNoticeScreen() {
               placeholder="내용을 상세히 입력하세요"
               placeholderTextColor="#9CA3AF"
               value={body}
+              editable={!loading && !createIntent.current}
               onChangeText={setBody}
               multiline
               textAlignVertical="top"

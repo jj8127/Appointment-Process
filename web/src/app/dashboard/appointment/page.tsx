@@ -31,7 +31,7 @@ import { notifications } from '@mantine/notifications';
 import { IconChevronDown, IconDeviceFloppy, IconRefresh, IconSearch, IconUser, IconX } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useCallback, useMemo, useState, useTransition } from 'react';
+import { useCallback, useMemo, useRef, useState, useTransition } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
@@ -211,7 +211,7 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
 };
 
 export default function AppointmentPage() {
-  const [, startTransition] = useTransition();
+  const [actionPending, startTransition] = useTransition();
   const { isReadOnly } = useSession();
   const [filterYear, setFilterYear] = useState<string | null>('2025');
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
@@ -224,19 +224,29 @@ export default function AppointmentPage() {
   const [confirmConfig, setConfirmConfig] = useState<{
     title: string;
     message: string;
-    onConfirm: () => void;
+    onConfirm: () => void | Promise<unknown>;
   } | null>(null);
 
-  const showConfirm = (config: { title: string; message: string; onConfirm: () => void }) => {
+  const showConfirm = (config: { title: string; message: string; onConfirm: () => void | Promise<unknown> }) => {
     setConfirmConfig(config);
     openConfirm();
   };
 
-  const handleConfirm = () => {
-    if (confirmConfig?.onConfirm) {
-      confirmConfig.onConfirm();
+  const [confirmSubmitting, setConfirmSubmitting] = useState(false);
+  const confirmSubmittingRef = useRef(false);
+  const handleConfirm = async () => {
+    if (!confirmConfig || confirmSubmittingRef.current) return;
+    confirmSubmittingRef.current = true;
+    setConfirmSubmitting(true);
+    try {
+      await confirmConfig.onConfirm();
+      closeConfirm();
+    } catch {
+      notifications.show({ title: '처리 결과 확인 필요', message: '요청 결과를 확인하지 못했습니다. 입력은 유지됩니다. 최신 상태를 확인한 뒤 다시 시도해주세요.', color: 'red' });
+    } finally {
+      confirmSubmittingRef.current = false;
+      setConfirmSubmitting(false);
     }
-    closeConfirm();
   };
 
 
@@ -365,7 +375,7 @@ export default function AppointmentPage() {
   };
 
   const handleRejectSubmit = () => {
-    if (isReadOnly) return;
+    if (isReadOnly || rejectSubmitting) return;
     if (!rejectTarget) return;
     const reason = rejectReason.trim();
     if (!reason) {
@@ -374,6 +384,7 @@ export default function AppointmentPage() {
     }
     setRejectSubmitting(true);
     startTransition(async () => {
+      try {
       const result = await updateAppointmentAction(
         { success: false },
         {
@@ -395,7 +406,9 @@ export default function AppointmentPage() {
       } else {
         notifications.show({ title: '실패', message: result.error, color: 'red' });
       }
-      setRejectSubmitting(false);
+      } catch {
+        notifications.show({ title: '반려 결과 확인 필요', message: '요청 결과를 확인하지 못했습니다. 입력은 유지됩니다. 최신 상태를 확인해주세요.', color: 'red' });
+      } finally { setRejectSubmitting(false); }
     });
   };
 
@@ -440,8 +453,7 @@ export default function AppointmentPage() {
     showConfirm({
         title: type === 'confirm' ? '생명/손해 위촉 승인' : '생명/손해 위촉 예정월 저장',
       message: `${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`,
-      onConfirm: () => {
-        startTransition(async () => {
+      onConfirm: async () => {
           const result = await updateAppointmentAction(
             { success: false },
             {
@@ -459,7 +471,6 @@ export default function AppointmentPage() {
           } else {
             notifications.show({ title: '실패', message: result.error, color: 'red' });
           }
-        });
       },
     });
   };
@@ -535,12 +546,12 @@ export default function AppointmentPage() {
             w={160}
             value={scheduleValue}
             onChange={(v) => handleInputChange(fc.id, scheduleKey, v.currentTarget.value)}
-            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen}
+            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting || actionPending}
             disabled={isReadOnly || isConfirmed || !insuranceStageOpen}
           />
           {!isConfirmed && (
             <Tooltip label="예정 메모 저장">
-              <ActionIcon variant="light" color="blue" size="md" mb={2} disabled={isReadOnly || !insuranceStageOpen} onClick={() => executeAction(fc, 'schedule', category)}>
+              <ActionIcon variant="light" color="blue" size="md" mb={2} loading={confirmSubmitting || actionPending} disabled={isReadOnly || !insuranceStageOpen || confirmSubmitting || actionPending} onClick={() => executeAction(fc, 'schedule', category)}>
                 <IconDeviceFloppy size={16} />
               </ActionIcon>
             </Tooltip>
@@ -557,7 +568,7 @@ export default function AppointmentPage() {
             value={dateValue}
             onChange={(v) => handleInputChange(fc.id, dateKey, v)}
             clearable={!isConfirmed}
-            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen}
+            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting || actionPending}
             disabled={isReadOnly || isConfirmed || !insuranceStageOpen}
           />
           {hasSubmitted && (
@@ -579,7 +590,7 @@ export default function AppointmentPage() {
             labelPending="미승인"
             labelApproved="위촉 완료"
             showNeutralForPending
-            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen}
+            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting || actionPending}
           />
         </Group>
       </Stack>
@@ -618,7 +629,7 @@ export default function AppointmentPage() {
         {/* 확인 모달 */}
         <Modal
           opened={confirmOpened}
-          onClose={closeConfirm}
+          onClose={() => { if (!confirmSubmitting) closeConfirm(); }}
           title={<Text fw={700}>{confirmConfig?.title}</Text>}
           size="sm"
           centered
@@ -626,10 +637,10 @@ export default function AppointmentPage() {
           <Stack gap="md">
             <Text size="sm">{confirmConfig?.message}</Text>
             <Group justify="flex-end">
-              <Button variant="default" onClick={closeConfirm}>
+              <Button variant="default" disabled={confirmSubmitting} onClick={closeConfirm}>
                 취소
               </Button>
-              <Button color="blue" onClick={handleConfirm}>
+              <Button color="blue" loading={confirmSubmitting} onClick={() => void handleConfirm()}>
                 확인
               </Button>
             </Group>

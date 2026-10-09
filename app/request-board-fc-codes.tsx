@@ -277,8 +277,12 @@ export default function RequestBoardFcCodesScreen() {
     setDeleteTarget(code);
   };
 
+  const deletingRef = useRef(false);
+  const [deleting, setDeleting] = useState(false);
+
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || deletingRef.current) return;
+    deletingRef.current = true; setDeleting(true);
     try {
       const res = await rbDeleteFcCode(deleteTarget.id);
       if (!res.success) throw new Error(res.error ?? '삭제에 실패했습니다.');
@@ -287,7 +291,7 @@ export default function RequestBoardFcCodesScreen() {
     } catch (err) {
       const msg = toRequestBoardSessionErrorMessage(err, '삭제에 실패했습니다.');
       Alert.alert('오류', msg);
-    }
+    } finally { deletingRef.current = false; setDeleting(false); }
   };
 
   /* ─── Render ─── */
@@ -637,7 +641,7 @@ export default function RequestBoardFcCodesScreen() {
         visible={!!deleteTarget}
         animationType="fade"
         transparent
-        onRequestClose={() => setDeleteTarget(null)}
+        onRequestClose={() => { if (!deleting) setDeleteTarget(null); }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.confirmBox}>
@@ -654,15 +658,16 @@ export default function RequestBoardFcCodesScreen() {
             <View style={styles.confirmBtns}>
               <Pressable
                 style={[styles.modalBtn, styles.cancelBtn, { flex: 1 }]}
-                onPress={() => setDeleteTarget(null)}
+                onPress={() => { if (!deleting) setDeleteTarget(null); }}
               >
                 <Text style={styles.cancelBtnText}>취소</Text>
               </Pressable>
               <Pressable
                 style={[styles.modalBtn, styles.deleteBtn, { flex: 1 }]}
+                disabled={deleting}
                 onPress={handleDelete}
               >
-                <Text style={styles.deleteBtnText}>삭제</Text>
+                <Text style={styles.deleteBtnText}>{deleting ? '삭제 중...' : '삭제'}</Text>
               </Pressable>
             </View>
           </View>

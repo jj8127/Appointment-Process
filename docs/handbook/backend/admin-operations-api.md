@@ -121,3 +121,7 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 - inbox 저장과 `fc-notify` push는 같은 `admin-action.sendNotification` 요청 안에서 처리합니다. `fc-notify` 호출은 service-role trusted boundary에서만 수행하며 10초로 제한합니다.
 - primary workflow mutation은 알림 실패 때문에 되돌리지 않습니다. 알림 대상 조회, inbox 저장, downstream push 중 하나라도 확인되지 않으면 `notification_delivery_incomplete` 같은 고정 진단 코드를 반환할 수 있지만, 앱은 이를 사용자 경고로 표시하지 않고 안전한 개발 로그로만 남깁니다.
 - 응답과 진단 로그에는 canonical phone, token, provider 원문, raw DB 오류를 포함하지 않습니다.
+
+## 2026-10-09 Prepared transactional document and exam operations
+
+`updateDocReqs`, `deleteDocFile` and FC-only `removeOwnDocument` call service-only invoker RPCs that lock canonical rows, revalidate the current actor and preserve the existing workflow reset/protection rules. They validate committed receipts before success; physical file deletion drains at most20 queued objects after commit. `getDocumentCleanupStatus`/`retryDocumentCleanup` are signed admin actions; FC-only own variants derive the target from signed scope and call `assert_ux_mutation_actor_v1` before queue access. Only a valid nonnegative count confirms cleanup status. `deleteExamRound` uses one transactional RPC and protects any registration. Migration `20261009052048` is prepared locally; no operational application or Edge deployment occurred.

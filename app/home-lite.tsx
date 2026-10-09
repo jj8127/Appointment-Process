@@ -1,3 +1,4 @@
+import { QueryReadState } from '@/components/QueryReadState';
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect } from 'react';
@@ -33,7 +34,7 @@ const LOCKED_ITEMS: LockedItem[] = [
 export default function HomeLiteScreen() {
   const { role, hydrated, displayName, isRequestBoardDesigner } = useSession();
   const appLogout = useAppLogout();
-  const { data, isLoading } = useIdentityStatus();
+  const { data, isLoading, isError, error, refetch, isFetching } = useIdentityStatus();
   const startRequiredInfo = useCallback(() => {
     addSentryBreadcrumb(buildHomeEntryBreadcrumb('home-lite.primary-required-info'));
     router.push(HOME_LITE_PRIMARY_ACTION_ROUTE);
@@ -59,10 +60,10 @@ export default function HomeLiteScreen() {
       router.replace('/request-board');
       return;
     }
-    if (!isLoading && data?.identityCompleted) {
+    if (!isLoading && !isError && data?.identityCompleted) {
       router.replace('/');
     }
-  }, [data?.identityCompleted, hydrated, isLoading, isRequestBoardDesigner, role]);
+  }, [data?.identityCompleted, hydrated, isError, isLoading, isRequestBoardDesigner, role]);
 
   // Android 뒤로가기 버튼: 앱 종료 확인 다이얼로그
   useFocusEffect(
@@ -84,6 +85,11 @@ export default function HomeLiteScreen() {
       return () => sub.remove();
     }, [])
   );
+
+  if (isLoading || isError || !data) return <SafeAreaView style={styles.safe}>
+    <QueryReadState error={error} message={isLoading ? '신원 정보를 확인하고 있습니다.' : '신원 정보 확인에 실패했습니다. 미입력 상태로 판단하지 않습니다.'}
+      onRetry={isLoading ? undefined : () => void refetch()} retrying={isFetching} />
+  </SafeAreaView>;
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>

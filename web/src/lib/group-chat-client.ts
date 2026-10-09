@@ -1,3 +1,4 @@
+import { isGroupChatSuccess } from './upstream-response-policy';
 import { GroupChatRequestError } from '@/lib/group-chat-error';
 import { validateMessengerAttachmentCommitResponse } from './messenger-attachment-commit';
 
@@ -141,7 +142,7 @@ async function invokeGroupChat<T>(body: Record<string, unknown>): Promise<T> {
   });
   const payload = await response.json().catch(() => null);
 
-  if (!response.ok || !payload?.ok) {
+  if (!response.ok || !isGroupChatSuccess(body.type, payload)) {
     throw new GroupChatRequestError(payload?.message ?? payload?.error ?? '단톡방 요청을 처리하지 못했습니다.', {
       code: typeof payload?.code === 'string' ? payload.code : undefined,
       status: response.status,

@@ -139,3 +139,7 @@ Request Board home delegates logout navigation to focused `useAppLogout` after l
 - 설계 요청의 `실시간 메신저` 진입은 가람in 메신저 V2 경로인 `/messenger`를 사용한다.
 - Request Board 메신저와 FC 코드·검토 입력 화면은 드래그 중 키보드를 유지하고, 전송 실패 복원 시 사용자가 새로 입력한 내용이나 첨부를 덮어쓰지 않는다.
 - 하단 입력 바는 `KeyboardSafeBottomBar`가 측정한 키보드·안전영역 인셋을 사용한다. 기기별 고정 여백이나 Android 내비게이션 모드 가정은 허용하지 않는다.
+
+## 2026-10-09 Local send and quick-action feedback
+
+Quick acceptance displays saved success even if follow-up notification feedback is absent. Failed/uncertain sends show a safe confirmation-needed alert and restore the failed draft with any newly typed text; duplicate writes and busy conversation changes are blocked. Failed unread reads remain unknown and do not erase native notifications. FC-code deletion owns visible pending state and rejects duplicate confirmation callbacks. Bridge roles, session exchange and inbox/terminal notification policies are unchanged; native/network acceptance remains unverified.

@@ -321,6 +321,7 @@ export default function DocumentsPage() {
                     >
                         열기
                     </Button>
+                    {updateStatusMutation.isPending && updateStatusMutation.variables?.doc.id === doc.id ? <Text size="xs" role="status">처리 중</Text> : null}
                     <StatusToggle
                         value={doc.status === 'approved' ? 'approved' : 'pending'}
                         onChange={(val) => {
@@ -345,7 +346,7 @@ export default function DocumentsPage() {
                         labelApproved="승인"
                         showNeutralForPending
                         allowPendingPress
-                        readOnly={isReadOnly || doc.status === 'approved'}
+                        readOnly={isReadOnly || doc.status === 'approved' || (updateStatusMutation.isPending && updateStatusMutation.variables?.doc.id === doc.id)}
                     />
                 </Group>
             </Table.Td>

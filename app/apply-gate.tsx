@@ -1,3 +1,4 @@
+import { QueryReadState } from '@/components/QueryReadState';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo } from 'react';
@@ -20,7 +21,7 @@ import { COLORS } from '@/lib/theme';
 export default function ApplyGateScreen() {
   const { next } = useLocalSearchParams<{ next?: string }>();
   const { role, hydrated, isRequestBoardDesigner } = useSession();
-  const { data, isLoading } = useIdentityStatus();
+  const { data, isLoading, isError, error, refetch, isFetching } = useIdentityStatus();
   const safeNext = useMemo(() => normalizeApplyGateNext(next), [next]);
   const forwardToSafeNext = useCallback(async () => {
     const handoff = parseNotificationOpenRoute(safeNext);
@@ -54,7 +55,7 @@ export default function ApplyGateScreen() {
       void forwardToSafeNext();
       return;
     }
-    if (!isLoading && data?.identityCompleted) {
+    if (!isLoading && !isError && data?.identityCompleted) {
       addSentryBreadcrumb(buildHomeEntryBreadcrumb('apply-gate.forward-completed', { next: safeNext }));
       void forwardToSafeNext();
     }
@@ -62,6 +63,7 @@ export default function ApplyGateScreen() {
     data?.identityCompleted,
     forwardToSafeNext,
     hydrated,
+    isError,
     isLoading,
     isRequestBoardDesigner,
     role,
@@ -77,6 +79,11 @@ export default function ApplyGateScreen() {
     addSentryBreadcrumb(buildHomeEntryBreadcrumb('apply-gate.start-identity', { next: safeNext }));
     router.push(buildApplyGateIdentityRoute(safeNext) as Href);
   }, [safeNext]);
+
+  if (isLoading || isError || !data) return <SafeAreaView style={styles.safe}>
+    <QueryReadState error={error} message={isLoading ? '신원 정보를 확인하고 있습니다.' : '신원 정보 확인에 실패했습니다. 미입력 상태로 판단하지 않습니다.'}
+      onRetry={isLoading ? undefined : () => void refetch()} retrying={isFetching} />
+  </SafeAreaView>;
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>

@@ -166,7 +166,7 @@ async function postReferralAction(body: ReferralAdminMutationRequest) {
 
 function SummaryCard(props: {
   title: string;
-  value: number;
+  value: number | string;
   tone?: 'orange' | 'blue' | 'gray';
 }) {
   const color = props.tone === 'blue' ? '#1c7ed6' : props.tone === 'gray' ? '#6b7280' : '#f97316';
@@ -617,12 +617,13 @@ export default function ReferralDashboardPage() {
           </Alert>
         ) : null}
 
+        {listQuery.error && summary ? <Text size="sm" c="orange">이전 조회 자료를 표시합니다.</Text> : null}
         <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }}>
-          <SummaryCard title="발급 대상 FC" value={summary?.eligibleCount ?? 0} />
-          <SummaryCard title="활성 코드 보유" value={summary?.activeCodeCount ?? 0} tone="blue" />
-          <SummaryCard title="미발급 FC" value={summary?.missingCodeCount ?? 0} />
-          <SummaryCard title="비활성 코드 이력" value={summary?.disabledCodeCount ?? 0} tone="gray" />
-          <SummaryCard title="검토 필요 추천인" value={summary?.unresolvedLegacyCount ?? 0} />
+          <SummaryCard title="발급 대상 FC" value={summary?.eligibleCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} />
+          <SummaryCard title="활성 코드 보유" value={summary?.activeCodeCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} tone="blue" />
+          <SummaryCard title="미발급 FC" value={summary?.missingCodeCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} />
+          <SummaryCard title="비활성 코드 이력" value={summary?.disabledCodeCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} tone="gray" />
+          <SummaryCard title="검토 필요 추천인" value={summary?.unresolvedLegacyCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} />
         </SimpleGrid>
 
         <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
@@ -708,7 +709,7 @@ export default function ReferralDashboardPage() {
                           <Table.Tr>
                             <Table.Td colSpan={4}>
                               <Text size="sm" c="dimmed" ta="center" py="md">
-                                {listQuery.isLoading ? '불러오는 중입니다.' : '조회 결과가 없습니다.'}
+                                {listQuery.isLoading ? '불러오는 중입니다.' : listQuery.error ? '조회 결과를 확인할 수 없습니다.' : '조회 결과가 없습니다.'}
                               </Text>
                             </Table.Td>
                           </Table.Tr>

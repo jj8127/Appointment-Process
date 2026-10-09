@@ -1,5 +1,7 @@
 'use client';
 
+import { shouldSubmitOnEnter } from '@/lib/user-intent-policy';
+
 import { createChatRequestGuard } from '@/lib/chat-request-guard';
 
 import { fetchPresence } from '@/lib/presence-api';
@@ -837,6 +839,7 @@ function ChatRoom({
     const handleDeleteMessage = async (messageId: string) => {
         const ticket = requestGuard.snapshot();
         if (isReadOnly) return;
+        if (!window.confirm('메시지를 삭제할까요? 삭제한 메시지는 되돌릴 수 없습니다.')) return;
         try {
             const activeConversationId = await ensureConversationId();
             if (!requestGuard.isCurrent(ticket)) return;
@@ -869,7 +872,7 @@ function ChatRoom({
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (shouldSubmitOnEnter(e)) {
             e.preventDefault();
             handleSendMessage();
         }
@@ -987,6 +990,7 @@ function ChatRoom({
                                     <Text size="sm" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                                         {msg.content}
                                     </Text>
+                                    {isMe && msg.send_status === 'sending' ? <Text size="xs" c="white" role="status">전송 중</Text> : null}
                                     {isMe && (notificationFailed || notificationInvalid) ? (
                                         <Group gap={6} mt={6}>
                                             <Text size="xs" c="white">
@@ -1068,6 +1072,7 @@ function ChatRoom({
                         variant="filled"
                         radius="xl"
                         onClick={handleSendMessage}
+                        loading={sending}
                         disabled={isReadOnly || sending || (!inputText.trim() && selectedFiles.length === 0)}
                     >
                         <IconSend size={18} />

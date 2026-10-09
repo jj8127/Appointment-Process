@@ -32,7 +32,8 @@ describe('board notification-only retry contract', () => {
       expect(source).toContain('notificationRetry: inboxOk ? null');
       expect(source).toContain("{ postId");
     }
-    expect(create).toContain(".select('id,updated_at')");
+    expect(create).toContain("supabase.rpc('create_board_post_idempotent_v1'");
+    expect(create).toContain('requireCreationReceipt(data, true)');
     expect(update).toContain(".select('id,title,updated_at')");
     expect(event).toContain("'SHA-256'");
     expect(event).toContain('`${postId}\\n${updatedAt}`');

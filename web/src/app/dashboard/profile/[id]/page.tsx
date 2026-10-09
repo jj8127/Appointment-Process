@@ -1,5 +1,9 @@
 'use client';
 
+import { isValidCareerType, requireMutationSuccess } from '@/lib/user-intent-policy';
+import { QueryReadError } from '@/lib/query-read-error';
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+
 import { fetchPresence } from '@/lib/presence-api';
 import { formatPresenceLabel } from '@/lib/presence';
 import { getAdminStepDisplay, getStatusDisplay } from '@/lib/shared';
@@ -26,6 +30,7 @@ import {
     Text,
     Textarea,
     TextInput,
+    Select,
     ThemeIcon,
     Timeline,
     Title
@@ -46,7 +51,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useRouter } from 'next/navigation';
-import { use, useCallback, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -115,6 +120,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     const { id: fcId } = use(params);
     const { hydrated, role, isReadOnly } = useSession();
 
+    const [memoDraft, setMemoDraft] = useState('');
+    const memoSource = useRef<{ owner: string; value: string } | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [isEditingRecommender, setIsEditingRecommender] = useState(false);
     const [selectedRecommenderFcId, setSelectedRecommenderFcId] = useState<string | null>(null);
@@ -178,9 +185,21 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
 
     const { residentNumberDisplay, birthDateDisplay } = useResidentNumber({ fcId });
 
+    const hydratedOwner = useRef<string | null>(null);
+
+    useEffect(() => {
+        if (!profile) return;
+        const storedMemo = profile.admin_memo || '';
+        const previous = memoSource.current;
+        setMemoDraft((draft) => previous?.owner === fcId && draft !== previous.value ? draft : storedMemo);
+        memoSource.current = { owner: fcId, value: storedMemo };
+    }, [profile, fcId]);
+
+    // Refetch must not replace a draft owned by the current profile.
     // Sync Form with Data
     useEffect(() => {
-        if (profile) {
+        if (profile && (hydratedOwner.current !== fcId || (!isEditing && !isEditingRecommender && !form.isDirty()))) {
+            hydratedOwner.current = fcId;
             form.setValues({
                 name: profile.name || '',
                 phone: profile.phone || '',
@@ -193,13 +212,14 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 recommender: profile.recommender || '',
                 admin_memo: profile.admin_memo || '',
             });
+            form.resetDirty();
             setSelectedRecommenderFcId(profile.recommender_fc_id ?? null);
             setClearRecommenderSelection(false);
             setRecommenderOverrideReason('');
             setIsEditingRecommender(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [profile]);
+    }, [profile, fcId, isEditing, isEditingRecommender]);
 
     const hasAnyRecommender = Boolean(profile?.recommender_fc_id || profile?.recommender?.trim());
     const isRecommenderDirty = profile
@@ -212,6 +232,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     const updateProfileMutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
             const normalizedCareerType = values.career_type.trim();
+            if (!isValidCareerType(normalizedCareerType)) throw new Error("경력 구분은 신입 또는 경력을 선택해주세요.");
             const tempIdUpdate = resolveAdminTempIdUpdate(profile?.temp_id, values.temp_id);
             const payload: Record<string, unknown> = {
                 name: values.name.trim(),
@@ -244,11 +265,13 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 }
                 throw new Error('프로필 저장에 실패했습니다.');
             }
+            requireMutationSuccess(json);
             return json;
         },
         onSuccess: (response) => {
             showAdminNotificationWarning(response);
             notifications.show({ title: '저장 완료', message: '프로필 정보가 수정되었습니다.', color: 'green' });
+            form.resetDirty();
             setIsEditing(false);
             queryClient.invalidateQueries({ queryKey: ['fc-profile', fcId] });
             queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
@@ -276,6 +299,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 }
                 throw new Error('추천인 관계 저장에 실패했습니다.');
             }
+            requireMutationSuccess(json);
             return json;
         },
         onSuccess: () => {
@@ -292,7 +316,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         },
     });
 
-    const { data: signupReferralCode, isFetching: isSignupReferralCodeFetching } = useQuery({
+    const { data: signupReferralCode, isFetching: isSignupReferralCodeFetching, error: signupReferralCodeError, refetch: refetchSignupReferralCode } = useQuery({
         queryKey: ['fc-signup-referral-code', fcId],
         queryFn: async () => {
             const resp = await fetch('/api/admin/fc', {
@@ -301,13 +325,14 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 body: JSON.stringify({ action: 'getInviteeReferralCode', payload: { fcId } }),
             });
             const json: unknown = await resp.json().catch(() => null);
+            if (!resp.ok || !isRecord(json) || json.ok !== true) throw new QueryReadError(resp.status);
             return readSignupReferralCode(json);
         },
         enabled: !!fcId && hydrated && (role === 'admin' || role === 'manager'),
     });
 
     const saveMemoMutation = useMutation({
-        mutationFn: async () => {
+        mutationFn: async (memo: string) => {
             const resp = await fetch('/api/admin/fc', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -315,7 +340,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                     action: 'updateProfile',
                     payload: {
                         fcId,
-                        data: { admin_memo: form.values.admin_memo },
+                        data: { admin_memo: memo },
                     },
                 }),
             });
@@ -327,6 +352,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 }
                 throw new Error('관리자 메모 저장에 실패했습니다.');
             }
+            requireMutationSuccess(json);
         },
         onSuccess: () => {
             notifications.show({ title: '메모 저장', message: '관리자 메모가 저장되었습니다.', color: 'green' });
@@ -344,6 +370,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             notifications.show({ title: '권한 없음', message: '관리자 계정에서만 수정할 수 있습니다.', color: 'yellow' });
             return;
         }
+        if (updateProfileMutation.isPending) return;
         if (!form.values.name.trim() || !form.values.phone.trim() || !form.values.affiliation.trim()) {
             notifications.show({ title: '입력 확인', message: '이름, 연락처, 소속은 비워둘 수 없습니다.', color: 'yellow' });
             return;
@@ -352,6 +379,9 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     };
 
     const handleCancelEdit = useCallback(() => {
+        if (updateProfileMutation.isPending) return;
+        if (form.isDirty() && !window.confirm('변경한 기본정보를 버릴까요?')) return;
+        const memoDraft = form.values.admin_memo;
         if (profile) {
             form.setValues({
                 name: profile.name || '',
@@ -363,14 +393,14 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 career_type: profile.career_type || '',
                 temp_id: profile.temp_id || '',
                 recommender: profile.recommender || '',
-                admin_memo: profile.admin_memo || '',
+                admin_memo: memoDraft,
             });
             setSelectedRecommenderFcId(profile.recommender_fc_id ?? null);
             setClearRecommenderSelection(false);
             setRecommenderOverrideReason('');
         }
         setIsEditing(false);
-    }, [form, profile]);
+    }, [form, profile, updateProfileMutation.isPending]);
 
     const handleCancelRecommenderEdit = useCallback(() => {
         setSelectedRecommenderFcId(profile?.recommender_fc_id ?? null);
@@ -430,7 +460,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             <Box bg="white" style={{ borderBottom: '1px solid #e9ecef' }} py="md" px="xl">
                 <Container size="xl" p={0}>
                     <Group justify="space-between" mb="xs">
-                        <Button variant="subtle" color="gray" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={() => router.back()}>
+                        <Button variant="subtle" color="gray" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={() => { if ((!isEditing && !isEditingRecommender && memoDraft === (memoSource.current?.value ?? '')) || window.confirm('저장하지 않은 변경 내용을 버리고 나갈까요?')) router.back(); }}>
                             목록으로 돌아가기
                         </Button>
                         <Badge size="lg" color={presenceBadgeColor} variant={presenceBadgeVariant}>
@@ -565,16 +595,18 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                     </Grid.Col>
                                 </Grid>
 
+                                {signupReferralCodeError ? <QueryErrorAlert error={signupReferralCodeError} onRetry={() => void refetchSignupReferralCode()} subject="가입 추천코드" /> : null}
                                 <Divider label="위촉/계약 정보" labelPosition="center" />
 
                                 <Grid>
                                     <Grid.Col span={6}>
-                                        <TextInput
+                                        <Select
+                                            data={[{ value: '', label: '미입력' }, '신입', '경력']}
                                             label="경력 구분"
                                             variant={isEditing && canEdit ? 'default' : 'unstyled'}
                                             readOnly={!isEditing || !canEdit}
                                             {...form.getInputProps('career_type')}
-                                            placeholder="신입/경력"
+                                            placeholder="신입 또는 경력 선택"
                                         />
                                     </Grid.Col>
                                     <Grid.Col span={6}>
@@ -707,7 +739,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                             <Card shadow="sm" radius="md" withBorder bg="yellow.0">
                                 <Group justify="space-between" mb="sm">
                                     <Title order={5} c="orange.9">관리자 메모</Title>
-                                    <ActionIcon variant="light" color={canEdit ? 'orange' : 'gray'} onClick={() => saveMemoMutation.mutate()} loading={saveMemoMutation.isPending} disabled={!canEdit}>
+                                    <ActionIcon variant="light" color={canEdit ? 'orange' : 'gray'} onClick={() => saveMemoMutation.mutate(memoDraft)} loading={saveMemoMutation.isPending} disabled={!canEdit}>
                                         <IconCheck size={16} />
                                     </ActionIcon>
                                 </Group>
@@ -717,7 +749,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                     autosize
                                     variant="filled"
                                     readOnly={!canEdit}
-                                    {...form.getInputProps('admin_memo')}
+                                    value={memoDraft}
+                                    onChange={(event) => setMemoDraft(event.currentTarget.value)}
                                     styles={{ input: { backgroundColor: 'white' } }}
                                 />
                             </Card>

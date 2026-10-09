@@ -35,6 +35,8 @@ import {
 } from '@/components/MessengerMessageActionSheet';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
 import { useSession } from '@/hooks/use-session';
+import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
+import { useReadAttempt } from '@/lib/use-read-attempt';
 import { logger } from '@/lib/logger';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import {
@@ -429,6 +431,9 @@ export default function RequestBoardMessengerScreen() {
     useState<string | null>(null);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const beginSend = useReadAttempt();
+  useDraftExitGuard(false, sending);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const flatListRef = useRef<FlatList<UnifiedMessage>>(null);
@@ -765,6 +770,8 @@ export default function RequestBoardMessengerScreen() {
     setDirectoryUsers([]);
     setPresenceByPhone({});
     setActiveConv(null);
+    sendingRef.current = false;
+    setSending(false);
     activeConversationRef.current = null;
     setMessages([]);
     messagesRef.current = [];
@@ -1170,7 +1177,7 @@ export default function RequestBoardMessengerScreen() {
       setConvError('알림의 대상 대화를 열 수 없습니다.');
       return;
     }
-    if (activeConv?.id === targetConversation.id) {
+    if (sendingRef.current || activeConv?.id === targetConversation.id) {
       return;
     }
 
@@ -1300,6 +1307,7 @@ export default function RequestBoardMessengerScreen() {
   });
 
   const openConversation = (conv: UnifiedConversation) => {
+    if (sendingRef.current) return;
     activeConversationRef.current = conv.id;
     messageReadScope.current.setScope(`${residentId ?? ''}:${appSessionToken ?? ''}:${conv.id}`);
     setMessages([]);
@@ -1454,9 +1462,16 @@ export default function RequestBoardMessengerScreen() {
 
   /* ─── Send Message ─── */
   const handleSend = async () => {
-    if (!activeConv || (!inputText.trim() && pendingFiles.length === 0) || sending) return;
+    if (!activeConv || (!inputText.trim() && pendingFiles.length === 0) || sendingRef.current) return;
+    const isMountedSend = beginSend();
+    const isCurrentSend = () => isMountedSend() && accountReadScope.current.matches(sessionReadKey) && activeConversationRef.current === activeConv.id;
+    sendingRef.current = true;
     const text = inputText.trim();
     const files = [...pendingFiles];
+    const restoreDraft = () => {
+      setInputText(current => current.trim() ? [text, current].filter(Boolean).join('\n') : text);
+      setPendingFiles(current => [...files, ...current.filter(file => !files.some(original => original.uri === file.uri))]);
+    };
     const tempMessageId = -Date.now();
     const previousConversation = conversations.find((conversation) => conversation.id === activeConv.id) ?? null;
     let optimisticPreviewMessage = '';
@@ -1472,13 +1487,13 @@ export default function RequestBoardMessengerScreen() {
         const uploadRes = await rbUploadAttachments(
           files.map((f) => ({ uri: f.uri, name: f.name, type: f.type })),
         );
+        if (!isCurrentSend()) return;
         if (!uploadRes.success || !uploadRes.data) {
           Alert.alert(
             '업로드 실패',
             toRequestBoardSessionErrorMessage(uploadRes.error, '파일 업로드에 실패했습니다.'),
           );
-          setInputText((current) => current.trim() ? current : text);
-          setPendingFiles((current) => current.length > 0 ? current : files);
+          restoreDraft();
           setSending(false);
           return;
         }
@@ -1526,6 +1541,7 @@ export default function RequestBoardMessengerScreen() {
       } else {
         res = await rbSendDmMessage(activeConv.primaryConversationId, msgText, attachments);
       }
+      if (!isCurrentSend()) return;
 
       if (res.success && res.data) {
         const sentMessage = mapRawMessageToUnified(res.data);
@@ -1561,10 +1577,11 @@ export default function RequestBoardMessengerScreen() {
             )),
           );
         }
-        setInputText((current) => current.trim() ? current : text);
-        setPendingFiles((current) => current.length > 0 ? current : files);
+        restoreDraft();
+        Alert.alert('전송 확인 필요', '메시지 전송 결과를 확인하지 못했습니다. 작성 내용은 복원했습니다. 대화에 메시지가 도착했는지 확인한 뒤 다시 시도해 주세요.');
       }
     } catch {
+      if (!isCurrentSend()) return;
       setMessages((prev) => prev.filter((message) => message.id !== tempMessageId));
       if (previousConversation) {
         setConversations((prev) =>
@@ -1577,14 +1594,15 @@ export default function RequestBoardMessengerScreen() {
           )),
         );
       }
-      setInputText((current) => current.trim() ? current : text);
-      setPendingFiles((current) => current.length > 0 ? current : files);
+      restoreDraft();
+        Alert.alert('전송 확인 필요', '메시지 전송 결과를 확인하지 못했습니다. 작성 내용은 복원했습니다. 대화에 메시지가 도착했는지 확인한 뒤 다시 시도해 주세요.');
     } finally {
-      setSending(false);
+      if (isCurrentSend()) { sendingRef.current = false; setSending(false); }
     }
   };
 
   const handleBack = () => {
+    if (sending) { Alert.alert('전송 중', '전송 결과를 확인한 뒤 대화를 닫아 주세요.'); return; }
     if (activeConv) {
       setActiveConv(null);
       activeConversationRef.current = null;
@@ -2160,6 +2178,7 @@ export default function RequestBoardMessengerScreen() {
                       )}
                       <Pressable
                         style={styles.pendingRemove}
+                        disabled={sending}
                         onPress={() => removePendingFile(index)}
                         hitSlop={8}
                       >

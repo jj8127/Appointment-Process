@@ -25,7 +25,7 @@ import { createBrowserClient } from '@supabase/ssr';
 import { IconArrowLeft, IconCheck, IconFile, IconPhoto, IconDeviceFloppy, IconUpload, IconX } from '@tabler/icons-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { updateNoticeAction } from '../../actions';
 
@@ -89,7 +89,9 @@ export default function EditNoticePage() {
     const id = String(params?.id ?? '').trim();
     const boardPostId = extractBoardPostId(id);
 
-    const [isPending, startTransition] = useTransition();
+    const [isPending, setSubmitting] = useState(false);
+    const submittingRef = useRef(false);
+    const [submitPhase, setSubmitPhase] = useState('');
     const [isFetching, setIsFetching] = useState(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -155,6 +157,10 @@ export default function EditNoticePage() {
     };
 
     const handleSubmit = async (values: typeof form.values) => {
+        if (submittingRef.current) return;
+        submittingRef.current = true;
+        setSubmitting(true);
+        setSubmitPhase('첨부 업로드 중');
         try {
             // Upload new images
             const newImageUrls = await Promise.all(newImages.map((img) => uploadToSupabase(img)));
@@ -177,7 +183,7 @@ export default function EditNoticePage() {
             formData.append('images', JSON.stringify(allImages));
             formData.append('files', JSON.stringify(allFiles));
 
-            startTransition(async () => {
+            setSubmitPhase('공지 저장 중');
                 const result = await updateNoticeAction({ success: false }, formData);
 
                 if (result.success) {
@@ -200,14 +206,17 @@ export default function EditNoticePage() {
                         form.setErrors(result.errors);
                     }
                 }
-            });
         } catch (error) {
             logger.error('File upload error', error);
             notifications.show({
                 title: '업로드 오류',
-                message: '파일 업로드 중 오류가 발생했습니다.',
+                message: '처리 결과를 확인하지 못했습니다. 입력은 유지됩니다. 공지 목록을 확인한 뒤 다시 시도해주세요.',
                 color: 'red',
             });
+        } finally {
+            submittingRef.current = false;
+            setSubmitting(false);
+            setSubmitPhase('');
         }
     };
 
@@ -255,6 +264,7 @@ export default function EditNoticePage() {
 
                 <Paper radius="lg" p={rem(40)} pos="relative" style={glassStyle}>
                     <LoadingOverlay visible={isFetching || isPending} overlayProps={{ radius: 'lg', blur: 2 }} />
+                    {isPending ? <Text role="status" size="sm">{submitPhase}</Text> : null}
 
                     <form onSubmit={form.onSubmit(handleSubmit)}>
                         <Stack gap="xl">

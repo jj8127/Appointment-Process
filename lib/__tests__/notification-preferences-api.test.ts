@@ -21,6 +21,7 @@ import {
   setPushCategoryEnabled,
   setRoomPinned,
   setRoomMuted,
+  NotificationPreferenceWriteConfirmedError,
 } from '../notification-preferences-api';
 
 const response = {
@@ -150,5 +151,17 @@ describe('notification preferences mobile API', () => {
       body: { action: 'set_global', enabled: false },
     }));
     expect(unregisterAllPushTokensMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a committed preference distinct from a failed confirmation read', async () => {
+    invokeMock.mockResolvedValueOnce({ data: { ok: false, saved: true, code: 'preference_read_failed_after_write' }, error: null });
+    await expect(setPushCategoryEnabled('operations', false)).rejects.toBeInstanceOf(NotificationPreferenceWriteConfirmedError);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not imply global OFF rolled back when later token removal fails', async () => {
+    unregisterAllPushTokensMock.mockResolvedValueOnce({ ok: false });
+    await expect(setGlobalPushEnabled(false)).rejects.toMatchObject({ saved: true });
+    expect(invokeMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -209,3 +209,7 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 - Login must keep `KeyboardAwareWrapper` with `keyboardShouldPersistTaps="always"` and the primary login CTA must use the shared `Button` with `dismissKeyboardOnPress`. Do not replace it with a raw `Pressable` unless the same keyboard-open tap contract is explicitly re-tested.
 - Android night splash background must stay light as well; a black night splash can make auth transitions look like another UI color regression.
 - Regression coverage lives in `lib/__tests__/login-mobile-source.test.ts`, `lib/__tests__/signup-background-source.test.ts`, `components/__tests__/Button.contract.test.ts`, and one user-owned protected source-contract test whose identifier is withheld and which remains outside unrelated task edits and verification.
+
+## 2026-10-09 Local identity, address and deletion feedback
+
+Identity query errors stop the apply/home gate and offer retry; they are not user non-entry. Address lookup handles script/HTTP/native failure and timeouts with a visible retry/close surface; closing returns to the same form. Account deletion copy describes removal of login/profile data and possible retained shared history, matching the existing server deletion policy. Physical-device navigation/WebView checks and production activation remain unverified.

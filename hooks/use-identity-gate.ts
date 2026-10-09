@@ -24,14 +24,14 @@ export function useIdentityGate(options: GateOptions = {}) {
     notificationTarget?: string | string[];
   }>();
   const { role, residentId, hydrated, isRequestBoardDesigner } = useSession();
-  const { data, isLoading } = useIdentityStatus();
+  const { data, isLoading, isError } = useIdentityStatus();
   const destinationAccepted = canAcceptIdentityGatedDestination({
     enabled,
     hydrated,
     role,
     residentId,
     isRequestBoardDesigner,
-    isIdentityLoading: isLoading,
+    isIdentityLoading: isLoading || isError,
     identityCompleted: data?.identityCompleted,
   });
 
@@ -66,6 +66,7 @@ export function useIdentityGate(options: GateOptions = {}) {
       } as any);
     }
   }, [
+    isError,
     data,
     enabled,
     hydrated,

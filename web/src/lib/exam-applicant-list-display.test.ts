@@ -456,3 +456,12 @@ test('legacy exam apply route redirects to the canonical applicant list instead 
   assert.doesNotMatch(source, /<FilterHeader label="이름" field="name" \/>[\s\S]*<FilterHeader label="연락처" field="phone" \/>/);
   assert.doesNotMatch(source, /<Table\.Th>신청일시<\/Table\.Th>/);
 });
+
+
+test('exam timestamp uses Korea date at UTC midnight boundary', async () => {
+  const { formatExamApplicantCreatedAt } = await import('./exam-applicant-list-display.ts');
+  assert.equal(formatExamApplicantCreatedAt({ created_at: '2026-10-08T15:00:00Z' }), '2026-10-09');
+  assert.equal(formatExamApplicantCreatedAt({ created_at: '2026-10-08T14:59:59Z' }), '2026-10-08');
+  assert.equal(formatExamApplicantCreatedAt({ created_at: '2026-10-09' }), '2026-10-09');
+  assert.equal(formatExamApplicantCreatedAt({ created_at: '2026-10-09T00:00:00' }), '-');
+});

@@ -211,7 +211,7 @@ export default function ExamSchedulePage() {
                 });
             }
             queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
-            handleClose();
+            handleClose(true);
         },
         onError: (err: unknown) => {
             notifications.show({
@@ -234,7 +234,7 @@ export default function ExamSchedulePage() {
         onSuccess: () => {
             notifications.show({
                 title: '삭제 완료',
-                message: '시험 일정과 모든 신청 내역이 삭제되었습니다.',
+                message: '신청자가 없는 시험 일정이 삭제되었습니다.',
                 color: 'green',
             });
             queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
@@ -254,6 +254,7 @@ export default function ExamSchedulePage() {
     const handleOpenCreate = () => {
         setEditingId(null);
         form.reset();
+        form.resetDirty();
         open();
     };
 
@@ -270,10 +271,13 @@ export default function ExamSchedulePage() {
             locations: round.locations.map(l => l.location_name),
             is_date_tbd: isTBD,
         });
+        form.resetDirty();
         open();
     };
 
-    const handleClose = () => {
+    const handleClose = (force = false) => {
+        if (!force && saveMutation.isPending) return;
+        if (!force && form.isDirty() && !window.confirm('작성 중인 시험 일정을 버릴까요?')) return;
         close();
         form.reset();
         setEditingId(null);
@@ -537,7 +541,7 @@ export default function ExamSchedulePage() {
             {/* Modal */}
             <Modal
                 opened={opened}
-                onClose={handleClose}
+                onClose={() => handleClose()}
                 title={
                     <Group gap="sm">
                         <ThemeIcon radius="md" variant="light" color="orange">
@@ -767,7 +771,7 @@ export default function ExamSchedulePage() {
                         </Paper>
 
                         <Group justify="space-between" mt="xs">
-                            <Button variant="default" onClick={handleClose}>취소</Button>
+                            <Button variant="default" onClick={() => handleClose()}>취소</Button>
                             <Button type="submit" color="orange" loading={saveMutation.isPending}>
                                 {editingId ? '수정 저장' : '등록 하기'}
                             </Button>
@@ -780,7 +784,7 @@ export default function ExamSchedulePage() {
             <Modal opened={deleteOpened} onClose={closeDelete} title="일정 삭제" centered>
                 <Stack gap="md">
                     <Text size="sm" c="dimmed">
-                        {deleteTarget ? `'${deleteTarget.label}' 일정을 삭제하시겠습니까?\n주의: 해당 회차의 모든 FC 신청 내역이 초기화(삭제)됩니다.` : '일정을 삭제하시겠습니까?'}
+                        {deleteTarget ? `'${deleteTarget.label}' 일정을 삭제하시겠습니까?\n신청자가 있는 회차는 삭제할 수 없으며 신청 이력은 보존됩니다.` : '일정을 삭제하시겠습니까?'}
                     </Text>
                     <Group justify="flex-end">
                         <Button variant="default" onClick={closeDelete}>취소</Button>

@@ -7,9 +7,9 @@ const source = fs.readFileSync(
 );
 
 describe('admin-action FC self-profile contract', () => {
-  it('authorizes the two profile actions only from the signed FC actor', () => {
+  it('authorizes profile and own-document actions only from the signed FC actor', () => {
     expect(source).toContain(
-      "const allowFcSelfProfile = action === 'getOwnProfile' || action === 'updateOwnProfile';",
+      "const allowFcSelfProfile = action === 'getOwnProfile' || action === 'updateOwnProfile' || action === 'removeOwnDocument' || action === 'retryOwnDocumentCleanup' || action === 'getOwnDocumentCleanupStatus';",
     );
     expect(source).toContain('allowFcSelfProfile && requesterFcIds.length > 0');
     expect(source).toContain("trustedRole === 'fc'");

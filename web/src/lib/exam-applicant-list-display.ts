@@ -348,8 +348,14 @@ export function formatExamApplicantFeePaidDate(item: Pick<ExamApplicantListItem,
 
 export function formatExamApplicantCreatedAt(item: Pick<ExamApplicantListItem, 'created_at'>): string {
   const value = item.created_at ?? '';
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return match ? `${match[1]}-${match[2]}-${match[3]}` : '-';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  // Timestamp fields have a Korean business date; date-only fields stay unchanged.
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/.test(value)) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
 export function getExamApplicantCellValue(

@@ -1,3 +1,4 @@
+import { cleanupFailed } from '@/lib/upstream-response-policy';
 import { NextResponse } from 'next/server';
 
 import { adminSupabase } from '@/lib/admin-supabase';
@@ -71,17 +72,21 @@ const EXAM_REGISTRATION_SELECT = `
   exam_rounds!exam_registrations_round_exam_type_fkey ( round_label, exam_date, exam_type )
 `;
 
-async function readRegistrationRows(registrationId?: string): Promise<ExamRegistrationRow[]> {
+async function readRegistrationRows(registrationId?: string, roundId?: string): Promise<ExamRegistrationRow[]> {
   if (!registrationId) {
-    const { data, error } = await adminSupabase
-      .from('exam_registrations')
-      .select(EXAM_REGISTRATION_SELECT)
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: false })
-      .limit(1000);
-
-    if (error) throw error;
-    return (data ?? []) as ExamRegistrationRow[];
+    const rows: ExamRegistrationRow[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      let query = adminSupabase.from('exam_registrations').select(EXAM_REGISTRATION_SELECT);
+      if (roundId) query = query.eq('round_id', roundId);
+      const { data, error } = await query
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(offset, offset + 999);
+      if (error) throw error;
+      const page = (data ?? []) as ExamRegistrationRow[];
+      rows.push(...page);
+      if (page.length < 1000) return rows;
+    }
   }
 
   const { data: selected, error: selectedError } = await adminSupabase
@@ -175,30 +180,26 @@ async function sendExamDecisionPush(
 }
 
 async function readApplicantNavigation(registrationId: string) {
-  const { data, error } = await adminSupabase
-    .from('exam_registrations')
-    .select('id')
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(1000);
-
-  if (error) throw error;
-
-  const orderedIds = (data ?? [])
-    .map((row) => String(row.id ?? ''))
-    .filter(Boolean);
-  const currentIndex = orderedIds.indexOf(registrationId);
-
-  return {
-    previousId: currentIndex > 0 ? orderedIds[currentIndex - 1] : null,
-    nextId: currentIndex >= 0 && currentIndex < orderedIds.length - 1
-      ? orderedIds[currentIndex + 1]
-      : null,
+  const { data: selected, error: selectedError } = await adminSupabase
+    .from('exam_registrations').select('id,created_at').eq('id', registrationId).maybeSingle();
+  if (selectedError) throw selectedError;
+  if (!selected) return { previousId: null, nextId: null };
+  const timestamp = new Date(selected.created_at).toISOString();
+  const readNeighbor = async (newer: boolean) => {
+    const comparison = newer ? 'gt' : 'lt';
+    const { data, error } = await adminSupabase.from('exam_registrations').select('id')
+      .or(`created_at.${comparison}.${timestamp},and(created_at.eq.${timestamp},id.${comparison}.${registrationId})`)
+      .order('created_at', { ascending: newer }).order('id', { ascending: newer })
+      .limit(1).maybeSingle();
+    if (error) throw error;
+    return data ? String(data.id) : null;
   };
+  const [previousId, nextId] = await Promise.all([readNeighbor(true), readNeighbor(false)]);
+  return { previousId, nextId };
 }
 
 async function listApplicants(staffPhone: string, roundId?: string, registrationId?: string) {
-  const rows = await readRegistrationRows(registrationId);
+  const rows = await readRegistrationRows(registrationId, roundId);
   const allBase = applyExamApplicantApplicationTypes(buildExamApplicantBaseRows(rows));
   const selectedBase = registrationId
     ? allBase.filter((row) => row.id === registrationId)
@@ -350,10 +351,7 @@ export async function PATCH(req: Request) {
     const proofPath = String(result?.proof_path ?? '').trim();
     let cleanupWarning = false;
     if (proofPath) {
-      const { error: cleanupError } = await adminSupabase.storage
-        .from('exam-payment-proofs')
-        .remove([proofPath]);
-      cleanupWarning = Boolean(cleanupError);
+      cleanupWarning = await cleanupFailed(() => adminSupabase.storage.from('exam-payment-proofs').remove([proofPath]));
     }
     const pushWarning = await sendExamDecisionPush(
       result,
@@ -432,15 +430,14 @@ export async function DELETE(req: Request) {
     }
     const result = (Array.isArray(data) ? data[0] : data) as ExamTransitionResult;
     const proofPath = String(result?.proof_path ?? '').trim();
-    if (proofPath) {
-      await adminSupabase.storage.from('exam-payment-proofs').remove([proofPath]);
-    }
+    const cleanupWarning = proofPath ? await cleanupFailed(() => adminSupabase.storage.from('exam-payment-proofs').remove([proofPath])) : false;
     const pushWarning = await sendExamDecisionPush(result, registrationId, 'cancel_by_admin', null);
 
     return NextResponse.json(
       {
         ok: true,
         deleted: false,
+        cleanupWarning,
         status: String(result?.status ?? ''),
         pushWarning,
       },

@@ -1,3 +1,6 @@
+import * as Crypto from 'expo-crypto';
+import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
+import { useReadAttempt } from '@/lib/use-read-attempt';
 import { Feather } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
@@ -128,6 +131,12 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
   const [pendingAttachmentRetry, setPendingAttachmentRetry] =
     useState<PendingBoardAttachmentRetry | null>(null);
   const pickingRef = useRef(false);
+  const submitRef = useRef(false);
+  const beginMutation = useReadAttempt();
+  const currentOutcome = useRef<() => boolean>(() => true);
+  const createIntent = useRef<{ requestId: string; categoryId: string; title: string; content: string } | null>(null);
+  const [savedExit, setSavedExit] = useState(false);
+
 
   useEffect(() => {
     if (!pendingAttachmentRetry) return undefined;
@@ -180,8 +189,17 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
     String(sessionScope), postId, detailData, isDetailError,
   );
   const canEditPost = !isEditMode || actor?.role !== 'manager' || initialDetail?.post.isMine === true;
-  const canEditComposer = canWrite && canEditPost && isSourceReady && !pendingAttachmentRetry;
+  const canEditComposer = canWrite && canEditPost && isSourceReady && !pendingAttachmentRetry && !createIntent.current;
   const canSubmitContent = canEditComposer && !isCategoriesError && !isCategoriesPending && categories.length > 0;
+
+  const initialAttachmentOrder = initialDetail ? [
+    ...initialDetail.attachments.filter(file => file.fileType === 'image'),
+    ...initialDetail.attachments.filter(file => file.fileType !== 'image'),
+  ].map(file => file.id).join(',') : '';
+  const draftChanged = isEditMode
+    ? !!initialDetail && (title !== initialDetail.post.title || content !== initialDetail.post.content || categoryId !== initialDetail.post.categoryId || attachments.length > 0 || existingAttachments.map(file => file.id).join(',') !== initialAttachmentOrder)
+    : !!(title.trim() || content.trim() || attachments.length);
+  const allowSavedExit = useDraftExitGuard(!savedExit && !pendingAttachmentRetry && draftChanged, !savedExit && loading);
 
   useEffect(() => {
     if (!isEditMode && !categoryId && categories.length > 0) {
@@ -261,6 +279,9 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
   };
 
   function completeSavedPost() {
+    if (!currentOutcome.current()) return;
+    allowSavedExit();
+    setSavedExit(true);
     setTitle('');
     setContent('');
     setAttachments([]);
@@ -272,12 +293,14 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
     operation: 'create' | 'update',
     retry: BoardNotificationRetry,
   ) {
+    if (!currentOutcome.current()) return;
     if (!actor) {
       Alert.alert('알림 대상 오류', '현재 계정 정보를 확인할 수 없습니다.');
       return;
     }
     try {
       const result = await retryBoardNotification(actor, retry);
+      if (!currentOutcome.current()) return;
       if (result.delivery?.notificationStored === true) {
         Alert.alert(
           '알림 등록 완료',
@@ -292,6 +315,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
         result.notificationRetry ?? retry,
       );
     } catch {
+      if (!currentOutcome.current()) return;
       Alert.alert(
         '알림 등록 확인 필요',
         '게시글은 이미 저장되어 있습니다. 게시글을 다시 저장하지 말고 알림 등록만 다시 확인해 주세요.',
@@ -352,17 +376,23 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
   };
 
   const handleSubmit = async () => {
+    if (submitRef.current) return;
+    const isCurrentMutation = beginMutation();
+    if (!isCurrentMutation()) return;
+    currentOutcome.current = isCurrentMutation;
     if (!canWrite) {
       Alert.alert('접근 불가', '관리자만 게시글을 작성할 수 있습니다.');
       return;
     }
     if (pendingAttachmentRetry) {
+      submitRef.current = true;
       setLoading(true);
       try {
         const attachmentResult = await uploadSelectedAttachments(
           pendingAttachmentRetry.postId,
           pendingAttachmentRetry.manifest,
         );
+        if (!isCurrentMutation()) return;
         if (!attachmentResult.complete) {
           setPendingAttachmentRetry({
             ...pendingAttachmentRetry,
@@ -384,16 +414,17 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
           pendingAttachmentRetry.notificationRetry,
         );
       } catch {
+        if (!isCurrentMutation()) return;
         Alert.alert(
           '게시글 저장 완료 · 첨부 확인 필요',
           '게시글은 이미 저장되어 있습니다. 게시글을 다시 작성하지 말고 첨부만 다시 시도해주세요.',
         );
       } finally {
-        setLoading(false);
+        if (isCurrentMutation()) { submitRef.current = false; setLoading(false); }
       }
       return;
     }
-    if (!canSubmitContent) {
+    if (!canSubmitContent && !createIntent.current) {
       Alert.alert('조회 필요', '게시글과 카테고리를 불러온 뒤 다시 시도해주세요.');
       return;
     }
@@ -406,6 +437,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
       return;
     }
 
+    submitRef.current = true;
     setLoading(true);
     try {
       if (!actor) throw new Error('로그인이 필요합니다.');
@@ -416,11 +448,9 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
       if (postId) {
         targetPostId = postId;
       } else {
-        const createResult = await createBoardPost(actor, {
-          categoryId,
-          title: title.trim(),
-          content: content.trim(),
-        });
+        createIntent.current ??= { requestId: Crypto.randomUUID(), categoryId, title: title.trim(), content: content.trim() };
+        const createResult = await createBoardPost(actor, createIntent.current);
+        if (!isCurrentMutation()) return;
         targetPostId = createResult.id;
         notificationWarning = createResult.notificationWarning;
         notificationRetry = createResult.notificationRetry;
@@ -434,11 +464,13 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
           content: content.trim(),
           attachmentOrder: existingAttachments.map((file) => file.id),
         });
+        if (!isCurrentMutation()) return;
         notificationWarning = updateResult.notificationWarning;
         notificationRetry = updateResult.notificationRetry;
       }
       if (attachments.length > 0) {
         const attachmentResult = await uploadSelectedAttachments(targetPostId, null);
+        if (!isCurrentMutation()) return;
         if (!attachmentResult.complete) {
           setPendingAttachmentRetry({
             postId: targetPostId,
@@ -468,10 +500,11 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
 
       finishSavedPost(operation, notificationWarning, notificationRetry);
     } catch (err: any) {
+      if (!isCurrentMutation()) return;
       logBoardError('post-create', err);
       Alert.alert('작성 실패', err?.message ?? '오류가 발생했습니다.');
     } finally {
-      setLoading(false);
+      if (isCurrentMutation()) { submitRef.current = false; setLoading(false); }
     }
   };
 

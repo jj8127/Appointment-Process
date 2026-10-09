@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { parseUpstreamResponse, isGroupChatSuccess } from '@/lib/upstream-response-policy';
 import { NextResponse } from 'next/server';
 
 import { checkRateLimit, SECURITY_HEADERS, verifyOrigin } from '@/lib/csrf';
@@ -92,19 +93,11 @@ export async function POST(req: Request) {
       body: JSON.stringify(normalized.payload),
     });
     const text = await response.text();
-    let payload: unknown = null;
-    try {
-      payload = text ? JSON.parse(text) : null;
-    } catch {
-      payload = { ok: response.ok, message: text.slice(0, 300) };
+    const payload = parseUpstreamResponse(text);
+    if (!payload || (response.ok && payload.ok === true && !isGroupChatSuccess(normalized.payload.type, payload))) {
+      return json({ ok: false, code: 'invalid_group_chat_response', message: '단톡방 처리 결과를 확인하지 못했습니다. 상태를 확인한 뒤 다시 시도해주세요.' }, 502);
     }
-
-    return json(
-      typeof payload === 'object' && payload !== null
-        ? (payload as Record<string, unknown>)
-        : { ok: response.ok, message: String(payload ?? '') },
-      response.status,
-    );
+    return json(payload, response.status);
   } catch (error) {
     return json({
       ok: false,

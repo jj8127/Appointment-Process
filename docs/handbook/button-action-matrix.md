@@ -23,3 +23,15 @@ source_of_truth: app/* + web/src/app/* + supabase/functions/*
 | `FC-ADMIN.UPDATE_COMMISSION_FLAGS` | 생명/손해 위촉 완료 저장 | web `dashboard` appointment tab | `admin` | readOnly 아님 | `생명 위촉 완료`, `손해 위촉 완료` 플래그를 독립적으로 저장 | `life_commission_completed`, `nonlife_commission_completed`, 필요 시 `status` | 토스트/목록 갱신 | 권한/계약 오류 | Appointment |
 | `FC-ADMIN.CONFIRM_APPOINTMENT` | 위촉 확정 | web `dashboard` appointment tab | `admin` | 제출 정보 유효 | 위촉 완료/최종 완료 계산 | appointment fields + status | 완료 토스트 | 서버 오류 | Appointment |
 | `FC-BRIDGE.OPEN_REQUEST_BOARD` | 설계요청 열기 | `request-board` | `fc`, `manager`, `developer`, linked `designer` | 브리지 세션 복구 가능 | GaramLink 임베드/연결 | request_board JWT/session | 화면 진입 | 재로그인/브리지 오류 | Bridge |
+
+## 2026-10-09 Local priority-one action updates
+
+| Action | Result contract | Recovery |
+| --- | --- | --- |
+| Submitted document removal | Confirm affected downstream fields; disable while pending; one atomic DB receipt | Durable cleanup-only warning/status/retry on re-entry |
+| Ordinary board/notice/basic-information exit | Keep dirty draft until explicit discard; pending exit waits | Same in-memory draft; saved attachment policy retained |
+| Address search | Visible loading/failure/timeout | Retry script or close to unchanged form |
+| Allowance graph | Separate statement performance month and payment date | Retry unknown reads; no invented business dates |
+| Account deletion | Login/profile removal, shared history may remain | Existing server deletion workflow |
+
+Local route/handler tests are distinct from native interaction and operational rollout.

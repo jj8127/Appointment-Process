@@ -85,7 +85,7 @@ function AllowanceAdminWorkspace({ sessionKey }: { sessionKey: string }) {
       <Stack gap="xl">
         <Group justify="space-between" align="flex-start">
           <div><Title order={2}>증원수당 월별 관리</Title><Text c="dimmed" mt={6}>대상자를 선택하고 월별 자료를 검토·게시합니다. 각 계정은 본인 수당만 조회합니다.</Text></div>
-          <Badge color="orange" variant="light" size="lg">등록 대상 {query.data?.recipients.length ?? 0}명</Badge>
+          <Badge color="orange" variant="light" size="lg">등록 대상 {query.data ? `${query.data.recipients.length}명` : query.isPending ? '조회 중' : '확인 불가'}</Badge>
         </Group>
         <Alert color="orange" title="당월 신규 산정 내역">
           하위 FP별 최종 대상업적의 10%를 만원 단위로 절사하고 업로드한 계보 기준 상위 10단계에 반영합니다.
@@ -101,7 +101,7 @@ function AllowanceAdminWorkspace({ sessionKey }: { sessionKey: string }) {
             <Select label="조회·업로드할 대상자" searchable value={pilot?.beneficiary_fc_id ?? recipientId}
               disabled={mutate.isPending} data={(query.data?.recipients ?? []).map((item) => ({ value: item.beneficiary_fc_id, label: `${item.name} · ${item.employee_code}` }))}
               onChange={(value) => { setRecipientId(value); setSelectedImportId(null); setFile(null); setReviewConfirmed(false); setSourceConfirmed(false); setMappingConfirmed(false); }} />
-            {pilot ? <Group justify="space-between"><Text fw={600}>{pilot.name} · 원본 사번 {pilot.employee_code}</Text><Badge color={pilot.enabled ? 'green' : 'gray'}>{pilot.enabled ? '사용 중' : '중지됨'}</Badge></Group> : <Text c="dimmed">연결된 계정이 없습니다. 계정과 원본 파일의 사번을 확인해주세요.</Text>}
+            {pilot ? <Group justify="space-between"><Text fw={600}>{pilot.name} · 원본 사번 {pilot.employee_code}</Text><Badge color={pilot.enabled ? 'green' : 'gray'}>{pilot.enabled ? '사용 중' : '중지됨'}</Badge></Group> : query.isSuccess && !query.isError ? <Text c="dimmed">연결된 계정이 없습니다. 계정과 원본 파일의 사번을 확인해주세요.</Text> : <Text c="dimmed">연결된 계정을 확인 중이거나 조회에 실패했습니다.</Text>}
             <Text size="sm" c="dimmed">이름은 계정을 찾는 용도로만 사용합니다. 연결할 계정과 원본 사번이 같은 사람인지 확인해주세요. 연결 설정을 저장하면 기존 게시 자료는 다시 검토·게시해야 합니다.</Text>
             <TextInput label="FC·본부장 계정 검색" placeholder="이름 2글자 이상" value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCandidateId(null); setMappingConfirmed(false); }} autoComplete="off" />
             <Select label="연결할 계정" placeholder={candidates.isFetching ? '계정 검색 중' : '검색한 계정을 선택해주세요'}
@@ -135,9 +135,9 @@ function AllowanceAdminWorkspace({ sessionKey }: { sessionKey: string }) {
         <Paper withBorder p="lg" radius="md">
           <Stack>
             <Title order={3}>검토 및 앱 게시</Title>
-            {!query.data?.imports.length ? <Text c="dimmed">아직 검토할 자료가 없습니다. 먼저 월별 엑셀을 업로드해주세요.</Text> : (
+            {!query.isSuccess || query.isError ? <Text c="dimmed">검토 자료를 확인하지 못했습니다.</Text> : !query.data?.imports.length ? <Text c="dimmed">아직 검토할 자료가 없습니다. 먼저 월별 엑셀을 업로드해주세요.</Text> : (
               <Table.ScrollContainer minWidth={600}><Table highlightOnHover><Table.Thead><Table.Tr><Table.Th>업적월</Table.Th><Table.Th>지급일</Table.Th><Table.Th>신규 지급예정</Table.Th><Table.Th>상태</Table.Th><Table.Th>검토</Table.Th></Table.Tr></Table.Thead>
-                <Table.Tbody>{query.data.imports.map((row) => <Table.Tr key={row.id}><Table.Td>{row.performance_month}</Table.Td><Table.Td>{row.payment_date}</Table.Td><Table.Td>{row.summary ? krw(row.summary.newPaymentKrw) : '확인 필요'}</Table.Td><Table.Td>{statusLabel[row.status]}</Table.Td><Table.Td><Button size="compact-sm" variant="subtle" onClick={() => { setSelectedImportId(row.id); setReviewConfirmed(false); }}>내역 보기</Button></Table.Td></Table.Tr>)}</Table.Tbody>
+                <Table.Tbody>{query.data!.imports.map((row) => <Table.Tr key={row.id}><Table.Td>{row.performance_month}</Table.Td><Table.Td>{row.payment_date}</Table.Td><Table.Td>{row.summary ? krw(row.summary.newPaymentKrw) : '확인 필요'}</Table.Td><Table.Td>{statusLabel[row.status]}</Table.Td><Table.Td><Button size="compact-sm" variant="subtle" onClick={() => { setSelectedImportId(row.id); setReviewConfirmed(false); }}>내역 보기</Button></Table.Td></Table.Tr>)}</Table.Tbody>
               </Table></Table.ScrollContainer>
             )}
             {detail.isFetching ? <Loader aria-label="산정 상세 조회 중" /> : null}

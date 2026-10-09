@@ -94,4 +94,13 @@ describe('admin-action privileged authentication boundary', () => {
       expect(mutationCaller).toContain('invokeAdminAction');
     }
   });
+
+  it.each(['deleteExamRound','updateDocReqs','deleteDocFile','removeOwnDocument','createNotice','getOwnDocumentCleanupStatus'])(
+    'rejects malformed %s receipts even when the HTTP result says ok', async action => {
+      await expect(invokeAdminActionWithDeps('00000000002', action, {}, {
+        getStoredAppSessionToken: async () => 'synthetic-signed-session',
+        invoke: async () => ({data:{ok:true},error:null}),
+      })).rejects.toThrow(/unverified/);
+    },
+  );
 });

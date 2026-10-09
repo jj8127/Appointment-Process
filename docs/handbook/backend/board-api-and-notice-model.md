@@ -104,3 +104,7 @@ contract_guard_2026_07_03: mobile board/notice screens, admin board/notification
 - Board diagnostics must not include actor or post identifiers, target roles, response bodies, parsed upstream messages, raw database/storage errors, URLs, or object paths.
 - Push fanout, notification insert, attachment cleanup, and view tracking retain their existing best-effort or fail-closed behavior. A diagnostic failure must not change the existing response, database, storage, or notification behavior.
 - The reviewed Board surface has no unproven direct-console sink. Only the two exact missing-configuration literals remain allowlisted; every operational failure uses the closed diagnostic helper, and changes require the privacy source test and AST baseline to be reviewed together.
+
+## 2026-10-09 Prepared creation receipts
+
+Current mobile board and notice composers retain a stable creation UUID/payload after response uncertainty. `create_board_post_idempotent_v1` and `create_notice_idempotent_v1` use service-only invoker access, actor revalidation, transaction advisory locks and durable payload/result receipts. Matching retries return the same ID; payload changes fail. Board callers without a supplied requestId retain legacy compatibility only. Post-commit notifications retain separate delivery feedback. Runtime receipt shape checks fail closed. PGlite and actual PostgreSQL fixtures cover rollback and competing transactions; operational migration/Edge activation and mobile release have not occurred.

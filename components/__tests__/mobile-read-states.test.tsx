@@ -143,7 +143,7 @@ describe('mobile read failure presentation', () => {
     { isSourceReady: true, isCategoriesError: true, pendingAttachmentRetry: null },
     { isSourceReady: true, isCategoriesError: false, pendingAttachmentRetry: { postId: 'saved-post' } },
   ])('composer guards editing/saving during missing source, category error or attachment retry: %j', (scenario) => {
-    const canEditComposer = routeLocal('app/admin-board.tsx', 'canEditComposer', { canWrite: true, canEditPost: true, ...scenario });
+    const canEditComposer = routeLocal('app/admin-board.tsx', 'canEditComposer', { canWrite: true, canEditPost: true, createIntent: { current: null }, ...scenario });
     const canSubmitContent = routeLocal('app/admin-board.tsx', 'canSubmitContent', { canEditComposer, isCategoriesPending: false, categories: [{}], ...scenario });
     expect(canSubmitContent).toBe(false);
     if (!scenario.isSourceReady || scenario.pendingAttachmentRetry) expect(canEditComposer).toBe(false);
@@ -158,6 +158,7 @@ describe('mobile read failure presentation', () => {
       title: 'Fictional edited title', content: 'complete fictional draft '.repeat(20), categoryId: 'fictional-category',
       actor: { role: 'admin' }, postId: 'fictional-post', isEditMode: true,
       attachments: [], existingAttachments: [], setLoading: jest.fn(),
+      submitRef: { current: false }, beginMutation: () => () => true, currentOutcome: { current: () => true }, createIntent: { current: null },
       updateBoardPost, createBoardPost, Alert: { alert }, queryClient: { invalidateQueries: jest.fn() }, finishSavedPost: jest.fn(), logBoardError: jest.fn(),
     };
     const blocked = routeLocal('app/admin-board.tsx', 'handleSubmit', dependencies) as () => Promise<void>;
@@ -178,12 +179,54 @@ describe('mobile read failure presentation', () => {
       canWrite: true, canSubmitContent: false,
       pendingAttachmentRetry: { postId: 'fictional-saved-post', operation: 'update', manifest: 'fictional-manifest' },
       setLoading: jest.fn(), uploadSelectedAttachments, queryClient: { invalidateQueries: jest.fn() }, finishSavedPost: jest.fn(),
+      submitRef: { current: false }, beginMutation: () => () => true, currentOutcome: { current: () => true }, createIntent: { current: null },
       createBoardPost, updateBoardPost, Alert: { alert: jest.fn() },
     }) as () => Promise<void>;
     await retry();
     expect(uploadSelectedAttachments).toHaveBeenCalledWith('fictional-saved-post', 'fictional-manifest');
     expect(createBoardPost).not.toHaveBeenCalled();
     expect(updateBoardPost).not.toHaveBeenCalled();
+  });
+
+  it('composer freezes editing while an uncertain create intent is retained', () => {
+    const canEditComposer = routeLocal('app/admin-board.tsx', 'canEditComposer', {
+      canWrite: true, canEditPost: true, isSourceReady: true, pendingAttachmentRetry: null,
+      createIntent: { current: { requestId: 'stable-intent' } },
+    });
+    expect(canEditComposer).toBe(false);
+  });
+
+  it('actual saved attachment retry rejects a duplicate synchronous submission', async () => {
+    const beginMutation = jest.fn();
+    const uploadSelectedAttachments = jest.fn();
+    const run = routeLocal('app/admin-board.tsx', 'handleSubmit', {
+      submitRef: { current: true }, beginMutation, uploadSelectedAttachments,
+    }) as () => Promise<void>;
+    await run();
+    expect(beginMutation).not.toHaveBeenCalled();
+    expect(uploadSelectedAttachments).not.toHaveBeenCalled();
+  });
+
+  it('actual saved attachment retry cannot finish or refresh another session after a delayed result', async () => {
+    let current = true;
+    let resolveUpload!: (value: { complete: boolean }) => void;
+    const uploadSelectedAttachments = jest.fn(() => new Promise<{ complete: boolean }>((resolve) => { resolveUpload = resolve; }));
+    const invalidateQueries = jest.fn();
+    const finishSavedPost = jest.fn();
+    const setLoading = jest.fn();
+    const run = routeLocal('app/admin-board.tsx', 'handleSubmit', {
+      canWrite: true, pendingAttachmentRetry: { postId: 'fictional-post', operation: 'update', manifest: null },
+      submitRef: { current: false }, beginMutation: () => () => current, currentOutcome: { current: () => current },
+      uploadSelectedAttachments, setLoading, queryClient: { invalidateQueries }, finishSavedPost,
+    }) as () => Promise<void>;
+    const pending = run();
+    expect(uploadSelectedAttachments).toHaveBeenCalledTimes(1);
+    current = false;
+    resolveUpload({ complete: true });
+    await pending;
+    expect(invalidateQueries).not.toHaveBeenCalled();
+    expect(finishSavedPost).not.toHaveBeenCalled();
+    expect(setLoading.mock.calls).toEqual([[true]]);
   });
 
   it.each([

@@ -1,3 +1,4 @@
+import { NotificationPreferenceWriteConfirmedError } from '@/lib/notification-preferences-api';
 import { Feather } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -135,9 +136,9 @@ export default function NotificationSettingsScreen() {
           setError('알림 등록을 완료하지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요.');
         }
       }
-    } catch {
-      setPreferences(previous);
-      setError('알림 설정을 저장하지 못했어요. 서버 상태를 다시 확인합니다.');
+    } catch (error) {
+      if (!(error instanceof NotificationPreferenceWriteConfirmedError)) setPreferences(previous);
+      setError(error instanceof NotificationPreferenceWriteConfirmedError ? '알림 설정은 저장했습니다. 표시 갱신 또는 기기 등록을 마치지 못해 서버 상태를 다시 확인합니다.' : '알림 설정의 저장 결과를 확인하지 못했어요. 서버 상태를 다시 확인합니다.');
       void load();
     } finally {
       setPendingKey(null);
@@ -155,9 +156,10 @@ export default function NotificationSettingsScreen() {
     });
     try {
       setPreferences(await setPushCategoryEnabled(category, enabled));
-    } catch {
-      setPreferences(previous);
-      setError('알림 종류 설정을 저장하지 못했어요. 이전 상태로 되돌렸습니다.');
+    } catch (error) {
+      if (!(error instanceof NotificationPreferenceWriteConfirmedError)) setPreferences(previous);
+      setError(error instanceof NotificationPreferenceWriteConfirmedError ? '알림 종류 설정은 저장했습니다. 최신 표시를 불러오지 못해 서버 상태를 다시 확인합니다.' : '알림 종류 설정의 현재 상태를 확인하지 못했어요. 저장되었을 수 있어 서버 상태를 다시 확인합니다.');
+      void load();
     } finally {
       setPendingKey(null);
     }

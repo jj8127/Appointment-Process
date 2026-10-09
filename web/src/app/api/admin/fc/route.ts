@@ -1,3 +1,4 @@
+import { isValidCareerType } from '@/lib/user-intent-policy';
 import dayjs from 'dayjs';
 import { after, NextResponse } from 'next/server';
 
@@ -37,6 +38,8 @@ type AdminAction =
   | 'updateDocsRequest'
   | 'updateDocStatus'
   | 'deleteDocFile'
+  | 'retryDocumentCleanup'
+  | 'getDocumentCleanupStatus'
   | 'createHanwhaPdfUploadUrl'
   | 'deleteHanwhaPdf'
   | 'signDoc'
@@ -421,6 +424,23 @@ async function areAllRequestedDocsApproved(fcId: string) {
   return requestedDocs.length > 0 && requestedDocs.every((doc) => doc.status === 'approved');
 }
 
+/** Committed metadata stays successful when physical cleanup is delayed. */
+async function drainDocumentCleanup(fcId: string): Promise<boolean> {
+  try {
+    const { data, error } = await adminSupabase.from('fc_document_cleanup_queue').select('storage_path').eq('fc_id', fcId).limit(20);
+    if (error) return true;
+    for (const row of data ?? []) {
+      const { error: removeError } = await adminSupabase.storage.from('fc-documents').remove([row.storage_path]);
+      if (!removeError) {
+        const { error: queueError } = await adminSupabase.from('fc_document_cleanup_queue').delete().eq('fc_id', fcId).eq('storage_path', row.storage_path);
+        if (queueError) return true;
+      }
+    }
+    const { count, error: countError } = await adminSupabase.from('fc_document_cleanup_queue').select('storage_path', { count: 'exact', head: true }).eq('fc_id', fcId);
+    return !!countError || typeof count !== 'number' || !Number.isInteger(count) || count < 0 || count > 0;
+  } catch { return true; }
+}
+
 export async function POST(req: Request) {
   let body: AdminRequest;
   try {
@@ -542,6 +562,9 @@ export async function POST(req: Request) {
         return badRequest('추천인 관계는 추천인 관계 전용 경로에서만 수정할 수 있습니다.');
       }
 
+      if (Object.prototype.hasOwnProperty.call(data, 'career_type') && !isValidCareerType(data.career_type)) {
+        return badRequest('경력 구분은 신입 또는 경력을 선택해주세요.');
+      }
       const updateData = { ...data };
 
       const hasTempIdUpdate = Object.prototype.hasOwnProperty.call(updateData, 'temp_id');
@@ -967,112 +990,45 @@ export async function POST(req: Request) {
     }
 
     if (action === 'updateDocsRequest') {
-      const { fcId, types, deadline, currentDeadline } = payload as {
-        fcId?: string;
-        types?: string[];
-        deadline?: string | null;
-        currentDeadline?: string | null;
-      };
-      if (!fcId || !Array.isArray(types)) return badRequest('fcId and types are required');
+      const { fcId, types, deadline } = payload as { fcId?: string; types?: string[]; deadline?: string | null };
+      if (!fcId || !Array.isArray(types) || types.some((type) => typeof type !== 'string')) return badRequest('서류 종류를 확인해주세요.');
+      if (deadline && (!/^\d{4}-\d{2}-\d{2}$/.test(deadline) || !dayjs(deadline).isValid())) return badRequest('서류 마감일을 확인해주세요.');
       const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
       if (scopeError) return scopeError;
-
-      const nextTypes = types ?? [];
-      const normalizedDeadline = deadline ? dayjs(deadline).format('YYYY-MM-DD') : null;
-      const shouldResetNotify = normalizedDeadline !== (currentDeadline ?? null);
-
-      const { data: currentDocsRaw, error: fetchErr } = await adminSupabase
-        .from('fc_documents')
-        .select('doc_type, storage_path')
-        .eq('fc_id', fcId);
-      if (fetchErr) throw fetchErr;
-
-      const currentDocs = currentDocsRaw || [];
-      const currentTypes = currentDocs.map((d) => d.doc_type);
-
-      if (nextTypes.length === 0) {
-        logger.info('[api/admin/fc] Deleting all documents', { fcId });
-        const { error: deleteAllError, count: deleteAllCount } = await adminSupabase
-          .from('fc_documents')
-          .delete({ count: 'exact' })
-          .eq('fc_id', fcId);
-        if (deleteAllError) throw deleteAllError;
-        logger.info('[api/admin/fc] Deleted all documents', { fcId, count: deleteAllCount });
-
-        const { error: profileUpdateError } = await adminSupabase
-          .from('fc_profiles')
-          .update({
-            status: 'allowance-consented',
-            docs_deadline_at: null,
-            docs_deadline_last_notified_at: null,
-          })
-          .eq('id', fcId);
-        if (profileUpdateError) throw profileUpdateError;
-
-        return NextResponse.json({ ok: true });
-      }
-
-      const toAdd = nextTypes.filter((type) => !currentTypes.includes(type));
-      const toDelete = currentDocs
-        .filter((d) => !nextTypes.includes(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'))
-        .map((d) => d.doc_type);
-
-      if (toDelete.length) {
-        logger.info('[api/admin/fc] Deleting documents', { fcId, types: toDelete });
-        const { error: deleteError, count: deleteCount } = await adminSupabase
-          .from('fc_documents')
-          .delete({ count: 'exact' })
-          .eq('fc_id', fcId)
-          .in('doc_type', toDelete);
-        if (deleteError) throw deleteError;
-        logger.info('[api/admin/fc] Deleted documents', { fcId, count: deleteCount, expected: toDelete.length });
-      }
-      if (toAdd.length) {
-        const rows = toAdd.map((type) => ({
-          fc_id: fcId,
-          doc_type: type,
-          status: 'pending' as const,
-          file_name: '',
-          storage_path: '',
-        }));
-        const { data: insertedDocs, error: insertError } = await adminSupabase
-          .from('fc_documents')
-          .insert(rows)
-          .select();
-
-        logger.debug('[api/admin/fc] updateDocsRequest insert result', {
-          fcId,
-          insertedCount: insertedDocs?.length,
-          rowsToInsert: rows.length,
-          error: insertError
-        });
-
-        if (insertError) throw insertError;
-      }
-
-      const profileUpdate: Record<string, string | null> = {
-        docs_deadline_at: normalizedDeadline,
-      };
-      if (shouldResetNotify) {
-        profileUpdate.docs_deadline_last_notified_at = null;
-      }
-
-      const { error: profileUpdateError } = await adminSupabase
-        .from('fc_profiles')
-        .update({ status: 'docs-requested', ...profileUpdate })
-        .eq('id', fcId);
-      if (profileUpdateError) throw profileUpdateError;
-
-      const title = '필수 서류 등록 알림';
-      const body = '관리자가 필수 서류 목록을 갱신하였습니다. 확인 후 제출해주세요.';
-      const notificationResult = await sendPushNotificationToCanonicalFc(fcId, {
-        title,
-        body,
-        target: { version: 1, kind: 'onboarding_section', fcId, section: 'docs_upload' },
-        data: { url: '/docs-upload' },
+      const { data, error } = await adminSupabase.rpc('update_fc_document_requests_atomic_v1', {
+        p_actor_phone: sessionCheck.session.residentDigits, p_actor_role: sessionCheck.session.role,
+        p_fc_id: fcId, p_types: types, p_deadline: deadline || null,
       });
+      if (error) throw error;
+      if (!data || data.updated !== true) return NextResponse.json({ error: '서류 요청 반영 결과를 확인하지 못했습니다.' }, { status: 502 });
+      const cleanupPending = await drainDocumentCleanup(fcId);
+      const notificationResult = types.length > 0 ? await sendPushNotificationToCanonicalFc(fcId, {
+        title: '필수 서류 등록 알림', body: '관리자가 필수 서류 목록을 갱신하였습니다. 확인 후 제출해주세요.',
+        target: { version: 1, kind: 'onboarding_section', fcId, section: 'docs_upload' }, data: { url: '/docs-upload' },
+      }) : null;
+      return NextResponse.json({ ok: true, updated: true, cleanupPending, ...notificationResponse(notificationResult) });
+    }
 
-      return NextResponse.json({ ok: true, ...notificationResponse(notificationResult) });
+    if (action === 'getDocumentCleanupStatus') {
+      const { fcId } = payload as { fcId?: string };
+      if (!fcId) return badRequest('fcId is required');
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
+      const { count, error } = await adminSupabase.from('fc_document_cleanup_queue')
+        .select('storage_path', { count: 'exact', head: true }).eq('fc_id', fcId);
+      if (error) throw error;
+      if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
+        return NextResponse.json({ ok: false, error: '파일 정리 상태를 확인할 수 없습니다.' }, { status: 502 });
+      }
+      return NextResponse.json({ ok: true, cleanupPending: count > 0 });
+    }
+
+    if (action === 'retryDocumentCleanup') {
+      const { fcId } = payload as { fcId?: string };
+      if (!fcId) return badRequest('fcId is required');
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
+      return NextResponse.json({ ok: true, cleanupPending: await drainDocumentCleanup(fcId) });
     }
 
     if (action === 'updateDocStatus') {
@@ -1182,35 +1138,17 @@ export async function POST(req: Request) {
     }
 
     if (action === 'deleteDocFile') {
-      const { fcId, docType, storagePath } = payload as {
-        fcId?: string;
-        docType?: string;
-        storagePath?: string;
-      };
+      const { fcId, docType, storagePath } = payload as { fcId?: string; docType?: string; storagePath?: string };
       if (!fcId || !docType || !storagePath) return badRequest('fcId, docType, storagePath are required');
       const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
       if (scopeError) return scopeError;
-
-      const { error: storageErr } = await adminSupabase.storage
-        .from('fc-documents')
-        .remove([storagePath]);
-      if (storageErr) throw storageErr;
-
-      const { error: updateErr } = await adminSupabase
-        .from('fc_documents')
-        .update({ storage_path: 'deleted', file_name: 'deleted.pdf', status: 'pending', reviewer_note: null })
-        .eq('fc_id', fcId)
-        .eq('doc_type', docType);
-      if (updateErr) throw updateErr;
-
-      try {
-        await syncProfileAfterDocMutation(fcId);
-      } catch {
-        logger.warn('[api/admin/fc] saved document removal workflow incomplete');
-        return NextResponse.json({ ok: true, warning: 'workflow_update_incomplete' });
-      }
-
-      return NextResponse.json({ ok: true });
+      const { data, error } = await adminSupabase.rpc('remove_fc_document_atomic_v1', {
+        p_actor_phone: sessionCheck.session.residentDigits, p_actor_role: sessionCheck.session.role,
+        p_fc_id: fcId, p_doc_type: docType, p_expected_storage_path: storagePath,
+      });
+      if (error) throw error;
+      if (!data || data.deleted !== true) return NextResponse.json({ error: '서류 삭제 결과를 확인하지 못했습니다.' }, { status: 502 });
+      return NextResponse.json({ ok: true, deleted: true, cleanupPending: await drainDocumentCleanup(fcId) });
     }
 
     if (action === 'signDoc') {
@@ -1304,7 +1242,8 @@ export async function POST(req: Request) {
     return badRequest('Unknown action');
   } catch (err: unknown) {
     const error = err as Error;
-    logger.error('[api/admin/fc] failed', error);
+    if ((err as { code?: string })?.code === 'PGRST202') return NextResponse.json({ error: '서류 변경 기능이 아직 준비되지 않았습니다. 운영 담당자에게 문의해주세요.' }, { status: 503 });
+    logger.error('[api/admin/fc] failed', { code: (err as { code?: string })?.code ?? 'unknown' });
     if (isRecommenderRpcNotReadyError(error)) {
       return NextResponse.json({ error: RECOMMENDER_RPC_NOT_READY_MESSAGE }, { status: 503 });
     }

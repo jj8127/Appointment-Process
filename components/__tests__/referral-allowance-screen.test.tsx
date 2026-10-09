@@ -167,6 +167,7 @@ describe('standalone allowance page interactions', () => {
     expect(ancestor).not.toBeNull();
     expect(root().findAllByType('Modal')).toHaveLength(0);
     expect(pressable('수당 그래프').props.accessibilityState).toMatchObject({ selected: true });
+    expect(texts().join(' ')).toMatch(/실적월 2026-08.*지급예정일 2026-09-25/);
   });
 
   it('switches to the virtualized FP details and monthly amounts, then back to the graph', async () => {

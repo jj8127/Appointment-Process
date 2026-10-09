@@ -1,3 +1,4 @@
+import { isBoardSuccess } from '@/lib/upstream-response-policy';
 import { logger } from '@/lib/logger';
 import { redactSensitiveText } from '@/lib/sensitive-text';
 
@@ -198,6 +199,9 @@ async function invokeBoardResponse<T>(
       : '요청에 실패했습니다.';
     throw Object.assign(new Error(payload?.message ?? fallback), { status: response.status });
   }
+  if (payload?.ok === true && !isBoardSuccess(name, payload)) {
+    throw new Error('게시판 처리 결과를 확인할 수 없습니다. 목록을 새로고침하여 확인해주세요.');
+  }
   return payload;
 }
 
@@ -217,9 +221,7 @@ function normalizeBoardWriteResult(payload: InvokeResult<unknown>): BoardWriteRe
     : null;
 
   return {
-    // Older compatible Edge responses did not expose `saved`, while `ok: true`
-    // already meant that the durable write completed.
-    saved: payload.saved !== false,
+    saved: payload.saved === true,
     notification,
     delivery,
     notificationRetry:

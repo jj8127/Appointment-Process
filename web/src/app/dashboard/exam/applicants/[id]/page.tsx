@@ -1,9 +1,12 @@
 'use client';
 
+import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { useSession } from '@/hooks/use-session';
 import {
   EXAM_APPLICANT_TABLE_BADGE_STYLES,
   formatExamApplicantReceptionStatus,
+  formatExamApplicantApplicationStatus,
+  formatExamApplicantCreatedAt,
   getExamApplicantCellValue,
 } from '@/lib/exam-applicant-list-display';
 import { buildExamPaymentProofImagePath } from '@/lib/exam-payment-proof-admin';
@@ -245,6 +248,7 @@ export default function ExamApplicantDetailPage() {
           : '시험 접수 처리에 실패했습니다.';
         throw new Error(message);
       }
+      showAdminNotificationWarning(json);
       return applicant;
     },
     onSuccess: async (item) => {
@@ -290,6 +294,7 @@ export default function ExamApplicantDetailPage() {
             : '시험 신청 반려에 실패했습니다.',
         );
       }
+      showAdminNotificationWarning(json);
       return applicant;
     },
     onSuccess: (item) => {
@@ -431,7 +436,7 @@ export default function ExamApplicantDetailPage() {
               </Stack>
               <Stack gap={3} align="flex-end">
                 <Text size="xs" c="dimmed" fw={700}>신청일</Text>
-                <Text fw={700}>{dayjs(applicant.created_at).format('YYYY-MM-DD')}</Text>
+                <Text fw={700}>{formatExamApplicantCreatedAt(applicant)}</Text>
                 <Badge variant="light" color="blue" radius="sm" styles={EXAM_APPLICANT_TABLE_BADGE_STYLES}>
                   {subjectLabel}
                 </Badge>
@@ -476,7 +481,7 @@ export default function ExamApplicantDetailPage() {
                     <DetailItem label="시험 일정" value={examDateLabel} icon={<IconCalendarEvent size={18} />} />
                     <DetailItem label="고사장" value={applicant.location_name || '미정'} icon={<IconMapPin size={18} />} />
                     <DetailItem label="제3보험" value={thirdExamLabel} icon={<IconClipboardCheck size={18} />} />
-                    <DetailItem label="응시료 입금일" value={applicant.fee_paid_date || '-'} icon={<IconCreditCard size={18} />} />
+                    <DetailItem label="기존 신청의 수기 입금일" value={applicant.fee_paid_date || '-'} icon={<IconCreditCard size={18} />} />
                   </SimpleGrid>
                 </Card>
 
@@ -487,12 +492,15 @@ export default function ExamApplicantDetailPage() {
               <Card withBorder radius="lg" padding="xl" shadow="sm" h="100%">
                 <Stack gap="lg" h="100%">
                   <div>
+                    <Text size="sm" fw={700}>신청 상태: {formatExamApplicantApplicationStatus(applicant)}</Text>
                     <Text size="xs" c="orange" fw={800}>접수 상태</Text>
                     <Title order={3} mt={4} c={CHARCOAL}>{receptionLabel}</Title>
                     <Text size="sm" c="dimmed" mt="xs">
-                      {applicant.is_confirmed
-                        ? '관리자가 시험 접수를 완료한 신청입니다.'
-                        : '신청 내용을 확인한 뒤 시험 접수를 완료해주세요.'}
+                      {isReadOnly ? '신청 내용과 접수 이력을 조회합니다.'
+                        : applicant.status === 'applied' ? '신청 내용을 확인한 뒤 시험 접수를 완료해주세요.'
+                        : applicant.status === 'confirmed' ? '관리자가 시험 접수를 완료한 신청입니다.'
+                        : applicant.status.startsWith('cancelled') ? '취소된 신청입니다. 다시 응시하려면 접수 가능한 회차에 새로 신청해야 합니다.'
+                        : '종료되거나 반려된 신청입니다. 신청 상태와 이력을 확인해주세요.'}
                     </Text>
                   </div>
 
@@ -508,8 +516,8 @@ export default function ExamApplicantDetailPage() {
                       <Text size="sm" fw={700}>{applicant.location_name || '미정'}</Text>
                     </Group>
                     <Group justify="space-between">
-                      <Text size="sm" c="dimmed">입금 확인</Text>
-                      <Text size="sm" fw={700}>{applicant.fee_paid_date ? '확인' : '미입력'}</Text>
+                      <Text size="sm" c="dimmed">입금 증빙</Text>
+                      <Text size="sm" fw={700}>{applicant.payment_proof_attached ? '첨부됨' : '없음'}</Text>
                     </Group>
                   </Stack>
 

@@ -1,5 +1,8 @@
 'use client';
 
+import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { QueryReadError } from '@/lib/query-read-error';
 import { useSession } from '@/hooks/use-session';
 import {
   ActionIcon,
@@ -80,6 +83,8 @@ export default function AdminExamManagePage() {
   const [rejecting, setRejecting] = useState(false);
 
   const [rows, setRows] = useState<Row[]>([]);
+  const [readError, setReadError] = useState<unknown>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
@@ -114,17 +119,15 @@ export default function AdminExamManagePage() {
         Array.isArray(json.applicants);
 
       if (!isOk) {
-        const message =
-          isRecord(json) && typeof json.error === 'string'
-            ? json.error
-            : '시험 신청 목록을 불러오지 못했습니다.';
-        throw new Error(message);
+
+        throw new QueryReadError(response.status);
       }
 
       setRows(json.applicants as Row[]);
+      setReadError(null);
+      setHasLoaded(true);
     } catch (e) {
-      const err = e as Error;
-      notifications.show({ title: '조회 실패', message: err.message, color: 'red' });
+      setReadError(e);
     } finally {
       setLoading(false);
     }
@@ -166,6 +169,7 @@ export default function AdminExamManagePage() {
       }
 
       const nextStatus = nextConfirmed ? 'confirmed' : 'applied';
+      showAdminNotificationWarning(json);
       setRows((prev) =>
         prev.map((r) =>
           r.id === row.id ? { ...r, is_confirmed: nextConfirmed, status: nextStatus } : r,
@@ -570,18 +574,20 @@ export default function AdminExamManagePage() {
           </Group>
         </Group>
 
+        {readError ? <QueryErrorAlert error={readError} onRetry={fetchData} isFetching={loading} hasData={hasLoaded} subject="응시자" /> : null}
+        {readError && hasLoaded ? <Text size="sm" c="orange">통계와 목록은 이전 조회 자료입니다.</Text> : null}
         <Group grow>
           <Paper p="md" radius="md" withBorder shadow="sm">
             <Text size="xs" c="dimmed" fw={700} tt="uppercase">총 신청자</Text>
-            <Text fw={700} size="xl" mt="xs">{stats.total}명</Text>
+            <Text fw={700} size="xl" mt="xs">{hasLoaded ? `${stats.total}명` : loading ? '조회 중' : '확인 불가'}</Text>
           </Paper>
           <Paper p="md" radius="md" withBorder shadow="sm" style={{ borderLeft: `4px solid ${HANWHA_ORANGE}` }}>
             <Text size="xs" c="orange" fw={700} tt="uppercase">접수 완료</Text>
-            <Text fw={700} size="xl" mt="xs" c="orange">{stats.confirmed}명</Text>
+            <Text fw={700} size="xl" mt="xs" c="orange">{hasLoaded ? `${stats.confirmed}명` : loading ? '조회 중' : '확인 불가'}</Text>
           </Paper>
           <Paper p="md" radius="md" withBorder shadow="sm">
             <Text size="xs" c="dimmed" fw={700} tt="uppercase">미접수</Text>
-            <Text fw={700} size="xl" mt="xs">{stats.pending}명</Text>
+            <Text fw={700} size="xl" mt="xs">{hasLoaded ? `${stats.pending}명` : loading ? '조회 중' : '확인 불가'}</Text>
           </Paper>
         </Group>
 
@@ -590,7 +596,7 @@ export default function AdminExamManagePage() {
             <Group justify="space-between" align="center">
               <Group gap="xs">
                 <Text fw={600} size="lg">상세 목록</Text>
-                <Text c="dimmed" size="sm">({filteredRows.length}명)</Text>
+                <Text c="dimmed" size="sm">({hasLoaded ? `${filteredRows.length}명` : '확인 중'})</Text>
               </Group>
               <Group gap="xs">
                 {(globalSearch || Object.values(filters).some((v) => v)) && (
@@ -642,7 +648,7 @@ export default function AdminExamManagePage() {
                         <Table.Td colSpan={tableColumnCount} align="center" py={80}>
                           <Stack gap="xs" align="center">
                             <IconSearch size={40} color="#dee2e6" />
-                            <Text c="dimmed">조건에 맞는 응시자가 없습니다.</Text>
+                            <Text c="dimmed">{readError ? '응시자 정보를 확인하지 못했습니다.' : '조건에 맞는 응시자가 없습니다.'}</Text>
                           </Stack>
                         </Table.Td>
                       </Table.Tr>

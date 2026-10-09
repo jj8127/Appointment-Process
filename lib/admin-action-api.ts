@@ -1,5 +1,6 @@
 import { getStoredAppSessionToken } from './request-board-api';
 import { supabase } from './supabase';
+import { requireCreationReceipt, requireDocumentReceipt, requireExamDeletionReceipt } from '../supabase/functions/_shared/ux-mutation-contract';
 
 export class MissingAdminActionSessionError extends Error {
   readonly code = 'missing_app_session';
@@ -48,13 +49,19 @@ export async function invokeAdminActionWithDeps<
   if (error) {
     throw new Error(error instanceof Error ? error.message : '관리자 기능 호출에 실패했습니다.');
   }
-  if (!data?.ok) {
+  if (data?.ok !== true) {
     throw new Error(
       typeof data?.message === 'string'
         ? data.message
         : '처리 중 오류가 발생했습니다.',
     );
   }
+  if (action === 'updateDocReqs') requireDocumentReceipt(data, 'updated');
+  if (action === 'deleteDocFile' || action === 'removeOwnDocument') requireDocumentReceipt(data, 'deleted');
+  if (action === 'deleteExamRound') requireExamDeletionReceipt(data);
+  if (action === 'createNotice') requireCreationReceipt(data.notice);
+  if (['retryDocumentCleanup', 'retryOwnDocumentCleanup', 'getDocumentCleanupStatus', 'getOwnDocumentCleanupStatus'].includes(action)
+    && typeof data.cleanupPending !== 'boolean') throw new Error('cleanup_state_unverified');
 
   return data as { ok: true } & T;
 }

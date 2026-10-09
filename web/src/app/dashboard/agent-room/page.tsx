@@ -356,6 +356,7 @@ export default function AgentRoomPage() {
             </Group>
           </Group>
 
+          {error && data ? <Text c="yellow" size="sm">이전 조회 자료를 표시합니다. 현재 상태는 확인하지 못했습니다.</Text> : null}
           {error instanceof Error ? (
             <Paper
               radius="xl"
@@ -401,13 +402,13 @@ export default function AgentRoomPage() {
 
                   <Group gap="xs">
                     <Badge color="violet" variant="light">
-                      active {activeCount}
+                      active {data ? activeCount : '—'}
                     </Badge>
                     <Badge color="blue" variant="light">
-                      recent {recentCount}
+                      recent {data ? recentCount : '—'}
                     </Badge>
                     <Badge color="gray" variant="light">
-                      quiet {quietCount}
+                      quiet {data ? quietCount : '—'}
                     </Badge>
                   </Group>
 
@@ -424,7 +425,7 @@ export default function AgentRoomPage() {
                         On Floor
                       </Text>
                       <Badge color="green" variant="light">
-                        {stageCount}
+                        {data ? stageCount : '—'}
                       </Badge>
                     </Group>
 
@@ -492,7 +493,7 @@ export default function AgentRoomPage() {
                         );
                       }) : (
                         <Text size="sm" c="rgba(223, 230, 241, 0.68)">
-                          현재 무대에 올릴 active agent가 없습니다.
+                          {data ? '현재 무대에 올릴 active agent가 없습니다.' : error ? '활동 에이전트를 확인할 수 없습니다.' : '활동 에이전트를 불러오는 중입니다.'}
                         </Text>
                       )}
                     </Stack>
@@ -511,7 +512,7 @@ export default function AgentRoomPage() {
                         Quiet Stack
                       </Text>
                       <Badge color="gray" variant="light">
-                        {quietCount}
+                        {data ? quietCount : '—'}
                       </Badge>
                     </Group>
 
@@ -519,7 +520,7 @@ export default function AgentRoomPage() {
                       <Stack gap="xs" mt="sm">
                         {quietAgents.length === 0 ? (
                           <Text size="sm" c="rgba(223, 230, 241, 0.64)">
-                            quiet agent는 없습니다.
+                            {data ? 'quiet agent는 없습니다.' : error ? '대기 에이전트를 확인할 수 없습니다.' : '대기 에이전트를 불러오는 중입니다.'}
                           </Text>
                         ) : quietAgents.slice(0, 4).map((agent) => {
                           const freshness = getFreshnessTone(agent, nowMs);
