@@ -49,6 +49,9 @@ function verifyBuildSource(
   if (comparablePath(gitRoot) !== comparablePath(repoRoot)) {
     fail("Build script and Git repository must use the same source folder.");
   }
+  if (git(repoRoot, ["status", "--porcelain=v1", "--untracked-files=all"]).trim()) {
+    fail("A clean Git worktree is required; preserve and commit intended changes before building.");
+  }
   if (fs.existsSync(path.join(repoRoot, ".easignore"))) {
     fail("Review .easignore before building; this workflow verifies the .gitignore archive rules.");
   }

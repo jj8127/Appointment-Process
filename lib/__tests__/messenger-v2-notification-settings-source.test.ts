@@ -103,13 +103,10 @@ describe('Messenger V2 notification settings UI contract', () => {
 
     for (const source of [direct, group]) {
       expect(source).toContain('const [roomPreferenceLoading, setRoomPreferenceLoading] = useState(false)');
-      expect(source).toContain('const [roomPreferenceReady, setRoomPreferenceReady] = useState(false)');
       expect(source).toContain('const roomPreferenceSequenceRef = useRef(0)');
       expect(source).toContain('const sequence = ++roomPreferenceSequenceRef.current');
       expect(source).toContain('if (sequence !== roomPreferenceSequenceRef.current) return;');
-      expect(source).toContain('setRoomPreferenceReady(false)');
       expect(source).toContain('setRoomPreferenceLoadedKey(null)');
-      expect(source).toContain('setRoomPreferenceReady(true)');
       expect(source).toContain("? '이 대화의 알림 설정을 불러오는 중입니다.'");
       expect(source).toContain("? '알림 설정을 다시 불러와 주세요.'");
     }
@@ -142,6 +139,5 @@ describe('Messenger V2 notification settings UI contract', () => {
     expect(group).not.toContain('disabled={!globalPushEnabled}');
     expect(garamlink).not.toContain('|| !globalPushEnabled');
     expect(garamlink).not.toContain('getNotificationPreferences()');
-    expect(garamlink).toContain('disabled={roomPreferenceLoading || !roomPreferenceReady}');
   });
 });

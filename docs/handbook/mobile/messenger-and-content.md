@@ -7,6 +7,12 @@ source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversa
 
 # Mobile Playbook: Messenger And Content
 
+## 2026-10-10 Web read transport and bridge recovery
+
+The insurance-home notice and latest-message errors can share a browser CORS failure in fc-notify. Successful empty history remains distinct from failed reads. The current audit checks configured origins and actual OPTIONS without reading production message bodies. [CORS contract](../backend/notifications-inbox-push.md#web-edge-cors-boundary-2026-10-10).
+
+GaramLink reads recover once from403 SESSION_INVALID, preserve ordinary permission403, and preserve auth during retryable bridge/network/service failure. Account-bound refresh/auth-check results cannot overwrite a newer login or re-run an older account's create payload. [Bridge contract](../shared/cross-repo-bridge-contract.md#2026-10-10-mobile-bridge-read-recovery). Existing per-source last-good history and strict read failure semantics remain in force.
+
 ## 2026-10-03 Message width and timestamps
 
 - Direct and group message rows reserve space for the timestamp, unread receipt and send status. Bubble width is relative to the remaining row after avatar and padding, and the bubble may shrink while metadata keeps its measured width.

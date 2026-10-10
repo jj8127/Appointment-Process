@@ -15,10 +15,13 @@ const renderScript = ts.transpileModule(`(${screen.getText(parsed).replace('expo
 type Element = { type: string; props: Record<string, unknown>; children: unknown[] };
 type Actor = { hydrated: boolean; role: 'fc' | 'admin' | null; isRequestBoardDesigner: boolean };
 
-function render(actor: Actor, identityCompleted = false) {
+function render(actor: Actor, identityCompleted = false, canGoBack = false) {
   const push = jest.fn();
   const replace = jest.fn();
   const effects: (() => void)[] = [];
+  const focusEffects: (() => void)[] = [];
+  const alert = jest.fn();
+  let hardwareBack: (() => boolean) | undefined;
   const tree = runInNewContext(renderScript, {
     React: { createElement: (type: string, props: Record<string, unknown>, ...children: unknown[]) => ({ type, props: props ?? {}, children }) },
     useSession: () => ({ ...actor, displayName: '' }),
@@ -26,11 +29,14 @@ function render(actor: Actor, identityCompleted = false) {
     useIdentityStatus: () => ({ data: { identityCompleted }, isLoading: false }),
     useCallback: (callback: unknown) => callback,
     useEffect: (effect: () => void) => { effects.push(effect); },
-    useFocusEffect: () => undefined,
-    router: { push, replace },
+    useFocusEffect: (effect: () => void) => { focusEffects.push(effect); },
+    router: { push, replace, canGoBack: () => canGoBack },
+    Platform: { OS: 'android' }, Alert: { alert },
+    BackHandler: { addEventListener: (_event: string, handler: () => boolean) => { hardwareBack = handler; return { remove() {} }; }, exitApp: jest.fn() },
     SafeAreaView: 'SafeAreaView', View: 'View', Text: 'Text', ScrollView: 'ScrollView', Pressable: 'Pressable', Feather: 'Feather',
     styles: {}, COLORS: { text: { primary: '#111827' }, primary: '#f36f21' }, LOCKED_ITEMS: [],
     HOME_LITE_PRIMARY_ACTION_ROUTE: '/apply-gate',
+    INSURANCE_HOME_ROUTE: '/?mode=insurance',
     addSentryBreadcrumb: () => undefined,
     buildHomeEntryBreadcrumb: () => ({}),
   }) as Element;
@@ -44,7 +50,7 @@ function render(actor: Actor, identityCompleted = false) {
   };
   walk(tree);
   effects.forEach((effect) => effect());
-  return { elements, push, replace };
+  return { elements, push, replace, alert, activate: () => focusEffects.forEach((effect) => effect()), hardwareBack: () => hardwareBack!() };
 }
 
 describe('allowance access from the incomplete-identity FC home', () => {
@@ -56,7 +62,7 @@ describe('allowance access from the incomplete-identity FC home', () => {
     expect(result.push).toHaveBeenLastCalledWith('/referral-allowance');
     const requiredInfo = result.elements.find((element) => element.props.testID === 'home-lite-apply-start');
     (requiredInfo!.props.onPress as () => void)();
-    expect(result.push).toHaveBeenLastCalledWith('/apply-gate');
+    expect(result.push).toHaveBeenLastCalledWith({ pathname: '/apply-gate', params: { next: '/?mode=insurance' } });
     expect(result.replace).not.toHaveBeenCalled();
   });
 
@@ -71,6 +77,15 @@ describe('allowance access from the incomplete-identity FC home', () => {
 
   it('keeps the completed-identity transition to the full home', () => {
     const result = render({ hydrated: true, role: 'fc', isRequestBoardDesigner: false }, true);
-    expect(result.replace).toHaveBeenCalledWith('/');
+    expect(result.replace).toHaveBeenCalledWith('/?mode=insurance');
+  });
+
+  it.each([true, false])('only asks Android to exit when no previous screen exists (%s)', (canGoBack) => {
+    const result = render({ hydrated: true, role: 'fc', isRequestBoardDesigner: false }, false, canGoBack);
+    result.activate();
+    expect(result.hardwareBack()).toBe(!canGoBack);
+    if (canGoBack) expect(result.alert).not.toHaveBeenCalled();
+    else expect(result.alert).toHaveBeenCalledWith('앱 종료', expect.any(String), expect.anything(), { cancelable: true });
+    expect(result.replace).not.toHaveBeenCalled();
   });
 });

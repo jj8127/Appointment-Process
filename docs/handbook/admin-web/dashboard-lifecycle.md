@@ -7,6 +7,12 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 
 # Admin Web Playbook: Dashboard Lifecycle
 
+## 2026-10-10 무효 세션 재로그인과 저장 사본 정리
+
+- 서버가 무효 세션을 HTTP 401로 반환한 조회 오류의 `다시 로그인` 동작은 기존 SessionProvider의 logout을 사용한다. 쿠키를 정리한 뒤 `/auth`로 이동하므로 만료 전 폐기된 쿠키가 `/dashboard`로 되돌리는 경합을 방지한다. 일반 403 권한 거부는 이 동작으로 분류하지 않는다.
+- 브라우저 세션 복원은 기존 cookie snapshot만 사용한다. 읽히지 않던 localStorage 세션 사본·Base64 변환·저장 effect는 제거하고, 이전 저장 사본 삭제는 계속 수행한다.
+- 기존 15초 로그아웃 제한, transition queue/Web Locks, QueryClient 취소·clear와 opaque epoch remount는 유지한다. 기존 client-session-provider/restore와 login runtime 검사가 복구 및 저장 경계를 담당한다. 로컬 검증이며 운영 브라우저나 배포 성공 판정은 포함하지 않는다.
+
 ## 2026-10-02 Session transition and cache ownership
 
 - Browser login/logout cookie writes use one transition queue, plus Web Locks across cooperating tabs. Logout clears local state immediately, waits at most 15 seconds for the server request, then redirects. Login cannot overtake a pending logout response.

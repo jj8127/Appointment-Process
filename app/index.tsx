@@ -16,7 +16,7 @@ import {
   Text,
   View
 } from 'react-native';
-import Animated, { runOnUI, scrollTo as reanimatedScrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { runOnUI, scrollTo as reanimatedScrollTo, useAnimatedRef } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
@@ -480,33 +480,6 @@ function LegacyInsuranceHome() {
   const { data: identityStatus, isLoading: identityLoading } = useIdentityStatus();
 
   const insets = useSafeAreaInsets();
-
-  const lastScrollY = useSharedValue(0);
-  const bottomNavTranslateY = useSharedValue(0);
-
-  const scrollHandler = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      const currentY = event.contentOffset.y;
-      const dy = currentY - lastScrollY.value;
-
-      if (currentY < 0) {
-        bottomNavTranslateY.value = withTiming(0);
-      } else if (currentY > 0) {
-        if (dy > 10) {
-          bottomNavTranslateY.value = withTiming(200, { duration: 300 });
-        } else if (dy < -10) {
-          bottomNavTranslateY.value = withTiming(0, { duration: 300 });
-        }
-      }
-      lastScrollY.value = currentY;
-    },
-  });
-
-  const bottomNavAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: bottomNavTranslateY.value }],
-    };
-  });
 
   const [adminHomeTab, setAdminHomeTab] = useState<'onboarding' | 'exam'>('onboarding');
   const sessionScope = useReadSessionScope();
@@ -1043,6 +1016,7 @@ function LegacyInsuranceHome() {
     useCallback(() => {
       if (Platform.OS !== 'android') return;
       const onBackPress = () => {
+        if (router.canGoBack()) return false;
         Alert.alert(
           '앱 종료',
           '앱을 종료하시겠습니까?',
@@ -1240,11 +1214,10 @@ function LegacyInsuranceHome() {
       />
       <Animated.ScrollView
         ref={scrollViewRef}
+        style={styles.scroll}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        onScroll={scrollHandler}
-        scrollEventThrottle={16}
       >
 
         <View
@@ -1258,12 +1231,28 @@ function LegacyInsuranceHome() {
             onOpenNotifications={() => router.push('/notifications')}
             notificationCount={hasFetchedUnreadNotifCount && !unreadNotifError ? unreadNotifCount : undefined}
           />
-
-          {role === 'admin' && (
-            <View style={styles.homeTitleWrap}>
-              <Text style={styles.homeTitle}>
-                {adminHomeTab === 'exam' ? '시험' : '위촉'}
-              </Text>
+          <View style={styles.serviceHomeHeader}>
+            <View style={styles.serviceHomeLinkRow}>
+              <Text style={styles.serviceContextText}>보험·FC</Text>
+              {role === 'admin' && (
+                <View pointerEvents="none" style={styles.homeTitleWrap}>
+                  <Text style={styles.homeTitle}>
+                    {adminHomeTab === 'exam' ? '시험' : '위촉'}
+                  </Text>
+                </View>
+              )}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="전체 서비스"
+                onPress={() => router.replace('/')}
+                style={({ pressed }) => [styles.serviceHomeLink, pressed && styles.pressedOpacity]}
+              >
+                <Feather name="grid" size={16} color={TEXT_MUTED} />
+                <Text style={styles.serviceHomeLinkText}>전체 서비스</Text>
+                <Feather name="chevron-right" size={16} color={TEXT_MUTED} />
+              </Pressable>
+            </View>
+            {role === 'admin' && (
               <Text style={styles.homeSubtitleText}>
                 {isManagerExam
                   ? '시험 일정과 신청자 명단을 확인하고 직접 시험도 접수할 수 있어요.'
@@ -1271,8 +1260,8 @@ function LegacyInsuranceHome() {
                   ? '시험 일정·신청자 관리와 FC 대리 신청 메뉴를 모았습니다.'
                   : '위촉/서류 진행 현황과 주요 업무를 확인하세요.'}
               </Text>
-            </View>
-          )}
+            )}
+          </View>
 
           <Stack.Screen
             options={{
@@ -2059,7 +2048,6 @@ function LegacyInsuranceHome() {
         onAdminTabChange={
           isAdminLikePreset ? handleAdminTabChange : undefined
         }
-        animatedStyle={bottomNavAnimatedStyle as any}
         bottomInset={insets.bottom}
       />
       {
@@ -2086,13 +2074,40 @@ const MetricCard = ({ label, value, onPress }: { label: string; value: string; o
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
+  scroll: { flex: 1 },
   container: {
     paddingBottom: 20,
     backgroundColor: '#fff',
   },
-  homeTitleWrap: {
-    marginHorizontal: 20,
+  serviceHomeHeader: {
     marginBottom: 6,
+  },
+  serviceHomeLinkRow: {
+    marginHorizontal: 20,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  serviceContextText: {
+    color: TEXT_MUTED,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  serviceHomeLink: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  serviceHomeLinkText: {
+    color: TEXT_MUTED,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  homeTitleWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   homeTitle: {
@@ -2102,6 +2117,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   homeSubtitleText: {
+    marginHorizontal: 20,
     marginTop: 4,
     color: TEXT_MUTED,
     fontSize: 14,

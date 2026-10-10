@@ -2,14 +2,14 @@ doc_id: FC-APP-REQUEST-BOARD-BRIDGE
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-08-04
+last_verified: 2026-10-10
 source_of_truth: app/request-board*.tsx + lib/chat-keyboard-layout.ts + lib/request-board-api.ts + lib/request-board-session.ts + request_board/server/src/routes/messages.ts
 
 # Mobile Playbook: GaramLink Bridge
 
 ## 2026-09-30 조회 실패 복구
 
-- 대화·대상·메시지·고객·상품·설계매니저·FC 코드·회사명 조회는 해당 화면에서 `OrThrow` API를 사용한다. 실패를 `[]`로 바꾸지 않고 성공한 빈 응답과 구분한다. 기존 호환 API의 다른 호출자는 유지한다.
+- 대화·대상·메시지·고객·상품·설계매니저·FC 코드·회사명 조회는 해당 화면에서 `OrThrow` API를 사용한다. 실패를 `[]`로 바꾸지 않고 성공한 빈 응답과 구분한다. 사용처가 없는 이전 호환 조회 API는 제거한다. `rbGetNotificationUnreadCount`는 기존 호출자가 있으므로 유지한다.
 - 메신저의 부분 실패는 안내와 재시도를 제공하고, 같은 계정·대화에서 이미 읽은 내용은 보존한다. 계정·세션·대화가 바뀌면 이전 응답과 화면 데이터를 재사용하지 않는다.
 - 설계코드의 빈 목록에도 새로고침을 제공한다. 설계요청 필수 조회가 실패하면 코드 미등록으로 판단하거나 제출하지 않는다. focus 복귀 시 조회하는 설계매니저·코드에는 같은 실패 처리를 적용하고 작성 내용은 유지한다.
 - 이번 조회 실패 수정에서 사용자가 누르는 재로그인 버튼을 제공한다. 만료 안내 뒤 `/login?skipAuto=1`로 이동하며 자동 로그아웃은 실행하지 않는다. 이 복구 동선은 아래 2026-06-08의 당시 안내 문구 전용 범위를 대체한다.
@@ -54,6 +54,9 @@ Request Board home delegates logout navigation to focused `useAppLogout` after l
 - `developer` via `requestBoardRole='fc'`
 - linked `designer`
 
+- 가람Link messenger의 쓰기 여부는 기존 `getMessengerHubCapabilities`와 앱의 signed session role/readOnly/staffType으로 계산한다. manager는 기존 방·메시지·첨부를 조회할 수 있지만 새 DM·전송·업로드·삭제·설정 변경은 수행하지 않는다. runtime `RbUser.role='fc'`만으로 쓰기를 허용하지 않는다.
+- 사진/파일 선택·삭제 확인·설정 응답도 기존 read scope로 계정·권한 변경 뒤 늦은 완료를 차단한다. 쓰기 가능한 FC/developer/linked designer의 기존 전송·초안 복구는 유지한다.
+
 ## 읽는 데이터
 
 - request_board JWT/session
@@ -82,11 +85,12 @@ Request Board home delegates logout navigation to focused `useAppLogout` after l
 
 - `ensureRequestBoardSession()` 실패, bridge-login 실패, request_board API 인증 만료는 `lib/request-board-session-error.ts`를 통해 같은 사용자 안내로 표시한다.
 - 명시적인 역할 제한이나 계정 상태 안내는 세션 만료 안내로 덮어쓰지 않는다.
+- 최초 bridge-login의 일반403도 app sync나 재로그인으로 변환하지 않는다. HTTP503은 저장된 인증을 유지하는 실패로 표시하고, 구조화된 상태·코드를 메시지 추정보다 우선한다.
 - 안내 문구만 정규화하며, 자동 로그아웃/라우팅이나 재로그인 버튼은 별도 제품 결정 없이는 추가하지 않는다.
 
 ## 2026-06-09 모바일 설계코드 focus refresh 메모
 
-- `request-board-create`는 최초 데이터 로드 이후 화면 focus 복귀 시 `rbGetDesigners()`와 `rbGetFcCodes()`를 다시 호출한다.
+- `request-board-create`는 최초 데이터 로드 이후 화면 focus 복귀 시 `rbGetDesignersOrThrow()`와 `rbGetFcCodesOrThrow()`를 다시 호출한다.
 - `/request-board-fc-codes`에서 회사별 설계코드를 등록/수정한 뒤 작성 화면으로 돌아온 경우, 고객/요청/첨부 draft는 유지하고 설계매니저/FC 코드 목록만 갱신해야 한다.
 - 설계매니저 sheet의 `FC 코드 필요` 표시는 현재 FC 코드 목록과 설계매니저 회사명이 매칭되지 않을 때만 보여야 하며, 운영 API가 코드를 반환하는데 stale local state 때문에 막히면 회귀다.
 
@@ -143,3 +147,10 @@ Request Board home delegates logout navigation to focused `useAppLogout` after l
 ## 2026-10-09 Local send and quick-action feedback
 
 Quick acceptance displays saved success even if follow-up notification feedback is absent. Failed/uncertain sends show a safe confirmation-needed alert and restore the failed draft with any newly typed text; duplicate writes and busy conversation changes are blocked. Failed unread reads remain unknown and do not erase native notifications. FC-code deletion owns visible pending state and rejects duplicate confirmation callbacks. Bridge roles, session exchange and inbox/terminal notification policies are unchanged; native/network acceptance remains unverified.
+
+## 2026-10-10 중복 구현 정리
+
+- JSON과 첨부 업로드는 `rbFetch`의 같은 인증·세션 소유자·401 복구 경로를 사용한다. 첨부는 재시도마다 FormData를 새로 만들고 Content-Type을 직접 지정하지 않는다. 일반 403은 재인증하지 않는다.
+- 직접·그룹 채팅의 알림 설정 준비 여부는 현재 방 key와 loaded key의 일치로 계산한다. 조회 순번 보호는 유지한다.
+- 알림 전달 미확정 시 `getRequestBoardNotificationFeedback`은 2026-07-23 계약의 고정 안내를 반환한다. 진단에 식별자나 원문을 추가하지 않고, 완료한 상태 변경을 다시 실행하지 않는다.
+- 홈과 상세의 수락·거절 가능 여부는 기존 `getDesignerRequestDetailActions`를 사용한다. 연결 메신저의 실패 응답과 예외는 한 복구 경로를 사용하며 새 초안과 최신 미리보기를 보존한다.

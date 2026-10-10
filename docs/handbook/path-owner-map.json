@@ -2,6 +2,19 @@
   "version": 1,
   "rules": [
     {
+      "id": "edge-configured-cors",
+      "severity": "behavior",
+      "prefixes": [
+        "supabase/functions/_shared/configured-cors.ts",
+        "supabase/functions/_shared/serve-with-cors.ts",
+        "supabase/functions/_shared/__tests__/configured-cors.test.mjs"
+      ],
+      "requires_any": [
+        "docs/handbook/backend/notifications-inbox-push.md",
+        "docs/handbook/shared/security-and-secret-operations.md"
+      ]
+    },
+    {
       "id": "ux-priority-one-shared-mutations",
       "severity": "contract",
       "prefixes": [

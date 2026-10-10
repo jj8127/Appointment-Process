@@ -123,7 +123,7 @@ npm start
 
 ### 앱 빌드 소스와 버전
 
-코드와 표시 버전의 기준은 `D:\hanhwa\fc-onboarding-app`이다. 버전은 이 폴더의 `app.json`에서 `expo.version`만 변경한다. 버전 검사 상수나 release 폴더를 함께 수정하지 않는다. Android/iOS npm 빌드 명령은 스크립트가 있는 저장소를 작업 경로로 고정하고 호출할 때마다 현재 버전을 다시 읽는다. 미커밋 수정과 빌드에서 제외되지 않은 새 파일도 현재 소스에 포함되며 다른 브랜치로 복사하지 않는다.
+코드와 표시 버전의 기준은 `D:\hanhwa\fc-onboarding-app`이다. 버전은 이 폴더의 `app.json`에서 `expo.version`만 변경한다. 버전 검사 상수나 release 폴더를 함께 수정하지 않는다. Android/iOS npm 빌드 명령은 스크립트가 있는 저장소를 작업 경로로 고정하고 호출할 때마다 현재 버전을 다시 읽는다. 배포·원격 EAS 빌드 전에 의도한 변경을 보존해 커밋하고, 소스 작업트리가 깨끗한지 확인한 뒤 정확한 커밋을 기록한다. 검사를 통과하려고 진행 중인 작업을 버리지 않는다. 특정 브랜치로 복사할 필요는 없다.
 
 ```powershell
 Set-Location D:\hanhwa\fc-onboarding-app
@@ -134,7 +134,7 @@ npm run eas:build:android
 npm run eas:build:ios
 ```
 
-`eas:verify:*` 또는 빌드 명령의 `-- --dry-run`은 로컬 경로·버전·아카이브 입력만 확인하며 EAS 요청이나 Git hook 변경을 실행하지 않는다. 기존 `fc-onboarding-app-release`의 npm 빌드/검증 명령도 주 개발 폴더로 연결된다. 과거 release 전용 스크립트·고정 브랜치·버전 상수는 현재 빌드 경로에서 사용하지 않는다.
+`eas:verify:*` 또는 빌드 명령의 `-- --dry-run`은 작업트리 청결·로컬 경로·버전·아카이브 입력을 확인하며 EAS 요청이나 Git hook 변경을 실행하지 않는다. 검증과 실제 빌드 모두 수정·스테이징·미추적 파일이 있으면 EAS 명령 실행 전에 중단한다. 기존 `fc-onboarding-app-release`의 npm 빌드/검증 명령도 주 개발 폴더로 연결된다. 과거 release 전용 스크립트·고정 브랜치·버전 상수는 현재 빌드 경로에서 사용하지 않는다.
 
 생성된 `android/`와 `ios/`는 아카이브에서 제외해 EAS prebuild가 현재 `app.json`으로 네이티브 버전을 생성하도록 한다. 임의 `.easignore` 또는 네이티브 소스 포함은 사전 검사에서 중단한다. Android는 RN 0.81.5 공식 AAR와 AGP 8.11.0의 drawing-order 계측 보호를 사용하고 전체 ReactAndroid 소스 빌드는 사용하지 않는다. config plugin 순서, Gradle plugin 입력, prepare 검사를 원격 빌드 전에 확인한다. 기존 생성 폴더를 사용하는 로컬 `npm run android`는 별도 흐름이므로 앱 설정 변경 후 prebuild 반영 여부를 확인한다.
 

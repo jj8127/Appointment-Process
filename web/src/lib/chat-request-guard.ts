@@ -21,9 +21,11 @@ export function createChatRequestGuard() {
     isCurrent(ticket: RequestTicket) {
       return !controller.signal.aborted && ticket.generation === generation;
     },
+    isLatestList(ticket: RequestTicket) {
+      return this.isCurrent(ticket) && ticket.sequence === sequence;
+    },
     canApplyList(ticket: RequestTicket) {
-      return !controller.signal.aborted && ticket.generation === generation
-        && ticket.revision === revision && ticket.sequence === sequence;
+      return this.isLatestList(ticket) && ticket.revision === revision;
     },
   };
 }

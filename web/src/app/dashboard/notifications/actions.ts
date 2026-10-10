@@ -78,20 +78,19 @@ export async function createNoticeAction(
 
     const { category, title, body, images, files } = validatedFields.data;
     const createdBy = sessionCheck.session.residentId;
+    const requestId = String(formData.get('requestId') ?? '').trim();
+    if (!z.string().uuid().safeParse(requestId).success) {
+        return { success: false, message: '요청 식별자를 확인할 수 없습니다. 작성 화면을 다시 열어주세요.' };
+    }
 
     // 1. Insert Notice
     const { data: insertedNotice, error: noticeError } = await adminSupabase
-        .from('notices')
-        .insert({
-        title,
-        body,
-        category,
-        images: images || [],
-        files: files || [],
-        created_by: createdBy,
-        })
-        .select('id')
-        .single();
+        .rpc('create_notice_idempotent_v1', {
+            p_actor_phone: createdBy,
+            p_actor_role: sessionCheck.session.role,
+            p_request_id: requestId,
+            p_notice: { title, body, category, images: images || [], files: files || [] },
+        });
 
     if (noticeError) {
         logger.error('[notice] primary insert failed', {
@@ -106,7 +105,7 @@ export async function createNoticeAction(
         };
     }
 
-    if (!insertedNotice?.id) {
+    if (typeof insertedNotice?.id !== 'string' || !insertedNotice.id.trim()) {
         return { success: false, message: '공지 대상을 확인할 수 없습니다.' };
     }
     const targetUrl = `/notice-detail?id=${insertedNotice.id}`;
@@ -115,7 +114,7 @@ export async function createNoticeAction(
     // 2. Insert Notification History
     const { data: insertedNotification, error: notifError } = await adminSupabase
       .from('notifications')
-      .insert({
+      .upsert({
         title,
         body,
         category,
@@ -123,7 +122,8 @@ export async function createNoticeAction(
         target,
         recipient_role: 'fc',
         resident_id: null, // Broadcast
-      })
+        delivery_key: `notice:${insertedNotice.id}:created`,
+      }, { onConflict: 'delivery_key' })
       .select('id')
       .single();
     const notificationId =

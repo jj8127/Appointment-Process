@@ -1,6 +1,7 @@
 'use client';
 
 import { Alert, Button, Group, Text } from '@mantine/core';
+import { useSession } from '@/hooks/use-session';
 import { requiresQueryLogin } from '@/lib/query-read-error';
 
 type QueryErrorAlertProps = {
@@ -14,6 +15,7 @@ type QueryErrorAlertProps = {
 export function QueryErrorAlert({
   error, onRetry, isFetching = false, hasData = false, subject = '자료',
 }: QueryErrorAlertProps) {
+  const { logout, transitioning } = useSession();
   const needsLogin = requiresQueryLogin(error);
   return (
     <Alert color="red" title={needsLogin ? '다시 로그인이 필요합니다.' : `${subject} 조회 실패`} role="alert">
@@ -28,7 +30,7 @@ export function QueryErrorAlert({
         <Button size="xs" color="red" variant="outline" loading={isFetching} onClick={() => { void onRetry(); }}>
           다시 시도
         </Button>
-        {needsLogin && <Button size="xs" component="a" href="/auth" color="red">다시 로그인</Button>}
+        {needsLogin && <Button size="xs" loading={transitioning} onClick={() => { void logout(); }} color="red">다시 로그인</Button>}
       </Group>
     </Alert>
   );

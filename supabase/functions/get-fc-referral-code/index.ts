@@ -1,18 +1,13 @@
-import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { referralCorsHeaders, serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import { cleanPhone, ensureManagerReferralShadowProfile } from '../_shared/referral-code.ts';
 import {
   getEnv,
   requireAppSessionFromRequest,
   type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
 
-const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
-const corsHeaders = {
-  'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-app-session-token, x-client-info, apikey',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Credentials': 'true',
-};
+const corsHeaders = referralCorsHeaders();
 
 const supabaseUrl = getEnv('SUPABASE_URL');
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
@@ -34,19 +29,6 @@ function fail(code: string, message: string, status = 200) {
 }
 
 type SessionPayload = AppSessionTokenPayload;
-
-function cleanPhone(input: string) {
-  return (input ?? '').replace(/[^0-9]/g, '');
-}
-
-async function ensureManagerReferralShadowProfile(managerPhone: string, managerName?: string | null) {
-  const { error } = await supabase.rpc('ensure_manager_referral_shadow_profile', {
-    p_manager_phone: managerPhone,
-    p_manager_name: typeof managerName === 'string' && managerName.trim() ? managerName.trim() : null,
-  });
-
-  return error;
-}
 
 async function readOptionalJsonBody(req: Request) {
   const raw = await req.text();
@@ -111,9 +93,9 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     ? await profileQuery.eq('id', sessionFcId).maybeSingle()
     : await profileQuery.eq('phone', sessionPhone).maybeSingle();
   if (!profileResult.data?.id && managerAccount) {
-    const ensureError = await ensureManagerReferralShadowProfile(sessionPhone, managerAccount.name);
-    if (ensureError) {
-      return json({ ok: false, code: 'db_error', message: ensureError.message }, 500);
+    const ensured = await ensureManagerReferralShadowProfile(supabase, sessionPhone, managerAccount.name);
+    if (ensured.ok === false) {
+      return json({ ok: false, code: 'db_error', message: ensured.message }, 500);
     }
 
     profileResult = await profileQuery.eq('phone', sessionPhone).maybeSingle();
@@ -166,9 +148,6 @@ function readRequestedPhone(body: Record<string, unknown>) {
 }
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
   if (req.method !== 'POST') {
     return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405);
   }
@@ -196,4 +175,4 @@ serve(async (req: Request) => {
   }
 
   return resolveSelfReferralCode({ session: sessionResult.session });
-});
+}, corsHeaders);

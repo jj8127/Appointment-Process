@@ -1,6 +1,7 @@
 'use client';
 
 import { createCommentRequestTracker } from '@/lib/board-comment-request';
+import { createCreationRequestTracker } from '@/lib/creation-request';
 
 import { useSession } from '@/hooks/use-session';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
@@ -216,6 +217,8 @@ function BoardContent() {
   const selectedPostId = selectedPost?.id ?? null;
   const [searchQuery, setSearchQuery] = useState('');
   const [newPost, setNewPost] = useState({ title: '', content: '' });
+  const creationRequest = useRef(createCreationRequestTracker());
+  const saveSubmitting = useRef(false);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
   const [replyTarget, setReplyTarget] = useState<{
@@ -412,7 +415,7 @@ function BoardContent() {
     open();
   };
   const handleCloseComposer = (force = false) => {
-    if (!force && (createPostMutation.isPending || updatePostMutation.isPending)) return;
+    if (!force && (saveSubmitting.current || createPostMutation.isPending || updatePostMutation.isPending)) return;
     if (pendingAttachmentRetry && !force) {
       notifications.show({
         title: '첨부 재시도 필요',
@@ -424,6 +427,7 @@ function BoardContent() {
     if (!force && (newPost.title.trim() || newPost.content.trim() || attachments.length > 0 || editingPostId)
       && !window.confirm('작성 중인 내용과 첨부를 버릴까요?')) return;
     close();
+    creationRequest.current.complete();
     setPendingAttachmentRetry(null);
     setEditingPostId(null);
     setLoadedEditPostId(null);
@@ -446,6 +450,7 @@ function BoardContent() {
         categoryId,
         title: newPost.title.trim(),
         content: newPost.content.trim(),
+        requestId: creationRequest.current.requestId(JSON.stringify([categoryId, newPost.title.trim(), newPost.content.trim()])),
       });
       const attachmentResult = await uploadAttachments(createResult.id, null);
       return {
@@ -457,6 +462,7 @@ function BoardContent() {
       };
     },
     onSuccess: (result) => {
+      creationRequest.current.complete();
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
       setPendingNotificationRetry(result.notificationRetry);
       if (result.attachmentIncomplete) {
@@ -504,6 +510,7 @@ function BoardContent() {
         color: 'red',
       });
     },
+    onSettled: () => { saveSubmitting.current = false; },
   });
 
   const updatePostMutation = useMutation({
@@ -574,6 +581,7 @@ function BoardContent() {
         color: 'red',
       });
     },
+    onSettled: () => { saveSubmitting.current = false; },
   });
 
   const deletePostMutation = useMutation({
@@ -1064,7 +1072,12 @@ function BoardContent() {
     },
   });
 
+  const postSaving = createPostMutation.isPending || updatePostMutation.isPending;
+  const composerLocked = !!pendingAttachmentRetry || postSaving;
+  const composerDisabled = !canWrite || composerLocked || (isEditMode && !editReady);
+
   const handleCreateOrUpdate = () => {
+    if (saveSubmitting.current || postSaving || retryAttachmentMutation.isPending) return;
     if (pendingAttachmentRetry) {
       retryAttachmentMutation.mutate();
       return;
@@ -1088,9 +1101,11 @@ function BoardContent() {
       return;
     }
     if (editingPostId) {
+      saveSubmitting.current = true;
       updatePostMutation.mutate();
       return;
     }
+    saveSubmitting.current = true;
     createPostMutation.mutate();
   };
 
@@ -1637,9 +1652,9 @@ function BoardContent() {
       <Modal
         opened={opened}
         onClose={() => handleCloseComposer()}
-        closeOnClickOutside={!pendingAttachmentRetry && !updatePostMutation.isPending}
-        closeOnEscape={!pendingAttachmentRetry && !updatePostMutation.isPending}
-        withCloseButton={!pendingAttachmentRetry && !updatePostMutation.isPending}
+        closeOnClickOutside={!composerLocked}
+        closeOnEscape={!composerLocked}
+        withCloseButton={!composerLocked}
         title={(
           <Text fw={700} size="lg">
             {pendingAttachmentRetry
@@ -1678,7 +1693,7 @@ function BoardContent() {
             value={categoryId}
             onChange={setCategoryId}
             searchable
-            disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
+            disabled={composerDisabled}
           />
           <TextInput
             label="제목"
@@ -1686,7 +1701,7 @@ function BoardContent() {
             size="md"
             value={newPost.title}
             onChange={(e) => setNewPost({ ...newPost, title: e.currentTarget.value })}
-            disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
+            disabled={composerDisabled}
           />
 
           <Textarea
@@ -1697,7 +1712,7 @@ function BoardContent() {
             size="md"
             value={newPost.content}
             onChange={(e) => setNewPost({ ...newPost, content: e.currentTarget.value })}
-            disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
+            disabled={composerDisabled}
           />
 
           <Stack gap="xs">
@@ -1709,7 +1724,7 @@ function BoardContent() {
                 accept="image/*"
                 multiple
                 onChange={(files) => appendAttachments(files, 'image')}
-                disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
+                disabled={composerDisabled}
               >
                 {(props) => (
                   <Button
@@ -1725,7 +1740,7 @@ function BoardContent() {
               <FileButton
                 multiple
                 onChange={(files) => appendAttachments(files, 'file')}
-                disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
+                disabled={composerDisabled}
               >
                 {(props) => (
                   <Button
@@ -1779,7 +1794,7 @@ function BoardContent() {
                             aria-label="기존 첨부파일 삭제"
                             variant="subtle"
                             color="red"
-                            disabled={!canWrite || !!pendingAttachmentRetry || (isEditMode && !editReady) || updatePostMutation.isPending}
+                            disabled={composerDisabled}
                             onClick={() => void removeExistingAttachment(file)}
                           >
                             <IconTrash size={16} />
@@ -1815,7 +1830,7 @@ function BoardContent() {
                       <ActionIcon
                         variant="subtle"
                         color="gray"
-                        disabled={!!pendingAttachmentRetry}
+                        disabled={composerLocked}
                         onClick={() => removeAttachment(file.id)}
                       >
                         <IconX size={16} />
@@ -1831,7 +1846,7 @@ function BoardContent() {
             <Button
               variant="default"
               onClick={() => handleCloseComposer()}
-              disabled={!!pendingAttachmentRetry || updatePostMutation.isPending}
+              disabled={composerLocked}
             >
               취소
             </Button>
@@ -1841,9 +1856,7 @@ function BoardContent() {
               onClick={handleCreateOrUpdate}
               disabled={!canWrite || (!pendingAttachmentRetry && ((isEditMode && !editReady) || categoriesQuery.isError))}
               loading={
-                createPostMutation.isPending
-                || updatePostMutation.isPending
-                || retryAttachmentMutation.isPending
+                postSaving || retryAttachmentMutation.isPending
               }
             >
               {pendingAttachmentRetry

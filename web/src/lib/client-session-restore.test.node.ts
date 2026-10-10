@@ -4,51 +4,7 @@ import assert from 'node:assert/strict';
 import {
   formatSessionResidentMask,
   isClientSessionReadOnly,
-  resolveClientSessionRestore,
 } from './client-session-restore.ts';
-
-const cookieSession = {
-  role: 'manager' as const,
-  residentId: '010-1111-2222',
-  residentMask: '010-1111-2222',
-  displayName: '쿠키 본부장',
-  staffType: null,
-};
-
-const storageSession = {
-  role: 'admin' as const,
-  residentId: '01033334444',
-  residentMask: '010-3333-4444',
-  displayName: '스토리지 총무',
-  staffType: 'admin' as const,
-};
-
-test('restores the cookie session before the localStorage session', () => {
-  assert.deepEqual(
-    resolveClientSessionRestore({
-      cookieSession,
-      storageSession,
-    }),
-    cookieSession,
-  );
-});
-
-test('does not revive a localStorage session when the cookie session is missing', () => {
-  assert.equal(
-    resolveClientSessionRestore({
-      cookieSession: null,
-      storageSession,
-    }),
-    null,
-  );
-  assert.equal(
-    resolveClientSessionRestore({
-      cookieSession: null,
-      storageSession: null,
-    }),
-    null,
-  );
-});
 
 test('formats session resident masks with current grouping behavior', () => {
   assert.equal(formatSessionResidentMask(''), '');

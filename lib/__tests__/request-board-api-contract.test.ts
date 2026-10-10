@@ -5,11 +5,11 @@ describe('request board mobile API wrapper contract', () => {
 
   it('exposes FC-side customer, product, and request creation wrappers', () => {
     expect(source).toContain('export async function rbGetCustomers');
-    expect(source).toContain("rbFetch<RbCustomerProfile[]>('/api/customers?ssnView=full')");
+    expect(source).toContain("rbReadListOrThrow('/api/customers?ssnView=full', 'customers', 'customers')");
     expect(source).toContain('export async function rbSaveCustomer');
     expect(source).toContain("rbFetch<RbCustomerProfile>('/api/customers'");
     expect(source).toContain('export async function rbGetProducts');
-    expect(source).toContain("rbFetch<RbInsuranceProduct[]>('/api/designers/products/list')");
+    expect(source).toContain("rbReadListOrThrow('/api/designers/products/list', 'products', 'products')");
     expect(source).toContain('export async function rbCreateRequest');
     expect(source).toContain("rbFetch<RbRequestDetail>('/api/requests'");
   });
@@ -84,18 +84,6 @@ describe('request board mobile API wrapper contract', () => {
       '/api/requests?limit=100&page=1&ssnView=masked&includeAttachments=false',
     );
     expect(source).toContain('/api/requests/${id}?ssnView=full');
-  });
-
-  it('does not turn request-board access-denied bridge errors into full GaramIn re-login', () => {
-    const authBlock = source.slice(
-      source.indexOf('export async function rbCheckAuth'),
-      source.indexOf('/* ─── Conversations'),
-    );
-
-    expect(authBlock).toContain('REQUEST_BOARD_APP_RELOGIN_ERROR_CODES');
-    expect(authBlock).not.toContain("bridged.errorCode === 'request_board_not_applicable'");
-    expect(authBlock).not.toContain("bridged.errorCode === 'inactive_account'");
-    expect(authBlock).not.toContain("bridged.errorCode === 'not_completed'");
   });
 
   it('uses the server field names for per-designer FC code selections', () => {

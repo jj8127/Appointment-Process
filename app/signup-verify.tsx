@@ -15,6 +15,7 @@ import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import { goBackOrReplace } from '@/lib/back-navigation';
 import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
@@ -76,7 +77,7 @@ export default function SignupVerifyScreen() {
   }, [cooldown]);
 
   const handleBack = useCallback(() => {
-    router.replace('/signup');
+    goBackOrReplace(router, '/signup');
   }, []);
 
   useFocusEffect(

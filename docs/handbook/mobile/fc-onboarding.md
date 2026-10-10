@@ -9,6 +9,8 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 ## 2026-10-09 서비스 선택과 보험 업무
 
+2026-10-10: FC 서비스 내부 하단 `홈`은 `/?mode=insurance`를 사용한다. 보험 홈의 `전체 서비스` 버튼으로 `/`에 돌아간다. 보험 홈의 하단 메뉴는 항상 표시하고 데이터/레이아웃 갱신이 메뉴 숨김을 유발하지 않게 한다. 위촉 상태·identity gate·읽기 query·권한은 이 수정으로 바뀌지 않는다.
+
 기본 홈은 공용 서비스 선택 화면이다. 아래 기존 홈 업무 설명은 명시적 `/?mode=insurance`, 관리자 `mode=onboarding|exam`과 홈 알림 문맥에서 여는 보험 업무 화면에 적용한다. FC 카드 진입은 기존 apply-gate의 identity 확인을 거친다. [서비스 선택 홈](./service-home.md)에서 새 entry와 하단 메뉴 계약을 관리한다.
 
 ## 2026-09-16 수당 그래프 홈 진입

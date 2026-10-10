@@ -364,7 +364,7 @@ export default function RequestBoardReviewScreen() {
 
   const handleDesignerAcceptRequest = (assignment: RbDesignerAssignment) => {
     if (!requestId) return;
-    if (assignment.status !== 'pending') {
+    if (!getDesignerRequestDetailActions({ isRequestBoardDesigner, assignmentStatus: assignment.status }).canAccept) {
       Alert.alert('처리 불가', '수락할 수 있는 의뢰가 아닙니다.');
       return;
     }
@@ -410,7 +410,7 @@ export default function RequestBoardReviewScreen() {
 
   const handleDesignerRejectOpen = (assignment: RbDesignerAssignment) => {
     if (!requestId) return;
-    if (assignment.status !== 'pending' && assignment.status !== 'accepted') {
+    if (!getDesignerRequestDetailActions({ isRequestBoardDesigner, assignmentStatus: assignment.status }).canReject) {
       Alert.alert('처리 불가', '거절할 수 있는 의뢰가 아닙니다.');
       return;
     }

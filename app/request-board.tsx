@@ -47,8 +47,10 @@ import {
 import { canUseRequestBoardAsFc } from '@/lib/request-board-permissions';
 import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
 import { shouldSkipRequestBoardPassiveRefresh } from '@/lib/request-board-refresh-policy';
-import { normalizeDesignerRejectReason } from '@/lib/request-board-review-actions';
+import { getDesignerRequestDetailActions, normalizeDesignerRejectReason } from '@/lib/request-board-review-actions';
 import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
+import { createReadScope } from '@/lib/request-board-read-state';
+import { useReadAttempt } from '@/lib/use-read-attempt';
 import { getRequestBoardWebBaseUrl } from '@/lib/request-board-url';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
@@ -241,6 +243,7 @@ export default function RequestBoardScreen() {
     readOnly,
     staffType,
     ensureRequestBoardSession,
+    appSessionToken,
   } = useSession();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -256,6 +259,29 @@ export default function RequestBoardScreen() {
   const [requestBoardAccessError, setRequestBoardAccessError] = useState<string | null>(null);
   const requestBoardRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const lastRequestBoardRefreshCompletedAtRef = useRef(0);
+  const designerActionRef = useRef(false);
+  const accountScope = useRef(createReadScope());
+  const sessionReadKey = `${role ?? ''}:${residentId ?? ''}:${appSessionToken ?? ''}:${requestBoardRole ?? ''}`;
+  if (accountScope.current.setScope(sessionReadKey)) {
+    requestBoardRefreshInFlightRef.current = null;
+    lastRequestBoardRefreshCompletedAtRef.current = 0;
+    designerActionRef.current = false;
+  }
+  const beginHomeRead = useReadAttempt();
+  const beginDesignerAction = useReadAttempt();
+  useEffect(() => {
+    setNotifications([]);
+    setReqStats(DEFAULT_REQ_STATS);
+    setDesignerRequests([]);
+    setDesignerActionKey(null);
+    setDesignerRejectTarget(null);
+    setDesignerRejectReason('');
+    setDesignerRejectModalVisible(false);
+    setUnreadNotifVerified(false);
+    setRequestBoardAccessError(null);
+    setLoading(true);
+    setRefreshing(false);
+  }, [sessionReadKey]);
   const homeHeaderTitle = buildWelcomeTitle({
     role,
     readOnly,
@@ -312,6 +338,10 @@ export default function RequestBoardScreen() {
 
     const inboxRole: 'admin' | 'fc' | null = role;
     if (!inboxRole) return Promise.resolve();
+    const isMountedRead = beginHomeRead();
+    const ownsRead = accountScope.current.captureOwner(sessionReadKey);
+    const isCurrentRead = () => isMountedRead() && ownsRead();
+    if (!isCurrentRead()) return Promise.resolve();
 
     const refreshTask = (async () => {
       setRequestBoardAccessError(null);
@@ -332,10 +362,11 @@ export default function RequestBoardScreen() {
               include_request_board_fc: includeRequestBoardFcInbox,
               only_request_board_categories: requestBoardRole === 'designer',
           });
+          if (!isCurrentRead()) return;
           if (error) throw error;
-          if (!data?.ok) throw new Error(data?.message ?? '데이터 로드 실패');
+          if (data?.ok !== true || !Array.isArray(data.notifications)) throw new Error(data?.message ?? '알림 조회 결과를 확인하지 못했습니다.');
 
-          const rbNotifs: NotificationItem[] = (data.notifications ?? [])
+          const rbNotifs: NotificationItem[] = data.notifications
             .filter(
               (n: any) =>
                 (n.category ?? '').trim().toLowerCase().startsWith(REQUEST_BOARD_CATEGORY_PREFIX),
@@ -347,7 +378,9 @@ export default function RequestBoardScreen() {
 
           setNotifications(rbNotifs);
         } catch (err) {
+          if (!isCurrentRead()) return;
           logger.warn('request-board notifications fetch failed', err);
+          setRequestBoardAccessError('가람Link 알림을 불러오지 못했습니다. 마지막으로 확인한 내용입니다. 연결을 확인한 뒤 다시 조회해주세요.');
         }
       })(),
 
@@ -359,9 +392,11 @@ export default function RequestBoardScreen() {
               residentId: notificationInboxResidentId,
               requestBoardRole,
             });
+            if (!isCurrentRead()) return;
             setUnreadNotifCount(count);
             setUnreadNotifVerified(true);
           } catch (err) {
+            if (!isCurrentRead()) return;
             logger.warn('request-board unread notification count fetch failed', err);
             setUnreadNotifVerified(false);
         }
@@ -373,15 +408,18 @@ export default function RequestBoardScreen() {
         if (!isRequestBoardDesigner && !hasRequestBoardFcReadAccess) return;
         try {
           const sync = await ensureRequestBoardSession();
+          if (!isCurrentRead()) return;
           if (!sync.ok) {
             throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
           }
 
           const requests = await rbGetRequestList();
+          if (!isCurrentRead()) return;
           setDesignerRequests(isRequestBoardDesigner ? requests : []);
           const computed = computeRequestBoardHomeStats(requests, !!isRequestBoardDesigner);
           setReqStats({ loaded: true, ...computed });
         } catch (err) {
+          if (!isCurrentRead()) return;
           logger.warn('request-board stats fetch failed', err);
           setRequestBoardAccessError(
             toRequestBoardSessionErrorMessage(err, '가람Link 의뢰 현황을 불러오지 못했습니다.'),
@@ -390,6 +428,7 @@ export default function RequestBoardScreen() {
       })(),
     ]);
 
+      if (!isCurrentRead()) return;
       setLoading(false);
       setRefreshing(false);
     })();
@@ -401,7 +440,7 @@ export default function RequestBoardScreen() {
         lastRequestBoardRefreshCompletedAtRef.current = Date.now();
       }
     });
-  }, [ensureRequestBoardSession, hasRequestBoardFcReadAccess, includeRequestBoardFcInbox, isRequestBoardDesigner, notificationInboxResidentId, requestBoardRole, role]);
+  }, [beginHomeRead, ensureRequestBoardSession, hasRequestBoardFcReadAccess, includeRequestBoardFcInbox, isRequestBoardDesigner, notificationInboxResidentId, requestBoardRole, role, sessionReadKey]);
 
   useEffect(() => {
     if (hydrated) fetchData();
@@ -437,10 +476,10 @@ export default function RequestBoardScreen() {
     () =>
       designerRequests
         .map((request) => ({ request, assignment: getActionableAssignment(request) }))
-        .filter(({ assignment }) => {
-          const status = normalizeRequestStatus(assignment?.status);
-          return status === 'pending' || status === 'accepted';
-        })
+        .filter(({ assignment }) => getDesignerRequestDetailActions({
+          isRequestBoardDesigner,
+          assignmentStatus: assignment?.status,
+        }).canRespond)
         .sort((a, b) => {
           const aStatus = normalizeRequestStatus(a.assignment?.status);
           const bStatus = normalizeRequestStatus(b.assignment?.status);
@@ -449,7 +488,7 @@ export default function RequestBoardScreen() {
           return new Date(b.request.created_at).getTime() - new Date(a.request.created_at).getTime();
         })
         .slice(0, 3),
-    [designerRequests],
+    [designerRequests, isRequestBoardDesigner],
   );
 
   /* ─── Actions ─── */
@@ -493,27 +532,37 @@ export default function RequestBoardScreen() {
   };
 
   const handleDesignerAccept = async (request: RbRequestListItem) => {
+    if (designerActionRef.current) return;
     const assignment = getActionableAssignment(request);
-    if (!assignment || assignment.status !== 'pending') {
+    if (!assignment || !getDesignerRequestDetailActions({ isRequestBoardDesigner, assignmentStatus: assignment.status }).canAccept) {
       Alert.alert('처리 불가', '수락할 수 있는 배정을 찾지 못했습니다.');
       return;
     }
 
     const actionKey = `${request.id}:${assignment.id}:accept`;
+    const isMountedAction = beginDesignerAction();
+    const ownsAction = accountScope.current.captureOwner(sessionReadKey);
+    const isCurrentAction = () => isMountedAction() && ownsAction();
+    if (!isCurrentAction()) return;
+    designerActionRef.current = true;
+    let saved = false;
     try {
       setDesignerActionKey(actionKey);
       const result = await rbAcceptRequest(request.id, assignment.designer_id, assignment.id);
+      if (!isCurrentAction()) return;
       if (!result.success) {
         throw new Error(result.error ?? result.message ?? '수락 처리에 실패했습니다.');
       }
+      saved = true;
       const notificationFeedback = getRequestBoardNotificationFeedback(result);
       Alert.alert(notificationFeedback?.title ?? '수락 완료', notificationFeedback?.message ?? '의뢰를 수락했습니다. 목록은 별도로 갱신합니다.');
       await fetchData({ force: true });
     } catch (err) {
+      if (!isCurrentAction()) return;
       logger.warn('[request-board] designer accept failed', err);
-      Alert.alert('수락 실패', toRequestBoardSessionErrorMessage(err, '수락 처리에 실패했습니다.'));
+      Alert.alert(saved ? '수락 완료 · 목록 갱신 필요' : '수락 실패', saved ? '의뢰는 수락했습니다. 목록을 다시 불러와 최신 상태를 확인해 주세요.' : toRequestBoardSessionErrorMessage(err, '수락 처리에 실패했습니다.'));
     } finally {
-      setDesignerActionKey(null);
+      if (isCurrentAction()) { designerActionRef.current = false; setDesignerActionKey(null); }
     }
   };
 
@@ -524,8 +573,9 @@ export default function RequestBoardScreen() {
   };
 
   const handleDesignerRejectOpen = (request: RbRequestListItem) => {
+    if (designerActionRef.current) return;
     const assignment = getActionableAssignment(request);
-    if (!assignment || (assignment.status !== 'pending' && assignment.status !== 'accepted')) {
+    if (!assignment || !getDesignerRequestDetailActions({ isRequestBoardDesigner, assignmentStatus: assignment.status }).canReject) {
       Alert.alert('처리 불가', '거절할 수 있는 배정을 찾지 못했습니다.');
       return;
     }
@@ -546,7 +596,7 @@ export default function RequestBoardScreen() {
   };
 
   const handleDesignerRejectConfirm = async () => {
-    if (!designerRejectTarget) return;
+    if (!designerRejectTarget || designerActionRef.current) return;
     const trimmedReason = normalizeDesignerRejectReason(designerRejectReason);
     if (!trimmedReason) {
       Alert.alert('거절 사유 필요', '거절 사유를 입력해주세요.');
@@ -554,6 +604,12 @@ export default function RequestBoardScreen() {
     }
 
     const actionKey = `${designerRejectTarget.requestId}:${designerRejectTarget.assignmentId}:reject`;
+    const isMountedAction = beginDesignerAction();
+    const ownsAction = accountScope.current.captureOwner(sessionReadKey);
+    const isCurrentAction = () => isMountedAction() && ownsAction();
+    if (!isCurrentAction()) return;
+    designerActionRef.current = true;
+    let saved = false;
     try {
       setDesignerActionKey(actionKey);
       const result = await rbRejectRequest(
@@ -562,9 +618,11 @@ export default function RequestBoardScreen() {
         trimmedReason,
         designerRejectTarget.assignmentId,
       );
+      if (!isCurrentAction()) return;
       if (!result.success) {
         throw new Error(result.error ?? result.message ?? '거절 처리에 실패했습니다.');
       }
+      saved = true;
       resetDesignerRejectModal();
       const notificationFeedback = getRequestBoardNotificationFeedback(result);
       Alert.alert(
@@ -573,10 +631,11 @@ export default function RequestBoardScreen() {
       );
       await fetchData({ force: true });
     } catch (err) {
+      if (!isCurrentAction()) return;
       logger.warn('[request-board] designer reject failed', err);
-      Alert.alert('거절 실패', toRequestBoardSessionErrorMessage(err, '거절 처리에 실패했습니다.'));
+      Alert.alert(saved ? '거절 완료 · 목록 갱신 필요' : '거절 실패', saved ? '의뢰는 거절했습니다. 목록을 다시 불러와 최신 상태를 확인해 주세요.' : toRequestBoardSessionErrorMessage(err, '거절 처리에 실패했습니다.'));
     } finally {
-      setDesignerActionKey(null);
+      if (isCurrentAction()) { designerActionRef.current = false; setDesignerActionKey(null); }
     }
   };
 

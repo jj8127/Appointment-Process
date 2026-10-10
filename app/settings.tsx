@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -21,14 +21,18 @@ const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
 
 export default function SettingsScreen() {
+  const { surface } = useLocalSearchParams<{ surface?: string }>();
   const { role, residentId, displayName, isRequestBoardDesigner, readOnly, hydrated, staffType, appSessionToken } = useSession();
   const appLogout = useAppLogout();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
-  const navPreset = resolveBottomNavPreset({ role, readOnly, hydrated, isRequestBoardDesigner });
+  const navPreset = resolveBottomNavPreset(
+    { role, readOnly, hydrated, isRequestBoardDesigner },
+    { surface: surface === 'service-hub' ? 'service-hub' : undefined },
+  );
   const navActiveKey = resolveBottomNavActiveKey(
     navPreset,
-    isRequestBoardDesigner ? 'request-board' : 'settings',
+    navPreset === 'request-board-designer' ? 'request-board' : 'settings',
   );
 
   const { data: myReferralInfo, isLoading: codeLoading, error: referralCodeError } = useMyReferralCode();

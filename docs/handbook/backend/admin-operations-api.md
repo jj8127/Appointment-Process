@@ -7,6 +7,10 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 
 # Backend Runbook: Admin Operations API
 
+## 2026-10-10 요청 origin 처리
+
+admin-action·fc-consent·fc-submit-appointment·fc-submit-hanwha-commission은 공통 serveWithConfiguredCors로 등록된 요청 origin을 정확히 반환한다. 기존 signed actor·본문 토큰·RPC 권한·mutation 처리와 응답 상태는 유지한다. localhost 추가는 별도 승인된 ALLOWED_ORIGINS 설정이 필요하다. 로컬 코드와 회귀 검증이며 운영 반영을 뜻하지 않는다. [공통 CORS 계약](./notifications-inbox-push.md#web-edge-cors-boundary-2026-10-10).
+
 ## 2026-10-07 FC 시험 본인 취소 마감 경계
 
 - **2026-10-08 서버 반영·검증 및 모바일 빌드·스토어 심사 제출 완료, 새 앱 공개 대기.** 운영 migration `20261008060419_exam_self_cancellation_deadline.sql` 및 `exam-payment-proof` v15 `ACTIVE`, `verify_jwt = true`를 확인했고 배포 파일 9개가 소스와 모두 일치했다. 한국시간 15:05:15~15:07:45의 요청 3건은 HTTP 200 1건·401 2건·5xx 0건이며 신규 advisor 지적은 0건이다. 모바일 4.2.17의 Android 92·iOS 108은 원본 검증과 스토어 전달을 마쳤고 각각 `IN_REVIEW`·`WAITING_FOR_REVIEW`이며, 양 플랫폼 공개 버전은 아직 4.2.16이다. 새 앱 공개·실기기 확인은 대기 상태다. [마감 정책과 상태별 허용 표](../mobile/exam-flows.md#2026-10-07-마감-후-본인-취소-제한-정책) 및 [관리자 운영 절차·회차 변경 한계](../admin-web/exam-and-referral-ops.md#2026-10-07-마감-후-취소변경-운영-계약)를 함께 따른다.

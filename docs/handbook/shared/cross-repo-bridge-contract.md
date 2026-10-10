@@ -15,6 +15,15 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 - The new verifier and its required function URL/gateway credentials must be ready before deploying the GaramLink caller. Additive generation schema precedes issuers; trigger activation comes last.
 
 
+## 2026-10-10 Mobile bridge read recovery
+
+- Request Board `403 + SESSION_INVALID` denotes an invalid or expired signed JWT and follows the existing one-time bridge recovery. Ordinary403 authorization failures retain their code and never trigger a new identity or permission change.
+- A failed recovery caused by a timeout, network error or service503 preserves stored auth and exposes a retryable read failure. A genuine invalid app session remains a relogin boundary. HTTP response status/body classification must survive the SDK FunctionsHttpError wrapper.
+- Auth persistence is owned by the session that started the operation. Old refresh, bridge login and auth-check responses cannot overwrite a newer login or restore auth after logout. Late failures cannot delete a newer session. The same boundary applies to direct-upload/attachment request recovery; this does not add mutation retries.
+- Initial bridge exchange also preserves ordinary403 permission failures without refreshing the app session. Structured403/503 errors take precedence over message-based session wording. Auth checks capture the current app/auth owner before reading stored tokens, including replacements that reuse the same Request Board JWT.
+- `sync-request-board-session` keeps role-specific account queries and restrictions explicit, then shares token issuance and response handling. The verified session generation, manager source role, developer FC mapping and linked-designer affiliation mapping are preserved.
+- Regression evidence: `lib/__tests__/request-board-strict-reads.test.ts`, request-board API contract tests, and local mock scenarios. This repair is separate from the browser Edge origin mismatch and does not claim a remote authenticated smoke test.
+
 ## 2026-07-03 API And Messenger Contract Notes
 
 - `lib/request-board-api.ts` must remain the GaramIn bridge boundary for GaramLink requests, messages, direct messages, attachments, and delete actions.
@@ -47,7 +56,7 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 ## 핵심 흐름
 
 1. `login-with-password`가 app session token과 `requestBoardBridgeToken`을 발급합니다.
-2. 모바일/웹 클라이언트는 필요 시 `bridge-login`으로 request_board JWT/session을 교환합니다.
+2. 가람in 클라이언트는 필요 시 `bridge-login`으로 request_board JWT/session을 교환합니다. 가람Link 브라우저는 현재 직접 로그인 경로를 사용합니다.
 3. request_board auth가 사라지면 `sync-request-board-session`으로 재발급/복구를 시도합니다.
 4. referral self-service `appSessionToken`이 없거나 만료되면 가람in 클라이언트는 같은 stored `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 호출해 referral 전용 세션을 복구합니다.
 5. 비밀번호 변경은 가람in이 canonical entrypoint이고 request_board bcrypt sync는 후행 동작입니다.
@@ -88,7 +97,7 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 - body builder는 `phone`, `password`, `role`을 항상 보내고, truthy `name`/`companyName`/`initiatorRole`/`syncReason`만 추가한다.
 - `affiliation`은 `fc`와 `manager` role에서만 포함한다. linked designer mirror는 `companyName`을 보내고 `affiliation`은 request_board direct designer payload에서 제외한다.
 - 이 helper는 값 trim/normalization을 하지 않는다. caller가 정한 phone/password/name/company/affiliation 값을 그대로 request_board sync body로 전달하는 것이 현재 계약이다.
-- 관리자 웹 session restore는 cookie-first가 우선이다. 유효한 cookie session이 있으면 localStorage snapshot이 drift되어도 먼저 읽어 복원하지 않는다.
+- 관리자 웹 session restore는 signed cookie를 사용한다. 과거 localStorage snapshot은 복원하지 않고 정리한다.
 
 ## 2026-06-03 관리자 세션 헬퍼 메모
 

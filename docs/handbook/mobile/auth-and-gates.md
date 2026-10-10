@@ -2,10 +2,17 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-09-14
+last_verified: 2026-10-09
 source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx + hooks/use-referral-allowance.ts + app/referral-allowance.tsx
 
 # Mobile Playbook: Auth And Gates
+
+## 2026-10-10 세션 복구와 계정 전환
+
+- 로그인·로그아웃·세션 교체는 기존 API의 앱 세션 revision을 기준으로 이전 복원·복구 작업을 무효화한다. 늦게 끝난 토큰 저장·bridge 조회·referral 복구는 새 계정의 상태·token·진행 중 작업을 덮거나 삭제하지 않는다.
+- 가람Link 상태 정리는 첫 저장소 await 전에 모든 대상의 메모리 revision을 갱신하고 기존 저장 직렬 큐를 사용한다. 저장소 삭제가 지연되어도 이후 로그인 token이 앞선 정리보다 나중에 저장된다.
+- 인증 없는 상태와 일시 복구 실패를 구분하고, 명시적 로그아웃의 local-first 동작과 수당의 strict current-token 경계를 유지한다. 비밀번호와 전화번호를 복구 진단 로그에 포함하지 않는다.
+- 검증은 기존 SessionProvider integration, referral 세션 복구, request-board API owner, credential generation suite가 담당한다. 이번 회차는 로컬 소스와 결정적 검증이며 스토어·배포·실기기 적용을 뜻하지 않는다.
 
 ## 2026-10-09 서비스 선택 홈 진입
 
@@ -13,6 +20,8 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 - 보험/FC 카드의 FC 진입은 기존 apply-gate에 `next=/?mode=insurance`를 전달한다. 비회원은 `/login?service=insurance`에서 로그인한 뒤 같은 선택을 이어간다. 본인확인 완료와 실패·재시도는 기존 gate가 판단한다. 관리자/매니저/개발자는 기존 보험 mode, designer는 기존 request-board를 사용한다. 다른 service 값·배열은 일반 landing을 사용하며 skipAuto·hydration·알림 우선순위는 유지한다.
 - 보호된 보험 mode·알림 문맥은 로그인 전에 LegacyInsuranceHome를 mount하지 않는다. signed-out 진입은 `/login?skipAuto=1`이며 명시적 로그아웃·수동 재로그인과 알림 우선순위를 보존한다.
 - 현재 회원가입은 FC용이다. 로그인 화면의 `서비스 둘러보기`는 공개 홈으로 돌아간다. 세부 계약: [서비스 선택 홈](./service-home.md).
+- 로그인 화면의 관리자/FC 번호 안내는 제거했다. 안전 영역 상단44px `서비스 홈으로 돌아가기` 버튼은 `router.replace('/')`로 공개 홈을 연다. 일반 방문·보험 직접 진입·세션 복구 전에도 동일하며 로그인 처리 중에는 비활성화한다.
+- 기존 보험 선택 의도, hydration·skipAuto·알림 우선순위와 비밀번호 저장은 유지한다. 실제 화면 렌더 회귀는 `login-navigation.test.js`의 일반/보험/복구 전 홈 복귀 사례로 검증한다.
 - 회귀: `lib/__tests__/service-home-entry.test.js`, `service-home.test.ts`, `session-landing.test.ts`, `login-navigation.test.js`.
 
 ## 2026-10-06 게시판 페이지 조회의 세션 범위
@@ -204,6 +213,11 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 - `uploaded_snapshot`의 최초 자료는 6월 실적·8월 1일 지급·7월 31일 참고다. 실제 7~8월 원본 날짜와 usesLaterSnapshot을 공개하고 과거의 확정 인사 이력으로 설명하지 않는다. 전월 이월금 합산·본부지원금·별도 시상·실제 지급 승인은 제외한다.
 - 대상자별 설정 revision의 현재 published 명세만 제공한다. 개별 중지/재활성화는 다른 사람에게 영향을 주지 않는다. 관리자 source UI는 여러 FC/본부장을 선택해 각각 검토·업로드·게시할 수 있다.
 - 승인된 backend 확장은 migration `20260907115710`과 Edge v2로 적용했다. 19명(기존 본부장 1명, 신규 FC 18명)의 6월 명세는 원본과 정확히 일치하며 24명은 사용자 지시로 보류했다. 단위/SQL/타입/린트 검증과 익명 401 검증을 마쳤다. 앱 변경은 현재 로컬 개발 빌드에 있으며 공개 OTA/스토어·웹 배포와 실제 기기 인수 검증은 별도다.
+
+## 2026-10-10 로컬 세션 전환 회귀
+
+- Request Board API는 토큰 조회 전에 app session과 bridge auth 세대를 캡처한다. 토큰·복구·업로드를 기다리는 동안 계정이 바뀌면 네트워크 발행, JWT 저장, 재전송과 이전 응답 반영을 중단한다. 같은 문자열의 토큰으로 돌아와도 이전 작업이 다시 유효해지지 않는다.
+- 관련 검사는 `lib/__tests__/request-board-api-owner.test.ts`다. 이번 로컬 수정의 배포·실제 인증 인수는 별도이며 운영 반영을 주장하지 않는다.
 
 ## 연관 문서
 

@@ -7,6 +7,12 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 
 # Admin Web Playbook: Exam And Referral Ops
 
+## 2026-10-10 시험 신청 페이지 조회 실패 구분 (로컬 수정)
+
+- `/api/admin/exam-applicants`의 신청 목록 reader는 회차 필터를 DB 조회에 먼저 적용하고 `created_at DESC, id DESC`로 정렬한 뒤 1,000행씩 끝까지 조회한다. 상세 이전/다음도 같은 정렬 계약을 따른다.
+- DB 오류 또는 성공 응답의 `data`가 배열이 아닌 페이지는 전체 조회 오류로 처리한다. 이미 읽은 앞 페이지를 완전한 목록으로 반환하거나 잘못된 응답을 0명으로 바꾸지 않는다. 정상적인 빈 배열만 조회가 끝난 근거이다.
+- 로컬 합성 실행은 999/1,000/1,001/2,000/2,001행, 중간 페이지 실패·잘못된 성공 본문, 동일 시각 신청의 id 순서와 한국 자정 경계를 검사한다. 실제 운영 DB와 운영 계정으로 재조회한 검증은 수행하지 않았다. 이 후속 수정은 아직 배포되지 않았다.
+
 ## 2026-10-07 마감 후 취소·변경 운영 계약
 
 - **2026-10-08 서버 반영·검증 및 모바일 빌드·스토어 심사 제출 완료, 새 앱 공개 대기.** 운영 DB migration `20261008060419_exam_self_cancellation_deadline.sql`과 `exam-payment-proof` v15 `ACTIVE`의 정의·권한·배포 파일 일치·HTTP 응답·제한된 배포 후 오류 확인을 완료했다. 모바일 4.2.17의 Android 92·iOS 108은 원본 산출물 검증과 스토어 전달을 마쳤으며, Android는 `IN_REVIEW`, iOS는 `WAITING_FOR_REVIEW`다. 양 플랫폼의 기존 공개 버전은 4.2.16이며 새 4.2.17 공개·실기기 검증은 대기 상태다. 마감 계산·FC 취소 허용 표·정확한 안내 문구의 기준은 [모바일 시험 정책](../mobile/exam-flows.md#2026-10-07-마감-후-본인-취소-제한-정책)이다.

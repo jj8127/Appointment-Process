@@ -16,6 +16,7 @@
 
 - Local edits and local tests are allowed. Ask before deploys, migrations, production queries/writes, OTA/mobile release, push delivery, Git push, or destructive cleanup.
 - Preserve unrelated dirty files and untracked evidence. External or authenticated verification that has not run keeps the release verdict `HOLD`.
+- Before every deployment or remote EAS build, preserve and commit the intended changes, then verify a clean source worktree and record its exact commit. Never discard pending work to make this check pass.
 
 ## Minimum verification
 

@@ -3,7 +3,8 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 const require = createRequire(import.meta.url);
 const { PGlite } = require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
-import { migration, fc, round, category, request, fixtureSql } from './ux-priority-one-fixture.mjs';
+import { migration, actorMigration, fc, round, category, request, fixtureSql } from './ux-priority-one-fixture.mjs';
+import { readFile } from 'node:fs/promises';
 async function fixture() {
   const db = new PGlite();
   await db.exec(fixtureSql);
@@ -130,6 +131,39 @@ test('notice lost response retries return one notice and payload mismatch cannot
     const first = await create(); assert.deepEqual(await create(),first);
     await assert.rejects(create('Changed'));
     assert.equal((await db.query('select count(*)::int count from notices')).rows[0].count,1);
+    assert.deepEqual(Object.keys(first), ['id']);
+    assert.equal((await db.query('select created_by from notices')).rows[0].created_by,'00000000001');
+  } finally { await db.close(); }
+});
+test('notice author comes from the verified actor and unauthorized attempts leave no rows or receipts', async () => {
+  const db = await fixture(); try {
+    const create = (phone,role='admin') => rpc(db,'select create_notice_idempotent_v1($1,$2,$3,$4) result',
+      [phone,role,request,{title:'Synthetic',body:'Content',created_by:'spoofed',images:[],files:[]}]);
+    for (const [phone,role] of [['00000000009','admin'],['00000000003','manager'],['00000000004','admin']]) {
+      await assert.rejects(create(phone,role), /actor not authorized/);
+    }
+    assert.equal((await db.query('select count(*)::int count from notices')).rows[0].count,0);
+    assert.equal((await db.query('select count(*)::int count from ux_creation_receipts')).rows[0].count,0);
+    const first = await create('00000000001');
+    assert.deepEqual(await create('00000000001'),first);
+    assert.equal((await db.query('select created_by from notices')).rows[0].created_by,'00000000001');
+  } finally { await db.close(); }
+});
+test('notice receipt failure rolls back notice authorship and schema mirror preserves the invoker ACL', async () => {
+  const db = await fixture(); try {
+    await db.exec("create function fail_receipt() returns trigger language plpgsql as $$ begin raise exception 'synthetic receipt failure'; end; $$; create trigger fail_receipt before insert on ux_creation_receipts for each row execute function fail_receipt();");
+    await assert.rejects(rpc(db,'select create_notice_idempotent_v1($1,$2,$3,$4) result',
+      ['00000000001','admin',request,{title:'Synthetic',body:'Content'}]), /synthetic receipt failure/);
+    assert.equal((await db.query('select count(*)::int count from notices')).rows[0].count,0);
+    assert.equal((await db.query("select prosecdef from pg_proc where proname='create_notice_idempotent_v1'")).rows[0].prosecdef,false);
+    for(const role of ['anon','authenticated']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.query("select create_notice_idempotent_v1('00000000001','admin',$1,$2)",[request,{title:'Synthetic',body:'Content'}]), /permission denied for function/);
+      await db.exec('reset role');
+    }
+    const schema = await readFile(new URL('../schema.sql', import.meta.url),'utf8');
+    const normalize = text => text.replaceAll('\r\n','\n').trim();
+    assert.ok(normalize(schema).includes(normalize(actorMigration)));
   } finally { await db.close(); }
 });
 test('public clients cannot invoke privileged RPCs or read receipt/cleanup records', async () => {

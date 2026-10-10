@@ -664,7 +664,7 @@ function RootLayout() {
                               ...authHeader,
                               title: '휴대폰 인증',
                               headerLeft: () => (
-                                <Pressable onPress={() => router.replace('/signup')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable onPress={() => goBackOrReplace(router, '/signup')} style={{ padding: 8, marginLeft: -8 }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -690,7 +690,7 @@ function RootLayout() {
                               ...baseHeader,
                               title: '기본 정보',
                               headerLeft: () => (
-                                <Pressable onPress={() => router.replace('/')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable onPress={() => goBackOrReplace(router, '/')} style={{ padding: 8, marginLeft: -8 }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -806,7 +806,7 @@ function RootLayout() {
                               ...authHeader,
                               title: '휴대폰 인증',
                               headerLeft: () => (
-                                <Pressable onPress={() => router.replace('/signup')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable onPress={() => goBackOrReplace(router, '/signup')} style={{ padding: 8, marginLeft: -8 }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),

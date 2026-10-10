@@ -156,7 +156,7 @@ test('RPC is invoker-only, grants execution only to service_role, and snapshot m
     await applyMigration(f.db, validationMigration);
     assert.equal((await f.rpc('issue')).code, 'cooldown');
     const rpcStart = migration.indexOf('create or replace function public.process_password_reset_challenge(');
-    assert.ok(schema.includes(migration.slice(rpcStart)), 'schema snapshot must preserve the complete RPC and ACL');
+    assert.ok(schema.replaceAll('\r\n','\n').includes(migration.slice(rpcStart).replaceAll('\r\n','\n')), 'schema snapshot must preserve the complete RPC and ACL');
     assert.match(migration, /for update[\s\S]*for update[\s\S]*checked_at := clock_timestamp\(\)/);
     assert.doesNotMatch(migration, /raise exception/i);
   } finally { await f.db.close(); }
@@ -231,6 +231,7 @@ async function edgeFixture(kind) {
       NCP_SENS_SERVICE_ID: 'synthetic-service', NCP_SENS_SMS_FROM: phone, NODE_ENV: 'test', ...overrides };
     await loadTs(`../functions/${name}/index.ts`, {
       'https://deno.land/std@0.224.0/http/server.ts': { serve: callback => { serveHandler = callback; } },
+      '../_shared/serve-with-cors.ts': { serveWithConfiguredCors: callback => { serveHandler = callback; } },
       'https://esm.sh/@supabase/supabase-js@2.45.4': { createClient: () => supabase },
       '../_shared/password-reset-account.ts': {
         findPasswordResetAccount: async () => ({ account, error: null }),

@@ -1,4 +1,4 @@
-import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   createRequestBoardBridgeToken,
@@ -82,104 +82,41 @@ serve(async (req: Request) => {
     return fail('invalid_phone', '유효한 전화번호가 아닙니다.', 401);
   }
 
-  if (session.role === 'admin') {
-    const { data: admin, error } = await supabase
-      .from('admin_accounts')
-      .select('phone,active,name,staff_type')
-      .eq('phone', phone)
-      .maybeSingle();
+  const account = session.role === 'admin'
+    ? { role: 'admin' as const, ...await supabase.from('admin_accounts')
+      .select('phone,active,name,staff_type').eq('phone', phone).maybeSingle() }
+    : session.role === 'manager'
+      ? { role: 'manager' as const, ...await supabase.from('manager_accounts')
+        .select('phone,active,name').eq('phone', phone).maybeSingle() }
+      : { role: 'fc' as const, ...await supabase.from('fc_profiles')
+        .select('phone,name,signup_completed,affiliation').eq('phone', phone).maybeSingle() };
 
-    if (error) {
-      return fail('db_error', error.message, 500);
-    }
-
-    if (!admin?.phone) {
-      return fail('not_found', '계정을 찾을 수 없습니다.', 404);
-    }
-
-    if (!admin.active) {
-      return fail('inactive_account', '비활성화된 계정입니다.', 403);
-    }
-
-    const staffType = admin.staff_type === 'developer' ? 'developer' : 'admin';
-    if (staffType !== 'developer') {
-      return fail('request_board_not_applicable', '총무 계정은 가람Link 요청 주체가 아닙니다.', 403);
-    }
-
-    const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, 'fc', undefined, session);
-    if (!requestBoardBridgeToken) {
-      return fail('bridge_secret_missing', '브릿지 토큰을 발급할 수 없습니다.', 500);
-    }
-
-    return json({
-      ok: true,
-      requestBoardBridgeToken,
-      requestBoardRole: 'fc',
-      displayName: admin.name ?? '',
-    });
+  if (account.error) {
+    return fail('db_error', account.error.message, 500);
   }
 
-  if (session.role === 'manager') {
-    const { data: manager, error } = await supabase
-      .from('manager_accounts')
-      .select('phone,active,name')
-      .eq('phone', phone)
-      .maybeSingle();
-
-    if (error) {
-      return fail('db_error', error.message, 500);
-    }
-
-    if (!manager?.phone) {
-      return fail('not_found', '계정을 찾을 수 없습니다.', 404);
-    }
-
-    if (!manager.active) {
-      return fail('inactive_account', '비활성화된 계정입니다.', 403);
-    }
-
-    const requestBoardBridgeToken = await createRequestBoardBridgeToken(
-      manager.phone,
-      'manager',
-      resolveManagerAffiliation(manager.name),
-      session,
-    );
-    if (!requestBoardBridgeToken) {
-      return fail('bridge_secret_missing', '브릿지 토큰을 발급할 수 없습니다.', 500);
-    }
-
-    return json({
-      ok: true,
-      requestBoardBridgeToken,
-      requestBoardRole: 'fc',
-      displayName: manager.name ?? '',
-    });
-  }
-
-  const { data: profile, error } = await supabase
-    .from('fc_profiles')
-    .select('phone,name,signup_completed,affiliation')
-    .eq('phone', phone)
-    .maybeSingle();
-
-  if (error) {
-    return fail('db_error', error.message, 500);
-  }
-
-  if (!profile?.phone) {
+  if (!account.data?.phone) {
     return fail('not_found', '계정을 찾을 수 없습니다.', 404);
   }
 
-  if (!profile.signup_completed) {
+  if (account.role !== 'fc' && !account.data.active) {
+    return fail('inactive_account', '비활성화된 계정입니다.', 403);
+  }
+  if (account.role === 'admin' && account.data.staff_type !== 'developer') {
+    return fail('request_board_not_applicable', '총무 계정은 가람Link 요청 주체가 아닙니다.', 403);
+  }
+  if (account.role === 'fc' && !account.data.signup_completed) {
     return fail('not_completed', '회원가입이 완료되지 않았습니다.', 403);
   }
 
-  const designerCompanyName = parseDesignerCompanyNameFromAffiliation(profile.affiliation);
-  const requestBoardRole = designerCompanyName ? 'designer' : 'fc';
+  const bridgeRole = account.role === 'manager' ? 'manager'
+    : account.role === 'fc' && parseDesignerCompanyNameFromAffiliation(account.data.affiliation) ? 'designer' : 'fc';
+  const affiliation = account.role === 'manager' ? resolveManagerAffiliation(account.data.name)
+    : account.role === 'fc' && bridgeRole === 'fc' ? account.data.affiliation ?? null : undefined;
   const requestBoardBridgeToken = await createRequestBoardBridgeToken(
-    profile.phone,
-    requestBoardRole,
-    requestBoardRole === 'fc' ? profile.affiliation ?? null : undefined,
+    account.data.phone,
+    bridgeRole,
+    affiliation,
     session,
   );
 
@@ -190,7 +127,7 @@ serve(async (req: Request) => {
   return json({
     ok: true,
     requestBoardBridgeToken,
-    requestBoardRole,
-    displayName: profile.name ?? '',
+    requestBoardRole: bridgeRole === 'manager' ? 'fc' : bridgeRole,
+    displayName: account.data.name ?? '',
   });
 });

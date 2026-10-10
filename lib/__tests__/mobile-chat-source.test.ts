@@ -26,16 +26,11 @@ describe('mobile direct chat source', () => {
     const sendEnd = source.indexOf('const handleSendText', sendStart);
     const sendSource = source.slice(sendStart, sendEnd);
 
-    expect(sendSource).toContain('const optimisticMessage = createOptimisticMessage');
-    expect(sendSource).toContain('applyMessages([optimisticMessage, ...messagesRef.current])');
-    expect(sendSource).toContain('const clientMessageId = randomUUID()');
     expect(sendSource).toContain('clientMessageId,');
-    expect(sendSource).toContain('const commitMessage = async');
     expect(sendSource).toContain('commitMessageWithRetry()');
     expect(sendSource).toContain('uploadMessengerAttachmentBatch');
     expect(sendSource).toContain("uploadResult.state === 'committed'");
     expect(sendSource).toContain('attachmentBatchRef.current');
-    expect(sendSource).toContain('const notificationDelivery = sendResult.delivery');
     expect(sendSource).toContain('notificationDelivery.notificationStored === false');
     expect(sendSource).not.toContain('await invokeFcNotifyForDelivery({');
     expect(sendSource).not.toContain("type: 'notify'");

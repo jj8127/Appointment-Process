@@ -1,5 +1,81 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261010-foundation-session-bridge"></a>
+## 2026-10-10 공통 기반 01-A/B·01-C
+
+- 01-A/B에서 기존 session owner·저장 queue로 늦은 복원/refresh/cleanup을 차단했고, 관리자 cookie 복구·재로그인과 가람Link 저장소 장애 동작을 유지하며 미사용 state/API·중복 오류 변환을 정리했다.
+- 01-C는 signed 앱 actor→bridge→upstream generation 확인→persisted 가람Link JWT→HTTP/Socket readOnly 경계를 연결했다. manager source와 developer의 writable FC mapping, linked designer affiliation을 유지한다.
+- `sync-request-board-session`의 세 계정 조회·활성/가입/총무 제한은 그대로 두고 발급·응답·공통 실패 처리를 한곳에서 수행한다. body의 actor/role은 신뢰하지 않는다.
+- auth check는 첫 저장소 조회 전 owner를 캡처하고 recovery token 조회 뒤 다시 확인한다. 최초 bridge 교환의 일반403과 구조화된503은 인증 만료로 변환하지 않으며, 기존 세션 무효화 복구 횟수와 mutation replay 계약을 유지한다.
+- 마지막 caller 확인에서 messenger의 manager 쓰기 표시 누락을 찾아 기존 capability로 전송·첨부·DM생성·삭제·설정 변경을 차단했다. 기존 방 조회·읽음은 유지하고 파일 선택/확인 후 변경에도 기존 owner scope를 재사용한다.
+- 새로운 추상화 파일·테스트 파일·runner·mock 서버는 추가하지 않는다. 기존 실행 suite를 확장하며 서로 다른 UI/API/서버/SQL 경계의 고유 검사는 유지한다.
+- 정확한 검사·측정·한계: D:/hanhwa/.codex/harness/cross-repo-foundation-review-20261010/qa-report.md. 기존 dirty와 두 HEAD를 보존하며 원격 DB·커밋·push·배포·실계정/실기기 검증은 수행하지 않았다.
+
+<a id="20261010-code-simplification"></a>
+## 2026-10-10 코드·테스트 간략화
+
+- 감사 A1~A7·B4~B6·후속 네 항목을 처리했다. 미사용 tolerant 조회 11개를 삭제하고 JSON/첨부 인증 처리를 rbFetch로 통합했다. 토큰 조회 전 owner 캡처, 한 번의 인증 복구, 일반 403, 재시도마다 새 FormData를 유지한다.
+- 직접/그룹의 준비 상태는 loaded key로 계산한다. 홈/상세 액션은 기존 정책을 사용하고 메신저 전송 실패는 한 catch로 복구한다. 저장 완료 후 알림 미확정은 기존 handbook의 안전한 안내를 복구했다.
+- 관리자 공지 두 화면은 기존 Supabase와 31줄 공지 전용 모듈을 공유한다. 그룹채팅은 기존 request guard를 사용한다. 시험 GET의 중복 staff 조회를 없애고 write gate/audit actor를 유지했다.
+- 추천 CORS 여섯 caller와 전화번호/shadow helper를 기존 구현으로 모았다. 모바일의 기존 comment 파일에 공통 ID core를 두고 웹은 re-export한다. 오래된 complete가 새 ID를 지우지 못한다.
+- 고유 회귀 사례는 기존 모바일·관리자 runtime/mounted suite에 옮겼다. 새 테스트 프레임워크·runner·합성 서버를 추가하지 않았다. 관련 타입/lint·Deno 검사와 업로드 없는 관리자 빌드는 PASS; 최종 명령과 결과는 D:/hanhwa/.codex/harness/code-simplification-20261010/qa-report.md에 기록한다.
+- 재발 방지는 workspace AGENTS의 Code reuse and test scope 및 기존 MISTAKES에 기록했다. 기존 dirty 변경을 보존하며 push·배포·원격 DB 조작은 수행하지 않았다.
+
+<a id="20261010-read-transport-nav"></a>
+## 2026-10-10 웹 조회 장애 전수 조사와 보험 탐색 안정화
+
+- 시작 FC HEAD 1e95c0c와 이전 tracked19개·untracked 자산/테스트/훅을 보존한다. Request Board HEAD f93895f는 변경하지 않는다. 신규 canonical harness는 D:/hanhwa/.codex/harness/read-transport-audit-20261010/로 중앙 INDEX에 등록했다.
+- 54개 ACTIVE 함수의 metadata와 무인증 OPTIONS를 확인했다. 현재 개발 origin http://127.0.0.1:8087의 응답24개 일치·30개 불일치·네트워크 오류0개다. 서버 전용 verify-app-session 1개를 제외한29개 중23개에 앱/브라우저 caller가 있다. 앱·관리자 웹 호출169곳을 대조했다. 운영 함수27개 소스에도 allowedOrigins[0] 고정을 확인했다. Native CORS와 구분하며 실제 운영 레코드·인증된 POST는 읽지 않았다.
+- 공통 configured-cors/serve-with-cors로27개 entry의 serve import만 교체한다. 명시된 전체 origin만 요청별로 반영하며 기존 auth/거절/응답 및 Origin 없는 server/native 흐름은 유지한다. strict 수당·verify-request-board-session은 설정에 현재 개발 origin을 추가해야 한다. 개발 주소를 코드에서 자동 허용하지 않는다.
+- Request Board는403 SESSION_INVALID만 기존1회 복구를 수행한다. 일반403은 권한 오류를 보존하고503·통신 장애에서 인증을 삭제하지 않는다. 오래된 sync/auth-me/delete 응답이 새 세션을 덮거나 지우지 못한다. 계정 변경 후 이전 생성 요청은409 session_changed·retryable:false로 끝나며 새 계정으로 자동 재실행되지 않는다. 독립 VM 경합4건을 수정 후 재확인했다.
+- 보험 홈의 자체 onScroll/dy 숨김 애니메이션을 제거해 nav를 고정하고 bottom padding을 유지한다. FC bottom 홈은 /?mode=insurance, 상단 전체 서비스는 /로 분리한다. 추천의 알려진 SDK 통신 오류는 기능별 한국어 안내로 바꾸되 재로그인/권한 코드는 유지한다.
+- 검증: 인증 관련7 suites142검사, nav 관련5 suites44검사, 추천·메신저 등5 suites42검사, CORS Node7검사 PASS. scoped ESLint·모바일 tsc·local27 entry와 helper Deno check PASS. 최종 final-export-verified는 iOS/Android Hermes 각1·Web2·static62개 no-upload export exit0이다. strict governance와 diff는 최종 QA 기록으로 남긴다. 합성 테스트와 공개 preflight는 실제 계정 POST·기기 성공의 증거가 아니다. 현재 보이는 브라우저는 전체 서비스 홈이므로 보험 nav의 실제 장시간 idle 관측은 미실행이다.
+- 운영용 패키지는 현재 원격27개 함수의 기존 entry/dependency를 기준으로 CORS import와 공통 helper만 준비했다. gateway 설정 보존, 모든 기존 dependency byte 보존, 기존 업무 코드 불변을 스크립트로 검증했다. get_edge_function이 누락한 request-password-reset의 type-only dependency는 reset-password v47에서 얻은 동일 원격 모듈2개로 보완하며 runtime handler는 변경하지 않는다. staged27 bundle Deno check PASS. 명시적 origin 목록 추가·배포·push·DB 변경은 미실행이다.
+- 전수 보고서·baseline/after inventory·safe preflight·remote snapshot과 hash manifest: D:/hanhwa/outputs/read-transport-audit-20261010/. 공지 첨부 서명 의존, messenger legacy summary·4초 polling, shared20개 Vary/cache·22개 localhost 문자열 검사·조건부 wildcard5개는 별도 보강 후보로 남긴다. 현재 장애의 확정 원인과 구분한다.
+- nav 전수 추가 점검: notice/settings/request-board 계열6개 공통 훅과 board/admin-board-manage 독자 구현2개에는 사용자 스크롤과 레이아웃 보정을 구별하지 않는 숨김 정책이 남아 있다. 동일 offset 반복은 animation 없음,30→70→20 보정은 hide→show,30→60→90은 동일 hide2회였다. 실제 idle 재현이나 새 코드 변경은 하지 않았으며 보험 홈 고정 수리와 별도로 보고한다.
+
+<a id="20261010-service-home-brand-autoplay"></a>
+## 2026-10-10 서비스 홈 브랜드·영역 구분·자동 순환
+
+- 기존 투명 adminWebLogo.png의 심볼만 뷰포트로 보여주고 검정 가람in을 배치했다. 제목은 ‘좋은 서비스, 함께 누리는 혜택’. 흰 헤더와 #f3f4f6 메인 영역의24px 곡면으로 구분한다. 이미지 원본·동등한 네 서비스 메뉴·사진·route는 유지했다.
+- Web 자동 순환에서 document.hasFocus() 의존을 제거했다. 화면이 보이면 다른 패널에 포커스가 있어도 순환하고, hidden·background·route 이탈·reduced motion·명시적 pause에서는 정지한다. blur의 pointer 취소는 유지한다.
+- 관련 화면24검사(신규 Web lifecycle2개 포함), 대상 타입·lint·strict governance·git diff --check PASS. no-upload Expo all-platform export exit0: Android/iOS Hermes 각1개·Web2개·static62개.
+- 실제 visible Expo Web에서4/4 offset1760(width440)→재생 후6021ms에1/4 offset440와 가족간병 CTA 확인. 실제320/390/414px의 가로 넘침0·같은 크기 네 메뉴·두 줄 제목·로고/이미지 로드 확인. resize 정착 후320px 배너 사진·번호 정렬도 확인했다.
+- 출력: D:/hanhwa/outputs/garamin-service-home-app-20261009/revision-09/ . 대표 evidence/home-320.png, timed evidence/auto-wrap.json, final-export/. 소유 handbook·기존5개 harness 문서를 동기화했다. 이전 dirty 변경·출력·기록은 보존하며 push·운영 배포·실기기 설치는 수행하지 않았다.
+
+
+## <a id="20261009-service-home-photo-loop"></a> 2026-10-09 사진 배너·드래그·자동 순환
+
+- 사용자 후속 요청을 반영했다. 내장 ImageGen으로4:3 사진 배경4개를 만들고 원본을 그대로 앱 banners에 복사했다. 이미지 위 흰색 제목과 더 낮은 좌하단 안내·링크, 우하단96×32px 제어를 표시한다. 버튼32px와 hitSlop6·부모44px로 누르는 범위를 유지했다. 상단 네 메뉴와 기존 이동을 보존하고 로고는 실제 `expo.ios.icon`의 logo_ios.png로 바꿨다.
+- 배너 조작 종료 후5초를 다시 세며 단순 호버·배너 밖 조작은 초기화하지 않는다. 일시정지·백그라운드·화면 이탈·모션 줄이기를 처리한다. 양 끝 복제 배너는 접근성·클릭에서 제외하고 마지막→첫/첫→마지막을 이어준다. Web은 실제 pointer 이벤트와 capture·취소·blur·unmount 정리를 사용하고 Native는 기존 터치 페이징을 유지한다.
+- 실제 웹 검증에서 RN-web의 momentum 종료 콜백 부재와 CSS snap/수동 드래그 경쟁, 중간 좌표가 확정 이동을 덮는 문제를 발견해 수리했다. Web quiet scroll 종료와 이동 목적지 보존·전환 중 버튼 queue를 사용한다. 사진 기본 HTML5 드래그와 텍스트 선택도 차단하여 배너 이동 뒤 잘못된 링크 열림을 방지한다. 임시 진단은 최종 소스에서 제거한다.
+- 로그인 번호 안내와 미사용 스타일을 제거하고 안전 영역 상단44px `서비스 홈으로 돌아가기`를 추가했다. 공개 홈으로 replace하며 기존 보험 의도·세션 복구·저장 비밀번호·로그인 흐름과 서비스 둘러보기를 유지한다. 실제 계정 입력·업무 기록 조회·신청은 하지 않았다.
+- 최종 검증: 관련5스위트72검사(UI22·로그인20·controller8·진입10·URL12), TypeScript·대상 ESLint PASS. Android/iOS Hermes 각1개·Web2개·정적62개 no-upload export PASS. 실제320/390/414px 배치, 마우스드래그2→3/4(offset880→1320), 마지막 버튼순환과 빠른next연속4→1→2, 활성 화면의 자동4→1/4(offset440), 로그인 복귀·안내 제거를 확인했다. bounded console error0. 자동5초 경계·배너 밖 조작·호버·취소/cleanup·글꼴 확대/resize는 실제 hook/UI 테스트로 확인했다. 실기기 설치는 미검증이다.
+- 증거: `D:/hanhwa/outputs/garamin-service-home-app-20261009/revision-08/`, 생성 프롬프트/원본해시: `assets/images/service-home/banners/provenance.json`. `intermediate-export/`는 드래그 수리 이전 빌드이므로 최종 증거로 사용하지 않는다. 기존 dirty16개·신규 controller test와 이전 출력/아이콘을 보존했다. 커밋·push·배포·실기기 설치는 미실행이다.
+
+## <a id="20261009-service-home-carousel"></a> 2026-10-09 동등한 서비스 메뉴와 소개 배너
+
+- 최신 요청은 이전 상단의 네 서비스 동등한 크기·FC 큰 영역 제거, MUSINSA식 가로 소개 배너, 기존 가족간병 홍보 직접 연결, 통신/자동차 선택 후 준비 중 안내다. 기준HEAD `1e95c0c`와 시작 tracked12개 이전 변경, revision-05/06 자산·출력·canonical harness를 보존했다.
+- 상단64px 그림 슬롯의 동등한 네 메뉴와 네 장 수동 배너를 제공한다. 실제 측정 폭의 가로 페이징·44px 이전/다음·현재/전체 번호, 글꼴 확대 세로 배치와 선택 페이지 보존을 구현했다. 제목은 작은 화면에서도 짧은 두 줄이다. 활성 슬라이드만 접근성/키보드로 접근하며 자동 재생은 없다.
+- 기존 공개 URL `https://garam-public-web.vercel.app/family-care/`를 식별자/query 없이 사용자 선택 때 연다. Web 새 창이 열리지 않는 검증 결과에 따라 `openExternalUrl`에 `sameWindowOnWeb` 옵션을 추가해 가족간병만 같은 탭으로 이동한다. Native와 다른 호출은 기존 인앱 브라우저/대체 동작을 유지한다. 열기 거절은 개인정보 없는 재시도 안내로 처리한다. 공개 페이지 자체는 수정하지 않았다.
+- 검증: 기존 유효한 UI10·진입 helper10과 최종 controller8·URL helper12의 관련4스위트40검사 PASS. 타입·대상 lint PASS. 최종 `final-export/`의 Android/iOS Hermes 각1개·Web2개·정적62개 PASS이며 Sentry 자동 업로드는 비활성화했다. 실제320/390/414px는 동일 크기 메뉴·가로 넘침 없는 body·PNG 로딩·44px 제어·help/nav 간격을 확인했다. 직접 Expo 탭에서 페이지 번호/활성 CTA·끝 경계·가로 스크롤, 가족간병 메뉴와 배너의 실제 공개 홍보 이동, 통신/자동차 준비 안내, 비회원 FC 로그인 의도와 홈 복귀를 확인했다. 실제 로그인·신청·운영 자료 조회는 하지 않았다.
+- 증거: `D:/hanhwa/outputs/garamin-service-home-app-20261009/revision-07/`. 대표 전체 화면은 `evidence/home-390-full.png`이다. 브라우저 provider의 iframe 입력 미지원으로 실제 이동은 직접 앱 탭에서 검증했다. iframe320px 캡처의 중앙 nav 누락은 DOM 위치/직접 화면 확인과 구분하며 실제390/414px 완전 표시 증거를 보존했다. 확대 글꼴·선택 페이지 resize는 컴포넌트 검증이며 native 기기 검증은 아니다. 커밋·push·배포·기기 설치는 미실행이다.
+
+## <a id="20261009-service-home-audience"></a> 2026-10-09 공용 안내 중심 홈 정리
+
+- 사용자 피드백의 주사용자/중심 행동 문제를 기존 공용 제휴 서비스 제품 방향으로 해결한다. 기준HEAD `1e95c0c` 이후 revision-05 tracked11개 변경을 보존한다. 기존 canonical service-home-20261009 harness를 이어 사용한다.
+- 가족간병은 현재 있는 간병 시기/기간·환자와 가족의 관계·서비스/문의 내용 안내로 연결한다. 주요 버튼은 `이용 전 확인사항 보기`, FC는 단일 중립 행의 `FC 업무로 이동/이어가기`, 통신·자동차는 오픈 예정 그룹이다. home에서 동일 준비 상태를 반복하지 않고 상세 안내에서 신청 불가를 명시한다. 신청 절차를 제공한다고 약속하지 않는다.
+- 기존 callbacks·props·account loading과 signed FC 재개 조건을 유지했다. 안내 helper 글꼴12/13px와 실제 그림의 실루엣을 고려한 통신48px·자동차60px로 보정하고 큰 글꼴에서 배너/예정 서비스 세로 배치를 유지한다. 인증·권한·route resolver·nav 구현과3D PNG는 수정하지 않았다.
+- 검증: 컴포넌트13검사·TypeScript·대상 lint PASS. Android/iOS Hermes 각1개·Web2개·static62개 no-upload export PASS. 실제320/390/414px는 가로 넘침0·이미지5개 정상 로딩·최소터치44px 높이55px 너비·help/nav 간격을 확인했다. 간병 안내·FC 로그인 의도·둘러보기·통신/자동차 준비 안내를 확인했으며 실제 로그인/신청/운영 자료 읽기는 하지 않았다. 제한된 console error0. viewport override 불일치가 있어 iframe 실제 폭만 근거로 삼고 override를 reset했다.
+- 증거는 `D:/hanhwa/outputs/garamin-service-home-app-20261009/revision-06/`이다. iframe 캡처가 일부 변하지 않은 요소를 간헐적으로 누락하므로 전체가 표시된390px 화면을 대표 증거로 보존하고 DOM 측정과 구분한다. 현재 tracked12개 변경이며 커밋·push·운영 배포·native 설치는 미실행이다.
+
+## <a id="20261009-service-home-hierarchy"></a> 2026-10-09 서비스 홈 시각 위계 수정
+
+- 사용자 피드백: 브랜드 주황색과 테두리 카드의 반복을 줄이고 핵심 실행 행동을 강조한다. 기준은 기존 서비스 홈 로컬 커밋 `1e95c0c98d07ac7a2a12646ba0724a4a3e90ed2f`의 clean checkout이다. 기존 canonical service-home-20261009 harness를 이어 사용한다.
+- 홈 목적은 서비스 선택이다. 흰 화면·검정 제목·테두리 없는 바로가기와 보험·FC 단일 주황색 CTA, 큰 그래픽의 회색 가족간병 안내 배너로 구성한다. 준비 중 서비스를 실제 신청 가능한 것처럼 표현하지 않는다. 확대 글꼴은 바로가기2열·배너세로로 전환한다.
+- 서비스별 3D asset은 원본 Blender geometry/camera/light/render 설정을 보존하고 재질 색만 변경해 revision-05에 저장한다. 공개 service-hub 하단 메뉴만 중립 선형 아이콘으로 조정한다. 세션·역할·identity·notification·route 계약과 기존 업무 preset은 유지한다.
+- 검증 완료: 화면·콜백 및 기존 진입/하단 메뉴4스위트42검사, TypeScript·대상 lint·거버넌스·공백 PASS. 최종 Android/iOS Hermes 각1개·Web2개와 static62개 export PASS. 자동 Sentry upload를 비활성화했다. 실제 Expo Web320/390/414px는 가로 넘침0·이미지6개 정상 로딩·안내 버튼과 nav 간격을 확인했다. 비회원 보험 CTA→login의 보험 의도, 둘러보기·간병 준비 안내·이용내역·홈·계정 이동 PASS, 제한된 console error0. 화면·배치·source SHA·export는 `D:/hanhwa/outputs/garamin-service-home-app-20261009/revision-05/`에 있다. tracked11개 파일 변경을 로컬에 남겼으며 원격 push·운영 배포·기기 설치는 미실행이다.
+
 ## <a id="20261009-service-home-app"></a> 2026-10-09 서비스 선택 홈 앱 적용
 
 - 시작 소스는 `release/all-surfaces-20261004` / `4586194c3ed46a78ae023a1eeab1c5a48d75d225`이며 tracked/untracked 변경이 없었다. canonical 기록은 `.codex/harness/service-home-20261009/`의 다섯 문서이며 루트 INDEX에 `fc--service-home-20261009`로 등록했다. 다른 task lifecycle과 legacy archive는 보존했다.
@@ -14344,6 +14420,15 @@ Verification:
 - Remaining gates: separately approved application/verification of migration20261009065353 before new callers, Edge source activation, real scoped Storage cleanup, signed production sessions, Android/iOS native back/WebView/keyboard/calendar acceptance and actual browser interactions. No local test/build is described as a deployed release.
 
 - Integration regression follow-up: the full root Jest run exposed seven failures in four suites. Group-anchor and exam-bundle source readers now normalize Windows CRLF; actual composer fixtures include the new create intent/mutex/current-owner dependencies. Atomic exam deletion now verifies the trusted RPC/actor/ack contract instead of requiring direct table deletion. Twelve actual server-action tests reject unauthorized/read-only actors and malformed input before IO, ignore spoofed actor fields, and fail closed for missing RPC, FK conflict and malformed receipts. Three actual composer tests preserve uncertain-intent locking, duplicate suppression and obsolete attachment retry isolation. Targeted4 suites/71 tests, final app types and affected test lint0 warnings pass. Runtime product/Edge/migration bytes are unchanged, so the verified native export and20 actual SQL checks remain applicable; Root reruns the final11-gate integration after this test/document-only repair.
+
+## <a id="20261010-ux-acceptance"></a> 2026-10-10 UX acceptance continuation
+
+- Scope: manual checklist35 direct cases and10 controlled failures. Trial accounts/data only; no real business records, production mutation, deployment or push. Existing service-home/auth/CORS changes are preserved.
+- Actual product callbacks/components were executed with deterministic delays, malformed success, write/read/token failures, lost responses, concurrent sends and room/account/route ABA. Independent reviewers reproduced failures before the owner guards were repaired and verified both obsolete-result denial and current-owner success.
+- Bridge request/upload ownership now captures app-session and bridge-auth generations before token reads. A session switch cannot issue an old operation with the next account token, store obsolete recovered credentials, or dispatch a stale retry.
+- Admin creation retains intent IDs/checkpoints across uncertain responses; notice authorship uses trusted actor via a new additive migration `20261009163349_ux_notice_idempotent_actor.sql`. The migration/schema mirror and service-role-only contract were executed in isolated PostgreSQL/PGlite; remote application remains unverified.
+- The latest exact counts, source hashes, compiler/build receipts, direct UI limitations and45-case matrix are outside source at `D:/hanhwa/artifacts/ux-priority-one-acceptance-20261010`. Selected mobile/web/client tests overlap and are not summed as unique cases.
+- Native Excel opened synthetic original and normalized workbooks without repair warnings; formula/55/chart/link/styles/merge/sheet order were retained. Android4.2.17/92 emulator public routes and online cold restart were checked. Neither installed version nor local Hermes export proves a new OTA was executed. Browser native confirmation and Windows native input were blocked by control-tool limitations. Physical Android/iPhone, actual IME/WebView/OS badge and live auth/RLS/Storage/push need separate acceptance.
 
 ## <a id="20261009-ux-priority-one-operational-db"></a> 2026-10-09 UX priority-one operational DB
 

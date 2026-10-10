@@ -11,6 +11,7 @@ import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { HOME_LITE_PRIMARY_ACTION_ROUTE, buildHomeEntryBreadcrumb } from '@/lib/home-entry-flow';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { addSentryBreadcrumb } from '@/lib/sentry-monitor';
+import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 const YOUTUBE_URL = 'https://youtube.com/playlist?list=PLF5rd5c2rE9xy-VsAdwq4NEUsJQtKD7Qd&si=vKx4TDq6ww9ZgKiT';
@@ -37,7 +38,7 @@ export default function HomeLiteScreen() {
   const { data, isLoading, isError, error, refetch, isFetching } = useIdentityStatus();
   const startRequiredInfo = useCallback(() => {
     addSentryBreadcrumb(buildHomeEntryBreadcrumb('home-lite.primary-required-info'));
-    router.push(HOME_LITE_PRIMARY_ACTION_ROUTE);
+    router.push({ pathname: HOME_LITE_PRIMARY_ACTION_ROUTE, params: { next: INSURANCE_HOME_ROUTE } });
   }, []);
   const openYoutubeGuide = useCallback(async () => {
     try {
@@ -53,7 +54,7 @@ export default function HomeLiteScreen() {
       return;
     }
     if (role === 'admin') {
-      router.replace('/');
+      router.replace(INSURANCE_HOME_ROUTE);
       return;
     }
     if (isRequestBoardDesigner) {
@@ -61,7 +62,7 @@ export default function HomeLiteScreen() {
       return;
     }
     if (!isLoading && !isError && data?.identityCompleted) {
-      router.replace('/');
+      router.replace(INSURANCE_HOME_ROUTE);
     }
   }, [data?.identityCompleted, hydrated, isError, isLoading, isRequestBoardDesigner, role]);
 
@@ -70,6 +71,7 @@ export default function HomeLiteScreen() {
     useCallback(() => {
       if (Platform.OS !== 'android') return;
       const onBackPress = () => {
+        if (router.canGoBack()) return false;
         Alert.alert(
           '앱 종료',
           '앱을 종료하시겠습니까?',

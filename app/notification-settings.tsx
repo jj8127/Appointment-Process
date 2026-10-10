@@ -1,7 +1,7 @@
 import { NotificationPreferenceWriteConfirmedError } from '@/lib/notification-preferences-api';
 import { Feather } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -16,6 +16,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
+import { createReadScope } from '@/lib/request-board-read-state';
+import { useReadAttempt } from '@/lib/use-read-attempt';
 import {
   getNotificationPreferences,
   PUSH_CATEGORIES,
@@ -62,6 +64,7 @@ export default function NotificationSettingsScreen() {
     displayName,
     requestBoardRole,
     hydrated,
+    appSessionToken,
   } = useSession();
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
   const [permission, setPermission] = useState<PushPermissionStatus>('undetermined');
@@ -69,22 +72,42 @@ export default function NotificationSettingsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [confirmGlobalOff, setConfirmGlobalOff] = useState(false);
+  const savingRef = useRef(false);
+  const ownerScope = useRef(createReadScope());
+  const ownerKey = `${role ?? ''}:${residentId ?? ''}:${appSessionToken ?? ''}`;
+  if (ownerScope.current.setScope(ownerKey)) savingRef.current = false;
+  const beginLoad = useReadAttempt();
+  const beginMutation = useReadAttempt();
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  useEffect(() => {
+    setPreferences(null);
+    setPendingKey(null);
+    setConfirmGlobalOff(false);
     setError(null);
+    setLoading(true);
+  }, [ownerKey]);
+
+  const load = useCallback(async (options: { preserveError?: boolean } = {}) => {
+    if (savingRef.current && !options.preserveError) return;
+    const isMountedLoad = beginLoad();
+    const ownsLoad = ownerScope.current.captureOwner(ownerKey);
+    const isCurrentLoad = () => isMountedLoad() && ownsLoad();
+    if (!isCurrentLoad()) return;
+    setLoading(true);
+    if (!options.preserveError) setError(null);
     const [preferenceResult, permissionResult] = await Promise.allSettled([
       getNotificationPreferences(),
       getPushPermissionStatus(),
     ]);
+    if (!isCurrentLoad()) return;
     if (permissionResult.status === 'fulfilled') setPermission(permissionResult.value);
     if (preferenceResult.status === 'fulfilled') {
       setPreferences(preferenceResult.value);
     } else {
-      setError('알림 설정을 불러오지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요.');
+      if (!options.preserveError) setError('알림 설정을 불러오지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요.');
     }
     setLoading(false);
-  }, []);
+  }, [beginLoad, ownerKey]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -100,27 +123,40 @@ export default function NotificationSettingsScreen() {
   }, [hydrated, load, role]));
 
   useEffect(() => {
+    let active = true;
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        void getPushPermissionStatus().then(setPermission);
+        const ownsPermissionRead = ownerScope.current.captureOwner(ownerKey);
+        void getPushPermissionStatus().then((next) => {
+          if (active && ownsPermissionRead()) setPermission(next);
+        }).catch(() => undefined);
       }
     });
-    return () => subscription.remove();
-  }, []);
+    return () => { active = false; subscription.remove(); };
+  }, [ownerKey]);
 
   const pushRole: 'admin' | 'fc' | 'manager' = requestBoardRole === 'designer'
     ? 'manager'
     : role === 'admin' ? 'admin' : 'fc';
 
   const commitGlobal = async (enabled: boolean) => {
-    if (!preferences || pendingKey) return;
+    if (!preferences || pendingKey || savingRef.current) return;
+    const isMountedMutation = beginMutation();
+    const ownsMutation = ownerScope.current.captureOwner(ownerKey);
+    const isCurrentMutation = () => isMountedMutation() && ownsMutation();
+    if (!isCurrentMutation()) return;
+    beginLoad();
+    savingRef.current = true;
     setConfirmGlobalOff(false);
     const previous = preferences;
     setPendingKey('global');
     setError(null);
     setPreferences({ ...preferences, globalPushEnabled: enabled });
+    let saved = false;
     try {
       const next = await setGlobalPushEnabled(enabled);
+      saved = true;
+      if (!isCurrentMutation()) return;
       setPreferences(next);
       if (enabled) {
         const registration = await registerPushToken(
@@ -130,23 +166,33 @@ export default function NotificationSettingsScreen() {
           undefined,
           { requestPermission: true },
         );
+        if (!isCurrentMutation()) return;
         const nextPermission = await getPushPermissionStatus();
+        if (!isCurrentMutation()) return;
         setPermission(nextPermission);
         if (!registration.ok && registration.reason !== 'permission_denied') {
-          setError('알림 등록을 완료하지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요.');
+          setError('알림 설정은 저장했습니다. 기기 알림 등록을 완료하지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요.');
         }
       }
     } catch (error) {
-      if (!(error instanceof NotificationPreferenceWriteConfirmedError)) setPreferences(previous);
-      setError(error instanceof NotificationPreferenceWriteConfirmedError ? '알림 설정은 저장했습니다. 표시 갱신 또는 기기 등록을 마치지 못해 서버 상태를 다시 확인합니다.' : '알림 설정의 저장 결과를 확인하지 못했어요. 서버 상태를 다시 확인합니다.');
-      void load();
+      if (!isCurrentMutation()) return;
+      const confirmed = saved || error instanceof NotificationPreferenceWriteConfirmedError;
+      if (!confirmed) setPreferences(previous);
+      setError(confirmed ? '알림 설정은 저장했습니다. 표시 갱신 또는 기기 등록을 마치지 못해 서버 상태를 다시 확인합니다.' : '알림 설정의 저장 결과를 확인하지 못했어요. 서버 상태를 다시 확인합니다.');
+      void load({ preserveError: true });
     } finally {
-      setPendingKey(null);
+      if (isCurrentMutation()) { savingRef.current = false; setPendingKey(null); }
     }
   };
 
   const commitCategory = async (category: PushCategory, enabled: boolean) => {
-    if (!preferences || pendingKey || !preferences.globalPushEnabled) return;
+    if (!preferences || pendingKey || savingRef.current || !preferences.globalPushEnabled) return;
+    const isMountedMutation = beginMutation();
+    const ownsMutation = ownerScope.current.captureOwner(ownerKey);
+    const isCurrentMutation = () => isMountedMutation() && ownsMutation();
+    if (!isCurrentMutation()) return;
+    beginLoad();
+    savingRef.current = true;
     const previous = preferences;
     setPendingKey(category);
     setError(null);
@@ -155,13 +201,16 @@ export default function NotificationSettingsScreen() {
       categories: { ...preferences.categories, [category]: enabled },
     });
     try {
-      setPreferences(await setPushCategoryEnabled(category, enabled));
+      const next = await setPushCategoryEnabled(category, enabled);
+      if (!isCurrentMutation()) return;
+      setPreferences(next);
     } catch (error) {
+      if (!isCurrentMutation()) return;
       if (!(error instanceof NotificationPreferenceWriteConfirmedError)) setPreferences(previous);
       setError(error instanceof NotificationPreferenceWriteConfirmedError ? '알림 종류 설정은 저장했습니다. 최신 표시를 불러오지 못해 서버 상태를 다시 확인합니다.' : '알림 종류 설정의 현재 상태를 확인하지 못했어요. 저장되었을 수 있어 서버 상태를 다시 확인합니다.');
-      void load();
+      void load({ preserveError: true });
     } finally {
-      setPendingKey(null);
+      if (isCurrentMutation()) { savingRef.current = false; setPendingKey(null); }
     }
   };
 

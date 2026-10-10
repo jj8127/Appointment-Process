@@ -58,13 +58,16 @@ describe('admin web exam and notice notification completion contract', () => {
   });
 
   it('keeps the notice saved and logs delivery diagnostics without a second warning toast', () => {
-    const saveStart = noticeAction.indexOf(".from('notices')");
+    const saveStart = noticeAction.indexOf(".rpc('create_notice_idempotent_v1'");
     const notificationStart = noticeAction.indexOf(".from('notifications')", saveStart);
-    const returnStart = noticeAction.indexOf('return {\n        success: true', notificationStart);
+    const successfulReturn = noticeAction.slice(notificationStart).match(/return\s*\{\s*success:\s*true/);
+    const returnStart = successfulReturn ? notificationStart + (successfulReturn.index ?? 0) : -1;
 
     expect(saveStart).toBeGreaterThan(-1);
     expect(notificationStart).toBeGreaterThan(saveStart);
     expect(returnStart).toBeGreaterThan(notificationStart);
+    expect(noticeAction).toContain('p_request_id: requestId');
+    expect(noticeAction).toContain("delivery_key: `notice:${insertedNotice.id}:created`");
     expect(noticeAction).toContain("message: notificationWarning");
     expect(noticeAction).toContain("'공지사항이 등록되었습니다.'");
     expect(noticeAction).not.toContain('공지사항이 등록 및 발송되었습니다.');

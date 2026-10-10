@@ -1,6 +1,19 @@
 import { normalizeReferralFunctionFailure } from '@/lib/referral-session-error';
 
 describe('referral session error normalization', () => {
+  it.each([
+    'Failed to send a request to the Edge Function',
+    'Failed to fetch',
+    'Network request failed',
+    'Load failed',
+  ])('shows the feature-specific Korean fallback for transport failure: %s', (message) => {
+    expect(normalizeReferralFunctionFailure({ message }, '추천 관계를 불러오지 못했습니다.')).toEqual({
+      code: undefined,
+      message: '추천 관계를 불러오지 못했습니다.',
+      needsRelogin: false,
+    });
+  });
+
   it('treats legacy unauthorized auth messages as relogin-required', () => {
     const normalized = normalizeReferralFunctionFailure(
       { code: 'unauthorized', message: '인증이 필요합니다.' },

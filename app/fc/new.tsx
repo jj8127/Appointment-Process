@@ -33,6 +33,7 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { invokeAdminAction } from '@/lib/admin-action-api';
+import { goBackOrReplace } from '@/lib/back-navigation';
 import {
   buildFcBasicInformationFormValues,
   buildFcBasicInformationPatch,
@@ -42,6 +43,7 @@ import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { canOpenFcProfileRegistration } from '@/lib/fc-workflow';
 import { logger } from '@/lib/logger';
+import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, toResidentInputAlertMessage } from '@/lib/store-identity-error';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
@@ -202,7 +204,6 @@ function FcNewScreenContent() {
   const {
     residentId: phoneFromSession,
     loginAs,
-    displayName,
     role,
     appSessionToken,
   } = useSession();
@@ -497,7 +498,7 @@ function FcNewScreenContent() {
         successTitle: '저장 완료',
         successMessage: '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.',
         notificationLabel: '관리자',
-        onDone: () => { if (isCurrentSubmit()) router.replace('/'); },
+        onDone: () => { if (isCurrentSubmit()) router.replace(INSURANCE_HOME_ROUTE); },
       });
     } catch {
       if (!isCurrentSubmit()) return;
@@ -567,32 +568,16 @@ function FcNewScreenContent() {
   };
 
   const handleBack = useCallback(() => {
-    logger.debug('[fc/new] handleBack called', { displayName, fromParam, role });
-
-    // 로그인하지 않은 상태 (role 없음)
-    const needsLogin = !role;
-    if (needsLogin) {
-      logger.debug('[fc/new] Not logged in (no role), going to login');
+    if (!role) {
       router.replace({ pathname: '/login', params: { skipAuto: '1' } } as any);
       return;
     }
-
-    // 로그인한 상태: from 파라미터에 따라 이동
-    if (fromParam === 'home') {
-      logger.debug('[fc/new] fromParam is home, going to /');
-      router.replace('/');
-      return;
-    }
     if (fromParam === 'auth' || fromParam === 'login') {
-      logger.debug('[fc/new] fromParam is auth/login, going to /');
       router.replace('/');
       return;
     }
-
-    // fromParam이 없거나 다른 값일 때는 home으로 이동 (로그인 상태이므로)
-    logger.debug('[fc/new] Default case, going to /', { fromParam });
-    router.replace('/');
-  }, [displayName, fromParam, role]);
+    goBackOrReplace(router, '/');
+  }, [fromParam, role]);
 
   useFocusEffect(
     useCallback(() => {

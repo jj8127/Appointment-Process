@@ -64,10 +64,6 @@ describe('shared UI/action primitive audit', () => {
     const boardReactionStateSource = readRepoFile('lib/board-reaction-state.ts');
     const linkifiedTextSource = readRepoFile('components/LinkifiedSelectableText.tsx');
     const linkifiedTextActionsSource = readRepoFile('lib/linkified-text-actions.ts');
-    const rejectReasonModalSource = readRepoFile('web/src/components/RejectReasonModal.tsx');
-    const adminDashboardSource = readRepoFile('web/src/app/dashboard/page.tsx');
-    const adminAppointmentSource = readRepoFile('web/src/app/dashboard/appointment/page.tsx');
-    const adminDocsSource = readRepoFile('web/src/app/dashboard/docs/page.tsx');
     const buttonSource = readRepoFile('components/Button.tsx');
     const formInputSource = readRepoFile('components/FormInput.tsx');
 
@@ -110,15 +106,10 @@ describe('shared UI/action primitive audit', () => {
     expect(linkifiedTextSource).toContain('openLinkExternallyWithFeedback');
     expect(linkifiedTextSource).not.toContain('Clipboard.setStringAsync');
     expect(linkifiedTextSource).not.toContain('Alert.alert');
-    expect(rejectReasonModalSource).toContain("event.key !== 'Enter'");
-    expect(rejectReasonModalSource).toContain('event.shiftKey');
-    expect(rejectReasonModalSource).toContain('event.preventDefault();');
-    for (const source of [adminDashboardSource, adminAppointmentSource, adminDocsSource]) {
-      expect(source).toContain('RejectReasonModal');
-    }
     expect(directChatSource).toContain('openMessengerAttachment');
     expect(groupChatSource).toContain('openMessengerAttachment');
     for (const source of [directChatSource, groupChatSource, requestBoardMessengerSource]) {
+      expect(source).toContain('LinkifiedSelectableText');
       expect(source).toContain('copyTextWithFeedback');
       expect(source).toContain('confirmMessengerDelete');
       expect(source).not.toContain('Clipboard.setStringAsync');

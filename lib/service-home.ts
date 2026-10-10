@@ -7,6 +7,7 @@ type ServiceSession = {
 };
 
 export const INSURANCE_HOME_ROUTE = '/?mode=insurance' as const;
+export const FAMILY_CARE_PROMOTION_URL = 'https://garam-public-web.vercel.app/family-care/' as const;
 export const SERVICE_INFORMATION_KEYS = ['care', 'telecom', 'car', 'help'] as const;
 
 /** The service picker delegates FC identity checks to the existing apply gate. */

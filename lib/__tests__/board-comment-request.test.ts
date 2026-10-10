@@ -1,7 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createCommentRequestTracker } from '../board-comment-request';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { createCommentRequestTracker as createWebCommentRequestTracker } from '../../web/src/lib/board-comment-request';
 
 test('automatic retry and a manual retry reuse the draft operation until confirmed', async () => {
   let sequence = 0;
@@ -39,6 +38,5 @@ test('different drafts/sessions get fresh IDs and a late success cannot clear a 
 });
 
 test('web and mobile share the same request lifetime policy', () => {
-  expect(readFileSync(join(process.cwd(), 'web/src/lib/board-comment-request.ts'), 'utf8'))
-    .toBe(readFileSync(join(process.cwd(), 'lib/board-comment-request.ts'), 'utf8'));
+  expect(createWebCommentRequestTracker).toBe(createCommentRequestTracker);
 });

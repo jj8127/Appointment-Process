@@ -15,6 +15,8 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 
 ## self-service trusted reads / writes
 
+2026-10-10: referral transport errors use the feature's Korean fallback message instead of exposing the SDK's `Failed to send a request to the Edge Function`. A transport failure does not establish session expiry and must not clear credentials. Explicit session error codes retain their existing relogin semantics. This UI normalization is separate from the Edge origin fix. Regression: `lib/__tests__/referral-session-error.test.ts`.
+
 - FC/본부장 self-service current read path는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다.
 - FC/본부장 self-service referral tree path는 `hooks/use-referral-tree.ts -> get-referral-tree -> get_referral_subtree(...)`다.
 - FC/본부장 native referral graph path는 `app/referral-graph.tsx -> hooks/use-referral-graph.ts -> get-referral-tree(mode='graph')`다.

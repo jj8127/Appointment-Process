@@ -1,20 +1,14 @@
-import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { referralCorsHeaders, serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   getEnv,
   requireAppSessionFromRequest,
   type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
-import { ensureActiveReferralCode } from '../_shared/referral-code.ts';
+import { cleanPhone, ensureActiveReferralCode, ensureManagerReferralShadowProfile } from '../_shared/referral-code.ts';
 import { buildReferralNameSearchPattern } from '../_shared/referral-search.ts';
 
-const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
-const corsHeaders = {
-  'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-app-session-token, x-client-info, apikey',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Credentials': 'true',
-};
+const corsHeaders = referralCorsHeaders();
 
 const supabaseUrl = getEnv('SUPABASE_URL');
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
@@ -32,20 +26,7 @@ function json(body: Record<string, unknown>, status = 200) {
 function fail(code: string, message: string, status = 200) {
   return json({ ok: false, code, message }, status);
 }
-function cleanPhone(input: string) {
-  return (input ?? '').replace(/[^0-9]/g, '');
-}
-
 type SessionPayload = AppSessionTokenPayload;
-
-async function ensureManagerReferralShadowProfile(managerPhone: string, managerName?: string | null) {
-  const { error } = await supabase.rpc('ensure_manager_referral_shadow_profile', {
-    p_manager_phone: managerPhone,
-    p_manager_name: typeof managerName === 'string' && managerName.trim() ? managerName.trim() : null,
-  });
-
-  return error;
-}
 
 async function resolveCallerFcId(session: SessionPayload): Promise<{ fcId: string; phone: string } | null> {
   if (!session || (session.role !== 'fc' && session.role !== 'manager' && session.role !== 'admin')) return null;
@@ -73,8 +54,8 @@ async function resolveCallerFcId(session: SessionPayload): Promise<{ fcId: strin
     : await supabase.from('fc_profiles').select('id, phone, affiliation, signup_completed, is_manager_referral_shadow').eq('phone', sessionPhone).maybeSingle();
 
   if (!profileResult.data?.id && managerAccount) {
-    const ensureError = await ensureManagerReferralShadowProfile(sessionPhone, managerAccount.name);
-    if (ensureError) return null;
+    const ensured = await ensureManagerReferralShadowProfile(supabase, sessionPhone, managerAccount.name);
+    if (ensured.ok === false) return null;
     profileResult = await supabase
       .from('fc_profiles')
       .select('id, phone, affiliation, signup_completed, is_manager_referral_shadow')
@@ -113,7 +94,6 @@ function isEligibleProfile(profile: {
 }
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return fail('method_not_allowed', 'Method not allowed', 405);
 
   const sessionResult = await requireAppSessionFromRequest(req);
@@ -193,8 +173,8 @@ serve(async (req: Request) => {
     const managerPhone = cleanPhone(manager.phone ?? '');
     if (managerPhone.length !== 11) continue;
 
-    const ensureError = await ensureManagerReferralShadowProfile(managerPhone, manager.name);
-    if (ensureError) continue;
+    const ensured = await ensureManagerReferralShadowProfile(supabase, managerPhone, manager.name);
+    if (ensured.ok === false) continue;
 
     const { data: managerProfile } = await supabase
       .from('fc_profiles')
@@ -244,4 +224,4 @@ serve(async (req: Request) => {
     .slice(0, LIMIT);
 
   return json({ ok: true, results });
-});
+}, corsHeaders);

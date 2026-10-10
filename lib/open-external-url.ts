@@ -1,10 +1,11 @@
 import * as WebBrowser from 'expo-web-browser';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 import { isHttpUrl, normalizeExternalUrl } from '@/lib/external-url';
 
 type OpenExternalUrlOptions = {
   preferExternalBrowser?: boolean;
+  sameWindowOnWeb?: boolean;
 };
 
 async function openWithLinking(normalized: string) {
@@ -19,20 +20,27 @@ export async function openExternalUrl(rawUrl: string, options?: OpenExternalUrlO
   if (!normalized) {
     throw new Error('EMPTY_URL');
   }
+  const openWithBrowser = async () => {
+    if (Platform.OS === 'web' && options?.sameWindowOnWeb) {
+      await WebBrowser.openBrowserAsync(normalized, { windowName: '_self' });
+    } else {
+      await WebBrowser.openBrowserAsync(normalized);
+    }
+  };
 
   if (options?.preferExternalBrowser) {
     try {
       await openWithLinking(normalized);
     } catch (error) {
       if (!isHttpUrl(normalized)) throw error;
-      await WebBrowser.openBrowserAsync(normalized);
+      await openWithBrowser();
     }
     return normalized;
   }
 
   if (isHttpUrl(normalized)) {
     try {
-      await WebBrowser.openBrowserAsync(normalized);
+      await openWithBrowser();
     } catch {
       await openWithLinking(normalized);
     }

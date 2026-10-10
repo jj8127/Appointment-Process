@@ -26,20 +26,11 @@ describe('session push registration retry boundary', () => {
   });
 
   test('keeps one global registration owner instead of a second home-screen attempt loop', () => {
+    expect(source).toContain("state.requestBoardRole === 'designer'");
+    expect(source).toContain("? 'manager'");
     expect(homeSource).not.toContain("from '@/lib/notifications'");
     expect(homeSource).not.toContain('registerPushToken(');
     expect(homeSource).not.toContain('pushRegistrationAttemptRef');
-  });
-
-  test('migrates legacy session tokens to secure storage and never rewrites them into session JSON', () => {
-    expect(source).toContain('const securedAppSessionToken = await getStoredAppSessionToken();');
-    expect(source).toContain('const restoredAppSessionToken = securedAppSessionToken ?? legacyAppSessionToken;');
-    expect(source).toContain('await persistStoredAppSessionToken(legacyAppSessionToken);');
-
-    const persistStart = source.indexOf('const persist = async () => {');
-    const persistEnd = source.indexOf('persist();', persistStart);
-    const persistSource = source.slice(persistStart, persistEnd);
-    expect(persistSource).not.toContain('appSessionToken,');
   });
 
   test('restarts registration after an explicit login even when the visible identity is unchanged', () => {

@@ -14,7 +14,8 @@ import {
 } from '@/lib/exam-applicant-resident-number-enrichment';
 import { logger } from '@/lib/logger';
 import { readResidentNumbersWithFallback } from '@/lib/server-resident-numbers';
-import { buildPhoneCandidates, getVerifiedAdminSession, getVerifiedReadOnlyAdminSession } from '@/lib/server-session';
+import { buildPhoneCandidates } from '@/lib/server-session';
+import { requireAdminRoute, requireAdminOrManagerReadRoute } from '@/lib/admin-route-auth';
 
 type DeleteBody = {
   registrationId?: string;
@@ -36,35 +37,6 @@ type ExamTransitionResult = {
   recipient_actor_id?: string | null;
 };
 
-async function getAdminSession() {
-  return getVerifiedAdminSession();
-}
-
-async function getReadSession() {
-  return getVerifiedReadOnlyAdminSession();
-}
-
-async function verifyStaffSession(role: 'admin' | 'manager', residentId: string) {
-  const staffPhoneCandidates = buildPhoneCandidates(
-    String(residentId ?? '').trim(),
-    String(residentId ?? '').replace(/[^0-9]/g, ''),
-  );
-  const accountTable = role === 'manager' ? 'manager_accounts' : 'admin_accounts';
-  const { data, error } = await adminSupabase
-    .from(accountTable)
-    .select('id,active')
-    .in('phone', staffPhoneCandidates)
-    .eq('active', true)
-    .maybeSingle();
-
-  if (error) {
-    logger.error('[api/admin/exam-applicants] session verification failed', error);
-    return false;
-  }
-
-  return Boolean(data?.id);
-}
-
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EXAM_REGISTRATION_SELECT = `
   id, status, created_at, round_id, resident_id, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, rejected_at,
@@ -83,7 +55,8 @@ async function readRegistrationRows(registrationId?: string, roundId?: string): 
         .order('id', { ascending: false })
         .range(offset, offset + 999);
       if (error) throw error;
-      const page = (data ?? []) as ExamRegistrationRow[];
+      if (!Array.isArray(data)) throw new Error('시험 신청 목록 응답을 확인할 수 없습니다.');
+      const page = data as ExamRegistrationRow[];
       rows.push(...page);
       if (page.length < 1000) return rows;
     }
@@ -238,7 +211,7 @@ async function listApplicants(staffPhone: string, roundId?: string, registration
 }
 
 export async function GET(req: Request) {
-  const readCheck = await getReadSession();
+  const readCheck = await requireAdminOrManagerReadRoute();
   if (!readCheck.ok) {
     return NextResponse.json(
       { error: readCheck.error },
@@ -261,14 +234,6 @@ export async function GET(req: Request) {
         { status: 400, headers: SECURITY_HEADERS },
       );
     }
-    const isAuthorized = await verifyStaffSession(
-      readCheck.session.role as 'admin' | 'manager',
-      readCheck.session.residentId,
-    );
-    if (!isAuthorized) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: SECURITY_HEADERS });
-    }
-
     const applicants = await listApplicants(
       readCheck.session.residentId.replace(/[^0-9]/g, ''),
       roundId,
@@ -288,7 +253,7 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const adminCheck = await getAdminSession();
+  const adminCheck = await requireAdminRoute();
   if (!adminCheck.ok) {
     return NextResponse.json(
       { error: adminCheck.error },
@@ -381,7 +346,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const adminCheck = await getAdminSession();
+  const adminCheck = await requireAdminRoute();
   if (!adminCheck.ok) {
     return NextResponse.json(
       { error: adminCheck.error },

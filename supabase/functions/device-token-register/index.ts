@@ -1,4 +1,4 @@
-import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import {

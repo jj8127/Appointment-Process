@@ -7,21 +7,12 @@ import { createContext, Fragment, ReactNode, useContext, useEffect, useMemo, use
 import {
     formatSessionResidentMask,
     isClientSessionReadOnly,
-    resolveClientSessionRestore,
+    type ClientSessionRole as Role,
+    type ClientSessionSnapshot as SessionState,
 } from '@/lib/client-session-restore';
 import { logger } from '@/lib/logger';
 import { normalizeStaffType, type StaffType } from '@/lib/staff-identity';
 import { ADMIN_WEB_LOGOUT_TIMEOUT_MS, clearSessionQueries, withBrowserSessionTransition } from '@/lib/client-session-transition';
-type Role = 'admin' | 'manager' | 'fc' | null;
-
-type SessionState = {
-    role: Role;
-    residentId: string;
-    residentMask: string;
-    displayName: string;
-    staffType: StaffType;
-};
-
 type SessionContextValue = SessionState & {
     hydrated: boolean;
     transitioning: boolean;
@@ -76,13 +67,6 @@ const getCookieString = (name: string, value: string, maxAge: number = COOKIE_MA
     return `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Strict; ${secureFlag}`;
 };
 
-// Security: Simple obfuscation for localStorage (not cryptographically secure, but better than plaintext)
-// For true security, use server-side session tokens with HttpOnly cookies
-const obfuscate = (text: string): string => {
-    if (typeof window === 'undefined') return text;
-    return btoa(encodeURIComponent(text));
-};
-
 function readSessionFromCookies(): SessionState | null {
     const role = parseCookie(COOKIE_ROLE);
     const residentId = parseCookie(COOKIE_RESIDENT);
@@ -121,62 +105,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const router = useRouter();
 
     useEffect(() => {
-        const restore = () => {
-            try {
-                // Middleware uses cookies as the server-side session source of truth.
-                // Restore that snapshot first so protected routes and client state stay aligned.
-                const cookieSession = readSessionFromCookies();
-                const snapshot = resolveClientSessionRestore({
-                    cookieSession,
-                    storageSession: null,
-                });
-                if (snapshot) {
-                    setState(snapshot);
-                    writeCookies(snapshot);
-                } else {
-                    clearStoredSession();
-                    writeCookies(null);
-                }
-            } finally {
-                setHydrated(true);
-            }
-        };
-        restore();
+        try {
+            // Discard legacy storage; only cookies can restore the session.
+            clearStoredSession();
+            const snapshot = readSessionFromCookies();
+            if (snapshot) setState(snapshot);
+            writeCookies(snapshot);
+        } finally {
+            setHydrated(true);
+        }
     }, []);
-
-    useEffect(() => {
-        if (!hydrated) return;
-        const persist = () => {
-            try {
-                if (state.role && state.residentId) {
-                    const payload = {
-                        role: state.role,
-                        residentId: state.residentId,
-                        displayName: state.displayName,
-                        staffType: state.staffType,
-                    };
-                    // Security: Obfuscate session data before storing in localStorage
-                    const encoded = obfuscate(JSON.stringify(payload));
-                    localStorage.setItem(STORAGE_KEY, encoded);
-                } else {
-                    clearStoredSession();
-                }
-            } catch (err) {
-                logger.warn('Session persist failed', err);
-            }
-        };
-        persist();
-    }, [state, hydrated]);
 
     // Keep cookies in sync with the in-memory session so server routes can validate admin actions.
     useEffect(() => {
         if (!hydrated) return;
 
-        if (state.role && state.residentId) {
-            writeCookies(state);
-        } else {
-            writeCookies(null);
-        }
+        writeCookies(state);
     }, [hydrated, state]);
 
     const value = useMemo<SessionContextValue>(

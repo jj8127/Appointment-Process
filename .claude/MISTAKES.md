@@ -1,5 +1,10 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-10 여러 웹 origin을 첫 번째 주소로만 응답함
+
+- 재현: 로그인 함수의 동일 문제를 이전에 수정했지만27개 다른 Edge entry에 ALLOWED_ORIGINS[0] 고정 응답이 남았다. 웹 Expo에서 메신저·공지·추천·수당 조회가 한꺼번에 통신 오류로 보였고, 게시판은 요청 origin을 반영하여 정상 동작했다.
+- 규칙: HTTP200 또는 mocked SDK 성공만으로 브라우저 호출을 확인하지 않는다. 첫/두번째 허용 origin, 명시적 개발 origin, 허용되지 않은 origin, OPTIONS/실제 오류 응답을 함께 검사한다. 응답 헤더는 요청별로 만들며 Vary를 유지하고 공유 mutable header를 사용하지 않는다. 실제 허용 목록 확대와 운영 배포는 별도 승인 후 검증한다.
+
 ## 2026-10-06 JSX 추출 테스트의 상태 변수 누락
 
 - 재현: 게시판에 추가 조회 실패 상태를 도입했지만 JSX를 따로 실행하는 기존 오류/빈 목록 테스트 fixture에는 해당 변수를 주입하지 않아 전체 앱 CI 두 건이 ReferenceError로 실패했다.
@@ -5780,6 +5785,13 @@
   - `lib/__tests__/referral-graph-link.test.ts`
   - Galaxy S26 Android 16 open, pinch-out, pinch-in, and no-crash smoke.
 
+## 2026-10-10 | An owner key allowed obsolete work to become current again
+
+- Symptom: A→B→A navigation could let a late first-A completion clear the new A draft, change settings, or show alerts. A token read spanning an account switch could also issue the old operation under the new account.
+- Cause: comparing only the room/account key after an await, and capturing request ownership after rather than before reading credentials. React state alone also did not lock two callbacks in the same tick.
+- Guardrail: capture an opaque owner/generation before the first await; advance it on every owner transition, including returning to the same key. Keep ordinary background read sequences separate from mutation ownership. Use immediate mutexes and check ownership before side effects, credential persistence and retry dispatch.
+- Evidence: mobile-acceptance-runtime, request-board-api-owner and independent actual-source ABA/token handoff regressions. Full results and direct-device limits are in the2026-10-10 acceptance artifact.
+
 ## 2026-08-13 | Empty primary dependency directories blocked Expo release tooling
 
 - Symptom:
@@ -5793,3 +5805,24 @@
   - Root `npm ci` completed from the committed lockfile.
   - `npx expo config --json` succeeded.
   - Android production build `979d7c8d-4ae5-4c48-9c42-b92ed2f703bb` completed as app 4.2.4 / version code 74 / runtime 4.2.4.
+
+## 2026-10-10 | Existing helpers and behavior coverage were duplicated
+
+- Symptom: unused tolerant API wrappers remained after strict callers replaced them; auth recovery and request guards were reimplemented; callback/source tests repeated existing mounted behavior tests.
+- Cause: new code was added before inspecting current callers, shared helpers and existing regression scenarios. Local implementation spelling was treated as a behavior contract.
+- Guardrail: apply workspace AGENTS Code reuse and test scope. Search first, delete dead paths, derive state, reuse existing clients/guards and fixtures. Keep each behavior in its most direct existing test and retain distinct ownership/auth/SQL regressions.
+- Evidence: artifacts/code-simplification-audit-20261010/report.md and the central code-simplification-20261010 task QA record. No new test framework is required to enforce this rule.
+
+## 2026-10-10 | Service context and back history were discarded
+
+- Symptom: public home → account → home selected the insurance home by role; some Android back handlers replaced the prior screen with a home route.
+- Cause: the account entry omitted its service surface, and screen-specific back handlers consumed navigation before checking the existing stack.
+- Guardrail: carry the explicit surface into shared account screens and reuse the central navigation preset. Use existing back history before a direct-entry fallback; keep authentication and completed-work redirects explicit.
+- Evidence: existing ServiceHub, InsuranceHomeNavigation, mobile acceptance and home-lite regressions; physical Android account/home and two-step system back checks in artifacts/physical-device-acceptance-20261010/local-android-install-report.md.
+
+## 2026-10-10 | A spacing fix changed the established header alignment
+
+- Symptom: reducing blank space also moved the centered insurance title and subtitle to the left.
+- Cause: a layout redesign was inferred from a request about spacing.
+- Guardrail: preserve existing alignment, typography and content during spacing fixes. Apply the user's explicit placement: left service context, centered title, right service switch in one row.
+- Evidence: the user rejected the left-aligned candidate; the local Android follow-up keeps the original title style and changes the row placement only.

@@ -17,17 +17,6 @@ export function formatSessionResidentMask(raw: string) {
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 }
 
-export function resolveClientSessionRestore(input: {
-  cookieSession: ClientSessionSnapshot | null;
-  storageSession: ClientSessionSnapshot | null;
-}) {
-  // The server-issued session cookies are the source of truth. Reviving a
-  // stale localStorage snapshot can recreate client cookies after middleware
-  // has cleared an expired staff/FC session, causing auth/dashboard redirects
-  // to fight each other.
-  return input.cookieSession ?? null;
-}
-
 export function isClientSessionReadOnly(role: ClientSessionRole) {
   return role === 'manager';
 }

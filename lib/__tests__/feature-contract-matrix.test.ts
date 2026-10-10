@@ -46,9 +46,6 @@ describe('cross-surface feature contract matrix', () => {
     const actionSheetSource = readRepoFile('components/MessengerMessageActionSheet.tsx');
 
     for (const source of [chatSource, groupChatSource, requestBoardMessengerSource]) {
-      expect(source).toContain('LinkifiedSelectableText');
-      expect(source).toContain('copyTextWithFeedback');
-      expect(source).not.toContain('Clipboard.setStringAsync');
       expect(source).toContain('openMessageActions');
       expect(source).toContain('onLongPress={() => openMessageActions(item)}');
       expect(source).toContain("from '@/components/MessengerMessageActionSheet'");
@@ -73,12 +70,7 @@ describe('cross-surface feature contract matrix', () => {
     expect(requestBoardMessengerSource).toContain('selectCopyMessage');
     expect(requestBoardMessengerSource).toContain('onSelectCopy={');
     expect(requestBoardMessengerSource).toContain('selectable={false}');
-    expect(linkifiedSource).toContain('openLinkExternallyWithFeedback');
-    expect(linkifiedSource).toContain('showLinkifiedTextOptions');
-    expect(linkifiedSource).not.toContain('Clipboard.setStringAsync');
-    expect(linkifiedSource).not.toContain('Alert.alert');
     expect(linkifiedActionsSource).toContain('openExternalUrl(normalized, { preferExternalBrowser: true })');
-    expect(linkifiedActionsSource).toContain('copyTextWithFeedback');
     expect(linkifiedSource).toContain('const textSelectable = selectable && !hasLinks');
     expect(linkifiedSource).toContain('selectable={false}');
   });

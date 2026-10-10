@@ -77,7 +77,7 @@ describe('admin web group chat wiring', () => {
     expect(page).toContain('groupChatSetNotice');
     expect(page).toContain('groupChatSetMemberSendPermission');
     expect(page).toContain('classifyGroupChatError');
-    expect(page).toContain('if (!options?.silent) showGroupChatErrorNotification(error)');
+    expect(page).toContain('if (activeRef.current && sequence === bootstrapSequence.current && !options?.silent) showGroupChatErrorNotification(error)');
     expect(page).toContain('replyTarget');
     expect(page).toContain('memberSearch');
     expect(page).toContain('prepareMessengerAttachmentBatch');

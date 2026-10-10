@@ -3,6 +3,7 @@ import { useRouter, usePathname } from 'expo-router';
 import { Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import Animated from 'react-native-reanimated';
 import type { BottomNavPreset } from '@/lib/bottom-navigation';
+import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import { COLORS, SHADOWS } from '@/lib/theme';
 
 /** 네비게이션 아이템 정의 */
@@ -18,7 +19,7 @@ export interface NavItem {
 export type NavPreset = BottomNavPreset;
 
 const FC_NAV_ITEMS: NavItem[] = [
-  { key: 'home', label: '홈', icon: 'home', route: '/' },
+  { key: 'home', label: '홈', icon: 'home', route: INSURANCE_HOME_ROUTE },
   { key: 'board', label: '게시판', icon: 'clipboard', route: '/board' },
   { key: 'request-board', label: '설계요청', icon: 'file-text', route: '/request-board' },
   { key: 'settings', label: '설정', icon: 'settings', route: '/settings' },
@@ -115,6 +116,7 @@ export function BottomNavigation({
   const router = useRouter();
   const pathname = usePathname();
   const navItems = items ?? (preset ? NAV_PRESETS[preset] : []);
+  const isServiceHub = preset === 'service-hub' && !items;
 
   const handlePress = (item: NavItem) => {
     if (item.onPress) {
@@ -152,6 +154,7 @@ export function BottomNavigation({
     <Animated.View
       style={[
         styles.bottomNav,
+        isServiceHub && styles.serviceHubNav,
         { paddingBottom: Math.max(bottomInset, 12) },
         animatedStyle,
       ]}
@@ -170,14 +173,24 @@ export function BottomNavigation({
             ]}
             onPress={() => handlePress(item)}
           >
-            <View style={[styles.iconWrap, isActive && styles.iconWrapActive]}>
+            <View style={[
+              styles.iconWrap,
+              isActive && styles.iconWrapActive,
+              isServiceHub && styles.serviceHubIconWrap,
+            ]}>
               <Feather
                 name={item.icon}
-                size={20}
-                color={isActive ? '#fff' : COLORS.primary}
+                size={isServiceHub ? 22 : 20}
+                color={isServiceHub
+                  ? (isActive ? COLORS.primary : COLORS.text.secondary)
+                  : (isActive ? '#fff' : COLORS.primary)}
               />
             </View>
-            <Text style={[styles.label, isActive && styles.labelActive]}>
+            <Text style={[
+              styles.label,
+              isServiceHub && styles.serviceHubLabel,
+              isActive && styles.labelActive,
+            ]}>
               {item.label}
             </Text>
           </Pressable>
@@ -208,6 +221,12 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 3,
   },
+  serviceHubNav: {
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+    borderTopColor: COLORS.gray[100],
+  },
   navItemPressed: {
     opacity: 0.7,
   },
@@ -225,6 +244,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
+  serviceHubIconWrap: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderRadius: 0,
+  },
   label: {
     fontSize: 13,
     color: COLORS.text.muted,
@@ -232,5 +256,9 @@ const styles = StyleSheet.create({
   },
   labelActive: {
     color: COLORS.gray[900],
+  },
+  serviceHubLabel: {
+    color: COLORS.text.secondary,
+    fontWeight: '500',
   },
 });

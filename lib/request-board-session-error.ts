@@ -45,15 +45,24 @@ function extractMessage(input: unknown): string | null {
 }
 
 export function isRequestBoardSessionReauthError(input: unknown): boolean {
+  if (input && typeof input === 'object') {
+    const { status, code, retryable, needsRelogin } = input as {
+      status?: unknown; code?: unknown; retryable?: unknown; needsRelogin?: unknown;
+    };
+    if (retryable === true || (typeof status === 'number' && (status === 408 || status === 429 || status >= 500))) return false;
+    if (status === 401) return true;
+    if (status === 403) return code === 'SESSION_INVALID';
+    if (typeof needsRelogin === 'boolean') return needsRelogin;
+  }
   const message = extractMessage(input);
   if (!message) return false;
 
   const lower = message.toLowerCase();
-  if (NON_REAUTH_PATTERNS.some((pattern) => lower.includes(pattern.toLowerCase()))) {
+  if (NON_REAUTH_PATTERNS.some((pattern) => lower.includes(pattern))) {
     return false;
   }
 
-  return SESSION_ERROR_PATTERNS.some((pattern) => lower.includes(pattern.toLowerCase()));
+  return SESSION_ERROR_PATTERNS.some((pattern) => lower.includes(pattern));
 }
 
 export function toRequestBoardSessionErrorMessage(
@@ -62,6 +71,6 @@ export function toRequestBoardSessionErrorMessage(
 ): string {
   const message = extractMessage(input);
   if (!message) return fallback;
-  if (isRequestBoardSessionReauthError(message)) return REQUEST_BOARD_SESSION_REAUTH_MESSAGE;
+  if (isRequestBoardSessionReauthError(input)) return REQUEST_BOARD_SESSION_REAUTH_MESSAGE;
   return message;
 }

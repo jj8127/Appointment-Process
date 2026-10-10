@@ -164,4 +164,10 @@ describe('notification preferences mobile API', () => {
     await expect(setGlobalPushEnabled(false)).rejects.toMatchObject({ saved: true });
     expect(invokeMock).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps global OFF committed when token removal throws a transport error', async () => {
+    unregisterAllPushTokensMock.mockRejectedValueOnce(new Error('synthetic transport error'));
+    await expect(setGlobalPushEnabled(false)).rejects.toMatchObject({ saved: true });
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
 });

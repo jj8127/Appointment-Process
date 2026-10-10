@@ -1,11 +1,13 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { logger } from '@/lib/logger';
 import {
+  captureAppSessionOwner,
   clearRequestBoardState,
   getStoredAppSessionToken,
   getStoredBridgeToken,
 } from '@/lib/request-board-api';
+import { createReadScope } from '@/lib/request-board-read-state';
 import {
   normalizeReferralFunctionFailure,
   toUserFacingReferralSessionMessage,
@@ -62,18 +64,8 @@ async function toReferralAppSessionError(error: unknown, fallback: string) {
     return error;
   }
 
-  if (!error || typeof error !== 'object' || !('context' in error)) {
-    const normalized = normalizeReferralFunctionFailure(
-      { message: error instanceof Error ? error.message : undefined },
-      fallback,
-    );
-    return new ReferralAppSessionError(normalized.message, {
-      code: normalized.code,
-      needsRelogin: normalized.needsRelogin,
-    });
-  }
-
-  const response = (error as { context?: unknown }).context;
+  const response = error && typeof error === 'object' && 'context' in error
+    ? error.context : undefined;
   if (!(response instanceof Response)) {
     const normalized = normalizeReferralFunctionFailure(
       { message: error instanceof Error ? error.message : undefined },
@@ -97,89 +89,119 @@ export function isReferralReloginError(error: unknown): error is ReferralAppSess
   return error instanceof ReferralAppSessionError && error.needsRelogin;
 }
 
+function sessionChangedError() {
+  return new ReferralAppSessionError('로그인 세션이 변경되었습니다. 다시 시도해주세요.', { code: 'session_changed' });
+}
+
 export function useReferralAppSession() {
-  const { appSessionToken, replaceAppSessionToken } = useSession();
-  const refreshPromiseRef = useRef<Promise<string> | null>(null);
+  const { appSessionToken, replaceAppSessionToken, role, residentId, readOnly, hydrated } = useSession();
+  const currentTokenRef = useRef(appSessionToken);
+  currentTokenRef.current = appSessionToken;
+  const ownerKey = JSON.stringify([role, residentId, readOnly, hydrated]);
+  const ownerScopeRef = useRef(createReadScope());
+  ownerScopeRef.current.setScope(ownerKey);
+  useEffect(() => {
+    const ownerScope = ownerScopeRef.current;
+    return () => { ownerScope.invalidate(); };
+  }, []);
+  const captureOwner = useCallback(() => {
+    const ownsScope = ownerScopeRef.current.captureOwner(ownerKey);
+    const ownsStoredSession = captureAppSessionOwner();
+    return () => ownsScope() && ownsStoredSession();
+  }, [ownerKey]);
+  const refreshPromiseRef = useRef<{ isCurrent: () => boolean; promise: Promise<string> } | null>(null);
 
   const clearReferralSession = useCallback(async () => {
-    await clearRequestBoardState({ clearAppSession: true });
-    await replaceAppSessionToken(null);
-  }, [replaceAppSessionToken]);
+    if (!ownerScopeRef.current.captureOwner(ownerKey)()) throw sessionChangedError();
+    const cleanup = clearRequestBoardState({ clearAppSession: true });
+    const ownsCleanup = captureOwner();
+    await cleanup;
+    if (!ownsCleanup()) throw sessionChangedError();
+    const replacement = replaceAppSessionToken(null);
+    const ownsReplacement = captureOwner();
+    await replacement;
+    if (!ownsReplacement()) throw sessionChangedError();
+  }, [captureOwner, ownerKey, replaceAppSessionToken]);
 
   const refreshReferralAppSession = useCallback(async () => {
-    if (refreshPromiseRef.current) {
-      return refreshPromiseRef.current;
+    const pending = refreshPromiseRef.current;
+    if (pending?.isCurrent()) {
+      return pending.promise;
     }
 
+    let isCurrent = captureOwner();
     const refreshPromise = (async () => {
-      const bridgeToken = await getStoredBridgeToken();
-      if (!bridgeToken) {
-        await clearReferralSession();
-        throw new ReferralAppSessionError(
-          toUserFacingReferralSessionMessage('missing_bridge_token', '세션이 만료되었습니다. 다시 로그인해주세요.'),
-          { code: 'missing_bridge_token', needsRelogin: true },
-        );
-      }
-
       try {
+        const bridgeToken = await getStoredBridgeToken();
+        if (!isCurrent()) throw sessionChangedError();
+        if (!bridgeToken) {
+          throw new ReferralAppSessionError(
+            toUserFacingReferralSessionMessage('missing_bridge_token', '세션이 만료되었습니다. 다시 로그인해주세요.'),
+            { code: 'missing_bridge_token', needsRelogin: true },
+          );
+        }
         const { data, error } = await supabase.functions.invoke<RefreshAppSessionResponse>(
           'refresh-app-session',
           {
             body: { bridgeToken },
           },
         );
+        if (!isCurrent()) throw sessionChangedError();
 
         if (error) {
-          const parsedError = await toReferralAppSessionError(error, '세션을 복구하지 못했습니다.');
-          if (parsedError.needsRelogin) {
-            await clearReferralSession();
-          }
-          throw parsedError;
+          throw await toReferralAppSessionError(error, '세션을 복구하지 못했습니다.');
         }
 
         if (!data?.ok || !data.appSessionToken) {
           const normalized = normalizeReferralFunctionFailure(data ?? {}, '세션을 복구하지 못했습니다.');
-          const nextError = new ReferralAppSessionError(
+          throw new ReferralAppSessionError(
             normalized.message,
             { code: normalized.code, needsRelogin: normalized.needsRelogin },
           );
-          if (nextError.needsRelogin) {
-            await clearReferralSession();
-          }
-          throw nextError;
         }
 
-        await replaceAppSessionToken(data.appSessionToken);
+        const replacement = replaceAppSessionToken(data.appSessionToken);
+        isCurrent = captureOwner();
+        await replacement;
+        if (!isCurrent()) throw sessionChangedError();
         return data.appSessionToken;
       } catch (error) {
+        if (error instanceof ReferralAppSessionError && error.code === 'session_changed') throw error;
+        if (!isCurrent()) throw sessionChangedError();
         if (error instanceof ReferralAppSessionError) {
+          if (error.needsRelogin) await clearReferralSession();
           throw error;
         }
-        logger.warn('[referral-session] refresh-app-session failed', error);
+        logger.warn('[referral-session] refresh-app-session failed');
         throw new ReferralAppSessionError('세션 복구 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
       }
-    })().finally(() => {
-      refreshPromiseRef.current = null;
-    });
+    })();
 
-    refreshPromiseRef.current = refreshPromise;
-    return refreshPromise;
-  }, [clearReferralSession, replaceAppSessionToken]);
+    const flight = { isCurrent: () => isCurrent(), promise: refreshPromise };
+    refreshPromiseRef.current = flight;
+    try { return await refreshPromise; }
+    finally { if (refreshPromiseRef.current === flight) refreshPromiseRef.current = null; }
+  }, [captureOwner, clearReferralSession, replaceAppSessionToken]);
 
   const ensureReferralAppSession = useCallback(async () => {
-    const currentToken = appSessionToken?.trim()
-      ? appSessionToken.trim()
+    const isCurrent = captureOwner();
+    const currentToken = currentTokenRef.current?.trim()
+      ? currentTokenRef.current.trim()
       : await getStoredAppSessionToken();
+    if (!isCurrent()) throw sessionChangedError();
 
     if (currentToken) {
-      if (currentToken !== appSessionToken) {
-        await replaceAppSessionToken(currentToken);
+      if (currentToken !== currentTokenRef.current) {
+        const replacement = replaceAppSessionToken(currentToken);
+        const ownsReplacement = captureOwner();
+        await replacement;
+        if (!ownsReplacement()) throw sessionChangedError();
       }
       return currentToken;
     }
 
     return refreshReferralAppSession();
-  }, [appSessionToken, refreshReferralAppSession, replaceAppSessionToken]);
+  }, [captureOwner, refreshReferralAppSession, replaceAppSessionToken]);
 
   const invokeReferralFunction = useCallback(async <
     TResponse extends { ok?: boolean; code?: string | null; message?: string | null },
@@ -193,13 +215,14 @@ export function useReferralAppSession() {
       requireCurrentToken?: boolean;
     },
   ): Promise<TResponse> => {
-    const execute = async (token: string) => {
+    const execute = async (token: string, isCurrent = () => true) => {
       const { data, error } = await supabase.functions.invoke<TResponse>(functionName, {
         body: options.body ?? {},
         headers: {
           'x-app-session-token': token,
         },
       });
+      if (!isCurrent()) throw sessionChangedError();
 
       if (error) {
         throw await toReferralAppSessionError(error, options.fallbackMessage);
@@ -231,19 +254,21 @@ export function useReferralAppSession() {
 
     const retryOnSessionFailure = options.retryOnSessionFailure !== false;
     const token = await ensureReferralAppSession();
+    const ownsRequest = captureOwner();
 
     try {
-      return await execute(token);
+      return await execute(token, ownsRequest);
     } catch (error) {
       const parsedError = await toReferralAppSessionError(error, options.fallbackMessage);
+      if (!ownsRequest()) throw sessionChangedError();
       if (!retryOnSessionFailure || !parsedError.code || !SESSION_REFRESHABLE_CODES.has(parsedError.code)) {
         throw parsedError;
       }
 
       const refreshedToken = await refreshReferralAppSession();
-      return execute(refreshedToken);
+      return execute(refreshedToken, captureOwner());
     }
-  }, [appSessionToken, ensureReferralAppSession, refreshReferralAppSession]);
+  }, [appSessionToken, captureOwner, ensureReferralAppSession, refreshReferralAppSession]);
 
   return {
     appSessionToken,

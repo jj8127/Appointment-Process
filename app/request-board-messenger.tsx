@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
 import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
+import { getMessengerHubCapabilities } from '@/lib/messenger-role-capabilities';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
@@ -377,7 +378,8 @@ export default function RequestBoardMessengerScreen() {
     platform: Platform.OS,
     safeAreaBottom: insets.bottom,
   });
-  const { residentId, appSessionToken, ensureRequestBoardSession, requestBoardSyncError } = useSession();
+  const { role, residentId, readOnly, staffType, isRequestBoardDesigner, appSessionToken, ensureRequestBoardSession, requestBoardSyncError } = useSession();
+  const canWriteRequestBoard = getMessengerHubCapabilities({ role, readOnly, staffType, isRequestBoardDesigner }).canCreateRequestBoardDm;
 
   const requestBoardSyncErrorRef = useRef(requestBoardSyncError);
   requestBoardSyncErrorRef.current = requestBoardSyncError;
@@ -405,7 +407,7 @@ export default function RequestBoardMessengerScreen() {
   const accountReadScope = useRef(createReadScope());
   const conversationReadScope = useRef(createReadScope());
   const messageReadScope = useRef(createReadScope());
-  const sessionReadKey = `${residentId ?? ''}:${appSessionToken ?? ''}`;
+  const sessionReadKey = JSON.stringify([role, residentId, readOnly, staffType, isRequestBoardDesigner, appSessionToken]);
   accountReadScope.current.setScope(sessionReadKey);
   conversationReadScope.current.setScope(sessionReadKey);
   messageReadScope.current.setScope(`${sessionReadKey}:${activeConv?.id ?? ''}`);
@@ -736,17 +738,17 @@ export default function RequestBoardMessengerScreen() {
       setAuthState('error');
       setAuthError(
         toRequestBoardSessionErrorMessage(
-          sync.error ?? requestBoardSyncErrorRef.current,
+          { ...sync, message: sync.error ?? requestBoardSyncErrorRef.current },
           '가람Link 계정 연결에 실패했습니다.',
         ),
       );
       return;
     }
 
-    const { authenticated, user, error: authError } = await rbCheckAuth();
+    const auth = await rbCheckAuth();
     if (!isCurrent()) return;
-    if (authenticated && user) {
-      setRbUser(user);
+    if (auth.authenticated && auth.user) {
+      setRbUser(auth.user);
       setAuthState('ready');
       return;
     }
@@ -755,7 +757,7 @@ export default function RequestBoardMessengerScreen() {
     setAuthState('error');
     setAuthError(
       toRequestBoardSessionErrorMessage(
-        authError ?? requestBoardSyncErrorRef.current,
+        { ...auth, message: auth.error ?? requestBoardSyncErrorRef.current },
         '가람Link 계정 연결에 실패했습니다. 앱에서 다시 로그인한 뒤 시도해주세요.',
       ),
     );
@@ -768,6 +770,7 @@ export default function RequestBoardMessengerScreen() {
     setRbUser(null);
     setConversations([]);
     setDirectoryUsers([]);
+    setCreatingDm(null);
     setPresenceByPhone({});
     setActiveConv(null);
     sendingRef.current = false;
@@ -1077,6 +1080,8 @@ export default function RequestBoardMessengerScreen() {
   /* ─── Start new DM conversation ─── */
   const handleStartDm = async (directoryUser: DirectoryItem) => {
     if (creatingDm) return;
+    const ownsAccount = accountReadScope.current.captureOwner(sessionReadKey);
+    if (!ownsAccount()) return;
     if (directoryUser.hasConversation) {
       const existingConversation = conversations.find(
         (conversation) => conversation.participantUserId === directoryUser.userId,
@@ -1087,9 +1092,11 @@ export default function RequestBoardMessengerScreen() {
       }
     }
 
+    if (!canWriteRequestBoard) return;
     setCreatingDm(directoryUser.id);
     try {
       const res = await rbCreateDmConversation(directoryUser.userId);
+      if (!ownsAccount()) return;
       if (res.success && res.data) {
         const conv: UnifiedConversation = {
           id: `dm-${res.data.id}`,
@@ -1110,10 +1117,10 @@ export default function RequestBoardMessengerScreen() {
         };
         openConversation(conv);
       }
-    } catch (err) {
-      logger.warn('[messenger] create DM failed', err);
+    } catch {
+      if (ownsAccount()) logger.warn('[messenger] create DM failed');
     } finally {
-      setCreatingDm(null);
+      if (ownsAccount()) setCreatingDm(null);
     }
   };
 
@@ -1351,7 +1358,11 @@ export default function RequestBoardMessengerScreen() {
 
   /* ─── File Picking ─── */
   const handlePickImage = async () => {
+    if (!canWriteRequestBoard) return;
+    const ownsAccount = accountReadScope.current.captureOwner(sessionReadKey);
+    if (!ownsAccount()) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!ownsAccount()) return;
     if (status !== 'granted') {
       Alert.alert('권한 필요', '사진 접근 권한을 허용해주세요.');
       return;
@@ -1362,7 +1373,7 @@ export default function RequestBoardMessengerScreen() {
       quality: 0.8,
       selectionLimit: 5,
     });
-    if (result.canceled) return;
+    if (!ownsAccount() || result.canceled) return;
     const newFiles: PendingFile[] = result.assets.map((a) => ({
       uri: a.uri,
       name: a.fileName ?? `image_${Date.now()}.jpg`,
@@ -1373,6 +1384,9 @@ export default function RequestBoardMessengerScreen() {
   };
 
   const handlePickDocument = async () => {
+    if (!canWriteRequestBoard) return;
+    const ownsAccount = accountReadScope.current.captureOwner(sessionReadKey);
+    if (!ownsAccount()) return;
     const result = await DocumentPicker.getDocumentAsync({
       type: ['application/pdf', 'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -1381,7 +1395,7 @@ export default function RequestBoardMessengerScreen() {
         'image/*'],
       multiple: true,
     });
-    if (result.canceled) return;
+    if (!ownsAccount() || result.canceled) return;
     const newFiles: PendingFile[] = result.assets.map((a) => ({
       uri: a.uri,
       name: a.name,
@@ -1462,9 +1476,12 @@ export default function RequestBoardMessengerScreen() {
 
   /* ─── Send Message ─── */
   const handleSend = async () => {
-    if (!activeConv || (!inputText.trim() && pendingFiles.length === 0) || sendingRef.current) return;
+    if (!canWriteRequestBoard || !activeConv || (!inputText.trim() && pendingFiles.length === 0) || sendingRef.current) return;
     const isMountedSend = beginSend();
-    const isCurrentSend = () => isMountedSend() && accountReadScope.current.matches(sessionReadKey) && activeConversationRef.current === activeConv.id;
+    const ownsAccount = accountReadScope.current.captureOwner(sessionReadKey);
+    const ownsConversation = messageReadScope.current.captureOwner(`${sessionReadKey}:${activeConv.id}`);
+    const isCurrentSend = () => isMountedSend() && ownsAccount() && ownsConversation() && activeConversationRef.current === activeConv.id;
+    if (!isCurrentSend()) return;
     sendingRef.current = true;
     const text = inputText.trim();
     const files = [...pendingFiles];
@@ -1491,7 +1508,7 @@ export default function RequestBoardMessengerScreen() {
         if (!uploadRes.success || !uploadRes.data) {
           Alert.alert(
             '업로드 실패',
-            toRequestBoardSessionErrorMessage(uploadRes.error, '파일 업로드에 실패했습니다.'),
+            toRequestBoardSessionErrorMessage({ ...uploadRes, message: uploadRes.error }, '파일 업로드에 실패했습니다.'),
           );
           restoreDraft();
           setSending(false);
@@ -1542,44 +1559,28 @@ export default function RequestBoardMessengerScreen() {
         res = await rbSendDmMessage(activeConv.primaryConversationId, msgText, attachments);
       }
       if (!isCurrentSend()) return;
+      if (!res.success || !res.data) throw new Error('메시지 전송 결과를 확인하지 못했습니다.');
 
-      if (res.success && res.data) {
-        const sentMessage = mapRawMessageToUnified(res.data);
-        setMessages((prev) =>
-          mergeMessagesDesc([
-            sentMessage,
-            ...prev.filter((message) => message.id !== tempMessageId && message.id !== sentMessage.id),
-          ]),
-        );
-        setConversations((prev) =>
-          sortConversationsByLastMessageTime(prev.map((conversation) =>
-            conversation.id === activeConv.id
-              ? {
-                  ...conversation,
-                  lastMessage: sentMessage.message,
-                  lastTime: fmtRelative(sentMessage.createdAt),
-                  lastTimestamp: new Date(sentMessage.createdAt).getTime(),
-                }
-              : conversation,
-          )),
-        );
-        setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
-      } else {
-        setMessages((prev) => prev.filter((message) => message.id !== tempMessageId));
-        if (previousConversation) {
-          setConversations((prev) =>
-            sortConversationsByLastMessageTime(prev.map((conversation) =>
-              conversation.id === previousConversation.id &&
-              conversation.lastMessage === optimisticPreviewMessage &&
-              conversation.lastTimestamp === optimisticPreviewTime
-                ? previousConversation
-                : conversation,
-            )),
-          );
-        }
-        restoreDraft();
-        Alert.alert('전송 확인 필요', '메시지 전송 결과를 확인하지 못했습니다. 작성 내용은 복원했습니다. 대화에 메시지가 도착했는지 확인한 뒤 다시 시도해 주세요.');
-      }
+      const sentMessage = mapRawMessageToUnified(res.data);
+      setMessages((prev) =>
+        mergeMessagesDesc([
+          sentMessage,
+          ...prev.filter((message) => message.id !== tempMessageId && message.id !== sentMessage.id),
+        ]),
+      );
+      setConversations((prev) =>
+        sortConversationsByLastMessageTime(prev.map((conversation) =>
+          conversation.id === activeConv.id
+            ? {
+                ...conversation,
+                lastMessage: sentMessage.message,
+                lastTime: fmtRelative(sentMessage.createdAt),
+                lastTimestamp: new Date(sentMessage.createdAt).getTime(),
+              }
+            : conversation,
+        )),
+      );
+      setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
     } catch {
       if (!isCurrentSend()) return;
       setMessages((prev) => prev.filter((message) => message.id !== tempMessageId));
@@ -1595,7 +1596,7 @@ export default function RequestBoardMessengerScreen() {
         );
       }
       restoreDraft();
-        Alert.alert('전송 확인 필요', '메시지 전송 결과를 확인하지 못했습니다. 작성 내용은 복원했습니다. 대화에 메시지가 도착했는지 확인한 뒤 다시 시도해 주세요.');
+      Alert.alert('전송 확인 필요', '메시지 전송 결과를 확인하지 못했습니다. 작성 내용은 복원했습니다. 대화에 메시지가 도착했는지 확인한 뒤 다시 시도해 주세요.');
     } finally {
       if (isCurrentSend()) { sendingRef.current = false; setSending(false); }
     }
@@ -1667,16 +1668,22 @@ export default function RequestBoardMessengerScreen() {
   }, []);
 
   const handleDeleteMessage = useCallback((message: UnifiedMessage) => {
-    if (!message.isOwn || message.id <= 0 || !activeConv) {
+    if (!canWriteRequestBoard || !message.isOwn || message.id <= 0 || !activeConv) {
       return;
     }
+    const ownsAccount = accountReadScope.current.captureOwner(sessionReadKey);
+    const ownsConversation = messageReadScope.current.captureOwner(`${sessionReadKey}:${activeConv.id}`);
+    const isCurrent = () => ownsAccount() && ownsConversation();
+    if (!isCurrent()) return;
 
     confirmMessengerDelete({
       logScope: 'request-board-messenger',
       onDelete: async () => {
+        if (!isCurrent()) return;
         const result = activeConv.type === 'request'
           ? await rbDeleteMessage(message.id)
           : await rbDeleteDmMessage(message.id);
+        if (!isCurrent()) return;
 
         if (!result.success) {
           throw new Error(result.error ?? '메시지를 삭제하지 못했습니다.');
@@ -1687,7 +1694,7 @@ export default function RequestBoardMessengerScreen() {
         void loadConversations();
       },
     });
-  }, [activeConv, loadConversations, loadMessages]);
+  }, [activeConv, canWriteRequestBoard, loadConversations, loadMessages, sessionReadKey]);
 
   const openMessageActions = useCallback((message: UnifiedMessage) => {
     if (message.deleted) return;
@@ -1776,27 +1783,34 @@ export default function RequestBoardMessengerScreen() {
     roomPreferenceLoadSequenceRef.current += 1;
     setRoomMuted(false);
     setRoomPreferenceReady(false);
+    setRoomPreferencePending(false);
     setRoomPreferenceFailure(null);
     if (requestBoardRoomRef) void loadRequestBoardRoomPreference();
   }, [loadRequestBoardRoomPreference, requestBoardRoomRef]);
 
   const saveRequestBoardRoomPreference = useCallback(async (nextMuted: boolean) => {
-    if (!requestBoardRoomRef || !roomPreferenceReady || roomPreferencePending) return;
+    if (!canWriteRequestBoard || !requestBoardRoomRef || !roomPreferenceReady || roomPreferencePending) return;
+    const ownsAccount = accountReadScope.current.captureOwner(sessionReadKey);
+    const ownsConversation = messageReadScope.current.captureOwner(`${sessionReadKey}:${activeConv?.id ?? ''}`);
+    const isCurrent = () => ownsAccount() && ownsConversation();
+    if (!isCurrent()) return;
     const previousMuted = roomMuted;
     setRoomMuted(nextMuted);
     setRoomPreferencePending(true);
     setRoomPreferenceFailure(null);
     try {
       const result = await rbSetMessengerRoomMuted(requestBoardRoomRef, nextMuted);
+      if (!isCurrent()) return;
       if (!result.success) throw new Error(result.error);
       setRoomMuted(result.data.muted);
     } catch (error) {
+      if (!isCurrent()) return;
       setRoomMuted(previousMuted);
       setRoomPreferenceFailure(buildMessengerNotificationPreferenceFailure(nextMuted, error));
     } finally {
-      setRoomPreferencePending(false);
+      if (isCurrent()) setRoomPreferencePending(false);
     }
-  }, [requestBoardRoomRef, roomMuted, roomPreferencePending, roomPreferenceReady]);
+  }, [activeConv?.id, canWriteRequestBoard, requestBoardRoomRef, roomMuted, roomPreferencePending, roomPreferenceReady, sessionReadKey]);
 
   if (authState === 'checking') {
     return (
@@ -2199,14 +2213,14 @@ export default function RequestBoardMessengerScreen() {
             <Pressable
               style={({ pressed }) => [styles.attachBtn, pressed && { opacity: 0.6 }]}
               onPress={handlePickImage}
-              disabled={sending}
+              disabled={!canWriteRequestBoard || sending}
             >
               <Feather name="image" size={20} color={COLORS.gray[500]} />
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.attachBtn, pressed && { opacity: 0.6 }]}
               onPress={handlePickDocument}
-              disabled={sending}
+              disabled={!canWriteRequestBoard || sending}
             >
               <Feather name="paperclip" size={20} color={COLORS.gray[500]} />
             </Pressable>
@@ -2214,7 +2228,8 @@ export default function RequestBoardMessengerScreen() {
               style={styles.chatInput}
               value={inputText}
               onChangeText={setInputText}
-              placeholder="메시지를 입력하세요"
+              editable={canWriteRequestBoard}
+              placeholder={canWriteRequestBoard ? '메시지를 입력하세요' : '읽기 전용 계정입니다'}
               placeholderTextColor={COLORS.gray[400]}
               multiline
               maxLength={2000}
@@ -2222,11 +2237,11 @@ export default function RequestBoardMessengerScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.sendBtn,
-                (!inputText.trim() && pendingFiles.length === 0 || sending) && styles.sendBtnDisabled,
-                pressed && (inputText.trim() || pendingFiles.length > 0) && !sending && { opacity: 0.8 },
+                (!canWriteRequestBoard || !inputText.trim() && pendingFiles.length === 0 || sending) && styles.sendBtnDisabled,
+                pressed && canWriteRequestBoard && (inputText.trim() || pendingFiles.length > 0) && !sending && { opacity: 0.8 },
               ]}
               onPress={handleSend}
-              disabled={(!inputText.trim() && pendingFiles.length === 0) || sending}
+              disabled={!canWriteRequestBoard || (!inputText.trim() && pendingFiles.length === 0) || sending}
             >
               {sending ? (
                 <BrandedLoadingSpinner color="#fff" size="sm" />
@@ -2284,7 +2299,7 @@ export default function RequestBoardMessengerScreen() {
           onClose={closeMessageActions}
           onCopy={actionMessage ? handleCopyAction : undefined}
           onSelectCopy={actionMessage ? handleSelectCopyAction : undefined}
-          onDelete={actionMessage?.isOwn && actionMessage.id > 0 ? handleDeleteAction : undefined}
+          onDelete={canWriteRequestBoard && actionMessage?.isOwn && actionMessage.id > 0 ? handleDeleteAction : undefined}
         />
 
         <MessageSelectCopySheet
@@ -2296,12 +2311,14 @@ export default function RequestBoardMessengerScreen() {
 
         {requestBoardSheetRoom ? (
           <ConversationSettingsSheet
-            disabled={roomPreferenceLoading || !roomPreferenceReady}
-            disabledReason={roomPreferenceLoading
-              ? '이 대화의 알림 설정을 불러오는 중입니다.'
-              : !roomPreferenceReady
-                ? '알림 설정을 다시 불러와 주세요.'
-                : null}
+            disabled={!canWriteRequestBoard || roomPreferenceLoading || !roomPreferenceReady}
+            disabledReason={!canWriteRequestBoard
+              ? '읽기 전용 계정은 대화 설정을 변경할 수 없습니다.'
+              : roomPreferenceLoading
+                ? '이 대화의 알림 설정을 불러오는 중입니다.'
+                : !roomPreferenceReady
+                  ? '알림 설정을 다시 불러와 주세요.'
+                  : null}
             failure={roomPreferenceFailure}
             muted={roomMuted}
             onClose={() => setConversationSettingsVisible(false)}
@@ -2576,7 +2593,7 @@ export default function RequestBoardMessengerScreen() {
                     pressed && { backgroundColor: COLORS.gray[50] },
                   ]}
                   onPress={() => handleStartDm(directoryUser)}
-                  disabled={isCreating}
+                  disabled={isCreating || (!canWriteRequestBoard && !directoryUser.hasConversation)}
                 >
                   <View style={styles.avatarWrap}>
                     <View style={[styles.avatar, { backgroundColor: directoryUser.avatarColor }]}>

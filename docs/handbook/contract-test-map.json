@@ -3,6 +3,16 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "edge-configured-cors",
+      "prefixes": [
+        "supabase/functions/_shared/configured-cors.ts",
+        "supabase/functions/_shared/serve-with-cors.ts"
+      ],
+      "requires_any": [
+        "supabase/functions/_shared/__tests__/configured-cors.test.mjs"
+      ]
+    },
+    {
       "id": "ux-priority-one-transactions-and-recovery",
       "prefixes": [
         "supabase/functions/_shared/ux-mutation-contract.ts",
@@ -112,6 +122,7 @@
         "supabase/migrations/20261001071222_password_reset_validate_challenge_counters.sql"
       ],
       "requires_any": [
+        "supabase/functions/_shared/__tests__/configured-cors.test.mjs",
         "supabase/tests/password-reset-challenge-sql.test.mjs",
         "supabase/tests/password-reset-challenge-postgres.test.mjs",
         "web/src/lib/password-reset-request-security-source.test.ts",

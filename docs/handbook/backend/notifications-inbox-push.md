@@ -5,6 +5,14 @@ audience: developer, operator
 last_verified: 2026-10-04
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/group-chat-data-api-batching.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + lib/session-logout.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
 
+## Web Edge CORS boundary (2026-10-10)
+
+- 27 legacy Edge entries use `_shared/serve-with-cors.ts` to apply `_shared/configured-cors.ts` to every handler response, including OPTIONS and error responses. The wrapper selects the requesting origin only when the complete origin is explicitly listed in ALLOWED_ORIGINS. It adds Vary: Origin without sharing mutable headers between requests; status/body/security/cache headers remain intact.
+- Existing per-function authentication, body validation and strict origin guards remain authoritative. Native requests without Origin are unchanged. Localhost is never implicitly added by this wrapper. `get-my-referral-allowance` and the bridge verification handler retain their own stricter origin rules.
+- A static ALLOWED_ORIGINS[0] response blocks another registered browser origin before the actual request. The 2026-10-10 audit checked54 active endpoints with unauthenticated OPTIONS:24 matched the Expo origin,30 did not. One server-only endpoint correctly has no browser CORS;23 mismatched functions have app/admin-browser callers. This is not proof of an authenticated POST or native failure.
+- Local helper tests and Deno checks precede deployment. A production rollout must preserve the existing allowlist, explicitly configure the intended development origin if approved, deploy the27 affected entries, and recheck the exact OPTIONS/actual-response paths. No environment or deployment change is implied by local completion.
+- Audit/source/caller evidence: `D:/hanhwa/outputs/read-transport-audit-20261010/edge-cors-audit.md`; runtime helper regression: `_shared/__tests__/configured-cors.test.mjs`.
+
 ## Admin chat summaries (2026-10-04)
 
 - FC attachment links belong to a delivery batch. Read attachment counts through committed, nondeleted direct batches and their `messenger_message_attachments` relation; this FC join table has no `message_id` column. Deduplicate broadcast batches across query chunks and limit UUID filters to100 IDs.

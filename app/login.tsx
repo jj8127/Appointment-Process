@@ -130,7 +130,19 @@ export default function LoginScreen() {
         <View style={styles.container}>
             <View style={styles.authBackground} pointerEvents="none" />
 
-            <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+            <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
+                <View style={styles.navigationBar}>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="서비스 홈으로 돌아가기"
+                        accessibilityState={{ disabled: loading }}
+                        disabled={loading}
+                        style={({ pressed }) => [styles.navigationBack, pressed && styles.backButtonPressed]}
+                        onPress={() => router.replace('/')}
+                    >
+                        <Feather name="arrow-left" size={22} color={COLORS.text.primary} />
+                    </Pressable>
+                </View>
                 <KeyboardAwareWrapper
                     contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 40 }]}
                     extraScrollHeight={140}
@@ -156,9 +168,6 @@ export default function LoginScreen() {
                         >
                             <View style={styles.headerSection}>
                                 <Text style={styles.title}>로그인</Text>
-                                <Text style={styles.subtitle}>
-                                    관리자는 지정된 번호 + 비밀번호{'\n'}FC는 휴대폰 번호 + 비밀번호로 로그인해주세요.
-                                </Text>
                             </View>
 
                             <FormInput
@@ -260,6 +269,19 @@ const styles = StyleSheet.create({
     safe: {
         flex: 1,
     },
+    navigationBar: {
+        width: '100%',
+        maxWidth: 420 + SPACING.lg * 2,
+        alignSelf: 'center',
+        paddingHorizontal: SPACING.lg,
+    },
+    navigationBack: {
+        width: 44,
+        height: 44,
+        borderRadius: RADIUS.full,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     scrollContent: {
         flexGrow: 1,
         paddingTop: 0,
@@ -310,14 +332,7 @@ const styles = StyleSheet.create({
         fontSize: TYPOGRAPHY.fontSize['3xl'],
         fontWeight: TYPOGRAPHY.fontWeight.extrabold,
         color: COLORS.text.primary,
-        marginBottom: SPACING.sm,
         letterSpacing: -0.5,
-    },
-    subtitle: {
-        fontSize: TYPOGRAPHY.fontSize.base,
-        color: COLORS.text.secondary,
-        textAlign: 'center',
-        lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.base,
     },
     inputContainer: {
         marginBottom: SPACING.base,

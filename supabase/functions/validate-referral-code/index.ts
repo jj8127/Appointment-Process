@@ -1,4 +1,4 @@
-import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { referralCorsHeaders, serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 function getEnv(name: string): string | undefined {
@@ -9,14 +9,7 @@ function getEnv(name: string): string | undefined {
   return undefined;
 }
 
-// Security: Restrict CORS to specific origins
-const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
-const corsHeaders = {
-  'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Credentials': 'true',
-};
+const corsHeaders = referralCorsHeaders(false);
 
 // Security: Validate required environment variables
 const supabaseUrl = getEnv('SUPABASE_URL');
@@ -91,9 +84,6 @@ function maskPhone(phone: string): string {
 }
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
   if (req.method !== 'POST') {
     return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405);
   }
@@ -168,4 +158,4 @@ serve(async (req: Request) => {
     inviterFcId: referralCode.fc_id,
     codeId: referralCode.id,
   });
-});
+}, corsHeaders);

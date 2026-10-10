@@ -97,6 +97,7 @@ export default function DocumentsPage() {
     const [signedUrl, setSignedUrl] = useState<string | null>(null);
     const [previewError, setPreviewError] = useState<string | null>(null);
     const previewRequest = useRef(0);
+    const statusSubmitting = useRef(false);
 
     // Reject Modal State
     const [rejectOpened, { open: openReject, close: closeReject }] = useDisclosure(false);
@@ -191,7 +192,14 @@ export default function DocumentsPage() {
                 color: 'red',
             });
         },
+        onSettled: () => { statusSubmitting.current = false; },
     });
+
+    const submitDocumentStatus = (values: { doc: DocumentRow; status: string; reason?: string }) => {
+        if (isReadOnly || statusSubmitting.current || updateStatusMutation.isPending) return;
+        statusSubmitting.current = true;
+        updateStatusMutation.mutate(values);
+    };
 
     // Handlers
     const handlePreview = async (doc: DocumentRow) => {
@@ -242,7 +250,7 @@ export default function DocumentsPage() {
             title: '서류 승인',
             message,
             onConfirm: () => {
-                updateStatusMutation.mutate({
+                submitDocumentStatus({
                     doc,
                     status: 'approved',
                     reason: noFileDoc ? NO_FILE_APPROVAL_NOTE : undefined,
@@ -263,7 +271,7 @@ export default function DocumentsPage() {
             notifications.show({ title: '사유 입력', message: '반려 사유를 입력해주세요.', color: 'red' });
             return;
         }
-        updateStatusMutation.mutate({
+        submitDocumentStatus({
             doc: targetDocForReject,
             status: 'rejected',
             reason: rejectReason,

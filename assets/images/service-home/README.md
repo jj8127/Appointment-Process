@@ -1,16 +1,20 @@
 # 가람in 서비스 아이콘
 
-승인된 2026-10-09 revision-04 네이티브 홈 시안의 투명 PNG 원본을 그대로 사용합니다.
+승인된 2026-10-09 revision-04 Blender 원본의 주 재질을 서비스별 색으로 바꿔 재렌더한 revision-05 투명 PNG를 사용합니다. 모든 이미지는 768×768, 8-bit RGBA입니다.
 
-원본: `outputs/garamin-service-home-wireframe-20261009/revision-04/assets/custom-icons/`
+편집 원본과 렌더·검증 자료: `outputs/garamin-service-home-wireframe-20261009/revision-05/assets/custom-icons/`
 
-| 파일 | 서비스 |
-| --- | --- |
-| care.png | 가족간병 |
-| insurance.png | 보험·FC |
-| telecom.png | 통신 |
-| car.png | 자동차 |
+| 파일 | 서비스 | 주 재질 sRGB |
+| --- | --- | --- |
+| care.png | 가족간병 | 코럴 `#ee747b` |
+| insurance.png | 보험·FC | 블루 `#568fdb` |
+| telecom.png | 통신 | 인디고 `#8376db` |
+| car.png | 자동차 | 틸 `#4ca7a0` |
 
-`components/service-home/ServiceIcon.tsx`가 기본 48px, 가족간병 강조 64px, 제휴 행 32px로 표시합니다. 이미지 자체는 장식 요소이며 접근성 이름은 해당 버튼이 제공합니다. 로고와 제어 아이콘은 기존 앱 자산과 Feather를 사용합니다.
+`components/service-home/ServiceIcon.tsx`는 동일한64px 그림 슬롯의 상단 서비스 메뉴에서56px·자동차64px로 표시합니다. 자동차의 낮고 긴 실루엣을 고려해 이미지 박스 크기를 보정했습니다. 이미지 자체는 장식 요소이며 접근성 이름은 해당 버튼이 제공합니다. 로고와 제어 아이콘은 기존 앱 자산과 Feather를 사용합니다.
 
-새 이미지 생성이나 외부 자산 다운로드 없이 승인 자산을 복사했습니다. 원본 생성·검증 기록은 위 원본 디렉터리의 README와 JSON 기록을 참조하세요.
+revision-08의 소개 배너에는 별도의 사진형 [캠페인 이미지](banners/README.md)를 사용합니다. 배너 전체를4:3 장면으로 채우고 큰 흰색 제목과 좌하단 안내를 얹으며 페이지 제어는 이미지 내부 우하단에 표시합니다. 상단 아이콘 원본·표현은 유지합니다.
+
+revision-09 홈 헤더는 앱 아이콘 대신 저장소 루트 `adminWebLogo.png`의 투명 한화 심볼을 사용합니다. 1280×553 원본에서 심볼 영역(x=21, y=25, 폭562, 높이512)만 뷰의 overflow로 표시하고 `가람in`은 별도 텍스트로 배치합니다. 원본 파일과 픽셀은 그대로 유지합니다.
+
+주 재질과 같은 계열의 어두운 보조 재질 색만 바꿨습니다. 손·아이보리 면·타이어와 모델·카메라·조명·렌더 품질은 보존했습니다. 래스터 색 필터, 픽셀 편집, 외부 자산 다운로드는 사용하지 않았습니다. 재현 스크립트 `render_service_palette.py`와 두 검증 JSON은 위 디렉터리에 있습니다. revision-04 원본은 수정하지 않았습니다.

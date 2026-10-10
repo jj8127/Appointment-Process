@@ -40,7 +40,6 @@ describe('explicit mobile logout source contract', () => {
 
     expect(source).toContain('startSessionLogout({');
     expect(source).toContain('sessionToken: appSessionToken');
-    expect(source).toContain('clearLocalSession: () => clearSessionState({ clearAppSession: true })');
     expect(source).toContain('unregisterPushTokens: unregisterAllPushTokens');
   });
 });

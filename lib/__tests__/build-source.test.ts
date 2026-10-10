@@ -9,6 +9,7 @@ describe('current checkout build source', () => {
   let fixtureRoot: string;
   let archiveFiles: string[];
   let trackedNative: string;
+  let worktreeStatus: string;
   let config: { expo: { version: string; extra: { eas: { projectId: string } }; runtimeVersion: { policy: string } } };
   let verifyInstrumentation: jest.Mock;
   let git: jest.Mock;
@@ -28,6 +29,7 @@ describe('current checkout build source', () => {
     fixtureRoot = mkdtempSync(join(tmpdir(), 'garamin-build-source-'));
     archiveFiles = ['app.json', 'package.json', 'eas.json', ...ANDROID_BUILD_INPUTS];
     trackedNative = '';
+    worktreeStatus = '';
     for (const file of archiveFiles) write(file, '{}');
     config = { expo: { version: '4.2.12', extra: { eas: { projectId: EAS_PROJECT_ID } }, runtimeVersion: { policy: 'appVersion' } } };
     saveConfig();
@@ -36,6 +38,7 @@ describe('current checkout build source', () => {
     verifyInstrumentation = jest.fn();
     git = jest.fn((_root: string, args: string[]) => {
       if (args[0] === 'rev-parse') return fixtureRoot;
+      if (args[0] === 'status') return worktreeStatus;
       if (args.includes('--cached')) return archiveFiles.join('\0') + '\0';
       return trackedNative;
     });
@@ -45,11 +48,23 @@ describe('current checkout build source', () => {
     rmSync(fixtureRoot, { recursive: true, force: true });
   });
 
-  test('uses current files including uncommitted inputs without a branch or clean-tree requirement', () => {
+  test('uses the current clean checkout without requiring a particular branch', () => {
     expect(verify()).toEqual({ repoRoot: fixtureRoot, platform: 'android', version: '4.2.12' });
+    expect(git).toHaveBeenCalledWith(fixtureRoot, ['status', '--porcelain=v1', '--untracked-files=all']);
     expect(git).toHaveBeenCalledWith(fixtureRoot, ['ls-files', '--cached', '--others', '--exclude-standard', '-z']);
-    expect(git.mock.calls.some(([, args]) => args.includes('status') || args.includes('branch'))).toBe(false);
+    expect(git.mock.calls.some(([, args]) => args.includes('branch'))).toBe(false);
     expect(verifyInstrumentation).toHaveBeenCalledWith(fixtureRoot, { requireGeneratedAndroid: false });
+  });
+
+  test.each([
+    ['tracked changes', ' M app.json\n'],
+    ['staged changes', 'M  app.json\n'],
+    ['untracked files', '?? pending-input.ts\n'],
+  ])('rejects %s before preparing a remote build', (_label, status) => {
+    worktreeStatus = status;
+    expect(() => verify()).toThrow('clean Git worktree');
+    expect(verifyInstrumentation).not.toHaveBeenCalled();
+    expect(git.mock.calls.some(([, args]) => args.includes('--cached'))).toBe(false);
   });
 
   test('accepts a subsequent version edited only in app.json', () => {

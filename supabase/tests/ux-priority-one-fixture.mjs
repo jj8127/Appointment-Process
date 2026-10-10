@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises';
-export const migration = await readFile(new URL('../migrations/20261009065353_ux_priority_one_atomic_mutations.sql', import.meta.url), 'utf8');
+export const baseMigration = await readFile(new URL('../migrations/20261009065353_ux_priority_one_atomic_mutations.sql', import.meta.url), 'utf8');
+export const actorMigration = await readFile(new URL('../migrations/20261009163349_ux_notice_idempotent_actor.sql', import.meta.url), 'utf8');
+export const migration = `${baseMigration}\n${actorMigration}`;
 export const fc = '10000000-0000-4000-8000-000000000001';
 export const round = '20000000-0000-4000-8000-000000000001';
 export const category = '30000000-0000-4000-8000-000000000001';

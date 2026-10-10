@@ -44,7 +44,8 @@ export function normalizeReferralFunctionFailure(
   const rawMessage = typeof failure.message === 'string' && failure.message.trim()
     ? failure.message.trim()
     : undefined;
-  const message = toUserFacingReferralSessionMessage(rawCode, rawMessage ?? fallback);
+  const isTransportFailure = rawMessage !== undefined && /^(?:Failed to send a request to the Edge Function|Failed to fetch|Network request failed|Load failed)$/i.test(rawMessage);
+  const message = toUserFacingReferralSessionMessage(rawCode, isTransportFailure ? fallback : rawMessage ?? fallback);
 
   return {
     code: rawCode,

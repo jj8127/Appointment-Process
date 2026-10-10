@@ -34,6 +34,7 @@ import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-comm
 import { AGREEMENT_GUIDE_IMAGES } from '@/lib/guide-images';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
@@ -213,7 +214,7 @@ function AllowanceConsentScreenContent() {
         successMessage:
           '보증보험 조회 동의일이 제출되었습니다. 관리자가 사전 심사를 준비할 예정입니다.',
         notificationLabel: '관리자',
-        onDone: () => router.replace('/'),
+        onDone: () => router.replace(INSURANCE_HOME_ROUTE),
       });
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');

@@ -21,23 +21,17 @@ import {
 import { Dropzone, FileWithPath, IMAGE_MIME_TYPE } from '@mantine/dropzone';
 import { useForm, zodResolver } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
-import { createBrowserClient } from '@supabase/ssr';
 import { IconArrowLeft, IconCheck, IconFile, IconPhoto, IconDeviceFloppy, IconUpload, IconX } from '@tabler/icons-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
 import { updateNoticeAction } from '../../actions';
 
 import { logger } from '@/lib/logger';
+import { noticeSchema as schema, noticeGlassStyle as glassStyle, uploadNoticeAttachment as uploadToSupabase } from '../../form';
+import { useSession } from '@/hooks/use-session';
 
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
-
-const schema = z.object({
-    category: z.string().min(1, '카테고리를 입력해주세요'),
-    title: z.string().min(1, '제목을 입력해주세요'),
-    body: z.string().min(1, '내용을 입력해주세요'),
-});
 
 type NoticeFile = {
     name?: string;
@@ -67,26 +61,15 @@ const extractBoardPostId = (noticeId: string): string | null => {
     return postId.length > 0 ? postId : null;
 };
 
-function createNoticeAttachmentPath(originalName: string) {
-    const fileExt = originalName.split('.').pop() || 'bin';
-    const suffix =
-        typeof crypto !== 'undefined' && 'randomUUID' in crypto
-            ? crypto.randomUUID()
-            : Math.random().toString(36).substring(2, 10);
-    return `${Date.now()}_${suffix}.${fileExt}`;
-}
-
-const glassStyle = {
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    backdropFilter: 'blur(12px)',
-    border: '1px solid rgba(255, 255, 255, 0.3)',
-    boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
-};
-
 export default function EditNoticePage() {
-    const router = useRouter();
     const params = useParams<{ id: string }>();
     const id = String(params?.id ?? '').trim();
+    const { role, residentId } = useSession();
+    return <EditNoticeContent key={`${role ?? ''}:${residentId ?? ''}:${id}`} id={id} />;
+}
+
+function EditNoticeContent({ id }: { id: string }) {
+    const router = useRouter();
     const boardPostId = extractBoardPostId(id);
 
     const [isPending, setSubmitting] = useState(false);
@@ -101,11 +84,7 @@ export default function EditNoticePage() {
     // Files: mix of existing file objects and new files
     const [existingFiles, setExistingFiles] = useState<NoticeFile[]>([]);
     const [newFiles, setNewFiles] = useState<FileWithPath[]>([]);
-
-    const supabase = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+    const originalAttachments = useRef('');
 
     const form = useForm({
         initialValues: {
@@ -129,8 +108,10 @@ export default function EditNoticePage() {
                 if (!data.ok || !data.notice) throw new Error(data.error ?? '공지를 불러올 수 없습니다.');
                 const n = data.notice;
                 form.setValues({ category: n.category ?? '', title: n.title, body: n.body });
+                form.resetDirty({ category: n.category ?? '', title: n.title, body: n.body });
                 setExistingImages(n.images ?? []);
                 setExistingFiles(n.files ?? []);
+                originalAttachments.current = JSON.stringify([n.images ?? [], n.files ?? []]);
             })
             .catch((err: Error) => setFetchError(err.message))
             .finally(() => setIsFetching(false));
@@ -145,15 +126,12 @@ export default function EditNoticePage() {
         );
     }
 
-    const uploadToSupabase = async (file: File) => {
-        const filePath = createNoticeAttachmentPath(file.name);
-        const { error } = await supabase.storage.from('notice-attachments').upload(filePath, file);
-        if (error) {
-            logger.error('Upload Error:', error);
-            throw new Error('파일 업로드 실패');
-        }
-        const { data } = supabase.storage.from('notice-attachments').getPublicUrl(filePath);
-        return data.publicUrl;
+    const handleLeave = () => {
+        if (submittingRef.current) return;
+        const dirty = form.isDirty() || newImages.length > 0 || newFiles.length > 0
+            || JSON.stringify([existingImages, existingFiles]) !== originalAttachments.current;
+        if (dirty && !window.confirm('수정 중인 공지와 첨부를 버릴까요?')) return;
+        router.push(`/dashboard/notifications/${id}`);
     };
 
     const handleSubmit = async (values: typeof form.values) => {
@@ -249,7 +227,7 @@ export default function EditNoticePage() {
                         color="gray"
                         leftSection={<IconArrowLeft size={18} />}
                         size="sm"
-                        onClick={() => router.push(`/dashboard/notifications/${id}`)}
+                        onClick={handleLeave}
                     >
                         돌아가기
                     </Button>

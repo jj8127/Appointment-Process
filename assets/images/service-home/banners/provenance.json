@@ -1,0 +1,52 @@
+{
+  "mode": "built-in image_gen",
+  "purpose": "revision08 full-bleed campaign photography for GaramIn",
+  "prompts": {
+    "care": "Use case: ads-marketing. Create ONE original high quality photorealistic commercial campaign background for a Korean family-care mobile app banner, landscape 4:3 aspect ratio, at least 1600x1200 if possible. An elderly Korean mother and her adult daughter are seated comfortably at home, daughter gently supporting mother's hand, natural empathetic expressions, candid medium-close photograph. Both people and their hands large and clear in the central/right lower two thirds, faces entirely within middle 35-70% of canvas height so a later title overlay won't cover them. Elegant neutral home, warm taupe, ivory knit clothes, natural skin textures, soft window light, realistic anatomy. Premium editorial campaign photography, real photographic depth and material texture, not an illustration or a small icon. The whole rectangular image is an immersive scene, with softly out-of-focus dark warm background in top 25-30% suitable for a large white native UI heading. Keep bottom-left quiet enough for a short UI action, avoid important faces or hands at bottom-right where controls will overlay. No words, no text, no logo, no watermark, no UI, no border, no inset card. Do not render medical treatment, uniforms, an insurance guarantee or a real identifiable person.",
+    "insurance": "Use case: ads-marketing. Create ONE original high quality photorealistic commercial campaign background for the FC professional-work section of a Korean mobile app. Landscape 4:3, at least 1600x1200 if possible. Sophisticated modern consultant workspace, a large unbranded dark tablet with abstract neutral screen, organized blank folders and papers, polished silver pen and the hands of an adult professional reviewing work. Tight editorial still-life photograph, camera at a three-quarter elevated angle; objects are large and fill the middle/lower frame, real leather, metal and paper textures, dramatic but credible soft window light. Deep graphite and cool blue-gray palette, premium commercial photography, not vector illustration, not a 3D icon on a white box. Top 25-30% is a dark soft-focus desk or background suitable for a later large white native UI title; bottom-left remains quiet for a short native action. Keep key objects out of the far bottom-right where controls will overlay. Whole rectangular scene extends edge to edge. No readable text on screens or papers, no customer information, no numbers, no logos, no watermarks, no UI, no borders.",
+    "telecom": "Use case: ads-marketing. Create ONE original premium photorealistic commercial product campaign background for an upcoming telecom partner service in a Korean mobile app. Landscape 4:3, at least 1600x1200 if possible. Three large unbranded modern smartphones, some front and some back, arranged at different heights on a few sophisticated graphite-blue studio plinths. The phones and plinths occupy the middle and lower two thirds and fill the image with a strong multi-product campaign composition, like premium retail editorial photography rather than small floating 3D icons. Glossy dark screens without text, crisp physical glass and metal details, subtle lavender/cool silver highlight, deep slate studio backdrop, soft large-source photographic lighting. Top 25-30% has a darker clean but integrated studio background for a later large white native UI title. Bottom-left quiet for a short native action, don't put a key product at bottom-right where page controls will overlay. Full rectangular immersive scene, no inset card, no border. No text, no numbers, no logo, no watermark, no UI, no branded phone geometry copied exactly.",
+    "car": "Use case: ads-marketing. Create ONE original high quality photorealistic commercial automotive campaign background for an upcoming car partner service in a Korean mobile app. Landscape 4:3, at least 1600x1200 if possible. A full-size elegant unbranded silver-blue sedan in a premium architectural studio/showroom, dramatic front three-quarter view. Car is large, occupies most of the middle and lower frame, credible real automotive proportions, polished body reflections and realistic glass/tires; diagonal composition with a charcoal floor and muted steel-blue studio background. Premium automotive advertising photograph, not a toy car or a small 3D icon. Top 25-30% is a darker restrained integrated showroom wall for a later large white native UI title. Bottom-left quiet for a short UI action, retain the car's main form away from the far bottom-right where pagination will overlay. Full edge-to-edge scene, no inset card or border. No manufacturer logo, no readable plate, no text, no numbers, no watermark, no UI, no stated price or benefit."
+  },
+  "assets": [
+    {
+      "width": 1448,
+      "file": "care.png",
+      "original": "C:\\Users\\jj812\\.codex\\generated_images\\01a0e5a0-452b-7701-805a-95644569cd54\\exec-f3e22ce3-42f0-4b5f-9ebc-79d31b4f9954.png",
+      "height": 1086,
+      "sha256": "b22da14a51c2e74dde8d52fc7ece235866aa9caa3fb24825fc600c8352edefc0",
+      "originalCopyMatches": true,
+      "bytes": 2337186,
+      "service": "care"
+    },
+    {
+      "width": 1448,
+      "file": "insurance.png",
+      "original": "C:\\Users\\jj812\\.codex\\generated_images\\01a0e5a0-452b-7701-805a-95644569cd54\\exec-ecc0362f-ba07-424f-b5e3-f89de1230292.png",
+      "height": 1086,
+      "sha256": "72eb3fa2d6d08c83f1419a8b35e12881aff90ca36557ff4b4dcfa05c47acdf35",
+      "originalCopyMatches": true,
+      "bytes": 1966880,
+      "service": "insurance"
+    },
+    {
+      "width": 1448,
+      "file": "telecom.png",
+      "original": "C:\\Users\\jj812\\.codex\\generated_images\\01a0e5a0-452b-7701-805a-95644569cd54\\exec-b2bd0835-bbcf-40ed-bc75-92b7788550b3.png",
+      "height": 1086,
+      "sha256": "b314acb5a6640278d21650bccdc36e9e9c4835e31c2de1d844e1e9920e511283",
+      "originalCopyMatches": true,
+      "bytes": 1863502,
+      "service": "telecom"
+    },
+    {
+      "width": 1448,
+      "file": "car.png",
+      "original": "C:\\Users\\jj812\\.codex\\generated_images\\01a0e5a0-452b-7701-805a-95644569cd54\\exec-ffc18c9d-0ad5-4710-a027-edfc43d66d52.png",
+      "height": 1086,
+      "sha256": "128ea449caa97e5b81266e3df1ba217caa24748784ca753e6efc3f6ce961f82f",
+      "originalCopyMatches": true,
+      "bytes": 2112561,
+      "service": "car"
+    }
+  ]
+}

@@ -21,50 +21,23 @@ import {
 import { Dropzone, FileWithPath, IMAGE_MIME_TYPE } from '@mantine/dropzone';
 import { useForm, zodResolver } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
-import { createBrowserClient } from '@supabase/ssr';
 import { IconArrowLeft, IconCheck, IconFile, IconPhoto, IconSend, IconUpload, IconX } from '@tabler/icons-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
-import { z } from 'zod';
 import { createNoticeAction } from '../actions';
 
 import { logger } from '@/lib/logger';
-const schema = z.object({
-    category: z.string().min(1, '카테고리를 입력해주세요'),
-    title: z.string().min(1, '제목을 입력해주세요'),
-    body: z.string().min(1, '내용을 입력해주세요'),
-});
-
-function createNoticeAttachmentPath(originalName: string) {
-    const fileExt = originalName.split('.').pop() || 'bin';
-    const suffix =
-        typeof crypto !== 'undefined' && 'randomUUID' in crypto
-            ? crypto.randomUUID()
-            : Math.random().toString(36).substring(2, 10);
-    return `${Date.now()}_${suffix}.${fileExt}`;
-}
-
-const glassStyle = {
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    backdropFilter: 'blur(12px)',
-    border: '1px solid rgba(255, 255, 255, 0.3)',
-    boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
-};
-
+import { noticeSchema as schema, noticeGlassStyle as glassStyle, uploadNoticeAttachment as uploadToSupabase } from '../form';
 export default function CreateNoticePage() {
     const router = useRouter();
     const [isPending, setSubmitting] = useState(false);
     const submittingRef = useRef(false);
+    const pendingCreationRef = useRef<{ fingerprint: string; attachments: File[]; formData: FormData } | null>(null);
     const [submitPhase, setSubmitPhase] = useState('');
     const [images, setImages] = useState<FileWithPath[]>([]);
     const [files, setFiles] = useState<FileWithPath[]>([]);
-
-    const supabase = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
 
     const form = useForm({
         initialValues: {
@@ -77,88 +50,80 @@ export default function CreateNoticePage() {
         validate: zodResolver(schema as unknown as Parameters<typeof zodResolver>[0]),
     });
 
-    const uploadToSupabase = async (file: File) => {
-        const filePath = createNoticeAttachmentPath(file.name);
-
-        const { error } = await supabase.storage
-            .from('notice-attachments')
-            .upload(filePath, file);
-
-        if (error) {
-            logger.error('Upload Error:', error);
-            throw new Error('파일 업로드 실패');
-        }
-
-        const { data } = supabase.storage
-            .from('notice-attachments')
-            .getPublicUrl(filePath);
-
-        return data.publicUrl;
-    };
-
     const handleSubmit = async (values: typeof form.values) => {
         if (submittingRef.current) return;
         submittingRef.current = true;
         setSubmitting(true);
         setSubmitPhase('첨부 업로드 중');
         try {
-            // Upload Images
-            const imageUrls = await Promise.all(
-                images.map((img) => uploadToSupabase(img))
-            );
+            const fingerprint = JSON.stringify([values.category, values.title, values.body]);
+            const selectedAttachments = [...images, ...files];
+            const previous = pendingCreationRef.current;
+            const unchanged = previous?.fingerprint === fingerprint
+                && previous.attachments.length === selectedAttachments.length
+                && previous.attachments.every((file, index) => file === selectedAttachments[index]);
+            let formData = unchanged ? previous.formData : null;
+            if (!formData) {
+                const imageUrls = await Promise.all(
+                    images.map((img) => uploadToSupabase(img))
+                );
 
-            // Upload Files
-            const fileObjects = await Promise.all(
-                files.map(async (file) => {
-                    const url = await uploadToSupabase(file);
-                    return {
-                        name: file.name,
-                        size: file.size,
-                        type: file.type,
-                        url: url
-                    };
-                })
-            );
+                // Upload Files
+                const fileObjects = await Promise.all(
+                    files.map(async (file) => {
+                        const url = await uploadToSupabase(file);
+                        return {
+                            name: file.name,
+                            size: file.size,
+                            type: file.type,
+                            url: url
+                        };
+                    })
+                );
 
-            const formData = new FormData();
-            formData.append('category', values.category);
-            formData.append('title', values.title);
-            formData.append('body', values.body);
-            formData.append('images', JSON.stringify(imageUrls));
-            formData.append('files', JSON.stringify(fileObjects));
+                formData = new FormData();
+                formData.append('requestId', crypto.randomUUID());
+                formData.append('category', values.category);
+                formData.append('title', values.title);
+                formData.append('body', values.body);
+                formData.append('images', JSON.stringify(imageUrls));
+                formData.append('files', JSON.stringify(fileObjects));
+                pendingCreationRef.current = { fingerprint, attachments: selectedAttachments, formData };
+            }
 
             setSubmitPhase('공지 저장 중');
-                const result = await createNoticeAction({ success: false }, formData);
+            const result = await createNoticeAction({ success: false }, formData);
 
-                if (result.success) {
-                    const notificationPersistenceFailed =
-                        result.notificationWarning === 'notification_persistence_incomplete'
-                        || result.notificationWarning === 'notification_persistence_and_delivery_incomplete';
-                    notifications.show({
-                        title: notificationPersistenceFailed
-                            ? '공지 등록 완료 · 알림 등록 실패'
-                            : '전송 완료',
-                        message: notificationPersistenceFailed
-                            ? '요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.'
-                            : '알림을 보냈습니다.',
-                        color: notificationPersistenceFailed ? 'yellow' : 'teal',
-                        icon: notificationPersistenceFailed
-                            ? <IconX size={18} />
-                            : <IconCheck size={18} />,
-                        autoClose: 3000,
-                    });
-                    router.push('/dashboard/notifications');
-                } else {
-                    notifications.show({
-                        title: '전송 실패',
-                        message: result.message || '오류가 발생했습니다.',
-                        color: 'red',
-                        icon: <IconX size={18} />,
-                    });
-                    if (result.errors) {
-                        form.setErrors(result.errors);
-                    }
+            if (result.success) {
+                pendingCreationRef.current = null;
+                const notificationPersistenceFailed =
+                    result.notificationWarning === 'notification_persistence_incomplete'
+                    || result.notificationWarning === 'notification_persistence_and_delivery_incomplete';
+                notifications.show({
+                    title: notificationPersistenceFailed
+                        ? '공지 등록 완료 · 알림 등록 실패'
+                        : '전송 완료',
+                    message: notificationPersistenceFailed
+                        ? '요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.'
+                        : '알림을 보냈습니다.',
+                    color: notificationPersistenceFailed ? 'yellow' : 'teal',
+                    icon: notificationPersistenceFailed
+                        ? <IconX size={18} />
+                        : <IconCheck size={18} />,
+                    autoClose: 3000,
+                });
+                router.push('/dashboard/notifications');
+            } else {
+                notifications.show({
+                    title: '전송 실패',
+                    message: result.message || '오류가 발생했습니다.',
+                    color: 'red',
+                    icon: <IconX size={18} />,
+                });
+                if (result.errors) {
+                    form.setErrors(result.errors);
                 }
+            }
         } catch (error) {
             logger.error('File upload error', error);
             notifications.show({
@@ -171,6 +136,11 @@ export default function CreateNoticePage() {
             setSubmitting(false);
             setSubmitPhase('');
         }
+    };
+
+    const handleLeave = (event: { preventDefault(): void }) => {
+        if (submittingRef.current || ((form.isDirty() || images.length > 0 || files.length > 0)
+            && !window.confirm('작성 중인 공지와 첨부를 버릴까요?'))) event.preventDefault();
     };
 
     // Images Dropzone handlers
@@ -280,6 +250,7 @@ export default function CreateNoticePage() {
                     <Button
                         component={Link}
                         href="/dashboard/notifications"
+                        onClick={handleLeave}
                         variant="subtle"
                         color="gray"
                         leftSection={<IconArrowLeft size={18} />}

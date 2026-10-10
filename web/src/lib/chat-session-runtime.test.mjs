@@ -70,13 +70,16 @@ function harness(route = 'dashboard/chat', role = 'admin') {
     async mount() { await act(async () => { renderer = create(React.createElement(exports.default)); }); },
     async select(name) { await act(async () => { renderer.root.findAllByType('Box').find((node) => node.props.onClick && node.findAllByType('Text').some((text) => text.props.children === name)).props.onClick(); }); },
     async resolve(type, data, status = 200) { const pending = requests.find((r) => r.type === type && !r.done); assert.ok(pending, type); pending.done = true; await act(async () => pending.resolve(data, status)); return pending; },
+    async fail(type) { const pending = requests.find((r) => r.type === type && !r.done); assert.ok(pending, type); pending.done = true; await act(async () => pending.reject(new Error('synthetic-network-failure'))); },
     async send(text) { await act(async () => renderer.root.findByType('Textarea').props.onChange({ currentTarget: { value: text } })); await act(async () => { void renderer.root.findAllByType('ActionIcon').find((node) => node.findAllByType('IconSend').length).props.onClick(); }); },
+    async resend() { await act(async () => { void renderer.root.findAllByType('ActionIcon').find((node) => node.findAllByType('IconSend').length).props.onClick(); }); },
     async key(text, event) { await act(async () => renderer.root.findByType('Textarea').props.onChange({ currentTarget: { value: text } })); await act(async () => renderer.root.findByType('Textarea').props.onKeyDown(event)); },
     async poll() { await act(async () => { for (const fn of intervals.values()) fn(); }); },
     async account(id) { session = { ...session, residentId: id }; await act(async () => renderer.update(React.createElement(exports.default))); },
     async conversation(id, conversationId) { chatList = chatList.map((row) => row.fc_id === id ? { ...row, conversation_id: conversationId } : row); await act(async () => renderer.update(React.createElement(exports.default))); },
     async room(id) { params = new URLSearchParams(`targetId=${id}`); await act(async () => renderer.update(React.createElement(exports.default))); },
     texts() { return renderer.root.findAllByType('Text').map((node) => node.props.children); },
+    input() { return renderer.root.findByType('Textarea').props.value; },
     async close() { await act(async () => renderer.unmount()); },
   };
 }
@@ -173,4 +176,28 @@ test('dashboard Korean IME completion keeps the draft and does not send', async 
   await h.key('한글', { key: 'Enter', shiftKey: false, nativeEvent: { keyCode: 229 }, preventDefault() { throw new Error('must not consume composition'); } });
   assert.equal(h.requests.some((row) => row.type === 'direct_message_send'), false);
   await h.close();
+});
+
+test('C05: dashboard Shift+Enter keeps the draft; explicit Enter sends exactly once', async () => {
+  const h = harness(); await h.mount(); await h.select('B');
+  let prevents = 0;
+  await h.key('한글 본문', { key: 'Enter', shiftKey: true, nativeEvent: {}, preventDefault() { prevents++; } });
+  assert.equal(h.requests.some((row) => row.type === 'direct_message_send'), false); assert.equal(h.input(), '한글 본문');
+  await h.key('한글 본문', { key: 'Enter', shiftKey: false, nativeEvent: {}, preventDefault() { prevents++; } });
+  assert.equal(h.requests.filter((row) => row.type === 'direct_message_send').length, 1); assert.equal(prevents, 1);
+  await h.close();
+});
+
+test('C06/D06: network and malformed 200 send responses restore the original draft and retry key', async () => {
+  for (const malformed of [false, true]) {
+    const h = harness(); await h.mount(); await h.select('B'); await h.send('보존할 본문');
+    const sent = h.requests.find((row) => row.type === 'direct_message_send');
+    assert.equal(h.input(), '');
+    if (malformed) await h.resolve('direct_message_send', { ok: true }); else await h.fail('direct_message_send');
+    assert.equal(h.input(), '보존할 본문'); assert.equal(h.notices.at(-1).title, '전송 실패');
+    await h.resend();
+    const second = h.requests.filter((row) => row.type === 'direct_message_send')[1];
+    assert.equal(second.client_message_id, sent.client_message_id);
+    await h.close();
+  }
 });

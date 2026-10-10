@@ -1,6 +1,7 @@
 'use client';
 
 import { shouldSubmitOnEnter } from '@/lib/user-intent-policy';
+import { createChatRequestGuard } from '@/lib/chat-request-guard';
 
 import { classifyGroupChatError } from '@/lib/group-chat-error';
 
@@ -152,6 +153,11 @@ function formatMessageTime(value: string) {
 }
 
 export default function DashboardGroupChatPage() {
+  const { role, residentId, isReadOnly } = useSession();
+  return <DashboardGroupChatContent key={`${role ?? ''}:${residentId ?? ''}:${isReadOnly ? 'read' : 'write'}`} />;
+}
+
+function DashboardGroupChatContent() {
   const { hydrated, role } = useSession();
   const searchParams = useSearchParams();
   const notificationRoomId = (searchParams.get('roomId') ?? '').trim().toLowerCase();
@@ -165,6 +171,10 @@ export default function DashboardGroupChatPage() {
   const [canSendMessages, setCanSendMessages] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const noticeUpdatingRef = useRef(false);
+  const [requestGuard] = useState(createChatRequestGuard);
+  useEffect(() => { requestGuard.activate(); return () => requestGuard.dispose(); }, [requestGuard]);
   const [uploading, setUploading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [input, setInput] = useState('');
@@ -203,9 +213,11 @@ export default function DashboardGroupChatPage() {
   }, []);
 
   const loadGroupChat = useCallback(async (options?: { silent?: boolean; keepScroll?: boolean }) => {
+    const ticket = requestGuard.beginList();
     if (!options?.silent) setLoading(true);
     try {
       const data = await groupChatBootstrap(100);
+      if (!requestGuard.canApplyList(ticket)) return;
       applyBootstrap(data);
       const topMessageId = newestMessageId(data.messages ?? []);
       if (topMessageId) {
@@ -213,11 +225,11 @@ export default function DashboardGroupChatPage() {
       }
       if (!options?.keepScroll) scrollToBottom();
     } catch (error) {
-      if (!options?.silent) showGroupChatErrorNotification(error);
+      if (requestGuard.isLatestList(ticket) && !options?.silent) showGroupChatErrorNotification(error);
     } finally {
-      setLoading(false);
+      if (requestGuard.isLatestList(ticket)) setLoading(false);
     }
-  }, [applyBootstrap, scrollToBottom]);
+  }, [applyBootstrap, requestGuard, scrollToBottom]);
 
   useEffect(() => {
     if (!canUsePage) return;
@@ -295,16 +307,19 @@ export default function DashboardGroupChatPage() {
   }, [memberSearch, members]);
 
   const mergeMessage = useCallback((message: GroupChatMessage) => {
+    requestGuard.changed();
     setMessages((prev) => sortMessages([
       ...prev.filter((row) => row.id !== message.id),
       message,
     ]));
-  }, []);
+  }, [requestGuard]);
 
   const handleSend = useCallback(async (content: string) => {
     const trimmed = content.trim();
-    if (!inputEnabled || (!trimmed && selectedFiles.length === 0) || !room?.id) return;
+    const ticket = requestGuard.snapshot();
+    if (sendingRef.current || !requestGuard.isCurrent(ticket) || !inputEnabled || (!trimmed && selectedFiles.length === 0) || !room?.id) return;
 
+    sendingRef.current = true;
     setSending(true);
     try {
       let attachmentIntentIds: string[] | undefined;
@@ -317,9 +332,11 @@ export default function DashboardGroupChatPage() {
             context: { kind: 'group', roomId: room.id },
             content: trimmed,
           });
+          if (!requestGuard.isCurrent(ticket)) return;
           pendingAttachmentBatchRef.current = attachmentBatch;
         }
         const uploaded = await uploadMessengerAttachmentBatch(attachmentBatch);
+        if (!requestGuard.isCurrent(ticket)) return;
         if (uploaded.state === 'committed') {
           pendingAttachmentBatchRef.current = null;
           setSelectedFiles([]);
@@ -336,6 +353,7 @@ export default function DashboardGroupChatPage() {
         payloadFingerprint: attachmentBatch?.payloadFingerprint,
         replyToMessageId: replyTarget?.id ?? null,
       });
+      if (!requestGuard.isCurrent(ticket)) return;
       mergeMessage(result.message);
       pendingAttachmentBatchRef.current = null;
       setSelectedFiles([]);
@@ -353,12 +371,16 @@ export default function DashboardGroupChatPage() {
         showGroupChatInboxWarning();
       }
     } catch (error) {
-      showGroupChatErrorNotification(error);
+      if (requestGuard.isCurrent(ticket)) showGroupChatErrorNotification(error);
     } finally {
-      setUploading(false);
-      setSending(false);
+      if (requestGuard.isCurrent(ticket)) {
+        sendingRef.current = false;
+        setUploading(false);
+        setSending(false);
+      }
     }
   }, [
+    requestGuard,
     inputEnabled,
     loadGroupChat,
     mergeMessage,
@@ -435,15 +457,17 @@ export default function DashboardGroupChatPage() {
   }, [actor?.id, mergeMessage, notice?.message_id]);
 
   const handleClearNotice = useCallback(async () => {
-    if (!canManageNotice || noticeUpdating) return;
+    if (!canManageNotice || noticeUpdatingRef.current || noticeUpdating) return;
+    noticeUpdatingRef.current = true;
     setNoticeUpdating(true);
     try { const result = await groupChatClearNotice(); setNotice(result.notice); }
     catch (error) { showGroupChatErrorNotification(error); }
-    finally { setNoticeUpdating(false); }
+    finally { noticeUpdatingRef.current = false; setNoticeUpdating(false); }
   }, [canManageNotice, noticeUpdating]);
 
   const handleNotice = useCallback(async (message: GroupChatMessage) => {
-    if (!canManageNotice || message.deleted_at || noticeUpdating) return;
+    if (!canManageNotice || message.deleted_at || noticeUpdatingRef.current || noticeUpdating) return;
+    noticeUpdatingRef.current = true;
     setNoticeUpdating(true);
     try {
       if (notice?.message_id === message.id) {
@@ -456,6 +480,7 @@ export default function DashboardGroupChatPage() {
     } catch (error) {
       showGroupChatErrorNotification(error);
     } finally {
+      noticeUpdatingRef.current = false;
       setNoticeUpdating(false);
     }
   }, [canManageNotice, notice?.message_id, noticeUpdating]);

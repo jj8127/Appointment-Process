@@ -225,6 +225,16 @@ test('manager cannot turn read access into a document mutation', async () => {
   assert.ok(h.calls.every((call) => call.operation === 'select'));
 });
 
+test('W08: manager profile, document request, deletion, and approval writes fail before mutations', async () => {
+  for (const action of ['updateProfile', 'updateDocsRequest', 'deleteDoc', 'deleteHanwhaPdf', 'deleteFc', 'updateAppointmentDate', 'updateStatus']) {
+    const h = harness({ role: 'manager' });
+    const response = await h.callFc({ action, payload: { fcId: FC_ID, data: { name: 'Synthetic' }, docType: DOC.doc_type, status: 'approved' } });
+    assert.equal(response.status, 403, action);
+    assert.ok(h.calls.every((call) => call.operation === 'select'), action);
+    assert.equal(h.pushes.length, 0);
+  }
+});
+
 test('appointment notification uses stored FC identity rather than caller phone', async () => {
   const h = harness();
   const result = await h.load('app/dashboard/appointment/actions.ts').updateAppointmentAction({}, {

@@ -166,7 +166,8 @@ function ChatAccountPage() {
                 throw new Error(message);
             }
 
-            return Array.isArray(payload) ? (payload as ChatPreview[]) : [];
+            if (!Array.isArray(payload)) throw new Error('FC 목록 응답을 확인할 수 없습니다. 다시 시도해주세요.');
+            return payload as ChatPreview[];
         },
         enabled: hydrated && Boolean(role) && Boolean(myChatId),
         refetchInterval: CHAT_LIST_REFETCH_INTERVAL_MS,

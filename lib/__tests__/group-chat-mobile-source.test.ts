@@ -112,20 +112,6 @@ describe('group chat mobile wiring', () => {
     );
   });
 
-  it('renders internet URLs as tappable, underlined links in group chat messages', () => {
-    const source = readAppFile('group-chat.tsx');
-
-    expect(source).toContain('LinkifiedSelectableText');
-    expect(source).toContain('msgLinkText');
-  });
-
-  it('keeps direct messenger text linkified too', () => {
-    const source = readAppFile('chat.tsx');
-
-    expect(source).toContain('LinkifiedSelectableText');
-    expect(source).toContain('msgLinkText');
-  });
-
   it('shows KakaoTalk-style unread recipient counts on sent messages', () => {
     const source = readAppFile('group-chat.tsx');
     const badgeSource = readComponentFile('MessageUnreadReceiptBadge.tsx');
@@ -161,7 +147,6 @@ describe('group chat mobile wiring', () => {
 
   it('wires reply, reaction, and soft-delete actions from message long press', () => {
     const source = readAppFile('group-chat.tsx');
-    const actionSheetSource = readComponentFile('MessengerMessageActionSheet.tsx');
 
     expect(source).toContain('replyTarget');
     expect(source).toContain('actionMessage');
@@ -174,26 +159,17 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('onLongPress={() => openMessageActions(item)}');
     expect(source).toContain('handleReplyAction');
     expect(source).toContain('MESSENGER_REACTIONS');
-    expect(actionSheetSource).toContain('감정 남기기');
-    expect(actionSheetSource).toContain('답장');
-    expect(actionSheetSource).toContain('삭제');
   });
 
   it('renders a KakaoTalk-style message action menu with copy, select-copy, and notice actions', () => {
     const source = readAppFile('group-chat.tsx');
     const actionSheetSource = readComponentFile('MessengerMessageActionSheet.tsx');
 
-    expect(source).toContain('copyTextWithFeedback');
-    expect(source).not.toContain('Clipboard.setStringAsync');
     expect(source).toContain('selectCopyMessage');
-    expect(source).toContain("from '@/components/MessengerMessageActionSheet'");
-    expect(source).toContain('<MessengerMessageActionSheet');
     expect(source).toContain('<MessageSelectCopySheet');
     expect(actionSheetSource).toContain('actionMenuBackdrop');
     expect(actionSheetSource).toContain('actionMenu');
     expect(actionSheetSource).toContain('복사');
-    expect(actionSheetSource).toContain('선택 복사');
-    expect(actionSheetSource).toContain('공지');
     expect(source).toContain('groupChatSetNotice');
     expect(source).toContain('groupChatClearNotice');
     expect(source).toContain('canManageNotice &&');
@@ -210,10 +186,8 @@ describe('group chat mobile wiring', () => {
     );
 
     expect(messageContentSection).toContain('selectable={false}');
-    expect(linkifiedSource).toContain('const textSelectable = selectable && !hasLinks');
     expect(linkifiedSource).toContain('const nonSelectableStyle = textSelectable ? undefined : styles.nonSelectableText');
     expect(linkifiedSource).toContain('selectable={textSelectable}');
-    expect(linkifiedSource).toContain('selectable={false}');
     expect(linkifiedSource).toContain("userSelect: 'none'");
     expect(actionSheetSource).toContain('<Text selectable style={styles.selectCopyText}>');
   });

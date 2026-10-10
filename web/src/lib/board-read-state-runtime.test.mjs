@@ -8,6 +8,7 @@ import * as editDetail from './board-edit-detail.ts';
 import * as queryError from './query-read-error.ts';
 import * as commentRequest from './board-comment-request.ts';
 import * as boardListPages from './board-list-pages.ts';
+import * as creationRequest from './creation-request.ts';
 
 const rootRequire = createRequire(new URL('../../../package.json', import.meta.url));
 const webRequire = createRequire(import.meta.url);
@@ -53,6 +54,7 @@ function loadTsx(path, mocks, globals = {}) {
       if (id in mocks) return mocks[id];
       if (id === '@/lib/board-comment-request') return commentRequest;
       if (id === '@/lib/board-list-pages') return boardListPages;
+      if (id === '@/lib/creation-request') return creationRequest;
       if (id === 'react' || id === 'react/jsx-runtime') return rootRequire(id);
       if (id === '@mantine/core' || id === '@tabler/icons-react') return ui;
       throw new Error(`Unmocked dependency: ${id}`);

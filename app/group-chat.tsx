@@ -45,6 +45,7 @@ import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
 import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
 import { useSession } from '@/hooks/use-session';
 import { createReadScope } from '@/lib/request-board-read-state';
+import { useReadAttempt } from '@/lib/use-read-attempt';
 import { classifyGroupChatError } from '@/lib/group-chat-error';
 import {
   formatGroupChatTime,
@@ -143,15 +144,18 @@ function showGroupChatDeliveryWarning(retryNotification?: () => void) {
 
 async function retryGroupChatNotificationOnly(
   retry: GroupChatNotificationRetry,
+  isCurrentSend: () => boolean = () => true,
 ) {
+  if (!isCurrentSend()) return;
   try {
     const result = await groupChatRetryNotification(retry);
+    if (!isCurrentSend()) return;
     if (hasGroupChatPostCommitWarning(result)) {
       const nextRetry = getGroupChatNotificationRetry(result);
       showGroupChatDeliveryWarning(
         nextRetry
           ? () => {
-              void retryGroupChatNotificationOnly(nextRetry);
+              void retryGroupChatNotificationOnly(nextRetry, isCurrentSend);
             }
           : undefined,
       );
@@ -159,6 +163,7 @@ async function retryGroupChatNotificationOnly(
     }
     Alert.alert('알림 등록 완료', '수신자 알림함에 알림을 등록했습니다.');
   } catch (error) {
+    if (!isCurrentSend()) return;
     logger.warn('[group-chat] notification-only retry failed', error);
     showGroupChatErrorAlert(error);
   }
@@ -309,7 +314,6 @@ export default function GroupChatScreen() {
   const [muted, setMuted] = useState(false);
   const [conversationSettingsVisible, setConversationSettingsVisible] = useState(false);
   const [roomPreferenceLoading, setRoomPreferenceLoading] = useState(false);
-  const [roomPreferenceReady, setRoomPreferenceReady] = useState(false);
   const [roomPreferenceLoadedKey, setRoomPreferenceLoadedKey] =
     useState<string | null>(null);
   const [roomPreferencePending, setRoomPreferencePending] = useState(false);
@@ -320,6 +324,8 @@ export default function GroupChatScreen() {
   const [messages, setMessages] = useState<GroupChatMessage[]>([]);
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
+  const sendingTextRef = useRef(false);
+  const beginSend = useReadAttempt();
   const [selectedAttachments, setSelectedAttachments] = useState<
     SelectedMessengerAttachment[]
   >([]);
@@ -332,7 +338,7 @@ export default function GroupChatScreen() {
   const [roomLoadError, setRoomLoadError] = useState<ReturnType<typeof classifyGroupChatError> | null>(null);
   const roomReadScope = useRef(createReadScope());
   const roomReadKey = `${residentId ?? ''}:${appSessionToken ?? ''}:${roomId ?? 'canonical'}`;
-  roomReadScope.current.setScope(roomReadKey);
+  if (roomReadScope.current.setScope(roomReadKey)) sendingTextRef.current = false;
   const [anchorLoadFailed, setAnchorLoadFailed] = useState(false);
   const [anchorHasHistoryGap, setAnchorHasHistoryGap] = useState(false);
   const [anchorNavigationDismissed, setAnchorNavigationDismissed] = useState(false);
@@ -545,6 +551,9 @@ export default function GroupChatScreen() {
     setCanSendMessages(false);
     setText('');
     setSelectedAttachments([]);
+    setUploading(false);
+    attachmentBatchRef.current = null;
+    attachmentBatchReplyTargetRef.current = null;
     setReplyTarget(null);
     setActionMessage(null);
     setSelectCopyMessage(null);
@@ -885,7 +894,9 @@ export default function GroupChatScreen() {
       replyToMessageId?: string | null;
       attachmentBatch?: PreparedMessengerAttachmentBatch | null;
     },
+    isCurrentSend: () => boolean = () => true,
   ) => {
+    if (!isCurrentSend()) return false;
     let notificationRetry: GroupChatNotificationRetry | null = null;
     let shouldShowDeliveryWarning = false;
     const commit = async () => {
@@ -894,11 +905,13 @@ export default function GroupChatScreen() {
         const uploadResult = await uploadMessengerAttachmentBatch(
           input.attachmentBatch,
         );
+        if (!isCurrentSend()) throw new Error('obsolete_send');
         if (uploadResult.state === 'committed') {
           return { state: 'committed' as const };
         }
         attachmentIntentIds = uploadResult.intentIds;
       }
+      if (!isCurrentSend()) throw new Error('obsolete_send');
       const result = await groupChatSend({
         content: input.content,
         messageType: input.messageType,
@@ -919,6 +932,7 @@ export default function GroupChatScreen() {
       try {
         return await commit();
       } catch (error) {
+        if (!isCurrentSend()) return null;
         if (!input.attachmentBatch) throw error;
         logger.warn('[group-chat] attachment send result unavailable');
         return new Promise((resolve) => {
@@ -941,6 +955,7 @@ export default function GroupChatScreen() {
     };
     try {
       const commitResult = await commitWithRetry();
+      if (!isCurrentSend()) return false;
       if (!commitResult) {
         removeMessage(localMessageId);
         return false;
@@ -948,6 +963,7 @@ export default function GroupChatScreen() {
       if (commitResult.state === 'committed') {
         removeMessage(localMessageId);
         await load({ silent: true });
+        if (!isCurrentSend()) return false;
         return true;
       }
       const { result } = commitResult;
@@ -964,6 +980,7 @@ export default function GroupChatScreen() {
       shouldShowDeliveryWarning = hasGroupChatPostCommitWarning(result);
       notificationRetry = getGroupChatNotificationRetry(result);
     } catch (error) {
+      if (!isCurrentSend()) return false;
       if (input.attachmentBatch) {
         removeMessage(localMessageId);
       } else {
@@ -978,7 +995,7 @@ export default function GroupChatScreen() {
       showGroupChatDeliveryWarning(
         notificationRetry
           ? () => {
-              void retryGroupChatNotificationOnly(notificationRetry);
+              void retryGroupChatNotificationOnly(notificationRetry, isCurrentSend);
             }
           : undefined,
       );
@@ -989,7 +1006,9 @@ export default function GroupChatScreen() {
   const sendPayload = useCallback(async (
     content: string,
     attachments: readonly SelectedMessengerAttachment[],
+    isCurrentSend: () => boolean = () => true,
   ) => {
+    if (!isCurrentSend()) return false;
     if (!canSendMessages) {
       showSendPermissionAlert();
       return false;
@@ -1017,10 +1036,12 @@ export default function GroupChatScreen() {
         attachmentBatch = canReuseAttachmentBatch
           ? attachmentBatchRef.current
           : await prepareMessengerAttachmentBatch(draft);
+        if (!isCurrentSend()) return false;
         attachmentBatchRef.current = attachmentBatch;
         attachmentBatchReplyTargetRef.current = replyToMessageId;
       }
     } catch (error) {
+      if (!isCurrentSend()) return false;
       Alert.alert(
         '파일 확인 필요',
         error instanceof Error ? error.message : '첨부 파일을 확인해 주세요.',
@@ -1047,7 +1068,8 @@ export default function GroupChatScreen() {
       messageType: attachments.length > 0 ? 'file' : 'text',
       replyToMessageId: optimisticMessage.reply_to_message_id,
       attachmentBatch,
-    });
+    }, isCurrentSend);
+    if (!isCurrentSend()) return false;
     if (sent) {
       attachmentBatchRef.current = null;
       attachmentBatchReplyTargetRef.current = null;
@@ -1068,15 +1090,20 @@ export default function GroupChatScreen() {
     const submittedText = text;
     const nextText = text.trim();
     const attachments = selectedAttachments;
-    if ((!nextText && attachments.length === 0) || uploading) return;
+    if ((!nextText && attachments.length === 0) || uploading || sendingTextRef.current) return;
     if (!canSendMessages) {
       showSendPermissionAlert();
       return;
     }
+    const isMountedSend = beginSend();
+    const ownsSend = roomReadScope.current.captureOwner(roomReadKey);
+    const isCurrentSend = () => isMountedSend() && ownsSend();
+    if (!isCurrentSend()) return;
+    sendingTextRef.current = true;
     setUploading(true);
-    void sendPayload(nextText, attachments)
+    void sendPayload(nextText, attachments, isCurrentSend)
       .then((sent) => {
-        if (!sent) return;
+        if (!sent || !isCurrentSend()) return;
         setText((current) => current === submittedText ? '' : current);
         setSelectedAttachments((current) =>
           current.length === attachments.length
@@ -1088,9 +1115,16 @@ export default function GroupChatScreen() {
             : current,
         );
       })
-      .finally(() => setUploading(false));
+      .catch(() => {
+        if (isCurrentSend()) Alert.alert('전송 확인 필요', '메시지 전송 결과를 확인하지 못했습니다. 작성 내용은 유지했습니다. 대화 내용을 확인한 뒤 다시 시도해 주세요.');
+      })
+      .finally(() => {
+        if (isCurrentSend()) { sendingTextRef.current = false; setUploading(false); }
+      });
   }, [
+    beginSend,
     canSendMessages,
+    roomReadKey,
     selectedAttachments,
     sendPayload,
     showSendPermissionAlert,
@@ -1202,7 +1236,6 @@ export default function GroupChatScreen() {
   }) : null, [groupRoomRef]);
   const groupRoomPreferenceReady = Boolean(
     groupRoomRef
-    && roomPreferenceReady
     && roomPreferenceLoadedKey === groupRoomRef.key,
   );
 
@@ -1211,7 +1244,6 @@ export default function GroupChatScreen() {
     if (!roomRef) return;
     const sequence = ++roomPreferenceSequenceRef.current;
     setRoomPreferenceLoading(true);
-    setRoomPreferenceReady(false);
     setRoomPreferenceLoadedKey(null);
     setRoomPreferenceFailure(null);
     try {
@@ -1219,11 +1251,9 @@ export default function GroupChatScreen() {
       if (sequence !== roomPreferenceSequenceRef.current) return;
       setMuted(preferences.rooms.some((row) => row.roomKey === roomRef.key));
       setRoomPreferenceLoadedKey(roomRef.key);
-      setRoomPreferenceReady(true);
       setRoomPreferenceFailure(null);
     } catch (error) {
       if (sequence !== roomPreferenceSequenceRef.current) return;
-      setRoomPreferenceReady(false);
       setRoomPreferenceLoadedKey(null);
       setRoomPreferenceFailure(buildMessengerNotificationPreferenceLoadFailure(error));
     } finally {
@@ -1237,7 +1267,6 @@ export default function GroupChatScreen() {
     roomPreferenceSequenceRef.current += 1;
     setMuted(false);
     setRoomPreferenceLoading(false);
-    setRoomPreferenceReady(false);
     setRoomPreferenceLoadedKey(null);
     setRoomPreferencePending(false);
     setRoomPreferenceFailure(null);
@@ -1276,14 +1305,12 @@ export default function GroupChatScreen() {
     if (sequence !== roomPreferenceSequenceRef.current) return;
     setMuted(confirmedMuted);
     setRoomPreferenceLoadedKey(roomRef.key);
-    setRoomPreferenceReady(true);
 
     try {
       const preferences = await getNotificationPreferences();
       if (sequence !== roomPreferenceSequenceRef.current) return;
       setMuted(preferences.rooms.some((row) => row.roomKey === roomRef.key));
       setRoomPreferenceLoadedKey(roomRef.key);
-      setRoomPreferenceReady(true);
       setRoomPreferenceFailure(null);
     } catch (error) {
       if (sequence !== roomPreferenceSequenceRef.current) return;

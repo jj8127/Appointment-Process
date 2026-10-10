@@ -83,10 +83,13 @@ const getRecommenderDisplay = (profile?: Pick<FcProfile, 'recommender' | 'recomm
 };
 
 const readSignupReferralCode = (payload: unknown) => {
-    if (!isRecord(payload)) return null;
+    if (!isRecord(payload) || (!('signupReferralCode' in payload) && !('inviteeReferralCode' in payload))) {
+        throw new QueryReadError(200);
+    }
     const signupReferralCode = 'signupReferralCode' in payload
         ? payload.signupReferralCode
         : ('inviteeReferralCode' in payload ? payload.inviteeReferralCode : null);
+    if (signupReferralCode !== null && typeof signupReferralCode !== 'string') throw new QueryReadError(200);
     return typeof signupReferralCode === 'string' && signupReferralCode.trim() ? signupReferralCode : null;
 };
 
@@ -115,14 +118,21 @@ type FcDocument = {
 };
 
 export default function FcProfilePage({ params }: { params: Promise<{ id: string }> }) {
+    const { id: fcId } = use(params);
+    const { role, residentId, isReadOnly } = useSession();
+    return <FcProfileContent key={`${role ?? ''}:${residentId ?? ''}:${isReadOnly ? 'read' : 'write'}:${fcId}`} fcId={fcId} />;
+}
+
+function FcProfileContent({ fcId }: { fcId: string }) {
     const router = useRouter();
     const queryClient = useQueryClient();
-    const { id: fcId } = use(params);
     const { hydrated, role, isReadOnly } = useSession();
 
     const [memoDraft, setMemoDraft] = useState('');
     const memoSource = useRef<{ owner: string; value: string } | null>(null);
     const [isEditing, setIsEditing] = useState(false);
+    const profileSubmitting = useRef(false);
+    const memoSubmitting = useRef(false);
     const [isEditingRecommender, setIsEditingRecommender] = useState(false);
     const [selectedRecommenderFcId, setSelectedRecommenderFcId] = useState<string | null>(null);
     const [clearRecommenderSelection, setClearRecommenderSelection] = useState(false);
@@ -145,7 +155,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     });
 
     // --- Fetch Data ---
-    const { data: profile, isLoading: isProfileLoading, error: profileError } = useQuery({
+    const { data: profile, isLoading: isProfileLoading, error: profileError, refetch: refetchProfile } = useQuery({
         queryKey: ['fc-profile', fcId],
         queryFn: async () => {
             const resp = await fetch('/api/admin/fc', {
@@ -159,7 +169,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             });
 
             const json: unknown = await resp.json().catch(() => null);
-            if (!resp.ok || !isRecord(json) || json.ok !== true || !isRecord(json.profile)) {
+            if (!resp.ok || !isRecord(json) || json.ok !== true || !isRecord(json.profile) || json.profile.id !== fcId) {
                 if (isRecord(json) && typeof json.error === 'string' && json.error.trim()) {
                     throw new Error(json.error);
                 }
@@ -278,6 +288,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             queryClient.invalidateQueries({ queryKey: ['fc-signup-referral-code', fcId] });
         },
         onError: (err: Error) => notifications.show({ title: '저장 실패', message: err.message, color: 'red' }),
+        onSettled: () => { profileSubmitting.current = false; },
     });
 
     const updateRecommenderMutation = useMutation({
@@ -359,6 +370,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             queryClient.invalidateQueries({ queryKey: ['fc-profile', fcId] });
         },
         onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
+        onSettled: () => { memoSubmitting.current = false; },
     });
 
     // --- Helpers ---
@@ -370,16 +382,30 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             notifications.show({ title: '권한 없음', message: '관리자 계정에서만 수정할 수 있습니다.', color: 'yellow' });
             return;
         }
-        if (updateProfileMutation.isPending) return;
+        if (profileSubmitting.current || updateProfileMutation.isPending) return;
         if (!form.values.name.trim() || !form.values.phone.trim() || !form.values.affiliation.trim()) {
             notifications.show({ title: '입력 확인', message: '이름, 연락처, 소속은 비워둘 수 없습니다.', color: 'yellow' });
             return;
         }
+        profileSubmitting.current = true;
         updateProfileMutation.mutate(form.values);
     };
 
+    const handleSaveMemo = () => {
+        if (!canEdit || memoSubmitting.current || saveMemoMutation.isPending) return;
+        memoSubmitting.current = true;
+        saveMemoMutation.mutate(memoDraft);
+    };
+
+    const handleLeave = () => {
+        if (profileSubmitting.current || memoSubmitting.current || updateProfileMutation.isPending
+            || saveMemoMutation.isPending || updateRecommenderMutation.isPending) return;
+        if ((!isEditing && !isEditingRecommender && memoDraft === (memoSource.current?.value ?? ''))
+            || window.confirm('저장하지 않은 변경 내용을 버리고 나갈까요?')) router.back();
+    };
+
     const handleCancelEdit = useCallback(() => {
-        if (updateProfileMutation.isPending) return;
+        if (profileSubmitting.current || updateProfileMutation.isPending) return;
         if (form.isDirty() && !window.confirm('변경한 기본정보를 버릴까요?')) return;
         const memoDraft = form.values.admin_memo;
         if (profile) {
@@ -431,11 +457,13 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         }
     }, [canEdit, isEditing, handleCancelEdit]);
 
+    const profileReadOnly = !isEditing || !canEdit || updateProfileMutation.isPending;
+
     if (isProfileLoading) return <LoadingOverlay visible />;
-    if (profileError) {
+    if (profileError && !profile) {
         return (
             <Container py="xl">
-                <Text>FC 상세 정보를 불러오지 못했습니다.</Text>
+                <QueryErrorAlert error={profileError} subject="FC 상세 정보" onRetry={() => void refetchProfile()} />
             </Container>
         );
     }
@@ -456,11 +484,12 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     return (
         <Box bg={BACKGROUND} style={{ minHeight: '100vh' }}>
             <NotificationDestinationReady />
+            {profileError ? <QueryErrorAlert error={profileError} subject="FC 상세 정보" onRetry={() => void refetchProfile()} /> : null}
             {/* Header */}
             <Box bg="white" style={{ borderBottom: '1px solid #e9ecef' }} py="md" px="xl">
                 <Container size="xl" p={0}>
                     <Group justify="space-between" mb="xs">
-                        <Button variant="subtle" color="gray" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={() => { if ((!isEditing && !isEditingRecommender && memoDraft === (memoSource.current?.value ?? '')) || window.confirm('저장하지 않은 변경 내용을 버리고 나갈까요?')) router.back(); }}>
+                        <Button variant="subtle" color="gray" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={handleLeave}>
                             목록으로 돌아가기
                         </Button>
                         <Badge size="lg" color={presenceBadgeColor} variant={presenceBadgeVariant}>
@@ -542,7 +571,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                         <TextInput
                                             label="이름"
                                             variant={isEditing && canEdit ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing || !canEdit}
+                                            readOnly={profileReadOnly}
                                             {...form.getInputProps('name')}
                                             styles={{ input: { fontWeight: 600, color: CHARCOAL } }}
                                         />
@@ -551,7 +580,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                         <TextInput
                                             label="연락처"
                                             variant={isEditing && canEdit ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing || !canEdit}
+                                            readOnly={profileReadOnly}
                                             {...form.getInputProps('phone')}
                                         />
                                     </Grid.Col>
@@ -569,7 +598,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                             label="이메일"
                                             leftSection={isEditing && canEdit ? <IconMail size={16} /> : undefined}
                                             variant={isEditing && canEdit ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing || !canEdit}
+                                            readOnly={profileReadOnly}
                                             {...form.getInputProps('email')}
                                             placeholder={isEditing && canEdit ? 'example@email.com' : '-'}
                                         />
@@ -579,7 +608,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                             label="주소"
                                             leftSection={isEditing && canEdit ? <IconMapPin size={16} /> : undefined}
                                             variant={isEditing && canEdit ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing || !canEdit}
+                                            readOnly={profileReadOnly}
                                             {...form.getInputProps('address')}
                                             placeholder={isEditing && canEdit ? '주소를 입력하세요' : '-'}
                                         />
@@ -588,7 +617,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                         <TextInput
                                             label="상세주소"
                                             variant={isEditing && canEdit ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing || !canEdit}
+                                            readOnly={profileReadOnly}
                                             {...form.getInputProps('address_detail')}
                                             placeholder={isEditing && canEdit ? '상세주소를 입력하세요' : '-'}
                                         />
@@ -604,7 +633,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                             data={[{ value: '', label: '미입력' }, '신입', '경력']}
                                             label="경력 구분"
                                             variant={isEditing && canEdit ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing || !canEdit}
+                                            readOnly={profileReadOnly}
                                             {...form.getInputProps('career_type')}
                                             placeholder="신입 또는 경력 선택"
                                         />
@@ -613,7 +642,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                         <TextInput
                                             label="임시사번"
                                             variant={isEditing && canEdit ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing || !canEdit}
+                                            readOnly={profileReadOnly}
                                             {...form.getInputProps('temp_id')}
                                             placeholder={isEditing && canEdit ? 'T-123456' : '-'}
                                         />
@@ -622,7 +651,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                         <TextInput
                                             label="소속 (지점)"
                                             variant={isEditing && canEdit ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing || !canEdit}
+                                            readOnly={profileReadOnly}
                                             {...form.getInputProps('affiliation')}
                                         />
                                     </Grid.Col>
@@ -739,7 +768,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                             <Card shadow="sm" radius="md" withBorder bg="yellow.0">
                                 <Group justify="space-between" mb="sm">
                                     <Title order={5} c="orange.9">관리자 메모</Title>
-                                    <ActionIcon variant="light" color={canEdit ? 'orange' : 'gray'} onClick={() => saveMemoMutation.mutate(memoDraft)} loading={saveMemoMutation.isPending} disabled={!canEdit}>
+                                    <ActionIcon variant="light" color={canEdit ? 'orange' : 'gray'} onClick={handleSaveMemo} loading={saveMemoMutation.isPending} disabled={!canEdit}>
                                         <IconCheck size={16} />
                                     </ActionIcon>
                                 </Group>

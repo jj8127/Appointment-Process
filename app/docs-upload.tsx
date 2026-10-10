@@ -32,6 +32,7 @@ import {
 } from '@/lib/fc-notify-client';
 import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { logger } from '@/lib/logger';
+import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { openExternalUrl } from '@/lib/open-external-url';
 import {
@@ -147,7 +148,7 @@ function DocsUploadScreenContent() {
 
   const progressPercent = docCount.total > 0 ? (docCount.uploaded / docCount.total) * 100 : 0;
   const isDocsApproved = fc?.status === HANWHA_HANDOFF_STATUS;
-  const footerRoute = !isAdmin && isDocsApproved ? '/hanwha-commission' : '/';
+  const footerRoute = !isAdmin && isDocsApproved ? '/hanwha-commission' : INSURANCE_HOME_ROUTE;
   const footerLabel = !isAdmin && isDocsApproved ? '다위촉 URL 단계로 이동' : '홈으로 가기';
 
   const beginRead = useReadAttempt();

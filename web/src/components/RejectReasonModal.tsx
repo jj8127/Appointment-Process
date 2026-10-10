@@ -2,6 +2,7 @@
 
 import { Button, Group, Modal, Stack, Text, Textarea } from '@mantine/core';
 import type { KeyboardEvent, ReactNode } from 'react';
+import { shouldSubmitOnEnter } from '@/lib/user-intent-policy';
 
 type RejectReasonModalProps = {
   opened: boolean;
@@ -33,7 +34,7 @@ export function RejectReasonModal({
   minRows = 3,
 }: RejectReasonModalProps) {
   const handleReasonKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+    if (!shouldSubmitOnEnter(event)) return;
 
     event.preventDefault();
     if (submitting || submitDisabled) return;

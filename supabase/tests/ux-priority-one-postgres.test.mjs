@@ -59,6 +59,7 @@ for(const kind of ['board','notice']) {
     assert.deepEqual(await pending,original);
     assert.equal((await db.query(`select count(*)::int count from ${kind==='board'?'board_posts':'notices'}`)).rows[0].count,1);
     assert.equal((await db.query('select count(*)::int count from ux_creation_receipts')).rows[0].count,1);
+    if(kind==='notice') assert.equal((await db.query('select created_by from notices')).rows[0].created_by,'00000000001');
   });
   test(`${kind}: rollback releases the key and a competing request becomes the sole committed row`,async()=>{
     await resetCreation();await first.query('begin');const rolledBack=await create(first,kind);

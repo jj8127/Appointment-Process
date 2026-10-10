@@ -24,6 +24,10 @@ const REQUEST_BOARD_APP_RELOGIN_ERROR_CODES = new Set([
   'missing_session_token',
   'invalid_session_token',
   'invalid_bridge_token',
+  'missing_app_session',
+  'invalid_app_session',
+  'expired_app_session',
+  'expired_bridge_token',
 ]);
 
 /* ─── Types ─── */
@@ -173,13 +177,23 @@ let cachedToken: string | null = null;
 let cachedUser: RbUser | null = null;
 let cachedBridgeToken: string | null = null;
 let cachedAppSessionToken: string | null = null;
-let bridgeRefreshPromise: Promise<{
-  success: boolean;
-  bridgeToken?: string;
-  requestBoardRole?: 'fc' | 'designer' | null;
-  error?: string;
-  errorCode?: string;
-}> | null = null;
+let authRevision = 0;
+let bridgeRevision = 0;
+let appSessionRevision = 0;
+let authStorageWrite: Promise<void> = Promise.resolve();
+
+/** Capture the app account before awaiting storage or session recovery. */
+export function captureAppSessionOwner(): () => boolean {
+  const revision = appSessionRevision;
+  return () => revision === appSessionRevision;
+}
+
+let bridgeRefreshPromise: {
+  authRevision: number;
+  bridgeRevision: number;
+  appSessionRevision: number;
+  promise: Promise<RbBridgeRefreshResult>;
+} | null = null;
 
 const isAbortError = (err: unknown): err is Error =>
   err instanceof Error && err.name === 'AbortError';
@@ -205,7 +219,11 @@ async function fetchWithTimeout(
 export async function getStoredToken(): Promise<string | null> {
   if (cachedToken) return cachedToken;
   try {
-    cachedToken = await sensitiveTokenStorage.getItem(STORAGE_KEY_TOKEN);
+    await authStorageWrite;
+    if (cachedToken) return cachedToken;
+    const revision = authRevision;
+    const token = await sensitiveTokenStorage.getItem(STORAGE_KEY_TOKEN);
+    if (revision === authRevision) cachedToken = token;
     return cachedToken;
   } catch {
     return null;
@@ -215,7 +233,11 @@ export async function getStoredToken(): Promise<string | null> {
 export async function getStoredBridgeToken(): Promise<string | null> {
   if (cachedBridgeToken) return cachedBridgeToken;
   try {
-    cachedBridgeToken = await sensitiveTokenStorage.getItem(STORAGE_KEY_BRIDGE_TOKEN);
+    await authStorageWrite;
+    if (cachedBridgeToken) return cachedBridgeToken;
+    const revision = bridgeRevision;
+    const token = await sensitiveTokenStorage.getItem(STORAGE_KEY_BRIDGE_TOKEN);
+    if (revision === bridgeRevision) cachedBridgeToken = token;
     return cachedBridgeToken;
   } catch {
     return null;
@@ -225,7 +247,11 @@ export async function getStoredBridgeToken(): Promise<string | null> {
 export async function getStoredAppSessionToken(): Promise<string | null> {
   if (cachedAppSessionToken) return cachedAppSessionToken;
   try {
-    cachedAppSessionToken = await sensitiveTokenStorage.getItem(STORAGE_KEY_APP_SESSION_TOKEN);
+    await authStorageWrite;
+    if (cachedAppSessionToken) return cachedAppSessionToken;
+    const revision = appSessionRevision;
+    const token = await sensitiveTokenStorage.getItem(STORAGE_KEY_APP_SESSION_TOKEN);
+    if (revision === appSessionRevision) cachedAppSessionToken = token;
     return cachedAppSessionToken;
   } catch {
     return null;
@@ -235,8 +261,11 @@ export async function getStoredAppSessionToken(): Promise<string | null> {
 export async function getStoredUser(): Promise<RbUser | null> {
   if (cachedUser) return cachedUser;
   try {
+    await authStorageWrite;
+    if (cachedUser) return cachedUser;
+    const revision = authRevision;
     const raw = await safeStorage.getItem(STORAGE_KEY_USER);
-    if (raw) {
+    if (raw && revision === authRevision) {
       cachedUser = JSON.parse(raw);
       return cachedUser;
     }
@@ -245,43 +274,63 @@ export async function getStoredUser(): Promise<RbUser | null> {
 }
 
 async function storeAuth(token: string, user: RbUser) {
+  authRevision += 1;
   cachedToken = token;
   cachedUser = user;
-  await sensitiveTokenStorage.setItem(STORAGE_KEY_TOKEN, token);
-  await safeStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
+  await persistAuthChange(async () => {
+    await sensitiveTokenStorage.setItem(STORAGE_KEY_TOKEN, token);
+    await safeStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
+  });
+}
+
+function persistAuthChange(write: () => Promise<void>): Promise<void> {
+  const pending = authStorageWrite.then(write, write);
+  authStorageWrite = pending.catch(() => {});
+  return pending;
 }
 
 export async function setBridgeToken(token: string | null) {
+  bridgeRevision += 1;
   cachedBridgeToken = token;
-  if (token) {
-    await sensitiveTokenStorage.setItem(STORAGE_KEY_BRIDGE_TOKEN, token);
-  } else {
-    await sensitiveTokenStorage.removeItem(STORAGE_KEY_BRIDGE_TOKEN);
-  }
+  await persistAuthChange(async () => {
+    if (token) {
+      await sensitiveTokenStorage.setItem(STORAGE_KEY_BRIDGE_TOKEN, token);
+    } else {
+      await sensitiveTokenStorage.removeItem(STORAGE_KEY_BRIDGE_TOKEN);
+    }
+  });
 }
 
 export async function setAppSessionToken(token: string | null) {
+  appSessionRevision += 1;
   cachedAppSessionToken = token;
-  if (token) {
-    await sensitiveTokenStorage.setItem(STORAGE_KEY_APP_SESSION_TOKEN, token);
-  } else {
-    await sensitiveTokenStorage.removeItem(STORAGE_KEY_APP_SESSION_TOKEN);
-  }
+  await persistAuthChange(async () => {
+    if (token) {
+      await sensitiveTokenStorage.setItem(STORAGE_KEY_APP_SESSION_TOKEN, token);
+    } else {
+      await sensitiveTokenStorage.removeItem(STORAGE_KEY_APP_SESSION_TOKEN);
+    }
+  });
 }
 
 export async function clearAuth() {
+  authRevision += 1;
   cachedToken = null;
   cachedUser = null;
-  await sensitiveTokenStorage.removeItem(STORAGE_KEY_TOKEN);
-  await safeStorage.removeItem(STORAGE_KEY_USER);
+  await persistAuthChange(async () => {
+    await sensitiveTokenStorage.removeItem(STORAGE_KEY_TOKEN);
+    await safeStorage.removeItem(STORAGE_KEY_USER);
+  });
 }
 
 export async function clearRequestBoardState(options?: { clearAppSession?: boolean }) {
-  await clearAuth();
-  await setBridgeToken(null);
-  if (options?.clearAppSession) {
-    await setAppSessionToken(null);
-  }
+  // Advance every owner before yielding. The existing queue keeps storage writes
+  // ordered, so a login started during cleanup always persists after this clear.
+  await Promise.all([
+    clearAuth(),
+    setBridgeToken(null),
+    ...(options?.clearAppSession ? [setAppSessionToken(null)] : []),
+  ]);
 }
 
 type RbBridgeRefreshResult = {
@@ -290,19 +339,48 @@ type RbBridgeRefreshResult = {
   requestBoardRole?: 'fc' | 'designer' | null;
   error?: string;
   errorCode?: string;
+  status?: number;
+  retryable?: boolean;
 };
 
-async function refreshBridgeTokenFromAppSession(): Promise<RbBridgeRefreshResult> {
-  if (bridgeRefreshPromise) return bridgeRefreshPromise;
+const isRetryableStatus = (status: number) => status === 408 || status === 429 || status >= 500;
 
-  bridgeRefreshPromise = (async () => {
+function bridgeRefreshFailure(
+  errorCode = 'bridge_refresh_failed',
+  message?: string,
+  status?: number,
+): RbBridgeRefreshResult {
+  const needsRelogin = REQUEST_BOARD_APP_RELOGIN_ERROR_CODES.has(errorCode);
+  const accessDenied = ['request_board_not_applicable', 'inactive_account', 'not_completed', 'not_found']
+    .includes(errorCode);
+  const failureStatus = status ?? (needsRelogin ? 401 : accessDenied ? 403 : 503);
+  const retryable = isRetryableStatus(failureStatus);
+  return {
+    success: false,
+    error: retryable
+      ? '가람Link 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
+      : message ?? '가람Link 세션 재동기화에 실패했습니다.',
+    errorCode,
+    status: failureStatus,
+    retryable,
+  };
+}
+
+async function refreshBridgeTokenFromAppSession(): Promise<RbBridgeRefreshResult> {
+  const owner = { authRevision, bridgeRevision, appSessionRevision };
+  const isCurrentOwner = () => owner.authRevision === authRevision
+    && owner.bridgeRevision === bridgeRevision && owner.appSessionRevision === appSessionRevision;
+  if (bridgeRefreshPromise && bridgeRefreshPromise.authRevision === owner.authRevision
+    && bridgeRefreshPromise.bridgeRevision === owner.bridgeRevision
+    && bridgeRefreshPromise.appSessionRevision === owner.appSessionRevision) {
+    return bridgeRefreshPromise.promise;
+  }
+
+  const promise = (async () => {
     const sessionToken = await getStoredAppSessionToken();
+    if (!isCurrentOwner()) return sessionChangedResult();
     if (!sessionToken) {
-      return {
-        success: false,
-        error: '앱 세션 토큰이 없습니다.',
-        errorCode: 'missing_session_token',
-      };
+      return bridgeRefreshFailure('missing_session_token', '앱 세션 토큰이 없습니다.', 401);
     }
 
     try {
@@ -315,24 +393,29 @@ async function refreshBridgeTokenFromAppSession(): Promise<RbBridgeRefreshResult
       }>('sync-request-board-session', {
         body: { sessionToken },
       });
+      if (!isCurrentOwner()) return sessionChangedResult();
 
       if (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : '가람Link 세션 재동기화에 실패했습니다.',
-          errorCode: 'network_error',
-        };
+        // FunctionsHttpError carries the canonical failure in its response body.
+        const context = (error as { context?: Response }).context;
+        if (context && typeof context.json === 'function') {
+          const failure = await context.json().catch(() => null);
+          return bridgeRefreshFailure(
+            typeof failure?.code === 'string' ? failure.code : 'bridge_refresh_failed',
+            typeof failure?.message === 'string' ? failure.message : undefined,
+            context.status,
+          );
+        }
+        return bridgeRefreshFailure('network_error');
       }
 
       if (!data?.ok || !data.requestBoardBridgeToken) {
-        return {
-          success: false,
-          error: data?.message ?? '가람Link 세션 재동기화에 실패했습니다.',
-          errorCode: data?.code ?? 'bridge_refresh_failed',
-        };
+        return bridgeRefreshFailure(data?.code, data?.message);
       }
 
       await setBridgeToken(data.requestBoardBridgeToken);
+      if (owner.authRevision !== authRevision || owner.appSessionRevision !== appSessionRevision
+        || owner.bridgeRevision + 1 !== bridgeRevision) return sessionChangedResult();
       return {
         success: true,
         bridgeToken: data.requestBoardBridgeToken,
@@ -341,20 +424,18 @@ async function refreshBridgeTokenFromAppSession(): Promise<RbBridgeRefreshResult
             ? data.requestBoardRole
             : null,
       };
-    } catch (err) {
-      logger.warn('[rb-api] app session bridge refresh error', err);
-      return {
-        success: false,
-        error: '가람Link 세션 재동기화 중 오류가 발생했습니다.',
-        errorCode: 'network_error',
-      };
+    } catch {
+      logger.warn('[rb-api] app session bridge refresh error');
+      return bridgeRefreshFailure('network_error');
     }
   })();
+  const flight = { ...owner, promise };
+  bridgeRefreshPromise = flight;
 
   try {
-    return await bridgeRefreshPromise;
+    return await promise;
   } finally {
-    bridgeRefreshPromise = null;
+    if (bridgeRefreshPromise === flight) bridgeRefreshPromise = null;
   }
 }
 
@@ -363,15 +444,34 @@ type RbBridgeLoginResult = {
   user?: RbUser;
   error?: string;
   errorCode?: string;
+  status?: number;
+  retryable?: boolean;
 };
+
+// A changed session ends this request so create callers cannot replay it under a new actor.
+const sessionChangedResult = () => ({
+  success: false as const,
+  error: '로그인 정보가 변경되었습니다. 다시 시도해주세요.',
+  errorCode: 'session_changed',
+  code: 'session_changed',
+  status: 409,
+  retryable: false,
+});
 
 async function bridgeLogin(
   bridgeToken?: string,
   allowRefresh = true,
+  expectedAuthRevision = authRevision,
+  expectedAppSessionRevision = appSessionRevision,
 ): Promise<RbBridgeLoginResult> {
+  const isCurrentOwner = () => expectedAuthRevision === authRevision
+    && expectedAppSessionRevision === appSessionRevision;
+  if (!isCurrentOwner()) return sessionChangedResult();
   let tokenFromStorage = bridgeToken ?? (await getStoredBridgeToken());
+  if (!isCurrentOwner()) return sessionChangedResult();
   if (!tokenFromStorage) {
     const refreshed = await refreshBridgeTokenFromAppSession();
+    if (!isCurrentOwner()) return sessionChangedResult();
     if (refreshed.success) {
       tokenFromStorage = refreshed.bridgeToken ?? (await getStoredBridgeToken());
     } else {
@@ -379,6 +479,8 @@ async function bridgeLogin(
         success: false,
         error: refreshed.error ?? '브릿지 토큰이 없습니다.',
         errorCode: refreshed.errorCode ?? 'missing_bridge_token',
+        status: refreshed.status,
+        retryable: refreshed.retryable,
       };
     }
   }
@@ -386,6 +488,7 @@ async function bridgeLogin(
   if (!tokenFromStorage) {
     return { success: false, error: '브릿지 토큰이 없습니다.', errorCode: 'missing_bridge_token' };
   }
+  if (!isCurrentOwner()) return sessionChangedResult();
 
   try {
     const res = await fetchWithTimeout(`${BASE_URL}/api/auth/bridge-login`, {
@@ -393,28 +496,49 @@ async function bridgeLogin(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bridgeToken: tokenFromStorage }),
     });
-    const json = await res.json();
+    const json = await res.json().catch(() => null);
+    if (!isCurrentOwner()) return sessionChangedResult();
 
-    if (!json.success || !json.data?.token) {
+    if (isRetryableStatus(res.status)) {
+      return bridgeRefreshFailure(typeof json?.code === 'string' ? json.code : 'bridge_login_failed', undefined, res.status);
+    }
+    if (res.status === 403 && json?.code !== 'SESSION_INVALID') {
+      return bridgeRefreshFailure(
+        typeof json?.code === 'string' ? json.code : 'bridge_access_denied',
+        json?.error ?? json?.message ?? '브릿지 로그인 실패',
+        403,
+      );
+    }
+
+    if (!res.ok || !json?.success || !json.data?.token) {
       if (allowRefresh && !bridgeToken) {
         const refreshed = await refreshBridgeTokenFromAppSession();
+        if (!isCurrentOwner()) return sessionChangedResult();
         if (refreshed.success && refreshed.bridgeToken && refreshed.bridgeToken !== tokenFromStorage) {
-          return bridgeLogin(refreshed.bridgeToken, false);
+          return bridgeLogin(refreshed.bridgeToken, false, expectedAuthRevision, expectedAppSessionRevision);
         }
         if (!refreshed.success) {
           return {
             success: false,
-            error: refreshed.error ?? json.error ?? json.message ?? '브릿지 로그인 실패',
+            error: refreshed.error ?? json?.error ?? json?.message ?? '브릿지 로그인 실패',
             errorCode: refreshed.errorCode ?? 'bridge_login_failed',
+            status: refreshed.status,
+            retryable: refreshed.retryable,
           };
         }
       }
 
       const hasAppSessionToken = Boolean(await getStoredAppSessionToken());
+      if (!isCurrentOwner()) return sessionChangedResult();
       return {
         success: false,
-        error: json.error ?? json.message ?? '브릿지 로그인 실패',
-        errorCode: hasAppSessionToken ? 'bridge_login_failed' : 'invalid_bridge_token',
+        error: json?.error ?? json?.message ?? '브릿지 로그인 실패',
+        errorCode: typeof json?.code === 'string'
+          ? json.code
+          : res.status === 403 ? 'bridge_access_denied'
+            : hasAppSessionToken ? 'bridge_login_failed' : 'invalid_bridge_token',
+        status: res.status === 403 ? 403 : 401,
+        retryable: false,
       };
     }
 
@@ -426,16 +550,22 @@ async function bridgeLogin(
       role: json.data.user.role,
       affiliation: json.data.user.affiliation ?? undefined,
     };
+    if (!isCurrentOwner()) return sessionChangedResult();
+    const storedAuthRevision = authRevision + 1;
     await storeAuth(json.data.token, user);
+    if (storedAuthRevision !== authRevision || expectedAppSessionRevision !== appSessionRevision) return sessionChangedResult();
     return { success: true, user };
   } catch (err) {
-    logger.warn('[rb-api] bridge login error', err);
+    if (!isCurrentOwner()) return sessionChangedResult();
+    logger.warn('[rb-api] bridge login error');
     return {
       success: false,
       error: isAbortError(err)
         ? '가람Link 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
         : '서버에 연결할 수 없습니다.',
       errorCode: 'network_error',
+      status: 503,
+      retryable: true,
     };
   }
 }
@@ -450,7 +580,10 @@ type RbFetchOptions = RequestInit & {
   timeoutMs?: number;
   diagnosticPath?: string;
   suppressNotFoundWarning?: boolean;
+  multipart?: { buildBody: () => FormData; label: string };
 };
+
+type RbFetchResult<T> = RbApiResult<T> & { authRevision?: number };
 
 export type RbNotificationDelivery = {
   confirmed: boolean;
@@ -480,6 +613,55 @@ export type RbListPage<T> = {
   hasMore: boolean;
   limit: number;
 };
+
+type RbAuthRecovery =
+  | { retry: true; authRevision: number; appSessionRevision: number }
+  | { retry: false; result: RbApiResult<never> };
+
+async function recoverRequestBoardAuth(
+  expectedAuthRevision: number,
+  allowRetry: boolean,
+  expectedAppSessionRevision = appSessionRevision,
+): Promise<RbAuthRecovery> {
+  if (expectedAuthRevision !== authRevision || expectedAppSessionRevision !== appSessionRevision) {
+    return { retry: false, result: sessionChangedResult() };
+  }
+  if (allowRetry) {
+    const relogin = await bridgeLogin(undefined, true, expectedAuthRevision, expectedAppSessionRevision);
+    if (relogin.success && expectedAuthRevision + 1 === authRevision && expectedAppSessionRevision === appSessionRevision) {
+      return { retry: true, authRevision, appSessionRevision };
+    }
+    if (expectedAuthRevision !== authRevision || expectedAppSessionRevision !== appSessionRevision) {
+      return { retry: false, result: sessionChangedResult() };
+    }
+    if (relogin.retryable || (relogin.status !== 401
+      && !REQUEST_BOARD_APP_RELOGIN_ERROR_CODES.has(relogin.errorCode ?? ''))) {
+      return {
+        retry: false,
+        result: {
+          success: false,
+          error: relogin.error,
+          code: relogin.errorCode,
+          status: relogin.status,
+          retryable: relogin.retryable,
+        },
+      };
+    }
+  }
+  await clearAuth();
+  if (expectedAuthRevision + 1 !== authRevision || expectedAppSessionRevision !== appSessionRevision) {
+    return { retry: false, result: sessionChangedResult() };
+  }
+  return {
+    retry: false,
+    result: {
+      success: false,
+      status: 401,
+      retryable: false,
+      error: '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.',
+    },
+  };
+}
 
 export type RbListReadResource =
   | 'conversations'
@@ -527,16 +709,22 @@ async function rbFetch<T>(
   path: string,
   options: RbFetchOptions = {},
   allowRetry = true,
-): Promise<RbApiResult<T>> {
+): Promise<RbFetchResult<T>> {
   const {
     timeoutMs = REQUEST_BOARD_FETCH_TIMEOUT_MS,
     diagnosticPath,
     suppressNotFoundWarning = false,
+    multipart,
     ...requestOptions
   } = options;
+  const requestAuthRevision = authRevision;
+  const requestAppSessionRevision = appSessionRevision;
+  const isCurrentRequest = () => requestAuthRevision === authRevision
+    && requestAppSessionRevision === appSessionRevision;
   const token = await getStoredToken();
+  if (!isCurrentRequest()) return sessionChangedResult();
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(!multipart ? { 'Content-Type': 'application/json' } : {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(requestOptions.headers as Record<string, string> ?? {}),
   };
@@ -548,44 +736,59 @@ async function rbFetch<T>(
     const res = await fetchWithTimeout(url, {
       ...requestOptions,
       headers,
+      ...(multipart ? { body: multipart.buildBody() } : {}),
     }, timeoutMs);
+    if (!isCurrentRequest()) return sessionChangedResult();
 
-    // Only clear auth on 401 (token expired/invalid), NOT on 403 (forbidden/role mismatch)
-    if (res.status === 401) {
-      logger.warn(`[rb-api] 401 Unauthorized: ${safeDiagnosticPath}`);
-      if (allowRetry && path !== '/api/auth/bridge-login') {
-        const relogin = await bridgeLogin();
-        if (relogin.success) {
-          return rbFetch<T>(path, options, false);
-        }
-      }
-      await clearAuth();
-      return { success: false, status: 401, error: '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.' };
+    const forbidden = res.status === 403 ? await res.json().catch(() => null) : null;
+    if (!isCurrentRequest()) return sessionChangedResult();
+    if (res.status === 401 || (res.status === 403 && forbidden?.code === 'SESSION_INVALID')) {
+      logger.warn(`[rb-api] invalid session: ${safeDiagnosticPath}`);
+      const recovery = await recoverRequestBoardAuth(
+        requestAuthRevision,
+        allowRetry && path !== '/api/auth/bridge-login',
+        requestAppSessionRevision,
+      );
+      if (recovery.retry && (recovery.authRevision !== authRevision || recovery.appSessionRevision !== appSessionRevision)) return sessionChangedResult();
+      return recovery.retry ? rbFetch<T>(path, options, false) : recovery.result;
     }
 
     if (res.status === 403) {
       logger.warn(`[rb-api] 403 Forbidden: ${safeDiagnosticPath}`);
-      return { success: false, status: 403, error: '접근 권한이 없습니다.' };
+      return {
+        success: false,
+        status: 403,
+        retryable: false,
+        code: typeof forbidden?.code === 'string' ? forbidden.code : undefined,
+        error: typeof forbidden?.error === 'string' ? forbidden.error
+          : multipart && typeof forbidden?.message === 'string' ? forbidden.message : '접근 권한이 없습니다.',
+      };
     }
 
     if (!res.ok) {
       if (!(suppressNotFoundWarning && res.status === 404)) {
         logger.warn(`[rb-api] HTTP ${res.status}: ${safeDiagnosticPath}`);
       }
-      const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
+      const retryable = isRetryableStatus(res.status);
+      const fallbackError = multipart ? `${multipart.label} 실패 (${res.status})` : `서버 오류 (${res.status})`;
       try {
         const errJson = await res.json();
+        if (!isCurrentRequest()) return sessionChangedResult();
         return {
           success: false,
-          error: errJson.error ?? `서버 오류 (${res.status})`,
+          error: multipart
+            ? (typeof errJson?.error === 'string' && errJson.error.trim())
+              || (typeof errJson?.message === 'string' && errJson.message.trim()) || fallbackError
+            : errJson.error ?? fallbackError,
           code: typeof errJson.code === 'string' ? errJson.code : undefined,
           retryable,
           status: res.status,
         };
       } catch {
+        if (!isCurrentRequest()) return sessionChangedResult();
         return {
           success: false,
-          error: `서버 오류 (${res.status})`,
+          error: fallbackError,
           retryable,
           status: res.status,
         };
@@ -593,18 +796,20 @@ async function rbFetch<T>(
     }
 
     const json = await res.json();
+    if (!isCurrentRequest()) return sessionChangedResult();
 
     if (!json.success) {
       logger.warn(`[rb-api] API error: ${safeDiagnosticPath}`, json.error);
     }
 
-    return json;
+    return path === '/api/auth/me' ? { ...json, authRevision: requestAuthRevision } : json;
   } catch (err) {
+    if (!isCurrentRequest()) return sessionChangedResult();
     logger.warn(`[rb-api] network error: ${safeDiagnosticPath}`, err);
     return {
       success: false,
       retryable: true,
-      error: isAbortError(err)
+      error: multipart ? `${multipart.label}에 실패했습니다.` : isAbortError(err)
         ? '가람Link 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
         : '서버에 연결할 수 없습니다.',
     };
@@ -613,69 +818,47 @@ async function rbFetch<T>(
 
 /* ─── Auth ─── */
 
-export async function rbLogin(
-  phone: string,
-  password: string,
-): Promise<{ success: boolean; user?: RbUser; error?: string }> {
-  try {
-    const res = await fetchWithTimeout(`${BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: phone.trim(), password }),
-    });
-    const json = await res.json();
-
-    if (!json.success || !json.data?.token) {
-      return { success: false, error: json.error ?? json.message ?? '로그인 실패' };
-    }
-
-    const user: RbUser = {
-      id: json.data.user.id,
-      name: json.data.user.name,
-      email: json.data.user.email,
-      phone: json.data.user.phone,
-      role: json.data.user.role,
-      affiliation: json.data.user.affiliation ?? undefined,
-    };
-    await storeAuth(json.data.token, user);
-    logger.info(`[rb-api] login success: userId=${user.id}, role=${user.role}`);
-    return { success: true, user };
-  } catch (err) {
-    logger.warn('[rb-api] login error', err);
-    return {
-      success: false,
-      error: isAbortError(err)
-        ? '가람Link 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
-        : '서버에 연결할 수 없습니다.',
-    };
-  }
-}
-
 export async function rbCheckAuth(): Promise<{
   authenticated: boolean;
   user?: RbUser;
   error?: string;
   needsRelogin?: boolean;
+  status?: number;
+  retryable?: boolean;
 }> {
+  const expectedAuthRevision = authRevision;
+  const ownsAppSession = captureAppSessionOwner();
+  const sessionChanged = { authenticated: false, ...sessionChangedResult(), needsRelogin: false };
   const token = await getStoredToken();
+  if (expectedAuthRevision !== authRevision || !ownsAppSession()) return sessionChanged;
   if (!token) {
-    const bridged = await bridgeLogin();
+    const bridged = await bridgeLogin(undefined, true, expectedAuthRevision);
+    if (!ownsAppSession()
+      || (bridged.success ? expectedAuthRevision + 1 : expectedAuthRevision) !== authRevision) return sessionChanged;
     if (bridged.success && bridged.user) {
       return { authenticated: true, user: bridged.user };
     }
     return {
       authenticated: false,
       error: bridged.error,
-      needsRelogin: bridged.errorCode
-        ? REQUEST_BOARD_APP_RELOGIN_ERROR_CODES.has(bridged.errorCode)
-        : false,
+      status: bridged.status,
+      retryable: bridged.retryable,
+      needsRelogin: !bridged.retryable && (bridged.status === 401
+        || (bridged.status === 403 && bridged.errorCode === 'SESSION_INVALID')),
     };
   }
 
   const res = await rbFetch<RbUser>('/api/auth/me');
+  if (!ownsAppSession()) return sessionChanged;
   if (res.success && res.data) {
-    cachedUser = res.data;
+    if (res.authRevision !== authRevision) {
+      return sessionChanged;
+    }
     const hasRecoveryToken = Boolean((await getStoredBridgeToken()) || (await getStoredAppSessionToken()));
+    if (res.authRevision !== authRevision || !ownsAppSession()) {
+      return sessionChanged;
+    }
+    cachedUser = res.data;
     if (!hasRecoveryToken) {
       return {
         authenticated: false,
@@ -686,19 +869,16 @@ export async function rbCheckAuth(): Promise<{
     }
     return { authenticated: true, user: res.data };
   }
-  await clearAuth();
-  return { authenticated: false };
+  return {
+    authenticated: false,
+    error: res.error,
+    needsRelogin: res.status === 401,
+    status: res.status,
+    retryable: res.retryable,
+  };
 }
 
 /* ─── Conversations (Request-based) ─── */
-
-export async function rbGetConversations(): Promise<RbConversation[]> {
-  try {
-    return await rbGetConversationsOrThrow();
-  } catch {
-    return [];
-  }
-}
 
 export async function rbGetConversationsOrThrow(): Promise<RbConversation[]> {
   return rbReadAllPagesOrThrow(
@@ -997,22 +1177,6 @@ export async function rbGetMessagesOrThrow(
   );
 }
 
-export async function rbGetMessages(
-  conversationIds: number[],
-  limit = 50,
-): Promise<RbMessage[]> {
-  if (conversationIds.length === 0) return [];
-  const ids = conversationIds.join(',');
-  const res = await rbFetch<RbMessage[]>(
-    `/api/messages/by-conversations?ids=${ids}&markRead=true&limit=${limit}`,
-  );
-  if (res.success && res.data) {
-    return res.data;
-  }
-  logger.warn(`[rb-api] messages fetch failed for ids=${ids}:`, res.error);
-  return [];
-}
-
 export async function rbMarkMessagesRead(conversationIds: readonly number[]) {
   const ids = Array.from(new Set(conversationIds));
   if (ids.length === 0 || ids.some((id) => !isPositiveSafeInteger(id))) {
@@ -1085,14 +1249,6 @@ export async function rbDeleteMessage(
   });
 }
 
-export async function rbGetDmConversations(): Promise<RbDmConversation[]> {
-  try {
-    return await rbGetDmConversationsOrThrow();
-  } catch {
-    return [];
-  }
-}
-
 export async function rbGetDmConversationsOrThrow(): Promise<RbDmConversation[]> {
   return rbReadAllPagesOrThrow(
     '/api/direct-messages/conversations',
@@ -1147,20 +1303,6 @@ export async function rbGetDmMessagesOrThrow(
     'direct-messages',
     'DM messages',
   );
-}
-
-export async function rbGetDmMessages(
-  conversationId: number,
-  limit = 50,
-): Promise<RbDmMessage[]> {
-  const res = await rbFetch<RbDmMessage[]>(
-    `/api/direct-messages/${conversationId}?limit=${limit}`,
-  );
-  if (res.success && res.data) {
-    return res.data;
-  }
-  logger.warn(`[rb-api] DM messages fetch failed for id=${conversationId}:`, res.error);
-  return [];
 }
 
 export async function rbMarkDmMessagesRead(conversationId: number) {
@@ -1440,95 +1582,24 @@ export async function rbDeleteDmMessage(
   });
 }
 
-async function extractUploadErrorMessage(
-  response: Response,
-  fallback: string,
-): Promise<string> {
-  try {
-    const payload = await response.clone().json() as { error?: unknown; message?: unknown };
-    const errorMessage = typeof payload?.error === 'string' ? payload.error.trim() : '';
-    if (errorMessage) {
-      return errorMessage;
-    }
-
-    const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
-    if (message) {
-      return message;
-    }
-  } catch {
-    // Ignore JSON parse failures and use the fallback message.
-  }
-
-  return fallback;
-}
-
 export async function rbUploadAttachments(
   files: { uri: string; name: string; type: string }[],
   allowRetry = true,
-): Promise<{ success: boolean; data?: RbAttachmentMeta[]; error?: string }> {
-  const token = await getStoredToken();
-
-  const buildFormData = () => {
-    const formData = new FormData();
-
-    for (const file of files) {
-      formData.append('files', {
-        uri: file.uri,
-        name: file.name,
-        type: file.type,
-      } as any);
-    }
-
-    return formData;
-  };
-
-  try {
-    const res = await fetchWithTimeout(`${BASE_URL}/api/messages/attachments/upload`, {
-      method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        // Do NOT set Content-Type - fetch auto-sets multipart/form-data with boundary
+): Promise<RbApiResult<RbAttachmentMeta[]>> {
+  const result = await rbFetch<{ attachments: RbAttachmentMeta[] }>('/api/messages/attachments/upload', {
+    method: 'POST',
+    multipart: {
+      label: '파일 업로드',
+      buildBody: () => {
+        const formData = new FormData();
+        for (const file of files) formData.append('files', file as any);
+        return formData;
       },
-      body: buildFormData(),
-    });
-
-    if (res.status === 401) {
-      if (allowRetry) {
-        const relogin = await bridgeLogin();
-        if (relogin.success) {
-          return rbUploadAttachments(files, false);
-        }
-
-        await clearAuth();
-        return {
-          success: false,
-          error: relogin.error ?? '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.',
-        };
-      }
-
-      await clearAuth();
-      return { success: false, error: '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.' };
-    }
-
-    if (!res.ok) {
-      const errorMessage = await extractUploadErrorMessage(
-        res,
-        `파일 업로드 실패 (${res.status})`,
-      );
-      logger.warn(`[rb-api] upload failed: HTTP ${res.status}`, errorMessage);
-      return { success: false, error: errorMessage };
-    }
-
-    const json = await res.json();
-    if (json.success && json.data?.attachments) {
-      logger.info(`[rb-api] uploaded ${json.data.attachments.length} files`);
-      return { success: true, data: json.data.attachments };
-    }
-    return { success: false, error: json.error ?? json.message ?? '파일 업로드 실패' };
-  } catch (err) {
-    logger.warn('[rb-api] upload error', err);
-    return { success: false, error: '파일 업로드에 실패했습니다.' };
-  }
+    },
+  }, allowRetry);
+  if (!result.success) return { ...result, data: undefined };
+  if (Array.isArray(result.data?.attachments)) return { success: true, data: result.data.attachments };
+  return { success: false, error: result.error ?? result.message ?? '파일 업로드 실패' };
 }
 
 /* ─── Designers ─── */
@@ -1652,14 +1723,6 @@ export type RbRequestUploadFile = {
   type: string;
 };
 
-export async function rbGetDesigners(search?: string): Promise<RbDesigner[]> {
-  try {
-    return await rbGetDesignersOrThrow(search);
-  } catch {
-    return [];
-  }
-}
-
 export async function rbGetDesignersOrThrow(search?: string): Promise<RbDesigner[]> {
   const params = new URLSearchParams({ limit: '100' });
   if (search) params.set('search', search);
@@ -1670,22 +1733,8 @@ export async function rbGetProductsOrThrow(): Promise<RbInsuranceProduct[]> {
   return rbReadListOrThrow('/api/designers/products/list', 'products', 'products');
 }
 
-export async function rbGetProducts(): Promise<RbInsuranceProduct[]> {
-  const res = await rbFetch<RbInsuranceProduct[]>('/api/designers/products/list');
-  if (res.success && Array.isArray(res.data)) return res.data;
-  logger.warn('[rb-api] products failed:', res.error);
-  return [];
-}
-
 export async function rbGetCustomersOrThrow(): Promise<RbCustomerProfile[]> {
   return rbReadListOrThrow('/api/customers?ssnView=full', 'customers', 'customers');
-}
-
-export async function rbGetCustomers(): Promise<RbCustomerProfile[]> {
-  const res = await rbFetch<RbCustomerProfile[]>('/api/customers?ssnView=full');
-  if (res.success && Array.isArray(res.data)) return res.data;
-  logger.warn('[rb-api] customers failed:', res.error);
-  return [];
 }
 
 export async function rbSaveCustomer(
@@ -1710,17 +1759,6 @@ export type RbDirectMessageUser = {
   company_name?: string | null;
   affiliation?: string | null;
 };
-
-export async function rbGetDirectMessageUsers(
-  search?: string,
-  role?: 'fc' | 'designer',
-): Promise<RbDirectMessageUser[]> {
-  try {
-    return await rbGetDirectMessageUsersOrThrow(search, role);
-  } catch {
-    return [];
-  }
-}
 
 export async function rbGetDirectMessageUsersOrThrow(
   search?: string,
@@ -1766,14 +1804,6 @@ export async function rbCreateDmConversation(
 }
 
 /* ─── Unread Counts ─── */
-
-export async function rbGetUnreadCount(): Promise<number> {
-  const [msg, dm] = await Promise.all([
-    rbFetch<{ count: number }>('/api/messages/unread/count'),
-    rbFetch<{ count: number }>('/api/direct-messages/unread/count'),
-  ]);
-  return (msg.data?.count ?? 0) + (dm.data?.count ?? 0);
-}
 
 export async function rbGetNotificationUnreadCount(): Promise<number> {
   const res = await rbFetch<{ count: number }>('/api/notifications/unread/count');
@@ -2120,67 +2150,27 @@ export async function rbUploadRequestAttachments(
     requestDesignerId?: number;
   },
   allowRetry = true,
-): Promise<{ success: boolean; data?: RbRequestAttachmentFull[]; error?: string }> {
-  const token = await getStoredToken();
-  const buildFormData = () => {
-    const formData = new FormData();
-
-    payload.files.forEach((file) => {
-      formData.append('files', {
-        uri: file.uri,
-        name: file.name,
-        type: file.type,
-      } as any);
-    });
-    formData.append('metadata', JSON.stringify(payload.metadata));
-    if (payload.requestDesignerId) {
-      formData.append('requestDesignerId', String(payload.requestDesignerId));
-    }
-
-    return formData;
-  };
-
-  try {
-    const res = await fetchWithTimeout(
-      `${BASE_URL}/api/requests/${requestId}/designers/${designerId}/attachments`,
-      {
-        method: 'POST',
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+): Promise<RbApiResult<RbRequestAttachmentFull[]>> {
+  const result = await rbFetch<RbRequestAttachmentFull[]>(
+    `/api/requests/${requestId}/designers/${designerId}/attachments`,
+    {
+      method: 'POST',
+      multipart: {
+        label: '첨부파일 업로드',
+        buildBody: () => {
+          const formData = new FormData();
+          for (const file of payload.files) formData.append('files', file as any);
+          formData.append('metadata', JSON.stringify(payload.metadata));
+          if (payload.requestDesignerId) formData.append('requestDesignerId', String(payload.requestDesignerId));
+          return formData;
         },
-        body: buildFormData(),
       },
-    );
-
-    if (res.status === 401) {
-      if (allowRetry) {
-        const relogin = await bridgeLogin();
-        if (relogin.success) {
-          return rbUploadRequestAttachments(requestId, designerId, payload, false);
-        }
-      }
-      await clearAuth();
-      return { success: false, error: '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.' };
-    }
-
-    if (!res.ok) {
-      const errorMessage = await extractUploadErrorMessage(
-        res,
-        `첨부파일 업로드 실패 (${res.status})`,
-      );
-      logger.warn(`[rb-api] request attachment upload failed: HTTP ${res.status}`, errorMessage);
-      return { success: false, error: errorMessage };
-    }
-
-    const json = await res.json();
-    if (json.success && Array.isArray(json.data)) {
-      return { success: true, data: json.data };
-    }
-    return { success: false, error: json.error ?? json.message ?? '첨부파일 업로드 실패' };
-  } catch (err) {
-    logger.warn('[rb-api] request attachment upload error', err);
-    return { success: false, error: '첨부파일 업로드에 실패했습니다.' };
-  }
+    },
+    allowRetry,
+  );
+  if (!result.success) return result;
+  if (Array.isArray(result.data)) return { success: true, data: result.data };
+  return { success: false, error: result.error ?? result.message ?? '첨부파일 업로드 실패' };
 }
 
 export async function rbGetRequests(): Promise<RbRequestSummary[]> {
@@ -2207,20 +2197,8 @@ export async function rbGetFcCodesOrThrow(): Promise<RbFcCode[]> {
   return rbReadListOrThrow('/api/fc-codes', 'fc-codes', 'fc-codes');
 }
 
-export async function rbGetFcCodes(): Promise<RbFcCode[]> {
-  const res = await rbFetch<RbFcCode[]>('/api/fc-codes');
-  if (res.success && Array.isArray(res.data)) return res.data;
-  return [];
-}
-
 export async function rbGetCompanyNamesOrThrow(): Promise<string[]> {
   return rbReadListOrThrow('/api/fc-codes/company-names', 'company-names', 'company-names');
-}
-
-export async function rbGetCompanyNames(): Promise<string[]> {
-  const res = await rbFetch<string[]>('/api/fc-codes/company-names');
-  if (res.success && Array.isArray(res.data)) return res.data;
-  return [];
 }
 
 export async function rbCreateFcCode(

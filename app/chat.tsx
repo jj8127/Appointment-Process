@@ -33,6 +33,8 @@ import {
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
 import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
 import { useSession } from '@/hooks/use-session';
+import { createReadScope } from '@/lib/request-board-read-state';
+import { useReadAttempt } from '@/lib/use-read-attempt';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
 import { goBackOrReplace } from '@/lib/back-navigation';
@@ -273,7 +275,7 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { role, residentId, readOnly, logout, staffType } = useSession();
+  const { role, residentId, readOnly, logout, staffType, appSessionToken } = useSession();
   const {
     targetId,
     targetName,
@@ -387,7 +389,6 @@ export default function ChatScreen() {
   const [conversationSettingsVisible, setConversationSettingsVisible] = useState(false);
   const [roomMuted, setRoomMutedState] = useState(false);
   const [roomPreferenceLoading, setRoomPreferenceLoading] = useState(false);
-  const [roomPreferenceReady, setRoomPreferenceReady] = useState(false);
   const [roomPreferenceLoadedKey, setRoomPreferenceLoadedKey] =
     useState<string | null>(null);
   const [roomPreferencePending, setRoomPreferencePending] = useState(false);
@@ -401,6 +402,17 @@ export default function ChatScreen() {
     SelectedMessengerAttachment[]
   >([]);
   const [sendingAttachments, setSendingAttachments] = useState(false);
+  const sendingTextRef = useRef(false);
+  const sendOwnerScope = useRef(createReadScope());
+  const sendOwnerKey = `${role ?? ''}:${residentId ?? ''}:${appSessionToken ?? ''}:${conversationIdValue}:${normalizedTargetId}`;
+  if (sendOwnerScope.current.setScope(sendOwnerKey)) sendingTextRef.current = false;
+  const beginSend = useReadAttempt();
+  useEffect(() => {
+    setText('');
+    setSelectedAttachments([]);
+    setSendingAttachments(false);
+    attachmentBatchRef.current = null;
+  }, [sendOwnerKey]);
   const pickingRef = useRef(false);
   const attachmentBatchRef = useRef<PreparedMessengerAttachmentBatch | null>(
     null,
@@ -1176,7 +1188,9 @@ export default function ChatScreen() {
   const sendPayload = async (
     content: string,
     attachments: readonly SelectedMessengerAttachment[],
+    isCurrentSend: () => boolean = () => true,
   ) => {
+    if (!isCurrentSend()) return false;
     if (!myId || !otherId) {
       if (role === 'fc') {
         Alert.alert('대상 선택 필요', '메신저에서 대화할 대상을 먼저 선택해주세요.');
@@ -1211,9 +1225,11 @@ export default function ChatScreen() {
           )
             ? attachmentBatchRef.current
             : await prepareMessengerAttachmentBatch(draft);
+        if (!isCurrentSend()) return false;
         attachmentBatchRef.current = attachmentBatch;
       }
     } catch (error) {
+      if (!isCurrentSend()) return false;
       Alert.alert(
         '파일 확인 필요',
         error instanceof Error ? error.message : '첨부 파일을 확인해 주세요.',
@@ -1236,10 +1252,11 @@ export default function ChatScreen() {
 
     const clientMessageId = randomUUID();
     let uploadedIntentIds: string[] | null = null;
-    const sendCommittedMessage = (
+    const sendCommittedMessage = async (
       attachmentIntentIds: readonly string[] | null,
-    ) =>
-      sendGaraminDirectMessage({
+    ) => {
+      if (!isCurrentSend()) throw new Error('obsolete_send');
+      return sendGaraminDirectMessage({
         conversationId: resolvedConversation.id,
         clientMessageId,
         content,
@@ -1251,6 +1268,7 @@ export default function ChatScreen() {
             }
           : {}),
       });
+    };
     const commitMessage = async (): Promise<
       | { state: 'sent'; result: GaraminDirectMessageSendResult }
       | { state: 'committed' }
@@ -1261,6 +1279,7 @@ export default function ChatScreen() {
       const uploadResult = await uploadMessengerAttachmentBatch(
         attachmentBatch,
       );
+      if (!isCurrentSend()) throw new Error('obsolete_send');
       if (uploadResult.state === 'committed') {
         return { state: 'committed' };
       }
@@ -1276,6 +1295,7 @@ export default function ChatScreen() {
       try {
         return await commitMessage();
       } catch (error) {
+        if (!isCurrentSend()) return null;
         logger.warn('sendMessage error', {
           error: error instanceof Error ? error.message : String(error),
           conversationId: resolvedConversation.id,
@@ -1300,6 +1320,7 @@ export default function ChatScreen() {
       }
     };
     const commitResult = await commitMessageWithRetry();
+    if (!isCurrentSend()) return false;
     if (!commitResult) {
       if (optimisticMessage) {
         applyMessages(
@@ -1319,6 +1340,7 @@ export default function ChatScreen() {
         );
       }
       await fetchMessages();
+      if (!isCurrentSend()) return false;
       attachmentBatchRef.current = null;
       return true;
     }
@@ -1334,8 +1356,10 @@ export default function ChatScreen() {
     }
 
     const retryNotificationOnly = async (): Promise<void> => {
+      if (!isCurrentSend()) return;
       try {
         const retryResult = await sendCommittedMessage(uploadedIntentIds);
+        if (!isCurrentSend()) return;
         const retryDelivery = retryResult.delivery;
         if (
           !retryDelivery.confirmed
@@ -1366,6 +1390,7 @@ export default function ChatScreen() {
         }
         Alert.alert('알림 등록 완료', '메시지 알림을 등록했습니다.');
       } catch (error) {
+        if (!isCurrentSend()) return;
         logger.warn('[chat] notification retry result unavailable', {
           error: error instanceof Error ? error.message : String(error),
           conversationId: resolvedConversation.id,
@@ -1417,11 +1442,16 @@ export default function ChatScreen() {
     const submittedText = text;
     const content = text.trim();
     const attachments = selectedAttachments;
-    if ((!content && attachments.length === 0) || sendingAttachments) return;
+    if ((!content && attachments.length === 0) || sendingAttachments || sendingTextRef.current) return;
+    const isMountedSend = beginSend();
+    const ownsSend = sendOwnerScope.current.captureOwner(sendOwnerKey);
+    const isCurrentSend = () => isMountedSend() && ownsSend();
+    if (!isCurrentSend()) return;
+    sendingTextRef.current = true;
     setSendingAttachments(true);
-    void sendPayload(content, attachments)
+    void sendPayload(content, attachments, isCurrentSend)
       .then((sent) => {
-        if (!sent) return;
+        if (!sent || !isCurrentSend()) return;
         setText((current) => current === submittedText ? '' : current);
         setSelectedAttachments((current) =>
           current.length === attachments.length
@@ -1433,7 +1463,12 @@ export default function ChatScreen() {
             : current,
         );
       })
-      .finally(() => setSendingAttachments(false));
+      .catch(() => {
+        if (isCurrentSend()) Alert.alert('전송 확인 필요', '메시지 전송 결과를 확인하지 못했습니다. 작성 내용은 유지했습니다. 대화 내용을 확인한 뒤 다시 시도해 주세요.');
+      })
+      .finally(() => {
+        if (isCurrentSend()) { sendingTextRef.current = false; setSendingAttachments(false); }
+      });
   };
 
   const handleAttachment = async () => {
@@ -1838,7 +1873,6 @@ export default function ChatScreen() {
   }) : null, [directRoomRef]);
   const directRoomPreferenceReady = Boolean(
     directRoomRef
-    && roomPreferenceReady
     && roomPreferenceLoadedKey === directRoomRef.key,
   );
 
@@ -1847,7 +1881,6 @@ export default function ChatScreen() {
     if (!roomRef) return;
     const sequence = ++roomPreferenceSequenceRef.current;
     setRoomPreferenceLoading(true);
-    setRoomPreferenceReady(false);
     setRoomPreferenceLoadedKey(null);
     setRoomPreferenceFailure(null);
     try {
@@ -1855,11 +1888,9 @@ export default function ChatScreen() {
       if (sequence !== roomPreferenceSequenceRef.current) return;
       setRoomMutedState(preferences.rooms.some((row) => row.roomKey === roomRef.key));
       setRoomPreferenceLoadedKey(roomRef.key);
-      setRoomPreferenceReady(true);
       setRoomPreferenceFailure(null);
     } catch (error) {
       if (sequence !== roomPreferenceSequenceRef.current) return;
-      setRoomPreferenceReady(false);
       setRoomPreferenceLoadedKey(null);
       setRoomPreferenceFailure(buildMessengerNotificationPreferenceLoadFailure(error));
     } finally {
@@ -1873,7 +1904,6 @@ export default function ChatScreen() {
     roomPreferenceSequenceRef.current += 1;
     setRoomMutedState(false);
     setRoomPreferenceLoading(false);
-    setRoomPreferenceReady(false);
     setRoomPreferenceLoadedKey(null);
     setRoomPreferencePending(false);
     setRoomPreferenceFailure(null);
@@ -1901,7 +1931,6 @@ export default function ChatScreen() {
       if (sequence !== roomPreferenceSequenceRef.current) return;
       setRoomMutedState(preferences.rooms.some((row) => row.roomKey === roomRef.key));
       setRoomPreferenceLoadedKey(roomRef.key);
-      setRoomPreferenceReady(true);
     } catch (error) {
       if (sequence !== roomPreferenceSequenceRef.current) return;
       setRoomMutedState(previousMuted);

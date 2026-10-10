@@ -119,8 +119,12 @@ export function getNotificationPreferences() {
 export async function setGlobalPushEnabled(enabled: boolean) {
   const preferences = await invokePreferences({ action: 'set_global', enabled });
   if (!enabled) {
-    const unregisterResult = await unregisterAllPushTokens();
-    if (!unregisterResult.ok) throw new NotificationPreferenceWriteConfirmedError();
+    try {
+      const unregisterResult = await unregisterAllPushTokens();
+      if (!unregisterResult.ok) throw new NotificationPreferenceWriteConfirmedError();
+    } catch {
+      throw new NotificationPreferenceWriteConfirmedError();
+    }
   }
   return preferences;
 }

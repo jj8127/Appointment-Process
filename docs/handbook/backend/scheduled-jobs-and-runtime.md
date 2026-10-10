@@ -7,6 +7,10 @@ source_of_truth: supabase/functions/docs-deadline-reminder/index.ts + supabase/f
 
 # Backend Runbook: Scheduled Jobs And Runtime
 
+## 2026-10-10 CORS 공통 처리
+
+docs-deadline-reminder·user-presence의 공통 serveWithConfiguredCors는 등록된 요청 origin을 반환하고 Vary를 보강한다. Origin 없는 서버/native 호출, 예약 시각, presence 정책과 알림 mutation은 유지한다. cron 전용 함수의 OPTIONS와 브라우저 직접 호출 장애를 구분한다. [공통 계약](./notifications-inbox-push.md#web-edge-cors-boundary-2026-10-10) 및 데이터 없는54개 함수 감사 기록을 따른다.
+
 ## 2026-07-29 Persisted reminder target contract
 
 - `docs-deadline-reminder` persists a typed `onboarding_section/docs_upload`

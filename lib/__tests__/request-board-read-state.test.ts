@@ -98,6 +98,25 @@ test('unmounted scope invalidates pending completions', () => {
   expect(current()).toBe(false);
 });
 
+test('captured owner cannot become current again after A to B to A', () => {
+  const scope = createReadScope(); scope.setScope('A');
+  const ownsA = scope.captureOwner('A');
+  scope.setScope('B'); scope.setScope('A');
+  expect(scope.matches('A')).toBe(true);
+  expect(ownsA()).toBe(false);
+  expect(scope.captureOwner('A')()).toBe(true);
+});
+
+test('ordinary reads invalidate older reads while preserving the captured owner', () => {
+  const scope = createReadScope(); scope.setScope('A');
+  const ownsA = scope.captureOwner('A');
+  const olderRead = scope.issue(); const latestRead = scope.issue();
+  expect(olderRead()).toBe(false); expect(latestRead()).toBe(true);
+  expect(ownsA()).toBe(true);
+  scope.setScope('A'); expect(ownsA()).toBe(true);
+  scope.invalidate(); expect(ownsA()).toBe(false);
+});
+
 test.each(['customers', 'products', 'designers', 'codes'])('request creation does not mark initial data complete when %s fails', async (failedResource) => {
   const scope = createReadScope();
   const complete = { current: false };

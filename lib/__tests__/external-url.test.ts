@@ -1,5 +1,5 @@
 import * as WebBrowser from 'expo-web-browser';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 import {
   formatExternalUrlDisplayText,
@@ -17,6 +17,7 @@ jest.mock('expo-web-browser', () => ({
 }));
 
 jest.mock('react-native', () => ({
+  Platform: { OS: 'android' },
   Linking: {
     canOpenURL: jest.fn(),
     openURL: jest.fn(),
@@ -66,6 +67,36 @@ describe('external url helpers', () => {
 describe('openExternalUrl', () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    Object.assign(Platform, { OS: 'android' });
+  });
+
+  it('opens in the same web window only when explicitly requested', async () => {
+    Object.assign(Platform, { OS: 'web' });
+    mockedOpenBrowserAsync.mockResolvedValue({ type: WebBrowser.WebBrowserResultType.OPENED });
+
+    await expect(openExternalUrl('https://example.com/care', { sameWindowOnWeb: true })).resolves.toBe('https://example.com/care');
+
+    expect(mockedOpenBrowserAsync).toHaveBeenCalledWith('https://example.com/care', { windowName: '_self' });
+    expect(mockedOpenURL).not.toHaveBeenCalled();
+  });
+
+  it('keeps the default web browser window behavior for other callers', async () => {
+    Object.assign(Platform, { OS: 'web' });
+    mockedOpenBrowserAsync.mockResolvedValue({ type: WebBrowser.WebBrowserResultType.OPENED });
+
+    await openExternalUrl('https://example.com/other');
+
+    expect(mockedOpenBrowserAsync).toHaveBeenCalledWith('https://example.com/other');
+  });
+
+  it.each(['android', 'ios'])('keeps native in-app browser defaults on %s with a web-only option', async (os) => {
+    Object.assign(Platform, { OS: os });
+    mockedOpenBrowserAsync.mockResolvedValue({ type: WebBrowser.WebBrowserResultType.OPENED });
+
+    await openExternalUrl('https://example.com/care', { sameWindowOnWeb: true });
+
+    expect(mockedOpenBrowserAsync).toHaveBeenCalledWith('https://example.com/care');
+    expect(mockedOpenURL).not.toHaveBeenCalled();
   });
 
   it('opens an HTTPS meeting link without relying on the Android capability preflight', async () => {

@@ -7,6 +7,13 @@ source_of_truth: env contracts + reset-password functions + assisted-password fu
 
 # Security And Secret Operations
 
+## 2026-10-10 웹 origin과 세션 복구 경계
+
+- 27 legacy Edge entries use the request-scoped configured CORS wrapper. Only the complete requesting origin already in ALLOWED_ORIGINS is reflected. The wrapper preserves the existing per-function origin guards, actor checks, status/body/cache/security headers; native/server requests without Origin are unchanged. A development address must be explicitly approved and added while preserving the existing allowlist. No wildcard or implicit localhost grant is added.
+- Audit evidence distinguishes local source, remote function metadata, and unauthenticated OPTIONS.54 endpoints and169 caller positions were inspected without production data reads. The first allowed origin was hard-coded in27 entries; a normal200 OPTIONS status is insufficient if the browser origin does not match. The server-only app-session verifier's405/no CORS is expected.
+- Bridge SESSION_INVALID, ordinary permission403 and service503/network failures remain distinct. Temporary service failures preserve credentials; stale successful or failed operations must not overwrite/delete a new login or restore a logged-out identity. Existing mutation replay must not move an earlier account's payload into a new account.
+- No raw source response, token, user/message/customer data or raw log is retained in the audit. Regressions use synthetic inputs; helper CORS tests and focused bridge tests precede any separately approved production rollout.
+
 ## 2026-10-06 Admin web login session verification
 
 - The web password-login route verifies the upstream signed app token at the issuer's `verify-app-session` Edge endpoint before setting any login cookie. It does not require an app-session signing key in the web runtime for this verification.

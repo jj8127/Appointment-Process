@@ -10,7 +10,7 @@
 
 - [ ] 명시적 릴리스 승인자와 대상 환경이 기록돼 있다.
 - [ ] branch, HEAD, `git status --short`, commit 범위가 기록돼 있다.
-- [ ] 설명할 수 없는 dirty/untracked 파일이 배포 입력에서 제외됐다.
+- [ ] 배포 전 변경사항을 보존·커밋하고 `git status --porcelain=v1 --untracked-files=all` 결과가 비어 있는지 확인했다. 미완성 작업을 버려서 통과시키지 않는다.
 - [ ] P0/Critical·High, 인증 E2E, credential incident 차단점의 disposition이 승인됐다.
 - [ ] secret 값이 아닌 이름·defined/missing 상태만 점검했다.
 - [ ] rollback owner, 관측 담당, 중단 조건이 정해졌다.
