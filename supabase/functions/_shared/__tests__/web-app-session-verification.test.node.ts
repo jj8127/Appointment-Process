@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import test from 'node:test';
 import { createWebAppSessionVerificationHandler } from '../web-app-session-verification.ts';
-import { parseAppSessionTokenDetailed } from '../request-board-auth.ts';
+import { createPlatformMemberToken, parsePlatformMemberToken, parseAppSessionTokenDetailed, parseRequestBoardBridgeTokenDetailed } from '../request-board-auth.ts';
 import { checkSessionGeneration } from '../session-generation.ts';
+import { sendSignupSms } from '../signup-sms.ts';
 
 const service = 'synthetic-service-role-transport';
 const currentKey = 'synthetic-current-app-session-key';
@@ -98,4 +99,37 @@ test('canonical-generation outages and unexpected verifier failures remain close
       assert.deepEqual(await response.json(), { ok: false, code: 'session_verification_unavailable' });
     }
   });
+});
+
+test('real consumer signatures parse only as platform members, never as an insurance app session',async()=>{
+  await withKeys(async()=>{
+    const token=await createPlatformMemberToken('00000000011',claims.accountId,4);
+    assert.ok(token);
+    const member=await parsePlatformMemberToken(token);
+    assert.equal(member?.memberId,claims.accountId);
+    assert.equal(member?.sessionVersion,4);
+    let legacyReads=0;
+    const insurance=await parseAppSessionTokenDetailed(token,async()=>{legacyReads++;return {ok:true,claims};});
+    assert.equal(insurance.ok,false);assert.equal(legacyReads,0);
+    const oldBridgeSecret=process.env.REQUEST_BOARD_BRIDGE_TOKEN_SECRET;
+    process.env.REQUEST_BOARD_BRIDGE_TOKEN_SECRET=currentKey;
+    try {
+      assert.equal((await parseRequestBoardBridgeTokenDetailed(token,async()=>{legacyReads++;return {ok:true,claims};})).ok,false);
+      assert.equal(legacyReads,0);
+    } finally {
+      if(oldBridgeSecret===undefined) delete process.env.REQUEST_BOARD_BRIDGE_TOKEN_SECRET;
+      else process.env.REQUEST_BOARD_BRIDGE_TOKEN_SECRET=oldBridgeSecret;
+    }
+    assert.equal(await parsePlatformMemberToken(`${token}.extra`),null);
+    assert.equal(await parsePlatformMemberToken(signed()),null);
+  });
+});
+
+test('the shared signup SMS test transport cannot bypass delivery in hosted or production environments',async()=>{
+  for(const name of ['DENO_DEPLOYMENT_ID','VERCEL_ENV']) {
+    const previous=process.env[name];
+    process.env[name]=name==='VERCEL_ENV' ? 'production' : 'synthetic-hosted-deployment';
+    try {await assert.rejects(sendSignupSms('00000000011','123456','synthetic message',true),/Unsafe test SMS mode/);}
+    finally {if(previous===undefined) delete process.env[name];else process.env[name]=previous;}
+  }
 });

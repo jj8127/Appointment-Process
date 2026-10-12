@@ -47,6 +47,8 @@ export function MessengerAttachmentPicker({
         <Group gap={6}>
           {files.map((file, index) => (
             <Badge
+              h="auto"
+              py={4}
               key={`${file.name}-${file.size}-${index}`}
               variant="light"
               color="gray"

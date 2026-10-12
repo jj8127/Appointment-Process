@@ -340,7 +340,7 @@ export default function RequestBoardFcCodesScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
         <View style={styles.headerInner}>
-          <Pressable
+          <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button"
             style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
             onPress={() => router.back()}
           >
@@ -390,8 +390,8 @@ export default function RequestBoardFcCodesScreen() {
             returnKeyType="search"
           />
           {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery('')}>
-              <Feather name="x" size={15} color={COLORS.gray[400]} />
+            <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="검색어 지우기" accessibilityRole="button" onPress={() => setSearchQuery('')}>
+              <Feather name="x" size={15} color={COLORS.text.secondary} />
             </Pressable>
           )}
         </View>
@@ -515,7 +515,7 @@ export default function RequestBoardFcCodesScreen() {
               <Text style={styles.modalTitle}>
                 {editingCode ? '설계코드 수정' : '설계코드 등록'}
               </Text>
-              <Pressable onPress={closeEditModal} style={styles.modalCloseBtn}>
+              <Pressable accessibilityLabel="설계코드 수정 닫기" accessibilityRole="button" onPress={closeEditModal} style={styles.modalCloseBtn}>
                 <Feather name="x" size={20} color={COLORS.gray[500]} />
               </Pressable>
             </View>
@@ -707,9 +707,9 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: COLORS.gray[100],
     alignItems: 'center',
     justifyContent: 'center',
@@ -1005,9 +1005,9 @@ const styles = StyleSheet.create({
     color: COLORS.gray[900],
   },
   modalCloseBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: COLORS.gray[100],
     alignItems: 'center',
     justifyContent: 'center',

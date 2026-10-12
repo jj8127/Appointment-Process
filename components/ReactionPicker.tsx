@@ -21,8 +21,8 @@ export interface ReactionType {
 export const DEFAULT_REACTIONS: ReactionType[] = [
   { id: 'like', icon: 'thumbs-up', label: '좋아요', color: '#3b82f6' },
   { id: 'heart', icon: 'heart', label: '하트', color: '#ef4444' },
-  { id: 'check', icon: 'check-circle', label: '확인', color: '#10b981' },
-  { id: 'smile', icon: 'smile', label: '웃음', color: '#f59e0b' },
+  { id: 'check', icon: 'check-circle', label: '확인', color: '#047857' },
+  { id: 'smile', icon: 'smile', label: '웃음', color: COLORS.warning.dark },
 ];
 
 interface ReactionButtonProps {
@@ -71,6 +71,10 @@ function ReactionButton({ reaction, onPress, selected }: ReactionButtonProps) {
 
   return (
     <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={reaction.label}
+      accessibilityState={{ selected: isSelected }}
+      aria-pressed={isSelected}
       style={[
         styles.reactionButton,
         { borderColor: reaction.color },
@@ -81,7 +85,7 @@ function ReactionButton({ reaction, onPress, selected }: ReactionButtonProps) {
       onPressOut={handlePressOut}
       onPress={handlePress}
     >
-      <Feather name={reaction.icon as keyof typeof Feather.glyphMap} size={18} color={reaction.color} />
+      <Feather aria-hidden accessible={false} name={reaction.icon as keyof typeof Feather.glyphMap} size={18} color={reaction.color} />
     </AnimatedPressable>
   );
 }
@@ -154,9 +158,9 @@ const styles = StyleSheet.create({
     gap: SPACING.xs,
   },
   reactionButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1.5,
     backgroundColor: COLORS.white,
     alignItems: 'center',

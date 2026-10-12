@@ -1,0 +1,40 @@
+{
+  "tool": "built-in image_gen",
+  "source": "D:/hanhwa/.codex-remote-attachments/01a0e5a0-452b-7701-805a-95644569cd54/14bd6e6d-5d73-4d44-8f3c-be71b4fe8a75/1-1000004734.png",
+  "main": "Use case: background-extraction. Edit target: the attached phone screenshot. Deliverable: one clean isolated production logo PNG on a genuinely transparent alpha background. Extract/reconstruct ONLY the existing MODUON brand logo from the central image. Preserve its exact visual identity, proportions, contours and letterforms: two round orange heads over a single intertwined orange/yellow folded ribbon shaped as an M and as two people connecting, warm yellow-to-orange gradients with darker orange in the folds; underneath, bold rounded dark charcoal uppercase wordmark spelled exactly M O D U O N (MODUON), with the first O an orange/yellow ring and the final O charcoal. Keep the symbol centered above the wordmark and preserve the reference spacing, mark-to-word ratio and typography as closely as possible. Remove all phone/browser/ChatGPT UI, download button, white card, background gradient, shadow, screenshot artifacts, Korean slogan and English slogan. Only the symbol and the exact word MODUON should remain. Crisp smooth high-resolution edges, faithful gradients without invented texture, generous but compact transparent margins. No extra logos, no new design, no new typography, no fake checkerboard, no white rectangle, no scene or mockup. Output should be a usable transparent logo asset, preferably at least 1600 pixels wide.",
+  "symbol": "Use case: background-extraction. Input image is the prepared MODUON logo, the edit target. Produce one standalone brand symbol on a truly transparent alpha background. Keep ONLY the existing two orange/yellow circular heads and their intertwined folded M ribbon that represents two connected people. Preserve the exact contours, symmetry, proportions, warm yellow-orange gradients and darker folds from the input; do not redesign, add legs, alter the ribbon path or invent a different M. Remove the entire MODUON wordmark and everything below the symbol. Center the unchanged symbol in a square canvas with approximately 8 percent transparent safety margins. Make the contour and alpha edges very clean and smooth: no isolated stray pixels, no reddish noise, no outline, no glow, no shadow outside the shape, no white matte, no checkerboard drawn into the image. High-resolution, crisp, usable app-brand symbol. No text.",
+  "horizontal": "Use case: compositing. Input image is the prepared MODUON logo, the edit target. Produce a compact horizontal MODUON brand logo on genuinely transparent alpha. Change ONLY layout: place the exact existing two-head folded orange M ribbon symbol at the left and the exact existing MODUON wordmark at the right on a common visual centerline. Symbol height approximately 1.5 times wordmark letter height. Preserve the shape of the symbol, its orange-yellow gradient/fold colors, the exact rounded bold letterforms, dark charcoal lettering, and orange first O from the input. Text must spell MODUON exactly M O D U O N. Do not create an extra wordmark, Korean text, tagline, scene, border, shadow or background. Consistent restrained gap, comfortable tight transparent margins, wide landscape canvas. Clean smooth contour alpha edges, remove isolated fringe noise without changing shapes, no white matte, no fake checkerboard. Usable website header asset; maintain fidelity to the provided logo.",
+  "source_sha256": "ddced7fd8d27edfd964ab097331ebf73ea251666627238bffe7ea17da651813a",
+  "assets": [
+    {
+      "file": "moduon-logo-primary.png",
+      "size": [
+        1774,
+        887
+      ],
+      "mode": "RGBA",
+      "has_transparency": true,
+      "sha256": "ce7df240808c1a722f96b3bd1281df285559b86246ae50bec7543618bca254f3"
+    },
+    {
+      "file": "moduon-symbol.png",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "has_transparency": true,
+      "sha256": "7aadb817f8cf3de2aa22364dd40507eb8438007eae0d0834a1105f4cc7317151"
+    },
+    {
+      "file": "moduon-logo-horizontal.png",
+      "size": [
+        2172,
+        724
+      ],
+      "mode": "RGBA",
+      "has_transparency": true,
+      "sha256": "b5efbb092618ba15aa14dc3246e74d38fbbc098f0f976d46065d23701043ac71"
+    }
+  ]
+}

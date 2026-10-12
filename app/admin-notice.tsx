@@ -355,8 +355,8 @@ function AdminNoticeComposer() {
                 {images.map((img, idx) => (
                   <View key={idx} style={styles.imagePreview}>
                     <Image source={{ uri: img.uri }} style={styles.previewThumb} />
-                    <Pressable style={styles.removeBtn} onPress={() => removeImage(idx)}>
-                      <Feather name="x" size={12} color="#fff" />
+                    <Pressable accessibilityLabel="첨부 사진 삭제" accessibilityRole="button" style={styles.removeBtn} onPress={() => removeImage(idx)}>
+                      <Feather name="x" size={12} color="#fff" style={{ backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 10, padding: 4 }} />
                     </Pressable>
                   </View>
                 ))}
@@ -368,7 +368,7 @@ function AdminNoticeComposer() {
               <View key={idx} style={styles.fileRow}>
                 <Feather name="file-text" size={16} color={MUTED} />
                 <Text style={styles.fileName} numberOfLines={1}>{f.name}</Text>
-                <Pressable onPress={() => removeFile(idx)} style={{ padding: 4 }}>
+                <Pressable accessibilityLabel="첨부 파일 삭제" accessibilityRole="button" onPress={() => removeFile(idx)} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
                   <Feather name="x" size={16} color={MUTED} />
                 </Pressable>
               </View>
@@ -438,14 +438,8 @@ const styles = StyleSheet.create({
   },
   removeBtn: {
     position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    top: 0, right: 0, width: 44, height: 44, padding: 4,
+    alignItems: 'flex-end', justifyContent: 'flex-start',
   },
   fileRow: {
     flexDirection: 'row',

@@ -7,6 +7,12 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
+## 2026-10-11 공통 회원·제휴 데이터 (로컬)
+
+`20261011040816_platform_common_membership.sql`과 canonical schema에 공통 회원·회원 인증·가입 인증번호·제휴사·관심 등록·제휴 정산·혜택 테이블을 추가했다. 모든 테이블은 RLS를 사용하며 직접 anon/authenticated 접근과 관련 RPC 실행을 회수한다. Edge의 서비스 역할이 서명된 세션과 현재 계정/관리자 권한을 검증한 뒤 호출한다. 클라이언트가 역할을 지정하여 권한을 얻지 않는다.
+
+가입 추천인은 공통 관계로 유지하고 정산 시 직접 추천인·비율·계산 기준을 snapshot으로 보존한다. 제휴 설정은 revision을 비교하고 정산은 실제 거래/증빙·완료 시각·중복 요청을 검사한다. 기한은 제휴사 정산 완료 시각+7일이며 은행 이체를 실행하지 않는다. 병원은 광고 계약·한국 날짜 유효기간만 게시하고 환자 소개 수수료를 만들지 않는다. 기존 FC 삭제가 새 참조에 막히지 않게 신원 분리 계약을 유지한다. 상세는 [공통 서비스 계약](../mobile/platform-services.md), 검증은 기존 PGlite·Edge fixture 확장이다. 운영 DB 적용은 미실행이다.
+
 ## 2026-10-07 시험 본인 취소 마감 전이 계약
 
 - **2026-10-08 서버 반영·검증 및 모바일 빌드·스토어 심사 제출 완료, 새 앱 공개 대기.** `supabase/migrations/20261008060419_exam_self_cancellation_deadline.sql` 적용 후 로컬·운영 이력 88개가 일치하며 미적용·운영에만 있는 migration은 모두 0개다. 운영 helper/RPC 정의는 `supabase/schema.sql`과 일치하고 `SECURITY INVOKER`·`service_role` 전용 실행권을 확인했다. `exam-payment-proof` v15 `ACTIVE`의 배포 파일 일치·HTTP 응답·제한된 배포 후 오류 확인도 완료했다. 모바일 4.2.17의 Android 92·iOS 108은 원본 검증과 스토어 전달을 마쳤고 각각 `IN_REVIEW`·`WAITING_FOR_REVIEW`이며, 양 플랫폼의 공개 버전은 아직 4.2.16이다. 새 앱 공개·실기기 확인은 대기 상태다.

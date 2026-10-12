@@ -37,12 +37,14 @@ const SESSION_REFRESHABLE_CODES = new Set([
 
 export class ReferralAppSessionError extends Error {
   code?: string;
+  status?: number;
   needsRelogin: boolean;
 
-  constructor(message: string, options?: { code?: string; needsRelogin?: boolean }) {
+  constructor(message: string, options?: { code?: string; status?: number; needsRelogin?: boolean }) {
     super(message);
     this.name = 'ReferralAppSessionError';
     this.code = options?.code;
+    this.status = options?.status;
     this.needsRelogin = Boolean(options?.needsRelogin);
   }
 }
@@ -81,7 +83,7 @@ async function toReferralAppSessionError(error: unknown, fallback: string) {
   const normalized = normalizeReferralFunctionFailure(payload, fallback);
   return new ReferralAppSessionError(
     normalized.message,
-    { code: normalized.code, needsRelogin: normalized.needsRelogin },
+    { code: normalized.code, status: response.status, needsRelogin: normalized.needsRelogin || response.status === 401 },
   );
 }
 

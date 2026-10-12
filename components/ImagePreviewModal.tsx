@@ -229,10 +229,12 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }
               )}
             </View>
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="사진 미리보기 닫기"
               style={({ pressed }) => [styles.closeButton, pressed && { opacity: 0.7 }]}
               onPress={onClose}
             >
-              <Feather name="x" size={20} color="#fff" />
+              <Feather aria-hidden accessible={false} name="x" size={20} color="#fff" />
             </Pressable>
           </View>
           <View style={styles.body} onLayout={handleBodyLayout}>
@@ -331,9 +333,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   closeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.35)',
     alignItems: 'center',

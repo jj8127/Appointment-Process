@@ -1,6 +1,16 @@
-import { resolveSessionLandingRoute } from '@/lib/session-landing';
+import { resolvePlatformAuthRoute, resolveSessionLandingRoute } from '@/lib/session-landing';
 
 describe('resolveSessionLandingRoute', () => {
+  it.each(['insurance', 'care', 'telecom', 'rental', 'car'])('preserves the %s service intent through signup, login and completion', service => {
+    expect(resolvePlatformAuthRoute(service, 'signup')).toEqual({ pathname: '/services/signup', params: { service } });
+    expect(resolvePlatformAuthRoute(service, 'login')).toEqual({ pathname: '/services/login', params: { service } });
+    expect(resolvePlatformAuthRoute(service)).toEqual({ pathname: '/services/[service]', params: { service } });
+  });
+
+  it.each([undefined, 'hospital', 'help', 'https://example.invalid/', '__proto__', ['care']])('unknown service intents do not become redirect destinations (%j)', service => {
+    expect(resolvePlatformAuthRoute(service)).toBe('/services/account');
+    expect(resolvePlatformAuthRoute(service, 'login')).toBe('/services/login');
+  });
   it('routes admins to the admin home by default', () => {
     expect(
       resolveSessionLandingRoute({

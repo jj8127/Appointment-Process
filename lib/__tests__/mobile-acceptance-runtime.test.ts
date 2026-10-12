@@ -6,6 +6,8 @@ import { getDesignerRequestDetailActions } from '../request-board-review-actions
 import { getMessengerHubCapabilities } from '../messenger-role-capabilities';
 import { goBackOrReplace } from '../back-navigation';
 import { INSURANCE_HOME_ROUTE } from '../service-home';
+import { normalizePhone, validatePassword, validatePhone, validateRequired } from '../validation';
+import { resolvePlatformAuthRoute } from '../session-landing';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 const root = join(__dirname, '../..');
@@ -787,24 +789,249 @@ describe('mobile route regressions moved from the Edge fixture', () => {
 
 
 it('draft navigation preserves cancellation and busy exits; explicit discard and saved exits dispatch once', () => {
-  function scenario(dirty: boolean, busy: boolean, os = 'android') {
+  function scenario(dirty: boolean, busy: boolean, os = 'android', focused = true) {
     let callback!: (event: { data: { action: string } }) => void;
     let buttons: { style: string; onPress?: () => void }[] | undefined;
     let hardware!: () => boolean; let beforeUnload!: (event: { preventDefault: () => void; returnValue: string | null }) => void;
     const dispatch: string[] = []; const effects: (() => unknown)[] = [];
+    const removeBack = jest.fn();
     const navigation = { dispatch: (action: string) => dispatch.push(action), canGoBack: () => true, goBack: () => callback({ data: { action: 'back' } }) };
     const allow = mobileModule('hooks/use-draft-exit-guard.ts', {
-      '@react-navigation/native': { useNavigation: () => navigation, usePreventRemove: (_enabled: boolean, fn: typeof callback) => { callback = fn; } },
-      react: { useRef: (value: unknown) => ({ current: value }), useEffect: (fn: () => unknown) => effects.push(fn) },
-      'react-native': { Alert: { alert: (_title: string, _text: string, next: typeof buttons) => { buttons = next; } }, BackHandler: { addEventListener: (_event: string, fn: typeof hardware) => { hardware = fn; return { remove() {} }; } }, Platform: { OS: os } },
+      '@react-navigation/native': { useNavigation: () => navigation, usePreventRemove: (_enabled: boolean, fn: typeof callback) => { callback = fn; }, useFocusEffect: (fn: () => unknown) => { if (focused) effects.push(fn); } },
+      react: { useRef: (value: unknown) => ({ current: value }), useCallback: (fn: unknown) => fn },
+      'react-native': { Alert: { alert: (_title: string, _text: string, next: typeof buttons) => { buttons = next; } }, BackHandler: { addEventListener: (_event: string, fn: typeof hardware) => { hardware = fn; return { remove: removeBack }; } }, Platform: { OS: os } },
     }, { window: { addEventListener: (_event: string, fn: typeof beforeUnload) => { beforeUnload = fn; }, removeEventListener() {} } }).useDraftExitGuard(dirty, busy);
-    effects.forEach(effect => effect());
-    return { dispatch, allow, exit: () => callback({ data: { action: 'leave' } }), get buttons() { return buttons; }, hardware, event: () => beforeUnload };
+    const cleanups = effects.map(effect => effect());
+    return { dispatch, allow, exit: () => callback({ data: { action: 'leave' } }), get buttons() { return buttons; }, hardware, event: () => beforeUnload,
+      blur: () => cleanups.forEach(cleanup => { if (typeof cleanup === 'function') cleanup(); }), removeBack };
   }
   const dirty = scenario(true, false); dirty.exit(); expect(dirty.dispatch).toEqual([]); expect(dirty.buttons![0].style).toBe('cancel'); dirty.buttons![1].onPress!(); expect(dirty.dispatch).toEqual(['leave']);
   const busy = scenario(false, true); busy.hardware(); expect(busy.dispatch).toEqual([]); expect(busy.buttons).toBeUndefined();
   const saved = scenario(true, true); saved.allow(); saved.exit(); expect(saved.dispatch).toEqual(['leave']);
   const preventDefault = jest.fn(); scenario(true, false, 'web').event()({ preventDefault, returnValue: null }); expect(preventDefault).toHaveBeenCalledTimes(1);
+  expect(scenario(true, false, 'android', false).hardware).toBeUndefined();
+  expect(scenario(true, false, 'web', false).event()).toBeUndefined();
+  dirty.blur(); expect(dirty.removeBack).toHaveBeenCalledTimes(1);
+});
+
+describe('common member signup and login use isolated verified authentication', () => {
+  const PLATFORM_TERMS_VERSION = '2026-10-12';
+  const authContext = (overrides: Record<string, unknown> = {}) => ({
+    pending: { current: false }, cooldown: 0, phone: '01000000000', name: '가상 회원', code: '123456',
+    password: 'Synthetic1!', confirmation: 'Synthetic1!', termsAccepted: true, referralCode: ' testcode ',
+    PLATFORM_TERMS_VERSION,
+    validatePhone, validateRequired, validatePassword, normalizePhone,
+    resolvePlatformAuthRoute, service: undefined,
+    Keyboard: { dismiss: jest.fn() }, setError: jest.fn(), setNotice: jest.fn(), setLoading: jest.fn(), setCooldown: jest.fn(),
+    beginAttempt: () => () => true, allowCompletedExit: jest.fn(), loginPlatformMember: jest.fn(async () => undefined),
+    captureAppSessionOwner: () => () => true,
+    acceptLoginResponse: jest.fn(async () => 'fc'),
+    platformRequest: jest.fn(async () => ({ memberId: 'synthetic-member', displayName: '가상 회원', appSessionToken: 'fictional-consumer-token' })),
+    router: { replace: jest.fn() }, ...overrides,
+  });
+
+  it('submits phone proof and minimum member fields without creating an FC identity', async () => {
+    const context = authContext();
+    await routeHandler('app/services/signup.tsx', 'submit', context)('signup');
+    expect(context.platformRequest).toHaveBeenCalledWith('signup', {
+      phone: '01000000000', code: '123456', name: '가상 회원', password: 'Synthetic1!', termsAccepted: true, termsVersion: PLATFORM_TERMS_VERSION, referralCode: 'TESTCODE',
+    });
+    expect(context.loginPlatformMember).toHaveBeenCalledWith({ id: 'synthetic-member', name: '가상 회원' }, 'fictional-consumer-token');
+    expect(context.router.replace).toHaveBeenCalledWith('/services/account');
+  });
+
+  it('OTP requests send only the phone and do not grant a local verified flag', async () => {
+    const context = authContext();
+    await routeHandler('app/services/signup.tsx', 'submit', context)('otp');
+    expect(context.platformRequest).toHaveBeenCalledWith('request_otp', { phone: '01000000000' });
+    expect(context.setCooldown).toHaveBeenCalledWith(60);
+    expect(context.loginPlatformMember).not.toHaveBeenCalled();
+  });
+
+  it.each([{ termsAccepted: false }, { code: '123' }, { confirmation: 'different' }])('rejects incomplete signup before a network mutation (%j)', async override => {
+    const context = authContext(override);
+    await routeHandler('app/services/signup.tsx', 'submit', context)('signup');
+    expect(context.platformRequest).not.toHaveBeenCalled();
+    expect(context.setError).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('blocks duplicate signup and preserves the form when OTP verification fails', async () => {
+    const pending = deferred<unknown>();
+    const context = authContext({ platformRequest: jest.fn(() => pending.promise) });
+    const submit = routeHandler('app/services/signup.tsx', 'submit', context);
+    const first = submit('signup'); await submit('signup');
+    expect(context.platformRequest).toHaveBeenCalledTimes(1);
+    pending.resolve(Promise.reject(new Error('인증번호를 확인해주세요.')));
+    await first;
+    expect(context.setError).toHaveBeenCalledWith('인증번호를 확인해주세요.');
+    expect(context.loginPlatformMember).not.toHaveBeenCalled();
+    expect(context.router.replace).not.toHaveBeenCalled();
+    expect(context.pending.current).toBe(false);
+  });
+
+  it.each(['unmount', 'account-change'])('%s prevents a late login from replacing the session', async change => {
+    let active = true; let owner = true;
+    const pending = deferred<unknown>();
+    const context = authContext({ beginAttempt: () => () => active, captureAppSessionOwner: () => () => owner, platformRequest: jest.fn(() => pending.promise) });
+    const login = routeHandler('app/services/login.tsx', 'login', context);
+    const first = login(); if (change === 'unmount') active = false; else owner = false;
+    pending.resolve({ memberId: 'synthetic-member', displayName: '가상 회원', appSessionToken: 'fictional-consumer-token' });
+    await first;
+    expect(context.loginPlatformMember).not.toHaveBeenCalled();
+    expect(context.router.replace).not.toHaveBeenCalled();
+  });
+
+  it('common login preserves an existing signed FC response instead of replacing it with consumer rights', async () => {
+    const insuranceSession = { ok: true, role: 'fc', residentId: '01000000000', appSessionToken: 'fictional-fc-token', requestBoardBridgeToken: 'fictional-bridge-token' };
+    const context = authContext({ platformRequest: jest.fn(async () => ({ insuranceSession })) });
+    await routeHandler('app/services/login.tsx', 'login', context)();
+    expect(context.acceptLoginResponse).toHaveBeenCalledWith(insuranceSession);
+    expect(context.loginPlatformMember).not.toHaveBeenCalled();
+    expect(context.router.replace).toHaveBeenCalledWith('/services/account');
+  });
+
+  it.each([true, false])('password recovery reuses the screen and keeps platform=%s transport separate', async isPlatform => {
+    const invoke = jest.fn(async () => ({ data: { ok: true }, error: null }));
+    const context = { ...authContext(), isPlatform, token: '123456', newPassword: 'Synthetic1!', setRequested: jest.fn(), platformRequest: jest.fn(async () => ({ ok: true })),
+      supabase: { functions: { invoke }, auth: { signOut: jest.fn(async () => undefined) } }, logout: jest.fn(), Alert: { alert: jest.fn() } };
+    await routeHandler('app/reset-password.tsx', 'handleRequest', context)();
+    expect(context.setRequested).toHaveBeenCalledWith(true);
+    await routeHandler('app/reset-password.tsx', 'handleReset', context)();
+    if (isPlatform) {
+      expect(invoke).not.toHaveBeenCalled();
+      expect(context.platformRequest).toHaveBeenCalledWith('request_password_reset', { phone: '01000000000' });
+      expect(context.platformRequest).toHaveBeenCalledWith('reset_password', { phone: '01000000000', code: '123456', password: 'Synthetic1!' });
+      expect(context.router.replace).toHaveBeenCalledWith('/services/login');
+    } else {
+      expect(context.platformRequest).not.toHaveBeenCalled();
+      expect(invoke).toHaveBeenCalledWith('request-password-reset', { body: { phone: '01000000000' } });
+      expect(invoke).toHaveBeenCalledWith('reset-password', { body: { phone: '01000000000', token: '123456', newPassword: 'Synthetic1!' } });
+      expect(context.router.replace).toHaveBeenCalledWith('/login');
+    }
+    expect(context.logout).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['unmount', 'account-change'])('password reset preserves input, blocks repeats and ignores %s responses', async change => {
+    let active = true; let owner = true; const result = deferred<unknown>();
+    const context = { ...authContext(), isPlatform: true, token: '123456', newPassword: 'Synthetic1!',
+      platformRequest: jest.fn(() => result.promise), beginAttempt: () => () => active,
+      captureAppSessionOwner: () => () => owner,
+      supabase: { auth: { signOut: jest.fn() } }, logout: jest.fn(), Alert: { alert: jest.fn() } };
+    const reset = routeHandler('app/reset-password.tsx', 'handleReset', context);
+    const first = reset(); await reset(); expect(context.platformRequest).toHaveBeenCalledTimes(1);
+    result.resolve(Promise.reject(new Error('시험 연결 실패'))); await first;
+    expect(context.Alert.alert).toHaveBeenCalledWith('오류', '시험 연결 실패');
+    expect(context.token).toBe('123456'); expect(context.newPassword).toBe('Synthetic1!');
+    expect(context.logout).not.toHaveBeenCalled(); expect(context.pending.current).toBe(false);
+    const late = deferred<unknown>(); context.platformRequest.mockImplementation(() => late.promise);
+    const second = reset(); if (change === 'unmount') active = false; else owner = false; late.resolve({ ok: true }); await second;
+    expect(context.logout).not.toHaveBeenCalled(); expect(context.router.replace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['fc', 'fc', false, null], ['admin', 'admin', false, 'admin'], ['manager', 'admin', true, null],
+  ])('shared legacy session install preserves %s permissions and tokens', async (role, expectedRole, readOnly, staffType) => {
+    const context = {
+      clearRequestBoardState: jest.fn(async () => undefined), setAppSessionToken: jest.fn(async () => undefined),
+      setBridgeToken: jest.fn(async () => undefined), loginAs: jest.fn(), normalizeStaffType: (value: unknown) => value ?? null,
+    };
+    const result = await routeHandler('hooks/use-login.ts', 'acceptLoginResponse', context)({
+      ok: true, role, staffType, residentId: '01000000000', displayName: '가상 계정', appSessionToken: 'fictional-fc-token', requestBoardBridgeToken: 'fictional-bridge-token', requestBoardRole: 'fc',
+    });
+    expect(result).toBe(expectedRole);
+    expect(context.setAppSessionToken).toHaveBeenCalledWith('fictional-fc-token');
+    expect(context.setBridgeToken).toHaveBeenCalledWith('fictional-bridge-token');
+    expect(context.loginAs).toHaveBeenCalledWith(expectedRole, '01000000000', '가상 계정', staffType, readOnly, false, 'fc', 'fictional-fc-token');
+  });
+
+  it('a consumer role cannot be accepted as a legacy FC login response', async () => {
+    const context = { clearRequestBoardState: jest.fn(), setAppSessionToken: jest.fn(), setBridgeToken: jest.fn(), loginAs: jest.fn() };
+    await expect(routeHandler('hooks/use-login.ts', 'acceptLoginResponse', context)({ ok: true, role: 'member', appSessionToken: 'fictional-consumer-token' }))
+      .rejects.toThrow('로그인 결과');
+    expect(context.loginAs).not.toHaveBeenCalled();
+    expect(context.setAppSessionToken).not.toHaveBeenCalled();
+  });
+});
+
+describe('platform requests keep their account and service owner', () => {
+  it.each([
+    ['app/services/account.tsx', 'requestDeletion'],
+  ])('confirmation opened by an old account cannot submit after a new login (%s)', (path, handler) => {
+    let revision = 0;
+    const context = {
+      token: 'fictional-member-token', deleting: { current: false }, consentPending: { current: false }, pending: { current: false },
+      captureAppSessionOwner: () => { const captured = revision; return () => captured === revision; },
+      Alert: { alert: jest.fn() }, beginDelete: actualBeginAttempt(), beginCancel: actualBeginAttempt(),
+      platformRequest: jest.fn(), setDeleteError: jest.fn(), setDeleteLoading: jest.fn(), setCancelError: jest.fn(), setCancelling: jest.fn(),
+      session: { logout: jest.fn() }, router: { replace: jest.fn() }, refresh: jest.fn(),
+    };
+    routeHandler<(id?: string) => void>(path, handler, context)('synthetic-application');
+    revision += 1;
+    context.Alert.alert.mock.calls[0][2][1].onPress();
+    expect(context.platformRequest).not.toHaveBeenCalled();
+    expect(context.session.logout).not.toHaveBeenCalled();
+    expect(context.pending.current).toBe(false);
+    expect(context.deleting.current).toBe(false);
+  });
+
+  class PlatformReadError extends Error { constructor(public status: number) { super('조회 실패'); } }
+  const adminContext = (overrides: Record<string, unknown> = {}) => {
+    const ownerKey = JSON.stringify(['fictional-admin-token', true]);
+    return {
+      allowed: true, token: 'fictional-admin-token', ownerKey, owner: { current: ownerKey }, pending: { current: false },
+      beginRead: actualBeginAttempt(), beginWrite: actualBeginAttempt(),
+      PlatformApiError: PlatformReadError, setData: jest.fn(), setError: jest.fn(), setMessage: jest.fn(), setBusy: jest.fn(),
+      platformRequest: jest.fn(async () => ({ ok: true })), ...overrides,
+    };
+  };
+
+  it('a previous account mutation does not block the current administrator read', async () => {
+    const context = adminContext({ pending: { current: true } });
+    await routeHandler('app/services/manage.tsx', 'refresh', context)();
+    expect(context.platformRequest).toHaveBeenCalledWith('get_admin', {}, context.token);
+    expect(context.setData).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it.each([401, 403, 503])('administrator reads clear cached financial data only on access denial (%s)', async status => {
+    const context = adminContext({ platformRequest: jest.fn(async () => { throw new PlatformReadError(status); }) });
+    await routeHandler('app/services/manage.tsx', 'refresh', context)();
+    expect(context.setError).toHaveBeenCalledWith('조회 실패');
+    if (status === 503) expect(context.setData).not.toHaveBeenCalled();
+    else expect(context.setData).toHaveBeenCalledWith(null);
+  });
+
+  it.each([403, 503])('administrator write denial clears old financial data while transport failure keeps it (%s)', async status => {
+    const context = {
+      ...adminContext({ platformRequest: jest.fn(async () => { throw new PlatformReadError(status); }) }),
+      tracker: { current: { requestId: () => 'synthetic-request' } }, refresh: jest.fn(),
+    };
+    await routeHandler('app/services/manage.tsx', 'write', context)('save_partner', { name: '가상 제휴사' });
+    expect(context.setError).toHaveBeenCalledWith('조회 실패');
+    if (status === 503) expect(context.setData).not.toHaveBeenCalled();
+    else expect(context.setData).toHaveBeenCalledWith(null);
+    expect(context.refresh).not.toHaveBeenCalled();
+    expect(context.pending.current).toBe(false);
+  });
+
+  it('an old administrator save cannot unlock a new save or overwrite its result', async () => {
+    const result = deferred<unknown>();
+    const context = {
+      ...adminContext({ platformRequest: jest.fn(() => result.promise) }),
+      tracker: { current: { requestId: () => 'synthetic-request', complete: jest.fn() } }, refresh: jest.fn(),
+      setFields: jest.fn(), setPartnerId: jest.fn(), setEditing: jest.fn(), setRevision: jest.fn(), setActive: jest.fn(),
+      setSettlement: jest.fn(), setConfirmed: jest.fn(), setPayment: jest.fn(), setPaymentConfirmed: jest.fn(), setBenefitId: jest.fn(),
+      EMPTY_PARTNER: {}, EMPTY_SETTLEMENT: {}, randomUUID: () => 'synthetic-next-partner',
+    };
+    const first = routeHandler('app/services/manage.tsx', 'write', context)('save_partner', { name: '가상 제휴사' });
+    context.owner.current = JSON.stringify(['fictional-next-admin-token', true]);
+    context.beginWrite(); context.setBusy.mockClear(); context.setMessage.mockClear();
+    result.resolve({ ok: true }); await first;
+    expect(context.setMessage).not.toHaveBeenCalled();
+    expect(context.setFields).not.toHaveBeenCalled();
+    expect(context.refresh).not.toHaveBeenCalled();
+    expect(context.setBusy).not.toHaveBeenCalled();
+    expect(context.pending.current).toBe(true);
+  });
 });
 
 it.each([
@@ -838,4 +1065,50 @@ it.each([true, false])('verification back restores the existing signup form when
     expect(router.back).not.toHaveBeenCalled();
     expect(router.replace).toHaveBeenCalledWith('/signup');
   }
+});
+
+describe('request chat room back navigation', () => {
+  it.each([
+    ['req-2001', true, false], ['dm-2001', true, false], ['dm-2001', false, false], ['dm-2001', true, true],
+  ] as const)('returns %s to the messenger hub (history=%s, sending=%s)', (roomId, hasHistory, sending) => {
+    const stack = hasHistory ? ['/', '/messenger', '/request-board-messenger'] : ['/request-board-messenger'];
+    const context = {
+      sending: false, sendingRef: { current: sending }, activeConv: { id: roomId }, goBackOrReplace,
+      router: {
+        back: jest.fn(() => { stack.pop(); }),
+        replace: jest.fn((href: string) => { stack[stack.length - 1] = href; }),
+        canGoBack: () => stack.length > 1, setParams: jest.fn(),
+      }, Alert: { alert: jest.fn() }, setActiveConv: jest.fn(),
+    };
+    const handleBack = routeHandler<() => void>('app/request-board-messenger.tsx', 'handleBack', context);
+    const hardware = routeHandler<() => boolean>('app/request-board-messenger.tsx', 'onHardwareBack', { ...context, handleBack });
+
+    expect(hardware()).toBe(true);
+    expect(context.setActiveConv).not.toHaveBeenCalled();
+    expect(context.router.setParams).not.toHaveBeenCalled();
+    if (sending) {
+      expect(context.Alert.alert).toHaveBeenCalledWith('전송 중', expect.any(String));
+      expect(stack.at(-1)).toBe('/request-board-messenger');
+      expect(context.router.back).not.toHaveBeenCalled();
+      expect(context.router.replace).not.toHaveBeenCalled();
+    } else {
+      expect(stack.at(-1)).toBe('/messenger');
+      expect(context.router.back).toHaveBeenCalledTimes(hasHistory ? 1 : 0);
+      expect(context.router.replace).toHaveBeenCalledTimes(hasHistory ? 0 : 1);
+    }
+  });
+
+  it('lets the next hardware back leave the conversation list', () => {
+    const router = { back: jest.fn(), replace: jest.fn(), canGoBack: () => true };
+    const handleBack = routeHandler<() => void>('app/request-board-messenger.tsx', 'handleBack', {
+      activeConv: null, sending: false, sendingRef: { current: false }, router, goBackOrReplace,
+    });
+    const hardware = routeHandler<() => boolean>('app/request-board-messenger.tsx', 'onHardwareBack', {
+      activeConv: null, sending: false, sendingRef: { current: false }, handleBack,
+    });
+    expect(hardware()).toBe(false);
+    expect(router.back).not.toHaveBeenCalled();
+    handleBack();
+    expect(router.back).toHaveBeenCalledTimes(1);
+  });
 });

@@ -40,7 +40,6 @@ import { notifications } from '@mantine/notifications';
 import {
     IconArrowLeft,
     IconBuilding,
-    IconCheck,
     IconDeviceFloppy,
     IconEdit,
     IconFileText,
@@ -540,7 +539,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                                 {isEditing ? (
                                     <Group gap="xs">
                                 <Button variant="default" size="xs" onClick={handleCancelEdit} disabled={!canEdit}>취소</Button>
-                            <Button color="green" size="xs" leftSection={<IconDeviceFloppy size={14} />} onClick={handleSaveInfo} loading={updateProfileMutation.isPending} disabled={!canEdit}>저장</Button>
+                            <Button color="orange" size="xs" leftSection={<IconDeviceFloppy size={14} />} onClick={handleSaveInfo} loading={updateProfileMutation.isPending} disabled={!canEdit}>저장</Button>
                                     </Group>
                                 ) : (
                                     <Button
@@ -716,7 +715,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                                                     </Button>
                                                     <Button
                                                         size="xs"
-                                                        color="green"
+                                                        color="orange"
                                                         leftSection={<IconDeviceFloppy size={14} />}
                                                         onClick={handleSaveRecommender}
                                                         loading={updateRecommenderMutation.isPending}
@@ -768,8 +767,8 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                             <Card shadow="sm" radius="md" withBorder bg="yellow.0">
                                 <Group justify="space-between" mb="sm">
                                     <Title order={5} c="orange.9">관리자 메모</Title>
-                                    <ActionIcon variant="light" color={canEdit ? 'orange' : 'gray'} onClick={handleSaveMemo} loading={saveMemoMutation.isPending} disabled={!canEdit}>
-                                        <IconCheck size={16} />
+                                    <ActionIcon aria-label="관리자 메모 저장" variant="light" color={canEdit ? 'orange' : 'gray'} onClick={handleSaveMemo} loading={saveMemoMutation.isPending} disabled={!canEdit}>
+                                        <IconDeviceFloppy size={16} />
                                     </ActionIcon>
                                 </Group>
                                 <Textarea

@@ -40,7 +40,7 @@ export function ExamPaymentProofField({
             accessibilityLabel="선택한 입금 내역 사진 미리보기"
           />
           <View style={styles.fileSummary}>
-            <Feather name="check-circle" size={17} color="#15803d" />
+            <Feather aria-hidden accessible={false} name="check-circle" size={17} color="#15803d" />
             <Text style={styles.fileName} numberOfLines={1}>
               {selectedProof.fileName}
             </Text>
@@ -48,12 +48,12 @@ export function ExamPaymentProofField({
         </View>
       ) : existingProofAttached ? (
         <View style={styles.existingCard}>
-          <Feather name="check-circle" size={20} color="#15803d" />
+          <Feather aria-hidden accessible={false} name="check-circle" size={20} color="#15803d" />
           <Text style={styles.existingText}>기존 입금 내역이 첨부되어 있습니다.</Text>
         </View>
       ) : (
         <View style={styles.emptyCard}>
-          <Feather name="image" size={24} color={MUTED} />
+          <Feather aria-hidden accessible={false} name="image" size={24} color={MUTED} />
           <Text style={styles.emptyText}>입금 날짜가 보이는 캡처 사진을 첨부해주세요.</Text>
         </View>
       )}
@@ -70,7 +70,7 @@ export function ExamPaymentProofField({
             pressed && !disabled && styles.pressed,
           ]}
         >
-          <Feather name="image" size={17} color="#fff" />
+          <Feather aria-hidden accessible={false} name="image" size={17} color="#fff" />
           <Text style={styles.pickButtonText}>{hasProof ? '사진 변경' : '사진 선택'}</Text>
         </Pressable>
 
@@ -86,7 +86,7 @@ export function ExamPaymentProofField({
               pressed && !disabled && styles.pressed,
             ]}
           >
-            <Feather name="trash-2" size={17} color="#b91c1c" />
+            <Feather aria-hidden accessible={false} name="trash-2" size={17} color="#b91c1c" />
             <Text style={styles.removeButtonText}>삭제</Text>
           </Pressable>
         )}

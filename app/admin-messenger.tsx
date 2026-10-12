@@ -321,7 +321,7 @@ export default function AdminMessengerScreen() {
     <SafeAreaView style={[styles.safe, { paddingTop: insets.top }]} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <View style={styles.headerTitleRow}>
-          <Pressable style={styles.backButton} onPress={handleBackPress}>
+          <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={styles.backButton} onPress={handleBackPress}>
             <Feather name="arrow-left" size={22} color={CHARCOAL} />
           </Pressable>
           <Text style={styles.title}>가람지사 메신저</Text>
@@ -331,7 +331,7 @@ export default function AdminMessengerScreen() {
             </View>
           )}
         </View>
-        <Pressable style={styles.refreshBtn} onPress={() => { void refetch(); }}>
+        <Pressable accessibilityLabel="새로고침" accessibilityRole="button" style={styles.refreshBtn} onPress={() => { void refetch(); }}>
           <Feather name="refresh-cw" size={16} color={MUTED} />
         </Pressable>
       </View>
@@ -349,8 +349,8 @@ export default function AdminMessengerScreen() {
             returnKeyType="search"
           />
           {keyword.length > 0 && (
-            <Pressable onPress={() => setKeyword('')}>
-              <Feather name="x" size={16} color="#9CA3AF" />
+            <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="검색어 지우기" accessibilityRole="button" onPress={() => setKeyword('')}>
+              <Feather name="x" size={16} color={MUTED} />
             </Pressable>
           )}
         </View>
@@ -403,9 +403,9 @@ const styles = StyleSheet.create({
   },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
   backButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: -6,
@@ -422,9 +422,9 @@ const styles = StyleSheet.create({
   },
   headerBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
   refreshBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: '#E5E7EB',
     alignItems: 'center',

@@ -2,10 +2,14 @@ doc_id: FC-APP-EXAM-FLOWS
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-08-04
+last_verified: 2026-10-12
 source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*.tsx
 
 # Mobile Playbook: Exam Flows
+
+## 2026-10-12 시험 화면 아이콘 조작
+
+기존 Feather와 공용 증빙 구성요소를 재사용한다. 제목의 장식 이모지를 기존 의미 기호로 정리하고 검색·상세·증빙 열기/닫기·파일 제거·회차/지역 선택 버튼에 동작 이름과 선택/비활성 상태를 전달한다. 그림은 작은 크기를 유지해도 모바일 조작 영역은44px를 확보한다. 응시료·마감·취소·확정·권한·실시간 채널 계약은 이번 아이콘 수정으로 바꾸지 않았다. 구형 관리자 시험 검색은 기존 FilterHeader를 같은 파일의 모듈 범위에서 사용해 부모 재렌더 때 검색창과 포커스를 유지한다. 실제 검색 지우기와 팝오버 유지는 합성 UI로 확인했다.
 
 ## 2026-10-07 마감 후 본인 취소 제한 정책
 

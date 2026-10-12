@@ -1997,7 +1997,7 @@ function LegacyInsuranceHome() {
                       <Feather
                         name={getLinkIcon(item.stepKey ? `${item.href}?status=${item.stepKey}` : item.href)}
                         size={22}
-                        color={HANWHA_ORANGE}
+                        color={CHARCOAL}
                       />
                       {isMessengerShortcut && unreadMsgCount > 0 ? (
                         <View style={styles.quickLinkUnreadBadge}>
@@ -2196,7 +2196,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
-    ...CARD_SHADOW,
   },
   ctaDecoCircle: {
     position: 'absolute',
@@ -2448,8 +2447,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: ORANGE_FAINT,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,

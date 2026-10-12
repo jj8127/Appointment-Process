@@ -1,4 +1,4 @@
-import { resolveInsuranceServiceRoute } from '@/lib/service-home';
+import { resolveInsuranceServiceRoute, resolveServiceInformationKey } from '@/lib/service-home';
 
 type SessionLandingRole = 'admin' | 'fc' | null;
 
@@ -8,6 +8,14 @@ type ResolveSessionLandingRouteInput = {
   isRequestBoardDesigner: boolean;
   requestedService?: unknown;
 };
+
+/** Preserve a known service intent without accepting a caller supplied redirect URL. */
+export function resolvePlatformAuthRoute(service: unknown, destination: 'login' | 'signup' | 'service' = 'service') {
+  const key = resolveServiceInformationKey(service);
+  const pathname = destination === 'login' ? '/services/login' : destination === 'signup' ? '/services/signup' : '/services/[service]';
+  if (key && key !== 'help' && key !== 'hospital') return { pathname, params: { service: key } } as const;
+  return destination === 'service' ? '/services/account' as const : pathname;
+}
 
 export function resolveSessionLandingRoute({
   role,

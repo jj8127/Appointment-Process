@@ -86,6 +86,16 @@ describe('financial reads require the currently signed token without mutating ac
     expect(mockInvoke).not.toHaveBeenCalled(); expectNoSessionIO();
   });
 
+  it.each([
+    [401, '{}', true], [403, '{}', false], [403, 'not-json', false],
+    [403, '{"code":"expired_app_session"}', true], [503, '{}', false],
+  ])('preserves HTTP %s denial or failure without trusting the body %s', async (status, body, needsRelogin) => {
+    mockInvoke.mockResolvedValue({ data: null, error: { context: new Response(body, { status }) } });
+    await expect(session.invokeReferralFunction('get-my-referral-allowance', options))
+      .rejects.toMatchObject({ status, needsRelogin });
+    expect(mockInvoke).toHaveBeenCalledTimes(1); expectNoSessionIO();
+  });
+
   it('does not start session recovery after unmount when a late error body is parsed', async () => {
     const body = deferred();
     const response = new Response('{}', { status: 401 });

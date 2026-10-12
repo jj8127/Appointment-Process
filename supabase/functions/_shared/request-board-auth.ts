@@ -17,6 +17,7 @@ type SignedTokenKind =
   | 'request_board_bridge'
   | 'request_board_password_sync'
   | 'fc_onboarding_session'
+  | 'platform_member_session'
   | 'fc_assisted_password_change';
 
 type SignedTokenPayloadBase = {
@@ -45,6 +46,33 @@ export type AppSessionTokenPayload = SignedTokenPayloadBase & OptionalSessionGen
   staffType?: AppSessionStaffType;
   fcId?: string;
 };
+
+export type PlatformMemberTokenPayload = SignedTokenPayloadBase & {
+  kind: 'platform_member_session';
+  memberId: string;
+  sessionVersion: number;
+  source?: { role: AppSessionSourceRole; accountKind: SessionGenerationClaims['accountKind']; accountId: string };
+};
+
+/** The purpose is deliberately incompatible with FC and Request Board tokens. */
+export async function createPlatformMemberToken(phone: string, memberId: string, sessionVersion: number,
+  source?: PlatformMemberTokenPayload['source']) {
+  const secret = getAppSessionSigningSecret();
+  if (!secret) return null;
+  const iat = Math.floor(Date.now() / 1000);
+  return buildSignedToken<PlatformMemberTokenPayload>({
+    kind: 'platform_member_session', phone, memberId, sessionVersion, ...(source ? {source} : {}), iat, exp: iat + 86400,
+  }, secret);
+}
+
+export async function parsePlatformMemberToken(token: string) {
+  if (!token || token.length > 8192 || token.split('.').length !== 2) return null;
+  const result = await verifySignedTokenWithSecrets<PlatformMemberTokenPayload>(token, getAppSessionVerificationSecrets());
+  if (!result.ok || result.payload.kind !== 'platform_member_session'
+    || !/^[0-9a-f-]{36}$/i.test(result.payload.memberId)
+    || !Number.isSafeInteger(result.payload.sessionVersion) || result.payload.sessionVersion < 0) return null;
+  return result.payload;
+}
 
 export type AssistedPasswordChangeTokenPayload = SignedTokenPayloadBase & {
   kind: 'fc_assisted_password_change';

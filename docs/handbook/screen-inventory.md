@@ -10,11 +10,13 @@ source_of_truth: app/* + web/src/app/*
 ## Mobile
 
 - 인증/게이트: `login`, `signup`, `signup-verify`, `signup-password`, `reset-password`, `apply-gate`, `identity`
-- 서비스 선택: `index`(공개 홈, 명시적 보험 mode/홈 알림 문맥은 기존 FC 홈), `services/index`, `services/[service]`(가족간병·통신·자동차·이용 안내), `services/activity`, `services/account`
+- 모두온 공통 서비스: `index`(공개 홈, 명시적 보험 mode/홈 알림 문맥은 기존 FC 홈), `services/index`, `services/[service]`(보험·가족간병·통신·렌탈·자동차·제휴병원), `services/login`, `services/signup`, `services/application`, `services/activity`, `services/account`, `services/hospitals`, `services/manage`
 - FC: `home-lite`, `fc/new`, `consent`, `docs-upload`, `hanwha-commission`, `appointment`, `exam-apply`, `exam-apply2`, `referral`, `referral-tree`(redirect), `referral-graph`, `referral-revenue-graph`(local sample)
 - 공용/콘텐츠: `settings`, `notifications`, `notice`, `notice-detail`, `board`, `board-detail`, `messenger`, `messenger-search`, `new-conversation`, `chat`, `group-chat`, `notification-settings`, `muted-conversations`
 - GaramLink 연동: `request-board`, `request-board-messenger`, `request-board-requests`, `request-board-review`, `request-board-fc-codes`
 - Admin/Manager: `dashboard`, `exam-register`, `exam-register2`, `exam-manage`, `exam-manage2`, `admin-notice`, `admin-board`, `admin-board-manage`, `admin-messenger`
+
+2026-10-11 브랜드: 공통 홈·가입·로그인은 모두온 심볼과 이름을 사용하며 보험 업무만 가람in을 유지한다. 기기 전체 알림 권한/설정 안내도 모두온으로 표시한다. 앱 표시명·아이콘·시작 화면은 `app.json`과 `assets/images/moduon/`가 기준이며 이미 설치된 앱의 이름·아이콘에는 새 네이티브 빌드가 필요하다.
 
 The archived Figma foundation board contains the former 42-route inventory.
 Messenger V2 added the five routes `messenger-search`, `new-conversation`,

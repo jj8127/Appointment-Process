@@ -1,5 +1,10 @@
 project_id = "fc-onboarding-app"
 
+# Public signup/directory actions and purpose-isolated custom member sessions.
+# Every protected action validates its actor inside the handler.
+[functions.platform-service]
+verify_jwt = false
+
 # Authentication is the signed custom app session, checked inside this function.
 [functions.get-my-referral-allowance]
 verify_jwt = false

@@ -7,6 +7,17 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 
 # Admin Web Playbook: Dashboard Lifecycle
 
+## 2026-10-11 FC 목록 조회 응답 검증
+
+- `/dashboard`는 `/api/admin/list`의 FC 배열과 기존 `data` 배열 응답을 조회 자료로 검증한다. 배열에 저장 성공용 `ok: true` 검증을 적용하면 정상 목록까지 조회 실패가 되므로 적용하지 않는다.
+- 기존 `board-read-state-runtime.test.mjs`에서 실제 페이지의 queryFn을 실행해 정상 배열·빈 배열·잘못된 응답·HTTP 실패를 확인한다. 합성 브라우저 검증은 실제 목록과 상세 모달을 사용하며 운영 API 저장을 대신하지 않는다.
+
+## 2026-10-11 위촉 관리 연도 선택
+
+- `/dashboard/appointment`는 현재 연도를 기본으로 선택한다. FC 조회 결과의 유효한 `created_at` 연도, 현재 연도, 기존 2025·2024 선택지를 중복 없이 내림차순으로 제공한다.
+- 연도 선택을 고정한 두 값으로 제한해 새로운 연도의 위촉 대상이 접근 불가능해지면 회귀다. 승인/반려의 권한·저장 경계는 그대로 유지한다.
+- 기존 `ux-priority-one-runtime.test.mjs`에서 연도 선택과 현재 연도 FC 필터를 검사하고, 기존 합성 브라우저 fixture에서 2026년 대상의 승인 취소·실패·복구·재진입을 직접 확인한다. 운영 DB 저장 검증은 포함하지 않는다.
+
 ## 2026-10-10 무효 세션 재로그인과 저장 사본 정리
 
 - 서버가 무효 세션을 HTTP 401로 반환한 조회 오류의 `다시 로그인` 동작은 기존 SessionProvider의 logout을 사용한다. 쿠키를 정리한 뒤 `/auth`로 이동하므로 만료 전 폐기된 쿠키가 `/dashboard`로 되돌리는 경합을 방지한다. 일반 403 권한 거부는 이 동작으로 분류하지 않는다.

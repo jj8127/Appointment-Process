@@ -55,7 +55,7 @@ export function MessengerHubHeader({
         onPress={onBack}
         style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
       >
-        <Feather name="arrow-left" size={24} color="#111827" />
+        <Feather aria-hidden accessible={false} name="arrow-left" size={24} color="#111827" />
       </Pressable>
       <Text style={styles.title}>메신저</Text>
       <View style={styles.headerActions}>
@@ -66,18 +66,19 @@ export function MessengerHubHeader({
           onPress={onSearch}
           style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
         >
-          <Feather name="search" size={22} color="#111827" />
+          <Feather aria-hidden accessible={false} name="search" size={22} color="#111827" />
         </Pressable>
         {onFilter ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={filterActive ? '역할 필터, 적용됨' : '역할 필터'}
             accessibilityState={{ expanded: filterExpanded }}
+            aria-expanded={filterExpanded}
             hitSlop={4}
             onPress={onFilter}
             style={({ pressed }) => [styles.headerButton, filterActive && styles.headerButtonActive, pressed && styles.pressed]}
           >
-            <Feather name="sliders" size={20} color={filterActive ? ACCENT : '#111827'} />
+            <Feather aria-hidden accessible={false} name="sliders" size={20} color={filterActive ? ACCENT : '#111827'} />
           </Pressable>
         ) : null}
       </View>
@@ -111,7 +112,7 @@ export const MessengerHubPersonRow = memo(function MessengerHubPersonRow({
         </View>
         <Text style={styles.detail} numberOfLines={1}>{item.detail}</Text>
       </View>
-      <Feather name="chevron-right" size={18} color="#9CA3AF" />
+      <Feather aria-hidden accessible={false} name="chevron-right" size={18} color="#9CA3AF" />
     </Pressable>
   );
 });
@@ -135,13 +136,14 @@ export const MessengerRoleSectionHeader = memo(function MessengerRoleSectionHead
       accessibilityRole="button"
       accessibilityLabel={`${title} ${count}명 ${expanded ? '접기' : '펼치기'}`}
       accessibilityState={{ expanded }}
+      aria-expanded={expanded}
       onPress={() => onToggle(role)}
       style={({ pressed }) => [styles.sectionHeader, pressed && styles.sectionHeaderPressed]}
     >
       <View style={[styles.sectionDot, { backgroundColor: tone.line }]} />
       <Text style={styles.sectionTitle}>{title}</Text>
       <Text style={styles.sectionCount}>{count}</Text>
-      <Feather name={expanded ? 'chevron-down' : 'chevron-right'} size={18} color="#94A3B8" />
+      <Feather aria-hidden accessible={false} name={expanded ? 'chevron-down' : 'chevron-right'} size={18} color="#94A3B8" />
     </Pressable>
   );
 });
@@ -162,6 +164,7 @@ export function MessengerRoleFilterPanel({
             key={filter.key}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
+            aria-pressed={active}
             onPress={() => onChange(filter.key)}
             style={({ pressed }) => [styles.filterChip, active && styles.filterChipActive, pressed && styles.filterChipPressed]}
           >
@@ -217,12 +220,13 @@ export const MessengerHubConversationRow = memo(function MessengerHubConversatio
       </View>
       <View style={styles.meta}>
         <View style={styles.timeLine}>
-          {item.pinnedAt ? <Feather name="bookmark" size={14} color={ACCENT} /> : null}
+          {item.pinnedAt ? <Feather aria-hidden accessible={false} name="bookmark" size={14} color={ACCENT} /> : null}
           {onToggleMuted ? (
             <Pressable
               accessibilityLabel={item.muted ? '이 대화방 알림 켜기' : '이 대화방 알림 끄기'}
               accessibilityRole="button"
               accessibilityState={{ busy: muting, checked: !item.muted }}
+              aria-pressed={!item.muted}
               disabled={muting}
               hitSlop={8}
               onPress={(event) => {
@@ -236,7 +240,7 @@ export const MessengerHubConversationRow = memo(function MessengerHubConversatio
               ]}
             >
               <View style={styles.muteButtonContent}>
-                <Feather
+                <Feather aria-hidden accessible={false}
                   name={item.muted ? 'bell-off' : 'bell'}
                   size={17}
                   color={item.muted ? '#6B7280' : ACCENT}
@@ -245,7 +249,7 @@ export const MessengerHubConversationRow = memo(function MessengerHubConversatio
               </View>
             </Pressable>
           ) : null}
-          {item.muted && !onToggleMuted ? <Feather name="bell-off" size={14} color="#9CA3AF" /> : null}
+          {item.muted && !onToggleMuted ? <Feather aria-hidden accessible={false} name="bell-off" size={14} color="#9CA3AF" /> : null}
           {formattedTime ? <Text style={styles.time}>{formattedTime}</Text> : null}
         </View>
         {item.unreadCount > 0 ? (
@@ -267,7 +271,7 @@ export function MessengerHubNotice({
 }) {
   return (
     <View style={styles.notice} accessibilityRole="alert">
-      <Feather name="alert-circle" size={16} color="#9A4C16" />
+      <Feather aria-hidden accessible={false} name="alert-circle" size={16} color="#9A4C16" />
       <Text style={styles.noticeText}>{message}</Text>
       {onRetry ? (
         <Pressable accessibilityRole="button" onPress={onRetry} style={styles.retryButton}>

@@ -530,7 +530,7 @@ export default function SignupScreen() {
 
           <View style={styles.field}>
             <Text style={styles.label}>통신사</Text>
-            <Pressable style={styles.selectBox} onPress={() => setShowCarrierPicker(true)}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`통신사 선택, ${carrier || '미선택'}`} accessibilityState={{ expanded: showCarrierPicker }} aria-expanded={showCarrierPicker} style={styles.selectBox} onPress={() => setShowCarrierPicker(true)}>
               <TextInput
                 style={[styles.input, styles.inputWithIcon]}
                 placeholder="통신사 선택"
@@ -645,7 +645,7 @@ export default function SignupScreen() {
               />
               <Text style={styles.emailAt}>@</Text>
               <View style={{ flex: 1 }}>
-                <Pressable style={styles.emailDomainBox} onPress={() => setShowDomainPicker(true)}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`이메일 도메인 선택, ${emailDomain || '미선택'}`} accessibilityState={{ expanded: showDomainPicker }} aria-expanded={showDomainPicker} style={styles.emailDomainBox} onPress={() => setShowDomainPicker(true)}>
                   <TextInput
                     style={[styles.input, styles.inputWithIcon]}
                     placeholder="도메인 선택"

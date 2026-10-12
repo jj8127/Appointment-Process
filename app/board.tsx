@@ -845,7 +845,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
             </Text>
           </View>
           {comment.isMine && (
-            <Pressable
+            <Pressable accessibilityLabel="댓글 더보기" accessibilityRole="button"
               style={({ pressed }) => [
                 styles.commentMoreButton,
                 pressed && { opacity: 0.6 },
@@ -1061,7 +1061,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
             returnKeyType="search"
           />
           {searchInput.length > 0 && (
-            <Pressable
+            <Pressable accessibilityLabel="검색어 지우기" accessibilityRole="button"
               onPress={() => {
                 setSearchInput('');
                 setSearchQuery('');
@@ -1185,7 +1185,6 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="게시글 공유"
-                    hitSlop={8}
                     style={({ pressed }) => [styles.iconActionButton, pressed && { opacity: 0.65 }]}
                     onPress={(event) => {
                       event.stopPropagation();
@@ -1321,7 +1320,6 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel="게시글 공유"
-                      hitSlop={8}
                       style={({ pressed }) => [styles.modalIconButton, pressed && { opacity: 0.65 }]}
                       onPress={() => handleSharePost(modalPost)}
                     >
@@ -1330,7 +1328,6 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel="게시글 상세 닫기"
-                      hitSlop={8}
                       style={({ pressed }) => [styles.modalIconButton, pressed && { opacity: 0.65 }]}
                       onPress={animateCloseModal}
                     >
@@ -1512,7 +1509,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                 {replyTarget && (
                   <View style={styles.replyBanner}>
                     <Text style={styles.replyBannerText}>{replyTarget.authorName}님에게 답글</Text>
-                    <Pressable
+                    <Pressable accessibilityLabel="답글 취소" accessibilityRole="button"
                       style={({ pressed }) => [styles.replyCancel, pressed && { opacity: 0.6 }]}
                       onPress={() => setReplyTarget(null)}
                     >
@@ -1529,7 +1526,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                     onChangeText={setCommentText}
                     multiline
                   />
-                  <Pressable
+                  <Pressable accessibilityLabel="댓글 전송" accessibilityRole="button" accessibilityState={{ disabled: !commentText.trim() || addCommentMutation.isPending }}
                     style={[styles.commentSubmitButton, !commentText.trim() && { opacity: 0.5 }]}
                     onPress={handleAddComment}
                     disabled={!commentText.trim() || addCommentMutation.isPending}
@@ -1588,8 +1585,8 @@ const styles = StyleSheet.create({
   },
   searchClear: {
     position: 'absolute',
-    right: 36,
-    padding: 4,
+    right: 24,
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
   },
   filterRow: {
     flexDirection: 'row',
@@ -1726,9 +1723,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   iconActionButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
     borderColor: BORDER,
@@ -1907,9 +1904,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   modalIconButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#F9FAFB',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2020,9 +2017,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   commentMoreButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#f3f4f6',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2152,9 +2149,9 @@ const styles = StyleSheet.create({
   },
   replyBannerText: { fontSize: 12, fontWeight: '600', color: TEXT_MUTED },
   replyCancel: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#f3f4f6',
     alignItems: 'center',
     justifyContent: 'center',

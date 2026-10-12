@@ -67,7 +67,7 @@ export function ReferralRevenueDetailSheet({ node, onClose }: Props) {
               accessibilityLabel="매출 기여 상세 닫기"
               hitSlop={8}
             >
-              <Feather name="x" size={22} color={COLORS.text.secondary} />
+              <Feather aria-hidden accessible={false} name="x" size={22} color={COLORS.text.secondary} />
             </Pressable>
           </View>
 
@@ -93,7 +93,7 @@ export function ReferralRevenueDetailSheet({ node, onClose }: Props) {
             ) : null}
 
             <View style={styles.notice}>
-              <Feather name="info" size={16} color={COLORS.warning.dark} />
+              <Feather aria-hidden accessible={false} name="info" size={16} color={COLORS.warning.dark} />
               <Text style={styles.noticeText}>{DISCLAIMER}</Text>
             </View>
           </ScrollView>

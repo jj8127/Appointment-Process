@@ -14794,3 +14794,861 @@ begin
 end; $$;
 revoke all on function public.create_notice_idempotent_v1(text,text,uuid,jsonb) from public,anon,authenticated;
 grant execute on function public.create_notice_idempotent_v1(text,text,uuid,jsonb) to service_role;
+
+-- Unified platform membership and partner settlement (20261011).
+-- Custom signed sessions terminate at platform-service. No direct client access.
+create table public.platform_members (
+  id uuid primary key default gen_random_uuid(),
+  phone text unique check (phone ~ '^[0-9]{11}$'),
+  name text not null check (length(name) between 1 and 80),
+  fc_id uuid unique references public.fc_profiles(id) on delete set null,
+  referral_code text not null unique default upper(substr(replace(gen_random_uuid()::text,'-',''),1,12)),
+  referrer_id uuid references public.platform_members(id) on delete restrict,
+  active boolean not null default true,
+  terms_accepted_at timestamptz,
+  created_at timestamptz not null default now(),
+  check (referrer_id is distinct from id)
+);
+create index platform_members_referrer on public.platform_members(referrer_id);
+create or replace function public.guard_platform_referrer() returns trigger
+language plpgsql security invoker set search_path=public,pg_temp as $$
+begin
+  if new.referrer_id is not null and new.referrer_id is distinct from old.referrer_id then
+    perform pg_advisory_xact_lock(741011);
+    if exists(with recursive ancestors(id,path) as (
+      select new.referrer_id,array[new.referrer_id]
+      union all select m.referrer_id,a.path||m.referrer_id from platform_members m join ancestors a on m.id=a.id
+      where m.referrer_id is not null and not m.referrer_id=any(a.path)
+    ) select from ancestors where id=new.id) then raise exception 'referral_cycle'; end if;
+  end if;
+  return new;
+end $$;
+revoke all on function public.guard_platform_referrer() from public,anon,authenticated;
+create trigger platform_referrer_cycle before update of referrer_id on public.platform_members
+for each row execute function public.guard_platform_referrer();
+create table public.platform_member_credentials (
+  member_id uuid primary key references public.platform_members(id) on delete cascade,
+  password_hash text not null,
+  password_salt text not null,
+  session_version bigint not null default 0,
+  failed_count integer not null default 0,
+  locked_until timestamptz
+);
+create table public.platform_signup_challenges (
+  phone text primary key,
+  code_hash text not null,
+  expires_at timestamptz not null,
+  sent_at timestamptz not null default now(),
+  attempts integer not null default 0,
+  locked_until timestamptz
+);
+create trigger platform_credential_generation before update on public.platform_member_credentials
+for each row execute function public.advance_credential_session_version();
+create table public.platform_partners (
+  id uuid primary key default gen_random_uuid(),
+  service_key text not null check (service_key in ('insurance','care','telecom','rental','car','hospital')),
+  name text not null check (length(name) between 1 and 100),
+  region text not null check (length(region) between 1 and 50),
+  address text not null default '',
+  website_url text not null default '',
+  phone text not null default '',
+  active boolean not null default false,
+  consumer_rate numeric(7,6) not null default 0 check (consumer_rate between 0 and 1),
+  referrer_rate numeric(7,6) not null default 0 check (referrer_rate between 0 and 1),
+  referrer_basis text not null default 'after_consumer' check (referrer_basis in ('commission','after_consumer')),
+  ad_period_start date,
+  ad_period_end date,
+  ad_placement text,
+  ad_fee bigint check (ad_fee >= 0),
+  updated_at timestamptz not null default now(),
+  revision bigint not null default 0 check (revision>=0),
+  last_request jsonb,
+  check (referrer_basis='after_consumer' or consumer_rate + referrer_rate <= 1),
+  check (service_key not in ('hospital','insurance') or (consumer_rate=0 and referrer_rate=0)),
+  check (ad_period_end is null or ad_period_start <= ad_period_end),
+  check (service_key <> 'hospital' or not active or
+    (ad_period_start is not null and ad_period_end is not null and ad_placement is not null and length(trim(ad_placement))>0 and ad_fee is not null))
+);
+create table public.platform_service_applications (
+  id uuid primary key default gen_random_uuid(),
+  member_id uuid not null references public.platform_members(id),
+  service_key text not null check (service_key in ('insurance','care','telecom','rental','car')),
+  details jsonb not null check (jsonb_typeof(details)='object'),
+  referrer_id_snapshot uuid references public.platform_members(id),
+  idempotency_key uuid not null,
+  status text not null default 'interest' check (status in ('interest','settled','cancelled')),
+  created_at timestamptz not null default now(),
+  unique(member_id,idempotency_key)
+);
+create index platform_applications_owner_created on public.platform_service_applications(member_id,created_at desc);
+create table public.platform_partner_settlements (
+  id uuid primary key default gen_random_uuid(),
+  application_id uuid not null unique references public.platform_service_applications(id),
+  partner_id uuid not null references public.platform_partners(id),
+  commission_amount bigint not null check (commission_amount >= 0),
+  consumer_rate_snapshot numeric(7,6) not null,
+  referrer_rate_snapshot numeric(7,6) not null,
+  referrer_basis_snapshot text not null,
+  referrer_id_snapshot uuid references public.platform_members(id),
+  transaction_reference text not null check (length(transaction_reference) between 1 and 120),
+  evidence_reference text not null check (length(evidence_reference) between 1 and 200),
+  settled_at timestamptz not null,
+  due_at timestamptz not null,
+  idempotency_key uuid not null unique,
+  recorded_by uuid not null references public.admin_accounts(id),
+  created_at timestamptz not null default now(),
+  check (due_at=settled_at+interval '7 days')
+);
+create table public.platform_member_benefits (
+  id uuid primary key default gen_random_uuid(),
+  settlement_id uuid not null references public.platform_partner_settlements(id),
+  member_id uuid not null references public.platform_members(id),
+  service_key text not null,
+  kind text not null check (kind in ('consumer','direct_referrer')),
+  amount bigint not null check (amount>=0),
+  due_at timestamptz not null,
+  status text not null default 'pending' check (status in ('pending','paid')),
+  paid_at timestamptz,
+  transfer_reference text,
+  unique(settlement_id,kind),
+  check ((status='pending' and paid_at is null and transfer_reference is null) or
+    (status='paid' and paid_at is not null and transfer_reference is not null and length(trim(transfer_reference)) between 1 and 120))
+);
+create index platform_benefits_owner_due on public.platform_member_benefits(member_id,due_at);
+
+-- Existing FC information is projected only after explicit common-service
+-- consent. Reading/logging in never enrolls an insurance account.
+
+create or replace function public.sync_platform_fc_member() returns trigger
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare mapped uuid;
+begin
+  if new.signup_completed=true and new.phone ~ '^[0-9]{11}$' then
+    select id into mapped from platform_members where fc_id=new.id for update;
+    if mapped is not null then
+      update platform_members set phone=new.phone,name=coalesce(nullif(new.name,''),'회원') where id=mapped;
+    else
+      -- A consumer may later complete FC enrollment. Reuse that already
+      -- consented identity; never manufacture a new common-service member.
+      update platform_members set name=coalesce(nullif(new.name,''),'회원'),fc_id=new.id
+      where phone=new.phone and active and terms_accepted_at is not null and fc_id is null;
+    end if;
+    -- Completed FC credentials become the only password authority. Revoking
+    -- the consumer credential invalidates earlier member-only tokens.
+    delete from platform_member_credentials where member_id=(select id from platform_members where fc_id=new.id);
+  end if;
+  return new;
+end $$;
+revoke all on function public.sync_platform_fc_member() from public,anon,authenticated;
+create trigger platform_fc_projection after insert or update of phone,name,signup_completed,recommender_fc_id
+on public.fc_profiles for each row execute function public.sync_platform_fc_member();
+
+create or replace function public.erase_platform_fc_identity() returns trigger
+language plpgsql security definer set search_path=public,pg_temp as $$
+begin
+  delete from platform_member_credentials where member_id=(select id from platform_members where fc_id=old.id);
+  update platform_service_applications set details='{"region":"삭제","requestType":"삭제"}'::jsonb,
+    status=case when status='interest' then 'cancelled' else status end
+    where member_id=(select id from platform_members where fc_id=old.id);
+  update platform_members set phone=null,name='탈퇴 회원',active=false where fc_id=old.id;
+  return old;
+end $$;
+revoke all on function public.erase_platform_fc_identity() from public,anon,authenticated;
+create trigger platform_fc_delete_identity before delete on public.fc_profiles
+for each row execute function public.erase_platform_fc_identity();
+
+create or replace function public.issue_platform_signup_otp(p_phone text,p_code_hash text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare c platform_signup_challenges; issued boolean;
+begin
+  if p_phone is null or p_phone !~ '^[0-9]{11}$' or p_code_hash is null or length(p_code_hash)<>44 then raise exception 'invalid_input'; end if;
+  if exists(select from platform_members where phone=p_phone) or
+     exists(select from admin_accounts where phone=p_phone) or
+     exists(select from manager_accounts where phone=p_phone) or
+     exists(select from fc_profiles where phone=p_phone and signup_completed=true)
+  then return jsonb_build_object('ok',false,'code','already_exists'); end if;
+  insert into platform_signup_challenges(phone,code_hash,expires_at,sent_at)
+  values(p_phone,p_code_hash,now()+interval '5 minutes',now()) on conflict do nothing returning true into issued;
+  select * into c from platform_signup_challenges where phone=p_phone for update;
+  if c.locked_until>now() then return jsonb_build_object('ok',false,'code','locked'); end if;
+  if issued is distinct from true and c.sent_at>now()-interval '60 seconds' then return jsonb_build_object('ok',false,'code','cooldown'); end if;
+  update platform_signup_challenges set code_hash=p_code_hash,expires_at=now()+interval '5 minutes',sent_at=now(),attempts=0
+  where phone=p_phone;
+  return jsonb_build_object('ok',true);
+end $$;
+
+create or replace function public.register_platform_member(p_phone text,p_code_hash text,p_name text,
+  p_password_hash text,p_password_salt text,p_referral_code text default null)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare c platform_signup_challenges; m platform_members; inviter uuid;
+begin
+  select * into c from platform_signup_challenges where phone=p_phone for update;
+  if not found or c.expires_at<=now() then return jsonb_build_object('ok',false,'code','expired_code'); end if;
+  if c.locked_until>now() then return jsonb_build_object('ok',false,'code','locked'); end if;
+  if c.code_hash is distinct from p_code_hash then
+    update platform_signup_challenges set attempts=attempts+1,
+      locked_until=case when attempts>=4 then now()+interval '10 minutes' else null end where phone=p_phone;
+    return jsonb_build_object('ok',false,'code','invalid_code');
+  end if;
+  if p_name is null or length(trim(p_name)) not between 1 and 80 or p_password_hash is null or p_password_salt is null
+    or length(p_password_hash)<>44 or length(p_password_salt)<>24 then raise exception 'invalid_input'; end if;
+  if exists(select from fc_profiles where phone=p_phone and signup_completed=true) or
+    exists(select from admin_accounts where phone=p_phone) or exists(select from manager_accounts where phone=p_phone)
+  then return jsonb_build_object('ok',false,'code','already_exists'); end if;
+  if nullif(trim(p_referral_code),'') is not null then
+    select id into inviter from platform_members where referral_code=upper(trim(p_referral_code)) and active;
+    -- Older FC invitation codes resolve to the very same member projection.
+    if inviter is null then
+      select m2.id into inviter from referral_codes r join platform_members m2 on m2.fc_id=r.fc_id
+      where r.code=upper(trim(p_referral_code)) and r.is_active=true and m2.active;
+    end if;
+    if inviter is null then return jsonb_build_object('ok',false,'code','invalid_referral'); end if;
+  end if;
+  insert into platform_members(phone,name,referrer_id,terms_accepted_at)
+  values(p_phone,trim(p_name),inviter,now()) returning * into m;
+  insert into platform_member_credentials(member_id,password_hash,password_salt) values(m.id,p_password_hash,p_password_salt);
+  delete from platform_signup_challenges where phone=p_phone;
+  return jsonb_build_object('ok',true,'memberId',m.id,'displayName',m.name);
+end $$;
+
+create or replace function public.platform_login_attempt(p_member_id uuid,p_password_hash text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare c platform_member_credentials;
+begin
+  select * into c from platform_member_credentials where member_id=p_member_id for update;
+  if not found or not exists(select from platform_members where id=p_member_id and active) then return jsonb_build_object('ok',false,'code','invalid_password'); end if;
+  if c.locked_until>now() then return jsonb_build_object('ok',false,'code','locked'); end if;
+  if c.password_hash is distinct from p_password_hash then
+    update platform_member_credentials set failed_count=failed_count+1,
+      locked_until=case when failed_count>=4 then now()+interval '10 minutes' else null end where member_id=p_member_id;
+    return jsonb_build_object('ok',false,'code','invalid_password');
+  end if;
+  update platform_member_credentials set failed_count=0,locked_until=null where member_id=p_member_id;
+  return jsonb_build_object('ok',true,'sessionVersion',c.session_version);
+end $$;
+
+create or replace function public.create_platform_application(p_member_id uuid,p_service_key text,p_details jsonb,p_idempotency_key uuid)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare a platform_service_applications; m platform_members;
+begin
+  select * into m from platform_members where id=p_member_id and active for update;
+  if not found then raise exception 'member_unavailable'; end if;
+  if p_service_key is null or p_service_key not in ('insurance','care','telecom','rental','car') or jsonb_typeof(p_details) is distinct from 'object'
+    or (p_details-'region'-'requestType')<>'{}'::jsonb
+    or jsonb_typeof(p_details->'region') is distinct from 'string' or jsonb_typeof(p_details->'requestType') is distinct from 'string'
+    or length(p_details->>'region') not between 1 and 50 or length(p_details->>'requestType') not between 1 and 100
+  then raise exception 'invalid_details'; end if;
+  insert into platform_service_applications(member_id,service_key,details,referrer_id_snapshot,idempotency_key)
+  values(m.id,p_service_key,p_details,m.referrer_id,p_idempotency_key) on conflict(member_id,idempotency_key) do nothing;
+  select * into a from platform_service_applications where member_id=m.id and idempotency_key=p_idempotency_key;
+  if a.service_key<>p_service_key or a.details<>p_details then raise exception 'idempotency_conflict'; end if;
+  return jsonb_build_object('ok',true,'applicationId',a.id,'status',a.status);
+end $$;
+
+create or replace function public.save_platform_partner(p_admin_id uuid,p_partner jsonb,p_expected_revision bigint)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare existing platform_partners; saved platform_partners; partner_id uuid;
+begin
+  if not exists(select from admin_accounts where id=p_admin_id and active and staff_type='admin') then raise exception 'forbidden'; end if;
+  if p_expected_revision is null or p_expected_revision<0 or jsonb_typeof(p_partner) is distinct from 'object' then raise exception 'invalid_partner'; end if;
+  partner_id:=nullif(p_partner->>'id','')::uuid;
+  if partner_id is null then raise exception 'invalid_partner'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(partner_id::text,0));
+  if partner_id is not null then
+    select * into existing from platform_partners where id=partner_id for update;
+    if found then
+      if existing.last_request=p_partner and existing.revision in (p_expected_revision,p_expected_revision+1) then
+        return jsonb_build_object('ok',true,'partnerId',existing.id,'revision',existing.revision);
+      end if;
+      if existing.revision<>p_expected_revision then raise exception 'revision_conflict'; end if;
+    -- Reassigning an advertised partner to a different business category is
+    -- an explicit new record; historical settlements keep their partner type.
+      if existing.service_key is distinct from p_partner->>'serviceKey' then raise exception 'partner_service_conflict'; end if;
+    elsif p_expected_revision<>0 then raise exception 'revision_conflict'; end if;
+  end if;
+  insert into platform_partners(id,service_key,name,region,address,website_url,phone,active,consumer_rate,referrer_rate,referrer_basis,
+    ad_period_start,ad_period_end,ad_placement,ad_fee,revision,last_request)
+  values(coalesce(partner_id,gen_random_uuid()),p_partner->>'serviceKey',trim(p_partner->>'name'),trim(p_partner->>'region'),
+    coalesce(p_partner->>'address',''),coalesce(p_partner->>'websiteUrl',''),coalesce(p_partner->>'phone',''),
+    (p_partner->>'active')::boolean,(p_partner->>'consumerRate')::numeric,(p_partner->>'referrerRate')::numeric,p_partner->>'referrerBasis',
+    nullif(p_partner->>'adPeriodStart','')::date,nullif(p_partner->>'adPeriodEnd','')::date,p_partner->>'adPlacement',
+    nullif(p_partner->>'adFee','')::bigint,case when existing.id is null then 0 else existing.revision+1 end,p_partner)
+  on conflict(id) do update set name=excluded.name,region=excluded.region,address=excluded.address,
+    website_url=excluded.website_url,phone=excluded.phone,active=excluded.active,consumer_rate=excluded.consumer_rate,
+    referrer_rate=excluded.referrer_rate,referrer_basis=excluded.referrer_basis,ad_period_start=excluded.ad_period_start,
+    ad_period_end=excluded.ad_period_end,ad_placement=excluded.ad_placement,ad_fee=excluded.ad_fee,
+    revision=excluded.revision,last_request=excluded.last_request,updated_at=now() returning * into saved;
+  return jsonb_build_object('ok',true,'partnerId',saved.id,'revision',saved.revision);
+end $$;
+
+create or replace function public.settle_platform_application(p_admin_id uuid,p_application_id uuid,p_partner_id uuid,
+ p_commission_amount bigint,p_settled_at timestamptz,p_idempotency_key uuid,p_transaction_reference text,p_evidence_reference text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare a platform_service_applications; p platform_partners; s platform_partner_settlements; buyer_amount bigint; referrer_amount bigint;
+begin
+  if not exists(select from admin_accounts where id=p_admin_id and active and staff_type='admin') then raise exception 'forbidden'; end if;
+  select * into a from platform_service_applications where id=p_application_id for update;
+  if not found or a.status='cancelled' then raise exception 'application_unavailable'; end if;
+  select * into s from platform_partner_settlements where application_id=a.id;
+  if found then
+    if s.idempotency_key is distinct from p_idempotency_key or s.partner_id is distinct from p_partner_id or s.commission_amount is distinct from p_commission_amount
+      or s.settled_at is distinct from p_settled_at or s.transaction_reference is distinct from trim(p_transaction_reference)
+      or s.evidence_reference is distinct from trim(p_evidence_reference)
+    then raise exception 'idempotency_conflict'; end if;
+    return jsonb_build_object('ok',true,'settlementId',s.id,'dueAt',s.due_at);
+  end if;
+  select * into p from platform_partners where id=p_partner_id and active for share;
+  if not found or p.service_key<>a.service_key or p.service_key in ('hospital','insurance') then raise exception 'partner_unavailable'; end if;
+  if p_settled_at is null or p_settled_at>now() or p_commission_amount is null or p_commission_amount<0 then raise exception 'invalid_settlement'; end if;
+  buyer_amount:=floor(p_commission_amount*p.consumer_rate);
+  referrer_amount:=floor((case when p.referrer_basis='after_consumer' then p_commission_amount-buyer_amount else p_commission_amount end)*p.referrer_rate);
+  insert into platform_partner_settlements(application_id,partner_id,commission_amount,consumer_rate_snapshot,referrer_rate_snapshot,referrer_basis_snapshot,
+    referrer_id_snapshot,transaction_reference,evidence_reference,settled_at,due_at,idempotency_key,recorded_by)
+  values(a.id,p.id,p_commission_amount,p.consumer_rate,p.referrer_rate,p.referrer_basis,a.referrer_id_snapshot,
+    trim(p_transaction_reference),trim(p_evidence_reference),p_settled_at,p_settled_at+interval '7 days',p_idempotency_key,p_admin_id)
+  returning * into s;
+  insert into platform_member_benefits(settlement_id,member_id,service_key,kind,amount,due_at)
+  values(s.id,a.member_id,a.service_key,'consumer',buyer_amount,s.due_at);
+  if s.referrer_id_snapshot is not null then
+    insert into platform_member_benefits(settlement_id,member_id,service_key,kind,amount,due_at)
+    values(s.id,s.referrer_id_snapshot,a.service_key,'direct_referrer',referrer_amount,s.due_at);
+  end if;
+  update platform_service_applications set status='settled' where id=a.id;
+  return jsonb_build_object('ok',true,'settlementId',s.id,'dueAt',s.due_at);
+end $$;
+
+create or replace function public.cancel_platform_application(p_member_id uuid,p_application_id uuid)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare a platform_service_applications;
+begin
+  select * into a from platform_service_applications where id=p_application_id and member_id=p_member_id for update;
+  if not found then raise exception 'application_unavailable'; end if;
+  if a.status='settled' then raise exception 'settled_cancellation_requires_reconciliation'; end if;
+  update platform_service_applications set status='cancelled' where id=a.id;
+  return jsonb_build_object('ok',true,'applicationId',a.id,'status','cancelled');
+end $$;
+
+create or replace function public.mark_platform_benefit_paid(p_admin_id uuid,p_benefit_id uuid,p_paid_at timestamptz,p_transfer_reference text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare b platform_member_benefits;
+begin
+  if not exists(select from admin_accounts where id=p_admin_id and active and staff_type='admin') then raise exception 'forbidden'; end if;
+  if p_paid_at is null or p_paid_at>now() or nullif(trim(p_transfer_reference),'') is null then raise exception 'invalid_transfer'; end if;
+  select * into b from platform_member_benefits where id=p_benefit_id for update;
+  if not found then raise exception 'benefit_unavailable'; end if;
+  if b.status='paid' and (b.paid_at is distinct from p_paid_at or b.transfer_reference is distinct from trim(p_transfer_reference))
+  then raise exception 'idempotency_conflict'; end if;
+  update platform_member_benefits set status='paid',paid_at=p_paid_at,transfer_reference=trim(p_transfer_reference) where id=b.id;
+  return jsonb_build_object('ok',true,'benefitId',b.id,'status','paid');
+end $$;
+
+create or replace function public.delete_platform_member(p_member_id uuid)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members;
+begin
+  select * into m from platform_members where id=p_member_id and active for update;
+  if not found then raise exception 'member_unavailable'; end if;
+  if m.fc_id is not null then raise exception 'fc_deletion_requires_existing_workflow'; end if;
+  delete from platform_member_credentials where member_id=m.id;
+  delete from platform_signup_challenges where phone=m.phone;
+  update platform_service_applications set details='{"region":"삭제","requestType":"삭제"}'::jsonb,
+    status=case when status='interest' then 'cancelled' else status end where member_id=m.id;
+  update platform_members set phone=null,name='탈퇴 회원',active=false where id=m.id;
+  return jsonb_build_object('ok',true,'deleted',true);
+end $$;
+
+-- No storage is introduced; private additional information and financial rows
+-- are accessible only through verified actor paths in the Edge handler.
+do $$ declare t text; f record; begin
+  foreach t in array array['platform_members','platform_member_credentials','platform_signup_challenges','platform_partners',
+    'platform_service_applications','platform_partner_settlements','platform_member_benefits'] loop
+    execute format('alter table public.%I enable row level security',t);
+    execute format('revoke all on public.%I from public,anon,authenticated',t);
+    execute format('grant select,insert,update,delete on public.%I to service_role',t);
+  end loop;
+  for f in select oid::regprocedure as signature from pg_proc where pronamespace='public'::regnamespace
+    and proname in ('issue_platform_signup_otp','register_platform_member','platform_login_attempt','create_platform_application',
+      'settle_platform_application','cancel_platform_application','mark_platform_benefit_paid','save_platform_partner','delete_platform_member') loop
+    execute format('revoke all on function %s from public,anon,authenticated',f.signature);
+    execute format('grant execute on function %s to service_role',f.signature);
+  end loop;
+end $$;
+
+-- Regional hospital directory and anonymous advertising measurements.
+-- Hospital advertising is a regional directory, never a treatment/referral fee.
+-- Existing contracts need explicit material/region confirmation before publication.
+alter table public.platform_partners
+  add column province_code text,
+  add column district text not null default '',
+  add column specialties text[] not null default '{}',
+  add column description text not null default '',
+  add column photo_url text not null default '',
+  add column opening_hours text not null default '',
+  add column verified_at date,
+  add column material_approved boolean not null default false,
+  add column review_required boolean,
+  add column review_number text,
+  add column review_expires_at date;
+alter table public.platform_partners add constraint platform_hospital_material_bounds check (
+  service_key <> 'hospital' or (
+    (province_code is null or province_code in ('11','26','27','28','29','30','31','36','41','43','44','46','47','48','50','51','52'))
+    and length(district)<=50 and cardinality(specialties)<=10 and array_to_string(specialties,'') !~ '[[:cntrl:]]'
+    and length(array_to_string(specialties,''))<=300 and length(description)<=2000 and length(opening_hours)<=500
+    and (photo_url='' or (length(photo_url)<=500 and photo_url ~ '^https://[^[:space:]]+$'))
+    and length(coalesce(review_number,''))<=100));
+create index platform_hospital_region on public.platform_partners(province_code,district,name)
+  where service_key='hospital' and active;
+
+-- Only the trusted Edge actor may write/read these rows. No patient, account,
+-- raw IP, phone, or user-agent is stored. Session/source digests expire with data.
+create table public.platform_hospital_events (
+  event_id uuid primary key,
+  partner_id uuid not null references public.platform_partners(id),
+  revision bigint not null,
+  placement text not null check (placement in ('regional_list','regional_featured')),
+  partner_name text not null,
+  event_type text not null check (event_type in ('impression','detail','phone','directions')),
+  session_digest text not null check (session_digest ~ '^[0-9a-f]{64}$'),
+  source_digest text not null check (source_digest ~ '^[0-9a-f]{64}$'),
+  event_date date not null,
+  created_at timestamptz not null default now(),
+  unique(partner_id,revision,placement,event_type,session_digest,event_date)
+);
+create index platform_hospital_events_report on public.platform_hospital_events(event_date,partner_id,revision);
+create index platform_hospital_events_source on public.platform_hospital_events(source_digest,created_at);
+
+create or replace function public.get_platform_hospitals(p_today date,p_filters jsonb)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare result jsonb; page_size integer; page_offset integer;
+begin
+  page_size:=coalesce((p_filters->>'limit')::integer,20);
+  page_offset:=coalesce((p_filters->>'offset')::integer,0);
+  if p_today is null or page_size not between 1 and 50 or page_offset not between 0 and 10000 then raise exception 'invalid_input'; end if;
+  with eligible as (
+    select p.* from platform_partners p where service_key='hospital' and active and material_approved
+      and province_code is not null and trim(district)<>'' and trim(address)<>'' and verified_at<=p_today
+      and review_required is not null and (not review_required or (trim(coalesce(review_number,''))<>'' and review_expires_at>=p_today))
+      and ad_period_start<=p_today and ad_period_end>=p_today and ad_placement in ('regional_list','regional_featured')
+      and (coalesce(p_filters->>'provinceCode','')='' or province_code=p_filters->>'provinceCode')
+      and (coalesce(p_filters->>'district','')='' or district=p_filters->>'district')
+      and (coalesce(p_filters->>'specialty','')='' or p_filters->>'specialty'=any(specialties))
+      and (coalesce(p_filters->>'search','')='' or position(lower(p_filters->>'search') in lower(name||' '||address))>0)
+      and (coalesce(p_filters->>'hospitalId','')='' or id::text=p_filters->>'hospitalId')
+  ), cards as (
+    select id,name,ad_placement, jsonb_build_object('id',id,'name',name,'region',region,'provinceCode',province_code,
+      'district',district,'address',address,'phone',phone,'websiteUrl',website_url,'specialties',specialties,
+      'description',description,'photoUrl',photo_url,'openingHours',opening_hours,'verifiedAt',verified_at,
+      'adPlacement',ad_placement,'revision',revision) card from eligible
+  ), listed as (select card from cards order by case when ad_placement='regional_featured' then 0 else 1 end,name,id limit page_size+1 offset page_offset)
+  select jsonb_build_object('ok',true,
+    'regions',coalesce((select jsonb_agg(jsonb_build_object('provinceCode',province_code,'districts',districts) order by province_code)
+      from (select province_code,jsonb_agg(distinct district order by district) districts from eligible group by province_code) r),'[]'::jsonb),
+    'specialties',coalesce((select jsonb_agg(s order by s) from (select distinct unnest(specialties) s from eligible) sp),'[]'::jsonb),
+    'hospitals',coalesce((select jsonb_agg(card) from (select card from listed limit page_size) p),'[]'::jsonb),
+    'featured',coalesce((select jsonb_agg(card) from (select card from cards where ad_placement='regional_featured'
+      order by md5(id::text||':'||coalesce(p_filters->>'rotationBucket',floor(extract(epoch from now())/900)::text)),id limit 5) p),'[]'::jsonb),
+    'hasMore',(select count(*)>page_size from listed),'nextOffset',case when (select count(*)>page_size from listed) then page_offset+page_size else null end) into result;
+  return result;
+end $$;
+
+create or replace function public.record_platform_hospital_event(p_partner_id uuid,p_revision bigint,p_placement text,
+  p_event_id uuid,p_event_type text,p_session_digest text,p_source_digest text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare p platform_partners; accepted integer; today date:=(now() at time zone 'Asia/Seoul')::date;
+begin
+  if p_event_id is null or p_event_type not in ('impression','detail','phone','directions')
+    or p_session_digest is null or p_session_digest !~ '^[0-9a-f]{64}$' or p_source_digest is null or p_source_digest !~ '^[0-9a-f]{64}$'
+    then raise exception 'invalid_input'; end if;
+  select * into p from platform_partners where id=p_partner_id and service_key='hospital' and active and material_approved
+    and review_required is not null and (not review_required or (trim(coalesce(review_number,''))<>'' and review_expires_at>=today))
+    and province_code is not null and trim(district)<>'' and trim(address)<>'' and verified_at<=today
+    and revision=p_revision and p_placement in ('regional_list','regional_featured')
+    and (p_placement='regional_list' or ad_placement='regional_featured') and ad_placement in ('regional_list','regional_featured')
+    and ad_period_start<=today and ad_period_end>=today for share;
+  if not found then return jsonb_build_object('ok',true,'accepted',false); end if;
+  if (p_event_type='phone' and p.phone='') or (p_event_type='directions' and p.address='') then raise exception 'invalid_input'; end if;
+  -- A signed exposure receipt is validated in Edge; database adds atomic retry,
+  -- per-session/day dedup and per-source/minute admission. Anonymous clients can
+  -- still fabricate interactions; these are not billing/confirmed-patient metrics.
+  perform pg_advisory_xact_lock(hashtextextended(p_source_digest,1));
+  if (select count(*) from platform_hospital_events where source_digest=p_source_digest and created_at>now()-interval '1 minute')>=60
+    then return jsonb_build_object('ok',true,'accepted',false); end if;
+  insert into platform_hospital_events(event_id,partner_id,revision,placement,partner_name,event_type,session_digest,source_digest,event_date)
+    values(p_event_id,p.id,p.revision,p_placement,p.name,p_event_type,p_session_digest,p_source_digest,today) on conflict do nothing;
+  get diagnostics accepted=row_count;
+  delete from platform_hospital_events where event_date<today-90;
+  return jsonb_build_object('ok',true,'accepted',accepted=1);
+end $$;
+
+create or replace function public.get_platform_hospital_report(p_admin_id uuid,p_from date,p_to date,p_partner_id uuid default null)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare result jsonb;
+begin
+  if not exists(select from admin_accounts where id=p_admin_id and active and staff_type='admin') then raise exception 'forbidden'; end if;
+  if p_from is null or p_to is null or p_to<p_from or p_to-p_from>92 then raise exception 'invalid_input'; end if;
+  if (select count(*) from (select distinct partner_id,revision,placement,partner_name,event_date from platform_hospital_events
+    where event_date between p_from and p_to and event_date>=(now() at time zone 'Asia/Seoul')::date-90
+      and (p_partner_id is null or partner_id=p_partner_id) limit 5001) bounded)>5000
+    then raise exception 'report_range_too_large'; end if;
+  with grouped as (
+    select partner_id,revision,placement,partner_name,event_date,
+      count(*) filter(where event_type='impression') impressions,count(*) filter(where event_type='detail') detail_views,
+      count(*) filter(where event_type='phone') phone_clicks,count(*) filter(where event_type='directions') directions_clicks
+    from platform_hospital_events where event_date between p_from and p_to and (p_partner_id is null or partner_id=p_partner_id)
+      and event_date >= (now() at time zone 'Asia/Seoul')::date-90
+    group by partner_id,revision,placement,partner_name,event_date
+  ) select jsonb_build_object('ok',true,'from',p_from,'to',p_to,'measurement','anonymous_client_events',
+    'rows',coalesce(jsonb_agg(jsonb_build_object('partnerId',partner_id,'name',partner_name,'revision',revision,'placement',placement,
+      'date',event_date,'impressions',impressions,'detailViews',detail_views,'phoneClicks',phone_clicks,'directionsClicks',directions_clicks)
+      order by event_date desc,partner_id,revision),'[]'::jsonb),
+    'totals',jsonb_build_object('impressions',coalesce(sum(impressions),0),'detailViews',coalesce(sum(detail_views),0),
+      'phoneClicks',coalesce(sum(phone_clicks),0),'directionsClicks',coalesce(sum(directions_clicks),0))) into result from grouped;
+  return result;
+end $$;
+
+alter table public.platform_hospital_events enable row level security;
+revoke all on public.platform_hospital_events from public,anon,authenticated;
+grant select,insert,delete on public.platform_hospital_events to service_role;
+do $$ declare f record; begin
+  for f in select oid::regprocedure signature from pg_proc where pronamespace='public'::regnamespace
+    and proname in ('get_platform_hospitals','record_platform_hospital_event','get_platform_hospital_report') loop
+    execute format('revoke all on function %s from public,anon,authenticated',f.signature);
+    execute format('grant execute on function %s to service_role',f.signature);
+  end loop;
+end $$;
+
+-- Platform common consent and credential recovery (20261012).
+-- Common-member consent and recovery use the existing trusted Edge/session
+-- boundary. No anon/authenticated table or RPC access and no new storage.
+set local lock_timeout = '3s';
+set local statement_timeout = '30s';
+
+alter table public.platform_members
+  add column terms_version text,
+  add column staff_account_kind text check (staff_account_kind in ('admin','manager')),
+  add column staff_account_id uuid,
+  add constraint platform_staff_identity_complete check (
+    (staff_account_kind is null)=(staff_account_id is null) and (fc_id is null or staff_account_id is null)),
+  add constraint platform_staff_identity_unique unique(staff_account_kind,staff_account_id);
+alter table public.platform_signup_challenges
+  add column consumed_member_id uuid references public.platform_members(id) on delete cascade;
+alter table public.platform_member_credentials
+  add column password_set_at timestamptz not null default now(),
+  add column updated_at timestamptz not null default now(),
+  add column reset_token_hash text,
+  add column reset_token_expires_at timestamptz,
+  add column reset_sent_at timestamptz,
+  add column reset_failed_count integer not null default 0 check (reset_failed_count between 0 and 5);
+
+create or replace function public.enroll_platform_legacy_member(
+  p_phone text,p_name text,p_fc_id uuid,p_terms_version text,p_account_kind text default null,p_account_id uuid default null
+) returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members; inviter uuid;
+begin
+  if p_phone is null or p_phone !~ '^[0-9]{11}$' or p_name is null or length(trim(p_name)) not between 1 and 80
+    or p_terms_version is distinct from '2026-10-12' then raise exception 'invalid_input'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_phone,741012));
+  if p_fc_id is not null then
+    if (p_account_kind is not null and p_account_kind<>'fc') or (p_account_id is not null and p_account_id<>p_fc_id)
+      then raise exception 'forbidden'; end if;
+    perform from fc_profiles where id=p_fc_id and phone=p_phone and signup_completed for update;
+    if not found then raise exception 'forbidden'; end if;
+    select r.id into inviter from fc_profiles f join platform_members r on r.fc_id=f.recommender_fc_id
+      where f.id=p_fc_id and r.active and r.terms_accepted_at is not null;
+  elsif p_account_kind='admin' then
+    perform from admin_accounts where id=p_account_id and phone=p_phone and active for update;
+    if not found then raise exception 'forbidden'; end if;
+  elsif p_account_kind='manager' then
+    perform from manager_accounts where id=p_account_id and phone=p_phone and active for update;
+    if not found then raise exception 'forbidden'; end if;
+  else raise exception 'forbidden'; end if;
+  insert into platform_members(phone,name,fc_id,referrer_id,terms_accepted_at,terms_version,staff_account_kind,staff_account_id)
+    values(p_phone,trim(p_name),p_fc_id,inviter,clock_timestamp(),p_terms_version,
+      case when p_fc_id is null then p_account_kind end,case when p_fc_id is null then p_account_id end)
+    on conflict(phone) do nothing;
+  select * into m from platform_members where phone=p_phone for update;
+  if not m.active then raise exception 'forbidden'; end if;
+  -- Explicit consent may follow a verified FC/staff role transition on the
+  -- same phone. Keep the shared graph UUID, bind only the locked source above,
+  -- and invalidate tokens backed by the previous canonical source.
+  update platform_members set terms_accepted_at=case when terms_version=p_terms_version then terms_accepted_at else clock_timestamp() end,
+    terms_version=p_terms_version,name=trim(p_name),fc_id=p_fc_id,
+    staff_account_kind=case when p_fc_id is null then p_account_kind end,
+    staff_account_id=case when p_fc_id is null then p_account_id end where id=m.id;
+  delete from platform_member_credentials where member_id=m.id;
+  return jsonb_build_object('ok',true);
+end $$;
+revoke all on function public.enroll_platform_legacy_member(text,text,uuid,text,text,uuid) from public,anon,authenticated;
+grant execute on function public.enroll_platform_legacy_member(text,text,uuid,text,text,uuid) to service_role;
+
+create or replace function public.sync_platform_fc_member() returns trigger
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare mapped uuid;
+begin
+  if new.signup_completed=true and new.phone ~ '^[0-9]{11}$' then
+    select id into mapped from platform_members where fc_id=new.id for update;
+    if mapped is not null then
+      update platform_members set phone=new.phone,name=coalesce(nullif(new.name,''),'회원') where id=mapped;
+    else
+      update platform_members set name=coalesce(nullif(new.name,''),'회원'),fc_id=new.id
+        where phone=new.phone and active and terms_accepted_at is not null and fc_id is null and staff_account_id is null;
+    end if;
+    delete from platform_member_credentials where member_id=(select id from platform_members where fc_id=new.id);
+  end if;
+  return new;
+end $$;
+
+-- A common-service withdrawal leaves the insurance/staff account intact.
+-- Retain only the existing UUID/referral/settlement links; remove identifying
+-- details, credentials, consent and every receipt bound to this identity.
+create or replace function public.delete_platform_member(p_member_id uuid)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members;
+begin
+  select * into m from platform_members where id=p_member_id for update;
+  if not found then raise exception 'member_unavailable'; end if;
+  delete from platform_member_credentials where member_id=m.id;
+  delete from platform_signup_challenges where phone=m.phone or consumed_member_id=m.id;
+  update platform_service_applications set details='{"region":"삭제","requestType":"삭제"}'::jsonb,
+    status=case when status='interest' then 'cancelled' else status end where member_id=m.id;
+  update platform_members set phone=null,name='탈퇴 회원',active=false,fc_id=null,
+    staff_account_kind=null,staff_account_id=null,terms_accepted_at=null,terms_version=null where id=m.id;
+  return jsonb_build_object('ok',true,'deleted',true);
+end $$;
+
+-- Reuse the same erase operation when the underlying insurance or staff
+-- account is deleted. Exact source IDs prevent cross-role phone ambiguity.
+create or replace function public.erase_platform_fc_identity() returns trigger
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare mapped uuid;
+begin
+  select id into mapped from platform_members where
+    (tg_table_name='fc_profiles' and fc_id=old.id) or
+    (staff_account_kind=case tg_table_name when 'admin_accounts' then 'admin' when 'manager_accounts' then 'manager' end
+      and staff_account_id=old.id) for update;
+  if mapped is not null then perform delete_platform_member(mapped); end if;
+  delete from platform_signup_challenges where phone=old.phone;
+  return old;
+end $$;
+create trigger platform_admin_delete_identity before delete on public.admin_accounts
+for each row execute function public.erase_platform_fc_identity();
+create trigger platform_manager_delete_identity before delete on public.manager_accounts
+for each row execute function public.erase_platform_fc_identity();
+
+create or replace function public.sync_platform_staff_member() returns trigger
+language plpgsql security definer set search_path=public,pg_temp as $$
+begin
+  update platform_members set phone=new.phone,name=coalesce(nullif(new.name,''),'회원')
+    where staff_account_kind=case tg_table_name when 'admin_accounts' then 'admin' else 'manager' end
+    and staff_account_id=new.id and active;
+  return new;
+end $$;
+revoke all on function public.sync_platform_staff_member() from public,anon,authenticated;
+create trigger platform_admin_projection after update of phone,name on public.admin_accounts
+for each row execute function public.sync_platform_staff_member();
+create trigger platform_manager_projection after update of phone,name on public.manager_accounts
+for each row execute function public.sync_platform_staff_member();
+
+create or replace function public.register_platform_member(p_phone text,p_code_hash text,p_name text,
+  p_password_hash text,p_password_salt text,p_referral_code text default null)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare c platform_signup_challenges; m platform_members; inviter uuid; checked_at timestamptz;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_phone,741012));
+  select * into c from platform_signup_challenges where phone=p_phone for update;
+  checked_at:=clock_timestamp();
+  if not found or c.expires_at<=checked_at then return jsonb_build_object('ok',false,'code','expired_code'); end if;
+  if c.locked_until>checked_at then return jsonb_build_object('ok',false,'code','locked'); end if;
+  if c.code_hash is distinct from p_code_hash then
+    update platform_signup_challenges set attempts=attempts+1,
+      locked_until=case when attempts>=4 then checked_at+interval '10 minutes' else null end where phone=p_phone;
+    return jsonb_build_object('ok',false,'code','invalid_code');
+  end if;
+  if p_name is null or length(trim(p_name)) not between 1 and 80
+    or coalesce(p_password_hash,'') !~ '^[A-Za-z0-9+/]{43}=$'
+    or coalesce(p_password_salt,'') !~ '^[A-Za-z0-9+/]{22}==$' then raise exception 'invalid_input'; end if;
+  -- An uncertain successful signup may be retried during the original OTP
+  -- window only with the same verified phone, code and current password.
+  -- The already-consumed challenge never creates another account.
+  if c.consumed_member_id is not null then
+    select * into m from platform_members where id=c.consumed_member_id and phone=p_phone and active and fc_id is null;
+    if m.id is null or not exists(select from platform_member_credentials
+      where member_id=m.id and password_hash=p_password_hash and password_salt=p_password_salt)
+    then return jsonb_build_object('ok',false,'code','already_exists'); end if;
+    return jsonb_build_object('ok',true,'memberId',m.id,'displayName',m.name,
+      'sessionVersion',(select session_version from platform_member_credentials where member_id=m.id));
+  end if;
+  if exists(select from platform_members where phone=p_phone) or exists(select from fc_profiles where phone=p_phone and signup_completed)
+    or exists(select from admin_accounts where phone=p_phone) or exists(select from manager_accounts where phone=p_phone)
+  then return jsonb_build_object('ok',false,'code','already_exists'); end if;
+  if nullif(trim(p_referral_code),'') is not null then
+    select id into inviter from platform_members where referral_code=upper(trim(p_referral_code)) and active and terms_accepted_at is not null;
+    if inviter is null then
+      select m2.id into inviter from referral_codes r join platform_members m2 on m2.fc_id=r.fc_id
+      where r.code=upper(trim(p_referral_code)) and r.is_active and m2.active and m2.terms_accepted_at is not null;
+    end if;
+    if inviter is null then return jsonb_build_object('ok',false,'code','invalid_referral'); end if;
+  end if;
+  insert into platform_members(phone,name,referrer_id,terms_accepted_at,terms_version)
+    values(p_phone,trim(p_name),inviter,checked_at,'2026-10-12') returning * into m;
+  insert into platform_member_credentials(member_id,password_hash,password_salt) values(m.id,p_password_hash,p_password_salt);
+  update platform_signup_challenges set consumed_member_id=m.id where phone=p_phone;
+  return jsonb_build_object('ok',true,'memberId',m.id,'displayName',m.name,'sessionVersion',0);
+end $$;
+
+-- Reuse the existing reset lock, counters, expiry and consumption protocol.
+create or replace function public.process_password_reset_challenge(
+  p_action text,
+  p_account_kind text,
+  p_account_id uuid,
+  p_phone text,
+  p_token_hash text,
+  p_password_hash text default null,
+  p_password_salt text default null
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $$
+declare
+  account_table text;
+  account_key text;
+  account_row jsonb;
+  profile_row public.fc_profiles%rowtype;
+  member_row public.platform_members%rowtype;
+  checked_at timestamptz;
+  failed_attempts integer;
+begin
+  if coalesce(p_action, '') not in ('issue', 'consume')
+    or p_account_id is null
+    or coalesce(p_phone, '') !~ '^[0-9]{11}$'
+    or coalesce(p_token_hash, '') !~ '^[A-Za-z0-9+/]{43}=$'
+    or (p_action = 'consume' and (
+      coalesce(p_password_hash, '') !~ '^[A-Za-z0-9+/]{43}=$'
+      or coalesce(p_password_salt, '') !~ '^[A-Za-z0-9+/]{22}==$'
+    )) then
+    return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end if;
+
+  case p_account_kind
+    when 'admin' then account_table := 'admin_accounts'; account_key := 'id';
+    when 'manager' then account_table := 'manager_accounts'; account_key := 'id';
+    when 'fc' then account_table := 'fc_credentials'; account_key := 'fc_id';
+    when 'member' then account_table := 'platform_member_credentials'; account_key := 'member_id';
+    else return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end case;
+
+  -- Match existing FC lifecycle lock order: profile, then credentials. This
+  -- also prevents completion/phone changes while a challenge is processed.
+  if p_account_kind = 'fc' then
+    select * into profile_row from public.fc_profiles
+    where id = p_account_id for update;
+    if not found or profile_row.phone is distinct from p_phone
+      or profile_row.signup_completed is distinct from true then
+      return jsonb_build_object('ok', false, 'code', 'account_unavailable');
+    end if;
+  end if;
+
+  if p_account_kind = 'member' then
+    select * into member_row from public.platform_members where id=p_account_id for update;
+    if not found or member_row.phone is distinct from p_phone or not member_row.active or member_row.fc_id is not null then
+      return jsonb_build_object('ok',false,'code','account_unavailable');
+    end if;
+  end if;
+
+  execute format(
+    'select to_jsonb(a) from public.%I a where %I = $1 for update',
+    account_table, account_key
+  ) into account_row using p_account_id;
+  if account_row is null
+    or account_row->>'password_set_at' is null
+    or (p_account_kind not in ('fc','member') and (
+      account_row->>'phone' is distinct from p_phone
+      or account_row->>'active' = 'false'
+    )) then
+    return jsonb_build_object('ok', false, 'code', 'account_unavailable');
+  end if;
+
+  -- Evaluate expiry/cooldown after any lock wait, not at transaction start.
+  checked_at := clock_timestamp();
+  if p_action = 'issue' then
+    if (account_row->>'reset_sent_at')::timestamptz > checked_at - interval '60 seconds' then
+      return jsonb_build_object('ok', false, 'code', 'cooldown');
+    end if;
+    execute format(
+      'update public.%I set reset_token_hash = $2,
+       reset_token_expires_at = $3::timestamptz + interval ''15 minutes'',
+       reset_sent_at = $3, reset_failed_count = 0, updated_at = $3
+       where %I = $1', account_table, account_key
+    ) using p_account_id, p_token_hash, checked_at;
+    return jsonb_build_object('ok', true);
+  end if;
+
+  failed_attempts := (account_row->>'reset_failed_count')::integer;
+  if failed_attempts >= 5 then
+    return jsonb_build_object('ok', false, 'code', 'attempts_exhausted');
+  end if;
+  if account_row->>'reset_token_hash' is null
+    or account_row->>'reset_token_expires_at' is null then
+    return jsonb_build_object('ok', false, 'code', 'invalid_token');
+  end if;
+  if (account_row->>'reset_token_expires_at')::timestamptz <= checked_at then
+    return jsonb_build_object('ok', false, 'code', 'expired_token');
+  end if;
+  if account_row->>'reset_token_hash' is distinct from p_token_hash then
+    failed_attempts := failed_attempts + 1;
+    execute format(
+      'update public.%I set reset_failed_count = $2, updated_at = $3 where %I = $1',
+      account_table, account_key
+    ) using p_account_id, failed_attempts, checked_at;
+    -- Return, do not raise: a raised exception would roll back the counter.
+    return jsonb_build_object('ok', false, 'code',
+      case when failed_attempts >= 5 then 'attempts_exhausted' else 'invalid_token' end);
+  end if;
+
+  execute format(
+    'update public.%I set password_hash = $2, password_salt = $3,
+     password_set_at = $4, failed_count = 0, locked_until = null,
+     reset_token_hash = null, reset_token_expires_at = null,
+     reset_failed_count = 0, updated_at = $4%s where %I = $1',
+    account_table,
+    case when p_account_kind = 'fc' then
+      ', must_change_password = false, temporary_password_issued_at = null'
+      else '' end,
+    account_key
+  ) using p_account_id, p_password_hash, p_password_salt, checked_at;
+  -- Preserve reset_sent_at so success cannot bypass the issuance cooldown.
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+revoke all on function public.process_password_reset_challenge(text, text, uuid, text, text, text, text)
+  from public, anon, authenticated;
+grant execute on function public.process_password_reset_challenge(text, text, uuid, text, text, text, text)
+  to service_role;
+
+-- Delete signup phone/digest receipts once their 5-minute window ends. A
+-- failed-guess lock survives until its own 10-minute expiry. Clear consumer
+-- reset digests after the 15-minute window and completed cooldown state after
+-- 60 seconds. The scheduled task adds at most five minutes of cleanup lag.
+create or replace function public.cleanup_platform_auth_challenges()
+returns void language sql security invoker set search_path=public,pg_temp as $$
+  delete from platform_signup_challenges where expires_at<=now()
+    and coalesce(locked_until,expires_at)<=now();
+  update platform_member_credentials c set reset_token_hash=null,reset_token_expires_at=null,
+    reset_sent_at=null,reset_failed_count=0
+    from platform_members m where m.id=c.member_id and m.fc_id is null
+    and (c.reset_token_expires_at<=now() or (c.reset_token_hash is null and c.reset_sent_at<=now()-interval '60 seconds'));
+$$;
+revoke all on function public.cleanup_platform_auth_challenges() from public,anon,authenticated;
+grant execute on function public.cleanup_platform_auth_challenges() to service_role;
+
+
+
+
+-- Hosted platform auth expiry schedule.
+-- Hosted rollout requires this schedule. Fail the migration if the extension
+-- cannot be enabled; never launch signup with silently skipped expiry cleanup.
+create extension if not exists pg_cron with schema pg_catalog;
+select cron.schedule('platform-auth-challenge-cleanup','*/5 * * * *',
+  'select public.cleanup_platform_auth_challenges();');

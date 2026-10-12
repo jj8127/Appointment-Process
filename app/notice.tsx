@@ -222,14 +222,13 @@ export default function NoticeScreen() {
                 <View style={styles.headerActions}>
                   <Text style={styles.date}>{new Date(n.created_at).toLocaleDateString()}</Text>
                   {role === 'admin' && !readOnly && (
-                    <Pressable
-                      hitSlop={8}
+                    <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="공지 삭제" accessibilityRole="button"
                       onPress={(event) => {
                         event.stopPropagation();
                         handleDelete(n.id);
                       }}
                     >
-                      <Feather name="trash-2" size={18} color="#9CA3AF" />
+                      <Feather name="trash-2" size={18} color="#B91C1C" />
                     </Pressable>
                   )}
                 </View>

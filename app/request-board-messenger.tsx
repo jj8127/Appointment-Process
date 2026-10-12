@@ -1,12 +1,13 @@
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppState,
   Alert,
+  BackHandler,
   FlatList,
   Image,
   Modal,
@@ -22,6 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
+import { goBackOrReplace } from '@/lib/back-navigation';
 import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
 import { getMessengerHubCapabilities } from '@/lib/messenger-role-capabilities';
 
@@ -1190,7 +1192,7 @@ export default function RequestBoardMessengerScreen() {
 
     setConvError('');
     activeConversationRef.current = targetConversation.id;
-    messageReadScope.current.setScope(`${residentId ?? ''}:${appSessionToken ?? ''}:${targetConversation.id}`);
+    messageReadScope.current.setScope(`${sessionReadKey}:${targetConversation.id}`);
     setMessages([]);
     messagesRef.current = [];
     latestMessagesRef.current = [];
@@ -1210,8 +1212,7 @@ export default function RequestBoardMessengerScreen() {
     loadMessages,
     matchesRouteConversationTarget,
     notificationConversationId,
-    residentId,
-    appSessionToken,
+    sessionReadKey,
   ]);
 
   useEffect(() => {
@@ -1316,7 +1317,7 @@ export default function RequestBoardMessengerScreen() {
   const openConversation = (conv: UnifiedConversation) => {
     if (sendingRef.current) return;
     activeConversationRef.current = conv.id;
-    messageReadScope.current.setScope(`${residentId ?? ''}:${appSessionToken ?? ''}:${conv.id}`);
+    messageReadScope.current.setScope(`${sessionReadKey}:${conv.id}`);
     setMessages([]);
     messagesRef.current = [];
     latestMessagesRef.current = [];
@@ -1602,22 +1603,22 @@ export default function RequestBoardMessengerScreen() {
     }
   };
 
-  const handleBack = () => {
-    if (sending) { Alert.alert('전송 중', '전송 결과를 확인한 뒤 대화를 닫아 주세요.'); return; }
-    if (activeConv) {
-      setActiveConv(null);
-      activeConversationRef.current = null;
-      messageReadScope.current.invalidate();
-      setMessages([]);
-      setPendingFiles([]);
-      setPreviewImage(null);
-      requestAnimationFrame(() => {
-        void loadConversations();
-      });
-    } else {
-      router.back();
-    }
-  };
+  const handleBack = useCallback(() => {
+    if (sending || sendingRef.current) { Alert.alert('전송 중', '전송 결과를 확인한 뒤 대화를 닫아 주세요.'); return; }
+    goBackOrReplace(router, '/messenger');
+  }, [router, sending]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const onHardwareBack = () => {
+        if (!activeConv && !sending && !sendingRef.current) return false;
+        handleBack();
+        return true;
+      };
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+      return () => subscription.remove();
+    }, [activeConv, handleBack, sending]),
+  );
 
   const handleCopyPreviewImage = useCallback(async () => {
     if (!previewImage) return;
@@ -1812,6 +1813,10 @@ export default function RequestBoardMessengerScreen() {
     }
   }, [activeConv?.id, canWriteRequestBoard, requestBoardRoomRef, roomMuted, roomPreferencePending, roomPreferenceReady, sessionReadKey]);
 
+  if (![requestDesignerId, directConversationId, anchorMessageId, notificationId, notificationTarget].some(hasPresentRouteParam)) {
+    return <Redirect href="/messenger" />;
+  }
+
   if (authState === 'checking') {
     return (
       <View style={styles.container}>
@@ -1832,7 +1837,7 @@ export default function RequestBoardMessengerScreen() {
         {/* Header - fixed at top */}
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4, paddingBottom: SPACING.md }]}>
           <View style={styles.headerRow}>
-            <Pressable style={styles.backBtn} onPressIn={() => router.back()}>
+            <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={styles.backBtn} onPressIn={() => router.back()}>
               <Feather name="arrow-left" size={22} color={COLORS.gray[800]} />
             </Pressable>
             <Text style={styles.headerTitleCenter}>가람Link 메신저</Text>
@@ -1894,7 +1899,7 @@ export default function RequestBoardMessengerScreen() {
 
         {/* Chat Header */}
         <View style={[styles.chatHeader, { paddingTop: Math.max(insets.top, 20) }]}>
-          <Pressable style={styles.backBtn} onPressIn={handleBack}>
+          <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={styles.backBtn} onPress={handleBack}>
             <Feather name="arrow-left" size={22} color={COLORS.gray[800]} />
           </Pressable>
           <View style={styles.chatHeaderCenter}>
@@ -1990,7 +1995,7 @@ export default function RequestBoardMessengerScreen() {
 
         {/* Messages + Input */}
         <View style={{ flex: 1 }}>
-          {msgLoading && messages.length === 0 ? (
+          {(msgLoading || (loadedConversationId !== activeConv.id && !msgError)) && messages.length === 0 ? (
             <BrandedLoadingState
               variant="request-board-messenger"
               layout="section"
@@ -2190,13 +2195,12 @@ export default function RequestBoardMessengerScreen() {
                           <Feather name={fileIcon(item.type)} size={20} color={COLORS.primary} />
                         </View>
                       )}
-                      <Pressable
+                      <Pressable accessibilityLabel="첨부 삭제" accessibilityRole="button" accessibilityState={{ disabled: sending }}
                         style={styles.pendingRemove}
                         disabled={sending}
                         onPress={() => removePendingFile(index)}
-                        hitSlop={8}
                       >
-                        <Feather name="x" size={12} color="#fff" />
+                        <Feather name="x" size={12} color="#fff" style={{ backgroundColor: COLORS.gray[600], borderRadius: 10, padding: 4 }} />
                       </Pressable>
                       <Text style={styles.pendingName} numberOfLines={1}>
                         {item.name.length > 8 ? item.name.slice(0, 8) + '...' : item.name}
@@ -2210,19 +2214,19 @@ export default function RequestBoardMessengerScreen() {
 
             {/* Input Bar */}
             <View style={[styles.inputBar, { paddingBottom: composerBottomPadding }]}>
-            <Pressable
+            <Pressable accessibilityLabel="사진 첨부" accessibilityRole="button" accessibilityState={{ disabled: !canWriteRequestBoard || sending }}
               style={({ pressed }) => [styles.attachBtn, pressed && { opacity: 0.6 }]}
               onPress={handlePickImage}
               disabled={!canWriteRequestBoard || sending}
             >
-              <Feather name="image" size={20} color={COLORS.gray[500]} />
+              <Feather name="image" size={20} color={COLORS.text.secondary} />
             </Pressable>
-            <Pressable
+            <Pressable accessibilityLabel="파일 첨부" accessibilityRole="button" accessibilityState={{ disabled: !canWriteRequestBoard || sending }}
               style={({ pressed }) => [styles.attachBtn, pressed && { opacity: 0.6 }]}
               onPress={handlePickDocument}
               disabled={!canWriteRequestBoard || sending}
             >
-              <Feather name="paperclip" size={20} color={COLORS.gray[500]} />
+              <Feather name="paperclip" size={20} color={COLORS.text.secondary} />
             </Pressable>
             <TextInput
               style={styles.chatInput}
@@ -2234,7 +2238,7 @@ export default function RequestBoardMessengerScreen() {
               multiline
               maxLength={2000}
             />
-            <Pressable
+            <Pressable accessibilityLabel="메시지 전송" accessibilityRole="button" accessibilityState={{ busy: sending, disabled: !canWriteRequestBoard || (!inputText.trim() && pendingFiles.length === 0) || sending }}
               style={({ pressed }) => [
                 styles.sendBtn,
                 (!canWriteRequestBoard || !inputText.trim() && pendingFiles.length === 0 || sending) && styles.sendBtnDisabled,
@@ -2276,7 +2280,7 @@ export default function RequestBoardMessengerScreen() {
                   <Text style={styles.previewActionText}>다운로드</Text>
                 </Pressable>
               </View>
-              <Pressable
+              <Pressable accessibilityLabel="사진 미리보기 닫기" accessibilityRole="button"
                 style={styles.previewCloseBtn}
                 onPress={() => setPreviewImage(null)}
               >
@@ -2383,7 +2387,7 @@ export default function RequestBoardMessengerScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
         <View style={styles.headerRow}>
-          <Pressable style={styles.backBtn} onPressIn={() => router.back()}>
+          <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={styles.backBtn} onPressIn={() => router.back()}>
             <Feather name="arrow-left" size={22} color={COLORS.gray[800]} />
           </Pressable>
           <View style={styles.headerTitleRow}>
@@ -2396,7 +2400,7 @@ export default function RequestBoardMessengerScreen() {
               </View>
             )}
           </View>
-          <Pressable
+          <Pressable accessibilityLabel="새로고침" accessibilityRole="button"
             style={styles.backBtn}
             onPress={() => { setConvLoading(true); loadConversations(); }}
           >
@@ -2416,8 +2420,8 @@ export default function RequestBoardMessengerScreen() {
             autoCorrect={false}
           />
           {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery('')}>
-              <Feather name="x" size={16} color={COLORS.gray[400]} />
+            <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="검색어 지우기" accessibilityRole="button" onPress={() => setSearchQuery('')}>
+              <Feather name="x" size={16} color={COLORS.text.secondary} />
             </Pressable>
           )}
         </View>
@@ -2693,12 +2697,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
   },
   unreadBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
-  backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  backBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
 
   /* Search */
   searchRow: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.gray[100],
-    borderRadius: RADIUS.base, paddingHorizontal: SPACING.md, height: 38, gap: 8,
+    borderRadius: RADIUS.base, paddingHorizontal: SPACING.md, height: 44, gap: 8,
   },
   searchInput: { flex: 1, fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.gray[900], paddingVertical: 0 },
 
@@ -2948,9 +2952,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   pendingRemove: {
-    position: 'absolute', top: -4, right: 0,
-    width: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.gray[600],
-    alignItems: 'center', justifyContent: 'center',
+    position: 'absolute', top: 0, right: 0, width: 44, height: 44,
+    alignItems: 'flex-end', justifyContent: 'flex-start',
   },
   pendingName: {
     fontSize: 10, color: COLORS.text.muted, marginTop: 2, textAlign: 'center',
@@ -2963,7 +2966,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: COLORS.border.light, gap: 4,
   },
   attachBtn: {
-    width: 36, height: 40, alignItems: 'center', justifyContent: 'center',
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
   },
   chatInput: {
     flex: 1, minHeight: 40, maxHeight: 100, backgroundColor: COLORS.gray[50],
@@ -2972,7 +2975,7 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.base, color: COLORS.gray[900],
   },
   sendBtn: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.primary,
+    width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.primary,
     alignItems: 'center', justifyContent: 'center',
   },
   sendBtnDisabled: { backgroundColor: COLORS.gray[300] },

@@ -1,46 +1,43 @@
 import { Stack, router } from 'expo-router';
-import { Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/BottomNavigation';
 import ServiceHomeScreen from '@/components/service-home';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
-import { openExternalUrl } from '@/lib/open-external-url';
-import { FAMILY_CARE_PROMOTION_URL, resolveInsuranceServiceRoute } from '@/lib/service-home';
+import { resolveInsuranceServiceRoute } from '@/lib/service-home';
 
 export default function ServiceHub() {
   const session = useSession();
   const insets = useSafeAreaInsets();
   const preset = resolveBottomNavPreset(session, { surface: 'service-hub' });
   const openInsurance = () => {
+    if (session.hydrated && !session.role) {
+      router.push({ pathname: '/services/[service]', params: { service: 'insurance' } });
+      return;
+    }
     const route = resolveInsuranceServiceRoute(session);
     if (route) router.push(route);
   };
-  const openCarePromotion = async () => {
-    try {
-      await openExternalUrl(FAMILY_CARE_PROMOTION_URL, { sameWindowOnWeb: true });
-    } catch {
-      Alert.alert('가족간병 안내를 열지 못했어요', '인터넷 연결을 확인한 뒤 가족간병을 다시 눌러 주세요.');
-    }
-  };
-  const openInformation = (service: 'telecom' | 'car' | 'help') => {
+  const openInformation = (service: 'care' | 'telecom' | 'rental' | 'car' | 'help') => {
     router.push({ pathname: '/services/[service]', params: { service } });
   };
 
   return (
     <>
-      <Stack.Screen options={{ headerShown: false, title: '가람in' }} />
+      <Stack.Screen options={{ headerShown: false, title: '모두온' }} />
       <ServiceHomeScreen
-        isSignedIn={Boolean(session.role)}
+        isSignedIn={session.isPlatformSignedIn}
         loading={!session.hydrated}
         canResumeInsurance={session.hydrated && session.role === 'fc' && !session.isRequestBoardDesigner}
         bottomInset={insets.bottom}
         onAccountPress={() => router.push('/services/account')}
-        onCarePress={openCarePromotion}
+        onCarePress={() => openInformation('care')}
         onInsurancePress={openInsurance}
         onTelecomPress={() => openInformation('telecom')}
         onCarPress={() => openInformation('car')}
+        onRentalPress={() => openInformation('rental')}
+        onHospitalPress={() => router.push('/services/hospitals')}
         onHelpPress={() => openInformation('help')}
         onResumeInsurancePress={openInsurance}
         navigation={preset ? (

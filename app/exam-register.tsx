@@ -729,7 +729,7 @@ export default function ExamRegisterScreen() {
                             pressed && styles.actionBtnPressed,
                           ]}
                         >
-                          <Feather name="edit-2" size={12} color={canEdit ? '#1d4ed8' : '#9CA3AF'} />
+                          <Feather name="edit-2" size={16} color={canEdit ? CHARCOAL : '#9CA3AF'} />
                           <Text style={[styles.actionBtnText, styles.editBtnText, !canEdit && styles.badgeTextDisabled]}>
                             수정
                           </Text>
@@ -744,7 +744,7 @@ export default function ExamRegisterScreen() {
                             pressed && styles.actionBtnPressed,
                           ]}
                         >
-                          <Feather name="trash-2" size={12} color={canEdit ? '#b91c1c' : '#9CA3AF'} />
+                          <Feather name="trash-2" size={16} color={canEdit ? '#b91c1c' : '#9CA3AF'} />
                           <Text style={[styles.actionBtnText, styles.deleteBtnText, !canEdit && styles.badgeTextDisabled]}>
                             {deleteRound.isPending && deleteRound.variables === round.id ? '삭제 중' : '삭제'}
                           </Text>
@@ -777,7 +777,7 @@ export default function ExamRegisterScreen() {
                         : '새 시험 일정 등록'}
                     </Text>
                   </View>
-                  <Pressable onPress={closeFormWithAnim} hitSlop={8} style={styles.formCloseBtn}>
+                  <Pressable accessibilityLabel="시험 일정 입력 닫기" accessibilityRole="button" onPress={closeFormWithAnim} style={styles.formCloseBtn}>
                     <Feather name="x" size={18} color={MUTED} />
                   </Pressable>
                 </View>
@@ -950,14 +950,14 @@ export default function ExamRegisterScreen() {
                           {loc.name}
                           <Text style={styles.locationOrder}> (순서: {loc.order})</Text>
                         </Text>
-                        <Pressable
+                        <Pressable accessibilityLabel="응시 지역 삭제" accessibilityRole="button" accessibilityState={{ disabled: !canEdit }}
                           onPress={() =>
                             setDraftLocations((prev) => prev.filter((item) => item.id !== loc.id))
                           }
                           style={({ pressed }) => [styles.locationDelete, pressed && { opacity: 0.6 }]}
                           disabled={!canEdit}
                         >
-                          <Feather name="x" size={13} color="#b91c1c" />
+                          <Feather name="x" size={16} color="#b91c1c" />
                         </Pressable>
                       </View>
                     ))}
@@ -1238,7 +1238,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   formCloseBtn: {
-    padding: 4,
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
   },
   divider: {
     height: 1,
@@ -1349,7 +1349,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   locationDelete: {
-    padding: 4,
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
   },
 
   // 버튼

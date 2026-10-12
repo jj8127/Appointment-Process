@@ -1,6 +1,8 @@
 import { Feather } from '@expo/vector-icons';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
+import { COLORS } from '@/lib/theme';
+
 type Props = {
   value: string;
   onChangeText: (value: string) => void;
@@ -18,10 +20,10 @@ export default function MessengerSearchHeader({ value, onChangeText, onBack, onC
         onPress={onBack}
         style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
       >
-        <Feather name="arrow-left" size={24} color="#171717" />
+        <Feather aria-hidden accessible={false} name="arrow-left" size={24} color="#171717" />
       </Pressable>
       <View style={styles.inputShell}>
-        <Feather name="search" size={19} color="#7A7A7A" />
+        <Feather aria-hidden accessible={false} name="search" size={19} color="#7A7A7A" />
         <TextInput
           accessibilityLabel="메신저 검색어"
           autoCapitalize="none"
@@ -44,7 +46,7 @@ export default function MessengerSearchHeader({ value, onChangeText, onBack, onC
             onPress={onClear}
             style={({ pressed }) => [styles.clearButton, pressed && styles.pressed]}
           >
-            <Feather name="x-circle" size={19} color="#A2A2A2" />
+            <Feather aria-hidden accessible={false} name="x-circle" size={19} color={COLORS.text.secondary} />
           </Pressable>
         ) : null}
       </View>

@@ -255,6 +255,5 @@ describe('Messenger V2 hub UI contract', () => {
     expect(requestChat).toContain('await loadMessages(activeConv);');
     expect(requestChat).toContain('pollRef.current = setTimeout(() => {');
     expect(requestChat).toContain('if (pollRef.current) clearTimeout(pollRef.current);');
-    expect(requestChat).toContain('requestAnimationFrame(() => {');
   });
 });

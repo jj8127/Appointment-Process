@@ -1,5 +1,20 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-12 native 목록 속성이 웹에서도 같은 동작이라고 가정함
+
+- 재현: 단체 채팅의 inverted FlatList와 RefreshControl 조합에서 RN Web이 목록 transform을 새로고침 wrapper에도 복사해 메시지를 세 번 반전했다. 같은 라이브러리의 개인/의뢰 목록은 두 번 반전되어 정상이다.
+- 규칙: 변환이 있는 목록에 플랫폼 전용 속성을 넣을 때 실제 웹 DOM의 wrapper/transform과 방향을 확인한다. 웹에서 구현되지 않은 native control은 플랫폼 조건으로 제외하며 데이터 정렬·anchor 계산에 별도 보정 코드를 더하지 않는다.
+
+## 2026-10-11 아이콘의 동일 슬롯·배경을 시각적 균형으로 판단함
+
+- 재현: 같은56px 서비스 그림 슬롯에서 휴대전화와 병원의 실제 그림 폭이 크게 다르고,44px 진료과는 선·세부 밀도·실루엣이 서로 다른데 개별 파스텔 배경으로 세트의 통일성을 판단했다. 반복된 사용자 피드백과 실제 크기 갤러리 비교로 확인했다.
+- 규칙: 역할별로 기존 자산을 재사용하고, 같은 세트의 대표 형태·선·팔레트를 먼저 정한다. 실제 표시 크기에서 묶음과 전체 화면을 비교하며 같은 뜻의 아이콘과 선택/비선택 규칙은 화면 간 유지한다. 확대 원본·형식·색 개수만으로 품질을 확정하지 않는다.
+
+## 2026-10-11 응답 검증 범위를 저장 계약과 다르게 가정함
+
+- 재현: 병원 클라이언트 응답 검증을 `revision>0`으로 작성했지만 기존 제휴 저장 RPC는 최초 등록을0으로 반환한다. 편집한 자료만 시험하면 새 병원 목록과 성과 보고가 잘못 거부될 수 있다. 운영 적용 전에 SQL 계약 대조로 발견해0을 허용했다.
+- 규칙: 새 응답 검증의 범위는 실제 생성·변경 RPC의 반환값에서 정한다. 가장 가까운 기존 응답 시험에는 최초 생성 값과 오류 값을 함께 넣고, 실제 SQL·클라이언트 화면 경계도 각각 확인한다. 시험을 위해 새 runner/fixture 체계를 만들지 않는다.
+
 ## 2026-10-10 여러 웹 origin을 첫 번째 주소로만 응답함
 
 - 재현: 로그인 함수의 동일 문제를 이전에 수정했지만27개 다른 Edge entry에 ALLOWED_ORIGINS[0] 고정 응답이 남았다. 웹 Expo에서 메신저·공지·추천·수당 조회가 한꺼번에 통신 오류로 보였고, 게시판은 요청 origin을 반영하여 정상 동작했다.
@@ -50,6 +65,8 @@
 - 반복 원인: API가 오류를 `[]`로 바꾸거나 화면이 query 오류를 버려, 실제 조회 실패가 대상 없음·미등록·0명으로 보였다. 게시판 편집기는 `contentPreview`로 입력값을 먼저 채우고 상세 성공 전에도 저장을 허용했다.
 - 재발 방지: 필수 조회는 실패를 보존하고 실패/정상 빈 결과/인증 복구를 구분한다. 원문은 현재 게시글의 완전한 응답으로 한 번만 초기화하고, 미검증 원문 저장과 늦은 응답의 초안 덮어쓰기를 막는다. 이미 저장된 자료의 첨부만 재시도하는 동선은 새 조회 가드로 막지 않는다. 기존 다른 호출자는 검토 없이 tolerant→strict로 일괄 변경하지 않는다.
 - 검증: 실제 API 오류 응답과 원문 조회 실패·지연·대상 변경·백그라운드 갱신을 실행하는 회귀 테스트로 확인한다. 목록의 존재 문자열 검사만으로 저장 안전성을 판정하지 않는다.
+- 2026-10-11 후속: 정상 FC 목록 배열에 저장용 `requireMutationSuccess`를 적용해 실제 대시보드가 전체 조회 실패로 바뀌었다. 조회는 해당 GET의 배열 계약으로 검증하고, 저장 acknowledgement 검사는 mutation에만 적용한다. 실제 queryFn을 가까운 기존 읽기 suite에서 정상 배열·잘못된 응답·HTTP 오류로 실행한다.
+- 2026-10-11 후속: 수당 hook이 재조회·오류마다 성공한 query data를 숨겨 실제 Android 새로고침 실패 시 명세와 선택 탭이 사라졌다. 같은 계정·토큰·월의 성공 자료는 기존 query에서 유지하고 오류·재시도를 함께 표시한다. 구조화된 세션·접근 거부는 자료를 차단하며, 이후 일시 오류만으로 다시 노출하지 않는다. 기존 hook 및 실제 화면 회귀가 갱신·재시도·권한회수·계정/월 격리를 검증한다.
 
 ## 2026-09-30 | FC 목록 조회 실패를 빈 검색 결과로 표시
 
@@ -5819,6 +5836,7 @@
 - Cause: the account entry omitted its service surface, and screen-specific back handlers consumed navigation before checking the existing stack.
 - Guardrail: carry the explicit surface into shared account screens and reuse the central navigation preset. Use existing back history before a direct-entry fallback; keep authentication and completed-work redirects explicit.
 - Evidence: existing ServiceHub, InsuranceHomeNavigation, mobile acceptance and home-lite regressions; physical Android account/home and two-step system back checks in artifacts/physical-device-acceptance-20261010/local-android-install-report.md.
+- 2026-10-11 follow-up: an embedded Request Board room handled closure only in the header, so Android hardware back popped the whole route and skipped the list. Reuse that room-close handler through focused `BackHandler`, delegate list back to the stack, preserve the immediate send guard, and clear room-target parameters. Existing mobile acceptance callbacks cover room/list/busy behavior; the QA r4 device reproduction and r5 recheck are recorded in artifacts/physical-device-acceptance-20261011/device-tests.md.
 
 ## 2026-10-10 | A spacing fix changed the established header alignment
 

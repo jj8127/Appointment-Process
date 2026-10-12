@@ -288,7 +288,7 @@ function EditNoticeContent({ id }: { id: string }) {
                                                     fit="cover"
                                                     style={{ border: '1px solid rgba(0,0,0,0.05)' }}
                                                 />
-                                                <ActionIcon
+                                                <ActionIcon aria-label="기존 이미지 제거"
                                                     color="red" size="xs" radius="xl" variant="filled"
                                                     style={{ position: 'absolute', top: 5, right: 5 }}
                                                     onClick={() => setExistingImages((prev) => prev.filter((_, i) => i !== idx))}
@@ -329,7 +329,7 @@ function EditNoticeContent({ id }: { id: string }) {
                                                     <motion.div key={idx} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.5 }} layout>
                                                         <div style={{ position: 'relative' }}>
                                                             <Image src={url} alt={`새 이미지 ${idx + 1}`} onLoad={() => URL.revokeObjectURL(url)} radius="md" h={100} w="100%" fit="cover" style={{ border: '1px solid rgba(0,0,0,0.05)' }} />
-                                                            <ActionIcon color="red" size="xs" radius="xl" variant="filled" style={{ position: 'absolute', top: 5, right: 5 }} onClick={() => setNewImages((prev) => prev.filter((_, i) => i !== idx))}>
+                                                            <ActionIcon aria-label="새 이미지 제거" color="red" size="xs" radius="xl" variant="filled" style={{ position: 'absolute', top: 5, right: 5 }} onClick={() => setNewImages((prev) => prev.filter((_, i) => i !== idx))}>
                                                                 <IconX size={12} />
                                                             </ActionIcon>
                                                         </div>
@@ -353,7 +353,7 @@ function EditNoticeContent({ id }: { id: string }) {
                                                         <ThemeIcon color="blue" variant="light" radius="md"><IconFile size={16} /></ThemeIcon>
                                                         <Text size="sm" truncate="end" maw={200} fw={500}>{file.name ?? `파일 ${idx + 1}`}</Text>
                                                     </Group>
-                                                    <ActionIcon color="red" variant="subtle" onClick={() => setExistingFiles((prev) => prev.filter((_, i) => i !== idx))}>
+                                                    <ActionIcon aria-label="기존 파일 제거" color="red" variant="subtle" onClick={() => setExistingFiles((prev) => prev.filter((_, i) => i !== idx))}>
                                                         <IconX size={16} />
                                                     </ActionIcon>
                                                 </Group>
@@ -393,7 +393,7 @@ function EditNoticeContent({ id }: { id: string }) {
                                                                 <Text size="sm" truncate="end" maw={200} fw={500}>{file.name}</Text>
                                                                 <Text size="xs" c="dimmed">({(file.size / 1024).toFixed(1)} KB)</Text>
                                                             </Group>
-                                                            <ActionIcon color="red" variant="subtle" onClick={() => setNewFiles((prev) => prev.filter((_, i) => i !== idx))}>
+                                                            <ActionIcon aria-label="새 파일 제거" color="red" variant="subtle" onClick={() => setNewFiles((prev) => prev.filter((_, i) => i !== idx))}>
                                                                 <IconX size={16} />
                                                             </ActionIcon>
                                                         </Group>

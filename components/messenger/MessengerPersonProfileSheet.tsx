@@ -60,7 +60,7 @@ export function MessengerPersonProfileSheet({
                 onPress={onClose}
                 style={({ pressed }) => [styles.closeButton, pressed && styles.buttonPressed]}
               >
-                <Feather name="x" size={22} color="#374151" />
+                <Feather aria-hidden accessible={false} name="x" size={22} color="#374151" />
               </Pressable>
             </View>
 
@@ -96,7 +96,7 @@ export function MessengerPersonProfileSheet({
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <>
-                  <Feather name="message-circle" size={19} color="#FFFFFF" />
+                  <Feather aria-hidden accessible={false} name="message-circle" size={19} color="#FFFFFF" />
                   <Text style={styles.chatButtonText}>1:1 대화</Text>
                 </>
               )}

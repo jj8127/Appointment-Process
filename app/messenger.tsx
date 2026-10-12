@@ -856,7 +856,7 @@ export default function MessengerHubScreen() {
     } else if (channel === 'group-chat' && capabilities.canUseGroupChat) {
       router.push('/group-chat');
     } else if (channel === 'request-board' && capabilities.canReadRequestBoard) {
-      router.push('/request-board-messenger' as never);
+      setActiveTab('chats');
     }
   }, [
     capabilities.canReadRequestBoard,

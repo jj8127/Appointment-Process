@@ -11,7 +11,7 @@ import { normalizeStaffType } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { validatePhone, validateRequired, normalizePhone } from '@/lib/validation';
 
-type LoginResponse = {
+export type LoginResponse = {
   ok: boolean;
   code?: string;
   message?: string;
@@ -34,6 +34,23 @@ type UseLoginOptions = {
 export function useLogin(options?: UseLoginOptions) {
   const { loginAs } = useSession();
   const [loading, setLoading] = useState(false);
+
+  // Both the FC entry and the common entry receive this signed legacy response.
+  const acceptLoginResponse = async (data: LoginResponse) => {
+    if (!data.ok || !['admin', 'manager', 'fc'].includes(data.role ?? '') || !data.appSessionToken) {
+      throw new Error('로그인 결과를 확인하지 못했습니다. 다시 시도해주세요.');
+    }
+    const readOnly = data.role === 'manager';
+    const nextRole = data.role === 'admin' || data.role === 'manager' ? 'admin' : 'fc';
+    const requestBoardRole = data.requestBoardRole === 'fc' || data.requestBoardRole === 'designer'
+      ? data.requestBoardRole : null;
+    await clearRequestBoardState({ clearAppSession: true });
+    await setAppSessionToken(data.appSessionToken);
+    await setBridgeToken(data.requestBoardBridgeToken ?? null);
+    loginAs(nextRole, data.residentId ?? '', data.displayName ?? '', normalizeStaffType(data.staffType),
+      readOnly, requestBoardRole === 'designer' && nextRole === 'fc', requestBoardRole, data.appSessionToken);
+    return nextRole;
+  };
 
   const login = async (phoneInput: string, passwordInput: string): Promise<boolean> => {
     Keyboard.dismiss();
@@ -113,33 +130,7 @@ export function useLogin(options?: UseLoginOptions) {
         return false;
       }
 
-      // Success - set session
-      const readOnly = data.role === 'manager';
-      const nextRole = data.role === 'admin' || data.role === 'manager' ? 'admin' : 'fc';
-      const staffType = normalizeStaffType(data.staffType);
-      const bridgeToken = data.requestBoardBridgeToken ?? null;
-      const appSessionToken = data.appSessionToken ?? null;
-      const fallbackRequestBoardRole =
-        data.requestBoardRole === 'fc' || data.requestBoardRole === 'designer'
-          ? data.requestBoardRole
-          : null;
-      await clearRequestBoardState({ clearAppSession: true });
-      await setAppSessionToken(appSessionToken);
-      await setBridgeToken(bridgeToken);
-
-      const requestBoardRole: 'fc' | 'designer' | null = fallbackRequestBoardRole;
-      const isRequestBoardDesigner = fallbackRequestBoardRole === 'designer' && nextRole === 'fc';
-
-      loginAs(
-        nextRole,
-        data.residentId ?? digits,
-        data.displayName ?? '',
-        staffType,
-        readOnly,
-        isRequestBoardDesigner,
-        requestBoardRole,
-        appSessionToken,
-      );
+      const nextRole = await acceptLoginResponse({ ...data, residentId: data.residentId ?? digits });
 
       // Navigate or call custom success handler
       if (options?.onSuccess) {
@@ -163,6 +154,7 @@ export function useLogin(options?: UseLoginOptions) {
 
   return {
     login,
+    acceptLoginResponse,
     loading,
   };
 }

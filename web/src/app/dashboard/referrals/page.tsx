@@ -24,6 +24,8 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
+  IconInfoCircle,
+  IconAlertTriangle,
   IconBan,
   IconGraph,
   IconKey,
@@ -606,7 +608,7 @@ export default function ReferralDashboardPage() {
         </Group>
 
         {showReadOnlyState ? (
-          <Alert color="gray" variant="light" icon={<IconAlertCircle size={16} />}>
+          <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />}>
             본 화면은 조회 전용입니다. 코드 발급, 재발급, 비활성 작업은 관리자 또는 개발자 세션에서만 가능합니다.
           </Alert>
         ) : null}
@@ -861,7 +863,7 @@ export default function ReferralDashboardPage() {
         </Paper>
       </Stack>
 
-      <Modal
+      <Modal closeButtonProps={{ "aria-label": "추천인 검토 닫기" }}
         opened={showMutateControls && Boolean(actionModal)}
         onClose={closeModal}
         title={
@@ -881,11 +883,11 @@ export default function ReferralDashboardPage() {
       >
         <Stack gap="md">
           {actionModal?.action === 'backfill_missing_codes' ? (
-            <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+            <Alert color="orange" icon={<IconAlertTriangle size={16} />}>
               한 번 실행할 때 최대 {BACKFILL_LIMIT}명의 미발급 FC를 처리합니다. 활성 코드가 있는 FC는 자동으로 건너뜁니다.
             </Alert>
           ) : actionModal?.action === 'auto_resolve_legacy_recommenders' ? (
-            <Alert color="blue" icon={<IconAlertCircle size={16} />}>
+            <Alert color="blue" icon={<IconInfoCircle size={16} />}>
               exact-unique로 확정 가능한 레거시 추천인만 최대 {LEGACY_AUTO_RESOLVE_LIMIT}건까지 자동 연결합니다.
               동명이인, 후보 없음, 자기추천은 자동 정리 대상에서 제외됩니다.
             </Alert>
@@ -897,7 +899,7 @@ export default function ReferralDashboardPage() {
               <Text size="sm" c="dimmed">
                 기존 추천인 문자열: {actionModal.target.legacyRecommenderName}
               </Text>
-              <Alert color="red" icon={<IconAlertCircle size={16} />}>
+              <Alert color="red" icon={<IconAlertTriangle size={16} />}>
                 자기 자신을 추천인으로 적은 잘못된 레거시 데이터를 제거합니다.
               </Alert>
               <Textarea
@@ -917,7 +919,7 @@ export default function ReferralDashboardPage() {
                 기존 추천인 문자열: {actionModal.target.legacyRecommenderName}
               </Text>
               {actionModal.target.matchStatus === 'auto_resolvable' && actionModal.target.autoResolvableCandidate ? (
-                <Alert color="blue" icon={<IconAlertCircle size={16} />}>
+                <Alert color="blue" icon={<IconInfoCircle size={16} />}>
                   자동 연결 후보:
                   {' '}
                   {actionModal.target.autoResolvableCandidate.label}
@@ -925,12 +927,12 @@ export default function ReferralDashboardPage() {
                 </Alert>
               ) : null}
               {actionModal.target.matchStatus === 'missing_candidate' ? (
-                <Alert color="gray" icon={<IconAlertCircle size={16} />}>
+                <Alert color="gray" icon={<IconInfoCircle size={16} />}>
                   활성 코드 후보가 없어 자동으로는 연결할 수 없습니다. 필요한 경우 아래에서 수동으로 추천인을 지정하세요.
                 </Alert>
               ) : null}
               {actionModal.target.matchStatus === 'ambiguous' ? (
-                <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+                <Alert color="orange" icon={<IconAlertTriangle size={16} />}>
                   동명이인 후보가 여러 명입니다. 정확한 추천인을 수동으로 선택해야 합니다.
                 </Alert>
               ) : null}

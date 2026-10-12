@@ -362,7 +362,7 @@ export default function RequestBoardRequestsScreen() {
           {separatePolicyholderSummary ? (
             <View style={styles.requestPolicyholderRow}>
               <View style={styles.requestPolicyholderBadge}>
-                <Feather name="users" size={11} color="#92400E" />
+                <Feather name="user" size={14} color="#92400E" />
                 <Text style={styles.requestPolicyholderBadgeText}>계약자 다름</Text>
               </View>
               <Text style={styles.requestPolicyholderText} numberOfLines={1}>
@@ -427,7 +427,7 @@ export default function RequestBoardRequestsScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
         <View style={styles.headerInner}>
-          <Pressable
+          <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button"
             style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
             onPress={() => router.back()}
           >
@@ -591,9 +591,9 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: COLORS.gray[100],
     alignItems: 'center',
     justifyContent: 'center',

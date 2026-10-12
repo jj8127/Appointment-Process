@@ -1,6 +1,6 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Alert,
   Keyboard,
@@ -16,13 +16,18 @@ import { FormInput } from '@/components/FormInput';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-import { logger } from '@/lib/logger';
+import { platformRequest } from '@/lib/platform-api';
+import { resolvePlatformAuthRoute } from '@/lib/session-landing';
+import { useReadAttempt } from '@/lib/use-read-attempt';
+import { captureAppSessionOwner } from '@/lib/request-board-api';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { validatePhone, validatePassword, normalizePhone } from '@/lib/validation';
 
 const AUTH_SCREEN_BACKGROUND = COLORS.primaryPale;
 
 export default function ResetPasswordScreen() {
+  const { audience, service } = useLocalSearchParams<{ audience?: string; service?: string }>();
+  const isPlatform = audience === 'platform';
   const { logout } = useSession();
   const [phone, setPhone] = useState('');
   const [token, setToken] = useState('');
@@ -30,8 +35,11 @@ export default function ResetPasswordScreen() {
   const [loading, setLoading] = useState(false);
   const [requested, setRequested] = useState(false);
   const keyboardPadding = useKeyboardPadding();
+  const pending = useRef(false);
+  const beginAttempt = useReadAttempt();
 
   const handleRequest = async () => {
+    if (pending.current) return;
     Keyboard.dismiss();
     const phoneValidation = validatePhone(phone);
     if (!phoneValidation.isValid) {
@@ -39,28 +47,18 @@ export default function ResetPasswordScreen() {
       return;
     }
     const digits = normalizePhone(phone);
+    pending.current = true;
     setLoading(true);
+    const isCurrent = beginAttempt();
+    const ownsSession = captureAppSessionOwner();
     try {
-      const { data, error } = await supabase.functions.invoke('request-password-reset', {
+      const { data, error } = isPlatform
+        ? { data: await platformRequest<{ ok: true }>('request_password_reset', { phone: digits }), error: null }
+        : await supabase.functions.invoke('request-password-reset', {
         body: { phone: digits },
       });
-
-      // 디버깅: 응답 로깅
-      logger.info('reset-password response', { data, error, hasError: !!error, dataOk: data?.ok });
-
-      if (error) {
-        let detail = error.message;
-        const context = (error as any)?.context as Response | undefined;
-        if (context?.text) {
-          try {
-            detail = await context.text();
-          } catch {
-            // ignore
-          }
-        }
-        logger.warn('reset request failed', { detail });
-        throw new Error(detail || error.message);
-      }
+      if (!isCurrent() || !ownsSession()) return;
+      if (error) throw new Error('인증 문자를 요청하지 못했습니다. 잠시 후 다시 시도해주세요.');
       if (!data?.ok) {
         if (data?.code === 'not_found') {
           Alert.alert('알림', data?.message ?? '등록된 계정을 찾을 수 없습니다.');
@@ -89,22 +87,24 @@ export default function ResetPasswordScreen() {
         '인증 코드가 문자로 발송되었습니다.',
       );
     } catch (err: any) {
+      if (!isCurrent() || !ownsSession()) return;
       const message = err?.message || '비밀번호 변경 요청에 실패했습니다.';
       Alert.alert('오류', message);
     } finally {
-      setLoading(false);
+      if (isCurrent()) { pending.current = false; setLoading(false); }
     }
   };
 
   const handleReset = async () => {
+    if (pending.current) return;
     Keyboard.dismiss();
     const phoneValidation = validatePhone(phone);
     if (!phoneValidation.isValid) {
       Alert.alert('알림', phoneValidation.error);
       return;
     }
-    if (!token.trim()) {
-      Alert.alert('알림', '인증 코드를 입력해주세요.');
+    if (!/^\d{6}$/.test(token.trim())) {
+      Alert.alert('알림', '문자로 받은 6자리 인증 코드를 입력해주세요.');
       return;
     }
     const passwordValidation = validatePassword(newPassword);
@@ -115,15 +115,21 @@ export default function ResetPasswordScreen() {
     const digits = normalizePhone(phone);
     const trimmedNew = newPassword.trim();
 
+    pending.current = true;
     setLoading(true);
+    const isCurrent = beginAttempt();
+    const ownsSession = captureAppSessionOwner();
     try {
-      const { data, error } = await supabase.functions.invoke('reset-password', {
+      const { data, error } = isPlatform
+        ? { data: await platformRequest<{ ok: true }>('reset_password', { phone: digits, code: token.trim(), password: trimmedNew }), error: null }
+        : await supabase.functions.invoke('reset-password', {
         body: {
           phone: digits,
           token: token.trim(),
           newPassword: trimmedNew,
         },
       });
+      if (!isCurrent() || !ownsSession()) return;
       if (error) throw error;
       if (!data?.ok) {
         Alert.alert('알림', data?.message ?? '비밀번호 변경에 실패했습니다.');
@@ -131,13 +137,14 @@ export default function ResetPasswordScreen() {
       }
 
       await supabase.auth.signOut().catch(() => {});
+      if (!isCurrent() || !ownsSession()) return;
       logout();
       Alert.alert('완료', '비밀번호가 변경되었습니다.');
-      router.replace('/login');
-    } catch {
-      Alert.alert('오류', '비밀번호 변경에 실패했습니다.');
+      router.replace(isPlatform ? resolvePlatformAuthRoute(service, 'login') : '/login');
+    } catch (error) {
+      if (isCurrent() && ownsSession()) Alert.alert('오류', isPlatform && error instanceof Error ? error.message : '비밀번호 변경에 실패했습니다.');
     } finally {
-      setLoading(false);
+      if (isCurrent()) { pending.current = false; setLoading(false); }
     }
   };
 
@@ -159,15 +166,16 @@ export default function ResetPasswordScreen() {
             >
               <View style={styles.headerSection}>
                 <Text style={styles.title}>비밀번호 변경</Text>
-                <Text style={styles.subtitle}>문자로 받은 6자리 코드를 입력해주세요.</Text>
+                <Text style={styles.subtitle}>{isPlatform ? '모두온 일반 회원의 비밀번호를 변경합니다.' : '문자로 받은 6자리 코드를 입력해주세요.'}</Text>
               </View>
 
               <FormInput
                 label="휴대폰 번호"
                 placeholder="숫자 11자리"
                 value={phone}
-                onChangeText={setPhone}
+                onChangeText={value => { setPhone(value); setToken(''); setRequested(false); }}
                 keyboardType="number-pad"
+                autoComplete="tel"
                 editable={!loading}
                 containerStyle={styles.inputContainer}
               />
@@ -190,6 +198,8 @@ export default function ResetPasswordScreen() {
                 value={token}
                 onChangeText={setToken}
                 keyboardType="number-pad"
+                autoComplete="sms-otp"
+                maxLength={6}
                 editable={!loading}
                 containerStyle={styles.inputContainer}
               />
@@ -216,6 +226,9 @@ export default function ResetPasswordScreen() {
                   >
                 비밀번호 변경
               </Button>
+              {isPlatform && <Button variant="outline" disabled={loading} fullWidth style={{ marginTop: SPACING.base }} onPress={() => {
+                setToken(''); setNewPassword(''); setRequested(false); router.replace('/reset-password');
+              }}>보험·FC 계정 비밀번호 찾기</Button>}
             </MotiView>
           </View>
         </KeyboardAwareWrapper>

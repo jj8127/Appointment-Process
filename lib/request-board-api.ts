@@ -283,7 +283,7 @@ async function storeAuth(token: string, user: RbUser) {
   });
 }
 
-function persistAuthChange(write: () => Promise<void>): Promise<void> {
+export function persistAuthChange(write: () => Promise<void>): Promise<void> {
   const pending = authStorageWrite.then(write, write);
   authStorageWrite = pending.catch(() => {});
   return pending;

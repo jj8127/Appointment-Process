@@ -48,6 +48,7 @@ export function ReferralTreeNode({
   return (
     <View>
       <Pressable
+        aria-expanded={hasChildren ? expanded : undefined}
         onPress={hasChildren ? () => onToggle(node.fcId) : undefined}
         style={({ pressed }) => [
           styles.nodeRow,
@@ -73,10 +74,10 @@ export function ReferralTreeNode({
           {isLoadingExpand ? (
             <BrandedLoadingSpinner size="sm" color={COLORS.primary} />
           ) : hasChildren ? (
-            <Feather
+            <Feather aria-hidden accessible={false}
               name={expanded ? 'chevron-down' : 'chevron-right'}
               size={16}
-              color={COLORS.gray[400]}
+              color={COLORS.text.secondary}
             />
           ) : (
             <View style={styles.leafDot} />
@@ -85,7 +86,7 @@ export function ReferralTreeNode({
 
         {/* 아바타 */}
         <View style={[styles.avatar, highlightTopLevel && styles.avatarDepth1]}>
-          <Feather
+          <Feather aria-hidden accessible={false}
             name="user"
             size={13}
             color={highlightTopLevel ? COLORS.primary : COLORS.gray[400]}
@@ -142,7 +143,7 @@ export function ReferralTreeNode({
       {/* 펼쳤지만 아직 로드 안 됨 — 하위 인원만 안내 */}
       {expanded && !hasLoadedChildren && node.totalDescendantCount > 0 && (
         <View style={[styles.moreHint, { paddingLeft: SPACING.sm + indent + 36 }]}>
-          <Feather name="more-horizontal" size={14} color={COLORS.gray[300]} />
+          <Feather aria-hidden accessible={false} name="more-horizontal" size={14} color={COLORS.gray[300]} />
           <Text style={styles.moreHintText}>
             하위 {node.totalDescendantCount}명 더 있음
           </Text>

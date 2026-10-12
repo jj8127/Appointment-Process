@@ -36,6 +36,7 @@ import { useDisclosure } from '@mantine/hooks';
 import {
   IconCalendar,
   IconCheck,
+  IconClock,
   IconChevronLeft,
   IconChevronRight,
   IconDeviceFloppy,
@@ -651,7 +652,6 @@ export default function DashboardPage() {
       if (!Array.isArray(data)) {
         throw new Error('FC 목록 응답 형식이 올바르지 않습니다.');
       }
-      requireMutationSuccess(data);
       return data;
     },
     enabled: hydrated && (role === 'admin' || role === 'manager'),
@@ -2093,7 +2093,7 @@ export default function DashboardPage() {
             <Group justify="space-between" mb="xs">
               <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>총 인원</Text>
               <ThemeIcon variant="light" color="blue" radius="md" size="lg">
-                <IconUser size={22} stroke={1.5} />
+                <IconUser size={22} stroke={2} />
               </ThemeIcon>
             </Group>
             <Group align="flex-end" gap="xs">
@@ -2122,7 +2122,7 @@ export default function DashboardPage() {
             <Group justify="space-between" mb="xs">
               <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>보증 보험 동의 승인 대기</Text>
               <ThemeIcon variant="light" color="orange" radius="md" size="lg">
-                <IconCheck size={22} stroke={1.5} />
+                <IconClock size={22} stroke={2} />
               </ThemeIcon>
             </Group>
             <Group align="flex-end" gap="xs">
@@ -2151,7 +2151,7 @@ export default function DashboardPage() {
             <Group justify="space-between" mb="xs">
               <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>서류검토 대기</Text>
               <ThemeIcon variant="light" color="indigo" radius="md" size="lg">
-                <IconFileText size={22} stroke={1.5} />
+                <IconFileText size={22} stroke={2} />
               </ThemeIcon>
             </Group>
             <Group align="flex-end" gap="xs">
@@ -2213,7 +2213,7 @@ export default function DashboardPage() {
               </Tabs>
               <TextInput
                 placeholder="이름, 연락처 검색"
-                leftSection={<IconSearch size={16} stroke={1.5} />}
+                leftSection={<IconSearch size={16} stroke={2} />}
                 classNames={{ input: 'muted-placeholder-input' }}
                 value={keyword}
                 onChange={(e) => {
@@ -2901,7 +2901,7 @@ export default function DashboardPage() {
                                       isManagerMode={isReadOnly}
                                     />
                                     <Tooltip label="삭제">
-                                      <ActionIcon
+                                      <ActionIcon aria-label="제출한 서류 파일 삭제"
                                         variant="light"
                                         color={isReadOnly ? "gray" : "red"}
                                         size="input-xs"

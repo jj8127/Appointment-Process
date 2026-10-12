@@ -39,6 +39,24 @@ function execute(code, values) {
 }
 const noNotifications = { show() {} };
 
+test('appointment years include current and returned data years without hiding current-year FCs', () => {
+  const dayjs = require('dayjs');
+  const currentYear = dayjs().format('YYYY');
+  const fcs = [
+    { id: 'current', created_at: `${currentYear}-06-01T00:00:00Z` },
+    { id: 'older', created_at: '2023-06-01T00:00:00Z' },
+    { id: 'future', created_at: '2031-06-01T00:00:00Z' },
+    { id: 'invalid', created_at: 'invalid' },
+    { id: 'missing' },
+  ];
+  const values = { fcs, dayjs, useMemo: (compute) => compute() };
+  const years = execute(extract('app/dashboard/appointment/page.tsx', 'yearOptions'), values);
+  assert.deepEqual(Array.from(years), [...new Set([currentYear, '2025', '2024', '2023', '2031'])].sort((a, b) => Number(b) - Number(a)));
+  assert.deepEqual(Array.from(execute(extract('app/dashboard/appointment/page.tsx', 'processedFcs'), {
+    ...values, filterYear: currentYear, canManageInsuranceStage: () => true,
+  }), (fc) => fc.id), ['current']);
+});
+
 test('canceling composer discard keeps the draft and attachment; busy create cannot close', () => {
   let closes = 0; let prompts = 0;
   const values = { createPostMutation: { isPending: false }, updatePostMutation: { isPending: false },

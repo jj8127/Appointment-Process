@@ -167,28 +167,23 @@ export function BottomNavigation({
             accessibilityRole="button"
             accessibilityLabel={item.label}
             accessibilityState={{ selected: isActive }}
+            aria-current={isActive ? 'page' : undefined}
             style={({ pressed }) => [
               styles.navItem,
               pressed && styles.navItemPressed,
             ]}
             onPress={() => handlePress(item)}
           >
-            <View style={[
-              styles.iconWrap,
-              isActive && styles.iconWrapActive,
-              isServiceHub && styles.serviceHubIconWrap,
-            ]}>
+            <View style={styles.iconWrap}>
               <Feather
                 name={item.icon}
-                size={isServiceHub ? 22 : 20}
-                color={isServiceHub
-                  ? (isActive ? COLORS.primary : COLORS.text.secondary)
-                  : (isActive ? '#fff' : COLORS.primary)}
+                size={22}
+                color={isActive ? COLORS.primary : COLORS.text.secondary}
+                accessible={false}
               />
             </View>
             <Text style={[
               styles.label,
-              isServiceHub && styles.serviceHubLabel,
               isActive && styles.labelActive,
             ]}>
               {item.label}
@@ -233,32 +228,16 @@ const styles = StyleSheet.create({
   iconWrap: {
     width: 30,
     height: 30,
-    borderRadius: 22,
-    backgroundColor: 'rgba(243,111,33,0.08)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(243,111,33,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconWrapActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  serviceHubIconWrap: {
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    borderRadius: 0,
-  },
   label: {
     fontSize: 13,
-    color: COLORS.text.muted,
-    fontWeight: '700',
+    color: COLORS.text.secondary,
+    fontWeight: '500',
   },
   labelActive: {
     color: COLORS.gray[900],
-  },
-  serviceHubLabel: {
-    color: COLORS.text.secondary,
-    fontWeight: '500',
+    fontWeight: '700',
   },
 });

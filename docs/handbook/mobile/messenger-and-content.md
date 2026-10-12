@@ -2,10 +2,16 @@ doc_id: FC-APP-MESSENGER-CONTENT
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-08-08
+last_verified: 2026-10-12
 source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversation.tsx + app/notification-settings.tsx + app/muted-conversations.tsx + app/chat.tsx + app/group-chat.tsx + app/request-board-messenger.tsx + lib/messenger-hub-model.ts + lib/messenger-search-model.ts + lib/notification-preferences-api.ts + lib/chat-keyboard-layout.ts + app/board*.tsx + app/notice*.tsx + app/notifications.tsx
 
 # Mobile Playbook: Messenger And Content
+
+Request Board room, busy-send and Android hardware-back behavior follows the [embedded conversation back contract](./request-board-bridge.md#native-back-in-an-embedded-conversation).
+
+## 2026-10-12 웹 단체 메시지 반전
+
+단체 채팅의 기존 RefreshControl은 Android/iOS에서만 전달한다. 설치된 RN Web0.21.2는 inverted 목록의 `scaleY(-1)`을 새로고침 바깥 View에도 복사한다. 목록·셀의 두 반전에 바깥 반전까지 더해져 글자·시각·아바타가 뒤집힌다. 웹 RefreshControl은 실제 onRefresh를 제공하지 않으므로 웹에서는 해당 wrapper를 생성하지 않는다. 최신순 메시지 배열·anchor 인덱스·최신 복귀의 offset0은 그대로 유지한다. 개인/의뢰 목록은 같은 wrapper가 없어 두 반전으로 정상 표시된다. 검증은 기존 suite의 플랫폼 분기와 실제 합성 웹의 방향·긴 대화 스크롤을 함께 확인한다.
 
 ## 2026-10-10 Web read transport and bridge recovery
 

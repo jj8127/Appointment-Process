@@ -7,6 +7,12 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 
 # Backend Runbook: Admin Operations API
 
+## 2026-10-11 공통 제휴 운영 API (로컬)
+
+`platform-service`는 공통 가입/로그인·회원 관심 등록/조회/취소/탈퇴·공개 광고 병원 목록과 관리자 제휴/정산/지급 기록을 제공한다. 일반 회원 토큰 목적은 FC API에서 거부한다. 관리자 읽기/쓰기는 현재 DB의 활성 일반 관리자만 허용한다. `get_admin`의 최신 목록은 정산 증빙 입력·기록 관리용이며 은행 이체 API가 아니다. 정산·지급은 실제 거래/정산/이체 식별 번호와 완료 시각을 확인한다.
+
+기존 비밀번호 해시와 가입 SMS 구현을 `_shared/password-hash.ts`, `_shared/signup-sms.ts`로 옮겨 종전 FC 함수와 새 공통 회원 함수가 재사용한다. 알고리즘과 SMS 전송 계약을 새로 만들지 않았다. 상세 요청·중복/실패/권한 경계는 [공통 서비스 계약](../mobile/platform-services.md)를 따른다. 신규 migration/Edge는 운영에 적용하지 않았다.
+
 ## 2026-10-10 요청 origin 처리
 
 admin-action·fc-consent·fc-submit-appointment·fc-submit-hanwha-commission은 공통 serveWithConfiguredCors로 등록된 요청 origin을 정확히 반환한다. 기존 signed actor·본문 토큰·RPC 권한·mutation 처리와 응답 상태는 유지한다. localhost 추가는 별도 승인된 ALLOWED_ORIGINS 설정이 필요하다. 로컬 코드와 회귀 검증이며 운영 반영을 뜻하지 않는다. [공통 CORS 계약](./notifications-inbox-push.md#web-edge-cors-boundary-2026-10-10).

@@ -7,6 +7,12 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 
 # Data Handbook: Referral Schema And Admin RPCs
 
+## 2026-10-11 공통 제휴 추천 관계
+
+새 제휴 서비스의 가입 시 직접 추천 관계는 `platform_members.referrer_id`가 기준이다. 기존 FC를 최초 연결할 때 종전 추천 관계를 투영하고 이후 보험 증원 관계 변경으로 이 공통 관계를 자동 덮어쓰지 않는다. 일반 회원의 FC 전환도 이미 연결한 공통 관계를 유지한다. 종전 `referral_*`는 보험 증원 업무의 계약을 계속 담당한다.
+
+`20261011040816_platform_common_membership.sql`의 회원·인증·관심 등록·제휴·정산·혜택 테이블과 RPC는 서비스 역할 전용이다. Edge는 토큰 목적·현재 계정 상태·현재 관리자 권한을 확인한다. 확정 정산에는 직접 추천인·비율·계산 기준·정산 시각과7일 지급 기한을 보존한다. 제휴 수정의 revision 검사와 가입·정산·지급의 중복 처리를 별도 통제한다. 병원 광고와 보험 상담에는 일반 제휴 추천 수수료를 만들지 않는다. 금액·원 미만 처리·기존 FC 삭제 호환은 [공통 회원·제휴 서비스](../mobile/platform-services.md)를 따른다. 이 migration은 로컬 검증만 했으며 운영 DB에 적용하지 않았다.
+
 ## 핵심 테이블
 
 - `referral_codes`

@@ -1,4 +1,4 @@
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -521,7 +521,7 @@ export default function ExamManageNonlifeScreen() {
           </View>
 
           <View style={styles.searchBox}>
-            <Ionicons name="search" size={18} color="#9CA3AF" />
+            <Feather name="search" size={18} color="#9CA3AF" />
             <TextInput
               style={styles.searchInput}
               placeholder="이름, 전화번호 검색"

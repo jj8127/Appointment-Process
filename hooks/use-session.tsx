@@ -14,6 +14,7 @@ import {
   getStoredAppSessionToken,
   getStoredBridgeToken,
   rbCheckAuth,
+  persistAuthChange,
   setAppSessionToken as persistStoredAppSessionToken,
 } from '@/lib/request-board-api';
 import {
@@ -24,6 +25,8 @@ import {
 import { buildPushRegistrationAttemptKey } from '@/lib/push-registration';
 import { createReadScope } from '@/lib/request-board-read-state';
 import { safeStorage } from '@/lib/safe-storage';
+import { sensitiveTokenStorage } from '@/lib/secure-token-storage';
+import { platformRequest } from '@/lib/platform-api';
 import { startSessionLogout } from '@/lib/session-logout';
 import { normalizeStaffType, type StaffType } from '@/lib/staff-identity';
 import { isValidMobilePhone, normalizePhone } from '@/lib/validation';
@@ -32,6 +35,7 @@ import { useReadAttempt } from '@/lib/use-read-attempt';
 type Role = 'admin' | 'fc' | null;
 type RequestBoardRole = 'fc' | 'designer' | null;
 type RequestBoardSyncStatus = 'idle' | 'syncing' | 'ready' | 'error' | 'needs_reauth';
+export type PlatformMemberIdentity = { id: string; name: string };
 
 type SessionState = {
   role: Role;
@@ -47,6 +51,11 @@ type SessionContextValue = SessionState & {
   residentMask: string;
   hydrated: boolean;
   appSessionToken: string | null;
+  platformMember: PlatformMemberIdentity | null;
+  platformSessionToken: string | null;
+  platformHydrated: boolean;
+  isPlatformSignedIn: boolean;
+  loginPlatformMember: (member: PlatformMemberIdentity, token: string) => Promise<void>;
   requestBoardSyncStatus: RequestBoardSyncStatus;
   requestBoardSyncError: string | null;
   replaceAppSessionToken: (token: string | null) => Promise<void>;
@@ -88,6 +97,8 @@ const initialState: SessionState = {
   requestBoardRole: null,
 };
 const STORAGE_KEY = 'fc-onboarding/session';
+const PLATFORM_MEMBER_KEY = 'fc-onboarding/platform-member';
+const PLATFORM_TOKEN_KEY = 'fc-onboarding.platform-session-token';
 
 function normalizeStoredRole(rawRole: unknown, readOnly: boolean): Pick<SessionState, 'role' | 'readOnly'> | null {
   if (rawRole === 'fc' || rawRole === 'admin') {
@@ -106,6 +117,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>(initialState);
   const [hydrated, setHydrated] = useState(false);
   const [appSessionToken, setAppSessionTokenState] = useState<string | null>(null);
+  const [platformMember, setPlatformMember] = useState<PlatformMemberIdentity | null>(null);
+  const [platformSessionToken, setPlatformSessionToken] = useState<string | null>(null);
+  const beginPlatformChange = useReadAttempt();
   const [pushRegistrationRevision, setPushRegistrationRevision] = useState(0);
   const [requestBoardSyncStatus, setRequestBoardSyncStatus] = useState<RequestBoardSyncStatus>('idle');
   const [requestBoardSyncError, setRequestBoardSyncError] = useState<string | null>(null);
@@ -139,6 +153,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [beginTokenReplacement]);
 
+  const clearPlatformSession = useCallback(() => {
+    beginPlatformChange();
+    setPlatformMember(null);
+    setPlatformSessionToken(null);
+    return persistAuthChange(async () => {
+      await sensitiveTokenStorage.removeItem(PLATFORM_TOKEN_KEY);
+      await safeStorage.removeItem(PLATFORM_MEMBER_KEY);
+    });
+  }, [beginPlatformChange]);
+
   const clearSessionState = useCallback(async () => {
     sessionScopeRef.current.invalidate();
     setState(initialState);
@@ -147,10 +171,37 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setRequestBoardSyncError(null);
     // Clear the trusted auth owner before waiting for ordinary session storage.
     await Promise.all([
+      clearPlatformSession(),
       clearRequestBoardState({ clearAppSession: true }),
       safeStorage.removeItem(STORAGE_KEY).catch(() => logger.warn('Session clear failed')),
     ]);
-  }, []);
+  }, [clearPlatformSession]);
+
+  const logoutSession = useCallback(() => {
+    let cleanup = Promise.resolve();
+    startSessionLogout({
+      sessionToken: appSessionToken,
+      clearLocalSession: () => { cleanup = clearSessionState(); return cleanup; },
+      unregisterPushTokens: unregisterAllPushTokens,
+      onLocalClearFailure: () => logger.warn('[session] local logout cleanup failed'),
+      onPushUnregisterFailure: reason => logger.warn('[push] logout token unregister failed', { reason }),
+    });
+    return cleanup;
+  }, [appSessionToken, clearSessionState]);
+
+  const loginPlatformMember = useCallback(async (member: PlatformMemberIdentity, token: string) => {
+    const cleanup = logoutSession();
+    const isCurrent = beginPlatformChange();
+    await cleanup;
+    if (!isCurrent()) throw new Error('로그인 계정이 변경되었습니다. 다시 시도해주세요.');
+    await persistAuthChange(async () => {
+      await sensitiveTokenStorage.setItem(PLATFORM_TOKEN_KEY, token);
+      await safeStorage.setItem(PLATFORM_MEMBER_KEY, JSON.stringify(member));
+    });
+    if (!isCurrent()) throw new Error('로그인 계정이 변경되었습니다. 다시 시도해주세요.');
+    setPlatformMember(member);
+    setPlatformSessionToken(token);
+  }, [beginPlatformChange, logoutSession]);
 
   const ensureRequestBoardSession = useCallback(async (options?: { force?: boolean }) => {
     if (!hydrated) {
@@ -243,7 +294,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     const ownerScope = sessionScopeRef.current;
     const ownsStoredSession = captureAppSessionOwner();
-    const isCurrent = () => !cancelled && ownsStoredSession();
+    const ownsPlatformSession = beginPlatformChange();
+    const isCurrent = () => !cancelled && ownsStoredSession() && ownsPlatformSession();
     const restore = async () => {
       try {
         const raw = await safeStorage.getItem(STORAGE_KEY);
@@ -293,6 +345,29 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               if (cancelled || !ownsMigration()) return;
             }
             setAppSessionTokenState(restoredAppSessionToken ?? null);
+            return;
+          }
+        }
+        const [memberRaw, token] = await Promise.all([
+          safeStorage.getItem(PLATFORM_MEMBER_KEY),
+          sensitiveTokenStorage.getItem(PLATFORM_TOKEN_KEY),
+        ]);
+        if (!isCurrent() || !memberRaw || !token) return;
+        const cached = JSON.parse(memberRaw) as PlatformMemberIdentity;
+        if (!cached?.id || typeof cached.name !== 'string') return;
+        try {
+          const verified = await platformRequest<{ member: PlatformMemberIdentity }>('verify', {}, token);
+          if (!isCurrent()) return;
+          setPlatformMember({ id: verified.member.id, name: verified.member.name });
+          setPlatformSessionToken(token);
+        } catch (error) {
+          if (!isCurrent()) return;
+          const status = (error as { status?: number }).status;
+          if (status === 401 || status === 403) await clearPlatformSession();
+          else {
+            // Cached identity supports an offline shell; every data read still requires the signed token.
+            setPlatformMember(cached);
+            setPlatformSessionToken(token);
           }
         }
       } catch {
@@ -303,7 +378,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
     void restore();
     return () => { cancelled = true; ownerScope.invalidate(); };
-  }, []);
+  }, [beginPlatformChange, clearPlatformSession]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -359,22 +434,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       residentMask: computeMask(state.residentId),
       hydrated,
       appSessionToken,
+      platformMember,
+      platformSessionToken,
+      platformHydrated: hydrated,
+      isPlatformSignedIn: Boolean(state.role || platformMember),
+      loginPlatformMember,
       requestBoardSyncStatus,
       requestBoardSyncError,
       replaceAppSessionToken,
       ensureRequestBoardSession,
       logout: () => {
-        startSessionLogout({
-          sessionToken: appSessionToken,
-          clearLocalSession: clearSessionState,
-          unregisterPushTokens: unregisterAllPushTokens,
-          onLocalClearFailure: () => {
-            logger.warn('[session] local logout cleanup failed');
-          },
-          onPushUnregisterFailure: (reason) => {
-            logger.warn('[push] logout token unregister failed', { reason });
-          },
-        });
+        void logoutSession();
       },
       loginAs: (
         role,
@@ -387,6 +457,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         nextAppSessionToken = null,
       ) => {
         const normalizedResidentId = normalizePhone(residentId);
+        void clearPlatformSession().catch(() => logger.warn('[session] platform cleanup failed'));
         sessionScopeRef.current.invalidate();
         setState({
           role,
@@ -404,9 +475,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }),
     [
       appSessionToken,
-      clearSessionState,
+      clearPlatformSession,
       ensureRequestBoardSession,
       hydrated,
+      loginPlatformMember,
+      logoutSession,
+      platformMember,
+      platformSessionToken,
       replaceAppSessionToken,
       requestBoardSyncError,
       requestBoardSyncStatus,

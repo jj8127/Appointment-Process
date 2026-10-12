@@ -665,21 +665,21 @@ export default function RequestBoardReviewScreen() {
         <View style={styles.timelineRow}>
           {assignment.accepted_at && (
             <View style={styles.timelineItem}>
-              <Feather name="check" size={10} color={COLORS.gray[400]} />
+              <Feather name="check" size={14} color={COLORS.gray[400]} />
               <Text style={styles.timelineLabel}>수락</Text>
               <Text style={styles.timelineDate}>{formatDate(assignment.accepted_at)}</Text>
             </View>
           )}
           {assignment.completed_at && (
             <View style={styles.timelineItem}>
-              <Feather name="award" size={10} color="#8B5CF6" />
+              <Feather name="check" size={14} color="#8B5CF6" />
               <Text style={[styles.timelineLabel, { color: '#8B5CF6' }]}>완료</Text>
               <Text style={styles.timelineDate}>{formatDate(assignment.completed_at)}</Text>
             </View>
           )}
           {assignment.processing_days != null && assignment.processing_days > 0 && (
             <View style={styles.timelineItem}>
-              <Feather name="clock" size={10} color={COLORS.gray[400]} />
+              <Feather name="clock" size={14} color={COLORS.gray[400]} />
               <Text style={styles.timelineLabel}>처리 기간</Text>
               <Text style={styles.timelineDate}>{assignment.processing_days}일</Text>
             </View>
@@ -943,7 +943,7 @@ export default function RequestBoardReviewScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
         <View style={styles.headerInner}>
-          <Pressable
+          <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button"
             style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
             onPress={() => router.back()}
           >
@@ -1397,9 +1397,9 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: COLORS.gray[100],
     alignItems: 'center',
     justifyContent: 'center',

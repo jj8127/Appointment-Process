@@ -10,8 +10,8 @@ export default function CompactHeader({ navigation, route, options, back }: any)
     const leftElement = options.headerLeft
         ? options.headerLeft({ canGoBack: !!back })
         : back ? (
-            <Pressable onPress={navigation.goBack} style={styles.backButton}>
-                <Feather name="arrow-left" size={24} color="#000" />
+            <Pressable accessibilityRole="button" accessibilityLabel="뒤로가기" onPress={navigation.goBack} style={styles.backButton}>
+                <Feather aria-hidden accessible={false} name="arrow-left" size={24} color="#000" />
             </Pressable>
         ) : null;
 
@@ -42,17 +42,20 @@ const styles = StyleSheet.create({
     },
     // ... existing sub-styles ...
     leftContainer: {
-        width: 40,
+        width: 44,
         alignItems: 'flex-start',
         justifyContent: 'center',
     },
     rightContainer: {
-        minWidth: 40,
+        minWidth: 44,
         alignItems: 'flex-end',
         justifyContent: 'center',
     },
     backButton: {
-        padding: 4,
+        width: 44,
+        height: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
         marginLeft: -4,
     },
     titleContainer: {

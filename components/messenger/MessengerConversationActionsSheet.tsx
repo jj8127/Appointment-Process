@@ -137,7 +137,7 @@ function ActionRow({
       <View style={[styles.actionIcon, danger && styles.actionIconDanger]}>
         {pending
           ? <ActivityIndicator color={danger ? '#C43D3D' : ACCENT} size="small" />
-          : <Feather name={icon} size={20} color={danger ? '#C43D3D' : '#374151'} />}
+          : <Feather aria-hidden accessible={false} name={icon} size={20} color={danger ? '#C43D3D' : '#374151'} />}
       </View>
       <Text style={[styles.actionLabel, danger && styles.actionLabelDanger]}>{label}</Text>
     </Pressable>

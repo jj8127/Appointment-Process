@@ -1,0 +1,88 @@
+{
+  "assets": [
+    {
+      "file": "moduon-adaptive-foreground.png",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "sha256": "b630d27e063487ec22ce35683950554577572be1483ac6d4ca007dd5d2321485",
+      "alphaBounds10": [
+        314,
+        421,
+        941,
+        840
+      ]
+    },
+    {
+      "file": "moduon-app-icon.png",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB",
+      "sha256": "cd93d93cdcb45b68779df1584e956c8ba91156d48aef47728ffee7ebf4cf0bd1"
+    },
+    {
+      "file": "moduon-logo-horizontal.png",
+      "size": [
+        2172,
+        724
+      ],
+      "mode": "RGBA",
+      "sha256": "b5efbb092618ba15aa14dc3246e74d38fbbc098f0f976d46065d23701043ac71",
+      "alphaBounds10": [
+        122,
+        172,
+        2050,
+        545
+      ]
+    },
+    {
+      "file": "moduon-logo-primary.png",
+      "size": [
+        1774,
+        887
+      ],
+      "mode": "RGBA",
+      "sha256": "ce7df240808c1a722f96b3bd1281df285559b86246ae50bec7543618bca254f3",
+      "alphaBounds10": [
+        192,
+        66,
+        1578,
+        842
+      ]
+    },
+    {
+      "file": "moduon-monochrome.png",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "sha256": "c69c2d424f7d596e88521f8c0e4f8887fa312dffe05a8382dd8cf0ca26efa189",
+      "alphaBounds10": [
+        266,
+        415,
+        986,
+        903
+      ]
+    },
+    {
+      "file": "moduon-symbol.png",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "sha256": "7aadb817f8cf3de2aa22364dd40507eb8438007eae0d0834a1105f4cc7317151",
+      "alphaBounds10": [
+        97,
+        275,
+        1157,
+        990
+      ]
+    }
+  ]
+}

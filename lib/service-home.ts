@@ -1,4 +1,4 @@
-export type ServiceHomeKey = 'care' | 'insurance' | 'telecom' | 'car';
+export type ServiceHomeKey = 'care' | 'insurance' | 'telecom' | 'rental' | 'car' | 'hospital';
 
 type ServiceSession = {
   role: 'admin' | 'fc' | null;
@@ -8,7 +8,7 @@ type ServiceSession = {
 
 export const INSURANCE_HOME_ROUTE = '/?mode=insurance' as const;
 export const FAMILY_CARE_PROMOTION_URL = 'https://garam-public-web.vercel.app/family-care/' as const;
-export const SERVICE_INFORMATION_KEYS = ['care', 'telecom', 'car', 'help'] as const;
+export const SERVICE_INFORMATION_KEYS = ['insurance', 'care', 'telecom', 'rental', 'car', 'hospital', 'help'] as const;
 
 /** The service picker delegates FC identity checks to the existing apply gate. */
 export function resolveInsuranceServiceRoute(session: ServiceSession) {
@@ -31,7 +31,7 @@ export function hasInsuranceHomeContext(params: {
   return hasReceipt || (typeof params.mode === 'string' && ['insurance', 'onboarding', 'exam'].includes(params.mode));
 }
 
-export function resolveServiceInformationKey(value: unknown): 'care' | 'telecom' | 'car' | 'help' | null {
+export function resolveServiceInformationKey(value: unknown): typeof SERVICE_INFORMATION_KEYS[number] | null {
   if (typeof value !== 'string') return null;
   return SERVICE_INFORMATION_KEYS.find((key) => key === value) ?? null;
 }

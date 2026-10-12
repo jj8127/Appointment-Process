@@ -18,7 +18,7 @@ export type PasswordResetChallengeResult =
 /** The database alone owns expiry, failure limits, cooldown and consumption. */
 export async function processPasswordResetChallenge(
   supabase: SupabaseClient,
-  account: PasswordResetAccount,
+  account: { kind: PasswordResetAccount['kind'] | 'member'; id: string; phone: string },
   input: { action: 'issue' | 'consume'; tokenHash: string; passwordHash?: string; passwordSalt?: string },
 ): Promise<PasswordResetChallengeResult> {
   const databaseFailure: PasswordResetChallengeResult = {

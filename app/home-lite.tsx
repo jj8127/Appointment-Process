@@ -98,10 +98,10 @@ export default function HomeLiteScreen() {
       <View style={styles.topBar}>
         <Text style={styles.topTitle}>임시 홈</Text>
         <View style={styles.topActions}>
-          <Pressable style={styles.iconButton} onPress={() => router.push('/settings')}>
+          <Pressable accessibilityLabel="설정 열기" accessibilityRole="button" style={styles.iconButton} onPress={() => router.push('/settings')}>
             <Feather name="settings" size={18} color={COLORS.text.primary} />
           </Pressable>
-          <Pressable style={styles.iconButton} onPress={() => router.push('/notifications')}>
+          <Pressable accessibilityLabel="알림 열기" accessibilityRole="button" style={styles.iconButton} onPress={() => router.push('/notifications')}>
             <Feather name="bell" size={18} color={COLORS.text.primary} />
           </Pressable>
           <Pressable style={styles.logoutButton} onPress={appLogout}>
@@ -218,9 +218,9 @@ const styles = StyleSheet.create({
   topTitle: { fontSize: TYPOGRAPHY.fontSize.xl, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   iconButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: COLORS.border.light,
     alignItems: 'center',

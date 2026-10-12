@@ -37,6 +37,8 @@ function loadComponent(filename: string) {
     if (name === 'react' || name === 'react/jsx-runtime') return require(name);
     if (name === 'expo-linear-gradient') return { LinearGradient: 'LinearGradient' };
     if (name.startsWith('@/assets/images/service-home/banners/')) return name;
+    if (name === '@/assets/images/moduon/moduon-symbol.png') return 'moduon-symbol';
+    if (name === '@/components/ModuonBrand') return loadComponent('../ModuonBrand.tsx');
     if (name === '@expo/vector-icons') return { Feather: 'Feather' };
     if (name === 'react-native') return nativeHosts;
     if (name === '@react-navigation/native') return { useIsFocused: () => focused };
@@ -55,7 +57,7 @@ function props(overrides: Record<string, unknown> = {}) {
   return {
     isSignedIn: false, bottomInset: 34, navigation: createElement('Navigation'),
     onAccountPress: jest.fn(), onCarePress: jest.fn(), onInsurancePress: jest.fn(),
-    onTelecomPress: jest.fn(), onCarPress: jest.fn(), onHelpPress: jest.fn(),
+    onTelecomPress: jest.fn(), onCarPress: jest.fn(), onRentalPress: jest.fn(), onHospitalPress: jest.fn(), onHelpPress: jest.fn(),
     onResumeInsurancePress: jest.fn(), ...overrides,
   };
 }
@@ -94,15 +96,17 @@ describe('service selection and promotion carousel', () => {
   beforeEach(() => { jest.useFakeTimers(); });
   afterEach(() => { act(() => renderer?.unmount()); dimensions = { width: 390, fontScale: 1 }; platform.OS = 'ios'; focused = true; reduced = false; jest.useRealTimers(); jest.clearAllMocks(); if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow); else Reflect.deleteProperty(globalThis, 'window'); if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument); else Reflect.deleteProperty(globalThis, 'document'); });
 
-  it('has four equal entries, no separate FC action and a blocked loading account', () => {
+  it('has six equal entries, no separate FC action and a blocked loading account', () => {
     const input = props({ loading: true }); mount(input);
     expect(button('로그인').props.disabled).toBe(true);
     const entries = [
-      ['가족간병 · 서비스 안내', input.onCarePress], ['보험·FC · FC 전용', input.onInsurancePress],
-      ['통신 · 준비 중', input.onTelecomPress], ['자동차 · 준비 중', input.onCarPress],
+      ['가족간병 · 준비 중', input.onCarePress], ['보험 · FC 업무', input.onInsurancePress],
+      ['통신 · 준비 중', input.onTelecomPress], ['렌탈 · 준비 중', input.onRentalPress],
+      ['자동차 · 준비 중', input.onCarPress], ['제휴병원 · 지역별 안내', input.onHospitalPress],
     ];
     const entryStyles = entries.map(([label]) => button(label as string).props.style({ pressed: false })[0]);
     expect(entryStyles.every((style) => style === entryStyles[0])).toBe(true);
+    expect(entryStyles[0].width).toBe('33.333%');
     for (const [label, callback] of entries) {
       act(() => button(label as string).props.onPress()); expect(callback).toHaveBeenCalledTimes(1);
     }
@@ -112,10 +116,10 @@ describe('service selection and promotion carousel', () => {
 
   it('resumes insurance only for a signed-in user while preserving equal menu identity', () => {
     const input = props({ canResumeInsurance: true }); mount(input);
-    act(() => button('보험·FC · FC 전용').props.onPress());
+    act(() => button('보험 · FC 업무').props.onPress());
     expect(input.onInsurancePress).toHaveBeenCalledTimes(1);
     act(() => renderer.update(createElement(Screen, { ...input, isSignedIn: true })));
-    act(() => button('보험·FC · FC 전용').props.onPress());
+    act(() => button('보험 · FC 업무').props.onPress());
     expect(input.onResumeInsurancePress).toHaveBeenCalledTimes(1);
     expect(button('내 정보')).toBeDefined();
   });
@@ -157,7 +161,7 @@ describe('service selection and promotion carousel', () => {
   it('routes each active banner CTA and disables offscreen CTAs', () => {
     const input = props(); mount(input); layout(350);
     const actions = [
-      ['가족간병 · 가족간병 알아보기', input.onCarePress], ['보험·FC · FC 업무로 이동', input.onInsurancePress],
+      ['가족간병 · 가족간병 알아보기', input.onCarePress], ['보험 · 보험 서비스 보기', input.onInsurancePress],
       ['통신 · 준비 상태 보기', input.onTelecomPress], ['자동차 · 준비 상태 보기', input.onCarPress],
     ];
     actions.forEach(([label, callback], index) => {
@@ -182,7 +186,7 @@ describe('service selection and promotion carousel', () => {
     expect(careAction.props.disabled).toBe(false);
     expect(careAction.props.tabIndex).toBe(0);
     const titles = renderer.root.findAllByType('Text').filter((entry: { props: Record<string, unknown> }) => entry.props.accessibilityRole === 'header').map((entry: { props: Record<string, unknown> }) => entry.props.children);
-    expect(titles).toEqual(['좋은 서비스,\n함께 누리는 혜택', '자동차 서비스,\n곧 만나요', '가족간병,\n시작 전 안내', '보험·FC\n업무 한곳에', '통신 서비스,\n곧 만나요', '자동차 서비스,\n곧 만나요', '가족간병,\n시작 전 안내']);
+    expect(titles).toEqual(['좋은 서비스,\n함께 누리는 혜택', '자동차 서비스,\n곧 만나요', '가족간병,\n시작 전 안내', '가람in 보험,\nFC 업무를 편리하게', '통신 서비스,\n곧 만나요', '자동차 서비스,\n곧 만나요', '가족간병,\n시작 전 안내']);
     const descriptions = renderer.root.findAllByType('Text').map((entry: { props: Record<string, unknown> }) => entry.props.children);
     expect(descriptions).toContain('이용 전 절차를 확인하세요');
   });
@@ -214,15 +218,12 @@ describe('service selection and promotion carousel', () => {
     expect(renderer.root.findAllByType('Text').some((entry: { props: Record<string, unknown> }) => entry.props.children === '서비스 소개')).toBe(false);
   });
 
-  it('shows the Hanwha symbol from the existing transparent brand artwork beside the brand name', () => {
+  it('uses the Moduon platform brand without the insurance logo', () => {
     mount();
-    const logo = renderer.root.findAllByType('Image').find((entry: { props: Record<string, unknown> }) => entry.props.source === 'hanwha-wordmark');
-    expect(logo.props.style).toMatchObject({ width: 85, height: 36.72, left: -1.4, top: -1.66 });
-    expect(logo.props.accessible).toBe(false);
-    expect(logo.parent.props.style).toMatchObject({ width: 37.5, height: 34, overflow: 'hidden' });
-    const brand = logo.parent.parent;
-    expect(brand.props.accessibilityLabel).toBe('가람in');
-    expect(brand.findAllByType('Text').map((entry: { props: Record<string, unknown> }) => entry.props.children)).toEqual(['가람in']);
+    expect(renderer.root.findAllByType('Image').some((entry: { props: Record<string, unknown> }) => entry.props.source === 'hanwha-wordmark')).toBe(false);
+    const brand = renderer.root.findAllByType('View').find((entry: { props: Record<string, unknown> }) => entry.props.accessibilityLabel === '모두온');
+    expect(brand.findAllByType('Text').map((entry: { props: Record<string, unknown> }) => entry.props.children)).toEqual(['모두온']);
+    expect(brand.findByType('Image').props.source).toBe('moduon-symbol');
   });
 
   it('automatically advances after five seconds and wraps forward after the fourth slide', () => {
@@ -403,7 +404,7 @@ describe('service selection and promotion carousel', () => {
     expect(scrollTo).toHaveBeenLastCalledWith({ x: 700, animated: true });
     const click = pointer(surface, 'click');
     expect(click.defaultPrevented).toBe(true);
-    act(() => button('보험·FC · FC 업무로 이동').props.onPress());
+    act(() => button('보험 · 보험 서비스 보기').props.onPress());
     expect(input.onInsurancePress).not.toHaveBeenCalled();
     act(() => pager().props.onScroll({ nativeEvent: { contentOffset: { x: 700 } } }));
     act(() => jest.advanceTimersByTime(401));
@@ -411,7 +412,7 @@ describe('service selection and promotion carousel', () => {
     pointer(browserWindow, 'pointerup', { buttons: 0 });
     const plainClick = pointer(surface, 'click');
     expect(plainClick.defaultPrevented).toBe(false);
-    act(() => button('보험·FC · FC 업무로 이동').props.onPress());
+    act(() => button('보험 · 보험 서비스 보기').props.onPress());
     expect(input.onInsurancePress).toHaveBeenCalledTimes(1);
   });
 
@@ -511,7 +512,7 @@ describe('service selection and promotion carousel', () => {
     act(() => pager().props.onScroll({ nativeEvent: { contentOffset: { x: 700 } } }));
     act(() => jest.advanceTimersByTime(180));
     expect(pager().props.accessibilityValue.now).toBe(2);
-    expect(button('보험·FC · FC 업무로 이동').props.disabled).toBe(false);
+    expect(button('보험 · 보험 서비스 보기').props.disabled).toBe(false);
   });
 
   it('snaps a partial web scroll without passing responder handlers into ScrollView', () => {

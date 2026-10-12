@@ -47,7 +47,7 @@ function permissionCopy(status: PushPermissionStatus) {
     return { icon: 'check-circle' as const, tone: 'ok' as const, title: '기기 알림 허용됨', body: '이 기기에서 알림을 받을 수 있어요.' };
   }
   if (status === 'denied') {
-    return { icon: 'alert-triangle' as const, tone: 'error' as const, title: '기기 알림이 꺼져 있어요', body: '기기 설정에서 가람in 알림 권한을 켜 주세요.' };
+    return { icon: 'alert-triangle' as const, tone: 'error' as const, title: '기기 알림이 꺼져 있어요', body: '기기 설정에서 모두온 알림 권한을 켜 주세요.' };
   }
   if (status === 'undetermined') {
     return { icon: 'bell' as const, tone: 'neutral' as const, title: '기기 알림 권한 확인 전', body: '알림 받기를 켜면 권한을 요청합니다.' };
@@ -278,7 +278,7 @@ export default function NotificationSettingsScreen() {
             <>
               <View style={styles.section}>
                 <PreferenceSwitch
-                  description="끄면 이 계정으로 로그인한 모든 기기에서 가람in 알림을 받지 않습니다."
+                  description="끄면 이 계정으로 로그인한 모든 기기에서 모두온 알림을 받지 않습니다."
                   disabled={pendingKey !== null}
                   pending={pendingKey === 'global'}
                   title="알림 받기"

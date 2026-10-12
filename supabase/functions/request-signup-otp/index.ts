@@ -1,6 +1,7 @@
 import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import { buildWorkflowResetPayload } from '../_shared/commission.ts';
+import { sendSignupSms } from '../_shared/signup-sms.ts';
 
 type Payload = {
   phone?: string;
@@ -134,54 +135,8 @@ async function sha256Base64(value: string) {
   return toBase64(hash);
 }
 
-async function hmacSignature(message: string, secretKey: string) {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    textEncoder.encode(secretKey),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, textEncoder.encode(message));
-  return btoa(String.fromCharCode(...new Uint8Array(sig)));
-}
-
 async function sendOtpSms(to: string, code: string) {
-  if (signupTestSmsConfig.enabled) {
-    return { ok: true, status: 200 };
-  }
-  if (!ncpAccessKey || !ncpSecretKey || !ncpServiceId || !ncpSmsFrom) {
-    return { ok: false, status: 500, message: 'SMS 설정이 필요합니다.' };
-  }
-  const timestamp = Date.now().toString();
-  const path = `/sms/v2/services/${ncpServiceId}/messages`;
-  const message = `POST ${path}\n${timestamp}\n${ncpAccessKey}`;
-  const signature = await hmacSignature(message, ncpSecretKey);
-
-  const payload = {
-    type: 'SMS',
-    contentType: 'COMM',
-    countryCode: '82',
-    from: ncpSmsFrom,
-    content: `[FC 위촉] 회원가입 인증 코드: ${code} (5분 유효)`,
-    messages: [{ to }],
-  };
-
-  const res = await fetch(`https://sens.apigw.ntruss.com${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-ncp-apigw-timestamp': timestamp,
-      'x-ncp-iam-access-key': ncpAccessKey,
-      'x-ncp-apigw-signature-v2': signature,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    return { ok: false, status: res.status, message: 'SMS 전송에 실패했습니다.' };
-  }
-  return { ok: true, status: 200 };
+  return sendSignupSms(to, code, `[FC 위촉] 회원가입 인증 코드: ${code} (5분 유효)`, signupTestSmsConfig.enabled);
 }
 
 function generateOtpCode() {

@@ -1,0 +1,155 @@
+import { supabase } from './supabase';
+import { z } from 'zod';
+import type { LoginResponse } from '@/hooks/use-login';
+
+export const PLATFORM_SERVICES = { insurance: '보험', care: '가족간병', telecom: '통신', rental: '렌탈', car: '자동차', hospital: '제휴병원' } as const;
+export type PlatformService = keyof typeof PLATFORM_SERVICES;
+export type ApplicationService = Exclude<PlatformService, 'hospital'>;
+export const PLATFORM_TERMS_VERSION = '2026-10-12';
+export const PLATFORM_PRIVACY_POLICY_URL = 'https://garam-public-web.vercel.app/moduon-privacy/';
+/** Release copy under review; keep signup and existing-member consent identical. */
+export const PLATFORM_CONSENT_TEXT = '수집 항목: 이름, 휴대폰 번호, 비밀번호 해시, 필수 동의 일시와 문서 버전, 선택한 추천 코드와 추천 관계\n이용 목적: 회원 확인, 휴대폰 인증, 로그인과 계정 복구, 공통 추천 관계 연결\n보유기간: 회원 이용 기간 동안 보관합니다. 공통 회원 탈퇴 시 공통 회원 정보의 이름·휴대폰 번호·비밀번호와 인증 기록을 삭제합니다. 이미 확정된 거래·정산 기록과 거래·정산 및 추천 관계를 연결하는 식별자는 정산 확인을 위해 유지합니다.\n비밀번호 원문은 보관하지 않습니다. 이 동의에는 마케팅 수신 동의가 포함되지 않습니다.\n동의를 거부할 수 있으며, 거부하면 공통 회원가입과 공통 추천 혜택 이용이 제한됩니다. 기존 보험·FC 업무와 공개 서비스 안내는 계속 이용할 수 있습니다.\n탈퇴 방법: 내 정보에서 공통 회원 탈퇴를 선택합니다. 기존 보험·FC 업무 계정은 유지되며 해당 계정 탈퇴는 보험 계정 설정에서 진행합니다.';
+export type PlatformAuthResponse = { ok: true; insuranceSession: LoginResponse } | { ok: true; memberId: string; displayName: string; residentId: string; appSessionToken: string; role: 'member'; insuranceSession?: undefined };
+export type PlatformApplication = { id: string; serviceKey: ApplicationService; status: string; createdAt: string };
+export type PlatformBenefit = { id: string; serviceKey: ApplicationService; amount: number; dueAt: string; status: string };
+export type PlatformAccount = {
+  ok: true;
+  member: { id: string; name: string; referralCode: string; referrerId: string | null; createdAt: string; termsAccepted: boolean; termsVersion: string | null };
+  applications: PlatformApplication[];
+  benefits: PlatformBenefit[];
+};
+export const HOSPITAL_PROVINCES = [
+  { code: '11', name: '서울' }, { code: '26', name: '부산' }, { code: '27', name: '대구' },
+  { code: '28', name: '인천' }, { code: '29', name: '광주' }, { code: '30', name: '대전' },
+  { code: '31', name: '울산' }, { code: '36', name: '세종' }, { code: '41', name: '경기' },
+  { code: '43', name: '충북' }, { code: '44', name: '충남' }, { code: '46', name: '전남' },
+  { code: '47', name: '경북' }, { code: '48', name: '경남' }, { code: '50', name: '제주' },
+  { code: '51', name: '강원' }, { code: '52', name: '전북' },
+] as const;
+export const HOSPITAL_DEMO_ENABLED = process.env.EXPO_PUBLIC_HOSPITAL_DEMO === 'true';
+export type PlatformHospital = {
+  id: string; name: string; region: string; provinceCode: string; provinceName: string; district: string;
+  address: string | null; phone: string | null; websiteUrl: string | null; specialties: string[];
+  description: string | null; photoUrl: string | null; openingHours: string | null; verifiedAt: string | null;
+  adPlacement: 'regional_list' | 'regional_featured'; revision: number; measurementToken: string;
+};
+export type PlatformHospitalRegions = { ok: true; regions: { provinceCode: string; provinceName: string; districts: string[] }[]; specialties: string[] };
+export type PlatformHospitalList = { ok: true; hospitals: PlatformHospital[]; featured: PlatformHospital[]; hasMore: boolean; nextOffset: number | null };
+export type PlatformHospitalReport = {
+  ok: true; from: string; to: string; measurement: 'anonymous_client_events';
+  rows: ({ partnerId: string; name: string; revision: number; placement: PlatformHospital['adPlacement']; date: string } & HospitalMetrics)[];
+  totals: HospitalMetrics;
+};
+type HospitalMetrics = { impressions: number; detailViews: number; phoneClicks: number; directionsClicks: number };
+
+export class PlatformApiError extends Error {
+  constructor(message: string, public readonly code: string, public readonly status?: number) { super(message); }
+}
+
+const accountSchema = z.object({
+  ok: z.literal(true),
+  member: z.object({ id: z.uuid(), name: z.string(), referralCode: z.string(), referrerId: z.uuid().nullable(), createdAt: z.string(), termsAccepted: z.boolean(), termsVersion: z.string().nullable() }),
+  applications: z.array(z.object({ id: z.uuid(), serviceKey: z.enum(['insurance', 'care', 'telecom', 'rental', 'car']), status: z.enum(['interest', 'settled', 'cancelled']), createdAt: z.string() })),
+  benefits: z.array(z.object({ id: z.uuid(), serviceKey: z.enum(['care', 'telecom', 'rental', 'car']), amount: z.number().int().nonnegative().safe(), status: z.enum(['pending', 'paid']), dueAt: z.string() })),
+});
+const authSchema = z.union([
+  z.object({ ok: z.literal(true), insuranceSession: z.object({ ok: z.literal(true), role: z.enum(['fc', 'admin', 'manager']), residentId: z.string().regex(/^\d{11}$/), appSessionToken: z.string().min(1) }) }),
+  z.object({ ok: z.literal(true), memberId: z.uuid(), displayName: z.string().min(1), residentId: z.string().regex(/^\d{11}$/), appSessionToken: z.string().min(1), role: z.literal('member'), insuranceSession: z.undefined().optional() }),
+]);
+const hospitalSchema = z.object({
+  id: z.uuid(), name: z.string().min(1), region: z.string(), provinceCode: z.string(), provinceName: z.string(), district: z.string(),
+  address: z.string().nullable(), phone: z.string().nullable(), websiteUrl: z.string().nullable(), specialties: z.array(z.string()),
+  description: z.string().nullable(), photoUrl: z.string().nullable(), openingHours: z.string().nullable(), verifiedAt: z.iso.date().nullable(),
+  adPlacement: z.enum(['regional_list', 'regional_featured']), revision: z.number().int().nonnegative().safe(), measurementToken: z.string().min(1),
+});
+const metricSchema = z.object({ impressions: z.number().int().nonnegative().safe(), detailViews: z.number().int().nonnegative().safe(), phoneClicks: z.number().int().nonnegative().safe(), directionsClicks: z.number().int().nonnegative().safe() });
+const hospitalResponseSchemas = {
+  get_hospital_regions: z.object({ ok: z.literal(true), regions: z.array(z.object({ provinceCode: z.string(), provinceName: z.string(), districts: z.array(z.string()) })), specialties: z.array(z.string()) }),
+  list_hospitals: z.object({ ok: z.literal(true), hospitals: z.array(hospitalSchema), featured: z.array(hospitalSchema), hasMore: z.boolean(), nextOffset: z.number().int().nonnegative().safe().nullable() }),
+  get_hospital: z.object({ ok: z.literal(true), hospital: hospitalSchema }),
+  get_hospital_report: z.object({ ok: z.literal(true), from: z.iso.date(), to: z.iso.date(), measurement: z.literal('anonymous_client_events'), rows: z.array(metricSchema.extend({ partnerId: z.uuid(), name: z.string(), revision: z.number().int().nonnegative().safe(), placement: z.enum(['regional_list', 'regional_featured']), date: z.iso.date() })), totals: metricSchema }),
+};
+
+const messages: Record<string, string> = {
+  invalid_app_session: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+  already_exists: '이미 가입된 번호입니다. 로그인해 주세요.',
+  invalid_password: '휴대폰 번호와 비밀번호를 확인해 주세요.',
+  password_change_required: '임시 비밀번호를 변경해야 합니다. 보험·FC 업무 로그인에서 계속 진행해 주세요.',
+  invalid_code: '인증번호를 확인해 주세요.',
+  expired_code: '인증번호가 만료되었습니다. 새로 요청해 주세요.',
+  invalid_referral: '추천 코드를 확인해 주세요.',
+  cooldown: '인증번호를 보낸 뒤 60초가 지나면 다시 요청할 수 있습니다.',
+  locked: '여러 번 틀려 잠시 잠겼습니다. 10분 뒤 다시 시도해 주세요.',
+  session_verification_unavailable: '로그인 확인 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+  sms_send_failed: '문자를 보내지 못했습니다. 잠시 후 다시 요청해 주세요.',
+  invalid_partner: '제휴 정보와 광고 기간·노출 위치·광고비를 확인해 주세요.',
+  hospital_not_found: '현재 게시 중인 병원 정보가 없습니다. 병원 목록에서 다시 확인해 주세요.',
+  invalid_measurement: '집계 가능한 시간이 지났습니다. 병원 정보를 다시 확인해 주세요.',
+  report_range_too_large: '조회 기간을 줄이거나 특정 병원을 선택해 주세요.',
+  revision_conflict: '다른 관리자가 수정했습니다. 최신 정보를 불러온 뒤 다시 저장해 주세요.',
+  invalid_settlement: '거래와 정산 증빙·수수료 총액·완료 시각을 확인해 주세요.',
+  invalid_session: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+  expired_session: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+  missing_session: '로그인 후 이용해 주세요.',
+  forbidden: '이 계정으로 이용할 수 없는 기능입니다.',
+  invalid_input: '입력한 항목을 확인해 주세요.',
+  service_unavailable: '서비스 접수 준비 중입니다. 안내를 먼저 확인해 주세요.',
+  invalid_credentials: '휴대폰 번호와 비밀번호를 확인해 주세요.',
+  invalid_otp: '인증번호를 확인하거나 새로 요청해 주세요.',
+  invalid_phone: '올바른 휴대폰 번호를 입력해 주세요.',
+  consent_required: '공통 서비스 이용을 위한 개인정보 수집·이용 내용을 확인해 주세요.',
+  enrollment_required: '공통 서비스 이용을 위한 개인정보 수집·이용 내용을 확인해 주세요.',
+  invalid_terms: '최신 동의 내용을 확인한 뒤 다시 시도해 주세요.',
+  account_not_found: '가입한 휴대폰 번호를 확인해 주세요. 보험·FC 계정은 보험 로그인 화면에서 비밀번호를 변경할 수 있습니다.',
+  invalid_request: '비밀번호 변경 요청을 확인해주세요.',
+  invalid_token: '인증 코드가 유효하지 않습니다.',
+  expired_token: '인증 코드가 만료되었습니다. 새 코드를 요청해주세요.',
+  attempts_exhausted: '인증 코드 확인 횟수를 초과했습니다. 새 코드를 요청해주세요.',
+  account_unavailable: '비밀번호를 변경할 수 없는 계정입니다.',
+  db_error: '요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.',
+  rate_limited: '잠시 후 다시 시도해 주세요.',
+  conflict: '이미 처리되었거나 내용이 변경되었습니다. 최신 내역을 확인해 주세요.',
+};
+
+/** Consumer tokens are sent only to this endpoint; FC APIs keep their existing transport. */
+export async function platformRequest<T>(action: string, payload: Record<string, unknown> = {}, token?: string | null): Promise<T> {
+  let response;
+  if (HOSPITAL_DEMO_ENABLED && ['get_hospital_regions', 'list_hospitals', 'get_hospital', 'record_hospital_event'].includes(action)) {
+    const { HOSPITAL_DEMO: hospitals } = await import('@/data/hospital-demo');
+    if (action === 'get_hospital_regions') {
+      response = { ok: true, regions: HOSPITAL_PROVINCES.map(({ code, name }) => ({
+        provinceCode: code, provinceName: name, districts: [...new Set(hospitals.filter((hospital) => hospital.provinceCode === code).map((hospital) => hospital.district))],
+      })), specialties: [...new Set(hospitals.flatMap((hospital) => hospital.specialties))] };
+    } else if (action === 'list_hospitals') {
+      const search = typeof payload.search === 'string' ? payload.search.trim().toLowerCase() : '';
+      const filtered = hospitals.filter((hospital) => (!payload.provinceCode || hospital.provinceCode === payload.provinceCode)
+        && (!payload.district || hospital.district === payload.district) && (!payload.specialty || hospital.specialties.includes(String(payload.specialty)))
+        && (!search || hospital.name.toLowerCase().includes(search)));
+      const offset = typeof payload.offset === 'number' && Number.isInteger(payload.offset) && payload.offset >= 0 ? payload.offset : 0;
+      const limit = typeof payload.limit === 'number' && Number.isInteger(payload.limit) && payload.limit > 0 ? Math.min(payload.limit, 50) : 20;
+      const nextOffset = offset + limit < filtered.length ? offset + limit : null;
+      response = { ok: true, hospitals: filtered.slice(offset, offset + limit).map((hospital) => ({ ...hospital, adPlacement: 'regional_list' })), featured: filtered.filter((hospital) => hospital.adPlacement === 'regional_featured').slice(0, 5), hasMore: nextOffset !== null, nextOffset };
+    } else {
+      const hospital = hospitals.find((item) => item.id === payload.hospitalId);
+      if (!hospital) throw new PlatformApiError(messages.hospital_not_found, 'hospital_not_found', 404);
+      response = action === 'get_hospital' ? { ok: true, hospital } : { ok: true };
+    }
+  } else {
+    const { data, error } = await supabase.functions.invoke('platform-service', {
+      body: { ...payload, action },
+      headers: token ? { 'x-app-session-token': token } : undefined,
+    });
+    response = data;
+    const status = error?.context instanceof Response ? error.context.status : undefined;
+    if (error?.context instanceof Response) {
+      try { response = await error.context.clone().json(); } catch { /* Transport errors have no JSON body. */ }
+    }
+    if (error || response?.ok !== true) {
+      const code = typeof response?.code === 'string' ? response.code : 'unavailable';
+      throw new PlatformApiError(messages[code] ?? (status === 401 ? messages.invalid_session : '연결하지 못했습니다. 입력 내용을 유지한 채 다시 시도해 주세요.'), code, status);
+    }
+  }
+  const schema = action === 'get_account' || action === 'verify' ? accountSchema : action === 'login' || action === 'signup' ? authSchema : hospitalResponseSchemas[action as keyof typeof hospitalResponseSchemas];
+  if (schema && !schema.safeParse(response).success) throw new PlatformApiError('응답을 확인하지 못했습니다. 기존 내용을 유지한 채 다시 확인해 주세요.', 'invalid_response');
+  return response as T;
+}

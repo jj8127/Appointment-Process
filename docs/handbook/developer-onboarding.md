@@ -7,6 +7,8 @@ source_of_truth: package.json + web/package.json + .env.example + web/.env.examp
 
 ## 2026-07-23 Dependency security gate
 
+2026-10-11 브랜드 설정: `app.json`의 표시명은 모두온, 공통 아이콘/iOS 아이콘·Android adaptive/알림 아이콘·시작 화면·favicon은 `assets/images/moduon/`를 사용한다. 보험 업무는 가람in을 유지한다. 기존 package·bundleIdentifier·scheme·slug·EAS project는 유지하며 이름/아이콘 변경은 새 native build에 반영된다. 배포용 아카이브는 생성된 `android/`·`ios/`를 제외하고 현재 Expo 설정으로 재생성한다.
+
 - Run `npm audit --omit=dev --audit-level=high` at the repository root and `npm audit --audit-level=high` in `web` before a production release.
 - The admin web pins the patched Next.js patch release and overrides its optional Sharp runtime to the audited compatible release; both the native runtime load and the production web build must pass after any change to that override.
 - Root-only `expo-mcp` advisories are development-tool debt when the production audit is clean. Do not force a breaking MCP downgrade into an application release; record the residual advisory and revisit it when the upstream SDK supports the patched Hono adapter.

@@ -2,10 +2,14 @@ doc_id: FC-ADMIN-NOTICE-BOARD-CHAT
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-07-29
+last_verified: 2026-10-12
 source_of_truth: web/src/app/dashboard/notifications/* + web/src/app/dashboard/board/page.tsx + web/src/app/dashboard/messenger/page.tsx + web/src/app/dashboard/chat/page.tsx
 
 # Admin Web Playbook: Notice, Board, Chat
+
+## 2026-10-12 아이콘 조작 기준
+
+기존 Tabler·Mantine ActionIcon을 재사용한다. SVG 자체의 클릭 처리는 이름 있는 버튼으로 옮기며 키보드로도 실행할 수 있어야 한다. 작은 그림을 유지하면서 일반 조작 영역은28px, 모바일 폭에서는44px를 확보한다. 반응 버튼은 반응명과 선택 상태를 전달한다. 저장·수정은 공통 강조색, 삭제·경고·완료는 기존 의미 색을 유지한다. 첨부 파일은 file-text, 대기는 clock이며 같은 역할의 조작·지표는 stroke2를 사용한다. 확장된 버튼이 입력창을 밀지 않도록320px에서도 직접 확인한다. 실제 UI 검증은 기존 합성 fixture를 재사용하며 운영 데이터의 전송·저장 결과를 대신하지 않는다.
 
 ## 2026-10-02 알림 프록시와 Edge 요청 일치
 

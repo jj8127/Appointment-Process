@@ -56,6 +56,9 @@ describe('bottom navigation service context', () => {
   it('keeps the public home inside the public service surface', () => {
     pathname = '/services/activity';
     mount({ preset: 'service-hub', activeKey: 'activity' });
+    const buttons = renderer.root.findAllByType('Pressable');
+    expect(buttons.find((item: { props: Record<string, unknown> }) => item.props.accessibilityLabel === '이용내역').props['aria-current']).toBe('page');
+    expect(buttons.find((item: { props: Record<string, unknown> }) => item.props.accessibilityLabel === '홈').props['aria-current']).toBeUndefined();
     press('홈');
     expect(router.push).toHaveBeenCalledWith('/');
     expect(router.replace).not.toHaveBeenCalled();

@@ -176,14 +176,14 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
             </Popover.Target>
             <Popover.Dropdown p="xs">
                 <Stack gap="xs">
-                    <TextInput
+                    <TextInput rightSectionWidth={44}
                         placeholder="검색..."
                         size="xs"
                         leftSection={<IconSearch size={12} />}
                         value={search}
                         onChange={(e) => setSearch(e.currentTarget.value)}
                         rightSection={
-                            search ? <IconX size={12} onClick={() => setSearch('')} style={{ cursor: 'pointer' }} /> : null
+                            search ? <ActionIcon aria-label="검색어 지우기" variant="subtle" color="gray" onClick={() => setSearch('')}><IconX size={14} /></ActionIcon> : null
                         }
                     />
                     <Divider />
@@ -271,9 +271,9 @@ const TopFilterMenu = ({ title, options, value, onChange, kind }: TopFilterMenuP
         return (
             <Group gap="sm" wrap="nowrap">
                 {isAll
-                    ? <IconListDetails size={17} stroke={1.8} />
+                    ? <IconListDetails size={17} stroke={2} />
                     : kind === 'round'
-                        ? <IconCalendarEvent size={17} stroke={1.8} />
+                        ? <IconCalendarEvent size={17} stroke={2} />
                         : null}
                 <Text size="sm" fw={isSelected ? 700 : 600}>{isAll ? '전체 보기' : option.label}</Text>
             </Group>
@@ -901,7 +901,7 @@ export default function ExamApplicantsPage() {
                             엑셀 다운로드
                         </Button>
                         <Tooltip label="데이터 새로고침">
-                            <ActionIcon variant="light" color="gray" size="lg" onClick={() => refetch()} loading={isLoading}>
+                            <ActionIcon aria-label="시험 신청자 새로고침" variant="light" color="gray" size="lg" onClick={() => refetch()} loading={isLoading}>
                                 <IconRefresh size={20} />
                             </ActionIcon>
                         </Tooltip>
@@ -1107,7 +1107,7 @@ export default function ExamApplicantsPage() {
                                             <Table.Td onClick={(event) => event.stopPropagation()}>
                                                 <Group gap="xs" justify="center" wrap="nowrap">
                                                 <Tooltip label={isReadOnly ? '본부장은 반려할 수 없습니다.' : '시험 신청 반려'}>
-                                                    <ActionIcon
+                                                    <ActionIcon aria-label="시험 신청 반려"
                                                         variant="light"
                                                         color="red"
                                                         size="lg"
@@ -1125,7 +1125,7 @@ export default function ExamApplicantsPage() {
                                                     </ActionIcon>
                                                 </Tooltip>
                                                 <Tooltip label={isReadOnly ? '본부장은 취소할 수 없습니다.' : '신청 관리자 취소'}>
-                                                    <ActionIcon
+                                                    <ActionIcon aria-label="시험 신청 관리자 취소"
                                                         variant="light"
                                                         color="red"
                                                         size="lg"

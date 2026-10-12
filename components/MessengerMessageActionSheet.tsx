@@ -21,6 +21,9 @@ function ActionRow({ icon, label, onPress, destructive = false, disabled = false
 
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
       style={({ pressed }) => [
         styles.actionButton,
         destructive && styles.actionButtonDanger,
@@ -30,7 +33,7 @@ function ActionRow({ icon, label, onPress, destructive = false, disabled = false
       disabled={disabled}
       onPress={onPress}
     >
-      <Feather name={icon} size={18} color={destructive ? '#FCA5A5' : '#F9FAFB'} />
+      <Feather aria-hidden accessible={false} name={icon} size={18} color={destructive ? '#FCA5A5' : '#F9FAFB'} />
       <Text style={[styles.actionButtonText, destructive && styles.actionButtonTextDanger]}>
         {label}
       </Text>
@@ -94,6 +97,8 @@ export function MessengerMessageActionSheet({
                 {reactions.map((reaction) => (
                   <Pressable
                     key={reaction}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${reaction} 반응 남기기`}
                     style={({ pressed }) => [
                       styles.reactionPickerButton,
                       pressed && styles.reactionPickerButtonPressed,
@@ -148,8 +153,8 @@ export function MessageSelectCopySheet({
           <View style={styles.sheetHandleDark} />
           <View style={styles.selectCopyHeader}>
             <Text style={styles.selectCopyTitle}>선택 복사</Text>
-            <Pressable style={styles.selectCopyCloseButton} onPress={onClose}>
-              <Feather name="x" size={20} color={CHARCOAL} />
+            <Pressable accessibilityRole="button" accessibilityLabel="선택 복사 닫기" style={styles.selectCopyCloseButton} onPress={onClose}>
+              <Feather aria-hidden accessible={false} name="x" size={20} color={CHARCOAL} />
             </Pressable>
           </View>
           <ScrollView style={styles.selectCopyScroll} contentContainerStyle={styles.selectCopyScrollContent}>
@@ -204,10 +209,10 @@ const styles = StyleSheet.create({
   actionSheetTitle: { fontSize: 16, fontWeight: '900', color: '#F9FAFB' },
   actionSheetPreview: { marginTop: 8, fontSize: 13, lineHeight: 19, color: '#D1D5DB' },
   reactionPickerLabel: { marginTop: 16, fontSize: 12, fontWeight: '900', color: '#D1D5DB' },
-  reactionPickerRow: { marginTop: 10, flexDirection: 'row', justifyContent: 'space-between', gap: 6 },
+  reactionPickerRow: { marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6 },
   reactionPickerButton: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
@@ -252,8 +257,8 @@ const styles = StyleSheet.create({
   },
   selectCopyTitle: { fontSize: 20, fontWeight: '900', color: CHARCOAL },
   selectCopyCloseButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',

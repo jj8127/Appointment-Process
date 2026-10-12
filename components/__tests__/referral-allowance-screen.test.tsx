@@ -28,9 +28,9 @@ const accessRetry = jest.fn();
 const statementRetry = jest.fn();
 const push = jest.fn();
 let access: { scope: number; enabled: boolean; isLoading: boolean; error: unknown;
-  data: { enabled: true; availableMonths: string[] }; retry: () => void };
-let query: { enabled: boolean; isLoading: boolean; error: unknown; availableMonths: string[];
-  statement: ReferralAllowanceStatement | null; retry: () => void };
+  data: { enabled: true; availableMonths: string[] } | undefined; retry: () => void };
+let query: { enabled: boolean; isLoading: boolean; isRefreshing: boolean; error: unknown; availableMonths: string[];
+  data: unknown; statement: ReferralAllowanceStatement | null; retry: () => void };
 let statements: Record<string, ReferralAllowanceStatement>;
 const useAllowance = jest.fn((month?: string) => ({ ...query,
   statement: month ? statements[month] ?? null : query.statement }));
@@ -146,7 +146,7 @@ describe('standalone allowance page interactions', () => {
     statements = { '2026-08': statement('2026-08'), '2026-07': statement('2026-07') };
     access = { scope: 1, enabled: true, isLoading: false, error: null,
       data: { enabled: true, availableMonths: ['2026-08', '2026-07'] }, retry: accessRetry };
-    query = { enabled: true, isLoading: false, error: null, availableMonths: ['2026-08', '2026-07'],
+    query = { enabled: true, isLoading: false, isRefreshing: false, error: null, data: { enabled: true }, availableMonths: ['2026-08', '2026-07'],
       statement: statements['2026-08'], retry: statementRetry };
   });
   afterEach(async () => {
@@ -312,8 +312,8 @@ describe('standalone allowance page interactions', () => {
 
   it.each(['access', 'statement'])('retries a %s failure without rendering stale graph data', async (layer) => {
     const error = new Error('synthetic connection failure');
-    if (layer === 'access') access.error = error;
-    else query.error = error;
+    if (layer === 'access') { access.error = error; access.data = undefined; }
+    else { query.error = error; query.data = undefined; }
     await mount();
     expect(texts()).toContain('수당 내역을 불러오지 못했습니다');
     expect(texts()).not.toContain('아직 등록된 수당 정보가 없습니다');
@@ -325,8 +325,8 @@ describe('standalone allowance page interactions', () => {
 
   it.each(['access', 'statement'])('routes a %s expired session to login', async (layer) => {
     const error = { needsRelogin: true };
-    if (layer === 'access') access.error = error;
-    else query.error = error;
+    if (layer === 'access') { access.error = error; access.data = undefined; }
+    else { query.error = error; query.data = undefined; }
     await mount();
     expect(texts()).toContain('다시 로그인해주세요');
     expectNoGraphOrSample();
@@ -334,5 +334,30 @@ describe('standalone allowance page interactions', () => {
     expect(push).toHaveBeenCalledWith('/login?skipAuto=1');
     expect(accessRetry).not.toHaveBeenCalled();
     expect(statementRetry).not.toHaveBeenCalled();
+  });
+
+  it.each(['access', 'statement'])('preserves the selected month, details and amounts with an inline %s retry', async (layer) => {
+    await mount();
+    await press('2026년 7월'); await press('상세 내역'); await press('가상 기여자');
+    if (layer === 'statement') {
+      query.isRefreshing = true; await update();
+      expect(pressable('수당 내역 새로 확인').props.disabled).toBe(true);
+      expect(pressable('수당 내역 새로 확인').props.accessibilityState).toMatchObject({ busy: true });
+      expect(texts()).not.toContain('증원수당 내역을 확인하고 있습니다.');
+      query.isRefreshing = false;
+    }
+    if (layer === 'access') access.error = new Error('temporary failure');
+    else query.error = new Error('temporary failure');
+    await update();
+    expect(pressable('2026년 7월').props.accessibilityState).toMatchObject({ selected: true });
+    expect(pressable('상세 내역').props.accessibilityState).toMatchObject({ selected: true });
+    expect(texts()).toEqual(expect.arrayContaining(['10,000원', '−20,000원', '이전에 확인한 내용을 표시합니다.']));
+    expect(texts(root().findByType('Modal'))).toContain('325,000.25원');
+    expect(root().findAllByType('ActivityIndicator')).toHaveLength(0);
+    await press('다시 시도');
+    expect(layer === 'access' ? accessRetry : statementRetry).toHaveBeenCalledTimes(1);
+    access.error = null; query.error = null; await update();
+    expect(texts()).not.toContain('이전에 확인한 내용을 표시합니다.');
+    expect(pressable('상세 내역').props.accessibilityState).toMatchObject({ selected: true });
   });
 });

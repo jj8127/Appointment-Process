@@ -17,7 +17,7 @@ export function ReferralDirectRecommenderCard({ recommender }: Props) {
   if (!recommender) {
     return (
       <View style={styles.emptyState}>
-        <Feather name="user-x" size={24} color={COLORS.gray[300]} />
+        <Feather aria-hidden accessible={false} name="user-x" size={24} color={COLORS.gray[300]} />
         <Text style={styles.emptyTitle}>아직 등록된 추천인이 없어요</Text>
         <Text style={styles.emptyDesc}>
           추천 코드를 입력하면 여기에 직접 추천인 1명이 표시됩니다.
@@ -29,7 +29,7 @@ export function ReferralDirectRecommenderCard({ recommender }: Props) {
   return (
     <View style={styles.card}>
       <View style={styles.avatar}>
-        <Feather name="user-check" size={16} color={COLORS.primary} />
+        <Feather aria-hidden accessible={false} name="user-check" size={16} color={COLORS.primary} />
       </View>
       <View style={styles.content}>
         <View style={styles.info}>

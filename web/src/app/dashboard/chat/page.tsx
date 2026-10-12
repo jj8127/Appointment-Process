@@ -285,10 +285,14 @@ function ChatAccountPage() {
                             ) : filteredList.length > 0 ? (
                                 filteredList.map((item) => (
                                     <Box
+                                        component="button"
+                                        type="button"
+                                        aria-label={`${item.name} 대화 열기`}
+                                        aria-pressed={activeFc?.fc_id === item.fc_id}
                                         key={item.fc_id}
                                         p="md"
                                         bg={activeFc?.fc_id === item.fc_id ? 'orange.0' : 'transparent'}
-                                        style={{ cursor: 'pointer', borderBottom: '1px solid #f1f3f5', transition: 'background 0.2s' }}
+                                        style={{ width: '100%', textAlign: 'left', border: 0, cursor: 'pointer', borderBottom: '1px solid #f1f3f5', transition: 'background 0.2s' }}
                                         onClick={() => setSelectedFc(item)}
                                         className="hover:bg-gray-50"
                                     >
@@ -1049,13 +1053,13 @@ function ChatRoom({
                     }}
                     disabled={isReadOnly || sending}
                 />
-                <Group align="flex-end" gap={8}>
+                <Group align="flex-end" gap={8} wrap="nowrap">
                     <Textarea
                         placeholder={isReadOnly ? "본부장 계정은 메시지를 보낼 수 없습니다" : "메시지를 입력하세요 (Enter로 전송)"}
                         autosize
                         minRows={1}
                         maxRows={4}
-                            style={{ flex: 1 }}
+                            style={{ flex: 1, minWidth: 0 }}
                             value={inputText}
                             onChange={(e) => {
                                 pendingRetryRef.current = null;
@@ -1067,7 +1071,7 @@ function ChatRoom({
                             radius="md"
                             disabled={isReadOnly || sending}
                     />
-                    <ActionIcon
+                    <ActionIcon aria-label="메시지 전송"
                         size="lg"
                         color={isReadOnly ? "gray" : "orange"}
                         variant="filled"

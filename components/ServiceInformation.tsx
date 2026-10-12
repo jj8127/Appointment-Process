@@ -9,6 +9,7 @@ import { ServiceIcon, type ServiceName } from '@/components/service-home';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { COLORS } from '@/lib/theme';
+import { goBackOrReplace } from '@/lib/back-navigation';
 
 export function ServiceAction({ label, onPress }: { label: string; onPress: () => void }) {
   return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.action, pressed && styles.pressed]}>
@@ -16,11 +17,12 @@ export function ServiceAction({ label, onPress }: { label: string; onPress: () =
   </Pressable>;
 }
 
-export default function ServiceInformation({ title, service, children, activity = false }: {
+export default function ServiceInformation({ title, service, children, activity = false, account = false }: {
   title: string;
   service?: ServiceName;
   children: ReactNode;
   activity?: boolean;
+  account?: boolean;
 }) {
   const session = useSession();
   const insets = useSafeAreaInsets();
@@ -30,8 +32,8 @@ export default function ServiceInformation({ title, service, children, activity 
     <ScrollView contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}>
       <View style={styles.column}>
         <View style={styles.header}>
-          <Pressable accessibilityRole="button" accessibilityLabel="서비스 홈으로" style={styles.back} onPress={() => router.replace('/')}>
-            <Feather name="arrow-left" size={23} color={COLORS.text.primary} accessible={false} />
+          <Pressable accessibilityRole="button" accessibilityLabel="뒤로 가기" style={styles.back} onPress={() => goBackOrReplace(router, '/')}>
+            <Feather aria-hidden name="arrow-left" size={23} color={COLORS.text.primary} accessible={false} />
           </Pressable>
           <Text accessibilityRole="header" style={styles.headerTitle}>{title}</Text>
         </View>
@@ -41,7 +43,7 @@ export default function ServiceInformation({ title, service, children, activity 
         </View>
       </View>
     </ScrollView>
-    {preset && <BottomNavigation preset={preset} activeKey={resolveBottomNavActiveKey(preset, activity ? 'activity' : 'home')} bottomInset={insets.bottom} />}
+    {preset && <BottomNavigation preset={preset} activeKey={resolveBottomNavActiveKey(preset, account ? 'settings' : activity ? 'activity' : 'home')} bottomInset={insets.bottom} />}
   </SafeAreaView>;
 }
 

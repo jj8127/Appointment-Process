@@ -104,7 +104,7 @@ export function ExamApplicationTargetSelector({
             </Text>
           ) : null}
         </View>
-        <Feather name="chevron-down" size={20} color="#6B7280" />
+        <Feather aria-hidden accessible={false} name="chevron-down" size={20} color="#6B7280" />
       </Pressable>
       {!isLoading ? errorContent : null}
 
@@ -122,11 +122,11 @@ export function ExamApplicationTargetSelector({
                 onPress={() => setOpen(false)}
                 style={styles.close}
               >
-                <Feather name="x" size={22} color="#111827" />
+                <Feather aria-hidden accessible={false} name="x" size={22} color="#111827" />
               </Pressable>
             </View>
             <View style={styles.searchBox}>
-              <Feather name="search" size={18} color="#6B7280" />
+              <Feather aria-hidden accessible={false} name="search" size={18} color="#6B7280" />
               <TextInput
                 value={search}
                 onChangeText={setSearch}
@@ -151,6 +151,10 @@ export function ExamApplicationTargetSelector({
               )}
               renderItem={({ item }) => (
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.name} 선택`}
+                  accessibilityState={{ selected: item.fcId === value?.fcId }}
+                  aria-pressed={item.fcId === value?.fcId}
                   onPress={() => selectTarget(item)}
                   style={({ pressed }) => [
                     styles.row,
@@ -165,7 +169,7 @@ export function ExamApplicationTargetSelector({
                     </Text>
                   </View>
                   {item.fcId === value?.fcId ? (
-                    <Feather name="check-circle" size={20} color="#F36F21" />
+                    <Feather aria-hidden accessible={false} name="check-circle" size={20} color="#F36F21" />
                   ) : null}
                 </Pressable>
               )}
@@ -209,7 +213,7 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { color: '#111827', fontSize: 19, fontWeight: '800' },
-  close: { padding: 6 },
+  close: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   searchBox: {
     marginTop: 14,
     marginBottom: 10,

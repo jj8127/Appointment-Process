@@ -82,7 +82,7 @@ const CATEGORY_CONFIG: Record<
   request_board_new_request: { label: '의뢰 도착', icon: 'inbox', color: '#3B82F6', bg: '#EFF6FF' },
   request_board_accepted: { label: '수락', icon: 'check-circle', color: '#10B981', bg: '#D1FAE5' },
   request_board_rejected: { label: '거절', icon: 'x-circle', color: '#EF4444', bg: '#FEE2E2' },
-  request_board_completed: { label: '설계 완료', icon: 'award', color: '#8B5CF6', bg: '#EDE9FE' },
+  request_board_completed: { label: '설계 완료', icon: 'check', color: '#8B5CF6', bg: '#EDE9FE' },
   request_board_cancelled: { label: '취소', icon: 'slash', color: '#6B7280', bg: '#F3F4F6' },
   'request_board_fc-accepted': { label: 'FC 승인', icon: 'thumbs-up', color: '#059669', bg: '#D1FAE5' },
   'request_board_fc-rejected': { label: 'FC 거절', icon: 'thumbs-down', color: '#DC2626', bg: '#FEE2E2' },
@@ -748,8 +748,8 @@ export default function RequestBoardScreen() {
               style={({ pressed }) => [styles.actionCard, pressed && styles.actionCardPressed]}
               onPress={copyRequestBoardUrl}
             >
-              <View style={[styles.actionIconWrap, { backgroundColor: '#10B981' }]}>
-                <Feather name="link" size={20} color="#fff" />
+              <View style={styles.actionIconWrap}>
+                <Feather name="link" size={20} color={COLORS.text.primary} />
               </View>
               <Text style={styles.actionLabel}>가람Link{'\n'}주소 복사</Text>
             </Pressable>
@@ -1051,7 +1051,7 @@ export default function RequestBoardScreen() {
                             {separatePolicyholderSummary && (
                               <View style={styles.managerPolicyholderRow}>
                                 <View style={styles.managerPolicyholderBadge}>
-                                  <Feather name="users" size={11} color="#92400E" />
+                                  <Feather name="user" size={14} color="#92400E" />
                                   <Text style={styles.managerPolicyholderBadgeText}>계약자 다름</Text>
                                 </View>
                                 <Text style={styles.managerPolicyholderText} numberOfLines={1}>
@@ -1151,8 +1151,8 @@ export default function RequestBoardScreen() {
                 style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
                 onPress={openMessenger}
               >
-                <View style={[styles.codeManageIcon, { backgroundColor: '#FEF3C7' }]}>
-                  <Feather name="message-circle" size={20} color="#F59E0B" />
+                <View style={styles.codeManageIcon}>
+                  <Feather name="message-circle" size={20} color={COLORS.text.primary} />
                 </View>
                 <View style={styles.codeManageText}>
                   <Text style={styles.codeManageTitle}>실시간 메신저</Text>
@@ -1180,8 +1180,8 @@ export default function RequestBoardScreen() {
                 style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
                 onPress={() => openRequests()}
               >
-                <View style={[styles.codeManageIcon, { backgroundColor: '#EDE9FE' }]}>
-                  <Feather name="clipboard" size={20} color="#7C3AED" />
+                <View style={styles.codeManageIcon}>
+                  <Feather name="clipboard" size={20} color={COLORS.text.primary} />
                 </View>
                 <View style={styles.codeManageText}>
                   <Text style={styles.codeManageTitle}>의뢰 목록 · 검토</Text>
@@ -1194,8 +1194,8 @@ export default function RequestBoardScreen() {
                 style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
                 onPress={openCustomerManagement}
               >
-                <View style={[styles.codeManageIcon, { backgroundColor: '#DBEAFE' }]}>
-                  <Feather name="users" size={20} color="#2563EB" />
+                <View style={styles.codeManageIcon}>
+                  <Feather name="users" size={20} color={COLORS.text.primary} />
                 </View>
                 <View style={styles.codeManageText}>
                   <Text style={styles.codeManageTitle}>고객관리</Text>
@@ -1209,7 +1209,7 @@ export default function RequestBoardScreen() {
                 onPress={openFcCodes}
               >
                 <View style={styles.codeManageIcon}>
-                  <Feather name="tag" size={20} color={COLORS.primary} />
+                  <Feather name="tag" size={20} color={COLORS.text.primary} />
                 </View>
                 <View style={styles.codeManageText}>
                   <Text style={styles.codeManageTitle}>설계코드 관리</Text>
@@ -2108,8 +2108,6 @@ const styles = StyleSheet.create({
   codeManageIcon: {
     width: 40,
     height: 40,
-    borderRadius: 12,
-    backgroundColor: COLORS.primaryPale,
     alignItems: 'center',
     justifyContent: 'center',
   },

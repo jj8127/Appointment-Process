@@ -1303,7 +1303,7 @@ export default function ExamApplyScreen() {
         ) : null}
 
         <View style={styles.section}>
-          <Text style={styles.sectionHeader}>📅 응시료 납입 안내</Text>
+          <Text style={styles.sectionHeader}>응시료 납입 안내</Text>
           <Text style={styles.inputHint}>응시료 미입금 시 시험 접수 불가능하며, 납입한 접수비는 반환되지 않습니다.</Text>
           <View style={styles.accountCard}>
             <View style={styles.accountHeaderRow}>
@@ -1528,7 +1528,7 @@ export default function ExamApplyScreen() {
           </MotiView>
 
           <View style={styles.section}>
-            <Text style={styles.sectionHeader}>📅 시험 일정 선택</Text>
+            <Text style={styles.sectionHeader}>시험 일정 선택</Text>
             {isLoading || isFetching ? (
               <BrandedLoadingState variant="exam" layout="section" />
             ) : isRoundsError ? (
@@ -1582,6 +1582,7 @@ export default function ExamApplyScreen() {
                       transition={{ delay: idx * 50 }}
                     >
                       <Pressable
+                        accessibilityRole="button" aria-pressed={isActive}
                         onPress={() => handleRoundSelect(round)}
                         disabled={unavailable}
                         accessibilityState={{
@@ -1637,7 +1638,7 @@ export default function ExamApplyScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionHeader}>📍 응시 지역 선택</Text>
+            <Text style={styles.sectionHeader}>응시 지역 선택</Text>
             <AnimatePresence>
               {!selectedRound ? (
                 <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} style={styles.placeholderBox}>
@@ -1660,6 +1661,7 @@ export default function ExamApplyScreen() {
                         style={{ width: '48%' }}
                       >
                         <Pressable
+                          accessibilityRole="button" accessibilityState={{ selected: isActive }} aria-pressed={isActive}
                           onPress={() => handleLocationSelect(loc.id)}
                           style={[
                             styles.locationCard,
@@ -1690,7 +1692,7 @@ export default function ExamApplyScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionHeader}>✅ 응시 과목</Text>
+            <Text style={styles.sectionHeader}>응시 과목</Text>
 
             <Pressable
               style={[styles.toggleCard, wantsNonlife && styles.toggleCardActive]}

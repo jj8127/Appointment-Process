@@ -44,3 +44,36 @@ body {
   color: #6b7280 !important;
   opacity: 1;
 }
+
+/* Keep compact desktop controls operable and give touch screens a full target. */
+.mantine-ActionIcon-root,
+.mantine-Badge-root[type="button"],
+.appointment-date-clear {
+  min-width: 28px;
+  min-height: 28px;
+}
+
+@media (max-width: 48em) {
+  .mantine-ActionIcon-root,
+  .mantine-Badge-root[type="button"],
+  .appointment-date-clear {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 48em) {
+  .group-chat-composer {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .group-chat-composer .mantine-Textarea-root {
+    flex: 1 0 100% !important;
+    order: -1;
+  }
+
+  .group-chat-composer > button:last-child {
+    margin-left: auto;
+  }
+}

@@ -73,6 +73,81 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+const FilterHeader = ({
+    filters,
+    setFilters,
+    label,
+    field,
+    minWidth,
+    type = 'text',
+    options = [],
+  }: {
+    filters: FilterState;
+    setFilters: (update: (previous: FilterState) => FilterState) => void;
+    label: string;
+    field: keyof FilterState;
+    minWidth?: number;
+    type?: 'text' | 'select';
+    options?: string[];
+  }) => {
+    const isActive = !!filters[field];
+    const [opened, setOpened] = useState(false);
+
+    return (
+      <Table.Th style={{ minWidth, whiteSpace: 'normal', textAlign: 'center', wordBreak: 'keep-all', lineHeight: 1.25 }}>
+        <Group justify="center" wrap="nowrap" gap={4} style={{ width: '100%' }}>
+          <Text
+            fw={700}
+            size="sm"
+            c={isActive ? 'orange' : 'dimmed'}
+            ta="center"
+            style={{ whiteSpace: 'normal', wordBreak: 'keep-all', lineHeight: 1.25 }}
+          >
+            {label}
+          </Text>
+          <Popover opened={opened} onChange={setOpened} width={220} position="bottom-end" withArrow shadow="md">
+            <Popover.Target>
+              <ActionIcon aria-label={`${label} 필터`} aria-expanded={opened} aria-pressed={isActive}
+                variant={isActive ? 'filled' : 'transparent'}
+                color={isActive ? 'orange' : 'gray'}
+                size="sm"
+                onClick={() => setOpened((o) => !o)}
+              >
+                <IconFilter size={14} />
+              </ActionIcon>
+            </Popover.Target>
+            <Popover.Dropdown p="xs">
+              <Stack gap="xs">
+                {type === 'select' ? (
+                  <Select
+                    placeholder="선택하세요"
+                    data={options}
+                    value={(filters[field] as string) ?? null}
+                    onChange={(val) => setFilters((prev) => ({ ...prev, [field]: val ?? '' }))}
+                    size="xs"
+                    clearable
+                  />
+                ) : (
+                  <TextInput rightSectionWidth={44}
+                    placeholder="검색어 입력"
+                    value={(filters[field] as string) ?? ''}
+                    onChange={(e) => setFilters((prev) => ({ ...prev, [field]: e.currentTarget.value }))}
+                    size="xs"
+                    rightSection={
+                      filters[field] ? (
+                        <ActionIcon aria-label="검색어 지우기" variant="subtle" color="gray" onClick={() => setFilters((prev) => ({ ...prev, [field]: '' }))}><IconX size={14} /></ActionIcon>
+                      ) : null
+                    }
+                  />
+                )}
+              </Stack>
+            </Popover.Dropdown>
+          </Popover>
+        </Group>
+      </Table.Th>
+    );
+  };
+
 export default function AdminExamManagePage() {
   const { role, hydrated } = useSession();
   const params = useParams<{ id: string }>();
@@ -285,85 +360,10 @@ export default function AdminExamManagePage() {
     setGlobalSearch('');
   };
 
-  const FilterHeader = ({
-    label,
-    field,
-    minWidth,
-    type = 'text',
-    options = [],
-  }: {
-    label: string;
-    field: keyof FilterState;
-    minWidth?: number;
-    type?: 'text' | 'select';
-    options?: string[];
-  }) => {
-    const isActive = !!filters[field];
-    const [opened, setOpened] = useState(false);
-
-    return (
-      <Table.Th style={{ minWidth, whiteSpace: 'normal', textAlign: 'center', wordBreak: 'keep-all', lineHeight: 1.25 }}>
-        <Group justify="center" wrap="nowrap" gap={4} style={{ width: '100%' }}>
-          <Text
-            fw={700}
-            size="sm"
-            c={isActive ? 'orange' : 'dimmed'}
-            ta="center"
-            style={{ whiteSpace: 'normal', wordBreak: 'keep-all', lineHeight: 1.25 }}
-          >
-            {label}
-          </Text>
-          <Popover opened={opened} onChange={setOpened} width={220} position="bottom-end" withArrow shadow="md">
-            <Popover.Target>
-              <ActionIcon
-                variant={isActive ? 'filled' : 'transparent'}
-                color={isActive ? 'orange' : 'gray'}
-                size="sm"
-                onClick={() => setOpened((o) => !o)}
-              >
-                <IconFilter size={14} />
-              </ActionIcon>
-            </Popover.Target>
-            <Popover.Dropdown p="xs">
-              <Stack gap="xs">
-                {type === 'select' ? (
-                  <Select
-                    placeholder="선택하세요"
-                    data={options}
-                    value={(filters[field] as string) ?? null}
-                    onChange={(val) => setFilters((prev) => ({ ...prev, [field]: val ?? '' }))}
-                    size="xs"
-                    clearable
-                  />
-                ) : (
-                  <TextInput
-                    placeholder="검색어 입력"
-                    value={(filters[field] as string) ?? ''}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, [field]: e.currentTarget.value }))}
-                    size="xs"
-                    rightSection={
-                      filters[field] ? (
-                        <IconX
-                          size={12}
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => setFilters((prev) => ({ ...prev, [field]: '' }))}
-                        />
-                      ) : null
-                    }
-                  />
-                )}
-              </Stack>
-            </Popover.Dropdown>
-          </Popover>
-        </Group>
-      </Table.Th>
-    );
-  };
-
   const renderColumnHeader = (column: ExamApplicantExportColumn) => {
     if (column.key === 'name' || column.key === 'phone' || column.key === 'address') {
       return (
-        <FilterHeader
+        <FilterHeader filters={filters} setFilters={setFilters}
           key={column.key}
           label={column.title}
           field={column.key}
@@ -374,7 +374,7 @@ export default function AdminExamManagePage() {
 
     if (column.key === 'affiliation') {
       return (
-        <FilterHeader
+        <FilterHeader filters={filters} setFilters={setFilters}
           key={column.key}
           label={column.title}
           field="affiliation"
@@ -387,7 +387,7 @@ export default function AdminExamManagePage() {
 
     if (column.key === 'life_location' || column.key === 'nonlife_location') {
       return (
-        <FilterHeader
+        <FilterHeader filters={filters} setFilters={setFilters}
           key={column.key}
           label={column.title}
           field="location"
@@ -424,7 +424,7 @@ export default function AdminExamManagePage() {
           </Text>
           <Popover position="bottom-end" shadow="md" width={200}>
             <Popover.Target>
-              <ActionIcon
+              <ActionIcon aria-label="마감 상태 필터" aria-pressed={isActive}
                 size="sm"
                 variant={isActive ? 'filled' : 'transparent'}
                 color={isActive ? 'orange' : 'gray'}
@@ -567,7 +567,7 @@ export default function AdminExamManagePage() {
           </div>
           <Group gap="xs">
             <Tooltip label="데이터 새로고침">
-              <ActionIcon variant="light" color="gray" size="lg" onClick={() => void fetchData()} loading={loading}>
+              <ActionIcon aria-label="시험 신청자 새로고침" variant="light" color="gray" size="lg" onClick={() => void fetchData()} loading={loading}>
                 <IconRefresh size={20} />
               </ActionIcon>
             </Tooltip>
@@ -601,7 +601,7 @@ export default function AdminExamManagePage() {
               <Group gap="xs">
                 {(globalSearch || Object.values(filters).some((v) => v)) && (
                   <Tooltip label="모든 필터 초기화">
-                    <ActionIcon variant="subtle" color="gray" onClick={clearFilters}>
+                    <ActionIcon aria-label="시험 필터 초기화" variant="subtle" color="gray" onClick={clearFilters}>
                       <IconFilterOff size={18} />
                     </ActionIcon>
                   </Tooltip>

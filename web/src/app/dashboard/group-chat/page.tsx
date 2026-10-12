@@ -68,7 +68,7 @@ import {
   IconBellOff,
   IconDotsVertical,
   IconDownload,
-  IconFile,
+  IconPaperclip,
   IconMessageCircle,
   IconPinned,
   IconPinnedOff,
@@ -629,6 +629,10 @@ function DashboardGroupChatContent() {
                 <Group gap={4} mt={6}>
                   {reactions.map((reaction) => (
                     <Badge
+                      component="button"
+                      type="button"
+                      aria-label={`${reaction.reaction} 반응`}
+                      aria-pressed={reaction.reacted_by_me}
                       key={reaction.reaction}
                       variant={reaction.reacted_by_me ? 'filled' : 'light'}
                       color={reaction.reacted_by_me ? 'orange' : 'gray'}
@@ -662,7 +666,7 @@ function DashboardGroupChatContent() {
                 <Menu.Label>반응</Menu.Label>
                 <Group gap={4} px="xs" pb="xs">
                   {GROUP_CHAT_REACTIONS.map((reaction) => (
-                    <ActionIcon
+                    <ActionIcon aria-label={`${reaction} 반응`} aria-pressed={Boolean(message.reactions?.some((row) => row.reaction === reaction && row.reacted_by_me))}
                       key={reaction}
                       variant="light"
                       color="gray"
@@ -728,7 +732,7 @@ function DashboardGroupChatContent() {
         </div>
         <Group>
           <Tooltip label={muted ? '알림 켜기' : '알림 끄기'}>
-            <ActionIcon variant="light" color={muted ? 'gray' : 'orange'} size="lg" onClick={handleMuteToggle}>
+            <ActionIcon aria-label={muted ? "알림 켜기" : "알림 끄기"} aria-pressed={!muted} variant="light" color={muted ? 'gray' : 'orange'} size="lg" onClick={handleMuteToggle}>
               {muted ? <IconBellOff size={18} /> : <IconBell size={18} />}
             </ActionIcon>
           </Tooltip>
@@ -793,7 +797,7 @@ function DashboardGroupChatContent() {
                 </Box>
               </Group>
               {canManageNotice ? (
-                <ActionIcon variant="subtle" color="orange" loading={noticeUpdating} onClick={() => void handleClearNotice()}>
+                <ActionIcon aria-label="대화방 공지 해제" variant="subtle" color="orange" loading={noticeUpdating} onClick={() => void handleClearNotice()}>
                   <IconX size={16} />
                 </ActionIcon>
               ) : null}
@@ -826,7 +830,7 @@ function DashboardGroupChatContent() {
                   <Text size="xs" fw={900} c={HANWHA_ORANGE}>{replyTarget.sender_name ?? '메시지'}에게 답장</Text>
                   <Text size="xs" c="dimmed" lineClamp={1}>{getMessagePreview(replyTarget)}</Text>
                 </Box>
-                <ActionIcon variant="subtle" color="gray" onClick={() => setReplyTarget(null)}>
+                <ActionIcon aria-label="답장 취소" variant="subtle" color="gray" onClick={() => setReplyTarget(null)}>
                   <IconX size={14} />
                 </ActionIcon>
               </Group>
@@ -837,11 +841,13 @@ function DashboardGroupChatContent() {
             <Group gap="xs" mb="sm">
               {selectedFiles.map((file, index) => (
                 <Badge
+                  h="auto"
+                  py={4}
                   key={`${file.name}-${file.size}-${index}`}
                   variant="light"
                   color="gray"
                   rightSection={
-                    <ActionIcon
+                    <ActionIcon aria-label="선택한 첨부파일 제거"
                       size="xs"
                       variant="transparent"
                       color="gray"
@@ -859,15 +865,15 @@ function DashboardGroupChatContent() {
               ))}
             </Group>
           ) : null}
-          <Group align="flex-end" wrap="nowrap">
+          <Group align="flex-end" wrap="nowrap" className="group-chat-composer">
             <FileButton
               multiple
               onChange={(files) => addSelectedFiles(files ?? [])}
               accept=".jpg,.jpeg,.png,.webp,.gif,.bmp,.heic,.heif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
             >
               {(props) => (
-                <ActionIcon {...props} variant="light" color="gray" size="lg" disabled={!inputEnabled || uploading}>
-                  <IconFile size={18} />
+                <ActionIcon aria-label="파일 첨부" {...props} variant="light" color="gray" size="lg" disabled={!inputEnabled || uploading}>
+                  <IconPaperclip size={18} />
                 </ActionIcon>
               )}
             </FileButton>
@@ -882,7 +888,7 @@ function DashboardGroupChatContent() {
               maxRows={4}
               autosize
               disabled={!inputEnabled || sending || uploading}
-              style={{ flex: 1 }}
+              style={{ flex: 1, minWidth: 0 }}
               onKeyDown={(event) => {
                 if (shouldSubmitOnEnter(event)) {
                   event.preventDefault();

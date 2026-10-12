@@ -136,8 +136,8 @@ function HomeLiteLogoutBackButton() {
   // HomeLiteScreen's focused logout hook owns the login navigation.
   return (
     <Pressable onPress={logout} accessibilityRole="button" accessibilityLabel="로그아웃"
-      style={{ padding: 8, marginLeft: -8 }}>
-      <Feather name="arrow-left" size={24} color="#000" />
+      style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
+      <Feather name="log-out" size={24} color="#000" />
     </Pressable>
   );
 }
@@ -631,7 +631,7 @@ function RootLayout() {
                               ...authHeader,
                               title: '회원가입',
                               headerLeft: () => (
-                                <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -643,7 +643,7 @@ function RootLayout() {
                               ...authHeader,
                               title: '비밀번호 재설정',
                               headerLeft: () => (
-                                <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -664,7 +664,7 @@ function RootLayout() {
                               ...authHeader,
                               title: '휴대폰 인증',
                               headerLeft: () => (
-                                <Pressable onPress={() => goBackOrReplace(router, '/signup')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => goBackOrReplace(router, '/signup')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -676,7 +676,7 @@ function RootLayout() {
                               ...authHeader,
                               title: '비밀번호 설정',
                               headerLeft: () => (
-                                <Pressable onPress={() => router.replace('/signup-verify')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/signup-verify')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -690,7 +690,7 @@ function RootLayout() {
                               ...baseHeader,
                               title: '기본 정보',
                               headerLeft: () => (
-                                <Pressable onPress={() => goBackOrReplace(router, '/')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => goBackOrReplace(router, '/')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -707,9 +707,9 @@ function RootLayout() {
                               headerShown: false,
                               title: '메신저',
                               headerLeft: () => (
-                                <Pressable
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button"
                                   onPress={() => goBackOrReplace(router, '/')}
-                                  style={{ padding: 8, marginLeft: -8 }}
+                                  style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}
                                 >
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
@@ -773,7 +773,7 @@ function RootLayout() {
                               ...authHeader,
                               title: '회원가입',
                               headerLeft: () => (
-                                <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -785,7 +785,7 @@ function RootLayout() {
                               ...authHeader,
                               title: '비밀번호 재설정',
                               headerLeft: () => (
-                                <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -806,7 +806,7 @@ function RootLayout() {
                               ...authHeader,
                               title: '휴대폰 인증',
                               headerLeft: () => (
-                                <Pressable onPress={() => goBackOrReplace(router, '/signup')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => goBackOrReplace(router, '/signup')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -818,7 +818,7 @@ function RootLayout() {
                               ...authHeader,
                               title: '비밀번호 설정',
                               headerLeft: () => (
-                                <Pressable onPress={() => router.replace('/signup-verify')} style={{ padding: 8, marginLeft: -8 }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/signup-verify')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -838,9 +838,9 @@ function RootLayout() {
                               headerShown: false,
                               title: '메신저',
                               headerLeft: () => (
-                                <Pressable
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button"
                                   onPress={() => goBackOrReplace(router, '/')}
-                                  style={{ padding: 8, marginLeft: -8 }}
+                                  style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}
                                 >
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>

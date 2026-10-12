@@ -14,6 +14,7 @@ type Session = {
   role: 'admin' | 'fc' | null;
   hydrated: boolean;
   isRequestBoardDesigner: boolean;
+  isPlatformSignedIn?: boolean;
 };
 let session: Session = { role: null, hydrated: true, isRequestBoardDesigner: false };
 const push = jest.fn();
@@ -51,42 +52,37 @@ describe('service hub controller', () => {
   afterEach(() => { act(() => renderer?.unmount()); });
   const render = () => act(() => { renderer = create(createElement(Hub)); });
 
-  it('opens the existing promotion only after a care press without session or referral parameters', async () => {
+  it('opens care information before promotion or interest registration', () => {
     render();
+    act(() => screenProps().onCarePress());
+    expect(push).toHaveBeenCalledWith({ pathname: '/services/[service]', params: { service: 'care' } });
     expect(openExternalUrl).not.toHaveBeenCalled();
-    await act(async () => { await screenProps().onCarePress(); });
-    expect(openExternalUrl).toHaveBeenCalledTimes(1);
-    expect(openExternalUrl).toHaveBeenCalledWith(FAMILY_CARE_PROMOTION_URL, { sameWindowOnWeb: true });
-    expect(new URL(FAMILY_CARE_PROMOTION_URL).search).toBe('');
-    expect(push).not.toHaveBeenCalled();
-    expect(alert).not.toHaveBeenCalled();
   });
 
-  it('shows a safe recovery message if opening the promotion fails', async () => {
-    openExternalUrl.mockRejectedValue(new Error('PRIVATE_LAUNCH_DETAIL'));
+  it('recognizes a common member without granting an FC role', () => {
+    session = { role: null, hydrated: true, isRequestBoardDesigner: false, isPlatformSignedIn: true };
     render();
-    await act(async () => { await screenProps().onCarePress(); });
-    expect(alert).toHaveBeenCalledTimes(1);
-    expect(alert).toHaveBeenCalledWith(
-      '가족간병 안내를 열지 못했어요',
-      '인터넷 연결을 확인한 뒤 가족간병을 다시 눌러 주세요.',
-    );
-    expect(push).not.toHaveBeenCalled();
+    expect(screenProps().isSignedIn).toBe(true);
+    expect(screenProps().canResumeInsurance).toBe(false);
+    act(() => screenProps().onInsurancePress());
+    expect(push).toHaveBeenLastCalledWith({ pathname: '/services/[service]', params: { service: 'insurance' } });
   });
 
   it('keeps the other information pages as internal routes', () => {
     render();
     for (const [callback, service] of [
-      ['onTelecomPress', 'telecom'], ['onCarPress', 'car'], ['onHelpPress', 'help'],
+      ['onTelecomPress', 'telecom'], ['onRentalPress', 'rental'], ['onCarPress', 'car'], ['onHelpPress', 'help'],
     ]) {
       act(() => screenProps()[callback]());
       expect(push).toHaveBeenLastCalledWith({ pathname: '/services/[service]', params: { service } });
     }
+    act(() => screenProps().onHospitalPress());
+    expect(push).toHaveBeenLastCalledWith('/services/hospitals');
     expect(openExternalUrl).not.toHaveBeenCalled();
   });
 
   it.each([
-    [null, false, '/login?service=insurance'],
+    [null, false, { pathname: '/services/[service]', params: { service: 'insurance' } }],
     ['fc', false, { pathname: '/apply-gate', params: { next: '/?mode=insurance' } }],
     ['admin', false, '/?mode=insurance'],
     ['fc', true, '/request-board'],

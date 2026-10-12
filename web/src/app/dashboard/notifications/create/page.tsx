@@ -183,7 +183,7 @@ export default function CreateNoticePage() {
                         fit="cover"
                         style={{ border: '1px solid rgba(0,0,0,0.05)' }}
                     />
-                    <ActionIcon
+                    <ActionIcon aria-label="선택한 이미지 제거"
                         color="red"
                         size="xs"
                         radius="xl"
@@ -219,7 +219,7 @@ export default function CreateNoticePage() {
                             ({(file.size / 1024).toFixed(1)} KB)
                         </Text>
                     </Group>
-                    <ActionIcon color="red" variant="subtle" onClick={() => removeFile(index)}>
+                    <ActionIcon aria-label="선택한 파일 제거" color="red" variant="subtle" onClick={() => removeFile(index)}>
                         <IconX size={16} />
                     </ActionIcon>
                 </Group>

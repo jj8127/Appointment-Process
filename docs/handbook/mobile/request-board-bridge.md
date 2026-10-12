@@ -7,6 +7,12 @@ source_of_truth: app/request-board*.tsx + lib/chat-keyboard-layout.ts + lib/requ
 
 # Mobile Playbook: GaramLink Bridge
 
+## Native back in an embedded conversation
+
+- `request-board-messenger` keeps its conversation list and selected room in one route. Focused Android hardware back uses the same room-close handler as the header; after the room closes, the next back follows the existing navigation stack. Remove the listener when the screen loses focus.
+- Block room closure while the synchronous send guard is active. Clear room, anchor and notification route parameters when closing so the notification effect cannot reopen that room.
+- Image, message-action and conversation-settings modals own their `onRequestClose`. Android may dismiss the keyboard before sending a hardware-back event to the screen.
+
 ## 2026-09-30 조회 실패 복구
 
 - 대화·대상·메시지·고객·상품·설계매니저·FC 코드·회사명 조회는 해당 화면에서 `OrThrow` API를 사용한다. 실패를 `[]`로 바꾸지 않고 성공한 빈 응답과 구분한다. 사용처가 없는 이전 호환 조회 API는 제거한다. `rbGetNotificationUnreadCount`는 기존 호출자가 있으므로 유지한다.

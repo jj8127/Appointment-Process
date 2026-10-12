@@ -23,7 +23,7 @@ import { markNotificationNavigationIdle } from '@/lib/notification-navigation-co
 import { clearPendingNotificationNavigation } from '@/lib/pending-notification-navigation';
 import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, toResidentInputAlertMessage } from '@/lib/store-identity-error';
 import { supabase } from '@/lib/supabase';
-import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { COLORS, RADIUS, SHADOWS, SPACING, TOUCH_TARGET, TYPOGRAPHY } from '@/lib/theme';
 import { toUserFacingAlertMessage } from '@/lib/user-facing-error';
 import { validateResidentId } from '@/lib/validation';
 
@@ -291,6 +291,8 @@ export default function IdentityScreen() {
                       onPress={() => setShowResidentBack((prev) => !prev)}
                       accessibilityRole="button"
                       accessibilityLabel={showResidentBack ? '주민번호 뒷자리 숨기기' : '주민번호 뒷자리 보기'}
+                      accessibilityState={{ selected: showResidentBack }}
+                      aria-pressed={showResidentBack}
                       testID="identity-resident-back-visibility-toggle"
                     >
                       <Feather
@@ -499,20 +501,20 @@ const styles = StyleSheet.create({
     fontWeight: TYPOGRAPHY.fontWeight.extrabold,
     color: COLORS.text.primary
   },
-  residentInput: { flex: 1, minWidth: 0 },
+  residentInput: { flex: 1, minWidth: 0, minHeight: TOUCH_TARGET.min },
   residentBackWrap: {
     flex: 1,
     minWidth: 0,
     position: 'relative',
   },
   residentBackInput: {
-    paddingRight: SPACING['2xl'],
+    paddingRight: TOUCH_TARGET.min,
   },
   residentVisibilityToggle: {
     position: 'absolute',
     right: 0,
     top: 0,
-    width: SPACING['2xl'],
+    width: TOUCH_TARGET.min,
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',

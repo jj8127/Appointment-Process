@@ -654,7 +654,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
             <Feather name="move" size={14} color={MUTED} />
           </Pressable>
         )}
-        <Pressable
+        <Pressable accessibilityLabel="첨부 삭제" accessibilityRole="button" accessibilityState={{ disabled: isActive || !canEditComposer }}
           style={({ pressed }) => [
             styles.attachmentRemove,
             pressed && { opacity: 0.6 },
@@ -702,7 +702,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
             <Feather name="move" size={14} color={MUTED} />
           </Pressable>
         )}
-        <Pressable
+        <Pressable accessibilityLabel="첨부 삭제" accessibilityRole="button" accessibilityState={{ disabled: isActive || !canEditComposer }}
           style={({ pressed }) => [
             styles.attachmentRemove,
             pressed && { opacity: 0.6 },
@@ -725,7 +725,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
       >
         <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <Pressable
+            <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button"
               style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.6 }]}
               onPress={handleBack}
             >
@@ -925,7 +925,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
                           </View>
                           <Feather name="download" size={16} color={MUTED} />
                         </Pressable>
-                        <Pressable
+                        <Pressable accessibilityLabel="첨부 삭제" accessibilityRole="button" accessibilityState={{ disabled: !canEditComposer }}
                           style={({ pressed }) => [
                             styles.attachmentRemove,
                             pressed && { opacity: 0.6 },
@@ -978,7 +978,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
                             <Text style={styles.attachmentSize}>{formatFileSize(file.fileSize)}</Text>
                           </View>
                         </View>
-                        <Pressable
+                        <Pressable accessibilityLabel="첨부 삭제" accessibilityRole="button" accessibilityState={{ disabled: !canEditComposer }}
                           style={({ pressed }) => [
                             styles.attachmentRemove,
                             pressed && { opacity: 0.6 },
@@ -1056,11 +1056,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   backButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 20,
+    borderRadius: 22,
     backgroundColor: INPUT_BG,
   },
   title: { fontSize: 24, fontWeight: '800', color: CHARCOAL },
@@ -1202,9 +1202,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9fafb',
   },
   attachmentRemove: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#f3f4f6',
     alignItems: 'center',
     justifyContent: 'center',

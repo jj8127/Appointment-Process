@@ -699,7 +699,7 @@ function FcNewScreenContent() {
                 <Text style={styles.error}>{formState.errors.carrier?.message}</Text>
               ) : null}
             </View>
-            <Pressable disabled={submitting} style={styles.selectBox} onPress={() => setShowCarrierPicker(true)}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`통신사 선택, ${carrier || '미선택'}`} accessibilityState={{ disabled: submitting, expanded: showCarrierPicker }} aria-expanded={showCarrierPicker} disabled={submitting} style={styles.selectBox} onPress={() => setShowCarrierPicker(true)}>
               <TextInput
                 style={[styles.input, styles.inputWithIcon]}
                 placeholder="통신사 선택"
@@ -745,6 +745,10 @@ function FcNewScreenContent() {
               <View style={{ flex: 1 }}>
                 <View style={styles.emailDomainBox}>
                   <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`이메일 도메인 선택, ${emailDomain || '미선택'}`}
+                    accessibilityState={{ disabled: submitting, expanded: showDomainPicker }}
+                    aria-expanded={showDomainPicker}
                     style={styles.emailDomainSelect}
                     disabled={submitting}
                     onPress={() => setShowDomainPicker(true)}
@@ -928,9 +932,9 @@ function FcNewScreenContent() {
           headerTitle: '',
           headerShadowVisible: false,
           headerLeft: () => (
-            <Pressable
+            <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button"
               onPress={handleBack}
-              style={{ padding: 8, marginLeft: -8 }}
+              style={{ minWidth: 44, minHeight: 44, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}
             >
               <Feather name="arrow-left" size={24} color={CHARCOAL} />
             </Pressable>

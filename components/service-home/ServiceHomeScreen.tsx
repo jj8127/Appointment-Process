@@ -5,6 +5,7 @@ import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDime
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { COLORS } from '@/lib/theme';
+import ModuonBrand from '@/components/ModuonBrand';
 
 import { ServiceIcon, type ServiceName } from './ServiceIcon';
 import { useServicePromotionPager } from './useServicePromotionPager';
@@ -20,6 +21,8 @@ export interface ServiceHomeScreenProps {
   onInsurancePress: () => void;
   onTelecomPress: () => void;
   onCarPress: () => void;
+  onRentalPress: () => void;
+  onHospitalPress: () => void;
   onHelpPress: () => void;
   onResumeInsurancePress: () => void;
 }
@@ -29,12 +32,12 @@ function ControlIcon({ name, size = 18, color = COLORS.text.secondary }: {
   size?: number;
   color?: string;
 }) {
-  return <Feather name={name} size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />;
+  return <Feather aria-hidden name={name} size={size} color={color} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />;
 }
 
 export default function ServiceHomeScreen({
   isSignedIn, loading = false, canResumeInsurance = false, bottomInset, navigation,
-  onAccountPress, onCarePress, onInsurancePress, onTelecomPress, onCarPress,
+  onAccountPress, onCarePress, onInsurancePress, onTelecomPress, onCarPress, onRentalPress, onHospitalPress,
   onHelpPress, onResumeInsurancePress,
 }: ServiceHomeScreenProps) {
   const { width, fontScale } = useWindowDimensions();
@@ -42,27 +45,23 @@ export default function ServiceHomeScreen({
   const bannerWidth = Math.max(1, Math.min(width, 480) - 40);
   const resumeInsurance = isSignedIn && canResumeInsurance;
   const services: { service: ServiceName; label: string; status: string; onPress: () => void }[] = [
-    { service: 'care', label: '가족간병', status: '서비스 안내', onPress: onCarePress },
-    { service: 'insurance', label: '보험·FC', status: 'FC 전용', onPress: resumeInsurance ? onResumeInsurancePress : onInsurancePress },
+    { service: 'care', label: '가족간병', status: '준비 중', onPress: onCarePress },
+    { service: 'insurance', label: '보험', status: 'FC 업무', onPress: resumeInsurance ? onResumeInsurancePress : onInsurancePress },
     { service: 'telecom', label: '통신', status: '준비 중', onPress: onTelecomPress },
+    { service: 'rental', label: '렌탈', status: '준비 중', onPress: onRentalPress },
     { service: 'car', label: '자동차', status: '준비 중', onPress: onCarPress },
+    { service: 'hospital', label: '제휴병원', status: '지역별 안내', onPress: onHospitalPress },
   ];
   const slides = [
-    { ...services[0], category: '가족간병 서비스', title: '가족간병,\n시작 전 안내', description: '이용 전 절차를 확인하세요', action: '가족간병 알아보기' },
-    { ...services[1], category: '보험·FC 업무', title: '보험·FC\n업무 한곳에', description: '시험·서류·설계 업무', action: 'FC 업무로 이동' },
-    { ...services[2], category: '제휴 서비스 준비 중', title: '통신 서비스,\n곧 만나요', description: '새로운 제휴를 준비 중이에요', action: '준비 상태 보기' },
-    { ...services[3], category: '제휴 서비스 준비 중', title: '자동차 서비스,\n곧 만나요', description: '새로운 제휴를 준비 중이에요', action: '준비 상태 보기' },
+    { ...services[0], image: require('@/assets/images/service-home/banners/care.png'), title: '가족간병,\n시작 전 안내', description: '이용 전 절차를 확인하세요', action: '가족간병 알아보기' },
+    { ...services[1], image: require('@/assets/images/service-home/banners/insurance.png'), title: '가람in 보험,\nFC 업무를 편리하게', description: '보험 상담 서비스는 준비 중이에요', action: resumeInsurance ? 'FC 업무로 이동' : '보험 서비스 보기' },
+    { ...services[2], image: require('@/assets/images/service-home/banners/telecom.png'), title: '통신 서비스,\n곧 만나요', description: '새로운 제휴를 준비 중이에요', action: '준비 상태 보기' },
+    { ...services[4], image: require('@/assets/images/service-home/banners/car.png'), title: '자동차 서비스,\n곧 만나요', description: '새로운 제휴를 준비 중이에요', action: '준비 상태 보기' },
   ];
   const carousel = useServicePromotionPager(slides.length, fontScale);
   const { pager, pageWidth, setPageWidth, page } = carousel;
   const loopSlides = [slides[slides.length - 1], ...slides, slides[0]];
   const bannerHeight = Math.round((pageWidth || bannerWidth) * 0.75 * Math.max(1, fontScale) + 96 * Math.max(0, fontScale - 1));
-  const campaignImages = {
-    care: require('@/assets/images/service-home/banners/care.png'),
-    insurance: require('@/assets/images/service-home/banners/insurance.png'),
-    telecom: require('@/assets/images/service-home/banners/telecom.png'),
-    car: require('@/assets/images/service-home/banners/car.png'),
-  };
 
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
@@ -73,12 +72,7 @@ export default function ServiceHomeScreen({
       >
         <View style={styles.column}>
           <View style={styles.header}>
-            <View style={styles.brand} accessible accessibilityLabel="가람in">
-              <View style={styles.brandSymbol} pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-                <Image source={require('@/adminWebLogo.png')} style={styles.logo} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
-              </View>
-              <Text style={styles.brandName}>가람in</Text>
-            </View>
+            <ModuonBrand />
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={isSignedIn ? '내 정보' : '로그인'}
@@ -96,7 +90,7 @@ export default function ServiceHomeScreen({
             <View style={styles.services}>
               {services.map(({ service, label, status, onPress }) => (
                 <Pressable key={service} accessibilityRole="button" accessibilityLabel={`${label} · ${status}`} onPress={onPress} style={({ pressed }) => [styles.serviceEntry, pressed && styles.shortcutPressed]}>
-                  <View style={styles.serviceArtwork}><ServiceIcon service={service} size={service === 'car' ? 64 : 56} /></View>
+                  <View style={styles.serviceArtwork}><ServiceIcon service={service} size={56} /></View>
                   <Text style={styles.serviceLabel}>{label}</Text>
                   <Text style={styles.serviceStatus}>{status}</Text>
                 </Pressable>
@@ -125,7 +119,7 @@ export default function ServiceHomeScreen({
                     onPressIn={carousel.pressIn} onPressOut={carousel.pressOut} onPress={() => { if (carousel.canOpen()) slide.onPress(); }}
                     style={({ pressed }) => [styles.slide, { width: pageWidth || bannerWidth, height: bannerHeight }, pressed && styles.pressed]}
                     aria-hidden={index !== carousel.physicalPage || index === 0 || index === loopSlides.length - 1} accessibilityElementsHidden={index !== carousel.physicalPage || index === 0 || index === loopSlides.length - 1} importantForAccessibility={index === carousel.physicalPage && index > 0 && index < loopSlides.length - 1 ? 'auto' : 'no-hide-descendants'}>
-                    <View pointerEvents="none" style={StyleSheet.absoluteFillObject}><Image source={campaignImages[slide.service]} resizeMode="cover" style={styles.campaignImage} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" /></View>
+                    <View pointerEvents="none" style={StyleSheet.absoluteFillObject}><Image source={slide.image} resizeMode="cover" style={styles.campaignImage} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" /></View>
                     <LinearGradient colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0.04)', 'rgba(0,0,0,0.76)']} locations={[0, 0.5, 1]} style={styles.campaignShade} pointerEvents="none" accessible={false} />
                     <Text accessibilityRole="header" style={[styles.bannerTitle, compact && styles.compactBannerTitle]}>{slide.title}</Text>
                     <View style={[styles.campaignCopy, fontScale > 1.25 && styles.expandedCampaignCopy]}>
@@ -168,19 +162,14 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   column: { width: '100%', maxWidth: 480, alignSelf: 'center', backgroundColor: COLORS.white },
   header: { minHeight: 72, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: COLORS.white },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 9, flexShrink: 1 },
-  brandSymbol: { width: 37.5, height: 34, overflow: 'hidden' },
-  // Show the transparent Hanwha symbol from the existing 1280×553 wordmark without altering the source asset.
-  logo: { position: 'absolute', width: 85, height: 36.72, left: -1.4, top: -1.66, resizeMode: 'contain' },
-  brandName: { fontSize: 22, fontWeight: '700', color: COLORS.text.primary, letterSpacing: -0.8, flexShrink: 1 },
   account: { minHeight: 44, minWidth: 44, paddingHorizontal: 8, paddingVertical: 9, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   loginText: { fontSize: 13, fontWeight: '500', color: COLORS.text.secondary },
   content: { paddingHorizontal: 20, paddingTop: 26, paddingBottom: 20, backgroundColor: COLORS.background.tertiary, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
   title: { fontSize: 24, lineHeight: 32, fontWeight: '800', letterSpacing: -0.9, color: COLORS.text.primary, marginBottom: 18 },
   compactTitle: { fontSize: 21, lineHeight: 29 },
-  services: { flexDirection: 'row', alignItems: 'stretch', marginBottom: 26 },
-  serviceEntry: { flex: 1, minWidth: 0, alignItems: 'center', paddingVertical: 4, paddingHorizontal: 1, borderRadius: 12 },
-  serviceArtwork: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  services: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', rowGap: 8, marginBottom: 20 },
+  serviceEntry: { width: '33.333%', minWidth: 0, alignItems: 'center', paddingVertical: 2, paddingHorizontal: 1, borderRadius: 12 },
+  serviceArtwork: { width: 64, height: 56, alignItems: 'center', justifyContent: 'center' },
   serviceLabel: { fontSize: 14, fontWeight: '700', color: COLORS.text.primary, textAlign: 'center', letterSpacing: -0.4 },
   serviceStatus: { fontSize: 12, lineHeight: 17, color: COLORS.text.secondary, textAlign: 'center', marginTop: 3 },
   shortcutPressed: { backgroundColor: COLORS.background.secondary },

@@ -340,7 +340,7 @@ export default function AgentRoomPage() {
                 {snapshot.generatedAt ? `update · ${formatUpdatedAt(snapshot.generatedAt, nowMs)}` : 'snapshot · loading'}
               </Text>
               <Button
-                leftSection={<IconRefresh size={16} stroke={1.8} />}
+                leftSection={<IconRefresh size={16} stroke={2} />}
                 loading={isFetching}
                 onClick={() => void refetch()}
                 radius="xl"

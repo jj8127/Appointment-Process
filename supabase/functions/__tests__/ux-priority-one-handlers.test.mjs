@@ -12,7 +12,7 @@ async function extract(file, name, context) {
   let expression;
   function visit(node) {
     if (ts.isFunctionDeclaration(node) && node.name?.getText(ast)===name) expression=node.getText(ast);
-    if (name === 'handler' && ts.isCallExpression(node) && node.expression.getText(ast) === 'serve') {
+    if (name === 'handler' && ts.isCallExpression(node) && ['serve','serveWithConfiguredCors'].includes(node.expression.getText(ast))) {
       expression = node.arguments[0].getText(ast);
     }
     if (ts.isVariableDeclaration(node) && node.name.getText(ast)===name) {
@@ -22,10 +22,178 @@ async function extract(file, name, context) {
     ts.forEachChild(node,visit);
   }
   visit(ast); assert.ok(expression,`${file}:${name} exists`);
-  const compiled=ts.transpileModule(`globalThis.run = ${expression}`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+  const compiled=ts.transpileModule(`globalThis.run = ${expression.replace(/^export\s+(?:default\s+)?/,'')}`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
   const scope=vm.createContext({ ...context, Date, Map, Set, Promise, String, Boolean, Array, Number, console: {warn(){}} });
   vm.runInContext(compiled,scope); return scope.run;
 }
+
+test('platform admin permission is rechecked from current admin facts after a signed staff downgrade',async()=>{
+  for(const current of [null,{id:'synthetic-current-admin'}]) {
+    const calls=[];
+    const run=await extract('supabase/functions/platform-service/index.ts','actor',{
+      parsePlatformMemberToken:async()=>null,
+      parseAppSessionTokenDetailed:async()=>({ok:true,payload:{phone:'00000000001',role:'admin',staffType:'admin',accountKind:'admin',accountId:'synthetic-current-admin'}}),
+      legacyMember:async()=>({id:'synthetic-member',staff_account_kind:'admin',staff_account_id:'synthetic-current-admin',terms_version:'2026-10-12',terms_accepted_at:'2026-10-12T00:00:00Z'}),termsVersion:'2026-10-12',
+      db:{from(table){calls.push(['table',table]);return this;},select(){return this;},
+        eq(field,value){calls.push([field,value]);return this;},maybeSingle:async()=>({data:current,error:null})},
+    });
+    const result=await run(new Request('https://synthetic.invalid',{headers:{'x-app-session-token':'synthetic-signed'}}));
+    assert.equal(result.adminId,current?.id ?? null);
+    assert.ok(calls.some(([field,value])=>field==='staff_type' && value==='admin'));
+    assert.ok(calls.some(([field,value])=>field==='active' && value===true));
+  }
+});
+
+test('platform consumer token resolves its bound member and rejects revoked credentials',async()=>{
+  for(const version of [3,4,null]) {
+    const filters=[];
+    let table;
+    const run=await extract('supabase/functions/platform-service/index.ts','actor',{
+      parsePlatformMemberToken:async()=>({memberId:'signed-member-id',phone:'00000000011',sessionVersion:4}),
+      termsVersion:'2026-10-12',
+      db:{from(value){table=value;return this;},select(){return this;},eq(field,value){filters.push([field,value]);return this;},
+        maybeSingle:async()=>({data:table==='platform_members' ? {id:'signed-member-id',terms_version:'2026-10-12',terms_accepted_at:'2026-10-12T00:00:00Z'} : version===null ? null : {session_version:version},error:null})},
+    });
+    const request=new Request('https://synthetic.invalid',{headers:{'x-app-session-token':'synthetic-token'}});
+    if(version===4) assert.equal((await run(request)).member.id,'signed-member-id');
+    else await assert.rejects(run(request),/invalid_session/);
+    assert.ok(filters.some(([field,value])=>field==='id' && value==='signed-member-id'));
+  }
+});
+
+test('hospital advertising date filters use the same Korean calendar date at midnight boundaries',async()=>{
+  const koreanDate=await extract('supabase/functions/_shared/exam-payment-proof.ts','getKoreanYmd',{Intl});
+  for(const [instant,expected] of [['2026-10-10T14:59:59Z','2026-10-10'],['2026-10-10T15:00:00Z','2026-10-11']]) {
+    const calls=[];
+    const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
+      getKoreanYmd:()=>koreanDate(new Date(instant)),hospitalProvinces:{'11':'서울'},
+      rpc:async(name,args)=>{calls.push({name,args});return {hospitals:[],featured:[],hasMore:false,nextOffset:null};},
+      json:(body,status=200)=>new Response(JSON.stringify(body),{status}),fail:()=>{throw new Error('unexpected failure');},
+    });
+    const response=await handler(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify({action:'list_hospitals',rotationBucket:'client-owned-attempt'})}));
+    assert.equal(response.status,200);assert.equal(calls[0].name,'get_platform_hospitals');assert.equal(calls[0].args.p_today,expected);
+    assert.match(calls[0].args.p_filters.rotationBucket,/^\d+$/);assert.notEqual(calls[0].args.p_filters.rotationBucket,'client-owned-attempt');
+  }
+});
+
+test('platform consent blocks common reads without enrolling legacy accounts and can be explicitly accepted',async()=>{
+  const member={id:'signed-member-id',terms_version:null,terms_accepted_at:null};
+  let table;
+  const context={termsVersion:'2026-10-12',parsePlatformMemberToken:async()=>({memberId:member.id,phone:'00000000011',sessionVersion:4}),
+    db:{from(value){table=value;return this;},select(){return this;},eq(){return this;},
+      maybeSingle:async()=>({data:table==='platform_members' ? member : {session_version:4},error:null})}};
+  const current=await extract('supabase/functions/platform-service/index.ts','actor',context);
+  const request=new Request('https://synthetic.invalid',{headers:{'x-app-session-token':'synthetic-token'}});
+  await assert.rejects(current(request),/consent_required/);
+  assert.equal((await current(request,false)).member.id,member.id);
+  const calls=[];
+  const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
+    termsVersion:'2026-10-12',parsePlatformMemberToken:async()=>null,
+    parseAppSessionTokenDetailed:async()=>({ok:true,payload:{accountKind:'fc',accountId:'signed-fc-id',phone:'00000000002'}}),
+    db:{from(value){calls.push(value);return this;},select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{name:'Synthetic FC'},error:null})},
+    rpc:async(name,args)=>{calls.push({name,args});return {ok:true};},
+    json:(body,status=200)=>new Response(JSON.stringify(body),{status}),fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+  });
+  const accepted=await handler(new Request('https://synthetic.invalid',{method:'POST',headers:{'x-app-session-token':'signed-fc'},
+    body:JSON.stringify({action:'accept_terms',termsAccepted:true,termsVersion:'2026-10-12',phone:'00000000099',fcId:'client-owned'})}));
+  assert.equal(accepted.status,200);assert.equal(calls[1].name,'enroll_platform_legacy_member');
+  assert.equal(calls[1].args.p_phone,'00000000002');assert.equal(calls[1].args.p_fc_id,'signed-fc-id');
+  assert.equal(calls[1].args.p_account_kind,'fc');assert.equal(calls[1].args.p_account_id,'signed-fc-id');
+});
+
+test('common withdrawal uses the signed member and stays available without renewing consent',async()=>{
+  for(const generalMember of [true,false]) {
+    const calls=[];
+    const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
+      actor:async(_request,requireConsent)=>{calls.push({requireConsent});return {member:{id:'signed-member-id'},generalMember};},
+      rpc:async(name,args)=>{calls.push({name,args});return {ok:true,deleted:true};},
+      json:(body,status=200)=>new Response(JSON.stringify(body),{status}),fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+    });
+    for(const confirmed of [false,true]) {
+      calls.length=0;
+      const response=await handler(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify({action:'delete_member',confirmed,memberId:'client-owned'})}));
+      assert.equal(response.status,confirmed ? 200 : 403);assert.equal(calls[0].requireConsent,false);
+      assert.equal(calls.length,confirmed ? 2 : 1);
+      if(confirmed) assert.deepEqual(JSON.parse(JSON.stringify(calls[1])),{name:'delete_platform_member',args:{p_member_id:'signed-member-id'}});
+    }
+  }
+  for(const [member,expected] of [[null,'enrollment_required'],[{id:'existing',fc_id:'signed-fc-id'},'consent_required'],[{id:'wrong',fc_id:'different-fc-id'},'enrollment_required']]) {
+    const actor=await extract('supabase/functions/platform-service/index.ts','actor',{
+      parsePlatformMemberToken:async()=>null,termsVersion:'2026-10-12',legacyMember:async()=>member,
+      parseAppSessionTokenDetailed:async()=>({ok:true,payload:{accountKind:'fc',accountId:'signed-fc-id',phone:'00000000002'}}),
+    });
+    const request=new Request('https://synthetic.invalid');
+    await assert.rejects(actor(request),new RegExp(expected));
+    if(expected==='consent_required') assert.equal((await actor(request,false)).member.id,'existing');
+    else await assert.rejects(actor(request,false),new RegExp(expected));
+  }
+});
+
+test('platform recovery separates signup codes and refuses hosted test SMS before challenge writes',async()=>{
+  const calls=[];
+  const context={getEnv:()=>undefined,crypto:globalThis.crypto,toBase64:btoa,hashPassword:async()=> 'synthetic-hash',
+    signupCodeHash:async(code,phone)=>{calls.push(['hash',code,phone]);return 'synthetic-digest';},
+    processPasswordResetChallenge:async(_db,account,input)=>{calls.push(['challenge',account,input]);return {ok:true};},
+    sendSignupSms:async()=>{calls.push(['sms']);return {ok:true};},
+    db:{from(){return this;},select(){return this;},eq(){return this;},is(){return this;},maybeSingle:async()=>({data:{id:'signed-member-id'},error:null})},
+    json:(body,status=200)=>new Response(JSON.stringify(body),{status}),fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+  };
+  const handler=await extract('supabase/functions/platform-service/index.ts','handler',context);
+  const response=await handler(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify({action:'request_password_reset',phone:'00000000011'})}));
+  assert.equal(response.status,200);assert.equal(calls[0][2],'reset:00000000011');assert.equal(calls[1][1].kind,'member');assert.equal(calls[1][2].action,'issue');
+  calls.length=0;
+  const hosted=await extract('supabase/functions/platform-service/index.ts','handler',{...context,
+    getEnv:name=>name==='TEST_SMS_MODE' ? 'true' : name==='DENO_DEPLOYMENT_ID' ? 'synthetic-hosted' : undefined});
+  const refused=await hosted(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify({action:'request_otp',phone:'00000000011'})}));
+  assert.equal(refused.status,503);assert.equal((await refused.json()).code,'server_misconfigured');assert.deepEqual(calls,[]);
+});
+
+test('hospital directory distinguishes unavailable transport from an unavailable individual contract',async()=>{
+  for(const unavailable of [false,true]) {
+    const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
+      getKoreanYmd:()=> '2026-10-11',hospitalProvinces:{'11':'서울'},uuid:/^[0-9a-f-]{36}$/,
+      rpc:async()=>{if(unavailable) throw new Error('database_error');return {hospitals:[],featured:[]};},
+      json:(body,status=200)=>new Response(JSON.stringify(body),{status}),
+      fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+    });
+    const response=await handler(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify({action:'get_hospital',hospitalId:'90000000-0000-4000-8000-000000000001'})}));
+    assert.equal(response.status,unavailable ? 503 : 404);
+    assert.equal((await response.json()).code,unavailable ? 'request_failed' : 'hospital_not_found');
+  }
+});
+
+test('hospital receipt expiry, tamper and wrong-contract checks precede admission',async()=>{
+  const context={crypto:globalThis.crypto,TextEncoder,serviceKey:'synthetic-only-hospital-signing-key',btoa,atob,hospitalPlacements:['regional_list','regional_featured']};
+  context.hospitalSignature=await extract('supabase/functions/platform-service/index.ts','hospitalSignature',context);
+  const mint=await extract('supabase/functions/platform-service/index.ts','hospitalReceipt',context);
+  const verify=await extract('supabase/functions/platform-service/index.ts','verifyHospitalReceipt',context);
+  const hospital={id:'synthetic-hospital',revision:2,adPlacement:'regional_list'};
+  const token=await mint(hospital);
+  assert.equal((await verify(token,hospital.id)).revision,2);
+  assert.equal(await verify(token,'different-hospital'),null);
+  assert.equal(await verify(`${token.slice(0,-1)}${token.endsWith('0')?'1':'0'}`,hospital.id),null);
+  const data=btoa(JSON.stringify({id:hospital.id,revision:2,placement:'regional_list',expires:Math.floor(Date.now()/1000)-1}));
+  assert.equal(await verify(`${data}.${await context.hospitalSignature(data)}`,hospital.id),null);
+});
+
+test('basic hospital exposure receipts cannot promote events and nonadmins cannot read performance',async()=>{
+  const calls=[];
+  const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
+    hospitalEventTypes:['impression','detail','phone','directions'],hospitalPlacements:['regional_list','regional_featured'],uuid:/^[0-9a-f-]{36}$/,
+    verifyHospitalReceipt:async()=>({revision:0,placement:'regional_list'}),actor:async()=>({member:{id:'synthetic-member'},adminId:null}),
+    rpc:async(name,args)=>{calls.push({name,args});return {};},
+    json:(body,status=200)=>new Response(JSON.stringify(body),{status}),
+    fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+  });
+  for(const body of [
+    {action:'record_hospital_event',hospitalId:'90000000-0000-4000-8000-000000000001',eventId:'90000000-0000-4000-8000-000000000002',sessionId:'90000000-0000-4000-8000-000000000003',eventType:'impression',placement:'regional_featured'},
+    {action:'get_hospital_report',from:'2026-10-11',to:'2026-10-11'},
+  ]) {
+    const response=await handler(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify(body)}));
+    assert.equal(response.status,body.action==='get_hospital_report' ? 403 : 400);
+  }
+  assert.equal(calls.length,0);
+});
 test('cleanup status fails on unknown counts; post-commit drain stays pending for unknown/error', async()=>{
   for (const count of [null,undefined,NaN,-1,1.5]) {
     const supabase={from(){return this;},select(){return this;},eq(){return Promise.resolve({count,error:null});}};

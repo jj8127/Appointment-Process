@@ -69,6 +69,7 @@ import {
   IconEdit,
   IconHeart,
   IconInfoCircle,
+  IconFileText,
   IconMessage,
   IconMoodSmile,
   IconPaperclip,
@@ -1188,7 +1189,7 @@ function BoardContent() {
             {comment.isMine && (
               <Menu shadow="md" width={140}>
                 <Menu.Target>
-                  <ActionIcon variant="subtle" color="gray">
+                  <ActionIcon aria-label="댓글 작업" variant="subtle" color="gray">
                     <IconDotsVertical size={16} />
                   </ActionIcon>
                 </Menu.Target>
@@ -1286,7 +1287,7 @@ function BoardContent() {
                 whileTap={{ scale: 0.9 }}
                 transition={{ duration: 0.2 }}
               >
-                <ActionIcon
+                <ActionIcon aria-label="댓글 좋아요" aria-pressed={comment.isLiked}
                   variant="subtle"
                   color={comment.isLiked ? 'red' : 'gray'}
                   onClick={() => {
@@ -1534,7 +1535,7 @@ function BoardContent() {
                         {canManagePost(post) && (
                           <Menu shadow="md" width={200}>
                             <Menu.Target>
-                              <ActionIcon variant="subtle" color="gray">
+                              <ActionIcon aria-label="게시글 작업" variant="subtle" color="gray">
                                 <IconDotsVertical size={16} />
                               </ActionIcon>
                             </Menu.Target>
@@ -1765,7 +1766,7 @@ function BoardContent() {
                       <Group justify="space-between" wrap="nowrap">
                         <Group>
                           <ThemeIcon variant="light" color="orange" size="md">
-                            {file.fileType === 'image' ? <IconPhoto size={16} /> : <IconInfoCircle size={16} />}
+                            {file.fileType === 'image' ? <IconPhoto size={16} /> : <IconFileText size={16} />}
                           </ThemeIcon>
                         <div>
                           <Text size="sm" fw={600}>
@@ -1816,7 +1817,7 @@ function BoardContent() {
                     <Group justify="space-between">
                       <Group>
                         <ThemeIcon variant="light" color="orange" size="md">
-                          {file.fileType === 'image' ? <IconPhoto size={16} /> : <IconPaperclip size={16} />}
+                          {file.fileType === 'image' ? <IconPhoto size={16} /> : <IconFileText size={16} />}
                         </ThemeIcon>
                         <div>
                           <Text size="sm" fw={600}>
@@ -1827,7 +1828,7 @@ function BoardContent() {
                           </Text>
                         </div>
                       </Group>
-                      <ActionIcon
+                      <ActionIcon aria-label="새 첨부파일 제거"
                         variant="subtle"
                         color="gray"
                         disabled={composerLocked}
@@ -1969,7 +1970,7 @@ function BoardContent() {
                             <Group justify="space-between">
                               <Group>
                                 <ThemeIcon variant="light" color="orange" size="md">
-                                  <IconInfoCircle size={16} />
+                                  <IconFileText size={16} />
                                 </ThemeIcon>
                                 <div>
                                   <Text size="sm" fw={600}>
@@ -2016,7 +2017,7 @@ function BoardContent() {
                   return (
                     <Stack key={id} gap={4} align="center">
                       <Tooltip label={label}>
-                        <ActionIcon
+                        <ActionIcon aria-label={label} aria-pressed={isSelected}
                           variant={isSelected ? 'filled' : 'light'}
                           color={color}
                           size="lg"
@@ -2060,7 +2061,7 @@ function BoardContent() {
                     <Text size="sm" c="dimmed">
                       {replyTarget.authorName}님에게 답글
                     </Text>
-                    <ActionIcon variant="subtle" color="gray" onClick={() => setReplyTarget(null)}>
+                    <ActionIcon aria-label="답글 취소" variant="subtle" color="gray" onClick={() => setReplyTarget(null)}>
                       <IconX size={16} />
                     </ActionIcon>
                   </Group>

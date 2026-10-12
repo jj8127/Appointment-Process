@@ -15,6 +15,7 @@ import {
 import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
+import { hashPassword } from '../_shared/password-hash.ts';
 
 type Payload = {
   phone: string;
@@ -54,7 +55,6 @@ if (!serviceKey) {
 }
 
 const supabase = createClient(supabaseUrl, serviceKey);
-const encoder = new TextEncoder();
 const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
 const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
 const requestBoardPasswordSyncTimeoutRaw = Number((getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim());
@@ -79,34 +79,6 @@ function fail(code: string, message: string, extra: Record<string, unknown> = {}
 
 function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
-}
-
-function toBase64(bytes: Uint8Array) {
-  let binary = '';
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return btoa(binary);
-}
-
-function fromBase64(input: string) {
-  const binary = atob(input);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function hashPassword(password: string, saltBase64: string) {
-  const saltBytes = fromBase64(saltBase64);
-  const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', salt: saltBytes.buffer as ArrayBuffer, iterations: 100000, hash: 'SHA-256' },
-    key,
-    256,
-  );
-  return toBase64(new Uint8Array(bits));
 }
 
 async function autoIssueReferralCodeOnLogin(params: {

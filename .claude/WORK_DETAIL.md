@@ -1,5 +1,84 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261011-hospital-home-visual"></a>
+## 2026-10-11 제휴병원 홈 시각 개선
+
+- Gummble Zocdoc의 의미 있는 컬러 진료과, Nicelydone Airbnb의 넓은 사진 탐색을 반영해 상단과 콘텐츠 위계를 정리했다. HospitalScreen 헤더56px에 제목·시/도 선택을 넣고 hospitals.tsx의 중복 제목·큰 지역 입력란을 제거했다. 구 선택은 시/도 선택 후 표시한다. 검색은48px 한 줄과 작은 검색 동작으로 제공한다.
+- 기존 react-native-svg로 청진기·뼈·관절·치아·눈·얼굴·어린이·귀의44px 진료과 그림을 작성했다. 기존 입력/읽기/노출 훅을 재사용하며 패키지·추상화·시험 runner는 추가하지 않았다. 소개는 최대300px 폭·172px 사진·실제 소개2줄·상세 링크, 일반 목록은88px 사진·간결한 비교 정보를 사용한다.
+- UI worker는 hospitals.tsx와 HospitalScreen, icons worker는 DepartmentIcon, checks agent는 격리된 브라우저 증거를 소유한다. root는 기존 mobile-native-controls suite의 병원 사례와 통합·문서·미리보기를 담당한다. 테스트는 새 suite 없이 기존 사례를 확장했다. 사진3장은 built-in image_gen과 이전 검증 사진으로 준비해 revision-16/assets에 보존하고 격리 검증에서만 사용한다. 실제 병원 자료를 생성/등록하지 않는다.
+- 기존 suite와 실제 브라우저, 전체 타입·대상 lint·최종 Web export·strict governance·Git diff 검사 PASS. 기본320/390/414px에서 소개 카드 전체가 하단 메뉴 위에 보인다.320px 글자160% 검색 잘림을 병원 입력란 스타일로 수리하고 재확인했다. 최종 결과는 canonical service-home-20261009 QA의 revision-16과 revision-16/evidence를 따른다. 기존 dirty 변경과 API/schema·지면/영수증·50%/1초 노출·상세 복귀 계약을 유지하며 로컬 미커밋·미배포 상태다.
+
+<a id="20261011-hospital-discovery-home"></a>
+## 2026-10-11 제휴병원 검색 전 홈
+
+- Gummble의 Zocdoc 진료과, Nicelydone의 Airbnb 지역/사진 탐색, Dribbble/Behance 의료 UI 사례를 조사한 구성대로 검색 전 진료과 최대6개/전체 보기, 사진 카드 캐러셀, 기본 전체 목록을 구현했다. 지역별 소개·목록은 기존 API 조건을 공유한다. 병원명/진료과 검색 시 결과 목록에 집중하고 초기화는 선택 지역을 보존한다. 소개에 나온 병원도 일반 목록에 남긴다.
+- 기존 `useHospitalExposure`, `platformRequest`, `FormInput`, `useReadAttempt`, `BottomNavigation`을 재사용했다. 사진 카드 가로·세로 교집합50%와 모달 가림을 기존 노출 훅 입력에서 처리한다. 하단 메뉴는 HospitalScreen에서 기존 style prop으로 상대 배치하여 실제 내용 높이를 사용한다. 카드 지면·영수증은 서버 값을 유지한다. 같은 조건 실패의 자료 보존과 조건 변경 실패의 격리를 기존 suite에서 함께 확인한다.
+- UI worker는 hospitals.tsx, root는 기존 mobile-native-controls 시험·공유 화면 배치·문서/통합, checks agent는 합성 브라우저 증거를 맡았다. 신규 test suite/helper/runner/mock server는 추가하지 않았다. 가상의 병원 사진은 built-in image_gen으로 생성해 revision-15/assets에 저장하고 격리 미리보기에서만 사용했다. 프롬프트·경로·용도는 해당 README에 기록했다.
+- 기존 suite13개, 전체 타입/대상 lint, Web70개 route export를 확인했다. 실제 브라우저 지역·검색·상세·사진·지면·오류 및320/390/414px 증거와 남은 기기 검증은 canonical service-home-20261009 QA의 revision-15를 따른다. 기존 dirty 변경을 보존하며 로컬 미커밋·미배포 상태다. backend/schema 변경과 실제 제휴 자료 등록은 없다.
+
+<a id="20261011-hospital-directory-performance"></a>
+## 2026-10-11 제휴병원 검색·광고·성과
+
+- 후속 사용자 요청으로 치료 우수성/공공기관 인증 부인, 방문 전 확인, 소개 수수료 부인, 법적 자동 판단 부인과 성과 면책 설명을 제품 화면에서 삭제했다. 보고에는 `최근 90일 · 한국 날짜 기준`만 남기고 조회 실패 시 현재 표시 자료를 짧게 설명한다. 반복 정산 설명도 제거했다. 광고 배지·정보 확인일·소재/심의 입력·저장 조건·클릭 지표는 그대로다. 기존 조회 실패 시험은 화면 문구에 묶인 중복 assertion을 제거하고 실제 자료 보존·오류·필터 격리를 계속 검증한다. 신규 테스트나 helper는 만들지 않는다.
+
+- 사용자 요청에 따라 똑닥/닥터나우/모두닥/HIRA 지역 탐색 조사와 기존 병원 광고 계약을 지역 검색→병원 상세→전화/길찾기로 구현한다. 별도 가입을 요구하지 않으며 목록과 강조 광고 모두 광고로 표시한다. 실제 제휴/환자 자료 대신 합성 자료로만 검증한다.
+- 기존 `platform-service`와 `platformRequest`에 공개 지역·목록·상세·익명 이벤트, 서명된 관리자 기간별 보고를 추가한다. 활성·광고 기간·소재 승인·확정된 심의 여부를 게시 조건으로 사용하며 심의 필요 광고는 번호/유효기간을 확인한다. 운영자의 입력은 법적 심의 자동 판정이 아니다. 17개 시·도 코드와 등록된 시·군·구를 사용한다.
+- 설치 Supabase CLI로 순서가 있는 migration `20261011130830_hospital_directory_ad_performance.sql`을 만들고 schema mirror/기존 PGlite suite를 맞춘다. 집계에는 짧게 유효한 서명된 게시 영수증·UUID 중복 방지·익명 세션과 출처 제한·계약 revision/실제 지면을 사용한다. 원시 개인정보는 저장하지 않으며 전화/길찾기 클릭을 실제 통화·방문·매출로 표시하지 않는다.
+- 고객 UI·backend·관리자 UI를 서로 다른 파일 소유자로 진행하고 root는 공유 타입/응답 검증·실제 로컬 브라우저·문서·통합 검증을 담당한다. 기존 suite/fixture/runner와 입력·URL·날짜·요청 소유권 helper를 재사용한다. UI·API·Edge·SQL 경계는 각각 실제 표시·응답 형태·서명 권한·원자적 저장을 검증한다.
+- 최신 결과와 화면은 기존 canonical service-home-20261009 harness의 revision-14 QA와 `D:/hanhwa/outputs/garamin-service-home-app-20261009/revision-14/`에 기록한다. 시작 HEAD50db58cc와 기존 tracked57개·untracked18개를 보존했다. 로컬 미커밋·미배포이며 운영 DB/Edge·실제 기기·실제 제휴 자료 연결은 별도 확인 대상이다.
+
+<a id="20261011-service-menu-spacing"></a>
+## 2026-10-11 홈 서비스 메뉴 간격
+
+- 사용자 첨부의 메뉴 간격을 기존 ServiceHomeScreen 스타일3줄에서 조정했다. 행 사이8px·56px 그림 자리·위아래 padding2px·배너 앞20px이며 실제 PNG/글자 크기를 유지했다. 새 helper·test suite는 추가하지 않았다.
+- 기존 브라우저 도구로320/390/414px 홈과 이미지 로드를 확인했다. 320px 서비스 글자160% 모의 확대에서는 행 겹침·가로 넘침과 터치 영역을 점검한다. 실제 native OS 폰트 확대는 미검증이다. 기존 홈28개 검사·전체 타입·대상 lint·Web export를 확인하며 결과는 revision-13/evidence/와 기존 canonical QA를 따른다.
+- 스타일 외 다른 dirty 변경과 새 브랜드/아이콘은 보존했다. 작은 간격 수정으로 새 harness/fixture를 만들지 않았고 설치·배포·push/commit은 하지 않았다.
+
+<a id="20261011-rental-hospital-icons"></a>
+## 2026-10-11 렌탈·제휴병원 3D 아이콘
+
+- 사용자가 기존 방식으로 두 아이콘을 요청하여 revision-04 geometry/material/framing·PNG 검사 함수를 재사용하고 승인된 insurance.blend의 카메라·조명·월드·렌더 설정을 유지했다. 새768px RGBA PNG·Blender 모델·재현 스크립트·검증 JSON은 revision-12/assets/custom-icons/에 있다. AI 이미지나 픽셀 필터를 사용하지 않았다.
+- 렌탈은 틸 조작부/문 테두리의 아이보리 세탁기, 병원은 코럴 지붕/십자의 아이보리 건물이다. 56px 표시에서 주요 그림은 약32.4×39.8px·40.4×40.2px이며 투명 테두리 alpha0, 원본 렌더 설정 해시와 저장 모델 재오픈이 일치한다.
+- ServiceIcon의 기존 image mapping에 PNG2개를 추가하고 MaterialCommunityIcons 분기를 제거했다. 별도 helper·test suite·runner·API를 추가하지 않았다. 기존 서비스/메뉴 동작을 그대로 사용한다.
+- 실제 로컬 홈과 PNG decode·모바일3개폭, 기존 ServiceHomeScreen 검사와 TypeScript·ESLint·세 플랫폼 export를 확인한다. 기존 브라우저 증거 도구를 재사용했고 외부 요청/저장을 차단했다. 최종 결과는 기존 service-home-20261009 harness와 revision-12/evidence/를 따른다. 기존 dirty·원본 자산과 앱 버전은 보존했고 설치·배포·push·commit은 수행하지 않았다.
+
+<a id="20261011-moduon-brand"></a>
+## 2026-10-11 모두온 브랜드 적용
+
+- 사용자가 승인한 MODUON 연결 심볼과 모두온 이름을 공통 홈·로그인·가입에 적용했다. 실제 세 호출부에서 작은 `ModuonBrand`를 재사용하고 원본 투명 여백은 뷰포트로 처리했다. 보험 서비스 이름과 기존 보험 로그인 안내의 가람in은 유지했다.
+- `app.json`의 표시명, 공통/iOS 앱 아이콘, Android adaptive/단색/알림 아이콘, Web favicon, 시작 화면을 새 자산으로 연결했다. 단색 adaptive는 같은 foreground를 Android가 tint하여 동일 실루엣과 안전 여백을 유지한다. 기기 전체 알림 안내도 모두온으로 변경했다.
+- 이미지 추출·편집은 내장 ImageGen을 사용하고 자산·프롬프트·원본 정보·해시를 `assets/images/moduon/`에 보존했다. 기존 로고·앱 식별자·schema/세션·추천 계약·생성된 native 폴더와 다른 dirty 변경은 유지했다. 기술 scheme은 기존 `hanwhafcpass`다.
+- 기존 홈 suite, 타입/lint, 선택 필드만 출력한 Expo 설정 검증, 외부 요청을 차단한 실제 로컬 브라우저와 세 플랫폼 export로 확인한다. 결과와 화면은 `D:/hanhwa/outputs/garamin-service-home-app-20261009/revision-11/`, canonical QA/handoff에 기록한다. 새로운 앱 테스트 suite·helper framework·시험 API 서버는 추가하지 않았다.
+- 이름/아이콘 설정은 새 native build가 있어야 설치 앱에 반영된다. 현재 HEAD50db58cc 위의 로컬 변경을 보존했고 커밋·push·EAS/스토어/OTA 배포·기기 설치를 하지 않았다. 현재 설치/public iOS4.2.18/109는 이번 브랜드를 포함하지 않는다.
+
+<a id="20261011-platform-membership"></a>
+## 2026-10-11 공통 회원·추천·제휴 정산
+
+- 사용자 대표 대화와 이름 추후 확정 답변을 반영했다. 임시 생활 서비스 홈에는 보험·간병·통신·렌탈·자동차·제휴병원3×2 메뉴를, 보험 영역에는 가람in을 사용한다. 기존 네 PNG·사진 배너·테마·중앙 nav resolver를 재사용했다.
+- 공통 이름·인증 휴대폰·비밀번호·필수 동의/선택 추천 코드 가입, 기존 FC/관리자 로그인 재사용, 별도 소비자 token 목적·보안 저장소를 구현했다. 공통 관계는 최초 가입 추천인을 유지하고 서비스별 독립 계보를 만들지 않는다. FC 업무 권한은 종전 gate를 따른다.
+- 준비 서비스는 관심 등록·취소·상태 조회이며 실제 구매/간병 접수가 아니다. 제휴·정산 관리자는 현재 DB의 활성 일반 관리자만 허용한다. 제휴별 합의 비율과 총액/소비자 혜택 차감 후 추천인 기준을 명시하며 실제 거래·정산 증빙·7일 지급 기한·이체 완료 기록을 보존한다. 병원은 한국 날짜에 유효한 지역별 광고 계약만 게시하며 환자 소개 수수료를 만들지 않는다.
+- 기존 password/SMS 함수와 세션 직렬 저장·owner·초안 guard·request tracker·read-attempt를 재사용했다. 신규 SQL은 기존 PGlite fixture, 인증/Edge는 가까운 기존 suite를 확장했다. 별도 시험 서버/추출 프레임워크를 만들지 않았다. 계정 변경·지연 응답·실패 입력 보존·중복 지급·snapshot·FC 삭제 호환을 점검했다.
+- 합성 브라우저17개와320/390/414/1280px 화면, 배너 한 드래그 한 장·마지막 자동 복귀를 확인했다. SQL5개·Edge13개·credential34개 및 가까운 앱 테스트가 통과했다. 최종 타입·lint·세 플랫폼 export는 canonical handoff의 현재 검증 상태를 따른다. 상세 증거는 D:/hanhwa/outputs/garamin-service-home-app-20261009/revision-10/이다.
+- 시작 HEAD50db58cc와20개 dirty 변경을 보존했다. 소비자 비밀번호 복구·정식 개인정보처리방침/동의·실제 SMS/제휴·외부 구매 연동·운영 DB/Edge·실기기·앱 배포는 아직 남았다. 현재 변경은 기존 공개 iOS109에 포함되지 않는다. canonical harness는 기존 service-home-20261009 하나를 재사용했다.
+
+<a id="20261011-ios-public-release"></a>
+## 2026-10-11 승인된 iOS 앱 공개 출시
+
+- iOS4.2.18/109 exact ASC version/build 관계 READY_FOR_SALE·VALID·AFTER_APPROVAL, 한국 Apple lookup과공개 App Store HTTP200·버전·bundle ID 일치를 별도 확인했다. 공개 시각2026-10-11 08:22:29 KST. 이미 자동 출시된 상태라 추가 release request·새 빌드·업로드·push를 수행하지 않았다.
+- source50db58cc11916c9b9919512b13b969151dea4361와 제출 당시 clean 증거를 따르며 보존 IPA/source archive 해시 일치를 재확인했다. 후속 기기 시험의 로컬20개 수정 경로는 보존했고109에 포함되지 않는다. 현재 checkout clean을 주장하지 않는다.
+- 설치된 Sentry plugin과기존 loadRuntimeEnv를 재사용하고 read-only token으로 공개 이후23:22:29~00:50:42 UTC production react-native issue 신규/재발0·조회 상한 미도달을 확인했다. raw issue/token 출력·저장은 없다. 새제품/시험 코드 변경은 없다.
+- release-status와README, 기존 canonical QA/handoff를 갱신했다. Android 승인/공개와물리iPhone 설치·업무 인수는 이번 확인 범위 밖이다. 정확한 영수증은 D:/hanhwa/artifacts/mobile-release-20261010의 ios-release-state-20261011.json, ios-public-store-20261011.json, sentry-ios-public-20261011.json이다.
+
+<a id="20261011-physical-synthetic-acceptance"></a>
+## 2026-10-11 직접 기기·브라우저 인수 보완
+
+- 사용자가 지정한 기존 로컬 합성 환경으로 저장·승인·전송을 제한했다. 원본 Android 앱과 데이터는 보존하고 별도 `com.jj8127.Garam_in.qa` release variant에 실제 제품25개 TSX와 합성 session/API를 연결했다. OTA·운영 서비스 통신을 차단했다. Phone Link·wireless ADB로 직접 입력·native modal·Naver IME·달력·실제 공개 주소 WebView를 검사했다.
+- native 메신저의 동일 route 내 `activeConv`에는 하드웨어 back handler가 없어 목록을 건너뛰었다. 기존 focused BackHandler 패턴을 적용하고 전송 중 guard·닫은 방의 알림 params 정리를 유지했다. r5를 실제 설치하여 대화방→목록→이전 화면을 확인했다. 실제 한글 Enter 전송0, send503의 본문 유지·중복 차단·정상 재시도, read503에서 기존 대화 유지·복구를 확인했다.
+- 수당은 이미 받은 query.data를 fetching/error 때 숨기고 페이지가 전체 error를 반환했다. 기존 query cache를 유지하고 같은 계정·월에 갱신 실패/재시도를 함께 표시한다. HTTP401/403·구조화된 세션·접근 거부 이후는 성공 재확인까지 기존 자료를 차단한다. 기존 hook/세션 owner/실제화면/navigation4 suites·타입·대상 lint와 독립 scope 검토 PASS. 최종 r6를 실제 설치해 같은 월10,000원·상세 탭의 갱신/실패/복구와 아직 조회하지 않은 다른 월의 실패 격리를 확인했다. HTTP 거부 기기 주입은 수행하지 않았다.
+- 관리자 위촉은 연도 기본값2025·선택지2025/2024 고정으로2026 대상이 접근 불가였다. 기존 useMemo/dayjs·조회 자료로 현재/유효 연도 선택지를 만들고 없는 가입일의 오늘 날짜 오인을 막았다. 대시보드 FC 조회는 정상 배열에 mutation acknowledgement 검사를 붙여 목록 전체를 실패 처리했다. 배열 검증 뒤 잘못된 한 줄을 제거했다. 실제 React/Mantine 화면에서 연도·승인 실패/재시도·상세 반려를 확인한다. 기존 web runtime suites를 확장했다.
+- 근거: `D:/hanhwa/artifacts/physical-device-acceptance-20261011`의 device-tests와 관리자 evidence/receipt. 이전35+10 체크리스트의 SQL·Excel·Socket 검사와 직접 기기 인수를 구분한다. native 파일 선택의 원격 입력, 전체 인터넷OFF, iPhone·OS push/badge·운영 DB/RLS/Storage·실행 OTA ID는 미확인이다. Windows 후보 실행은 자동 승인 검토에서 정책 차단됐다.
+- 기준 HEAD50db58cc11916c9b9919512b13b969151dea4361 위의 로컬 수정이다. 새 파일 helper/hook/runner/test suite·원격 DB·Git push·배포·Store 제출을 추가하지 않았다. unrelated Toolkit31개 변경과 원본 앱을 보존한다. 기존 close-to-source 검사만 실행하며 최종 상태는 직접 재검증 기록을 따른다.
+
 <a id="20261010-foundation-session-bridge"></a>
 ## 2026-10-10 공통 기반 01-A/B·01-C
 
@@ -14437,3 +14516,6 @@ Verification:
 - Catalog verified both new tables RLS/service-only CRUD/public rights0, all6 RPCs SECURITY INVOKER/search_path public/service-only EXECUTE and existing notices images/files JSONB. Three READ ONLY+ROLLBACK transactions verified6 RPC denials each for anon, authenticated and invalid service-role actor roles:18 passed with no customer-state changes.
 - Advisor WARN counts remain unchanged. INFO RLS/no-policy rises14→16 for the intentional service-only queue/receipt tables; public-role privileges are absent. Existing broad Storage policies remain a separate pre-existing design limitation. Evidence is `artifacts/ux-priority-one-release-20261009/db-preflight.json` and `db-preflight.md` outside the repo. Edge3 activation waits for the reconciled final published source; safe route/source/state/log checks and consumer/device acceptance are still pending.
 - The first published CI SQL job failed because its4 PostgreSQL fixture files share a disposable cluster: earlier fixtures create service_role without BYPASSRLS, whereas the UX fixture previously assumed a pre-existing role already had the production backend flag. Fixed only synthetic `ux-priority-one-postgres.test.mjs` setup with explicit ALTER ROLE BYPASSRLS and a boolean assertion. The existing exact loopback-port/network boundary remains. `npm run test:sql:postgres` then passed all4 files/28 cases on fresh isolated PostgreSQL16.14; the actual PGlite proof passed11 again. The local cluster was stopped after verification. No operational SQLbytes, role, RLS or business data changed during this CI repair.
+
+
+2026-10-11 제휴병원 검색 전 탐색 조사: 스토어 외 UI 모음4곳의 공개 사례와 지역·진료과·사진 소개·전체 목록 구성안을 outputs/moduon-hospital-research-20261011/discovery.html에 정리했다. 제품 화면 구조는 제안 단계. 첫 진입은 기존 코드가 빈 조건으로 자동 조회하며 기본 자료는 공개된 제휴 계약을 따른다.

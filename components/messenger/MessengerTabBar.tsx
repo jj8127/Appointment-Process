@@ -54,6 +54,7 @@ function TabButton({
       accessibilityRole="tab"
       accessibilityLabel={`${label} 탭`}
       accessibilityState={{ selected }}
+      aria-selected={selected}
       hitSlop={4}
       onPressIn={() => onChange(tab)}
       style={({ pressed }) => [styles.tab, pressed && styles.pressed]}

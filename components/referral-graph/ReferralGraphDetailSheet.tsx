@@ -65,7 +65,7 @@ export function ReferralGraphDetailSheet({
                     { backgroundColor: getReferralGraphNodeColor(node) },
                   ]}
                 >
-                  <Feather name="user" size={20} color="#ffffff" />
+                  <Feather aria-hidden accessible={false} name="user" size={20} color="#ffffff" />
                 </View>
                 <View style={styles.headerText}>
                   <View style={styles.nameRow}>
@@ -88,8 +88,9 @@ export function ReferralGraphDetailSheet({
                   onPress={onClose}
                   accessibilityRole="button"
                   accessibilityLabel="상세 정보 닫기"
+                  hitSlop={2}
                 >
-                  <Feather name="x" size={20} color={COLORS.text.secondary} />
+                  <Feather aria-hidden accessible={false} name="x" size={20} color={COLORS.text.secondary} />
                 </Pressable>
               </View>
 

@@ -201,13 +201,12 @@ export default function ReferralGraphPage() {
               accessibilityLabel="추천 관계 검색"
             />
             {searchTerm ? (
-              <Pressable
+              <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
                 onPress={() => setSearchTerm('')}
-                hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel="검색어 지우기"
               >
-                <Feather name="x-circle" size={17} color={COLORS.text.muted} />
+                <Feather name="x-circle" size={17} color={COLORS.text.secondary} />
               </Pressable>
             ) : null}
           </View>
@@ -277,16 +276,15 @@ export default function ReferralGraphPage() {
                 </Text>
               </Pressable>
             ))}
-            <Pressable
+            <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
               onPress={() => {
                 setSelectedNode(null);
                 setFocusHops(null);
               }}
-              hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel="관계 집중 보기 해제"
             >
-              <Feather name="x" size={17} color={COLORS.text.muted} />
+              <Feather name="x" size={17} color={COLORS.text.secondary} />
             </Pressable>
           </View>
         ) : null}

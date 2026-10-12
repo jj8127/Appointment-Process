@@ -210,9 +210,9 @@ export default function NotificationsPage() {
                 <Table.Td style={{ width: 80 }} align="right">
                     {canManage ? (
                         <Group gap={4} justify="flex-end" wrap="nowrap">
-                            <ActionIcon
+                            <ActionIcon aria-label="공지 수정"
                                 variant="subtle"
-                                color="blue"
+                                color="orange"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     router.push(editPath);
@@ -220,7 +220,7 @@ export default function NotificationsPage() {
                             >
                                 <IconEdit size={16} />
                             </ActionIcon>
-                            <ActionIcon
+                            <ActionIcon aria-label="공지 삭제"
                                 variant="subtle"
                                 color="red"
                                 onClick={(e) => {

@@ -128,7 +128,7 @@ export function ConversationSettingsSheet({
                 pending && styles.controlDisabled,
               ]}
             >
-              <Feather name="x" size={20} color={COLORS.text.secondary} />
+              <Feather aria-hidden accessible={false} name="x" size={20} color={COLORS.text.secondary} />
             </Pressable>
           </View>
 
@@ -164,7 +164,7 @@ export function ConversationSettingsSheet({
             testID="conversation-notification-toggle"
           >
             <View style={styles.preferenceIcon}>
-              <Feather
+              <Feather aria-hidden accessible={false}
                 name={muted ? 'bell' : 'bell-off'}
                 size={19}
                 color={COLORS.primaryDark}
@@ -183,7 +183,7 @@ export function ConversationSettingsSheet({
                 size="small"
               />
             ) : (
-              <Feather name="chevron-right" size={19} color={COLORS.text.muted} />
+              <Feather aria-hidden accessible={false} name="chevron-right" size={19} color={COLORS.text.muted} />
             )}
           </Pressable>
 
@@ -194,7 +194,7 @@ export function ConversationSettingsSheet({
               style={styles.errorPanel}
               testID="conversation-notification-error"
             >
-              <Feather name="alert-circle" size={18} color={COLORS.error} />
+              <Feather aria-hidden accessible={false} name="alert-circle" size={18} color={COLORS.error} />
               <View style={styles.errorCopy}>
                 <Text style={styles.errorMessage}>{failure.message}</Text>
                 <Pressable
@@ -230,7 +230,7 @@ export function ConversationSettingsSheet({
                 pending && styles.controlDisabled,
               ]}
             >
-              <Feather name="settings" size={17} color={COLORS.primaryDark} />
+              <Feather aria-hidden accessible={false} name="settings" size={17} color={COLORS.primaryDark} />
               <Text style={styles.globalSettingsLabel}>전체 알림 설정</Text>
             </Pressable>
           ) : null}

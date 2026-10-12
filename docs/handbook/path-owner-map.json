@@ -2,6 +2,27 @@
   "version": 1,
   "rules": [
     {
+      "id": "platform-common-membership",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/platform-service/",
+        "supabase/functions/_shared/password-hash.ts",
+        "supabase/functions/_shared/signup-sms.ts",
+        "supabase/migrations/20261011040816_platform_common_membership.sql",
+        "supabase/migrations/20261011130830_hospital_directory_ad_performance.sql",
+        "supabase/tests/platform-membership-sql.test.mjs",
+        "lib/platform-api.ts",
+        "hooks/use-platform-account.ts",
+        "hooks/use-hospital-exposure.ts",
+        "components/hospitals/"
+      ],
+      "requires_any": [
+        "docs/handbook/mobile/platform-services.md",
+        "docs/handbook/data/data-model-canon.md",
+        "docs/handbook/backend/admin-operations-api.md"
+      ]
+    },
+    {
       "id": "edge-configured-cors",
       "severity": "behavior",
       "prefixes": [

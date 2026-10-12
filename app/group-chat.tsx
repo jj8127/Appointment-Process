@@ -1,4 +1,4 @@
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
@@ -1424,10 +1424,10 @@ export default function GroupChatScreen() {
                 styles.fileIconBox,
                 isMe ? styles.fileIconBoxMe : styles.fileIconBoxOther,
               ]}>
-                <Ionicons
+                <Feather
                   name={attachment.mimeType.startsWith('image/')
-                    ? 'image-outline'
-                    : 'document-text'}
+                    ? 'image'
+                    : 'file-text'}
                   size={22}
                   color={isMe ? '#fff' : HANWHA_ORANGE}
                 />
@@ -1483,7 +1483,7 @@ export default function GroupChatScreen() {
       return (
         <View style={[styles.fileCard, isMe ? styles.fileCardMe : styles.fileCardOther]}>
           <View style={[styles.fileIconBox, isMe ? styles.fileIconBoxMe : styles.fileIconBoxOther]}>
-            <Ionicons name="document-text" size={22} color={isMe ? '#fff' : HANWHA_ORANGE} />
+            <Feather name="file-text" size={22} color={isMe ? '#fff' : HANWHA_ORANGE} />
           </View>
           <View style={styles.fileTextWrap}>
             <Text style={[styles.fileName, isMe ? styles.fileNameMe : styles.fileNameOther]} numberOfLines={2}>
@@ -1601,7 +1601,7 @@ export default function GroupChatScreen() {
         onRetry={() => void notificationReceipt.retryMarkRead()}
       />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
-        <Pressable style={styles.headerButton} onPressIn={() => router.back()}>
+        <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={styles.headerButton} onPressIn={() => router.back()}>
           <Feather name="arrow-left" size={22} color={CHARCOAL} />
         </Pressable>
         <View style={styles.headerCenter}>
@@ -1609,7 +1609,7 @@ export default function GroupChatScreen() {
           <Text style={styles.headerSubtitle} numberOfLines={1}>{headerSubtitle}</Text>
         </View>
         <View style={styles.headerActions}>
-          <Pressable style={styles.headerButton} onPress={openMemberList}>
+          <Pressable accessibilityLabel="대화 참여자 보기" accessibilityRole="button" style={styles.headerButton} onPress={openMemberList}>
             <Feather name="users" size={20} color={CHARCOAL} />
           </Pressable>
           <Pressable
@@ -1639,14 +1639,13 @@ export default function GroupChatScreen() {
             <Text style={styles.noticeText} numberOfLines={2}>{getGroupChatReplyLabel(notice.message)}</Text>
           </View>
           {canManageNotice && (
-            <Pressable
+            <Pressable accessibilityLabel="대화방 공지 해제" accessibilityRole="button" accessibilityState={{ disabled: noticeUpdating }}
               style={styles.noticeClearButton}
               disabled={noticeUpdating}
               onPress={(event) => {
                 event.stopPropagation();
                 void handleNoticeClear();
               }}
-              hitSlop={8}
             >
               <Feather name="x" size={18} color={MUTED} />
             </Pressable>
@@ -1707,9 +1706,9 @@ export default function GroupChatScreen() {
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="none"
-            refreshControl={
+            refreshControl={Platform.OS === 'web' ? undefined : (
               <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={HANWHA_ORANGE} />
-            }
+            )}
             ListEmptyComponent={
               <View style={styles.emptyCard}>
                 <Feather name="message-circle" size={28} color="#D1D5DB" />
@@ -1747,7 +1746,7 @@ export default function GroupChatScreen() {
                         {getGroupChatReplyLabel(replyTarget)}
                       </Text>
                     </View>
-                    <Pressable onPress={() => setReplyTarget(null)} hitSlop={8}>
+                    <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="답글 취소" accessibilityRole="button" onPress={() => setReplyTarget(null)}>
                       <Feather name="x" size={18} color={MUTED} />
                     </Pressable>
                   </View>
@@ -1770,10 +1769,10 @@ export default function GroupChatScreen() {
                         key={attachment.clientFileId}
                         style={styles.selectedAttachmentChip}
                       >
-                        <Ionicons
+                        <Feather
                           name={attachment.mimeType.startsWith('image/')
-                            ? 'image-outline'
-                            : 'document-text-outline'}
+                            ? 'image'
+                            : 'file-text'}
                           size={17}
                           color={HANWHA_ORANGE}
                         />
@@ -1788,8 +1787,7 @@ export default function GroupChatScreen() {
                             {formatMessengerAttachmentSize(attachment.size)}
                           </Text>
                         </View>
-                        <Pressable
-                          hitSlop={8}
+                        <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="첨부 삭제" accessibilityRole="button" accessibilityState={{ disabled: uploading }}
                           disabled={uploading}
                           onPress={() => {
                             setSelectedAttachments((current) =>
@@ -1807,7 +1805,7 @@ export default function GroupChatScreen() {
                   </ScrollView>
                 ) : null}
                 <View style={styles.inputContainer}>
-              <TouchableOpacity
+              <TouchableOpacity accessibilityState={{ disabled: !canSendMessages || uploading }}
                 onPress={handleImageAttachment}
                 style={[
                   styles.attachBtn,
@@ -1818,9 +1816,9 @@ export default function GroupChatScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="사진 첨부"
               >
-                <Feather name="image" size={22} color="#9CA3AF" />
+                <Feather name="image" size={22} color={MUTED} />
               </TouchableOpacity>
-              <TouchableOpacity
+              <TouchableOpacity accessibilityState={{ disabled: !canSendMessages || uploading }}
                 onPress={handleAttachment}
                 style={[
                   styles.attachBtn,
@@ -1831,7 +1829,7 @@ export default function GroupChatScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="파일 첨부"
               >
-                <Feather name="paperclip" size={22} color="#9CA3AF" />
+                <Feather name="paperclip" size={22} color={MUTED} />
               </TouchableOpacity>
               <TextInput
                 style={[styles.input, !canSendMessages && styles.inputDisabled]}
@@ -1844,7 +1842,9 @@ export default function GroupChatScreen() {
                 textAlignVertical="center"
                 scrollEnabled={false}
               />
-              <Pressable
+              <Pressable accessibilityLabel="메시지 전송" accessibilityRole="button" accessibilityState={{ busy: uploading, disabled: !canSendMessages
+                  || uploading
+                  || (!text.trim() && selectedAttachments.length === 0) }}
                 onPress={handleSendText}
                 style={[
                   styles.sendBtn,
@@ -1863,7 +1863,7 @@ export default function GroupChatScreen() {
                 {uploading ? (
                   <BrandedLoadingSpinner size="sm" color="#fff" />
                 ) : (
-                  <Feather name="arrow-up" size={20} color="#fff" />
+                  <Feather name="send" size={20} color="#fff" />
                 )}
               </Pressable>
             </View>
@@ -1891,7 +1891,7 @@ export default function GroupChatScreen() {
                 <Text style={styles.memberSheetTitle}>대화상대</Text>
                 <Text style={styles.memberSheetSubtitle}>{roomLoadFailed ? '참여자 정보 갱신 필요' : `${memberCount.toLocaleString('ko-KR')}명 참여`}</Text>
               </View>
-              <Pressable style={styles.memberCloseButton} onPress={() => setMemberListVisible(false)}>
+              <Pressable accessibilityLabel="대화 참여자 닫기" accessibilityRole="button" style={styles.memberCloseButton} onPress={() => setMemberListVisible(false)}>
                 <Feather name="x" size={22} color={CHARCOAL} />
               </Pressable>
             </View>
@@ -1908,7 +1908,7 @@ export default function GroupChatScreen() {
                 returnKeyType="search"
               />
               {memberSearch.length > 0 && (
-                <Pressable onPress={() => setMemberSearch('')} hitSlop={8}>
+                <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="검색어 지우기" accessibilityRole="button" onPress={() => setMemberSearch('')}>
                   <Feather name="x" size={18} color={MUTED} />
                 </Pressable>
               )}
@@ -2044,9 +2044,9 @@ const styles = StyleSheet.create({
   noticeLabel: { fontSize: 11, fontWeight: '900', color: HANWHA_ORANGE },
   noticeText: { marginTop: 2, fontSize: 13, lineHeight: 18, color: CHARCOAL, fontWeight: '700' },
   noticeClearButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#fff',
@@ -2287,11 +2287,11 @@ const styles = StyleSheet.create({
   },
   sendPermissionNoticeText: { flex: 1, fontSize: 13, fontWeight: '800', color: '#92400E' },
   attachBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 20,
+    borderRadius: 22,
     backgroundColor: '#F3F4F6',
   },
   attachBtnDisabled: { opacity: 0.45 },
@@ -2313,9 +2313,9 @@ const styles = StyleSheet.create({
     color: MUTED,
   },
   sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: HANWHA_ORANGE,

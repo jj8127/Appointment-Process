@@ -285,7 +285,7 @@ const getProductSummary = (products: MobileRequestProduct[], selectedIds: number
 function PageHeader({ title, onBack, topInset }: { title: string; onBack: () => void; topInset: number }) {
   return (
     <View style={[styles.header, { paddingTop: Math.max(topInset + 8, 28) }]}>
-      <Pressable style={styles.headerIcon} onPress={onBack} hitSlop={10}>
+      <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={styles.headerIcon} onPress={onBack}>
         <Feather name="arrow-left" size={24} color={COLORS.gray[800]} />
       </Pressable>
       <Text style={styles.headerTitle}>{title}</Text>
@@ -492,7 +492,7 @@ function DesignerBottomSheet({
                 <Text style={styles.sheetTitle}>설계매니저 선택</Text>
                 <Text style={styles.sheetSubtitle}>필수 · {selectedDesignerIds.length}명 선택됨</Text>
               </View>
-              <Pressable style={styles.sheetClose} onPress={closeWithAnimation} hitSlop={10}>
+              <Pressable accessibilityLabel="설계 매니저 선택 닫기" accessibilityRole="button" style={styles.sheetClose} onPress={closeWithAnimation}>
                 <Feather name="x" size={22} color={COLORS.gray[700]} />
               </Pressable>
             </View>
@@ -509,7 +509,7 @@ function DesignerBottomSheet({
                 returnKeyType="search"
               />
               {designerSearch.trim().length > 0 ? (
-                <Pressable onPress={() => setDesignerSearch('')} hitSlop={8}>
+                <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="검색어 지우기" accessibilityRole="button" onPress={() => setDesignerSearch('')}>
                   <Feather name="x" size={16} color={COLORS.gray[500]} />
                 </Pressable>
               ) : null}
@@ -2064,9 +2064,8 @@ export default function RequestBoardCreateScreen() {
                 <View key={`${file.uri}-${index}`} style={styles.attachmentRow}>
                   <Feather name="file" size={16} color={COLORS.gray[600]} />
                   <Text style={styles.attachmentName} numberOfLines={1}>{file.name}</Text>
-                  <Pressable
+                  <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="첨부 삭제" accessibilityRole="button"
                     onPress={() => setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
-                    hitSlop={8}
                   >
                     <Feather name="x" size={16} color={COLORS.gray[500]} />
                   </Pressable>
@@ -2324,8 +2323,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerIcon: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3051,9 +3050,9 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm,
   },
   sheetClose: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.gray[100],

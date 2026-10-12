@@ -21,12 +21,12 @@ function LoadingState() {
     <Text style={styles.body}>증원수당 내역을 확인하고 있습니다.</Text></View>;
 }
 
-function ErrorState({ error, retry }: { error: unknown; retry: () => void }) {
+function ErrorState({ error, retry, inline = false }: { error: unknown; retry: () => void; inline?: boolean }) {
   const router = useRouter();
   const needsRelogin = isReferralReloginError(error);
-  return <View style={styles.state}><Feather name="alert-circle" size={28} color={COLORS.primaryDark} />
-    <Text style={styles.title}>{needsRelogin ? '다시 로그인해주세요' : '수당 내역을 불러오지 못했습니다'}</Text>
-    <Text style={styles.body}>{needsRelogin ? '로그인 후 증원수당 내역을 다시 확인해주세요.' : '연결 상태를 확인한 뒤 다시 시도해주세요.'}</Text>
+  return <View style={inline ? styles.readError : styles.state}><Feather name="alert-circle" size={inline ? 20 : 28} color={COLORS.primaryDark} />
+    <Text style={styles.title}>{inline ? '최신 수당 내역을 불러오지 못했습니다' : needsRelogin ? '다시 로그인해주세요' : '수당 내역을 불러오지 못했습니다'}</Text>
+    <Text style={styles.body}>{inline ? '이전에 확인한 내용을 표시합니다.' : needsRelogin ? '로그인 후 증원수당 내역을 다시 확인해주세요.' : '연결 상태를 확인한 뒤 다시 시도해주세요.'}</Text>
     <Pressable style={styles.action} accessibilityRole="button"
       onPress={needsRelogin ? () => router.push('/login?skipAuto=1') : retry}>
       <Text style={styles.actionText}>{needsRelogin ? '로그인' : '다시 시도'}</Text>
@@ -47,9 +47,9 @@ function EmptyState({ retry }: { retry: () => void }) {
 export default function ReferralAllowancePage() {
   const access = useReferralAllowanceAccess();
   return <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-    {access.isLoading ? <LoadingState /> : access.error ? <ErrorState error={access.error} retry={access.retry} />
-      : access.enabled ? <AllowanceStatement key={access.scope} />
-        : <EmptyState retry={access.retry} />}
+    {access.isLoading ? <LoadingState /> : access.error && !access.data ? <ErrorState error={access.error} retry={access.retry} />
+      : <>{access.error ? <ErrorState error={access.error} retry={access.retry} inline /> : null}
+        {access.enabled ? <AllowanceStatement key={access.scope} /> : <EmptyState retry={access.retry} />}</>}
   </SafeAreaView>;
 }
 
@@ -79,24 +79,26 @@ function AllowanceStatement() {
     setMonth(next);
   };
 
-  if (query.error) return <ErrorState error={query.error} retry={query.retry} />;
+  if (query.error && !query.data) return <ErrorState error={query.error} retry={query.retry} />;
   if (query.isLoading) return <LoadingState />;
   if (!query.enabled || !statement || statement.nodes.length === 0) return <View style={styles.content}>
+    {query.error ? <ErrorState error={query.error} retry={query.retry} inline /> : null}
     {query.enabled && months.length > 0 ? <View style={styles.pageHeader}>
       <View style={styles.headingRow}><MonthSelector months={months} selectedMonth={month} onChangeMonth={changeMonth} /></View>
     </View> : null}
     <EmptyState retry={query.retry} />
   </View>;
 
-  return <StatementContent statement={statement} months={months} onChangeMonth={changeMonth}
+  return <>{query.error ? <ErrorState error={query.error} retry={query.retry} inline /> : null}
+    <StatementContent statement={statement} months={months} onChangeMonth={changeMonth}
     selectedId={selectedId} onSelect={(id) => setSelection(id === null ? null : { statement, id })} view={view} onChangeView={setView}
-    onRefresh={query.retry} />;
+    onRefresh={query.retry} refreshing={query.isRefreshing} /></>;
 }
 
-function StatementContent({ statement, months, onChangeMonth, selectedId, onSelect, view, onChangeView, onRefresh }: {
+function StatementContent({ statement, months, onChangeMonth, selectedId, onSelect, view, onChangeView, onRefresh, refreshing }: {
   statement: ReferralAllowanceStatement; months: string[]; onChangeMonth: (month: string) => void;
   selectedId: string | null; onSelect: (id: string | null) => void;
-  view: 'graph' | 'details'; onChangeView: (view: 'graph' | 'details') => void; onRefresh: () => void;
+  view: 'graph' | 'details'; onChangeView: (view: 'graph' | 'details') => void; onRefresh: () => void; refreshing: boolean;
 }) {
   const rows = useMemo(() => statement.nodes.filter((node) => !node.isBeneficiary), [statement]);
   const selected = useMemo(() => statement.nodes.find((node) => node.id === selectedId), [statement, selectedId]);
@@ -104,8 +106,10 @@ function StatementContent({ statement, months, onChangeMonth, selectedId, onSele
     <View style={styles.pageHeader}>
       <View style={styles.headingRow}>
         <MonthSelector months={months} selectedMonth={statement.performanceMonth} onChangeMonth={onChangeMonth} />
-        <Pressable style={styles.iconButton} onPress={onRefresh} accessibilityRole="button" accessibilityLabel="수당 내역 새로 확인">
-          <Feather name="refresh-cw" size={19} color={COLORS.primaryDark} /></Pressable>
+        <Pressable style={styles.iconButton} onPress={onRefresh} disabled={refreshing} accessibilityState={{ busy: refreshing }}
+          accessibilityRole="button" accessibilityLabel="수당 내역 새로 확인">
+          {refreshing ? <ActivityIndicator size="small" color={COLORS.primaryDark} />
+            : <Feather name="refresh-cw" size={19} color={COLORS.primaryDark} />}</Pressable>
       </View>
       <View style={styles.viewTabs} accessibilityRole="tablist">
         {([{ value: 'graph', label: '수당 그래프' }, { value: 'details', label: '상세 내역' }] as const).map((tab) =>
@@ -212,6 +216,7 @@ function AllowanceGraph({ statement, selectedId, onSelect }: {
 }
 
 const styles = StyleSheet.create({
+  readError: { margin: SPACING.md, padding: SPACING.md, gap: 6, borderRadius: RADIUS.md, backgroundColor: COLORS.primaryPale },
   safe: { flex: 1, backgroundColor: COLORS.background.secondary },
   content: { flex: 1 },
   state: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 28, gap: 14 },

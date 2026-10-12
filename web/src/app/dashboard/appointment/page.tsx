@@ -152,14 +152,14 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
       </Popover.Target>
       <Popover.Dropdown p="xs">
         <Stack gap="xs">
-          <TextInput
+          <TextInput rightSectionWidth={44}
             placeholder="검색..."
             size="xs"
             leftSection={<IconSearch size={12} />}
             value={search}
             onChange={(e) => setSearch(e.currentTarget.value)}
             rightSection={
-              search ? <IconX size={12} onClick={() => setSearch('')} style={{ cursor: 'pointer' }} /> : null
+              search ? <ActionIcon aria-label="검색어 지우기" variant="subtle" color="gray" onClick={() => setSearch('')}><IconX size={14} /></ActionIcon> : null
             }
           />
           <Divider />
@@ -213,7 +213,7 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
 export default function AppointmentPage() {
   const [actionPending, startTransition] = useTransition();
   const { isReadOnly } = useSession();
-  const [filterYear, setFilterYear] = useState<string | null>('2025');
+  const [filterYear, setFilterYear] = useState<string | null>(() => dayjs().format('YYYY'));
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectTarget, setRejectTarget] = useState<{ fc: FcProfile; category: 'life' | 'nonlife' } | null>(null);
@@ -269,6 +269,15 @@ export default function AppointmentPage() {
     },
   });
 
+  const yearOptions = useMemo(() => {
+    const years = new Set([dayjs().format('YYYY'), '2025', '2024']);
+    for (const fc of fcs ?? []) {
+      const createdAt = dayjs(fc.created_at);
+      if (fc.created_at && createdAt.isValid()) years.add(createdAt.format('YYYY'));
+    }
+    return [...years].sort((a, b) => Number(b) - Number(a));
+  }, [fcs]);
+
   const getHanwhaStatus = useCallback((fc: FcProfile) => {
     if (fc.status === 'docs-approved') {
       return { label: '다위촉 URL 대기', color: 'blue' };
@@ -310,7 +319,7 @@ export default function AppointmentPage() {
     if (!fcs) return [] as FcProfile[];
     return fcs.filter((fc: FcProfile) => {
       if (!canManageInsuranceStage(fc)) return false;
-      if (filterYear && !dayjs(fc.created_at).isSame(dayjs(`${filterYear}-01-01`), 'year')) return false;
+      if (filterYear && (!fc.created_at || !dayjs(fc.created_at).isSame(dayjs(`${filterYear}-01-01`), 'year'))) return false;
       return true;
     });
   }, [canManageInsuranceStage, fcs, filterYear]);
@@ -511,7 +520,7 @@ export default function AppointmentPage() {
     const scheduleValue = (input[scheduleKey as keyof typeof input] ?? (dbSchedule ?? '')) as string | undefined;
 
     const dateValueRaw = input[dateKey as keyof typeof input];
-    const dateValue = dateValueRaw instanceof Date ? dateValueRaw
+    const dateValue = dateValueRaw === null ? null : dateValueRaw instanceof Date ? dateValueRaw
       : (dateValueRaw
         ? new Date(dateValueRaw as string)
         : (dbDate ? new Date(dbDate) : (subDate ? new Date(subDate) : null)));
@@ -551,7 +560,7 @@ export default function AppointmentPage() {
           />
           {!isConfirmed && (
             <Tooltip label="예정 메모 저장">
-              <ActionIcon variant="light" color="blue" size="md" mb={2} loading={confirmSubmitting || actionPending} disabled={isReadOnly || !insuranceStageOpen || confirmSubmitting || actionPending} onClick={() => executeAction(fc, 'schedule', category)}>
+              <ActionIcon aria-label="위촉 일정 메모 저장" variant="light" color="orange" size="md" mb={2} loading={confirmSubmitting || actionPending} disabled={isReadOnly || !insuranceStageOpen || confirmSubmitting || actionPending} onClick={() => executeAction(fc, 'schedule', category)}>
                 <IconDeviceFloppy size={16} />
               </ActionIcon>
             </Tooltip>
@@ -568,6 +577,8 @@ export default function AppointmentPage() {
             value={dateValue}
             onChange={(v) => handleInputChange(fc.id, dateKey, v)}
             clearable={!isConfirmed}
+            rightSectionWidth={44}
+            clearButtonProps={{ "aria-label": `${category === "life" ? "생명" : "손해"} 확정일 지우기`, className: "appointment-date-clear" }}
             readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting || actionPending}
             disabled={isReadOnly || isConfirmed || !insuranceStageOpen}
           />
@@ -658,7 +669,7 @@ export default function AppointmentPage() {
             <Select
               value={filterYear}
               onChange={setFilterYear}
-              data={['2025', '2024']}
+              data={yearOptions}
               w={100}
               allowDeselect={false}
             />

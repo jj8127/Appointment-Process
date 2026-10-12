@@ -28,8 +28,14 @@ export function AppTopActionBar({
   return (
     <View style={[styles.topBar, { paddingTop: Math.max(insets.top + 6, 12) }]}>
       <View style={styles.sideSlotLeft}>
-        <Pressable style={styles.iconButton} onPress={onOpenNotifications} hitSlop={10}>
-          <Feather name="bell" size={20} color={CHARCOAL} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={showCountBadge ? `알림 열기, 읽지 않은 알림 ${notificationCount}개` : showDotBadge ? '알림 열기, 새 알림 있음' : '알림 열기'}
+          style={styles.iconButton}
+          onPress={onOpenNotifications}
+          hitSlop={10}
+        >
+          <Feather aria-hidden accessible={false} name="bell" size={20} color={CHARCOAL} />
           {showCountBadge && (
             <View style={[styles.countBadge, badgeLabel.length >= 3 && styles.countBadgeWide]}>
               <Text
@@ -52,7 +58,7 @@ export function AppTopActionBar({
       </View>
 
       <View style={styles.sideSlotRight}>
-        <Pressable style={styles.logoutButton} onPress={onLogout} hitSlop={10}>
+        <Pressable accessibilityRole="button" style={styles.logoutButton} onPress={onLogout} hitSlop={10}>
           <Text style={styles.logoutText}>로그아웃</Text>
         </Pressable>
       </View>

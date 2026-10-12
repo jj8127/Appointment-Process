@@ -200,7 +200,7 @@ export function DashboardNotificationBell({
           offset={5}
         >
           <ActionIcon variant="subtle" color="gray" size="lg" radius="xl" aria-label="알림 센터 열기">
-            <IconBell size={20} stroke={1.8} />
+            <IconBell size={20} stroke={2} />
           </ActionIcon>
         </Indicator>
       </Menu.Target>
@@ -217,7 +217,7 @@ export function DashboardNotificationBell({
                   onClick={() => void refetch()}
                 aria-label="알림 목록 새로고침"
               >
-                {isRefetching ? <Loader size={14} /> : <IconRefresh size={14} stroke={1.8} />}
+                {isRefetching ? <Loader size={14} /> : <IconRefresh size={14} stroke={2} />}
               </ActionIcon>
               <Button
                 variant="subtle"
@@ -277,7 +277,7 @@ export function DashboardNotificationBell({
                             <Text size="xs" c="red" mt={4}>대상을 열 수 없음</Text>
                           ) : null}
                         </Box>
-                        <IconChevronRight size={14} stroke={1.7} color="#9CA3AF" />
+                        <IconChevronRight size={14} stroke={2} color="var(--mantine-color-gray-7)" />
                       </Group>
                     </UnstyledButton>
                     <Divider />

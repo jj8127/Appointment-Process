@@ -1,4 +1,4 @@
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { randomUUID } from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
@@ -1629,10 +1629,10 @@ export default function ChatScreen() {
                 styles.fileIconBox,
                 isMe ? styles.fileIconBoxMe : styles.fileIconBoxOther,
               ]}>
-                <Ionicons
+                <Feather
                   name={attachment.mimeType.startsWith('image/')
-                    ? 'image-outline'
-                    : 'document-text'}
+                    ? 'image'
+                    : 'file-text'}
                   size={22}
                   color={isMe ? '#fff' : HANWHA_ORANGE}
                 />
@@ -1693,7 +1693,7 @@ export default function ChatScreen() {
           activeOpacity={0.82}
         >
           <View style={[styles.fileIconBox, isMe ? styles.fileIconBoxMe : styles.fileIconBoxOther]}>
-            <Ionicons name="document-text" size={22} color={isMe ? '#fff' : HANWHA_ORANGE} />
+            <Feather name="file-text" size={22} color={isMe ? '#fff' : HANWHA_ORANGE} />
           </View>
           <View style={styles.fileTextWrap}>
             <Text
@@ -2006,7 +2006,7 @@ export default function ChatScreen() {
           ]}
         >
           {targetPickerHeader.showBackButton ? (
-            <Pressable style={styles.backBtn} onPress={handleTargetPickerBack}>
+            <Pressable accessibilityLabel="대화 상대 선택 닫기" accessibilityRole="button" style={styles.backBtn} onPress={handleTargetPickerBack}>
               <Feather name="arrow-left" size={22} color={CHARCOAL} />
             </Pressable>
           ) : (
@@ -2122,7 +2122,7 @@ export default function ChatScreen() {
             ) : null}
           </View>
         </View>
-        <Pressable
+        <Pressable accessibilityState={{ disabled: !directRoomRef }}
           accessibilityLabel="대화방 설정 열기"
           accessibilityRole="button"
           disabled={!directRoomRef}
@@ -2222,10 +2222,10 @@ export default function ChatScreen() {
                   key={attachment.clientFileId}
                   style={styles.selectedAttachmentChip}
                 >
-                  <Ionicons
+                  <Feather
                     name={attachment.mimeType.startsWith('image/')
-                      ? 'image-outline'
-                      : 'document-text-outline'}
+                      ? 'image'
+                      : 'file-text'}
                     size={17}
                     color={HANWHA_ORANGE}
                   />
@@ -2237,8 +2237,7 @@ export default function ChatScreen() {
                       {formatMessengerAttachmentSize(attachment.size)}
                     </Text>
                   </View>
-                  <Pressable
-                    hitSlop={8}
+                  <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="첨부 삭제" accessibilityRole="button" accessibilityState={{ disabled: sendingAttachments }}
                     disabled={sendingAttachments}
                     onPress={() => {
                       setSelectedAttachments((current) =>
@@ -2256,7 +2255,7 @@ export default function ChatScreen() {
             </ScrollView>
           ) : null}
           <View style={styles.inputContainer}>
-            <TouchableOpacity
+            <TouchableOpacity accessibilityLabel="파일 첨부" accessibilityRole="button" accessibilityState={{ disabled: sendingAttachments }}
               onPress={handleAttachment}
               style={[
                 styles.attachBtn,
@@ -2265,7 +2264,7 @@ export default function ChatScreen() {
               activeOpacity={0.7}
               disabled={sendingAttachments}
             >
-              <Feather name="paperclip" size={22} color="#9CA3AF" />
+              <Feather name="paperclip" size={22} color={MUTED} />
             </TouchableOpacity>
 
             <TextInput
@@ -2278,7 +2277,8 @@ export default function ChatScreen() {
               textAlignVertical="center"
               scrollEnabled={false}
             />
-            <Pressable
+            <Pressable accessibilityLabel="메시지 전송" accessibilityRole="button" accessibilityState={{ busy: sendingAttachments, disabled: sendingAttachments
+                || (!text.trim() && selectedAttachments.length === 0) }}
               onPress={handleSendText}
               style={[
                 styles.sendBtn,
@@ -2294,7 +2294,7 @@ export default function ChatScreen() {
               {sendingAttachments ? (
                 <BrandedLoadingSpinner size="sm" color="#fff" />
               ) : (
-                <Feather name="arrow-up" size={20} color="#fff" />
+                <Feather name="send" size={20} color="#fff" />
               )}
             </Pressable>
           </View>
@@ -2370,9 +2370,9 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2551,11 +2551,11 @@ const styles = StyleSheet.create({
   },
   inputContainer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   attachBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 20,
+    borderRadius: 22,
     backgroundColor: '#F3F4F6',
   },
   attachBtnDisabled: { opacity: 0.55 },
@@ -2602,9 +2602,9 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
   sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: HANWHA_ORANGE,
     alignItems: 'center',
     justifyContent: 'center',

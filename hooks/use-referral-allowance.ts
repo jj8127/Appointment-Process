@@ -48,22 +48,35 @@ function useAllowanceQuery(action: 'access' | 'statement', month?: string) {
   const requestContext = `${scope}:${action}:${month ?? 'latest'}`;
   const currentRequestContext = useRef(requestContext);
   currentRequestContext.current = requestContext;
+  const blockedContext = useRef<string | null>(null);
 
   const query = useQuery({
     queryKey,
     queryFn: async ({ signal }) => {
       const request = ++requestSequence.current;
       const owner = identity;
-      const data = await invokeReferralFunction<{ ok?: boolean }>('get-my-referral-allowance', {
-        body: action === 'access' ? { action } : { action, ...(month ? { month } : {}) },
-        fallbackMessage: '증원수당 내역을 불러오지 못했습니다. 다시 시도해주세요.',
-        requireCurrentToken: true,
-      });
-      if (signal.aborted || request !== requestSequence.current || currentIdentity.current !== owner
-        || currentRequestContext.current !== requestContext) {
-        throw new Error('종료된 수당 조회 요청입니다.');
+      try {
+        const data = await invokeReferralFunction<{ ok?: boolean }>('get-my-referral-allowance', {
+          body: action === 'access' ? { action } : { action, ...(month ? { month } : {}) },
+          fallbackMessage: '증원수당 내역을 불러오지 못했습니다. 다시 시도해주세요.',
+          requireCurrentToken: true,
+        });
+        if (signal.aborted || request !== requestSequence.current || currentIdentity.current !== owner
+          || currentRequestContext.current !== requestContext) {
+          throw new Error('종료된 수당 조회 요청입니다.');
+        }
+        const parsed = parseReferralAllowanceResponse(data, action, month);
+        blockedContext.current = null;
+        return parsed;
+      } catch (error) {
+        if (!signal.aborted && request === requestSequence.current && currentIdentity.current === owner
+          && currentRequestContext.current === requestContext && error instanceof ReferralAppSessionError
+          && (error.needsRelogin || error.status === 401 || error.status === 403
+            || error.code === 'forbidden' || error.code === 'session_changed')) {
+          blockedContext.current = requestContext;
+        }
+        throw error;
       }
-      return parseReferralAllowanceResponse(data, action, month);
     },
     enabled: canRequest && isFocused,
     staleTime: 0,
@@ -93,13 +106,14 @@ function useAllowanceQuery(action: 'access' | 'statement', month?: string) {
     return () => subscription.remove();
   }, [canRequest, isFocused, queryClient, queryKey, refetch]);
 
-  const settled = canRequest && isFocused && !query.isFetching && !query.isError;
+  const data = canRequest && isFocused && blockedContext.current !== requestContext ? query.data : undefined;
   return {
     scope,
     canRequest,
     hydrated: session.hydrated,
-    data: settled ? query.data : undefined,
-    isLoading: !session.hydrated || (canRequest && (query.isPending || query.isFetching)),
+    data,
+    isLoading: !session.hydrated || (canRequest && !data && (query.isPending || query.isFetching)),
+    isRefreshing: canRequest && isFocused && query.isFetching,
     error: localSessionError ?? (canRequest && query.isError ? query.error : null),
     retry: useCallback(() => {
       if (canRequest && isFocused) void refetch();
@@ -110,8 +124,8 @@ function useAllowanceQuery(action: 'access' | 'statement', month?: string) {
 export function useReferralAllowanceAccess() {
   const query = useAllowanceQuery('access');
   const mode = query.isLoading ? 'loading'
-    : query.error ? 'error'
     : query.data?.enabled ? 'enabled'
+    : query.error && !query.data ? 'error'
     : 'empty';
   return { ...query, mode, enabled: mode === 'enabled' };
 }

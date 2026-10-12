@@ -19,6 +19,7 @@ export interface FormInputProps extends Omit<TextInputProps, 'style'> {
   leftIcon?: React.ReactElement;
   rightIcon?: React.ReactElement;
   containerStyle?: ViewStyle;
+  inputWrapperStyle?: ViewStyle;
   inputStyle?: TextStyle;
   variant?: 'default' | 'password' | 'select';
   onSelectPress?: () => void;
@@ -77,6 +78,7 @@ export function FormInput({
   leftIcon,
   rightIcon,
   containerStyle,
+  inputWrapperStyle,
   inputStyle,
   variant = 'default',
   onSelectPress,
@@ -116,6 +118,7 @@ export function FormInput({
         style={[
           styles.inputWrapper,
           hasError && styles.inputWrapperError,
+          inputWrapperStyle,
         ]}
       >
         {/* Left Icon */}
@@ -144,8 +147,10 @@ export function FormInput({
             onPress={() => setShowPassword((prev) => !prev)}
             accessibilityRole="button"
             accessibilityLabel={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'}
+            accessibilityState={{ selected: showPassword }}
+            aria-pressed={showPassword}
           >
-            <Feather
+            <Feather aria-hidden accessible={false}
               name={showPassword ? 'eye-off' : 'eye'}
               size={18}
               color={COLORS.text.secondary}
@@ -155,14 +160,9 @@ export function FormInput({
 
         {/* Select Chevron */}
         {isSelect && (
-          <Pressable
-            style={styles.rightIconButton}
-            onPress={onSelectPress}
-            accessibilityRole="button"
-            accessibilityLabel="선택 열기"
-          >
-            <Feather name="chevron-down" size={20} color={COLORS.text.secondary} />
-          </Pressable>
+          <View style={styles.rightIconButton}>
+            <Feather aria-hidden accessible={false} name="chevron-down" size={20} color={COLORS.text.secondary} />
+          </View>
         )}
 
         {/* Custom Right Icon */}
@@ -172,7 +172,7 @@ export function FormInput({
 
         {/* Select Overlay (entire input is clickable) */}
         {isSelect && onSelectPress && (
-          <Pressable style={styles.selectOverlay} onPress={onSelectPress} />
+          <Pressable accessibilityRole="button" accessibilityLabel={`${label || textInputProps.placeholder || '항목'} 선택 열기`} style={styles.selectOverlay} onPress={onSelectPress} />
         )}
       </MotiView>
 
@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
   rightIconButton: {
     justifyContent: 'center',
     alignItems: 'center',
-    width: SPACING['2xl'],
+    width: 44,
     height: '100%',
   },
   selectOverlay: {

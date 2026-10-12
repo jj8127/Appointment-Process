@@ -2,14 +2,17 @@ import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 import ts from 'typescript';
 import { createReadScope } from '../request-board-read-state';
+import { hasPresentRouteParam, type RouteQueryParam } from '../strict-route-params';
 
 // Execute the actual screen callback with synthetic services/state setters.
-function screenCallback(path: string, name: string, bindings: Record<string, unknown>) {
+function screenCallback(path: string, name: string | ((node: ts.Node) => boolean), bindings: Record<string, unknown>) {
   const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let callback: ts.Expression | undefined;
   function visit(node: ts.Node) {
-    if (ts.isVariableDeclaration(node) && node.name.getText(source) === name && node.initializer) {
+    if (typeof name === 'string' && ts.isVariableDeclaration(node) && node.name.getText(source) === name && node.initializer) {
       callback = ts.isCallExpression(node.initializer) ? node.initializer.arguments[0] : node.initializer;
+    } else if (typeof name === 'function' && name(node) && ts.isCallExpression(node)) {
+      callback = node.arguments[0];
     }
     ts.forEachChild(node, visit);
   }
@@ -28,10 +31,10 @@ function deferred<T>() {
 }
 
 function messenger() {
-  const state = { messages: [{ id: 1 }], error: '', loading: false };
+  const state = { messages: [{ id: 1 }], error: '', loading: false, loadedConversationId: null as string | null };
   const scope = createReadScope();
   scope.setScope('account-a:room-a');
-  const active = { current: 'room-a' };
+  const active = { current: 'room-a' as string | null };
   const fetchMessages = jest.fn();
   const latest = { current: state.messages };
   const run = screenCallback('app/request-board-messenger.tsx', 'loadMessages', {
@@ -39,7 +42,8 @@ function messenger() {
     setMsgLoading: (value: boolean) => { state.loading = value; },
     setMsgError: (value: string) => { state.error = value; },
     setMessages: (value: typeof state.messages) => { state.messages = value; },
-    setLoadedConversationId: jest.fn(), rbGetMessagesOrThrow: fetchMessages, rbGetDmMessagesOrThrow: fetchMessages,
+    setLoadedConversationId: (value: string | null) => { state.loadedConversationId = value; },
+    rbGetMessagesOrThrow: fetchMessages, rbGetDmMessagesOrThrow: fetchMessages,
     mergeMessagesDesc: (rows: unknown[]) => rows, mapRawMessageToUnified: (row: unknown) => row,
     latestMessagesRef: latest, hasAnchorMessageParam: false, logger: { warn: jest.fn() },
     toRequestBoardSessionErrorMessage: (_error: unknown, fallback: string) => fallback,
@@ -48,6 +52,79 @@ function messenger() {
 }
 
 const room = { id: 'room-a', type: 'request', conversationIds: [1] };
+
+test.each([
+  [{}, '/messenger'],
+  [{ requestDesignerId: '1' }, null],
+  [{ directConversationId: '2' }, null],
+  [{ requestDesignerId: 'invalid' }, null],
+  [{ directConversationId: '' }, null],
+  [{ requestDesignerId: '1', directConversationId: '2' }, null],
+  [{ notificationId: 'invalid' }, null],
+  [{ notificationTarget: ['first', 'second'] }, null],
+  [{ anchorMessageId: 'invalid' }, null],
+] as [Record<string, RouteQueryParam>, string | null][])('legacy messenger URL redirects only when every raw target is absent (%j)', (params, destination) => {
+  const path = 'app/request-board-messenger.tsx';
+  const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let redirect: ts.IfStatement | undefined;
+  function visit(node: ts.Node) {
+    if (ts.isIfStatement(node) && ts.isBlock(node.thenStatement) && node.thenStatement.statements.some((statement) =>
+      ts.isReturnStatement(statement) && statement.expression && ts.isJsxSelfClosingElement(statement.expression)
+      && statement.expression.tagName.getText(source) === 'Redirect')) redirect = node;
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  if (!redirect) throw new Error('Missing legacy route redirect');
+  const context = createContext({
+    requestDesignerId: undefined, directConversationId: undefined, anchorMessageId: undefined,
+    notificationId: undefined, notificationTarget: undefined, ...params, hasPresentRouteParam,
+    Redirect: 'Redirect', React: { createElement: (_type: unknown, props: { href: string }) => props }, exports: {},
+  });
+  runInContext(ts.transpileModule(`exports.run = () => { ${redirect.getText(source)} return null; };`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
+  }).outputText, context);
+  expect(context.exports.run()?.href ?? null).toBe(destination);
+});
+
+test.each([
+  ['open', 'request'], ['open', 'dm'], ['notification', 'request'], ['notification', 'dm'],
+])('%s %s conversation entry starts the first read immediately and publishes its result', async (entry, type) => {
+  const target = { ...room, type, primaryConversationId: 1 };
+  const env = messenger();
+  env.scope.setScope('account-a:');
+  env.active.current = null;
+  env.state.messages = [];
+  const pending = deferred<unknown[]>();
+  env.fetchMessages.mockReturnValue(pending.promise);
+  const loadMessages = jest.fn(env.run);
+  const bindings = {
+    sessionReadKey: 'account-a', residentId: 'synthetic-account', appSessionToken: 'synthetic-session',
+    activeConversationRef: env.active, messageReadScope: { current: env.scope }, sendingRef: { current: false },
+    setMessages: (value: typeof env.state.messages) => { env.state.messages = value; },
+    messagesRef: { current: [] }, latestMessagesRef: { current: [] }, anchorContextMessagesRef: { current: [] },
+    anchorContextSequenceRef: { current: 0 }, setMsgError: (value: string) => { env.state.error = value; },
+    setLoadedConversationId: (value: string | null) => { env.state.loadedConversationId = value; },
+    setActiveConv: jest.fn(), setInputText: jest.fn(), setPendingFiles: jest.fn(), loadMessages,
+    authState: 'ready', convLoading: false, notificationConversationId: target.id, activeConv: null,
+    conversations: [target], matchesRouteConversationTarget: (conv: typeof target) => conv.id === target.id,
+    setConvError: jest.fn(),
+  };
+  const notificationEffect = (node: ts.Node) => {
+    if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression) || node.expression.text !== 'useEffect') return false;
+    const callback = node.arguments[0];
+    return ts.isArrowFunction(callback) && ts.isBlock(callback.body) && callback.body.statements.some((statement) =>
+      ts.isVariableStatement(statement) && statement.declarationList.declarations.some((declaration) =>
+        ts.isIdentifier(declaration.name) && declaration.name.text === 'targetConversation'));
+  };
+  const enter = screenCallback('app/request-board-messenger.tsx', entry === 'open' ? 'openConversation' : notificationEffect, bindings);
+  enter(target);
+  expect(env.fetchMessages).toHaveBeenCalledWith(type === 'request' ? target.conversationIds : target.primaryConversationId, 100);
+  expect(env.state.loading).toBe(true);
+  expect(env.state.loadedConversationId).toBeNull();
+  pending.resolve([{ id: 2 }]);
+  await loadMessages.mock.results[0].value;
+  expect(env.state).toEqual({ messages: [{ id: 2 }], error: '', loading: false, loadedConversationId: target.id });
+});
 
 test('failed background message read retains the last successful snapshot and exposes an error', async () => {
   const env = messenger();

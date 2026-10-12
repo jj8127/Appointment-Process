@@ -4,11 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <title>가람in 추천 초대</title>
+  <title>모두온 추천 초대</title>
+  <link rel="icon" type="image/png" href="/moduon-symbol.png" />
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#fff9f5;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem 1.5rem;text-align:center}
-    .icon{width:72px;height:72px;background:#f36f21;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 1.25rem;box-shadow:0 4px 16px rgba(243,111,33,.25)}
+    .icon{width:72px;height:72px;margin:0 auto 1.25rem}
+    .icon img{width:100%;height:100%;object-fit:contain}
     h1{font-size:1.4rem;font-weight:800;color:#111;margin-bottom:.5rem}
     .sub{font-size:.9rem;color:#6b7280;margin-bottom:1.25rem}
     .card{background:#fff;border:1.5px solid #f36f21;border-radius:14px;padding:1rem 1.5rem 1.1rem;width:100%;max-width:320px;margin:0 auto 1.5rem}
@@ -16,15 +18,17 @@
     .code{font-size:1.7rem;font-weight:800;color:#f36f21;letter-spacing:4px}
     .card-hint{font-size:.75rem;color:#9ca3af;margin-top:6px}
     .btns{display:flex;flex-direction:column;gap:10px;width:100%;max-width:300px;margin:0 auto}
-    .btn{display:block;padding:.85rem 1.5rem;border-radius:11px;font-weight:600;font-size:.95rem;text-decoration:none;border:none;cursor:pointer;width:100%}
+    .btn{display:flex;align-items:center;justify-content:center;gap:9px;min-height:44px;padding:.85rem 1.5rem;border-radius:11px;font-weight:600;font-size:.95rem;text-decoration:none;border:none;cursor:pointer;width:100%}
+    .btn svg{width:20px;height:20px;flex-shrink:0}
+    .btn:focus-visible{outline:3px solid #d65a16;outline-offset:4px}
     .btn-primary{background:#f36f21;color:#fff}
     .btn-dark{background:#111;color:#fff}
     footer{color:#d1d5db;font-size:.72rem;margin-top:2rem}
   </style>
 </head>
 <body>
-  <div class="icon">🎁</div>
-  <h1>가람in 추천 초대</h1>
+  <div class="icon" aria-hidden="true"><img src="/moduon-symbol.png" alt="" width="72" height="72" /></div>
+  <h1>모두온 추천 초대</h1>
   <p class="sub" id="msg">아래 버튼을 눌러 앱을 열어주세요</p>
 
   <div class="card" id="codeBox" style="display:none">
@@ -34,12 +38,12 @@
   </div>
 
   <div class="btns">
-    <a class="btn btn-primary" id="openApp" style="display:none">✏️ 가람in 앱 열기</a>
-    <a class="btn btn-dark" href="https://play.google.com/store/apps/details?id=com.jj8127.Garam_in">📱 안드로이드 (플레이 스토어)</a>
-    <a class="btn btn-dark" href="https://apps.apple.com/search?term=%EA%B0%80%EB%9E%8Ain">🍎 아이폰 (앱 스토어)</a>
+    <a class="btn btn-primary" id="openApp" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" /></svg>모두온 앱 열기</a>
+    <a class="btn btn-dark" href="https://play.google.com/store/apps/details?id=com.jj8127.Garam_in" rel="external"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4" /></svg>Android · Google Play</a>
+    <a class="btn btn-dark" href="https://apps.apple.com/kr/app/%EA%B0%80%EB%9E%8C-in/id6756690846" rel="external"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4" /></svg>iPhone · App Store</a>
   </div>
 
-  <footer>가람PA지사 · 가람in</footer>
+  <footer>가람PA지사 · 모두온</footer>
 
   <script>
     (function () {
@@ -60,7 +64,7 @@
 
       var openAppButton = document.getElementById('openApp');
       openAppButton.href = 'hanwhafcpass://signup?code=' + encodeURIComponent(code);
-      openAppButton.style.display = 'block';
+      openAppButton.style.display = 'flex';
     })();
   </script>
 </body>

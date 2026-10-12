@@ -52,9 +52,9 @@ export function RefreshButton({ onPress }: Props) {
   };
 
   return (
-    <Pressable style={styles.button} onPress={trigger}>
+    <Pressable accessibilityRole="button" accessibilityLabel="새로고침" style={styles.button} onPress={trigger}>
       <Animated.View style={{ transform: [{ rotate: spin }] }}>
-        <Feather name="refresh-cw" size={18} color={CHARCOAL} />
+        <Feather aria-hidden accessible={false} name="refresh-cw" size={18} color={CHARCOAL} />
       </Animated.View>
     </Pressable>
   );
@@ -62,9 +62,9 @@ export function RefreshButton({ onPress }: Props) {
 
 const styles = StyleSheet.create({
   button: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'white',
     borderWidth: 1,
     borderColor: BORDER,

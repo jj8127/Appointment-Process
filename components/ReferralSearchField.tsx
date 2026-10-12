@@ -53,7 +53,7 @@ export function ReferralSearchField({
 }: ReferralSearchFieldProps) {
   return (
     <View style={styles.searchInputWrap}>
-      <Feather name="search" size={16} color={COLORS.text.muted} />
+      <Feather aria-hidden accessible={false} name="search" size={16} color={COLORS.text.muted} />
       <TextInput
         ref={inputRef}
         style={styles.searchInputField}
@@ -69,8 +69,8 @@ export function ReferralSearchField({
         <BrandedLoadingSpinner size="sm" color={COLORS.primary} style={{ marginLeft: 4 }} />
       )}
       {searchQuery.length > 0 && !searching && (
-        <Pressable onPress={onClear} hitSlop={8}>
-          <Feather name="x" size={16} color={COLORS.text.muted} />
+        <Pressable accessibilityRole="button" accessibilityLabel="추천인 검색어 지우기" onPress={onClear} style={styles.clearButton}>
+          <Feather aria-hidden accessible={false} name="x" size={16} color={COLORS.text.secondary} />
         </Pressable>
       )}
     </View>
@@ -95,7 +95,7 @@ export function ReferralSearchResultList({
           onPress={() => onSelect(item)}
         >
           <View style={styles.resultAvatar}>
-            <Feather name="user" size={14} color={COLORS.gray[500]} />
+            <Feather aria-hidden accessible={false} name="user" size={14} color={COLORS.gray[500]} />
           </View>
           <View style={styles.resultInfo}>
             <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
@@ -131,6 +131,13 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: COLORS.text.primary,
+  },
+  clearButton: {
+    width: 44,
+    height: 44,
+    marginRight: -12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   resultsList: {
     borderWidth: 1,

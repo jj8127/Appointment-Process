@@ -2,6 +2,7 @@ import { act, createElement, type ReactElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { useReferralAllowance, useReferralAllowanceAccess } from '../use-referral-allowance';
+import { ReferralAppSessionError } from '../use-referral-app-session';
 import { calculateReferralAllowance } from '@/lib/referral-allowance-calculation';
 import type { ReferralAllowanceStatement } from '@/types/referral-allowance';
 
@@ -15,7 +16,14 @@ const mockAppStateListeners = new Set<(state: string) => void>();
 jest.mock('../use-session', () => ({ useSession: () => mockSession }));
 jest.mock('../use-referral-app-session', () => ({
   useReferralAppSession: () => ({ invokeReferralFunction: mockInvoke }),
-  ReferralAppSessionError: class extends Error { needsRelogin = true; },
+  ReferralAppSessionError: class extends Error {
+    code?: string;
+    status?: number;
+    needsRelogin: boolean;
+    constructor(message: string, options?: { code?: string; status?: number; needsRelogin?: boolean }) {
+      super(message); this.code = options?.code; this.status = options?.status; this.needsRelogin = Boolean(options?.needsRelogin);
+    }
+  },
 }));
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => mockFocused }));
 jest.mock('react-native', () => ({ AppState: { addEventListener: (_: string, callback: (state: string) => void) => {
@@ -178,14 +186,43 @@ describe('allowance hooks isolate signed account and month requests', () => {
     expect(client.getQueryCache().getAll().filter((query) => query.state.data !== undefined)).toHaveLength(0);
   });
 
-  it('suppresses stale statement data on refresh failure and access revocation', async () => {
+  it('preserves a same-month statement during refresh failure and replaces it on retry', async () => {
     mockInvoke.mockResolvedValue(response('2026-08', 30000)); await mount();
-    mockInvoke.mockRejectedValueOnce(new Error('forbidden'));
+    const previous = latest.statement;
+    const pending = deferred(); mockInvoke.mockReturnValueOnce(pending.promise);
+    await act(async () => { latest.retry(); }); await flush();
+    expect(latest.statement).toBe(previous); expect(latest.isLoading).toBe(false); expect(latest.isRefreshing).toBe(true);
+    await act(async () => { pending.reject(new Error('network failure')); }); await flush();
+    expect(latest.statement).toBe(previous); expect(latest.error).toBeTruthy(); expect(latest.isLoading).toBe(false);
+    mockInvoke.mockResolvedValueOnce(response('2026-08', 40000));
+    await act(async () => { latest.retry(); }); await flush();
+    expect(latest.statement?.summary.newPaymentKrw).toBe(40000); expect(latest.error).toBeNull();
+  });
+
+  it.each([
+    { code: 'forbidden' }, { code: 'expired_app_session', needsRelogin: true }, { code: 'session_changed' },
+    { status: 401 }, { status: 403 },
+  ])('blocks previous data after a structured access failure %j until a successful read', async (options) => {
+    mockInvoke.mockResolvedValue(response('2026-08', 30000)); await mount();
+    mockInvoke.mockRejectedValueOnce(new ReferralAppSessionError('denied', options));
     await act(async () => { latest.retry(); }); await flush();
     expect(latest.statement).toBeNull(); expect(latest.error).toBeTruthy();
+    mockInvoke.mockRejectedValueOnce(new Error('network failure'));
+    await act(async () => { latest.retry(); }); await flush();
+    expect(latest.statement).toBeNull(); expect(latest.data).toBeUndefined();
     mockInvoke.mockResolvedValueOnce({ ok: true, enabled: false });
     await act(async () => { latest.retry(); }); await flush();
     expect(latest.statement).toBeNull(); expect(latest.enabled).toBe(false);
+  });
+
+  it('preserves checked access during a temporary failure but removes it on a successful revocation', async () => {
+    kind = 'access'; mockInvoke.mockResolvedValue({ ok: true, enabled: true, availableMonths: ['2026-08'] }); await mount();
+    mockInvoke.mockRejectedValueOnce(new Error('network failure'));
+    await act(async () => { access.retry(); }); await flush();
+    expect(access.mode).toBe('enabled'); expect(access.error).toBeTruthy(); expect(access.isLoading).toBe(false);
+    mockInvoke.mockResolvedValueOnce({ ok: true, enabled: false });
+    await act(async () => { access.retry(); }); await flush();
+    expect(access.mode).toBe('empty'); expect(access.error).toBeNull();
   });
 
   it('returns an empty state when the server has no allowance access for this account', async () => {

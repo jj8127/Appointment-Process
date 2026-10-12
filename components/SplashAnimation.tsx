@@ -8,7 +8,7 @@ const DOT_R = 7;
 const H_PAD = 24;
 const LOGO_BAR_GAP = 12;
 
-// login.png is a wide logo (~2.5:1). bigLogo container width = W*0.5
+// The horizontal MODUON logo fits in the existing wide animation container.
 // Small logo displayed width (determines scale + target position)
 const SMALL_LOGO_W = 60;
 const SMALL_SCALE = SMALL_LOGO_W / (W * 0.5);
@@ -87,7 +87,8 @@ export default function SplashAnimation({ onDone }: Props) {
           <Animated.View style={{ transform: [{ translateX: logoTranslateX }] }}>
             <Animated.View style={{ transform: [{ scale: logoScale }] }}>
               <Image
-                source={require('../assets/images/login.png')}
+                source={require('../assets/images/moduon/moduon-logo-horizontal.png')}
+                accessibilityLabel="모두온 시작 로고"
                 style={styles.bigLogo}
                 resizeMode="contain"
               />

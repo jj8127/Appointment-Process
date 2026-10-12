@@ -1,5 +1,5 @@
-import { useNavigation, usePreventRemove } from '@react-navigation/native';
-import { useEffect, useRef } from 'react';
+import { useFocusEffect, useNavigation, usePreventRemove } from '@react-navigation/native';
+import { useCallback, useRef } from 'react';
 import { Alert, BackHandler, Platform } from 'react-native';
 
 /** Keep drafts in memory. Never persist personal form values to device storage. */
@@ -17,7 +17,7 @@ export function useDraftExitGuard(dirty: boolean, busy = false) {
       { text: '내용 버리고 나가기', style: 'destructive', onPress: () => navigation.dispatch(data.action) },
     ]);
   });
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     if (!dirty && !busy) return;
     if (Platform.OS === 'web') {
       const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -34,6 +34,6 @@ export function useDraftExitGuard(dirty: boolean, busy = false) {
       return true;
     });
     return () => subscription.remove();
-  }, [busy, dirty, navigation]);
+  }, [busy, dirty, navigation]));
   return () => { allowExitRef.current = true; };
 }

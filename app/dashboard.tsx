@@ -1,6 +1,6 @@
 import { MobileStatusToggle } from '@/components/MobileStatusToggle';
 import { RefreshButton } from '@/components/RefreshButton';
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
@@ -3481,7 +3481,7 @@ export default function DashboardScreen() {
           </Text>
 
           <View style={styles.searchBox}>
-            <Ionicons name="search" size={18} color="#9CA3AF" />
+            <Feather name="search" size={18} color="#9CA3AF" />
             <TextInput
               style={styles.searchInput}
               placeholder="이름, 연락처 검색"
@@ -3620,8 +3620,7 @@ export default function DashboardScreen() {
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     {role === 'admin' && (
-                      <Pressable
-                        style={styles.messageBtn}
+                      <Pressable accessibilityLabel="FC에게 메시지 보내기" accessibilityRole="button" style={styles.messageBtn}
                         onPress={() =>
                           router.push({
                             pathname: '/chat',
@@ -3837,8 +3836,8 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   messageBtn: {
-    width: 34,
-    height: 34,
+    width: 44,
+    height: 44,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E5E7EB',

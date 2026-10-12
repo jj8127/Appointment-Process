@@ -67,7 +67,7 @@ export function ExamPaymentProofHistoryButton({
         {isLoading ? (
           <ActivityIndicator size="small" color={ORANGE} />
         ) : (
-          <Feather name="image" size={17} color={ORANGE} />
+          <Feather aria-hidden accessible={false} name="image" size={17} color={ORANGE} />
         )}
         <Text style={styles.buttonText}>
           {isLoading ? '불러오는 중...' : '입금 내역 보기'}

@@ -3,6 +3,37 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "platform-common-membership",
+      "prefixes": [
+        "lib/platform-api.ts",
+        "hooks/use-platform-account.ts",
+        "app/services/login.tsx",
+        "app/services/signup.tsx",
+        "app/services/application.tsx",
+        "app/services/account.tsx",
+        "app/services/activity.tsx",
+        "app/services/manage.tsx",
+        "app/services/hospitals.tsx",
+        "app/services/hospital.tsx",
+        "components/hospitals/",
+        "hooks/use-hospital-exposure.ts",
+        "supabase/functions/platform-service/",
+        "supabase/migrations/20261011040816_platform_common_membership.sql",
+        "supabase/migrations/20261011130830_hospital_directory_ad_performance.sql",
+        "supabase/migrations/20261012065343_platform_membership_recovery_consent.sql",
+        "supabase/migrations/20261012070403_platform_auth_cleanup_schedule.sql",
+        "supabase/functions/_shared/password-hash.ts",
+        "supabase/functions/_shared/signup-sms.ts"
+      ],
+      "requires_any": [
+        "supabase/tests/platform-membership-sql.test.mjs",
+        "supabase/functions/__tests__/ux-priority-one-handlers.test.mjs",
+        "lib/__tests__/platform-api.test.ts",
+        "lib/__tests__/mobile-acceptance-runtime.test.ts",
+        "lib/__tests__/mobile-native-controls.test.tsx"
+      ]
+    },
+    {
       "id": "edge-configured-cors",
       "prefixes": [
         "supabase/functions/_shared/configured-cors.ts",
@@ -122,6 +153,7 @@
         "supabase/migrations/20261001071222_password_reset_validate_challenge_counters.sql"
       ],
       "requires_any": [
+        "supabase/tests/platform-membership-sql.test.mjs",
         "supabase/functions/_shared/__tests__/configured-cors.test.mjs",
         "supabase/tests/password-reset-challenge-sql.test.mjs",
         "supabase/tests/password-reset-challenge-postgres.test.mjs",

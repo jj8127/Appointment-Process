@@ -787,7 +787,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
             </Text>
           </View>
           {comment.isMine && (
-            <Pressable
+            <Pressable accessibilityLabel="댓글 더보기" accessibilityRole="button"
               style={({ pressed }) => [
                 styles.commentMoreButton,
                 pressed && { opacity: 0.6 },
@@ -1033,7 +1033,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
             returnKeyType="search"
           />
           {searchInput.length > 0 && (
-            <Pressable
+            <Pressable accessibilityLabel="검색어 지우기" accessibilityRole="button"
               onPress={() => {
                 setSearchInput('');
                 setSearchQuery('');
@@ -1313,7 +1313,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
               <GestureDetector gesture={modalPanGesture}>
                 <View style={[styles.modalHeader, { paddingTop: modalHeaderPaddingTop }]}>
                   <Text style={styles.modalTitle}>게시글 상세</Text>
-                  <Pressable onPress={animateCloseModal}>
+                  <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="게시글 상세 닫기" accessibilityRole="button" onPress={animateCloseModal}>
                     <Feather name="x" size={24} color={CHARCOAL} />
                   </Pressable>
                 </View>
@@ -1365,7 +1365,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                     </View>
                   </View>
                   {canShowPostActions && (
-                    <Pressable
+                    <Pressable accessibilityLabel="게시글 더보기" accessibilityRole="button"
                       style={({ pressed }) => [
                         styles.moreButton,
                         !canManageSelected && styles.moreButtonDisabled,
@@ -1507,7 +1507,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                 {replyTarget && (
                   <View style={styles.replyBanner}>
                     <Text style={styles.replyBannerText}>{replyTarget.authorName}님에게 답글</Text>
-                    <Pressable
+                    <Pressable accessibilityLabel="답글 취소" accessibilityRole="button"
                       style={({ pressed }) => [styles.replyCancel, pressed && { opacity: 0.6 }]}
                       onPress={() => setReplyTarget(null)}
                     >
@@ -1524,7 +1524,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                     onChangeText={setCommentText}
                     multiline
                   />
-                  <Pressable
+                  <Pressable accessibilityLabel="댓글 전송" accessibilityRole="button" accessibilityState={{ disabled: !commentText.trim() || addCommentMutation.isPending }}
                     style={[styles.commentSubmitButton, !commentText.trim() && { opacity: 0.5 }]}
                     onPress={handleAddComment}
                     disabled={!commentText.trim() || addCommentMutation.isPending}
@@ -1652,8 +1652,8 @@ const styles = StyleSheet.create({
   },
   searchClear: {
     position: 'absolute',
-    right: 36,
-    padding: 4,
+    right: 24,
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
   },
   filterRow: {
     flexDirection: 'row',
@@ -1989,9 +1989,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   moreButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#f9fafb',
     borderWidth: 1,
     borderColor: BORDER,
@@ -2096,9 +2096,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   commentMoreButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#f3f4f6',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2228,9 +2228,9 @@ const styles = StyleSheet.create({
   },
   replyBannerText: { fontSize: 12, fontWeight: '600', color: TEXT_MUTED },
   replyCancel: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#f3f4f6',
     alignItems: 'center',
     justifyContent: 'center',

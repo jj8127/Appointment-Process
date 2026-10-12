@@ -657,7 +657,7 @@ function ChatRoomContent() {
               radius="xl"
               size="md"
             />
-            <ActionIcon
+            <ActionIcon aria-label="메시지 전송"
               size={42}
               color="orange"
               variant="filled"

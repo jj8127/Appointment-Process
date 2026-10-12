@@ -1,6 +1,8 @@
 import { Feather } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
+import { COLORS } from '@/lib/theme';
+
 type Props = {
   recentQueries: string[];
   saveEnabled: boolean;
@@ -14,7 +16,7 @@ export default function MessengerSearchLanding(props: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.helper}>
-        <Feather name="search" size={22} color="#F36F21" />
+        <Feather aria-hidden accessible={false} name="search" size={22} color="#F36F21" />
         <View style={styles.helperCopy}>
           <Text style={styles.helperTitle}>메신저 전체에서 찾아보세요</Text>
           <Text style={styles.helperBody}>사람과 채팅방은 현재 목록에서, 메시지는 열람 가능한 범위에서 검색합니다.</Text>
@@ -34,8 +36,8 @@ export default function MessengerSearchLanding(props: Props) {
         <Text style={styles.empty}>최근 검색어가 없습니다.</Text>
       ) : props.recentQueries.map((query) => (
         <View key={query} style={styles.recentRow}>
-          <Pressable onPress={() => props.onSelect(query)} style={styles.recentQuery}>
-            <Feather name="clock" size={18} color="#8A8A8A" />
+          <Pressable accessibilityRole="button" onPress={() => props.onSelect(query)} style={styles.recentQuery}>
+            <Feather aria-hidden accessible={false} name="clock" size={18} color="#8A8A8A" />
             <Text numberOfLines={1} style={styles.recentText}>{query}</Text>
           </Pressable>
           <Pressable
@@ -45,7 +47,7 @@ export default function MessengerSearchLanding(props: Props) {
             onPress={() => props.onRemove(query)}
             style={styles.removeButton}
           >
-            <Feather name="x" size={19} color="#909090" />
+            <Feather aria-hidden accessible={false} name="x" size={19} color={COLORS.text.secondary} />
           </Pressable>
         </View>
       ))}

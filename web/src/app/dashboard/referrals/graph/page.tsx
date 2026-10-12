@@ -449,7 +449,7 @@ export default function ReferralGraphPage() {
             >
               {!isDownlineScope ? (
                 <Tooltip label="리스트로 돌아가기" withArrow>
-                  <ActionIcon
+                  <ActionIcon aria-label="추천인 코드로 이동"
                     component={Link}
                     href="/dashboard/referrals"
                     variant="subtle"
@@ -519,7 +519,7 @@ export default function ReferralGraphPage() {
               >
                 선택 해제
               </Button>
-              <ActionIcon
+              <ActionIcon aria-label="추천 관계 새로고침"
                 variant="subtle"
                 color="gray"
                 size="sm"
@@ -543,7 +543,7 @@ export default function ReferralGraphPage() {
                 paddingBottom: responsiveLayout.controlsScrollable ? 2 : undefined,
               }}
             >
-              <TextInput
+              <TextInput rightSectionWidth={44}
                 placeholder="이름·소속·코드 검색"
                 size={isMobileGraph ? 'sm' : 'xs'}
                 value={searchTerm}
@@ -551,7 +551,7 @@ export default function ReferralGraphPage() {
                 leftSection={<IconSearch size={14} />}
                 rightSection={
                   searchTerm ? (
-                    <ActionIcon size="xs" variant="subtle" onClick={() => setSearchTerm('')}>
+                    <ActionIcon aria-label="검색어 지우기" size="xs" variant="subtle" color="gray" onClick={() => setSearchTerm('')}>
                       <IconX size={12} />
                     </ActionIcon>
                   ) : null
@@ -732,7 +732,7 @@ export default function ReferralGraphPage() {
         )}
 
         {layoutMode === 'free' ? <Tooltip label="배치 설정" withArrow>
-          <ActionIcon
+          <ActionIcon aria-label="그래프 움직임 설정" aria-expanded={physicsPanelOpen}
             variant="filled"
             radius="xl"
             size="lg"
@@ -900,10 +900,10 @@ export default function ReferralGraphPage() {
                   </Text>
                 </Group>
                 <Group gap="xs">
-                  <ActionIcon variant="subtle" color="gray" onClick={resetPhysicsSettings}>
+                  <ActionIcon aria-label="그래프 움직임 설정 초기화" variant="subtle" color="gray" onClick={resetPhysicsSettings}>
                     <IconRefresh size={16} />
                   </ActionIcon>
-                  <ActionIcon variant="subtle" color="gray" onClick={() => setPhysicsPanelOpen(false)}>
+                  <ActionIcon aria-label="그래프 움직임 설정 닫기" variant="subtle" color="gray" onClick={() => setPhysicsPanelOpen(false)}>
                     <IconX size={16} />
                   </ActionIcon>
                 </Group>

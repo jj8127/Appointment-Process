@@ -44,8 +44,10 @@ describe('service home entry policy', () => {
     expect(resolveServiceInformationKey('care')).toBe('care');
     expect(resolveServiceInformationKey('telecom')).toBe('telecom');
     expect(resolveServiceInformationKey('car')).toBe('car');
+    expect(resolveServiceInformationKey('rental')).toBe('rental');
+    expect(resolveServiceInformationKey('hospital')).toBe('hospital');
     expect(resolveServiceInformationKey('help')).toBe('help');
-    expect(resolveServiceInformationKey('insurance')).toBeNull();
+    expect(resolveServiceInformationKey('insurance')).toBe('insurance');
     expect(resolveServiceInformationKey(['care'])).toBeNull();
   });
 });

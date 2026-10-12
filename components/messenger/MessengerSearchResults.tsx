@@ -38,7 +38,7 @@ function ResultIcon({ item }: { item: MessengerSearchResult }) {
   const icon = item.kind === 'person' ? 'user' : item.kind === 'room' ? 'message-circle' : 'align-left';
   return (
     <View style={styles.iconCircle}>
-      <Feather name={icon} size={19} color="#F36F21" />
+      <Feather aria-hidden accessible={false} name={icon} size={19} color="#F36F21" />
     </View>
   );
 }
@@ -73,7 +73,7 @@ function ResultRow({
         ) : null}
         {disabled ? <Text style={styles.disabledLabel}>기존 채팅방에서만 열 수 있습니다.</Text> : null}
       </View>
-      {!disabled ? <Feather name="chevron-right" size={20} color="#BBBBBB" /> : null}
+      {!disabled ? <Feather aria-hidden accessible={false} name="chevron-right" size={20} color="#BBBBBB" /> : null}
     </Pressable>
   );
 }
@@ -132,7 +132,7 @@ export default function MessengerSearchResults({
           </View>
           {section.kind === 'message' && sources.some((source) => source.status === 'hint') ? (
             <View style={styles.stateRow}>
-              <Feather name="info" size={17} color="#F36F21" />
+              <Feather aria-hidden accessible={false} name="info" size={17} color="#F36F21" />
               <Text style={styles.stateText}>메시지는 두 글자부터 검색할 수 있습니다.</Text>
             </View>
           ) : null}
@@ -147,7 +147,7 @@ export default function MessengerSearchResults({
       ))}
       {allSettled && !hasAnyItems && !sources.some((source) => source.status === 'hint') ? (
         <View style={styles.globalEmpty}>
-          <Feather name="search" size={30} color="#C4C4C4" />
+          <Feather aria-hidden accessible={false} name="search" size={30} color="#C4C4C4" />
           <Text style={styles.globalEmptyTitle}>검색 결과가 없습니다.</Text>
           <Text style={styles.globalEmptyBody}>이름이나 메시지의 일부를 다시 입력해 보세요.</Text>
         </View>

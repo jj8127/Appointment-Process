@@ -24,6 +24,7 @@ export default function MessengerSearchTabs({
           <Pressable
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
+            aria-selected={active}
             key={tab.key}
             onPress={() => onChange(tab.key)}
             style={({ pressed }) => [styles.tab, pressed && styles.pressed]}

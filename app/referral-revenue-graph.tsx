@@ -218,7 +218,7 @@ export default function ReferralRevenueGraphPage() {
               accessibilityRole="button"
               accessibilityLabel="금액 이동 경로 강조 해제"
             >
-              <Feather name="x" size={17} color={COLORS.text.muted} />
+              <Feather name="x" size={17} color={COLORS.text.secondary} />
             </Pressable>
           </View>
         ) : null}
