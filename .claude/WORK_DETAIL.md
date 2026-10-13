@@ -1,5 +1,13 @@
 # 작업 상세 로그 (Work Detail)
 
+## <a id="20261013-admin-dashboard-list-hotfix"></a> 2026-10-13 Admin dashboard FC-list hotfix
+
+- Incident evidence: the administrator dashboard showed `FC 목록 조회 실패` and placeholder KPIs. Read-only Vercel and Supabase inspection found successful `/api/admin/list` and matching FC-list requests, so the failure was isolated to the browser response path rather than the route, database, credentials, or production data.
+- Root cause: the dashboard accepted the route's raw array or `{ data: array }` envelope, then passed that read result to `requireMutationSuccess`. That helper intentionally rejects arrays because it only validates write acknowledgements, so every valid raw list became a client error.
+- Change and contract: remove mutation-success validation from the list query while preserving explicit array-shape validation and existing HTTP error handling. The runtime regression covers raw arrays, data envelopes, invalid success objects, HTTP 500 failures, and the existing no-invented-zero error UI. The feature matrix now records that read/write boundary.
+- Verification: `web/src/lib/board-read-state-runtime.test.mjs` 27/27 passed; web TypeScript and scoped ESLint passed; the Next.js production build passed with synthetic build-only environment values and Sentry upload disabled; `git diff --check` passed. No production credential or customer record was captured.
+- Release boundary: the user authorized publishing the isolated hotfix branch and deploying only its clean, committed source to Vercel `admin_web`. No Supabase data/schema write, Edge deployment, unrelated source publication, or original dirty-worktree cleanup is included. Production success still requires READY state, exact source revision, `adminweb-red.vercel.app` alias resolution, safe route responses, and a bounded post-deploy error scan.
+
 ## <a id="20261008-exam-mobile-release"></a> 2026-10-08 Exam policy native release
 
 - Authorization: user requested raising the app version, building and deploying after the prior verified source publication. This covers necessary release-source publication, existing exam deadline migration and exam-payment-proof Edge activation, then Android/iOS production builds and store delivery. No unrelated product/schema/role/customer-record changes or harness lifecycle/deletions are included.
