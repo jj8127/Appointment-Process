@@ -5,9 +5,12 @@
 
 - 마이크·녹음·사진/동영상 촬영 호출은 없고 시험 증빙·게시판·메신저의 ImagePicker 호출 6곳은 모두 사진 선택만 사용한다. expo-image-picker 17.0.11의 기존 config plugin을 명시하고 microphonePermission=false·cameraPermission=false로 iOS 기본 설명 제거와 Android RECORD_AUDIO·CAMERA 차단을 맡긴다. photosPermission은 가입 서류·시험 증빙·채팅 사진 첨부 목적의 구체적인 한국어 문구다.
 - 기존 native config plugin suite의 실제 Expo mod 실행 방식을 재사용하여 iOS microphone/camera key 부재, Android 두 권한의 tools:node=remove, 정확한 사진 목적 설명과 사진 권한 보존을 확인한다. 새 plugin·dependency·runner를 추가하지 않는다.
-- 이 작업은 격리된 native 수정 worktree에서 수행한다. app/runtime 4.2.19와 native build 번호는 여기서 바꾸지 않는다. local 검사와 이후 새 binary·심사·출시 성공은 별도 영수증으로 구분하며 OTA로 native 권한이 바뀌었다고 주장하지 않는다.
+- 이 작업은 격리된 native 수정 worktree에서 수행했다. 최종 native app/runtime은 4.2.19, iOS build 번호는 111이다. OTA와 native 권한 변경의 증거를 구분한다.
 - 기존 config plugin suite 21개, mobile TypeScript, 대상 ESLint, strict handbook/contract governance와 Git diff 검사를 통과했다. 설치된 Expo의 iOS 전체 mods와 Android manifest 전체 chain을 introspect하여 iOS 마이크·촬영 설명 부재·구체적인 사진 설명, Android RECORD_AUDIO·CAMERA 각각의 단일 tools:node=remove를 확인했다.
-- Android의 모든 mods를 포함한 전체 introspection은 합성 빈 gradle.properties와 기존 drawing-order guard의 필수 JVM property 검사에서 실패한다. 실제 native protection을 약화하지 않고 권한 검증 범위를 iOS 전체 mods·Android manifest chain으로 명시한다. 실제 generated Gradle 입력과 새 binary 검증은 원격 native build 단계에서 확인한다.
+- Android의 모든 mods를 포함한 전체 introspection은 합성 빈 gradle.properties와 기존 drawing-order guard의 필수 JVM property 검사에서 실패한다. 실제 native protection을 약화하지 않고 권한 검증 범위를 iOS 전체 mods·Android manifest chain으로 명시했다. Android 새 binary 출시를 이 iOS 영수증으로 주장하지 않는다.
+- 제품 소스 commit은 a15457d4be6ed04c531fcca581f6cfca3fe04058, tree는 b646e474322dab12659a94c62983b1bdf9fd9a31이다. 완성 IPA SHA-256 a480cd70534342e8db25069cc4aa32d20f3829b9dc142a55c4160b1fb0b82aed의 검증 33개가 PASS다. 실제 InfoPlist에 미사용 microphone/camera 설명이 없고 사진 목적 설명·앱 이름/버전·runtime·production channel이 소스와 일치한다. compiled Sentry DSN·가입 capability key도 검증했다.
+- Apple 처리 VALID 후 build 111을 같은 심사 건에 선택·재제출했다. 접수 시각은 2026-10-13T12:08:42.387Z, 별도 version/build/submission readback 시각은 2026-10-13T12:09:09.939Z다. 상태는 WAITING_FOR_REVIEW이고 releaseType은 AFTER_APPROVAL이다. Apple 승인 전이며 공개 iOS 버전은 4.2.18이다.
+- 근거는 D:/hanhwa/artifacts/ios-permission-repair-20261013의 verification-ios.json, ios-review-submit-111.json, ios-store-verification.json이다. 이후 문서 유지보수 commit은 이미 빌드·제출한 제품 source commit을 대체하지 않는다. 실제 단말의 SMS 수신·사진 첨부 acceptance도 binary 검사와 구분한다.
 
 <a id="20261013-cutover-review-repair"></a>
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리

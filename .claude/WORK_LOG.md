@@ -2,7 +2,7 @@
 
 ## 2026-10-13 사용하지 않는 촬영·마이크 권한 제거
 
-사진 선택만 사용하는 기존 image-picker plugin에서 마이크·촬영 권한을 제거하고 사진 보관함의 실제 첨부 목적을 한국어로 명시했다. iOS의 불필요한 기본 설명을 제거하고 Android RECORD_AUDIO·CAMERA를 차단하며 기존 사진 첨부 기능은 유지한다. 새 native binary 준비와 심사·배포 결과는 검증 영수증에 따라 구분한다. [→ 상세](WORK_DETAIL.md#20261013-remove-unused-microphone)
+사진 선택만 사용하는 기존 image-picker plugin에서 마이크·촬영 권한을 제거하고 사진 보관함의 실제 첨부 목적을 한국어로 명시했다. iOS 4.2.19/111은 제품 소스 a15457d에서 빌드했고 실제 IPA 33개 검증·Apple 처리 VALID·같은 심사 건 재제출을 완료했다. 현재 WAITING_FOR_REVIEW이며 공개 버전은 4.2.18이다. 승인 후 자동 출시한다. 이 후속 문서 정리 commit은 제품 소스와 이미 제출한 binary를 바꾸지 않는다. [→ 상세](WORK_DETAIL.md#20261013-remove-unused-microphone)
 
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
 

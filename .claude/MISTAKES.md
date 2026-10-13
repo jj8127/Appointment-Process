@@ -1,5 +1,11 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-13 Expo 기본 resource 권한과 목적 설명을 확인하지 않음
+
+- 반복 원인: 사진 선택만 사용하는 앱에 image-picker plugin의 기본 마이크·카메라 권한과 일반 영어 목적 설명이 들어갔다. 앱 코드에 녹음 호출이 없다는 확인만으로 실제 binary의 InfoPlist 권한을 검증했다고 판단하면 심사 거절을 놓칠 수 있다.
+- 재발 방지: 기존 plugin에서 미사용 microphonePermission·cameraPermission을 false로 지정하고, 필요한 photosPermission에는 실제 사진 첨부 목적을 구체적으로 적는다. 자동 적용 plugin과 dependency의 기본값을 함께 검토하고 config·plugin mod·완성 IPA의 권한과 목적 설명을 차례로 대조한다.
+- 검증: 기존 native config suite의 실제 Expo mods와 iOS 4.2.19/111의 완성 IPA에서 마이크·카메라 설명 부재와 소스의 사진 목적 설명 일치를 확인했다. Apple 처리 VALID·심사 접수는 승인·공개 출시와 구분한다.
+
 ## 2026-10-13 mocked storage로 native key 제한을 놓침
 
 - 재현: 가입 completion capability의 저장 key에 native SecureStore가 허용하지 않는 문자를 사용했지만 임의 문자열을 받는 mock에서는 저장 성공으로 보였다. OTP 성공 뒤 실제 native 저장 단계가 실패할 수 있다.
@@ -89,6 +95,7 @@
 - 반복 원인: production 환경 변수를 추가해도 이전 Metro 변환 캐시가 재사용되어 Android·iOS Hermes 번들에 운영 Sentry DSN이 빠졌다. export 성공만으로 환경 변수 반영을 판단하면 오류 수집을 꺼뜨릴 수 있다.
 - 재발 방지: 배포 환경이 바뀌면 해당 production 환경과 함께 `expo export --clear`를 실행하고, 게시할 최종 번들의 공개 설정을 검사한다. 비공개 환경 값이나 원문 번들을 증거 로그로 출력하지 않는다.
 - 검증: 동일 hermesc의 합성 문자열 대조군과 실제 bytecode decode에서 캐시 초기화 전 두 플랫폼 모두 DSN 누락, 초기화 후 모두 포함을 확인했다. 최종 OTA 다운로드 해시도 해당 산출물과 일치한다.
+- 2026-10-13 후속: 공유 node_modules를 사용하는 여러 worktree에서 export하면 Router source root와 환경 변환 캐시를 같은 앱·같은 설정으로 오판할 수 있다. 기존 release helper에 명시적 source cwd·Router root, profile public 환경·--clear·runtime별 직렬 export를 적용한다. 두 플랫폼의 최종 compiled bundle에서 Sentry DSN·올바른 signup key 포함과 잘못된 key 부재를 값 출력 없이 검증하고, 같은 artifact hash만 게시한다.
 
 ## 2026-09-22 | 시험 등록 포커스 이벤트 수명
 
