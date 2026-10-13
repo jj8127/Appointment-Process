@@ -475,13 +475,13 @@ test('board read failure never renders the preview as full content or invents ze
 
 function simplePage(path, moduleMocks = {}, globals = {}, exportName = 'default', props = {}) {
   let queryState = initialQuery;
-  let queryOptions;
+  const queryOptions = new Map();
   const mocks = {
     '@/hooks/use-session': { useSession: () => ({ role: 'admin', residentId: 'synthetic-actor', hydrated: true }) },
     '@/components/QueryErrorAlert': ui,
     '@/lib/query-read-error': queryError,
     '@tanstack/react-query': {
-      useQuery(options) { queryOptions = options; return queryState; },
+      useQuery(options) { queryOptions.set(options.queryKey[0], options); return queryState; },
       useMutation: () => ({ isPending: false, mutate() {} }),
       useQueryClient: () => ({ invalidateQueries() {} }),
     },
@@ -508,7 +508,7 @@ function simplePage(path, moduleMocks = {}, globals = {}, exportName = 'default'
     find: (type, predicate = () => true) => renderer.root.findAllByType(type).find(predicate),
     findAll: (type) => renderer.root.findAllByType(type),
     async setQuery(state) { queryState = state; await render(); },
-    async fetch() { return queryOptions.queryFn(); },
+    async fetch(queryKey) { return (queryKey ? queryOptions.get(queryKey) : queryOptions.values().next().value).queryFn(); },
     async close() { await act(async () => renderer.unmount()); },
   };
 }
@@ -633,6 +633,7 @@ for (const [path, emptyText, subject] of [
 }
 
 test('dashboard failed FC reads do not display empty-list text or invented zero KPIs', async () => {
+  let response;
   const page = simplePage('../app/dashboard/page.tsx', {
     ...commonListMocks,
     '@/lib/user-intent-policy': userIntentPolicy,
@@ -648,8 +649,16 @@ test('dashboard failed FC reads do not display empty-list text or invented zero 
     './page.module.css': { default: {} },
     '@/lib/dashboard-table-display': { DASHBOARD_FC_LIST_COLUMNS: [], DASHBOARD_FC_LIST_COLUMN_COUNT: 9 },
     '../../lib/logger': { logger: {} },
-  });
+  }, { fetch: async () => response });
   await page.render();
+  for (const payload of [[], { data: [] }]) {
+    response = { ok: true, json: async () => payload };
+    assert.deepEqual(await page.fetch('dashboard-list'), []);
+  }
+  response = { ok: true, json: async () => ({ ok: true }) };
+  await assert.rejects(page.fetch('dashboard-list'), /FC 목록 응답 형식/);
+  response = { ok: false, status: 500, json: async () => ({ error: 'UPSTREAM_PRIVATE_DETAILS' }) };
+  await assert.rejects(page.fetch('dashboard-list'), (error) => error instanceof queryError.QueryReadError && error.status === 500);
   await page.setQuery(failure());
   assert.ok(page.find('QueryErrorAlert'));
   assert.equal(page.findAll('Text').filter((node) => node.props.children === '조건에 맞는 데이터가 없습니다.').length, 0);

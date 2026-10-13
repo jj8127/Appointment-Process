@@ -651,7 +651,6 @@ export default function DashboardPage() {
       if (!Array.isArray(data)) {
         throw new Error('FC 목록 응답 형식이 올바르지 않습니다.');
       }
-      requireMutationSuccess(data);
       return data;
     },
     enabled: hydrated && (role === 'admin' || role === 'manager'),
