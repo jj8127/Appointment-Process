@@ -21,6 +21,27 @@ const withAndroidDrawingOrderFix =
   require("../../plugins/with-android-drawing-order-fix.js") as (
     config: Record<string, unknown>,
   ) => Record<string, unknown>;
+const withImagePicker =
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require("expo-image-picker/app.plugin.js").default as (
+    config: Record<string, unknown>,
+    options: {
+      microphonePermission?: string | false;
+      cameraPermission?: string | false;
+      photosPermission?: string | false;
+    },
+  ) => {
+    mods: {
+      ios: {
+        infoPlist: (config: Record<string, unknown>) => Promise<{ modResults: Record<string, unknown> }>;
+      };
+      android: {
+        manifest: (config: Record<string, unknown>) => Promise<{
+          modResults: { manifest: { "uses-permission": { $: Record<string, string> }[] } };
+        }>;
+      };
+    };
+  };
 
 type GradleTextMod = (config: {
   [key: string]: unknown;
@@ -167,6 +188,55 @@ function copyTrackedPlugin(fixtureRoot: string) {
 }
 
 describe("Android drawing-order prebuilt instrumentation", () => {
+  test("the configured photo picker removes unused capture permissions and explains photo attachment access", async () => {
+    const app = JSON.parse(readFileSync(join(process.cwd(), "app.json"), "utf8")).expo;
+    const imagePickerEntries = app.plugins.filter(
+      (entry: unknown) => Array.isArray(entry) && entry[0] === "expo-image-picker",
+    );
+    expect(imagePickerEntries).toHaveLength(1);
+    const configured = withImagePicker({ name: app.name, slug: app.slug }, imagePickerEntries[0][1]);
+    const ios = await configured.mods.ios.infoPlist({
+      ...configured,
+      modRequest: {},
+      modResults: {
+        NSMicrophoneUsageDescription: "Previous default microphone purpose",
+        NSCameraUsageDescription: "Previous default camera purpose",
+        NSPhotoLibraryUsageDescription: "Existing photo attachment purpose",
+      },
+    });
+    expect(ios.modResults).not.toHaveProperty("NSMicrophoneUsageDescription");
+    expect(ios.modResults).not.toHaveProperty("NSCameraUsageDescription");
+    expect(ios.modResults.NSPhotoLibraryUsageDescription).toBe(
+      "모두온은 가입 서류와 시험 접수 증빙 사진을 제출하거나 채팅에 사진을 첨부할 수 있도록 사진 보관함에 접근합니다.",
+    );
+    const android = await configured.mods.android.manifest({
+      ...configured,
+      modRequest: {},
+      modResults: {
+        manifest: {
+          $: { "xmlns:android": "http://schemas.android.com/apk/res/android" },
+          "uses-permission": [
+            { $: { "android:name": "android.permission.RECORD_AUDIO" } },
+            { $: { "android:name": "android.permission.CAMERA" } },
+            { $: { "android:name": "android.permission.READ_MEDIA_IMAGES" } },
+          ],
+          application: [{ $: {} }],
+        },
+      },
+    });
+    for (const unusedPermission of ["android.permission.RECORD_AUDIO", "android.permission.CAMERA"]) {
+      expect(android.modResults.manifest["uses-permission"]).toContainEqual({
+        $: { "android:name": unusedPermission, "tools:node": "remove" },
+      });
+      expect(android.modResults.manifest["uses-permission"].filter(
+        (permission) => permission.$["android:name"] === unusedPermission,
+      )).toHaveLength(1);
+    }
+    expect(android.modResults.manifest["uses-permission"]).toContainEqual({
+      $: { "android:name": "android.permission.READ_MEDIA_IMAGES" },
+    });
+  });
+
   test("pins one supported Gradle daemon property without mutating input", () => {
     const result = patchAndroidGradleProperties(generatedGradleProperties);
 

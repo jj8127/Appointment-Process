@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-13 사용하지 않는 촬영·마이크 권한 제거
+
+사진 선택만 사용하는 기존 image-picker plugin에서 마이크·촬영 권한을 제거하고 사진 보관함의 실제 첨부 목적을 한국어로 명시했다. iOS의 불필요한 기본 설명을 제거하고 Android RECORD_AUDIO·CAMERA를 차단하며 기존 사진 첨부 기능은 유지한다. 새 native binary 준비와 심사·배포 결과는 검증 영수증에 따라 구분한다. [→ 상세](WORK_DETAIL.md#20261013-remove-unused-microphone)
+
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
 
 통합 릴리스의 필수 governance 누락을 가장 가까운 owner map·handbook과 기존 검사에 맞췄다. native 가입 증표 저장 key, 본인정보 timeout, OTA production public 환경과 Node 회귀 발견을 담당자가 기존 코드로 수리한다. 적용된 migration 12개는 운영 이력과 SQL hash를 대조해 body를 유지하고 로컬 이름·schema·fixture 참조만 맞춘다. primary 사용자 로그는 보존하며 실제 수정·검증·배포 상태는 canonical 인증 harness가 관리한다. 이 기록만으로 새 배포나 실제 SMS 수신을 주장하지 않는다. [→ 상세](WORK_DETAIL.md#20261013-cutover-review-repair)

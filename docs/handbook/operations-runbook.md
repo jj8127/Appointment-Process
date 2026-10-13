@@ -7,6 +7,10 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + scripts/ops/*
 
 # 운영 런북
 
+## 사진 첨부와 native 촬영·마이크 권한 (2026-10-13)
+
+모바일은 시험 증빙·게시판·메신저의 사진 선택만 사용한다. app.json의 기존 expo-image-picker plugin은 microphonePermission=false·cameraPermission=false로 iOS 마이크·촬영 사용 설명을 제거하고 Android RECORD_AUDIO·CAMERA를 차단한다. photosPermission에는 가입 서류·시험 접수 증빙·채팅 사진 첨부를 위한 보관함 접근 목적을 한국어로 명시한다. 사진 권한과 첨부 동작은 유지한다. 변경 검증은 기존 android-drawing-order-fix config plugin suite의 실제 Expo mods를 사용한다. 배포에는 새 native binary가 필요하며 OTA 완료는 InfoPlist·Manifest 변경의 증거가 아니다.
+
 ## 관리자 웹 배포 검증 (2026-10-02)
 
 - Vercel `admin_web`의 Root Directory는 `web`이며 저장소 밖 소스 포함 옵션을 켠다. `next.config.ts`의 `outputFileTracingRoot`와 `turbopack.root`는 모두 저장소 루트로 지정한다. Next가 Vercel의 tracing 기본값으로 Turbopack 경계를 좁히면 공유 인증·수당 모듈을 찾지 못한다.
