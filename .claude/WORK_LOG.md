@@ -4,7 +4,7 @@
 
 통합 릴리스의 필수 governance 누락을 가장 가까운 owner map·handbook과 기존 검사에 맞췄다. native 가입 증표 저장 key, 본인정보 timeout, OTA production public 환경과 Node 회귀 발견을 담당자가 기존 코드로 수리한다. 적용된 migration 12개는 운영 이력과 SQL hash를 대조해 body를 유지하고 로컬 이름·schema·fixture 참조만 맞춘다. primary 사용자 로그는 보존하며 실제 수정·검증·배포 상태는 canonical 인증 harness가 관리한다. 이 기록만으로 새 배포나 실제 SMS 수신을 주장하지 않는다. [→ 상세](WORK_DETAIL.md#20261013-cutover-review-repair)
 
-추가로 legacy 가입 RPC 4개의 forward 퇴역 migration `20261013112611`을 준비했다. 활성 Edge 55개/457개 source의 참조, catalog·cron 의존과 legacy 상태는 0이며 guard·RESTRICT 회귀를 로컬 검증했다. 현재는 원격 적용 전이며 실제 적용·post-probe는 canonical QA/handoff의 후속 영수증으로 판정한다.
+추가로 legacy 가입 RPC 4개의 forward 퇴역 migration을 clean source `3b546af`에서 운영 적용했다. 반환된 이력 `20261013113212`에 로컬 파일명·schema·fixture 참조를 맞췄으며 SQL body는 유지했다. 활성 Edge 55개/457개 source의 참조, catalog·cron 의존과 legacy 상태는 적용 전 0이었고 적용 후 retired RPC도 0개다. 기존 컬럼·이력은 유지하며 실제 적용 영수증과 남은 앱/SMS acceptance는 canonical QA/handoff에서 구분한다.
 
 ## 2026-10-11 제휴병원 홈 시각 개선
 

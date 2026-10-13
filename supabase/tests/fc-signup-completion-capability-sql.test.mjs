@@ -27,7 +27,7 @@ const historicalSignupMigration = await readFile(
   'utf8',
 );
 const retirementMigration = await readFile(
-  new URL('../migrations/20261013112611_retire_legacy_fc_signup_rpcs.sql', import.meta.url),
+  new URL('../migrations/20261013113212_retire_legacy_fc_signup_rpcs.sql', import.meta.url),
   'utf8',
 );
 

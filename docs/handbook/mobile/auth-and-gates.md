@@ -13,7 +13,7 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 
 공개 홈·보험 홈·Request Board 조회의 필수 실패를 자료 없음으로 바꾸지 않는다. 일시 조회 실패는 중앙 세션을 로그아웃시키지 않으며 실제 인증 거부의 복구 동선과 명시적 local-first 로그아웃을 구분한다. 기존 `app-logout-navigation.test.js`, `logout-source-contract.test.ts`, mobile read-contract와 signup completion suite를 재사용한다. OTA 게시/readback은 설치 채택이나 전용 단말 SMS 수신 증거가 아니다.
 
-레거시 proof RPC 4개를 퇴역하는 `20261013112611_retire_legacy_fc_signup_rpcs.sql`은 로컬 검증 완료·원격 적용 전이다. 현재 앱/Edge는 completion capability 계약을 사용한다. 적용 전 모든 활성 Edge 55개의 457개 source 파일과 catalog/cron 의존·legacy challenge/proof 상태가 각각 0인지 확인했다. forward migration은 기존 이력·컬럼을 유지하며 nonempty state나 예상 밖 의존이 있으면 guard 또는 `DROP ... RESTRICT`로 중단한다. 상세 schema 계약은 [data-model canon](../data/data-model-canon.md#2026-10-13-legacy-fc-signup-rpc-retirement-local-verified-not-yet-applied)을 따른다. 이 준비 기록은 새 운영 적용이나 앱 설치 채택을 뜻하지 않는다.
+레거시 proof RPC 4개를 퇴역하는 `20261013113212_retire_legacy_fc_signup_rpcs.sql`은 2026-10-13에 clean source `3b546af`에서 운영 적용을 완료했고 post-catalog의 retired RPC는 0개다. 현재 앱/Edge는 completion capability 계약을 사용한다. 적용 전 모든 활성 Edge 55개의 457개 source 파일 참조와 catalog/cron 의존·legacy challenge/proof 상태가 각각 0인지 확인했다. forward migration은 기존 이력·컬럼을 유지하며 nonempty state나 예상 밖 의존이 있으면 guard 또는 `DROP ... RESTRICT`로 중단한다. 상세 schema 계약은 [data-model canon](../data/data-model-canon.md#2026-10-13-legacy-fc-signup-rpc-retirement-applied)을 따른다. DB 적용 완료는 앱 설치 채택이나 실제 단말 SMS 수신을 뜻하지 않는다.
 
 ## 2026-10-11 공통 회원과 보험 업무 권한
 

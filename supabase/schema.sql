@@ -18263,7 +18263,7 @@ alter table public.fc_profiles
 alter table public.fc_profiles
   validate constraint fc_profiles_status_check;
 
--- Migration: retire legacy FC signup RPCs (20261013112611).
+-- Migration: retire legacy FC signup RPCs (20261013113212).
 -- Current canonical Edge source closures use the FC completion-capability
 -- lifecycle. Preserve applied history and data columns while retiring the
 -- unused parallel proof protocol. RESTRICT preserves unexpected dependents.

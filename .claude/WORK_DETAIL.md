@@ -8,7 +8,7 @@
 - Supabase plugin의 운영 migration list와 statement hash를 읽어 12개 SQL을 CR/LF·양끝 공백만 정규화한 MD5로 대조했다. SQL 12/12가 동일하여 파일명·schema marker·기존 fixture 참조만 실제 운영 timestamp로 맞춘다. 원격 이력 repair/revert나 SQL 재적용은 하지 않는다. 기존 `4586194`의 reconciliation 방식을 따른다.
 - main 및 4.2.17/4.2.18 clean lane에서 필요한 로그·코드만 수정하고 primary의 dirty `.claude` 파일을 건드리지 않는다. focused tests, cumulative governance, `db push --dry-run --skip-vault`, 최종 exact clean source와 외부 성공 여부는 canonical harness의 QA/handoff에 기록한다. 관측·전용 단말·인증 운영자 화면 gate는 게시/readback과 구분한다.
 
-- 새 `20261013112611_retire_legacy_fc_signup_rpcs.sql`은 legacy 가입 RPC 4개의 정확한 signature만 `DROP ... RESTRICT`로 제거하는 forward migration이다. 기존 적용 SQL·컬럼은 유지한다. read-only catalog/cron 의존·legacy challenge/proof 상태 0과 모든 활성 Edge 55개의 457개 source 참조 0을 확인했다. closest capability fixture의 historical/current/retirement·nonempty-state·dependency guard 검증은 완료했다. 현재 원격 적용 전이며 root의 clean commit→실제 적용→catalog post-probe 영수증 전에는 운영 퇴역을 주장하지 않는다.
+- 새 `20261013113212_retire_legacy_fc_signup_rpcs.sql`은 legacy 가입 RPC 4개의 정확한 signature만 `DROP ... RESTRICT`로 제거하는 forward migration이다. 기존 적용 SQL·컬럼은 유지한다. read-only catalog/cron 의존·legacy challenge/proof 상태 0과 모든 활성 Edge 55개의 457개 source 참조 0을 확인했다. closest capability fixture의 historical/current/retirement·nonempty-state·dependency guard 검증 후 clean commit `3b546af03750f6db5810be37c0edc93a0f4a4e1c`에서 운영 적용했다. Supabase의 반환 history version은 `20261013113212`, 적용 후 catalog의 retired RPC는 0개다. 로컬 이름·marker·fixture 참조만 이력에 맞추고 SQL body는 변경하지 않았다. 실제 적용 영수증과 모바일·SMS acceptance는 canonical QA/handoff가 구분한다.
 
 <a id="20261011-hospital-home-visual"></a>
 ## 2026-10-11 제휴병원 홈 시각 개선
