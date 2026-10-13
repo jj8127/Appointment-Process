@@ -7,15 +7,27 @@ import test from 'node:test';
 const require = createRequire(import.meta.url);
 const { PGlite } = require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
 const migration = await readFile(
-  new URL('../migrations/20261013024349_fc_signup_completion_capability_v1.sql', import.meta.url),
+  new URL('../migrations/20261013094535_fc_signup_completion_capability_v1.sql', import.meta.url),
   'utf8',
 );
 const cleanupMigration = await readFile(
-  new URL('../migrations/20261013035452_cleanup_fc_signup_completion_challenges.sql', import.meta.url),
+  new URL('../migrations/20261013094537_cleanup_fc_signup_completion_challenges.sql', import.meta.url),
   'utf8',
 );
 const atomicIssueMigration = await readFile(
-  new URL('../migrations/20261013041530_atomic_fc_signup_otp_issue.sql', import.meta.url),
+  new URL('../migrations/20261013094541_atomic_fc_signup_otp_issue.sql', import.meta.url),
+  'utf8',
+);
+const historicalOnboardingMigration = await readFile(
+  new URL('../migrations/20261013090025_atomic_onboarding_writes.sql', import.meta.url),
+  'utf8',
+);
+const historicalSignupMigration = await readFile(
+  new URL('../migrations/20261013090028_atomic_signup_otp_challenges.sql', import.meta.url),
+  'utf8',
+);
+const retirementMigration = await readFile(
+  new URL('../migrations/20261013112611_retire_legacy_fc_signup_rpcs.sql', import.meta.url),
   'utf8',
 );
 
@@ -139,7 +151,8 @@ create table public.fc_identity_secure (
   id uuid primary key default gen_random_uuid(),
   fc_id uuid not null unique references public.fc_profiles(id) on delete cascade,
   resident_number_encrypted text not null,
-  address_encrypted text not null
+  address_encrypted text not null,
+  address_detail_encrypted text
 );
 
 create table public.profiles (
@@ -226,9 +239,12 @@ async function fixture() {
   const db = new PGlite();
   try {
     await db.exec(fixtureSql);
+    await db.exec(historicalOnboardingMigration);
+    await db.exec(historicalSignupMigration);
     await db.exec(migration);
     await db.exec(cleanupMigration);
     await db.exec(atomicIssueMigration);
+    await db.exec(retirementMigration);
     return db;
   } catch (error) {
     await db.close();
@@ -1087,6 +1103,64 @@ test('FC OTP issuance and delivery finalization RPCs are service-role-only invok
   }
 });
 
+test('retiring the parallel signup proof RPCs preserves the current capability and identity lifecycle', async () => {
+  const db = await fixture();
+  try {
+    const retired = [
+      'issue_signup_otp_challenge_v1(uuid,text,uuid,text)',
+      'process_signup_otp_challenge_v1(text,uuid,text,text,boolean)',
+      'validate_signup_verification_proof_v1(text,text)',
+      'complete_fc_signup_atomic_v1(uuid,text,text,text,text,text,text,text,text,text[],uuid,uuid,text)',
+    ];
+    for (const signature of retired) {
+      assert.equal((await db.query('select to_regprocedure($1) fn', ['public.' + signature])).rows[0].fn, null);
+    }
+    await db.exec(retirementMigration);
+    await seedTarget(db);
+    await seedInviter(db);
+    assert.equal((await issueSignupOtp(db, PHONE)).ok, true);
+    assert.equal((await verify(db, PHONE, PROOF_A, false, OTP_HASH_A)).ok, true);
+    assert.equal((await complete(db)).ok, true);
+    const identity = await rpc(
+      db,
+      'select public.store_fc_identity_atomic_v1($1,$2,$3,$4,$5,$6,$7,$8,$9) result',
+      [TARGET_ID, PHONE, 'encrypted-resident-material', '900101-*******', PASSWORD_HASH,
+        'synthetic address', null, 'encrypted-address-material', null],
+    );
+    assert.deepEqual(identity, { ok: true, fcId: TARGET_ID, residentId: PHONE, identityCompleted: true });
+    assert.equal((await db.query(
+      'select identity_completed from fc_profiles where id=$1', [TARGET_ID],
+    )).rows[0].identity_completed, true);
+  } finally {
+    await db.close();
+  }
+});
+
+test('retirement refuses legacy proof state and unexpected dependents without cascading data changes', async () => {
+  const db = await fixture();
+  try {
+    await seedTarget(db);
+    await db.query('update fc_profiles set signup_verification_proof_hash=$1 where id=$2', [PASSWORD_HASH, TARGET_ID]);
+    await assert.rejects(db.exec(retirementMigration), /legacy_fc_signup_state_not_empty/);
+    assert.equal((await db.query(
+      'select signup_verification_proof_hash from fc_profiles where id=$1', [TARGET_ID],
+    )).rows[0].signup_verification_proof_hash, PASSWORD_HASH);
+    await db.query('update fc_profiles set signup_verification_proof_hash=null where id=$1', [TARGET_ID]);
+    await db.exec(historicalSignupMigration);
+    await db.exec(`create view retired_rpc_dependent as
+      select public.validate_signup_verification_proof_v1('synthetic-phone','synthetic-proof') receipt`);
+    await assert.rejects(db.exec(retirementMigration), /depend/);
+    assert.notEqual((await db.query(
+      "select to_regprocedure('public.issue_signup_otp_challenge_v1(uuid,text,uuid,text)') fn",
+    )).rows[0].fn, null);
+    assert.notEqual((await db.query(
+      "select to_regclass('public.retired_rpc_dependent') relation",
+    )).rows[0].relation, null);
+  } finally {
+    await db.close();
+  }
+});
+
 test('canonical schema mirror contains the exact additive migration', async () => {
   const schema = (
     await readFile(new URL('../schema.sql', import.meta.url), 'utf8')
@@ -1094,17 +1168,17 @@ test('canonical schema mirror contains the exact additive migration', async () =
   const normalizedMigration = migration.replaceAll('\r\n', '\n');
   assert.ok(
     schema.includes(
-      `-- Migration: FC signup completion capability v1 (20261013024349).\n${normalizedMigration}`,
+      `-- Migration: FC signup completion capability v1 (20261013094535).\n${normalizedMigration}`,
     ),
   );
   assert.ok(
     schema.includes(
-      `-- Migration: FC signup completion challenge expiry cleanup (20261013035452).\n${cleanupMigration.replaceAll('\r\n', '\n')}`,
+      `-- Migration: FC signup completion challenge expiry cleanup (20261013094537).\n${cleanupMigration.replaceAll('\r\n', '\n')}`,
     ),
   );
   assert.ok(
     schema.includes(
-      `-- Migration: atomic FC signup OTP issuance (20261013041530).\n${atomicIssueMigration.replaceAll('\r\n', '\n')}`,
+      `-- Migration: atomic FC signup OTP issuance (20261013094541).\n${atomicIssueMigration.replaceAll('\r\n', '\n')}`,
     ),
   );
 });

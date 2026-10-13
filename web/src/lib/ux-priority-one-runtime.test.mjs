@@ -1336,29 +1336,6 @@ test('W06/D07: navigation follows timestamp/id order across tied timestamps and 
   }
 });
 
-test('D06: real admin chat list query rejects malformed HTTP 200 rather than inventing an empty list', async () => {
-  const file = syntax('app/dashboard/chat/page.tsx'); let callback;
-  function visit(node) {
-    if (ts.isCallExpression(node) && node.expression.getText(file) === 'useQuery') {
-      const options = node.arguments[0];
-      if (ts.isObjectLiteralExpression(options) && options.getText(file).includes("'admin-chat-list'")) {
-        callback = options.properties.find((property) => property.name?.getText(file) === 'queryFn').initializer;
-      }
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(file); assert.ok(callback);
-  let payload = { ok: true };
-  const read = execute(callback.getText(file), {
-    QueryReadError,
-    isChatPreview: () => true,
-    fetch: async () => ({ ok: true, json: async () => payload }),
-  });
-  await assert.rejects(read(), /자료를 불러오지 못했습니다/);
-  payload = []; assert.equal((await read()).length, 0);
-});
-
-
 test('existing board attachment deletion updates the list and frees capacity only after confirmation', async () => {
   let existing = [{ id: 'one', fileName: 'synthetic.txt' }, { id: 'two', fileName: 'other.txt' }];
   let writes = 0; let accepted = false; const invalidated = [];

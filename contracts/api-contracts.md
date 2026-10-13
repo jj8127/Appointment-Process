@@ -169,30 +169,42 @@ OTP 검증
 ## 2. 신원 확인 API
 
 ### 2.1 store-identity
-주민번호/주소 암호화 저장
+서명된 FC 세션으로 본인의 주민번호/주소를 암호화 저장합니다.
+
+**Headers**
+- Supabase JWT `Authorization`과 `apikey`
+- `x-app-session-token`: 현재 FC의 서명된 앱 세션 토큰
+- 본문의 전화번호는 권한 근거가 아니며, 세션에 묶인 FC와 같아야 합니다.
 
 **Request**
 ```typescript
 {
-  phone: string;
-  residentNumber: string;  // 주민번호 (평문)
+  residentId: string;      // FC 휴대폰 번호(숫자)
+  residentFront?: string;  // 주민번호/외국인등록번호 앞 6자리
+  residentBack?: string;   // 뒤 7자리
   address: string;
-  addressDetail?: string;
+  addressDetail?: string | null;
 }
 ```
 
 **Response**
 ```typescript
 {
-  ok: boolean;
-  message?: string;
+  ok: true;
+  residentId: string;      // 요청과 같은 정규화된 FC 휴대폰 번호
+  identityCompleted: true;
 }
 ```
+
+- 주민번호 입력 시 앞/뒤 값을 모두 보냅니다. 이미 신원 저장을 완료한 FC는 두 값을 생략하고 주소만 수정할 수 있습니다.
+- 잘못되거나 만료된 세션은 401, 다른 역할·FC는 403으로 거절합니다. 앱은 재로그인을 안내합니다.
+- 클라이언트는 요청의 `residentId`와 위 완료 영수증을 확인한 뒤 다음 단계로 이동합니다.
 
 **보안 노트**
 - 주민번호는 서버에서 즉시 암호화
 - 클라이언트에서 암호화 시도 금지
 - 로그에 평문 출력 금지
+- 서버 오류나 인증 실패를 주민번호 오류로 바꾸거나 공급자 원문을 표시하지 않습니다.
 
 ---
 

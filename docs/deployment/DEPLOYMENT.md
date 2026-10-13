@@ -215,6 +215,17 @@ Messenger V2와 개인별 총무/개발자 대화의 canonical rollout 순서는
 
 각 단계의 원격 작업은 clean committed source, exact commit 기록, 명시적 승인, 비식별 영수증을 요구합니다. 순서를 건너뛰거나 staging/폐기 가능 환경이 없으면 결론은 `HOLD`입니다.
 
+#### 이미 전환된 인증의 복구 OTA
+
+이미 운영 중인 capability·signed-session 계약에서 클라이언트 결함을 고치는 경우, 현재 Edge bundle SHA와 RPC/ACL을 먼저 대조합니다. 서버 인증 계약과 DB 쓰기 경계를 바꾸지 않는 복구 OTA는 확인된 계약에 맞춘 caller 수정으로 취급하며, 새 strict 전환이나 취약한 legacy rollback으로 취급하지 않습니다.
+
+- 수정된 앱의 실제 SecureStore SDK key 검증, 인증 status별 복구, request-bound 완료 영수증을 가장 가까운 기존 테스트에서 확인합니다.
+- `eas.json` production profile의 공개 환경변수와 EAS production 환경을 합쳐, pinned EAS Build와 같이 profile 값이 우선하도록 export합니다. ambient 공개 변수·로컬 `.env`는 배포 설정을 덮어쓰지 못하게 합니다.
+- Sentry DSN 존재와 runtime별 hospital demo 설정을 값 노출 없이 검사하고 helper SHA·환경 검사 결과를 export 영수증에 보관합니다. 업로드 토큰은 제거합니다.
+- runtime별 clean commit에서 Android/iOS bundle을 새 경로에 export하고, 파일 해시와 production channel의 group/runtime/commit을 게시 전후 대조합니다.
+- 실제 단말 OTP 수신·완료와 앱 채택/관측은 별도 acceptance로 남깁니다. OTA 게시 성공이나 local fixture 성공을 실단말 PASS로 표현하지 않습니다.
+- 다음 최초 strict 전환에는 위 4.4의 단말·채택·signed caller gate를 그대로 적용합니다. 현 계약 복구는 그 gate를 제거할 근거가 아닙니다.
+
 ## 5. Lane별 체크리스트
 
 ### Expo static web

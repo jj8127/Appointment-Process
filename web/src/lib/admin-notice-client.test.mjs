@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 import { QueryReadError } from './query-read-error.ts';
+import { isHttpsResponseUrl, requireMutationSuccess } from './user-intent-policy.ts';
 
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
@@ -20,21 +21,7 @@ function loadClient(fetchImpl) {
     fetch: fetchImpl,
     require: (id) => {
       if (id === '@/lib/query-read-error') return { QueryReadError };
-      if (id === '@/lib/user-intent-policy') return {
-        isHttpsResponseUrl(value) {
-          if (typeof value !== 'string' || value.trim().length === 0) return false;
-          try {
-            const parsed = new URL(value);
-            return parsed.protocol === 'https:' && !parsed.username && !parsed.password;
-          } catch {
-            return false;
-          }
-        },
-        requireMutationSuccess(value) {
-          if (!value || typeof value !== 'object' || value.ok !== true) throw new Error('mutation_failed');
-          return value;
-        },
-      };
+      if (id === '@/lib/user-intent-policy') return { isHttpsResponseUrl, requireMutationSuccess };
       throw new Error(`Unexpected notice client dependency ${id}`);
     },
   });

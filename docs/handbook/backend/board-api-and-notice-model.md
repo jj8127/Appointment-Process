@@ -9,6 +9,12 @@ contract_guard_2026_07_03: mobile board/notice screens, admin board/notification
 
 # Backend Runbook: Board API And Notice Model
 
+## 2026-10-13 필수 조회와 저장 receipt
+
+Board/공지/댓글/첨부의 필수 쿼리는 query-result와 board-read contract로 결과 배열·행·count를 검증한다. DB 오류, 잘못된 행, 빠진 필수 관계를 빈 성공 응답으로 바꾸지 않는다. 모든 페이지를 확인하지 못한 목록·수신자 계산은 완료로 표시하지 않는다. 정상 GET 배열에 mutation의 `ok: true` 검사를 적용하지 않는다.
+
+저장·삭제는 각각의 명시적 receipt로 성공을 확인하고, 저장 후 첨부·알림의 일부 실패는 이미 성공한 원래 저장을 재실행하지 않는 복구 경로로 처리한다. signed actor/role과 service-only RPC 경계는 유지한다. 기존 `board-read-contract_test.ts`, `board-detail-query-contract.test.node.ts`, `board-mutation-receipts.test.node.ts`, web board-read runtime suite가 읽기·저장·후속 실패를 나누어 검증한다.
+
 ## 2026-10-06 게시판 이전 글 조회 (로컬 수정)
 
 - 모바일 일반/관리자 게시판과 관리자 웹은 첫 목록만 표시하지 않고 `nextCursor`를 이어 조회한다. 카테고리·검색·정렬·계정별 목록을 분리하고, 추가 조회 실패 시 이미 읽은 글과 재시도 동선을 유지한다. 반복 반환되는 고정글은 ID로 합친다.

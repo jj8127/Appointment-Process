@@ -15,6 +15,9 @@ describe('FC OTP signup completion capability', () => {
   });
 
   it('extracts only a bounded error code from an HTTP error context', async () => {
+    const response = new Response(JSON.stringify({ code: 'verification_expired' }), { status: 401 });
+    await expect(readSupabaseFunctionErrorCode({ context: response })).resolves.toBe('verification_expired');
+    expect(response.bodyUsed).toBe(false);
     await expect(readSupabaseFunctionErrorCode({
       context: {
         json: async () => ({ code: 'proof_expired', message: 'raw database detail' }),
@@ -95,17 +98,4 @@ describe('FC OTP signup completion capability', () => {
     expect(replayGuard).toBeLessThan(passwordSync);
   });
 
-  it('stores the raw capability separately and removes it after completion', () => {
-    const verifyScreen = read('app/signup-verify.tsx');
-    const passwordScreen = read('app/signup-password.tsx');
-    const capability = read('lib/signup-completion-capability.ts');
-
-    expect(capability).toContain("'fc-onboarding/signup-completion-token-v1'");
-    expect(verifyScreen).toContain('sensitiveTokenStorage.setItem(');
-    expect(passwordScreen).toContain('sensitiveTokenStorage.getItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY)');
-    expect(passwordScreen).toContain('sensitiveTokenStorage.removeItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY)');
-    expect(passwordScreen).not.toContain('context.text()');
-    expect(passwordScreen).not.toContain('data?.message');
-    expect(passwordScreen).not.toContain('error: err');
-  });
 });

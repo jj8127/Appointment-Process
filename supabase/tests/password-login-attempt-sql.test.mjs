@@ -8,7 +8,7 @@ const { PGlite } = createRequire(import.meta.url)(
   process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite',
 );
 const migration = await readFile(
-  new URL('../migrations/20261013063142_atomic_password_login_attempts.sql', import.meta.url),
+  new URL('../migrations/20261013090029_atomic_password_login_attempts.sql', import.meta.url),
   'utf8',
 );
 const schema = await readFile(new URL('../schema.sql', import.meta.url), 'utf8');

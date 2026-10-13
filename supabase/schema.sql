@@ -14766,7 +14766,7 @@ end; $$;
 revoke all on function public.create_notice_idempotent_v1(text,text,uuid,jsonb) from public,anon,authenticated;
 grant execute on function public.create_notice_idempotent_v1(text,text,uuid,jsonb) to service_role;
 
--- 20261009163349_ux_notice_idempotent_actor.sql
+-- 20261013093016_ux_notice_idempotent_actor.sql
 -- Preserve verified authorship when the admin UI uses the existing atomic
 -- notice creation RPC. Existing receipts and the result shape remain intact.
 set local lock_timeout = '3s';
@@ -15653,7 +15653,7 @@ create extension if not exists pg_cron with schema pg_catalog;
 select cron.schedule('platform-auth-challenge-cleanup','*/5 * * * *',
   'select public.cleanup_platform_auth_challenges();');
 
--- 20261013023543_moduon_signup_sms_delivery_state.sql
+-- 20261013094533_moduon_signup_sms_delivery_state.sql
 -- Track provider acceptance without retaining phone numbers or message bodies.
 -- The transient challenge owns the only link between a phone and an attempt.
 set local lock_timeout = '3s';
@@ -15922,7 +15922,7 @@ $$;
 revoke all on function public.cleanup_platform_auth_challenges() from public,anon,authenticated;
 grant execute on function public.cleanup_platform_auth_challenges() to service_role;
 
--- Migration: FC signup completion capability v1 (20261013024349).
+-- Migration: FC signup completion capability v1 (20261013094535).
 -- Bind legacy FC signup completion to a short-lived OTP capability and commit
 -- profile, referral and credential state in one database transaction.
 set local lock_timeout = '3s';
@@ -16458,7 +16458,7 @@ comment on function public.complete_fc_otp_signup_v1(
 ) is
   'Atomically consumes an OTP capability and commits FC profile, referral and credential state.';
 
--- Migration: FC signup completion challenge expiry cleanup (20261013035452).
+-- Migration: FC signup completion challenge expiry cleanup (20261013094537).
 -- Purge expired FC signup completion capabilities, including consumed rows
 -- whose result payload contains short-lived signup response data. The existing
 -- platform-auth-challenge-cleanup cron job calls this stable function name.
@@ -16483,7 +16483,7 @@ $$;
 revoke all on function public.cleanup_platform_auth_challenges() from public,anon,authenticated;
 grant execute on function public.cleanup_platform_auth_challenges() to service_role;
 
--- Migration: extended SMS delivery tracking (20261013040341).
+-- Migration: extended SMS delivery tracking (20261013094539).
 -- Reuse the privacy-safe SMS delivery ledger for FC signup and password
 -- recovery. The ledger stores provider metadata only: never a phone number,
 -- OTP, or message body.
@@ -16587,7 +16587,7 @@ revoke all on function public.finalize_platform_sms_delivery_attempt(uuid,text,t
 grant execute on function public.finalize_platform_sms_delivery_attempt(uuid,text,text,text,text,text)
   to service_role;
 
--- Migration: atomic FC signup OTP issuance (20261013041530).
+-- Migration: atomic FC signup OTP issuance (20261013094541).
 -- Serialize FC signup OTP issuance with verification and completion. The
 -- challenge, its privacy-safe delivery attempt, and partial-signup cleanup
 -- are committed together before an SMS can be sent.
@@ -16971,7 +16971,7 @@ comment on function public.issue_fc_signup_otp_v1(text, text) is
 comment on function public.finalize_fc_signup_otp_delivery_v1(text, uuid, text, text, text, text) is
   'Finalizes one FC signup SMS attempt and compensates only the currently owned rejected challenge.';
 
--- 20261013042114_fc_password_sync_generation_results.sql
+-- 20261013094543_fc_password_sync_generation_results.sql
 -- Return the credential generation from the same database transaction that
 -- changes the password. A follow-up SELECT in an Edge function can race with a
 -- second password change and pair the wrong generation with plaintext.
@@ -17090,7 +17090,7 @@ comment on function public.process_password_reset_challenge_v2(
 ) is
   'Processes a password-reset challenge and, for successful FC consumption, returns the resulting credential sessionVersion from the same transaction.';
 
--- 20261013060002_filter_account_delete_legacy_chat_paths.sql
+-- 20261013090024_filter_account_delete_legacy_chat_paths.sql
 -- Keep the account-deletion cleanup receipt limited to legacy direct-message
 -- URLs. Private messenger v2 attachment paths are queued by
 -- queue_messenger_attachment_actor_cleanup_v2 before the account row is deleted.
@@ -17338,7 +17338,7 @@ grant execute on function public.delete_account_core_transaction_v1(
   text, uuid
 ) to service_role;
 
--- 20261013063140_atomic_onboarding_writes.sql
+-- 20261013090025_atomic_onboarding_writes.sql
 -- Keep the final multi-table onboarding writes inside one PostgreSQL transaction.
 -- Edge Functions encrypt/hash identity material before calling these RPCs; neither
 -- function accepts or returns a raw resident registration number or password.
@@ -17586,7 +17586,7 @@ grant execute on function public.complete_fc_signup_atomic_v1(uuid, text, text, 
 comment on function public.complete_fc_signup_atomic_v1(uuid, text, text, text)
   is 'Atomically completes a phone-verified FC profile and stores its derived password credential. Execute is service_role only.';
 
--- 20261013063141_atomic_signup_otp_challenges.sql
+-- 20261013090028_atomic_signup_otp_challenges.sql
 -- Own signup OTP issuance, guessing, verification, reset, and proof
 -- consumption under the FC profile row lock. Only service-role Edge
 -- functions may call these boundaries.
@@ -18101,7 +18101,7 @@ comment on function public.complete_fc_signup_atomic_v1(
 )
   is 'Atomically consumes a phone/profile-bound signup proof while storing the profile, referral, credentials, and completed signup. Service role only.';
 
--- 20261013063142_atomic_password_login_attempts.sql
+-- 20261013090029_atomic_password_login_attempts.sql
 -- Serialize password comparison and failure counters on the credential row.
 -- The Edge function derives the candidate PBKDF2 hash; this function compares
 -- it with the current hash after locking, then records the outcome atomically.
@@ -18229,7 +18229,7 @@ grant execute on function public.process_password_login_attempt_v1(text, uuid, t
 comment on function public.process_password_login_attempt_v1(text, uuid, text, text)
   is 'Atomically compares a derived password hash and records login failure/lock state. Execute is service_role only.';
 
--- 20261013063143_enforce_fc_profile_status_contract.sql
+-- 20261013090030_enforce_fc_profile_status_contract.sql
 -- Keep database writes aligned with the shared FC workflow status contract.
 -- The production preflight for this release confirmed that all existing rows
 -- already use one of these values, so validation does not rewrite profile data.
@@ -18262,3 +18262,29 @@ alter table public.fc_profiles
 
 alter table public.fc_profiles
   validate constraint fc_profiles_status_check;
+
+-- Migration: retire legacy FC signup RPCs (20261013112611).
+-- Current canonical Edge source closures use the FC completion-capability
+-- lifecycle. Preserve applied history and data columns while retiring the
+-- unused parallel proof protocol. RESTRICT preserves unexpected dependents.
+set local lock_timeout = '3s';
+set local statement_timeout = '30s';
+
+do $$
+begin
+  if exists (
+    select 1 from public.fc_profiles
+    where phone_verification_challenge_id is not null
+      or signup_verification_proof_hash is not null
+  ) then
+    raise exception 'legacy_fc_signup_state_not_empty';
+  end if;
+end;
+$$;
+
+drop function if exists public.issue_signup_otp_challenge_v1(uuid, text, uuid, text) restrict;
+drop function if exists public.process_signup_otp_challenge_v1(text, uuid, text, text, boolean) restrict;
+drop function if exists public.validate_signup_verification_proof_v1(text, text) restrict;
+drop function if exists public.complete_fc_signup_atomic_v1(
+  uuid, text, text, text, text, text, text, text, text, text[], uuid, uuid, text
+) restrict;

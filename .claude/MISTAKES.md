@@ -1,5 +1,15 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-13 mocked storage로 native key 제한을 놓침
+
+- 재현: 가입 completion capability의 저장 key에 native SecureStore가 허용하지 않는 문자를 사용했지만 임의 문자열을 받는 mock에서는 저장 성공으로 보였다. OTP 성공 뒤 실제 native 저장 단계가 실패할 수 있다.
+- 규칙: 기존 민감 저장소와 native 허용 문자 규칙을 먼저 확인한다. key를 만들기 전에 재사용 가능한 기존 key를 찾고 Android/iOS API 제한을 closest suite에서 검증한다. mocked SDK 성공·Hermes export만으로 실기기 저장을 검증했다고 기록하지 않는다.
+
+## 2026-10-13 OTA 환경을 native production profile과 다르게 구성함
+
+- 재현: EAS production 환경 목록만 OTA export에 반영하고 `eas.json` production profile의 public 설정을 빠뜨려 같은 runtime의 native build와 JavaScript 기능 설정이 달라졌다.
+- 규칙: 기존 release helper에서 profile·production 환경·허용한 override의 우선순위를 명시하고 native 입력과 OTA public 설정을 대조한다. 공개 변수만 bundler에 전달하며 민감 token은 제외한다. exact source와 export hash 검증이 환경 동등성이나 설치 채택을 대신하지 않는다.
+
 ## 2026-10-12 native 목록 속성이 웹에서도 같은 동작이라고 가정함
 
 - 재현: 단체 채팅의 inverted FlatList와 RefreshControl 조합에서 RN Web이 목록 transform을 새로고침 wrapper에도 복사해 메시지를 세 번 반전했다. 같은 라이브러리의 개인/의뢰 목록은 두 번 반전되어 정상이다.

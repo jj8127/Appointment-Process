@@ -7,6 +7,12 @@ source_of_truth: web/src/app/dashboard/notifications/* + web/src/app/dashboard/b
 
 # Admin Web Playbook: Notice, Board, Chat
 
+## 2026-10-13 조회·권한·후속 저장 결과
+
+관리자 공지·채팅·추천인 선택은 실패와 실제 빈 결과를 구분한다. 대상·메시지·첨부 요약의 여러 페이지를 끝까지 확인하고 잘못된 count/행/receipt를 성공으로 받아들이지 않는다. 같은 세션의 갱신 실패에는 기존 자료와 재시도를 유지하며 변경된 세션·대화에는 늦은 응답을 적용하지 않는다. manager의 읽기/본인 공지 권한은 서버에서 다시 확인한다.
+
+공지 저장 후 첨부·알림 일부 실패는 저장된 ID와 같은 요청으로 복구하며 원래 공지를 중복 생성하지 않는다. 기존 `admin-chat-list-runtime.test.mjs`, `admin-notice-client.test.mjs`, `chat-session-runtime.test.mjs`, board-read runtime suite가 관측 가능한 응답·권한·저장 결과를 검증한다. unauthenticated route smoke와 빌드는 실제 운영자 세션의 화면 검증을 대신하지 않는다.
+
 ## 2026-10-12 아이콘 조작 기준
 
 기존 Tabler·Mantine ActionIcon을 재사용한다. SVG 자체의 클릭 처리는 이름 있는 버튼으로 옮기며 키보드로도 실행할 수 있어야 한다. 작은 그림을 유지하면서 일반 조작 영역은28px, 모바일 폭에서는44px를 확보한다. 반응 버튼은 반응명과 선택 상태를 전달한다. 저장·수정은 공통 강조색, 삭제·경고·완료는 기존 의미 색을 유지한다. 첨부 파일은 file-text, 대기는 clock이며 같은 역할의 조작·지표는 stroke2를 사용한다. 확장된 버튼이 입력창을 밀지 않도록320px에서도 직접 확인한다. 실제 UI 검증은 기존 합성 fixture를 재사용하며 운영 데이터의 전송·저장 결과를 대신하지 않는다.

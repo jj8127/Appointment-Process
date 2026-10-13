@@ -1,6 +1,13 @@
 # 작업 로그
 
+## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
+
+통합 릴리스의 필수 governance 누락을 가장 가까운 owner map·handbook과 기존 검사에 맞췄다. native 가입 증표 저장 key, 본인정보 timeout, OTA production public 환경과 Node 회귀 발견을 담당자가 기존 코드로 수리한다. 적용된 migration 12개는 운영 이력과 SQL hash를 대조해 body를 유지하고 로컬 이름·schema·fixture 참조만 맞춘다. primary 사용자 로그는 보존하며 실제 수정·검증·배포 상태는 canonical 인증 harness가 관리한다. 이 기록만으로 새 배포나 실제 SMS 수신을 주장하지 않는다. [→ 상세](WORK_DETAIL.md#20261013-cutover-review-repair)
+
+추가로 legacy 가입 RPC 4개의 forward 퇴역 migration `20261013112611`을 준비했다. 활성 Edge 55개/457개 source의 참조, catalog·cron 의존과 legacy 상태는 0이며 guard·RESTRICT 회귀를 로컬 검증했다. 현재는 원격 적용 전이며 실제 적용·post-probe는 canonical QA/handoff의 후속 영수증으로 판정한다.
+
 ## 2026-10-11 제휴병원 홈 시각 개선
+
 
 중복 제목·큰 지역 폼을 줄이고 헤더 지역 선택·한 줄 검색으로 바꿨다. 진료과별 의미가 있는 컬러 SVG와 사진·실제 소개 중심 카드, 간결한 일반 목록을 적용한다. 서로 다른 사진3장은 격리 화면 검증에만 사용하며 앱은 등록된 병원 사진을 표시한다. 기존 검색·지역·복귀·광고 집계와 시험 도구를 유지한다. [→ 상세](WORK_DETAIL.md#20261011-hospital-home-visual)
 

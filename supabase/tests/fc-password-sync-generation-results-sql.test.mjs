@@ -6,7 +6,7 @@ import test from 'node:test';
 const require = createRequire(import.meta.url);
 const { PGlite } = require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
 const migration = await readFile(
-  new URL('../migrations/20261013042114_fc_password_sync_generation_results.sql', import.meta.url),
+  new URL('../migrations/20261013094543_fc_password_sync_generation_results.sql', import.meta.url),
   'utf8',
 );
 const schema = await readFile(new URL('../schema.sql', import.meta.url), 'utf8');

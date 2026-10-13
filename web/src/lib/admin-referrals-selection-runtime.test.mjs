@@ -5,6 +5,8 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 import * as referralTypes from '../types/referrals.ts';
+import * as referralEventQuery from './admin-referral-event-query.ts';
+import * as queryContract from './supabase-query-contract.ts';
 
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
@@ -15,12 +17,31 @@ const ACTOR = {
   actorStaffType: 'admin',
 };
 
-function loadService(rpcData) {
+function loadService(rpcData, queryResult = () => ({ data: [], count: 0, error: null })) {
   const code = ts.transpileModule(serviceSource, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const exports = {};
-  const adminSupabase = { rpc: async () => ({ data: rpcData, error: null }) };
+  const calls = [];
+  const adminSupabase = {
+    rpc: async () => ({ data: rpcData, error: null }),
+    from(table) {
+      const call = { table, filters: [], orders: [] };
+      calls.push(call);
+      const query = {
+        select(columns, options = {}) { Object.assign(call, { columns, options }); return query; },
+        order(column, options) { call.orders.push([column, options]); return query; },
+        range(from, to) { call.range = [from, to]; return query; },
+        limit(value) { call.limit = value; return query; },
+        maybeSingle() { call.single = true; return Promise.resolve(queryResult(call)); },
+        then(resolve, reject) { return Promise.resolve(queryResult(call)).then(resolve, reject); },
+      };
+      for (const method of ['eq', 'neq', 'not', 'like', 'ilike', 'is', 'in', 'or']) {
+        query[method] = (...args) => { call.filters.push([method, ...args]); return query; };
+      }
+      return query;
+    },
+  };
   vm.runInNewContext(code, {
     exports,
     Intl,
@@ -37,16 +58,12 @@ function loadService(rpcData) {
       if (id === '@/lib/recommender-relation-route-handler') {
         return { isManagerShadowRecommenderEligible: () => false, RECOMMENDER_RPC_NOT_READY_MESSAGE: 'not-ready' };
       }
-      if (id === '@/lib/admin-referral-event-query') {
-        return { chunkReferralEventFcIds: () => [], mergeReferralEventChunks: () => [] };
-      }
-      if (id === '@/lib/supabase-query-contract') {
-        return { collectSupabaseRows: async () => [] };
-      }
+      if (id === '@/lib/admin-referral-event-query') return referralEventQuery;
+      if (id === '@/lib/supabase-query-contract') return queryContract;
       throw new Error(`Unexpected admin-referrals dependency ${id}`);
     },
   });
-  return exports;
+  return { ...exports, calls };
 }
 
 test('recommender selection service accepts only an exact clear receipt', async () => {
@@ -81,8 +98,6 @@ test('referral list, graph, code, and event queries keep bounded database pagina
   ]) {
     assert.match(serviceSource, new RegExp(`queryName: '${queryName}'`));
   }
-  assert.equal((serviceSource.match(/collectSupabaseRows</g) ?? []).length, 10);
-  assert.equal((serviceSource.match(/\.range\(from, to\)/g) ?? []).length, 10);
   assert.match(serviceSource, /'admin_referrals_profile_page'/);
   assert.match(serviceSource, /\.range\(from, from \+ params\.pageSize - 1\)/);
   assert.match(serviceSource, /MAX_ADMIN_SEARCH_CODE_MATCHES \+ 1/);
@@ -98,6 +113,98 @@ test('referral list, graph, code, and event queries keep bounded database pagina
   assert.match(serviceSource, /isRow: isEligibleProfileRow/);
   assert.match(serviceSource, /isRow: isReferralCodeRow/);
   assert.match(serviceSource, /isRow: isReferralEventRow/);
+});
+
+const PROFILES = ['fc-a', 'fc-b', 'fc-c', 'fc-d'].map((id, index) => ({
+  id,
+  name: `Synthetic ${id}`,
+  phone: `0100000010${index}`,
+  affiliation: 'Synthetic affiliation',
+  signup_completed: true,
+  appointment_date_life: null,
+  appointment_date_nonlife: null,
+  life_commission_completed: false,
+  nonlife_commission_completed: false,
+  is_manager_referral_shadow: false,
+}));
+
+function referralReadResult(call) {
+  const response = (data, count = null) => ({ data, count, error: null });
+  if (call.options.head) {
+    if (call.table === 'referral_codes') {
+      const active = call.filters.find(([method, field]) => method === 'eq' && field === 'is_active')[2];
+      return response(null, active ? 6 : 1);
+    }
+    return response(null, call.filters.some(([method]) => method === 'is') ? 0 : 10);
+  }
+  if (call.table === 'admin_accounts') return response([{ id: 'staff-1', phone: ACTOR.actorPhone }]);
+  if (call.table === 'manager_accounts') return response([]);
+  if (call.table === 'fc_profiles') {
+    if (call.single) {
+      const id = call.filters.find(([method, field]) => method === 'eq' && field === 'id')[2];
+      return response(PROFILES.find((profile) => profile.id === id) ?? null);
+    }
+    if (call.options.count === 'exact') {
+      return response(PROFILES.slice(call.range[0], call.range[1] + 1), PROFILES.length);
+    }
+    return response([]);
+  }
+  if (call.table === 'referral_codes') {
+    if (call.columns === 'id,fc_id') return response([{ id: 'code-match', fc_id: 'fc-d' }]);
+    const ids = call.filters.find(([method]) => method === 'in')[2];
+    return response(ids.map((fcId) => ({
+      id: `code-${fcId}`, fc_id: fcId, code: `CODE-${fcId}`, is_active: true,
+      created_at: '2026-10-13T00:00:00Z', disabled_at: null,
+    })));
+  }
+  if (call.table === 'referral_events') return response([]);
+  throw new Error(`Unexpected referral read table ${call.table}`);
+}
+
+test('referral list reads the requested database page with search filters and a global summary', async () => {
+  const service = loadService(null, referralReadResult);
+  const result = JSON.parse(JSON.stringify(await service.getReferralAdminData(
+    { role: 'admin' }, { page: '2', pageSize: '2', search: 'SEARCH', fcId: 'fc-a' },
+  )));
+  assert.deepEqual(result.items.map((item) => [item.fcId, item.activeCode]), [
+    ['fc-c', 'CODE-fc-c'], ['fc-d', 'CODE-fc-d'],
+  ]);
+  assert.equal(result.total, 4);
+  assert.deepEqual(result.summary, {
+    eligibleCount: 10, activeCodeCount: 6, missingCodeCount: 4,
+    disabledCodeCount: 1, unresolvedLegacyCount: 0,
+  });
+  assert.equal(result.detail.fcId, 'fc-a');
+  assert.equal(result.detail.currentCode.code, 'CODE-fc-a');
+  const pageQuery = service.calls.find((call) => call.table === 'fc_profiles'
+    && call.options.count === 'exact' && !call.options.head);
+  assert.deepEqual(pageQuery.range, [2, 3]);
+  assert.deepEqual(JSON.parse(JSON.stringify(pageQuery.orders)), [
+    ['created_at', { ascending: false }], ['id', { ascending: true }],
+  ]);
+  assert.ok(pageQuery.filters.some(([method, field, operator, value]) => method === 'not'
+    && field === 'phone' && operator === 'in' && value === `(${ACTOR.actorPhone})`));
+  const searchFilter = pageQuery.filters.find(([method]) => method === 'or')[1];
+  for (const field of ['name', 'phone', 'affiliation']) assert.ok(searchFilter.includes(`${field}.ilike.\"*SEARCH*\"`));
+  assert.ok(searchFilter.includes('id.in.(fc-d)'));
+  const codeSearch = service.calls.find((call) => call.columns === 'id,fc_id');
+  assert.equal(codeSearch.limit, 101);
+  assert.deepEqual(codeSearch.filters, [['ilike', 'code', '%SEARCH%']]);
+  assert.ok(service.calls.some((call) => call.single
+    && call.filters.some(([method, field, id]) => method === 'eq' && field === 'id' && id === 'fc-a')));
+});
+
+test('referral list rejects unconfirmed page and summary counts instead of inventing totals', async () => {
+  for (const summary of [false, true]) {
+    const service = loadService(null, (call) => {
+      const result = referralReadResult(call);
+      if (call.table === 'fc_profiles' && call.options.count === 'exact'
+        && Boolean(call.options.head) === summary) result.count = null;
+      return result;
+    });
+    await assert.rejects(service.getReferralAdminData({ role: 'admin' }, {}),
+      summary ? /admin_referrals_eligible_count_contract_invalid/ : /admin_referrals_profile_page_contract_invalid/);
+  }
 });
 
 test('recommender selection service rejects empty and mismatched RPC receipts', async () => {

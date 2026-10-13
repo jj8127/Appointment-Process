@@ -9,8 +9,8 @@ const {PGlite}=require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite')
 const migration=await readFile(new URL('../migrations/20261012072525_platform_common_membership.sql',import.meta.url),'utf8');
 const hospitalMigration=await readFile(new URL('../migrations/20261012072611_hospital_directory_ad_performance.sql',import.meta.url),'utf8');
 const recoveryMigration=await readFile(new URL('../migrations/20261012072614_platform_membership_recovery_consent.sql',import.meta.url),'utf8');
-const smsDeliveryMigration=await readFile(new URL('../migrations/20261013023543_moduon_signup_sms_delivery_state.sql',import.meta.url),'utf8');
-const extendedSmsDeliveryMigration=await readFile(new URL('../migrations/20261013040341_extend_sms_delivery_tracking.sql',import.meta.url),'utf8');
+const smsDeliveryMigration=await readFile(new URL('../migrations/20261013094533_moduon_signup_sms_delivery_state.sql',import.meta.url),'utf8');
+const extendedSmsDeliveryMigration=await readFile(new URL('../migrations/20261013094539_extend_sms_delivery_tracking.sql',import.meta.url),'utf8');
 const generations=await readFile(new URL('../migrations/20261004133155_credential_session_generations.sql',import.meta.url),'utf8');
 const admin='90000000-0000-4000-8000-000000000001';
 const hash=Buffer.alloc(32,3).toString('base64'), salt=Buffer.alloc(16,4).toString('base64');
@@ -247,7 +247,7 @@ test('FC signup and password reset share a PII-free, service-only SMS delivery l
   }finally{await db.close();}
 
   const schema=(await readFile(new URL('../schema.sql',import.meta.url),'utf8')).replaceAll('\r\n','\n');
-  assert.ok(schema.includes(`-- Migration: extended SMS delivery tracking (20261013040341).\n${extendedSmsDeliveryMigration.replaceAll('\r\n','\n')}`));
+  assert.ok(schema.includes(`-- Migration: extended SMS delivery tracking (20261013094539).\n${extendedSmsDeliveryMigration.replaceAll('\r\n','\n')}`));
 });
 
 test('one shared referral code spans service interests; snapshots and idempotency survive later graph changes',async()=>{

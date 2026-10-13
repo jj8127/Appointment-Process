@@ -290,6 +290,7 @@
       "prefixes": [
         "supabase/functions/_shared/commission.ts",
         "supabase/functions/admin-action/",
+        "supabase/functions/__tests__/admin-action-appointment-update.contract.test.js",
         "supabase/functions/__tests__/admin-action-fc-self-profile.contract.test.ts",
         "supabase/functions/fc-consent/",
         "supabase/functions/fc-submit-hanwha-commission/",
@@ -460,6 +461,7 @@
         "supabase/functions/_shared/group-chat-data-api-batching.ts",
         "supabase/functions/_shared/__tests__/group-chat-notification-event_test.ts",
         "supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts",
+        "supabase/functions/__tests__/group-chat-query-contract.test.node.ts",
         "supabase/functions/group-chat/"
       ],
       "requires_any": [
@@ -474,6 +476,8 @@
       "prefixes": [
         "supabase/functions/board-",
         "supabase/functions/_shared/board.ts",
+        "supabase/functions/_shared/board-read-contract.ts",
+        "supabase/functions/_shared/__tests__/board-read-contract_test.ts",
         "supabase/functions/_shared/board-actor-policy.ts",
         "supabase/functions/_shared/board-categories.ts",
         "supabase/functions/_shared/board-list-policy.ts",
@@ -493,6 +497,9 @@
       "prefixes": [
         "supabase/functions/_shared/referral-code.ts",
         "supabase/functions/_shared/referral-link.ts",
+        "supabase/functions/_shared/referral-tree-query-contract.ts",
+        "supabase/functions/_shared/__tests__/referral-tree-query-contract_test.ts",
+        "supabase/functions/__tests__/referral-read-query-contract.test.node.ts",
         "supabase/functions/get-my-referral-code/",
         "supabase/functions/get-fc-referral-code/",
         "supabase/functions/get-my-invitees/",
@@ -547,6 +554,8 @@
       "prefixes": [
         "supabase/functions/docs-deadline-reminder/",
         "supabase/functions/user-presence/",
+        "supabase/functions/_shared/presence-query-contract.ts",
+        "supabase/functions/_shared/__tests__/presence-query-contract_test.ts",
         "lib/presence.ts",
         "lib/user-presence-api.ts",
         "web/src/app/api/presence/route.ts"
@@ -554,6 +563,18 @@
       "requires_any": [
         "docs/handbook/backend/scheduled-jobs-and-runtime.md",
         "docs/handbook/data/presence-rpc-fallback.md"
+      ]
+    },
+    {
+      "id": "backend-query-results",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/_shared/query-result-contract.ts",
+        "supabase/functions/_shared/__tests__/query-result-contract_test.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/data/data-model-canon.md",
+        "docs/handbook/backend/admin-operations-api.md"
       ]
     },
     {

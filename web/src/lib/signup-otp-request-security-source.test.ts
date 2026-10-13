@@ -27,7 +27,7 @@ const signupSmsSource = readFileSync(
 const atomicIssueMigrationSource = readFileSync(
   fileURLToPath(
     new URL(
-      '../../../supabase/migrations/20261013041530_atomic_fc_signup_otp_issue.sql',
+      '../../../supabase/migrations/20261013094541_atomic_fc_signup_otp_issue.sql',
       import.meta.url,
     ),
   ),

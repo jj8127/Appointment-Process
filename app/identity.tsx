@@ -21,7 +21,6 @@ import {
 } from '@/lib/notification-open-authorization';
 import { markNotificationNavigationIdle } from '@/lib/notification-navigation-coordinator';
 import { clearPendingNotificationNavigation } from '@/lib/pending-notification-navigation';
-import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TOUCH_TARGET, TYPOGRAPHY } from '@/lib/theme';
 import { invokeStoreIdentity } from '@/lib/store-identity-api';
 import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, requireStoreIdentityReceipt, toResidentInputAlertMessage } from '@/lib/store-identity-error';

@@ -12,16 +12,6 @@ export type AdminChatConversationSummary = {
   unread_count: number;
 };
 
-export type AdminChatMessageSummaryRow = {
-  id: string;
-  sender_id: string;
-  receiver_id: string;
-  content: string;
-  created_at: string;
-  is_read: boolean;
-  attachment_count?: number;
-};
-
 export type AdminChatConversationRow = {
   id: string;
   fc_id: string;
@@ -69,19 +59,6 @@ export function isAdminChatSourceRow(value: unknown): value is AdminChatSourceRo
     && (typeof value.affiliation === 'string' || value.affiliation === null);
 }
 
-export function isAdminChatMessageSummaryRow(
-  value: unknown,
-): value is AdminChatMessageSummaryRow {
-  if (!isRecord(value)) return false;
-  return isNonEmptyString(value.id)
-    && isNonEmptyString(value.sender_id)
-    && isNonEmptyString(value.receiver_id)
-    && typeof value.content === 'string'
-    && isTimestamp(value.created_at)
-    && typeof value.is_read === 'boolean'
-    && (value.attachment_count === undefined || isNonNegativeInteger(value.attachment_count));
-}
-
 export function isAdminChatConversationRow(value: unknown): value is AdminChatConversationRow {
   return isRecord(value)
     && isNonEmptyString(value.id)
@@ -105,79 +82,6 @@ function requireSummary(
     throw new Error('admin_chat_summary_contract_invalid');
   }
   return value;
-}
-
-export function buildAdminChatConversationSummaries(input: {
-  viewerId: string;
-  counterpartPhones: string[];
-  messages: AdminChatMessageSummaryRow[];
-}): Record<string, AdminChatConversationSummary> {
-  const viewerId = input.viewerId.trim();
-  if (!viewerId) throw new Error('admin_chat_viewer_contract_invalid');
-  if (!Array.isArray(input.counterpartPhones) || !Array.isArray(input.messages)) {
-    throw new Error('admin_chat_summary_input_contract_invalid');
-  }
-
-  const counterpartSet = new Set<string>();
-  for (const rawPhone of input.counterpartPhones) {
-    if (!isNonEmptyString(rawPhone)) throw new Error('admin_chat_counterpart_contract_invalid');
-    const phone = sanitizePhone(rawPhone);
-    if (!phone || counterpartSet.has(phone)) {
-      throw new Error('admin_chat_counterpart_identity_contract_invalid');
-    }
-    counterpartSet.add(phone);
-  }
-
-  const summariesByPhone: Record<string, AdminChatConversationSummary> = {};
-  const latestByPhone = new Map<string, { timestamp: number; messageId: string }>();
-  const seenMessageIds = new Set<string>();
-
-  for (const message of input.messages) {
-    if (!isAdminChatMessageSummaryRow(message)) {
-      throw new Error('admin_chat_message_row_contract_invalid');
-    }
-    const messageId = message.id.trim();
-    if (seenMessageIds.has(messageId)) {
-      throw new Error('admin_chat_message_identity_contract_invalid');
-    }
-    seenMessageIds.add(messageId);
-
-    const senderId = message.sender_id.trim();
-    const receiverId = message.receiver_id.trim();
-    if (senderId !== viewerId && receiverId !== viewerId) {
-      throw new Error('admin_chat_message_relation_contract_invalid');
-    }
-
-    const rawCounterpart = senderId === viewerId ? receiverId : senderId;
-    const counterpartPhone = sanitizePhone(rawCounterpart);
-    if (!counterpartSet.has(counterpartPhone)) continue;
-
-    const summary = summariesByPhone[counterpartPhone] ?? {
-      last_message: null,
-      last_time: null,
-      unread_count: 0,
-    };
-    const timestamp = Date.parse(message.created_at);
-    const latest = latestByPhone.get(counterpartPhone);
-    if (!latest
-      || timestamp > latest.timestamp
-      || (timestamp === latest.timestamp && messageId.localeCompare(latest.messageId) > 0)
-    ) {
-      const content = message.content.trim();
-      const attachmentCount = message.attachment_count ?? 0;
-      summary.last_message = content || (attachmentCount > 0 ? `파일 ${attachmentCount}개` : null);
-      summary.last_time = message.created_at;
-      latestByPhone.set(counterpartPhone, { timestamp, messageId });
-    }
-
-    if (receiverId === viewerId && sanitizePhone(senderId) === counterpartPhone && !message.is_read) {
-      summary.unread_count += 1;
-    }
-
-    summariesByPhone[counterpartPhone] = summary;
-  }
-
-  return summariesByPhone;
 }
 
 export function buildAdminChatTargets(

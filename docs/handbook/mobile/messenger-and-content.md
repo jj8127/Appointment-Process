@@ -7,6 +7,12 @@ source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversa
 
 # Mobile Playbook: Messenger And Content
 
+## 2026-10-13 조회 결과와 실패 복구
+
+개인·단체·관리자·의뢰 대화와 공지 목록은 정상 배열과 실패를 구분한다. 잘못된 행·페이지·cursor 응답은 빈 목록이나 미확인 수 0으로 바꾸지 않는다. 같은 계정·조건의 성공 자료는 갱신 실패 안내와 함께 유지하며 계정/대화가 바뀐 뒤 이전 응답은 노출하지 않는다. 대화 대상과 unread 권한은 서명 세션에서 정한다.
+
+단체 채팅은 여러 Data API 페이지를 모두 확인한 뒤 목록·요약을 반환한다. 중복 cursor나 불완전한 필수 조회를 성공으로 처리하지 않는다. 기존 `group-chat-query-contract.test.node.ts`, `group-chat-mobile-source.test.ts`, `inbox-list-contract.test.ts`와 Request Board strict-read suite가 이 경계를 검증한다. 배포·게시 성공은 실제 계정 수신이나 인증 화면 acceptance를 대신하지 않는다.
+
 Request Board room, busy-send and Android hardware-back behavior follows the [embedded conversation back contract](./request-board-bridge.md#native-back-in-an-embedded-conversation).
 
 ## 2026-10-12 웹 단체 메시지 반전

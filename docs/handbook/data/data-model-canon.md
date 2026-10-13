@@ -213,4 +213,29 @@ The isolated PostgreSQL runner executes4 fixture files serially in one disposabl
 
 ## 2026-10-10 Notice creation actor provenance candidate
 
-`20261009163349_ux_notice_idempotent_actor.sql` is a local candidate after acceptance testing. The admin notice action uses the atomic creation RPC and keeps one request ID and identical uploaded payload for an unchanged retry. The RPC writes `notices.created_by` from the verified actor, ignores any author value in the notice payload, and returns the existing `{id}` result. Actor checks, invoker execution, service-role-only privileges, advisory transaction locking and atomic receipt insertion remain intact. A changed payload with the same key is rejected. The migration and final schema snapshot match; local PGlite and real PostgreSQL fixtures cover authorship, replay, rejection, rollback and concurrent creation. This candidate has not been applied to the operational database. Inbox delivery-key de-duplication does not prove exactly-once external push delivery.
+`20261013093016_ux_notice_idempotent_actor.sql` was applied to the operational database on 2026-10-13. The admin notice action uses the atomic creation RPC and keeps one request ID and identical uploaded payload for an unchanged retry. The RPC writes `notices.created_by` from the verified actor, ignores any author value in the notice payload, and returns the existing `{id}` result. Actor checks, invoker execution, service-role-only privileges, advisory transaction locking and atomic receipt insertion remain intact. A changed payload with the same key is rejected. The migration and final schema snapshot match. Local fixtures cover authorship, replay, rejection, rollback and concurrent creation; deployment receipts and any unexecuted acceptance gates remain in the canonical release harness. Inbox delivery-key de-duplication does not prove exactly-once external push delivery.
+
+## 2026-10-13 Applied migration identities
+
+The twelve operational history entries below were compared with the local migration SQL using MD5 after CR/LF and surrounding-whitespace normalization. All twelve bodies match. Following the existing 2026-10-09 reconciliation, only local filenames, schema markers and fixture/document references were aligned with the returned history IDs. No remote history was reverted and no applied SQL was rerun. Future additive migrations must follow this order; retired service-only RPCs remain until callers and forward cleanup are separately verified.
+
+| Operational version | Migration name |
+| --- | --- |
+| 20261013090024 | filter_account_delete_legacy_chat_paths |
+| 20261013090025 | atomic_onboarding_writes |
+| 20261013090028 | atomic_signup_otp_challenges |
+| 20261013090029 | atomic_password_login_attempts |
+| 20261013090030 | enforce_fc_profile_status_contract |
+| 20261013093016 | ux_notice_idempotent_actor |
+| 20261013094533 | moduon_signup_sms_delivery_state |
+| 20261013094535 | fc_signup_completion_capability_v1 |
+| 20261013094537 | cleanup_fc_signup_completion_challenges |
+| 20261013094539 | extend_sms_delivery_tracking |
+| 20261013094541 | atomic_fc_signup_otp_issue |
+| 20261013094543 | fc_password_sync_generation_results |
+
+## 2026-10-13 Legacy FC signup RPC retirement (local verified, not yet applied)
+
+`20261013112611_retire_legacy_fc_signup_rpcs.sql` is a new forward migration, not a rewrite of the applied migrations above. It retires the exact signatures of `issue_signup_otp_challenge_v1`, `process_signup_otp_challenge_v1`, `validate_signup_verification_proof_v1` and `complete_fc_signup_atomic_v1` with `DROP FUNCTION ... RESTRICT`. It keeps historical SQL and profile columns intact. A nonempty legacy challenge/proof state aborts the migration; unexpected dependencies prevent the DROP rather than being removed with CASCADE.
+
+Read-only preflight found zero catalog/cron dependencies and zero legacy challenge/proof state. The active source closures of all 55 Edge Functions, covering 457 files, contained zero references to the four retired RPCs. The closest capability SQL fixture covers historical → current → retirement lifecycle, the nonempty-state guard and dependency restriction. Local validation is complete; this section does not claim operational application. Root records the eventual exact clean source, applied history identity and post-application catalog evidence in the canonical QA/handoff.

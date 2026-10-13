@@ -23,11 +23,11 @@ const config = {
   options: '-c statement_timeout=8000 -c lock_timeout=6000',
 };
 const migration = await readFile(
-  new URL('../migrations/20261013041530_atomic_fc_signup_otp_issue.sql', import.meta.url),
+  new URL('../migrations/20261013094541_atomic_fc_signup_otp_issue.sql', import.meta.url),
   'utf8',
 );
 const completionMigration = await readFile(
-  new URL('../migrations/20261013024349_fc_signup_completion_capability_v1.sql', import.meta.url),
+  new URL('../migrations/20261013094535_fc_signup_completion_capability_v1.sql', import.meta.url),
   'utf8',
 );
 const clients = [];

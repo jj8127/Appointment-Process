@@ -365,6 +365,7 @@ test('dashboard chat list rejects a malformed successful response instead of sho
   await assert.rejects(h.readChatList({ error: 'private detail' }, 503), (error) => error instanceof QueryReadError && error.status === 503);
   await assert.rejects(h.readChatList({ ok: true }), (error) => error instanceof QueryReadError && error.status === undefined);
   await assert.rejects(h.readChatList([{}]), (error) => error instanceof QueryReadError && error.status === undefined);
+  assert.deepEqual(await h.readChatList([]), []);
   assert.deepEqual(await h.readChatList([target('valid')]), [target('valid')]);
   await h.close();
 });

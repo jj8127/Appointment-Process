@@ -35,28 +35,6 @@ import { useSession } from '@/hooks/use-session';
 
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 
-type NoticeFile = {
-    name?: string;
-    url?: string;
-    type?: string;
-    size?: number;
-};
-
-type NoticeItem = {
-    id: string;
-    title: string;
-    body: string;
-    category?: string | null;
-    images?: string[] | null;
-    files?: NoticeFile[] | null;
-};
-
-type NoticeResponse = {
-    ok?: boolean;
-    notice?: NoticeItem;
-    error?: string;
-};
-
 const extractBoardPostId = (noticeId: string): string | null => {
     if (!noticeId.startsWith(BOARD_NOTICE_ID_PREFIX)) return null;
     const postId = noticeId.slice(BOARD_NOTICE_ID_PREFIX.length).trim();
