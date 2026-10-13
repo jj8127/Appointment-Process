@@ -1,6 +1,10 @@
 'use client';
 
-import { isValidCareerType, requireMutationSuccess } from '@/lib/user-intent-policy';
+import {
+    isValidCareerType,
+    requireMutationSuccess,
+    requireProfileMutationReceipt,
+} from '@/lib/user-intent-policy';
 import { QueryReadError } from '@/lib/query-read-error';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 
@@ -13,7 +17,9 @@ import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warn
 import { resolveAdminTempIdUpdate } from '@/lib/admin-temp-id-update';
 import { RecommenderSelect } from '@/components/RecommenderSelect';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
-import type { FcProfile, FcStatus } from '@/types/fc';
+import { isAdminFcProfileDetail } from '@/lib/admin-document-client';
+import { isRecommenderSelectionResult } from '@/types/referrals';
+import type { FcProfile } from '@/types/fc';
 import {
     ActionIcon,
     Avatar,
@@ -98,24 +104,6 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BACKGROUND = '#f8f9fa';
 
-// --- Types ---
-type FcProfileDetail = Omit<FcProfile, 'fc_documents' | 'career_type' | 'status'> & {
-    step?: string;
-    status: FcStatus;
-    career_type: FcProfile['career_type'];
-    fc_documents?: FcDocument[];
-    admin_memo: string | null;
-};
-
-type FcDocument = {
-    id: string;
-    doc_type: string;
-    file_name: string;
-    status: string;
-    created_at: string;
-    storage_path: string;
-};
-
 export default function FcProfilePage({ params }: { params: Promise<{ id: string }> }) {
     const { id: fcId } = use(params);
     const { role, residentId, isReadOnly } = useSession();
@@ -154,7 +142,13 @@ function FcProfileContent({ fcId }: { fcId: string }) {
     });
 
     // --- Fetch Data ---
-    const { data: profile, isLoading: isProfileLoading, error: profileError, refetch: refetchProfile } = useQuery({
+    const {
+        data: profile,
+        isLoading: isProfileLoading,
+        isFetching: isProfileFetching,
+        error: profileError,
+        refetch: refetchProfile,
+    } = useQuery({
         queryKey: ['fc-profile', fcId],
         queryFn: async () => {
             const resp = await fetch('/api/admin/fc', {
@@ -168,13 +162,9 @@ function FcProfileContent({ fcId }: { fcId: string }) {
             });
 
             const json: unknown = await resp.json().catch(() => null);
-            if (!resp.ok || !isRecord(json) || json.ok !== true || !isRecord(json.profile) || json.profile.id !== fcId) {
-                if (isRecord(json) && typeof json.error === 'string' && json.error.trim()) {
-                    throw new Error(json.error);
-                }
-                throw new Error('FC 상세 정보를 불러오지 못했습니다.');
-            }
-            return json.profile as unknown as FcProfileDetail;
+            if (!resp.ok) throw new QueryReadError(resp.status);
+            if (!isRecord(json) || json.ok !== true || !isAdminFcProfileDetail(json.profile)) throw new QueryReadError();
+            return json.profile;
         },
         enabled: !!fcId,
     });
@@ -274,11 +264,14 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                 }
                 throw new Error('프로필 저장에 실패했습니다.');
             }
-            requireMutationSuccess(json);
-            return json;
+            const receipt = requireProfileMutationReceipt(json, { id: fcId, ...payload });
+            return { response: json, profile: receipt };
         },
-        onSuccess: (response) => {
-            showAdminNotificationWarning(response);
+        onSuccess: (result) => {
+            queryClient.setQueryData(['fc-profile', fcId], (current: unknown) =>
+                isRecord(current) ? { ...current, ...result.profile } : current,
+            );
+            showAdminNotificationWarning(result.response);
             notifications.show({ title: '저장 완료', message: '프로필 정보가 수정되었습니다.', color: 'green' });
             form.resetDirty();
             setIsEditing(false);
@@ -292,13 +285,17 @@ function FcProfileContent({ fcId }: { fcId: string }) {
 
     const updateRecommenderMutation = useMutation({
         mutationFn: async () => {
+            const expectedInviterFcId = clearRecommenderSelection ? null : selectedRecommenderFcId;
+            if (expectedInviterFcId === null && !clearRecommenderSelection) {
+                throw new Error('추천인을 선택해주세요.');
+            }
             const response = await fetch('/api/admin/fc/recommender', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
                 body: JSON.stringify({
                     inviteeFcId: fcId,
-                    inviterFcId: clearRecommenderSelection ? null : selectedRecommenderFcId,
+                    inviterFcId: expectedInviterFcId,
                     reason: recommenderOverrideReason.trim(),
                 }),
             });
@@ -310,6 +307,12 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                 throw new Error('추천인 관계 저장에 실패했습니다.');
             }
             requireMutationSuccess(json);
+            if (!isRecord(json) || !isRecommenderSelectionResult(json.result, {
+                inviteeFcId: fcId,
+                inviterFcId: expectedInviterFcId,
+            })) {
+                throw new Error('추천인 관계 저장 결과를 확인하지 못했습니다.');
+            }
             return json;
         },
         onSuccess: () => {
@@ -343,6 +346,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
 
     const saveMemoMutation = useMutation({
         mutationFn: async (memo: string) => {
+            const payload = { admin_memo: memo };
             const resp = await fetch('/api/admin/fc', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -350,7 +354,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                     action: 'updateProfile',
                     payload: {
                         fcId,
-                        data: { admin_memo: memo },
+                        data: payload,
                     },
                 }),
             });
@@ -362,9 +366,13 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                 }
                 throw new Error('관리자 메모 저장에 실패했습니다.');
             }
-            requireMutationSuccess(json);
+            const receipt = requireProfileMutationReceipt(json, { id: fcId, ...payload });
+            return { profile: receipt };
         },
-        onSuccess: () => {
+        onSuccess: (result) => {
+            queryClient.setQueryData(['fc-profile', fcId], (current: unknown) =>
+                isRecord(current) ? { ...current, ...result.profile } : current,
+            );
             notifications.show({ title: '메모 저장', message: '관리자 메모가 저장되었습니다.', color: 'green' });
             queryClient.invalidateQueries({ queryKey: ['fc-profile', fcId] });
         },
@@ -458,11 +466,17 @@ function FcProfileContent({ fcId }: { fcId: string }) {
 
     const profileReadOnly = !isEditing || !canEdit || updateProfileMutation.isPending;
 
-    if (isProfileLoading) return <LoadingOverlay visible />;
+    if (isProfileLoading && !profile) return <LoadingOverlay visible />;
     if (profileError && !profile) {
         return (
             <Container py="xl">
-                <QueryErrorAlert error={profileError} subject="FC 상세 정보" onRetry={() => void refetchProfile()} />
+                <QueryErrorAlert
+                    error={profileError}
+                    onRetry={refetchProfile}
+                    isFetching={isProfileFetching}
+                    hasData={false}
+                    subject="FC 상세 정보"
+                />
             </Container>
         );
     }
@@ -470,20 +484,32 @@ function FcProfileContent({ fcId }: { fcId: string }) {
 
     const adminStepDisplay = getAdminStepDisplay(profile);
     const documents = profile.fc_documents ?? [];
-    const presenceLabel = isPresenceError
+    const hasCachedPresence = presence !== undefined;
+    const isPresenceUnavailable = isPresenceError && !hasCachedPresence;
+    const presenceLabel = isPresenceUnavailable
         ? '활동 정보 확인 불가'
         : presence
             ? (formatPresenceLabel(presence) ?? '첫 접속 전')
             : '첫 접속 전';
-    const presenceBadgeColor = isPresenceError ? 'gray' : presence?.is_online ? 'green' : 'gray';
-    const presenceBadgeVariant = !isPresenceError && presence?.is_online ? 'filled' : 'light';
+    const presenceBadgeColor = presence?.is_online ? 'green' : 'gray';
+    const presenceBadgeVariant = presence?.is_online ? 'filled' : 'light';
     const statusDisplay = getStatusDisplay(profile);
     const statusTextColor = statusDisplay.color === 'gray' ? 'dimmed' : statusDisplay.color;
 
     return (
         <Box bg={BACKGROUND} style={{ minHeight: '100vh' }}>
             <NotificationDestinationReady />
-            {profileError ? <QueryErrorAlert error={profileError} subject="FC 상세 정보" onRetry={() => void refetchProfile()} /> : null}
+            {profileError ? (
+                <Container size="xl" pt="md">
+                    <QueryErrorAlert
+                        error={profileError}
+                        onRetry={refetchProfile}
+                        isFetching={isProfileFetching}
+                        hasData
+                        subject="FC 상세 정보"
+                    />
+                </Container>
+            ) : null}
             {/* Header */}
             <Box bg="white" style={{ borderBottom: '1px solid #e9ecef' }} py="md" px="xl">
                 <Container size="xl" p={0}>
@@ -491,7 +517,12 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                         <Button variant="subtle" color="gray" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={handleLeave}>
                             목록으로 돌아가기
                         </Button>
-                        <Badge size="lg" color={presenceBadgeColor} variant={presenceBadgeVariant}>
+                        <Badge
+                            size="lg"
+                            color={presenceBadgeColor}
+                            variant={presenceBadgeVariant}
+                            title={isPresenceError && hasCachedPresence ? '최근 활동 정보를 표시하고 있습니다. 갱신에 실패했습니다.' : undefined}
+                        >
                             {presenceLabel}
                         </Badge>
                     </Group>

@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -15,11 +15,13 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import MessengerLoadingState from '@/components/MessengerLoadingState';
+import { QueryReadState } from '@/components/QueryReadState';
 import { useSession } from '@/hooks/use-session';
 import { goBackOrReplace } from '@/lib/back-navigation';
+import { logger } from '@/lib/logger';
 import {
   buildInternalChatViewerPayload,
-  fetchInternalChatList,
+  fetchInternalChatListPage,
   type InternalChatListItem,
 } from '@/lib/internal-chat-api';
 import { formatPresenceLabel, getPresenceColor, normalizePresencePhone } from '@/lib/presence';
@@ -30,6 +32,7 @@ const MUTED = '#6b7280';
 const HANWHA_ORANGE = '#f36f21';
 const PRESENCE_POLL_INTERVAL_MS = 30_000;
 const CHAT_LIST_POLL_INTERVAL_MS = 4_000;
+const CHAT_LIST_PAGE_SIZE = 50;
 const AVATAR_COLORS = [
   '#3B82F6',
   '#10B981',
@@ -80,19 +83,48 @@ export default function AdminMessengerScreen() {
     [viewerContext],
   );
 
-  const fetchChatList = useCallback(async () => {
+  const fetchChatListPage = useCallback(async (cursor: string | null) => {
     if (!canViewFcMessenger) {
-      return { items: [], totalUnread: 0 };
+      return {
+        items: [],
+        totalUnread: 0,
+        nextCursor: null,
+        hasMore: false,
+        limit: CHAT_LIST_PAGE_SIZE,
+      };
     }
-    return fetchInternalChatList(viewerContext);
+    return fetchInternalChatListPage(viewerContext, cursor, CHAT_LIST_PAGE_SIZE);
   }, [canViewFcMessenger, viewerContext]);
 
-  const { data, isLoading, refetch } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    error: chatListError,
+    isFetching,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+  } = useInfiniteQuery({
     queryKey: ['admin-chat-list', role, residentId, readOnly, staffType, isRequestBoardDesigner],
-    queryFn: fetchChatList,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => fetchChatListPage(pageParam),
+    getNextPageParam: (lastPage) => lastPage.hasMore
+      ? lastPage.nextCursor ?? undefined
+      : undefined,
     enabled: canViewFcMessenger && Boolean(viewerPayload),
   });
-  const items = useMemo(() => data?.items ?? [], [data]);
+  const items = useMemo(() => {
+    const byPhone = new Map<string, InternalChatListItem>();
+    for (const page of data?.pages ?? []) {
+      for (const item of page.items) {
+        if (!byPhone.has(item.phone)) byPhone.set(item.phone, item);
+      }
+    }
+    return Array.from(byPhone.values());
+  }, [data]);
   const previews = useMemo<ChatPreview[]>(
     () => items.map((item) => ({
       ...item,
@@ -119,13 +151,16 @@ export default function AdminMessengerScreen() {
       return;
     }
 
-    const rows = await fetchUserPresence(phones);
-    const nextPresenceByPhone = rows.reduce<Record<string, AppPresenceSnapshot>>((acc, row) => {
-      acc[normalizePresencePhone(row.phone)] = row;
-      return acc;
-    }, {});
-
-    setPresenceByPhone(nextPresenceByPhone);
+    try {
+      const rows = await fetchUserPresence(phones);
+      const nextPresenceByPhone = rows.reduce<Record<string, AppPresenceSnapshot>>((acc, row) => {
+        acc[normalizePresencePhone(row.phone)] = row;
+        return acc;
+      }, {});
+      setPresenceByPhone(nextPresenceByPhone);
+    } catch {
+      logger.warn('[admin-messenger] ignored malformed presence response');
+    }
   }, [trackedPresencePhones]);
 
   useEffect(() => {
@@ -242,10 +277,14 @@ export default function AdminMessengerScreen() {
     );
   }, [keyword, previews]);
 
-  const totalUnread = useMemo(
-    () => previews.reduce((sum, item) => sum + getUnreadCount(item), 0),
-    [getUnreadCount, previews],
-  );
+  const totalUnread = useMemo(() => {
+    const serverTotal = data?.pages[0]?.totalUnread ?? 0;
+    const optimisticAdjustment = previews.reduce(
+      (sum, item) => sum + getUnreadCount(item) - item.unread_count,
+      0,
+    );
+    return Math.max(0, serverTotal + optimisticAdjustment);
+  }, [data?.pages, getUnreadCount, previews]);
 
   const renderItem = ({ item }: { item: ChatPreview }) => {
     const presence = presenceByPhone[normalizePresencePhone(item.phone)] ?? null;
@@ -363,28 +402,73 @@ export default function AdminMessengerScreen() {
 
       {isLoading ? (
         <MessengerLoadingState variant="admin-messenger" />
-      ) : (
-        <FlatList
-          data={filteredData}
-          keyExtractor={(item) => item.phone}
-          renderItem={renderItem}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={HANWHA_ORANGE} />}
-          contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 12) + 16 }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="none"
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Feather name="message-circle" size={40} color="#D1D5DB" />
-              <Text style={styles.emptyTitle}>대화 기록이 없습니다.</Text>
-              <Text style={styles.emptyDesc}>
-                {isRequestBoardDesigner
-                  ? '가람지사 내부 FC 대화만 표시됩니다.'
-                  : `설계 매니저 계정은 이 목록에서 제외되며${'\n'}가람지사 내부 대화만 표시됩니다.`}
-              </Text>
-            </View>
-          }
+      ) : isError && !data ? (
+        <QueryReadState
+          error={chatListError}
+          message="대화 목록을 불러오지 못했습니다."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
         />
+      ) : (
+        <View style={styles.listWrap}>
+          {isError && (
+            <QueryReadState
+              error={chatListError}
+              message="최신 대화 목록을 불러오지 못했습니다. 기존 목록을 표시합니다."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
+          )}
+          <FlatList
+            data={filteredData}
+            keyExtractor={(item) => item.phone}
+            renderItem={renderItem}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={HANWHA_ORANGE} />}
+            contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 12) + 16 }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="none"
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Feather name="message-circle" size={40} color="#D1D5DB" />
+                <Text style={styles.emptyTitle}>
+                  {keyword.trim() && hasNextPage
+                    ? '현재 불러온 목록에서 검색 결과가 없습니다.'
+                    : '대화 기록이 없습니다.'}
+                </Text>
+                <Text style={styles.emptyDesc}>
+                  {keyword.trim() && hasNextPage
+                    ? '이전 대화를 더 불러오면 추가 결과를 확인할 수 있습니다.'
+                    : isRequestBoardDesigner
+                    ? '가람지사 내부 FC 대화만 표시됩니다.'
+                    : `설계 매니저 계정은 이 목록에서 제외되며${'\n'}가람지사 내부 대화만 표시됩니다.`}
+                </Text>
+              </View>
+            }
+            ListFooterComponent={items.length > 0
+              && (hasNextPage || isFetchingNextPage || isFetchNextPageError) ? (
+                <View style={styles.loadMoreWrap}>
+                  {isFetchNextPageError ? (
+                    <Text style={styles.loadMoreError}>이전 대화 목록을 불러오지 못했습니다.</Text>
+                  ) : null}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="이전 대화 목록 더 보기"
+                    disabled={isFetchingNextPage}
+                    onPress={() => void fetchNextPage()}
+                    style={({ pressed }) => [
+                      styles.loadMoreButton,
+                      pressed && !isFetchingNextPage && styles.loadMoreButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.loadMoreButtonText}>
+                      {isFetchingNextPage ? '불러오는 중...' : isFetchNextPageError ? '다시 시도' : '이전 대화 더 보기'}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+          />
+        </View>
       )}
     </SafeAreaView>
   );
@@ -392,6 +476,22 @@ export default function AdminMessengerScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
+  listWrap: { flex: 1 },
+  loadMoreWrap: { alignItems: 'center', gap: 8, paddingVertical: 16 },
+  loadMoreButton: {
+    minHeight: 44,
+    minWidth: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED',
+  },
+  loadMoreButtonPressed: { opacity: 0.72 },
+  loadMoreButtonText: { color: HANWHA_ORANGE, fontSize: 13, fontWeight: '700' },
+  loadMoreError: { color: '#B91C1C', fontSize: 12 },
   header: {
     paddingHorizontal: 20,
     paddingVertical: 14,

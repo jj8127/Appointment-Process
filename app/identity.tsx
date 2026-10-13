@@ -21,9 +21,10 @@ import {
 } from '@/lib/notification-open-authorization';
 import { markNotificationNavigationIdle } from '@/lib/notification-navigation-coordinator';
 import { clearPendingNotificationNavigation } from '@/lib/pending-notification-navigation';
-import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, toResidentInputAlertMessage } from '@/lib/store-identity-error';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TOUCH_TARGET, TYPOGRAPHY } from '@/lib/theme';
+import { invokeStoreIdentity } from '@/lib/store-identity-api';
+import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, requireStoreIdentityReceipt, toResidentInputAlertMessage } from '@/lib/store-identity-error';
 import { toUserFacingAlertMessage } from '@/lib/user-facing-error';
 import { validateResidentId } from '@/lib/validation';
 
@@ -142,12 +143,13 @@ export default function IdentityScreen() {
         address,
         addressDetail,
       };
-      const { error } = await supabase.functions.invoke('store-identity', { body: payload });
+      const { data, error } = await invokeStoreIdentity(payload);
       if (error) {
         const rawMessage = await extractFunctionErrorMessage(error, '신원 정보 저장 중 문제가 발생했습니다.');
         logger.warn('[identity] store-identity failed', { rawMessage });
         throw new Error(mapStoreIdentityErrorMessage(rawMessage));
       }
+      requireStoreIdentityReceipt(data, residentId);
 
       // Invalidate identity status cache to trigger real-time update
       await queryClient.invalidateQueries({ queryKey: ['identity-status', residentId] });

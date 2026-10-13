@@ -302,6 +302,9 @@ export default function GroupChatScreen() {
   const pendingAnchorMessageIdRef = useRef<string | null>(null);
   const anchorScrollRetryCountRef = useRef(0);
   const roomPreferenceSequenceRef = useRef(0);
+  const historyLoadInFlightRef = useRef(false);
+  const historyLoadGenerationRef = useRef(0);
+  const historyExhaustedRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -343,6 +346,9 @@ export default function GroupChatScreen() {
   const [anchorHasHistoryGap, setAnchorHasHistoryGap] = useState(false);
   const [anchorNavigationDismissed, setAnchorNavigationDismissed] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessageLoadError, setOlderMessageLoadError] = useState(false);
 
   const composerBottomPadding = getChatComposerBottomPadding({
     keyboardVisible,
@@ -422,11 +428,12 @@ export default function GroupChatScreen() {
       setRoom(data.room);
       setActor(data.actor);
       setMemberCount(data.member_count);
-      setMembers(data.members ?? []);
+      setMembers(data.members);
       setMuted(data.muted);
       setCanSendMessages(resolveGroupChatSendPermission(data.actor, data.can_send_messages));
-      setNotice(data.notice ?? null);
+      setNotice(data.notice);
       const localMessages = messagesRef.current.filter((message) => message.id.startsWith('local-'));
+      const preservedMessages = messagesRef.current.filter((message) => !message.id.startsWith('local-'));
       let contextMessages: GroupChatMessage[] = [];
       if (routeAnchorMessageId && !hasInvalidRoomRoute && !anchorNavigationDismissed) {
         const contextRoomId = routeRoomId ?? data.room.id;
@@ -511,7 +518,13 @@ export default function GroupChatScreen() {
       if (!isCurrent()) return;
       setRoomLoadFailed(false);
       setRoomLoadError(null);
-      applyMessages([...data.messages, ...contextMessages, ...localMessages]);
+      applyMessages([...data.messages, ...contextMessages, ...preservedMessages, ...localMessages]);
+      if (data.messages.length < MESSAGE_LIMIT) {
+        historyExhaustedRef.current = true;
+        setHasOlderMessages(false);
+      } else if (!historyExhaustedRef.current) {
+        setHasOlderMessages(true);
+      }
       const topMessageId = data.messages[0]?.id ?? null;
       if (topMessageId) {
         void groupChatMarkRead(topMessageId).catch((error) => {
@@ -560,6 +573,12 @@ export default function GroupChatScreen() {
     setMemberListVisible(false);
     setRoomLoadFailed(false);
     setRoomLoadError(null);
+    historyLoadInFlightRef.current = false;
+    historyLoadGenerationRef.current += 1;
+    historyExhaustedRef.current = false;
+    setHasOlderMessages(false);
+    setLoadingOlderMessages(false);
+    setOlderMessageLoadError(false);
     anchorContextRef.current = null;
     anchorContextRequestGenerationRef.current += 1;
     applyMessages([]);
@@ -716,6 +735,48 @@ export default function GroupChatScreen() {
     setRefreshing(true);
     void load();
   }, [anchorLoadFailed, load]);
+
+  const handleLoadOlderMessages = useCallback(async () => {
+    if (!room?.id || historyLoadInFlightRef.current || !hasOlderMessages) return;
+    const oldestMessage = [...messagesRef.current].reverse().find(
+      (message) => !message.id.startsWith('local-'),
+    );
+    if (!oldestMessage) return;
+
+    historyLoadInFlightRef.current = true;
+    const generation = historyLoadGenerationRef.current + 1;
+    historyLoadGenerationRef.current = generation;
+    setLoadingOlderMessages(true);
+    setOlderMessageLoadError(false);
+    try {
+      const context = await groupChatContext(room.id, oldestMessage.id);
+      if (
+        !roomReadScope.current.matches(roomReadKey)
+        || historyLoadGenerationRef.current !== generation
+        || context.roomRef.roomId !== room.id
+        || context.anchorMessageId !== oldestMessage.id
+      ) return;
+      applyMessages([...messagesRef.current, ...context.messages]);
+      historyExhaustedRef.current = !context.hasBefore;
+      setHasOlderMessages(context.hasBefore);
+    } catch (error) {
+      logger.warn('[group-chat] older messages unavailable', error);
+      if (
+        historyLoadGenerationRef.current === generation
+        && roomReadScope.current.matches(roomReadKey)
+      ) {
+        setOlderMessageLoadError(true);
+      }
+    } finally {
+      if (
+        historyLoadGenerationRef.current === generation
+        && roomReadScope.current.matches(roomReadKey)
+      ) {
+        historyLoadInFlightRef.current = false;
+        setLoadingOlderMessages(false);
+      }
+    }
+  }, [applyMessages, hasOlderMessages, room?.id, roomReadKey]);
 
   const searchableMembers = useMemo<SearchableGroupChatMember[]>(() => {
     return [...members].sort((left, right) => {
@@ -1715,6 +1776,31 @@ export default function GroupChatScreen() {
                 <Text style={styles.emptyText}>{roomLoadFailed ? '대화를 불러오지 못했습니다.' : '아직 메시지가 없습니다.'}</Text>
               </View>
             }
+            ListFooterComponent={messages.length > 0 && (hasOlderMessages || loadingOlderMessages || olderMessageLoadError) ? (
+              <View style={styles.historyFooter}>
+                {olderMessageLoadError ? (
+                  <Text style={styles.historyErrorText}>이전 메시지를 불러오지 못했습니다.</Text>
+                ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="이전 메시지 더 보기"
+                  disabled={loadingOlderMessages}
+                  onPress={() => void handleLoadOlderMessages()}
+                  style={({ pressed }) => [
+                    styles.historyButton,
+                    pressed && !loadingOlderMessages && styles.historyButtonPressed,
+                  ]}
+                >
+                  {loadingOlderMessages ? (
+                    <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
+                  ) : (
+                    <Text style={styles.historyButtonText}>
+                      {olderMessageLoadError ? '다시 시도' : '이전 메시지 더 보기'}
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
+            ) : null}
           />
 
           <KeyboardSafeBottomBar>
@@ -2067,6 +2153,21 @@ const styles = StyleSheet.create({
   anchorUnavailableText: { flex: 1, fontSize: 12, lineHeight: 17, color: MUTED },
   anchorLatestButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
   anchorLatestButtonText: { color: HANWHA_ORANGE, fontSize: 12, fontWeight: '700' },
+  historyFooter: { alignItems: 'center', gap: 8, paddingVertical: 16 },
+  historyButton: {
+    minHeight: 44,
+    minWidth: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED',
+  },
+  historyButtonPressed: { opacity: 0.72 },
+  historyButtonText: { color: HANWHA_ORANGE, fontSize: 13, fontWeight: '700' },
+  historyErrorText: { color: '#B91C1C', fontSize: 12 },
   list: { flex: 1 },
   listContent: { paddingVertical: 20, paddingHorizontal: 16, gap: 12, flexGrow: 1 },
   msgRow: { flexDirection: 'row', marginBottom: 12, width: '100%' },

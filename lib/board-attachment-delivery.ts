@@ -1,3 +1,5 @@
+import { isCredentialFreeHttpsUrl } from './external-url';
+
 export type BoardAttachmentFile<TSource> = {
   source: TSource;
   fileName: string;
@@ -71,7 +73,10 @@ export async function deliverBoardAttachments<TSource>(
           fileType: file.fileType,
         })),
       );
-      if (signed.length !== files.length) {
+      if (
+        signed.length !== files.length
+        || signed.some((row) => !row.storagePath.trim() || !isCredentialFreeHttpsUrl(row.signedUrl))
+      ) {
         return { complete: false, manifest: null };
       }
       manifest = {
@@ -108,7 +113,8 @@ export async function deliverBoardAttachments<TSource>(
       );
       const samePaths = refreshed.length === manifest.files.length
         && refreshed.every(
-          (signed, index) => signed.storagePath === manifest?.files[index].storagePath,
+          (signed, index) => signed.storagePath === manifest?.files[index].storagePath
+            && isCredentialFreeHttpsUrl(signed.signedUrl),
         );
       if (!samePaths) {
         return { complete: false, manifest };
@@ -126,6 +132,9 @@ export async function deliverBoardAttachments<TSource>(
   }
 
   if (manifest.phase === 'upload') {
+    if (manifest.files.some((file) => !isCredentialFreeHttpsUrl(file.signedUrl))) {
+      return { complete: false, manifest };
+    }
     const uploads = await Promise.allSettled(
       manifest.files.map((signedFile, index) =>
         deps.upload(files[index].source, signedFile.signedUrl, signedFile.mimeType),

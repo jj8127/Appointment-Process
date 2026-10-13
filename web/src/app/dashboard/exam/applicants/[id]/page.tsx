@@ -8,10 +8,17 @@ import {
   formatExamApplicantApplicationStatus,
   formatExamApplicantCreatedAt,
   getExamApplicantCellValue,
+  parseExactExamApplicantRow,
+  parseExamApplicantNavigation,
+  type ExamApplicantNavigation,
+  type ExamApplicantResponseRow as Applicant,
 } from '@/lib/exam-applicant-list-display';
 import { buildExamPaymentProofImagePath } from '@/lib/exam-payment-proof-admin';
+import { requireExamTransitionSuccess } from '@/lib/user-intent-policy';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { QueryReadError } from '@/lib/query-read-error';
 import {
   Alert,
   ActionIcon,
@@ -63,38 +70,9 @@ const HANWHA_ORANGE = '#F37321';
 const CHARCOAL = '#111827';
 const MUTED = '#6B7280';
 
-type Applicant = {
-  id: string;
-  status: string;
-  created_at: string;
-  round_id: string | null;
-  resident_id: string;
-  name: string;
-  phone: string;
-  affiliation: string;
-  address: string;
-  location_name: string;
-  round_label: string;
-  exam_date: string | null;
-  exam_type?: string | null;
-  fee_paid_date?: string | null;
-  payment_proof_attached?: boolean;
-  is_confirmed: boolean;
-  includes_primary_exam?: boolean;
-  rejection_reason?: string | null;
-  rejected_at?: string | null;
-  is_third_exam?: boolean;
-  application_type?: string | null;
-};
-
-type ApplicantNavigation = {
-  previousId: string | null;
-  nextId: string | null;
-};
-
 type ApplicantDetailData = {
   applicant: Applicant;
-  navigation: ApplicantNavigation;
+  navigation: ExamApplicantNavigation;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -193,14 +171,14 @@ function PaymentProofCard({
 export default function ExamApplicantDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
-  const registrationId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const registrationId = (Array.isArray(params.id) ? params.id[0] : params.id)?.trim() ?? '';
   const queryClient = useQueryClient();
   const { hydrated, isReadOnly } = useSession();
   const [rejectOpened, setRejectOpened] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
   const detailQueryKey = ['exam-applicant-detail', registrationId];
-  const { data: detailData, isLoading, error } = useQuery({
+  const { data: detailData, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: detailQueryKey,
     enabled: hydrated && Boolean(registrationId),
     queryFn: async () => {
@@ -209,24 +187,15 @@ export default function ExamApplicantDetailPage() {
         { credentials: 'include', cache: 'no-store' },
       );
       const json: unknown = await response.json().catch(() => null);
-      if (!response.ok || !isRecord(json) || json.ok !== true || !Array.isArray(json.applicants)) {
-        const message = isRecord(json) && typeof json.error === 'string'
-          ? json.error
-          : '시험 신청 정보를 불러오지 못했습니다.';
-        throw new Error(message);
+      const applicant = isRecord(json)
+        ? parseExactExamApplicantRow(json.applicants, registrationId)
+        : null;
+      const parsedNavigation = isRecord(json) ? parseExamApplicantNavigation(json.navigation) : null;
+      if (!response.ok) throw new QueryReadError(response.status);
+      if (!isRecord(json) || json.ok !== true || applicant === null || parsedNavigation === null) {
+        throw new QueryReadError();
       }
-
-      const first = json.applicants[0];
-      if (!first) {
-        throw new Error('해당 시험 신청 정보를 찾을 수 없습니다.');
-      }
-      const navigation = isRecord(json.navigation)
-        ? {
-            previousId: typeof json.navigation.previousId === 'string' ? json.navigation.previousId : null,
-            nextId: typeof json.navigation.nextId === 'string' ? json.navigation.nextId : null,
-          }
-        : { previousId: null, nextId: null };
-      return { applicant: first as Applicant, navigation } satisfies ApplicantDetailData;
+      return { applicant, navigation: parsedNavigation } satisfies ApplicantDetailData;
     },
   });
   const applicant = detailData?.applicant;
@@ -242,18 +211,22 @@ export default function ExamApplicantDetailPage() {
         body: JSON.stringify({ registrationId: applicant.id, action: 'confirm' }),
       });
       const json: unknown = await response.json().catch(() => null);
-      if (!response.ok || !isRecord(json) || json.ok !== true) {
+      if (!response.ok) {
         const message = isRecord(json) && typeof json.error === 'string'
           ? json.error
           : '시험 접수 처리에 실패했습니다.';
         throw new Error(message);
       }
+      const transition = requireExamTransitionSuccess(json, {
+        action: 'confirm',
+        registrationId: applicant.id,
+      });
       showAdminNotificationWarning(json);
-      return applicant;
+      return { applicant, transition };
     },
-    onSuccess: async (item) => {
+    onSuccess: async ({ applicant: item, transition }) => {
       queryClient.setQueryData<ApplicantDetailData>(detailQueryKey, (current) => ({
-        applicant: { ...item, is_confirmed: true, status: 'confirmed' },
+        applicant: { ...item, is_confirmed: transition.isConfirmed, status: transition.status },
         navigation: current?.navigation ?? { previousId: null, nextId: null },
       }));
       queryClient.invalidateQueries({ queryKey: ['exam-applicants-all-recent'] });
@@ -287,19 +260,23 @@ export default function ExamApplicantDetailPage() {
         }),
       });
       const json: unknown = await response.json().catch(() => null);
-      if (!response.ok || !isRecord(json) || json.ok !== true) {
+      if (!response.ok) {
         throw new Error(
           isRecord(json) && typeof json.error === 'string'
             ? json.error
             : '시험 신청 반려에 실패했습니다.',
         );
       }
+      const transition = requireExamTransitionSuccess(json, {
+        action: 'reject',
+        registrationId: applicant.id,
+      });
       showAdminNotificationWarning(json);
-      return applicant;
+      return { applicant, transition };
     },
-    onSuccess: (item) => {
+    onSuccess: ({ applicant: item, transition }) => {
       queryClient.setQueryData<ApplicantDetailData>(detailQueryKey, (current) => ({
-        applicant: { ...item, is_confirmed: false, status: 'rejected' },
+        applicant: { ...item, is_confirmed: transition.isConfirmed, status: transition.status },
         navigation: current?.navigation ?? { previousId: null, nextId: null },
       }));
       queryClient.invalidateQueries({ queryKey: ['exam-applicants-all-recent'] });
@@ -316,7 +293,7 @@ export default function ExamApplicantDetailPage() {
     },
   });
 
-  if (!hydrated || isLoading) {
+  if (!hydrated || (isLoading && !applicant)) {
     return (
       <Container size="lg" py={80}>
         <Stack align="center" gap="sm">
@@ -327,7 +304,7 @@ export default function ExamApplicantDetailPage() {
     );
   }
 
-  if (error || !applicant) {
+  if (!applicant) {
     return (
       <Container size="md" py="xl">
         <Stack gap="lg">
@@ -358,6 +335,17 @@ export default function ExamApplicantDetailPage() {
   return (
     <Box bg="gray.0" mih="100vh">
       <NotificationDestinationReady />
+      {error ? (
+        <Container size="lg" pt="md">
+          <QueryErrorAlert
+            error={error}
+            onRetry={refetch}
+            isFetching={isFetching}
+            hasData
+            subject="신청자 상세"
+          />
+        </Container>
+      ) : null}
       <Tooltip label="이전 신청자" position="right" disabled={!navigation.previousId}>
         <ActionIcon
           className={`${styles.sideNavigationButton} ${styles.sideNavigationPrevious}`}

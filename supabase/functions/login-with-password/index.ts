@@ -14,8 +14,12 @@ import {
 } from '../_shared/referral-code.ts';
 import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
-import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
+import {
+  buildFcPasswordSyncUpstream,
+  syncRequestBoardPassword,
+} from '../_shared/request-board-password-sync.ts';
 import { hashPassword } from '../_shared/password-hash.ts';
+import { mutationRowReceiptMatches } from '../_shared/ux-mutation-contract.ts';
 
 type Payload = {
   phone: string;
@@ -56,15 +60,14 @@ if (!serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Url = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Required = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_REQUIRED') ?? '').trim().toLowerCase() === 'true';
 const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
 const requestBoardPasswordSyncTimeoutRaw = Number((getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim());
 const requestBoardPasswordSyncTimeoutMs =
   Number.isFinite(requestBoardPasswordSyncTimeoutRaw) && requestBoardPasswordSyncTimeoutRaw >= 1000
     ? Math.floor(requestBoardPasswordSyncTimeoutRaw)
     : 5000;
-
-const MAX_FAILS = 5;
-const LOCK_MINUTES = 10;
 
 function json(body: Record<string, unknown>, status = 200, origin?: string) {
   return new Response(JSON.stringify(body), {
@@ -77,10 +80,67 @@ function fail(code: string, message: string, extra: Record<string, unknown> = {}
   return json({ ok: false, code, message, ...extra }, 200, origin);
 }
 
+function sessionUnavailable(origin?: string) {
+  return json({
+    ok: false,
+    code: 'session_unavailable',
+    message: '로그인 세션을 만들지 못했습니다. 잠시 후 다시 시도해주세요.',
+  }, 500, origin);
+}
+
 function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }
 
+type PasswordAttemptResult =
+  | { ok: true }
+  | { ok: false; code: 'invalid_password'; remaining: number }
+  | { ok: false; code: 'locked'; lockedUntil: string }
+  | { ok: false; code: 'account_unavailable' | 'db_error' };
+
+async function processPasswordAttempt(params: {
+  accountKind: 'admin' | 'manager' | 'fc';
+  accountId: string;
+  phone: string;
+  candidateHash: string;
+}): Promise<PasswordAttemptResult> {
+  const { data, error } = await supabase.rpc('process_password_login_attempt_v1', {
+    p_account_kind: params.accountKind,
+    p_account_id: params.accountId,
+    p_expected_phone: params.phone,
+    p_candidate_hash: params.candidateHash,
+  });
+  if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
+    return { ok: false, code: 'db_error' };
+  }
+  if (data.ok === true) {
+    return mutationRowReceiptMatches(data, {
+      ok: true,
+      code: 'authenticated',
+      accountKind: params.accountKind,
+      accountId: params.accountId,
+      residentId: params.phone,
+    }) ? { ok: true } : { ok: false, code: 'db_error' };
+  }
+  if (data.ok !== false || typeof data.code !== 'string') {
+    return { ok: false, code: 'db_error' };
+  }
+  if (data.code === 'invalid_password'
+    && Number.isInteger(data.remaining)
+    && data.remaining >= 0
+    && data.remaining < 5) {
+    return { ok: false, code: 'invalid_password', remaining: data.remaining };
+  }
+  if (data.code === 'locked'
+    && typeof data.lockedUntil === 'string'
+    && Number.isFinite(Date.parse(data.lockedUntil))) {
+    return { ok: false, code: 'locked', lockedUntil: data.lockedUntil };
+  }
+  if (data.code === 'account_unavailable') {
+    return { ok: false, code: 'account_unavailable' };
+  }
+  return { ok: false, code: 'db_error' };
+}
 async function autoIssueReferralCodeOnLogin(params: {
   profile:
     | {
@@ -175,49 +235,30 @@ serve(async (req: Request) => {
       return fail('needs_password_setup', '관리자 비밀번호가 아직 설정되지 않았습니다.', { role: 'admin', staffType }, origin);
     }
 
-    const now = new Date();
-    if (admin.locked_until) {
-      const lockedUntil = new Date(admin.locked_until);
-      if (lockedUntil > now) {
+    const hashed = await hashPassword(password, admin.password_salt);
+    const passwordAttempt = await processPasswordAttempt({
+      accountKind: 'admin',
+      accountId: admin.id,
+      phone: admin.phone,
+      candidateHash: hashed,
+    });
+    if (passwordAttempt.ok === false) {
+      if (passwordAttempt.code === 'locked') {
         return fail('locked', '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.', {
-          lockedUntil: lockedUntil.toISOString(),
+          lockedUntil: passwordAttempt.lockedUntil,
           role: 'admin',
           staffType,
         }, origin);
       }
+      if (passwordAttempt.code === 'invalid_password') {
+        return fail('invalid_password', '비밀번호가 올바르지 않습니다.', {
+          remaining: passwordAttempt.remaining,
+          role: 'admin',
+          staffType,
+        }, origin);
+      }
+      return json({ ok: false, code: 'db_error', message: '로그인 상태를 저장하지 못했습니다.' }, 500, origin);
     }
-
-    const hashed = await hashPassword(password, admin.password_salt);
-    if (hashed !== admin.password_hash) {
-      const nextCount = (admin.failed_count ?? 0) + 1;
-      const remaining = Math.max(0, MAX_FAILS - nextCount);
-      const shouldLock = nextCount >= MAX_FAILS;
-      const lockedUntil = shouldLock ? new Date(now.getTime() + LOCK_MINUTES * 60 * 1000) : null;
-
-      await supabase
-        .from('admin_accounts')
-        .update({
-          failed_count: shouldLock ? 0 : nextCount,
-          locked_until: lockedUntil ? lockedUntil.toISOString() : null,
-        })
-        .eq('id', admin.id);
-
-      return fail(
-        shouldLock ? 'locked' : 'invalid_password',
-        shouldLock
-          ? '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.'
-          : '비밀번호가 올바르지 않습니다.',
-        shouldLock
-          ? { lockedUntil: lockedUntil?.toISOString(), role: 'admin', staffType }
-          : { remaining, role: 'admin', staffType },
-        origin,
-      );
-    }
-
-    await supabase
-      .from('admin_accounts')
-      .update({ failed_count: 0, locked_until: null })
-      .eq('id', admin.id);
 
     const requestBoardBridgeRole = staffType === 'developer' ? 'fc' : 'admin';
     const requestBoardRole = staffType === 'developer' ? 'fc' : null;
@@ -240,15 +281,19 @@ serve(async (req: Request) => {
 
     const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, requestBoardBridgeRole, undefined, { accountKind: 'admin', accountId: admin.id, sessionVersion: admin.session_version });
     const appSessionToken = await createAppSessionToken(admin.phone, 'admin', staffType, undefined, { accountKind: 'admin', accountId: admin.id, sessionVersion: admin.session_version });
+    const displayName = String(admin.name ?? '').trim();
+    if (!appSessionToken?.trim() || !displayName) {
+      return sessionUnavailable(origin);
+    }
     return json({
       ok: true,
       role: 'admin',
       residentId: admin.phone,
-      displayName: admin.name ?? '',
+      displayName,
       staffType,
       requestBoardRole,
       ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
-      ...(appSessionToken ? { appSessionToken } : {}),
+      appSessionToken,
     }, 200, origin);
   }
 
@@ -270,46 +315,28 @@ serve(async (req: Request) => {
       return fail('needs_password_setup', '본부장 비밀번호가 아직 설정되지 않았습니다.', { role: 'manager' }, origin);
     }
 
-    const now = new Date();
-    if (manager.locked_until) {
-      const lockedUntil = new Date(manager.locked_until);
-      if (lockedUntil > now) {
+    const hashed = await hashPassword(password, manager.password_salt);
+    const passwordAttempt = await processPasswordAttempt({
+      accountKind: 'manager',
+      accountId: manager.id,
+      phone: manager.phone,
+      candidateHash: hashed,
+    });
+    if (passwordAttempt.ok === false) {
+      if (passwordAttempt.code === 'locked') {
         return fail('locked', '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.', {
-          lockedUntil: lockedUntil.toISOString(),
+          lockedUntil: passwordAttempt.lockedUntil,
           role: 'manager',
         }, origin);
       }
+      if (passwordAttempt.code === 'invalid_password') {
+        return fail('invalid_password', '비밀번호가 올바르지 않습니다.', {
+          remaining: passwordAttempt.remaining,
+          role: 'manager',
+        }, origin);
+      }
+      return json({ ok: false, code: 'db_error', message: '로그인 상태를 저장하지 못했습니다.' }, 500, origin);
     }
-
-    const hashed = await hashPassword(password, manager.password_salt);
-    if (hashed !== manager.password_hash) {
-      const nextCount = (manager.failed_count ?? 0) + 1;
-      const remaining = Math.max(0, MAX_FAILS - nextCount);
-      const shouldLock = nextCount >= MAX_FAILS;
-      const lockedUntil = shouldLock ? new Date(now.getTime() + LOCK_MINUTES * 60 * 1000) : null;
-
-      await supabase
-        .from('manager_accounts')
-        .update({
-          failed_count: shouldLock ? 0 : nextCount,
-          locked_until: lockedUntil ? lockedUntil.toISOString() : null,
-        })
-        .eq('id', manager.id);
-
-      return fail(
-        shouldLock ? 'locked' : 'invalid_password',
-        shouldLock
-          ? '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.'
-          : '비밀번호가 올바르지 않습니다.',
-        shouldLock ? { lockedUntil: lockedUntil?.toISOString(), role: 'manager' } : { remaining, role: 'manager' },
-        origin,
-      );
-    }
-
-    await supabase
-      .from('manager_accounts')
-      .update({ failed_count: 0, locked_until: null })
-      .eq('id', manager.id);
 
     const managerAffiliation = resolveManagerAffiliation(manager.name);
     await syncRequestBoardPassword({
@@ -364,14 +391,18 @@ serve(async (req: Request) => {
       { accountKind: 'manager', accountId: manager.id, sessionVersion: manager.session_version },
     );
     const appSessionToken = await createAppSessionToken(manager.phone, 'manager', undefined, undefined, { accountKind: 'manager', accountId: manager.id, sessionVersion: manager.session_version });
+    const displayName = String(manager.name ?? '').trim();
+    if (!appSessionToken?.trim() || !displayName) {
+      return sessionUnavailable(origin);
+    }
     return json({
       ok: true,
       role: 'manager',
       residentId: manager.phone,
-      displayName: manager.name ?? '',
+      displayName,
       requestBoardRole: 'fc',
       ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
-      ...(appSessionToken ? { appSessionToken } : {}),
+      appSessionToken,
     }, 200, origin);
   }
 
@@ -404,45 +435,26 @@ serve(async (req: Request) => {
     return fail('needs_password_setup', '비밀번호가 아직 설정되지 않았습니다.', {}, origin);
   }
 
-  const now = new Date();
-  if (creds.locked_until) {
-    const lockedUntil = new Date(creds.locked_until);
-    if (lockedUntil > now) {
+  const hashed = await hashPassword(password, creds.password_salt);
+  const passwordAttempt = await processPasswordAttempt({
+    accountKind: 'fc',
+    accountId: profile.id,
+    phone: profile.phone,
+    candidateHash: hashed,
+  });
+  if (passwordAttempt.ok === false) {
+    if (passwordAttempt.code === 'locked') {
       return fail('locked', '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.', {
-        lockedUntil: lockedUntil.toISOString(),
+        lockedUntil: passwordAttempt.lockedUntil,
       }, origin);
     }
+    if (passwordAttempt.code === 'invalid_password') {
+      return fail('invalid_password', '비밀번호가 올바르지 않습니다.', {
+        remaining: passwordAttempt.remaining,
+      }, origin);
+    }
+    return json({ ok: false, code: 'db_error', message: '로그인 상태를 저장하지 못했습니다.' }, 500, origin);
   }
-
-  const hashed = await hashPassword(password, creds.password_salt);
-  if (hashed !== creds.password_hash) {
-    const nextCount = (creds.failed_count ?? 0) + 1;
-    const remaining = Math.max(0, MAX_FAILS - nextCount);
-    const shouldLock = nextCount >= MAX_FAILS;
-    const lockedUntil = shouldLock ? new Date(now.getTime() + LOCK_MINUTES * 60 * 1000) : null;
-
-    await supabase
-      .from('fc_credentials')
-      .update({
-        failed_count: shouldLock ? 0 : nextCount,
-        locked_until: lockedUntil ? lockedUntil.toISOString() : null,
-      })
-      .eq('fc_id', profile.id);
-
-    return fail(
-      shouldLock ? 'locked' : 'invalid_password',
-      shouldLock
-        ? '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.'
-        : '비밀번호가 올바르지 않습니다.',
-      shouldLock ? { lockedUntil: lockedUntil?.toISOString() } : { remaining },
-      origin,
-    );
-  }
-
-  await supabase
-    .from('fc_credentials')
-    .update({ failed_count: 0, locked_until: null })
-    .eq('fc_id', profile.id);
 
   if (creds.must_change_password === true) {
     const challenge = await createAssistedPasswordChangeChallenge(profile.phone, profile.id);
@@ -492,11 +504,14 @@ serve(async (req: Request) => {
 
   await syncRequestBoardPassword({
     syncUrl: requestBoardPasswordSyncUrl,
+    syncV2Url: requestBoardPasswordSyncV2Url,
+    requireV2: requestBoardPasswordSyncV2Required,
     syncToken: requestBoardPasswordSyncToken,
     timeoutMs: requestBoardPasswordSyncTimeoutMs,
     logPrefix: 'login-with-password',
     phone: profile.phone,
     password,
+    upstream: buildFcPasswordSyncUpstream(profile.id, creds.session_version),
     options: {
       role: requestBoardRole,
       name: profile.name ?? '',
@@ -520,13 +535,17 @@ serve(async (req: Request) => {
     { accountKind: 'fc', accountId: profile.id, sessionVersion: creds.session_version },
   );
   const appSessionToken = await createAppSessionToken(profile.phone, 'fc', undefined, profile.id, { accountKind: 'fc', accountId: profile.id, sessionVersion: creds.session_version });
+  const displayName = String(profile.name ?? '').trim();
+  if (!appSessionToken?.trim() || !displayName) {
+    return sessionUnavailable(origin);
+  }
   return json({
     ok: true,
     role: 'fc',
     residentId: profile.phone,
-    displayName: profile.name ?? '',
+    displayName,
     requestBoardRole,
     ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
-    ...(appSessionToken ? { appSessionToken } : {}),
+    appSessionToken,
   }, 200, origin);
 });

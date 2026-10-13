@@ -66,6 +66,7 @@ describe('diagnostic privacy source boundary', () => {
     expect(otpSource).not.toContain("console.log('[TEST MODE] OTP code for'");
     expect(otpSource).not.toContain('profileId, authDeleteError.message');
     expect(otpSource).not.toContain('const text = await res.text()');
+    expect(otpSource).not.toMatch(/message:\s*[A-Za-z]+Error\.message/);
     expect(otpSource).toContain("reason: 'auth_cleanup_failed'");
     expect(otpSource).toContain("console.info('[request-signup-otp] test delivery simulated')");
 
@@ -80,6 +81,21 @@ describe('diagnostic privacy source boundary', () => {
     expect(groupChatSource).toContain("reason: 'notification_insert_failed'");
   });
 
+  test('all authentication SMS paths use one bounded provider transport without raw delivery data', () => {
+    const shared = read('supabase/functions/_shared/signup-sms.ts');
+    expect(shared).toContain('https://sens.apigw.ntruss.com');
+    expect(shared).toContain("deliveryState: 'unknown'");
+    expect(shared).not.toContain('response.text()');
+    expect(shared).not.toMatch(/console\.(?:log|info|warn|error)/);
+    for (const relativePath of [
+      'supabase/functions/platform-service/index.ts',
+      'supabase/functions/request-signup-otp/index.ts',
+      'supabase/functions/request-password-reset/index.ts',
+    ]) {
+      expect(read(relativePath)).not.toContain('https://sens.apigw.ntruss.com');
+    }
+  });
+
   test('the reviewed Edge and settings leak paths terminate at closed diagnostics', () => {
     const setPassword = read('supabase/functions/set-password/index.ts');
     expect(setPassword).not.toContain("not found or inactive', params.referralCode");
@@ -89,9 +105,9 @@ describe('diagnostic privacy source boundary', () => {
     expect(setPassword).not.toContain('resolveReferralDetails: unexpected error');
     expect(setPassword).not.toContain('${params.logLabel}: event insert error');
     expect(setPassword).not.toContain('applyReferralLinkState failed');
-    expect(setPassword).toContain("event: 'set_password.referral_resolution'");
     expect(setPassword).toContain("event: 'set_password.referral_event'");
-    expect(setPassword).toContain("event: 'set_password.referral_link'");
+    expect(setPassword).toContain("event: 'set_password.complete_signup'");
+    expect(setPassword).not.toContain('error.message');
 
     const login = read('supabase/functions/login-with-password/index.ts');
     expect(login).not.toContain('phone: cleanPhone(params.actorPhone)');
@@ -115,7 +131,6 @@ describe('diagnostic privacy source boundary', () => {
     expect(notify).not.toContain('device token load failed');
     expect(notify).not.toContain("event: 'fc_notify.admin_web_push'");
     expect(notify).toContain("event: 'fc_notify.recipient_resolution'");
-    expect(notify).toContain("event: 'fc_notify.attachment_cleanup'");
     expect(notify).toContain("event: 'fc_notify.notification_insert'");
     expect(notify).toContain("event: 'fc_notify.device_token_load'");
 

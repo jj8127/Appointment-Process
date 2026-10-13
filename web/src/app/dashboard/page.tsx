@@ -1,8 +1,23 @@
 'use client';
 
-import { requireMutationSuccess } from '@/lib/user-intent-policy';
+import {
+  isNonEmptyResponseString,
+  isHttpsResponseUrl,
+  isValidFcStatusResponse,
+  isValidYmdResponse,
+  requireCleanupMutationReceipt,
+  requireDocumentStatusReceipt,
+  requireMutationSuccess,
+  requireProfileMutationReceipt,
+} from '@/lib/user-intent-policy';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { QueryReadError } from '@/lib/query-read-error';
+import { normalizeAdminTempId } from '@/lib/admin-temp-id-update';
+import {
+  fetchAdminFcList,
+  isAdminCleanupPendingResponse,
+  isAdminFcProfile,
+} from '@/lib/admin-document-client';
 
 import {
   ActionIcon,
@@ -542,13 +557,6 @@ export default function DashboardPage() {
             allowance_reject_reason: reason,
           },
         });
-        // Local update to reflect changes immediately in the UI (optional if invalidateQueries is fast enough)
-        updateSelectedFc({
-          status: 'allowance-pending',
-          allowance_date: selectedFc.allowance_date,
-          allowance_prescreen_requested_at: null,
-          allowance_reject_reason: reason
-        });
       }
 
       if (rejectTarget.kind === 'hanwha') {
@@ -562,13 +570,6 @@ export default function DashboardPage() {
             hanwha_commission_pdf_path: null,
             hanwha_commission_pdf_name: null,
           },
-        });
-        updateSelectedFc({
-          status: 'hanwha-commission-rejected',
-          hanwha_commission_date: null,
-          hanwha_commission_reject_reason: reason,
-          hanwha_commission_pdf_path: null,
-          hanwha_commission_pdf_name: null,
         });
       }
 
@@ -608,15 +609,26 @@ export default function DashboardPage() {
           reason,
         });
         if (!res.success) throw new Error(res.error || '문서 반려 실패');
+        const receipt = requireDocumentStatusReceipt(res, {
+          status: 'rejected',
+          reviewerNote: reason,
+        });
         const nextDocs = (selectedFc.fc_documents || []).map((d: FCDocument) =>
-          d.doc_type === doc.doc_type ? { ...d, status: 'rejected' as const, reviewer_note: reason } : d,
+          d.doc_type === doc.doc_type
+            ? { ...d, status: receipt.status, reviewer_note: receipt.reviewerNote }
+            : d,
         );
         let nextProfileStatus = selectedFc.status;
-        if (!['appointment-completed', 'final-link-sent'].includes(selectedFc.status)) {
-          nextProfileStatus = 'docs-pending';
+        if (
+          receipt.allApproved !== null
+          && !DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status)
+        ) {
+          nextProfileStatus = receipt.allApproved ? 'docs-approved' : 'docs-pending';
         }
         updateSelectedFc(
-          nextProfileStatus === 'docs-pending'
+          receipt.allApproved === null
+            ? { fc_documents: nextDocs }
+            : nextProfileStatus === 'docs-pending'
             ? { ...buildDocWorkflowResetProfileFields(), fc_documents: nextDocs }
             : { fc_documents: nextDocs, status: nextProfileStatus },
         );
@@ -636,24 +648,9 @@ export default function DashboardPage() {
 
   const { data: fcs, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['dashboard-list', role, residentId],
-    queryFn: async () => {
-      const resp = await fetch('/api/admin/list');
-      const payload: unknown = await resp.json().catch(() => null);
-
-      if (!resp.ok) {
-        throw new QueryReadError(resp.status);
-      }
-
-      const data = Array.isArray(payload)
-        ? payload
-        : payload && typeof payload === 'object' && 'data' in payload
-          ? (payload as { data?: unknown }).data
-          : null;
-      if (!Array.isArray(data)) {
-        throw new Error('FC 목록 응답 형식이 올바르지 않습니다.');
-      }
-      return data;
-    },
+    queryFn: () => fetchAdminFcList<FCProfileWithDocuments>(
+      (value): value is FCProfileWithDocuments => isAdminFcProfile(value),
+    ),
     enabled: hydrated && (role === 'admin' || role === 'manager'),
   });
 
@@ -755,8 +752,9 @@ export default function DashboardPage() {
       const payload: Partial<FcProfile> & Record<string, unknown> = {
         career_type: careerInput,
       };
-      if (tempIdInput && tempIdInput !== selectedFc.temp_id) {
-        payload.temp_id = tempIdInput;
+      const normalizedTempId = normalizeAdminTempId(tempIdInput);
+      if (normalizedTempId && normalizedTempId !== normalizeAdminTempId(selectedFc.temp_id)) {
+        payload.temp_id = normalizedTempId;
         if (selectedFc.status === 'draft') {
           payload.status = 'temp-id-issued';
         }
@@ -777,20 +775,13 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '업데이트 실패');
       }
-      return data as { profile?: Partial<FCProfileWithDocuments> | null; warning?: unknown } | null;
+      const profile = requireProfileMutationReceipt(data, { id: selectedFc.id, ...payload });
+      return { response: data, profile };
     },
-    onSuccess: (response) => {
-      const nextProfileUpdates: Partial<FCProfileWithDocuments> = {
-        career_type: careerInput,
-      };
-      if (response?.profile && typeof response.profile === 'object') {
-        Object.assign(nextProfileUpdates, response.profile);
-      }
-      if (tempIdInput && tempIdInput !== selectedFc?.temp_id) {
-        nextProfileUpdates.temp_id = tempIdInput;
-      }
-      updateSelectedFc(nextProfileUpdates);
-      showAdminNotificationWarning(response);
+    onSuccess: (result) => {
+      if (!result) return;
+      updateSelectedFc(result.profile as Partial<FCProfileWithDocuments>);
+      showAdminNotificationWarning(result.response);
       notifications.show({ title: '저장 완료', message: '기본 정보가 업데이트되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
@@ -818,12 +809,13 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '위촉 상태 저장 실패');
       }
-      requireMutationSuccess(data);
-      return data;
+      const profile = requireProfileMutationReceipt(payload, { id: selectedFc.id, ...data });
+      return { response: payload, profile };
     },
-    onSuccess: (data) => {
-      if (!data) return;
-      updateSelectedFc(data as Partial<FCProfileWithDocuments>);
+    onSuccess: (result) => {
+      if (!result) return;
+      updateSelectedFc(result.profile as Partial<FCProfileWithDocuments>);
+      showAdminNotificationWarning(result.response);
       notifications.show({ title: '저장 완료', message: '위촉 상태가 업데이트되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
@@ -834,6 +826,14 @@ export default function DashboardPage() {
     mutationFn: async () => {
       if (!selectedFc) return;
 
+      const expectedProfile = {
+        temp_id: null,
+        allowance_date: null,
+        allowance_prescreen_requested_at: null,
+        allowance_reject_reason: null,
+        status: 'draft',
+      };
+
       const resp = await fetch('/api/admin/fc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -841,13 +841,7 @@ export default function DashboardPage() {
           action: 'updateProfile',
           payload: {
             fcId: selectedFc.id,
-            data: {
-              temp_id: null,
-              allowance_date: null,
-              allowance_prescreen_requested_at: null,
-              allowance_reject_reason: null,
-              status: 'draft',
-            },
+            data: expectedProfile,
           },
         }),
       });
@@ -860,17 +854,15 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '조회중 단계로 되돌리기 실패');
       }
+      const profile = requireProfileMutationReceipt(data, { id: selectedFc.id, ...expectedProfile });
+      return { response: data, profile };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (!result) return;
       setTempIdInput('');
       setAllowanceDateInput(null);
-      updateSelectedFc({
-        temp_id: null,
-        allowance_date: null,
-        allowance_prescreen_requested_at: null,
-        allowance_reject_reason: null,
-        status: 'draft',
-      });
+      updateSelectedFc(result.profile as Partial<FCProfileWithDocuments>);
+      showAdminNotificationWarning(result.response);
       notifications.show({
         title: '초기화 완료',
         message: '임시사번을 비우고 조회중 단계로 되돌렸습니다.',
@@ -906,11 +898,17 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '보증보험 조회 동의일 저장 실패');
       }
-
-      const payload = data as { allowance_date?: string; status?: FcStatus } | null;
+      requireMutationSuccess(data);
+      if (
+        data.allowance_date !== normalizedAllowanceDate
+        || !isValidYmdResponse(data.allowance_date)
+        || !isValidFcStatusResponse(data.status)
+      ) {
+        throw new Error('보증보험 조회 동의일 저장 응답이 올바르지 않습니다.');
+      }
       return {
-        allowanceDate: payload?.allowance_date ?? normalizedAllowanceDate,
-        status: payload?.status ?? selectedFc.status,
+        allowanceDate: data.allowance_date,
+        status: data.status as FcStatus,
       };
     },
     onSuccess: ({ allowanceDate, status }) => {
@@ -956,12 +954,13 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '업데이트 실패');
       }
-      requireMutationSuccess(data);
-      return data;
+      const receipt = requireCleanupMutationReceipt(data, 'updated');
+      return { response: data, cleanupPending: receipt.cleanupPending };
     },
-    onSuccess: (response) => {
-      if (response?.cleanupPending && selectedFc) setDocumentCleanupFcId(selectedFc.id);
-      showAdminNotificationWarning(response);
+    onSuccess: (result) => {
+      if (!result) return;
+      if (result.cleanupPending && selectedFc) setDocumentCleanupFcId(selectedFc.id);
+      showAdminNotificationWarning(result.response);
       notifications.show({ title: '요청 완료', message: '서류 목록이 갱신되었습니다.', color: 'blue' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
@@ -1003,14 +1002,16 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '상태 업데이트 실패');
       }
-      requireMutationSuccess(data);
-      return data;
-    },
-    onSuccess: (response, variables) => {
-      if (variables?.status) {
-        updateSelectedFc({ status: variables.status, ...(variables.extra ?? {}) });
+      const profile = requireProfileMutationReceipt(data, { id: selectedFc.id, ...(extra ?? {}), status });
+      if (data.status !== status) {
+        throw new Error('상태 업데이트 응답이 올바르지 않습니다.');
       }
-      showAdminNotificationWarning(response);
+      return { response: data, profile };
+    },
+    onSuccess: (result) => {
+      if (!result) return;
+      updateSelectedFc(result.profile as Partial<FCProfileWithDocuments>);
+      showAdminNotificationWarning(result.response);
       notifications.show({ title: '처리 완료', message: '상태가 변경되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
@@ -1108,16 +1109,24 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '다위촉 URL 완료일 저장 실패');
       }
+      requireMutationSuccess(data);
+      if (
+        data.hanwha_commission_date_sub !== normalizedSubmittedDate
+        || !isValidYmdResponse(data.hanwha_commission_date_sub)
+        || !isValidFcStatusResponse(data.status)
+      ) {
+        throw new Error('다위촉 URL 완료일 저장 응답이 올바르지 않습니다.');
+      }
       return {
-        submittedDate: normalizedSubmittedDate,
-        status: typeof data?.status === 'string' ? data.status : null,
+        submittedDate: data.hanwha_commission_date_sub,
+        status: data.status as FcStatus,
       };
     },
     onSuccess: (result) => {
       updateSelectedFc({
         hanwha_commission_date_sub: result.submittedDate,
         hanwha_commission_reject_reason: null,
-        ...(result.status ? { status: result.status } : {}),
+        status: result.status,
       });
       notifications.show({ title: '저장 완료', message: '다위촉 URL 완료일이 저장되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
@@ -1150,10 +1159,19 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '다위촉 URL 발송 신호 처리 실패');
       }
+      requireMutationSuccess(data);
+      if (
+        !isNonEmptyResponseString(data.dawichok_url_sent_at)
+        || Number.isNaN(Date.parse(data.dawichok_url_sent_at))
+        || !isNonEmptyResponseString(data.dawichok_url_sent_by)
+        || data.dawichok_url_sent_by !== residentId.replace(/\D/g, '')
+      ) {
+        throw new Error('다위촉 URL 발송 신호 응답이 올바르지 않습니다.');
+      }
       showAdminNotificationWarning(data);
       return {
-        sentAt: typeof data?.dawichok_url_sent_at === 'string' ? data.dawichok_url_sent_at : new Date().toISOString(),
-        sentBy: typeof data?.dawichok_url_sent_by === 'string' ? data.dawichok_url_sent_by : null,
+        sentAt: data.dawichok_url_sent_at,
+        sentBy: data.dawichok_url_sent_by,
       };
     },
     onSuccess: ({ sentAt, sentBy }) => {
@@ -1205,15 +1223,20 @@ export default function DashboardPage() {
             : '';
         throw new Error(message || '위촉 완료일 저장 실패');
       }
-      const nextStatus =
-        data && typeof data === 'object' && 'status' in data && typeof data.status === 'string'
-          ? (data.status as FcStatus)
-          : null;
+      requireMutationSuccess(data);
+      if (
+        data.category !== category
+        || data.appointmentDate !== normalizedAppointmentDate
+        || !isValidYmdResponse(data.appointmentDate)
+        || !isValidFcStatusResponse(data.status)
+      ) {
+        throw new Error('위촉 완료일 저장 응답이 올바르지 않습니다.');
+      }
 
       return {
-        category,
-        appointmentDate: normalizedAppointmentDate,
-        status: nextStatus,
+        category: data.category,
+        appointmentDate: data.appointmentDate,
+        status: data.status as FcStatus,
       };
     },
     onSuccess: ({ category, appointmentDate, status }) => {
@@ -1280,8 +1303,8 @@ export default function DashboardPage() {
         body: JSON.stringify({ action: 'signDoc', payload: { path: normalizedPath, fcId: selectedFc?.id } }),
       });
       const data = await resp.json().catch(() => null);
-      const signedUrl = typeof data?.signedUrl === 'string' ? data.signedUrl : '';
-      if (!resp.ok || !signedUrl) {
+      const signedUrl = data?.signedUrl;
+      if (!resp.ok || data?.ok !== true || !isHttpsResponseUrl(signedUrl)) {
         closePendingAdminFileWindow(popup);
         popup = null;
         notifications.show({ title: '실패', message: '파일을 찾을 수 없습니다.', color: 'red' });
@@ -1329,15 +1352,23 @@ export default function DashboardPage() {
         }),
       });
       const createData = await createResp.json().catch(() => null);
-      if (!createResp.ok || !createData?.uploadUrl) {
+      if (!createResp.ok) {
         const message =
           createData && typeof createData === 'object' && 'error' in createData
             ? String((createData as { error?: string }).error || '')
             : '';
         throw new Error(message || '다위촉 URL PDF 업로드 URL 생성 실패');
       }
+      requireMutationSuccess(createData);
+      if (
+        !isHttpsResponseUrl(createData.uploadUrl)
+        || !isNonEmptyResponseString(createData.storagePath)
+        || !isNonEmptyResponseString(createData.fileName)
+      ) {
+        throw new Error('다위촉 URL PDF 업로드 URL 응답이 올바르지 않습니다.');
+      }
 
-      const uploadResp = await fetch(String(createData.uploadUrl), {
+      const uploadResp = await fetch(createData.uploadUrl, {
         method: 'PUT',
         headers: { 'Content-Type': file.type || 'application/pdf' },
         body: file,
@@ -1355,7 +1386,7 @@ export default function DashboardPage() {
           hanwha_commission_date_sub: submittedDate,
           hanwha_commission_reject_reason: null,
           hanwha_commission_pdf_path: createData.storagePath,
-          hanwha_commission_pdf_name: createData.fileName ?? file.name,
+          hanwha_commission_pdf_name: createData.fileName,
         },
       });
       notifications.show({ title: '승인 완료', message: '다위촉 URL PDF가 업로드되어 승인되었습니다.', color: 'green' });
@@ -1416,14 +1447,20 @@ export default function DashboardPage() {
                 : '';
             throw new Error(message || '다위촉 URL PDF 삭제 실패');
           }
-
-          updateSelectedFc({
+          const profile = requireProfileMutationReceipt(deleteData, {
+            id: selectedFc.id,
             hanwha_commission_pdf_path: null,
             hanwha_commission_pdf_name: null,
             status:
               selectedFc.status === 'appointment-completed' || selectedFc.status === 'final-link-sent'
                 ? selectedFc.status
                 : 'hanwha-commission-review',
+          });
+
+          updateSelectedFc({
+            hanwha_commission_pdf_path: profile.hanwha_commission_pdf_path as null,
+            hanwha_commission_pdf_name: profile.hanwha_commission_pdf_name as null,
+            status: profile.status as FcStatus,
           });
           queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
           notifications.show({ title: '삭제 완료', message: '다위촉 URL PDF가 삭제되었습니다.', color: 'green' });
@@ -1444,9 +1481,10 @@ export default function DashboardPage() {
     enabled: Boolean(selectedFc?.id) && !isReadOnly,
     queryFn: async () => {
       const response = await fetch('/api/admin/fc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'getDocumentCleanupStatus', payload: { fcId: selectedFc!.id } }) });
-      const data = await response.json();
-      if (!response.ok || data?.ok !== true || typeof data.cleanupPending !== 'boolean') throw new QueryReadError(response.status);
-      return data as { cleanupPending: boolean };
+      const data: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new QueryReadError(response.status);
+      if (!isAdminCleanupPendingResponse(data)) throw new QueryReadError();
+      return data;
     },
   });
 
@@ -1456,6 +1494,7 @@ export default function DashboardPage() {
       const data: unknown = await response.json().catch(() => null);
       if (!response.ok) throw new Error('파일 정리 결과를 확인하지 못했습니다.');
       requireMutationSuccess(data);
+      if (!isAdminCleanupPendingResponse(data)) throw new Error('파일 정리 결과를 확인하지 못했습니다.');
       return data;
     },
     onSuccess: (data) => {
@@ -1501,9 +1540,9 @@ export default function DashboardPage() {
             throw new Error(message || '파일 삭제 중 오류가 발생했습니다.');
           }
 
-          requireMutationSuccess(data);
+          const receipt = requireCleanupMutationReceipt(data, 'deleted');
           showAdminNotificationWarning(data);
-          if (data.cleanupPending) setDocumentCleanupFcId(selectedFc.id);
+          if (receipt.cleanupPending) setDocumentCleanupFcId(selectedFc.id);
           setSelectedFc((prev: FCProfileWithDocuments | null) =>
             prev
               ? {
@@ -2862,25 +2901,28 @@ export default function DashboardPage() {
                                                 reason: manualApprovalNote,
                                               });
                                               if (res.success) {
+                                                const receipt = requireDocumentStatusReceipt(res, {
+                                                  status: nextStatus,
+                                                  reviewerNote: manualApprovalNote,
+                                                });
                                                 showAdminNotificationWarning(res);
                                                 notifications.show({ title: '승인', message: res.message, color: 'green' });
                                                 const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
                                                   doc.doc_type === d.doc_type
-                                                    ? { ...doc, status: nextStatus, reviewer_note: manualApprovalNote }
+                                                    ? { ...doc, status: receipt.status, reviewer_note: receipt.reviewerNote }
                                                     : doc
                                                 );
-                                                const allApproved =
-                                                  nextDocs.length > 0 && nextDocs.every((doc: FCDocument) => doc.status === 'approved');
                                                 let nextProfileStatus = selectedFc.status;
-                                                if (!DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status)) {
-                                                  if (allApproved) {
-                                                    nextProfileStatus = 'docs-approved';
-                                                  } else if (selectedFc.status === 'docs-approved') {
-                                                    nextProfileStatus = 'docs-pending';
-                                                  }
+                                                if (
+                                                  receipt.allApproved !== null
+                                                  && !DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status)
+                                                ) {
+                                                  nextProfileStatus = receipt.allApproved ? 'docs-approved' : 'docs-pending';
                                                 }
                                                 updateSelectedFc(
-                                                  nextProfileStatus === 'docs-pending'
+                                                  receipt.allApproved === null
+                                                    ? { fc_documents: nextDocs }
+                                                    : nextProfileStatus === 'docs-pending'
                                                     ? { ...buildDocWorkflowResetProfileFields(), fc_documents: nextDocs }
                                                     : { fc_documents: nextDocs, status: nextProfileStatus },
                                                 );

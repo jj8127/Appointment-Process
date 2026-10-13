@@ -2,7 +2,6 @@
 
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
-import { QueryReadError } from '@/lib/query-read-error';
 
 import {
     ActionIcon,
@@ -30,26 +29,9 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { useSession } from '@/hooks/use-session';
+import { deleteAdminNotice, fetchAdminNotices, type AdminNoticeItem } from '@/lib/admin-notice-client';
 
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
-
-type NoticeItem = {
-    id: string;
-    title?: string;
-    body?: string;
-    category?: string;
-    created_at?: string;
-    created_by?: string | null;
-    is_push_sent?: boolean;
-    image_url?: string;
-    attachment_url?: string;
-};
-
-type NoticesResponse = {
-    ok?: boolean;
-    notices?: NoticeItem[];
-    error?: string;
-};
 
 const extractBoardPostId = (noticeId: string): string | null => {
     if (!noticeId.startsWith(BOARD_NOTICE_ID_PREFIX)) return null;
@@ -64,21 +46,6 @@ const resolveNoticePath = (noticeId: string): string => {
     }
     return `/dashboard/notifications/${noticeId}`;
 };
-
-async function fetchNotices(): Promise<NoticeItem[]> {
-    const res = await fetch('/api/admin/notices', {
-        method: 'GET',
-        credentials: 'include',
-    });
-    const data = (await res.json().catch(() => ({}))) as NoticesResponse;
-
-    if (!res.ok || !data?.ok) {
-        throw new QueryReadError(res.status);
-    }
-
-    if (!Array.isArray(data.notices)) throw new QueryReadError();
-    return data.notices;
-}
 
 export default function NotificationsPage() {
     const queryClient = useQueryClient();
@@ -109,7 +76,7 @@ export default function NotificationsPage() {
     // 공지 작성/수정/삭제 가능 여부
     // 본부장(manager)은 isReadOnly=true 이지만 공지 등록/본인글 수정-삭제는 허용
     const canCreate = role === 'admin' || role === 'manager';
-    const canManageNotice = (notice: NoticeItem) => {
+    const canManageNotice = (notice: AdminNoticeItem) => {
         if (role === 'admin') return true;
         // 본부장은 본인 게시글만 수정/삭제 가능
         if (role === 'manager') return notice.created_by === residentId;
@@ -119,23 +86,14 @@ export default function NotificationsPage() {
     // Fetch Notices
     const { data: noticesData, isLoading, isError, error, refetch, isFetching } = useQuery({
         queryKey: ['notices', role],
-        queryFn: fetchNotices,
+        queryFn: fetchAdminNotices,
         enabled: hydrated && (role === 'admin' || role === 'manager'),
     });
 
     // Delete Mutation
     const deleteMutation = useMutation({
         mutationFn: async (id: string) => {
-            const res = await fetch('/api/admin/notices', {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ id }),
-            });
-            const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-            if (!res.ok || !data?.ok) {
-                throw new Error(data?.error ?? '삭제에 실패했습니다.');
-            }
+            const data = await deleteAdminNotice(id);
             showAdminNotificationWarning(data);
         },
         onSuccess: () => {
@@ -165,7 +123,7 @@ export default function NotificationsPage() {
         });
     };
 
-    const filteredNotices = (noticesData || []).filter((notice: NoticeItem) => {
+    const filteredNotices = (noticesData || []).filter((notice: AdminNoticeItem) => {
         if (!keyword.trim()) return true;
         const q = keyword.toLowerCase();
         return (
@@ -175,7 +133,7 @@ export default function NotificationsPage() {
         );
     });
 
-    const rows = filteredNotices.map((notice: NoticeItem) => {
+    const rows = filteredNotices.map((notice: AdminNoticeItem) => {
         const canManage = canManageNotice(notice);
         const postId = extractBoardPostId(notice.id);
         const detailPath = resolveNoticePath(notice.id);

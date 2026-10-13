@@ -2,16 +2,14 @@ import { useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { normalizeReferralGraph } from '@/lib/referral-graph-native';
+import { parseReferralGraphResponse } from '@/lib/referral-read-response';
 import type { ReferralGraphResponse } from '@/types/referral-graph';
 
-import { useReferralAppSession } from './use-referral-app-session';
+import {
+  type ReferralFunctionResponseEnvelope,
+  useReferralAppSession,
+} from './use-referral-app-session';
 import { useSession } from './use-session';
-
-type ReferralGraphFailure = {
-  ok?: false;
-  code?: string | null;
-  message?: string | null;
-};
 
 export function useReferralGraph() {
   const { role, residentId, isRequestBoardDesigner, readOnly } = useSession();
@@ -26,7 +24,7 @@ export function useReferralGraph() {
   const query = useQuery({
     queryKey,
     queryFn: async () => {
-      const data = await invokeReferralFunction<ReferralGraphResponse | ReferralGraphFailure>(
+      const data = await invokeReferralFunction<ReferralFunctionResponseEnvelope>(
         'get-referral-tree',
         {
           body: { mode: 'graph' },
@@ -34,13 +32,10 @@ export function useReferralGraph() {
         },
       );
 
-      if (data.ok !== true || !('nodes' in data) || !('edges' in data) || !('permissions' in data)) {
-        throw new Error(data.message ?? '추천 관계 그래프를 불러오지 못했습니다.');
-      }
-
-      const normalized = normalizeReferralGraph(data.nodes, data.edges);
+      const parsed = parseReferralGraphResponse(data);
+      const normalized = normalizeReferralGraph(parsed.nodes, parsed.edges);
       return {
-        ...data,
+        ...parsed,
         nodes: normalized.nodes,
         edges: normalized.edges,
       } satisfies ReferralGraphResponse;

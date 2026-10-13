@@ -14,6 +14,7 @@ import {
   groupChatRetryNotification,
   hasGroupChatPostCommitWarning,
   normalizeGroupChatPermissionActorId,
+  parseGroupChatBootstrapResponse,
 } from '../group-chat-api';
 import { getStoredAppSessionToken } from '../request-board-api';
 import { supabase } from '../supabase';
@@ -45,6 +46,43 @@ describe('group chat API payload builders', () => {
       type: 'group_chat_mark_read',
       message_id: 'message-1',
     });
+  });
+
+  test('requires complete bootstrap member and message arrays', () => {
+    const payload = {
+      ok: true,
+      room: {
+        id: '11111111-1111-4111-8111-111111111111',
+        slug: 'all',
+        title: '전체 단톡방',
+      },
+      actor: { id: 'fc:01011112222', role: 'fc', phone: '01011112222', name: 'FC' },
+      can_send_messages: true,
+      member_count: 1,
+      members: [{
+        actor_id: 'fc:01011112222',
+        role: 'fc',
+        phone: '01011112222',
+        name: 'FC',
+        headquarters: null,
+        appointment_label: '활성',
+        can_send_messages: true,
+      }],
+      muted: false,
+      unread_count: 0,
+      last_read_at: null,
+      last_message: null,
+      messages: [],
+      notice: null,
+    };
+    expect(parseGroupChatBootstrapResponse(payload, 50)).toMatchObject({ member_count: 1 });
+    expect(() => parseGroupChatBootstrapResponse({ ...payload, members: undefined }, 50))
+      .toThrow('단톡방 조회 응답');
+    expect(() => parseGroupChatBootstrapResponse({
+      ...payload,
+      member_count: 2,
+      members: [payload.members[0], payload.members[0]],
+    }, 50)).toThrow('단톡방 조회 응답');
   });
 
   test('builds text and file send bodies', () => {

@@ -17,6 +17,17 @@
 }
 ```
 
+회원가입 앱은 아래 관측용 헤더를 함께 보낸다. 서버는 값을 허용 목록과 길이 제한으로 정제해 배포 채택률만 집계하며, 인증·인가 판단에는 사용하지 않는다.
+
+```text
+x-moduon-platform: android | ios | web | unknown
+x-moduon-app-version: <32자 이하 안전한 릴리스 값>
+x-moduon-build-number: <32자 이하 안전한 빌드 값>
+x-moduon-signup-protocol: signup-capability-v1
+```
+
+`verify-signup-otp`와 `set-password`도 같은 헤더를 사용한다. 헤더가 없으면 `legacy`, 알려지지 않은 protocol이면 `invalid` 관측으로만 기록한다. 보안 경계는 계속 `completionToken`이다.
+
 **Response**
 ```typescript
 {
@@ -40,9 +51,17 @@ OTP 검증
 ```typescript
 {
   ok: boolean;
+  completionToken?: string; // 성공 시 32-byte random value의 base64url(43자) capability
+  code?: string;
   message?: string;
 }
 ```
+
+**Capability contract**
+- `completionToken`은 서버가 정상 OTP 검증 뒤에만 발급하는 15분짜리 일회성 가입 완료 capability다.
+- 로컬 SMS bypass도 이미 발급된 live OTP challenge의 만료·잠금 검사를 통과해야 한다.
+- 서버는 raw token을 저장하거나 로그로 남기지 않는다. 앱도 일반 회원가입 payload에 넣지 않고 민감 토큰 저장소의 별도 key에 보관한다.
+- 비밀번호 설정이 성공하면 capability가 소비된다. 같은 token과 같은 가입 요청의 재시도만 idempotent success로 허용한다.
 
 ### 1.3 set-password
 비밀번호 설정 (회원가입 완료)
@@ -52,6 +71,7 @@ OTP 검증
 {
   phone: string;
   password: string;
+  completionToken: string; // verify-signup-otp가 반환한 base64url capability
   confirm?: string;
   name?: string;
   affiliation?: string;
@@ -74,8 +94,13 @@ OTP 검증
 ```
 
 **추가 계약**
-- `set-password`는 OTP trusted path가 이미 만든 `phone_verified=true` `fc_profiles` row가 있을 때만 성공한다.
-- 이미 `fc_credentials.password_set_at`가 있는 FC에 대한 중복 호출은 `already_set`로 거절되며, 기존 추천인/온보딩 상태를 지우지 않는다.
+- 호환 기간에는 `completionToken` 필드 자체가 없는 구버전 요청을 HTTP 200의 `{ ok: false, code: 'upgrade_required', message: '안전한 회원가입을 위해 모두온 앱을 최신 버전으로 업데이트한 뒤 다시 시도해주세요.' }`로 종료한다. 이 분기는 DB/RPC와 Request Board 동기화보다 먼저 끝난다.
+- `completionToken` 필드가 있으나 형식이 잘못됐거나 발급 증명과 일치하지 않으면 기존 strict 401 검증 오류를 유지한다.
+- `set-password`는 전화번호의 `phone_verified` 값만 신뢰하지 않는다. 해당 전화번호에 발급된 live `completionToken`의 hash가 일치해야 성공한다.
+- 프로필 초기화, 추천인 연결, credentials 저장, `signup_completed=true`, capability 소비는 `complete_fc_otp_signup_v1` 한 transaction에서 처리한다.
+- 같은 capability와 같은 canonical 가입 요청은 15분 안에서 저장된 성공 결과만 반환하며 후속 동기화·이벤트를 다시 실행하지 않는다. 같은 capability로 다른 요청을 보내면 `request_conflict`로 거절한다.
+- 이미 가입이 끝난 계정은 `already_set`로 거절되며, 기존 추천인/온보딩 상태를 바꾸지 않는다.
+- Edge Function은 알려진 RPC code만 고정된 사용자 문구로 매핑한다. DB/HTTP 원문은 응답이나 앱 경고창에 노출하지 않는다.
 
 ### 1.4 login-with-password
 로그인
@@ -87,6 +112,8 @@ OTP 검증
   password: string;
 }
 ```
+
+정상 FC 로그인은 Request Board 비밀번호 동기화가 누락된 경우를 복구하는 재시도 지점이다. 서버는 로그인에서 검증된 비밀번호와 현재 `fc_credentials.session_version` 세대를 v2 endpoint로 다시 보내며, 별도 plaintext 재시도 queue를 저장하지 않는다.
 
 **Response**
 ```typescript

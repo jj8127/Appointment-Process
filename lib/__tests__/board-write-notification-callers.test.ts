@@ -80,14 +80,27 @@ describe('board write notification callers', () => {
     });
   });
 
-  it('keeps older successful responses compatible and maps warnings to safe UI copy', async () => {
+  it('requires the explicit durable update acknowledgement and maps warnings to safe UI copy', async () => {
+    const deps = {
+      getStoredAppSessionToken: async () => 'signed-session',
+      invoke: async () => ({
+        data: { ok: true, data: null },
+        error: null,
+      }),
+    };
+    await expect(invokeBoardWriteWithDeps<null>(
+      'board-update',
+      { postId: 'post-id' },
+      deps,
+    )).rejects.toMatchObject({ code: 'invalid_response', status: 502 });
+
     const result = await invokeBoardWriteWithDeps<null>(
       'board-update',
       { postId: 'post-id' },
       {
-        getStoredAppSessionToken: async () => 'signed-session',
+        ...deps,
         invoke: async () => ({
-          data: { ok: true, data: null },
+          data: { ok: true, saved: true, data: null },
           error: null,
         }),
       },
@@ -183,8 +196,10 @@ describe('board write notification callers', () => {
     expect(webSource).toContain('setPendingAttachmentRetry({');
     expect(webSource).toContain('pendingAttachmentRetry.manifest');
     expect(webSource).toContain('manifest: attachmentResult.manifest');
-    expect(webSource).toContain('closeOnClickOutside={!pendingAttachmentRetry && !createPostMutation.isPending && !updatePostMutation.isPending}');
-    expect(webSource).toContain('closeOnEscape={!pendingAttachmentRetry && !createPostMutation.isPending && !updatePostMutation.isPending}');
+    expect(webSource).toContain('const postSaving = createPostMutation.isPending || updatePostMutation.isPending;');
+    expect(webSource).toContain('const composerLocked = !!pendingAttachmentRetry || postSaving;');
+    expect(webSource).toContain('closeOnClickOutside={!composerLocked}');
+    expect(webSource).toContain('closeOnEscape={!composerLocked}');
     expect(webSource.indexOf('const createResult = await createBoardPost('))
       .toBeLessThan(webSource.indexOf('await uploadAttachments(createResult.id, null)'));
     expect(webSource).toContain('게시글은 이미 저장되었습니다.');

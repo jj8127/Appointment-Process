@@ -94,6 +94,8 @@ test('personal administrator browser inbox actions bind the exact staff account 
     }
 
     for (const body of [
+      { type: 'inbox_unread_count' },
+      { type: 'inbox_mark_all_read' },
       { type: 'inbox_get', notification_id: notificationId },
       { type: 'inbox_mark_read', notification_ids: [notificationId] },
       { type: 'inbox_dismiss', notification_ids: [notificationId] },
@@ -118,6 +120,33 @@ test('personal administrator browser inbox actions bind the exact staff account 
       },
     );
   }
+});
+
+test('browser unread count may narrow to Request Board while mark-all cannot forge scope', () => {
+  const unread = buildBrowserFcNotifyPayload({
+    body: { type: 'inbox_unread_count', only_request_board_categories: true },
+    session: manager,
+  });
+  assert.equal(unread.ok, true);
+  if (unread.ok) {
+    assert.equal(unread.payload?.role, 'admin');
+    assert.equal(unread.payload?.resident_id, manager.residentDigits);
+    assert.equal(unread.payload?.only_request_board_categories, true);
+  }
+
+  const forged = buildBrowserFcNotifyPayload({
+    body: {
+      type: 'inbox_mark_all_read',
+      role: 'fc',
+      resident_id: manager.residentDigits,
+    },
+    session: manager,
+  });
+  assert.deepEqual(forged, {
+    ok: false,
+    status: 403,
+    error: 'Inbox identity does not match the verified session',
+  });
 });
 
 test('regular administrator and FC inbox reads keep their signed scopes', () => {
@@ -164,12 +193,38 @@ test('web callers request the personal admin inbox without merging an FC shadow 
 
   assert.match(bell, /const isPersonalAdminInbox = role === 'manager' \|\| staffType === 'developer'/);
   assert.match(bell, /inboxRole === 'fc' \|\| isPersonalAdminInbox/);
+  assert.match(bell, /type: 'inbox_unread_count'/);
+  assert.match(bell, /type: 'inbox_mark_all_read'/);
+  assert.match(bell, /const unreadCount = countQuery\.data \?\? 0/);
+  assert.doesNotMatch(bell, /unreadIds\.length/);
+  assert.doesNotMatch(bell, /markAllMutation\.mutate\(unreadIds\)/);
+  assert.match(bell, /!Array\.isArray\(data\.notifications\)[\s\S]{0,80}!data\.notifications\.every\(isInboxNotificationPayload\)/);
+  assert.doesNotMatch(bell, /data\.notifications \?\? \[\]/);
+  assert.doesNotMatch(bell, /UUID_PATTERN\.test\(String\(item\.id/);
   assert.doesNotMatch(bell, /personalInboxHeld/);
-  assert.doesNotMatch(bell, /developerFcInbox|Promise\.all/);
+  assert.doesNotMatch(bell, /developerFcInbox/);
 
   assert.match(messenger, /role === 'fc' \|\| isPersonalAdminInbox/);
   assert.doesNotMatch(messenger, /personalInboxHeld/);
   assert.match(messenger, /role === 'fc' \? 'fc' : 'admin'/);
+  assert.match(messenger, /type: 'inbox_unread_count'/);
+  assert.match(messenger, /only_request_board_categories: true/);
+  assert.doesNotMatch(messenger, /type: 'inbox_list'/);
+  assert.doesNotMatch(messenger, /notifications\.filter/);
+});
+
+test('notification inbox source rejects null successful collection reads', () => {
+  const source = readFileSync(
+    resolve(root, 'supabase/functions/fc-notify/index.ts'),
+    'utf8',
+  );
+  assert.match(
+    source,
+    /if \(!Array\.isArray\(data\) \|\| !data\.every\(isNotificationOwnershipPageQueryRow\)\) \{\s*throw new Error\('notification_inbox_query_contract_invalid'\)/,
+  );
+  assert.doesNotMatch(source, /return \(data \?\? \[\]\)\.map\(\(rawRow\)/);
+  assert.doesNotMatch(source, /Legacy physical-delete block/);
+  assert.doesNotMatch(source, /deleted_notifications/);
 });
 
 test('legacy Request Board rows are rebound only for one unambiguous staff actor', () => {

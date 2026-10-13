@@ -11,6 +11,7 @@ import {
     parseFcNotificationPhone,
 } from '@/lib/privileged-action-input-policy';
 import { getVerifiedAdminSession } from '@/lib/server-session';
+import { requireProfileMutationReceipt } from '@/lib/user-intent-policy';
 type UpdateAppointmentState = {
     success: boolean;
     message?: string;
@@ -131,7 +132,11 @@ export async function updateAppointmentAction(
         .single();
 
     if (profileError) {
-        return { success: false, error: `프로필 조회 실패: ${profileError.message}` };
+        logger.error('[appointment/actions] profile lookup failed', {
+            code: profileError.code ?? 'unknown',
+            reason: 'database_read_failed',
+        });
+        return { success: false, error: '프로필을 불러오지 못했습니다.' };
     }
     if (!currentProfile) {
         return { success: false, error: '프로필을 찾을 수 없습니다.' };
@@ -186,7 +191,22 @@ export async function updateAppointmentAction(
         .single();
 
     if (updateError) {
-        return { success: false, error: `업데이트 실패: ${updateError.message}` };
+        logger.error('[appointment/actions] profile update failed', {
+            code: updateError.code ?? 'unknown',
+            reason: 'database_write_failed',
+        });
+        return { success: false, error: '위촉 정보를 업데이트하지 못했습니다.' };
+    }
+    try {
+        requireProfileMutationReceipt(
+            { ok: true, profile: updatedProfile },
+            { ...updatePayload, id: fcId },
+        );
+    } catch {
+        logger.error('[appointment/actions] profile update receipt invalid', {
+            reason: 'mutation_receipt_invalid',
+        });
+        return { success: false, error: '위촉 정보를 업데이트하지 못했습니다.' };
     }
 
     let workflowWarning: string | undefined;
@@ -195,14 +215,31 @@ export async function updateAppointmentAction(
         nextStatus = resolveInsuranceStageStatus(updatedProfile);
 
         if (nextStatus) {
-            const { error: statusError } = await adminSupabase
+            const { data: statusReceipt, error: statusError } = await adminSupabase
                 .from('fc_profiles')
                 .update({ status: nextStatus })
-                .eq('id', fcId);
+                .eq('id', fcId)
+                .select('id,status')
+                .maybeSingle();
 
             if (statusError) {
-                logger.error('Status update failed:', statusError);
+                logger.error('[appointment/actions] workflow status update failed', {
+                    code: statusError.code ?? 'unknown',
+                    reason: 'database_write_failed',
+                });
                 workflowWarning = 'workflow_update_incomplete';
+            } else {
+                try {
+                    requireProfileMutationReceipt(
+                        { ok: true, profile: statusReceipt },
+                        { id: fcId, status: nextStatus },
+                    );
+                } catch {
+                    logger.error('[appointment/actions] workflow status receipt invalid', {
+                        reason: 'mutation_receipt_invalid',
+                    });
+                    workflowWarning = 'workflow_update_incomplete';
+                }
             }
         }
     }

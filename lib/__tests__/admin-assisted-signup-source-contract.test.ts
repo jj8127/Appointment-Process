@@ -35,8 +35,8 @@ describe('administrator-assisted signup trusted boundaries', () => {
   it('keeps ordinary OTP signup classified separately from written consent', () => {
     const verifyOtp = read('supabase/functions/verify-signup-otp/index.ts');
     const setPassword = read('supabase/functions/set-password/index.ts');
-    expect(verifyOtp).toContain("signup_verification_method: 'phone_otp'");
-    expect(setPassword).toContain("signup_verification_method: 'phone_otp'");
+    expect(verifyOtp).toContain("supabase.rpc('verify_fc_signup_otp_v1'");
+    expect(setPassword).toContain("supabase.rpc('complete_fc_otp_signup_v1'");
     expect(setPassword).not.toContain("signup_verification_method: 'admin_written_consent'");
   });
 

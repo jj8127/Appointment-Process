@@ -43,7 +43,7 @@ test('push delivery logs only privacy-safe aggregate fields', () => {
 test('resident lifecycle delivery is restricted to FC mobile targets', () => {
   const serviceSource = readSource('lib/push-notification-service.ts');
   const deviceQueryStart = serviceSource.indexOf(".from('device_tokens')");
-  const deviceQueryEnd = serviceSource.indexOf('if (tokensError)', deviceQueryStart);
+  const deviceQueryEnd = serviceSource.indexOf('if (tokensError || !Array.isArray(tokens))', deviceQueryStart);
   const deviceQuery = serviceSource.slice(deviceQueryStart, deviceQueryEnd);
 
   assert.match(deviceQuery, /\.eq\('resident_id', userId\)/);
@@ -63,6 +63,7 @@ test('FC inbox persistence and partial delivery accounting remain independent', 
   assert.match(serviceSource, /delivery\.inbox\.attempted = true/);
   assert.match(serviceSource, /delivery\.inbox\.logged = true/);
   assert.match(serviceSource, /addFailure\(delivery, 'token_query_failed'\)/);
+  assert.match(serviceSource, /tokensError \|\| !Array\.isArray\(tokens\)/);
   assert.doesNotMatch(serviceSource, /addFailure\(delivery, 'web_subscription_query_failed'\)/);
   assert.match(serviceSource, /const result = finalizeDeliveryResult\(delivery\)/);
   assert.match(
@@ -87,16 +88,58 @@ test('notice broadcasts fail closed when inbox persistence does not return a not
   assert.match(guardSource, /return \{/);
 });
 
+test('notice attachment contracts require safe HTTPS URLs and reject malformed JSON', () => {
+  const noticeSource = readSource('app/dashboard/notifications/actions.ts');
+
+  assert.match(noticeSource, /z\.string\(\)\.refine\(isHttpsResponseUrl/);
+  assert.match(noticeSource, /images:\s*z\.array\(HttpsUrlSchema\)/);
+  assert.match(noticeSource, /url:\s*HttpsUrlSchema/);
+  assert.match(noticeSource, /function parseNoticeJsonField/);
+  assert.match(noticeSource, /catch \{\s*return undefined;/);
+  assert.doesNotMatch(noticeSource, /imagesRaw \? JSON\.parse/);
+  assert.doesNotMatch(noticeSource, /filesRaw \? JSON\.parse/);
+});
+
+test('notice token queries distinguish malformed success from an empty target list', () => {
+  const noticeSource = readSource('app/dashboard/notifications/actions.ts');
+
+  assert.match(noticeSource, /collectSupabaseRows<NoticeBroadcastTokenRow>/);
+  assert.match(noticeSource, /isRow:\s*isNoticeBroadcastTokenRow/);
+  assert.match(noticeSource, /rowKey:\s*\(row\) => row\.expo_push_token/);
+  assert.match(noticeSource, /\.select\('expo_push_token,resident_id,role'\)/);
+  assert.match(noticeSource, /\.order\('expo_push_token',[\s\S]*?\.range\(from, to\)/);
+  assert.match(noticeSource, /loadActorScopedFcExpoTargets\(tokens, 'notice'\)/);
+  assert.match(noticeSource, /const targetQueriesFailed = targetQueryFailed/);
+  assert.doesNotMatch(noticeSource, /\(tokens \?\? \[\]\)/);
+});
+
 test('post-commit actions return success with a separate notification warning', () => {
   const docsSource = readSource('app/dashboard/docs/actions.ts');
   const appointmentSource = readSource('app/dashboard/appointment/actions.ts');
 
   assert.match(
     docsSource,
-    /return \{ success: true, message, warning: notificationWarning \}/,
+    /return \{[\s\S]*?success:\s*true,[\s\S]*?message,[\s\S]*?warning:\s*notificationWarning,/,
   );
   assert.match(
     appointmentSource,
     /return \{ success: true, message: '처리 완료', warning: notificationWarning \}/,
   );
+});
+
+test('admin notice reads paginate stable identities and bind board rows to the notice category', () => {
+  const routeSource = readSource('app/api/admin/notices/route.ts');
+
+  assert.equal((routeSource.match(/collectSupabaseRows</g) ?? []).length, 4);
+  assert.match(routeSource, /queryName:\s*'admin_notices_legacy'[\s\S]*?rowKey:\s*\(row\) => row\.id/);
+  assert.match(routeSource, /\.order\('created_at', \{ ascending: false \}\)[\s\S]*?\.order\('id', \{ ascending: false \}\)[\s\S]*?\.range\(from, to\)/);
+  assert.match(routeSource, /\.select\('id,slug'\)[\s\S]*?isBoardCategoryRow\(data\)/);
+  assert.doesNotMatch(routeSource, /return data\?\.id \?\? null/);
+  assert.match(routeSource, /value\.category_id === categoryId/);
+  assert.match(routeSource, /value\.post_id === postId/);
+  assert.match(routeSource, /options\.tolerateMissingRelation && isMissingRelationError\(error\)/);
+  assert.match(routeSource, /throw new Error\('admin_notices_board_attachment_signed_url_contract_invalid'\)/);
+  assert.doesNotMatch(routeSource, /signedUrls[\s\S]*?filter\(\(item\) => item\.file\.file_type === 'file' && !!item\.signedUrl\)/);
+  assert.match(routeSource, /admin_notices_combined_row_identity_contract_invalid/);
+  assert.match(routeSource, /timestampOrder \|\| b\.id\.localeCompare\(a\.id\)/);
 });

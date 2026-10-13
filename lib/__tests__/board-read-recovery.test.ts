@@ -25,13 +25,51 @@ describe('board read recovery metadata', () => {
     },
   );
 
-  it.each([403, 500])('keeps HTTP %s as a retryable read failure rather than requiring login', async (status) => {
+  it.each([
+    [403, 403],
+    [500, 502],
+  ])('maps HTTP %s to a safe retryable board failure', async (upstreamStatus, expectedStatus) => {
     await expect(invokeBoardWithDeps('board-categories-list', {}, {
       getStoredAppSessionToken: async () => 'fictional-token',
       invoke: async () => ({ data: null, error: { context: new Response(
-        JSON.stringify({ message: '목록을 불러오지 못했습니다.' }), { status },
+        JSON.stringify({ message: '목록을 불러오지 못했습니다.' }), { status: upstreamStatus },
       ) } }),
-    })).rejects.toMatchObject({ status, needsRelogin: false });
+    })).rejects.toMatchObject({ status: expectedStatus, needsRelogin: false });
+  });
+
+  it('never exposes raw transport or successful-envelope failure messages', async () => {
+    const transportFailure = await invokeBoardWithDeps('board-list', {}, {
+      getStoredAppSessionToken: async () => 'fictional-token',
+      invoke: async () => ({
+        data: null,
+        error: {
+          context: new Response(JSON.stringify({
+            code: 'db_error',
+            message: 'private relation and policy detail',
+          }), { status: 500 }),
+        },
+      }),
+    }).catch((failure: unknown) => failure);
+    expect(transportFailure).toMatchObject({
+      status: 502,
+      code: 'board_upstream_failed',
+      message: '게시판 요청을 처리하지 못했습니다.',
+    });
+    expect(String(transportFailure)).not.toContain('private relation');
+
+    const envelopeFailure = await invokeBoardWithDeps('board-list', {}, {
+      getStoredAppSessionToken: async () => 'fictional-token',
+      invoke: async () => ({
+        data: { ok: false, code: 'unknown_private_code', message: 'secret database detail' },
+        error: null,
+      }),
+    }).catch((failure: unknown) => failure);
+    expect(envelopeFailure).toMatchObject({
+      status: 502,
+      code: 'board_upstream_failed',
+      message: '게시판 요청을 처리하지 못했습니다.',
+    });
+    expect(String(envelopeFailure)).not.toContain('secret database detail');
   });
 
   it('keeps a genuine successful empty list', async () => {

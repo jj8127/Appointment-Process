@@ -135,3 +135,9 @@ admin-action·fc-consent·fc-submit-appointment·fc-submit-hanwha-commission은 
 ## 2026-10-09 Prepared transactional document and exam operations
 
 `updateDocReqs`, `deleteDocFile` and FC-only `removeOwnDocument` call service-only invoker RPCs that lock canonical rows, revalidate the current actor and preserve the existing workflow reset/protection rules. They validate committed receipts before success; physical file deletion drains at most20 queued objects after commit. `getDocumentCleanupStatus`/`retryDocumentCleanup` are signed admin actions; FC-only own variants derive the target from signed scope and call `assert_ux_mutation_actor_v1` before queue access. Only a valid nonnegative count confirms cleanup status. `deleteExamRound` uses one transactional RPC and protects any registration. Migration `20261009065353` was applied to the FC operational DB on2026-10-09; catalog/ACL and18 read-only rollback denial checks passed. Edge activation and real Storage cleanup remain separate acceptance gates.
+
+## 2026-10-13 FC self-service actor boundary
+
+- `fc-consent`, `fc-submit-appointment`, and `fc-submit-hanwha-commission` are signed FC self-service endpoints, not anonymous phone-based admin operations.
+- Each endpoint resolves a current FC session, verifies the submitted selector against that actor, and scopes the mutation by both profile id and phone where the table contract supports both.
+- Foreign selectors, inactive sessions, malformed dates, and future consent dates are rejected before mutation. Service-role access inside the function does not relax this actor check.

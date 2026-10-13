@@ -179,6 +179,42 @@ Messenger V2와 개인별 총무/개발자 대화의 canonical rollout 순서는
    - 서버 caller의 인증 smoke와 관측 창이 통과한 뒤에만 `exam_month`를 명시적으로 보내는 mobile artifact를 배포한다.
    - 순서가 어긋나거나 증거가 하나라도 없으면 rollout을 중단하고 **릴리스 HOLD**를 유지한다.
 
+### 4.4 모두온 가입 인증·Request Board password-sync v2 고정 순서
+
+아래 단계는 서로의 선행 조건입니다. 한 단계의 배포 성공만으로 다음 단계를 자동 승인하지 않습니다.
+
+1. **Request Board receiver 준비**
+   - Request Board의 `20261013030000_add_password_sync_v2_idempotency.sql`을 disposable local/staging에 먼저 적용합니다.
+   - service-role 전용 RPC/ACL, 같은 세대 idempotency, 낮은 세대 거절, principal conflict, 두 connection 동시 요청을 검증합니다.
+   - 그 뒤 `/api/auth/sync-password-v2` server artifact를 배포하고 v1 route가 호환 기간 동안 유지되는지 확인합니다.
+2. **모두온 DB migration**
+   - 가입 challenge·completion capability·만료 정리·SMS delivery tracking migration을 timestamp 순서로 적용합니다.
+   - `migration list`와 적용 예정 목록을 exact commit에서 확인합니다. 이 작업과 무관한 pending migration이 하나라도 섞이면 `db push`를 실행하지 않고 isolated clean release source 또는 별도 승인으로 분리합니다.
+   - RPC 존재, `service_role` ACL, replay/idempotency, cleanup, schema parity를 확인합니다.
+3. **SMS Edge를 개별 배포**
+   - `request-signup-otp`, `request-password-reset`을 함수명을 명시해 각각 배포합니다.
+   - 추적 행 시작 실패 시 SMS가 전송되지 않고, 명확한 NCP 거절만 challenge를 취소하며, timeout/unknown은 challenge를 보존하는지 smoke합니다.
+4. **가입 검증·호환 완료 Edge 배포**
+   - `verify-signup-otp`와 구버전 호환 `set-password`를 같은 release 창에서 배포합니다. 새 앱이 old verify와 만나는 조합은 허용하지 않습니다.
+   - 이 단계의 `set-password`는 `completionToken` 필드가 없는 구버전 요청에 HTTP 200 `upgrade_required`만 반환하고 DB·추천인·Request Board write를 하지 않습니다. 형식이 잘못된 token은 계속 strict 401입니다.
+   - `login-with-password`, `reset-password`, `complete-assisted-password`의 v2 sender는 Request Board v2 receiver 검증 뒤에만 `REQUEST_BOARD_PASSWORD_SYNC_V2_URL`을 사용합니다.
+5. **실제 NCP 단말 수신 gate**
+   - [SMS 실수신 검증 가이드](../guides/SMS_TESTING.md)에 따라 전용 동의 단말 1대로 NCP 최종 상태, 실제 수신, OTP 검증, capability 발급을 각각 확인합니다.
+6. **token-aware 앱 배포**
+   - `completionToken`을 민감 저장소의 별도 key에 보관하고 `set-password`에 보내며 성공/취소 시 정리하는 앱만 배포합니다.
+   - 앱 버전·build·`signup-capability-v1` 관측 헤더를 확인합니다. 헤더는 채택률 관측값이며 인증 근거가 아닙니다.
+7. **채택 관측**
+   - legacy/invalid/current count, `upgrade_required`, OTP 요청·검증·완료율, NCP final status, Request Board v2 고정 오류 code를 비식별 집계합니다.
+   - 관측 창과 최소 지원 앱 버전은 운영 owner가 명시적으로 승인합니다. 실제 채택 증거 없이 호환 분기를 제거하지 않습니다.
+8. **strict 전환**
+   - 채택 승인 뒤 missing `completionToken` 호환 응답을 strict 거절로 전환합니다. rollback은 capability 없는 가입을 다시 허용하는 것이 아니라 마지막 안전한 호환 artifact로만 합니다.
+   - Request Board v2 채택 뒤 `REQUEST_BOARD_PASSWORD_SYNC_V2_REQUIRED=true`를 켭니다. 이 전환 뒤 v1 fallback, v2 URL 제거, trigger 우회는 rollback이 아닙니다.
+9. **signed self-service strict 전환**
+   - token-aware 앱과 signed caller 채택을 확인한 뒤에만 FC consent/appointment/commission 같은 self-service Edge의 legacy actor 입력을 닫습니다.
+   - role별 allow/deny, 계정 전환, 구버전 앱 안내, Request Board 다음-login 복구를 다시 smoke합니다.
+
+각 단계의 원격 작업은 clean committed source, exact commit 기록, 명시적 승인, 비식별 영수증을 요구합니다. 순서를 건너뛰거나 staging/폐기 가능 환경이 없으면 결론은 `HOLD`입니다.
+
 ## 5. Lane별 체크리스트
 
 ### Expo static web

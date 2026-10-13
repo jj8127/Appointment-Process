@@ -3,9 +3,14 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import { getEnv, requireAppSessionFromRequest } from '../_shared/request-board-auth.ts';
 import {
   authorizeReferralAllowance,
+  parseAllowanceAdminQuery,
+  parseAllowanceManagerQuery,
+  parseAllowancePilotQuery,
+  parseAllowanceProfilesQuery,
   readAllowanceCommand,
   type AllowanceAuthRepository,
 } from '../_shared/referral-allowance-auth.ts';
+import { parseReferralAllowanceResponse } from '../../../lib/referral-allowance-response.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map((value) => value.trim()).filter(Boolean);
 const responseHeaders = (req: Request) => {
@@ -32,7 +37,7 @@ serve(async (req: Request) => {
 
   try {
     const auth = await requireAppSessionFromRequest(req);
-    if (!auth.ok) return fail(auth.code, auth.message, auth.status);
+    if (auth.ok === false) return fail(auth.code, auth.message, auth.status);
     const command = await readAllowanceCommand(req);
     if (!command) return fail('invalid_request', '조회 조건을 확인해주세요.', 400);
 
@@ -42,30 +47,29 @@ serve(async (req: Request) => {
     const supabase = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
     const repository: AllowanceAuthRepository = {
       managerByPhone: async (phone) => {
-        const { data, error } = await supabase.from('manager_accounts').select('id,active')
-          .eq('phone', phone).maybeSingle();
+        const { data, error } = await supabase.from('manager_accounts').select('id,phone,active')
+          .eq('phone', phone).limit(2);
         if (error) throw new Error('allowance_lookup_failed');
-        return data;
+        return parseAllowanceManagerQuery(data, phone);
       },
       hasAdminAccount: async (phone) => {
-        const { data, error } = await supabase.from('admin_accounts').select('id').eq('phone', phone).limit(1);
+        const { data, error } = await supabase.from('admin_accounts').select('id,phone').eq('phone', phone).limit(2);
         if (error) throw new Error('allowance_lookup_failed');
-        return Boolean(data?.length);
+        return parseAllowanceAdminQuery(data, phone);
       },
       profilesForSession: async (phone, fcId) => {
         const query = supabase.from('fc_profiles')
           .select('id,phone,affiliation,signup_completed,is_manager_referral_shadow').limit(2);
         const { data, error } = await (fcId ? query.eq('id', fcId) : query.eq('phone', phone));
         if (error) throw new Error('allowance_lookup_failed');
-        return (data ?? []).map((row) => ({ id: row.id, phone: row.phone, affiliation: row.affiliation,
-          signupCompleted: row.signup_completed === true, isManagerReferralShadow: row.is_manager_referral_shadow === true }));
+        return parseAllowanceProfilesQuery(data, phone, fcId);
       },
       pilot: async (beneficiaryFcId) => {
         const { data, error } = await supabase.from('referral_allowance_recipients')
-          .select('manager_account_id,beneficiary_fc_id,employee_code,enabled,revision').eq('beneficiary_fc_id', beneficiaryFcId).maybeSingle();
+          .select('manager_account_id,beneficiary_fc_id,employee_code,enabled,revision')
+          .eq('beneficiary_fc_id', beneficiaryFcId).limit(2);
         if (error) throw new Error('allowance_lookup_failed');
-        return data ? { managerAccountId: data.manager_account_id, beneficiaryFcId: data.beneficiary_fc_id,
-          employeeCode: data.employee_code, enabled: data.enabled, revision: Number(data.revision) } : null;
+        return parseAllowancePilotQuery(data, beneficiaryFcId);
       },
     };
     const access = await authorizeReferralAllowance(auth.session, repository);
@@ -84,11 +88,14 @@ serve(async (req: Request) => {
       if (error.code === '42501') return fail('forbidden', '수당 조회 권한이 없습니다.', 403);
       return fail('unavailable', '수당 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.', 503);
     }
-    if (!data || typeof data !== 'object' || data.ok !== true || typeof data.enabled !== 'boolean') {
+    let response: ReturnType<typeof parseReferralAllowanceResponse>;
+    try {
+      response = parseReferralAllowanceResponse(data, command.action, command.month);
+    } catch {
       return fail('unavailable', '수당 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.', 503);
     }
-    if (!data.enabled && command.action === 'statement') return fail('forbidden', '수당 조회 권한이 없습니다.', 403);
-    return json(data);
+    if (!response.enabled && command.action === 'statement') return fail('forbidden', '수당 조회 권한이 없습니다.', 403);
+    return json(response);
   } catch {
     return fail('unavailable', '수당 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.', 503);
   }

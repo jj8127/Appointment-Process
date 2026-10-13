@@ -64,3 +64,24 @@ test('legacy rows remain compatible while new server submissions require proof',
     /payment_proof_policy_version[\s\S]*1/,
   );
 });
+
+test('proxy target lookups reject null and malformed successful database rows', () => {
+  assert.match(functionSource, /from '\.\.\/_shared\/query-result-contract\.ts'/);
+  assert.match(functionSource, /collectSupabaseRows<\{ id: string; phone: string \}>/);
+  assert.match(functionSource, /parseQueryRows\(data, isStaffActorRow\)/);
+  assert.match(functionSource, /parseQueryRows\(data, isActorRow\)/);
+  assert.match(functionSource, /legacyTargetError/);
+  assert.match(functionSource, /parseQueryRows\(legacyTarget, isActorRow\)/);
+  assert.match(functionSource, /collectSupabaseRows<ApplicationTargetRow>/);
+  assert.match(functionSource, /rowKey: \(row\) => row\.id/);
+  assert.doesNotMatch(functionSource, /\(data \?\? \[\]\)\.flatMap/);
+  assert.doesNotMatch(functionSource, /\(data \?\? \[\]\)\.filter/);
+});
+
+test('proxy target inventories use stable complete pagination instead of fixed caps', () => {
+  assert.match(functionSource, /const QUERY_PAGE_SIZE = 500/);
+  assert.match(functionSource, /loadAllActivePhoneRows/);
+  assert.match(functionSource, /\.order\('phone', \{ ascending: true \}\)[\s\S]*\.range\(from, to\)/);
+  assert.match(functionSource, /\.order\('name', \{ ascending: true \}\)[\s\S]*\.order\('id', \{ ascending: true \}\)[\s\S]*\.range\(from, to\)/);
+  assert.doesNotMatch(functionSource, /\.limit\(2000\)/);
+});

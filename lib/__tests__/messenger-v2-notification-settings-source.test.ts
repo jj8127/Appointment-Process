@@ -23,7 +23,7 @@ describe('Messenger V2 notification settings UI contract', () => {
     expect(source).toContain('operations: {');
     expect(source).toContain('setConfirmGlobalOff(true)');
     expect(source).toContain('전체 알림을 끌까요?');
-    expect(source).toContain('이 계정으로 로그인한 모든 기기에서 가람in 알림을 받지 않습니다.');
+    expect(source).toContain('이 계정으로 로그인한 모든 기기에서 모두온 알림을 받지 않습니다.');
     expect(source).toContain('!preferences.globalPushEnabled || pendingKey !== null');
     expect(source).toContain('알림을 꺼도 앱 안의 메시지와 읽지 않은 개수는 유지됩니다.');
   });

@@ -573,6 +573,137 @@ function parseGroupChatContextMessage(value: unknown): GroupChatMessage | null {
   return hydrateGroupChatMessage(message as unknown as GroupChatMessage);
 }
 
+const isGroupChatRole = (value: unknown): value is GroupChatRole => (
+  value === 'fc' || value === 'manager' || value === 'admin'
+);
+
+const isNullableTimestamp = (value: unknown): value is string | null => (
+  value === null || (typeof value === 'string' && Number.isFinite(Date.parse(value)))
+);
+
+function parseGroupChatActor(value: unknown): GroupChatActor | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const actor = value as Record<string, unknown>;
+  if (
+    typeof actor.id !== 'string'
+    || !actor.id
+    || !isGroupChatRole(actor.role)
+    || typeof actor.phone !== 'string'
+    || !/^\d{11}$/.test(actor.phone)
+    || (actor.name !== null && typeof actor.name !== 'string')
+  ) return null;
+  return actor as GroupChatActor;
+}
+
+function parseGroupChatMember(value: unknown): GroupChatMember | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const member = value as Record<string, unknown>;
+  if (
+    typeof member.actor_id !== 'string'
+    || !member.actor_id
+    || !isGroupChatRole(member.role)
+    || typeof member.phone !== 'string'
+    || !/^\d{11}$/.test(member.phone)
+    || (member.name !== null && typeof member.name !== 'string')
+    || (member.headquarters !== null && typeof member.headquarters !== 'string')
+    || typeof member.appointment_label !== 'string'
+    || typeof member.can_send_messages !== 'boolean'
+  ) return null;
+  return member as GroupChatMember;
+}
+
+function parseGroupChatNotice(value: unknown, roomId: string): GroupChatNotice | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const notice = value as Record<string, unknown>;
+  const message = parseGroupChatContextMessage(notice.message);
+  if (
+    notice.room_id !== roomId
+    || !isNotificationUuid(notice.message_id)
+    || typeof notice.created_by_actor_id !== 'string'
+    || !notice.created_by_actor_id
+    || !isGroupChatRole(notice.created_by_role)
+    || typeof notice.created_at !== 'string'
+    || !Number.isFinite(Date.parse(notice.created_at))
+    || typeof notice.updated_at !== 'string'
+    || !Number.isFinite(Date.parse(notice.updated_at))
+    || !message
+    || message.room_id !== roomId
+    || message.id !== notice.message_id
+  ) return null;
+  return { ...notice, message } as GroupChatNotice;
+}
+
+function invalidGroupChatBootstrapResponse(): never {
+  throw new GroupChatRequestError('단톡방 조회 응답이 올바르지 않습니다.', {
+    code: 'invalid_group_chat_bootstrap_response',
+  });
+}
+
+export function parseGroupChatBootstrapResponse(
+  value: unknown,
+  limit: number,
+): GroupChatBootstrapResponse {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return invalidGroupChatBootstrapResponse();
+  }
+  const response = value as Record<string, unknown>;
+  const room = response.room as Record<string, unknown> | null;
+  const actor = parseGroupChatActor(response.actor);
+  const members = Array.isArray(response.members)
+    ? response.members.map(parseGroupChatMember)
+    : null;
+  const messages = Array.isArray(response.messages) && response.messages.length <= Math.max(1, limit)
+    ? response.messages.map(parseGroupChatContextMessage)
+    : null;
+  const lastMessage = response.last_message === null
+    ? null
+    : parseGroupChatContextMessage(response.last_message);
+  const notice = response.notice === null
+    ? null
+    : parseGroupChatNotice(response.notice, typeof room?.id === 'string' ? room.id : '');
+  if (
+    response.ok !== true
+    || !room
+    || !isNotificationUuid(room.id)
+    || typeof room.slug !== 'string'
+    || !room.slug
+    || typeof room.title !== 'string'
+    || !room.title
+    || !actor
+    || !members
+    || members.some((member) => member === null)
+    || new Set(members.map((member) => member!.actor_id)).size !== members.length
+    || response.member_count !== members.length
+    || !members.some((member) => member!.actor_id === actor.id)
+    || typeof response.can_send_messages !== 'boolean'
+    || typeof response.muted !== 'boolean'
+    || !Number.isSafeInteger(response.unread_count)
+    || Number(response.unread_count) < 0
+    || !isNullableTimestamp(response.last_read_at)
+    || !messages
+    || messages.some((message) => message === null || message.room_id !== room.id)
+    || new Set(messages.map((message) => message!.id)).size !== messages.length
+    || (response.last_message !== null && (!lastMessage || lastMessage.room_id !== room.id))
+    || (lastMessage && messages.length > 0 && lastMessage.id !== messages[0]!.id)
+    || (response.notice !== null && !notice)
+  ) {
+    return invalidGroupChatBootstrapResponse();
+  }
+  return {
+    room: room as GroupChatRoom,
+    actor,
+    can_send_messages: response.can_send_messages,
+    member_count: response.member_count as number,
+    members: members as GroupChatMember[],
+    muted: response.muted,
+    unread_count: response.unread_count as number,
+    last_read_at: response.last_read_at as string | null,
+    last_message: lastMessage,
+    messages: messages as GroupChatMessage[],
+    notice,
+  };
+}
+
 function invalidGroupChatSearchResponse(): never {
   throw new GroupChatRequestError('단톡방 검색 응답이 올바르지 않습니다.', {
     code: 'invalid_group_chat_search_response',
@@ -690,17 +821,10 @@ function parseGroupChatAttachmentCommit(value: unknown) {
 }
 
 export async function groupChatBootstrap(limit = 50) {
-  const result = await invokeGroupChat<GroupChatBootstrapResponse>(
+  const result = await invokeGroupChat<Record<string, unknown>>(
     buildGroupChatBootstrapBody(limit),
   );
-  return {
-    ...result,
-    last_message: result.last_message
-      ? hydrateGroupChatMessage(result.last_message)
-      : null,
-    messages: result.messages.map(hydrateGroupChatMessage),
-    notice: hydrateGroupChatNotice(result.notice),
-  };
+  return parseGroupChatBootstrapResponse(result, limit);
 }
 
 export async function groupChatSearch(query: string, limit = 50) {

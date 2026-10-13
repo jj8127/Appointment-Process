@@ -2,10 +2,32 @@ doc_id: SHARED-BRIDGE-CONTRACT
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-07-29
-source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/functions/sync-request-board-session/index.ts + supabase/functions/refresh-app-session/index.ts + request_board/server/src/routes/auth.ts + lib/request-board-api.ts
+last_verified: 2026-10-13
+source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/functions/_shared/request-board-password-sync.ts + supabase/functions/sync-request-board-session/index.ts + supabase/functions/refresh-app-session/index.ts + request_board/server/src/routes/auth.ts + request_board/supabase/migrations/20261013030000_add_password_sync_v2_idempotency.sql + lib/request-board-api.ts
 
 # Cross-Repo Bridge Contract
+
+## 2026-10-13 generation-idempotent password sync v2
+
+- 가람in의 FC credential이 기준입니다. `set-password`, `complete-assisted-password`, `reset-password`, 정상 FC `login-with-password`는 `fc:<fc_profiles.id>`와 비밀번호 hash/salt 변경 때 단조 증가하는 `fc_credentials.session_version`을 v2 세대로 보냅니다.
+- `/api/auth/sync-password-v2`는 전화번호·role·upstream account·credential generation·operation UUID가 모두 같은 짧은 HMAC assertion에 묶여야 합니다. v1 assertion은 v2 route에서 사용할 수 없고 v2 assertion도 v1 route에서 사용할 수 없습니다.
+- Request Board는 user/designer/generation ledger 변경을 한 RPC transaction에서 수행합니다. 같은 세대의 반복 요청은 `alreadyApplied`이며 비밀번호 hash나 token을 다시 바꾸지 않습니다. 더 낮은 세대는 `SYNC_GENERATION_STALE`로 거절합니다.
+- v2로 관리되기 시작한 principal은 v1 route나 bridge bootstrap으로 password/company ownership을 바꿀 수 없습니다. `SYNC_V2_REQUIRED`를 우회하려고 trigger를 끄거나 v1 write를 직접 실행하지 않습니다.
+- 가람in은 Request Board sync 실패 때문에 이미 완료된 canonical 비밀번호 변경을 되돌리지 않습니다. 다음 정상 FC 로그인에서 사용자가 방금 증명한 비밀번호와 같은 credential generation을 다시 보냅니다. 비밀번호와 동등한 재시도 payload를 DB·queue·로그에 저장하지 않습니다.
+- `REQUEST_BOARD_PASSWORD_SYNC_V2_REQUIRED=true`를 채택한 환경은 v1 fallback으로 되돌리지 않습니다. rollback은 Request Board v2 receiver를 정상화하거나 새 additive forward correction을 배포하는 방식으로 합니다.
+
+### v2 복구 판정
+
+| 결과 | 의미 | 복구 |
+| --- | --- | --- |
+| 2xx `alreadyApplied=true` | 이전 요청은 이미 적용됐고 응답만 유실됐을 수 있음 | 성공으로 종료 |
+| 409 `SYNC_GENERATION_STALE` | Request Board에 더 최신 세대가 있음 | 이전 비밀번호를 재전송하지 않고 다음 정상 로그인에서 현재 세대를 확인 |
+| 409 `SYNC_PRINCIPAL_CONFLICT` | 같은 전화번호/계정이 다른 upstream principal에 결합됨 | 자동 병합 금지, 두 저장소 owner가 수동 identity mapping 검토 |
+| 409 `SYNC_OPERATION_CONFLICT` | operation UUID가 다른 세대에 사용됨 | 보안·idempotency 이상으로 HOLD, 원인 확인 후 새 정상 로그인으로만 재시도 |
+| 401/409 `SYNC_V2_REQUIRED` | assertion/secret/route가 어긋났거나 v1 sender가 v2-managed row를 변경하려 함 | paired secret·v2 URL·배포 commit을 복구하고 다음 로그인으로 재시도 |
+| 5xx/timeout/network | 적용 여부 불명확 또는 receiver 장애 | 즉시 v1 fallback 금지, receiver 상태 확인 후 다음 정상 FC 로그인으로 같은 세대 재시도 |
+
+진단에는 phone, password/hash, assertion, operation UUID, upstream account ID, raw 응답 body를 남기지 않습니다.
 
 ## 2026-10-02 Bridge freshness (prepared)
 

@@ -15,10 +15,17 @@ export type FcNotifyAppActor = {
 
 export type FcNotifyTargetRole = 'admin' | 'fc';
 export type FcNotifyDeviceTokenRole = 'admin' | 'manager' | 'fc';
+export type FcNotifyInboxCursor = {
+  created_at: string;
+  id: string;
+};
 
 const ADMIN_NOTIFICATION_TOKEN_ROLES = ['admin', 'manager'] as const;
 const FC_NOTIFICATION_TOKEN_ROLES = ['fc'] as const;
 const REQUEST_BOARD_FC_NOTIFICATION_TOKEN_ROLES = ['fc', 'manager'] as const;
+const BOARD_NOTICE_CURSOR_ID_PREFIX = 'board_notice:';
+const RFC3339_TIMESTAMP_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-](\d{2}):(\d{2}))$/;
 
 type PolicySuccess = { ok: true; payload: Record<string, unknown> };
 type PolicyFailure = { ok: false; status: 400 | 401 | 403; error: string };
@@ -200,6 +207,53 @@ function cleanUuid(value: unknown): string | null {
   return UUID_PATTERN.test(normalized) ? normalized : null;
 }
 
+function isValidRfc3339Timestamp(value: string): boolean {
+  const match = RFC3339_TIMESTAMP_PATTERN.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offsetHour = match[8] === undefined ? 0 : Number(match[8]);
+  const offsetMinute = match[9] === undefined ? 0 : Number(match[9]);
+  const daysInMonth = month >= 1 && month <= 12
+    ? new Date(Date.UTC(year, month, 0)).getUTCDate()
+    : 0;
+  return (
+    year >= 1 &&
+    day >= 1 &&
+    day <= daysInMonth &&
+    hour <= 23 &&
+    minute <= 59 &&
+    second <= 59 &&
+    offsetHour <= 23 &&
+    offsetMinute <= 59 &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
+export function parseFcNotifyInboxCursor(
+  value: unknown,
+  allowBoardNoticeId = false,
+): FcNotifyInboxCursor | null {
+  const cursor = asRecord(value);
+  if (!cursor || Object.keys(cursor).length !== 2) return null;
+  const createdAt = typeof cursor.created_at === 'string' ? cursor.created_at.trim() : '';
+  const rawId = typeof cursor.id === 'string' ? cursor.id.trim() : '';
+  const noticeId = allowBoardNoticeId && rawId.startsWith(BOARD_NOTICE_CURSOR_ID_PREFIX)
+    ? rawId.slice(BOARD_NOTICE_CURSOR_ID_PREFIX.length)
+    : rawId;
+  if (
+    !isValidRfc3339Timestamp(createdAt)
+    || !UUID_PATTERN.test(noticeId)
+    || (!allowBoardNoticeId && rawId !== noticeId)
+    || (rawId !== noticeId && rawId !== `${BOARD_NOTICE_CURSOR_ID_PREFIX}${noticeId}`)
+  ) return null;
+  return { created_at: createdAt, id: rawId.toLowerCase() };
+}
+
 function cleanUuidArray(value: unknown, maximum: number): string[] | null {
   if (!Array.isArray(value) || value.length > maximum) return null;
   const values = value.map(cleanUuid);
@@ -218,6 +272,7 @@ function buildInboxPayload(
     | 'inbox_list'
     | 'inbox_get'
     | 'inbox_unread_count'
+    | 'inbox_mark_all_read'
     | 'inbox_mark_read'
     | 'inbox_dismiss'
     | 'inbox_delete',
@@ -243,6 +298,18 @@ function buildInboxPayload(
 
   if (type === 'inbox_list') {
     const limit = Math.max(1, Math.min(Number(body.limit ?? 80) || 80, 200));
+    const notificationCursor = body.notification_cursor === undefined || body.notification_cursor === null
+      ? null
+      : parseFcNotifyInboxCursor(body.notification_cursor);
+    if (body.notification_cursor !== undefined && body.notification_cursor !== null && !notificationCursor) {
+      return deny('Notification cursor is invalid', 400);
+    }
+    const noticeCursor = body.notice_cursor === undefined || body.notice_cursor === null
+      ? null
+      : parseFcNotifyInboxCursor(body.notice_cursor, true);
+    if (body.notice_cursor !== undefined && body.notice_cursor !== null && !noticeCursor) {
+      return deny('Notice cursor is invalid', 400);
+    }
     const onlyRequestBoardCategories =
       actor.isRequestBoardDesigner || body.only_request_board_categories === true;
     return {
@@ -252,6 +319,8 @@ function buildInboxPayload(
         role: scope.role,
         resident_id: scope.residentId,
         limit,
+        ...(notificationCursor ? { notification_cursor: notificationCursor } : {}),
+        ...(noticeCursor ? { notice_cursor: noticeCursor } : {}),
         include_request_board_fc: includeRequestBoardFc,
         only_request_board_categories: onlyRequestBoardCategories,
         ...viewer,
@@ -294,6 +363,21 @@ function buildInboxPayload(
         only_request_board_categories:
           actor.isRequestBoardDesigner || body.only_request_board_categories === true,
         ...(includeNotices && noticeSince ? { notice_since: noticeSince } : {}),
+        ...viewer,
+      },
+    };
+  }
+
+  if (type === 'inbox_mark_all_read') {
+    return {
+      ok: true,
+      payload: {
+        type,
+        role: scope.role,
+        resident_id: scope.residentId,
+        include_request_board_fc: includeRequestBoardFc,
+        only_request_board_categories:
+          actor.isRequestBoardDesigner || body.only_request_board_categories === true,
         ...viewer,
       },
     };
@@ -623,6 +707,7 @@ export function buildAppFcNotifyPayload(
     body.type === 'inbox_list'
     || body.type === 'inbox_get'
     || body.type === 'inbox_unread_count'
+    || body.type === 'inbox_mark_all_read'
     || body.type === 'inbox_mark_read'
     || body.type === 'inbox_dismiss'
     || body.type === 'inbox_delete'

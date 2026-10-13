@@ -17,7 +17,14 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import { safeStorage } from '@/lib/safe-storage';
+import { sensitiveTokenStorage } from '@/lib/secure-token-storage';
+import {
+  isSignupCompletionToken,
+  SIGNUP_COMPLETION_TOKEN_STORAGE_KEY,
+} from '@/lib/signup-completion-capability';
 import { supabase } from '@/lib/supabase';
+import { signupClientHeaders } from '@/lib/signup-client-metadata';
+import { readSupabaseFunctionErrorCode } from '@/lib/supabase-function-error';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import type { CommissionCompletionStatus, LicenseStatus } from '@/types/fc';
 
@@ -38,6 +45,40 @@ type SignupPayload = {
   referralCode?: string;
   referralInviterFcId?: string;
 };
+
+function requestCodeErrorMessage(code: unknown) {
+  switch (code) {
+    case 'already_exists':
+      return '이미 가입된 휴대폰 번호입니다.';
+    case 'cooldown':
+      return '잠시 후 인증 코드를 다시 요청해주세요.';
+    case 'locked':
+      return '요청이 잠시 제한되었습니다. 나중에 다시 시도해주세요.';
+    case 'sms_send_failed':
+      return '인증 문자 발송에 실패했습니다. 잠시 후 다시 시도해주세요.';
+    case 'sms_delivery_unknown':
+      return '문자 접수 상태 확인이 늦어지고 있습니다. 문자가 오면 인증번호를 입력해주세요.';
+    default:
+      return '인증 코드 발송에 실패했습니다.';
+  }
+}
+
+function verifyCodeErrorMessage(code: unknown) {
+  switch (code) {
+    case 'no_code':
+      return '먼저 인증 코드를 요청해주세요.';
+    case 'expired_code':
+      return '인증 코드가 만료되었습니다. 다시 요청해주세요.';
+    case 'locked':
+      return '인증 시도가 너무 많아 잠시 후 다시 시도해주세요.';
+    case 'invalid_code':
+      return '인증 코드가 올바르지 않습니다.';
+    case 'already_completed':
+      return '이미 가입이 완료된 계정입니다.';
+    default:
+      return '인증에 실패했습니다. 잠시 후 다시 시도해주세요.';
+  }
+}
 
 export default function SignupVerifyScreen() {
   const [payload, setPayload] = useState<SignupPayload | null>(null);
@@ -100,18 +141,30 @@ export default function SignupVerifyScreen() {
     }
     setLoading(true);
     try {
+      await sensitiveTokenStorage.removeItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY);
       const { data, error } = await supabase.functions.invoke('request-signup-otp', {
         body: { phone: digits },
+        headers: signupClientHeaders(),
       });
-      if (error) throw error;
+      if (error) {
+        const errorCode = await readSupabaseFunctionErrorCode(error);
+        if (errorCode === 'sms_delivery_unknown') {
+          setCooldown(60);
+        }
+        Alert.alert('오류', requestCodeErrorMessage(errorCode));
+        return;
+      }
       if (!data?.ok) {
-        Alert.alert('알림', data?.message ?? '인증 코드 발송에 실패했습니다.');
+        if (data?.code === 'sms_delivery_unknown') {
+          setCooldown(60);
+        }
+        Alert.alert('알림', requestCodeErrorMessage(data?.code));
         return;
       }
       setCooldown(60);
       Alert.alert('안내', '인증 코드가 문자로 발송되었습니다.');
-    } catch (err: any) {
-      Alert.alert('오류', err?.message ?? '인증 코드 발송에 실패했습니다.');
+    } catch {
+      Alert.alert('오류', '인증 코드 발송에 실패했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
       setLoading(false);
     }
@@ -119,6 +172,11 @@ export default function SignupVerifyScreen() {
 
   const verifyCode = async () => {
     Keyboard.dismiss();
+    if (!payload) {
+      Alert.alert('알림', '회원가입 정보를 먼저 입력해주세요.');
+      router.replace('/signup');
+      return;
+    }
     const digits = phone.replace(/[^0-9]/g, '');
     if (digits.length !== 11) {
       Alert.alert('알림', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
@@ -132,21 +190,37 @@ export default function SignupVerifyScreen() {
     try {
       const { data, error } = await supabase.functions.invoke('verify-signup-otp', {
         body: { phone: digits, code: code.trim() },
+        headers: signupClientHeaders(),
       });
-      if (error) throw error;
-      if (!data?.ok) {
-        Alert.alert('알림', data?.message ?? '인증에 실패했습니다.');
+      if (error) {
+        const errorCode = await readSupabaseFunctionErrorCode(error);
+        Alert.alert('오류', verifyCodeErrorMessage(errorCode));
         return;
       }
-      if (payload) {
+      if (!data?.ok) {
+        Alert.alert('알림', verifyCodeErrorMessage(data?.code));
+        return;
+      }
+      if (!isSignupCompletionToken(data.completionToken)) {
+        Alert.alert('오류', '인증 정보를 확인하지 못했습니다. 다시 인증해주세요.');
+        return;
+      }
+      await sensitiveTokenStorage.setItem(
+        SIGNUP_COMPLETION_TOKEN_STORAGE_KEY,
+        data.completionToken,
+      );
+      try {
         await safeStorage.setItem(
           STORAGE_KEY,
           JSON.stringify({ ...payload, phone: digits, phoneVerified: true }),
         );
+      } catch {
+        await sensitiveTokenStorage.removeItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY);
+        throw new Error('signup_state_storage_failed');
       }
       router.replace('/signup-password');
-    } catch (err: any) {
-      Alert.alert('오류', err?.message ?? '인증에 실패했습니다.');
+    } catch {
+      Alert.alert('오류', '인증에 실패했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
       setLoading(false);
     }

@@ -9,7 +9,12 @@ import {
   linkLegacyRecommender,
   rotateReferralCode,
 } from '@/lib/admin-referrals';
+import { serverError } from '@/lib/api-error';
 import { logger } from '@/lib/logger';
+import {
+  RECOMMENDER_RELATION_UNAVAILABLE_MESSAGE,
+  RECOMMENDER_RPC_NOT_READY_MESSAGE,
+} from '@/lib/recommender-relation-route-handler';
 import { getVerifiedServerSession } from '@/lib/server-session';
 
 type BackfillActionRequest = {
@@ -94,9 +99,6 @@ const CLIENT_ERROR_MESSAGES = new Set([
   '추천인 후보 FC 전화번호가 올바르지 않습니다.',
 ]);
 
-const RECOMMENDER_RPC_NOT_READY_MESSAGE =
-  '운영 DB에 추천인 상태 단일화 함수가 아직 적용되지 않았습니다. migration 20260423000001을 먼저 반영해주세요.';
-
 async function getReadSession() {
   return getVerifiedServerSession({ allowedRoles: ['admin', 'manager'], requireActive: true });
 }
@@ -136,8 +138,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ ok: true, ...data });
   } catch (error) {
-    logger.error('[api/admin/referrals] GET failed', error);
-    return NextResponse.json({ error: '추천인 코드 조회에 실패했습니다.' }, { status: 500 });
+    return serverError(error, 'api/admin/referrals GET');
   }
 }
 
@@ -237,14 +238,14 @@ export async function POST(req: Request) {
 
     return badRequest('지원하지 않는 action 입니다.');
   } catch (error) {
-    logger.error('[api/admin/referrals] POST failed', error);
     if (isInfrastructureError(error)) {
-      return NextResponse.json({ error: RECOMMENDER_RPC_NOT_READY_MESSAGE }, { status: 503 });
+      logger.error('[api/admin/referrals] recommender RPC unavailable', error);
+      return NextResponse.json({ error: RECOMMENDER_RELATION_UNAVAILABLE_MESSAGE }, { status: 503 });
     }
     if (isClientError(error)) {
       return badRequest(error instanceof Error ? error.message : String(error));
     }
 
-    return NextResponse.json({ error: '추천인 코드 작업에 실패했습니다.' }, { status: 500 });
+    return serverError(error, 'api/admin/referrals POST');
   }
 }

@@ -194,7 +194,7 @@ test('staged constraints enforce writes before separate validation and preserve 
 });
 
 // Execute the real Edge handlers and RPC adapter, replacing only account
-// lookup, SMS transport and the post-commit bridge network call.
+// lookup, SMS transport, delivery-ledger adapter and the post-commit bridge network call.
 async function loadTs(relativePath, dependencies, globals = {}) {
   const ts = require(process.env.TYPESCRIPT_MODULE_PATH ?? 'typescript');
   const source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
@@ -213,15 +213,33 @@ async function loadTs(relativePath, dependencies, globals = {}) {
 async function edgeFixture(kind) {
   const f = await fixture(kind);
   const deliveries = [];
+  const tracking = [];
   const syncs = [];
   const account = { kind, id, phone, name: 'Fictional account', active: true,
     signupCompleted: true, passwordSetAt: '2026-01-01T00:00:00Z', resetTokenHash: null };
   let rpcFailure = false;
-  const supabase = { rpc: async (_name, args) => {
+  let trackingBeginOk = true;
+  let trackingFinalizeOk = true;
+  let smsResultOverride = null;
+  const supabase = { rpc: async (name, args) => {
     if (rpcFailure) return { error: { message: 'SYNTHETIC_PRIVATE_DATABASE_DIAGNOSTIC' }, data: null };
+    if (name === 'cancel_password_reset_challenge') {
+      const cancelled = await f.db.query(`update ${f.table}
+        set reset_token_hash=null,reset_token_expires_at=null,reset_sent_at=null,reset_failed_count=0
+        where ${f.key}=$1 and reset_token_hash=$2 returning ${f.key}`,
+      [args.p_account_id,args.p_token_hash]);
+      return { data: cancelled.rows.length ? { ok: true, cancelled: true } : { ok: false, code: 'stale_challenge' }, error: null };
+    }
+    assert.equal(name, 'process_password_reset_challenge_v2');
     const { rows } = await f.db.query('select public.process_password_reset_challenge($1,$2,$3,$4,$5,$6,$7) result',
       [args.p_action, args.p_account_kind, args.p_account_id, args.p_phone, args.p_token_hash, args.p_password_hash, args.p_password_salt]);
-    return { data: rows[0].result, error: null };
+    const result = rows[0].result;
+    return {
+      data: result?.ok === true && args.p_action === 'consume' && args.p_account_kind === 'fc'
+        ? { ...result, sessionVersion: 1 }
+        : result,
+      error: null,
+    };
   } };
   const adapter = await loadTs('../functions/_shared/password-reset-challenge.ts', {});
   async function handler(name, overrides = {}) {
@@ -238,10 +256,30 @@ async function edgeFixture(kind) {
         buildRequestBoardPasswordSyncOptions: () => kind === 'admin' ? null : { role: kind },
       },
       '../_shared/password-reset-challenge.ts': adapter,
+      '../_shared/sms-delivery-attempt.ts': {
+        beginSmsDeliveryAttempt: async (_client, purpose) => {
+          tracking.push({ phase: 'begin', purpose });
+          return trackingBeginOk
+            ? { ok: true, deliveryId: '20000000-0000-4000-8000-000000000001' }
+            : { ok: false };
+        },
+        finalizeSmsDeliveryAttempt: async (_client, purpose, deliveryId, result) => {
+          tracking.push({ phase: 'finalize', purpose, deliveryId, result });
+          return trackingFinalizeOk;
+        },
+      },
+      '../_shared/signup-sms.ts': { sendSignupSms: async (to, _code, content) => {
+        deliveries.push({ content, messages: [{ to }] });
+        return smsResultOverride ?? { ok: true, deliveryState: 'accepted', status: 200,
+          providerRequestId: 'synthetic-request', providerStatusCode: '202' };
+      } },
       '../_shared/request-board-password-sync.ts': { syncRequestBoardPassword: async options => {
         assert.equal((await f.row()).reset_token_hash, null, 'sync must start after durable consume');
         syncs.push(options);
-      } },
+      }, buildFcPasswordSyncUpstream: (fcId, sessionVersion) => ({
+        accountId: `fc:${fcId}`,
+        credentialVersion: sessionVersion,
+      }) },
     }, {
       globalThis: { Deno: { env: { get: key => env[key] } } }, crypto: webcrypto,
       fetch: async (_url, options) => {
@@ -256,7 +294,13 @@ async function edgeFixture(kind) {
       return { status: response.status, body: await response.json() };
     };
   }
-  return { ...f, handler, deliveries, syncs, failRpc: () => { rpcFailure = true; } };
+  return { ...f, handler, deliveries, tracking, syncs,
+    failRpc: () => { rpcFailure = true; },
+    failTrackingBegin: () => { trackingBeginOk = false; },
+    failTrackingFinalize: () => { trackingFinalizeOk = false; },
+    rejectSms: () => { smsResultOverride = { ok: false, deliveryState: 'rejected', status: 502,
+      reason: 'provider_rejected', providerRequestId: null, providerStatusCode: '400', message: 'safe' }; },
+  };
 }
 
 for (const kind of ['admin', 'manager', 'fc']) {
@@ -268,6 +312,9 @@ for (const kind of ['admin', 'manager', 'fc']) {
       assert.equal(issued.filter(r => r.body.ok).length, 1);
       assert.equal(issued.filter(r => r.status === 429).length, 1);
       assert.equal(f.deliveries.length, 1);
+      assert.deepEqual(f.tracking.map(item=>[item.phase,item.purpose]),[
+        ['begin','password_reset'],['finalize','password_reset'],
+      ]);
       const code = f.deliveries[0].content.match(/: (\d{6}) /)[1];
       assert.equal((await f.row()).reset_token_hash, Buffer.from(await webcrypto.subtle.digest('SHA-256', new TextEncoder().encode(code))).toString('base64'));
       const reset = await f.handler('reset-password');
@@ -283,6 +330,10 @@ for (const kind of ['admin', 'manager', 'fc']) {
       assert.equal(saved.password_hash, pbkdf2Sync(candidates[winner], Buffer.from(saved.password_salt, 'base64'), 100000, 32, 'sha256').toString('base64'));
       assert.equal(f.syncs.length, kind === 'admin' ? 0 : 1);
       if (kind !== 'admin') assert.equal(f.syncs[0].password, candidates[winner]);
+      if (kind === 'fc') assert.deepEqual(f.syncs[0].upstream, {
+        accountId: `fc:${id}`,
+        credentialVersion: 1,
+      });
     } finally { await f.db.close(); }
   });
 }
@@ -303,6 +354,38 @@ test('Edge failures are safe, do not send SMS/sync, and hosted SMS bypass remain
     assert.equal(f.deliveries.length, 0);
     assert.equal(f.syncs.length, 0);
   } finally { await f.db.close(); }
+});
+
+test('password reset never sends untracked SMS and compensates definite rejection only', async () => {
+  const beginFailure = await edgeFixture('fc');
+  try {
+    beginFailure.failTrackingBegin();
+    const requestCode = await beginFailure.handler('request-password-reset');
+    const result = await requestCode({ phone });
+    assert.equal(result.status, 503);assert.equal(result.body.code, 'sms_send_failed');
+    assert.equal(beginFailure.deliveries.length, 0);
+    assert.equal((await beginFailure.row()).reset_token_hash, null);
+  } finally { await beginFailure.db.close(); }
+
+  const finalizeFailure = await edgeFixture('fc');
+  try {
+    finalizeFailure.failTrackingFinalize();
+    const requestCode = await finalizeFailure.handler('request-password-reset');
+    const result = await requestCode({ phone });
+    assert.equal(result.status, 503);assert.equal(result.body.code, 'sms_delivery_unknown');
+    assert.equal(finalizeFailure.deliveries.length, 1);
+    assert.notEqual((await finalizeFailure.row()).reset_token_hash, null);
+  } finally { await finalizeFailure.db.close(); }
+
+  const rejection = await edgeFixture('fc');
+  try {
+    rejection.rejectSms();
+    const requestCode = await rejection.handler('request-password-reset');
+    const result = await requestCode({ phone });
+    assert.equal(result.status, 502);assert.equal(result.body.code, 'sms_send_failed');
+    assert.equal(rejection.deliveries.length, 1);
+    assert.equal((await rejection.row()).reset_token_hash, null);
+  } finally { await rejection.db.close(); }
 });
 
 test('failed password write rolls back challenge consumption and never starts bridge sync', async () => {

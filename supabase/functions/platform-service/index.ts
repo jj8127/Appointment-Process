@@ -166,20 +166,54 @@ serveWithConfiguredCors(async request => {
         const code = local ? (getEnv('TEST_SMS_CODE') ?? '') : String(100000+crypto.getRandomValues(new Uint32Array(1))[0]%900000);
         if(!/^\d{6}$/.test(code)) return fail('server_misconfigured','SMS 설정을 확인해 주세요.',503);
         const recovery=action==='request_password_reset';
+        const challengeHash=await signupCodeHash(code,recovery ? `reset:${phone}` : phone);
+        let signupDeliveryId:string|null=null;
+        let recoveryAccount:{kind:'member';id:string;phone:string}|null=null;
         if(recovery) {
           const {data:member,error}=await db.from('platform_members').select('id').eq('phone',phone).eq('active',true).is('fc_id',null).maybeSingle();
           if(error) throw new Error('database_error');
           if(!member) return fail('account_unavailable','일반 회원 계정을 확인해 주세요. 보험 계정은 보험 로그인에서 변경해 주세요.');
-          const result=await processPasswordResetChallenge(db,{kind:'member',id:member.id,phone},
-            {action:'issue',tokenHash:await signupCodeHash(code,`reset:${phone}`)});
+          recoveryAccount={kind:'member',id:member.id,phone};
+          const result=await processPasswordResetChallenge(db,recoveryAccount,{action:'issue',tokenHash:challengeHash});
           if(result.ok===false) { const {status,...failure}=result;return json(failure,status); }
         } else {
-          const result = await rpc('issue_platform_signup_otp',{p_phone:phone,p_code_hash:await signupCodeHash(code,phone)});
-          if(!result.ok) return fail(result.code,result.code==='already_exists' ? '이미 가입된 번호입니다. 로그인해 주세요.' : '잠시 후 다시 인증을 요청해 주세요.',429);
+          const result = await rpc('issue_platform_signup_otp',{p_phone:phone,p_code_hash:challengeHash});
+          if(!result.ok) {
+            const status=result.code==='already_exists' ? 409 : 429;
+            const message=result.code==='already_exists' ? '이미 가입된 번호입니다. 로그인해 주세요.'
+              : result.code==='locked' ? '여러 번 틀려 잠시 잠겼습니다. 10분 뒤 다시 시도해 주세요.'
+              : '인증번호를 보낸 뒤 60초가 지나면 다시 요청할 수 있습니다.';
+            return fail(result.code,message,status);
+          }
+          if(typeof result.deliveryId!=='string' || !uuid.test(result.deliveryId)) throw new Error('database_error');
+          signupDeliveryId=result.deliveryId;
         }
         const sent = await sendSignupSms(phone,code,recovery ? `[모두온] 비밀번호 변경 코드: ${code} (15분 유효)`
           : `[모두온] 회원가입 인증 코드: ${code} (5분 유효)`,local);
-        return sent.ok ? json({ok:true,sent:true}) : fail('sms_send_failed','인증 문자를 보내지 못했습니다. 잠시 후 다시 시도해 주세요.',503);
+        if(recoveryAccount && !sent.ok && sent.deliveryState==='rejected') {
+          const compensation=await processPasswordResetChallenge(db,recoveryAccount,{action:'cancel',tokenHash:challengeHash});
+          if(compensation.ok===false) return fail('sms_delivery_unknown','문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.',503);
+        }
+        if(signupDeliveryId) {
+          let finalized:Record<string,unknown>;
+          try {
+            finalized=await rpc('finalize_platform_signup_otp_delivery',{
+              p_phone:phone,p_delivery_id:signupDeliveryId,
+              p_state:sent.ok ? 'accepted' : sent.deliveryState,
+              p_provider_request_id:sent.providerRequestId,
+              p_provider_status_code:sent.providerStatusCode,
+              p_failure_reason:sent.ok ? null : sent.reason,
+            });
+          } catch {
+            return fail('sms_delivery_unknown','문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.',503);
+          }
+          if(finalized.ok!==true)
+            return fail('sms_delivery_unknown','문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.',503);
+        }
+        if(sent.ok) return json({ok:true,sent:true});
+        return sent.deliveryState==='unknown'
+          ? fail('sms_delivery_unknown','문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.',503)
+          : fail('sms_send_failed','인증 문자를 보내지 못했습니다. 바로 다시 요청해 주세요.',503);
       }
       const password = typeof body.password==='string' ? body.password : '';
       if(!password || password.length>128) return fail('invalid_password','비밀번호를 확인해 주세요.');

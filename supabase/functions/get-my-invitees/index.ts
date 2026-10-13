@@ -9,6 +9,7 @@ import {
   requireAppSessionFromRequest,
   type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
+import { collectSupabaseRows } from '../../../lib/supabase-query-contract.ts';
 
 const corsHeaders = referralCorsHeaders();
 
@@ -19,8 +20,38 @@ if (!supabaseUrl) throw new Error('Missing SUPABASE_URL');
 if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
 
 const supabase = createClient(supabaseUrl, serviceKey);
+const DB_ERROR_MESSAGE = '초대 목록 조회 중 문제가 발생했습니다.';
 
 type SessionPayload = AppSessionTokenPayload;
+
+type InviteeQueryRow = {
+  id: string;
+  name: string;
+  phone: string;
+  recommender_linked_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+
+function isInviteeQueryRow(value: unknown): value is InviteeQueryRow {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string'
+    && UUID_PATTERN.test(row.id)
+    && typeof row.name === 'string'
+    && typeof row.phone === 'string'
+    && cleanPhone(row.phone).length === 11
+    && (row.recommender_linked_at === null || isTimestamp(row.recommender_linked_at))
+    && isTimestamp(row.created_at)
+    && isTimestamp(row.updated_at);
+}
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -60,7 +91,7 @@ async function resolveSelfProfile(session: SessionPayload) {
     .eq('phone', sessionPhone)
     .maybeSingle();
   if (adminError) {
-    return { error: json({ ok: false, code: 'db_error', message: adminError.message }, 500) };
+    return { error: fail('db_error', DB_ERROR_MESSAGE, 500) };
   }
   if (adminRow) {
     return { error: fail('forbidden', '초대 목록을 조회할 수 없는 계정입니다.') };
@@ -75,7 +106,7 @@ async function resolveSelfProfile(session: SessionPayload) {
       .eq('active', true)
       .maybeSingle();
     if (managerError) {
-      return { error: json({ ok: false, code: 'db_error', message: managerError.message }, 500) };
+      return { error: fail('db_error', DB_ERROR_MESSAGE, 500) };
     }
     if (!managerRow?.id) {
       return { error: fail('forbidden', '초대 목록을 조회할 수 없는 계정입니다.') };
@@ -96,7 +127,7 @@ async function resolveSelfProfile(session: SessionPayload) {
   if (!profileResult.data?.id && managerAccount) {
     const ensureResult = await ensureManagerReferralShadowProfile(supabase, sessionPhone, managerAccount.name);
     if (ensureResult.ok === false) {
-      return { error: json({ ok: false, code: 'db_error', message: ensureResult.message }, 500) };
+      return { error: fail('db_error', DB_ERROR_MESSAGE, 500) };
     }
 
     profileResult = await profileQuery.eq('phone', sessionPhone).maybeSingle();
@@ -104,7 +135,7 @@ async function resolveSelfProfile(session: SessionPayload) {
 
   const { data: profile, error: profileError } = profileResult;
   if (profileError) {
-    return { error: json({ ok: false, code: 'db_error', message: profileError.message }, 500) };
+    return { error: fail('db_error', DB_ERROR_MESSAGE, 500) };
   }
   if (!profile?.id) {
     return { error: fail('not_found', '계정을 찾을 수 없습니다.') };
@@ -139,25 +170,34 @@ serve(async (req: Request) => {
     return resolved.error;
   }
 
-  const { data: inviteeRows, error: inviteeError } = await supabase
-    .from('fc_profiles')
-    .select('id, name, phone, recommender_linked_at, created_at, updated_at')
-    .eq('recommender_fc_id', resolved.profile.id)
-    .neq('id', resolved.profile.id)
-    .order('recommender_linked_at', { ascending: false, nullsFirst: false })
-    .order('updated_at', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false });
-
-  if (inviteeError) {
-    return json({ ok: false, code: 'db_error', message: inviteeError.message }, 500);
+  let inviteeRows: InviteeQueryRow[];
+  try {
+    inviteeRows = await collectSupabaseRows<InviteeQueryRow>({
+      queryName: 'my_invitees',
+      isRow: isInviteeQueryRow,
+      maxRows: 10_000,
+      rowKey: (row) => row.id,
+      fetchPage: (from, to) => supabase
+        .from('fc_profiles')
+        .select('id, name, phone, recommender_linked_at, created_at, updated_at')
+        .eq('recommender_fc_id', resolved.profile.id)
+        .neq('id', resolved.profile.id)
+        .order('recommender_linked_at', { ascending: false, nullsFirst: false })
+        .order('updated_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to),
+    });
+  } catch {
+    return fail('db_error', '초대 목록 응답을 확인하지 못했습니다.', 500);
   }
 
-  const invitees = (inviteeRows ?? []).map((row) => {
-    const referenceDate = row.recommender_linked_at ?? row.updated_at ?? row.created_at ?? new Date(0).toISOString();
+  const invitees = inviteeRows.map((row) => {
+    const referenceDate = row.recommender_linked_at ?? row.updated_at;
     return {
       id: row.id,
-      inviteeName: typeof row.name === 'string' && row.name.trim() ? row.name.trim() : null,
-      inviteePhone: maskPhone(String(row.phone ?? '')),
+      inviteeName: row.name.trim() || null,
+      inviteePhone: maskPhone(row.phone),
       status: 'confirmed' as const,
       capturedAt: referenceDate,
       confirmedAt: referenceDate,

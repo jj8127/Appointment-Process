@@ -6,8 +6,10 @@ import {
   buildBoardFunctionHeaders,
   getBoardFunctionUrl,
   normalizeBoardProxyRequest,
+  sanitizeBoardUpstreamError,
 } from '@/lib/board-web-proxy';
 import { checkRateLimit, SECURITY_HEADERS, verifyOrigin } from '@/lib/csrf';
+import { logger } from '@/lib/logger';
 import {
   WEB_APP_SESSION_COOKIE,
   createWebGroupChatAppSessionToken,
@@ -121,7 +123,23 @@ export async function POST(req: Request) {
     );
     const raw = await response.text();
     const payload = parseUpstreamResponse(raw);
-    if (!payload || (response.ok && payload.ok === true && !isBoardSuccess(normalized.functionName, payload))) return json({ ok: false, code: 'invalid_board_response', message: '게시판 처리 결과를 확인하지 못했습니다. 상태를 확인한 뒤 다시 시도해주세요.' }, 502);
+    if (!payload || (response.ok && payload.ok === true && !isBoardSuccess(
+      normalized.functionName,
+      payload,
+      normalized.payload,
+    ))) {
+      return json({ ok: false, code: 'invalid_board_response', message: '게시판 처리 결과를 확인하지 못했습니다. 상태를 확인한 뒤 다시 시도해주세요.' }, 502);
+    }
+    if (!response.ok || payload.ok !== true) {
+      const sanitized = sanitizeBoardUpstreamError(payload, response.status);
+      if (response.status >= 500) {
+        logger.warn('[api/board] upstream request failed', {
+          status: response.status,
+          code: sanitized.upstreamCode ?? 'unknown',
+        });
+      }
+      return json(sanitized.body, sanitized.status);
+    }
     return json(payload, response.status);
   } catch {
     return json({

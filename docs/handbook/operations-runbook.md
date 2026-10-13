@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-OPS-RUNBOOK
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: operator
-last_verified: 2026-07-16
+last_verified: 2026-10-13
 source_of_truth: web/src/app/api/* + supabase/functions/* + scripts/ops/*
 
 # 운영 런북
@@ -115,12 +115,25 @@ upload/release/artifact mutation 흔적이 있으면 build는 실패다. live Se
 | FC app session | `FC_APP_SESSION_TOKEN_SECRET`, `FC_APP_SESSION_TOKEN_PREVIOUS_SECRET` | 동일 trust domain의 current/previous | bridge secret fallback 금지 |
 | Request Board auth bridge | `REQUEST_BOARD_AUTH_BRIDGE_SECRET` | `FC_ONBOARDING_AUTH_BRIDGE_SECRET` | exact pair, app-session signer로 재사용 금지 |
 | Password sync | `REQUEST_BOARD_PASSWORD_SYNC_TOKEN` | `FC_ONBOARDING_PASSWORD_SYNC_TOKEN` | exact pair, fail closed |
+| Password sync assertion | `REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET` | 같은 이름의 Request Board server secret | v1/v2 purpose 분리, 짧은 TTL, raw assertion 기록 금지 |
 | Notification ingress | `REQUEST_BOARD_NOTIFY_TOKEN` | `FC_ONBOARDING_NOTIFY_TOKEN` | exact pair, constant-time compare, allowlist |
 | Board automation | `BOARD_AUTOMATION_TOKEN` | Edge secret과 exact pair | canonical digest 최소 권한만 |
 
 body의 actor/role/phone/sender는 권한 근거가 아니다. signed claim을 활성 DB row에 다시 결합하고, caller-controlled forwarding header를 origin authority로 사용하지 않는다.
 
 rotation은 새 current → old current를 previous → 최대 token TTL 경과 → previous 제거 순서다. bridge key를 임시 app-session fallback으로 넣지 않는다.
+
+### Request Board 비밀번호 동기화 v2 장애 복구
+
+1. 신규 password mutation 배포를 멈추고 가람in/Request Board의 exact commit, 환경, 관측 시각만 기록합니다.
+2. phone, password/hash, assertion, operation UUID, upstream account ID, raw 응답을 수집하지 않습니다. 고정 code, HTTP status, retryable 여부만 사용합니다.
+3. `SYNC_GENERATION_STALE`는 오래된 요청의 정상 거절입니다. 이전 비밀번호로 재시도하지 않습니다.
+4. `SYNC_PRINCIPAL_CONFLICT`는 자동 수정하지 않습니다. 두 저장소 owner가 canonical FC와 Request Board user 결합을 검토합니다.
+5. timeout·network·5xx는 적용 여부가 불명확합니다. v1 route로 우회하지 않고 Request Board v2 receiver와 ledger 상태를 확인합니다.
+6. receiver가 정상화되면 사용자의 다음 정상 FC 로그인으로 현재 credential generation을 다시 전송합니다. source DB에 plaintext password나 재시도 payload를 저장하지 않습니다.
+7. 같은 세대가 이미 적용됐으면 `alreadyApplied`를 성공으로 처리합니다. smoke와 관측 창을 통과할 때까지 HOLD를 유지합니다.
+
+`REQUEST_BOARD_PASSWORD_SYNC_V2_REQUIRED=true` 전환 뒤에는 이 값을 끄거나 v2 URL을 제거하는 것을 rollback으로 사용하지 않습니다. v2 receiver 복구 또는 additive forward correction을 사용합니다.
 
 ## Board·시험 원자성
 

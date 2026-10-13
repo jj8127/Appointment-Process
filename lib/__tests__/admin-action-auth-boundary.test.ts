@@ -103,4 +103,38 @@ describe('admin-action privileged authentication boundary', () => {
       })).rejects.toThrow(/unverified/);
     },
   );
+
+  it('requires the exact FC, actor, and persisted timestamp before confirming a Dawichok signal', async () => {
+    const actorPhone = '01000000002';
+    const fcId = 'fc-1';
+    const invoke = jest.fn(async () => ({
+      data: {
+        ok: true,
+        id: fcId,
+        dawichok_url_sent_by: actorPhone,
+        dawichok_url_sent_at: '2026-10-13T00:00:00.000Z',
+      },
+      error: null,
+    }));
+
+    await expect(invokeAdminActionWithDeps(actorPhone, 'markDawichokUrlSent', { fcId }, {
+      getStoredAppSessionToken: async () => 'synthetic-signed-session',
+      invoke,
+    })).resolves.toMatchObject({ id: fcId });
+
+    for (const data of [
+      { ok: true, id: 'other', dawichok_url_sent_by: actorPhone, dawichok_url_sent_at: '2026-10-13T00:00:00.000Z' },
+      { ok: true, id: fcId, dawichok_url_sent_by: '01099999999', dawichok_url_sent_at: '2026-10-13T00:00:00.000Z' },
+      { ok: true, id: fcId, dawichok_url_sent_by: actorPhone, dawichok_url_sent_at: 'not-a-time' },
+    ]) {
+      await expect(invokeAdminActionWithDeps(actorPhone, 'markDawichokUrlSent', { fcId }, {
+        getStoredAppSessionToken: async () => 'synthetic-signed-session',
+        invoke: async () => ({ data, error: null }),
+      })).rejects.toThrow(/unverified/);
+    }
+
+    expect(readRepoFile('app/dashboard.tsx')).not.toContain(
+      'result.dawichok_url_sent_at ?? new Date().toISOString()',
+    );
+  });
 });

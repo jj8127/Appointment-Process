@@ -22,29 +22,21 @@ describe('signup completion regression guards', () => {
     ).toBe(true);
   });
 
-  it('keeps referral linking before irreversible password/signup completion writes', () => {
+  it('delegates every irreversible signup write to one atomic completion RPC', () => {
     const source = readFileSync(
       join(process.cwd(), 'supabase', 'functions', 'set-password', 'index.ts'),
       'utf8',
     );
 
-    expect(source).toContain('if (!referralCode || !resolvedReferral)');
-    expect(source).toContain("code: 'referral_invalid'");
-    expect(source).toContain('const referralResetPayload: Record<string, unknown> = referralCode');
-
-    const alreadySetIndex = source.indexOf("return fail('already_set'");
-    const referralRequiredIndex = source.indexOf('if (!referralCode || !resolvedReferral)');
-    const referralApplyIndex = source.indexOf('const applyResult = await applyReferralLinkState');
-    const credentialUpsertIndex = source.indexOf('password_hash: passwordHash');
-    const signupCompletedIndex = source.indexOf('Mark signup as completed');
-
-    expect(alreadySetIndex).toBeGreaterThan(-1);
-    expect(referralRequiredIndex).toBeGreaterThan(alreadySetIndex);
-    expect(referralApplyIndex).toBeGreaterThan(-1);
-    expect(credentialUpsertIndex).toBeGreaterThan(-1);
-    expect(signupCompletedIndex).toBeGreaterThan(-1);
-    expect(referralApplyIndex).toBeLessThan(credentialUpsertIndex);
-    expect(referralApplyIndex).toBeLessThan(signupCompletedIndex);
+    expect(source).toContain("supabase.rpc('complete_fc_otp_signup_v1'");
+    expect(source).toContain('p_completion_token_hash: completionTokenHash');
+    expect(source).toContain('p_request_fingerprint: requestFingerprint');
+    expect(source).toContain('p_password_hash: passwordHash');
+    expect(source).toContain('p_referral_code: resolvedReferral.referralCode');
+    expect(source).not.toContain('applyReferralLinkState');
+    expect(source).not.toContain(".from('fc_credentials')");
+    expect(source).not.toContain(".from('fc_profiles').update");
+    expect(source).not.toContain('signup_completed: true');
   });
 
   it('requires the validated stored referral again on the password screen', () => {
@@ -57,6 +49,38 @@ describe('signup completion regression guards', () => {
     const setPasswordInvokeIndex = source.indexOf("supabase.functions.invoke('set-password'");
     expect(referralGuardIndex).toBeGreaterThan(-1);
     expect(setPasswordInvokeIndex).toBeGreaterThan(referralGuardIndex);
+  });
+
+  it('keeps the completion capability out of the general signup payload', () => {
+    const verifySource = readFileSync(
+      join(process.cwd(), 'app', 'signup-verify.tsx'),
+      'utf8',
+    );
+    const passwordSource = readFileSync(
+      join(process.cwd(), 'app', 'signup-password.tsx'),
+      'utf8',
+    );
+
+    expect(verifySource).toContain('sensitiveTokenStorage.setItem(');
+    expect(verifySource).toContain('SIGNUP_COMPLETION_TOKEN_STORAGE_KEY');
+    expect(verifySource).not.toContain('JSON.stringify({ ...payload, phone: digits, phoneVerified: true, completionToken');
+    expect(passwordSource).toContain('sensitiveTokenStorage.getItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY)');
+    expect(passwordSource).toContain('completionToken,');
+    expect(passwordSource).toContain('sensitiveTokenStorage.removeItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY)');
+    expect(passwordSource).not.toContain('context.text()');
+    expect(passwordSource).not.toContain('data?.message');
+  });
+
+  it('accepts the check-only availability wire contract without inventing a resident id receipt', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'app', 'signup.tsx'),
+      'utf8',
+    );
+
+    expect(source).toContain('body: { phone: digits, checkOnly: true }');
+    expect(source).toContain('if (!data?.ok)');
+    expect(source).not.toContain('requireSignupAvailabilityReceipt');
+    expect(source).not.toContain('@/lib/signup-otp-response');
   });
 
   it('keeps signup referral eligibility aligned for manager referral shadow profiles', () => {

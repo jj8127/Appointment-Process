@@ -23,4 +23,5 @@ describe('use-login source contract', () => {
     expect(source).toContain("logger.warn('[login] login-with-password rejected'");
     expect(source).toContain("logger.warn('[login] login flow threw'");
   });
+
 });

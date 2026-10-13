@@ -8,6 +8,7 @@ import HospitalContractFields, { EMPTY_HOSPITAL_DRAFT, type HospitalDraft } from
 import HospitalPerformanceReport from '@/components/hospitals/HospitalPerformanceReport';
 import ServiceInformation, { ServiceAction, informationStyles as styles } from '@/components/ServiceInformation';
 import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
+import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { createCreationRequestTracker } from '@/lib/board-comment-request';
 import { getSeoulTodayIsoDate } from '@/lib/admin-assisted-signup-validation';
@@ -25,6 +26,7 @@ const EMPTY_SETTLEMENT = { commissionAmount: '', settledAt: '', transactionRefer
 
 export default function ServiceManage() {
   const session = useSession();
+  const keyboardPadding = useKeyboardPadding();
   const token = session.appSessionToken;
   const allowed = session.role === 'admin' && !session.readOnly && session.staffType === 'admin';
   const ownerKey = JSON.stringify([token, allowed]);
@@ -117,6 +119,7 @@ export default function ServiceManage() {
     void write('save_partner', { ...fields, ...hospitalPayload, id: partnerId, expectedRevision: revision, serviceKey, active, consumerRate, referrerRate, referrerBasis: informational ? 'commission' : referrerBasis, adFee: fields.adFee ? Number(fields.adFee) : null });
   };
   return <ServiceInformation title="제휴·정산 관리">
+    <View style={{ paddingBottom: keyboardPadding }}>
     {!session.hydrated ? <Text style={styles.body}>권한을 확인하고 있습니다.</Text> : !allowed ? <Text style={styles.body}>관리자 계정으로 로그인해 주세요.</Text> : <>
       <Text accessibilityRole="header" style={styles.title}>제휴와 정산</Text>
       <Text style={styles.body}>실제 합의한 제휴와 비율만 등록하세요. 이 화면은 정산 기록을 관리하며, 은행 이체를 실행하지 않습니다.</Text>
@@ -181,5 +184,6 @@ export default function ServiceManage() {
       <Pressable accessibilityRole="checkbox" accessibilityLabel="실제 이체 확인" accessibilityState={{ checked: paymentConfirmed, disabled: busy }} disabled={busy} style={styles.list} onPress={() => setPaymentConfirmed((value) => !value)}><Text style={styles.item}>{paymentConfirmed ? '☑' : '□'} 해당 대상에게 실제 이체가 완료된 것을 확인했습니다.</Text></Pressable>
       <Button loading={busy} disabled={!benefitId || !paymentConfirmed || !payment.paidAt || !payment.transferReference} fullWidth onPress={() => void write('mark_paid', { ...payment, benefitId })}>실제 지급 완료 기록</Button>
     </>}
+    </View>
   </ServiceInformation>;
 }

@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 
 import { getAgentRoomSnapshot } from '@/lib/agent-room-server';
+import { serverError } from '@/lib/api-error';
 import { getVerifiedServerSession } from '@/lib/server-session';
 
 export const dynamic = 'force-dynamic';
+
+const RESPONSE_HEADERS = { 'Cache-Control': 'no-store' };
 
 export const runtime = 'nodejs';
 
@@ -16,7 +19,7 @@ export async function GET() {
     return NextResponse.json(
       { error: sessionCheck.error, ok: false },
       {
-        headers: { 'Cache-Control': 'no-store' },
+        headers: RESPONSE_HEADERS,
         status: sessionCheck.status,
       },
     );
@@ -25,18 +28,9 @@ export async function GET() {
   try {
     const snapshot = await getAgentRoomSnapshot();
     return NextResponse.json(snapshot, {
-      headers: { 'Cache-Control': 'no-store' },
+      headers: RESPONSE_HEADERS,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Agent room snapshot failed.',
-        ok: false,
-      },
-      {
-        headers: { 'Cache-Control': 'no-store' },
-        status: 500,
-      },
-    );
+    return serverError(error, 'api/agent-room', RESPONSE_HEADERS);
   }
 }

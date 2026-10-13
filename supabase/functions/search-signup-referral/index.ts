@@ -8,6 +8,7 @@ import {
   ensureManagerReferralShadowProfile,
 } from '../_shared/referral-code.ts';
 import { buildReferralNameSearchPattern } from '../_shared/referral-search.ts';
+import { parseQueryRows } from '../_shared/query-result-contract.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
 const corsHeaders = {
@@ -72,6 +73,62 @@ type SearchResult = {
   affiliation: string;
   code: string | null;
 };
+
+type SearchProfileRow = {
+  id: string;
+  name: string;
+  affiliation: string | null;
+  signup_completed: boolean | null;
+  is_manager_referral_shadow: boolean | null;
+};
+
+type SearchManagerRow = {
+  phone: string;
+  name: string;
+};
+
+type ActiveCodeRow = {
+  fc_id: string;
+  code: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isNullableBoolean(value: unknown): value is boolean | null {
+  return value === null || typeof value === 'boolean';
+}
+
+function isSearchProfileRow(value: unknown): value is SearchProfileRow {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && value.id.trim().length > 0
+    && typeof value.name === 'string'
+    && value.name.trim().length > 0
+    && (value.affiliation === null || typeof value.affiliation === 'string')
+    && isNullableBoolean(value.signup_completed)
+    && isNullableBoolean(value.is_manager_referral_shadow);
+}
+
+function isSearchManagerRow(value: unknown): value is SearchManagerRow {
+  return isRecord(value)
+    && typeof value.phone === 'string'
+    && typeof value.name === 'string'
+    && value.name.trim().length > 0;
+}
+
+function isActiveCodeRow(value: unknown): value is ActiveCodeRow {
+  return isRecord(value)
+    && typeof value.fc_id === 'string'
+    && value.fc_id.trim().length > 0
+    && typeof value.code === 'string'
+    && value.code.trim().length > 0;
+}
+
+function searchUnavailable() {
+  return fail('db_error', '추천인 검색을 지금 사용할 수 없습니다.', 500);
+}
 
 function isEligibleProfile(profile: {
   signup_completed?: boolean | null;
@@ -142,10 +199,14 @@ serve(async (req: Request) => {
     .limit(LIMIT);
 
   if (profileError) {
-    return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
+    return searchUnavailable();
   }
 
-  for (const profile of profileRows ?? []) {
+  const parsedProfileRows = parseQueryRows(profileRows, isSearchProfileRow);
+  if (!parsedProfileRows) {
+    return searchUnavailable();
+  }
+  for (const profile of parsedProfileRows) {
     addProfileResult(profile);
   }
 
@@ -157,25 +218,30 @@ serve(async (req: Request) => {
     .limit(LIMIT);
 
   if (managerError) {
-    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
+    return searchUnavailable();
   }
 
-  for (const manager of managerRows ?? []) {
+  const parsedManagerRows = parseQueryRows(managerRows, isSearchManagerRow);
+  if (!parsedManagerRows) {
+    return searchUnavailable();
+  }
+  for (const manager of parsedManagerRows) {
     const managerPhone = cleanPhone(manager.phone ?? '');
     if (managerPhone.length !== 11) continue;
 
     const ensureResult = await ensureManagerReferralShadowProfile(supabase, managerPhone, manager.name);
-    if (!ensureResult.ok) continue;
+    if (!ensureResult.ok) return searchUnavailable();
 
-    const { data: managerProfile } = await supabase
+    const { data: managerProfile, error: managerProfileError } = await supabase
       .from('fc_profiles')
       .select('id, name, affiliation, signup_completed, is_manager_referral_shadow')
       .eq('phone', managerPhone)
       .maybeSingle();
 
-    if (managerProfile?.id) {
-      addProfileResult(managerProfile);
+    if (managerProfileError || !isSearchProfileRow(managerProfile)) {
+      return searchUnavailable();
     }
+    addProfileResult(managerProfile);
   }
 
   const allFcIds = Array.from(resultMap.keys());
@@ -183,7 +249,7 @@ serve(async (req: Request) => {
     return json({ ok: true, results: [] });
   }
 
-  await Promise.allSettled(
+  const ensureCodeResults = await Promise.all(
     allFcIds.map((fcId) => ensureActiveReferralCode({
       supabase,
       fcId,
@@ -191,6 +257,9 @@ serve(async (req: Request) => {
       reason: 'auto_issue_on_signup_referral_search',
     })),
   );
+  if (ensureCodeResults.some((result) => result.ok === false)) {
+    return searchUnavailable();
+  }
 
   const { data: activeCodes, error: activeCodesError } = await supabase
     .from('referral_codes')
@@ -200,18 +269,25 @@ serve(async (req: Request) => {
     .order('created_at', { ascending: false });
 
   if (activeCodesError) {
-    return json({ ok: false, code: 'db_error', message: activeCodesError.message }, 500);
+    return searchUnavailable();
   }
 
+  const parsedActiveCodes = parseQueryRows(activeCodes, isActiveCodeRow);
+  if (!parsedActiveCodes) {
+    return searchUnavailable();
+  }
   const seenFcIds = new Set<string>();
-  for (const row of activeCodes ?? []) {
-    if (seenFcIds.has(row.fc_id)) continue;
+  for (const row of parsedActiveCodes) {
+    if (seenFcIds.has(row.fc_id)) return searchUnavailable();
 
     const entry = resultMap.get(row.fc_id);
-    if (!entry) continue;
+    if (!entry) return searchUnavailable();
 
     seenFcIds.add(row.fc_id);
     entry.code = row.code;
+  }
+  if (seenFcIds.size !== allFcIds.length) {
+    return searchUnavailable();
   }
 
   const results = Array.from(resultMap.values())

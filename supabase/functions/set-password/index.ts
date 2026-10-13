@@ -1,21 +1,19 @@
 import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
-import {
-  buildWorkflowResetPayload,
-  mapCommissionToProfileState,
-  normalizeCommissionStatus,
-  type CommissionCompletionStatus,
-} from '../_shared/commission.ts';
-import { applyReferralLinkState } from '../_shared/referral-link.ts';
+import { normalizeCommissionStatus, type CommissionCompletionStatus } from '../_shared/commission.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import { getEnv } from '../_shared/request-board-auth.ts';
-import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
+import {
+  buildFcPasswordSyncUpstream,
+  syncRequestBoardPassword,
+} from '../_shared/request-board-password-sync.ts';
+import { SIGNUP_CLIENT_HEADERS } from '../_shared/signup-client-observation.ts';
 
 type Payload = {
-  phone: string;
-  password: string;
+  phone?: string;
+  password?: string;
   confirm?: string;
-  // Profile data from signup flow
+  completionToken?: string;
   name?: string;
   affiliation?: string;
   email?: string;
@@ -41,16 +39,25 @@ type ReferralResolutionResult = {
   rejectionReason: string | null;
 };
 
-// Security: Restrict CORS to specific origins
-const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
+type CompleteSignupResult = {
+  ok?: boolean;
+  code?: string;
+  fcId?: string;
+  residentId?: string;
+  displayName?: string;
+  affiliation?: string;
+  sessionVersion?: number;
+  alreadyApplied?: boolean;
+};
+
+const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Headers': `Content-Type, Authorization, x-client-info, apikey, ${Object.values(SIGNUP_CLIENT_HEADERS).join(', ')}`,
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Credentials': 'true',
 };
 
-// Security: Validate required environment variables
 const supabaseUrl = getEnv('SUPABASE_URL');
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
 
@@ -72,6 +79,8 @@ const LICENSE_STATUS_LABEL_TO_VALUE: Record<string, LicenseStatus> = {
   없음: 'none',
 };
 const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Url = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Required = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_REQUIRED') ?? '').trim().toLowerCase() === 'true';
 const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
 const requestBoardPasswordSyncTimeoutRaw = Number((getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim());
 const requestBoardPasswordSyncTimeoutMs =
@@ -86,8 +95,8 @@ function json(body: Record<string, unknown>, status = 200) {
   });
 }
 
-function fail(code: string, message: string) {
-  return json({ ok: false, code, message });
+function fail(code: string, message: string, status = 400) {
+  return json({ ok: false, code, message }, status);
 }
 
 function cleanPhone(input: string) {
@@ -95,20 +104,7 @@ function cleanPhone(input: string) {
 }
 
 function isNormalizedPhone(input: string): boolean {
-  return /^[0-9]{11}$/.test(input);
-}
-
-function isMissingColumnError(error: unknown): boolean {
-  const code = (error as { code?: string } | null)?.code;
-  const message = String((error as { message?: string } | null)?.message ?? '').toLowerCase();
-  return (
-    code === '42703' ||
-    message.includes('column') ||
-    message.includes('license_statuses') ||
-    message.includes('life_commission_completed') ||
-    message.includes('nonlife_commission_completed') ||
-    message.includes('hanwha_commission')
-  );
+  return /^01[0-9]{9}$/.test(input);
 }
 
 function isLicenseStatus(input: unknown): input is LicenseStatus {
@@ -153,36 +149,31 @@ function resolveLicenseStatuses(input: unknown, legacyCommissionStatus?: string 
   return normalizeLicenseStatuses(input);
 }
 
-function mapLicenseStatusesToCommissionStatus(input: LicenseStatus[]): CommissionCompletionStatus {
-  const hasLife = input.includes('life');
-  const hasNonlife = input.includes('nonlife');
-  if (hasLife && hasNonlife) return 'both';
-  if (hasLife) return 'life_only';
-  if (hasNonlife) return 'nonlife_only';
-  return 'none';
-}
-
 function toBase64(bytes: Uint8Array) {
   let binary = '';
-  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  bytes.forEach((byte) => (binary += String.fromCharCode(byte)));
   return btoa(binary);
 }
 
-function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null): string | null {
-  if (!affiliation) return null;
-  const normalized = affiliation.trim();
-  if (!normalized) return null;
-  const marker = '설계매니저';
-  const markerIndex = normalized.indexOf(marker);
-  if (markerIndex === -1) return null;
-
-  // e.g. "농협생명 설계매니저" -> "농협생명"
-  const company = normalized.slice(0, markerIndex).trim();
-  return company.length > 0 ? company : null;
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function isRequestBoardDesignerAffiliation(affiliation?: string | null): boolean {
-  return parseDesignerCompanyNameFromAffiliation(affiliation) !== null;
+async function sha256Hex(value: string) {
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(value)));
+  return bytesToHex(hash);
+}
+
+async function hmacSha256Hex(secret: string, value: string) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(value)));
+  return bytesToHex(signature);
 }
 
 async function hashPassword(password: string, saltBytes: Uint8Array) {
@@ -193,6 +184,20 @@ async function hashPassword(password: string, saltBytes: Uint8Array) {
     256,
   );
   return toBase64(new Uint8Array(bits));
+}
+
+function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null): string | null {
+  if (!affiliation) return null;
+  const normalized = affiliation.trim();
+  if (!normalized) return null;
+  const markerIndex = normalized.indexOf('설계매니저');
+  if (markerIndex === -1) return null;
+  const company = normalized.slice(0, markerIndex).trim();
+  return company.length > 0 ? company : null;
+}
+
+function isRequestBoardDesignerAffiliation(affiliation?: string | null): boolean {
+  return parseDesignerCompanyNameFromAffiliation(affiliation) !== null;
 }
 
 async function resolveReferralDetails(params: {
@@ -209,26 +214,11 @@ async function resolveReferralDetails(params: {
       .eq('is_active', true)
       .maybeSingle();
 
-    if (codeError) {
-      reportEdgeDiagnostic({
-        event: 'set_password.referral_resolution',
-        reason: 'code_lookup_failed',
-        errorClass: 'database',
-      });
-      return { resolvedReferral: null, rejectionReason: 'code_lookup_failed' };
-    }
-    if (!referralCodeRow) {
-      reportEdgeDiagnostic({
-        event: 'set_password.referral_resolution',
-        reason: 'not_found_or_inactive',
-      });
-      return { resolvedReferral: null, rejectionReason: 'not_found_or_inactive' };
+    if (codeError || !referralCodeRow) {
+      return { resolvedReferral: null, rejectionReason: codeError ? 'code_lookup_failed' : 'not_found_or_inactive' };
     }
     if (params.validatedInviterFcId && params.validatedInviterFcId !== referralCodeRow.fc_id) {
-      reportEdgeDiagnostic({
-        event: 'set_password.referral_resolution',
-        reason: 'inviter_hint_mismatch',
-      });
+      return { resolvedReferral: null, rejectionReason: 'inviter_hint_mismatch' };
     }
 
     const { data: inviterProfile, error: inviterError } = await params.supabase
@@ -237,91 +227,59 @@ async function resolveReferralDetails(params: {
       .eq('id', referralCodeRow.fc_id)
       .maybeSingle();
 
-    if (inviterError) {
-      reportEdgeDiagnostic({
-        event: 'set_password.referral_resolution',
-        reason: 'inviter_profile_lookup_failed',
-        errorClass: 'database',
-      });
-      return { resolvedReferral: null, rejectionReason: 'inviter_profile_lookup_failed' };
+    if (inviterError || !inviterProfile?.phone) {
+      return { resolvedReferral: null, rejectionReason: inviterError ? 'inviter_profile_lookup_failed' : 'inviter_profile_missing' };
     }
-    if (!inviterProfile?.phone) {
-      console.warn('[set-password] resolveReferralDetails: inviter profile not found or missing phone');
-      return { resolvedReferral: null, rejectionReason: 'inviter_profile_missing' };
-    }
-
     if (inviterProfile.signup_completed !== true && inviterProfile.is_manager_referral_shadow !== true) {
-      console.warn('[set-password] resolveReferralDetails: inviter profile is neither signup completed nor manager shadow');
       return { resolvedReferral: null, rejectionReason: 'inviter_not_completed' };
     }
-
     if (isRequestBoardDesignerAffiliation(inviterProfile.affiliation)) {
-      console.warn('[set-password] resolveReferralDetails: inviter profile is request-board designer');
       return { resolvedReferral: null, rejectionReason: 'inviter_not_eligible' };
     }
 
     const inviterPhone = cleanPhone(String(inviterProfile.phone));
-    const inviterName = String(inviterProfile?.name ?? '');
-
-    if (!isNormalizedPhone(inviterPhone)) {
-      console.warn('[set-password] resolveReferralDetails: inviter phone is not normalized');
-      return { resolvedReferral: null, rejectionReason: 'inviter_phone_invalid' };
-    }
-
-    if (inviterPhone === params.inviteePhone) {
-      console.warn('[set-password] resolveReferralDetails: self-referral detected, skipping');
-      return { resolvedReferral: null, rejectionReason: 'self_referral' };
+    if (!isNormalizedPhone(inviterPhone) || inviterPhone === params.inviteePhone) {
+      return {
+        resolvedReferral: null,
+        rejectionReason: inviterPhone === params.inviteePhone ? 'self_referral' : 'inviter_phone_invalid',
+      };
     }
 
     return {
       resolvedReferral: {
-        referralCodeId: referralCodeRow.id,
-        referralCode: referralCodeRow.code,
-        inviterFcId: referralCodeRow.fc_id,
+        referralCodeId: String(referralCodeRow.id),
+        referralCode: String(referralCodeRow.code),
+        inviterFcId: String(referralCodeRow.fc_id),
         inviterPhone,
-        inviterName,
+        inviterName: String(inviterProfile.name ?? ''),
       },
       rejectionReason: null,
     };
   } catch {
-    reportEdgeDiagnostic({
-      event: 'set_password.referral_resolution',
-      reason: 'unexpected_error',
-    });
     return { resolvedReferral: null, rejectionReason: 'unexpected_resolution_error' };
   }
 }
 
-async function insertReferralEvent(params: {
-  supabase: SupabaseClient;
-  eventType: 'signup_completed' | 'referral_confirmed' | 'referral_rejected';
-  source: 'manual_entry';
-  attributionId?: string | null;
-  referralCodeId?: string | null;
-  referralCode?: string | null;
-  inviterFcId?: string | null;
-  inviterPhone?: string | null;
-  inviterName?: string | null;
-  inviteeFcId?: string | null;
-  inviteePhone?: string | null;
-  metadata?: Record<string, unknown>;
-  logLabel: string;
-}): Promise<void> {
-  const { error } = await params.supabase
-    .from('referral_events')
-    .insert({
-      attribution_id: params.attributionId ?? null,
-      referral_code_id: params.referralCodeId ?? null,
-      referral_code: params.referralCode ?? null,
-      inviter_fc_id: params.inviterFcId ?? null,
-      inviter_phone: params.inviterPhone ?? null,
-      inviter_name: params.inviterName ?? null,
-      invitee_fc_id: params.inviteeFcId ?? null,
-      invitee_phone: params.inviteePhone ?? null,
-      event_type: params.eventType,
-      source: params.source,
-      metadata: params.metadata ?? {},
-    });
+async function insertSignupReferralEvent(params: {
+  referral: ResolvedReferralDetails;
+  inviteeFcId: string | null;
+  inviteePhone: string;
+}) {
+  const { error } = await supabase.from('referral_events').insert({
+    referral_code_id: params.referral.referralCodeId,
+    referral_code: params.referral.referralCode,
+    inviter_fc_id: params.referral.inviterFcId,
+    inviter_phone: params.referral.inviterPhone,
+    inviter_name: params.referral.inviterName,
+    invitee_fc_id: params.inviteeFcId,
+    invitee_phone: params.inviteePhone,
+    event_type: 'signup_completed',
+    source: 'manual_entry',
+    metadata: {
+      captureSource: 'set_password_signup',
+      validationOutcome: 'resolved',
+    },
+  });
 
   if (error) {
     reportEdgeDiagnostic({
@@ -332,6 +290,33 @@ async function insertReferralEvent(params: {
   }
 }
 
+function readRpcResult(value: unknown): CompleteSignupResult {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return candidate && typeof candidate === 'object' ? candidate as CompleteSignupResult : {};
+}
+
+function rpcFailure(code: string | undefined) {
+  switch (code) {
+    case 'not_found':
+    case 'proof_required':
+      return fail('verification_required', '휴대폰 인증을 다시 완료해주세요.', 401);
+    case 'proof_invalid':
+      return fail('verification_invalid', '휴대폰 인증 정보가 올바르지 않습니다. 다시 인증해주세요.', 401);
+    case 'proof_expired':
+      return fail('verification_expired', '휴대폰 인증이 만료되었습니다. 다시 인증해주세요.', 401);
+    case 'request_conflict':
+      return fail('request_conflict', '가입 정보가 변경되었습니다. 휴대폰 인증부터 다시 진행해주세요.', 409);
+    case 'already_exists':
+      return fail('already_set', '이미 가입된 계정입니다. 로그인해주세요.', 409);
+    case 'referral_invalid':
+      return fail('referral_invalid', '추천인 정보를 다시 확인해주세요.');
+    case 'invalid_request':
+      return fail('invalid_request', '가입 정보를 다시 확인해주세요.');
+    default:
+      return fail('db_error', '회원가입을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.', 500);
+  }
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -339,22 +324,45 @@ serve(async (req: Request) => {
   if (req.method !== 'POST') {
     return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405);
   }
-  if (!supabaseUrl || !serviceKey) {
-    return json({ ok: false, code: 'server_misconfigured', message: 'Missing Supabase credentials' }, 500);
-  }
 
   let body: Payload;
   try {
-    body = await req.json();
+    const parsedBody: unknown = await req.json();
+    if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+      return fail('invalid_json', '요청 형식이 올바르지 않습니다.');
+    }
+    body = parsedBody as Payload;
   } catch {
-    return fail('invalid_json', 'Invalid JSON');
+    return fail('invalid_json', '요청 형식이 올바르지 않습니다.');
+  }
+
+  // Compatibility window: legacy app builds never sent this field. Keep this
+  // branch ahead of every validation, database call, and external side effect.
+  if (!Object.prototype.hasOwnProperty.call(body, 'completionToken')) {
+    return json({
+      ok: false,
+      code: 'upgrade_required',
+      message: '안전한 회원가입을 위해 모두온 앱을 최신 버전으로 업데이트한 뒤 다시 시도해주세요.',
+    }, 200);
+  }
+
+  const completionToken = typeof body.completionToken === 'string' ? body.completionToken.trim() : '';
+  if (!/^[A-Za-z0-9_-]{43}$/.test(completionToken)) {
+    return fail('verification_required', '휴대폰 인증을 다시 완료해주세요.', 401);
   }
 
   const phone = cleanPhone(body.phone ?? '');
   const password = (body.password ?? '').trim();
   const confirm = body.confirm?.trim();
+  const profileName = (body.name ?? '').trim();
+  const profileAffiliation = (body.affiliation ?? '').trim();
+  const profileEmail = (body.email ?? '').trim().toLowerCase();
+  const profileCarrier = (body.carrier ?? '').trim();
+  const licenseStatuses = resolveLicenseStatuses(body.license_statuses, body.commissionStatus);
+  const referralCode = (body.referralCode ?? '').trim().toUpperCase();
+  const referralInviterFcId = (body.referralInviterFcId ?? '').trim() || null;
 
-  if (phone.length !== 11) {
+  if (!isNormalizedPhone(phone)) {
     return fail('invalid_phone', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
   }
   const hasLetter = /[A-Za-z]/.test(password);
@@ -366,323 +374,117 @@ serve(async (req: Request) => {
   if (confirm !== undefined && password !== confirm) {
     return fail('password_mismatch', '비밀번호가 일치하지 않습니다.');
   }
-
-  // 관리자(총무) 계정 중복 차단
-  const { data: adminAccount, error: adminError } = await supabase
-    .from('admin_accounts')
-    .select('id')
-    .eq('phone', phone)
-    .maybeSingle();
-  if (adminError) {
-    return json({ ok: false, code: 'db_error', message: adminError.message }, 500);
-  }
-  if (adminAccount) {
-    return fail('already_exists', '해당 번호로 총무 계정이 이미 있습니다.');
+  if (!referralCode || !referralInviterFcId) {
+    return fail('referral_invalid', '유효한 추천인을 선택해야 가입을 완료할 수 있습니다.');
   }
 
-  // 본부장 계정 중복 차단
-  const { data: managerAccount, error: managerError } = await supabase
-    .from('manager_accounts')
-    .select('id')
-    .eq('phone', phone)
-    .maybeSingle();
-  if (managerError) {
-    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
-  }
-  if (managerAccount) {
-    return fail('already_exists', '해당 번호로 본부장 계정이 이미 있습니다.');
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from('fc_profiles')
-    .select('id,name,phone,phone_verified,affiliation,signup_completed,status,identity_completed')
-    .eq('phone', phone)
-    .maybeSingle();
-
-  if (profileError) {
-    return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
-  }
-
-  // Profile data from signup form
-  const profileName = (body.name ?? '').trim();
-  const profileAffiliation = (body.affiliation ?? '').trim();
-  const profileEmail = (body.email ?? '').trim();
-  const profileCarrier = (body.carrier ?? '').trim();
-  const licenseStatuses = resolveLicenseStatuses(body.license_statuses, body.commissionStatus);
-  const commissionStatus = mapLicenseStatusesToCommissionStatus(licenseStatuses);
-  const commissionState = mapCommissionToProfileState(commissionStatus);
-  const referralCode = (body.referralCode ?? '').trim().toUpperCase();
-  const referralInviterFcId = (body.referralInviterFcId ?? '').trim() || null;
-  const referralResolution = referralCode
-    ? await resolveReferralDetails({
-        referralCode,
-        inviteePhone: phone,
-        validatedInviterFcId: referralInviterFcId,
-        supabase,
-      })
-    : { resolvedReferral: null, rejectionReason: null };
+  const referralResolution = await resolveReferralDetails({
+    referralCode,
+    inviteePhone: phone,
+    validatedInviterFcId: referralInviterFcId,
+    supabase,
+  });
   const resolvedReferral = referralResolution.resolvedReferral;
-
-  if (!profile?.id || profile.phone_verified !== true) {
-    return fail('phone_not_verified', '휴대폰 인증이 필요합니다.');
+  if (!resolvedReferral) {
+    return fail('referral_invalid', '유효한 추천인을 선택해야 가입을 완료할 수 있습니다.');
   }
 
-  const fcId = profile.id as string;
-  let displayName = profile?.name ?? '';
-  let effectiveAffiliation = profile?.affiliation ?? profileAffiliation;
-
-  const { data: existingCreds, error: credsError } = await supabase
-    .from('fc_credentials')
-    .select('password_set_at')
-    .eq('fc_id', fcId)
-    .maybeSingle();
-
-  if (credsError) {
-    return json({ ok: false, code: 'db_error', message: credsError.message }, 500);
-  }
-
-  if (existingCreds?.password_set_at) {
-    return fail('already_set', '이미 비밀번호가 설정되어 있습니다.');
-  }
-
-  if (!referralCode || !resolvedReferral) {
-    if (referralCode) {
-      await insertReferralEvent({
-        supabase,
-        eventType: 'referral_rejected',
-        source: 'manual_entry',
-        referralCode,
-        inviteeFcId: fcId,
-        inviteePhone: phone,
-        metadata: {
-          captureSource: 'set_password_signup',
-          rejectionReason: referralResolution.rejectionReason ?? 'unresolved_referral',
-        },
-        logLabel: 'set-password',
-      });
-    }
-    return json({
-      ok: false,
-      code: 'referral_invalid',
-      message: '유효한 추천인을 선택해야 가입을 완료할 수 있습니다.',
-    });
-  }
-
-  const referralResetPayload: Record<string, unknown> = referralCode
-    ? {
-        recommender: null,
-        recommender_fc_id: null,
-        recommender_code_id: null,
-        recommender_code: null,
-        recommender_linked_at: null,
-        recommender_link_source: null,
-      }
-    : {};
-
-  if (profileName) {
-    // Update profile with signup form data (in case profile was created by OTP with empty fields)
-    // Also reset any stale PII fields that may have been left over from a previously completed profile
-    const updatePayload: Record<string, unknown> = {
-      license_statuses: licenseStatuses,
-      status: commissionState.status,
-      life_commission_completed: commissionState.lifeCompleted,
-      nonlife_commission_completed: commissionState.nonlifeCompleted,
-      // 이전 위촉 완료 후 재가입 시 identity 잔여 데이터 초기화
-      address: '',
-      address_detail: null,
-      resident_id_masked: null,
-      resident_id_hash: null,
-      identity_completed: false,
-      temp_id: null,
-      allowance_date: null,
-      appointment_url: null,
-      appointment_date: null,
-      ...buildWorkflowResetPayload(),
-      ...referralResetPayload,
-    };
-    if (profileName) updatePayload.name = profileName;
-    if (profileAffiliation) updatePayload.affiliation = profileAffiliation;
-    if (profileEmail) updatePayload.email = profileEmail;
-    if (profileCarrier) updatePayload.carrier = profileCarrier;
-
-    if (Object.keys(updatePayload).length > 0) {
-      let updateResult = await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);
-      if (updateResult.error && isMissingColumnError(updateResult.error)) {
-        const fallbackPayload = { ...updatePayload };
-        delete fallbackPayload.license_statuses;
-        delete fallbackPayload.life_commission_completed;
-        delete fallbackPayload.nonlife_commission_completed;
-        delete fallbackPayload.appointment_schedule_life;
-        delete fallbackPayload.appointment_schedule_nonlife;
-        delete fallbackPayload.appointment_date_life;
-        delete fallbackPayload.appointment_date_nonlife;
-        delete fallbackPayload.appointment_date_life_sub;
-        delete fallbackPayload.appointment_date_nonlife_sub;
-        delete fallbackPayload.appointment_reject_reason_life;
-        delete fallbackPayload.appointment_reject_reason_nonlife;
-        delete fallbackPayload.docs_deadline_at;
-        delete fallbackPayload.docs_deadline_last_notified_at;
-        delete fallbackPayload.hanwha_commission_date_sub;
-        delete fallbackPayload.hanwha_commission_date;
-        delete fallbackPayload.hanwha_commission_reject_reason;
-        delete fallbackPayload.hanwha_commission_pdf_path;
-        delete fallbackPayload.hanwha_commission_pdf_name;
-        updateResult = await supabase.from('fc_profiles').update(fallbackPayload).eq('id', fcId);
-      }
-      if (updateResult.error) {
-        return json({ ok: false, code: 'db_error', message: updateResult.error.message }, 500);
-      }
-      displayName = profileName || displayName;
-      if (profileAffiliation) {
-        effectiveAffiliation = profileAffiliation;
-      }
-    }
-  } else {
-    const statusOnlyPayload: Record<string, unknown> = {
-      license_statuses: licenseStatuses,
-      status: commissionState.status,
-      life_commission_completed: commissionState.lifeCompleted,
-      nonlife_commission_completed: commissionState.nonlifeCompleted,
-      ...buildWorkflowResetPayload(),
-      ...referralResetPayload,
-    };
-    let statusUpdateResult = await supabase.from('fc_profiles').update(statusOnlyPayload).eq('id', fcId);
-    if (statusUpdateResult.error && isMissingColumnError(statusUpdateResult.error)) {
-      const fallbackPayload = { ...statusOnlyPayload };
-      delete fallbackPayload.license_statuses;
-      delete fallbackPayload.life_commission_completed;
-      delete fallbackPayload.nonlife_commission_completed;
-      delete fallbackPayload.appointment_schedule_life;
-      delete fallbackPayload.appointment_schedule_nonlife;
-      delete fallbackPayload.appointment_date_life;
-      delete fallbackPayload.appointment_date_nonlife;
-      delete fallbackPayload.appointment_date_life_sub;
-      delete fallbackPayload.appointment_date_nonlife_sub;
-      delete fallbackPayload.appointment_reject_reason_life;
-      delete fallbackPayload.appointment_reject_reason_nonlife;
-      delete fallbackPayload.docs_deadline_at;
-      delete fallbackPayload.docs_deadline_last_notified_at;
-      delete fallbackPayload.hanwha_commission_date_sub;
-      delete fallbackPayload.hanwha_commission_date;
-      delete fallbackPayload.hanwha_commission_reject_reason;
-      delete fallbackPayload.hanwha_commission_pdf_path;
-      delete fallbackPayload.hanwha_commission_pdf_name;
-      statusUpdateResult = await supabase.from('fc_profiles').update(fallbackPayload).eq('id', fcId);
-    }
-    if (statusUpdateResult.error) {
-      return json({ ok: false, code: 'db_error', message: statusUpdateResult.error.message }, 500);
-    }
-  }
-
-  if (resolvedReferral && fcId) {
-    const applyResult = await applyReferralLinkState({
-      supabase,
-      inviteeFcId: fcId,
-      inviterFcId: resolvedReferral.inviterFcId,
-      referralCodeId: resolvedReferral.referralCodeId,
-      referralCode: resolvedReferral.referralCode,
-      source: 'signup',
-      actorPhone: phone,
-      actorRole: 'system',
-      reason: 'set_password_signup',
-    });
-
-    if (applyResult.ok === false) {
-      reportEdgeDiagnostic({
-        event: 'set_password.referral_link',
-        reason: 'apply_failed',
-        errorClass: 'database',
-      });
-      return json(
-        {
-          ok: false,
-          code: 'referral_link_failed',
-          message: '추천인 연결을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.',
-        },
-        500,
-      );
-    }
-  }
-
+  const canonicalRequest = JSON.stringify({
+    version: 1,
+    phone,
+    completionToken,
+    password,
+    name: profileName,
+    affiliation: profileAffiliation,
+    email: profileEmail,
+    carrier: profileCarrier,
+    licenseStatuses,
+    referralCode: resolvedReferral.referralCode,
+    referralInviterFcId: resolvedReferral.inviterFcId,
+  });
+  const [completionTokenHash, requestFingerprint] = await Promise.all([
+    sha256Hex(`fc-signup-completion-v1:${phone}:${completionToken}`),
+    hmacSha256Hex(serviceKey, canonicalRequest),
+  ]);
   const saltBytes = crypto.getRandomValues(new Uint8Array(16));
   const passwordHash = await hashPassword(password, saltBytes);
   const passwordSalt = toBase64(saltBytes);
 
-  const { error: upsertError } = await supabase
-    .from('fc_credentials')
-    .upsert(
-      {
-        fc_id: fcId,
-        password_hash: passwordHash,
-        password_salt: passwordSalt,
-        password_set_at: new Date().toISOString(),
-        failed_count: 0,
-        locked_until: null,
-        reset_token_hash: null,
-        reset_token_expires_at: null,
-        must_change_password: false,
-        temporary_password_issued_at: null,
-      },
-      { onConflict: 'fc_id' },
-    );
+  const { data, error } = await supabase.rpc('complete_fc_otp_signup_v1', {
+    p_phone: phone,
+    p_completion_token_hash: completionTokenHash,
+    p_request_fingerprint: requestFingerprint,
+    p_name: profileName,
+    p_affiliation: profileAffiliation,
+    p_email: profileEmail,
+    p_carrier: profileCarrier,
+    p_license_statuses: licenseStatuses,
+    p_referral_code: resolvedReferral.referralCode,
+    p_referral_inviter_fc_id: resolvedReferral.inviterFcId,
+    p_password_hash: passwordHash,
+    p_password_salt: passwordSalt,
+  });
 
-  if (upsertError) {
-    return json({ ok: false, code: 'db_error', message: upsertError.message }, 500);
-  }
-
-  // Mark signup as completed
-  const { error: profileUpdateError } = await supabase
-    .from('fc_profiles')
-    .update({
-      signup_completed: true,
-      signup_verification_method: 'phone_otp',
-      signup_verified_at: new Date().toISOString(),
-      signup_verified_by_admin_id: null,
-    })
-    .eq('id', fcId);
-
-  if (profileUpdateError) {
-    return json({ ok: false, code: 'db_error', message: profileUpdateError.message }, 500);
-  }
-
-  if (referralCode) {
-    await insertReferralEvent({
-      supabase,
-      eventType: 'signup_completed',
-      source: 'manual_entry',
-      referralCode: referralCode || null,
-      referralCodeId: resolvedReferral?.referralCodeId ?? null,
-      inviterFcId: resolvedReferral?.inviterFcId ?? null,
-      inviterPhone: resolvedReferral?.inviterPhone ?? null,
-      inviterName: resolvedReferral?.inviterName ?? null,
-      inviteeFcId: fcId,
-      inviteePhone: phone,
-      metadata: {
-        captureSource: 'set_password_signup',
-        validationOutcome: resolvedReferral ? 'resolved' : 'rejected',
-        rejectionReason: resolvedReferral ? null : referralResolution.rejectionReason,
-      },
-      logLabel: 'set-password',
+  if (error) {
+    reportEdgeDiagnostic({
+      event: 'set_password.complete_signup',
+      reason: 'rpc_failed',
+      errorClass: 'database',
     });
+    return fail('db_error', '회원가입을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.', 500);
   }
+
+  const result = readRpcResult(data);
+  if (result.ok !== true) {
+    return rpcFailure(result.code);
+  }
+
+  const residentId = typeof result.residentId === 'string' ? result.residentId : phone;
+  const displayName = typeof result.displayName === 'string' ? result.displayName : profileName;
+  const effectiveAffiliation = typeof result.affiliation === 'string' ? result.affiliation : profileAffiliation;
+  const alreadyApplied = result.alreadyApplied === true;
+
+  // A consumed capability can acknowledge a lost response, but must never
+  // replay password sync or any other post-commit side effect.
+  if (alreadyApplied) {
+    return json({ ok: true, residentId, displayName, alreadyApplied: true });
+  }
+
+  const completedProfileId = typeof result.fcId === 'string' ? result.fcId : null;
+  const completedSessionVersion = typeof result.sessionVersion === 'number'
+    && Number.isSafeInteger(result.sessionVersion)
+    && result.sessionVersion >= 0
+    ? result.sessionVersion
+    : null;
+  await insertSignupReferralEvent({
+    referral: resolvedReferral,
+    inviteeFcId: completedProfileId,
+    inviteePhone: phone,
+  });
 
   const designerCompanyName = parseDesignerCompanyNameFromAffiliation(effectiveAffiliation);
   await syncRequestBoardPassword({
     syncUrl: requestBoardPasswordSyncUrl,
+    syncV2Url: requestBoardPasswordSyncV2Url,
+    requireV2: requestBoardPasswordSyncV2Required,
     syncToken: requestBoardPasswordSyncToken,
     timeoutMs: requestBoardPasswordSyncTimeoutMs,
     logPrefix: 'set-password',
     phone,
     password,
+    upstream: buildFcPasswordSyncUpstream(
+      completedProfileId,
+      completedSessionVersion,
+    ),
     options: {
       role: designerCompanyName ? 'designer' : 'fc',
       name: displayName,
-      ...(designerCompanyName ? {} : { affiliation: effectiveAffiliation ?? null }),
+      ...(designerCompanyName ? {} : { affiliation: effectiveAffiliation || null }),
       ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
       initiatorRole: 'system',
       syncReason: 'bootstrap',
     },
   });
 
-  return json({ ok: true, residentId: phone, displayName });
+  return json({ ok: true, residentId, displayName, alreadyApplied });
 });

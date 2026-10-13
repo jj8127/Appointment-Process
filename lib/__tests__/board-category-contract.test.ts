@@ -38,6 +38,11 @@ describe('board category contract', () => {
     expect(categoriesShared).toContain('CANONICAL_BOARD_CATEGORIES');
     expect(categoriesShared).toContain('CANONICAL_BOARD_CATEGORY_SLUGS');
     expect(categoriesFunction).toContain('CANONICAL_BOARD_CATEGORY_SLUGS');
+    expect(categoriesFunction).toContain('CANONICAL_BOARD_CATEGORIES');
+    expect(categoriesFunction).toContain('rows.length !== CANONICAL_BOARD_CATEGORIES.length');
+    expect(categoriesFunction).toMatch(
+      /\.order\('sort_order', \{ ascending: true \}\)[\s\S]*?\.order\('created_at', \{ ascending: true \}\)[\s\S]*?\.order\('id', \{ ascending: true \}\)/,
+    );
   });
 
   it('moves legacy insurance news posts to general, not GaramPick', () => {

@@ -68,6 +68,37 @@ type StatusTone = {
   color: string;
 };
 
+type HanwhaSubmissionReceipt = {
+  id: string;
+  name: string | null;
+  status: 'hanwha-commission-review';
+  hanwha_commission_date_sub: string;
+  hanwha_commission_pdf_path: null;
+  hanwha_commission_pdf_name: null;
+};
+
+const requireHanwhaSubmissionReceipt = (
+  value: unknown,
+  expectedProfileId: string,
+  expectedDate: string,
+): HanwhaSubmissionReceipt => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('다위촉 URL 저장 결과를 확인하지 못했습니다. 다시 시도해주세요.');
+  }
+  const row = value as Record<string, unknown>;
+  if (
+    row.id !== expectedProfileId
+    || (row.name !== null && typeof row.name !== 'string')
+    || row.status !== 'hanwha-commission-review'
+    || row.hanwha_commission_date_sub !== expectedDate
+    || row.hanwha_commission_pdf_path !== null
+    || row.hanwha_commission_pdf_name !== null
+  ) {
+    throw new Error('다위촉 URL 저장 결과를 확인하지 못했습니다. 다시 시도해주세요.');
+  }
+  return row as HanwhaSubmissionReceipt;
+};
+
 const trimString = (value: string | null | undefined) => {
   const normalized = value?.trim();
   return normalized ? normalized : null;
@@ -94,7 +125,7 @@ export default function HanwhaCommissionScreen() {
 }
 
 function HanwhaCommissionScreenContent() {
-  const { role, residentId } = useSession();
+  const { role, residentId, appSessionToken } = useSession();
   const { notificationId, notificationTarget } = useLocalSearchParams<{
     notificationId?: string;
     notificationTarget?: string;
@@ -249,7 +280,14 @@ function HanwhaCommissionScreenContent() {
   }, []);
 
   const submitDate = useCallback(async () => {
-    if (!residentId) return;
+    if (!residentId || !appSessionToken) {
+      Alert.alert('로그인 정보 없음', '로그인 정보를 확인할 수 없습니다. 다시 로그인해주세요.');
+      return;
+    }
+    if (!profile?.id) {
+      Alert.alert('저장 실패', '현재 프로필을 확인할 수 없습니다. 새로고침 후 다시 시도해주세요.');
+      return;
+    }
     if (!displayDate) {
       Alert.alert('날짜 선택', '다위촉 URL 완료일을 선택해주세요.');
       return;
@@ -267,12 +305,12 @@ function HanwhaCommissionScreenContent() {
     try {
       const { data, error } = await supabase.functions.invoke<{
         ok?: boolean;
-        data?: { id?: string; name?: string };
+        data?: unknown;
         message?: string;
         error?: string;
       }>('fc-submit-hanwha-commission', {
+        headers: { 'x-app-session-token': appSessionToken },
         body: {
-          phone: cleanPhone,
           hanwha_commission_date_sub: ymd,
         },
       });
@@ -284,10 +322,7 @@ function HanwhaCommissionScreenContent() {
       if (!data?.ok) {
         throw new Error(data?.message ?? data?.error ?? '다위촉 URL 정보를 저장하지 못했습니다.');
       }
-      const updatedProfile = data.data;
-      if (!updatedProfile?.id) {
-        throw new Error('업데이트된 데이터가 없습니다. (전화번호 불일치 가능성)');
-      }
+      const updatedProfile = requireHanwhaSubmissionReceipt(data.data, profile.id, ymd);
       const updatedProfileId = updatedProfile.id;
 
       const notifyAdmins = () => invokeFcNotifyForDelivery({
@@ -320,7 +355,7 @@ function HanwhaCommissionScreenContent() {
     } finally {
       setSaving(false);
     }
-  }, [displayDate, load, residentId]);
+  }, [appSessionToken, displayDate, load, profile?.id, residentId]);
 
   const resolvePdfUrl = useCallback(async () => {
     if (!pdfPath) {

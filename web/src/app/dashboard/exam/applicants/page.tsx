@@ -2,6 +2,8 @@
 
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { useSession } from '@/hooks/use-session';
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { QueryReadError } from '@/lib/query-read-error';
 import {
     ActionIcon,
     Badge,
@@ -61,16 +63,20 @@ import {
     getExamApplicantSubjectKey,
     isExamApplicantRoundFilterValid,
     matchesExamApplicantQuickAffiliation,
+    parseExamApplicantRows,
     type ExamApplicantExportColumn,
     type ExamApplicantExportColumnKey,
     type ExamApplicantFilterOption,
+    type ExamApplicantResponseRow as Applicant,
 } from '@/lib/exam-applicant-list-display';
 import {
     buildExamPaymentProofExportLinkMap,
     buildExamPaymentProofImagePath,
+    parseExamPaymentProofExportLinks,
     type ExamPaymentProofExportLink,
 } from '@/lib/exam-payment-proof-admin';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
+import { requireExamTransitionSuccess } from '@/lib/user-intent-policy';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -80,29 +86,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const HANWHA_ORANGE = '#F37321';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
-
-// --- Types ---
-type Applicant = {
-    id: string; // registration id
-    status: string;
-    created_at: string;
-    round_id: string | null;
-    resident_id: string;
-    name: string;
-    phone: string;
-    affiliation: string;
-    address: string;
-    location_name: string;
-    round_label: string;
-    exam_date: string | null;
-    exam_type?: string | null;
-    fee_paid_date?: string | null;
-    payment_proof_attached?: boolean;
-    is_confirmed: boolean;
-    includes_primary_exam?: boolean;
-    is_third_exam?: boolean;
-    application_type?: string | null;
-};
 
 // Filter state type: key is column key, value is array of selected strings
 type FilterState = Record<string, string[]>;
@@ -368,7 +351,7 @@ export default function ExamApplicantsPage() {
     );
 
     // --- Fetch All Recent Applicants ---
-    const { data: applicants, isLoading, error: applicantsError, refetch } = useQuery({
+    const { data: applicants, isLoading, isFetching, error: applicantsError, refetch } = useQuery({
         queryKey: ['exam-applicants-all-recent', role],
         enabled: hydrated,
         queryFn: async () => {
@@ -378,21 +361,12 @@ export default function ExamApplicantsPage() {
                 cache: 'no-store',
             });
             const json: unknown = await response.json().catch(() => null);
+            const parsedApplicants = isRecord(json) ? parseExamApplicantRows(json.applicants) : null;
 
-            const isOk =
-                response.ok &&
-                isRecord(json) &&
-                json.ok === true &&
-                Array.isArray(json.applicants);
-            if (!isOk) {
-                const message =
-                    isRecord(json) && typeof json.error === 'string'
-                        ? json.error
-                        : '시험 신청 목록을 불러오지 못했습니다.';
-                throw new Error(message);
-            }
+            if (!response.ok) throw new QueryReadError(response.status);
+            if (!isRecord(json) || json.ok !== true || parsedApplicants === null) throw new QueryReadError();
 
-            return json.applicants as Applicant[];
+            return parsedApplicants;
         }
     });
 
@@ -521,30 +495,27 @@ export default function ExamApplicantsPage() {
     // --- Mutations ---
     const updateStatusMutation = useMutation({
         mutationFn: async ({ item, isConfirmed }: { item: Applicant; isConfirmed: boolean }) => {
+            const action = isConfirmed ? 'confirm' : 'unconfirm';
             const response = await fetch('/api/admin/exam-applicants', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
                 body: JSON.stringify({
                     registrationId: item.id,
-                    action: isConfirmed ? 'confirm' : 'unconfirm',
+                    action,
                 }),
             });
             const json: unknown = await response.json().catch(() => null);
-            const nextStatus = isConfirmed ? 'confirmed' : 'applied';
-            const isOk =
-                response.ok &&
-                isRecord(json) &&
-                json.ok === true;
-            if (!isOk) {
+            if (!response.ok) {
                 const message =
                     isRecord(json) && typeof json.error === 'string'
                         ? json.error
                         : '시험 신청 상태 변경에 실패했습니다.';
                 throw new Error(message);
             }
+            const transition = requireExamTransitionSuccess(json, { action, registrationId: item.id });
             showAdminNotificationWarning(json);
-            return { item, isConfirmed, nextStatus };
+            return { item, isConfirmed: transition.isConfirmed, nextStatus: transition.status };
         },
         onSuccess: ({ item, isConfirmed, nextStatus }) => {
             queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
@@ -579,22 +550,26 @@ export default function ExamApplicantsPage() {
                 }),
             });
             const json: unknown = await response.json().catch(() => null);
-            if (!response.ok || !isRecord(json) || json.ok !== true) {
+            if (!response.ok) {
                 throw new Error(
                     isRecord(json) && typeof json.error === 'string'
                         ? json.error
                         : '시험 신청 반려에 실패했습니다.',
                 );
             }
+            const transition = requireExamTransitionSuccess(json, {
+                action: 'reject',
+                registrationId: item.id,
+            });
             showAdminNotificationWarning(json);
-            return item;
+            return { item, transition };
         },
-        onSuccess: (item) => {
+        onSuccess: ({ item, transition }) => {
             queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
                 if (!Array.isArray(old)) return old;
                 return (old as Applicant[]).map((row) =>
                     row.id === item.id
-                        ? { ...row, is_confirmed: false, status: 'rejected' }
+                        ? { ...row, is_confirmed: transition.isConfirmed, status: transition.status }
                         : row,
                 );
             });
@@ -628,8 +603,7 @@ export default function ExamApplicantsPage() {
             });
 
             const json: unknown = await response.json().catch(() => null);
-            const isOk = response.ok && isRecord(json) && json.ok === true;
-            if (!isOk) {
+            if (!response.ok) {
                 const message =
                     isRecord(json) && typeof json.error === 'string'
                         ? json.error
@@ -637,15 +611,19 @@ export default function ExamApplicantsPage() {
                 throw new Error(message);
             }
 
+            const transition = requireExamTransitionSuccess(json, {
+                action: 'cancel_by_admin',
+                registrationId: item.id,
+            });
             showAdminNotificationWarning(json);
-            return item;
+            return { item, transition };
         },
-        onSuccess: (item) => {
+        onSuccess: ({ item, transition }) => {
             queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
                 if (!Array.isArray(old)) return old;
                 return (old as Applicant[]).map((row) =>
                     row.id === item.id
-                        ? { ...row, is_confirmed: false, status: 'cancelled_by_admin' }
+                        ? { ...row, is_confirmed: transition.isConfirmed, status: transition.status }
                         : row,
                 );
             });
@@ -685,23 +663,15 @@ export default function ExamApplicantsPage() {
                     body: JSON.stringify({ registrationIds: attachedRegistrationIds }),
                 });
                 const json: unknown = await response.json().catch(() => null);
-                const rawLinks =
-                    isRecord(json) && Array.isArray(json.links)
-                        ? json.links
-                        : [];
-                const links = rawLinks.filter((value): value is ExamPaymentProofExportLink => (
-                    isRecord(value)
-                    && typeof value.registrationId === 'string'
-                    && typeof value.storagePath === 'string'
-                    && typeof value.signedUrl === 'string'
-                ));
+                const links = isRecord(json)
+                    ? parseExamPaymentProofExportLinks(json.links, attachedRegistrationIds)
+                    : null;
 
                 if (
                     !response.ok
                     || !isRecord(json)
                     || json.ok !== true
-                    || links.length !== rawLinks.length
-                    || links.length !== attachedRegistrationIds.length
+                    || links === null
                 ) {
                     const message =
                         isRecord(json) && typeof json.error === 'string'
@@ -944,7 +914,15 @@ export default function ExamApplicantsPage() {
                         kind="round"
                     />
                 </Group>
-                {applicantsError && applicants ? <Text size="sm" c="orange">통계는 이전 조회 자료입니다. 최신 결과를 다시 확인해주세요.</Text> : null}
+                {applicantsError ? (
+                    <QueryErrorAlert
+                        error={applicantsError}
+                        onRetry={refetch}
+                        isFetching={isFetching}
+                        hasData={Boolean(applicants)}
+                        subject="시험 신청 목록"
+                    />
+                ) : null}
                 <Group grow align="stretch">
                     <Paper
                         component="button"
@@ -1028,16 +1006,14 @@ export default function ExamApplicantsPage() {
                                 </Table.Tr>
                             </Table.Thead>
                             <Table.Tbody>
-                                {isLoading ? (
+                                {isLoading && !applicants ? (
                                     <Table.Tr><Table.Td colSpan={tableColumnCount} align="center" py={80}><Loader color="orange" type="dots" /></Table.Td></Table.Tr>
-                                ) : applicantsError ? (
+                                ) : applicantsError && !applicants ? (
                                     <Table.Tr><Table.Td colSpan={tableColumnCount} align="center" py={80} c="red">
                                         <Stack align="center" gap="xs">
                                             <IconX size={36} color="#fa5252" />
                                             <Text fw={600}>목록을 불러오지 못했습니다.</Text>
-                                            <Text size="sm" c="dimmed">
-                                                {applicantsError instanceof Error ? applicantsError.message : '잠시 후 다시 시도해주세요.'}
-                                            </Text>
+                                            <Text size="sm" c="dimmed">위 오류 안내에서 다시 시도해주세요.</Text>
                                         </Stack>
                                     </Table.Td></Table.Tr>
                                 ) : filteredRows.length > 0 ? (

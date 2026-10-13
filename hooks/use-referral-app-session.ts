@@ -49,6 +49,13 @@ export class ReferralAppSessionError extends Error {
   }
 }
 
+export type ReferralFunctionResponseEnvelope = {
+  ok?: boolean;
+  code?: string | null;
+  message?: string | null;
+  [key: string]: unknown;
+};
+
 async function extractFunctionFailurePayload(response: Response): Promise<ReferralFunctionFailure> {
   try {
     const payload = await response.clone().json() as ReferralFunctionFailure;
@@ -206,7 +213,7 @@ export function useReferralAppSession() {
   }, [captureOwner, refreshReferralAppSession, replaceAppSessionToken]);
 
   const invokeReferralFunction = useCallback(async <
-    TResponse extends { ok?: boolean; code?: string | null; message?: string | null },
+    TResponse extends ReferralFunctionResponseEnvelope,
   >(
     functionName: string,
     options: {

@@ -1,7 +1,7 @@
 import type {
   ResidentNumberReadResult,
-  ResidentNumberReadStatus,
 } from '@/lib/resident-number-read-contract';
+import { parseResidentNumberReceipt } from '../../../lib/resident-number-response.ts';
 
 type ResidentNumberEdgeFallbackResponse =
   | ({ ok: true } & ResidentNumberReadResult)
@@ -14,51 +14,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-const isFullResidentNumber = (value: unknown): value is string =>
-  typeof value === 'string' && /^\d{6}-\d{7}$/.test(value);
-
 export function parseResidentNumberEdgeFallbackResponse({
   responseOk,
   data,
+  expectedFcIds,
 }: {
   responseOk: boolean;
   data: unknown;
+  expectedFcIds: string[];
 }): ResidentNumberEdgeFallbackResponse {
-  if (
-    responseOk &&
-    isRecord(data) &&
-    data.ok === true &&
-    isRecord(data.residentNumbers)
-  ) {
-    const rawStatuses = isRecord(data.residentNumberStatuses)
-      ? data.residentNumberStatuses
-      : {};
-    const residentNumbers: ResidentNumberReadResult['residentNumbers'] = {};
-    const residentNumberStatuses: ResidentNumberReadResult['residentNumberStatuses'] = {};
-
-    for (const [fcId, value] of Object.entries(data.residentNumbers)) {
-      if (isFullResidentNumber(value)) {
-        residentNumbers[fcId] = value;
-        residentNumberStatuses[fcId] = 'ready';
-        continue;
-      }
-
-      residentNumbers[fcId] = null;
-      const declaredStatus = rawStatuses[fcId];
-      const inferredStatus: ResidentNumberReadStatus = value === null
-        ? 'missing'
-        : 'unavailable';
-      residentNumberStatuses[fcId] =
-        declaredStatus === 'missing' || declaredStatus === 'unavailable'
-          ? declaredStatus
-          : inferredStatus;
+  if (responseOk) {
+    const receipt = parseResidentNumberReceipt(data, expectedFcIds);
+    if (receipt) {
+      return {
+        ok: true,
+        residentNumbers: receipt.residentNumbers,
+        residentNumberStatuses: receipt.residentNumberStatuses,
+      };
     }
-
-    return {
-      ok: true,
-      residentNumbers,
-      residentNumberStatuses,
-    };
   }
 
   let message = 'Edge Function failed';

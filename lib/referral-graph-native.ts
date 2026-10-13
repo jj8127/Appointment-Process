@@ -68,7 +68,9 @@ export function normalizeReferralGraph(
 ) {
   const nodeMap = new Map<string, ReferralGraphNode>();
   for (const node of nodes) {
-    if (!node?.id || nodeMap.has(node.id)) continue;
+    if (!node?.id || nodeMap.has(node.id)) {
+      throw new Error('referral_graph_node_contract_invalid');
+    }
     nodeMap.set(node.id, {
       ...node,
       name: node.name.trim() || '이름 없음',
@@ -87,13 +89,14 @@ export function normalizeReferralGraph(
       || !nodeMap.has(edge.source)
       || !nodeMap.has(edge.target)
     ) {
-      continue;
+      throw new Error('referral_graph_edge_contract_invalid');
     }
 
     const id = `${edge.source}__${edge.target}`;
-    if (!edgeMap.has(id)) {
-      edgeMap.set(id, { id, source: edge.source, target: edge.target });
+    if (edgeMap.has(id)) {
+      throw new Error('referral_graph_edge_contract_invalid');
     }
+    edgeMap.set(id, { id, source: edge.source, target: edge.target });
   }
 
   return {

@@ -44,15 +44,17 @@ function loadSignupSmsBypassResolver(): SmsBypassResolver {
 }
 
 describe('verify-signup-otp SMS bypass security contract', () => {
-  it('resolves policy before the public handler and gates the phone-verified writer without a fixed code', () => {
+  it('resolves policy before the public handler and routes bypass through the same transactional verifier', () => {
     assert.match(
       signupOtpSource,
       /const signupSmsBypassConfig = resolveSignupSmsBypassConfig\(\{[\s\S]*?\}\);\s*[\s\S]*?serve\(async/,
     );
     assert.match(
       signupOtpSource,
-      /if \(signupSmsBypassConfig\.enabled && code === signupSmsBypassConfig\.code\) \{[\s\S]*?phone_verified: true/,
+      /const isTestBypass = signupSmsBypassConfig\.enabled && code === signupSmsBypassConfig\.code;[\s\S]*?supabase\.rpc\('verify_fc_signup_otp_v1',[\s\S]*?p_test_bypass: isTestBypass/,
     );
+    assert.doesNotMatch(signupOtpSource, /\.from\('fc_profiles'\)/);
+    assert.doesNotMatch(signupOtpSource, /phone_verified:\s*true/);
     assert.doesNotMatch(
       signupOtpSource,
       /SMS_BYPASS_CODE'\)\s*\?\?\s*getEnv\('TEST_SMS_CODE'\)\s*\?\?\s*['"]\d{6}['"]/,
@@ -121,10 +123,10 @@ describe('verify-signup-otp SMS bypass security contract', () => {
     );
   });
 
-  it('preserves normal OTP hash, expiry, attempts, lockout, and success behavior without sensitive logs', () => {
+  it('passes only hashes to the verifier and returns a fresh opaque completion capability without sensitive logs', () => {
     assert.match(
       signupOtpSource,
-      /if \(!profile\.phone_verification_hash \|\| !profile\.phone_verification_expires_at\)[\s\S]*?phone_verification_locked_until[\s\S]*?new Date\(profile\.phone_verification_expires_at\)[\s\S]*?sha256Base64\(`\$\{code\}:\$\{phone\}`\)[\s\S]*?phone_verification_attempts \?\? 0\) \+ 1[\s\S]*?nextAttempts >= MAX_ATTEMPTS[\s\S]*?phone_verified: true/,
+      /crypto\.getRandomValues\(new Uint8Array\(32\)\)[\s\S]*?sha256Base64\(`\$\{code\}:\$\{phone\}`\)[\s\S]*?sha256Hex\(`fc-signup-completion-v1:\$\{phone\}:\$\{completionToken\}`\)[\s\S]*?p_completion_token_hash: completionTokenHash[\s\S]*?return json\(\{ ok: true, completionToken \}\)/,
     );
     assert.doesNotMatch(signupOtpSource, /console\.(?:log|info|warn|error|debug)/);
   });

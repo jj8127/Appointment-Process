@@ -29,6 +29,7 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { Skeleton } from '@/components/LoadingSkeleton';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { resolveExamHomeSurface } from '@/lib/exam-role';
+import { buildExamPhoneCandidates, normalizeExamSingle } from '@/lib/exam-display';
 import {
   fetchGaraminDirectMessages,
   resolveGaraminDirectConversation,
@@ -40,12 +41,17 @@ import {
   getFcHomeNextAction,
   getFcHomeQuickLinkDescriptions,
 } from '@/lib/fc-workflow';
+import { isFcStatus } from '@/lib/fc-status';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useSession } from '@/hooks/use-session';
 import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
+import {
+  parseLatestNoticePayload,
+  type LatestNoticeSummary,
+} from '@/lib/inbox-list-contract';
 import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
 import { formatHomeCount } from '@/lib/home-read-state';
@@ -63,6 +69,11 @@ import {
   HOME_GUIDE_ICON_SHADOW,
 } from '@/lib/home-guide-ui';
 import { supabase } from '@/lib/supabase';
+import {
+  chunkSupabaseFilterValues,
+  collectSupabaseRows,
+  requireSupabaseRowMatching,
+} from '@/lib/supabase-query-contract';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
@@ -117,19 +128,134 @@ type StepKey = 'step0' | 'step1' | 'step2' | 'step3' | 'step4' | 'step5';
 type StepCounts = Record<StepKey, number>;
 type CountsResult = { total: number; steps: StepCounts };
 const EMPTY_STEP_COUNTS: StepCounts = { step0: 0, step1: 0, step2: 0, step3: 0, step4: 0, step5: 0 };
-type LatestNoticeSummary = {
+
+type WorkflowCountRow = {
   id: string;
-  title: string;
-  body: string;
-  category?: string | null;
-  created_at?: string | null;
-};
-type LatestNoticeResponse = {
-  ok?: boolean;
-  message?: string;
-  notice?: LatestNoticeSummary | null;
+  name: string;
+  affiliation: string;
+  resident_id_masked: string | null;
+  email: string | null;
+  address: string | null;
+  identity_completed: boolean | null;
+  license_statuses: FcProfile['license_statuses'];
+  allowance_date: string | null;
+  allowance_prescreen_requested_at: string | null;
+  allowance_reject_reason: string | null;
+  status: FcProfile['status'];
+  hanwha_commission_date: string | null;
+  hanwha_commission_pdf_path: string | null;
+  hanwha_commission_pdf_name: string | null;
+  appointment_date_life: string | null;
+  appointment_date_nonlife: string | null;
+  appointment_date_life_sub: string | null;
+  appointment_date_nonlife_sub: string | null;
+  life_commission_completed: boolean | null;
+  nonlife_commission_completed: boolean | null;
+  fc_documents: {
+    doc_type: string;
+    storage_path: string | null;
+    status: string | null;
+  }[];
 };
 
+type FcStatusRow = Omit<FcProfile, 'created_at'>;
+
+type ExamStatsRound = { exam_type: 'life' | 'nonlife' };
+type ExamStatsRegistrationRow = {
+  id: string;
+  resident_id: string;
+  is_confirmed: boolean | null;
+  status: string;
+  created_at: string;
+  exam_rounds: ExamStatsRound | ExamStatsRound[];
+};
+type ExamStatsProfileRow = { id: string; phone: string };
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+
+const isNullableString = (value: unknown): value is string | null => (
+  value === null || typeof value === 'string'
+);
+
+const isNullableBoolean = (value: unknown): value is boolean | null => (
+  value === null || typeof value === 'boolean'
+);
+
+const LICENSE_STATUS_VALUES = new Set<string>(['third', 'life', 'nonlife', 'none']);
+
+const isWorkflowDocument = (value: unknown): value is WorkflowCountRow['fc_documents'][number] => (
+  isRecord(value)
+  && typeof value.doc_type === 'string'
+  && isNullableString(value.storage_path)
+  && isNullableString(value.status)
+);
+
+const isWorkflowCountRow = (value: unknown): value is WorkflowCountRow => (
+  isRecord(value)
+  && typeof value.id === 'string'
+  && typeof value.name === 'string'
+  && typeof value.affiliation === 'string'
+  && isNullableString(value.resident_id_masked)
+  && isNullableString(value.email)
+  && isNullableString(value.address)
+  && isNullableBoolean(value.identity_completed)
+  && (value.license_statuses === null
+    || (Array.isArray(value.license_statuses)
+      && value.license_statuses.every((item) => typeof item === 'string' && LICENSE_STATUS_VALUES.has(item))))
+  && isNullableString(value.allowance_date)
+  && isNullableString(value.allowance_prescreen_requested_at)
+  && isNullableString(value.allowance_reject_reason)
+  && isFcStatus(value.status)
+  && isNullableString(value.hanwha_commission_date)
+  && isNullableString(value.hanwha_commission_pdf_path)
+  && isNullableString(value.hanwha_commission_pdf_name)
+  && isNullableString(value.appointment_date_life)
+  && isNullableString(value.appointment_date_nonlife)
+  && isNullableString(value.appointment_date_life_sub)
+  && isNullableString(value.appointment_date_nonlife_sub)
+  && isNullableBoolean(value.life_commission_completed)
+  && isNullableBoolean(value.nonlife_commission_completed)
+  && Array.isArray(value.fc_documents)
+  && value.fc_documents.every(isWorkflowDocument)
+);
+
+const isFcStatusRow = (value: unknown): value is FcStatusRow => {
+  if (!isWorkflowCountRow(value)) return false;
+  const row = value as WorkflowCountRow & Record<string, unknown>;
+  return typeof row.phone === 'string'
+    && isNullableString(row.temp_id)
+    && isNullableString(row.hanwha_commission_date_sub)
+    && isNullableString(row.hanwha_commission_reject_reason)
+    && isNullableString(row.appointment_url)
+    && isNullableString(row.appointment_date)
+    && isNullableString(row.appointment_schedule_life)
+    && isNullableString(row.appointment_schedule_nonlife)
+    && isNullableBoolean(row.is_tour_seen)
+    && isNullableBoolean(row.signup_completed);
+};
+
+const isExamStatsRound = (value: unknown): value is ExamStatsRound => (
+  isRecord(value) && (value.exam_type === 'life' || value.exam_type === 'nonlife')
+);
+
+const isExamStatsRegistrationRow = (value: unknown): value is ExamStatsRegistrationRow => (
+  isRecord(value)
+  && typeof value.id === 'string'
+  && typeof value.resident_id === 'string'
+  && isNullableBoolean(value.is_confirmed)
+  && typeof value.status === 'string'
+  && typeof value.created_at === 'string'
+  && (isExamStatsRound(value.exam_rounds)
+    || (Array.isArray(value.exam_rounds)
+      && value.exam_rounds.length === 1
+      && isExamStatsRound(value.exam_rounds[0])))
+);
+
+const isExamStatsProfileRow = (value: unknown): value is ExamStatsProfileRow => (
+  isRecord(value) && typeof value.id === 'string' && typeof value.phone === 'string'
+);
 const CARD_SHADOW = {
   shadowColor: '#000',
   shadowOpacity: 0.04,
@@ -233,20 +359,25 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
     return { total: 0, steps: { ...EMPTY_STEP_COUNTS } };
   }
 
-  const { data, error } = await supabase
-    .from('fc_profiles')
-    .select('name,affiliation,resident_id_masked,email,address,identity_completed,license_statuses,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,status)');
-  if (error) throw error;
+  const profiles = await collectSupabaseRows<WorkflowCountRow>({
+    queryName: 'mobile_home_fc_counts',
+    fetchPage: (from, to) => supabase
+      .from('fc_profiles')
+      .select('id,name,affiliation,resident_id_masked,email,address,identity_completed,license_statuses,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,status)')
+      .order('id', { ascending: true })
+      .range(from, to),
+    isRow: isWorkflowCountRow,
+    rowKey: (row) => row.id,
+  });
 
   const steps: StepCounts = { ...EMPTY_STEP_COUNTS };
-  const profiles = (data ?? []) as FcProfile[];
-  profiles.forEach((profile: FcProfile) => {
+  profiles.forEach((profile) => {
     const key = getStepKey(profile);
     steps[key] += 1;
   });
 
   return {
-    total: data?.length ?? 0,
+    total: profiles.length,
     steps,
   };
 };
@@ -260,10 +391,9 @@ const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
 ];
 
 const fetchLatestNotice = async (): Promise<LatestNoticeSummary | null> => {
-  const { data, error } = await invokeFcNotify<LatestNoticeResponse>({ type: 'latest_notice' });
+  const { data, error } = await invokeFcNotify<unknown>({ type: 'latest_notice' });
   if (error) throw error;
-  if (!data?.ok) throw new Error(data?.message ?? '최신 공지를 불러오지 못했습니다.');
-  return data.notice ?? null;
+  return parseLatestNoticePayload(data).notice;
 };
 
 const fetchLatestAdminMessage = async (residentId: string) => {
@@ -285,40 +415,7 @@ const fetchFcStatus = async (residentId: string) => {
     .eq('phone', residentId)
     .maybeSingle();
   if (error) throw error;
-  return data ?? {
-    id: null,
-    name: '',
-    affiliation: '',
-    status: 'draft',
-    temp_id: null,
-    license_statuses: null,
-    allowance_date: null,
-    allowance_prescreen_requested_at: null,
-    allowance_reject_reason: null,
-    hanwha_commission_date_sub: null,
-    hanwha_commission_date: null,
-    hanwha_commission_reject_reason: null,
-    hanwha_commission_pdf_path: null,
-    hanwha_commission_pdf_name: null,
-    appointment_url: null,
-    appointment_date: null,
-    appointment_schedule_life: null,
-    appointment_schedule_nonlife: null,
-    appointment_date_life: null,
-    appointment_date_nonlife: null,
-    appointment_date_life_sub: null,
-    appointment_date_nonlife_sub: null,
-    life_commission_completed: false,
-    nonlife_commission_completed: false,
-    resident_id_masked: null,
-    phone: null,
-    email: null,
-    address: null,
-    identity_completed: false,
-    is_tour_seen: false,
-    signup_completed: false,
-    fc_documents: [],
-  };
+  return requireSupabaseRowMatching(data, 'mobile_home_fc_status', isFcStatusRow);
 };
 
 type ExamStats = {
@@ -329,11 +426,6 @@ type ExamStats = {
 };
 
 const fetchExamStats = async (): Promise<ExamStats> => {
-  const normalizeSingle = <T,>(value: T | T[] | null | undefined): T | null => {
-    if (!value) return null;
-    return Array.isArray(value) ? value[0] : value;
-  };
-
   const countByType = async (examType: 'life' | 'nonlife') => {
     const isRelationshipError = (error: unknown): boolean => {
       if (!error || typeof error !== 'object') {
@@ -353,45 +445,68 @@ const fetchExamStats = async (): Promise<ExamStats> => {
       const relation = relationName
         ? `exam_rounds!${relationName}(exam_type)`
         : 'exam_rounds!inner(exam_type)';
-      const { data, error } = await supabase
-        .from('exam_registrations')
-        .select(`resident_id, is_confirmed, status, created_at, ${relation}`)
-        .order('resident_id', { ascending: true })
-        .order('created_at', { ascending: true });
-
-      if (!error) {
-        const rows = (data ?? []).filter(
-          (row: any) => normalizeSingle(row?.exam_rounds)?.exam_type === examType,
+      try {
+        const allRows = await collectSupabaseRows<ExamStatsRegistrationRow>({
+          queryName: `mobile_home_exam_registrations_${examType}_${relationName || 'inner'}`,
+          fetchPage: (from, to) => supabase
+            .from('exam_registrations')
+            .select(`id, resident_id, is_confirmed, status, created_at, ${relation}`)
+            .order('resident_id', { ascending: true })
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, to),
+          isRow: isExamStatsRegistrationRow,
+          rowKey: (row) => row.id,
+        });
+        const rows = allRows.filter(
+          (row) => normalizeExamSingle(row.exam_rounds)?.exam_type === examType,
         );
         const residentIds = Array.from(
-          new Set(rows.map((row: any) => row.resident_id).filter((v: any): v is string => !!v)),
+          new Set(rows.map((row) => row.resident_id).filter(Boolean)),
         );
-        const existingResidents = new Set<string>();
+        const profileIdByPhoneCandidate = new Map<string, string>();
         if (residentIds.length > 0) {
-          const { data: profiles, error: profileErr } = await supabase
-            .from('fc_profiles')
-            .select('phone')
-            .in('phone', residentIds);
-          if (profileErr) throw profileErr;
-          (profiles ?? []).forEach((p: any) => {
-            if (p.phone) existingResidents.add(p.phone as string);
+          const profileLookupCandidates = Array.from(
+            new Set(residentIds.flatMap((residentId) => buildExamPhoneCandidates(residentId))),
+          );
+          const profilePages = await Promise.all(
+            chunkSupabaseFilterValues(profileLookupCandidates).map((phoneBatch, batchIndex) => (
+              collectSupabaseRows<ExamStatsProfileRow>({
+                queryName: `mobile_home_exam_profiles_${examType}_${batchIndex}`,
+                fetchPage: (from, to) => supabase
+                  .from('fc_profiles')
+                  .select('id,phone')
+                  .in('phone', phoneBatch)
+                  .order('id', { ascending: true })
+                  .range(from, to),
+                isRow: isExamStatsProfileRow,
+                rowKey: (row) => row.id,
+              })
+            )),
+          );
+          profilePages.flat().forEach((profile) => {
+            buildExamPhoneCandidates(profile.phone).forEach((candidate) => {
+              profileIdByPhoneCandidate.set(candidate, profile.id);
+            });
           });
         }
 
-        const latestByResident = new Map<string, { confirmed: boolean; status: string }>();
-        rows.forEach((row: any) => {
-          const residentId = row.resident_id;
-          if (!residentId || !existingResidents.has(residentId)) return;
-          latestByResident.set(residentId, { confirmed: Boolean(row.is_confirmed), status: String(row.status ?? 'applied') });
+        const latestByProfile = new Map<string, { confirmed: boolean; status: string }>();
+        rows.forEach((row) => {
+          const profileId = buildExamPhoneCandidates(row.resident_id)
+            .map((candidate) => profileIdByPhoneCandidate.get(candidate))
+            .find((candidate): candidate is string => Boolean(candidate));
+          if (!profileId) return;
+          latestByProfile.set(profileId, { confirmed: Boolean(row.is_confirmed), status: String(row.status ?? 'applied') });
         });
 
-        const total = latestByResident.size;
-        const pending = Array.from(latestByResident.values()).filter((v) => !v.confirmed && !['cancelled', 'rejected'].includes(v.status)).length;
+        const total = latestByProfile.size;
+        const pending = Array.from(latestByProfile.values()).filter((v) => !v.confirmed && !['cancelled', 'rejected'].includes(v.status)).length;
         return { total, pending };
-      }
-
-      if (!isRelationshipError(error)) {
-        throw error;
+      } catch (error) {
+        if (!isRelationshipError(error)) {
+          throw error;
+        }
       }
     }
 
@@ -408,12 +523,12 @@ const fetchExamStats = async (): Promise<ExamStats> => {
   };
 };
 
-function calcStep(myFc: FcProfile | null | undefined) {
+function calcStep(myFc: Parameters<typeof calcAdminWorkflowStep>[0]) {
   if (!myFc) return 0;
   return calcAdminWorkflowStep(myFc);
 }
 
-const getStepKey = (profile: FcProfile): StepKey => {
+const getStepKey = (profile: NonNullable<Parameters<typeof calcAdminWorkflowStep>[0]>): StepKey => {
   const step = Math.max(0, Math.min(5, calcStep(profile)));
   return `step${step}` as StepKey;
 };
@@ -789,30 +904,6 @@ function LegacyInsuranceHome() {
     setAdminHomeTab('onboarding');
   }, [mode, role]);
 
-  // 테스트용: Supabase 연결 확인 (컴포넌트 내부에서 실행)
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const { count, error } = await supabase
-          .from('fc_profiles')
-          .select('count', { count: 'exact', head: true });
-        if (!active) return;
-        if (error) {
-          logger.debug('[supabase ping] 연결 실패', error.message ?? error);
-        } else {
-          logger.debug('[supabase ping] 연결 성공, fc_profiles count', { count });
-        }
-      } catch (err: unknown) {
-        const error = err as { message?: string };
-        if (active) logger.debug('[supabase ping] 예외', error?.message ?? err);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const {
     data: counts,
     isLoading,
@@ -950,11 +1041,23 @@ function LegacyInsuranceHome() {
   );
 
   // Unread Counts
-  const { data: unreadMsgCount = 0, refetch: refetchMsgCount } = useQuery({
+  const {
+    data: unreadMsgCount,
+    isError: unreadMsgError,
+    error: unreadMsgReadError,
+    isFetching: unreadMsgFetching,
+    refetch: refetchMsgCount,
+  } = useQuery({
     queryKey: ['unread-msg-count', role, residentId, readOnly, staffType, isRequestBoardDesigner],
     queryFn: () => fetchInternalUnreadCount(internalViewerContext),
     enabled: !!role && !!residentId,
   });
+  const hasUnreadMessages = !unreadMsgError
+    && typeof unreadMsgCount === 'number'
+    && unreadMsgCount > 0;
+  const unreadMessageBadge = hasUnreadMessages
+    ? (unreadMsgCount > 99 ? '99+' : String(unreadMsgCount))
+    : '';
 
   const {
     data: unreadNotifCount = 0,
@@ -1787,6 +1890,15 @@ function LegacyInsuranceHome() {
             }
           </AndroidSafeMotiView>
 
+          {unreadMsgError && (
+            <QueryReadState
+              error={unreadMsgReadError}
+              message="읽지 않은 메시지 수를 불러오지 못했습니다."
+              onRetry={() => void refetchMsgCount()}
+              retrying={unreadMsgFetching}
+            />
+          )}
+
           {!(role === 'admin' && adminHomeTab === 'exam') && (
             <>
               {role === 'admin' ? (
@@ -1835,7 +1947,7 @@ function LegacyInsuranceHome() {
                           </View>
                           <View style={styles.ctaIconCircle}>
                             <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
-                            {unreadMsgCount > 0 && (
+                            {hasUnreadMessages && (
                               <View
                                 style={{
                                   position: 'absolute',
@@ -1852,7 +1964,7 @@ function LegacyInsuranceHome() {
                                 }}
                               >
                                 <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>
-                                  {unreadMsgCount > 99 ? '99+' : unreadMsgCount}
+                                  {unreadMessageBadge}
                                 </Text>
                               </View>
                             )}
@@ -1976,7 +2088,7 @@ function LegacyInsuranceHome() {
             {quickLinks.map((item, index) => {
               const key = `${item.href}-${item.stepKey ?? item.title ?? index}`;
               const isMessengerShortcut = item.href === '/messenger';
-              const messengerUnreadBadge = unreadMsgCount > 99 ? '99+' : String(unreadMsgCount);
+              const messengerUnreadBadge = unreadMessageBadge;
               const card = (
                 <AndroidSafeMotiView
                   from={{ opacity: 0, translateY: 20 }}
@@ -1988,7 +2100,7 @@ function LegacyInsuranceHome() {
                     style={({ pressed }) => [styles.actionCardGrid, pressed && styles.pressedScale]}
                     accessibilityRole="button"
                     accessibilityLabel={
-                      isMessengerShortcut && unreadMsgCount > 0
+                      isMessengerShortcut && hasUnreadMessages
                         ? `${item.title}, 읽지 않은 메시지 ${messengerUnreadBadge}개`
                         : item.title
                     }
@@ -1999,7 +2111,7 @@ function LegacyInsuranceHome() {
                         size={22}
                         color={CHARCOAL}
                       />
-                      {isMessengerShortcut && unreadMsgCount > 0 ? (
+                      {isMessengerShortcut && hasUnreadMessages ? (
                         <View style={styles.quickLinkUnreadBadge}>
                           <Text style={styles.quickLinkUnreadBadgeText}>{messengerUnreadBadge}</Text>
                         </View>

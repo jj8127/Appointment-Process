@@ -154,8 +154,10 @@ export default function ExamSchedulePage() {
         queryFn: async () => {
             const { fetchExamRoundsAction } = await import('./actions');
             const result = await fetchExamRoundsAction();
-            if (!result.success) throw new QueryReadError(result.status);
-            return (result.data ?? []) as ExamRound[];
+            if (!result.success || !Array.isArray(result.data)) {
+                throw new QueryReadError(result.status);
+            }
+            return result.data as ExamRound[];
         },
     });
 

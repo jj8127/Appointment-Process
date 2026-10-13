@@ -15,6 +15,24 @@ const requestOtpSource = readFileSync(
   ),
   'utf8',
 );
+const signupSmsSource = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../../supabase/functions/_shared/signup-sms.ts',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
+const atomicIssueMigrationSource = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../../supabase/migrations/20261013041530_atomic_fc_signup_otp_issue.sql',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
 
 type TestSmsConfig = {
   enabled: boolean;
@@ -122,19 +140,26 @@ describe('request-signup-otp production test-mode boundary', () => {
     );
   });
 
-  it('preserves random normal OTP, throttle, expiry, hash-only persistence, and provider delivery', () => {
+  it('preserves random normal OTP, throttle, expiry, hash-only persistence, and bounded provider delivery', () => {
     assert.match(
       requestOtpSource,
       /function generateOtpCode\(\)[\s\S]*?signupTestSmsConfig\.enabled[\s\S]*?crypto\.getRandomValues/,
     );
     assert.match(
       requestOtpSource,
-      /phone_verification_locked_until[\s\S]*?OTP_COOLDOWN_SECONDS[\s\S]*?sha256Base64\(`\$\{code\}:\$\{phone\}`\)[\s\S]*?OTP_TTL_MINUTES[\s\S]*?phone_verification_hash: hash[\s\S]*?sendOtpSms\(phone, code\)/,
+      /sha256Base64\(`\$\{code\}:\$\{phone\}`\)[\s\S]*?issue_fc_signup_otp_v1[\s\S]*?p_code_hash: hash[\s\S]*?sendOtpSms\(phone, code\)/,
+    );
+    assert.match(
+      atomicIssueMigrationSource,
+      /pg_advisory_xact_lock\(hashtextextended\(normalized_phone, 8102026\)\)[\s\S]*?clock_timestamp\(\)[\s\S]*?phone_verification_locked_until[\s\S]*?interval '60 seconds'[\s\S]*?interval '5 minutes'/,
     );
     assert.match(
       requestOtpSource,
-      /async function sendOtpSms[\s\S]*?signupTestSmsConfig\.enabled[\s\S]*?fetch\(`https:\/\/sens\.apigw\.ntruss\.com/,
+      /async function sendOtpSms[\s\S]*?sendSignupSms\(to, code,[\s\S]*?signupTestSmsConfig\.enabled/,
     );
+    assert.match(signupSmsSource, /https:\/\/sens\.apigw\.ntruss\.com/);
+    assert.match(signupSmsSource, /deliveryState:\s*'unknown'/);
+    assert.doesNotMatch(requestOtpSource, /fetch\(`https:\/\/sens\.apigw\.ntruss\.com/);
     assert.doesNotMatch(
       requestOtpSource,
       /phone_verification_(?:code|plain|otp)\s*:/,
@@ -143,5 +168,25 @@ describe('request-signup-otp production test-mode boundary', () => {
       requestOtpSource,
       /console\.(?:log|info|warn|error|debug)\([^)]*(?:phone|code|secret)/,
     );
+  });
+
+  it('creates and finalizes the privacy-safe delivery attempt around every FC SMS send', () => {
+    const begin = requestOtpSource.indexOf("supabase.rpc('issue_fc_signup_otp_v1'");
+    const send = requestOtpSource.indexOf('sendOtpSms(phone, code)', begin);
+    const finalize = requestOtpSource.indexOf(
+      'finalizeFcSignupDeliveryAttempt(supabase, phone, deliveryId, smsResult)',
+      send,
+    );
+    const success = requestOtpSource.lastIndexOf('return json({ ok: true, sent: true });');
+
+    assert.ok(begin >= 0, 'FC signup must atomically reserve its challenge and delivery attempt');
+    assert.ok(send > begin, 'SMS must not be sent before tracking starts');
+    assert.ok(finalize > send, 'provider acceptance must be finalized after the send');
+    assert.ok(success > finalize, 'success must require durable provider result tracking');
+    assert.doesNotMatch(requestOtpSource, /beginSmsDeliveryAttempt\(supabase, 'fc_signup'\)/);
+    assert.doesNotMatch(requestOtpSource, /\.from\('fc_profiles'\)\.update/);
+    assert.match(atomicIssueMigrationSource, /insert into public\.platform_sms_delivery_attempts\(purpose\)[\s\S]*?values\('fc_signup'\)/);
+    assert.match(atomicIssueMigrationSource, /phone_verification_delivery_id is distinct from p_delivery_id/);
+    assert.doesNotMatch(requestOtpSource, /providerRequestId\s*[:=][^\n]*(?:phone|code)/i);
   });
 });

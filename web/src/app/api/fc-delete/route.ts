@@ -3,21 +3,13 @@ import { NextResponse } from 'next/server';
 
 import { adminSupabase } from '@/lib/admin-supabase';
 import { adminRouteAuthErrorResponse, requireAdminRoute } from '@/lib/admin-route-auth';
+import { serverError } from '@/lib/api-error';
 import { checkRateLimit } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
+import { requireAccountDeletionReceipt } from '@shared/supabase/functions/_shared/ux-mutation-contract';
 
 type DeleteRequestBody = {
   fcId?: string;
-};
-
-type AccountDeleteResult = {
-  deleted?: boolean;
-  proof_paths?: unknown;
-  document_paths?: unknown;
-  board_attachment_paths?: unknown;
-  chat_file_urls?: unknown;
-  auth_user_ids?: unknown;
-  cleanup_outbox_id?: unknown;
 };
 
 const UUID_PATTERN =
@@ -32,15 +24,6 @@ function readStringArray(value: unknown): string[] {
         .filter(Boolean),
     ),
   );
-}
-
-function extractChatUploadPath(fileUrl: string): string | null {
-  const marker = '/chat-uploads/';
-  const index = fileUrl.indexOf(marker);
-  if (index < 0) return null;
-  const path = (fileUrl.slice(index + marker.length).split('?')[0] ?? '')
-    .replace(/^\/+/, '');
-  return path || null;
 }
 
 async function removeStorageObjects(bucket: string, paths: string[]) {
@@ -91,35 +74,29 @@ export async function POST(req: Request) {
     },
   );
   if (error) {
-    const status = error.message === 'account_delete_target_not_found' ? 404 : 409;
-    logger.error('[api/fc-delete] transactional account deletion failed', {
-      code: error.code ?? 'unknown',
-    });
-    return NextResponse.json(
-      { error: error.message || 'FC 계정 삭제에 실패했습니다.' },
-      { status },
-    );
+    if (error.message === 'account_delete_target_not_found') {
+      logger.warn('[api/fc-delete] deletion target not found', { code: error.code ?? 'unknown' });
+      return NextResponse.json({ error: '삭제할 FC 계정을 찾을 수 없습니다.' }, { status: 404 });
+    }
+    return serverError(error, 'api/fc-delete');
   }
 
-  const result = (data ?? {}) as AccountDeleteResult;
-  if (result.deleted !== true) {
+  let result: ReturnType<typeof requireAccountDeletionReceipt>;
+  try {
+    result = requireAccountDeletionReceipt(data);
+  } catch {
     return NextResponse.json({ error: '삭제 결과를 확인할 수 없습니다. 목록을 새로고침하여 확인해 주세요.' }, { status: 502 });
   }
   const proofPaths = readStringArray(result.proof_paths);
   const documentPaths = readStringArray(result.document_paths);
   const boardPaths = readStringArray(result.board_attachment_paths);
-  const chatPaths = readStringArray(result.chat_file_urls)
-    .map(extractChatUploadPath)
-    .filter((path): path is string => Boolean(path));
-  const authUserIds = readStringArray(result.auth_user_ids)
-    .filter((id) => UUID_PATTERN.test(id));
-  const cleanupOutboxId = String(result.cleanup_outbox_id ?? '').trim();
+  const authUserIds = readStringArray(result.auth_user_ids);
+  const cleanupOutboxId = result.cleanup_outbox_id;
 
   const cleanupWarnings = await Promise.all([
     removeStorageObjects('exam-payment-proofs', proofPaths),
     removeStorageObjects('fc-documents', documentPaths),
     removeStorageObjects('board-attachments', boardPaths),
-    removeStorageObjects('chat-uploads', chatPaths),
   ]);
 
   let authCleanupWarning = false;
@@ -129,15 +106,13 @@ export async function POST(req: Request) {
 
   const postCommitCleanupFailed =
     cleanupWarnings.some(Boolean) || authCleanupWarning;
-  const outboxError = UUID_PATTERN.test(cleanupOutboxId)
-    ? await cleanupFailed(async () => await adminSupabase.rpc('record_account_deletion_cleanup_attempt_v1', {
-      p_outbox_id: cleanupOutboxId,
-      p_succeeded: !postCommitCleanupFailed,
-      p_error_code: postCommitCleanupFailed
-        ? 'post_commit_cleanup_partial_failure'
-        : null,
-    }))
-    : true;
+  const outboxError = await cleanupFailed(async () => await adminSupabase.rpc('record_account_deletion_cleanup_attempt_v1', {
+    p_outbox_id: cleanupOutboxId,
+    p_succeeded: !postCommitCleanupFailed,
+    p_error_code: postCommitCleanupFailed
+      ? 'post_commit_cleanup_partial_failure'
+      : null,
+  }));
 
   return NextResponse.json({
     ok: true,

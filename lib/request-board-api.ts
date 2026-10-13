@@ -3,6 +3,9 @@
  * Handles authentication, conversation listing, message fetch/send.
  */
 import { logger } from './logger';
+import { parseOptionalCursorPaginationMetadata } from './list-pagination-contract';
+import { isPlainRecord } from './notification-target';
+import { parsePresenceSnapshotList } from './presence-read-response';
 import { getRequestBoardApiBaseUrl } from './request-board-url';
 import { safeStorage } from './safe-storage';
 import { sensitiveTokenStorage } from './secure-token-storage';
@@ -605,6 +608,7 @@ export type RbApiResult<T = unknown> = {
   next_cursor?: string | null;
   has_more?: boolean;
   limit?: number;
+  pagination?: unknown;
 };
 
 export type RbListPage<T> = {
@@ -673,7 +677,8 @@ export type RbListReadResource =
   | 'products'
   | 'customers'
   | 'fc-codes'
-  | 'company-names';
+  | 'company-names'
+  | 'requests';
 
 export class RbListReadError extends Error {
   readonly resource: RbListReadResource;
@@ -885,6 +890,8 @@ export async function rbGetConversationsOrThrow(): Promise<RbConversation[]> {
     '/api/messages/conversations',
     'conversations',
     'conversations',
+    isRbConversation,
+    (item) => String(item.primaryConversationId),
   );
 }
 
@@ -896,6 +903,8 @@ export async function rbGetConversationsPageOrThrow(
     '/api/messages/conversations',
     'conversations',
     'conversations',
+    isRbConversation,
+    (item) => String(item.primaryConversationId),
     cursor,
     limit,
   );
@@ -904,12 +913,6 @@ export async function rbGetConversationsPageOrThrow(
 /* ─── Messages ─── */
 
 type RbMessageContextKind = 'request' | 'direct';
-
-const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-};
 
 const hasExactKeys = (
   value: Record<string, unknown>,
@@ -926,6 +929,15 @@ const isPositiveSafeInteger = (value: unknown): value is number =>
 
 const isValidServerTimestamp = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
+
+const isNullableString = (value: unknown): value is string | null =>
+  value === null || typeof value === 'string';
+
+const isNonNegativeSafeInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
 const isValidContextSender = (value: unknown, senderId: number): boolean => {
   if (!isPlainRecord(value)) return false;
@@ -962,6 +974,109 @@ const isValidContextAttachment = (
     && value.file_url.length > 0
     && isValidServerTimestamp(value.created_at);
 };
+
+const isValidMessageListItem = (
+  value: unknown,
+  kind: RbMessageContextKind,
+  allowedRoomIds?: ReadonlySet<number>,
+): value is RbMessage | RbDmMessage => {
+  if (!isPlainRecord(value)) return false;
+  const roomField = kind === 'request' ? 'request_designer_id' : 'direct_conversation_id';
+  const attachmentsField = kind === 'request'
+    ? 'message_attachments'
+    : 'direct_message_attachments';
+  if (
+    !isPositiveSafeInteger(value.id)
+    || !isPositiveSafeInteger(value[roomField])
+    || (allowedRoomIds && !allowedRoomIds.has(value[roomField] as number))
+    || !isPositiveSafeInteger(value.sender_id)
+    || typeof value.message !== 'string'
+    || typeof value.is_read !== 'boolean'
+    || !isValidServerTimestamp(value.created_at)
+    || (value.deleted_at !== undefined && value.deleted_at !== null)
+    || (value.sender !== undefined && !isValidContextSender(value.sender, value.sender_id))
+  ) return false;
+  if (value[attachmentsField] !== undefined) {
+    if (!Array.isArray(value[attachmentsField])) return false;
+    const attachmentIds = new Set<number>();
+    for (const attachment of value[attachmentsField]) {
+      if (
+        !isValidContextAttachment(attachment, kind, value.id)
+        || !isPlainRecord(attachment)
+        || attachmentIds.has(attachment.id as number)
+      ) return false;
+      attachmentIds.add(attachment.id as number);
+    }
+  }
+  return true;
+};
+
+const isRbLastMessage = (value: unknown): boolean => (
+  isPlainRecord(value)
+  && isPositiveSafeInteger(value.id)
+  && typeof value.message === 'string'
+  && isPositiveSafeInteger(value.sender_id)
+  && typeof value.is_read === 'boolean'
+  && isValidServerTimestamp(value.created_at)
+);
+
+const isRbParticipant = (value: unknown): boolean => (
+  isPlainRecord(value)
+  && isPositiveSafeInteger(value.id)
+  && isNonEmptyString(value.name)
+  && isNullableString(value.phone)
+  && (value.affiliation === undefined || isNullableString(value.affiliation))
+);
+
+const isRbConversation = (value: unknown): value is RbConversation => {
+  if (!isPlainRecord(value)) return false;
+  if (
+    !isPositiveSafeInteger(value.id)
+    || !isPositiveSafeInteger(value.primaryConversationId)
+    || !Array.isArray(value.conversationIds)
+    || value.conversationIds.length === 0
+    || !value.conversationIds.every(isPositiveSafeInteger)
+    || new Set(value.conversationIds).size !== value.conversationIds.length
+    || !value.conversationIds.includes(value.primaryConversationId)
+    || !Array.isArray(value.requestIds)
+    || !value.requestIds.every(isPositiveSafeInteger)
+    || new Set(value.requestIds).size !== value.requestIds.length
+    || (value.participantUserId !== null && !isPositiveSafeInteger(value.participantUserId))
+    || (value.participantRole !== 'fc' && value.participantRole !== 'designer')
+    || !isNonEmptyString(value.status)
+    || !isNonNegativeSafeInteger(value.unreadCount)
+  ) return false;
+  if (value.request !== null && (
+    !isPlainRecord(value.request)
+    || !isPositiveSafeInteger(value.request.id)
+    || !isNonEmptyString(value.request.customer_name)
+    || !isNonEmptyString(value.request.status)
+  )) return false;
+  if (value.fc !== null && !isRbParticipant(value.fc)) return false;
+  if (value.designer !== null && (
+    !isPlainRecord(value.designer)
+    || !isPositiveSafeInteger(value.designer.id)
+    || !isNullableString(value.designer.company_name)
+    || (value.designer.users !== null && !isRbParticipant(value.designer.users))
+  )) return false;
+  return value.lastMessage === null || isRbLastMessage(value.lastMessage);
+};
+
+const isRbDmConversation = (value: unknown): value is RbDmConversation => (
+  isPlainRecord(value)
+  && isPositiveSafeInteger(value.id)
+  && value.type === 'direct'
+  && (value.participant === null || (
+    isRbParticipant(value.participant)
+    && isPlainRecord(value.participant)
+    && isNonEmptyString(value.participant.role)
+    && (value.participant.company_name === undefined || isNullableString(value.participant.company_name))
+  ))
+  && (value.lastMessage === null || isRbLastMessage(value.lastMessage))
+  && isNonNegativeSafeInteger(value.unreadCount)
+  && isValidServerTimestamp(value.created_at)
+  && isValidServerTimestamp(value.updated_at)
+);
 
 const isValidContextMessage = (
   value: unknown,
@@ -1018,9 +1133,16 @@ async function rbReadListOrThrow<T>(
   path: string,
   resource: RbListReadResource,
   loadedLabel: string,
+  isItem: (value: unknown) => value is T,
+  itemKey?: (item: T) => string,
 ): Promise<T[]> {
-  const result = await rbFetch<T[]>(path);
-  if (result.success && Array.isArray(result.data)) {
+  const result = await rbFetch<unknown>(path);
+  if (
+    result.success
+    && Array.isArray(result.data)
+    && result.data.every(isItem)
+    && (!itemKey || new Set(result.data.map(itemKey)).size === result.data.length)
+  ) {
     logger.info(`[rb-api] ${loadedLabel} loaded: ${result.data.length} items`);
     return result.data;
   }
@@ -1028,9 +1150,17 @@ async function rbReadListOrThrow<T>(
   throw new RbListReadError(resource, result);
 }
 
-function buildRbListPagePath(path: string, cursor: string | null | undefined, limit: number) {
+function buildRbListPagePath(
+  path: string,
+  cursor: string | null | undefined,
+  limit: number,
+  extraQuery: readonly (readonly [string, string])[] = [],
+) {
   const query = [`limit=${encodeURIComponent(String(limit))}`];
   if (cursor) query.push(`cursor=${encodeURIComponent(cursor)}`);
+  extraQuery.forEach(([key, value]) => {
+    query.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+  });
   return `${path}?${query.join('&')}`;
 }
 
@@ -1038,13 +1168,20 @@ async function rbReadListPageOrThrow<T>(
   path: string,
   resource: RbListReadResource,
   loadedLabel: string,
+  isItem: (value: unknown) => value is T,
+  itemKey: (item: T) => string,
   cursor?: string | null,
   limit = 30,
 ): Promise<RbListPage<T>> {
-  const result = await rbFetch<T[]>(buildRbListPagePath(path, cursor, limit), {
+  const result = await rbFetch<unknown>(buildRbListPagePath(path, cursor, limit), {
     diagnosticPath: path,
   });
-  if (result.success && Array.isArray(result.data)) {
+  if (
+    result.success
+    && Array.isArray(result.data)
+    && result.data.every(isItem)
+    && new Set(result.data.map(itemKey)).size === result.data.length
+  ) {
     // Older GaramLink deployments ignore the requested page size and return
     // every conversation. Keep the compatibility read, but never hand an
     // unbounded legacy payload to React Native's list/render pipeline.
@@ -1053,15 +1190,14 @@ async function rbReadListPageOrThrow<T>(
     // truncated remainder cannot be requested. Current deployments enforce
     // `limit` server-side and return a cursor for the next page.
     const items = result.data;
-    const nextCursor = typeof result.next_cursor === 'string' && result.next_cursor
-      ? result.next_cursor
-      : null;
-    const hasMore = result.has_more === true && nextCursor !== null;
+    const pagination = parseOptionalCursorPaginationMetadata(result);
+    if (!pagination) {
+      throw new RbListReadError(resource, result);
+    }
     logger.info(`[rb-api] ${loadedLabel} page loaded: ${items.length} items`);
     return {
       items,
-      nextCursor: hasMore ? nextCursor : null,
-      hasMore,
+      ...pagination,
       limit: Number.isSafeInteger(result.limit) ? Number(result.limit) : limit,
     };
   }
@@ -1073,8 +1209,11 @@ async function rbReadAllPagesOrThrow<T>(
   path: string,
   resource: RbListReadResource,
   loadedLabel: string,
+  isItem: (value: unknown) => value is T,
+  itemKey: (item: T) => string,
 ): Promise<T[]> {
   const items: T[] = [];
+  const seenItems = new Set<string>();
   const seenCursors = new Set<string>();
   let cursor: string | null = null;
   do {
@@ -1082,10 +1221,17 @@ async function rbReadAllPagesOrThrow<T>(
       path,
       resource,
       loadedLabel,
+      isItem,
+      itemKey,
       cursor,
       50,
     );
-    items.push(...page.items);
+    for (const item of page.items) {
+      const key = itemKey(item);
+      if (seenItems.has(key)) throw new RbListReadError(resource, {});
+      seenItems.add(key);
+      items.push(item);
+    }
     cursor = page.nextCursor;
     if (cursor && seenCursors.has(cursor)) {
       throw new Error('GaramLink conversation pagination did not advance');
@@ -1170,10 +1316,13 @@ export async function rbGetMessagesOrThrow(
   limit = 50,
 ): Promise<RbMessage[]> {
   if (conversationIds.length === 0) return [];
+  const allowedRoomIds = new Set(conversationIds);
   return rbReadListOrThrow(
     `/api/messages/by-conversations?ids=${conversationIds.join(',')}&markRead=true&limit=${limit}`,
     'messages',
     'messages',
+    (value): value is RbMessage => isValidMessageListItem(value, 'request', allowedRoomIds),
+    (item) => String(item.id),
   );
 }
 
@@ -1254,6 +1403,8 @@ export async function rbGetDmConversationsOrThrow(): Promise<RbDmConversation[]>
     '/api/direct-messages/conversations',
     'direct-conversations',
     'DM conversations',
+    isRbDmConversation,
+    (item) => String(item.id),
   );
 }
 
@@ -1265,6 +1416,8 @@ export async function rbGetDmConversationsPageOrThrow(
     '/api/direct-messages/conversations',
     'direct-conversations',
     'DM conversations',
+    isRbDmConversation,
+    (item) => String(item.id),
     cursor,
     limit,
   );
@@ -1286,9 +1439,9 @@ export async function rbGetPresence(
   }
 
   const params = new URLSearchParams({ phones: normalizedPhones.join(',') });
-  const res = await rbFetch<RbPresenceSnapshot[]>(`/api/presence?${params.toString()}`);
-  if (res.success && res.data) {
-    return res.data;
+  const res = await rbFetch<unknown>(`/api/presence?${params.toString()}`);
+  if (res.success) {
+    return parsePresenceSnapshotList(res.data, normalizedPhones);
   }
   logger.warn('[rb-api] presence fetch failed:', res.error);
   return [];
@@ -1302,6 +1455,12 @@ export async function rbGetDmMessagesOrThrow(
     `/api/direct-messages/${conversationId}?limit=${limit}`,
     'direct-messages',
     'DM messages',
+    (value): value is RbDmMessage => isValidMessageListItem(
+      value,
+      'direct',
+      new Set([conversationId]),
+    ),
+    (item) => String(item.id),
   );
 }
 
@@ -1723,18 +1882,121 @@ export type RbRequestUploadFile = {
   type: string;
 };
 
+const hasOnlyOptionalStrings = (
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): boolean => keys.every((key) => value[key] === undefined || isNullableString(value[key]));
+
+const isRbDesigner = (value: unknown): value is RbDesigner => {
+  if (
+    !isPlainRecord(value)
+    || !isPositiveSafeInteger(value.id)
+    || !isNullableString(value.company_name)
+    || value.users === undefined
+    || !hasOnlyOptionalStrings(value, [
+      'contact_name', 'contact_phone', 'contact_region', 'contact_position',
+    ])
+  ) return false;
+  if (value.users !== null && value.users !== undefined) {
+    if (
+      !isPlainRecord(value.users)
+      || (value.users.id !== null && !isPositiveSafeInteger(value.users.id))
+      || !isNonEmptyString(value.users.name)
+      || !hasOnlyOptionalStrings(value.users, ['email', 'phone'])
+      || (value.users.affiliation !== undefined && !isNullableString(value.users.affiliation))
+    ) return false;
+  }
+  if (value.designer_products !== undefined) {
+    if (!Array.isArray(value.designer_products)) return false;
+    const productIds = new Set<number>();
+    for (const rawProduct of value.designer_products) {
+      if (
+        !isPlainRecord(rawProduct)
+        || !isPositiveSafeInteger(rawProduct.product_id)
+        || productIds.has(rawProduct.product_id)
+        || !isPlainRecord(rawProduct.insurance_products)
+        || rawProduct.insurance_products.id !== rawProduct.product_id
+        || !isNonEmptyString(rawProduct.insurance_products.name)
+        || (rawProduct.insurance_products.icon !== undefined
+          && typeof rawProduct.insurance_products.icon !== 'string')
+      ) return false;
+      productIds.add(rawProduct.product_id);
+    }
+  }
+  return true;
+};
+
+const isRbInsuranceProduct = (value: unknown): value is RbInsuranceProduct => (
+  isPlainRecord(value)
+  && isPositiveSafeInteger(value.id)
+  && isNonEmptyString(value.name)
+  && (value.icon === undefined || isNullableString(value.icon))
+  && (value.display_order === undefined || value.display_order === null
+    || isNonNegativeSafeInteger(value.display_order))
+  && (value.product_code === undefined || isNullableString(value.product_code))
+  && (value.product_group === undefined || isNullableString(value.product_group))
+);
+
+const CUSTOMER_OPTIONAL_STRING_FIELDS = [
+  'policyholderName', 'policyholderSsn', 'policyholderPhone', 'policyholderCarrier',
+  'policyholderAddress', 'carrier', 'job', 'drivingStatus', 'income', 'address',
+  'email', 'height', 'weight', 'referrer', 'recentHospitalVisit', 'currentMedication',
+  'hospitalizationHistory', 'majorDiseases', 'requestDetails', 'createdAt', 'updatedAt',
+] as const;
+
+const isRbCustomerProfile = (value: unknown): value is RbCustomerProfile => {
+  if (
+    !isPlainRecord(value)
+    || !isPositiveSafeInteger(value.id)
+    || !isNonEmptyString(value.name)
+    || (value.gender !== 'male' && value.gender !== 'female')
+    || !isNonEmptyString(value.birthDate)
+    || typeof value.phone !== 'string'
+    || typeof value.ssn !== 'string'
+    || typeof value.hasSeparatePolicyholder !== 'boolean'
+    || !hasOnlyOptionalStrings(value, CUSTOMER_OPTIONAL_STRING_FIELDS)
+  ) return false;
+  if (value.insuranceQualifications !== undefined) {
+    if (
+      !isPlainRecord(value.insuranceQualifications)
+      || typeof value.insuranceQualifications.property !== 'boolean'
+      || typeof value.insuranceQualifications.life !== 'boolean'
+      || typeof value.insuranceQualifications.third !== 'boolean'
+    ) return false;
+  }
+  return true;
+};
+
 export async function rbGetDesignersOrThrow(search?: string): Promise<RbDesigner[]> {
   const params = new URLSearchParams({ limit: '100' });
   if (search) params.set('search', search);
-  return rbReadListOrThrow(`/api/designers?${params}`, 'designers', 'designers');
+  return rbReadListOrThrow(
+    `/api/designers?${params}`,
+    'designers',
+    'designers',
+    isRbDesigner,
+    (item) => String(item.id),
+  );
 }
 
 export async function rbGetProductsOrThrow(): Promise<RbInsuranceProduct[]> {
-  return rbReadListOrThrow('/api/designers/products/list', 'products', 'products');
+  return rbReadListOrThrow(
+    '/api/designers/products/list',
+    'products',
+    'products',
+    isRbInsuranceProduct,
+    (item) => String(item.id),
+  );
 }
 
 export async function rbGetCustomersOrThrow(): Promise<RbCustomerProfile[]> {
-  return rbReadListOrThrow('/api/customers?ssnView=full', 'customers', 'customers');
+  return rbReadListOrThrow(
+    '/api/customers?ssnView=full',
+    'customers',
+    'customers',
+    isRbCustomerProfile,
+    (item) => String(item.id),
+  );
 }
 
 export async function rbSaveCustomer(
@@ -1760,6 +2022,16 @@ export type RbDirectMessageUser = {
   affiliation?: string | null;
 };
 
+const isRbDirectMessageUser = (value: unknown): value is RbDirectMessageUser => (
+  isPlainRecord(value)
+  && isPositiveSafeInteger(value.id)
+  && isNonEmptyString(value.name)
+  && (value.role === 'fc' || value.role === 'designer')
+  && isNullableString(value.phone)
+  && (value.company_name === undefined || isNullableString(value.company_name))
+  && (value.affiliation === undefined || isNullableString(value.affiliation))
+);
+
 export async function rbGetDirectMessageUsersOrThrow(
   search?: string,
   role?: 'fc' | 'designer',
@@ -1773,6 +2045,8 @@ export async function rbGetDirectMessageUsersOrThrow(
     `/api/direct-messages/users${query ? `?${query}` : ''}`,
     'direct-message-users',
     'direct message users',
+    isRbDirectMessageUser,
+    (item) => String(item.id),
   );
 }
 
@@ -1811,21 +2085,6 @@ export async function rbGetNotificationUnreadCount(): Promise<number> {
 }
 
 /* ─── Request Stats ─── */
-
-export type RbRequestSummary = {
-  id: number;
-  status?: string;
-  assignmentStatus?: string;
-  completedAt?: string | null;
-  completed_at?: string | null;
-  processingDays?: number;
-  processing_days?: number;
-  customer_name?: string;
-  has_separate_policyholder?: boolean | null;
-  policyholder_name?: string | null;
-  customer_display_name?: string | null;
-  request_designers?: { status: string; fc_decision?: string | null }[];
-};
 
 /* ─── Request List & Review ─── */
 
@@ -1892,7 +2151,7 @@ export type RbRequestListItem = {
     fc_company_code_id?: number | null;
     fc_code_name?: string | null;
     fc_code_value?: string | null;
-    fc_decision: 'pending' | 'accepted' | 'rejected' | null;
+    fc_decision?: 'pending' | 'accepted' | 'rejected' | null;
     completed_at?: string | null;
     rejection_reason?: string | null;
     designers?: {
@@ -1902,6 +2161,145 @@ export type RbRequestListItem = {
     } | null;
   }[];
 };
+
+type RbRequestListPagination = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+const RB_REQUEST_LIST_PAGE_SIZE = 100;
+const RB_REQUEST_LIST_MAX_ROWS = 100_000;
+
+const isRbOptionalNullableString = (value: unknown): boolean =>
+  value === undefined || value === null || typeof value === 'string';
+
+const isRbRequestListUser = (value: unknown): boolean =>
+  isPlainRecord(value)
+  && isPositiveSafeInteger(value.id)
+  && typeof value.name === 'string'
+  && isRbOptionalNullableString(value.email)
+  && isRbOptionalNullableString(value.phone);
+
+const isRbRequestListDesigner = (value: unknown): boolean => {
+  if (!isPlainRecord(value)
+    || !isPositiveSafeInteger(value.id)
+    || !isPositiveSafeInteger(value.designer_id)
+    || typeof value.status !== 'string'
+    || value.status.length === 0
+    || (value.fc_company_code_id !== undefined
+      && value.fc_company_code_id !== null
+      && !isPositiveSafeInteger(value.fc_company_code_id))
+    || !isRbOptionalNullableString(value.fc_code_name)
+    || !isRbOptionalNullableString(value.fc_code_value)
+    || !isRbOptionalNullableString(value.completed_at)
+    || !isRbOptionalNullableString(value.rejection_reason)
+    || (value.fc_decision !== undefined
+      && value.fc_decision !== null
+      && value.fc_decision !== 'pending'
+      && value.fc_decision !== 'accepted'
+      && value.fc_decision !== 'rejected')) {
+    return false;
+  }
+  if (value.designers === undefined || value.designers === null) return true;
+  if (!isPlainRecord(value.designers)
+    || !isPositiveSafeInteger(value.designers.id)
+    || !isRbOptionalNullableString(value.designers.company_name)) {
+    return false;
+  }
+  return value.designers.users === undefined
+    || value.designers.users === null
+    || isRbRequestListUser(value.designers.users);
+};
+
+const isRbRequestListProduct = (value: unknown): boolean => {
+  if (!isPlainRecord(value) || !isPositiveSafeInteger(value.product_id)) return false;
+  if (value.insurance_products === null) return true;
+  return isPlainRecord(value.insurance_products)
+    && isPositiveSafeInteger(value.insurance_products.id)
+    && typeof value.insurance_products.name === 'string'
+    && isRbOptionalNullableString(value.insurance_products.icon);
+};
+
+const isRbRequestListFc = (value: unknown): boolean =>
+  value === null
+  || (isPlainRecord(value)
+    && isPositiveSafeInteger(value.id)
+    && typeof value.name === 'string'
+    && isRbOptionalNullableString(value.email)
+    && isRbOptionalNullableString(value.phone)
+    && isRbOptionalNullableString(value.affiliation));
+
+const isRbRequestListItem = (value: unknown): value is RbRequestListItem => {
+  if (!isPlainRecord(value)
+    || !isPositiveSafeInteger(value.id)
+    || typeof value.status !== 'string'
+    || value.status.length === 0
+    || typeof value.customer_name !== 'string'
+    || !isValidServerTimestamp(value.created_at)
+    || !isRbOptionalNullableString(value.policyholder_name)
+    || !isRbOptionalNullableString(value.customer_display_name)
+    || !isRbOptionalNullableString(value.fc_code_name)
+    || !isRbOptionalNullableString(value.fc_code_value)
+    || (value.has_separate_policyholder !== undefined
+      && value.has_separate_policyholder !== null
+      && typeof value.has_separate_policyholder !== 'boolean')
+    || (value.fc !== undefined && !isRbRequestListFc(value.fc))
+    || !Array.isArray(value.request_products)
+    || !value.request_products.every(isRbRequestListProduct)
+    || !Array.isArray(value.request_designers)
+    || !value.request_designers.every(isRbRequestListDesigner)) {
+    return false;
+  }
+  const assignmentIds = value.request_designers.map((assignment) => (
+    isPlainRecord(assignment) ? assignment.id : null
+  ));
+  return new Set(assignmentIds).size === assignmentIds.length;
+};
+
+const parseRbRequestListPagination = (
+  value: unknown,
+  requestedPage: number,
+): RbRequestListPagination | null => {
+  if (value === undefined) return null;
+  if (!isPlainRecord(value)
+    || value.page !== requestedPage
+    || value.limit !== RB_REQUEST_LIST_PAGE_SIZE
+    || !Number.isSafeInteger(value.total)
+    || Number(value.total) < 0
+    || !Number.isSafeInteger(value.totalPages)
+    || Number(value.totalPages) < 0
+    || Number(value.totalPages) !== Math.ceil(Number(value.total) / RB_REQUEST_LIST_PAGE_SIZE)
+    || Number(value.total) > RB_REQUEST_LIST_MAX_ROWS) {
+    return null;
+  }
+  return value as unknown as RbRequestListPagination;
+};
+
+function parseRbRequestListPage(
+  result: RbApiResult<unknown>,
+  requestedPage: number,
+): { items: RbRequestListItem[]; pagination: RbRequestListPagination | null } {
+  if (!result.success || result.data == null) throw new RbListReadError('requests', result);
+  const payload = result.data;
+  const payloadRecord = isPlainRecord(payload) ? payload : null;
+  const rawItems = Array.isArray(payload)
+    ? payload
+    : payloadRecord?.requests ?? payloadRecord?.data;
+  if (!Array.isArray(rawItems)
+    || rawItems.length > RB_REQUEST_LIST_PAGE_SIZE
+    || !rawItems.every(isRbRequestListItem)) {
+    throw new RbListReadError('requests', result);
+  }
+  const rootHasPagination = Object.prototype.hasOwnProperty.call(result, 'pagination');
+  const rawPagination = rootHasPagination ? result.pagination : payloadRecord?.pagination;
+  const pagination = parseRbRequestListPagination(rawPagination, requestedPage);
+  if (rawPagination !== undefined && pagination === null) {
+    throw new RbListReadError('requests', result);
+  }
+  return { items: rawItems, pagination };
+}
 
 export type RbRequestDetail = {
   id: number;
@@ -1956,6 +2354,107 @@ export type RbRequestDetail = {
     affiliation?: string | null;
   } | null;
   request_designers?: RbDesignerAssignment[];
+};
+
+const isRbOptionalTimestamp = (value: unknown): boolean =>
+  value === undefined || value === null || isValidServerTimestamp(value);
+
+const isRbRequestAttachmentFull = (value: unknown): value is RbRequestAttachmentFull =>
+  isPlainRecord(value)
+  && isPositiveSafeInteger(value.id)
+  && typeof value.file_name === 'string'
+  && typeof value.file_type === 'string'
+  && isNonNegativeSafeInteger(value.file_size)
+  && typeof value.file_url === 'string'
+  && isRbOptionalNullableString(value.description)
+  && isRbOptionalNullableString(value.expiry_date)
+  && isValidServerTimestamp(value.created_at);
+
+const isRbRequestDetailDesigner = (value: unknown): value is RbDesignerAssignment => {
+  if (!isRbRequestListDesigner(value) || !isPlainRecord(value)) return false;
+  if (
+    (value.fc_decision !== null
+      && value.fc_decision !== 'pending'
+      && value.fc_decision !== 'accepted'
+      && value.fc_decision !== 'rejected')
+    || !isRbOptionalNullableString(value.fc_decision_reason)
+    || !isRbOptionalTimestamp(value.fc_decided_at)
+    || !isRbOptionalNullableString(value.design_url)
+    || !isRbOptionalTimestamp(value.accepted_at)
+    || !isRbOptionalTimestamp(value.completed_at)
+    || (value.processing_days !== undefined
+      && value.processing_days !== null
+      && !isNonNegativeSafeInteger(value.processing_days))
+    || !isRbOptionalNullableString(value.rejection_reason)
+    || !isRbOptionalNullableString(value.cancel_reason)
+    || !isRbOptionalTimestamp(value.cancelled_at)
+    || (value.request_attachments !== undefined
+      && (!Array.isArray(value.request_attachments)
+        || !value.request_attachments.every(isRbRequestAttachmentFull)))
+  ) {
+    return false;
+  }
+  const attachmentIds = (value.request_attachments ?? []).map((attachment) => attachment.id);
+  return new Set(attachmentIds).size === attachmentIds.length;
+};
+
+const REQUEST_DETAIL_NULLABLE_STRING_FIELDS = [
+  'customer_ssn',
+  'policyholder_name',
+  'policyholder_ssn',
+  'policyholder_phone',
+  'policyholder_carrier',
+  'policyholder_address',
+  'customer_gender',
+  'customer_phone',
+  'customer_birth_date',
+  'customer_carrier',
+  'customer_address',
+  'customer_job',
+  'customer_driving_status',
+  'customer_income',
+  'customer_email',
+  'customer_height',
+  'customer_weight',
+  'customer_referrer',
+  'recent_hospital_visit',
+  'current_medication',
+  'recent_hospitalization',
+  'major_diseases',
+  'request_details',
+  'fc_code_name',
+  'fc_code_value',
+  'account_holder',
+  'bank_name',
+  'account_number',
+] as const;
+
+const isRbRequestDetail = (value: unknown): value is RbRequestDetail => {
+  if (!isPlainRecord(value) || !isRbRequestListItem(value)) return false;
+  const detail = value as Record<string, unknown>;
+  if (!REQUEST_DETAIL_NULLABLE_STRING_FIELDS.every((field) => (
+    isRbOptionalNullableString(detail[field])
+  ))) return false;
+  if (detail.has_separate_policyholder !== undefined
+    && detail.has_separate_policyholder !== null
+    && typeof detail.has_separate_policyholder !== 'boolean') return false;
+  if (detail.updated_at !== undefined && !isValidServerTimestamp(detail.updated_at)) return false;
+  if (detail.monthly_payment !== undefined
+    && detail.monthly_payment !== null
+    && (typeof detail.monthly_payment !== 'number'
+      || !Number.isFinite(detail.monthly_payment)
+      || detail.monthly_payment < 0)) return false;
+  if (detail.insurance_qualifications !== undefined && detail.insurance_qualifications !== null) {
+    if (!isPlainRecord(detail.insurance_qualifications)) return false;
+    for (const field of ['property', 'life', 'third'] as const) {
+      const qualification = detail.insurance_qualifications[field];
+      if (qualification !== undefined && typeof qualification !== 'boolean') return false;
+    }
+  }
+  if (!Array.isArray(value.request_designers)
+    || !value.request_designers.every(isRbRequestDetailDesigner)) return false;
+  const assignmentIds = value.request_designers.map((assignment) => assignment.id);
+  return new Set(assignmentIds).size === assignmentIds.length;
 };
 
 export async function rbCreateRequest(
@@ -2022,11 +2521,23 @@ export function buildRbMessageSearchPath(
     : `/api/direct-messages/search?${params.toString()}`;
 }
 
-export function mapRbMessageSearchItems<T>(items: unknown): T[] {
-  return Array.isArray(items) ? items.slice(0, 50) as T[] : [];
+export function mapRbMessageSearchItems<T extends RbMessage | RbDmMessage>(
+  kind: RbMessageContextKind,
+  items: unknown,
+): T[] | null {
+  if (!Array.isArray(items) || items.length > 50) return null;
+  const ids = new Set<number>();
+  for (const item of items) {
+    if (!isValidMessageListItem(item, kind) || ids.has(item.id)) return null;
+    ids.add(item.id);
+  }
+  return items as T[];
 }
 
-function mapRbMessageSearchResponse<T>(result: RbApiResult<T[]>): RbMessageSearchResponse<T> {
+function mapRbMessageSearchResponse<T extends RbMessage | RbDmMessage>(
+  kind: RbMessageContextKind,
+  result: RbApiResult<unknown>,
+): RbMessageSearchResponse<T> {
   if (!result.success) {
     return {
       status: 'error',
@@ -2035,9 +2546,18 @@ function mapRbMessageSearchResponse<T>(result: RbApiResult<T[]>): RbMessageSearc
       retryable: Boolean(result.retryable),
     };
   }
+  const items = mapRbMessageSearchItems<T>(kind, result.data);
+  if (!items) {
+    return {
+      status: 'error',
+      items: [],
+      error: '가람Link 메시지 검색 응답이 올바르지 않습니다.',
+      retryable: true,
+    };
+  }
   return {
     status: 'ready',
-    items: mapRbMessageSearchItems<T>(result.data),
+    items,
   };
 }
 
@@ -2046,7 +2566,7 @@ export async function rbSearchMessages(
   conversationIds: readonly number[] = [],
 ): Promise<RbMessageSearchResponse<RbMessage>> {
   const path = buildRbMessageSearchPath('request', query, conversationIds);
-  return mapRbMessageSearchResponse(await rbFetch<RbMessage[]>(path, {
+  return mapRbMessageSearchResponse<RbMessage>('request', await rbFetch<unknown>(path, {
     method: 'GET',
     diagnosticPath: '/api/messages/search',
   }));
@@ -2056,26 +2576,84 @@ export async function rbSearchDirectMessages(
   query: string,
 ): Promise<RbMessageSearchResponse<RbDmMessage>> {
   const path = buildRbMessageSearchPath('direct', query);
-  return mapRbMessageSearchResponse(await rbFetch<RbDmMessage[]>(path, {
+  return mapRbMessageSearchResponse<RbDmMessage>('direct', await rbFetch<unknown>(path, {
     method: 'GET',
     diagnosticPath: '/api/direct-messages/search',
   }));
 }
 
-export async function rbGetRequestList(): Promise<RbRequestListItem[]> {
-  const res = await rbFetch<unknown>(
-    '/api/requests?limit=100&page=1&ssnView=masked&includeAttachments=false',
-  );
-  if (!res.success || res.data == null) return [];
-  if (Array.isArray(res.data)) return res.data as RbRequestListItem[];
-  const obj = res.data as Record<string, unknown>;
-  const arr = obj.requests ?? obj.data;
-  return Array.isArray(arr) ? (arr as RbRequestListItem[]) : [];
+export async function rbGetRequestListOrThrow(): Promise<RbRequestListItem[]> {
+  const rows: RbRequestListItem[] = [];
+  const rowIds = new Set<number>();
+  let expectedPagination: Pick<RbRequestListPagination, 'total' | 'totalPages'> | null = null;
+  let paginationMode: 'known' | 'legacy' | null = null;
+
+  for (let page = 1; ; page += 1) {
+    if ((page - 1) * RB_REQUEST_LIST_PAGE_SIZE >= RB_REQUEST_LIST_MAX_ROWS) {
+      throw new RbListReadError('requests', {});
+    }
+    const path = buildRbListPagePath(
+      '/api/requests',
+      null,
+      RB_REQUEST_LIST_PAGE_SIZE,
+      [
+        ['page', String(page)],
+        ['ssnView', 'masked'],
+        ['includeAttachments', 'false'],
+      ],
+    );
+    const result = await rbFetch<unknown>(path, { diagnosticPath: '/api/requests' });
+    const parsed = parseRbRequestListPage(result, page);
+    const nextMode = parsed.pagination ? 'known' : 'legacy';
+    if (paginationMode !== null && paginationMode !== nextMode) {
+      throw new RbListReadError('requests', result);
+    }
+    paginationMode = nextMode;
+
+    if (parsed.pagination) {
+      if (expectedPagination === null) {
+        expectedPagination = {
+          total: parsed.pagination.total,
+          totalPages: parsed.pagination.totalPages,
+        };
+      } else if (
+        parsed.pagination.total !== expectedPagination.total
+        || parsed.pagination.totalPages !== expectedPagination.totalPages
+      ) {
+        throw new RbListReadError('requests', result);
+      }
+      const expectedPageLength = page < parsed.pagination.totalPages
+        ? RB_REQUEST_LIST_PAGE_SIZE
+        : Math.max(0, parsed.pagination.total - ((page - 1) * RB_REQUEST_LIST_PAGE_SIZE));
+      if (parsed.items.length !== expectedPageLength) {
+        throw new RbListReadError('requests', result);
+      }
+    }
+
+    for (const row of parsed.items) {
+      if (rowIds.has(row.id)) throw new RbListReadError('requests', result);
+      rowIds.add(row.id);
+      rows.push(row);
+    }
+
+    if (parsed.pagination) {
+      if (page >= parsed.pagination.totalPages) {
+        if (rows.length !== parsed.pagination.total) {
+          throw new RbListReadError('requests', result);
+        }
+        return rows;
+      }
+    } else if (parsed.items.length < RB_REQUEST_LIST_PAGE_SIZE) {
+      return rows;
+    }
+  }
 }
 
-export async function rbGetRequestDetail(id: number): Promise<RbRequestDetail | null> {
-  const res = await rbFetch<RbRequestDetail>(`/api/requests/${id}?ssnView=full`);
-  if (!res.success || !res.data) return null;
+export async function rbGetRequestDetail(id: number): Promise<RbRequestDetail> {
+  const res = await rbFetch<unknown>(`/api/requests/${id}?ssnView=full`);
+  if (!res.success || !isRbRequestDetail(res.data) || res.data.id !== id) {
+    throw new RbListReadError('requests', res);
+  }
   return res.data;
 }
 
@@ -2173,15 +2751,6 @@ export async function rbUploadRequestAttachments(
   return { success: false, error: result.error ?? result.message ?? '첨부파일 업로드 실패' };
 }
 
-export async function rbGetRequests(): Promise<RbRequestSummary[]> {
-  const res = await rbFetch<unknown>('/api/requests?limit=500&page=1&ssnView=full');
-  if (!res.success || res.data == null) return [];
-  if (Array.isArray(res.data)) return res.data as RbRequestSummary[];
-  const obj = res.data as Record<string, unknown>;
-  const arr = obj.requests ?? obj.data;
-  return Array.isArray(arr) ? (arr as RbRequestSummary[]) : [];
-}
-
 /* ─── FC Company Codes ─── */
 
 export type RbFcCode = {
@@ -2193,12 +2762,34 @@ export type RbFcCode = {
   updated_at: string;
 };
 
+const isRbFcCode = (value: unknown): value is RbFcCode => (
+  isPlainRecord(value)
+  && isPositiveSafeInteger(value.id)
+  && isNonEmptyString(value.insurer_name)
+  && (value.code_name === undefined || isNullableString(value.code_name))
+  && isNonEmptyString(value.code_value)
+  && (value.is_active === undefined || typeof value.is_active === 'boolean')
+  && isValidServerTimestamp(value.updated_at)
+);
+
 export async function rbGetFcCodesOrThrow(): Promise<RbFcCode[]> {
-  return rbReadListOrThrow('/api/fc-codes', 'fc-codes', 'fc-codes');
+  return rbReadListOrThrow(
+    '/api/fc-codes',
+    'fc-codes',
+    'fc-codes',
+    isRbFcCode,
+    (item) => String(item.id),
+  );
 }
 
 export async function rbGetCompanyNamesOrThrow(): Promise<string[]> {
-  return rbReadListOrThrow('/api/fc-codes/company-names', 'company-names', 'company-names');
+  return rbReadListOrThrow(
+    '/api/fc-codes/company-names',
+    'company-names',
+    'company-names',
+    isNonEmptyString,
+    (item) => item,
+  );
 }
 
 export async function rbCreateFcCode(

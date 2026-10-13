@@ -14,18 +14,59 @@ export type AppPreferenceActor = {
   role: AppPreferenceActorRole;
 };
 
-export type AppPushPreferenceRow = AppPreferenceActor & { enabled: boolean };
-export type AppPushCategoryPreferenceRow = AppPreferenceActor & {
+export type AppPreferenceActorRow = {
+  actor_id: string;
+  actor_role: AppPreferenceActorRole;
+};
+export type AppPushPreferenceRow = AppPreferenceActorRow & { enabled: boolean };
+export type AppPushCategoryPreferenceRow = AppPreferenceActorRow & {
   category: AppPushCategory;
   enabled: boolean;
 };
-export type MessengerRoomPreferenceRow = AppPreferenceActor & {
+export type MessengerRoomPreferenceRow = AppPreferenceActorRow & {
   room_key: string;
   muted: boolean;
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ROOM_KEY_PATTERN = /^garamin:(direct-thread|group):([0-9a-f-]+)$/i;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function isAppPreferenceActorRole(value: unknown): value is AppPreferenceActorRole {
+  return value === 'fc' || value === 'manager' || value === 'admin';
+}
+
+export function isAppPreferenceActorRow(value: unknown): value is AppPreferenceActorRow {
+  return isRecord(value)
+    && typeof value.actor_id === 'string'
+    && UUID_PATTERN.test(value.actor_id)
+    && isAppPreferenceActorRole(value.actor_role);
+}
+
+export function isAppPushPreferenceRow(value: unknown): value is AppPushPreferenceRow {
+  return isAppPreferenceActorRow(value)
+    && typeof (value as Record<string, unknown>).enabled === 'boolean';
+}
+
+export function isAppPushCategoryPreferenceRow(
+  value: unknown,
+): value is AppPushCategoryPreferenceRow {
+  return isAppPushPreferenceRow(value)
+    && isAppPushCategory((value as Record<string, unknown>).category);
+}
+
+export function isMessengerRoomPreferenceRow(
+  value: unknown,
+): value is MessengerRoomPreferenceRow {
+  return isAppPreferenceActorRow(value)
+    && typeof (value as Record<string, unknown>).room_key === 'string'
+    && parseMessengerRoomKey((value as Record<string, unknown>).room_key)?.key
+      === (value as Record<string, unknown>).room_key
+    && typeof (value as Record<string, unknown>).muted === 'boolean';
+}
 
 export function isAppPushCategory(value: unknown): value is AppPushCategory {
   return typeof value === 'string'
@@ -54,7 +95,10 @@ export function parseMessengerRoomKey(value: unknown): {
   };
 }
 
-function actorMatches(row: { actor_id?: string; actor_role?: string }, actor: AppPreferenceActor) {
+export function matchesAppPreferenceActor(
+  row: { actor_id?: string; actor_role?: string },
+  actor: AppPreferenceActor,
+) {
   return row.actor_id === actor.id && row.actor_role === actor.role;
 }
 
@@ -76,13 +120,15 @@ export function evaluateNotificationPreference(input: {
     muted?: boolean;
   }> | null;
 }) {
-  const globalRow = (input.globalRows ?? []).find((row) => actorMatches(row, input.actor));
+  const globalRow = (input.globalRows ?? []).find((row) =>
+    matchesAppPreferenceActor(row, input.actor)
+  );
   const categoryRow = (input.categoryRows ?? []).find((row) =>
-    actorMatches(row, input.actor) && row.category === input.category
+    matchesAppPreferenceActor(row, input.actor) && row.category === input.category
   );
   const roomRow = input.roomKey
     ? (input.roomRows ?? []).find((row) =>
-      actorMatches(row, input.actor) && row.room_key === input.roomKey
+      matchesAppPreferenceActor(row, input.actor) && row.room_key === input.roomKey
     )
     : null;
   const roomMuted = roomRow?.muted === true;

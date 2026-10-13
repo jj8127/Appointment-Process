@@ -3,13 +3,13 @@ owner_repo: fc-onboarding-app
 owner_area: mobile-and-data
 audience: developer, operator
 last_verified: 2026-10-12
-source_of_truth: app/services + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261011040816_platform_common_membership.sql + supabase/migrations/20261011130830_hospital_directory_ad_performance.sql
+source_of_truth: app/services + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
 
 # 모두온 공통 서비스
 
 2026-10-12 revision-22 출시 준비: 사용자 승인 범위는 기존 앱 식별자를 유지한 모두온4.2.19 Android/iOS 출시이며 공통 가입까지 완성한 뒤 제출한다. 가입·로그인은 기존 해시/SMS/세션과 SQL 잠금 경계를 재사용한다. 소비자 비밀번호 복구는 기존 password-reset challenge RPC에 member 분기를 추가하며 FC/admin/manager 회복 계약은 별도 기존 suite로 검증한다. 공통 회원은 기존FC/직원도 명시적 동의 후에만 생성한다. 공통 탈퇴는 원래 보험·직원 계정과 세션을 유지하고 공통 이름·휴대폰·credential·원본 연결·인증 기록을 정리한다. 최신 동의 전에도 본인 탈퇴는 가능하다. 동의 문구와 버전은 기존 lib/platform-api.ts 한 곳을 두 화면이 공유한다.
 
-추가 migration은20261012065343_platform_membership_recovery_consent와20261012070403_platform_auth_cleanup_schedule다. 원본 FC/직원 변경은 이미 연결된 공통회원에만 반영하고 원본 삭제 시 공통 식별정보를 지운다. 같은 번호의 FC/직원 전환은 명시적 동의와 현재 서명된 원본 검증 후 공통 UUID를 유지한다. 가입 코드5분·재설정15분 및 인증 실패 차단10분 이후5분 정리 작업을 적용한다. pg_cron 활성 및 실제 실행은 배포 후 확인한다.
+추가 migration은20261012072614_platform_membership_recovery_consent와20261012072615_platform_auth_cleanup_schedule다. 원본 FC/직원 변경은 이미 연결된 공통회원에만 반영하고 원본 삭제 시 공통 식별정보를 지운다. 같은 번호의 FC/직원 전환은 명시적 동의와 현재 서명된 원본 검증 후 공통 UUID를 유지한다. 가입 코드5분·재설정15분 및 인증 실패 차단10분 이후5분 정리 작업을 적용한다. pg_cron 활성 및 실제 실행은 배포 후 확인한다.
 
 병원은 이번 후보 production에도 EXPO_PUBLIC_HOSPITAL_DEMO=true로 사용자가 요청한 샘플을 제공한다. 실제 병원·전화·운영 광고 성과를 만들지 않는다. 공개 방침은 기존 운영자/문의 창구를 재사용한 https://garam-public-web.vercel.app/moduon-privacy/를 사용할 예정이다. 사용자는 실제 시험폰 없이 합성 검증만 가능하다고 확인했다. 실제SMS수신/신규가입은 미검증으로 남긴다. 본 문단은 출시 준비 계약이며 서버/스토어 공개 완료를 의미하지 않는다.
 
@@ -50,6 +50,8 @@ revision-16(2026-10-11): 상단은 최소56px 헤더의 제목·시/도 선택�
 revision-15(2026-10-11): 제휴병원 홈은 빈 검색 조건으로 처음부터 조회한다. 검색 전에는 등록된 진료과 최대6개와 전체 보기, 사진 중심의 가로 소개 카드, 전체 기본 목록을 보여준다. 시·도/시·군·구 선택은 소개와 목록 모두에 적용한다. 병원명·진료과 검색 중에는 결과 목록에 집중하며 검색 초기화는 선택한 지역을 유지한다. 소개 병원도 기본 목록에서 제외하지 않는다. 실제 계약 자료가 없는 상태는 빈 목록으로 표시하고 가상의 병원을 제품에 채우지 않는다.
 
 소개 카드와 목록은 서버가 반환한 `regional_featured`/`regional_list` 영수증과 지면을 유지한다. 소개 카드는 화면과 가로 카드 영역의 교집합이 실제 카드 면적의50% 이상일 때 기존1초 노출 훅으로 집계한다. 지역 선택창이 열리면 집계를 중단한다. 병원 화면 하단 메뉴는 기존 컴포넌트의 상대 배치를 사용하여 실제 높이를 내용 viewport에서 제외한다. 글자 크기에 따른 메뉴 높이를 임의의 고정값으로 추정하지 않는다. 같은 조건 실패에서는 두 지면 자료를 보존하고 다른 조건 실패에서는 이전 자료를 숨긴다. 상세 복귀 시 필터·검색·스크롤을 유지한다.
+
+병원 검색 목록은 키보드를 드래그로 닫지 않고 보고된 키보드 높이를 목록 아래 스크롤 여유로 더한다. 공통 로그인·가입은 기존 `KeyboardAwareWrapper`가 입력 이동을 맡는다. 제휴·정산 관리의 병원 계약·성과 입력 컴포넌트는 별도 세로 스크롤을 만들지 않으며, 상위 관리 화면이 보고된 키보드 높이를 콘텐츠 아래 여유로 더해 하나의 스크롤 소유권을 유지한다. 이 소유권은 `scripts/audit/mobile-keyboard-surfaces.json`에서 직접 화면과 공유 입력 섹션을 함께 추적한다.
 
 병원 화면은 서비스 탐색과 정보에 집중한다. 반복 면책·경고 문구는 표시하지 않으며 광고 배지, 정보 확인일, 실제 오류/이전 조회 상태, 관리자 승인 입력과 기능 조건을 유지한다.
 

@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
-import type { ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,7 +11,7 @@ import { resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { COLORS } from '@/lib/theme';
 import { HOSPITAL_DEMO_ENABLED } from '@/lib/platform-api';
 
-export default function HospitalScreen({ children, detail = false, headerActions }: { children: ReactNode; detail?: boolean; headerActions?: ReactNode }) {
+export default function HospitalScreen({ children, detail = false, headerActions }: { children: ReactNode; detail?: boolean; headerActions?: ReactElement }) {
   const session = useSession();
   const insets = useSafeAreaInsets();
   const preset = resolveBottomNavPreset(session, { surface: 'service-hub' });

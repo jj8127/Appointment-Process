@@ -37,6 +37,10 @@ import {
 } from '@/lib/messenger-attachment-client';
 import { validateMessengerAttachmentCommitResponse } from '@/lib/messenger-attachment-commit';
 import {
+  parseDirectMessengerMessage,
+  parseDirectMessengerMessageList,
+} from '@/lib/messenger-message-contract';
+import {
   notificationFeedbackColor,
   parseNotificationDeliveryFeedback,
 } from '@/lib/notification-delivery-feedback';
@@ -191,9 +195,12 @@ function ChatRoomContent() {
           }),
         });
         const payload = await response.json().catch(() => null);
-        const rows = payload?.data?.messages;
+        const rows = parseDirectMessengerMessageList(
+          payload?.data?.messages,
+          activeConversationId,
+        );
         if (!requestGuard.canApplyList(ticket)) return;
-        if (!response.ok || !payload?.ok || !Array.isArray(rows)) throw new Error('chat_list_failed');
+        if (!response.ok || !payload?.ok || rows === null) throw new Error('chat_list_failed');
         setLoadError(null);
         const filtered = rows.filter((m: Message) => !deletedIdsRef.current.has(m.id));
         setMessages((current) => {
@@ -335,8 +342,11 @@ function ChatRoomContent() {
       });
       const payload = await response.json().catch(() => null);
       if (!requestGuard.isCurrent(ticket)) return;
-      const inserted = payload?.data?.message as Message | undefined;
-      if (!response.ok || !payload?.ok || !inserted?.id) {
+      const inserted = parseDirectMessengerMessage(
+        payload?.data?.message,
+        activeConversationId,
+      );
+      if (!response.ok || !payload?.ok || !inserted) {
         throw new Error('direct_message_send_failed');
       }
       if (

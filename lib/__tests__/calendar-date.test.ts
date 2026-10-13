@@ -2,7 +2,12 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as ts from 'typescript';
-import { formatCalendarDate, formatExamCalendarDate, parseCalendarDate } from '../calendar-date';
+import {
+  formatCalendarDate,
+  formatExamCalendarDate,
+  isValidCalendarDate,
+  parseCalendarDate,
+} from '../calendar-date';
 
 describe('calendar date roundtrip', () => {
   for (const zone of ['Asia/Seoul', 'America/Los_Angeles', 'Pacific/Honolulu']) {
@@ -21,6 +26,9 @@ describe('calendar date roundtrip', () => {
     expect(parseCalendarDate('2026-02-30')).toBeNull();
     expect(parseCalendarDate('2026-10-09T00:00:00Z')).toBeNull();
     expect(parseCalendarDate('2028-02-29')?.getDate()).toBe(29);
+    expect(isValidCalendarDate('2028-02-29')).toBe(true);
+    expect(isValidCalendarDate('2026-02-30')).toBe(false);
+    expect(isValidCalendarDate(null)).toBe(false);
   });
   it('keeps a saved exam month visible when its day is undecided', () => {
     expect(formatExamCalendarDate(null, '2026-11-01')).toBe('2026년 11월 · 시험일 미정');

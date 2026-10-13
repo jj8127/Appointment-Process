@@ -12,30 +12,48 @@ const failureMessages: Record<string, string> = {
 };
 
 export type PasswordResetChallengeResult =
-  | { ok: true }
+  | { ok: true; sessionVersion?: number }
   | { ok: false; code: string; message: string; status: number };
 
 /** The database alone owns expiry, failure limits, cooldown and consumption. */
 export async function processPasswordResetChallenge(
   supabase: SupabaseClient,
   account: { kind: PasswordResetAccount['kind'] | 'member'; id: string; phone: string },
-  input: { action: 'issue' | 'consume'; tokenHash: string; passwordHash?: string; passwordSalt?: string },
+  input: { action: 'issue' | 'consume' | 'cancel'; tokenHash: string; passwordHash?: string; passwordSalt?: string },
 ): Promise<PasswordResetChallengeResult> {
   const databaseFailure: PasswordResetChallengeResult = {
     ok: false, code: 'db_error', message: '비밀번호 변경 요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.', status: 500,
   };
   try {
-    const { data, error } = await supabase.rpc('process_password_reset_challenge', {
-      p_action: input.action,
-      p_account_kind: account.kind,
-      p_account_id: account.id,
-      p_phone: account.phone,
-      p_token_hash: input.tokenHash,
-      p_password_hash: input.passwordHash ?? null,
-      p_password_salt: input.passwordSalt ?? null,
-    });
+    const { data, error } = input.action === 'cancel'
+      ? await supabase.rpc('cancel_password_reset_challenge', {
+          p_account_kind: account.kind,
+          p_account_id: account.id,
+          p_phone: account.phone,
+          p_token_hash: input.tokenHash,
+        })
+      : await supabase.rpc('process_password_reset_challenge_v2', {
+          p_action: input.action,
+          p_account_kind: account.kind,
+          p_account_id: account.id,
+          p_phone: account.phone,
+          p_token_hash: input.tokenHash,
+          p_password_hash: input.passwordHash ?? null,
+          p_password_salt: input.passwordSalt ?? null,
+        });
     if (error || !data || typeof data !== 'object' || Array.isArray(data)) return databaseFailure;
-    if (data.ok === true) return { ok: true };
+    if (data.ok === true) {
+      if (input.action === 'consume' && account.kind === 'fc') {
+        const sessionVersion = data.sessionVersion;
+        if (
+          typeof sessionVersion !== 'number'
+          || !Number.isSafeInteger(sessionVersion)
+          || sessionVersion < 0
+        ) return databaseFailure;
+        return { ok: true, sessionVersion };
+      }
+      return { ok: true };
+    }
     if (data.ok !== false || typeof data.code !== 'string' || !Object.prototype.hasOwnProperty.call(failureMessages, data.code)) {
       return databaseFailure;
     }

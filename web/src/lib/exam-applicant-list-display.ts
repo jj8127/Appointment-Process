@@ -20,6 +20,82 @@ export type ExamApplicantListItem = {
   application_type?: ExamApplicantApplicationType | string | null;
 };
 
+export type ExamApplicantResponseRow = ExamApplicantListItem & {
+  id: string;
+  status: string;
+  created_at: string;
+  round_id: string | null;
+  exam_type: string | null;
+  fee_paid_date: string | null;
+  payment_proof_attached: boolean;
+  includes_primary_exam: boolean;
+  is_third_exam: boolean;
+  application_type: ExamApplicantApplicationType;
+  rejection_reason: string | null;
+  rejected_at: string | null;
+};
+
+export type ExamApplicantNavigation = {
+  previousId: string | null;
+  nextId: string | null;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+
+const isNullableString = (value: unknown): value is string | null => (
+  value === null || typeof value === 'string'
+);
+
+export function isExamApplicantResponseRow(value: unknown): value is ExamApplicantResponseRow {
+  if (!isRecord(value)) return false;
+  return typeof value.id === 'string'
+    && value.id.trim().length > 0
+    && typeof value.status === 'string'
+    && typeof value.created_at === 'string'
+    && isNullableString(value.round_id)
+    && typeof value.resident_id === 'string'
+    && typeof value.name === 'string'
+    && typeof value.phone === 'string'
+    && typeof value.affiliation === 'string'
+    && typeof value.address === 'string'
+    && typeof value.location_name === 'string'
+    && typeof value.round_label === 'string'
+    && isNullableString(value.exam_date)
+    && isNullableString(value.exam_type)
+    && isNullableString(value.fee_paid_date)
+    && typeof value.payment_proof_attached === 'boolean'
+    && typeof value.is_confirmed === 'boolean'
+    && typeof value.includes_primary_exam === 'boolean'
+    && typeof value.is_third_exam === 'boolean'
+    && (value.application_type === '신규신청' || value.application_type === '재신청')
+    && isNullableString(value.rejection_reason)
+    && isNullableString(value.rejected_at);
+}
+
+export function parseExamApplicantRows(value: unknown): ExamApplicantResponseRow[] | null {
+  return Array.isArray(value) && value.every(isExamApplicantResponseRow) ? value : null;
+}
+
+export function parseExactExamApplicantRow(
+  value: unknown,
+  registrationId: string,
+): ExamApplicantResponseRow | null {
+  const normalizedRegistrationId = registrationId.trim();
+  const rows = parseExamApplicantRows(value);
+  if (!normalizedRegistrationId || !rows || rows.length !== 1) return null;
+  return rows[0].id.trim() === normalizedRegistrationId ? rows[0] : null;
+}
+
+export function parseExamApplicantNavigation(value: unknown): ExamApplicantNavigation | null {
+  if (!isRecord(value)) return null;
+  const isNeighborId = (candidate: unknown) => candidate === null
+    || (typeof candidate === 'string' && candidate.trim().length > 0);
+  if (!isNeighborId(value.previousId) || !isNeighborId(value.nextId)) return null;
+  return { previousId: value.previousId, nextId: value.nextId } as ExamApplicantNavigation;
+}
+
 export type ExamApplicantFilterOption = {
   value: string;
   label: string;

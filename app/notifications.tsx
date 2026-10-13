@@ -22,6 +22,10 @@ import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { invokeFcNotify } from '@/lib/fc-notify-client';
+import {
+  parseInboxListPayload,
+  type InboxListCursor,
+} from '@/lib/inbox-list-contract';
 import { prepareInboxNotificationNavigation } from '@/lib/inbox-notification-navigation';
 import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCountOrThrow } from '@/lib/mobile-unread-notification-count';
@@ -47,38 +51,10 @@ type Notice = {
   targetUrl?: string | null;
   target: NotificationTarget | null;
   readAt?: string | null;
-  created_at?: string | null;
+  created_at: string;
   source: 'notification' | 'notice';
   origin: 'request_board' | 'fc_onboarding' | 'notice';
   isBroadcast?: boolean;
-};
-
-type InboxNotificationPayload = {
-  id: string;
-  title: string;
-  body: string;
-  category?: string | null;
-  target?: unknown;
-  target_url?: string | null;
-  created_at?: string | null;
-  resident_id?: string | null;
-  read_at?: string | null;
-  dismissed_at?: string | null;
-};
-
-type InboxNoticePayload = {
-  id: string;
-  title: string;
-  body: string;
-  category?: string | null;
-  created_at?: string | null;
-};
-
-type InboxListResponse = {
-  ok?: boolean;
-  message?: string;
-  notifications?: InboxNotificationPayload[];
-  notices?: InboxNoticePayload[];
 };
 
 const HIDDEN_NOTICE_KEY_PREFIX = 'hiddenNoticeIds';
@@ -89,6 +65,36 @@ const AUTO_SCROLL_EDGE_THRESHOLD = 72;
 const AUTO_SCROLL_MAX_STEP = 18;
 const AUTO_SCROLL_INTERVAL_MS = 32;
 const REQUEST_BOARD_CATEGORY_PREFIX = 'request_board_';
+const INBOX_PAGE_SIZE = 50;
+
+type InboxPage = {
+  pushRows: Notice[];
+  noticeRows: Notice[];
+  notificationHasMore: boolean;
+  notificationNextCursor: InboxListCursor | null;
+  noticeHasMore: boolean;
+  noticeNextCursor: InboxListCursor | null;
+};
+
+const sortInboxRows = (rows: Notice[]) => [...rows].sort((left, right) => {
+  const timeComparison = Date.parse(right.created_at) - Date.parse(left.created_at);
+  if (timeComparison !== 0 || left.id === right.id) return timeComparison;
+  return left.id < right.id ? 1 : -1;
+});
+
+const mergeInboxRows = (current: Notice[], incoming: Notice[]) => {
+  const byId = new Map<string, Notice>();
+  for (const item of [...current, ...incoming]) {
+    if (!byId.has(item.id)) byId.set(item.id, item);
+  }
+  return sortInboxRows(Array.from(byId.values()));
+};
+
+const visibleInboxRows = (rows: Notice[], hiddenNoticeIds: Set<string>) => rows.filter((item) => {
+  if (hiddenNoticeIds.has(item.id)) return false;
+  if (item.source !== 'notice') return true;
+  return !hiddenNoticeIds.has(item.rawId);
+});
 
 const REQUEST_BOARD_CATEGORY_LABELS: Record<string, string> = {
   request_board_new_request: '의뢰 도착',
@@ -123,6 +129,12 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [notificationCursor, setNotificationCursor] = useState<InboxListCursor | null>(null);
+  const [noticeCursor, setNoticeCursor] = useState<InboxListCursor | null>(null);
+  const [notificationHasMore, setNotificationHasMore] = useState(false);
+  const [noticeHasMore, setNoticeHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [dragArmed, setDragArmed] = useState(false);
@@ -161,6 +173,8 @@ export default function NotificationsScreen() {
   const dragPointerPageYRef = useRef<number | null>(null);
   const autoScrollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const paginationLoadInFlightRef = useRef(false);
+  const inboxLoadGenerationRef = useRef(0);
   const mountedRef = useRef(true);
   const inboxNavigationOwner = buildPendingNotificationOwnerBinding({
     role,
@@ -387,23 +401,37 @@ export default function NotificationsScreen() {
     [hiddenNoticeStorageKey],
   );
 
-  const fetchInbox = useCallback(async (): Promise<{ pushRows: Notice[]; noticeRows: Notice[] }> => {
-    if (!inboxRole) return { pushRows: [], noticeRows: [] };
+  const fetchInbox = useCallback(async (options?: {
+    notificationCursor?: InboxListCursor | null;
+    noticeCursor?: InboxListCursor | null;
+  }): Promise<InboxPage> => {
+    if (!inboxRole) {
+      return {
+        pushRows: [],
+        noticeRows: [],
+        notificationHasMore: false,
+        notificationNextCursor: null,
+        noticeHasMore: false,
+        noticeNextCursor: null,
+      };
+    }
 
-    const { data, error } = await invokeFcNotify<InboxListResponse>({
+    const { data, error } = await invokeFcNotify<unknown>({
         type: 'inbox_list',
         role: inboxRole,
         resident_id: inboxResidentId,
-        limit: 100,
+        limit: INBOX_PAGE_SIZE,
+        ...(options?.notificationCursor
+          ? { notification_cursor: options.notificationCursor }
+          : {}),
+        ...(options?.noticeCursor ? { notice_cursor: options.noticeCursor } : {}),
         include_request_board_fc: includeRequestBoardFcInbox,
         only_request_board_categories: isRequestBoardInboxOnly,
     });
     if (error) throw error;
-    if (!data?.ok) {
-      throw new Error(data?.message ?? '알림을 불러오지 못했습니다.');
-    }
+    const inbox = parseInboxListPayload(data);
 
-    const pushRows: Notice[] = (data.notifications ?? []).map((item) => ({
+    const pushRows: Notice[] = inbox.notifications.map((item) => ({
       id: `notification:${item.id}`,
       rawId: item.id,
       title: item.title,
@@ -418,7 +446,7 @@ export default function NotificationsScreen() {
       isBroadcast: !item.resident_id,
     }));
 
-    const noticeRows: Notice[] = (data.notices ?? []).map((item) => ({
+    const noticeRows: Notice[] = inbox.notices.map((item) => ({
       id: `notice:${item.id}`,
       rawId: item.id,
       title: item.title,
@@ -438,7 +466,14 @@ export default function NotificationsScreen() {
     }));
 
     if (!isRequestBoardInboxOnly) {
-      return { pushRows, noticeRows };
+      return {
+        pushRows,
+        noticeRows,
+        notificationHasMore: inbox.notification_has_more,
+        notificationNextCursor: inbox.notification_next_cursor,
+        noticeHasMore: inbox.notice_has_more,
+        noticeNextCursor: inbox.notice_next_cursor,
+      };
     }
 
     return {
@@ -452,87 +487,148 @@ export default function NotificationsScreen() {
           .values(),
       ),
       noticeRows: [],
+      notificationHasMore: inbox.notification_has_more,
+      notificationNextCursor: inbox.notification_next_cursor,
+      noticeHasMore: false,
+      noticeNextCursor: null,
     };
   }, [includeRequestBoardFcInbox, inboxResidentId, inboxRole, isRequestBoardInboxOnly]);
 
+  const reconcileRows = useCallback(async (
+    rows: Notice[],
+    viewedAt: string,
+    badgeContext: string,
+  ) => {
+    if (!inboxRole) return;
+    await reconcileNotificationCenterReadState({
+      scope: {
+        role: inboxRole,
+        residentId: inboxResidentId,
+        requestBoardRole,
+      },
+      viewedAt,
+      rows,
+    }, {
+      markRead: async (notificationIds) => {
+        const { data, error } = await invokeFcNotify<{
+          ok?: boolean;
+          authorized?: boolean;
+          state?: string;
+        }>({
+          type: 'inbox_mark_read',
+          role: inboxRole,
+          resident_id: inboxResidentId,
+          notification_ids: notificationIds,
+          include_request_board_fc: includeRequestBoardFcInbox,
+        });
+        if (error) throw error;
+        return data ?? {};
+      },
+      advanceNoticeCheckpoint: (scope, timestamp) =>
+        advanceNotificationNoticeCheckpoint(scope, timestamp),
+      fetchUnreadCount: (scope) =>
+        fetchMobileUnreadNotificationCountOrThrow(scope),
+      syncBadge: (unreadCount) =>
+        syncNativeNotificationBadge(unreadCount, {
+          context: badgeContext,
+          dismissPresentedWhenZero: true,
+        }),
+      warn: (message, error) => logger.warn(message, error),
+    });
+  }, [inboxResidentId, inboxRole, includeRequestBoardFcInbox, requestBoardRole]);
+
   const load = useCallback(async () => {
     if (!hydrated) return;
+    const generation = inboxLoadGenerationRef.current + 1;
+    inboxLoadGenerationRef.current = generation;
+    paginationLoadInFlightRef.current = false;
+    setLoadingMore(false);
+    setLoadMoreError(null);
     const viewedAt = new Date().toISOString();
     try {
       setLoadError(null);
-      const { pushRows, noticeRows } = await fetchInbox();
+      const page = await fetchInbox();
       const hiddenNoticeIds = await loadHiddenNoticeIds();
-      const merged = [...pushRows, ...noticeRows]
-        .filter((item) => {
-          if (hiddenNoticeIds.has(item.id)) return false;
-          if (item.source !== 'notice') return true;
-          const rawNoticeId = item.id.replace('notice:', '');
-          return !hiddenNoticeIds.has(rawNoticeId);
-        })
-        .sort((a, b) => {
-          const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-          const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-          return bTime - aTime;
-        });
-      if (!mountedRef.current) return;
+      const merged = sortInboxRows(visibleInboxRows(
+        [...page.pushRows, ...page.noticeRows],
+        hiddenNoticeIds,
+      ));
+      if (!mountedRef.current || inboxLoadGenerationRef.current !== generation) return;
       setNotices(merged);
-
-      if (inboxRole) {
-        await reconcileNotificationCenterReadState({
-          scope: {
-            role: inboxRole,
-            residentId: inboxResidentId,
-            requestBoardRole,
-          },
-          viewedAt,
-          rows: merged,
-        }, {
-          markRead: async (notificationIds) => {
-            const { data, error } = await invokeFcNotify<{
-              ok?: boolean;
-              authorized?: boolean;
-              state?: string;
-            }>({
-              type: 'inbox_mark_read',
-              role: inboxRole,
-              resident_id: inboxResidentId,
-              notification_ids: notificationIds,
-              include_request_board_fc: includeRequestBoardFcInbox,
-            });
-            if (error) throw error;
-            return data ?? {};
-          },
-          advanceNoticeCheckpoint: (scope, timestamp) =>
-            advanceNotificationNoticeCheckpoint(scope, timestamp),
-          fetchUnreadCount: (scope) =>
-            fetchMobileUnreadNotificationCountOrThrow(scope),
-          syncBadge: (unreadCount) =>
-            syncNativeNotificationBadge(unreadCount, {
-              context: 'notifications-screen-load',
-              dismissPresentedWhenZero: true,
-            }),
-          warn: (message, error) => logger.warn(message, error),
-        });
-      }
+      setNotificationHasMore(page.notificationHasMore);
+      setNotificationCursor(page.notificationNextCursor);
+      setNoticeHasMore(page.noticeHasMore);
+      setNoticeCursor(page.noticeNextCursor);
+      await reconcileRows(merged, viewedAt, 'notifications-screen-load');
     } catch (err: unknown) {
       logger.warn('Failed to load notifications', err);
-      if (mountedRef.current) {
+      if (mountedRef.current && inboxLoadGenerationRef.current === generation) {
         setLoadError('알림을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || inboxLoadGenerationRef.current !== generation) return;
       setLoading(false);
       setRefreshing(false);
     }
     }, [
       fetchInbox,
       hydrated,
-      inboxResidentId,
-      inboxRole,
-      includeRequestBoardFcInbox,
       loadHiddenNoticeIds,
-      requestBoardRole,
+      reconcileRows,
     ]);
+
+  const handleLoadMore = useCallback(async () => {
+    const loadNotifications = notificationHasMore && notificationCursor !== null;
+    const loadNotices = noticeHasMore && noticeCursor !== null;
+    if (paginationLoadInFlightRef.current || (!loadNotifications && !loadNotices)) return;
+
+    const generation = inboxLoadGenerationRef.current;
+    paginationLoadInFlightRef.current = true;
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    const viewedAt = new Date().toISOString();
+    try {
+      const page = await fetchInbox({
+        notificationCursor: loadNotifications ? notificationCursor : null,
+        noticeCursor: loadNotices ? noticeCursor : null,
+      });
+      const hiddenNoticeIds = await loadHiddenNoticeIds();
+      const incoming = visibleInboxRows([
+        ...(loadNotifications ? page.pushRows : []),
+        ...(loadNotices ? page.noticeRows : []),
+      ], hiddenNoticeIds);
+      if (!mountedRef.current || inboxLoadGenerationRef.current !== generation) return;
+
+      setNotices((current) => mergeInboxRows(current, incoming));
+      if (loadNotifications) {
+        setNotificationHasMore(page.notificationHasMore);
+        setNotificationCursor(page.notificationNextCursor);
+      }
+      if (loadNotices) {
+        setNoticeHasMore(page.noticeHasMore);
+        setNoticeCursor(page.noticeNextCursor);
+      }
+      await reconcileRows(incoming, viewedAt, 'notifications-screen-load-more');
+    } catch (error) {
+      logger.warn('Failed to load more notifications', error);
+      if (mountedRef.current && inboxLoadGenerationRef.current === generation) {
+        setLoadMoreError('이전 알림을 불러오지 못했습니다.');
+      }
+    } finally {
+      if (mountedRef.current && inboxLoadGenerationRef.current === generation) {
+        paginationLoadInFlightRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [
+    fetchInbox,
+    loadHiddenNoticeIds,
+    noticeCursor,
+    noticeHasMore,
+    notificationCursor,
+    notificationHasMore,
+    reconcileRows,
+  ]);
 
   useEffect(() => {
     void load();
@@ -799,7 +895,7 @@ export default function NotificationsScreen() {
       <MotiView
         from={{ opacity: 0, translateY: 10 }}
         animate={{ opacity: 1, translateY: 0 }}
-        transition={{ delay: index * 50 }}
+        transition={{ delay: Math.min(index, 10) * 30 }}
       >
         <Pressable
           style={[styles.itemContainer, isSelected ? styles.itemSelected : styles.itemUnselected]}
@@ -976,6 +1072,32 @@ export default function NotificationsScreen() {
                 <Text style={styles.emptyText}>새로운 알림이 없습니다.</Text>
               </View>
             }
+            ListFooterComponent={notices.length > 0 && (
+              notificationHasMore
+              || noticeHasMore
+              || loadingMore
+              || loadMoreError !== null
+            ) ? (
+              <View style={styles.loadMoreContainer}>
+                {loadMoreError ? (
+                  <Text style={styles.loadMoreError}>{loadMoreError}</Text>
+                ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="이전 알림 더 보기"
+                  disabled={loadingMore}
+                  onPress={() => void handleLoadMore()}
+                  style={({ pressed }) => [
+                    styles.loadMoreButton,
+                    pressed && !loadingMore && styles.loadMoreButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.loadMoreButtonText}>
+                    {loadingMore ? '불러오는 중...' : loadMoreError ? '다시 시도' : '이전 알림 더 보기'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
           />
         </View>
       )}
@@ -1017,6 +1139,21 @@ const styles = StyleSheet.create({
 
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { padding: 20, paddingBottom: 40 },
+  loadMoreContainer: { alignItems: 'center', gap: 8, paddingVertical: 12 },
+  loadMoreButton: {
+    minWidth: 160,
+    minHeight: 44,
+    paddingHorizontal: 18,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadMoreButtonPressed: { opacity: 0.72 },
+  loadMoreButtonText: { color: COLORS.primary, fontSize: 13, fontWeight: '700' },
+  loadMoreError: { color: '#B91C1C', fontSize: 12 },
 
   dragHint: {
     flexDirection: 'row',

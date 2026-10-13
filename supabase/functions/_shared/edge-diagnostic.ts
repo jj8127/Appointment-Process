@@ -24,6 +24,10 @@ type EdgeDiagnosticPair =
       reason: 'apply_failed';
     }
   | {
+      event: 'set_password.complete_signup';
+      reason: 'rpc_failed';
+    }
+  | {
       event: 'login_with_password.referral_bootstrap';
       reason:
         | 'referral_code_auto_issue_failed'
@@ -47,6 +51,10 @@ type EdgeDiagnosticPair =
       reason: 'upstream_rejected' | 'invalid_response' | 'request_failed' | 'timeout';
     }
   | {
+      event: 'signup.client_protocol';
+      reason: 'capability_v1' | 'legacy' | 'invalid';
+    }
+  | {
       event: 'fc_notify.admin_web_push';
       reason: 'upstream_rejected' | 'request_failed';
     }
@@ -57,10 +65,6 @@ type EdgeDiagnosticPair =
   | {
       event: 'fc_notify.recipient_resolution';
       reason: 'no_admin_recipients';
-    }
-  | {
-      event: 'fc_notify.attachment_cleanup';
-      reason: 'storage_remove_failed';
     }
   | {
       event: 'fc_notify.notification_insert';
@@ -139,11 +143,15 @@ type EdgeDiagnosticFields = Readonly<{
   count?: number;
   retryable?: boolean;
   errorClass?: EdgeDiagnosticErrorClass;
+  platform?: 'android' | 'ios' | 'web' | 'unknown';
+  appVersion?: string;
+  buildNumber?: string;
 }>;
 
 export type EdgeDiagnosticInput = Readonly<EdgeDiagnosticPair & EdgeDiagnosticFields>;
 
-type EdgeDiagnosticAllowedKey = 'event' | 'reason' | 'status' | 'count' | 'retryable' | 'errorClass';
+type EdgeDiagnosticAllowedKey = 'event' | 'reason' | 'status' | 'count' | 'retryable' | 'errorClass'
+  | 'platform' | 'appVersion' | 'buildNumber';
 type ExactEdgeDiagnostic<T extends EdgeDiagnosticInput> = T &
   Record<Exclude<keyof T, EdgeDiagnosticAllowedKey>, never>;
 
@@ -158,6 +166,9 @@ export type EdgeDiagnosticRecord = Readonly<{
   count?: number;
   retryable?: boolean;
   errorClass?: EdgeDiagnosticErrorClass;
+  platform?: 'android' | 'ios' | 'web' | 'unknown';
+  appVersion?: string;
+  buildNumber?: string;
 }>;
 
 const VALID_PAIRS = new Set<string>([
@@ -168,6 +179,7 @@ const VALID_PAIRS = new Set<string>([
   'set_password.referral_resolution:unexpected_error',
   'set_password.referral_event:insert_failed',
   'set_password.referral_link:apply_failed',
+  'set_password.complete_signup:rpc_failed',
   'login_with_password.referral_bootstrap:referral_code_auto_issue_failed',
   'login_with_password.referral_bootstrap:manager_shadow_ensure_failed',
   'login_with_password.referral_bootstrap:manager_shadow_lookup_failed',
@@ -180,12 +192,14 @@ const VALID_PAIRS = new Set<string>([
   'request_board.password_sync:invalid_response',
   'request_board.password_sync:request_failed',
   'request_board.password_sync:timeout',
+  'signup.client_protocol:capability_v1',
+  'signup.client_protocol:legacy',
+  'signup.client_protocol:invalid',
   'fc_notify.admin_web_push:upstream_rejected',
   'fc_notify.admin_web_push:request_failed',
   'fc_notify.expo_push:request_failed',
   'fc_notify.expo_push:timeout',
   'fc_notify.recipient_resolution:no_admin_recipients',
-  'fc_notify.attachment_cleanup:storage_remove_failed',
   'fc_notify.notification_insert:insert_failed',
   'fc_notify.device_token_load:query_failed',
   'user_presence.rpc_fallback:get_failed',
@@ -223,6 +237,8 @@ const ERROR_CLASSES = new Set<EdgeDiagnosticErrorClass>([
 ]);
 
 const MAX_SAFE_COUNT = 1_000_000;
+const SAFE_RELEASE_VALUE = /^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/;
+const PLATFORMS = new Set(['android', 'ios', 'web', 'unknown']);
 
 export function buildEdgeDiagnosticRecord<const T extends EdgeDiagnosticInput>(
   input: ExactEdgeDiagnostic<T>,
@@ -249,6 +265,9 @@ export function buildEdgeDiagnosticRecord<const T extends EdgeDiagnosticInput>(
     count?: number;
     retryable?: boolean;
     errorClass?: EdgeDiagnosticErrorClass;
+    platform?: 'android' | 'ios' | 'web' | 'unknown';
+    appVersion?: string;
+    buildNumber?: string;
   } = { event: event as EdgeDiagnosticInput['event'], reason: reason as EdgeDiagnosticInput['reason'] };
 
   if (Number.isInteger(candidate.status) && Number(candidate.status) >= 100 && Number(candidate.status) <= 599) {
@@ -263,6 +282,15 @@ export function buildEdgeDiagnosticRecord<const T extends EdgeDiagnosticInput>(
   if (typeof candidate.errorClass === 'string' && ERROR_CLASSES.has(candidate.errorClass as EdgeDiagnosticErrorClass)) {
     record.errorClass = candidate.errorClass as EdgeDiagnosticErrorClass;
   }
+  if (typeof candidate.platform === 'string' && PLATFORMS.has(candidate.platform)) {
+    record.platform = candidate.platform as 'android' | 'ios' | 'web' | 'unknown';
+  }
+  if (typeof candidate.appVersion === 'string' && SAFE_RELEASE_VALUE.test(candidate.appVersion)) {
+    record.appVersion = candidate.appVersion;
+  }
+  if (typeof candidate.buildNumber === 'string' && SAFE_RELEASE_VALUE.test(candidate.buildNumber)) {
+    record.buildNumber = candidate.buildNumber;
+  }
 
   return Object.freeze(record);
 }
@@ -270,6 +298,10 @@ export function buildEdgeDiagnosticRecord<const T extends EdgeDiagnosticInput>(
 export const reportEdgeDiagnostic: EdgeDiagnosticWriter = (input) => {
   const record = buildEdgeDiagnosticRecord(input);
   try {
+    if (record.event === 'signup.client_protocol') {
+      console.info('[edge-diagnostic]', record);
+      return;
+    }
     if (record.event === 'board.database_operation') {
       console.error('[edge-diagnostic]', record);
       return;

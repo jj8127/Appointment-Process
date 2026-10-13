@@ -61,7 +61,7 @@ const ONBOARDING_SECTIONS = new Set<NotificationOnboardingSection>([
 
 const EXAM_TYPES = new Set<NotificationExamType>(['life', 'nonlife']);
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
+export function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;

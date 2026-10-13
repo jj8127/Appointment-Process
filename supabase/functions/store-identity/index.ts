@@ -1,5 +1,7 @@
 import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import { requireAppSessionFromRequest } from '../_shared/request-board-auth.ts';
+import { mutationRowReceiptMatches } from '../_shared/ux-mutation-contract.ts';
 
 type Payload = {
   residentId: string;
@@ -20,7 +22,7 @@ function getEnv(name: string): string | undefined {
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-app-session-token, x-client-info, apikey',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Credentials': 'true',
 };
@@ -117,6 +119,23 @@ serve(async (req: Request) => {
     return err('Method not allowed', 405);
   }
 
+  if (!req.headers.get('x-app-session-token')?.trim()) {
+    return err('로그인 정보가 필요합니다. 다시 로그인해주세요.', 401);
+  }
+  const sessionResult = await requireAppSessionFromRequest(req);
+  if (sessionResult.ok === false) {
+    return err(sessionResult.message, sessionResult.status);
+  }
+  const sessionPhone = (sessionResult.session.phone ?? '').replace(/[^0-9]/g, '');
+  const sessionFcId = String(sessionResult.session.fcId ?? '').trim();
+  if (
+    sessionResult.session.role !== 'fc'
+    || !/^01[0-9]{9}$/.test(sessionPhone)
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionFcId)
+  ) {
+    return err('FC 본인 계정으로 다시 로그인해주세요.', 403);
+  }
+
   if (!identityKey) {
     return err('FC_IDENTITY_KEY is required', 500);
   }
@@ -137,6 +156,9 @@ serve(async (req: Request) => {
   if (!residentId || !address) {
     return err('Invalid payload', 400);
   }
+  if (residentId !== sessionPhone) {
+    return err('로그인 계정과 요청 대상이 일치하지 않습니다.', 403);
+  }
   const hasResidentInput = residentFront.length > 0 || residentBack.length > 0;
   if (hasResidentInput) {
     if (residentFront.length !== 6 || residentBack.length !== 7) {
@@ -149,11 +171,16 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,resident_id_masked,resident_id_hash')
+    .select('id,phone,resident_id_masked,resident_id_hash')
+    .eq('id', sessionFcId)
     .eq('phone', residentId)
     .maybeSingle();
 
-  if (profileError || !profile?.id) {
+  if (
+    profileError
+    || profile?.id !== sessionFcId
+    || String(profile?.phone ?? '').replace(/[^0-9]/g, '') !== sessionPhone
+  ) {
     return err('FC profile not found', 404);
   }
 
@@ -179,68 +206,36 @@ serve(async (req: Request) => {
   const addressEncrypted = await encrypt(address, key);
   const addressDetailEncrypted = addressDetail ? await encrypt(addressDetail, key) : null;
 
+  let residentNumberEncrypted: string | null = null;
+  let residentIdMasked: string | null = null;
+  let residentIdHash: string | null = null;
   if (hasResidentInput) {
     const residentNumber = `${residentFront}${residentBack}`;
-    const masked = `${residentFront}-${'*'.repeat(7)}`;
-    const hash = await sha256Base64(`${residentNumber}${hashSalt}`);
-    const residentEncrypted = await encrypt(residentNumber, key);
-
-    const { error: secureError } = await supabase
-      .from('fc_identity_secure')
-      .upsert(
-        {
-          fc_id: profile.id,
-          resident_number_encrypted: residentEncrypted,
-          address_encrypted: addressEncrypted,
-          address_detail_encrypted: addressDetailEncrypted,
-        },
-        { onConflict: 'fc_id' },
-      );
-    if (secureError) {
-      return err(secureError.message, 500);
-    }
-
-    const { error: updateError } = await supabase
-      .from('fc_profiles')
-      .update({
-        resident_id_masked: masked,
-        resident_id_hash: hash,
-        address,
-        address_detail: addressDetail || null,
-        identity_completed: true,
-      })
-      .eq('id', profile.id);
-
-    if (updateError) {
-      return err(updateError.message, 500);
-    }
-
-    return ok({ ok: true });
+    residentIdMasked = `${residentFront}-${'*'.repeat(7)}`;
+    residentIdHash = await sha256Base64(`${residentNumber}${hashSalt}`);
+    residentNumberEncrypted = await encrypt(residentNumber, key);
   }
 
-  const { error: secureError } = await supabase
-    .from('fc_identity_secure')
-    .update({
-      address_encrypted: addressEncrypted,
-      address_detail_encrypted: addressDetailEncrypted,
-    })
-    .eq('fc_id', profile.id);
-  if (secureError) {
-    return err(secureError.message, 500);
+  const expectedReceipt = {
+    ok: true,
+    fcId: profile.id,
+    residentId,
+    identityCompleted: true,
+  } as const;
+  const { data: receipt, error: storeError } = await supabase.rpc('store_fc_identity_atomic_v1', {
+    p_fc_id: profile.id,
+    p_expected_phone: residentId,
+    p_resident_number_encrypted: residentNumberEncrypted,
+    p_resident_id_masked: residentIdMasked,
+    p_resident_id_hash: residentIdHash,
+    p_address: address,
+    p_address_detail: addressDetail || null,
+    p_address_encrypted: addressEncrypted,
+    p_address_detail_encrypted: addressDetailEncrypted,
+  });
+  if (storeError || !mutationRowReceiptMatches(receipt, expectedReceipt)) {
+    return err('Identity storage could not be verified', 500);
   }
 
-  const { error: updateError } = await supabase
-    .from('fc_profiles')
-    .update({
-      address,
-      address_detail: addressDetail || null,
-      identity_completed: true,
-    })
-    .eq('id', profile.id);
-
-  if (updateError) {
-    return err(updateError.message, 500);
-  }
-
-  return ok({ ok: true });
+  return ok(expectedReceipt);
 });

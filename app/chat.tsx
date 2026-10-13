@@ -445,13 +445,16 @@ export default function ChatScreen() {
       return;
     }
 
-    const rows = await fetchUserPresence(phones);
-    const nextPresenceByPhone = rows.reduce<Record<string, AppPresenceSnapshot>>((acc, row) => {
-      acc[normalizePresencePhone(row.phone)] = row;
-      return acc;
-    }, {});
-
-    setPresenceByPhone(nextPresenceByPhone);
+    try {
+      const rows = await fetchUserPresence(phones);
+      const nextPresenceByPhone = rows.reduce<Record<string, AppPresenceSnapshot>>((acc, row) => {
+        acc[normalizePresencePhone(row.phone)] = row;
+        return acc;
+      }, {});
+      setPresenceByPhone(nextPresenceByPhone);
+    } catch {
+      logger.warn('[chat] ignored malformed presence response');
+    }
   }, [trackedPresencePhones]);
 
   useEffect(() => {
@@ -574,9 +577,9 @@ export default function ChatScreen() {
       }
 
       const data = await fetchFcChatTargets(residentPhone);
-      const managers: ChatTargetContact[] = Array.isArray(data.managers) ? data.managers : [];
-      const developers: ChatTargetContact[] = Array.isArray(data.developers) ? data.developers : [];
-      const admins: ChatTargetContact[] = Array.isArray(data.admins) ? data.admins : [];
+      const managers: ChatTargetContact[] = data.managers;
+      const developers: ChatTargetContact[] = data.developers;
+      const admins: ChatTargetContact[] = data.admins;
 
       const managerTargets: FcChatTarget[] = [];
       managers.forEach((manager) => {

@@ -11,6 +11,16 @@ export const normalizeExternalUrl = (rawUrl: string) => {
 
 export const isHttpUrl = (url: string) => /^https?:\/\//i.test(url.trim());
 
+export const isCredentialFreeHttpsUrl = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === 'https:' && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+};
+
 export const formatExternalUrlDisplayText = (rawUrl: string, maxLength = 48) => {
   const normalized = normalizeExternalUrl(rawUrl);
   if (!normalized) return '';

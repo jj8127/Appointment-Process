@@ -593,8 +593,8 @@ describe('FC notify proxy ingress authentication', () => {
     const edge = readFileSync(fcNotifyEdgePath, 'utf8');
 
     expect(edge).toContain("body.title ?? '\\uba54\\uc2dc\\uc9c0'");
-    expect(edge).toContain(
-      "body.body ?? body.message ?? '\\uc0c8\\ub85c\\uc6b4 \\uba54\\uc2dc\\uc9c0\\uac00 \\ub3c4\\ucc29\\ud588\\uc2b5\\ub2c8\\ub2e4.'",
+    expect(edge).toMatch(
+      /body\.body\s*\?\?\s*body\.message\s*\?\?\s*'\\uc0c8\\ub85c\\uc6b4 \\uba54\\uc2dc\\uc9c0\\uac00 \\ub3c4\\ucc29\\ud588\\uc2b5\\ub2c8\\ub2e4\.'/,
     );
     expect(edge).toContain("kind: 'garamin_direct_chat'");
     expect(edge).toContain('target: notificationTarget');

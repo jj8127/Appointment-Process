@@ -13,11 +13,16 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { IconAlertTriangle, IconRefresh } from '@tabler/icons-react';
+import { IconRefresh } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 
 import { AgentRoomScene } from '@/components/agent-room/AgentRoomScene';
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { QueryReadError } from '@/lib/query-read-error';
 import {
+  AGENT_ROOM_STATUSES,
+  AGENT_ROOM_VENDORS,
+  AGENT_ROOM_ZONES,
   type AgentRoomAgent,
   type AgentRoomSnapshot,
   type AgentRoomStatus,
@@ -82,25 +87,125 @@ const STAGE_AGENT_LIMIT = 6;
 const RECENT_WINDOW_MS = 8 * 60_000;
 const ACTIVE_STATUSES: AgentRoomStatus[] = ['coding', 'researching', 'thinking', 'waiting'];
 
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+
+const isStringArray = (value: unknown): value is string[] => (
+  Array.isArray(value) && value.every((item) => typeof item === 'string')
+);
+
+const isNullableString = (value: unknown): value is string | null => (
+  value === null || typeof value === 'string'
+);
+
+const isCount = (value: unknown): value is number => (
+  typeof value === 'number' && Number.isInteger(value) && value >= 0
+);
+
+function isAgentRoomAgent(value: unknown): value is AgentRoomAgent {
+  if (!isRecord(value)) return false;
+  return typeof value.id === 'string'
+    && typeof value.name === 'string'
+    && typeof value.isSubagent === 'boolean'
+    && AGENT_ROOM_STATUSES.includes(value.status as AgentRoomStatus)
+    && AGENT_ROOM_VENDORS.includes(value.vendor as AgentRoomAgent['vendor'])
+    && AGENT_ROOM_ZONES.includes(value.zone as AgentRoomAgent['zone'])
+    && isNullableString(value.detail)
+    && isNullableString(value.consoleDetail)
+    && isNullableString(value.parentId)
+    && isNullableString(value.pendingTool)
+    && isNullableString(value.role)
+    && isNullableString(value.sourcePath)
+    && isNullableString(value.title)
+    && isNullableString(value.updatedAt);
+}
+
+function isAgentRoomSnapshot(value: unknown): value is AgentRoomSnapshot {
+  if (!isRecord(value) || !Array.isArray(value.agents) || !value.agents.every(isAgentRoomAgent)) {
+    return false;
+  }
+  const focus = value.focus;
+  const summary = value.summary;
+  if (!isRecord(focus) || !isRecord(summary)) return false;
+
+  const statusCounts = summary.statusCounts;
+  const vendorCounts = summary.vendorCounts;
+  const hasValidShape = typeof value.generatedAt === 'string'
+    && Array.isArray(value.hosts)
+    && value.hosts.every((host) => isRecord(host)
+      && typeof host.available === 'boolean'
+      && typeof host.root === 'string'
+      && AGENT_ROOM_VENDORS.includes(host.vendor as AgentRoomAgent['vendor']))
+    && isStringArray(value.warnings)
+    && isNullableString(value.workspace)
+    && isCount(focus.activeCount)
+    && isStringArray(focus.quietAgentIds)
+    && isCount(focus.quietCount)
+    && isCount(focus.recentCount)
+    && isStringArray(focus.stageAgentIds)
+    && isCount(focus.stageCount)
+    && isCount(summary.activeCount)
+    && isCount(summary.quietCount)
+    && isCount(summary.recentCount)
+    && isCount(summary.total)
+    && isRecord(statusCounts)
+    && AGENT_ROOM_STATUSES.every((status) => isCount(statusCounts[status]))
+    && isRecord(vendorCounts)
+    && AGENT_ROOM_VENDORS.every((vendor) => isCount(vendorCounts[vendor]));
+  if (!hasValidShape) return false;
+
+  const agents = value.agents as AgentRoomAgent[];
+  const typedFocus = focus as unknown as AgentRoomSnapshot['focus'];
+  const typedSummary = summary as unknown as AgentRoomSnapshot['summary'];
+  const typedStatusCounts = statusCounts as Record<AgentRoomStatus, number>;
+  const typedVendorCounts = vendorCounts as AgentRoomSnapshot['summary']['vendorCounts'];
+  const agentIds = agents.map((agent) => agent.id);
+  const agentIdSet = new Set(agentIds);
+  const stageAgentIds = typedFocus.stageAgentIds;
+  const quietAgentIds = typedFocus.quietAgentIds;
+  const stageIdSet = new Set(stageAgentIds);
+  const quietIdSet = new Set(quietAgentIds);
+  if (agentIds.some((id) => id.length === 0)
+    || agentIdSet.size !== agentIds.length
+    || stageIdSet.size !== stageAgentIds.length
+    || quietIdSet.size !== quietAgentIds.length
+    || stageAgentIds.length > STAGE_AGENT_LIMIT
+    || stageAgentIds.some((id) => !agentIdSet.has(id) || quietIdSet.has(id))
+    || quietAgentIds.some((id) => !agentIdSet.has(id))
+    || stageIdSet.size + quietIdSet.size !== agentIdSet.size
+    || typedFocus.stageCount !== stageAgentIds.length
+    || typedFocus.quietCount !== quietAgentIds.length
+    || typedFocus.recentCount > agents.length) {
+    return false;
+  }
+
+  const expectedActiveCount = agents.filter((agent) => ACTIVE_STATUSES.includes(agent.status)).length;
+  if (typedFocus.activeCount !== expectedActiveCount
+    || typedSummary.activeCount !== typedFocus.activeCount
+    || typedSummary.quietCount !== typedFocus.quietCount
+    || typedSummary.recentCount !== typedFocus.recentCount
+    || typedSummary.total !== agents.length) {
+    return false;
+  }
+
+  return AGENT_ROOM_STATUSES.every((status) => (
+    typedStatusCounts[status] === agents.filter((agent) => agent.status === status).length
+  )) && AGENT_ROOM_VENDORS.every((vendor) => (
+    typedVendorCounts[vendor] === agents.filter((agent) => agent.vendor === vendor).length
+  ));
+}
+
 async function fetchAgentRoom(): Promise<AgentRoomSnapshot> {
   const response = await fetch('/api/agent-room', {
     cache: 'no-store',
   });
 
-  if (!response.ok) {
-    let message = '에이전트 스냅샷을 불러오지 못했습니다.';
-    try {
-      const payload = await response.json();
-      if (payload?.error) {
-        message = String(payload.error);
-      }
-    } catch {
-      // Ignore JSON parsing errors.
-    }
-    throw new Error(message);
-  }
+  if (!response.ok) throw new QueryReadError(response.status);
 
-  return response.json() as Promise<AgentRoomSnapshot>;
+  const payload: unknown = await response.json().catch(() => null);
+  if (!isAgentRoomSnapshot(payload)) throw new QueryReadError();
+  return payload;
 }
 
 function parseTimestamp(value: string | null | undefined) {
@@ -356,23 +461,14 @@ export default function AgentRoomPage() {
             </Group>
           </Group>
 
-          {error && data ? <Text c="yellow" size="sm">이전 조회 자료를 표시합니다. 현재 상태는 확인하지 못했습니다.</Text> : null}
-          {error instanceof Error ? (
-            <Paper
-              radius="xl"
-              p="md"
-              style={{
-                background: 'rgba(55, 18, 24, 0.76)',
-                border: '1px solid rgba(255, 107, 107, 0.26)',
-              }}
-            >
-              <Group gap="sm" align="center">
-                <IconAlertTriangle size={18} stroke={1.8} color="#ff9d9d" />
-                <Text fw={700} c="#ffe1e1">
-                  {error.message}
-                </Text>
-              </Group>
-            </Paper>
+          {error ? (
+            <QueryErrorAlert
+              error={error}
+              onRetry={refetch}
+              isFetching={isFetching}
+              hasData={Boolean(data)}
+              subject="에이전트 스냅샷"
+            />
           ) : null}
 
           <Grid gutter="md">

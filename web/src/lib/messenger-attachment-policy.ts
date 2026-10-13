@@ -1,3 +1,5 @@
+import { isHttpsResponseUrl } from './user-intent-policy.ts';
+
 export const MAX_MESSENGER_ATTACHMENTS = 10;
 export const MAX_MESSENGER_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
@@ -47,6 +49,17 @@ export type ValidatedMessengerAttachment = {
 export type MessengerAttachmentValidationResult =
   | { ok: true; files: ValidatedMessengerAttachment[] }
   | { ok: false; error: string };
+
+export function parseMessengerAttachmentDownloadUrl(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const payload = value as { ok?: unknown; download?: unknown };
+  if (payload.ok !== true
+    || !payload.download
+    || typeof payload.download !== 'object'
+    || Array.isArray(payload.download)) return null;
+  const signedUrl = (payload.download as { signedUrl?: unknown }).signedUrl;
+  return isHttpsResponseUrl(signedUrl) ? signedUrl : null;
+}
 
 function cleanAttachmentName(value: string) {
   return value

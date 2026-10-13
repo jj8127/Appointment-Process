@@ -1,3 +1,5 @@
+import { isValidIsoDate } from './calendar-date.ts';
+
 export type InputParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string };
@@ -46,7 +48,6 @@ export type DocStatusActionInput = {
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 const EXAM_ROUND_LABEL_MAX_LENGTH = 120;
 const EXAM_NOTES_MAX_LENGTH = 2000;
@@ -63,21 +64,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const isUuid = (value: unknown): value is string =>
   typeof value === 'string' && UUID_PATTERN.test(value);
-
-const isValidIsoDate = (value: unknown): value is string => {
-  if (typeof value !== 'string') return false;
-  const match = ISO_DATE_PATTERN.exec(value);
-  if (!match) return false;
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-
-  return parsed.getUTCFullYear() === year
-    && parsed.getUTCMonth() === month - 1
-    && parsed.getUTCDate() === day;
-};
 
 const toIsoMonthStart = (isoDate: string) => `${isoDate.slice(0, 7)}-01`;
 

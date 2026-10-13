@@ -4,7 +4,6 @@ import test from 'node:test';
 import {
   buildAdminChatConversationSummaries,
   buildAdminChatTargets,
-  mergeAdminChatSummaryRows,
 } from './admin-chat-targets.ts';
 
 test('buildAdminChatTargets keeps completed non-designer FCs visible and merges conversation summaries', () => {
@@ -51,13 +50,6 @@ test('buildAdminChatTargets keeps completed non-designer FCs visible and merges 
         phone: '010-7777-8888',
         signup_completed: true,
         affiliation: '4본부 현경숙',
-      },
-      {
-        id: 'duplicate-phone',
-        name: '중복 FC',
-        phone: '010 5555 6666',
-        signup_completed: true,
-        affiliation: '다른 소속',
       },
     ],
     {
@@ -116,6 +108,7 @@ test('buildAdminChatConversationSummaries derives latest messages and unread cou
     counterpartPhones: ['010-1111-2222', '01033334444'],
     messages: [
       {
+        id: 'first-unread',
         sender_id: '01011112222',
         receiver_id: 'admin-1',
         content: 'first unread',
@@ -123,6 +116,7 @@ test('buildAdminChatConversationSummaries derives latest messages and unread cou
         is_read: false,
       },
       {
+        id: 'latest-reply',
         sender_id: 'admin-1',
         receiver_id: '01011112222',
         content: 'latest reply',
@@ -130,6 +124,7 @@ test('buildAdminChatConversationSummaries derives latest messages and unread cou
         is_read: true,
       },
       {
+        id: 'other-unread',
         sender_id: '01033334444',
         receiver_id: 'admin-1',
         content: 'other unread',
@@ -137,6 +132,7 @@ test('buildAdminChatConversationSummaries derives latest messages and unread cou
         is_read: false,
       },
       {
+        id: 'outside-scope',
         sender_id: '01099998888',
         receiver_id: 'admin-1',
         content: 'outside scoped FC list',
@@ -223,49 +219,64 @@ test('buildAdminChatTargets sorts by last message time instead of unread count',
   assert.equal(targets[1].unread_count, 5);
 });
 
-test('mergeAdminChatSummaryRows keeps unread backfill rows from double-counting recent messages', () => {
-  const rows = mergeAdminChatSummaryRows(
-    [
+test('summary and target ordering use deterministic identity tie-breakers', () => {
+  const summaries = buildAdminChatConversationSummaries({
+    viewerId: 'admin-1',
+    counterpartPhones: ['01011112222'],
+    messages: [
       {
-        id: 'already-recent-unread',
+        id: 'message-a',
         sender_id: '01011112222',
         receiver_id: 'admin-1',
-        content: 'recent unread',
+        content: 'first at same time',
         created_at: '2026-06-25T10:00:00.000Z',
-        is_read: false,
+        is_read: true,
       },
       {
-        id: 'recent-reply',
+        id: 'message-b',
         sender_id: 'admin-1',
         receiver_id: '01011112222',
-        content: 'latest reply',
-        created_at: '2026-06-25T10:05:00.000Z',
+        content: 'higher id at same time',
+        created_at: '2026-06-25T10:00:00.000Z',
         is_read: true,
       },
     ],
-    [
-      {
-        id: 'already-recent-unread',
-        sender_id: '01011112222',
-        receiver_id: 'admin-1',
-        content: 'recent unread',
-        created_at: '2026-06-25T10:00:00.000Z',
-        is_read: false,
-      },
-      {
-        id: 'older-unread-backfill',
-        sender_id: '01033334444',
-        receiver_id: 'admin-1',
-        content: 'older unread',
-        created_at: '2026-06-24T09:00:00.000Z',
-        is_read: false,
-      },
-    ],
-  );
+  });
+  assert.equal(summaries['01011112222']?.last_message, 'higher id at same time');
 
-  assert.deepStrictEqual(rows.map((row) => row.id), [
-    'already-recent-unread',
-    'recent-reply',
-    'older-unread-backfill',
-  ]);
+  const targets = buildAdminChatTargets([
+    { id: 'fc-a', name: 'Same', phone: '01011112222', signup_completed: true, affiliation: '' },
+    { id: 'fc-b', name: 'Same', phone: '01033334444', signup_completed: true, affiliation: '' },
+  ], {
+    '01011112222': { last_message: 'a', last_time: '2026-06-25T10:00:00.000Z', unread_count: 0 },
+    '01033334444': { last_message: 'b', last_time: '2026-06-25T10:00:00.000Z', unread_count: 0 },
+  });
+  assert.deepStrictEqual(targets.map((target) => target.fc_id), ['fc-b', 'fc-a']);
+});
+
+test('target and message builders reject malformed, duplicate, and unrelated rows', () => {
+  assert.throws(() => buildAdminChatTargets([
+    { id: 'fc-a', name: 'A', phone: '01011112222', signup_completed: true, affiliation: '' },
+    { id: 'fc-b', name: 'B', phone: '010-1111-2222', signup_completed: true, affiliation: '' },
+  ]), /admin_chat_participant_identity_contract_invalid/);
+
+  assert.throws(() => buildAdminChatTargets([
+    { id: 'fc-a', name: '', phone: '01011112222', signup_completed: true, affiliation: '' },
+  ]), /admin_chat_participant_row_contract_invalid/);
+  assert.throws(() => buildAdminChatTargets([
+    { id: 'fc-a', name: 'A', phone: 'not-a-phone', signup_completed: true, affiliation: '' },
+  ]), /admin_chat_participant_row_contract_invalid/);
+
+  assert.throws(() => buildAdminChatConversationSummaries({
+    viewerId: 'admin-1',
+    counterpartPhones: ['01011112222'],
+    messages: [{
+      id: 'message-a',
+      sender_id: 'outsider-a',
+      receiver_id: 'outsider-b',
+      content: 'unrelated',
+      created_at: '2026-06-25T10:00:00.000Z',
+      is_read: false,
+    }],
+  }), /admin_chat_message_relation_contract_invalid/);
 });

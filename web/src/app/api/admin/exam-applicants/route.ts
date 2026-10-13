@@ -2,6 +2,7 @@ import { cleanupFailed } from '@/lib/upstream-response-policy';
 import { NextResponse } from 'next/server';
 
 import { adminSupabase } from '@/lib/admin-supabase';
+import { serverError } from '@/lib/api-error';
 import { checkRateLimit, SECURITY_HEADERS } from '@/lib/csrf';
 import {
   applyExamApplicantApplicationTypes,
@@ -9,13 +10,21 @@ import {
   buildExamApplicantPhoneCandidates,
   buildExamApplicantProfileMatchPlan,
   enrichExamApplicantsWithResidentNumbers,
+  isExamApplicantProfileRow,
+  isExamRegistrationRow,
   type ExamApplicantProfileRow,
   type ExamRegistrationRow,
 } from '@/lib/exam-applicant-resident-number-enrichment';
 import { logger } from '@/lib/logger';
+import { buildPhoneCandidates } from '@/lib/phone-candidates';
 import { readResidentNumbersWithFallback } from '@/lib/server-resident-numbers';
-import { buildPhoneCandidates } from '@/lib/server-session';
 import { requireAdminRoute, requireAdminOrManagerReadRoute } from '@/lib/admin-route-auth';
+import { collectSupabaseRows } from '@/lib/supabase-query-contract';
+import { classifyFcNotifyDeliveryResult } from '@shared/lib/fc-notify-delivery-result';
+import {
+  requireExamTransitionReceipt,
+  type ExamTransitionReceipt,
+} from '@shared/supabase/functions/_shared/ux-mutation-contract';
 
 type DeleteBody = {
   registrationId?: string;
@@ -28,15 +37,57 @@ type UpdateBody = {
   reason?: string | null;
 };
 
-type ExamTransitionResult = {
-  status?: string | null;
-  proof_path?: string | null;
-  target_resident_id?: string | null;
-  exam_type?: string | null;
-  notification_id?: string | null;
-  recipient_actor_id?: string | null;
+type AdminExamTransitionAction = NonNullable<UpdateBody['action']>;
+
+type ExamTransitionErrorDetails = {
+  message: string;
+  status: 403 | 404 | 409;
 };
 
+function parseAdminExamTransitionAction(
+  action: unknown,
+  isConfirmed: unknown,
+): AdminExamTransitionAction | null {
+  const requestedAction = action
+    ?? (typeof isConfirmed === 'boolean'
+      ? isConfirmed ? 'confirm' : 'unconfirm'
+      : null);
+  return requestedAction === 'confirm'
+    || requestedAction === 'unconfirm'
+    || requestedAction === 'reject'
+    || requestedAction === 'cancel_by_admin'
+    ? requestedAction
+    : null;
+}
+
+function getExamTransitionErrorDetails(error: unknown): ExamTransitionErrorDetails | null {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'object' && error !== null && 'message' in error
+      ? String(error.message)
+      : '';
+
+  if (message === 'exam_registration_not_found') {
+    return { message: '시험 신청 내역을 찾을 수 없습니다.', status: 404 };
+  }
+  if (message === 'exam_transition_forbidden') {
+    return { message: '시험 신청 상태를 변경할 권한이 없습니다.', status: 403 };
+  }
+  if (message === 'terminal_exam_registration') {
+    return { message: '완료되었거나 불참 처리된 시험 신청은 변경할 수 없습니다.', status: 409 };
+  }
+  if (message === 'invalid_exam_transition') {
+    return { message: '현재 상태에서는 요청한 시험 신청 상태로 변경할 수 없습니다.', status: 409 };
+  }
+  return null;
+}
+
+function knownExamTransitionErrorResponse(error: unknown) {
+  const details = getExamTransitionErrorDetails(error);
+  return details
+    ? NextResponse.json({ error: details.message }, { status: details.status, headers: SECURITY_HEADERS })
+    : null;
+}
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EXAM_REGISTRATION_SELECT = `
   id, status, created_at, round_id, resident_id, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, rejected_at,
@@ -46,20 +97,19 @@ const EXAM_REGISTRATION_SELECT = `
 
 async function readRegistrationRows(registrationId?: string, roundId?: string): Promise<ExamRegistrationRow[]> {
   if (!registrationId) {
-    const rows: ExamRegistrationRow[] = [];
-    for (let offset = 0; ; offset += 1000) {
-      let query = adminSupabase.from('exam_registrations').select(EXAM_REGISTRATION_SELECT);
-      if (roundId) query = query.eq('round_id', roundId);
-      const { data, error } = await query
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range(offset, offset + 999);
-      if (error) throw error;
-      if (!Array.isArray(data)) throw new Error('시험 신청 목록 응답을 확인할 수 없습니다.');
-      const page = data as ExamRegistrationRow[];
-      rows.push(...page);
-      if (page.length < 1000) return rows;
-    }
+    return collectSupabaseRows({
+      queryName: 'exam_registrations',
+      isRow: isExamRegistrationRow,
+      rowKey: (row) => row.id,
+      fetchPage: async (from, to) => {
+        let query = adminSupabase.from('exam_registrations').select(EXAM_REGISTRATION_SELECT);
+        if (roundId) query = query.eq('round_id', roundId);
+        return query
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, to);
+      },
+    });
   }
 
   const { data: selected, error: selectedError } = await adminSupabase
@@ -70,18 +120,24 @@ async function readRegistrationRows(registrationId?: string, roundId?: string): 
 
   if (selectedError) throw selectedError;
   if (!selected) return [];
+  if (!isExamRegistrationRow(selected)) {
+    throw new Error('exam_registration_selected_row_contract_invalid');
+  }
 
-  const selectedRow = selected as ExamRegistrationRow;
-  const { data: history, error: historyError } = await adminSupabase
-    .from('exam_registrations')
-    .select(EXAM_REGISTRATION_SELECT)
-    .eq('resident_id', selectedRow.resident_id)
-    .lte('created_at', selectedRow.created_at)
-    .order('created_at', { ascending: false })
-    .limit(1000);
-
-  if (historyError) throw historyError;
-  return (history ?? []) as ExamRegistrationRow[];
+  const selectedRow = selected;
+  return collectSupabaseRows({
+    queryName: 'exam_registration_history',
+    isRow: isExamRegistrationRow,
+    rowKey: (row) => row.id,
+    fetchPage: async (from, to) => adminSupabase
+      .from('exam_registrations')
+      .select(EXAM_REGISTRATION_SELECT)
+      .eq('resident_id', selectedRow.resident_id)
+      .lte('created_at', selectedRow.created_at)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, to),
+  });
 }
 
 async function resolveAdminActor(residentId: string) {
@@ -96,7 +152,8 @@ async function resolveAdminActor(residentId: string) {
     .eq('active', true)
     .maybeSingle();
 
-  if (error || !data?.id) return null;
+  if (error) throw error;
+  if (!data?.id) return null;
   return {
     id: String(data.id),
     staffType: data.staff_type === 'developer' ? 'developer' as const : 'admin' as const,
@@ -104,7 +161,7 @@ async function resolveAdminActor(residentId: string) {
 }
 
 async function sendExamDecisionPush(
-  result: ExamTransitionResult,
+  result: ExamTransitionReceipt,
   registrationId: string,
   action: NonNullable<UpdateBody['action']>,
   reason: string | null,
@@ -126,7 +183,7 @@ async function sendExamDecisionPush(
   const url = result.exam_type === 'nonlife' ? '/exam-apply2' : '/exam-apply';
 
   try {
-    const { error } = await adminSupabase.functions.invoke('fc-notify', {
+    const transport = await adminSupabase.functions.invoke('fc-notify', {
       body: {
         type: 'notify',
         target_role: 'fc',
@@ -146,7 +203,17 @@ async function sendExamDecisionPush(
         notification_id: notificationId,
       },
     });
-    return Boolean(error);
+    if (transport.error) return true;
+    const response = transport.data;
+    if (!response || typeof response !== 'object' || Array.isArray(response)) return true;
+    const receipt = response as Record<string, unknown>;
+    const delivery = classifyFcNotifyDeliveryResult(transport);
+    return receipt.ok !== true
+      || receipt.confirmed !== true
+      || receipt.stored !== true
+      || String(receipt.notificationId ?? '').trim().toLowerCase() !== notificationId
+      || !delivery.confirmed
+      || delivery.notificationStored !== true;
   } catch {
     return true;
   }
@@ -157,7 +224,18 @@ async function readApplicantNavigation(registrationId: string) {
     .from('exam_registrations').select('id,created_at').eq('id', registrationId).maybeSingle();
   if (selectedError) throw selectedError;
   if (!selected) return { previousId: null, nextId: null };
-  const timestamp = new Date(selected.created_at).toISOString();
+  if (
+    typeof selected.id !== 'string'
+    || selected.id.toLowerCase() !== registrationId.toLowerCase()
+    || typeof selected.created_at !== 'string'
+    || !selected.created_at.trim()
+    || !Number.isFinite(Date.parse(selected.created_at))
+  ) {
+    throw new Error('exam_registration_navigation_anchor_contract_invalid');
+  }
+  // Keep the database timestamp verbatim. Converting through Date truncates
+  // PostgreSQL microseconds and can skip a neighbor within the same millisecond.
+  const timestamp = selected.created_at;
   const readNeighbor = async (newer: boolean) => {
     const comparison = newer ? 'gt' : 'lt';
     const { data, error } = await adminSupabase.from('exam_registrations').select('id')
@@ -184,17 +262,36 @@ async function listApplicants(staffPhone: string, roundId?: string, registration
     return [];
   }
 
-  const { data: profiles, error: profileError } = await adminSupabase
-    .from('fc_profiles')
-    .select('id,phone,name,affiliation,address')
-    .eq('signup_completed', true)
-    .in('phone', phoneCandidates);
-
-  if (profileError) {
-    throw profileError;
+  const profileRows: ExamApplicantProfileRow[] = [];
+  const seenProfileIds = new Set<string>();
+  const seenProfilePhones = new Set<string>();
+  for (let offset = 0; offset < phoneCandidates.length; offset += 100) {
+    const candidateBatch = phoneCandidates.slice(offset, offset + 100);
+    const candidateSet = new Set(candidateBatch);
+    const batchRows = await collectSupabaseRows({
+      queryName: 'exam_applicant_profiles',
+      isRow: isExamApplicantProfileRow,
+      rowKey: (row) => row.id,
+      fetchPage: async (from, to) => adminSupabase
+        .from('fc_profiles')
+        .select('id,phone,name,affiliation,address')
+        .eq('signup_completed', true)
+        .in('phone', candidateBatch)
+        .order('phone', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    });
+    for (const row of batchRows) {
+      if (!candidateSet.has(row.phone)
+        || seenProfileIds.has(row.id)
+        || seenProfilePhones.has(row.phone)) {
+        throw new Error('exam_applicant_profiles_identity_contract_invalid');
+      }
+      seenProfileIds.add(row.id);
+      seenProfilePhones.add(row.phone);
+      profileRows.push(row);
+    }
   }
-
-  const profileRows = (profiles ?? []) as ExamApplicantProfileRow[];
   const profileMatchPlan = buildExamApplicantProfileMatchPlan(profileRows, buildPhoneCandidates);
   const residentNumbersByFcId = await readResidentNumbersWithFallback({
     fcIds: profileMatchPlan.fcIds,
@@ -243,12 +340,8 @@ export async function GET(req: Request) {
       ? await readApplicantNavigation(registrationId)
       : undefined;
     return NextResponse.json({ ok: true, applicants, navigation }, { headers: SECURITY_HEADERS });
-  } catch (err: unknown) {
-    logger.error('[api/admin/exam-applicants] list failed', err);
-    return NextResponse.json(
-      { error: '시험 신청 목록을 불러오지 못했습니다.' },
-      { status: 500, headers: SECURITY_HEADERS },
-    );
+  } catch (error: unknown) {
+    return serverError(error, 'api/admin/exam-applicants GET', SECURITY_HEADERS);
   }
 }
 
@@ -273,16 +366,22 @@ export async function PATCH(req: Request) {
     logger.error('[api/admin/exam-applicants] invalid json', err);
     return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400, headers: SECURITY_HEADERS });
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400, headers: SECURITY_HEADERS });
+  }
 
   const registrationId = String(body.registrationId ?? '').trim();
-  const requestedAction = body.action
-    ?? (typeof body.isConfirmed === 'boolean'
-      ? body.isConfirmed ? 'confirm' : 'unconfirm'
-      : null);
+  const requestedAction = parseAdminExamTransitionAction(body.action, body.isConfirmed);
   const reason = String(body.reason ?? '').trim();
   if (!registrationId || !requestedAction) {
     return NextResponse.json(
       { error: 'registrationId and action are required' },
+      { status: 400, headers: SECURITY_HEADERS },
+    );
+  }
+  if (!UUID_PATTERN.test(registrationId)) {
+    return NextResponse.json(
+      { error: '유효하지 않은 시험 신청 식별자입니다.' },
       { status: 400, headers: SECURITY_HEADERS },
     );
   }
@@ -309,10 +408,11 @@ export async function PATCH(req: Request) {
     });
 
     if (error) {
-      const status = error.message === 'exam_registration_not_found' ? 404 : 409;
-      return NextResponse.json({ error: error.message }, { status, headers: SECURITY_HEADERS });
+      const knownError = knownExamTransitionErrorResponse(error);
+      if (knownError) return knownError;
+      return serverError(error, 'api/admin/exam-applicants transition', SECURITY_HEADERS);
     }
-    const result = (Array.isArray(data) ? data[0] : data) as ExamTransitionResult;
+    const result = requireExamTransitionReceipt(data, registrationId, requestedAction);
     const proofPath = String(result?.proof_path ?? '').trim();
     let cleanupWarning = false;
     if (proofPath) {
@@ -329,19 +429,15 @@ export async function PATCH(req: Request) {
       {
         ok: true,
         registrationId,
-        isConfirmed: result?.status === 'confirmed',
-        status: String(result?.status ?? ''),
+        isConfirmed: result.status === 'confirmed',
+        status: result.status,
         cleanupWarning,
         pushWarning,
       },
       { headers: SECURITY_HEADERS },
     );
-  } catch (err: unknown) {
-    logger.error('[api/admin/exam-applicants] update failed', err);
-    return NextResponse.json(
-      { error: '시험 신청 상태 변경에 실패했습니다.' },
-      { status: 500, headers: SECURITY_HEADERS },
-    );
+  } catch (error: unknown) {
+    return serverError(error, 'api/admin/exam-applicants PATCH', SECURITY_HEADERS);
   }
 }
 
@@ -366,12 +462,21 @@ export async function DELETE(req: Request) {
     logger.error('[api/admin/exam-applicants] invalid json', err);
     return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400, headers: SECURITY_HEADERS });
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400, headers: SECURITY_HEADERS });
+  }
 
   const adminPhone = String(adminCheck.session.residentId ?? '').replace(/[^0-9]/g, '');
   const registrationId = String(body.registrationId ?? '').trim();
 
   if (!registrationId) {
     return NextResponse.json({ error: 'registrationId is required' }, { status: 400, headers: SECURITY_HEADERS });
+  }
+  if (!UUID_PATTERN.test(registrationId)) {
+    return NextResponse.json(
+      { error: '유효하지 않은 시험 신청 식별자입니다.' },
+      { status: 400, headers: SECURITY_HEADERS },
+    );
   }
 
   try {
@@ -390,10 +495,11 @@ export async function DELETE(req: Request) {
     });
 
     if (error) {
-      const status = error.message === 'exam_registration_not_found' ? 404 : 409;
-      return NextResponse.json({ error: error.message }, { status, headers: SECURITY_HEADERS });
+      const knownError = knownExamTransitionErrorResponse(error);
+      if (knownError) return knownError;
+      return serverError(error, 'api/admin/exam-applicants cancellation', SECURITY_HEADERS);
     }
-    const result = (Array.isArray(data) ? data[0] : data) as ExamTransitionResult;
+    const result = requireExamTransitionReceipt(data, registrationId, 'cancel_by_admin');
     const proofPath = String(result?.proof_path ?? '').trim();
     const cleanupWarning = proofPath ? await cleanupFailed(() => adminSupabase.storage.from('exam-payment-proofs').remove([proofPath])) : false;
     const pushWarning = await sendExamDecisionPush(result, registrationId, 'cancel_by_admin', null);
@@ -401,15 +507,16 @@ export async function DELETE(req: Request) {
     return NextResponse.json(
       {
         ok: true,
+        registrationId,
+        isConfirmed: false,
         deleted: false,
         cleanupWarning,
-        status: String(result?.status ?? ''),
+        status: result.status,
         pushWarning,
       },
       { headers: SECURITY_HEADERS },
     );
-  } catch (err: unknown) {
-    logger.error('[api/admin/exam-applicants] delete failed', err);
-    return NextResponse.json({ error: '시험 신청 삭제에 실패했습니다.' }, { status: 500, headers: SECURITY_HEADERS });
+  } catch (error: unknown) {
+    return serverError(error, 'api/admin/exam-applicants DELETE', SECURITY_HEADERS);
   }
 }

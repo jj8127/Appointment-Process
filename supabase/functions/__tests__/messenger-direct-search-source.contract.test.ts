@@ -62,6 +62,34 @@ describe('Messenger V2 direct search and context Edge contract', () => {
     expect(edge).toContain("direction: 'after'");
   });
 
+  test('pages, chunks, and validates complete thread relations plus search/context rows', () => {
+    const threadsStart = edge.indexOf('async function listAccessibleExistingDirectThreads');
+    const searchStart = edge.indexOf('async function searchDirectMessages', threadsStart);
+    const threadSource = edge.slice(threadsStart, searchStart);
+    const contextStart = edge.indexOf('async function fetchDirectMessageContextSide', searchStart);
+    const handlerStart = edge.indexOf('serve(async (req: Request) =>', contextStart);
+    const searchAndContext = edge.slice(searchStart, handlerStart);
+
+    expect(threadSource.match(/collectSupabaseRows</g)).toHaveLength(4);
+    expect(threadSource).toContain('for (const fcIdChunk of chunkSupabaseFilterValues(safeFcIds))');
+    expect(threadSource).toContain('chunkSupabaseFilterValues(legacyIds)');
+    expect(threadSource).toContain('for (const legacyIdChunk of chunkSupabaseFilterValues(uniqueLegacyIds))');
+    expect(threadSource).toContain('for (const fcIdChunk of chunkSupabaseFilterValues(fcIds))');
+    expect(threadSource).toContain('isRow: isDirectConversationThreadRow');
+    expect(threadSource).toContain('isRow: isDirectConversationQueryRow');
+    expect(threadSource).toContain('isRow: isAccessibleFcProfileQueryRow');
+    expect(threadSource).toContain(".order('id', { ascending: true })");
+    expect(threadSource).toContain('.range(from, to)');
+    expect(threadSource).toContain('seenThreadIds.has(row.id)');
+    expect(threadSource).toContain('seenLegacyIds.has(row.id)');
+    expect(threadSource).toContain('seenProfileIds.has(row.id)');
+    expect(searchAndContext.match(/parseQueryRows\(result\.data, isDirectMessageRow\)/g)).toHaveLength(2);
+    expect(searchAndContext).toContain("throw new Error('Direct message search failed')");
+    expect(searchAndContext).toContain("throw new Error('Direct message context lookup failed')");
+    expect(searchAndContext).not.toContain('result.data ?? []');
+    expect(edge).toContain('!isDirectMessageRow(rawAnchor) || rawAnchor.id !== body.message_id');
+  });
+
   test('limits legacy context only after selecting the exact signed endpoint pair', () => {
     const scopeStart = edge.indexOf('function buildContextScopeQuery');
     const scopeEnd = edge.indexOf('async function fetchDirectMessageContextSide', scopeStart);

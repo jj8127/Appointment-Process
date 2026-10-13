@@ -1,7 +1,12 @@
-// eslint-disable-next-line import/no-unresolved
 import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 // eslint-disable-next-line import/no-unresolved
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import {
+  getKoreanYmd,
+  hasMismatchedClaimedPhone,
+  isExactYmd,
+  requireFcSelfServiceActor,
+} from '../_shared/fc-self-service-auth.ts';
 type Payload = {
   phone?: string;
   allowance_date?: string;
@@ -18,7 +23,7 @@ function getEnv(name: string): string | undefined {
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map((o) => o.trim()).filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-app-session-token, x-client-info, apikey',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Credentials': 'true',
 };
@@ -42,65 +47,36 @@ function json(body: Record<string, unknown>, status = 200) {
   });
 }
 
-function cleanPhone(input: string) {
-  return (input ?? '').replace(/[^0-9]/g, '');
-}
-
-function isValidYmd(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(value);
-  return !Number.isNaN(parsed.getTime());
-}
-
-function resolveAllowanceStatus(currentStatus: string | null | undefined): string {
-  if (!currentStatus || ['draft', 'temp-id-issued', 'allowance-pending', 'allowance-consented'].includes(currentStatus)) {
-    return 'allowance-pending';
-  }
-  return currentStatus;
-}
-
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
   if (req.method !== 'POST') {
-    return json({ ok: false, message: 'Method not allowed' }, 405);
+    return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405);
   }
   if (!supabaseUrl || !serviceKey) {
-    return json({ ok: false, message: 'Missing Supabase credentials' }, 500);
+    return json({ ok: false, code: 'server_misconfigured', message: '서비스 설정을 확인할 수 없습니다.' }, 500);
+  }
+
+  const auth = await requireFcSelfServiceActor(req);
+  if (auth.ok === false) {
+    return json({ ok: false, code: auth.code, message: auth.message }, auth.status);
   }
 
   let body: Payload;
   try {
     body = (await req.json()) as Payload;
   } catch {
-    return json({ ok: false, message: 'Invalid JSON' }, 400);
+    return json({ ok: false, code: 'invalid_json', message: '요청 형식이 올바르지 않습니다.' }, 400);
   }
 
-  const phone = cleanPhone(body.phone ?? '');
-  if (phone.length !== 11) {
-    return json({ ok: false, message: 'Phone number must be 11 digits.' }, 400);
+  if (hasMismatchedClaimedPhone(auth.actor, body.phone)) {
+    return json({ ok: false, code: 'actor_mismatch', message: '로그인 정보와 요청 정보가 일치하지 않습니다.' }, 403);
   }
 
   const allowanceDate = (body.allowance_date ?? '').trim();
-  if (!allowanceDate || !isValidYmd(allowanceDate)) {
-    return json({ ok: false, message: '유효한 보증보험 조회 동의일을 입력해주세요.' }, 400);
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from('fc_profiles')
-    .select('id,name,temp_id,status')
-    .eq('phone', phone)
-    .maybeSingle();
-
-  if (profileError) {
-    return json({ ok: false, message: profileError.message }, 500);
-  }
-  if (!profile?.id) {
-    return json({ ok: false, message: 'Profile not found.' }, 404);
-  }
-  if (!profile?.temp_id) {
-    return json({ ok: false, message: '임시사번이 발급된 후 보증보험 조회 동의일을 입력할 수 있습니다.' });
+  if (!allowanceDate || !isExactYmd(allowanceDate) || allowanceDate > getKoreanYmd()) {
+    return json({ ok: false, code: 'invalid_allowance_date', message: '오늘 또는 그 이전의 유효한 동의일을 입력해주세요.' }, 400);
   }
 
   const { data: updated, error: updateError } = await supabase
@@ -108,22 +84,30 @@ serve(async (req: Request) => {
     .update({
       allowance_date: allowanceDate,
       allowance_prescreen_requested_at: null,
-      status: resolveAllowanceStatus(profile.status),
+      status: 'allowance-pending',
       allowance_reject_reason: null,
     })
-    .eq('id', profile.id)
-    .select('id')
+    .eq('id', auth.actor.id)
+    .eq('phone', auth.actor.phone)
+    .not('temp_id', 'is', null)
+    .neq('temp_id', '')
+    .or('status.is.null,status.in.(draft,temp-id-issued,allowance-pending)')
+    .select('id,name')
     .maybeSingle();
 
   if (updateError) {
-    return json({ ok: false, message: updateError.message }, 500);
+    return json({ ok: false, code: 'write_failed', message: '보증보험 조회 동의일을 저장하지 못했습니다.' }, 503);
   }
   if (!updated?.id) {
-    return json({ ok: false, message: '보증보험 조회 동의일을 저장하지 못했습니다.' }, 500);
+    return json({
+      ok: false,
+      code: 'consent_locked_or_prerequisite_missing',
+      message: '임시사번이 없거나 이미 확정된 동의 정보는 수정할 수 없습니다.',
+    }, 409);
   }
 
   return json({
     ok: true,
-    profile: { id: profile.id, name: profile.name ?? '' },
+    profile: { id: updated.id, name: updated.name ?? '' },
   });
 });

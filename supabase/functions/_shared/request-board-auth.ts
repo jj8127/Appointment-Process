@@ -16,6 +16,7 @@ export type AppSessionStaffType = 'admin' | 'developer';
 type SignedTokenKind =
   | 'request_board_bridge'
   | 'request_board_password_sync'
+  | 'request_board_password_sync_v2'
   | 'fc_onboarding_session'
   | 'platform_member_session'
   | 'fc_assisted_password_change';
@@ -38,6 +39,16 @@ export type RequestBoardPasswordSyncAssertionPayload = SignedTokenPayloadBase & 
   purpose: 'password_sync';
   role: RequestBoardPasswordSyncRole;
   nonce: string;
+};
+
+export type RequestBoardPasswordSyncV2AssertionPayload = SignedTokenPayloadBase & {
+  kind: 'request_board_password_sync_v2';
+  purpose: 'password_sync_v2';
+  role: RequestBoardPasswordSyncRole;
+  nonce: string;
+  upstream_account_id: string;
+  upstream_credential_version: number;
+  operation_id: string;
 };
 
 export type AppSessionTokenPayload = SignedTokenPayloadBase & OptionalSessionGenerationClaims & {
@@ -362,6 +373,48 @@ export function buildRequestBoardPasswordSyncAssertionPayload({
   };
 }
 
+export function buildRequestBoardPasswordSyncV2AssertionPayload({
+  phone,
+  role,
+  nonce,
+  upstreamAccountId,
+  upstreamCredentialVersion,
+  operationId,
+  nowSec,
+  ttlSec,
+}: {
+  phone: string;
+  role: RequestBoardPasswordSyncRole;
+  nonce: string;
+  upstreamAccountId: string;
+  upstreamCredentialVersion: number;
+  operationId: string;
+  nowSec: number;
+  ttlSec: number;
+}): RequestBoardPasswordSyncV2AssertionPayload {
+  return {
+    kind: 'request_board_password_sync_v2',
+    purpose: 'password_sync_v2',
+    phone: String(phone ?? '').replace(/\D/g, ''),
+    role,
+    nonce,
+    upstream_account_id: String(upstreamAccountId ?? '').trim(),
+    upstream_credential_version: upstreamCredentialVersion,
+    operation_id: String(operationId ?? '').trim().toLowerCase(),
+    iat: nowSec,
+    exp: nowSec + ttlSec,
+  };
+}
+
+function requestBoardPasswordSyncAssertionTtlSec() {
+  const ttlRaw = Number(
+    (getEnv('REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_TTL_SEC') ?? '60').trim(),
+  );
+  return Number.isFinite(ttlRaw)
+    ? Math.min(120, Math.max(15, Math.floor(ttlRaw)))
+    : 60;
+}
+
 export async function createRequestBoardPasswordSyncAssertion(
   phone: string,
   role: RequestBoardPasswordSyncRole,
@@ -369,12 +422,7 @@ export async function createRequestBoardPasswordSyncAssertion(
   const secret = getPasswordSyncAssertionSigningSecret();
   if (!secret) return null;
 
-  const ttlRaw = Number(
-    (getEnv('REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_TTL_SEC') ?? '60').trim(),
-  );
-  const ttlSec = Number.isFinite(ttlRaw)
-    ? Math.min(120, Math.max(15, Math.floor(ttlRaw)))
-    : 60;
+  const ttlSec = requestBoardPasswordSyncAssertionTtlSec();
   const nowSec = Math.floor(Date.now() / 1000);
   const payload = buildRequestBoardPasswordSyncAssertionPayload({
     phone,
@@ -384,6 +432,30 @@ export async function createRequestBoardPasswordSyncAssertion(
     ttlSec,
   });
 
+  return buildSignedToken(payload, secret);
+}
+
+export async function createRequestBoardPasswordSyncV2Assertion(
+  phone: string,
+  role: RequestBoardPasswordSyncRole,
+  upstreamAccountId: string,
+  upstreamCredentialVersion: number,
+  operationId: string,
+) {
+  const secret = getPasswordSyncAssertionSigningSecret();
+  if (!secret) return null;
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const payload = buildRequestBoardPasswordSyncV2AssertionPayload({
+    phone,
+    role,
+    nonce: crypto.randomUUID(),
+    upstreamAccountId,
+    upstreamCredentialVersion,
+    operationId,
+    nowSec,
+    ttlSec: requestBoardPasswordSyncAssertionTtlSec(),
+  });
   return buildSignedToken(payload, secret);
 }
 

@@ -1,16 +1,38 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 const require = createRequire(import.meta.url);
 const { PGlite } = require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
 import { migration, actorMigration, fc, round, category, request, fixtureSql } from './ux-priority-one-fixture.mjs';
-import { readFile } from 'node:fs/promises';
+const statusContractMigration = await readFile(
+  new URL('../migrations/20261013063143_enforce_fc_profile_status_contract.sql', import.meta.url),
+  'utf8',
+);
 async function fixture() {
   const db = new PGlite();
   await db.exec(fixtureSql);
-  await db.exec('begin;\n' + migration + '\ncommit;');
+  await db.exec('begin;\n' + migration + '\n' + statusContractMigration + '\ncommit;');
   return db;
 }
+
+test('FC workflow status constraint accepts the canonical contract and rejects unknown values', async () => {
+  const db = await fixture(); try {
+    const statuses = [
+      'draft', 'temp-id-issued', 'allowance-pending', 'allowance-consented',
+      'docs-requested', 'docs-pending', 'docs-submitted', 'docs-rejected',
+      'docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected',
+      'hanwha-commission-approved', 'appointment-completed', 'final-link-sent',
+    ];
+    for (const status of statuses) {
+      await db.query('update fc_profiles set status=$1 where id=$2', [status, fc]);
+    }
+    await assert.rejects(
+      db.query('update fc_profiles set status=$1 where id=$2', ['unknown-status', fc]),
+      /fc_profiles_status_check/,
+    );
+  } finally { await db.close(); }
+});
 async function rpc(db, sql, params) {
   await db.exec('set role service_role');
   try { return (await db.query(sql, params)).rows[0].result; }

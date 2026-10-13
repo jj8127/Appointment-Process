@@ -71,6 +71,11 @@ describe('admin web group chat wiring', () => {
     const client = readWebFile(join('lib', 'group-chat-client.ts'));
 
     expect(page).toContain('groupChatBootstrap');
+    expect(page).toContain('groupChatContext');
+    expect(page).toContain('handleLoadOlderMessages');
+    expect(page).toContain('setHasOlderMessages(context.hasBefore)');
+    expect(page).toContain('이전 메시지 더 보기');
+    expect(page).toContain('preserveMessages: options?.keepScroll === true');
     expect(page).toContain('groupChatSend');
     expect(page).toContain('groupChatMarkRead');
     expect(page).toContain('groupChatDeleteMessage');
@@ -89,6 +94,9 @@ describe('admin web group chat wiring', () => {
     expect(page).toContain('supabase.removeChannel(channel)');
     expect(client).toContain('GroupChatNotificationSummary');
     expect(client).toContain('GroupChatSendWarning');
+    expect(client).toContain('parseGroupChatContextResponse');
+    expect(client).toContain('messages.length > 41');
+    expect(client).toContain("code: 'invalid_group_chat_context_response'");
     expect(page).toContain('result.notification.delivery.notificationStored === false');
     expect(page).toContain('showGroupChatInboxWarning()');
     expect(page).not.toContain("result.warning?.code === 'notification_delivery_partial'");

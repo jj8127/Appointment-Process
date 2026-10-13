@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   authorizeReferralAllowance,
+  parseAllowanceAdminQuery,
+  parseAllowanceManagerQuery,
+  parseAllowancePilotQuery,
+  parseAllowanceProfilesQuery,
   parseAllowanceReadRequest,
   readAllowanceCommand,
   type AllowanceAuthRepository,
@@ -91,6 +95,63 @@ test('rechecks pilot permission on every read and does not retain an earlier all
   assert.equal((await authorizeReferralAllowance(session, repo)).enabled, false);
   assert.equal(reads, 2);
   await assert.rejects(authorizeReferralAllowance(session, repository({ pilot: async () => { throw new Error('fake database unavailable'); } })));
+});
+
+test('parses allowance account rows only when the error-free payload matches the signed phone', () => {
+  assert.deepEqual(parseAllowanceManagerQuery([{ id: managerId, phone, active: true }], phone), {
+    id: managerId,
+    active: true,
+  });
+  assert.equal(parseAllowanceManagerQuery([], phone), null);
+  assert.equal(parseAllowanceAdminQuery([{ id: managerId, phone }], phone), true);
+  assert.equal(parseAllowanceAdminQuery([], phone), false);
+
+  for (const value of [null, {}, [{ id: managerId, active: true }], [
+    { id: managerId, phone, active: true },
+    { id: foreignId, phone, active: true },
+  ], [{ id: managerId, phone: '01000000001', active: true }]]) {
+    assert.throws(() => parseAllowanceManagerQuery(value, phone), /allowance_lookup_failed/);
+  }
+  assert.throws(
+    () => parseAllowanceAdminQuery([{ id: managerId, phone: '01000000001' }], phone),
+    /allowance_lookup_failed/,
+  );
+});
+
+test('parses allowance profile and pilot rows without coercing partial values', () => {
+  const profileRow = {
+    id: fcId,
+    phone,
+    affiliation: null,
+    signup_completed: true,
+    is_manager_referral_shadow: false,
+  };
+  assert.deepEqual(parseAllowanceProfilesQuery([profileRow], phone, fcId), [{
+    id: fcId,
+    phone,
+    affiliation: null,
+    signupCompleted: true,
+    isManagerReferralShadow: false,
+  }]);
+  assert.deepEqual(parseAllowanceProfilesQuery([], phone, fcId), []);
+  assert.deepEqual(parseAllowancePilotQuery([{
+    manager_account_id: managerId,
+    beneficiary_fc_id: fcId,
+    employee_code: '000001',
+    enabled: true,
+    revision: 1,
+  }], fcId), pilot);
+  assert.equal(parseAllowancePilotQuery([], fcId), null);
+
+  for (const value of [null, [profileRow, profileRow], [{ ...profileRow, id: foreignId }],
+    [{ ...profileRow, signup_completed: null }]]) {
+    assert.throws(() => parseAllowanceProfilesQuery(value, phone, fcId), /allowance_lookup_failed/);
+  }
+  for (const value of [null, [{ manager_account_id: managerId, beneficiary_fc_id: foreignId,
+    employee_code: '000001', enabled: true, revision: 1 }], [{ manager_account_id: managerId,
+    beneficiary_fc_id: fcId, employee_code: '000001', enabled: true, revision: 0 }]]) {
+    assert.throws(() => parseAllowancePilotQuery(value, fcId), /allowance_lookup_failed/);
+  }
 });
 
 test('accepts only bounded action/month commands and rejects caller identity selectors', async () => {
