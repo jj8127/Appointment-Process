@@ -16,6 +16,11 @@ import {
     getVerifiedAdminSession,
     getVerifiedReadOnlyAdminSession,
 } from '@/lib/server-session';
+import { collectSupabaseRows } from '@/lib/supabase-query-contract';
+import {
+    requireExamRoundDeleteReceipt,
+    requireExamRoundSaveReceipt,
+} from '@/lib/user-intent-policy';
 
 type DeleteRoundState = {
     success: boolean;
@@ -38,11 +43,6 @@ type NotificationDeliveryResult = {
     reason?: 'invoke_failed' | 'invalid_response' | 'not_logged';
 };
 
-const errorMessage = (err: unknown, fallback: string) => {
-    if (err instanceof Error && err.message) return err.message;
-    return fallback;
-};
-
 const readErrorCode = (err: unknown) => {
     if (!err || typeof err !== 'object') return '';
     const code = (err as Record<string, unknown>).code;
@@ -53,13 +53,50 @@ const examRoundSaveErrorMessage = (err: unknown) => {
     if (readErrorCode(err) === 'PGRST202') {
         return '시험 일정 저장 기능의 운영 DB 설정이 아직 반영되지 않았습니다.';
     }
-    return errorMessage(err, '저장 중 오류가 발생했습니다.');
+    return '저장 중 오류가 발생했습니다.';
 };
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
     value !== null && typeof value === 'object' && !Array.isArray(value)
         ? value as Record<string, unknown>
         : null;
+
+type ExamRoundSourceRow = {
+    id: string;
+    exam_date: string | null;
+    exam_month: string;
+    registration_deadline: string;
+    round_label: string;
+    exam_type: string | null;
+    notes: string | null;
+    created_at: string | null;
+    exam_locations: Array<{ id: string; location_name: string }>;
+};
+
+const isNullableString = (value: unknown): value is string | null => value === null || typeof value === 'string';
+const isExamRoundSourceRow = (value: unknown): value is ExamRoundSourceRow => {
+    const row = asRecord(value);
+    if (!row
+        || typeof row.id !== 'string' || !row.id.trim()
+        || !isNullableString(row.exam_date)
+        || typeof row.exam_month !== 'string'
+        || typeof row.registration_deadline !== 'string'
+        || typeof row.round_label !== 'string'
+        || !isNullableString(row.exam_type)
+        || !isNullableString(row.notes)
+        || !isNullableString(row.created_at)
+        || !Array.isArray(row.exam_locations)) return false;
+    const locationIds = new Set<string>();
+    for (const value of row.exam_locations) {
+        const location = asRecord(value);
+        if (!location
+            || typeof location.id !== 'string' || !location.id.trim()
+            || typeof location.location_name !== 'string' || !location.location_name.trim()
+            || locationIds.has(location.id)) return false;
+        locationIds.add(location.id);
+    }
+    return true;
+};
 
 const readNonNegativeInteger = (value: unknown) =>
     typeof value === 'number' && Number.isFinite(value)
@@ -190,7 +227,10 @@ export async function saveExamRoundAction(
             },
         );
         if (saveError) throw saveError;
-        if (typeof targetRoundId !== 'string' || !targetRoundId) {
+        let savedRoundId: string;
+        try {
+            savedRoundId = requireExamRoundSaveReceipt(targetRoundId, roundId);
+        } catch {
             return { success: false, error: '시험 회차 ID를 확인할 수 없습니다.' };
         }
 
@@ -198,7 +238,7 @@ export async function saveExamRoundAction(
         const actionText = roundId ? '수정' : '등록';
         const title = `${dateLabel}${round_label ? ` (${round_label})` : ''} 일정 ${actionText}`;
         const body = `시험 일정이 ${actionText}되었습니다.`;
-        const notificationResult = await notifyExamRoundChanged(title, body, exam_type, targetRoundId);
+        const notificationResult = await notifyExamRoundChanged(title, body, exam_type, savedRoundId);
         if (!notificationResult.ok) {
             logger.warn('[saveExamRound] notification delivery incomplete', {
                 category: 'exam_round',
@@ -210,7 +250,7 @@ export async function saveExamRoundAction(
         return {
             success: true,
             message: '저장 완료',
-            roundId: targetRoundId,
+            roundId: savedRoundId,
             notificationWarning:
                 notificationResult.feedback.severity === 'warning'
                 || notificationResult.feedback.severity === 'error'
@@ -250,45 +290,38 @@ export async function fetchExamRoundsAction(): Promise<{
     }
 
     try {
-        const { data, error } = await adminSupabase
-            .from('exam_rounds')
-            .select(`*, exam_locations ( id, location_name )`)
-            .order('exam_date', { ascending: false, nullsFirst: false })
-            .order('registration_deadline', { ascending: false })
-            .order('created_at', { ascending: false });
+        const sourceRows = await collectSupabaseRows({
+            queryName: 'exam_rounds',
+            isRow: isExamRoundSourceRow,
+            rowKey: (row) => row.id,
+            fetchPage: async (from, to) => adminSupabase
+                .from('exam_rounds')
+                .select(`*, exam_locations ( id, location_name )`)
+                .order('exam_date', { ascending: false, nullsFirst: false })
+                .order('registration_deadline', { ascending: false })
+                .order('created_at', { ascending: false })
+                .order('id', { ascending: false })
+                .range(from, to),
+        });
 
-        if (error) throw error;
-
-        type RoundRow = {
-            id: string;
-            exam_date: string | null;
-            exam_month: string;
-            registration_deadline: string;
-            round_label: string;
-            exam_type?: string;
-            notes?: string;
-            created_at?: string;
-            exam_locations?: { id: string; location_name: string }[] | null;
-        };
-        const rounds = (data ?? [] as RoundRow[]).map((r) => {
-            const row = r as RoundRow;
+        const rounds = sourceRows.map((row) => {
             return {
                 id: row.id,
                 exam_date: row.exam_date,
                 exam_month: row.exam_month,
                 registration_deadline: row.registration_deadline,
                 round_label: row.round_label,
-                exam_type: row.exam_type,
-                notes: row.notes,
-                created_at: row.created_at,
-                locations: row.exam_locations || [],
+                exam_type: typeof row.exam_type === 'string' ? row.exam_type : undefined,
+                notes: typeof row.notes === 'string' ? row.notes : undefined,
+                created_at: typeof row.created_at === 'string' ? row.created_at : undefined,
+                locations: row.exam_locations,
             };
         });
 
         return { success: true, data: rounds };
     } catch (err: unknown) {
         logger.error('[fetchExamRounds] failed', err);
-        return { success: false, error: errorMessage(err, '시험 일정 조회 실패') };
+        return { success: false, error: '시험 일정 조회 실패' };
     }
 }
 
@@ -314,7 +347,11 @@ export async function deleteExamRoundAction(
             p_actor_phone: sessionCheck.session.residentDigits, p_actor_role: sessionCheck.session.role, p_round_id: roundId,
         });
         if (error) throw error;
-        if (!data || data.deleted !== true) return { success: false, error: '시험 회차 삭제 결과를 확인하지 못했습니다.' };
+        try {
+            requireExamRoundDeleteReceipt(data);
+        } catch {
+            return { success: false, error: '시험 회차 삭제 결과를 확인하지 못했습니다.' };
+        }
         return { success: true, message: '삭제 완료' };
     } catch (err: unknown) {
         return { success: false, error: readErrorCode(err) === 'PGRST202' ? '시험 일정 삭제 기능이 아직 준비되지 않았습니다.' : readErrorCode(err) === '23503' ? '신청자가 있는 회차는 삭제할 수 없습니다. 신청 이력을 보존해주세요.' : '삭제 결과를 확인하지 못했습니다. 일정 목록을 새로 불러와 확인해주세요.' };

@@ -60,6 +60,10 @@ describe('group chat mobile wiring', () => {
     expect(source).not.toContain('getPublicUrl');
     expect(source).toContain('keyboardShouldPersistTaps="handled"');
     expect(source).toContain('supabase.removeChannel(channel)');
+    expect(source).toContain('handleLoadOlderMessages');
+    expect(source).toContain('groupChatContext(room.id, oldestMessage.id)');
+    expect(source).toContain('setHasOlderMessages(context.hasBefore)');
+    expect(source).toContain('이전 메시지 더 보기');
 
     const sendStart = source.indexOf('const sendOptimisticToServer');
     const sendEnd = source.indexOf('const sendPayload', sendStart);
@@ -222,7 +226,7 @@ describe('group chat mobile wiring', () => {
     const source = readAppFile('group-chat.tsx');
 
     expect(source).toContain('const [notice, setNotice]');
-    expect(source).toContain('setNotice(data.notice ?? null)');
+    expect(source).toContain('setNotice(data.notice);');
     expect(source).toContain('noticeBanner');
     expect(source).toContain('notice.message');
     expect(source).toContain('handleNoticeClear');

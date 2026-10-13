@@ -16,8 +16,13 @@ import { FormInput } from '@/components/FormInput';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { logger } from '@/lib/logger';
+import {
+  clearPendingSignupVerification,
+  getPendingSignupVerification,
+} from '@/lib/pending-signup-verification';
 import { safeStorage } from '@/lib/safe-storage';
 import { hasValidStoredSignupReferral } from '@/lib/signup-referral';
+import { requireSignupCompletionReceipt } from '@/lib/signup-otp-response';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { validatePassword } from '@/lib/validation';
@@ -46,6 +51,7 @@ export default function SignupPasswordScreen() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [verificationProof, setVerificationProof] = useState<string | null>(null);
   const keyboardPadding = useKeyboardPadding();
 
   useEffect(() => {
@@ -66,12 +72,19 @@ export default function SignupPasswordScreen() {
           router.replace('/signup-verify');
           return;
         }
+        const pendingProof = getPendingSignupVerification(parsed.phone);
+        if (!pendingProof) {
+          Alert.alert('알림', '휴대폰 인증을 다시 진행해주세요.');
+          router.replace('/signup-verify');
+          return;
+        }
         if (!hasValidStoredSignupReferral(parsed)) {
           Alert.alert('알림', '유효한 추천인을 먼저 선택해주세요.');
           router.replace('/signup');
           return;
         }
         setPayload(parsed);
+        setVerificationProof(pendingProof);
       } catch {
         await safeStorage.removeItem(STORAGE_KEY);
         router.replace('/signup');
@@ -97,7 +110,7 @@ export default function SignupPasswordScreen() {
 
   const handleComplete = async () => {
     Keyboard.dismiss();
-    if (!payload) return;
+    if (!payload || !verificationProof) return;
     if (!hasValidStoredSignupReferral(payload)) {
       Alert.alert('알림', '유효한 추천인을 먼저 선택해주세요.');
       router.replace('/signup');
@@ -135,6 +148,7 @@ export default function SignupPasswordScreen() {
           commissionStatus: payload.commissionStatus ?? 'none',
           referralCode: payload.referralCode || undefined,
           referralInviterFcId: payload.referralInviterFcId || undefined,
+          verificationProof,
         },
       });
       if (error) {
@@ -158,8 +172,10 @@ export default function SignupPasswordScreen() {
         Alert.alert('오류', data?.message ?? '비밀번호 설정에 실패했습니다.');
         return;
       }
+      requireSignupCompletionReceipt(data, payload.phone);
 
       await safeStorage.removeItem(STORAGE_KEY);
+      clearPendingSignupVerification();
       Alert.alert('완료', '회원가입이 완료되었습니다. 로그인해주세요.');
       router.replace('/login');
     } catch (err: any) {

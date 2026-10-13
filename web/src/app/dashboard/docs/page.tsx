@@ -42,6 +42,7 @@ import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { fetchAdminDocuments, signAdminDocument, type AdminDocumentRow as DocumentRow } from '@/lib/admin-document-client';
+import { requireDocumentStatusReceipt } from '@/lib/user-intent-policy';
 // App Design Tokens
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -146,7 +147,15 @@ export default function DocumentsPage() {
 
     // Mutations
     const updateStatusMutation = useMutation({
-        mutationFn: async ({ doc, status, reason }: { doc: DocumentRow; status: string; reason?: string }) => {
+        mutationFn: async ({
+            doc,
+            status,
+            reason,
+        }: {
+            doc: DocumentRow;
+            status: 'pending' | 'approved' | 'rejected';
+            reason?: string;
+        }) => {
             const response = await fetch('/api/admin/fc', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -161,14 +170,23 @@ export default function DocumentsPage() {
                 }),
             });
             const result = await response.json().catch(() => null);
-            if (!response.ok || !result?.ok) {
+            if (!response.ok) {
                 const message = result?.error ?? '상태 변경에 실패했습니다.';
                 throw new Error(String(message));
             }
+            const expectedReviewerNote = status === 'rejected'
+                ? String(reason ?? '').trim()
+                : status === 'approved' && isNoFileDoc(doc)
+                    ? NO_FILE_APPROVAL_NOTE
+                    : null;
+            const receipt = requireDocumentStatusReceipt(result, {
+                status,
+                reviewerNote: expectedReviewerNote,
+            });
             showAdminNotificationWarning(result);
             return {
-                doc,
-                allApproved: Boolean(result?.allApproved),
+                doc: { ...doc, status: receipt.status, reviewer_note: receipt.reviewerNote },
+                allApproved: receipt.allApproved === true,
             };
         },
         onSuccess: (updatedDoc) => {

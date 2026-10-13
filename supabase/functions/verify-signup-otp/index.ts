@@ -1,9 +1,11 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import { mutationRowReceiptMatches } from '../_shared/ux-mutation-contract.ts';
 
 type Payload = {
   phone?: string;
   code?: string;
+  challengeId?: string;
 };
 
 function getEnv(name: string): string | undefined {
@@ -35,8 +37,6 @@ if (!serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const textEncoder = new TextEncoder();
-const MAX_ATTEMPTS = 5;
-const LOCK_MINUTES = 10;
 
 export function resolveSignupSmsBypassConfig(env: Record<string, string | undefined>) {
   const enabled = (env.SMS_BYPASS_ENABLED ?? '').trim().toLowerCase() === 'true';
@@ -100,6 +100,10 @@ function toBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
+function toBase64Url(bytes: Uint8Array) {
+  return toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 async function sha256Base64(value: string) {
   const bytes = textEncoder.encode(value);
   const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
@@ -126,101 +130,61 @@ serve(async (req: Request) => {
 
   const phone = cleanPhone(body.phone ?? '');
   const code = (body.code ?? '').trim();
+  const challengeId = (body.challengeId ?? '').trim();
   if (!phone) return fail('phone_required', '휴대폰 번호를 입력해주세요.');
   if (phone.length !== 11) return fail('invalid_phone', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
   if (!/^\d{6}$/.test(code)) return fail('invalid_code', '인증 코드는 6자리 숫자여야 합니다.');
-
-  const { data: profile, error: profileError } = await supabase
-    .from('fc_profiles')
-    .select(
-      'id,phone_verification_hash,phone_verification_expires_at,phone_verification_attempts,phone_verification_locked_until',
-    )
-    .eq('phone', phone)
-    .maybeSingle();
-
-  if (profileError) {
-    return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(challengeId)) {
+    return fail('invalid_challenge', '인증 코드를 다시 요청해주세요.');
   }
-  if (!profile?.id) {
-    return fail('not_found', '등록된 계정을 찾을 수 없습니다.');
-  }
-  if (signupSmsBypassConfig.enabled && code === signupSmsBypassConfig.code) {
-    const { error: bypassError } = await supabase
-      .from('fc_profiles')
-      .update({
-        phone_verified: true,
-        phone_verified_at: new Date().toISOString(),
-        signup_verification_method: 'phone_otp',
-        signup_verified_at: new Date().toISOString(),
-        signup_verified_by_admin_id: null,
-        phone_verification_hash: null,
-        phone_verification_expires_at: null,
-        phone_verification_sent_at: null,
-        phone_verification_attempts: 0,
-        phone_verification_locked_until: null,
-      })
-      .eq('id', profile.id);
 
-    if (bypassError) {
-      return json({ ok: false, code: 'db_error', message: bypassError.message }, 500);
+  const submittedHash = await sha256Base64(`${code}:${phone}`);
+  const verificationProof = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const verificationProofHash = await sha256Base64(verificationProof);
+  const allowTestBypass = signupSmsBypassConfig.enabled && code === signupSmsBypassConfig.code;
+  const { data: receipt, error } = await supabase.rpc('process_signup_otp_challenge_v1', {
+    p_expected_phone: phone,
+    p_challenge_id: challengeId,
+    p_submitted_hash: submittedHash,
+    p_verification_proof_hash: verificationProofHash,
+    p_allow_test_bypass: allowTestBypass,
+  });
+
+  if (error || !receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
+    return json({ ok: false, code: 'db_error', message: '휴대폰 인증 상태를 저장하지 못했습니다.' }, 500);
+  }
+  if (receipt.ok !== true) {
+    const receiptCode = typeof receipt.code === 'string' ? receipt.code : 'db_error';
+    const failures: Record<string, { message: string; status: number }> = {
+      not_found: { message: '등록된 계정을 찾을 수 없습니다.', status: 400 },
+      no_code: { message: '인증 코드가 없습니다.', status: 400 },
+      stale_challenge: { message: '새로 발급된 인증 코드를 입력해주세요.', status: 400 },
+      expired_code: { message: '인증 코드가 만료되었습니다.', status: 400 },
+      invalid_code: { message: '인증 코드가 올바르지 않습니다.', status: 400 },
+      locked: { message: '인증 시도가 너무 많아 잠시 후 다시 시도해주세요.', status: 429 },
+      account_exists: { message: '이미 가입이 완료된 계정입니다.', status: 409 },
+    };
+    const failure = failures[receiptCode];
+    if (!failure) {
+      return json({ ok: false, code: 'db_error', message: '휴대폰 인증 상태를 확인하지 못했습니다.' }, 500);
     }
-
-    return json({ ok: true });
+    return fail(receiptCode, failure.message, failure.status);
   }
-  if (!profile.phone_verification_hash || !profile.phone_verification_expires_at) {
-    return fail('no_code', '인증 코드가 없습니다.');
-  }
-  if (profile.phone_verification_locked_until) {
-    const lockedUntil = new Date(profile.phone_verification_locked_until);
-    if (lockedUntil > new Date()) {
-      return fail('locked', '인증 시도가 너무 많아 잠시 후 다시 시도해주세요.', 429);
-    }
-  }
-  const expiresAt = new Date(profile.phone_verification_expires_at);
-  if (expiresAt < new Date()) {
-    return fail('expired_code', '인증 코드가 만료되었습니다.');
+  if (typeof receipt.profileId !== 'string' || !mutationRowReceiptMatches(receipt, {
+    ok: true,
+    code: 'verified',
+    verified: true,
+    residentId: phone,
+    challengeId,
+  })) {
+    return json({ ok: false, code: 'otp_verification_unverified', message: '휴대폰 인증 결과를 확인하지 못했습니다.' }, 500);
   }
 
-  const expected = await sha256Base64(`${code}:${phone}`);
-  if (expected !== profile.phone_verification_hash) {
-    const nextAttempts = (profile.phone_verification_attempts ?? 0) + 1;
-    const shouldLock = nextAttempts >= MAX_ATTEMPTS;
-    const lockedUntil = shouldLock ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000).toISOString() : null;
-
-    await supabase
-      .from('fc_profiles')
-      .update({
-        phone_verification_attempts: shouldLock ? 0 : nextAttempts,
-        phone_verification_locked_until: lockedUntil,
-      })
-      .eq('id', profile.id);
-
-    return fail(
-      shouldLock ? 'locked' : 'invalid_code',
-      shouldLock ? '인증 시도가 너무 많아 잠시 후 다시 시도해주세요.' : '인증 코드가 올바르지 않습니다.',
-      shouldLock ? 429 : 400,
-    );
-  }
-
-  const { error: updateError } = await supabase
-    .from('fc_profiles')
-    .update({
-      phone_verified: true,
-      phone_verified_at: new Date().toISOString(),
-      signup_verification_method: 'phone_otp',
-      signup_verified_at: new Date().toISOString(),
-      signup_verified_by_admin_id: null,
-      phone_verification_hash: null,
-      phone_verification_expires_at: null,
-      phone_verification_sent_at: null,
-      phone_verification_attempts: 0,
-      phone_verification_locked_until: null,
-    })
-    .eq('id', profile.id);
-
-  if (updateError) {
-    return json({ ok: false, code: 'db_error', message: updateError.message }, 500);
-  }
-
-  return json({ ok: true });
+  return json({
+    ok: true,
+    verified: true,
+    residentId: phone,
+    profileId: receipt.profileId,
+    verificationProof,
+  });
 });

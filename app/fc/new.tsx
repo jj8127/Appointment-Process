@@ -42,8 +42,9 @@ import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { canOpenFcProfileRegistration } from '@/lib/fc-workflow';
 import { logger } from '@/lib/logger';
-import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, toResidentInputAlertMessage } from '@/lib/store-identity-error';
-import { supabase } from '@/lib/supabase';
+import { parseResidentNumberReceipt } from '@/lib/resident-number-response';
+import { invokeStoreIdentity } from '@/lib/store-identity-api';
+import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, requireStoreIdentityReceipt, toResidentInputAlertMessage } from '@/lib/store-identity-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { normalizePhone, validateResidentId } from '@/lib/validation';
 
@@ -353,19 +354,18 @@ function FcNewScreenContent() {
         setCustomDomain(emailDomainPart);
       }
 
-      setProfileLoadState('ready');
-
-      try {
-        const residentResult = await invokeAdminAction<{
-          residentNumbers: Record<string, string | null>;
-        }>(normalizedKey, 'getResidentNumbers', { fcIds: [profile.id] });
-        if (!isCurrentRead()) return;
-        const full = residentResult.residentNumbers?.[profile.id];
-        setExistingResidentNumberFull(typeof full === 'string' && full ? full : null);
-      } catch {
+      const residentResult = await invokeAdminAction(
+        normalizedKey,
+        'getResidentNumbers',
+        { fcIds: [profile.id] },
+      );
       if (!isCurrentRead()) return;
-        logger.warn('[fc/new] resident number unavailable', { reason: 'resident_lookup_failed' });
+      const residentReceipt = parseResidentNumberReceipt(residentResult, [profile.id]);
+      if (!residentReceipt || residentReceipt.residentNumberStatuses[profile.id] === 'unavailable') {
+        throw new Error('resident_number_read_unavailable');
       }
+      setExistingResidentNumberFull(residentReceipt.residentNumbers[profile.id]);
+      setProfileLoadState('ready');
     } catch {
       if (!isCurrentRead()) return;
       logger.warn('[fc/new] basic information unavailable', { reason: 'profile_load_failed' });
@@ -453,9 +453,7 @@ function FcNewScreenContent() {
           identityPayload.residentBack = back;
         }
 
-        const { error: identityErr } = await supabase.functions.invoke('store-identity', {
-          body: identityPayload,
-        });
+        const { data: identityReceipt, error: identityErr } = await invokeStoreIdentity(identityPayload);
         if (!isCurrentSubmit()) return;
         if (identityErr) {
           const rawMessage = await extractFunctionErrorMessage(identityErr, '신원 정보 저장에 실패했습니다.');
@@ -464,6 +462,7 @@ function FcNewScreenContent() {
           Alert.alert('저장 실패', mapStoreIdentityErrorMessage(rawMessage));
           return;
         }
+        requireStoreIdentityReceipt(identityReceipt, phoneDigits);
       }
 
       const updateResult = await invokeAdminAction<{ profile: { id: string } }>(

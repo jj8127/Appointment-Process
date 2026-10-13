@@ -1,5 +1,10 @@
 import { ADMIN_CHAT_ID } from '../messenger-participants';
-import { buildInternalChatViewerPayload } from '../internal-chat-api';
+import {
+  buildInternalChatViewerPayload,
+  parseChatTargetsResponse,
+  parseInternalChatListResponse,
+  parseInternalUnreadCountResponse,
+} from '../internal-chat-api';
 import {
   attachChatSummariesToContacts,
   attachUnreadCountsToContacts,
@@ -251,6 +256,135 @@ describe('direct chat target summaries', () => {
       phone: '010-3333-4444',
       ...summaries['01033334444'],
     }]);
+  });
+});
+
+describe('parseChatTargetsResponse', () => {
+  const adminTarget = {
+    name: '관리자',
+    phone: '010-1111-2222',
+    conversation_id: '11111111-1111-4111-8111-111111111111',
+    unread_count: 2,
+    last_message: '확인했습니다.',
+    last_time: '2026-10-13T00:00:00.000Z',
+    staff_type: 'admin',
+  };
+
+  test('requires every target collection and the exact admin unread total', () => {
+    expect(parseChatTargetsResponse({
+      ok: true,
+      managers: [],
+      developers: [],
+      admins: [adminTarget],
+      admin_unread_count: 2,
+    })).toEqual({
+      managers: [],
+      developers: [],
+      admins: [{ ...adminTarget, phone: '01011112222' }],
+      adminUnreadCount: 2,
+    });
+
+    expect(() => parseChatTargetsResponse({ ok: true, admin_unread_count: 0 })).toThrow(
+      'chat targets response is invalid',
+    );
+    expect(() => parseChatTargetsResponse({
+      ok: true,
+      managers: [],
+      developers: [],
+      admins: [adminTarget],
+      admin_unread_count: 0,
+    })).toThrow('chat targets response is invalid');
+  });
+
+  test('rejects malformed target rows instead of returning a partial directory', () => {
+    expect(() => parseChatTargetsResponse({
+      ok: true,
+      managers: [{ ...adminTarget, unread_count: -1 }],
+      developers: [],
+      admins: [],
+      admin_unread_count: 0,
+    })).toThrow('chat targets response is invalid');
+  });
+});
+
+describe('parseInternalUnreadCountResponse', () => {
+  test('requires the exact non-negative integer count', () => {
+    expect(parseInternalUnreadCountResponse({ ok: true, count: 3 })).toBe(3);
+    expect(() => parseInternalUnreadCountResponse({ ok: true })).toThrow(
+      'internal unread count response is invalid',
+    );
+    expect(() => parseInternalUnreadCountResponse({ ok: true, count: -1 })).toThrow(
+      'internal unread count response is invalid',
+    );
+    expect(() => parseInternalUnreadCountResponse({ ok: true, count: '3' })).toThrow(
+      'internal unread count response is invalid',
+    );
+  });
+});
+
+describe('parseInternalChatListResponse', () => {
+  test('requires an explicit non-negative total unread count', () => {
+    expect(parseInternalChatListResponse({
+      ok: true,
+      items: [],
+      total_unread: 0,
+      next_cursor: null,
+      has_more: false,
+      limit: 30,
+    })).toEqual({
+      items: [],
+      totalUnread: 0,
+      nextCursor: null,
+      hasMore: false,
+      limit: 30,
+    });
+    expect(() => parseInternalChatListResponse({ ok: true, items: [] })).toThrow(
+      'internal chat unread count is invalid',
+    );
+    expect(() => parseInternalChatListResponse({
+      ok: true,
+      items: [],
+      total_unread: '0',
+    })).toThrow('internal chat unread count is invalid');
+  });
+
+  test('accepts wholly absent legacy pagination metadata', () => {
+    expect(parseInternalChatListResponse({
+      ok: true,
+      items: [],
+      total_unread: 0,
+    })).toMatchObject({ nextCursor: null, hasMore: false, limit: 0 });
+  });
+
+  test.each([
+    ['true without cursor', { has_more: true }],
+    ['cursor without has_more', { next_cursor: 'cursor-2' }],
+    ['false with cursor', { has_more: false, next_cursor: 'cursor-2' }],
+    ['true with null cursor', { has_more: true, next_cursor: null }],
+    ['true with blank cursor', { has_more: true, next_cursor: '   ' }],
+  ])('rejects inconsistent pagination metadata: %s', (_label, pagination) => {
+    expect(() => parseInternalChatListResponse({
+      ok: true,
+      items: [],
+      total_unread: 0,
+      ...pagination,
+    })).toThrow('internal chat list pagination is invalid');
+  });
+
+  test.each([
+    { has_more: false },
+    { has_more: false, next_cursor: null },
+    { has_more: true, next_cursor: 'cursor-2' },
+  ])('accepts consistent pagination metadata %#', (pagination) => {
+    expect(parseInternalChatListResponse({
+      ok: true,
+      items: [],
+      total_unread: 0,
+      ...pagination,
+    })).toMatchObject({
+      hasMore: pagination.has_more,
+      nextCursor: pagination.has_more ? 'cursor-2' : null,
+    });
   });
 });
 

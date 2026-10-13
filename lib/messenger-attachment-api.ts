@@ -13,6 +13,7 @@ import {
   MAX_MESSENGER_ATTACHMENTS,
   normalizeMessengerAttachmentContent,
   parseMessengerAttachmentMetadataList,
+  parseMessengerAttachmentSignedUrl,
   type MessengerAttachmentMimeType,
 } from './messenger-attachment-contract';
 import { isNotificationUuid } from './notification-target';
@@ -604,8 +605,7 @@ function parseUploadIntentResponse(
       || !upload.path
       || typeof upload.token !== 'string'
       || !upload.token
-      || typeof upload.signedUrl !== 'string'
-      || !upload.signedUrl
+      || !parseMessengerAttachmentSignedUrl(upload.signedUrl)
     ) {
       throw new MessengerAttachmentError(
         MESSENGER_ATTACHMENT_ERROR_COPY.uploadFailed,
@@ -758,10 +758,7 @@ export async function createMessengerAttachmentDownloadUrl(
   const attachment = parseMessengerAttachmentMetadataList([
     response.attachment,
   ])[0];
-  const signedUrl =
-    typeof download?.signedUrl === 'string'
-      ? download.signedUrl.trim()
-      : '';
+  const signedUrl = parseMessengerAttachmentSignedUrl(download?.signedUrl);
   if (
     !signedUrl
     || attachment.id !== id

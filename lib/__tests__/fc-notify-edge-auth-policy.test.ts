@@ -2,6 +2,7 @@ import {
   buildAppFcNotifyPayload,
   getAllowedNotificationTokenRoles,
   isTrustedFcNotifyServiceKey,
+  parseFcNotifyInboxCursor,
   shouldRequireActiveStaffNotificationTarget,
   type FcNotifyAppActor,
 } from '../../supabase/functions/_shared/fc-notify-auth-policy';
@@ -67,6 +68,54 @@ describe('direct Edge fc-notify authentication policy', () => {
       ok: false,
       status: 403,
     });
+  });
+
+  it('forwards only strict independent inbox cursors', () => {
+    const notificationCursor = {
+      created_at: '2026-10-13T01:02:03.456Z',
+      id: '00000000-0000-4000-8000-000000000101',
+    };
+    const noticeCursor = {
+      created_at: '2026-10-12T01:02:03+09:00',
+      id: 'board_notice:00000000-0000-4000-8000-000000000102',
+    };
+
+    expect(parseFcNotifyInboxCursor(notificationCursor)).toEqual(notificationCursor);
+    expect(parseFcNotifyInboxCursor(noticeCursor, true)).toEqual(noticeCursor);
+    expect(parseFcNotifyInboxCursor(noticeCursor)).toBeNull();
+    expect(parseFcNotifyInboxCursor({ ...notificationCursor, extra: true })).toBeNull();
+    expect(parseFcNotifyInboxCursor({ ...notificationCursor, created_at: 'tomorrow' })).toBeNull();
+    expect(parseFcNotifyInboxCursor({
+      ...notificationCursor,
+      created_at: '2026-02-31T01:02:03Z',
+    })).toBeNull();
+    expect(parseFcNotifyInboxCursor({
+      ...notificationCursor,
+      created_at: '2026-10-13T24:00:00Z',
+    })).toBeNull();
+    expect(parseFcNotifyInboxCursor({ ...notificationCursor, id: 'id.lt.injected' })).toBeNull();
+
+    expect(buildAppFcNotifyPayload({
+      type: 'inbox_list',
+      role: 'admin',
+      resident_id: null,
+      notification_cursor: notificationCursor,
+      notice_cursor: noticeCursor,
+    }, admin)).toMatchObject({
+      ok: true,
+      payload: {
+        notification_cursor: notificationCursor,
+        notice_cursor: noticeCursor,
+      },
+    });
+    expect(buildAppFcNotifyPayload({
+      type: 'inbox_list',
+      notification_cursor: { ...notificationCursor, id: 'invalid' },
+    }, admin)).toMatchObject({ ok: false, status: 400 });
+    expect(buildAppFcNotifyPayload({
+      type: 'inbox_list',
+      notice_cursor: { ...noticeCursor, created_at: 'invalid' },
+    }, admin)).toMatchObject({ ok: false, status: 400 });
   });
 
   it('derives developer and manager personal admin identities', () => {
@@ -162,6 +211,57 @@ describe('direct Edge fc-notify authentication policy', () => {
         only_request_board_categories: true,
         viewer_actor_id: manager.actorId,
         viewer_actor_role: 'manager',
+      },
+    });
+
+    expect(buildAppFcNotifyPayload({
+      type: 'inbox_mark_all_read',
+      role: 'admin',
+      resident_id: manager.phone,
+      include_request_board_fc: true,
+    }, manager)).toEqual({
+      ok: true,
+      payload: {
+        type: 'inbox_mark_all_read',
+        role: 'admin',
+        resident_id: manager.phone,
+        include_request_board_fc: true,
+        only_request_board_categories: false,
+        viewer_actor_id: manager.actorId,
+        viewer_actor_role: 'manager',
+      },
+    });
+  });
+
+  it('keeps exact unread and mark-all actions bound to the signed inbox scope', () => {
+    expect(buildAppFcNotifyPayload({
+      type: 'inbox_unread_count',
+      role: 'fc',
+      resident_id: fc.phone,
+      only_request_board_categories: true,
+    }, fc)).toMatchObject({
+      ok: true,
+      payload: {
+        type: 'inbox_unread_count',
+        only_request_board_categories: true,
+        viewer_actor_id: fc.actorId,
+        viewer_actor_role: 'fc',
+      },
+    });
+    expect(buildAppFcNotifyPayload({
+      type: 'inbox_mark_all_read',
+      role: 'admin',
+      resident_id: null,
+    }, fc)).toMatchObject({ ok: false, status: 403 });
+    expect(buildAppFcNotifyPayload({
+      type: 'inbox_mark_all_read',
+      role: 'fc',
+      resident_id: fc.phone,
+    }, { ...fc, isRequestBoardDesigner: true })).toMatchObject({
+      ok: true,
+      payload: {
+        only_request_board_categories: true,
+        viewer_actor_id: fc.actorId,
       },
     });
   });

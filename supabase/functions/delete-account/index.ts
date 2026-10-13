@@ -7,16 +7,7 @@ import {
   type DeleteAccountRequestBody,
 } from '../_shared/delete-account-auth.ts';
 import { parseAppSessionTokenDetailed } from '../_shared/request-board-auth.ts';
-
-type AccountDeleteResult = {
-  deleted?: boolean;
-  proof_paths?: unknown;
-  document_paths?: unknown;
-  board_attachment_paths?: unknown;
-  chat_file_urls?: unknown;
-  auth_user_ids?: unknown;
-  cleanup_outbox_id?: unknown;
-};
+import { requireAccountDeletionReceipt } from '../_shared/ux-mutation-contract.ts';
 
 function getEnv(name: string): string | undefined {
   const runtime = globalThis as unknown as {
@@ -73,15 +64,6 @@ function readStringArray(value: unknown): string[] {
   );
 }
 
-function extractChatUploadPath(fileUrl: string): string | null {
-  const marker = '/chat-uploads/';
-  const index = fileUrl.indexOf(marker);
-  if (index < 0) return null;
-  const path = (fileUrl.slice(index + marker.length).split('?')[0] ?? '')
-    .replace(/^\/+/, '');
-  return path || null;
-}
-
 async function removeStorageObjects(
   bucket: string,
   paths: string[],
@@ -94,8 +76,7 @@ async function removeStorageObjects(
         event: 'delete_account.storage_cleanup';
         reason:
           | 'fc_documents_remove_failed'
-          | 'board_attachments_remove_failed'
-          | 'chat_uploads_remove_failed';
+          | 'board_attachments_remove_failed';
       },
 ) {
   if (paths.length === 0) return false;
@@ -177,16 +158,20 @@ serve(async (req: Request) => {
     },
   );
   if (error) {
-    return err(error.message || 'Account deletion failed', 409);
+    return error.message === 'account_delete_target_not_found'
+      ? err('삭제할 계정을 찾을 수 없습니다.', 404)
+      : err('Account deletion failed', 500);
   }
 
-  const result = (data ?? {}) as AccountDeleteResult;
+  let result: ReturnType<typeof requireAccountDeletionReceipt>;
+  try {
+    result = requireAccountDeletionReceipt(data);
+  } catch {
+    return err('Account deletion result could not be verified', 500);
+  }
   const proofPaths = readStringArray(result.proof_paths);
   const documentPaths = readStringArray(result.document_paths);
   const boardPaths = readStringArray(result.board_attachment_paths);
-  const chatPaths = readStringArray(result.chat_file_urls)
-    .map(extractChatUploadPath)
-    .filter((path): path is string => Boolean(path));
   const authUserIds = readStringArray(result.auth_user_ids);
   const cleanupOutboxId = String(result.cleanup_outbox_id ?? '').trim();
 
@@ -210,14 +195,6 @@ serve(async (req: Request) => {
       {
         event: 'delete_account.storage_cleanup',
         reason: 'board_attachments_remove_failed',
-      },
-    ),
-    removeStorageObjects(
-      'chat-uploads',
-      chatPaths,
-      {
-        event: 'delete_account.storage_cleanup',
-        reason: 'chat_uploads_remove_failed',
       },
     ),
   ]);

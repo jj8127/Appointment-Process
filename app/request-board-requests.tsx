@@ -21,7 +21,7 @@ import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-
 import { logger } from '@/lib/logger';
 import {
   rbGetRequestDetail,
-  rbGetRequestList,
+  rbGetRequestListOrThrow,
   type RbRequestListItem,
 } from '@/lib/request-board-api';
 import {
@@ -137,7 +137,7 @@ const hydrateDesignerRejectionReasons = async (
     return listItems;
   }
 
-  const detailResults = await Promise.allSettled(
+  const detailResults = await Promise.all(
     targets.map(async (request) => {
       const detail = await rbGetRequestDetail(request.id);
       return { requestId: request.id, detail };
@@ -146,9 +146,7 @@ const hydrateDesignerRejectionReasons = async (
 
   const detailsByRequestId = new Map<number, Awaited<ReturnType<typeof rbGetRequestDetail>>>();
   for (const result of detailResults) {
-    if (result.status === 'fulfilled') {
-      detailsByRequestId.set(result.value.requestId, result.value.detail);
-    }
+    detailsByRequestId.set(result.requestId, result.detail);
   }
 
   return listItems.map((request) =>
@@ -207,7 +205,7 @@ export default function RequestBoardRequestsScreen() {
         throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
       }
 
-      const data = await rbGetRequestList();
+      const data = await rbGetRequestListOrThrow();
       if (requestSequence !== requestSequenceRef.current) return;
       setRequests(data);
 
@@ -218,8 +216,15 @@ export default function RequestBoardRequestsScreen() {
               setRequests(hydratedData);
             }
           })
-          .catch(() => {
-            logger.warn('[requests] optional rejection-reason hydration failed');
+          .catch((error) => {
+            if (requestSequence !== requestSequenceRef.current) return;
+            logger.warn('[requests] rejection-reason hydration failed', error);
+            setFetchError(
+              toRequestBoardSessionErrorMessage(
+                error,
+                '의뢰의 설계 거절 사유를 불러오지 못했습니다.',
+              ),
+            );
           });
       }, 0);
     } catch (err) {

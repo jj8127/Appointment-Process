@@ -76,3 +76,31 @@ Deno.test('message and account deletion schedule operational cleanup without use
     /Draining is best-effort and never becomes a\s*\n\s*\/\/ user-facing warning/,
   );
 });
+
+Deno.test('scheduled maintenance reports cleanup RPC failures instead of zero success', async () => {
+  const service = await source('_shared/messenger-attachment-service.ts');
+  const endpoint = await source('messenger-attachments/index.ts');
+
+  assertStringIncludes(service, 'claimFailed: true');
+  assertStringIncludes(service, 'claimFailed: false');
+  assertStringIncludes(service, 'completionFailed = true');
+  assertStringIncludes(
+    endpoint,
+    'if (cleanup.claimFailed || cleanup.completionFailed)',
+  );
+  assertMatch(
+    endpoint,
+    /if \(cleanup\.claimFailed \|\| cleanup\.completionFailed\)[\s\S]*?'attachment_database_unavailable'[\s\S]*?503/,
+  );
+});
+
+Deno.test('committed upload reservations require an exact batch and message receipt', async () => {
+  const endpoint = await source('messenger-attachments/index.ts');
+
+  assertStringIncludes(endpoint, 'normalizeMessengerAttachmentUuid(reservation.batchId)');
+  assertStringIncludes(endpoint, 'reservation.messageIds.map(normalizeMessengerAttachmentUuid)');
+  assertStringIncludes(endpoint, "context.kind === 'direct_broadcast'");
+  assertStringIncludes(endpoint, 'messageIds.length !== expectedMessageCount');
+  assertStringIncludes(endpoint, 'new Set(messageIds).size !== messageIds.length');
+  assertNotMatch(endpoint, /messageIds:\s*Array\.isArray\(reservation\.messageIds\)/);
+});

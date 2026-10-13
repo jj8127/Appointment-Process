@@ -10,44 +10,18 @@ import {
   normalizeSubtreeChildNodes,
   sortDescendants,
 } from '@/lib/referral-tree';
+import {
+  parseReferralTreeResponse,
+  type ParsedReferralTree,
+} from '@/lib/referral-read-response';
 
 import { useSession } from './use-session';
-import { useReferralAppSession } from './use-referral-app-session';
+import {
+  type ReferralFunctionResponseEnvelope,
+  useReferralAppSession,
+} from './use-referral-app-session';
 
-export type ReferralTreeRoot = {
-  fcId: string;
-  name: string | null;
-  affiliation: string | null;
-  code: string | null;
-  directInviteeCount?: number;
-  totalDescendantCount?: number;
-};
-
-export type ReferralAncestorNode = {
-  fcId: string;
-  name: string | null;
-  affiliation: string | null;
-  code: string | null;
-};
-
-export type ReferralTreeData = {
-  root: ReferralTreeRoot;
-  ancestors: ReferralAncestorNode[];
-  descendants: DescendantNode[];
-  depth: number;
-  truncated: boolean;
-};
-
-type ReferralTreeResponse = {
-  ok: boolean;
-  root?: ReferralTreeRoot;
-  ancestors?: ReferralAncestorNode[];
-  descendants?: DescendantNode[];
-  depth?: number;
-  truncated?: boolean;
-  message?: string;
-  code?: string;
-};
+export type ReferralTreeData = ParsedReferralTree;
 
 function mergeUniqueDescendants(current: DescendantNode[], incoming: DescendantNode[]) {
   const map = new Map<string, DescendantNode>();
@@ -78,24 +52,25 @@ export function useReferralTree(opts: { fcId?: string; depth?: number }) {
   const invokeReferralTree = useCallback(async (
     body: { fcId?: string; depth?: number },
   ) => {
-    const data = await invokeReferralFunction<ReferralTreeResponse>('get-referral-tree', {
+    const data = await invokeReferralFunction<ReferralFunctionResponseEnvelope>('get-referral-tree', {
       body,
       fallbackMessage: '추천 관계를 불러오지 못했습니다.',
     });
 
-    if (!data.root) {
-      throw new Error(data.message ?? '추천 관계를 불러오지 못했습니다.');
-    }
-
-    const sortedDescendants = (data.descendants ?? []).slice().sort(sortDescendants);
+    const requestedDepth = Math.max(1, Math.min(3, Math.trunc(body.depth ?? 2)));
+    const parsed = parseReferralTreeResponse(data, {
+      depth: requestedDepth,
+      ...(body.fcId ? { rootFcId: body.fcId } : {}),
+    });
+    const sortedDescendants = parsed.descendants.slice().sort(sortDescendants);
 
     return {
-      root: data.root,
-      ancestors: data.ancestors ?? [],
+      root: parsed.root,
+      ancestors: parsed.ancestors,
       descendants: sortedDescendants,
-      depth: Number(data.depth ?? body.depth ?? 2),
-      truncated: computeReferralTreeTruncated({
-        root: data.root,
+      depth: parsed.depth,
+      truncated: parsed.truncated || computeReferralTreeTruncated({
+        root: parsed.root,
         descendants: sortedDescendants,
       }),
     } satisfies ReferralTreeData;

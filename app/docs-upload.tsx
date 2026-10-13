@@ -42,9 +42,18 @@ import { supabase } from '@/lib/supabase';
 import { COLORS } from '@/lib/theme';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { RequiredDoc } from '@/types/fc';
+import { requireMutationRowReceipt } from '../supabase/functions/_shared/ux-mutation-contract';
+import { collectSupabaseRows } from '@/lib/supabase-query-contract';
 
 type FcLite = { id: string; temp_id: string | null; name: string; status: string; docs_deadline_at?: string | null };
 type DocItem = RequiredDoc & { storagePath?: string; originalName?: string };
+type DocumentRow = {
+  doc_type: string;
+  storage_path: string | null;
+  status: string | null;
+  reviewer_note: string | null;
+  file_name: string | null;
+};
 
 const BUCKET = 'fc-documents';
 const HANWHA_HANDOFF_STATUS = 'docs-approved';
@@ -76,6 +85,31 @@ const normalizeDocStatus = (status: string | null | undefined): DocItem['status'
   }
   return undefined;
 };
+
+const isDocumentRow = (value: unknown): value is DocumentRow => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.doc_type === 'string'
+    && row.doc_type.trim().length > 0
+    && (row.storage_path === null || typeof row.storage_path === 'string')
+    && (row.status === null || typeof row.status === 'string')
+    && (row.reviewer_note === null || typeof row.reviewer_note === 'string')
+    && (row.file_name === null || typeof row.file_name === 'string');
+};
+
+async function loadAllDocuments(fcId: string): Promise<DocumentRow[]> {
+  return collectSupabaseRows<DocumentRow>({
+    queryName: 'fc_documents',
+    fetchPage: (from, to) => supabase
+      .from('fc_documents')
+      .select('doc_type, storage_path, status, reviewer_note, file_name')
+      .eq('fc_id', fcId)
+      .order('doc_type', { ascending: true })
+      .range(from, to),
+    isRow: isDocumentRow,
+    rowKey: (row) => row.doc_type,
+  });
+}
 
 async function sendNotificationAndPush(
   role: 'admin' | 'fc',
@@ -197,14 +231,10 @@ function DocsUploadScreenContent() {
         return;
       }
 
-      const { data: requirements, error: reqErr } = await supabase
-        .from('fc_documents')
-        .select('doc_type, storage_path, status, reviewer_note, file_name')
-        .eq('fc_id', targetId);
+      const requirements = await loadAllDocuments(targetId);
       if (!isCurrentRead()) return;
-      if (reqErr) throw reqErr;
 
-      const reqDocs: DocItem[] = (requirements ?? []).map((r) => {
+      const reqDocs: DocItem[] = requirements.map((r) => {
         const hasFile = r.storage_path && r.storage_path !== 'deleted';
         const normalizedStatus = normalizeDocStatus(r.status) ?? 'pending';
         return {
@@ -390,35 +420,44 @@ function DocsUploadScreenContent() {
         }
       }
 
-      const signedResult = await supabase.storage.from(BUCKET).createSignedUrl(objectPath, 300);
-      if (signedResult.error) {
-        logger.warn('[storage] createSignedUrl failed', { error: signedResult.error.message });
-      }
-
-      const { error: dbError } = await supabase.from('fc_documents').upsert(
+      const fileName = asset.name ?? 'document.pdf';
+      const documentMutation = {
+        fc_id: fc.id,
+        doc_type: type,
+        storage_path: objectPath,
+        file_name: fileName,
+        status: 'pending',
+        reviewer_note: null,
+      } as const;
+      const { data: documentReceipt, error: dbError } = await supabase.from('fc_documents').upsert(
         {
-          fc_id: fc.id,
-          doc_type: type,
-          storage_path: objectPath,
-          file_name: asset.name ?? 'document.pdf',
-          status: 'pending',
-          reviewer_note: null,
+          ...documentMutation,
         },
         { onConflict: 'fc_id,doc_type' },
-      );
+      )
+        .select('fc_id,doc_type,storage_path,file_name,status,reviewer_note')
+        .maybeSingle();
       if (dbError) {
         logger.warn('[upload] db upsert error', { error: dbError.message });
         throw dbError;
       }
+      requireMutationRowReceipt(documentReceipt, documentMutation);
 
-      await supabase.from('fc_profiles').update({ status: 'docs-pending' }).eq('id', fc.id);
+      const { data: profileReceipt, error: profileUpdateError } = await supabase
+        .from('fc_profiles')
+        .update({ status: 'docs-pending' })
+        .eq('id', fc.id)
+        .select('id,status')
+        .maybeSingle();
+      if (profileUpdateError) throw profileUpdateError;
+      requireMutationRowReceipt(profileReceipt, { id: fc.id, status: 'docs-pending' });
       const updatedDocs: DocItem[] = docs.map((doc) =>
         doc.type === type
           ? {
             ...doc,
             status: 'pending',
             storagePath: objectPath,
-            originalName: asset.name ?? 'document.pdf',
+            originalName: fileName,
           }
           : doc,
       );
@@ -553,21 +592,6 @@ function DocsUploadScreenContent() {
     if (!fc) return;
     setApproving(true);
     try {
-      if (isApprove) {
-        const { data: allDocs, error: docsError } = await supabase
-          .from('fc_documents')
-          .select('status,storage_path')
-          .eq('fc_id', fc.id);
-        if (docsError) throw docsError;
-
-        const requestedDocs = allDocs ?? [];
-        const allApproved = requestedDocs.length > 0 && requestedDocs.every((doc) => doc.status === 'approved');
-
-        if (!allApproved) {
-          throw new Error('모든 요청 서류가 승인된 뒤에만 다위촉 URL 단계로 넘길 수 있습니다.');
-        }
-      }
-
       const nextProfilePatch = isApprove
         ? { status: HANWHA_HANDOFF_STATUS }
         : {
@@ -575,8 +599,10 @@ function DocsUploadScreenContent() {
             ...DOC_WORKFLOW_RESET_FIELDS,
           };
 
-      const { error } = await supabase.from('fc_profiles').update(nextProfilePatch).eq('id', fc.id);
-      if (error) throw error;
+      await invokeAdminAction(residentId ?? '', 'updateStatus', {
+        fcId: fc.id,
+        status: nextProfilePatch.status,
+      });
 
       setFc((prev) => (prev ? { ...prev, ...nextProfilePatch } : prev));
       Alert.alert(

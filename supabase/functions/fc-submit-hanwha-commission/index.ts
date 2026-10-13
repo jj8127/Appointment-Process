@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import { requireMutationRowReceipt } from '../_shared/ux-mutation-contract.ts';
 
 type Payload = {
   phone: string;
@@ -120,10 +121,21 @@ serve(async (req: Request) => {
     if (updateError) {
       return json({ ok: false, message: updateError.message }, 500);
     }
+    try {
+      requireMutationRowReceipt(updated, {
+        id: profile.id,
+        status: 'hanwha-commission-review',
+        hanwha_commission_date_sub: submissionDate,
+        hanwha_commission_pdf_path: null,
+        hanwha_commission_pdf_name: null,
+      });
+    } catch {
+      return fail('다위촉 URL 저장 결과를 확인하지 못했습니다. 다시 시도해주세요.', 500);
+    }
 
     return json({
       ok: true,
-      data: updated ?? { id: profile.id, name: profile.name ?? '' },
+      data: updated,
     });
   } catch (err: any) {
     return fail(err?.message ?? '다위촉 정보를 저장하지 못했습니다.', 500);

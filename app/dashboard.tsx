@@ -49,8 +49,14 @@ import {
 } from '@/lib/fc-notify-client';
 import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
+import {
+  parseResidentNumberEntries,
+  type ResidentNumberEntry as ResolvedResidentNumberEntry,
+} from '@/lib/resident-number-response';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { supabase } from '@/lib/supabase';
+import { collectSupabaseRows } from '@/lib/supabase-query-contract';
+import { escapePostgrestLikeLiteral } from '@/supabase/functions/_shared/direct-message-search';
 import {
   type NotificationOnboardingSection,
 } from '@/lib/notification-target';
@@ -313,9 +319,75 @@ type FcRow = {
   fc_documents?: { doc_type: string; storage_path: string | null; file_name: string | null; status: string | null }[];
 };
 type FcRowWithStep = FcRow & { stepKey: StepKey };
-type ResidentNumberEntry = {
-  status: 'loading' | 'success' | 'error';
-  value: string | null;
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+
+const isNullableString = (value: unknown): value is string | null => (
+  value === null || typeof value === 'string'
+);
+
+const isNullableBoolean = (value: unknown): value is boolean | null => (
+  value === null || typeof value === 'boolean'
+);
+
+const isFcDocumentRow = (value: unknown): value is NonNullable<FcRow['fc_documents']>[number] => (
+  isRecord(value)
+  && typeof value.doc_type === 'string'
+  && isNullableString(value.storage_path)
+  && isNullableString(value.file_name)
+  && isNullableString(value.status)
+);
+
+const isFcRow = (value: unknown): value is FcRow => (
+  isRecord(value)
+  && typeof value.id === 'string'
+  && typeof value.name === 'string'
+  && typeof value.affiliation === 'string'
+  && typeof value.phone === 'string'
+  && isNullableString(value.recommender)
+  && isNullableString(value.recommender_fc_id)
+  && isNullableString(value.temp_id)
+  && typeof value.status === 'string'
+  && Object.prototype.hasOwnProperty.call(STATUS_LABELS, value.status)
+  && isNullableString(value.allowance_date)
+  && isNullableString(value.allowance_prescreen_requested_at)
+  && isNullableString(value.allowance_reject_reason)
+  && isNullableString(value.appointment_url)
+  && isNullableString(value.appointment_date)
+  && isNullableString(value.docs_deadline_at)
+  && isNullableString(value.resident_id_masked)
+  && isNullableBoolean(value.identity_completed)
+  && isNullableString(value.career_type)
+  && isNullableString(value.email)
+  && isNullableString(value.address)
+  && isNullableString(value.address_detail)
+  && isNullableString(value.hanwha_commission_date_sub)
+  && isNullableString(value.hanwha_commission_date)
+  && isNullableString(value.hanwha_commission_reject_reason)
+  && isNullableString(value.hanwha_commission_pdf_path)
+  && isNullableString(value.hanwha_commission_pdf_name)
+  && isNullableString(value.dawichok_url_sent_at)
+  && isNullableString(value.dawichok_url_sent_by)
+  && isNullableString(value.appointment_schedule_life)
+  && isNullableString(value.appointment_schedule_nonlife)
+  && isNullableString(value.appointment_date_life)
+  && isNullableString(value.appointment_date_nonlife)
+  && isNullableString(value.appointment_date_life_sub)
+  && isNullableString(value.appointment_date_nonlife_sub)
+  && isNullableString(value.appointment_reject_reason_life)
+  && isNullableString(value.appointment_reject_reason_nonlife)
+  && (value.license_statuses === null
+    || (Array.isArray(value.license_statuses) && value.license_statuses.every((item) => typeof item === 'string')))
+  && isNullableBoolean(value.life_commission_completed)
+  && isNullableBoolean(value.nonlife_commission_completed)
+  && Array.isArray(value.fc_documents)
+  && value.fc_documents.every(isFcDocumentRow)
+);
+type ResidentNumberEntry = ResolvedResidentNumberEntry | {
+  status: 'loading';
+  value: null;
 };
 type HanwhaPdfDraft = { path: string; name: string };
 
@@ -448,36 +520,40 @@ const fetchFcs = async (
   residentId: string,
   keyword: string,
 ) => {
-  let query = supabase
-    .from('fc_profiles')
-      .select(
-        'id,name,affiliation,phone,recommender,recommender_fc_id,temp_id,status,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,appointment_url,appointment_date,docs_deadline_at,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,dawichok_url_sent_at,dawichok_url_sent_by,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,identity_completed,career_type,license_statuses,email,address,address_detail,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,file_name,status)',
-      )
-    .order('created_at', { ascending: false });
+  try {
+    return await collectSupabaseRows<FcRow>({
+      queryName: 'mobile_dashboard_fc_profiles',
+      fetchPage: (from, to) => {
+        let query = supabase
+          .from('fc_profiles')
+          .select(
+            'id,name,affiliation,phone,recommender,recommender_fc_id,temp_id,status,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,appointment_url,appointment_date,docs_deadline_at,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,dawichok_url_sent_at,dawichok_url_sent_by,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,identity_completed,career_type,license_statuses,email,address,address_detail,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,file_name,status)',
+          )
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: true });
 
-  if (role === 'fc' && residentId) {
-    query = query.eq('phone', residentId);
-  }
-  if (keyword) {
-    query = query.or(
-      `name.ilike.%${keyword}%,affiliation.ilike.%${keyword}%,phone.ilike.%${keyword}%,temp_id.ilike.%${keyword}%`,
-    );
-  }
-
-  const { data, error } = await query;
-  if (error) {
-    logger.error('[dashboard] fetchFcs query error', {
-      message: error.message,
-      code: (error as { code?: string; details?: string; hint?: string; message: string }).code,
-      details: (error as { code?: string; details?: string; hint?: string; message: string }).details,
-      hint: (error as { code?: string; details?: string; hint?: string; message: string }).hint,
+        if (role === 'fc' && residentId) {
+          query = query.eq('phone', residentId);
+        }
+        if (keyword) {
+          const escapedKeyword = escapePostgrestLikeLiteral(keyword).replace(/["*]/g, '\\$&');
+          const searchPattern = `"*${escapedKeyword}*"`;
+          query = query.or(
+            `name.ilike.${searchPattern},affiliation.ilike.${searchPattern},phone.ilike.${searchPattern},temp_id.ilike.${searchPattern}`,
+          );
+        }
+        return query.range(from, to);
+      },
+      isRow: isFcRow,
+      rowKey: (row) => row.id,
+    });
+  } catch (error) {
+    logger.error('[dashboard] fetchFcs query failed', {
       role,
-      residentId,
-      keyword,
+      hasKeyword: Boolean(keyword),
     });
     throw error;
   }
-  return data as FcRow[];
 };
 
 export default function DashboardScreen() {
@@ -680,18 +756,11 @@ export default function DashboardScreen() {
         'getResidentNumbers',
         { fcIds: idsToFetch },
       );
-      const residentNumbers =
-        result.residentNumbers && typeof result.residentNumbers === 'object'
-          ? (result.residentNumbers as Record<string, string | null>)
-          : {};
+      const residentNumberResults = parseResidentNumberEntries(result, idsToFetch);
       setResidentNumberEntries((prev) => {
         const next = { ...prev };
         idsToFetch.forEach((fcId) => {
-          const value = residentNumbers[fcId];
-          next[fcId] = {
-            status: 'success',
-            value: typeof value === 'string' && value.trim() ? value : null,
-          };
+          next[fcId] = residentNumberResults[fcId];
         });
         return next;
       });
@@ -896,44 +965,7 @@ export default function DashboardScreen() {
     },
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _updateDocs = useMutation({
-    mutationFn: async ({ id, types }: { id: string; types: string[]; phone?: string }) => {
-      assertCanEdit();
-      const uniqueTypes = Array.from(new Set(types));
-      const currentDeadline = (data ?? []).find((fc) => fc.id === id)?.docs_deadline_at ?? null;
-      await invokeAdminAction(residentId, 'updateDocReqs', {
-        fcId: id,
-        types: uniqueTypes,
-        deadline: currentDeadline,
-        currentDeadline,
-      });
-      return sendNotificationAndPush(
-        residentId,
-        id,
-        '서류 요청 안내',
-        '필수 서류 요청이 등록되었습니다. 앱에서 확인해 주세요.',
-        '/docs-upload',
-      );
-    },
-    onSuccess: (notificationResult) => {
-      const alert = getPostCommitNotificationAlert(
-        '요청 완료',
-        '필수 서류 요청을 저장했습니다.',
-        notificationResult,
-      );
-      Alert.alert(alert.title, alert.message, alert.buttons);
-      refetch();
-    },
-    onSettled: (_data, error) => {
-      if (error) {
-        const message = error instanceof Error ? error.message : '요청 처리 중 문제가 발생했습니다.';
-        Alert.alert('요청 실패', message);
-      }
-    },
-  });
-
-    const updateDocReqs = useMutation({
+  const updateDocReqs = useMutation({
       mutationFn: async ({
         id,
         types,
@@ -1071,7 +1103,7 @@ export default function DashboardScreen() {
       );
       return {
         fcId: fc.id,
-        sentAt: String(result.dawichok_url_sent_at ?? new Date().toISOString()),
+        sentAt: String(result.dawichok_url_sent_at),
         notificationResult,
       };
     },

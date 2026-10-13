@@ -7,6 +7,10 @@ import {
   normalizeMessengerAttachmentUuid,
   type InspectedMessengerAttachment,
 } from './messenger-attachment-policy.ts';
+import {
+  chunkSupabaseFilterValues,
+  collectSupabaseRows,
+} from '../../../lib/supabase-query-contract.ts';
 
 export class MessengerAttachmentServiceError extends Error {
   constructor(
@@ -45,7 +49,6 @@ type DeliveryBatchRow = {
   status: string;
   expires_at: string;
   payload_fingerprint: string;
-  committed_message_ids: string[] | null;
 };
 
 export type MessengerAttachmentMetadata = {
@@ -55,6 +58,37 @@ export type MessengerAttachmentMetadata = {
   mimeType: string;
   sha256: string;
 };
+
+type MessengerAttachmentListRow = {
+  id: string;
+  batch_id: string;
+  sort_order: number;
+  original_name: string;
+  mime_type: string;
+  byte_size: number;
+  sha256: string;
+  status: 'active' | 'tombstoned' | 'deleted';
+};
+
+function isMessengerAttachmentListRow(value: unknown): value is MessengerAttachmentListRow {
+  const row = asRecord(value);
+  return Boolean(
+    row
+    && normalizeMessengerAttachmentUuid(row.id)
+    && normalizeMessengerAttachmentUuid(row.batch_id)
+    && Number.isSafeInteger(row.sort_order)
+    && Number(row.sort_order) >= 0
+    && typeof row.original_name === 'string'
+    && row.original_name.trim().length > 0
+    && typeof row.mime_type === 'string'
+    && row.mime_type.trim().length > 0
+    && Number.isSafeInteger(row.byte_size)
+    && Number(row.byte_size) >= 0
+    && typeof row.sha256 === 'string'
+    && /^[0-9a-f]{64}$/i.test(row.sha256)
+    && (row.status === 'active' || row.status === 'tombstoned' || row.status === 'deleted')
+  );
+}
 
 function cleanStorageErrorCode(error: unknown): string {
   if (!error || typeof error !== 'object') return 'storage_operation_failed';
@@ -81,7 +115,6 @@ export async function finalizeMessengerAttachmentBatch(input: {
 }): Promise<{
   batchId: string;
   replayed: boolean;
-  committedMessageIds: string[];
   inspections: Array<{ id: string } & InspectedMessengerAttachment>;
 }> {
   const deliveryKey = normalizeMessengerAttachmentUuid(input.deliveryKey);
@@ -93,7 +126,7 @@ export async function finalizeMessengerAttachmentBatch(input: {
 
   const { data: batchData, error: batchError } = await input.supabase
     .from('messenger_attachment_delivery_batches')
-    .select('id,generation,status,expires_at,payload_fingerprint,committed_message_ids')
+    .select('id,generation,status,expires_at,payload_fingerprint')
     .eq('actor_id', input.actor.id)
     .eq('actor_role', input.actor.role)
     .eq('delivery_key', deliveryKey)
@@ -112,9 +145,6 @@ export async function finalizeMessengerAttachmentBatch(input: {
     return {
       batchId: batch.id,
       replayed: true,
-      committedMessageIds: Array.isArray(batch.committed_message_ids)
-        ? batch.committed_message_ids
-        : [],
       inspections: [],
     };
   }
@@ -138,7 +168,10 @@ export async function finalizeMessengerAttachmentBatch(input: {
   if (intentError) {
     throw new MessengerAttachmentServiceError('attachment_database_unavailable', 503);
   }
-  const intents = (rawIntents ?? []) as unknown as UploadIntentRow[];
+  if (!Array.isArray(rawIntents)) {
+    throw new MessengerAttachmentServiceError('attachment_database_unavailable', 503);
+  }
+  const intents = rawIntents as unknown as UploadIntentRow[];
   if (
     intents.length !== intentIds.length
     || intents.some((intent, index) =>
@@ -234,16 +267,12 @@ export async function finalizeMessengerAttachmentBatch(input: {
     return {
       batchId: String(validation.batchId ?? batch.id),
       replayed: true,
-      committedMessageIds: Array.isArray(validation.messageIds)
-        ? validation.messageIds.filter((id): id is string => typeof id === 'string')
-        : [],
       inspections: [],
     };
   }
   return {
     batchId: batch.id,
     replayed: false,
-    committedMessageIds: [],
     inspections,
   };
 }
@@ -259,25 +288,43 @@ export async function listMessengerAttachmentsByBatchIds(input: {
   ));
   const result = new Map<string, MessengerAttachmentMetadata[]>();
   if (batchIds.length === 0) return result;
-  const { data, error } = await input.supabase
-    .from('messenger_attachment_objects')
-    .select('id,batch_id,sort_order,original_name,mime_type,byte_size,sha256,status')
-    .in('batch_id', batchIds)
-    .order('sort_order', { ascending: true });
-  if (error) {
+  const rows: MessengerAttachmentListRow[] = [];
+  const seenIds = new Set<string>();
+  try {
+    for (const batchIdChunk of chunkSupabaseFilterValues(batchIds)) {
+      const chunkSet = new Set(batchIdChunk);
+      const chunkRows = await collectSupabaseRows<MessengerAttachmentListRow>({
+        queryName: 'messenger_attachment_objects',
+        isRow: isMessengerAttachmentListRow,
+        rowKey: (row) => row.id,
+        fetchPage: (from, to) => input.supabase
+          .from('messenger_attachment_objects')
+          .select('id,batch_id,sort_order,original_name,mime_type,byte_size,sha256,status')
+          .in('batch_id', batchIdChunk)
+          .order('batch_id', { ascending: true })
+          .order('sort_order', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      });
+      if (chunkRows.some((row) => !chunkSet.has(row.batch_id) || seenIds.has(row.id))) {
+        throw new Error('messenger_attachment_object_identity_invalid');
+      }
+      chunkRows.forEach((row) => seenIds.add(row.id));
+      rows.push(...chunkRows);
+    }
+  } catch {
     throw new MessengerAttachmentServiceError('attachment_database_unavailable', 503);
   }
-  for (const raw of data ?? []) {
-    const row = raw as Record<string, unknown>;
-    const batchId = String(row.batch_id ?? '');
-    if (!batchId || row.status !== 'active') continue;
+  for (const row of rows) {
+    const batchId = row.batch_id;
+    if (row.status !== 'active') continue;
     const attachments = result.get(batchId) ?? [];
     attachments.push({
-      id: String(row.id),
-      name: String(row.original_name),
-      size: Number(row.byte_size),
-      mimeType: String(row.mime_type),
-      sha256: String(row.sha256),
+      id: row.id,
+      name: row.original_name,
+      size: row.byte_size,
+      mimeType: row.mime_type,
+      sha256: row.sha256,
     });
     result.set(batchId, attachments);
   }
@@ -343,6 +390,8 @@ export async function drainMessengerAttachmentCleanup(input: {
   limit?: number;
   batchId?: string | null;
 }): Promise<{
+  claimFailed: boolean;
+  completionFailed: boolean;
   claimed: number;
   removed: number;
   requeued: number;
@@ -355,32 +404,82 @@ export async function drainMessengerAttachmentCleanup(input: {
     { p_limit: limit, p_batch_id: batchId },
   );
   if (error) {
-    return { claimed: 0, removed: 0, requeued: 0, exhausted: 0 };
+    return {
+      claimFailed: true,
+      completionFailed: false,
+      claimed: 0,
+      removed: 0,
+      requeued: 0,
+      exhausted: 0,
+    };
   }
-  const jobs = Array.isArray(data) ? data as Array<Record<string, unknown>> : [];
+  if (!Array.isArray(data)) {
+    return {
+      claimFailed: true,
+      completionFailed: false,
+      claimed: 0,
+      removed: 0,
+      requeued: 0,
+      exhausted: 0,
+    };
+  }
+  const jobs: Array<{ jobId: string; bucket: string; path: string }> = [];
+  const jobIds = new Set<string>();
+  for (const rawJob of data) {
+    const job = asRecord(rawJob);
+    const jobId = normalizeMessengerAttachmentUuid(job?.job_id);
+    const bucket = typeof job?.bucket_id === 'string' ? job.bucket_id.trim() : '';
+    const path = typeof job?.storage_path === 'string' ? job.storage_path.trim() : '';
+    if (!jobId || !bucket || !path || jobIds.has(jobId)) {
+      return {
+        claimFailed: true,
+        completionFailed: false,
+        claimed: 0,
+        removed: 0,
+        requeued: 0,
+        exhausted: 0,
+      };
+    }
+    jobIds.add(jobId);
+    jobs.push({ jobId, bucket, path });
+  }
   let removed = 0;
   let requeued = 0;
   let exhausted = 0;
+  let completionFailed = false;
   for (const job of jobs) {
-    const jobId = normalizeMessengerAttachmentUuid(job.job_id);
-    const bucket = typeof job.bucket_id === 'string' ? job.bucket_id : '';
-    const path = typeof job.storage_path === 'string' ? job.storage_path : '';
-    if (!jobId || !bucket || !path) continue;
-    const removal = await input.supabase.storage.from(bucket).remove([path]);
+    const removal = await input.supabase.storage.from(job.bucket).remove([job.path]);
     const completion = await input.supabase.rpc(
       'complete_messenger_attachment_cleanup_v2',
       {
-        p_job_id: jobId,
+        p_job_id: job.jobId,
         p_removed: !removal.error,
         p_error_code: removal.error ? cleanStorageErrorCode(removal.error) : null,
       },
     );
     const status = asRecord(completion.data)?.status;
-    if (!removal.error && status === 'completed') removed += 1;
+    const completionMatchesRemoval = removal.error
+      ? status === 'pending' || status === 'exhausted'
+      : status === 'completed';
+    if (
+      completion.error
+      || !completionMatchesRemoval
+    ) {
+      completionFailed = true;
+    } else if (!removal.error && status === 'completed') removed += 1;
     else if (status === 'exhausted') exhausted += 1;
     else requeued += 1;
   }
-  return { claimed: jobs.length, removed, requeued, exhausted };
+  completionFailed = completionFailed
+    || jobs.length !== removed + requeued + exhausted;
+  return {
+    claimFailed: false,
+    completionFailed,
+    claimed: jobs.length,
+    removed,
+    requeued,
+    exhausted,
+  };
 }
 
 export function mapMessengerAttachmentRpcError(error: unknown): MessengerAttachmentServiceError {

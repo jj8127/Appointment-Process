@@ -21,6 +21,24 @@ describe('mobile FC basic-information source contract', () => {
     expect(source).toContain('retryBasicInformationLoad');
   });
 
+  it('fails closed when the exact resident-number receipt is malformed or unavailable', () => {
+    const loadStart = source.indexOf('const loadExisting = useCallback');
+    const loadEnd = source.indexOf('  useEffect(() => {', loadStart);
+    const loadExisting = source.slice(loadStart, loadEnd);
+    const receiptIndex = loadExisting.indexOf(
+      'parseResidentNumberReceipt(residentResult, [profile.id])',
+    );
+    const readyIndex = loadExisting.lastIndexOf("setProfileLoadState('ready')");
+
+    expect(loadExisting).toContain("'getResidentNumbers'");
+    expect(loadExisting).toContain('if (!residentReceipt ||');
+    expect(loadExisting).toContain("=== 'unavailable'");
+    expect(loadExisting).toContain("throw new Error('resident_number_read_unavailable')");
+    expect(loadExisting).not.toContain("supabase.functions.invoke('admin-action'");
+    expect(receiptIndex).toBeGreaterThan(-1);
+    expect(readyIndex).toBeGreaterThan(receiptIndex);
+  });
+
   it('keeps the login phone immutable and removes profile payload diagnostics', () => {
     const phoneFieldStart = source.indexOf('name="phone"');
     const phoneField = source.slice(phoneFieldStart, phoneFieldStart + 420);
@@ -38,5 +56,13 @@ describe('mobile FC basic-information source contract', () => {
     expect(source).toContain('keyboardDismissMode="none"');
     expect(source).not.toContain('keyboardDismissMode="on-drag"');
     expect(source).toContain('setTimeout(() => scrollToInput(node), 220)');
+  });
+
+  it('requires a request-bound store-identity receipt before continuing profile save', () => {
+    expect(source).toContain('invokeStoreIdentity(identityPayload)');
+    const receiptIndex = source.indexOf('requireStoreIdentityReceipt(identityReceipt, phoneDigits)');
+    const profileUpdateIndex = source.indexOf("'updateOwnProfile'");
+    expect(receiptIndex).toBeGreaterThan(-1);
+    expect(profileUpdateIndex).toBeGreaterThan(receiptIndex);
   });
 });

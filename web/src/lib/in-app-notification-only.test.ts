@@ -17,7 +17,8 @@ test('canonical administrator notification center remains mounted and navigable'
 
   assert.match(layout, /<DashboardNotificationBell/);
   assert.match(bell, /type:\s*'inbox_list'/);
-  assert.match(bell, /type:\s*'inbox_mark_read'/);
+  assert.match(bell, /type:\s*'inbox_unread_count'/);
+  assert.match(bell, /type:\s*'inbox_mark_all_read'/);
   assert.match(bell, /dashboard\/notification-open/);
 });
 
@@ -53,7 +54,7 @@ test('server delivery retains Expo mobile fanout and removes all active Web Push
 
 test('fc-notify keeps administrator Web Push as an accepted local no-op', () => {
   const edge = readRepo('supabase/functions/fc-notify/index.ts');
-  const start = edge.indexOf('async function notifyAdminWebPush(');
+  const start = edge.indexOf('function notifyAdminWebPush(');
   const end = edge.indexOf('function getNotificationDeliveryWarning', start);
   const noOp = edge.slice(start, end);
 

@@ -3,6 +3,7 @@
 import { supabase } from './supabase';
 import {
   MESSENGER_ATTACHMENT_ERROR_COPY,
+  parseMessengerAttachmentDownloadUrl,
   validateMessengerAttachmentSelection,
   type MessengerAttachmentMimeType,
 } from './messenger-attachment-policy';
@@ -300,10 +301,8 @@ export async function openMessengerAttachment(attachmentId: string) {
       download?: { signedUrl?: string };
       message?: string;
     } | null;
-    const signedUrl = typeof payload?.download?.signedUrl === 'string'
-      ? payload.download.signedUrl
-      : '';
-    if (!response.ok || payload?.ok !== true || !signedUrl) {
+    const signedUrl = parseMessengerAttachmentDownloadUrl(payload);
+    if (!response.ok || !signedUrl) {
       throw new Error(payload?.message || MESSENGER_ATTACHMENT_ERROR_COPY.downloadFailed);
     }
     if (pendingWindow) {

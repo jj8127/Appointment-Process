@@ -4,12 +4,12 @@ describe('request board mobile API wrapper contract', () => {
   const source = readFileSync('lib/request-board-api.ts', 'utf8');
 
   it('exposes FC-side customer, product, and request creation wrappers', () => {
-    expect(source).toContain('export async function rbGetCustomers');
-    expect(source).toContain("rbFetch<RbCustomerProfile[]>('/api/customers?ssnView=full')");
+    expect(source).toContain('export async function rbGetCustomersOrThrow');
+    expect(source).toContain("'/api/customers?ssnView=full',");
     expect(source).toContain('export async function rbSaveCustomer');
     expect(source).toContain("rbFetch<RbCustomerProfile>('/api/customers'");
-    expect(source).toContain('export async function rbGetProducts');
-    expect(source).toContain("rbFetch<RbInsuranceProduct[]>('/api/designers/products/list')");
+    expect(source).toContain('export async function rbGetProductsOrThrow');
+    expect(source).toContain("'/api/designers/products/list',");
     expect(source).toContain('export async function rbCreateRequest');
     expect(source).toContain("rbFetch<RbRequestDetail>('/api/requests'");
   });
@@ -28,7 +28,7 @@ describe('request board mobile API wrapper contract', () => {
 
     const createRequest = source.slice(
       source.indexOf('export async function rbCreateRequest'),
-      source.indexOf('export async function rbGetRequestList'),
+      source.indexOf('export async function rbGetRequestListOrThrow'),
     );
     expect(createRequest).toContain('timeoutMs: REQUEST_BOARD_NOTIFICATION_WRITE_TIMEOUT_MS');
     expect(source.match(/REQUEST_BOARD_NOTIFICATION_WRITE_TIMEOUT_MS/g)).toHaveLength(2);
@@ -41,7 +41,7 @@ describe('request board mobile API wrapper contract', () => {
     );
     const createRequest = source.slice(
       source.indexOf('export async function rbCreateRequest'),
-      source.indexOf('export async function rbGetRequestList'),
+      source.indexOf('export async function rbGetRequestListOrThrow'),
     );
 
     expect(createPayload).toContain('clientRequestKey: string');
@@ -80,10 +80,12 @@ describe('request board mobile API wrapper contract', () => {
   });
 
   it('keeps list reads lightweight while preserving full design-work detail reads', () => {
-    expect(source).toContain(
-      '/api/requests?limit=100&page=1&ssnView=masked&includeAttachments=false',
-    );
+    expect(source).toContain("'/api/requests'");
+    expect(source).toContain("['page', String(page)]");
+    expect(source).toContain("['ssnView', 'masked']");
+    expect(source).toContain("['includeAttachments', 'false']");
     expect(source).toContain('/api/requests/${id}?ssnView=full');
+    expect(source).toContain('export async function rbGetRequestListOrThrow');
   });
 
   it('does not turn request-board access-denied bridge errors into full GaramIn re-login', () => {

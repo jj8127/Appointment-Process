@@ -1,5 +1,14 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase , dbError } from '../_shared/board.ts';
+import {
+  hasUniqueStringField,
+  isBoardAttachmentQueryRow,
+  isBoardAuthoredEntityQueryRow,
+  isBoardUuid,
+} from '../_shared/board-read-contract.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
+import { parseQueryRows } from '../_shared/query-result-contract.ts';
+import { requireMutationRowReceipt } from '../_shared/ux-mutation-contract.ts';
 
 type Payload = {
   actor?: {
@@ -28,7 +37,7 @@ serve(async (req: Request) => {
   const forbidden = requireRole(actorCheck.actor, ['admin', 'manager'], origin);
   if (forbidden) return forbidden;
 
-  const postId = body.postId;
+  const postId = isBoardUuid(body.postId) ? body.postId.toLowerCase() : null;
   if (!postId) {
     return json({ ok: false, code: 'invalid_payload', message: 'postId is required' }, 400, origin);
   }
@@ -40,10 +49,13 @@ serve(async (req: Request) => {
     .maybeSingle();
 
   if (postError) {
-    return json({ ok: false, code: 'db_error', message: postError.message }, 500, origin);
+    return dbError(postError, origin);
   }
   if (!post) {
     return json({ ok: false, code: 'not_found', message: 'post not found' }, 404, origin);
+  }
+  if (!isBoardAuthoredEntityQueryRow(post) || post.id !== postId) {
+    return json({ ok: false, code: 'invalid_query_result', message: '게시글 조회 결과를 확인하지 못했습니다.' }, 502, origin);
   }
 
   if (
@@ -55,22 +67,61 @@ serve(async (req: Request) => {
 
   const { data: attachments, error: attachError } = await supabase
     .from('board_attachments')
-    .select('storage_path')
+    .select('id,post_id,file_type,file_name,file_size,mime_type,storage_path,sort_order,created_at')
     .eq('post_id', postId);
 
   if (attachError) {
-    return json({ ok: false, code: 'db_error', message: attachError.message }, 500, origin);
+    return dbError(attachError, origin);
+  }
+  const attachmentRows = parseQueryRows(attachments, isBoardAttachmentQueryRow);
+  if (
+    !attachmentRows
+    || !hasUniqueStringField(attachmentRows, 'id')
+    || !hasUniqueStringField(attachmentRows, 'storage_path')
+    || attachmentRows.some((row) => row.post_id !== postId)
+  ) {
+    return json({ ok: false, code: 'invalid_query_result', message: '첨부파일 조회 결과를 확인하지 못했습니다.' }, 502, origin);
   }
 
-  const storagePaths = (attachments ?? []).map((row) => row.storage_path).filter(Boolean);
+  const storagePaths = attachmentRows.map((row) => row.storage_path);
   if (storagePaths.length > 0) {
-    await supabase.storage.from('board-attachments').remove(storagePaths);
+    const { error: storageError } = await supabase.storage.from('board-attachments').remove(storagePaths);
+    if (storageError) {
+      reportEdgeDiagnostic({
+        event: 'board_attachment.storage',
+        reason: 'delete_failed',
+        retryable: true,
+        errorClass: 'upstream',
+      });
+      return json({
+        ok: false,
+        code: 'storage_cleanup_failed',
+        message: '게시글 첨부파일 정리를 완료하지 못했습니다. 다시 시도해주세요.',
+        retryable: true,
+      }, 502, origin);
+    }
   }
 
-  const { error } = await supabase.from('board_posts').delete().eq('id', postId);
+  const { data, error } = await supabase
+    .from('board_posts')
+    .delete()
+    .eq('id', postId)
+    .eq('author_role', post.author_role)
+    .eq('author_resident_id', post.author_resident_id)
+    .select('id')
+    .single();
   if (error) {
     return dbError(error, origin);
   }
+  try {
+    requireMutationRowReceipt(data, { id: postId });
+  } catch {
+    return json({
+      ok: false,
+      code: 'mutation_receipt_unverified',
+      message: '게시글 삭제 결과를 확인하지 못했습니다.',
+    }, 502, origin);
+  }
 
-  return json({ ok: true }, 200, origin);
+  return json({ ok: true, data: { postId: data.id, cleanupPending: false } }, 200, origin);
 });

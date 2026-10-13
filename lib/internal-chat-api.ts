@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import { parseOptionalCursorPaginationMetadata } from './list-pagination-contract';
 import { sanitizePhone } from './messenger-participants';
 import { isNotificationUuid } from './notification-target';
 import { getStaffChatActorId, type StaffType } from './staff-identity';
@@ -27,7 +28,7 @@ type InternalChatListWireItem = Omit<InternalChatListItem, 'conversation_id'> & 
 };
 
 export type InternalUnreadCountResponse = {
-  count: number;
+  count?: unknown;
 };
 
 export type ChatTargetWithUnread = {
@@ -43,7 +44,7 @@ export type ChatTargetWithUnread = {
 
 type InternalChatListResponse = FcNotifySuccess & {
   items?: InternalChatListWireItem[];
-  total_unread?: number;
+  total_unread?: unknown;
   next_cursor?: string | null;
   has_more?: boolean;
   limit?: number;
@@ -60,10 +61,10 @@ export type InternalChatListPage = {
 type InternalUnreadResponse = FcNotifySuccess & InternalUnreadCountResponse;
 
 type ChatTargetsResponse = FcNotifySuccess & {
-  managers?: ChatTargetWithUnread[];
-  developers?: ChatTargetWithUnread[];
-  admins?: ChatTargetWithUnread[];
-  admin_unread_count?: number;
+  managers?: unknown;
+  developers?: unknown;
+  admins?: unknown;
+  admin_unread_count?: unknown;
 };
 
 export type InternalChatViewerPayload = {
@@ -122,7 +123,14 @@ async function invokeFcNotify<T extends FcNotifySuccess>(
   return data as T;
 }
 
-function parseInternalChatListResponse(data: InternalChatListResponse): InternalChatListPage {
+function requireNonNegativeSafeInteger(value: unknown, message: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw new Error(message);
+  }
+  return value as number;
+}
+
+export function parseInternalChatListResponse(data: InternalChatListResponse): InternalChatListPage {
   if (!Array.isArray(data.items)) {
     throw new Error('internal chat list response is invalid');
   }
@@ -148,32 +156,144 @@ function parseInternalChatListResponse(data: InternalChatListResponse): Internal
       target_id: targetId,
     };
   });
-  const totalUnread = Number(data.total_unread ?? 0);
-  if (!Number.isSafeInteger(totalUnread) || totalUnread < 0) {
-    throw new Error('internal chat unread count is invalid');
+  const totalUnread = requireNonNegativeSafeInteger(
+    data.total_unread,
+    'internal chat unread count is invalid',
+  );
+  const pagination = parseOptionalCursorPaginationMetadata(data);
+  if (!pagination) {
+    throw new Error('internal chat list pagination is invalid');
   }
-  const nextCursor = typeof data.next_cursor === 'string' && data.next_cursor
-    ? data.next_cursor
-    : null;
-  const hasMore = data.has_more === true && nextCursor !== null;
   const limit = Number(data.limit ?? items.length);
   if (!Number.isSafeInteger(limit) || limit < 0 || limit > 10_000) {
     throw new Error('internal chat list limit is invalid');
   }
-  return { items, totalUnread, nextCursor: hasMore ? nextCursor : null, hasMore, limit };
+  return { items, totalUnread, ...pagination, limit };
+}
+
+function parseChatTarget(value: unknown): ChatTargetWithUnread | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.phone !== 'string') return null;
+  const phone = sanitizePhone(row.phone);
+  const conversationId = row.conversation_id;
+  if (
+    typeof row.name !== 'string'
+    || phone.length !== 11
+    || !Number.isSafeInteger(row.unread_count)
+    || Number(row.unread_count) < 0
+    || (conversationId !== undefined
+      && conversationId !== null
+      && !isNotificationUuid(conversationId))
+    || (row.affiliation !== undefined
+      && row.affiliation !== null
+      && typeof row.affiliation !== 'string')
+    || (row.last_message !== undefined
+      && row.last_message !== null
+      && typeof row.last_message !== 'string')
+    || (row.last_time !== undefined
+      && row.last_time !== null
+      && (typeof row.last_time !== 'string'
+        || !Number.isFinite(Date.parse(row.last_time))))
+    || (row.staff_type !== undefined
+      && row.staff_type !== null
+      && typeof row.staff_type !== 'string')
+  ) {
+    return null;
+  }
+
+  return {
+    name: row.name,
+    phone,
+    unread_count: row.unread_count as number,
+    ...(row.affiliation !== undefined ? { affiliation: row.affiliation as string | null } : {}),
+    ...(conversationId !== undefined ? { conversation_id: conversationId as string | null } : {}),
+    ...(row.last_message !== undefined ? { last_message: row.last_message as string | null } : {}),
+    ...(row.last_time !== undefined ? { last_time: row.last_time as string | null } : {}),
+    ...(row.staff_type !== undefined ? { staff_type: row.staff_type as string | null } : {}),
+  };
+}
+
+function parseChatTargetRows(value: unknown): ChatTargetWithUnread[] | null {
+  if (!Array.isArray(value)) return null;
+  const rows = value.map(parseChatTarget);
+  return rows.every((row): row is ChatTargetWithUnread => row !== null) ? rows : null;
+}
+
+export function parseChatTargetsResponse(data: unknown): {
+  managers: ChatTargetWithUnread[];
+  developers: ChatTargetWithUnread[];
+  admins: ChatTargetWithUnread[];
+  adminUnreadCount: number;
+} {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('chat targets response is invalid');
+  }
+  const response = data as ChatTargetsResponse;
+  const managers = parseChatTargetRows(response.managers);
+  const developers = parseChatTargetRows(response.developers);
+  const admins = parseChatTargetRows(response.admins);
+  const adminUnreadCount = response.admin_unread_count;
+  if (
+    response.ok !== true
+    || !managers
+    || !developers
+    || !admins
+    || !Number.isSafeInteger(adminUnreadCount)
+    || Number(adminUnreadCount) < 0
+    || admins.reduce((total, target) => total + target.unread_count, 0) !== adminUnreadCount
+  ) {
+    throw new Error('chat targets response is invalid');
+  }
+  return {
+    managers,
+    developers,
+    admins,
+    adminUnreadCount: adminUnreadCount as number,
+  };
+}
+
+export function parseInternalUnreadCountResponse(data: unknown): number {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('internal unread count response is invalid');
+  }
+  const response = data as FcNotifySuccess & InternalUnreadCountResponse;
+  if (response.ok !== true) {
+    throw new Error('internal unread count response is invalid');
+  }
+  return requireNonNegativeSafeInteger(
+    response.count,
+    'internal unread count response is invalid',
+  );
 }
 
 export async function fetchInternalChatList(
   input: InternalChatViewerContext,
 ): Promise<{ items: InternalChatListItem[]; totalUnread: number }> {
-  const payload = buildInternalChatViewerPayload(input);
-  if (!payload) return { items: [], totalUnread: 0 };
-  const data = await invokeFcNotify<InternalChatListResponse>({
-    type: 'internal_chat_list',
-    ...payload,
-  });
-  const page = parseInternalChatListResponse(data);
-  return { items: page.items, totalUnread: page.totalUnread };
+  const items: InternalChatListItem[] = [];
+  const seenPhones = new Set<string>();
+  const seenCursors = new Set<string>();
+  let cursor: string | null = null;
+  let totalUnread: number | null = null;
+
+  do {
+    const page = await fetchInternalChatListPage(input, cursor, 50);
+    if (totalUnread === null) totalUnread = page.totalUnread;
+    for (const item of page.items) {
+      if (seenPhones.has(item.phone)) {
+        throw new Error('internal chat list pagination contains duplicate rows');
+      }
+      seenPhones.add(item.phone);
+      items.push(item);
+    }
+    cursor = page.nextCursor;
+    if (cursor && seenCursors.has(cursor)) {
+      throw new Error('internal chat list pagination did not advance');
+    }
+    if (cursor) seenCursors.add(cursor);
+  } while (cursor);
+
+  return { items, totalUnread: totalUnread ?? 0 };
 }
 
 export async function fetchInternalChatListPage(
@@ -211,7 +331,7 @@ export async function fetchInternalUnreadCount(
     ...payload,
   });
 
-  return Number(data.count ?? 0);
+  return parseInternalUnreadCountResponse(data);
 }
 
 export async function fetchFcChatTargets(residentId?: string | null): Promise<{
@@ -236,12 +356,7 @@ export async function fetchFcChatTargets(residentId?: string | null): Promise<{
       resident_id: residentPhone,
     });
 
-    return {
-      managers: Array.isArray(data.managers) ? data.managers : [],
-      developers: Array.isArray(data.developers) ? data.developers : [],
-      admins: Array.isArray(data.admins) ? data.admins : [],
-      adminUnreadCount: Number(data.admin_unread_count ?? 0),
-    };
+    return parseChatTargetsResponse(data);
   } catch (error) {
     logger.debug('[internal-chat-api] fetchFcChatTargets failed', error);
     throw error;

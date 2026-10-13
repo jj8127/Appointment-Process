@@ -3,9 +3,13 @@ import { adminRouteAuthErrorResponse, requireAdminOrManagerReadRoute } from '@/l
 import {
     buildActiveManagerPhoneSet,
     isDashboardFcOnlyRow,
+    normalizeDashboardIdentityPhone,
 } from '@/lib/dashboard-fc-eligibility';
 import { normalizeDashboardFcListRow } from '@/lib/dashboard-table-display';
+import { ADMIN_FC_LIST_SELECT, isAdminFcProfile } from '@/lib/admin-document-client';
+import { serverError } from '@/lib/api-error';
 import { logger } from '@/lib/logger';
+import { collectSupabaseRows } from '@/lib/supabase-query-contract';
 import { NextResponse } from 'next/server';
 
 const AFFILIATION_CANONICAL_OPTIONS = [
@@ -50,6 +54,40 @@ const LEGACY_AFFILIATION_TO_CANONICAL: Record<string, string> = {
 };
 
 const normalizeWhitespace = (value?: string | null) => (value ?? '').replace(/\s+/g, ' ').trim();
+
+type ActiveManagerRow = { id: string; phone: string };
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+
+const isCredentialRow = (value: unknown): boolean => (
+    isRecord(value)
+    && (value.password_set_at === null || typeof value.password_set_at === 'string')
+);
+
+const isDashboardProfileRow = (value: unknown): value is Record<string, unknown> & {
+    id: string;
+    phone: string;
+    affiliation: string;
+} => {
+    if (!isAdminFcProfile(value)
+        || value.signup_completed !== true
+        || !Array.isArray(value.fc_documents)
+        || !isRecord(value)) return false;
+    const credentialRelation = (value as Record<string, unknown>).fc_credentials;
+    return credentialRelation === null
+        || isCredentialRow(credentialRelation)
+        || (Array.isArray(credentialRelation) && credentialRelation.every(isCredentialRow));
+};
+
+const isActiveManagerRow = (value: unknown): value is ActiveManagerRow => (
+    isRecord(value)
+    && typeof value.id === 'string'
+    && value.id.trim().length > 0
+    && typeof value.phone === 'string'
+    && normalizeDashboardIdentityPhone(value.phone).length > 0
+);
 const normalizeAffiliationLabel = (value?: string | null): string => {
     const trimmed = normalizeWhitespace(value);
     if (!trimmed) return '';
@@ -74,27 +112,36 @@ export async function GET() {
     }
 
     try {
-        const [
-            { data, error },
-            { data: activeManagerRows, error: activeManagerError },
-        ] = await Promise.all([
-            adminSupabase
-                .from('fc_profiles')
-                .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_credentials(password_set_at), fc_documents(id,fc_id,doc_type,storage_path,file_name,status,reviewer_note,created_at)')
-                .eq('signup_completed', true)
-                .order('created_at', { ascending: false }),
-            adminSupabase
-                .from('manager_accounts')
-                .select('phone')
-                .eq('active', true),
+        const [profileRows, managerRows] = await Promise.all([
+            collectSupabaseRows({
+                queryName: 'admin_list_profiles',
+                isRow: isDashboardProfileRow,
+                rowKey: (row) => row.id,
+                fetchPage: async (from, to) => adminSupabase
+                    .from('fc_profiles')
+                    .select(ADMIN_FC_LIST_SELECT)
+                    .eq('signup_completed', true)
+                    .order('created_at', { ascending: false })
+                    .order('id', { ascending: false })
+                    .range(from, to),
+            }),
+            collectSupabaseRows({
+                queryName: 'admin_list_managers',
+                isRow: isActiveManagerRow,
+                rowKey: (row) => row.id,
+                fetchPage: async (from, to) => adminSupabase
+                    .from('manager_accounts')
+                    .select('id,phone')
+                    .eq('active', true)
+                    .order('phone', { ascending: true })
+                    .order('id', { ascending: true })
+                    .range(from, to),
+            }),
         ]);
 
-        if (error) throw error;
-        if (activeManagerError) throw activeManagerError;
+        const activeManagerPhones = buildActiveManagerPhoneSet(managerRows);
 
-        const activeManagerPhones = buildActiveManagerPhoneSet(activeManagerRows ?? []);
-
-        const fcOnlyData = (data ?? [])
+        const fcOnlyData = profileRows
             .filter((row) => isDashboardFcOnlyRow(row, activeManagerPhones))
             .map((row) => ({
                 ...normalizeDashboardFcListRow(row),
@@ -102,14 +149,12 @@ export async function GET() {
             }));
 
         logger.debug('[api/admin/list] fetched count', {
-            rawCount: data?.length ?? 0,
+            rawCount: profileRows.length,
             fcOnlyCount: fcOnlyData.length,
         });
 
         return NextResponse.json(fcOnlyData);
     } catch (err: unknown) {
-        const error = err as Error;
-        logger.error('[api/admin/list] failed', error);
-        return NextResponse.json({ error: '요청 처리에 실패했습니다.' }, { status: 500 });
+        return serverError(err, 'api/admin/list');
     }
 }

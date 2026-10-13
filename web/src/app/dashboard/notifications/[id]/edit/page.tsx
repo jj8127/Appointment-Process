@@ -29,6 +29,8 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { updateNoticeAction } from '../../actions';
 
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { fetchAdminNotice, type AdminNoticeFile } from '@/lib/admin-notice-client';
 import { logger } from '@/lib/logger';
 
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
@@ -38,28 +40,6 @@ const schema = z.object({
     title: z.string().min(1, '제목을 입력해주세요'),
     body: z.string().min(1, '내용을 입력해주세요'),
 });
-
-type NoticeFile = {
-    name?: string;
-    url?: string;
-    type?: string;
-    size?: number;
-};
-
-type NoticeItem = {
-    id: string;
-    title: string;
-    body: string;
-    category?: string | null;
-    images?: string[] | null;
-    files?: NoticeFile[] | null;
-};
-
-type NoticeResponse = {
-    ok?: boolean;
-    notice?: NoticeItem;
-    error?: string;
-};
 
 const extractBoardPostId = (noticeId: string): string | null => {
     if (!noticeId.startsWith(BOARD_NOTICE_ID_PREFIX)) return null;
@@ -93,13 +73,14 @@ export default function EditNoticePage() {
     const submittingRef = useRef(false);
     const [submitPhase, setSubmitPhase] = useState('');
     const [isFetching, setIsFetching] = useState(true);
-    const [fetchError, setFetchError] = useState<string | null>(null);
+    const [fetchError, setFetchError] = useState<unknown>(null);
+    const [fetchAttempt, setFetchAttempt] = useState(0);
 
     // Images: mix of existing URLs (strings) and new files
     const [existingImages, setExistingImages] = useState<string[]>([]);
     const [newImages, setNewImages] = useState<FileWithPath[]>([]);
     // Files: mix of existing file objects and new files
-    const [existingFiles, setExistingFiles] = useState<NoticeFile[]>([]);
+    const [existingFiles, setExistingFiles] = useState<AdminNoticeFile[]>([]);
     const [newFiles, setNewFiles] = useState<FileWithPath[]>([]);
 
     const supabase = createBrowserClient(
@@ -123,19 +104,18 @@ export default function EditNoticePage() {
             return;
         }
         if (!id) return;
-        fetch(`/api/admin/notices?id=${encodeURIComponent(id)}`, { credentials: 'include' })
-            .then((res) => res.json() as Promise<NoticeResponse>)
-            .then((data) => {
-                if (!data.ok || !data.notice) throw new Error(data.error ?? '공지를 불러올 수 없습니다.');
-                const n = data.notice;
+        setIsFetching(true);
+        setFetchError(null);
+        fetchAdminNotice(id)
+            .then((n) => {
                 form.setValues({ category: n.category ?? '', title: n.title, body: n.body });
                 setExistingImages(n.images ?? []);
                 setExistingFiles(n.files ?? []);
             })
-            .catch((err: Error) => setFetchError(err.message))
+            .catch((error: unknown) => setFetchError(error))
             .finally(() => setIsFetching(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [boardPostId, id, router]);
+    }, [boardPostId, fetchAttempt, id, router]);
 
     if (boardPostId) {
         return (
@@ -223,7 +203,12 @@ export default function EditNoticePage() {
     if (fetchError) {
         return (
             <Container size="sm" py={rem(60)}>
-                <Text c="red" fw={600}>{fetchError}</Text>
+                <QueryErrorAlert
+                    error={fetchError}
+                    onRetry={() => setFetchAttempt((attempt) => attempt + 1)}
+                    isFetching={isFetching}
+                    subject="공지 상세"
+                />
                 <Button mt="md" variant="subtle" leftSection={<IconArrowLeft size={16} />} onClick={() => router.back()}>
                     돌아가기
                 </Button>

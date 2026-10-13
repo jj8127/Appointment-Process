@@ -20,4 +20,21 @@ describe('FC submit notification source', () => {
     expect(source).not.toContain('.catch(() => undefined)');
     expect(source).not.toContain('.catch(() => { });');
   });
+
+  it('verifies the Hanwha submission against the requested profile and date before notifying', () => {
+    const mobileSource = readFileSync(join(root, 'app', 'hanwha-commission.tsx'), 'utf8');
+    const edgeSource = readFileSync(
+      join(root, 'supabase', 'functions', 'fc-submit-hanwha-commission', 'index.ts'),
+      'utf8',
+    );
+
+    expect(edgeSource).toContain("from '../_shared/ux-mutation-contract.ts'");
+    expect(edgeSource).toContain('requireMutationRowReceipt(updated, {');
+    expect(edgeSource).not.toContain('updated ?? { id: profile.id');
+    expect(mobileSource).toContain('requireHanwhaSubmissionReceipt(data.data, profile.id, ymd)');
+    expect(mobileSource).toContain("row.status !== 'hanwha-commission-review'");
+    expect(mobileSource).toContain('row.hanwha_commission_date_sub !== expectedDate');
+    expect(mobileSource.indexOf('requireHanwhaSubmissionReceipt(data.data, profile.id, ymd)'))
+      .toBeLessThan(mobileSource.indexOf('const notifyAdmins = () => invokeFcNotifyForDelivery({'));
+  });
 });

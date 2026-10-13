@@ -269,7 +269,6 @@ export default function RequestBoardReviewScreen() {
 
       const data = await rbGetRequestDetail(requestId);
       setDetail(data);
-      if (!data) setFetchError('의뢰 정보를 불러오는데 실패했습니다.');
     } catch (err) {
       logger.warn('[review] fetch failed', err);
       setFetchError(

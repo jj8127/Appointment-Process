@@ -1,3 +1,5 @@
+import { parseQueryRows } from './query-result-contract.ts';
+
 export type AllowanceSession = { role: string; phone: string; fcId?: string };
 export type AllowanceManager = { id: string; active: boolean };
 export type AllowanceProfile = {
@@ -26,6 +28,118 @@ export type AllowanceAuthRepository = {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const ALLOWANCE_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+const EMPLOYEE_CODE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+const normalizePhone = (value: unknown) =>
+  typeof value === 'string' ? value.replace(/[^0-9]/g, '') : '';
+
+type AllowanceManagerQueryRow = { id: string; phone: string; active: boolean };
+type AllowanceAdminQueryRow = { id: string; phone: string };
+type AllowanceProfileQueryRow = {
+  id: string;
+  phone: string;
+  affiliation: string | null;
+  signup_completed: boolean;
+  is_manager_referral_shadow: boolean;
+};
+type AllowancePilotQueryRow = {
+  manager_account_id: string | null;
+  beneficiary_fc_id: string;
+  employee_code: string;
+  enabled: boolean;
+  revision: number;
+};
+
+const isAllowanceManagerQueryRow = (value: unknown): value is AllowanceManagerQueryRow =>
+  isRecord(value) && typeof value.id === 'string' && UUID.test(value.id) &&
+  normalizePhone(value.phone).length === 11 && typeof value.active === 'boolean';
+const isAllowanceAdminQueryRow = (value: unknown): value is AllowanceAdminQueryRow =>
+  isRecord(value) && typeof value.id === 'string' && UUID.test(value.id) &&
+  normalizePhone(value.phone).length === 11;
+const isAllowanceProfileQueryRow = (value: unknown): value is AllowanceProfileQueryRow =>
+  isRecord(value) && typeof value.id === 'string' && UUID.test(value.id) &&
+  normalizePhone(value.phone).length === 11 &&
+  (value.affiliation === null || typeof value.affiliation === 'string') &&
+  typeof value.signup_completed === 'boolean' &&
+  typeof value.is_manager_referral_shadow === 'boolean';
+const isAllowancePilotQueryRow = (value: unknown): value is AllowancePilotQueryRow =>
+  isRecord(value) &&
+  (value.manager_account_id === null ||
+    (typeof value.manager_account_id === 'string' && UUID.test(value.manager_account_id))) &&
+  typeof value.beneficiary_fc_id === 'string' && UUID.test(value.beneficiary_fc_id) &&
+  typeof value.employee_code === 'string' && EMPLOYEE_CODE.test(value.employee_code) &&
+  typeof value.enabled === 'boolean' &&
+  Number.isSafeInteger(value.revision) && Number(value.revision) >= 1;
+
+function invalidAllowanceQuery(): never {
+  throw new Error('allowance_lookup_failed');
+}
+
+export function parseAllowanceManagerQuery(
+  value: unknown,
+  requestedPhone: string,
+): AllowanceManager | null {
+  const rows = parseQueryRows(value, isAllowanceManagerQueryRow);
+  if (!rows || rows.length > 1 ||
+    rows.some((row) => normalizePhone(row.phone) !== requestedPhone)) {
+    return invalidAllowanceQuery();
+  }
+  const row = rows[0];
+  return row ? { id: row.id, active: row.active } : null;
+}
+
+export function parseAllowanceAdminQuery(value: unknown, requestedPhone: string): boolean {
+  const rows = parseQueryRows(value, isAllowanceAdminQueryRow);
+  if (!rows || rows.length > 1 ||
+    rows.some((row) => normalizePhone(row.phone) !== requestedPhone)) {
+    return invalidAllowanceQuery();
+  }
+  return rows.length === 1;
+}
+
+export function parseAllowanceProfilesQuery(
+  value: unknown,
+  requestedPhone: string,
+  requestedFcId?: string,
+): AllowanceProfile[] {
+  const rows = parseQueryRows(value, isAllowanceProfileQueryRow);
+  if (!rows || rows.length > 1 || rows.some((row) =>
+    normalizePhone(row.phone) !== requestedPhone ||
+    (requestedFcId !== undefined && row.id !== requestedFcId)
+  )) {
+    return invalidAllowanceQuery();
+  }
+  return rows.map((row) => ({
+    id: row.id,
+    phone: row.phone,
+    affiliation: row.affiliation,
+    signupCompleted: row.signup_completed,
+    isManagerReferralShadow: row.is_manager_referral_shadow,
+  }));
+}
+
+export function parseAllowancePilotQuery(
+  value: unknown,
+  requestedBeneficiaryFcId: string,
+): AllowancePilot | null {
+  const rows = parseQueryRows(value, isAllowancePilotQueryRow);
+  if (!rows || rows.length > 1 ||
+    rows.some((row) => row.beneficiary_fc_id !== requestedBeneficiaryFcId)) {
+    return invalidAllowanceQuery();
+  }
+  const row = rows[0];
+  return row
+    ? {
+      managerAccountId: row.manager_account_id,
+      beneficiaryFcId: row.beneficiary_fc_id,
+      employeeCode: row.employee_code,
+      enabled: row.enabled,
+      revision: row.revision,
+    }
+    : null;
+}
 
 export function parseAllowanceReadRequest(value: unknown): AllowanceReadRequest | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;

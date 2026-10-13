@@ -85,20 +85,29 @@ describe('native referral graph helpers', () => {
     expect(getReferralGraphNodeScreenRadius(100000)).toBeCloseTo(17.5);
   });
 
-  it('deduplicates nodes and canonical edges while dropping unsafe edges', () => {
-    const graph = normalizeReferralGraph(
-      [node('root', { name: '  ' }), node('child'), node('child')],
-      [
-        edge('root', 'child'),
-        { ...edge('root', 'child'), id: 'duplicate-id' },
-        edge('root', 'missing'),
-        edge('root', 'root'),
-      ],
-    );
+  it('rejects duplicate or unsafe graph rows instead of silently dropping them', () => {
+    expect(() => normalizeReferralGraph(
+      [node('root'), node('child'), node('child')],
+      [edge('root', 'child')],
+    )).toThrow('referral_graph_node_contract_invalid');
+    expect(() => normalizeReferralGraph(
+      [node('root'), node('child')],
+      [edge('root', 'child'), { ...edge('root', 'child'), id: 'duplicate-id' }],
+    )).toThrow('referral_graph_edge_contract_invalid');
+    expect(() => normalizeReferralGraph(
+      [node('root'), node('child')],
+      [edge('root', 'missing')],
+    )).toThrow('referral_graph_edge_contract_invalid');
+    expect(() => normalizeReferralGraph(
+      [node('root'), node('child')],
+      [edge('root', 'root')],
+    )).toThrow('referral_graph_edge_contract_invalid');
 
-    expect(graph.nodes).toHaveLength(2);
+    const graph = normalizeReferralGraph(
+      [node('root', { name: '  ' }), node('child')],
+      [edge('root', 'child')],
+    );
     expect(graph.nodes.find((item) => item.id === 'root')?.name).toBe('이름 없음');
-    expect(graph.edges).toEqual([edge('root', 'child')]);
   });
 
   it('builds a deterministic finite layout and survives a cycle', () => {

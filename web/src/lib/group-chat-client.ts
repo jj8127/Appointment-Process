@@ -1,6 +1,11 @@
-import { isGroupChatSuccess } from './upstream-response-policy';
-import { GroupChatRequestError } from '@/lib/group-chat-error';
-import { validateMessengerAttachmentCommitResponse } from './messenger-attachment-commit';
+import { isGroupChatSuccess } from './upstream-response-policy.ts';
+import { GroupChatRequestError } from './group-chat-error.ts';
+import { validateMessengerAttachmentCommitResponse } from './messenger-attachment-commit.ts';
+import {
+  parseGroupMessengerMessage,
+  parseGroupMessengerMessageList,
+  parseGroupMessengerReactionList,
+} from './messenger-message-contract.ts';
 
 export type GroupChatRole = 'fc' | 'manager' | 'admin';
 export type GroupChatMessageType = 'text' | 'image' | 'file';
@@ -132,6 +137,34 @@ export type GroupChatBootstrapResponse = {
   notice: GroupChatNotice | null;
 };
 
+export type GroupChatRoomRef = {
+  version: 1;
+  kind: 'group_chat';
+  roomId: string;
+};
+
+export type GroupChatContextResponse = {
+  ok: true;
+  roomRef: GroupChatRoomRef;
+  anchorMessageId: string;
+  messages: GroupChatMessage[];
+  hasBefore: boolean;
+  hasAfter: boolean;
+  nextCursor: null;
+};
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
+  const expected = new Set(keys);
+  return Object.keys(value).length === expected.size
+    && Object.keys(value).every((key) => expected.has(key));
+}
+
 async function invokeGroupChat<T>(body: Record<string, unknown>): Promise<T> {
   const response = await fetch('/api/group-chat', {
     method: 'POST',
@@ -153,11 +186,129 @@ async function invokeGroupChat<T>(body: Record<string, unknown>): Promise<T> {
   return payload as T;
 }
 
+function invalidGroupChatMessageResponse(): never {
+  throw new GroupChatRequestError('단톡방 메시지 응답이 올바르지 않습니다.', {
+    code: 'invalid_group_chat_message_response',
+  });
+}
+
+function requireGroupChatMessage(value: unknown): GroupChatMessage {
+  return parseGroupMessengerMessage(value) ?? invalidGroupChatMessageResponse();
+}
+
+function invalidGroupChatContextResponse(): never {
+  throw new GroupChatRequestError('단톡방 이전 메시지 응답이 올바르지 않습니다.', {
+    code: 'invalid_group_chat_context_response',
+  });
+}
+
+export function parseGroupChatContextResponse(value: unknown): GroupChatContextResponse {
+  if (!isPlainRecord(value) || !hasExactKeys(value, [
+    'ok',
+    'roomRef',
+    'anchorMessageId',
+    'messages',
+    'hasBefore',
+    'hasAfter',
+    'nextCursor',
+  ])) return invalidGroupChatContextResponse();
+
+  const roomRef = value.roomRef;
+  const messages = parseGroupMessengerMessageList(value.messages);
+  if (
+    value.ok !== true
+    || !isPlainRecord(roomRef)
+    || !hasExactKeys(roomRef, ['version', 'kind', 'roomId'])
+    || roomRef.version !== 1
+    || roomRef.kind !== 'group_chat'
+    || typeof roomRef.roomId !== 'string'
+    || !UUID_PATTERN.test(roomRef.roomId)
+    || typeof value.anchorMessageId !== 'string'
+    || !UUID_PATTERN.test(value.anchorMessageId)
+    || !messages
+    || messages.length > 41
+    || typeof value.hasBefore !== 'boolean'
+    || typeof value.hasAfter !== 'boolean'
+    || value.nextCursor !== null
+  ) return invalidGroupChatContextResponse();
+
+  const roomId = roomRef.roomId.toLowerCase();
+  const anchorMessageId = value.anchorMessageId.toLowerCase();
+  const anchorIndex = messages.findIndex((message) => message.id === anchorMessageId);
+  if (
+    anchorIndex < 0
+    || anchorIndex > 20
+    || messages.length - anchorIndex - 1 > 20
+    || messages.some((message) =>
+      !UUID_PATTERN.test(message.id)
+      || message.room_id !== roomId
+    )
+  ) return invalidGroupChatContextResponse();
+
+  for (let index = 1; index < messages.length; index += 1) {
+    const previous = messages[index - 1];
+    const current = messages[index];
+    const timeComparison = Date.parse(previous.created_at) - Date.parse(current.created_at);
+    if (timeComparison > 0 || (timeComparison === 0 && previous.id > current.id)) {
+      return invalidGroupChatContextResponse();
+    }
+  }
+
+  return {
+    ok: true,
+    roomRef: { version: 1, kind: 'group_chat', roomId },
+    anchorMessageId,
+    messages: messages as GroupChatMessage[],
+    hasBefore: value.hasBefore,
+    hasAfter: value.hasAfter,
+    nextCursor: null,
+  };
+}
+
 export async function groupChatBootstrap(limit = 80) {
-  return invokeGroupChat<GroupChatBootstrapResponse>({
+  const result = await invokeGroupChat<GroupChatBootstrapResponse>({
     type: 'group_chat_bootstrap',
     limit,
   });
+  const messages = parseGroupMessengerMessageList(result.messages);
+  const lastMessage = result.last_message === null
+    ? null
+    : parseGroupMessengerMessage(result.last_message);
+  const noticeMessage = result.notice === null
+    ? null
+    : parseGroupMessengerMessage(result.notice?.message);
+  if (!messages
+    || (result.last_message !== null && !lastMessage)
+    || (result.notice !== null && !noticeMessage)
+    || messages.some((message) => message.room_id !== result.room.id)
+    || (lastMessage && lastMessage.room_id !== result.room.id)
+    || (noticeMessage && noticeMessage.room_id !== result.room.id)) {
+    return invalidGroupChatMessageResponse();
+  }
+  return {
+    ...result,
+    messages,
+    last_message: lastMessage,
+    notice: result.notice && noticeMessage
+      ? { ...result.notice, message: noticeMessage }
+      : null,
+  };
+}
+
+export async function groupChatContext(roomId: string, messageId: string) {
+  const normalizedRoomId = roomId.trim().toLowerCase();
+  const normalizedMessageId = messageId.trim().toLowerCase();
+  if (!UUID_PATTERN.test(normalizedRoomId) || !UUID_PATTERN.test(normalizedMessageId)) {
+    throw new GroupChatRequestError('단톡방 또는 메시지 정보가 올바르지 않습니다.', {
+      code: 'invalid_group_chat_context',
+    });
+  }
+  const result = await invokeGroupChat<unknown>({
+    type: 'group_chat_context',
+    room_id: normalizedRoomId,
+    message_id: normalizedMessageId,
+  });
+  return parseGroupChatContextResponse(result);
 }
 
 export async function groupChatSend(input: {
@@ -171,7 +322,7 @@ export async function groupChatSend(input: {
   deliveryKey?: string;
   payloadFingerprint?: string;
 }) {
-  const result = await invokeGroupChat<GroupChatSendResponse>({
+  const rawResult = await invokeGroupChat<GroupChatSendResponse>({
     type: 'group_chat_send',
     content: input.content,
     message_type: input.messageType ?? 'text',
@@ -187,6 +338,7 @@ export async function groupChatSend(input: {
         }
       : {}),
   });
+  const result = { ...rawResult, message: requireGroupChatMessage(rawResult.message) };
   if (
     input.attachmentIntentIds?.length
     && !validateMessengerAttachmentCommitResponse({
@@ -226,18 +378,22 @@ export async function groupChatSetMuted(muted: boolean) {
 }
 
 export async function groupChatSetReaction(messageId: string, reaction: string | null) {
-  return invokeGroupChat<{ ok: true; reactions: GroupChatReactionSummary[] }>({
+  const result = await invokeGroupChat<{ ok: true; reactions: GroupChatReactionSummary[] }>({
     type: 'group_chat_reaction_set',
     message_id: messageId,
     reaction,
   });
+  const reactions = parseGroupMessengerReactionList(result.reactions);
+  if (!reactions) return invalidGroupChatMessageResponse();
+  return { ...result, reactions };
 }
 
 export async function groupChatDeleteMessage(messageId: string) {
-  return invokeGroupChat<{ ok: true; message: GroupChatMessage }>({
+  const result = await invokeGroupChat<{ ok: true; message: GroupChatMessage }>({
     type: 'group_chat_delete',
     message_id: messageId,
   });
+  return { ...result, message: requireGroupChatMessage(result.message) };
 }
 
 function normalizeGroupChatPermissionActorId(value?: string | null) {
@@ -256,10 +412,17 @@ export async function groupChatSetMemberSendPermission(targetActorId: string, ca
 }
 
 export async function groupChatSetNotice(messageId: string) {
-  return invokeGroupChat<{ ok: true; notice: GroupChatNotice }>({
+  const result = await invokeGroupChat<{ ok: true; notice: GroupChatNotice }>({
     type: 'group_chat_notice_set',
     message_id: messageId,
   });
+  return {
+    ...result,
+    notice: {
+      ...result.notice,
+      message: requireGroupChatMessage(result.notice?.message),
+    },
+  };
 }
 
 export async function groupChatClearNotice() {

@@ -27,13 +27,14 @@ import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { invokeFcNotify } from '@/lib/fc-notify-client';
+import { parseInboxListPayload } from '@/lib/inbox-list-contract';
 import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCountOrThrow } from '@/lib/mobile-unread-notification-count';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
 import { openExternalUrl } from '@/lib/open-external-url';
 import {
   rbAcceptRequest,
-  rbGetRequestList,
+  rbGetRequestListOrThrow,
   rbRejectRequest,
   type RbRequestListItem,
 } from '@/lib/request-board-api';
@@ -68,7 +69,7 @@ type NotificationItem = {
   title: string;
   body: string;
   category?: string | null;
-  created_at?: string | null;
+  created_at: string;
 };
 
 /* ─── Helpers ─── */
@@ -320,11 +321,7 @@ export default function RequestBoardScreen() {
       // Notifications from fc-notify
       (async () => {
         try {
-          const { data, error } = await invokeFcNotify<{
-            ok?: boolean;
-            message?: string;
-            notifications?: NotificationItem[];
-          }>({
+          const { data, error } = await invokeFcNotify<unknown>({
               type: 'inbox_list',
               role: inboxRole,
               resident_id: notificationInboxResidentId,
@@ -333,21 +330,21 @@ export default function RequestBoardScreen() {
               only_request_board_categories: requestBoardRole === 'designer',
           });
           if (error) throw error;
-          if (!data?.ok) throw new Error(data?.message ?? '데이터 로드 실패');
+          const inbox = parseInboxListPayload(data);
 
-          const rbNotifs: NotificationItem[] = (data.notifications ?? [])
+          const rbNotifs: NotificationItem[] = inbox.notifications
             .filter(
-              (n: any) =>
+              (n) =>
                 (n.category ?? '').trim().toLowerCase().startsWith(REQUEST_BOARD_CATEGORY_PREFIX),
             )
             .sort(
-              (a: any, b: any) =>
-                new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime(),
+              (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
             );
 
           setNotifications(rbNotifs);
         } catch (err) {
           logger.warn('request-board notifications fetch failed', err);
+          setRequestBoardAccessError('최근 활동을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
         }
       })(),
 
@@ -377,7 +374,7 @@ export default function RequestBoardScreen() {
             throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
           }
 
-          const requests = await rbGetRequestList();
+          const requests = await rbGetRequestListOrThrow();
           setDesignerRequests(isRequestBoardDesigner ? requests : []);
           const computed = computeRequestBoardHomeStats(requests, !!isRequestBoardDesigner);
           setReqStats({ loaded: true, ...computed });

@@ -79,6 +79,15 @@ describe('fc-notify Edge authentication wiring', () => {
     expect(source).not.toContain("return ok({ ok: true, sent: 0, logged: !logError");
   });
 
+  it('pages and validates the complete FC broadcast token set', () => {
+    expect(source).toContain('collectSupabaseRows<TokenRow>({');
+    expect(source).toContain("queryName: 'fc_broadcast_device_tokens'");
+    expect(source).toContain('isRow: isTokenQueryRow');
+    expect(source).toContain('rowKey: (row) => row.expo_push_token');
+    expect(source).toContain(".order('expo_push_token', { ascending: true })");
+    expect(source).toContain('.range(from, to)');
+  });
+
   it('bounds Expo requests and has no administrator browser callback request', () => {
     expect(source).toContain('EXPO_PUSH_TIMEOUT_MS = 10_000');
     expect(source).toContain('signal: AbortSignal.timeout(EXPO_PUSH_TIMEOUT_MS)');
@@ -96,9 +105,13 @@ describe('fc-notify Edge authentication wiring', () => {
     expect(source).not.toContain("console.log('[fc-notify] request'");
   });
 
-  it('prevents signed FC callers from physically deleting global broadcast rows', () => {
-    expect(source).toContain("appActor?.sessionRole === 'fc'");
-    expect(source).toContain("deleteQuery.eq('recipient_role', 'fc').eq('resident_id', residentId)");
+  it('records inbox deletion as a viewer receipt without physically deleting shared rows', () => {
+    expect(source).toContain(
+      "const isDismiss = body.type === 'inbox_dismiss' || body.type === 'inbox_delete'",
+    );
+    expect(source).toContain('persistNotificationReceiptRows(receiptRows, viewer)');
+    expect(source).not.toContain(".from('notifications').delete()");
+    expect(source).not.toContain('deleteQuery');
     expect(notificationsSource).toContain('item.isBroadcast');
     expect(notificationsSource).toContain('locallyHiddenNotificationIds');
     expect(notificationsSource).toContain('hiddenNoticeIds.has(item.id)');

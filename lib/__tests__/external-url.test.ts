@@ -3,6 +3,7 @@ import { Linking } from 'react-native';
 
 import {
   formatExternalUrlDisplayText,
+  isCredentialFreeHttpsUrl,
   isHttpUrl,
   normalizeExternalUrl,
   stripTrailingUrlPunctuation,
@@ -54,6 +55,19 @@ describe('external url helpers', () => {
     expect(isHttpUrl('http://example.com')).toBe(true);
     expect(isHttpUrl('file:///storage/emulated/0/test.pdf')).toBe(false);
     expect(isHttpUrl('tel:01012341234')).toBe(false);
+  });
+
+  it.each([
+    'javascript:alert(1)',
+    'data:text/html,unsafe',
+    'http://storage.example.test/signed',
+    'https://user:secret@storage.example.test/signed',
+  ])('rejects unsafe signed response URLs: %s', (url) => {
+    expect(isCredentialFreeHttpsUrl(url)).toBe(false);
+  });
+
+  it('accepts credential-free HTTPS response URLs', () => {
+    expect(isCredentialFreeHttpsUrl('https://storage.example.test/signed?token=opaque')).toBe(true);
   });
 
   it('formats long urls into short visible labels', () => {

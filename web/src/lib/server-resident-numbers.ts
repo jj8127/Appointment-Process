@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger';
 import { readResidentNumbersFromEdgeFallback } from '@/lib/resident-number-edge-executor';
 import { buildResidentNumberEdgeFallbackRequest } from '@/lib/resident-number-edge-fallback';
 import { parseResidentNumberEdgeFallbackResponse } from '@/lib/resident-number-edge-response';
+import { requireSupabaseRowsMatching } from '@/lib/supabase-query-contract';
 import type {
   ResidentNumberMap,
   ResidentNumberReadResult,
@@ -137,12 +138,33 @@ async function readEncryptedResidentNumberRows(
     throw error;
   }
 
-  for (const row of rows ?? []) {
-    const fcId = String(row.fc_id ?? '').trim();
-    const encrypted = typeof row.resident_number_encrypted === 'string'
-      ? row.resident_number_encrypted
-      : '';
-    if (!fcId || !encrypted) continue;
+  const requestedIds = new Set(fcIds);
+  const seenIds = new Set<string>();
+  const encryptedRows = requireSupabaseRowsMatching(
+    rows,
+    'resident_number_encrypted_rows',
+    (value): value is { fc_id: string; resident_number_encrypted: string | null } => (
+      value !== null
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && typeof (value as { fc_id?: unknown }).fc_id === 'string'
+      && (
+        (value as { resident_number_encrypted?: unknown }).resident_number_encrypted === null
+        || typeof (value as { resident_number_encrypted?: unknown }).resident_number_encrypted === 'string'
+      )
+    ),
+  );
+  for (const row of encryptedRows) {
+    const fcId = row.fc_id.trim();
+    if (!fcId || !requestedIds.has(fcId) || seenIds.has(fcId)) {
+      throw new Error('resident_number_encrypted_rows_identity_contract_invalid');
+    }
+    seenIds.add(fcId);
+    const encrypted = row.resident_number_encrypted;
+    if (encrypted === null) continue;
+    if (!encrypted.trim()) {
+      throw new Error('resident_number_encrypted_rows_value_contract_invalid');
+    }
     const decrypted = await decryptResidentNumber(encrypted, key);
     residentNumbers[fcId] = decrypted;
     residentNumberStatuses[fcId] = decrypted ? 'ready' : 'unavailable';
@@ -287,6 +309,10 @@ export async function readResidentNumbersWithFallbackDetailed({
   staffPhone,
   logPrefix = '[server-resident-numbers]',
 }: ReadResidentNumbersWithFallbackOptions): Promise<ResidentNumberReadResult> {
+  if (fcIds.some((fcId) => typeof fcId !== 'string' || !fcId.trim())
+    || new Set(fcIds).size !== fcIds.length) {
+    throw new Error('resident_number_request_identity_contract_invalid');
+  }
   if (fcIds.length === 0) {
     return {
       residentNumbers: {},

@@ -5,6 +5,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const CLEANUP_TIMEOUT_MS = 45_000;
+const CLEANUP_COUNT_KEYS = ['expired', 'claimed', 'removed', 'requeued', 'exhausted'] as const;
 
 function json(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, {
@@ -53,16 +54,24 @@ export async function GET(request: Request) {
     const payload = await upstream.json().catch(() => null) as
       | Record<string, unknown>
       | null;
-    if (!upstream.ok || payload?.ok !== true) {
+    if (
+      !upstream.ok
+      || payload?.ok !== true
+      || !CLEANUP_COUNT_KEYS.every((key) => (
+        typeof payload[key] === 'number'
+        && Number.isSafeInteger(payload[key])
+        && payload[key] >= 0
+      ))
+    ) {
       return json({ ok: false, code: 'cleanup_upstream_failed' }, 503);
     }
     return json({
       ok: true,
-      expired: Number(payload.expired ?? 0),
-      claimed: Number(payload.claimed ?? 0),
-      removed: Number(payload.removed ?? 0),
-      requeued: Number(payload.requeued ?? 0),
-      exhausted: Number(payload.exhausted ?? 0),
+      expired: payload.expired,
+      claimed: payload.claimed,
+      removed: payload.removed,
+      requeued: payload.requeued,
+      exhausted: payload.exhausted,
     });
   } catch {
     return json({ ok: false, code: 'cleanup_upstream_unavailable' }, 503);

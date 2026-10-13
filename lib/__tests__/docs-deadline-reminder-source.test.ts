@@ -41,7 +41,7 @@ describe('docs deadline reminder delivery confirmation', () => {
   it('keeps failed recipients retryable by advancing the reminder date only after full acceptance', () => {
     const acceptanceGuard = source.indexOf('if (!deliveryConfirmed)');
     const reminderUpdate = source.indexOf(
-      ".update({ docs_deadline_last_notified_at: today })",
+      'markReminderNotified(row.id, today)',
       acceptanceGuard,
     );
     const tokenLookupWarning = source.indexOf('warningCounts.token_lookup_failed += 1;');
@@ -60,7 +60,7 @@ describe('docs deadline reminder delivery confirmation', () => {
   it('deduplicates the daily inbox row without preventing push retry', () => {
     const existingLookup = source.indexOf('const existingNotification = await hasNotificationForKstDay');
     const conditionalInsert = source.indexOf('if (!existingNotification.exists)', existingLookup);
-    const tokenLookup = source.indexOf(".from('device_tokens')", conditionalInsert);
+    const tokenLookup = source.indexOf('const tokens = await loadAllDeviceTokens(residentId)', conditionalInsert);
     const acceptanceGuard = source.indexOf('if (!deliveryConfirmed)', tokenLookup);
 
     expect(source).toContain(".eq('fc_id', input.fcId)");
@@ -80,7 +80,7 @@ describe('docs deadline reminder delivery confirmation', () => {
       'const preference = await loadReminderExpoEligibility(row.id)',
       conditionalInsert,
     );
-    const tokenLookup = source.indexOf(".from('device_tokens')", preferenceCheck);
+    const tokenLookup = source.indexOf('const tokens = await loadAllDeviceTokens(residentId)', preferenceCheck);
     const preferenceBranch = source.slice(preferenceCheck, tokenLookup);
 
     expect(source).toContain("from '../_shared/general-push-preference-policy.ts'");
@@ -94,7 +94,7 @@ describe('docs deadline reminder delivery confirmation', () => {
     expect(tokenLookup).toBeGreaterThan(preferenceCheck);
     expect(preferenceBranch).toContain('if (!preference.enabled)');
     expect(preferenceBranch).toContain('warningCounts.preference_lookup_failed += 1');
-    expect(preferenceBranch).toContain(".update({ docs_deadline_last_notified_at: today })");
+    expect(preferenceBranch).toContain('markReminderNotified(row.id, today)');
     expect(preferenceBranch).toContain('continue;');
   });
 
@@ -108,5 +108,22 @@ describe('docs deadline reminder delivery confirmation', () => {
     expect(source).not.toContain('${t.expo_push_token}');
     expect(source).not.toContain('authorization });');
     expect(source).not.toContain('serviceKey });');
+  });
+
+  it('rejects malformed reads, paginates complete inventories, and verifies deadline writes', () => {
+    expect(source).toContain("from '../../../lib/supabase-query-contract.ts'");
+    expect(source).toContain("from '../_shared/ux-mutation-contract.ts'");
+    expect(source).toContain('loadAllReminderTargets(startDate, endDate, today)');
+    expect(source).toContain('loadAllDeviceTokens(residentId)');
+    expect(source).toContain('.order(\'id\', { ascending: true })');
+    expect(source).toContain('.order(\'expo_push_token\', { ascending: true })');
+    expect(source).toContain('collectSupabaseRows<FcRow>({');
+    expect(source).toContain('collectSupabaseRows<TokenRow>({');
+    expect(source).toContain('.range(from, to)');
+    expect(source).toContain('rowKey: (row) => row.id');
+    expect(source).toContain('rowKey: (row) => row.expo_push_token');
+    expect(source).toContain('requireMutationRowReceipt(data, { id: fcId, docs_deadline_last_notified_at: today })');
+    expect(source).not.toContain('const rows = (targets ?? [])');
+    expect(source).not.toContain('if (!tokens?.length)');
   });
 });

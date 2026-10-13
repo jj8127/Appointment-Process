@@ -5,6 +5,7 @@ import * as ts from 'typescript';
 import { QueryClient } from '@tanstack/react-query';
 
 import { formatHomeCount, isReadSessionError } from '@/lib/home-read-state';
+import { parseLatestNoticePayload } from '@/lib/inbox-list-contract';
 
 type Instance = { children: (Instance | string)[]; props: Record<string, unknown>; findAllByType: (type: string) => Instance[] };
 type Renderer = { root: Instance; update: (element: ReactElement) => void; unmount: () => void };
@@ -136,6 +137,19 @@ describe('mobile read failure presentation', () => {
     expect(formatHomeCount(undefined, false)).toBe('조회 중');
     expect(formatHomeCount(undefined, true)).toBe('확인 불가');
     expect(formatHomeCount(17, true)).toBe('확인 불가');
+  });
+
+  it('home shows unread message count failures with a working retry instead of zero', async () => {
+    const refetchMsgCount = jest.fn();
+    const failed = await render('app/index.tsx', ['unreadMsgError &&'], {
+      unreadMsgError: true,
+      unreadMsgReadError: new Error('synthetic'),
+      unreadMsgFetching: false,
+      refetchMsgCount,
+    });
+    expect(failed.texts).toContain('읽지 않은 메시지 수를 불러오지 못했습니다.');
+    await act(async () => (failed.renderer.root.findAllByType('Pressable')[0].props.onPress as () => void)());
+    expect(refetchMsgCount).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -321,9 +335,9 @@ describe('home summary fetches preserve failures', () => {
   it('latest notice rejects transport/server failures but resolves a genuine no-notice result', async () => {
     const invokeFcNotify = jest.fn().mockResolvedValueOnce({ error: new Error('synthetic') })
       .mockResolvedValueOnce({ data: { ok: false } }).mockResolvedValueOnce({ data: { ok: true, notice: null } });
-    const fetch = loadFunction('fetchLatestNotice', { invokeFcNotify });
+    const fetch = loadFunction('fetchLatestNotice', { invokeFcNotify, parseLatestNoticePayload });
     await expect(fetch()).rejects.toThrow('synthetic');
-    await expect(fetch()).rejects.toThrow('최신 공지');
+    await expect(fetch()).rejects.toThrow('latest notice response is invalid');
     await expect(fetch()).resolves.toBeNull();
   });
   it('latest message rejects lookup failure but resolves a genuine empty conversation', async () => {

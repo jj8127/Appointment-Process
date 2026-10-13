@@ -182,6 +182,27 @@ async function handleUploadIntentsCreate(
     );
   }
   if (reservation.state === 'committed') {
+    const batchId = normalizeMessengerAttachmentUuid(reservation.batchId);
+    const messageIds = Array.isArray(reservation.messageIds)
+      ? reservation.messageIds.map(normalizeMessengerAttachmentUuid)
+      : null;
+    const expectedMessageCount = context.kind === 'direct_broadcast'
+      ? (context.conversationIds as string[]).length
+      : 1;
+    if (
+      !batchId
+      || !messageIds
+      || messageIds.some((messageId) => !messageId)
+      || messageIds.length !== expectedMessageCount
+      || new Set(messageIds).size !== messageIds.length
+    ) {
+      return failure(
+        'attachment_database_unavailable',
+        userMessageFor('attachment_database_unavailable'),
+        503,
+        origin,
+      );
+    }
     return response({
       ok: true,
       state: 'committed',
@@ -190,8 +211,8 @@ async function handleUploadIntentsCreate(
       expiresAt: null,
       intents: [],
       committed: {
-        batchId: reservation.batchId,
-        messageIds: Array.isArray(reservation.messageIds) ? reservation.messageIds : [],
+        batchId,
+        messageIds,
       },
     }, 200, origin);
   }
@@ -356,7 +377,15 @@ async function handleMaintenance(
         origin,
       );
     }
-    return response({ ok: true, requeued: Number(data ?? 0) }, 200, origin);
+    if (!Number.isSafeInteger(data) || Number(data) < 0) {
+      return failure(
+        'attachment_database_unavailable',
+        userMessageFor('attachment_database_unavailable'),
+        503,
+        origin,
+      );
+    }
+    return response({ ok: true, requeued: data }, 200, origin);
   }
   const { data: expiry, error: expiryError } = await supabase.rpc(
     'expire_messenger_attachment_intents_v2',
@@ -370,18 +399,43 @@ async function handleMaintenance(
       origin,
     );
   }
+  const expired = asRecord(expiry)?.expired;
+  if (!Number.isSafeInteger(expired) || Number(expired) < 0) {
+    return failure(
+      'attachment_database_unavailable',
+      userMessageFor('attachment_database_unavailable'),
+      503,
+      origin,
+    );
+  }
   const cleanup = await drainMessengerAttachmentCleanup({ supabase, limit });
-  const { count: exhausted } = await supabase
+  if (cleanup.claimFailed || cleanup.completionFailed) {
+    return failure(
+      'attachment_database_unavailable',
+      userMessageFor('attachment_database_unavailable'),
+      503,
+      origin,
+    );
+  }
+  const { count: exhausted, error: exhaustedError } = await supabase
     .from('messenger_attachment_cleanup_outbox')
     .select('id', { count: 'exact', head: true })
     .eq('status', 'exhausted');
+  if (exhaustedError || !Number.isSafeInteger(exhausted) || Number(exhausted) < 0) {
+    return failure(
+      'attachment_database_unavailable',
+      userMessageFor('attachment_database_unavailable'),
+      503,
+      origin,
+    );
+  }
   return response({
     ok: true,
-    expired: Number(asRecord(expiry)?.expired ?? 0),
+    expired,
     claimed: cleanup.claimed,
     removed: cleanup.removed,
     requeued: cleanup.requeued,
-    exhausted: Number(exhausted ?? cleanup.exhausted),
+    exhausted,
   }, 200, origin);
 }
 

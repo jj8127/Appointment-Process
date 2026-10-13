@@ -7,7 +7,7 @@ import { logger } from '@/lib/logger';
 import { clearRequestBoardState, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
 import { setPendingAssistedPasswordChange } from '@/lib/pending-assisted-password-change';
 import { clearSavedLoginCredentials } from '@/lib/saved-login-credentials';
-import { normalizeStaffType } from '@/lib/staff-identity';
+import { parseLoginSuccessResponse } from '@/lib/login-response-contract';
 import { supabase } from '@/lib/supabase';
 import { validatePhone, validateRequired, normalizePhone } from '@/lib/validation';
 
@@ -114,15 +114,13 @@ export function useLogin(options?: UseLoginOptions) {
       }
 
       // Success - set session
-      const readOnly = data.role === 'manager';
-      const nextRole = data.role === 'admin' || data.role === 'manager' ? 'admin' : 'fc';
-      const staffType = normalizeStaffType(data.staffType);
-      const bridgeToken = data.requestBoardBridgeToken ?? null;
-      const appSessionToken = data.appSessionToken ?? null;
-      const fallbackRequestBoardRole =
-        data.requestBoardRole === 'fc' || data.requestBoardRole === 'designer'
-          ? data.requestBoardRole
-          : null;
+      const success = parseLoginSuccessResponse(data, digits);
+      const readOnly = success.role === 'manager';
+      const nextRole = success.role === 'admin' || success.role === 'manager' ? 'admin' : 'fc';
+      const staffType = success.staffType;
+      const bridgeToken = success.requestBoardBridgeToken;
+      const appSessionToken = success.appSessionToken;
+      const fallbackRequestBoardRole = success.requestBoardRole;
       await clearRequestBoardState({ clearAppSession: true });
       await setAppSessionToken(appSessionToken);
       await setBridgeToken(bridgeToken);
@@ -132,8 +130,8 @@ export function useLogin(options?: UseLoginOptions) {
 
       loginAs(
         nextRole,
-        data.residentId ?? digits,
-        data.displayName ?? '',
+        success.residentId,
+        success.displayName,
         staffType,
         readOnly,
         isRequestBoardDesigner,

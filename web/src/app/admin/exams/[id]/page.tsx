@@ -35,18 +35,13 @@ import {
   formatExamApplicantReceptionStatus,
   getExamApplicantApplicationStatusBadgeColor,
   getExamApplicantCellValue,
+  parseExamApplicantRows,
   type ExamApplicantExportColumn,
   type ExamApplicantExportColumnKey,
-  type ExamApplicantListItem,
+  type ExamApplicantResponseRow as Row,
 } from '@/lib/exam-applicant-list-display';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
-
-type Row = ExamApplicantListItem & {
-  id: string;
-  status: string;
-  created_at: string;
-  round_id?: string | null;
-};
+import { requireExamTransitionSuccess } from '@/lib/user-intent-policy';
 
 type FilterState = {
   name: string;
@@ -112,18 +107,19 @@ export default function AdminExamManagePage() {
         cache: 'no-store',
       });
       const json: unknown = await response.json().catch(() => null);
+      const applicants = isRecord(json) ? parseExamApplicantRows(json.applicants) : null;
       const isOk =
         response.ok &&
         isRecord(json) &&
         json.ok === true &&
-        Array.isArray(json.applicants);
+        applicants !== null;
 
       if (!isOk) {
 
         throw new QueryReadError(response.status);
       }
 
-      setRows(json.applicants as Row[]);
+      setRows(applicants);
       setReadError(null);
       setHasLoaded(true);
     } catch (e) {
@@ -144,6 +140,7 @@ export default function AdminExamManagePage() {
 
   const updateStatus = async (row: Row, newValue: 'confirmed' | 'pending') => {
     const nextConfirmed = newValue === 'confirmed';
+    const action = nextConfirmed ? 'confirm' : 'unconfirm';
     if (processingId === row.id || row.is_confirmed === nextConfirmed) return;
 
     setProcessingId(row.id);
@@ -154,13 +151,11 @@ export default function AdminExamManagePage() {
         credentials: 'include',
         body: JSON.stringify({
           registrationId: row.id,
-          action: nextConfirmed ? 'confirm' : 'unconfirm',
+          action,
         }),
       });
       const json: unknown = await response.json().catch(() => null);
-      const isOk = response.ok && isRecord(json) && json.ok === true;
-
-      if (!isOk) {
+      if (!response.ok) {
         const message =
           isRecord(json) && typeof json.error === 'string'
             ? json.error
@@ -168,11 +163,13 @@ export default function AdminExamManagePage() {
         throw new Error(message);
       }
 
-      const nextStatus = nextConfirmed ? 'confirmed' : 'applied';
+      const transition = requireExamTransitionSuccess(json, { action, registrationId: row.id });
       showAdminNotificationWarning(json);
       setRows((prev) =>
         prev.map((r) =>
-          r.id === row.id ? { ...r, is_confirmed: nextConfirmed, status: nextStatus } : r,
+          r.id === row.id
+            ? { ...r, is_confirmed: transition.isConfirmed, status: transition.status }
+            : r,
         ),
       );
 
@@ -207,16 +204,20 @@ export default function AdminExamManagePage() {
         }),
       });
       const json: unknown = await response.json().catch(() => null);
-      if (!response.ok || !isRecord(json) || json.ok !== true) {
+      if (!response.ok) {
         throw new Error(
           isRecord(json) && typeof json.error === 'string'
             ? json.error
             : '시험 신청 반려에 실패했습니다.',
         );
       }
+      const transition = requireExamTransitionSuccess(json, {
+        action: 'reject',
+        registrationId: rejectTarget.id,
+      });
       setRows((previous) => previous.map((row) =>
         row.id === rejectTarget.id
-          ? { ...row, status: 'rejected', is_confirmed: false }
+          ? { ...row, status: transition.status, is_confirmed: transition.isConfirmed }
           : row,
       ));
       setRejectTarget(null);
@@ -635,7 +636,7 @@ export default function AdminExamManagePage() {
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {loading ? (
+                    {loading && !hasLoaded ? (
                       <Table.Tr>
                         <Table.Td colSpan={tableColumnCount}>
                           <Center py={80}>

@@ -64,6 +64,15 @@ import {
   type ExamNotifyPayload,
 } from '@/lib/exam-flow-contract';
 import {
+  getExamRegistrationHistoryLocation,
+  getExamRegistrationHistoryRound,
+  isExamRegistrationHistoryQueryRow,
+  isExamRoundQueryRow,
+  toExamRoundWithLocations,
+  type ExamRegistrationHistoryQueryRow,
+  type ExamRoundQueryRow,
+} from '@/lib/exam-read-query-contract';
+import {
   ExamPaymentProofApiError,
   cancelExamApplicationWithPaymentProof,
   discardExamPaymentProofUpload,
@@ -87,6 +96,7 @@ import {
 } from '@/lib/strict-route-params';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { supabase } from '@/lib/supabase';
+import { collectSupabaseRows } from '@/lib/supabase-query-contract';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 import {
@@ -151,30 +161,11 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
       includeExamTypeSelect: boolean;
       includeExamTypeFilter: boolean;
     },
-  ): Promise<{ data: any[] | null; error: unknown }> => {
-    const select = options.includeExamMonth
-      ? `
-      id,
-      exam_type,
-      exam_month,
-      exam_date,
-      registration_deadline,
-      round_label,
-      notes,
-      created_at,
-      updated_at,
-      exam_locations (
-        id,
-        round_id,
-        location_name,
-        sort_order,
-        created_at,
-        updated_at
-      )
-    `
-      : `
+  ): Promise<ExamRoundQueryRow[]> => {
+    const select = `
       id,
       ${options.includeExamTypeSelect ? 'exam_type,' : ''}
+      ${options.includeExamMonth ? 'exam_month,' : ''}
       exam_date,
       registration_deadline,
       round_label,
@@ -191,19 +182,30 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
       )
     `;
 
-    const request = supabase
-      .from('exam_rounds')
-      .select(select)
-      .gte('registration_deadline', toYmd(cutoffDate))
-      .order('exam_date', { ascending: true })
-      .order('registration_deadline', { ascending: true })
-      .order('sort_order', { foreignTable: 'exam_locations', ascending: true });
+    return collectSupabaseRows<ExamRoundQueryRow>({
+      queryName: 'exam_apply_rounds',
+      fetchPage: (from, to) => {
+        const request = supabase
+          .from('exam_rounds')
+          .select(select)
+          .gte('registration_deadline', toYmd(cutoffDate))
+          .order('exam_date', { ascending: true })
+          .order('registration_deadline', { ascending: true })
+          .order('id', { ascending: true })
+          .order('sort_order', { foreignTable: 'exam_locations', ascending: true });
 
-    if (options.includeExamTypeFilter && options.includeExamTypeSelect) {
-      request.eq('exam_type', examFlowConfig.examType);
-    }
+        if (options.includeExamTypeFilter && options.includeExamTypeSelect) {
+          request.eq('exam_type', examFlowConfig.examType);
+        }
 
-    return request;
+        return request.range(from, to);
+      },
+      isRow: (value) => isExamRoundQueryRow(value, {
+        includeExamMonth: options.includeExamMonth,
+        includeExamType: options.includeExamTypeSelect,
+      }),
+      rowKey: (row) => row.id,
+    });
   };
 
   const attempts: {
@@ -221,34 +223,18 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
   let lastError: unknown = null;
 
   for (const attempt of attempts) {
-    const result = await selectRounds(attempt);
-    if (!result.error) {
-      return (
-        result.data?.map((row: any) => ({
-          id: row.id,
-          exam_month: attempt.includeExamMonth ? row.exam_month : null,
-          exam_date: row.exam_date,
-          registration_deadline: row.registration_deadline,
-          round_label: row.round_label,
-          notes: row.notes,
-          created_at: row.created_at,
-          updated_at: row.updated_at,
-          locations: (row.exam_locations ?? []).sort(
-            (a: any, b: any) =>
-              (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
-              a.location_name.localeCompare(b.location_name),
-          ),
-        })) ?? []
-      );
-    }
+    try {
+      const rows = await selectRounds(attempt);
+      return rows.map((row) => toExamRoundWithLocations(row, attempt.includeExamMonth));
+    } catch (error) {
+      if (!isSupabaseSchemaCompatibilityError(error)) {
+        logger.debug('fetchRounds error', { error });
+        throw error;
+      }
 
-    if (!isSupabaseSchemaCompatibilityError(result.error)) {
-      logger.debug('fetchRounds error', { error: result.error });
-      throw result.error;
+      lastError = error;
+      logger.debug('fetchRounds fallback query failed', { attempt, error });
     }
-
-    lastError = result.error;
-    logger.debug('fetchRounds fallback query failed', { attempt, error: result.error });
   }
 
   logger.debug('fetchRounds all fallback queries failed', { error: lastError });
@@ -344,11 +330,6 @@ type MyExamApply = {
   exam_type?: 'life' | 'nonlife' | null;
   is_confirmed?: boolean | null;
 };
-
-function normalizeSingle<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] : value;
-}
 
 function getExamRegistrationErrorMessage(error: unknown) {
   if (!error) return '시험 신청 중 오류가 발생했습니다.';
@@ -512,7 +493,7 @@ export default function ExamApplyScreen() {
         includeNestedExamType: boolean;
         includeFlowFilter: boolean;
       };
-      type QueryResult = { data: any[] | null; error: unknown };
+      type QueryResult = { data: ExamRegistrationHistoryQueryRow[] | null; error: unknown };
 
       const selectWithMonth = async (options: QueryAttempt): Promise<QueryResult> => {
         const relationNames = [
@@ -532,39 +513,44 @@ export default function ExamApplyScreen() {
           const examRoundJoin = relationName
             ? `exam_rounds!${relationName}(${nestedColumns})`
             : `exam_rounds!inner(${nestedColumns})`;
-        const select = `id, round_id, location_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, rejected_at, created_at, ${options.includeExamMonth ? 'exam_month, ' : ''}${examRoundJoin}, exam_locations!exam_registrations_location_round_fkey(location_name)`;
-        const query = supabase
-          .from('exam_registrations')
-          .select(select)
-          .eq('resident_id', applicationResidentId);
+          const select = `id, round_id, location_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, rejected_at, created_at, ${options.includeExamMonth ? 'exam_month, ' : ''}${examRoundJoin}, exam_locations!exam_registrations_location_round_fkey(location_name)`;
 
-        const result = await query
-          .order('created_at', { ascending: false })
-          .order('id', { ascending: false });
-
-        if (!result.error) {
-          let rows = result.data ?? [];
-          if (options.includeFlowFilter) {
-            rows = rows.filter((row: any) => {
-              const examRounds = normalizeSingle(row.exam_rounds);
-              const rowExamType =
-                row.exam_type === 'life' || row.exam_type === 'nonlife'
-                  ? row.exam_type
-                  : examRounds?.exam_type;
-              return rowExamType === examFlowType;
+          try {
+            const rows = await collectSupabaseRows<ExamRegistrationHistoryQueryRow>({
+              queryName: 'exam_apply_history',
+              fetchPage: (from, to) => supabase
+                .from('exam_registrations')
+                .select(select)
+                .eq('resident_id', applicationResidentId)
+                .order('created_at', { ascending: false })
+                .order('id', { ascending: false })
+                .range(from, to),
+              isRow: (value) => isExamRegistrationHistoryQueryRow(value, {
+                includeExamMonth: options.includeExamMonth,
+                includeNestedExamType:
+                  options.includeNestedExamType || options.includeFlowFilter,
+              }),
+              rowKey: (row) => row.id,
             });
+            const flowRows = options.includeFlowFilter
+              ? rows.filter(
+                (row) => getExamRegistrationHistoryRound(row).exam_type === examFlowType,
+              )
+              : rows;
+            return { data: flowRows, error: null } satisfies QueryResult;
+          } catch (error) {
+            if (!isSupabaseSchemaCompatibilityError(error)) {
+              throw error;
+            }
           }
-          return { data: rows, error: null } satisfies QueryResult;
         }
 
-          if (!isSupabaseSchemaCompatibilityError(result.error)) {
-            throw result.error;
-          }
-        }
-
-        return { data: null, error: {
-          message: 'No compatible exam_round relationship found for exam_registrations query.',
-        } as { message: string } };
+        return {
+          data: null,
+          error: new Error(
+            'No compatible exam_round relationship found for exam_registrations query.',
+          ),
+        };
       };
 
       const attempts: QueryAttempt[] = [
@@ -576,7 +562,7 @@ export default function ExamApplyScreen() {
         { includeExamMonth: true, includeNestedExamType: false, includeFlowFilter: false },
       ];
 
-      let data: any[] | null = null;
+      let data: ExamRegistrationHistoryQueryRow[] | null = null;
       let error: unknown = null;
 
       for (const attempt of attempts) {
@@ -593,23 +579,20 @@ export default function ExamApplyScreen() {
         logger.debug('myApply query error', { error });
         throw error;
       }
+      if (data === null) {
+        throw new Error('exam_apply_history_query_contract_invalid');
+      }
 
-      return (data ?? [])
-        .filter((d: any) => d.exam_rounds)
-        .map((d: any) => {
-          const examRounds = normalizeSingle(d.exam_rounds);
-          const examTypeValue =
-            d.exam_type === 'life' || d.exam_type === 'nonlife'
-              ? d.exam_type
-              : examRounds?.exam_type;
+      return data.map((d) => {
+          const examRounds = getExamRegistrationHistoryRound(d);
           return {
             ...d,
-            exam_type: examTypeValue ?? null,
-            exam_rounds: examRounds ? {
+            exam_type: examRounds.exam_type ?? null,
+            exam_rounds: {
               ...examRounds,
-              registration_deadline: examRounds.registration_deadline ?? null,
-            } : null,
-            exam_locations: normalizeSingle(d.exam_locations),
+              registration_deadline: examRounds.registration_deadline,
+            },
+            exam_locations: getExamRegistrationHistoryLocation(d),
           } as MyExamApply;
         });
     },

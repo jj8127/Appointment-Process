@@ -36,22 +36,51 @@ import { useSearchParams } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 
 import { RecommenderSelect } from '@/components/RecommenderSelect';
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { useSession } from '@/hooks/use-session';
+import { QueryReadError } from '@/lib/query-read-error';
 import { resolveReferralPermissionDisplay } from '@/lib/referral-permission-display';
-import type {
-  ReferralAdminDetail,
-  ReferralAdminEventItem,
-  ReferralAdminListItem,
-  ReferralAdminListResponse,
-  ReferralAdminMutationRequest,
-  ReferralAdminMutationResponse,
-  ReferralAdminUnresolvedItem,
+import { requireMutationSuccess } from '@/lib/user-intent-policy';
+import {
+  isReferralAdminDetail,
+  isReferralAdminMutationResponse,
+  type ReferralAdminDetail,
+  type ReferralAdminEventItem,
+  type ReferralAdminListItem,
+  type ReferralAdminListResponse,
+  type ReferralAdminMutationRequest,
+  type ReferralAdminUnresolvedItem,
 } from '@/types/referrals';
 
 const PAGE_SIZE = 20;
 const BACKFILL_LIMIT = 100;
 const LEGACY_AUTO_RESOLVE_LIMIT = 100;
 
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+const isNonNegativeSafeInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+const isNullableString = (value: unknown) => value === null || typeof value === 'string';
+const isReferralListItem = (value: unknown): value is ReferralAdminListItem => isRecord(value)
+  && typeof value.fcId === 'string' && typeof value.name === 'string' && typeof value.phone === 'string'
+  && typeof value.affiliation === 'string' && isNullableString(value.activeCode)
+  && isNullableString(value.activeCodeCreatedAt) && isNonNegativeSafeInteger(value.disabledCodeCount)
+  && isNullableString(value.lastEventAt);
+const isCandidate = (value: unknown) => isRecord(value)
+  && typeof value.fcId === 'string' && typeof value.name === 'string' && typeof value.affiliation === 'string'
+  && isNullableString(value.phoneLast4) && isNullableString(value.activeCode)
+  && typeof value.label === 'string' && typeof value.descriptor === 'string';
+const isUnresolvedItem = (value: unknown): value is ReferralAdminUnresolvedItem => isRecord(value)
+  && typeof value.inviteeFcId === 'string' && typeof value.inviteeName === 'string'
+  && typeof value.inviteePhone === 'string' && typeof value.inviteeAffiliation === 'string'
+  && typeof value.legacyRecommenderName === 'string' && isNonNegativeSafeInteger(value.candidateCount)
+  && Array.isArray(value.candidatePreview) && value.candidatePreview.every((item) => typeof item === 'string')
+  && Array.isArray(value.candidateOptions) && value.candidateOptions.every(isCandidate)
+  && (value.autoResolvableCandidate === null || isCandidate(value.autoResolvableCandidate))
+  && ['ambiguous', 'missing_candidate', 'auto_resolvable', 'self_referral'].includes(String(value.matchStatus));
+const isSummary = (value: unknown) => isRecord(value)
+  && ['eligibleCount', 'activeCodeCount', 'missingCodeCount', 'disabledCodeCount', 'unresolvedLegacyCount']
+    .every((key) => isNonNegativeSafeInteger(value[key]));
 type ActionModalState =
   | { action: 'backfill_missing_codes'; target: null }
   | { action: 'rotate_code' | 'disable_code'; target: ReferralAdminListItem }
@@ -135,11 +164,22 @@ async function fetchReferrals(params: { page: number; search: string; fcId: stri
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(
-      data && typeof data === 'object' && 'error' in data
-        ? String((data as { error?: string }).error ?? '추천인 코드 조회에 실패했습니다.')
-        : '추천인 코드 조회에 실패했습니다.',
-    );
+    throw new QueryReadError(response.status);
+  }
+  if (
+    !isRecord(data)
+    || data.ok !== true
+    || !isSummary(data.summary)
+    || !Array.isArray(data.items) || !data.items.every(isReferralListItem)
+    || !Array.isArray(data.unresolvedItems) || !data.unresolvedItems.every(isUnresolvedItem)
+    || !isRecord(data.permissions)
+    || typeof data.permissions.canMutate !== 'boolean'
+    || (data.detail !== null && !isReferralAdminDetail(data.detail))
+    || !isNonNegativeSafeInteger(data.page) || data.page < 1
+    || !isNonNegativeSafeInteger(data.pageSize) || data.pageSize < 1
+    || !isNonNegativeSafeInteger(data.total)
+  ) {
+    throw new QueryReadError();
   }
 
   return data as ReferralAdminListResponse;
@@ -160,8 +200,12 @@ async function postReferralAction(body: ReferralAdminMutationRequest) {
         : '추천인 코드 작업에 실패했습니다.',
     );
   }
+  requireMutationSuccess(data);
+  if (!isReferralAdminMutationResponse(data, body)) {
+    throw new Error('추천인 코드 작업 응답이 올바르지 않습니다.');
+  }
 
-  return data as ReferralAdminMutationResponse;
+  return data;
 }
 
 function SummaryCard(props: {
@@ -396,8 +440,8 @@ export default function ReferralDashboardPage() {
   const detail = detailQuery.data?.detail ?? null;
   const unresolvedItems = listQuery.data?.unresolvedItems ?? [];
   const autoResolvableCount = unresolvedItems.filter((item) => item.matchStatus === 'auto_resolvable').length;
-  const total = listQuery.data?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const total = listQuery.data?.total;
+  const totalPages = Math.max(1, Math.ceil((total ?? 0) / PAGE_SIZE));
   const selectedItem = items.find((item) => item.fcId === effectiveSelectedFcId) ?? null;
 
   const mutation = useMutation({
@@ -406,9 +450,9 @@ export default function ReferralDashboardPage() {
       const result = data.result;
       const message =
         variables.action === 'backfill_missing_codes'
-          ? `추천코드 일괄 발급을 실행했습니다. 생성 ${Number(result.created ?? 0)}건, 건너뜀 ${Number(result.skipped ?? 0)}건`
+          ? `추천코드 일괄 발급을 실행했습니다. 생성 ${Number(result.created)}건, 건너뜀 ${Number(result.skipped)}건`
           : variables.action === 'auto_resolve_legacy_recommenders'
-            ? `안전 자동 정리를 실행했습니다. 연결 ${Number(result.linked ?? 0)}건, 건너뜀 ${Number(result.skipped ?? 0)}건, 실패 ${Number(result.failed ?? 0)}건`
+            ? `안전 자동 정리를 실행했습니다. 연결 ${Number(result.linked)}건, 건너뜀 ${Number(result.skipped)}건, 실패 ${Number(result.failed)}건`
           : variables.action === 'rotate_code'
             ? '추천코드를 재발급했습니다.'
             : variables.action === 'disable_code'
@@ -612,9 +656,13 @@ export default function ReferralDashboardPage() {
         ) : null}
 
         {listQuery.error || detailQuery.error ? (
-          <Alert color="red" icon={<IconAlertCircle size={16} />} title="불러오기 실패">
-            {((listQuery.error ?? detailQuery.error) as Error).message}
-          </Alert>
+          <QueryErrorAlert
+            error={listQuery.error ?? detailQuery.error}
+            onRetry={refreshQueries}
+            isFetching={listQuery.isFetching || detailQuery.isFetching}
+            hasData={Boolean(listQuery.data || detailQuery.data)}
+            subject="추천인 코드"
+          />
         ) : null}
 
         {listQuery.error && summary ? <Text size="sm" c="orange">이전 조회 자료를 표시합니다.</Text> : null}
@@ -640,13 +688,20 @@ export default function ReferralDashboardPage() {
                   }}
                   styles={{ root: { flex: 1 } }}
                 />
-                <Button variant="default" onClick={refreshQueries}>
+                <Button
+                  variant="default"
+                  onClick={refreshQueries}
+                  loading={listQuery.isFetching || detailQuery.isFetching}
+                >
                   새로고침
                 </Button>
               </Group>
 
               <Box pos="relative">
-                <LoadingOverlay visible={listQuery.isFetching} overlayProps={{ radius: 'md', blur: 1 }} />
+                <LoadingOverlay
+                  visible={listQuery.isFetching && !listQuery.data}
+                  overlayProps={{ radius: 'md', blur: 1 }}
+                />
 
                 <Stack gap="md">
                   <ScrollArea>
@@ -720,7 +775,7 @@ export default function ReferralDashboardPage() {
 
                   <Group justify="space-between" align="center">
                     <Text size="sm" c="dimmed">
-                      총 {total}건
+                      {total === undefined ? '총 건수 확인 불가' : `총 ${total}건`}
                     </Text>
                     <Pagination total={totalPages} value={page} onChange={setPage} />
                   </Group>
@@ -731,7 +786,7 @@ export default function ReferralDashboardPage() {
 
           <Paper withBorder radius="md" p="lg" pos="relative" bg="white">
             <LoadingOverlay
-              visible={detailQuery.isFetching && Boolean(effectiveSelectedFcId)}
+              visible={detailQuery.isFetching && !detailQuery.data && Boolean(effectiveSelectedFcId)}
               overlayProps={{ radius: 'md', blur: 1 }}
             />
             <DetailPanel
@@ -755,7 +810,7 @@ export default function ReferralDashboardPage() {
               </div>
               <Group gap="xs">
                 <Badge color="gray" variant="light">
-                  총 {unresolvedItems.length}건
+                  {listQuery.data ? `총 ${summary?.unresolvedLegacyCount ?? 0}건` : '총 건수 확인 불가'}
                 </Badge>
                 {showMutateControls ? (
                   <Button
@@ -771,8 +826,14 @@ export default function ReferralDashboardPage() {
             </Group>
 
             {unresolvedItems.length ? (
-              <ScrollArea>
-                <Table highlightOnHover>
+              <Stack gap="xs">
+                {summary && summary.unresolvedLegacyCount > unresolvedItems.length ? (
+                  <Text size="xs" c="dimmed">
+                    검토 목록은 정렬된 항목 중 최대 {unresolvedItems.length}건까지 표시합니다.
+                  </Text>
+                ) : null}
+                <ScrollArea>
+                  <Table highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>FC</Table.Th>
@@ -850,11 +911,16 @@ export default function ReferralDashboardPage() {
                       </Table.Tr>
                     ))}
                   </Table.Tbody>
-                </Table>
-              </ScrollArea>
-            ) : (
+                  </Table>
+                </ScrollArea>
+              </Stack>
+            ) : listQuery.data ? (
               <Text size="sm" c="dimmed">
                 검토가 필요한 레거시 추천인이 없습니다.
+              </Text>
+            ) : (
+              <Text size="sm" c="dimmed">
+                레거시 추천인 검토 결과를 확인할 수 없습니다.
               </Text>
             )}
           </Stack>

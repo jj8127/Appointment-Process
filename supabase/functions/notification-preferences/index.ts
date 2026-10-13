@@ -11,9 +11,18 @@ import {
   APP_PUSH_CATEGORIES,
   AppPreferenceActor,
   AppPushCategory,
+  type AppPushCategoryPreferenceRow,
+  type AppPushPreferenceRow,
   isAppPushCategory,
+  isAppPushCategoryPreferenceRow,
+  isAppPushPreferenceRow,
+  isMessengerRoomPreferenceRow,
+  matchesAppPreferenceActor,
+  type MessengerRoomPreferenceRow,
   parseMessengerRoomKey,
 } from '../_shared/notification-preferences.ts';
+import { parseQueryRows } from '../_shared/query-result-contract.ts';
+import { collectSupabaseRows } from '../../../lib/supabase-query-contract.ts';
 
 type PreferenceAction =
   | { action: 'bootstrap' }
@@ -65,6 +74,97 @@ function cleanPhone(value: unknown) {
   return String(value ?? '').replace(/[^0-9]/g, '');
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (value: unknown): value is string => (
+  typeof value === 'string' && UUID_PATTERN.test(value)
+);
+
+const isAdminActorRow = (value: unknown): value is {
+  id: string;
+  phone: string;
+  active: boolean;
+  staff_type: 'admin' | 'developer';
+} => isRecord(value)
+  && isUuid(value.id)
+  && typeof value.phone === 'string'
+  && typeof value.active === 'boolean'
+  && (value.staff_type === 'admin' || value.staff_type === 'developer');
+
+const isManagerActorRow = (value: unknown): value is {
+  id: string;
+  phone: string;
+  active: boolean;
+} => isRecord(value)
+  && isUuid(value.id)
+  && typeof value.phone === 'string'
+  && typeof value.active === 'boolean';
+
+const isFcActorRow = (value: unknown): value is {
+  id: string;
+  phone: string;
+  signup_completed: boolean;
+  affiliation: string;
+  is_manager_referral_shadow: boolean;
+} => isRecord(value)
+  && isUuid(value.id)
+  && typeof value.phone === 'string'
+  && typeof value.signup_completed === 'boolean'
+  && typeof value.affiliation === 'string'
+  && typeof value.is_manager_referral_shadow === 'boolean';
+
+const isTimestampOrNull = (value: unknown): value is string | null => (
+  value === null
+  || (typeof value === 'string' && Number.isFinite(new Date(value).getTime()))
+);
+
+type GlobalPreferenceRow = AppPushPreferenceRow & {
+  updated_at: string;
+};
+
+const isGlobalPreferenceRow = (value: unknown): value is GlobalPreferenceRow =>
+  isAppPushPreferenceRow(value)
+  && isRecord(value)
+  && typeof (value as Record<string, unknown>).updated_at === 'string'
+  && Number.isFinite(
+    new Date((value as Record<string, unknown>).updated_at as string).getTime(),
+  );
+
+type CategoryPreferenceRow = AppPushCategoryPreferenceRow & {
+  updated_at: string;
+};
+
+const isCategoryPreferenceRow = (value: unknown): value is CategoryPreferenceRow =>
+  isAppPushCategoryPreferenceRow(value)
+  && isRecord(value)
+  && typeof (value as Record<string, unknown>).updated_at === 'string'
+  && Number.isFinite(
+    new Date((value as Record<string, unknown>).updated_at as string).getTime(),
+  );
+
+type RoomPreferenceRow = MessengerRoomPreferenceRow & {
+  pinned_at: string | null;
+  left_at: string | null;
+  updated_at: string;
+};
+
+const isRoomPreferenceRow = (value: unknown): value is RoomPreferenceRow =>
+  isMessengerRoomPreferenceRow(value)
+  && isRecord(value)
+  && isTimestampOrNull((value as Record<string, unknown>).pinned_at)
+  && isTimestampOrNull((value as Record<string, unknown>).left_at)
+  && typeof (value as Record<string, unknown>).updated_at === 'string'
+  && Number.isFinite(
+    new Date((value as Record<string, unknown>).updated_at as string).getTime(),
+  );
+
+function sameTimestamp(actual: string | null, expected: string) {
+  return actual !== null && new Date(actual).getTime() === new Date(expected).getTime();
+}
+
 async function resolveActor(req: Request): Promise<
   | { ok: true; actor: ResolvedActor }
   | { ok: false; status: number; code: string }
@@ -84,7 +184,11 @@ async function resolveActor(req: Request): Promise<
       .eq('phone', phone)
       .maybeSingle();
     if (error) return { ok: false, status: 500, code: 'actor_lookup_failed' };
-    if (!data?.id || !data.active) return { ok: false, status: 403, code: 'forbidden' };
+    if (data === null) return { ok: false, status: 403, code: 'forbidden' };
+    if (!isAdminActorRow(data) || data.phone !== phone) {
+      return { ok: false, status: 500, code: 'actor_lookup_failed' };
+    }
+    if (!data.active) return { ok: false, status: 403, code: 'forbidden' };
     return {
       ok: true,
       actor: {
@@ -92,7 +196,7 @@ async function resolveActor(req: Request): Promise<
         role: 'admin',
         phone,
         sourceRole: 'admin',
-        staffType: data.staff_type === 'developer' ? 'developer' : 'admin',
+        staffType: data.staff_type,
         isDesigner: false,
       },
     };
@@ -105,7 +209,11 @@ async function resolveActor(req: Request): Promise<
       .eq('phone', phone)
       .maybeSingle();
     if (error) return { ok: false, status: 500, code: 'actor_lookup_failed' };
-    if (!data?.id || !data.active) return { ok: false, status: 403, code: 'forbidden' };
+    if (data === null) return { ok: false, status: 403, code: 'forbidden' };
+    if (!isManagerActorRow(data) || data.phone !== phone) {
+      return { ok: false, status: 500, code: 'actor_lookup_failed' };
+    }
+    if (!data.active) return { ok: false, status: 403, code: 'forbidden' };
     return {
       ok: true,
       actor: {
@@ -125,7 +233,13 @@ async function resolveActor(req: Request): Promise<
     .eq('phone', phone)
     .maybeSingle();
   if (error) return { ok: false, status: 500, code: 'actor_lookup_failed' };
-  if (!data?.id || !data.signup_completed || data.is_manager_referral_shadow === true) {
+  if (data === null) {
+    return { ok: false, status: 403, code: 'forbidden' };
+  }
+  if (!isFcActorRow(data) || data.phone !== phone) {
+    return { ok: false, status: 500, code: 'actor_lookup_failed' };
+  }
+  if (!data.signup_completed || data.is_manager_referral_shadow === true) {
     return { ok: false, status: 403, code: 'forbidden' };
   }
   const isDesigner = Boolean(parseDesignerCompanyNameFromAffiliation(data.affiliation));
@@ -188,7 +302,14 @@ async function canAccessRoom(actor: ResolvedActor, rawRoomKey: string) {
       .eq('id', room.id)
       .maybeSingle();
     if (error) return { ok: false as const, status: 500, code: 'room_lookup_failed' };
-    if (!data?.id || !data.is_active) return { ok: false as const, status: 404, code: 'room_not_found' };
+    if (data === null) return { ok: false as const, status: 404, code: 'room_not_found' };
+    if (!isRecord(data)
+      || !isUuid(data.id)
+      || data.id !== room.id
+      || typeof data.is_active !== 'boolean') {
+      return { ok: false as const, status: 500, code: 'room_lookup_failed' };
+    }
+    if (!data.is_active) return { ok: false as const, status: 404, code: 'room_not_found' };
     return { ok: true as const, roomKey: room.key };
   }
 
@@ -199,16 +320,35 @@ async function canAccessRoom(actor: ResolvedActor, rawRoomKey: string) {
     .eq('id', room.id)
     .maybeSingle();
   if (threadError) return { ok: false as const, status: 500, code: 'room_lookup_failed' };
-  if (!thread?.id) return { ok: false as const, status: 404, code: 'room_not_found' };
+  if (thread === null) return { ok: false as const, status: 404, code: 'room_not_found' };
+  if (!isRecord(thread)
+    || !isUuid(thread.id)
+    || thread.id !== room.id
+    || !isUuid(thread.legacy_conversation_id)
+    || (thread.counterparty_role !== 'admin'
+      && thread.counterparty_role !== 'manager'
+      && thread.counterparty_role !== 'developer')
+    || (thread.counterparty_role === 'admin'
+      ? thread.counterparty_actor_id !== null && !isUuid(thread.counterparty_actor_id)
+      : !isUuid(thread.counterparty_actor_id))) {
+    return { ok: false as const, status: 500, code: 'room_lookup_failed' };
+  }
   const { data: conversation, error: conversationError } = await supabase
     .from('garamin_direct_conversations')
-    .select('fc_id')
+    .select('id,fc_id')
     .eq('id', thread.legacy_conversation_id)
     .maybeSingle();
   if (conversationError) return { ok: false as const, status: 500, code: 'room_lookup_failed' };
+  if (conversation === null) return { ok: false as const, status: 404, code: 'room_not_found' };
+  if (!isRecord(conversation)
+    || !isUuid(conversation.id)
+    || conversation.id !== thread.legacy_conversation_id
+    || !isUuid(conversation.fc_id)) {
+    return { ok: false as const, status: 500, code: 'room_lookup_failed' };
+  }
 
   const permitted = actor.role === 'fc'
-    ? conversation?.fc_id === actor.id
+    ? conversation.fc_id === actor.id
     : actor.role === 'manager'
       ? thread.counterparty_role === 'manager' && thread.counterparty_actor_id === actor.id
       : actor.staffType === 'developer'
@@ -225,23 +365,51 @@ async function canAccessRoom(actor: ResolvedActor, rawRoomKey: string) {
 
 async function bootstrap(actor: ResolvedActor, writeCommitted = false) {
   const tuple = { actor_id: actor.id, actor_role: actor.role };
-  const [globalResult, categoryResult, roomResult] = await Promise.all([
-    supabase.from('app_push_preferences').select('enabled').match(tuple).maybeSingle(),
-    supabase.from('app_push_category_preferences').select('category,enabled').match(tuple),
-    supabase
+  const roomResultPromise = collectSupabaseRows<RoomPreferenceRow>({
+    queryName: 'notification_preferences_room_preferences',
+    fetchPage: (from, to) => supabase
       .from('messenger_room_notification_preferences')
-      .select('room_key,muted,pinned_at,left_at,updated_at')
+      .select('room_key,muted,pinned_at,left_at,updated_at,actor_id,actor_role')
       .match(tuple)
       .or('muted.eq.true,pinned_at.not.is.null,left_at.not.is.null')
-      .order('updated_at', { ascending: false }),
+      .order('updated_at', { ascending: false })
+      .order('room_key', { ascending: true })
+      .range(from, to),
+    isRow: isRoomPreferenceRow,
+    rowKey: (row) => row.room_key,
+  }).then((data) => ({ data, error: null })).catch((error: unknown) => ({
+    data: null,
+    error,
+  }));
+  const [globalResult, categoryResult, roomResult] = await Promise.all([
+    supabase.from('app_push_preferences').select('enabled,updated_at,actor_id,actor_role').match(tuple).maybeSingle(),
+    supabase.from('app_push_category_preferences').select('category,enabled,updated_at,actor_id,actor_role').match(tuple),
+    roomResultPromise,
   ]);
   if (globalResult.error || categoryResult.error || roomResult.error) {
     return writeCommitted ? json({ ok: false, saved: true, code: 'preference_read_failed_after_write' }, 200) : fail('preference_lookup_failed', 500);
   }
+
+  const globalRow = globalResult.data;
+  const categoryRows = parseQueryRows(categoryResult.data, isCategoryPreferenceRow);
+  const roomRows = parseQueryRows(roomResult.data, isRoomPreferenceRow);
+  if ((globalRow !== null && (
+    !isGlobalPreferenceRow(globalRow) || !matchesAppPreferenceActor(globalRow, actor)
+  ))
+    || !categoryRows
+    || !roomRows
+    || categoryRows.some((row) => !matchesAppPreferenceActor(row, actor))
+    || roomRows.some((row) => !matchesAppPreferenceActor(row, actor))
+    || new Set(categoryRows.map((row) => row.category)).size !== categoryRows.length
+    || new Set(roomRows.map((row) => row.room_key)).size !== roomRows.length) {
+    return writeCommitted
+      ? json({ ok: false, saved: true, code: 'preference_read_failed_after_write' }, 200)
+      : fail('preference_lookup_failed', 500);
+  }
   const storedCategories = new Map(
-    (categoryResult.data ?? []).map((row) => [row.category, row.enabled !== false]),
+    categoryRows.map((row) => [row.category, row.enabled]),
   );
-  const rooms = (roomResult.data ?? []).map((row) => ({
+  const rooms = roomRows.map((row) => ({
     roomKey: row.room_key,
     muted: row.muted === true,
     pinnedAt: row.pinned_at ? new Date(row.pinned_at).toISOString() : null,
@@ -251,7 +419,7 @@ async function bootstrap(actor: ResolvedActor, writeCommitted = false) {
   return json({
     ok: true,
     actor: { id: actor.id, role: actor.role },
-    globalPushEnabled: globalResult.data?.enabled !== false,
+    globalPushEnabled: globalRow?.enabled ?? true,
     categories: Object.fromEntries(
       APP_PUSH_CATEGORIES.map((category) => [category, storedCategories.get(category) !== false]),
     ),
@@ -279,21 +447,44 @@ serve(async (req: Request) => {
   const tuple = { actor_id: resolved.actor.id, actor_role: resolved.actor.role };
   const updatedAt = new Date().toISOString();
   if (action.action === 'set_global') {
-    const { error } = await supabase.from('app_push_preferences').upsert({
-      ...tuple,
-      enabled: action.enabled,
-      updated_at: updatedAt,
-    }, { onConflict: 'actor_id,actor_role' });
-    return error ? fail('preference_write_failed', 500) : bootstrap(resolved.actor, true);
+    const { data, error } = await supabase
+      .from('app_push_preferences')
+      .upsert({
+        ...tuple,
+        enabled: action.enabled,
+        updated_at: updatedAt,
+      }, { onConflict: 'actor_id,actor_role' })
+      .select('enabled,updated_at,actor_id,actor_role')
+      .single();
+    if (error
+      || !isGlobalPreferenceRow(data)
+      || !matchesAppPreferenceActor(data, resolved.actor)
+      || data.enabled !== action.enabled
+      || !sameTimestamp(data.updated_at, updatedAt)) {
+      return fail('preference_write_failed', 500);
+    }
+    return bootstrap(resolved.actor, true);
   }
   if (action.action === 'set_category') {
-    const { error } = await supabase.from('app_push_category_preferences').upsert({
-      ...tuple,
-      category: action.category,
-      enabled: action.enabled,
-      updated_at: updatedAt,
-    }, { onConflict: 'actor_id,actor_role,category' });
-    return error ? fail('preference_write_failed', 500) : bootstrap(resolved.actor, true);
+    const { data, error } = await supabase
+      .from('app_push_category_preferences')
+      .upsert({
+        ...tuple,
+        category: action.category,
+        enabled: action.enabled,
+        updated_at: updatedAt,
+      }, { onConflict: 'actor_id,actor_role,category' })
+      .select('category,enabled,updated_at,actor_id,actor_role')
+      .single();
+    if (error
+      || !isCategoryPreferenceRow(data)
+      || !matchesAppPreferenceActor(data, resolved.actor)
+      || data.category !== action.category
+      || data.enabled !== action.enabled
+      || !sameTimestamp(data.updated_at, updatedAt)) {
+      return fail('preference_write_failed', 500);
+    }
+    return bootstrap(resolved.actor, true);
   }
 
   const access = await canAccessRoom(resolved.actor, action.roomKey);
@@ -310,5 +501,26 @@ serve(async (req: Request) => {
         : null,
     p_updated_at: updatedAt,
   });
-  return error ? fail('preference_write_failed', 500) : bootstrap(resolved.actor, true);
+  if (error) return fail('preference_write_failed', 500);
+
+  const { data: receipt, error: receiptError } = await supabase
+    .from('messenger_room_notification_preferences')
+    .select('room_key,muted,pinned_at,left_at,updated_at,actor_id,actor_role')
+    .match(tuple)
+    .eq('room_key', access.roomKey)
+    .maybeSingle();
+  const receiptMatchesAction = isRoomPreferenceRow(receipt)
+    && matchesAppPreferenceActor(receipt, resolved.actor)
+    && receipt.room_key === access.roomKey
+    && sameTimestamp(receipt.updated_at, updatedAt)
+    && (action.action !== 'set_room' || receipt.muted === action.muted)
+    && (action.action !== 'set_room_pinned'
+      || (action.pinned
+        ? sameTimestamp(receipt.pinned_at, updatedAt)
+        : receipt.pinned_at === null))
+    && (action.action !== 'leave_room'
+      || (sameTimestamp(receipt.left_at, updatedAt) && receipt.pinned_at === null));
+  return receiptError || !receiptMatchesAction
+    ? fail('preference_write_failed', 500)
+    : bootstrap(resolved.actor, true);
 });

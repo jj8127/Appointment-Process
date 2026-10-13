@@ -16,8 +16,12 @@ describe('home latest admin message Sentry noise contract', () => {
 
   it('shows the internal unread count on the messenger shortcut card', () => {
     expect(source).toContain("const isMessengerShortcut = item.href === '/messenger'");
-    expect(source).toContain("const messengerUnreadBadge = unreadMsgCount > 99 ? '99+' : String(unreadMsgCount)");
-    expect(source).toContain('isMessengerShortcut && unreadMsgCount > 0');
+    expect(source).toContain('isError: unreadMsgError');
+    expect(source).toContain('message="읽지 않은 메시지 수를 불러오지 못했습니다."');
+    expect(source).toContain('onRetry={() => void refetchMsgCount()}');
+    expect(source).toContain('const messengerUnreadBadge = unreadMessageBadge');
+    expect(source).toContain('isMessengerShortcut && hasUnreadMessages');
+    expect(source).not.toContain('data: unreadMsgCount = 0');
     expect(source).toContain('styles.quickLinkUnreadBadge');
     expect(source).toContain('읽지 않은 메시지 ${messengerUnreadBadge}개');
   });

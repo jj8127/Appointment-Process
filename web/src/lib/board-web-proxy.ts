@@ -42,6 +42,8 @@ type NormalizedBoardProxyRequest =
 
 const BOARD_FUNCTION_ALLOWLIST = new Set<string>(BOARD_FUNCTION_NAMES);
 
+export { sanitizeBoardUpstreamError } from '../../../lib/board-error-policy.ts';
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }

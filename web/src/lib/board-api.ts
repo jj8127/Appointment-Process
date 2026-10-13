@@ -1,6 +1,12 @@
 import { isBoardSuccess } from '@/lib/upstream-response-policy';
 import { logger } from '@/lib/logger';
 import { redactSensitiveText } from '@/lib/sensitive-text';
+import {
+  hasValidBoardCategories,
+  hasValidBoardDetailAttachmentUrls,
+  hasValidBoardListAttachmentUrls,
+  parseBoardAttachmentSignRows,
+} from '@/lib/board-response-contract';
 
 export type BoardActorRole = 'admin' | 'manager' | 'fc';
 export type BoardDisplayRole = 'admin' | 'manager' | 'fc' | 'developer';
@@ -199,7 +205,7 @@ async function invokeBoardResponse<T>(
       : '요청에 실패했습니다.';
     throw Object.assign(new Error(payload?.message ?? fallback), { status: response.status });
   }
-  if (payload?.ok === true && !isBoardSuccess(name, payload)) {
+  if (payload?.ok === true && !isBoardSuccess(name, payload, body)) {
     throw new Error('게시판 처리 결과를 확인할 수 없습니다. 목록을 새로고침하여 확인해주세요.');
   }
   return payload;
@@ -315,6 +321,9 @@ export async function fetchBoardList(actor: BoardActor, params: BoardListParams)
     actor,
     ...params,
   });
+  if (!hasValidBoardListAttachmentUrls(result)) {
+    throw new Error('게시판 처리 결과를 확인할 수 없습니다. 목록을 새로고침하여 확인해주세요.');
+  }
   return {
     ...result,
     items: result.items.map(sanitizeBoardListItem),
@@ -322,11 +331,18 @@ export async function fetchBoardList(actor: BoardActor, params: BoardListParams)
 }
 
 export async function fetchBoardCategories(actor: BoardActor) {
-  return invokeBoard<BoardCategory[]>('board-categories-list', { actor });
+  const result = await invokeBoard<BoardCategory[]>('board-categories-list', { actor });
+  if (!hasValidBoardCategories(result)) {
+    throw new Error('게시판 처리 결과를 확인할 수 없습니다. 목록을 새로고침하여 확인해주세요.');
+  }
+  return result;
 }
 
 export async function fetchBoardDetail(actor: BoardActor, postId: string) {
   const result = await invokeBoard<BoardDetail>('board-detail', { actor, postId });
+  if (!hasValidBoardDetailAttachmentUrls(result, postId)) {
+    throw new Error('게시판 처리 결과를 확인할 수 없습니다. 목록을 새로고침하여 확인해주세요.');
+  }
   return sanitizeBoardDetail(result);
 }
 
@@ -431,11 +447,19 @@ export async function signBoardAttachments(
     storagePath?: string;
   }[],
 ) {
-  return invokeBoard<{ storagePath: string; signedUrl: string }[]>('board-attachment-sign', {
+  const result = await invokeBoard<unknown>('board-attachment-sign', {
     actor,
     postId,
     files,
   });
+  const signedRows = parseBoardAttachmentSignRows(
+    result,
+    files.map((file) => file.storagePath),
+  );
+  if (!signedRows) {
+    throw new Error('게시판 처리 결과를 확인할 수 없습니다. 목록을 새로고침하여 확인해주세요.');
+  }
+  return signedRows;
 }
 
 export async function finalizeBoardAttachments(

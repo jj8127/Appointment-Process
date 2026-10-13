@@ -2,7 +2,6 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   canSubmitInsuranceCommission,
-  buildWorkflowResetPayload,
   isLegacyAppointmentTerminalStatus,
   hasHanwhaPdfMetadata,
 } from '../_shared/commission.ts';
@@ -13,7 +12,20 @@ import {
 import type { NotificationTargetV1 } from '../_shared/notification-target.ts';
 import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
 import { drainMessengerAttachmentCleanup } from '../_shared/messenger-attachment-service.ts';
-import { requireCreationReceipt, requireDocumentReceipt, requireExamDeletionReceipt } from '../_shared/ux-mutation-contract.ts';
+import {
+  buildFcDocWorkflowResetPayload,
+  isFcStatus,
+  parseFcStatusUpdateExtra,
+} from '../../../lib/fc-status.ts';
+import { buildSupabaseMutationReceiptSelect } from '../../../lib/supabase-query-contract.ts';
+import {
+  requireAccountDeletionReceipt,
+  requireCreationReceipt,
+  requireDocumentReceipt,
+  requireExamDeletionReceipt,
+  requireExamTransitionReceipt,
+  requireMutationRowReceipt,
+} from '../_shared/ux-mutation-contract.ts';
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -92,12 +104,6 @@ type ActionRequest = {
   payload: Record<string, any>;
 };
 
-function toBase64(bytes: Uint8Array) {
-  let binary = '';
-  bytes.forEach((b) => (binary += String.fromCharCode(b)));
-  return btoa(binary);
-}
-
 function fromBase64(input: string) {
   const binary = atob(input);
   const bytes = new Uint8Array(binary.length);
@@ -174,8 +180,9 @@ async function getFcIdsForPhone(phone: string): Promise<string[]> {
     .select('id')
     .in('phone', phoneCandidates);
   if (error) throw error;
+  if (!Array.isArray(data)) throw new Error('fc_profile_scope_query_contract_invalid');
   return Array.from(
-    new Set((data ?? []).map((row: any) => String(row?.id ?? '').trim()).filter(Boolean)),
+    new Set(data.map((row: any) => String(row?.id ?? '').trim()).filter(Boolean)),
   );
 }
 
@@ -456,18 +463,6 @@ function buildResidentIds(phone: string | null | undefined): string[] {
   return Array.from(values).filter(Boolean);
 }
 
-function extractChatUploadPath(fileUrl: string | null | undefined): string | null {
-  const raw = String(fileUrl ?? '').trim();
-  if (!raw) return null;
-  const marker = '/chat-uploads/';
-  const idx = raw.indexOf(marker);
-  if (idx < 0) return null;
-  const withBucket = raw.slice(idx + marker.length);
-  const pathOnly = withBucket.split('?')[0] ?? '';
-  const normalized = pathOnly.replace(/^\/+/, '');
-  return normalized || null;
-}
-
 function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return Array.from(
@@ -479,42 +474,33 @@ function readStringArray(value: unknown): string[] {
   );
 }
 
-function buildDocWorkflowResetPayload() {
-  const resetPayload = buildWorkflowResetPayload();
-  delete resetPayload.docs_deadline_at;
-  delete resetPayload.docs_deadline_last_notified_at;
-  return resetPayload;
-}
-
 async function syncProfileAfterDocMutation(fcId: string) {
   const { data: allDocs, error: fetchError } = await supabase
     .from('fc_documents')
     .select('status,storage_path')
     .eq('fc_id', fcId);
   if (fetchError) throw fetchError;
+  if (!Array.isArray(allDocs)) throw new Error('fc_document_query_contract_invalid');
 
-  const docs = allDocs ?? [];
+  const docs = allDocs;
   const allApproved = docs.length > 0 && docs.every((doc) => doc.status === 'approved');
 
-  if (allApproved) {
-    const { error: profileError } = await supabase
-      .from('fc_profiles')
-      .update({ status: 'docs-approved' })
-      .eq('id', fcId);
-    if (profileError) throw profileError;
-    return { allApproved: true };
-  }
-
-  const { error: profileError } = await supabase
-    .from('fc_profiles')
-    .update({
+  const updatePayload = allApproved
+    ? { status: 'docs-approved' }
+    : {
       status: 'docs-pending',
-      ...buildDocWorkflowResetPayload(),
-    })
-    .eq('id', fcId);
+      ...buildFcDocWorkflowResetPayload(),
+    };
+  const { data: updatedProfile, error: profileError } = await supabase
+    .from('fc_profiles')
+    .update(updatePayload)
+    .eq('id', fcId)
+    .select(buildSupabaseMutationReceiptSelect(updatePayload))
+    .maybeSingle();
   if (profileError) throw profileError;
+  requireMutationRowReceipt(updatedProfile, { ...updatePayload, id: fcId });
 
-  return { allApproved: false };
+  return { allApproved };
 }
 
 async function areAllRequestedDocsApproved(fcId: string) {
@@ -524,7 +510,8 @@ async function areAllRequestedDocsApproved(fcId: string) {
     .eq('fc_id', fcId);
   if (error) throw error;
 
-  const requestedDocs = docs ?? [];
+  if (!Array.isArray(docs)) throw new Error('fc_document_query_contract_invalid');
+  const requestedDocs = docs;
   return requestedDocs.length > 0 && requestedDocs.every((doc) => doc.status === 'approved');
 }
 
@@ -533,7 +520,8 @@ async function drainDocumentCleanup(fcId: string): Promise<boolean> {
   try {
     const { data, error } = await supabase.from('fc_document_cleanup_queue').select('storage_path').eq('fc_id', fcId).limit(20);
     if (error) return true;
-    for (const row of data ?? []) {
+    if (!Array.isArray(data)) return true;
+    for (const row of data) {
       const result = await supabase.storage.from('fc-documents').remove([row.storage_path]);
       if (!result.error) await supabase.from('fc_document_cleanup_queue').delete().eq('fc_id', fcId).eq('storage_path', row.storage_path);
     }
@@ -750,17 +738,29 @@ serve(async (req: Request) => {
           .select('fc_id,resident_number_encrypted')
           .in('fc_id', chunk);
         if (error) throw error;
+        if (!Array.isArray(rows)) throw new Error('resident_number_query_contract_invalid');
 
-        for (const row of rows ?? []) {
-          const fcId = (row as any).fc_id as string;
-          const enc = (row as any).resident_number_encrypted as string | null;
-          if (!fcId || !enc) {
-            if (fcId) {
-              residentNumbers[fcId] = null;
-              residentNumberStatuses[fcId] = 'missing';
-            }
+        const requestedIds = new Set(chunk);
+        const seenIds = new Set<string>();
+        for (const rawRow of rows) {
+          if (!rawRow || typeof rawRow !== 'object' || Array.isArray(rawRow)) {
+            throw new Error('resident_number_row_contract_invalid');
+          }
+          const row = rawRow as Record<string, unknown>;
+          const fcId = typeof row.fc_id === 'string' ? row.fc_id.trim() : '';
+          const enc = row.resident_number_encrypted;
+          if (!fcId || !requestedIds.has(fcId) || seenIds.has(fcId)
+            || (enc !== null && typeof enc !== 'string')) {
+            throw new Error('resident_number_row_contract_invalid');
+          }
+          seenIds.add(fcId);
+          if (enc === null) {
+            residentNumbers[fcId] = null;
+            residentNumberStatuses[fcId] = 'missing';
             continue;
           }
+          if (typeof enc !== 'string') throw new Error('resident_number_row_contract_invalid');
+          if (!enc.trim()) throw new Error('resident_number_row_contract_invalid');
 
           try {
             const plain = await decrypt(enc, key);
@@ -802,9 +802,36 @@ serve(async (req: Request) => {
     // ── updateProfile ──
     if (action === 'updateProfile') {
       const { fcId, data } = payload as { fcId: string; data: Record<string, any> };
-      if (!fcId || !data) return fail('fcId and data are required');
-      const { error } = await supabase.from('fc_profiles').update(data).eq('id', fcId);
+      const allowedFields = new Set(['career_type', 'temp_id', 'status']);
+      const updateFields = data && typeof data === 'object' && !Array.isArray(data)
+        ? Object.keys(data)
+        : [];
+      if (!fcId || updateFields.length === 0) return fail('fcId and profile fields are required');
+      if (updateFields.some((field) => !allowedFields.has(field))) {
+        return fail('unsupported profile field');
+      }
+      if (Object.prototype.hasOwnProperty.call(data, 'career_type')
+        && data.career_type !== null
+        && data.career_type !== '신입'
+        && data.career_type !== '경력') {
+        return fail('career_type must be 신입, 경력, or null');
+      }
+      if (Object.prototype.hasOwnProperty.call(data, 'temp_id')
+        && data.temp_id !== null
+        && typeof data.temp_id !== 'string') {
+        return fail('temp_id must be a string or null');
+      }
+      if (Object.prototype.hasOwnProperty.call(data, 'status') && !isFcStatus(data.status)) {
+        return fail('profile status is invalid');
+      }
+      const { data: updatedProfile, error } = await supabase
+        .from('fc_profiles')
+        .update(data)
+        .eq('id', fcId)
+        .select('id,career_type,temp_id,status')
+        .maybeSingle();
       if (error) throw error;
+      requireMutationRowReceipt(updatedProfile, { ...data, id: fcId });
       return json({ ok: true });
     }
 
@@ -815,8 +842,9 @@ serve(async (req: Request) => {
         status: string;
         extra?: Record<string, any>;
       };
-      if (!fcId || !status) return fail('fcId and status are required');
-      let nextExtra = extra;
+      if (!fcId || !isFcStatus(status)) return fail('fcId and valid status are required');
+      let nextExtra = parseFcStatusUpdateExtra(status, extra);
+      if (!nextExtra) return fail('status extra fields are invalid');
 
       if (isAllowanceFlowMutation(status, nextExtra)) {
         const { data: currentProfile, error: profileError } = await supabase
@@ -851,15 +879,19 @@ serve(async (req: Request) => {
       if (status === 'docs-pending') {
         nextExtra = {
           ...(nextExtra ?? {}),
-          ...buildDocWorkflowResetPayload(),
+          ...buildFcDocWorkflowResetPayload(),
         };
       }
 
-      const { error } = await supabase
+      const updatePayload = { status, ...(nextExtra ?? {}) };
+      const { data: updatedProfile, error } = await supabase
         .from('fc_profiles')
-        .update({ status, ...(nextExtra ?? {}) })
-        .eq('id', fcId);
+        .update(updatePayload)
+        .eq('id', fcId)
+        .select(buildSupabaseMutationReceiptSelect(updatePayload))
+        .maybeSingle();
       if (error) throw error;
+      requireMutationRowReceipt(updatedProfile, { ...updatePayload, id: fcId });
       return json({ ok: true });
     }
 
@@ -889,16 +921,20 @@ serve(async (req: Request) => {
       }
 
       const nextStatus = resolveAllowanceStatus(profile.status);
-      const { error: updateError } = await supabase
+      const updatePayload = {
+        allowance_date: normalizedAllowanceDate,
+        allowance_prescreen_requested_at: null,
+        allowance_reject_reason: null,
+        status: nextStatus,
+      };
+      const { data: updatedProfile, error: updateError } = await supabase
         .from('fc_profiles')
-        .update({
-          allowance_date: normalizedAllowanceDate,
-          allowance_prescreen_requested_at: null,
-          allowance_reject_reason: null,
-          status: nextStatus,
-        })
-        .eq('id', fcId);
+        .update(updatePayload)
+        .eq('id', fcId)
+        .select('id,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,status')
+        .maybeSingle();
       if (updateError) throw updateError;
+      requireMutationRowReceipt(updatedProfile, { ...updatePayload, id: fcId });
 
       return json({ ok: true, allowance_date: normalizedAllowanceDate, status: nextStatus });
     }
@@ -931,15 +967,19 @@ serve(async (req: Request) => {
           ? profile.status
           : 'hanwha-commission-review';
 
-      const { error: updateError } = await supabase
+      const updatePayload = {
+        hanwha_commission_date_sub: normalizedSubmittedDate,
+        hanwha_commission_reject_reason: null,
+        status: nextStatus,
+      };
+      const { data: updatedProfile, error: updateError } = await supabase
         .from('fc_profiles')
-        .update({
-          hanwha_commission_date_sub: normalizedSubmittedDate,
-          hanwha_commission_reject_reason: null,
-          status: nextStatus,
-        })
-        .eq('id', fcId);
+        .update(updatePayload)
+        .eq('id', fcId)
+        .select('id,hanwha_commission_date_sub,hanwha_commission_reject_reason,status')
+        .maybeSingle();
       if (updateError) throw updateError;
+      requireMutationRowReceipt(updatedProfile, { ...updatePayload, id: fcId });
 
       return json({ ok: true, hanwha_commission_date_sub: normalizedSubmittedDate, status: nextStatus });
     }
@@ -962,17 +1002,22 @@ serve(async (req: Request) => {
 
       const sentAt = new Date().toISOString();
       const sentBy = trustedPhone;
-      const { error: updateError } = await supabase
+      const updatePayload = {
+        dawichok_url_sent_at: sentAt,
+        dawichok_url_sent_by: sentBy,
+      };
+      const { data: updatedProfile, error: updateError } = await supabase
         .from('fc_profiles')
-        .update({
-          dawichok_url_sent_at: sentAt,
-          dawichok_url_sent_by: sentBy,
-        })
-        .eq('id', fcId);
+        .update(updatePayload)
+        .eq('id', fcId)
+        .select('id,dawichok_url_sent_at,dawichok_url_sent_by')
+        .maybeSingle();
       if (updateError) throw updateError;
+      requireMutationRowReceipt(updatedProfile, { ...updatePayload, id: fcId });
 
       return json({
         ok: true,
+        id: fcId,
         dawichok_url_sent_at: sentAt,
         dawichok_url_sent_by: sentBy,
       });
@@ -1033,8 +1078,14 @@ serve(async (req: Request) => {
           hanwha_commission_date_sub: nextSubmittedDate,
         };
 
-        const { error: updateError } = await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);
+        const { data: updatedProfile, error: updateError } = await supabase
+          .from('fc_profiles')
+          .update(updatePayload)
+          .eq('id', fcId)
+          .select(buildSupabaseMutationReceiptSelect(updatePayload))
+          .maybeSingle();
         if (updateError) throw updateError;
+        requireMutationRowReceipt(updatedProfile, { ...updatePayload, id: fcId });
         return json({ ok: true, status: 'hanwha-commission-approved' });
       }
 
@@ -1052,8 +1103,14 @@ serve(async (req: Request) => {
         hanwha_commission_date_sub: nextSubmittedDate,
       };
 
-      const { error: updateError } = await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);
+      const { data: updatedProfile, error: updateError } = await supabase
+        .from('fc_profiles')
+        .update(updatePayload)
+        .eq('id', fcId)
+        .select(buildSupabaseMutationReceiptSelect(updatePayload))
+        .maybeSingle();
       if (updateError) throw updateError;
+      requireMutationRowReceipt(updatedProfile, { ...updatePayload, id: fcId });
       return json({ ok: true, status: 'hanwha-commission-rejected' });
     }
 
@@ -1070,7 +1127,9 @@ serve(async (req: Request) => {
 
       const { data: profile, error: profileError } = await supabase
         .from('fc_profiles')
-        .select('status,hanwha_commission_pdf_path,hanwha_commission_pdf_name')
+        .select(
+          'status,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_date_life,appointment_date_nonlife,life_commission_completed,nonlife_commission_completed',
+        )
         .eq('id', fcId)
         .maybeSingle();
       if (profileError) throw profileError;
@@ -1085,10 +1144,33 @@ serve(async (req: Request) => {
       const field = type === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
       const submittedField = type === 'life' ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub';
       const rejectField = type === 'life' ? 'appointment_reject_reason_life' : 'appointment_reject_reason_nonlife';
+      const confirmedDate = isReject ? null : date;
+
+      const lifeDone = Boolean(
+        (type === 'life' ? confirmedDate : profile.appointment_date_life)
+        || profile.life_commission_completed,
+      );
+      const nonlifeDone = Boolean(
+        (type === 'nonlife' ? confirmedDate : profile.appointment_date_nonlife)
+        || profile.nonlife_commission_completed,
+      );
+      const currentStatus = String(profile.status ?? '');
+      const preserveLegacyTerminal = isLegacyAppointmentTerminalStatus(currentStatus);
+      const nextStatus =
+        isReject || confirmedDate === null
+          ? preserveLegacyTerminal
+            ? currentStatus
+            : 'hanwha-commission-approved'
+          : currentStatus === 'final-link-sent'
+            ? 'final-link-sent'
+            : lifeDone && nonlifeDone
+              ? 'final-link-sent'
+              : 'appointment-completed';
 
       const updatePayload: Record<string, any> = {
-        [field]: date,
+        [field]: confirmedDate,
         [rejectField]: isReject ? rejectReason ?? null : null,
+        status: nextStatus,
       };
       if (isReject) updatePayload[submittedField] = null;
 
@@ -1097,28 +1179,11 @@ serve(async (req: Request) => {
         .update(updatePayload)
         .eq('id', fcId)
         .select(
-          'appointment_date_life, appointment_date_nonlife, life_commission_completed, nonlife_commission_completed',
+          'id,status,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife',
         )
         .single();
       if (error) throw error;
-
-      const lifeDone = Boolean(updated?.appointment_date_life || updated?.life_commission_completed);
-      const nonlifeDone = Boolean(updated?.appointment_date_nonlife || updated?.nonlife_commission_completed);
-      const bothDone = lifeDone && nonlifeDone;
-      const currentStatus = String(profile?.status ?? '');
-      const preserveLegacyTerminal = isLegacyAppointmentTerminalStatus(currentStatus);
-      const nextStatus =
-        isReject || date === null
-          ? preserveLegacyTerminal
-            ? currentStatus
-            : 'hanwha-commission-approved'
-          : currentStatus === 'final-link-sent'
-            ? 'final-link-sent'
-            : bothDone
-              ? 'final-link-sent'
-              : 'appointment-completed';
-      const { error: statusErr } = await supabase.from('fc_profiles').update({ status: nextStatus }).eq('id', fcId);
-      if (statusErr) throw statusErr;
+      requireMutationRowReceipt(updated, { ...updatePayload, id: fcId });
 
       return json({ ok: true, status: nextStatus });
     }
@@ -1149,8 +1214,15 @@ serve(async (req: Request) => {
       const updatePayload: Record<string, any> = {};
       if (life !== undefined) updatePayload.appointment_schedule_life = life || null;
       if (nonlife !== undefined) updatePayload.appointment_schedule_nonlife = nonlife || null;
-      const { error } = await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);
+      if (Object.keys(updatePayload).length === 0) return fail('appointment schedule fields are required');
+      const { data: updatedProfile, error } = await supabase
+        .from('fc_profiles')
+        .update(updatePayload)
+        .eq('id', fcId)
+        .select('id,appointment_schedule_life,appointment_schedule_nonlife')
+        .maybeSingle();
       if (error) throw error;
+      requireMutationRowReceipt(updatedProfile, { ...updatePayload, id: fcId });
       return json({ ok: true });
     }
 
@@ -1202,12 +1274,19 @@ serve(async (req: Request) => {
       } else if (status === 'pending') {
         updatePayload.reviewer_note = null;
       }
-      const { error } = await supabase
+      const { data: updatedDoc, error } = await supabase
         .from('fc_documents')
         .update(updatePayload)
         .eq('fc_id', fcId)
-        .eq('doc_type', docType);
+        .eq('doc_type', docType)
+        .select('id,fc_id,doc_type,status,reviewer_note')
+        .maybeSingle();
       if (error) throw error;
+      requireMutationRowReceipt(updatedDoc, {
+        ...updatePayload,
+        fc_id: fcId,
+        doc_type: docType,
+      });
 
       const { allApproved } = await syncProfileAfterDocMutation(fcId);
       return json({ ok: true, allApproved });
@@ -1332,11 +1411,17 @@ serve(async (req: Request) => {
         },
       );
       if (saveError) throw saveError;
-      if (typeof targetRoundId !== 'string' || !targetRoundId) {
+      let savedRoundId: string;
+      try {
+        savedRoundId = requireCreationReceipt({ id: targetRoundId }).id;
+      } catch {
         return fail('exam round save did not return an id', 500);
       }
+      if (roundId && savedRoundId.toLowerCase() !== roundId.toLowerCase()) {
+        return fail('exam round save receipt did not match the requested round', 500);
+      }
 
-      return json({ ok: true, roundId: targetRoundId });
+      return json({ ok: true, roundId: savedRoundId });
     }
 
     // ── deleteExamRound: check, child delete and parent delete share the same transaction ──
@@ -1392,11 +1477,28 @@ serve(async (req: Request) => {
         p_reason: requestedTransition === 'reject' ? normalizedReason : null,
       });
       if (error) {
-        const status = error.message === 'exam_registration_not_found' ? 404 : 409;
-        return fail(error.message || 'exam transition failed', status);
+        const knownTransitionFailures: Record<string, { message: string; status: number }> = {
+          exam_registration_not_found: { message: '시험 신청 내역을 찾을 수 없습니다.', status: 404 },
+          exam_transition_forbidden: { message: '시험 신청 상태를 변경할 권한이 없습니다.', status: 403 },
+          terminal_exam_registration: { message: '완료되었거나 불참 처리된 시험 신청은 변경할 수 없습니다.', status: 409 },
+          invalid_exam_transition: { message: '현재 상태에서는 요청한 시험 신청 상태로 변경할 수 없습니다.', status: 409 },
+        };
+        const knownFailure = knownTransitionFailures[error.message];
+        return knownFailure
+          ? fail(knownFailure.message, knownFailure.status)
+          : fail('시험 신청 상태를 변경하지 못했습니다.', 500);
       }
 
-      const result = Array.isArray(data) ? data[0] : data;
+      let result: ReturnType<typeof requireExamTransitionReceipt>;
+      try {
+        result = requireExamTransitionReceipt(
+          data,
+          normalizedRegistrationId,
+          requestedTransition as 'confirm' | 'unconfirm' | 'reject' | 'cancel_by_admin',
+        );
+      } catch {
+        return fail('Exam transition result could not be verified', 500);
+      }
       const proofPath = String(result?.proof_path ?? '').trim();
       let cleanupWarning = false;
       if (proofPath) {
@@ -1495,15 +1597,21 @@ serve(async (req: Request) => {
           p_target_id: fcId,
         },
       );
-      if (error) return fail(error.message || 'account deletion failed', 409);
+      if (error) {
+        return error.message === 'account_delete_target_not_found'
+          ? fail('삭제할 FC 계정을 찾을 수 없습니다.', 404)
+          : fail('FC 계정을 삭제하지 못했습니다.', 500);
+      }
 
-      const result = (data ?? {}) as Record<string, unknown>;
+      let result: ReturnType<typeof requireAccountDeletionReceipt>;
+      try {
+        result = requireAccountDeletionReceipt(data);
+      } catch {
+        return fail('Account deletion result could not be verified', 500);
+      }
       const proofPaths = readStringArray(result.proof_paths);
       const documentPaths = readStringArray(result.document_paths);
       const boardPaths = readStringArray(result.board_attachment_paths);
-      const chatPaths = readStringArray(result.chat_file_urls)
-        .map(extractChatUploadPath)
-        .filter((path): path is string => Boolean(path));
       const authUserIds = readStringArray(result.auth_user_ids);
       const cleanupOutboxId = String(result.cleanup_outbox_id ?? '').trim();
 
@@ -1516,9 +1624,6 @@ serve(async (req: Request) => {
           : Promise.resolve({ error: null }),
         boardPaths.length > 0
           ? supabase.storage.from('board-attachments').remove(boardPaths)
-          : Promise.resolve({ error: null }),
-        chatPaths.length > 0
-          ? supabase.storage.from('chat-uploads').remove(chatPaths)
           : Promise.resolve({ error: null }),
       ]);
 
@@ -1659,7 +1764,7 @@ serve(async (req: Request) => {
     }
 
     return fail('Unknown action');
-  } catch (err: any) {
-    return json({ ok: false, message: err?.message ?? 'Request failed' }, 500);
+  } catch {
+    return json({ ok: false, message: 'Request failed' }, 500);
   }
 });

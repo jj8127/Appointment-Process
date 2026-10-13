@@ -2,6 +2,67 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+const validResponseRow = {
+  id: 'registration-1',
+  status: 'applied',
+  created_at: '2026-10-13T00:00:00.000Z',
+  round_id: null,
+  resident_id: '900101-1234567',
+  name: '홍길동',
+  phone: '010-1234-5678',
+  affiliation: '1본부',
+  address: '서울시',
+  location_name: '서울',
+  round_label: '생명 1차',
+  exam_date: '2026-10-20',
+  exam_type: 'life',
+  fee_paid_date: null,
+  payment_proof_attached: false,
+  is_confirmed: false,
+  includes_primary_exam: true,
+  is_third_exam: false,
+  application_type: '신규신청',
+  rejection_reason: null,
+  rejected_at: null,
+};
+
+test('exam applicant response parsers reject malformed successful payloads', async () => {
+  const mod = await import('./exam-applicant-list-display.ts').catch(() => null);
+
+  assert.ok(mod, 'exam applicant list display module should exist');
+  assert.deepStrictEqual(mod.parseExamApplicantRows([validResponseRow]), [validResponseRow]);
+  assert.equal(mod.parseExamApplicantRows([{ ...validResponseRow, is_confirmed: 'false' }]), null);
+  assert.equal(mod.parseExamApplicantRows([{ ...validResponseRow, payment_proof_attached: undefined }]), null);
+  assert.equal(mod.parseExamApplicantRows([{ ...validResponseRow, application_type: '알 수 없음' }]), null);
+  assert.equal(mod.parseExamApplicantRows({}), null);
+
+  assert.deepStrictEqual(
+    mod.parseExactExamApplicantRow([validResponseRow], ' registration-1 '),
+    validResponseRow,
+  );
+  assert.equal(
+    mod.parseExactExamApplicantRow(
+      [{ ...validResponseRow, id: 'registration-2' }],
+      'registration-1',
+    ),
+    null,
+  );
+  assert.equal(
+    mod.parseExactExamApplicantRow(
+      [validResponseRow, { ...validResponseRow, id: 'registration-2' }],
+      'registration-1',
+    ),
+    null,
+  );
+
+  assert.deepStrictEqual(
+    mod.parseExamApplicantNavigation({ previousId: 'registration-2', nextId: null }),
+    { previousId: 'registration-2', nextId: null },
+  );
+  assert.equal(mod.parseExamApplicantNavigation({ previousId: 2, nextId: null }), null);
+  assert.equal(mod.parseExamApplicantNavigation({ previousId: null }), null);
+});
+
 test('exam applicant list display columns follow the confirmed admin workbook order', async () => {
   const mod = await import('./exam-applicant-list-display.ts').catch(() => null);
 
@@ -421,6 +482,7 @@ test('round-specific admin exam page uses the shared applicant column contract',
   assert.match(source, /EXAM_APPLICANT_EXPORT_COLUMNS/);
   assert.match(source, /getExamApplicantCellValue/);
   assert.match(source, /roundId=/);
+  assert.match(source, /loading && !hasLoaded \? \(/);
   assert.doesNotMatch(source, /<FilterHeader label="이름" field="name" \/>[\s\S]*<FilterHeader label="연락처" field="phone" \/>[\s\S]*<FilterHeader label="소속" field="affiliation"/);
 });
 

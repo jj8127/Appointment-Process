@@ -1,6 +1,8 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase , dbError } from '../_shared/board.ts';
 import { resolveCanonicalBoardCategory } from '../_shared/board-categories.ts';
+import { isBoardCategoryQueryRow, isBoardUuid } from '../_shared/board-read-contract.ts';
+import { requireMutationRowReceipt } from '../_shared/ux-mutation-contract.ts';
 
 type Payload = {
   actor?: {
@@ -33,7 +35,8 @@ serve(async (req: Request) => {
   const forbidden = requireRole(actorCheck.actor, ['admin'], origin);
   if (forbidden) return forbidden;
 
-  if (!body.id) {
+  const categoryId = isBoardUuid(body.id) ? body.id.toLowerCase() : null;
+  if (!categoryId) {
     return json({ ok: false, code: 'invalid_payload', message: 'id is required' }, 400, origin);
   }
 
@@ -48,15 +51,18 @@ serve(async (req: Request) => {
 
   const { data: currentCategory, error: currentCategoryError } = await supabase
     .from('board_categories')
-    .select('id,slug')
-    .eq('id', body.id)
+    .select('id,name,slug,sort_order,is_active')
+    .eq('id', categoryId)
     .maybeSingle();
 
   if (currentCategoryError) {
     return dbError(currentCategoryError, origin);
   }
-  if (!currentCategory?.id) {
+  if (!currentCategory) {
     return json({ ok: false, code: 'not_found', message: 'category not found' }, 404, origin);
+  }
+  if (!isBoardCategoryQueryRow(currentCategory) || currentCategory.id !== categoryId) {
+    return json({ ok: false, code: 'invalid_query_result', message: '카테고리 조회 결과를 확인하지 못했습니다.' }, 502, origin);
   }
 
   const canonicalCategory = resolveCanonicalBoardCategory({
@@ -80,14 +86,41 @@ serve(async (req: Request) => {
     is_active: true,
   };
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('board_categories')
     .update(payload)
-    .eq('id', body.id);
+    .eq('id', categoryId)
+    .select('id,name,slug,sort_order,is_active')
+    .single();
 
   if (error) {
     return dbError(error, origin);
   }
+  if (!isBoardCategoryQueryRow(data)) {
+    return json({
+      ok: false,
+      code: 'mutation_receipt_unverified',
+      message: '카테고리 저장 결과를 확인하지 못했습니다.',
+    }, 502, origin);
+  }
+  try {
+    requireMutationRowReceipt(data, { id: categoryId, ...payload });
+  } catch {
+    return json({
+      ok: false,
+      code: 'mutation_receipt_unverified',
+      message: '카테고리 저장 결과를 확인하지 못했습니다.',
+    }, 502, origin);
+  }
 
-  return json({ ok: true }, 200, origin);
+  return json({
+    ok: true,
+    data: {
+      id: data.id,
+      name: data.name,
+      slug: data.slug,
+      sortOrder: data.sort_order,
+      isActive: data.is_active,
+    },
+  }, 200, origin);
 });

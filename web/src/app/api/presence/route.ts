@@ -1,23 +1,24 @@
 import { NextResponse } from 'next/server';
 
+import { serverError } from '@/lib/api-error';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { checkRateLimit, SECURITY_HEADERS, verifyOrigin } from '@/lib/csrf';
 import { getVerifiedServerSession } from '@/lib/server-session';
+import { requireSupabaseRowsMatching } from '@/lib/supabase-query-contract';
+import {
+  isPresencePhoneRow,
+  isPresenceSnapshot,
+  isPresenceTableRow,
+  mergePresenceSnapshots,
+  normalizePresencePhone,
+  presenceRowsHaveUniquePhones,
+  presenceRowsMatchRequestedPhones,
+  type PresenceSnapshot,
+  type PresenceTableRow,
+} from '@shared/supabase/functions/_shared/presence-query-contract.ts';
 
 type PresenceRequestBody = {
-  phones?: Array<string | null | undefined>;
-};
-
-type PresenceTableRow = {
-  phone: string;
-  garam_in_at: string | null;
-  garam_link_at: string | null;
-  updated_at: string | null;
-};
-
-type PresenceSnapshot = PresenceTableRow & {
-  last_seen_at: string | null;
-  is_online: boolean;
+  phones: Array<string | null>;
 };
 
 const PRESENCE_THRESHOLD_MS = 65_000;
@@ -30,28 +31,24 @@ function json(body: Record<string, unknown>, status = 200) {
   });
 }
 
-function cleanPhone(input: string | null | undefined) {
-  return String(input ?? '').replace(/[^0-9]/g, '');
-}
-
 function normalizePhones(values: Array<string | null | undefined>) {
   return Array.from(
     new Set(
       values
-        .map((value) => cleanPhone(value))
+        .map((value) => normalizePresencePhone(value))
         .filter((phone) => phone.length === 11),
     ),
   ).slice(0, 100);
 }
 
-function isMissingPresenceRpcError(error: unknown) {
-  if (!error || typeof error !== 'object') {
+function isPresenceRequestBody(value: unknown): value is PresenceRequestBody {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
 
-  const maybeError = error as { code?: string; message?: string };
-  return maybeError.code === 'PGRST202'
-    || String(maybeError.message ?? '').includes('Could not find the function public.');
+  const phones = (value as { phones?: unknown }).phones;
+  return Array.isArray(phones)
+    && phones.every((phone) => phone === null || typeof phone === 'string');
 }
 
 function parsePresenceTimestamp(value: string | null | undefined) {
@@ -99,11 +96,12 @@ async function getPresenceSnapshots(phones: string[]) {
       throw error;
     }
 
-    return (data ?? []) as PresenceSnapshot[];
-  } catch (error) {
-    if (!isMissingPresenceRpcError(error)) {
-      throw error;
+    const rows = requireSupabaseRowsMatching(data, 'presence_rpc', isPresenceSnapshot);
+    if (!presenceRowsMatchRequestedPhones(rows, normalizedPhones, true)) {
+      throw new Error('presence_rpc_query_contract_invalid');
     }
+    return rows;
+  } catch {
 
     const { data, error: tableError } = await adminSupabase
       .from('user_presence')
@@ -114,17 +112,34 @@ async function getPresenceSnapshots(phones: string[]) {
       throw tableError;
     }
 
-    return ((data ?? []) as PresenceTableRow[]).map(toPresenceSnapshot);
+    const rows = requireSupabaseRowsMatching(data, 'presence_fallback', isPresenceTableRow);
+    if (!presenceRowsMatchRequestedPhones(rows, normalizedPhones, false)) {
+      throw new Error('presence_fallback_query_contract_invalid');
+    }
+    return mergePresenceSnapshots(normalizedPhones, rows.map(toPresenceSnapshot));
   }
 }
 
-async function getReadablePhones(role: 'fc' | 'admin' | 'manager', currentPhone: string) {
+function requirePresencePhoneRows(data: unknown, queryName: string) {
+  const rows = requireSupabaseRowsMatching(data, queryName, isPresencePhoneRow);
+  if (!presenceRowsHaveUniquePhones(rows)) {
+    throw new Error(`${queryName}_query_contract_invalid`);
+  }
+  return rows;
+}
+
+async function getReadablePhones(
+  role: 'fc' | 'admin' | 'manager',
+  currentPhone: string,
+  requestedPhones: string[],
+) {
   const allowedPhones = new Set<string>([currentPhone]);
+  const scopedPhones = normalizePhones(requestedPhones);
 
   if (role === 'fc') {
     const [managersResult, adminsResult] = await Promise.all([
-      adminSupabase.from('manager_accounts').select('phone').eq('active', true),
-      adminSupabase.from('admin_accounts').select('phone').eq('active', true),
+      adminSupabase.from('manager_accounts').select('phone').eq('active', true).in('phone', scopedPhones),
+      adminSupabase.from('admin_accounts').select('phone').eq('active', true).in('phone', scopedPhones),
     ]);
 
     if (managersResult.error) {
@@ -134,14 +149,14 @@ async function getReadablePhones(role: 'fc' | 'admin' | 'manager', currentPhone:
       throw adminsResult.error;
     }
 
-    (managersResult.data ?? []).forEach((row) => {
-      const phone = cleanPhone(row.phone);
+    requirePresencePhoneRows(managersResult.data, 'presence_scope_managers').forEach((row) => {
+      const phone = normalizePresencePhone(row.phone);
       if (phone.length === 11) {
         allowedPhones.add(phone);
       }
     });
-    (adminsResult.data ?? []).forEach((row) => {
-      const phone = cleanPhone(row.phone);
+    requirePresencePhoneRows(adminsResult.data, 'presence_scope_admins').forEach((row) => {
+      const phone = normalizePresencePhone(row.phone);
       if (phone.length === 11) {
         allowedPhones.add(phone);
       }
@@ -151,9 +166,9 @@ async function getReadablePhones(role: 'fc' | 'admin' | 'manager', currentPhone:
   }
 
   const [fcResult, managersResult, adminsResult] = await Promise.all([
-    adminSupabase.from('fc_profiles').select('phone').eq('signup_completed', true),
-    adminSupabase.from('manager_accounts').select('phone').eq('active', true),
-    adminSupabase.from('admin_accounts').select('phone').eq('active', true),
+    adminSupabase.from('fc_profiles').select('phone').eq('signup_completed', true).in('phone', scopedPhones),
+    adminSupabase.from('manager_accounts').select('phone').eq('active', true).in('phone', scopedPhones),
+    adminSupabase.from('admin_accounts').select('phone').eq('active', true).in('phone', scopedPhones),
   ]);
 
   if (fcResult.error) {
@@ -166,9 +181,13 @@ async function getReadablePhones(role: 'fc' | 'admin' | 'manager', currentPhone:
     throw adminsResult.error;
   }
 
-  [fcResult.data ?? [], managersResult.data ?? [], adminsResult.data ?? []].forEach((rows) => {
+  [
+    requirePresencePhoneRows(fcResult.data, 'presence_scope_fcs'),
+    requirePresencePhoneRows(managersResult.data, 'presence_scope_managers'),
+    requirePresencePhoneRows(adminsResult.data, 'presence_scope_admins'),
+  ].forEach((rows) => {
     rows.forEach((row) => {
-      const phone = cleanPhone(row.phone);
+      const phone = normalizePresencePhone(row.phone);
       if (phone.length === 11) {
         allowedPhones.add(phone);
       }
@@ -195,25 +214,28 @@ export async function POST(req: Request) {
     return json({ ok: false, message: 'Too many requests' }, 429);
   }
 
-  let body: PresenceRequestBody;
+  let body: unknown;
   try {
-    body = (await req.json()) as PresenceRequestBody;
+    body = await req.json();
   } catch {
     return json({ ok: false, message: 'Invalid JSON payload' }, 400);
   }
+  if (!isPresenceRequestBody(body)) {
+    return json({ ok: false, message: 'Invalid JSON payload' }, 400);
+  }
 
-  const currentPhone = cleanPhone(session.residentId);
+  const currentPhone = normalizePresencePhone(session.residentId);
   if (currentPhone.length !== 11) {
     return json({ ok: false, message: 'Invalid resident phone' }, 401);
   }
 
-  const requestedPhones = normalizePhones(body.phones ?? []);
+  const requestedPhones = normalizePhones(body.phones);
   if (requestedPhones.length === 0) {
     return json({ ok: true, data: [] });
   }
 
   try {
-    const allowedPhones = await getReadablePhones(session.role, currentPhone);
+    const allowedPhones = await getReadablePhones(session.role, currentPhone, requestedPhones);
     const scopedPhones = requestedPhones.filter((phone) => allowedPhones.has(phone));
 
     if (scopedPhones.length === 0) {
@@ -223,9 +245,6 @@ export async function POST(req: Request) {
     const rows = await getPresenceSnapshots(scopedPhones);
     return json({ ok: true, data: rows });
   } catch (error) {
-    return json({
-      ok: false,
-      message: error instanceof Error ? error.message : '활동 상태 조회에 실패했습니다.',
-    }, 500);
+    return serverError(error, 'api/presence', SECURITY_HEADERS);
   }
 }

@@ -1,4 +1,5 @@
-import { isNotificationUuid } from './notification-target';
+import { isNotificationUuid } from './notification-target.ts';
+import { isCredentialFreeHttpsUrl } from './external-url.ts';
 
 export const MAX_MESSENGER_ATTACHMENTS = 10;
 export const MAX_MESSENGER_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -34,6 +35,12 @@ export type MessengerAttachmentMetadata = {
 };
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+
+export function parseMessengerAttachmentSignedUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return isCredentialFreeHttpsUrl(normalized) ? normalized : null;
+}
 
 export function cleanMessengerAttachmentName(value: string) {
   return value

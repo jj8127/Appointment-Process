@@ -89,4 +89,40 @@ describe('direct message trusted service boundary', () => {
     );
     expect(source).toContain("return err('Notification recipient is not active', 403)");
   });
+
+  it('pages and validates complete direct-message row sets before list, read, or delete logic', () => {
+    const source = readFileSync(edgePath, 'utf8');
+    expect(source).toContain('collectSupabaseRows<DirectMessageRow>({');
+    expect(source).toContain("queryName: 'direct_messages_current'");
+    expect(source).toContain("queryName: 'direct_messages_legacy'");
+    expect(source).toContain('isRow: isDirectMessageRow');
+    expect(source).toContain('rowKey: (row) => row.id');
+    expect(source).toContain(".order('created_at', { ascending: true })");
+    expect(source).toContain(".order('id', { ascending: true })");
+    expect(source).toContain('.range(from, to)');
+    expect(source).toContain("return err('Direct message lookup failed', 500)");
+    expect(source).toContain("return err('Direct message ownership lookup failed', 500)");
+    expect(source).not.toContain('((currentResult.data ?? []) as unknown as DirectMessageRow[])');
+    expect(source).not.toContain('((legacyResult.data ?? []) as unknown as DirectMessageRow[])');
+    expect(source).toContain('for (const idBatch of chunkSupabaseFilterValues(incomingIds))');
+    expect(source).toContain('updatedRows.length !== idBatch.length');
+    expect(source).toContain('idBatch.some((id) => !updatedIds.has(id))');
+  });
+
+  it('requires the exact persisted send row before returning a successful direct message', () => {
+    const source = readFileSync(edgePath, 'utf8');
+    expect(source).toContain('!isDirectMessageRow(data)');
+    expect(source).toContain('data.id !== messageId');
+    expect(source).toContain('data.thread_id !== resolution.threadId');
+    expect(source).toContain("message: 'Direct message lookup failed'");
+  });
+
+  it('requires exact delete receipts for attachment and plain-message deletion', () => {
+    const source = readFileSync(edgePath, 'utf8');
+    expect(source).toContain('result.deleted !== true');
+    expect(source).toContain('result.batchId !== candidate.attachment_batch_id');
+    expect(source).toContain('!Number.isSafeInteger(result.scheduled)');
+    expect(source).toContain('data?.id !== candidate.id');
+    expect(source).not.toContain('scheduled: Number(result.scheduled ?? 0)');
+  });
 });

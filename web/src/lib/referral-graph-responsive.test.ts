@@ -58,4 +58,9 @@ test('referral graph page keeps desktop copy and adds mobile-friendly controls',
   assert.match(source, /isMobileGraph \? '범례' : '색상 범례'/);
   assert.match(source, /overflowX: isMobileGraph \? 'auto' : undefined/);
   assert.match(source, /추천인 그래프/);
+  assert.match(source, /data\.nodes\.every\(isGraphNode\)/);
+  assert.match(source, /data\.edges\.every\(isGraphEdge\)/);
+  assert.match(source, /<QueryErrorAlert/);
+  assert.match(source, /hasData=\{Boolean\(graphData\)\}/);
+  assert.match(source, /graphQuery\.isError && !graphData/);
 });

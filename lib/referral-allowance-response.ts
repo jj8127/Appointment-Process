@@ -6,10 +6,58 @@ import {
   type ReferralAllowanceNode,
   type ReferralAllowanceStatement,
   type ReferralAllowanceStatementResponse,
-} from '@/types/referral-allowance';
+} from '../types/referral-allowance.ts';
+import { parseCalendarDate } from './calendar-date.ts';
 
 export type ReferralAllowanceResponse = (ReferralAllowanceAccessResponse | ReferralAllowanceStatementResponse)
   & { statement?: ReferralAllowanceStatement | null };
+
+export type ReferralAllowanceAdminPilotReceipt = {
+  managerAccountId: string | null;
+  beneficiaryFcId: string;
+  employeeCode: string;
+  enabled: boolean;
+  revision: number;
+};
+
+export type ReferralAllowanceAdminImportReceipt = {
+  id: string;
+  status: 'draft' | 'published' | 'superseded';
+  revision: number;
+  sourceSha256: string;
+  policyVersion: typeof REFERRAL_ALLOWANCE_POLICY_VERSION;
+  performanceMonth: string;
+  pilotRevision: number;
+};
+
+export type ReferralAllowanceAdminMutationReceipt = {
+  ok: true;
+  pilot?: ReferralAllowanceAdminPilotReceipt;
+  import?: ReferralAllowanceAdminImportReceipt;
+};
+
+export type ReferralAllowanceAdminMutationExpectation =
+  | {
+      action: 'configure';
+      managerAccountId: string | null;
+      beneficiaryFcId: string;
+      employeeCode: string;
+      enabled: boolean;
+      expectedRevision: number;
+    }
+  | {
+      action: 'upload';
+      beneficiaryFcId: string;
+      performanceMonth: string;
+      expectedPilotRevision: number;
+    }
+  | {
+      action: 'publish';
+      importId: string;
+      sourceSha256: string;
+      expectedRevision: number;
+      expectedPilotRevision: number;
+    };
 
 const RESPONSE_ERROR = '수당 조회 응답을 확인하지 못했습니다. 다시 시도해주세요.';
 const isMonth = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
@@ -27,10 +75,18 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function isDate(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+const SUMMARY_KEYS = [
+  'currentMonthNetKrw',
+  'newPaymentKrw',
+  'carryForwardKrw',
+  'extinguishedKrw',
+  'excludedByEligibilityKrw',
+] as const;
+
+export function parseReferralAllowanceSummary(value: unknown): ReferralAllowanceStatement['summary'] {
+  const summary = record(value);
+  for (const key of SUMMARY_KEYS) requireValid(isMoney(summary[key]));
+  return summary as ReferralAllowanceStatement['summary'];
 }
 
 function validateStatement(value: unknown, availableMonths: string[], month?: string) {
@@ -38,11 +94,24 @@ function validateStatement(value: unknown, availableMonths: string[], month?: st
   requireValid(statement.schemaVersion === 1 && statement.policyVersion === REFERRAL_ALLOWANCE_POLICY_VERSION
     && statement.eligibilityBasis === 'uploaded_snapshot' && statement.status === 'current_month_estimate'
     && statement.previousCarryIncluded === false && typeof statement.usesLaterSnapshot === 'boolean');
+  const genealogyAsOfValue = statement.genealogyAsOf;
+  const paymentDate = typeof statement.paymentDate === 'string' ? parseCalendarDate(statement.paymentDate) : null;
+  const genealogyAsOf = typeof genealogyAsOfValue === 'string' ? parseCalendarDate(genealogyAsOfValue) : null;
   requireValid(isMonth(statement.performanceMonth) && availableMonths.includes(statement.performanceMonth)
     && (month === undefined || statement.performanceMonth === month)
-    && isDate(statement.paymentDate) && isDate(statement.genealogyAsOf));
+    && paymentDate !== null && genealogyAsOf !== null && typeof genealogyAsOfValue === 'string');
+  const performanceMonth = parseCalendarDate(`${statement.performanceMonth}-01`)!;
+  requireValid(
+    paymentDate.getFullYear() * 12 + paymentDate.getMonth()
+      === performanceMonth.getFullYear() * 12 + performanceMonth.getMonth() + 2
+    && genealogyAsOf.getTime() <= paymentDate.getTime(),
+  );
   requireValid(Array.isArray(statement.sourceSnapshotDates) && statement.sourceSnapshotDates.length > 0
-    && statement.sourceSnapshotDates.length <= 64 && statement.sourceSnapshotDates.every(isDate));
+    && statement.sourceSnapshotDates.length <= 64
+    && statement.sourceSnapshotDates.every((date) => typeof date === 'string' && parseCalendarDate(date) !== null));
+  const sourceSnapshotDates = statement.sourceSnapshotDates as string[];
+  requireValid(sourceSnapshotDates.every((date, index) => index === 0 || sourceSnapshotDates[index - 1] < date)
+    && statement.usesLaterSnapshot === sourceSnapshotDates.some((date) => date > genealogyAsOfValue));
 
   const beneficiary = record(statement.beneficiary);
   requireValid(isText(beneficiary.nodeId) && isText(beneficiary.name, 120)
@@ -79,11 +148,9 @@ function validateStatement(value: unknown, availableMonths: string[], month?: st
     requireValid(!node.isBeneficiary && parent && node.depth === parent.depth + 1);
   }
 
-  const summary = record(statement.summary);
-  const summaryKeys = ['currentMonthNetKrw', 'newPaymentKrw', 'carryForwardKrw', 'extinguishedKrw', 'excludedByEligibilityKrw'] as const;
-  for (const key of summaryKeys) requireValid(isMoney(summary[key]));
+  const summary = parseReferralAllowanceSummary(statement.summary);
   const net = BigInt(summary.currentMonthNetKrw as number);
-  const buckets = summaryKeys.slice(1).reduce((total, key) => total + BigInt(summary[key] as number), BigInt(0));
+  const buckets = SUMMARY_KEYS.slice(1).reduce((total, key) => total + BigInt(summary[key] as number), BigInt(0));
   requireValid(contributionTotal === net && buckets === net);
 
   const validation = record(statement.validation);
@@ -100,6 +167,14 @@ function validateStatement(value: unknown, availableMonths: string[], month?: st
   }
 }
 
+/** Validate one administrator import snapshot with the same contract used by the FC response parser. */
+export function parseReferralAllowanceStatement(value: unknown): ReferralAllowanceStatement {
+  const statement = record(value);
+  requireValid(isMonth(statement.performanceMonth));
+  validateStatement(value, [statement.performanceMonth], statement.performanceMonth);
+  return statement as ReferralAllowanceStatement;
+}
+
 /** Validate before query data can reach React or a throwing amount formatter; never rewrite published amounts. */
 export function parseReferralAllowanceResponse(value: unknown, action: 'access' | 'statement', month?: string): ReferralAllowanceResponse {
   const response = record(value);
@@ -112,4 +187,46 @@ export function parseReferralAllowanceResponse(value: unknown, action: 'access' 
     validateStatement(response.statement, response.availableMonths, month);
   }
   return response as ReferralAllowanceResponse;
+}
+
+/** Bind an administrator mutation receipt to the exact request before the UI reports success. */
+export function parseReferralAllowanceAdminMutationReceipt(
+  value: unknown,
+  expected: ReferralAllowanceAdminMutationExpectation,
+): ReferralAllowanceAdminMutationReceipt {
+  const response = record(value);
+  requireValid(response.ok === true);
+
+  if (expected.action === 'configure') {
+    const pilot = record(response.pilot);
+    requireValid(pilot.managerAccountId === expected.managerAccountId
+      && pilot.beneficiaryFcId === expected.beneficiaryFcId
+      && pilot.employeeCode === expected.employeeCode
+      && pilot.enabled === expected.enabled
+      && Number.isSafeInteger(expected.expectedRevision)
+      && pilot.revision === expected.expectedRevision + 1);
+    return response as ReferralAllowanceAdminMutationReceipt;
+  }
+
+  const imported = record(response.import);
+  requireValid(isText(imported.id)
+    && (imported.status === 'draft' || imported.status === 'published' || imported.status === 'superseded')
+    && Number.isSafeInteger(imported.revision) && Number(imported.revision) >= 0
+    && typeof imported.sourceSha256 === 'string' && /^[a-f0-9]{64}$/.test(imported.sourceSha256)
+    && imported.policyVersion === REFERRAL_ALLOWANCE_POLICY_VERSION
+    && isMonth(imported.performanceMonth)
+    && Number.isSafeInteger(imported.pilotRevision) && Number(imported.pilotRevision) >= 0);
+
+  if (expected.action === 'upload') {
+    requireValid(imported.performanceMonth === expected.performanceMonth
+      && imported.pilotRevision === expected.expectedPilotRevision);
+  } else {
+    requireValid(imported.id === expected.importId
+      && imported.status === 'published'
+      && imported.revision === expected.expectedRevision
+      && imported.sourceSha256 === expected.sourceSha256
+      && imported.pilotRevision === expected.expectedPilotRevision);
+  }
+
+  return response as ReferralAllowanceAdminMutationReceipt;
 }

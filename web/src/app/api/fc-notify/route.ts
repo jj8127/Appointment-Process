@@ -13,12 +13,15 @@ import {
 } from '@/lib/fc-notify-proxy-policy';
 import { logger } from '@/lib/logger';
 import { buildPhoneCandidates, getVerifiedServerSession } from '@/lib/server-session';
+import { requireSupabaseRows } from '@/lib/supabase-query-contract';
 
 export const runtime = 'nodejs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const FC_NOTIFY_PROXY_TIMEOUT_MS = 10_000;
+const FC_NOTIFY_DOWNSTREAM_ERROR = 'FC notification service request failed';
+const FC_NOTIFY_DOWNSTREAM_UNAVAILABLE = 'FC notification service is unavailable';
 
 function json(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, {
@@ -43,7 +46,7 @@ async function loadCompletedFcTargetRows(targetId: string) {
     .limit(phoneCandidates.length);
 
   if (error) throw error;
-  return data ?? [];
+  return requireSupabaseRows(data, 'fc_notify_completed_fc_targets');
 }
 
 async function loadActiveStaffTargetRows(
@@ -59,7 +62,7 @@ async function loadActiveStaffTargetRows(
     .limit(phoneCandidates.length);
 
   if (error) throw error;
-  return data ?? [];
+  return requireSupabaseRows(data, `fc_notify_${table}_targets`);
 }
 
 type CanonicalRequestBoardRecipient = {
@@ -136,10 +139,33 @@ async function proxyToFcNotify(payload: BrowserFcNotifyPayload | Record<string, 
     data = null;
   }
 
-  const downstreamOk = data !== null
-    && typeof data === 'object'
-    && !Array.isArray(data)
-    && (data as Record<string, unknown>).ok === true;
+  const record = data !== null && typeof data === 'object' && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : null;
+  const downstreamOk = record?.ok === true;
+  const validFailure = record?.ok === false
+    && typeof record.error === 'string'
+    && record.error.trim().length > 0;
+  const hasValidContract = response.ok ? downstreamOk || validFailure : validFailure;
+
+  if (response.status >= 500 || !hasValidContract) {
+    const reason = response.status >= 500 ? 'downstream_server_error' : 'malformed_downstream_response';
+    logger.error('[api/fc-notify] downstream response rejected', {
+      reason,
+      status: response.status,
+      downstreamCode: typeof record?.code === 'string' ? record.code : 'unknown',
+    });
+    const error = response.status >= 500
+      ? FC_NOTIFY_DOWNSTREAM_UNAVAILABLE
+      : FC_NOTIFY_DOWNSTREAM_ERROR;
+    const status = response.ok ? 502 : response.status;
+    return json({
+      status,
+      ok: false,
+      error,
+      data: { ok: false, error },
+    }, status);
+  }
 
   return json({
     status: response.status,

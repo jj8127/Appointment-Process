@@ -6,6 +6,7 @@ const UUID_PATTERN =
 
 const ALLOWED_GROUP_CHAT_ACTIONS = new Set([
   'group_chat_bootstrap',
+  'group_chat_context',
   'group_chat_send',
   'group_chat_notification_retry',
   'group_chat_mark_read',
@@ -124,6 +125,22 @@ export function normalizeGroupChatProxyPayload(
   if (type === 'group_chat_bootstrap') {
     const limit = cleanLimit(raw.limit);
     return { ok: true, payload: limit ? { type, limit } : { type } };
+  }
+
+  if (type === 'group_chat_context') {
+    const roomId = cleanOptionalId(raw.room_id)?.toLowerCase() ?? null;
+    const messageId = cleanOptionalId(raw.message_id)?.toLowerCase() ?? null;
+    if (!roomId || !messageId || !UUID_PATTERN.test(roomId) || !UUID_PATTERN.test(messageId)) {
+      return { ok: false, status: 400, message: 'Invalid group chat context' };
+    }
+    return {
+      ok: true,
+      payload: {
+        type,
+        room_id: roomId,
+        message_id: messageId,
+      },
+    };
   }
 
   if (type === 'group_chat_send') {

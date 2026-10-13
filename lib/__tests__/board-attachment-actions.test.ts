@@ -41,6 +41,23 @@ describe('board attachment actions', () => {
     expect(logError).toHaveBeenCalledWith('attachment-open', error);
   });
 
+  it.each([
+    'javascript:alert(1)',
+    'data:text/html,unsafe',
+    'http://storage.example.test/file.pdf',
+    'https://user:secret@storage.example.test/file.pdf',
+  ])('does not open an unsafe attachment URL: %s', async (signedUrl) => {
+    const openExternalUrl = jest.fn();
+
+    await expect(openBoardAttachment({
+      signedUrl,
+      openExternalUrl,
+      alert: jest.fn(),
+    })).resolves.toBe(false);
+
+    expect(openExternalUrl).not.toHaveBeenCalled();
+  });
+
   it('keeps mobile and admin board attachment opening on the shared helper', () => {
     for (const source of [
       readRepoFile('app/board.tsx'),

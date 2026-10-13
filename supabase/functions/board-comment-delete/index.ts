@@ -1,5 +1,10 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { buildCorsHeaders, json, parseJson, requireActor, supabase , dbError } from '../_shared/board.ts';
+import {
+  isBoardAuthoredEntityQueryRow,
+  isBoardUuid,
+} from '../_shared/board-read-contract.ts';
+import { requireMutationRowReceipt } from '../_shared/ux-mutation-contract.ts';
 
 type Payload = {
   actor?: {
@@ -26,22 +31,29 @@ serve(async (req: Request) => {
   const actorCheck = await requireActor(req, body, 'board-comment-delete', origin);
   if (actorCheck.ok === false) return actorCheck.response;
 
-  const commentId = body.commentId;
+  const commentId = isBoardUuid(body.commentId) ? body.commentId.toLowerCase() : null;
   if (!commentId) {
     return json({ ok: false, code: 'invalid_payload', message: 'commentId is required' }, 400, origin);
   }
 
   const { data: comment, error: commentError } = await supabase
     .from('board_comments')
-    .select('id,author_resident_id,author_role')
+    .select('id,post_id,author_resident_id,author_role')
     .eq('id', commentId)
     .maybeSingle();
 
   if (commentError) {
-    return json({ ok: false, code: 'db_error', message: commentError.message }, 500, origin);
+    return dbError(commentError, origin);
   }
   if (!comment) {
     return json({ ok: false, code: 'not_found', message: 'comment not found' }, 404, origin);
+  }
+  if (
+    !isBoardAuthoredEntityQueryRow(comment)
+    || !isBoardUuid(comment.post_id)
+    || comment.id !== commentId
+  ) {
+    return json({ ok: false, code: 'invalid_query_result', message: '댓글 조회 결과를 확인하지 못했습니다.' }, 502, origin);
   }
 
   if (
@@ -51,10 +63,26 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'forbidden', message: 'cannot delete this comment' }, 403, origin);
   }
 
-  const { error } = await supabase.from('board_comments').delete().eq('id', commentId);
+  const { data, error } = await supabase
+    .from('board_comments')
+    .delete()
+    .eq('id', commentId)
+    .eq('author_resident_id', actorCheck.actor.residentId)
+    .eq('author_role', actorCheck.actor.role)
+    .select('id,post_id')
+    .single();
   if (error) {
     return dbError(error, origin);
   }
+  try {
+    requireMutationRowReceipt(data, { id: commentId, post_id: comment.post_id });
+  } catch {
+    return json({
+      ok: false,
+      code: 'mutation_receipt_unverified',
+      message: '댓글 삭제 결과를 확인하지 못했습니다.',
+    }, 502, origin);
+  }
 
-  return json({ ok: true }, 200, origin);
+  return json({ ok: true, data: { commentId: data.id, postId: data.post_id } }, 200, origin);
 });

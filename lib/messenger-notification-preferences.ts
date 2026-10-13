@@ -1,4 +1,5 @@
 import {
+  isPlainRecord,
   parseNotificationTarget,
   type NotificationTarget,
 } from './notification-target';
@@ -36,12 +37,6 @@ export const MESSENGER_NOTIFICATION_SAVE_ERROR =
   '알림 설정을 저장하지 못했습니다. 다시 시도해 주세요.';
 export const MESSENGER_NOTIFICATION_LOAD_ERROR =
   '알림 설정을 불러오지 못했습니다. 다시 시도해 주세요.';
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
 
 function hasExactKeys(
   value: Record<string, unknown>,

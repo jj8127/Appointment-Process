@@ -540,16 +540,16 @@ test('recommender 401/500/network failure is distinct from a successful empty se
 });
 
 test('messenger partial read failures keep successful counts and show unknown badges instead of zero', async () => {
-  const failures = new Set(['group_chat_bootstrap', 'inbox_list']);
+  const failures = new Set(['group_chat_bootstrap', 'inbox_unread_count']);
   const page = simplePage('../app/dashboard/messenger/page.tsx', {
     '@/lib/request-board-url': { resolveRequestBoardMessengerConfig: () => ({ available: true, messengerUrl: 'https://example.invalid/messenger' }) },
     '@/lib/staff-identity': { getWebStaffChatActorId: () => 'synthetic-actor', isDeveloperSession: () => false },
   }, {
     fetch: async (_, options) => {
       const { type } = JSON.parse(options.body);
-      if (failures.has(type)) return { ok: false, status: type === 'inbox_list' ? 401 : 500, json: async () => ({ ok: false }) };
+      if (failures.has(type)) return { ok: false, status: type === 'inbox_unread_count' ? 401 : 500, json: async () => ({ ok: false }) };
       if (type === 'group_chat_bootstrap') return { ok: true, json: async () => ({ ok: true, unread_count: 0 }) };
-      return { ok: true, json: async () => ({ ok: true, data: type === 'internal_unread_count' ? { ok: true, count: 7 } : { ok: true, notifications: [] } }) };
+      return { ok: true, json: async () => ({ ok: true, data: { ok: true, count: type === 'internal_unread_count' ? 7 : 0 } }) };
     },
   });
   await page.render();
@@ -594,10 +594,22 @@ const commonListMocks = {
   '@/components/RejectReasonModal': ui,
   '@/components/NotificationDestinationReady': ui,
   '@/lib/supabase': { supabase: {} },
-  '@/lib/admin-document-client': { fetchAdminDocuments: async () => [], fetchAdminFcList: async () => [], signAdminDocument: async () => 'https://storage.example.test/synthetic' },
+  '@/lib/admin-document-client': {
+    fetchAdminDocuments: async () => [],
+    fetchAdminFcList: async () => [],
+    isAdminCleanupPendingResponse: () => true,
+    isAdminFcProfile: () => true,
+    signAdminDocument: async () => 'https://storage.example.test/synthetic',
+  },
+  '@/lib/admin-notice-client': {
+    deleteAdminNotice: async (id) => ({ ok: true, deletedId: id, cleanupWarning: false }),
+    fetchAdminNotice: async () => ({}),
+    fetchAdminNotices: async () => [],
+  },
   '@/lib/logger': { logger: {} },
   '@/lib/show-admin-notification-warning': { showAdminNotificationWarning() {} },
   '@/lib/notification-delivery-feedback': { notificationFeedbackColor: () => 'green' },
+  '@/lib/user-intent-policy': userIntentPolicy,
   '@/lib/exam-round-sort': { sortExamRoundsNewestFirst: (rounds) => rounds },
   './actions': {},
   'next/link': { default: component('Link') },
@@ -633,10 +645,20 @@ for (const [path, emptyText, subject] of [
 }
 
 test('dashboard failed FC reads do not display empty-list text or invented zero KPIs', async () => {
-  let response;
+  let listOutcome = [];
   const page = simplePage('../app/dashboard/page.tsx', {
     ...commonListMocks,
+    '@/lib/admin-document-client': {
+      ...commonListMocks['@/lib/admin-document-client'],
+      async fetchAdminFcList() {
+        if (listOutcome instanceof Error) throw listOutcome;
+        return listOutcome;
+      },
+    },
     '@/lib/user-intent-policy': userIntentPolicy,
+    '@/lib/admin-temp-id-update': {
+      normalizeAdminTempId: (value) => typeof value === 'string' && value.trim() ? value.trim() : null,
+    },
     '@/hooks/use-resident-number': { useResidentNumber: () => ({}) },
     '@/hooks/use-visible-page-resident-numbers': { useVisiblePageResidentNumbers: () => new Map() },
     '@/lib/admin-file-open': {},
@@ -649,15 +671,10 @@ test('dashboard failed FC reads do not display empty-list text or invented zero 
     './page.module.css': { default: {} },
     '@/lib/dashboard-table-display': { DASHBOARD_FC_LIST_COLUMNS: [], DASHBOARD_FC_LIST_COLUMN_COUNT: 9 },
     '../../lib/logger': { logger: {} },
-  }, { fetch: async () => response });
+  });
   await page.render();
-  for (const payload of [[], { data: [] }]) {
-    response = { ok: true, json: async () => payload };
-    assert.deepEqual(await page.fetch('dashboard-list'), []);
-  }
-  response = { ok: true, json: async () => ({ ok: true }) };
-  await assert.rejects(page.fetch('dashboard-list'), /FC 목록 응답 형식/);
-  response = { ok: false, status: 500, json: async () => ({ error: 'UPSTREAM_PRIVATE_DETAILS' }) };
+  assert.deepEqual(await page.fetch('dashboard-list'), []);
+  listOutcome = new queryError.QueryReadError(500);
   await assert.rejects(page.fetch('dashboard-list'), (error) => error instanceof queryError.QueryReadError && error.status === 500);
   await page.setQuery(failure());
   assert.ok(page.find('QueryErrorAlert'));

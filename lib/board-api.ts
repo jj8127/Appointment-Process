@@ -2,6 +2,8 @@ import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
 import { getStoredAppSessionToken } from '@/lib/request-board-api';
 import { isNotificationUuid } from '@/lib/notification-target';
+import { sanitizeBoardUpstreamError } from '@/lib/board-error-policy';
+import { isBoardSuccess } from '@/lib/board-response-contract';
 
 export type BoardActorRole = 'admin' | 'manager' | 'fc';
 export type BoardDisplayRole = 'admin' | 'manager' | 'fc' | 'developer';
@@ -163,6 +165,40 @@ export type BoardCreateResult = BoardWriteResult & {
   id: string;
 };
 
+export type BoardDeleteResult = {
+  postId: string;
+  cleanupPending: false;
+};
+
+export type BoardPinResult = {
+  postId: string;
+  isPinned: boolean;
+  pinnedAt: string | null;
+  pinnedByResidentId: string | null;
+};
+
+export type BoardCommentUpdateResult = {
+  commentId: string;
+  content: string;
+  editedAt: string;
+};
+
+export type BoardCommentDeleteResult = {
+  commentId: string;
+  postId: string;
+};
+
+export type BoardAttachmentFinalizeResult = {
+  postId: string;
+  attachments: { id: string; storagePath: string }[];
+};
+
+export type BoardAttachmentDeleteResult = {
+  postId: string;
+  deletedAttachments: { id: string; storagePath: string }[];
+  cleanupPending: false;
+};
+
 type InvokeResult<T> = {
   ok: boolean;
   data?: T;
@@ -228,7 +264,21 @@ export class BoardApiError extends Error {
   }
 }
 
-type BoardFunctionFailure = { message: string; code?: string };
+type BoardFunctionFailure = { code?: string };
+
+function requireSafeBoardResponse(
+  name: BoardFunctionName,
+  body: Record<string, unknown>,
+  value: unknown,
+): void {
+  if (!isBoardSuccess(name, value, body)) {
+    throw new BoardApiError(
+      '게시판 응답을 확인할 수 없습니다. 잠시 후 다시 시도해주세요.',
+      502,
+      'invalid_response',
+    );
+  }
+}
 
 async function extractFunctionsFailure(error: unknown): Promise<BoardFunctionFailure | null> {
   if (!error || typeof error !== 'object') return null;
@@ -244,9 +294,9 @@ async function extractFunctionsFailure(error: unknown): Promise<BoardFunctionFai
 
   if (typeof context.json === 'function' && !context.bodyUsed) {
     try {
-      const payload = await context.json() as { message?: string; code?: string } | null;
-      if (payload?.message) return { message: payload.message, code: payload.code };
-      if (payload?.code) return { message: payload.code, code: payload.code };
+      const payload = await context.json() as { code?: unknown } | null;
+      if (typeof payload?.code === 'string') return { code: payload.code };
+      return {};
     } catch {
       // fall through to text parsing
     }
@@ -256,10 +306,8 @@ async function extractFunctionsFailure(error: unknown): Promise<BoardFunctionFai
     try {
       const raw = await context.text();
       if (!raw) return null;
-      const parsed = JSON.parse(raw) as { message?: string; code?: string };
-      if (parsed?.message) return { message: parsed.message, code: parsed.code };
-      if (parsed?.code) return { message: parsed.code, code: parsed.code };
-      return { message: raw };
+      const parsed = JSON.parse(raw) as { code?: unknown };
+      return typeof parsed?.code === 'string' ? { code: parsed.code } : {};
     } catch {
       return null;
     }
@@ -291,29 +339,42 @@ async function invokeBoardResponseWithDeps<T>(
   if (error) {
     const failure = await extractFunctionsFailure(error);
     const status = (error as { context?: { status?: number } })?.context?.status;
-    if (failure) {
-      throw new BoardApiError(failure.message, status, failure.code);
-    }
-    const fallback = status === 400
-      ? '요청이 올바르지 않습니다. 첨부파일 개수/용량을 확인해주세요.'
-      : null;
-    const rawMessage = typeof (error as { message?: unknown })?.message === 'string'
-      ? (error as { message: string }).message
-      : null;
-    throw new BoardApiError(fallback ?? rawMessage ?? '요청에 실패했습니다.', status);
+    const sanitized = sanitizeBoardUpstreamError(
+      failure,
+      typeof status === 'number' ? status : undefined,
+    );
+    throw new BoardApiError(
+      sanitized.body.message,
+      sanitized.status,
+      sanitized.body.code,
+    );
   }
   const payload = data as InvokeResult<T> | null;
   if (!payload?.ok) {
+    const failedDelivery = parseBoardNotificationDelivery(payload?.delivery);
+    const notificationRetry = parseBoardNotificationRetry(payload?.notificationRetry);
     if (
       name === 'board-notification-retry'
-      && parseBoardNotificationDelivery(payload?.delivery)?.notificationStored
-        === false
-      && parseBoardNotificationRetry(payload?.notificationRetry)
+      && failedDelivery?.notificationStored === false
+      && failedDelivery.pushStatus === 'not_attempted'
+      && failedDelivery.retryable === true
+      && notificationRetry
+      && typeof body.postId === 'string'
+      && notificationRetry.postId === body.postId.toLowerCase()
+      && typeof body.eventKey === 'string'
+      && notificationRetry.eventKey === body.eventKey.trim()
+      && payload?.notificationWarning === 'notification_delivery_incomplete'
     ) {
       return payload as InvokeResult<T>;
     }
-    throw new BoardApiError(payload?.message ?? '요청에 실패했습니다.', undefined, payload?.code);
+    const sanitized = sanitizeBoardUpstreamError(payload);
+    throw new BoardApiError(
+      sanitized.body.message,
+      sanitized.status,
+      sanitized.body.code,
+    );
   }
+  requireSafeBoardResponse(name, body, payload);
   return payload;
 }
 
@@ -387,9 +448,7 @@ function normalizeBoardWriteResult(payload: InvokeResult<unknown>): BoardWriteRe
     : null;
 
   return {
-    // Older compatible Edge responses did not expose `saved`, while `ok: true`
-    // already meant that the durable write completed.
-    saved: payload.saved !== false,
+    saved: payload.saved === true,
     notification,
     delivery,
     notificationRetry,
@@ -580,11 +639,11 @@ export function getBoardNotificationWarningMessage(notificationWarning?: string 
 }
 
 export async function deleteBoardPost(actor: BoardActor, postId: string) {
-  return invokeBoard<null>('board-delete', { actor, postId });
+  return invokeBoard<BoardDeleteResult>('board-delete', { actor, postId });
 }
 
 export async function pinBoardPost(actor: BoardActor, postId: string, isPinned: boolean) {
-  return invokeBoard<null>('board-pin', { actor, postId, isPinned });
+  return invokeBoard<BoardPinResult>('board-pin', { actor, postId, isPinned });
 }
 
 export async function createBoardComment(actor: BoardActor, payload: { postId: string; content: string; parentId?: string; requestId: string }) {
@@ -592,15 +651,19 @@ export async function createBoardComment(actor: BoardActor, payload: { postId: s
 }
 
 export async function updateBoardComment(actor: BoardActor, payload: { commentId: string; content: string }) {
-  return invokeBoard<null>('board-comment-update', { actor, ...payload });
+  return invokeBoard<BoardCommentUpdateResult>('board-comment-update', { actor, ...payload });
 }
 
 export async function deleteBoardComment(actor: BoardActor, commentId: string) {
-  return invokeBoard<null>('board-comment-delete', { actor, commentId });
+  return invokeBoard<BoardCommentDeleteResult>('board-comment-delete', { actor, commentId });
 }
 
 export async function toggleBoardReaction(actor: BoardActor, postId: string, reactionType: 'like' | 'heart' | 'check' | 'smile') {
-  return invokeBoard<{ myReaction: 'like' | 'heart' | 'check' | 'smile' | null }>('board-reaction-toggle', {
+  return invokeBoard<{
+    postId: string;
+    residentId: string;
+    myReaction: 'like' | 'heart' | 'check' | 'smile' | null;
+  }>('board-reaction-toggle', {
     actor,
     postId,
     reactionType,
@@ -608,7 +671,12 @@ export async function toggleBoardReaction(actor: BoardActor, postId: string, rea
 }
 
 export async function toggleCommentLike(actor: BoardActor, commentId: string) {
-  return invokeBoard<{ liked: boolean; likeCount: number }>('board-comment-like-toggle', { actor, commentId });
+  return invokeBoard<{
+    commentId: string;
+    residentId: string;
+    liked: boolean;
+    likeCount: number;
+  }>('board-comment-like-toggle', { actor, commentId });
 }
 
 export async function signBoardAttachments(
@@ -641,11 +709,17 @@ export async function finalizeBoardAttachments(
     sortOrder?: number;
   }[],
 ) {
-  return invokeBoard<null>('board-attachment-finalize', { actor, postId, files });
+  return invokeBoard<BoardAttachmentFinalizeResult>(
+    'board-attachment-finalize',
+    { actor, postId, files },
+  );
 }
 
 export async function deleteBoardAttachments(actor: BoardActor, postId: string, attachmentIds: string[]) {
-  return invokeBoard<null>('board-attachment-delete', { actor, postId, attachmentIds });
+  return invokeBoard<BoardAttachmentDeleteResult>(
+    'board-attachment-delete',
+    { actor, postId, attachmentIds },
+  );
 }
 
 export function formatFileSize(bytes?: number) {

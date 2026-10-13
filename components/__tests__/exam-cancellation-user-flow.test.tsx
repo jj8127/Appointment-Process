@@ -37,9 +37,17 @@ type RoundFixture = {
   exam_date: string;
   round_label: string;
   registration_deadline: string | null;
+  notes: string | null;
   created_at: string;
   updated_at: string;
-  exam_locations: { id: string; round_id: string; location_name: string; sort_order: number }[];
+  exam_locations: {
+    id: string;
+    round_id: string;
+    location_name: string;
+    sort_order: number;
+    created_at: string;
+    updated_at: string;
+  }[];
 };
 type RegistrationFixture = {
   id: string;
@@ -51,6 +59,8 @@ type RegistrationFixture = {
   is_third_exam: boolean;
   fee_paid_date: string;
   payment_proof_attached: boolean;
+  rejection_reason: string | null;
+  rejected_at: string | null;
   created_at: string;
   exam_type: Flow;
   exam_month: string;
@@ -65,13 +75,15 @@ type FunctionRequest = {
 // Compile the entire route/API. Native rendering, signed-session inputs and network
 // transports are injected; React hooks, Query observers, helpers and API error parsing run as shipped.
 function loadModule<T>(relativePath: string, dependencies: Record<string, unknown>): T {
-  const code = ts.transpileModule(readFileSync(join(__dirname, '../..', relativePath), 'utf8'), {
+  const fileName = join(__dirname, '../..', relativePath);
+  const code = ts.transpileModule(readFileSync(fileName, 'utf8'), {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       jsx: ts.JsxEmit.ReactJSX,
       target: ts.ScriptTarget.ES2020,
       esModuleInterop: true,
     },
+    fileName,
   }).outputText;
   const exports: Record<string, unknown> = {};
   new Function('require', 'exports', code)((name: string) => {
@@ -84,6 +96,15 @@ function loadModule<T>(relativePath: string, dependencies: Record<string, unknow
   }, exports);
   return exports as T;
 }
+
+const examReadQueryContract = loadModule<Record<string, unknown>>(
+  'lib/exam-read-query-contract.ts',
+  { '@/types/exam': examTypes },
+);
+const supabaseQueryContract = loadModule<Record<string, unknown>>(
+  'lib/supabase-query-contract.ts',
+  {},
+);
 
 describe.each([
   ['life', 'app/exam-apply.tsx'],
@@ -115,9 +136,16 @@ describe.each([
   function round(id = 'round-a', deadline: string | null = '2026-09-27'): RoundFixture {
     return {
       id, exam_type: flow, exam_month: '2026-10-01', exam_date: '2026-10-20',
-      round_label: `가상 회차 ${id}`, registration_deadline: deadline,
+      round_label: `가상 회차 ${id}`, registration_deadline: deadline, notes: null,
       created_at: '2026-09-01T00:00:00Z', updated_at: '2026-09-01T00:00:00Z',
-      exam_locations: [{ id: `location-${id}`, round_id: id, location_name: '가상 응시장', sort_order: 1 }],
+      exam_locations: [{
+        id: `location-${id}`,
+        round_id: id,
+        location_name: '가상 응시장',
+        sort_order: 1,
+        created_at: '2026-09-01T00:00:00Z',
+        updated_at: '2026-09-01T00:00:00Z',
+      }],
     };
   }
 
@@ -126,6 +154,7 @@ describe.each([
       id, round_id: sourceRound.id, location_id: `location-${sourceRound.id}`,
       status: 'applied', is_confirmed: false, includes_primary_exam: true, is_third_exam: false,
       fee_paid_date: '2026-09-20', payment_proof_attached: true,
+      rejection_reason: null, rejected_at: null,
       created_at: '2026-09-20T01:00:00Z', exam_type: flow, exam_month: '2026-10-01',
       exam_rounds: sourceRound, exam_locations: { location_name: '가상 응시장' },
     };
@@ -139,6 +168,7 @@ describe.each([
       eq: (key: string, value: unknown) => { filters[key] = value; return builder; },
       gte: (key: string, value: unknown) => { filters[key] = value; return builder; },
       order: () => builder,
+      range: () => builder,
       then: (resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) =>
         Promise.resolve().then(() => read(table, columns, filters)).then(resolve, reject),
     };
@@ -281,6 +311,8 @@ describe.each([
         errorMessage: null, needsRelogin: false, refetch: jest.fn(),
       }) },
       '@/lib/exam-role': examRole,
+      '@/lib/exam-read-query-contract': examReadQueryContract,
+      '@/lib/supabase-query-contract': supabaseQueryContract,
       '@/lib/fc-notify-client': { invokeFcNotifyForDelivery: jest.fn() },
       '@/lib/exam-application-validation': applicationValidation,
       '@/lib/exam-month-conflict-feedback': { showExamMonthConflictFeedback: jest.fn() },
@@ -390,8 +422,17 @@ describe.each([
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it.each([null, 'not-a-date'])('fails closed with a truthful notice if the history deadline is %s', async (deadline) => {
-    rounds[0].registration_deadline = deadline;
+  it('fails closed as a malformed read if the required history deadline is null', async () => {
+    rounds[0].registration_deadline = null;
+    await mount();
+    expect(texts()).toContain('신청 내역을 불러오지 못했습니다.');
+    expect(texts()).not.toContain('아직 신청한 시험이 없습니다.');
+    expect(cancelButtons()).toHaveLength(0);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('fails closed with a truthful notice if the history deadline is not-a-date', async () => {
+    rounds[0].registration_deadline = 'not-a-date';
     await mount();
     expect(texts()).toContain(unavailableMessage);
     expect(texts()).not.toContain(deadlineMessage);

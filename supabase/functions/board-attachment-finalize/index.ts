@@ -14,6 +14,30 @@ import {
   isBoardPostWritableByActor,
   isCanonicalBoardAttachmentPath,
 } from '../_shared/board-actor-policy.ts';
+import {
+  hasUniqueStringField,
+  isBoardAttachmentQueryRow,
+  isBoardAuthoredEntityQueryRow,
+  isBoardUuid,
+} from '../_shared/board-read-contract.ts';
+import { parseQueryRows } from '../_shared/query-result-contract.ts';
+import { requireMutationRowReceipt } from '../_shared/ux-mutation-contract.ts';
+
+type StorageObjectRow = {
+  name: string;
+  metadata?: Record<string, unknown> | null;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isStorageObjectRow(value: unknown): value is StorageObjectRow {
+  return isRecord(value)
+    && typeof value.name === 'string'
+    && value.name.length > 0
+    && (value.metadata === undefined || value.metadata === null || isRecord(value.metadata));
+}
 
 type FileInput = {
   storagePath: string;
@@ -52,7 +76,7 @@ serve(async (req: Request) => {
   const forbidden = requireRole(actorCheck.actor, ['admin', 'manager'], origin);
   if (forbidden) return forbidden;
 
-  const postId = body.postId;
+  const postId = isBoardUuid(body.postId) ? body.postId.toLowerCase() : null;
   const files = body.files ?? [];
   if (!postId || files.length === 0) {
     return json({ ok: false, code: 'invalid_payload', message: 'postId and files required' }, 400, origin);
@@ -74,6 +98,10 @@ serve(async (req: Request) => {
       typeof file.mimeType !== 'string'
       || !file.mimeType.trim()
       || file.mimeType.trim().length > 200
+    ))
+    || (file.sortOrder !== undefined && (
+      !Number.isSafeInteger(file.sortOrder)
+      || file.sortOrder < 0
     ))
   ));
   if (invalidFile) {
@@ -112,10 +140,13 @@ serve(async (req: Request) => {
     .maybeSingle();
 
   if (postError) {
-    return json({ ok: false, code: 'db_error', message: postError.message }, 500, origin);
+    return dbError(postError, origin);
   }
   if (!post) {
     return json({ ok: false, code: 'not_found', message: 'post not found' }, 404, origin);
+  }
+  if (!isBoardAuthoredEntityQueryRow(post) || post.id !== postId) {
+    return json({ ok: false, code: 'invalid_query_result', message: '게시글 조회 결과를 확인하지 못했습니다.' }, 502, origin);
   }
   if (!isBoardPostWritableByActor(actorCheck.actor, {
     authorRole: post.author_role,
@@ -126,10 +157,18 @@ serve(async (req: Request) => {
 
   const { data: existingRows, error: existingError } = await supabase
     .from('board_attachments')
-    .select('id,storage_path')
+    .select('id,post_id,file_type,file_name,file_size,mime_type,storage_path,sort_order,created_at')
     .in('storage_path', storagePaths);
   if (existingError) return dbError(existingError, origin);
-  if ((existingRows ?? []).length > 0) {
+  const parsedExistingRows = parseQueryRows(existingRows, isBoardAttachmentQueryRow);
+  if (
+    !parsedExistingRows
+    || !hasUniqueStringField(parsedExistingRows, 'id')
+    || !hasUniqueStringField(parsedExistingRows, 'storage_path')
+  ) {
+    return json({ ok: false, code: 'invalid_query_result', message: '기존 첨부파일 조회 결과를 확인하지 못했습니다.' }, 502, origin);
+  }
+  if (parsedExistingRows.length > 0) {
     return json({ ok: false, code: 'duplicate_attachment', message: 'attachment was already finalized' }, 409, origin);
   }
 
@@ -142,10 +181,15 @@ serve(async (req: Request) => {
     if (listError) {
       return json({ ok: false, code: 'storage_error', message: 'attachment object verification failed' }, 500, origin);
     }
-    const object = (objects ?? []).find((entry) => entry.name === objectName) as {
-      name: string;
-      metadata?: { size?: unknown; mimetype?: unknown } | null;
-    } | undefined;
+    const objectRows = parseQueryRows(objects, isStorageObjectRow);
+    if (!objectRows) {
+      return json({ ok: false, code: 'invalid_storage_result', message: 'attachment object verification failed' }, 502, origin);
+    }
+    const matchedObjects = objectRows.filter((entry) => entry.name === objectName);
+    if (matchedObjects.length !== 1) {
+      return json({ ok: false, code: 'invalid_storage_object', message: 'attachment object does not match metadata' }, 400, origin);
+    }
+    const object = matchedObjects[0];
     const actualSize = Number(object?.metadata?.size);
     const actualMimeType = typeof object?.metadata?.mimetype === 'string'
       ? object.metadata.mimetype.trim()
@@ -170,14 +214,53 @@ serve(async (req: Request) => {
     file_size: verifiedObjects.get(file.storagePath)?.size ?? file.fileSize,
     mime_type: verifiedObjects.get(file.storagePath)?.mimeType ?? file.mimeType?.trim() ?? null,
     storage_path: file.storagePath,
-    sort_order: Number.isFinite(file.sortOrder) ? Math.max(0, Math.trunc(file.sortOrder as number)) : 0,
+    sort_order: file.sortOrder ?? 0,
     created_by_resident_id: actorCheck.actor.residentId,
   }));
 
-  const { error } = await supabase.from('board_attachments').insert(rows);
+  const { data: inserted, error } = await supabase
+    .from('board_attachments')
+    .insert(rows)
+    .select('id,post_id,file_type,file_name,file_size,mime_type,storage_path,sort_order,created_at,created_by_resident_id');
   if (error) {
     return dbError(error, origin);
   }
+  const insertedRows = parseQueryRows(inserted, isBoardAttachmentQueryRow);
+  const expectedByPath = new Map(rows.map((row) => [row.storage_path, row]));
+  if (
+    !insertedRows
+    || insertedRows.length !== rows.length
+    || !hasUniqueStringField(insertedRows, 'id')
+    || !hasUniqueStringField(insertedRows, 'storage_path')
+    || insertedRows.some((row) => row.post_id !== postId || !expectedByPath.has(row.storage_path))
+  ) {
+    return json({
+      ok: false,
+      code: 'mutation_receipt_unverified',
+      message: '첨부파일 저장 결과를 확인하지 못했습니다.',
+    }, 502, origin);
+  }
+  try {
+    for (const row of insertedRows) {
+      requireMutationRowReceipt(row, expectedByPath.get(row.storage_path)!);
+    }
+  } catch {
+    return json({
+      ok: false,
+      code: 'mutation_receipt_unverified',
+      message: '첨부파일 저장 결과를 확인하지 못했습니다.',
+    }, 502, origin);
+  }
 
-  return json({ ok: true }, 200, origin);
+  const insertedByPath = new Map(insertedRows.map((row) => [row.storage_path, row]));
+  return json({
+    ok: true,
+    data: {
+      postId,
+      attachments: storagePaths.map((storagePath) => ({
+        id: insertedByPath.get(storagePath)!.id,
+        storagePath,
+      })),
+    },
+  }, 200, origin);
 });

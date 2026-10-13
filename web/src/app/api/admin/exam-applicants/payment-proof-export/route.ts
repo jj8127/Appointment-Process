@@ -10,6 +10,8 @@ import {
 } from '@/lib/exam-payment-proof-admin';
 import { logger } from '@/lib/logger';
 import { getVerifiedReadOnlyAdminSession } from '@/lib/server-session';
+import { requireSupabaseRows } from '@/lib/supabase-query-contract';
+import { isHttpsResponseUrl } from '@/lib/user-intent-policy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +29,16 @@ type ProofRow = {
   registration_id: string;
   storage_path: string;
 };
+
+function isProofRow(value: unknown): value is ProofRow {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.registration_id === 'string'
+    && UUID_PATTERN.test(row.registration_id)
+    && typeof row.storage_path === 'string'
+    && row.storage_path.trim().length > 0
+    && row.storage_path === row.storage_path.trim();
+}
 
 function jsonError(error: string, status: number) {
   return NextResponse.json({ error }, { status, headers: SECURITY_HEADERS });
@@ -85,13 +97,25 @@ export async function POST(request: Request) {
         .eq('status', 'attached');
 
       if (error) throw error;
-      proofRows.push(...((data ?? []) as ProofRow[]));
+      const chunkRows = requireSupabaseRows(
+        data,
+        'exam_payment_proof_export_rows',
+      );
+      const requestedIdSet = new Set(idChunk);
+      if (!chunkRows.every(isProofRow)
+        || chunkRows.some((row) => !requestedIdSet.has(row.registration_id))) {
+        throw new Error('Payment proof query returned an invalid result');
+      }
+      proofRows.push(...chunkRows);
     }
 
+    if (
+      new Set(proofRows.map((row) => row.registration_id)).size !== proofRows.length
+      || new Set(proofRows.map((row) => row.storage_path)).size !== proofRows.length
+    ) throw new Error('Payment proof query returned duplicate results');
+
     const proofByPath = new Map(
-      proofRows
-        .filter((row) => row.registration_id && row.storage_path)
-        .map((row) => [row.storage_path, row]),
+      proofRows.map((row) => [row.storage_path, row]),
     );
     const links: ExamPaymentProofExportLink[] = [];
 
@@ -100,13 +124,22 @@ export async function POST(request: Request) {
         .from(EXAM_PAYMENT_PROOF_BUCKET)
         .createSignedUrls(pathChunk, EXAM_PAYMENT_PROOF_EXPORT_EXPIRES_IN_SECONDS);
 
-      if (error || !data) {
-        throw error ?? new Error('Payment proof signed URL creation failed');
-      }
+      if (error) throw error;
+      const signedRows = requireSupabaseRows(
+        data,
+        'exam_payment_proof_export_signed_urls',
+      );
+      const requestedPathSet = new Set(pathChunk);
+      const returnedPaths = signedRows.map((signed) => signed.path);
+      if (
+        signedRows.length !== pathChunk.length
+        || returnedPaths.some((path) => typeof path !== 'string' || !requestedPathSet.has(path))
+        || new Set(returnedPaths).size !== returnedPaths.length
+      ) throw new Error('Payment proof signed URL creation returned an incomplete result');
 
-      for (const signed of data) {
+      for (const signed of signedRows) {
         const proof = signed.path ? proofByPath.get(signed.path) : undefined;
-        if (!proof || signed.error || !signed.signedUrl) {
+        if (!proof || signed.error || !isHttpsResponseUrl(signed.signedUrl)) {
           throw new Error('Payment proof signed URL creation returned an incomplete result');
         }
         links.push({

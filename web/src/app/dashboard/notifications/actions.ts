@@ -6,6 +6,10 @@ import { adminSupabase } from '@/lib/admin-supabase';
 
 import { logger } from '@/lib/logger';
 import { getVerifiedAdminSession } from '@/lib/server-session';
+import { isHttpsResponseUrl } from '@/lib/user-intent-policy';
+import { isExactNoticeMutationReceipt } from '@/lib/notice-write-contract';
+import { loadActorScopedFcExpoTargets } from '@/lib/app-push-preference-service';
+import { collectSupabaseRows } from '@/lib/supabase-query-contract';
 import {
     classifyExpoPushDelivery,
     mergeExpoPushDeliverySummaries,
@@ -15,6 +19,36 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_CHUNK_SIZE = 100;
 const EXTERNAL_PUSH_TIMEOUT_MS = 8_000;
 
+type NoticeBroadcastTokenRow = {
+    expo_push_token: string;
+    resident_id: string;
+    role: 'fc';
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+
+const isNoticeBroadcastTokenRow = (value: unknown): value is NoticeBroadcastTokenRow => (
+    isRecord(value)
+    && typeof value.expo_push_token === 'string'
+    && value.expo_push_token.trim().length > 0
+    && value.expo_push_token === value.expo_push_token.trim()
+    && typeof value.resident_id === 'string'
+    && /^010\d{8}$/.test(value.resident_id)
+    && value.role === 'fc'
+);
+
+const readErrorCode = (error: unknown): string => (
+    isRecord(error) && typeof error.code === 'string' && error.code.trim()
+        ? error.code
+        : 'invalid_result'
+);
+
+const HttpsUrlSchema = z.string().refine(isHttpsResponseUrl, {
+    message: 'HTTPS 주소만 사용할 수 있습니다.',
+});
+
 const emptyExpoDelivery = (): ExpoPushDeliverySummary => ({
     attempted: 0,
     accepted: 0,
@@ -22,17 +56,26 @@ const emptyExpoDelivery = (): ExpoPushDeliverySummary => ({
 });
 
 const NoticeSchema = z.object({
-    category: z.string().min(1, '카테고리를 입력해주세요'),
-    title: z.string().min(1, '제목을 입력해주세요'),
-    body: z.string().min(1, '내용을 입력해주세요'),
-    images: z.array(z.string()).optional(),
+    category: z.string().trim().min(1, '카테고리를 입력해주세요'),
+    title: z.string().trim().min(1, '제목을 입력해주세요'),
+    body: z.string().trim().min(1, '내용을 입력해주세요'),
+    images: z.array(HttpsUrlSchema).optional(),
     files: z.array(z.object({
         name: z.string(),
         size: z.number(),
         type: z.string(),
-        url: z.string()
+        url: HttpsUrlSchema,
     })).optional(),
 });
+
+function parseNoticeJsonField(value: FormDataEntryValue | null): unknown {
+    if (typeof value !== 'string' || value.trim().length === 0) return [];
+    try {
+        return JSON.parse(value) as unknown;
+    } catch {
+        return undefined;
+    }
+}
 
 export type CreateNoticeState = {
     success: boolean;
@@ -59,8 +102,8 @@ export async function createNoticeAction(
         category: formData.get('category'),
         title: formData.get('title'),
         body: formData.get('body'),
-        images: imagesRaw ? JSON.parse(imagesRaw as string) : [],
-        files: filesRaw ? JSON.parse(filesRaw as string) : [],
+        images: parseNoticeJsonField(imagesRaw),
+        files: parseNoticeJsonField(filesRaw),
     });
 
     if (!validatedFields.success) {
@@ -151,32 +194,46 @@ export async function createNoticeAction(
         };
     }
 
-    // 3. Fetch Tokens
-    const { data: tokens, error: tokenError } = await adminSupabase
-        .from('device_tokens')
-        .select('expo_push_token')
-        .eq('role', 'fc');
+    // 3. Resolve every registered FC token against its current account and preferences.
+    let targetQueryFailed = false;
+    let targetQueryFailureCode = 'invalid_result';
+    let suppressedTargets = 0;
+    let mobileTokens: string[] = [];
+    try {
+        const tokens = await collectSupabaseRows<NoticeBroadcastTokenRow>({
+            queryName: 'notice_broadcast_device_tokens',
+            isRow: isNoticeBroadcastTokenRow,
+            rowKey: (row) => row.expo_push_token,
+            fetchPage: async (from, to) => adminSupabase
+                .from('device_tokens')
+                .select('expo_push_token,resident_id,role')
+                .eq('role', 'fc')
+                .order('expo_push_token', { ascending: true })
+                .range(from, to),
+        });
+        const eligibility = await loadActorScopedFcExpoTargets(tokens, 'notice');
+        targetQueryFailed = eligibility.lookupFailed;
+        suppressedTargets = eligibility.suppressedTokens;
+        mobileTokens = eligibility.eligibleTokens;
+    } catch (error) {
+        targetQueryFailed = true;
+        targetQueryFailureCode = readErrorCode(error);
+    }
 
-    if (tokenError) {
+    if (targetQueryFailed) {
         logger.error('[notice] mobile target query failed', {
             category: 'notice',
             reason: 'database_read_failed',
-            code: tokenError.code ?? 'unknown',
+            code: targetQueryFailureCode,
             status: 'failed',
         });
     }
-    const mobileTokens = tokenError
-        ? []
-        : Array.from(new Set(
-            (tokens ?? [])
-                .map((token: { expo_push_token: string | null }) => token.expo_push_token?.trim())
-                .filter((token): token is string => Boolean(token)),
-        ));
     logger.debug('[push][notice] token query', {
         category: 'notice',
-        reason: tokenError ? 'database_read_failed' : 'query_completed',
-        status: tokenError ? 'failed' : 'ready',
+        reason: targetQueryFailed ? 'database_read_failed' : 'query_completed',
+        status: targetQueryFailed ? 'failed' : 'ready',
         tokenCount: mobileTokens.length,
+        suppressedTargets,
     });
 
     // 4. Send Push
@@ -238,14 +295,14 @@ export async function createNoticeAction(
     } else {
         logger.warn('[notice] no mobile targets found', {
             category: 'notice',
-            reason: tokenError ? 'target_query_failed' : 'no_mobile_target',
+            reason: targetQueryFailed ? 'target_query_failed' : 'no_mobile_target',
             status: 'warning',
         });
     }
 
     const acceptedTargets = mobileDelivery.accepted;
     const failedTargets = mobileDelivery.rejected;
-    const targetQueriesFailed = Boolean(tokenError);
+    const targetQueriesFailed = targetQueryFailed;
     let notificationWarning: string | undefined;
     if (notifError && acceptedTargets < 1) {
         notificationWarning = 'notification_persistence_and_delivery_incomplete';
@@ -303,8 +360,8 @@ export async function updateNoticeAction(
         category: formData.get('category'),
         title: formData.get('title'),
         body: formData.get('body'),
-        images: imagesRaw ? JSON.parse(imagesRaw as string) : [],
-        files: filesRaw ? JSON.parse(filesRaw as string) : [],
+        images: parseNoticeJsonField(imagesRaw),
+        files: parseNoticeJsonField(filesRaw),
     });
 
     if (!validatedFields.success) {
@@ -329,11 +386,20 @@ export async function updateNoticeAction(
 
     // Managers can only update their own notices
     if (role === 'manager') {
-        const { data: existing } = await adminSupabase
+        const { data: existing, error: ownershipError } = await adminSupabase
             .from('notices')
             .select('created_by')
             .eq('id', id)
             .maybeSingle();
+        if (ownershipError) {
+            logger.error('[notice] ownership lookup failed', {
+                category: 'notice',
+                reason: 'database_read_failed',
+                code: ownershipError.code ?? 'unknown',
+                status: 'failed',
+            });
+            return { success: false, message: '공지 수정에 실패했습니다.' };
+        }
         if (!existing) {
             return { success: false, message: '공지를 찾을 수 없습니다.' };
         }
@@ -342,13 +408,39 @@ export async function updateNoticeAction(
         }
     }
 
-    const { error } = await adminSupabase
+    const { data: updatedNotice, error } = await adminSupabase
         .from('notices')
         .update({ title, body, category, images: images ?? [], files: files ?? [] })
-        .eq('id', id);
+        .eq('id', id)
+        .select('id,title,body,category,images,files')
+        .maybeSingle();
 
     if (error) {
-        return { success: false, message: `수정 실패: ${error.message}` };
+        logger.error('[notice] update failed', {
+            category: 'notice',
+            reason: 'database_write_failed',
+            code: error.code ?? 'unknown',
+            status: 'failed',
+        });
+        return { success: false, message: '공지 수정에 실패했습니다.' };
+    }
+    if (!updatedNotice) {
+        return { success: false, message: '공지를 찾을 수 없습니다.' };
+    }
+    if (!isExactNoticeMutationReceipt(updatedNotice, {
+        id,
+        title,
+        body,
+        category,
+        images: images ?? [],
+        files: files ?? [],
+    })) {
+        logger.error('[notice] update receipt mismatch', {
+            category: 'notice',
+            reason: 'database_write_unconfirmed',
+            status: 'failed',
+        });
+        return { success: false, message: '공지 수정 결과를 확인하지 못했습니다.' };
     }
 
     revalidatePath('/dashboard/notifications');

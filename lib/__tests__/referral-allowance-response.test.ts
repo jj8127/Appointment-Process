@@ -1,7 +1,15 @@
 import { calculateReferralAllowance } from '@/lib/referral-allowance-calculation';
 import { buildReferralAllowanceNodeAmounts, formatReferralAllowancePerformanceKrw } from '@/lib/referral-allowance-display';
-import { parseReferralAllowanceResponse } from '@/lib/referral-allowance-response';
-import { REFERRAL_ALLOWANCE_MAX_PEOPLE, type ReferralAllowancePersonInput, type ReferralAllowanceStatement } from '@/types/referral-allowance';
+import {
+  parseReferralAllowanceAdminMutationReceipt,
+  parseReferralAllowanceResponse,
+} from '@/lib/referral-allowance-response';
+import {
+  REFERRAL_ALLOWANCE_MAX_PEOPLE,
+  REFERRAL_ALLOWANCE_POLICY_VERSION,
+  type ReferralAllowancePersonInput,
+  type ReferralAllowanceStatement,
+} from '@/types/referral-allowance';
 
 const person = (employeeCode: string, overrides: Partial<ReferralAllowancePersonInput> = {}): ReferralAllowancePersonInput => ({
   employeeCode, parentEmployeeCode: employeeCode === 'fictional-root' ? null : 'fictional-root',
@@ -48,6 +56,29 @@ describe('allowance response boundary before rendering', () => {
   it.each([[], ['2026-02-30'], [{}], Array(65).fill('2026-07-31')].map((sourceSnapshotDates) => ({ sourceSnapshotDates })))
   ('requires bounded, real calendar snapshot dates (%#)', ({ sourceSnapshotDates }) => {
     expectInvalid(response({ ...snapshot(), sourceSnapshotDates }));
+  });
+
+  it.each([
+    { paymentDate: '2026-07-31' },
+    { paymentDate: '2026-09-01' },
+    { genealogyAsOf: '2026-08-02' },
+  ])('requires calculator and SQL reference-date relationships (%#)', (damage) => {
+    expectInvalid(response({ ...snapshot(), ...damage }));
+  });
+
+  it('requires canonical snapshot-date ordering and a matching later-snapshot disclosure', () => {
+    const value = snapshot();
+    expectInvalid(response({ ...value, sourceSnapshotDates: ['2026-08-24', '2026-07-29'] }));
+    expectInvalid(response({ ...value, sourceSnapshotDates: ['2026-07-29', '2026-07-29'] }));
+    expectInvalid(response({ ...value, usesLaterSnapshot: false }));
+
+    const noLaterSnapshot = {
+      ...value,
+      sourceSnapshotDates: ['2026-07-29', '2026-07-31'],
+      usesLaterSnapshot: false,
+    };
+    expect(parseReferralAllowanceResponse(response(noLaterSnapshot), 'statement').statement).toBe(noLaterSnapshot);
+    expectInvalid(response({ ...noLaterSnapshot, usesLaterSnapshot: true }));
   });
 
   it('rejects object names and missing node fields that React or graph rendering cannot use', () => {
@@ -159,6 +190,84 @@ describe('allowance response boundary before rendering', () => {
       throw new Error('Expected invalid response');
     } catch (error) {
       expect((error as Error).message).toBe('수당 조회 응답을 확인하지 못했습니다. 다시 시도해주세요.');
+    }
+  });
+});
+
+describe('allowance administrator mutation receipts', () => {
+  const importReceipt = {
+    id: '00000000-0000-4000-8000-000000000001',
+    status: 'draft',
+    revision: 3,
+    sourceSha256: 'a'.repeat(64),
+    policyVersion: REFERRAL_ALLOWANCE_POLICY_VERSION,
+    performanceMonth: '2026-06',
+    pilotRevision: 2,
+  };
+
+  it('binds a pilot receipt to the configured account and next revision', () => {
+    const expected = {
+      action: 'configure' as const,
+      managerAccountId: null,
+      beneficiaryFcId: '00000000-0000-4000-8000-000000000002',
+      employeeCode: 'EMP-1',
+      enabled: true,
+      expectedRevision: 1,
+    };
+    const valid = { ok: true, pilot: {
+      managerAccountId: null,
+      beneficiaryFcId: expected.beneficiaryFcId,
+      employeeCode: expected.employeeCode,
+      enabled: true,
+      revision: 2,
+    } };
+    expect(parseReferralAllowanceAdminMutationReceipt(valid, expected)).toBe(valid);
+    expect(() => parseReferralAllowanceAdminMutationReceipt({
+      ...valid,
+      pilot: { ...valid.pilot, beneficiaryFcId: 'other' },
+    }, expected)).toThrow();
+    expect(() => parseReferralAllowanceAdminMutationReceipt({
+      ...valid,
+      pilot: { ...valid.pilot, revision: 1 },
+    }, expected)).toThrow();
+  });
+
+  it('requires draft upload and published update receipts to match their requests', () => {
+    const upload = { ok: true, import: importReceipt };
+    const uploadExpected = {
+      action: 'upload' as const,
+      beneficiaryFcId: '00000000-0000-4000-8000-000000000002',
+      performanceMonth: '2026-06',
+      expectedPilotRevision: 2,
+    };
+    expect(parseReferralAllowanceAdminMutationReceipt(upload, uploadExpected)).toBe(upload);
+    expect(parseReferralAllowanceAdminMutationReceipt({
+      ...upload,
+      import: { ...importReceipt, status: 'published' },
+    }, uploadExpected).import?.status).toBe('published');
+    expect(parseReferralAllowanceAdminMutationReceipt({
+      ...upload,
+      import: { ...importReceipt, status: 'superseded' },
+    }, uploadExpected).import?.status).toBe('superseded');
+
+    const publishExpected = {
+      action: 'publish' as const,
+      importId: importReceipt.id,
+      sourceSha256: importReceipt.sourceSha256,
+      expectedRevision: importReceipt.revision,
+      expectedPilotRevision: importReceipt.pilotRevision,
+    };
+    const published = { ok: true, import: { ...importReceipt, status: 'published' } };
+    expect(parseReferralAllowanceAdminMutationReceipt(published, publishExpected)).toBe(published);
+    for (const damaged of [
+      { ...published.import, id: '00000000-0000-4000-8000-000000000099' },
+      { ...published.import, status: 'draft' },
+      { ...published.import, revision: 4 },
+      { ...published.import, sourceSha256: 'b'.repeat(64) },
+      { ...published.import, pilotRevision: 3 },
+      { id: importReceipt.id },
+    ]) {
+      expect(() => parseReferralAllowanceAdminMutationReceipt({ ok: true, import: damaged }, publishExpected)).toThrow();
     }
   });
 });

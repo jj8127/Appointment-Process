@@ -1,6 +1,13 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase } from '../_shared/board.ts';
+import { buildCorsHeaders, dbError, json, parseJson, requireActor, requireRole, supabase } from '../_shared/board.ts';
+import {
+  hasUniqueStringField,
+  isBoardAttachmentQueryRow,
+  isBoardAuthoredEntityQueryRow,
+  isBoardUuid,
+} from '../_shared/board-read-contract.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
+import { parseQueryRows } from '../_shared/query-result-contract.ts';
 
 type Payload = {
   actor?: {
@@ -30,10 +37,19 @@ serve(async (req: Request) => {
   const forbidden = requireRole(actorCheck.actor, ['admin', 'manager'], origin);
   if (forbidden) return forbidden;
 
-  const postId = body.postId;
-  const attachmentIds = body.attachmentIds ?? [];
-  if (!postId || attachmentIds.length === 0) {
+  const postId = isBoardUuid(body.postId) ? body.postId.toLowerCase() : null;
+  const rawAttachmentIds = body.attachmentIds;
+  if (
+    !postId
+    || !Array.isArray(rawAttachmentIds)
+    || rawAttachmentIds.length === 0
+    || !rawAttachmentIds.every(isBoardUuid)
+  ) {
     return json({ ok: false, code: 'invalid_payload', message: 'postId and attachmentIds required' }, 400, origin);
+  }
+  const attachmentIds = rawAttachmentIds.map((id) => id.toLowerCase());
+  if (new Set(attachmentIds).size !== attachmentIds.length) {
+    return json({ ok: false, code: 'invalid_payload', message: 'attachmentIds must be unique' }, 400, origin);
   }
 
   const { data: post, error: postError } = await supabase
@@ -43,10 +59,13 @@ serve(async (req: Request) => {
     .maybeSingle();
 
   if (postError) {
-    return json({ ok: false, code: 'db_error', message: postError.message }, 500, origin);
+    return dbError(postError, origin);
   }
   if (!post) {
     return json({ ok: false, code: 'not_found', message: 'post not found' }, 404, origin);
+  }
+  if (!isBoardAuthoredEntityQueryRow(post) || post.id !== postId) {
+    return json({ ok: false, code: 'invalid_query_result', message: '게시글 조회 결과를 확인하지 못했습니다.' }, 502, origin);
   }
 
   if (
@@ -58,43 +77,87 @@ serve(async (req: Request) => {
 
   const { data: attachments, error: attachmentError } = await supabase
     .from('board_attachments')
-    .select('id,storage_path')
+    .select('id,post_id,file_type,file_name,file_size,mime_type,storage_path,sort_order,created_at')
     .eq('post_id', postId)
     .in('id', attachmentIds);
 
   if (attachmentError) {
-    return json({ ok: false, code: 'db_error', message: attachmentError.message }, 500, origin);
+    return dbError(attachmentError, origin);
   }
-  if (!attachments || attachments.length === 0) {
+  const attachmentRows = parseQueryRows(attachments, isBoardAttachmentQueryRow);
+  if (!attachmentRows) {
+    return json({ ok: false, code: 'invalid_query_result', message: '첨부파일 조회 결과를 확인하지 못했습니다.' }, 502, origin);
+  }
+  if (attachmentRows.length === 0) {
     return json({ ok: false, code: 'not_found', message: 'attachment not found' }, 404, origin);
   }
-  if (attachments.length !== attachmentIds.length) {
+  const requestedIds = new Set(attachmentIds);
+  if (
+    attachmentRows.length !== attachmentIds.length
+    || !hasUniqueStringField(attachmentRows, 'id')
+    || !hasUniqueStringField(attachmentRows, 'storage_path')
+    || attachmentRows.some((row) => row.post_id !== postId || !requestedIds.has(row.id))
+  ) {
     return json({ ok: false, code: 'invalid_attachment', message: 'attachment not found' }, 400, origin);
   }
 
-  const storagePaths = attachments.map((item) => item.storage_path).filter(Boolean);
-  if (storagePaths.length > 0) {
-    const { error: storageError } = await supabase.storage.from('board-attachments').remove(storagePaths);
-    if (storageError) {
-      reportEdgeDiagnostic({
-        event: 'board_attachment.storage',
-        reason: 'delete_failed',
-        errorClass: 'upstream',
-      });
-      // Continue with DB deletion even if storage fails - prevents orphan records
-      // Admin can manually clean storage later if needed
-    }
+  const storagePaths = attachmentRows.map((item) => item.storage_path);
+  const { error: storageError } = await supabase.storage.from('board-attachments').remove(storagePaths);
+  if (storageError) {
+    reportEdgeDiagnostic({
+      event: 'board_attachment.storage',
+      reason: 'delete_failed',
+      retryable: true,
+      errorClass: 'upstream',
+    });
+    return json({
+      ok: false,
+      code: 'storage_cleanup_failed',
+      message: '첨부파일 저장소 정리를 완료하지 못했습니다. 다시 시도해주세요.',
+      retryable: true,
+    }, 502, origin);
   }
 
-  const { error: deleteError } = await supabase
+  const { data: deleted, error: deleteError } = await supabase
     .from('board_attachments')
     .delete()
     .eq('post_id', postId)
-    .in('id', attachmentIds);
+    .in('id', attachmentIds)
+    .in('storage_path', storagePaths)
+    .select('id,post_id,file_type,file_name,file_size,mime_type,storage_path,sort_order,created_at');
 
   if (deleteError) {
-    return json({ ok: false, code: 'db_error', message: deleteError.message }, 500, origin);
+    return dbError(deleteError, origin);
+  }
+  const deletedRows = parseQueryRows(deleted, isBoardAttachmentQueryRow);
+  const deletedIds = new Set(deletedRows?.map((row) => row.id));
+  const deletedPaths = new Set(deletedRows?.map((row) => row.storage_path));
+  if (
+    !deletedRows
+    || deletedRows.length !== attachmentRows.length
+    || !hasUniqueStringField(deletedRows, 'id')
+    || !hasUniqueStringField(deletedRows, 'storage_path')
+    || deletedRows.some((row) => row.post_id !== postId)
+    || attachmentIds.some((id) => !deletedIds.has(id))
+    || storagePaths.some((path) => !deletedPaths.has(path))
+  ) {
+    return json({
+      ok: false,
+      code: 'mutation_receipt_unverified',
+      message: '첨부파일 삭제 결과를 확인하지 못했습니다.',
+    }, 502, origin);
   }
 
-  return json({ ok: true }, 200, origin);
+  const deletedById = new Map(deletedRows.map((row) => [row.id, row]));
+  return json({
+    ok: true,
+    data: {
+      postId,
+      deletedAttachments: attachmentIds.map((id) => ({
+        id,
+        storagePath: deletedById.get(id)!.storage_path,
+      })),
+      cleanupPending: false,
+    },
+  }, 200, origin);
 });

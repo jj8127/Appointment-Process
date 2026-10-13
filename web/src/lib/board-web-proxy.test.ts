@@ -11,6 +11,7 @@ const {
   buildBoardFunctionHeaders,
   getBoardFunctionUrl,
   normalizeBoardProxyRequest,
+  sanitizeBoardUpstreamError,
 } = require('./board-web-proxy.ts') as typeof import('./board-web-proxy');
 
 const verifiedManager = {
@@ -112,5 +113,48 @@ describe('admin web board proxy', () => {
     assert.match(loginRouteSource, /delete publicLoginData\.appSessionToken/);
     assert.match(loginRouteSource, /NextResponse\.json\(publicLoginData/);
     assert.doesNotMatch(loginRouteSource, /NextResponse\.json\(data\s*(?:\?\?|\))/);
+  });
+
+  it('never reflects upstream private error messages to the browser', () => {
+    const privateFailure = sanitizeBoardUpstreamError({
+      ok: false,
+      code: 'db_error',
+      message: 'private relation and policy detail',
+    }, 500);
+    assert.deepEqual(privateFailure, {
+      body: {
+        ok: false,
+        code: 'board_upstream_failed',
+        message: '게시판 요청을 처리하지 못했습니다.',
+      },
+      status: 502,
+      upstreamCode: 'db_error',
+    });
+    assert.doesNotMatch(JSON.stringify(privateFailure.body), /private relation|policy detail/);
+
+    assert.deepEqual(
+      sanitizeBoardUpstreamError({ ok: false, code: 'file_limit', message: 'untrusted text' }, 400),
+      {
+        body: {
+          ok: false,
+          code: 'file_limit',
+          message: '첨부 파일 개수 또는 크기를 확인해주세요.',
+        },
+        status: 400,
+        upstreamCode: 'file_limit',
+      },
+    );
+    assert.deepEqual(
+      sanitizeBoardUpstreamError({ ok: false, code: 'unknown_private_code', message: 'secret' }, 409),
+      {
+        body: {
+          ok: false,
+          code: 'board_upstream_rejected',
+          message: '게시판 요청을 처리하지 못했습니다.',
+        },
+        status: 409,
+        upstreamCode: 'unknown_private_code',
+      },
+    );
   });
 });
