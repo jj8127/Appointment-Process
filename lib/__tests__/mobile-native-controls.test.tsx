@@ -4,7 +4,7 @@ import { act, createElement, type ReactElement } from 'react';
 import * as React from 'react';
 import * as ts from 'typescript';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '../bottom-navigation';
-import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '../theme';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS, TOUCH_TARGET } from '../theme';
 import { useReadAttempt } from '../use-read-attempt';
 import { createCreationRequestTracker } from '../board-comment-request';
 import { parseCalendarDate } from '../calendar-date';
@@ -43,6 +43,51 @@ function executeComponent(path: string, dependencies: Record<string, unknown> = 
 function texts(instance: Instance) {
   return instance.findAllByType('Text').map((node) => node.children.filter((child) => typeof child === 'string').join(''));
 }
+
+it('filled mobile actions share readable white labels without changing press or inactive states', async () => {
+  const flatten = (style: unknown): Record<string, unknown> => Array.isArray(style)
+    ? Object.assign({}, ...style.map(flatten)) : style && typeof style === 'object' ? style as Record<string, unknown> : {};
+  const native = { Keyboard: { dismiss: jest.fn() }, TouchableOpacity: 'TouchableOpacity', Text: 'Text', View: 'View', StyleSheet: { create: (value: unknown) => value } };
+  const Button = executeComponent('components/Button.tsx', {
+    'react-native': native, '@/components/BrandedLoadingSpinner': { default: 'Spinner' },
+    '@/lib/theme': { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS, TOUCH_TARGET },
+  }, 'Button');
+  const press = jest.fn();
+  let renderer!: Renderer;
+  await act(async () => { renderer = create(createElement(Button, { onPress: press }, '계속하기')); });
+  expect(flatten(renderer.root.findAllByType('TouchableOpacity')[0].props.style).backgroundColor).toBe(COLORS.primaryButton);
+  expect(flatten(renderer.root.findAllByType('Text')[0].props.style).color).toBe(COLORS.white);
+  await act(async () => { (renderer.root.findAllByType('TouchableOpacity')[0].props.onPress as () => void)(); });
+  expect(press).toHaveBeenCalledTimes(1);
+  await act(async () => { renderer.update(createElement(Button, { loading: true }, '계속하기')); });
+  expect(renderer.root.findAllByType('TouchableOpacity')[0].props.disabled).toBe(true);
+  expect(renderer.root.findAllByType('Spinner')[0].props.color).toBe(COLORS.white);
+  await act(async () => { renderer.update(createElement(Button, { disabled: true }, '계속하기')); });
+  expect(renderer.root.findAllByType('TouchableOpacity')[0].props.accessibilityState).toEqual({ disabled: true });
+  await act(async () => { renderer.update(createElement(Button, { variant: 'outline' }, '탈퇴')); });
+  expect(flatten(renderer.root.findAllByType('TouchableOpacity')[0].props.style).backgroundColor).toBe(COLORS.white);
+  expect(flatten(renderer.root.findAllByType('Text')[0].props.style).color).toBe(COLORS.primary);
+  await act(async () => renderer.unmount());
+
+  const Action = executeComponent('components/ServiceInformation.tsx', {
+    '@expo/vector-icons': { Feather: 'Feather' }, 'expo-router': { Stack: {}, router: {} },
+    'react-native-safe-area-context': {}, '@/components/BottomNavigation': {}, '@/components/service-home': {},
+    '@/hooks/use-session': {}, '@/lib/bottom-navigation': {}, '@/lib/theme': { COLORS }, '@/lib/back-navigation': {},
+  }, 'ServiceAction');
+  await act(async () => { renderer = create(createElement(Action, { label: '이용내역', onPress: press, style: { marginTop: 0 } })); });
+  const action = renderer.root.findAllByType('Pressable')[0];
+  const style = flatten((action.props.style as (state: { pressed: boolean }) => unknown)({ pressed: false }));
+  expect(style).toMatchObject({ backgroundColor: COLORS.primaryButton, marginTop: 0, minHeight: 48 });
+  expect(flatten(renderer.root.findAllByType('Text')[0].props.style).color).toBe(COLORS.white);
+  await act(async () => { (action.props.onPress as () => void)(); });
+  expect(press).toHaveBeenCalledTimes(2);
+  await act(async () => renderer.unmount());
+
+  const luminance = (hex: string) => hex.slice(1).match(/../g)!.map(value => parseInt(value, 16) / 255)
+    .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+  expect((luminance(COLORS.white) + 0.05) / (luminance(COLORS.primaryButton) + 0.05)).toBeGreaterThanOrEqual(4.5);
+});
 
 describe('family-care invitation controls', () => {
   let account: { data: null | { member: { id: string; referralCode: string } }; error: string | null; needsConsent: boolean; loading: boolean; token: string | null; session: { isPlatformSignedIn: boolean; logout: jest.Mock } };
@@ -252,7 +297,7 @@ it('public account offers common login and keeps insurance settings within the c
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
     '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data, loading: false, error: null, session, token: null, refresh: jest.fn() }) },
-    '@/lib/platform-api': { PLATFORM_PRIVACY_POLICY_URL: 'https://example.test/privacy/', PLATFORM_SERVICES: {}, platformRequest: jest.fn() }, '@/lib/theme': { COLORS },
+    '@/lib/platform-api': { PLATFORM_PRIVACY_POLICY_URL: 'https://example.test/privacy/', PLATFORM_SERVICES: {}, platformRequest: jest.fn() }, '@/lib/theme': { COLORS, SPACING },
     '@/lib/open-external-url': { openExternalUrl: openPolicy },
     '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/use-read-attempt': { useReadAttempt },
   });
@@ -267,6 +312,11 @@ it('public account offers common login and keeps insurance settings within the c
   data = { member: { name: '시험 회원', referralCode: 'synthetic-code' }, applications: [], benefits: [] };
   session = { role: 'fc', isPlatformSignedIn: true };
   await act(async () => { renderer.update(createElement(Account)); });
+  const actionGroup = renderer.root.findAllByType('View').find(node => (node.props.style as { gap?: number })?.gap === SPACING.md)!;
+  expect(actionGroup).toBeDefined();
+  expect(actionGroup.findAllByType('ServiceAction').map(node => node.props.label)).toEqual(['서비스 이용내역', '보험 계정 설정', '로그아웃']);
+  expect(actionGroup.findAllByType('ServiceAction').every(node => (node.props.style as { marginTop: number }).marginTop === 0)).toBe(true);
+  expect(actionGroup.findAllByType('Pressable').some(node => node.props.accessibilityRole === 'link')).toBe(true);
   await act(async () => { (actions().find((node) => node.props.label === '보험 계정 설정')!.props.onPress as () => void)(); });
   expect(push).toHaveBeenCalledWith('/settings?surface=service-hub');
   session = { role: null, isPlatformSignedIn: true };
@@ -286,7 +336,7 @@ it('existing FC account requires explicit consent, blocks repeat saves and prese
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
     '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data: null, loading: false, error: '동의 필요', needsConsent: true, canWithdraw: false, session: { role: 'fc', isPlatformSignedIn: true, logout }, token: 'synthetic-fc-token', refresh }) },
     '@/lib/platform-api': { PLATFORM_CONSENT_TEXT: '검토용 동의 내용', PLATFORM_TERMS_VERSION: '2026-10-12', PLATFORM_SERVICES: {}, platformRequest: request },
-    '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/use-read-attempt': { useReadAttempt }, '@/lib/theme': { COLORS },
+    '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/use-read-attempt': { useReadAttempt }, '@/lib/theme': { COLORS, SPACING },
   });
   let renderer!: Renderer;
   await act(async () => { renderer = create(createElement(Account)); });
@@ -324,11 +374,14 @@ it.each(['fc', 'member'])('common withdrawal remains available with expired cons
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
     '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data: null, loading: false, error: '동의 필요', needsConsent: true, canWithdraw: true, session: { role: kind === 'fc' ? 'fc' : null, isPlatformSignedIn: true, logout }, token: 'synthetic-session', refresh }) },
     '@/lib/platform-api': { PLATFORM_CONSENT_TEXT: '검토용 동의 내용', PLATFORM_TERMS_VERSION: '2026-10-12', PLATFORM_SERVICES: {}, platformRequest: request },
-    '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/use-read-attempt': { useReadAttempt }, '@/lib/theme': { COLORS },
+    '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/use-read-attempt': { useReadAttempt }, '@/lib/theme': { COLORS, SPACING },
   });
   let renderer!: Renderer;
   await act(async () => { renderer = create(createElement(Account)); });
   const remove = () => renderer.root.findAllByType('Button').find(node => node.children.includes('공통 회원 탈퇴'))!;
+  const actionGroup = renderer.root.findAllByType('View').find(node => (node.props.style as { gap?: number })?.gap === SPACING.md)!;
+  expect(actionGroup.findAllByType('Button')).toContain(remove());
+  expect(remove().props.variant).toBe('outline');
   await act(async () => { (remove().props.onPress as () => void)(); });
   expect(buttons[0]).toMatchObject({ text: '취소', style: 'cancel' });
   expect(request).not.toHaveBeenCalled();

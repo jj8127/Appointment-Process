@@ -2,10 +2,14 @@ doc_id: FC-SHARED-UI-ACTION-CONTRACTS
 owner_repo: fc-onboarding-app
 owner_area: shared-ui
 audience: developer
-last_verified: 2026-09-09
+last_verified: 2026-10-14
 source_of_truth: components/* + app/* + hooks/use-keyboard-padding.ts + web/src/* + scripts/audit/shared-ui-contract-audit.cjs + scripts/audit/shared-function-contract-audit.cjs + scripts/audit/mobile-keyboard-surface-audit.cjs
 
 # Shared UI Action Contracts
+
+## 2026-10-14 Filled mobile actions and active worktree audit
+
+Filled Button/ServiceAction use COLORS.primaryButton with white labels (normal-state contrast4.52:1); decorative primary accents and pale/outline controls remain separate. ServiceAccount groups its existing authorized actions, logout, outline withdrawal and privacy link with12px gap and no per-action margin stacking. Labels, role/consent conditions, keyboard/press/loading semantics and withdrawal ownership remain unchanged. The audit applies exclusions only to paths relative to its selected root: excluded ancestor names cannot hide an active checkout, while existing excluded descendants remain skipped. Use the closest native-controls and shared-ui-action-contracts suites and the existing visual capture adapter; do not add another runner.
 
 ## 2026-09-30 Failed reads and complete edit sources
 

@@ -138,7 +138,7 @@ function getVariantStyles(variant: ButtonVariant, disabled: boolean) {
     case 'primary':
       return {
         container: {
-          backgroundColor: disabled ? COLORS.gray[300] : COLORS.primary,
+          backgroundColor: disabled ? COLORS.gray[300] : COLORS.primaryButton,
           ...SHADOWS.sm,
         },
         text: {

@@ -8,6 +8,8 @@ export const COLORS = {
   // Primary - Hanwha Orange
   primary: '#f36f21',
   primaryDark: '#d65a16',
+  // Filled actions: white labels need stronger contrast than decorative brand orange.
+  primaryButton: '#c65312',
   primaryLight: '#ff8a4c',
   primaryPale: '#fff1e6',
 

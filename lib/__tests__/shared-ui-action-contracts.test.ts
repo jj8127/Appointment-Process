@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const root = process.cwd();
 
@@ -12,6 +13,33 @@ function readRepoFile(path: string) {
 }
 
 describe('shared UI/action primitive audit', () => {
+  it('scans an active checkout beneath an excluded ancestor while still excluding checkout descendants', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'garamin-ui-audit-'));
+    const checkout = join(fixtureRoot, '.codex-tmp', 'node_modules', '_deploy_active', 'checkout');
+    try {
+      const descendants = ['.archive', '.codex-tmp', '_tmp', '_codex_fixture', '_deploy_fixture',
+        '.git', '.next', '.expo', 'node_modules', 'coverage', 'dist', 'build', 'test-results'];
+      for (const directory of ['', ...descendants]) {
+        const target = join(checkout, 'app', directory);
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'screen.tsx'), 'Alert.alert("test"); <Button>Test</Button>;', 'utf8');
+      }
+      const inventory = scanSharedUiContracts({ root: checkout, sampleLimit: 32 });
+      for (const id of ['mobile-alerts', 'mobile-buttons']) {
+        const category = inventory.categories.find((item: { id: string }) => item.id === id);
+        expect(category.hitCount).toBe(1);
+        expect(category.fileCount).toBe(1);
+        expect(category.samples).toEqual(['app\\screen.tsx:1']);
+      }
+    } finally {
+      const cleanupTarget = resolve(fixtureRoot);
+      if (dirname(cleanupTarget) !== resolve(tmpdir()) || !basename(cleanupTarget).startsWith('garamin-ui-audit-')) {
+        throw new Error('Refusing cleanup outside the generated UI audit fixture directory');
+      }
+      rmSync(cleanupTarget, { recursive: true, force: true });
+    }
+  });
+
   it('tracks every high-risk UI and action primitive category', () => {
     const categoryIds = CONTRACT_AUDIT_CATEGORIES.map((category: { id: string }) => category.id);
 

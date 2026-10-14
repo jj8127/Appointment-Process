@@ -7,6 +7,8 @@ source_of_truth: app/index.tsx + app/_layout.tsx + app/services/* + components/F
 
 # Mobile Playbook: 서비스 선택 홈
 
+2026-10-14 후속 버튼 정리: 실제 채움 ServiceAction과 공용 Button은 대비가 되는 채움 전용 주황색·흰 글씨를 사용한다. 브랜드 강조/연한 보조색과 테두리 버튼은 유지한다. 내 정보 하단 버튼은 역할·동의·탈퇴 권한을 그대로 유지한12px gap 그룹이며 개인정보 링크를 겹치지 않게 둔다. 이미 진행 중인 native95 source는 보존하고 최종 UI는 별도 검증한 Android-only4.2.19 OTA source로 배포한다. 실제 계정/OS 조작은 사용자 단말 확인과 별도 서버 boolean 근거가 필요하다.
+
 ## 2026-10-14 가족간병 추천 초대 (로컬 구현)
 
 가족간병의 기존 자세히 알아보기 아래에 개인 초대 카드를 제공한다. 공통 계정의 서명된 `get_account` 추천 코드만 사용하며 로그인·필수 동의·조회 성공 전에는 링크를 만들지 않는다. 기존 Button·Toast·Clipboard·Share를 재사용하고 복사 실패·재시도와 계정 변경 후 늦은 응답을 구분한다. 좁은 화면/큰 글꼴은 버튼을 세로로 배치하며 공유창을 연 것만으로 실제 전달 완료를 표시하지 않는다.

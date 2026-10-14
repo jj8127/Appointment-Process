@@ -1,5 +1,10 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-14 활성 작업트리를 절대 경로 제외 규칙으로 누락함
+
+- 재현: 공용 UI 감사가 absolute path에 .codex-tmp/node_modules/임시 이름 제외를 적용해 그 아래의 정상 checkout 전체를 제외했다. 운영 source 변경과 무관하게 실제 UI inventory가0이 되고 필수 계약 검사가 실패했다.
+- 규칙: 제외는 선택한 scan root의 상대 경로에 적용한다. 임시 상위 폴더의 활성 checkout을 실제로 검사하고, checkout 내부의 기존 archive/생성/의존성 폴더는 계속 제외하는 양쪽 행동을 가장 가까운 suite에서 확인한다. fixture 삭제는 생성한 정확한 임시 경계를 검증한다.
+
 ## 2026-10-13 Expo 기본 resource 권한과 목적 설명을 확인하지 않음
 
 - 반복 원인: 사진 선택만 사용하는 앱에 image-picker plugin의 기본 마이크·카메라 권한과 일반 영어 목적 설명이 들어갔다. 앱 코드에 녹음 호출이 없다는 확인만으로 실제 binary의 InfoPlist 권한을 검증했다고 판단하면 심사 거절을 놓칠 수 있다.

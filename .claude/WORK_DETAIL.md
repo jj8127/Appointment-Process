@@ -1,5 +1,15 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261014-orange-button-polish"></a>
+## 2026-10-14 주황 채움 버튼과 내 정보 하단 간격
+
+- 기존 caller를 먼저 조사했다. 검은 주황 채움 글씨는 ServiceAction의 재정의이며 다른 실제 채움 CTA는 이미 흰색이다. 두 공용 Button/ServiceAction은 COLORS.primaryButton과 흰 글씨를 사용한다. 브랜드 primary·연한 주황·outline 위계는 유지하며 실제 정상 상태 대비는4.52:1이다. FamilyCareInvitation·업무 권한·API 정책은 변경하지 않는다.
+- 내 정보의 이용내역·보험 설정·관리 권한·로그아웃·동의 만료 조건을 동일하게 유지하고 gap12px 하단 그룹으로 옮겼다. 탈퇴 outline과 확인창·중복/owner 보호·오류 표시, 개인정보 링크의 조작 영역을 유지한다.
+- 공용 UI 감사는 활성 루트 아래 상대 경로에만 기존 제외 규칙을 적용한다. .codex-tmp 등 상위 폴더 이름으로 실제 전체 체크아웃을 누락하지 않으며 내부 archive/임시/generated/dependency 제외는 그대로다. 기존 suite의 작은 disposable fixture와 기존 native controls/키보드 계약을 재사용한다. 새로운 runner/mock server/UI framework는 없다.
+- 실제 account/ServiceInformation/Button/BottomNavigation을 기존 React Native Web capture 모드로 렌더했다. 합성 회원·router/API 어댑터만 사용하며320/390/414에서 흰 글씨·연속12px gap·44px 이상 조작 영역·넘침없음4개, 가족간병5개 배치 확인 PASS. 실제 native 캡처나 문자·가입·OS 공유 검증으로 주장하지 않는다.
+- 영향6개 기존 suite180개와 최종 TypeScript·대상 ESLint·diffcheck PASS. 감사 fixture의 정확한 임시 삭제 경계 보완 후 직접 영향 기존 suite4개와 lint를 다시 통과했다. 완성된95 AAB 권한·서명 검증은 acbd94e의 별도 영수증이며 이번 UI source의 Android-only export/운영 readback과 구분한다.
+- native95 acbd94e 원본 빌드는 그대로 보존한다. 새 UI commit의4.2.19 Android OTA는 native95 입력 불변과 old94의 승인된 권한 제거/기존 모듈 승격만 허용한 guard를 통과해야 한다. 초대/서버 이전 배포 영수증은 유지하며 Git push와 iOS 변경은 없다. source/최종 테스트·OTA/Play 상태는 canonical service-home QA와 release artifacts에 기록한다.
+
 <a id="20261014-care-android-release"></a>
 ## 2026-10-14 가족간병 추천 Android·초대 배포 준비
 

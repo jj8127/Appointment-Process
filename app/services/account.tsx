@@ -11,7 +11,7 @@ import { PLATFORM_CONSENT_TEXT, PLATFORM_PRIVACY_POLICY_URL, PLATFORM_SERVICES, 
 import { openExternalUrl } from '@/lib/open-external-url';
 import { captureAppSessionOwner } from '@/lib/request-board-api';
 import { useReadAttempt } from '@/lib/use-read-attempt';
-import { COLORS } from '@/lib/theme';
+import { COLORS, SPACING } from '@/lib/theme';
 
 export default function ServiceAccount() {
   const { data, error, needsConsent, canWithdraw, loading, refresh, session, token } = usePlatformAccount();
@@ -98,17 +98,26 @@ export default function ServiceAccount() {
         <Text style={styles.item}>지급 기한 {new Date(benefit.dueAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</Text>
         <Text style={styles.item}>{benefit.status === 'paid' ? '지급 기록 완료' : benefit.status === 'void' ? '취소됨' : '지급 예정'}</Text>
       </View>)}
-      <ServiceAction label="서비스 이용내역" onPress={() => router.push('/services/activity')} />
-      {session.role && <ServiceAction label="보험 계정 설정" onPress={() => router.push('/settings?surface=service-hub')} />}
-      {session.role === 'admin' && !session.readOnly && session.staffType === 'admin' && <ServiceAction label="제휴·정산 관리" onPress={() => router.push('/services/manage')} />}
     </>}
-    {session.isPlatformSignedIn && <ServiceAction label="로그아웃" onPress={() => session.logout()} />}
-    {needsConsent && session.role && <ServiceAction label="보험 계정 설정" onPress={() => router.push('/settings?surface=service-hub')} />}
-    {session.isPlatformSignedIn && canWithdraw && token && <Button variant="outline" loading={deleteLoading} disabled={deleteLoading || consenting} onPress={requestDeletion} fullWidth>공통 회원 탈퇴</Button>}
-    {deleteError && <Text accessibilityRole="alert" style={styles.body}>{deleteError}</Text>}
-    <Pressable accessibilityRole="link" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => {
-      void openExternalUrl(PLATFORM_PRIVACY_POLICY_URL).catch(() => setConsentError('개인정보처리방침을 열지 못했습니다. 다시 시도해주세요.'));
-    }}><Text style={[styles.item, { textDecorationLine: 'underline' }]}>개인정보처리방침</Text></Pressable>
-    {!needsConsent && consentError && <Text accessibilityRole="alert" style={styles.body}>{consentError}</Text>}
+    <View style={accountStyles.actions}>
+      {data && !needsConsent && <>
+        <ServiceAction style={accountStyles.action} label="서비스 이용내역" onPress={() => router.push('/services/activity')} />
+        {session.role && <ServiceAction style={accountStyles.action} label="보험 계정 설정" onPress={() => router.push('/settings?surface=service-hub')} />}
+        {session.role === 'admin' && !session.readOnly && session.staffType === 'admin' && <ServiceAction style={accountStyles.action} label="제휴·정산 관리" onPress={() => router.push('/services/manage')} />}
+      </>}
+      {session.isPlatformSignedIn && <ServiceAction style={accountStyles.action} label="로그아웃" onPress={() => session.logout()} />}
+      {needsConsent && session.role && <ServiceAction style={accountStyles.action} label="보험 계정 설정" onPress={() => router.push('/settings?surface=service-hub')} />}
+      {session.isPlatformSignedIn && canWithdraw && token && <Button variant="outline" loading={deleteLoading} disabled={deleteLoading || consenting} onPress={requestDeletion} fullWidth>공통 회원 탈퇴</Button>}
+      {deleteError && <Text accessibilityRole="alert" style={styles.body}>{deleteError}</Text>}
+      <Pressable accessibilityRole="link" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => {
+        void openExternalUrl(PLATFORM_PRIVACY_POLICY_URL).catch(() => setConsentError('개인정보처리방침을 열지 못했습니다. 다시 시도해주세요.'));
+      }}><Text style={[styles.item, { textDecorationLine: 'underline' }]}>개인정보처리방침</Text></Pressable>
+      {!needsConsent && consentError && <Text accessibilityRole="alert" style={styles.body}>{consentError}</Text>}
+    </View>
   </ServiceInformation>;
 }
+
+const accountStyles = {
+  actions: { gap: SPACING.md, marginTop: SPACING.sm },
+  action: { marginTop: 0 },
+};
