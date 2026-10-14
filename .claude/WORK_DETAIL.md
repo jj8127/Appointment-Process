@@ -1,5 +1,15 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261015-android-4220-submit"></a>
+## 2026-10-15 모두온 4.2.20 Android 스토어 제출
+
+- 출시 source: `feature/moduon-ui-polish-20261015` clean `74399826605eb464f3d522c9f6e945a3ebe13829`(UI `67e6309` + 운영 반영된 서버 브랜치 `1527684` 병합, tree `4ca4fdee`). push 안 함.
+- 기기 확인(로컬 ui9, 같은 앱 source): 입력 중 길게 누른 칩 탭, 칸 아래 오류와 첫 오류 이동, 소속·통신사·이메일 도메인 시트와 직접 입력, 작성 중 이탈 확인, 모두온 홈 종료 확인, 하단 내비게이션 바. 회원가입 성공 안내는 실제 계정 생성이 필요해 기기에서 실행하지 않았다(소스 테스트만).
+- 관찰 1건: 덮어 설치 직후 첫 실행의 연속 자동 탭 중 홈 탭이 모두 무반응(드래그 한 번으로 해소). 같은 조건 7회 재시도에서 재현되지 않아 원인 미확정으로 남긴다.
+- EAS build `b0187827-0f69-4875-8701-b42d2f2864e4` FINISHED, 4.2.20/97/runtime 4.2.20/STORE/production. AAB 96,721,151 bytes, SHA-256 `26c64a9e…c5a20116`. 검증 38항목 PASS. 4.2.19 키트 대비 검증 변경 사유는 release 키트 `VERIFIER-CHANGES.md`에 기록했다.
+- Play: 업로드 해시 일치, production 구성, validate, commit(`ERROR_IF_IN_REVIEW`) 성공 2026-10-14T18:11:15Z. 이후 조회에서 97 IN_REVIEW, 95 PUBLISHED. 공개 여부는 심사 후 별도 확인이 필요하다. iOS·OTA·서버 변경은 없다.
+- 증거: `D:/hanhwa/artifacts/moduon-ui-polish-20261015/android-native/`(빌드·다운로드·검증·제출 영수증).
+
 <a id="20261015-keyboard-taps"></a>
 ## 2026-10-15 키보드가 열린 상태의 터치 누락
 
