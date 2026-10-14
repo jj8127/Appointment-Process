@@ -484,11 +484,14 @@ function ReferralLinkBootstrap() {
   } | null>(null);
 
   useEffect(() => {
-    if (previousSessionKey.current && sessionKey && previousSessionKey.current !== sessionKey) {
+    // Carry an explicit insurance invitation through common signup/login into
+    // first FC enrollment. All established-account changes still discard it.
+    const keepInitialInsuranceInvite = previousSessionKey.current === 'anonymous' && !role;
+    if (previousSessionKey.current && sessionKey && previousSessionKey.current !== sessionKey && !keepInitialInsuranceInvite) {
       void clearPendingReferralCodes().catch(() => {});
     }
     if (sessionKey) previousSessionKey.current = sessionKey;
-  }, [sessionKey]);
+  }, [sessionKey, role]);
 
   useEffect(() => {
     let active = true;
@@ -516,7 +519,7 @@ function ReferralLinkBootstrap() {
     const routeInvite = async () => {
       await clearPendingReferralCodes().catch(() => {});
       if (!active || currentSessionKey.current !== sessionKey) return;
-      if (!isPlatformSignedIn) {
+      if (pending.invite.service === 'care' ? !isPlatformSignedIn : !role) {
         const save = savePendingReferralCode(pending.invite.code, pending.invite.service);
         if (pending.invite.service === 'care') await save.catch(() => {});
         else await save;
@@ -533,7 +536,7 @@ function ReferralLinkBootstrap() {
     };
     void routeInvite().catch(() => { if (active) setPending(null); });
     return () => { active = false; };
-  }, [isPlatformSignedIn, pending, rootNavigationState?.key, sessionKey]);
+  }, [isPlatformSignedIn, role, pending, rootNavigationState?.key, sessionKey]);
 
   return null;
 }
@@ -662,25 +665,14 @@ function RootLayout() {
                             }}
                           />
                           <Stack.Screen name="login" options={{ headerShown: false }} />
-                          <Stack.Screen
-                            name="signup"
-                            options={{
-                              ...authHeader,
-                              title: '회원가입',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
+                          <Stack.Screen name="signup" options={{ headerShown: false }} />
                           <Stack.Screen
                             name="reset-password"
                             options={{
                               ...authHeader,
                               title: '비밀번호 재설정',
                               headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => goBackOrReplace(router, '/services/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -695,30 +687,8 @@ function RootLayout() {
                               gestureEnabled: false,
                             }}
                           />
-                          <Stack.Screen
-                            name="signup-verify"
-                            options={{
-                              ...authHeader,
-                              title: '휴대폰 인증',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => goBackOrReplace(router, '/signup')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
-                          <Stack.Screen
-                            name="signup-password"
-                            options={{
-                              ...authHeader,
-                              title: '비밀번호 설정',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/signup-verify')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
+                          <Stack.Screen name="signup-verify" options={{ headerShown: false }} />
+                          <Stack.Screen name="signup-password" options={{ headerShown: false }} />
                           <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '추가 정보 입력 안내' }} />
                           <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
                           <Stack.Screen
@@ -804,25 +774,14 @@ function RootLayout() {
                             }}
                           />
                           <Stack.Screen name="login" options={{ headerShown: false }} />
-                          <Stack.Screen
-                            name="signup"
-                            options={{
-                              ...authHeader,
-                              title: '회원가입',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
+                          <Stack.Screen name="signup" options={{ headerShown: false }} />
                           <Stack.Screen
                             name="reset-password"
                             options={{
                               ...authHeader,
                               title: '비밀번호 재설정',
                               headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => goBackOrReplace(router, '/services/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -837,30 +796,8 @@ function RootLayout() {
                               gestureEnabled: false,
                             }}
                           />
-                          <Stack.Screen
-                            name="signup-verify"
-                            options={{
-                              ...authHeader,
-                              title: '휴대폰 인증',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => goBackOrReplace(router, '/signup')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
-                          <Stack.Screen
-                            name="signup-password"
-                            options={{
-                              ...authHeader,
-                              title: '비밀번호 설정',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/signup-verify')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
+                          <Stack.Screen name="signup-verify" options={{ headerShown: false }} />
+                          <Stack.Screen name="signup-password" options={{ headerShown: false }} />
                           <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '추가 정보 입력 안내' }} />
                           <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
                           <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />

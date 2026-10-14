@@ -3,9 +3,25 @@ owner_repo: fc-onboarding-app
 owner_area: mobile-and-data
 audience: developer, operator
 last_verified: 2026-10-14
-source_of_truth: app/services + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
+source_of_truth: app/services + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
 
 # 모두온 공통 서비스
+
+## 2026-10-14 공통 가입·서비스 추가 등록 통합
+
+사용자가 승인한 흐름은 모두온 공통 가입·로그인 → 서비스 선택 → 서비스 추가 안내·동의와 필요 정보 입력 → 서비스 이용이다. 가람in 사전등록·별도 로그인 UI는 제거하고 기존 주소는 공통 화면의 얇은 redirect로 유지한다. 이름·인증 전화·비밀번호를 가람in에서 다시 받지 않는다. 기존 계정 로그인·비밀번호 저장·임시 비밀번호 변경·OTP 복구와 skipAuto·서비스 선택·알림 우선순위를 유지한다.
+
+회사가 동의를 받았다는 사용자 확인은 migration 적용 시점의 기존 적격 FC/직원 source UUID cohort에만 적용한다. 기존 실제 동의 일시는 보존하며 회사 확인은 company_attested_import와 별도 기록 시각으로 저장한다. 이후 생성/완료한 legacy 계정에 역사적 동의를 자동 부여하지 않는다. 탈퇴한 공통 계정은 재활성화하지 않고 원본 source tombstone으로 재가입 혼입을 차단한다. 기존 완성 FC/직원은 추가 공통 동의 화면 없이 같은 계정으로 연결한다. 미완료 사전등록은 공통 인증·가입을 마친 뒤 서비스 추가 등록에서 안전하게 이어간다.
+
+공통 회원의 가람in 진입만으로 FC를 만들지 않는다. 기존 apply-gate에서 추가정보 안내와 insurance-additional-info-v1 동의를 확인하고 소속·이메일·통신사·자격 상태·별도 보험 추천인 입력을 명시적으로 확정할 때 enroll_insurance가 FC/credential/보험 추천/동의를 하나의 트랜잭션으로 연결한다. 신원 입력은 반환된 FC 세션으로 기존 identity/store-identity를 사용한다. 중단한 신원 입력은 기존 gate에서 이어간다. 나중에는 모두온 홈으로 돌아간다. 완료 FC의 엄격한 조회 오류/재시도와 관리자·본부장·설계사 경로는 유지한다. 이후 SGI 보증보험 consent 화면은 최초 추가 동의와 다르다.
+
+공통 referrer_id와 보험 모집 관계는 별도다. 공통 추천인을 보험 후보로 표시하거나 자동 선택하지 않는다. 명시적인 보험 초대 code만 기존 보험 pending에서 소비한다. 새 서비스 등록은 signed common actor에서 이름·전화·해시를 가져오며 본문 actor/role/password를 신뢰하지 않는다. 응답 손실 후에는 같은 idempotencyKey/payload와 현재 canonical credential generation을 확인한 enrollment-only receipt로 회복한다. 공통 토큰을 기존 FC API에 허용하지 않는다.
+
+헤더는 guest 로그인, signed 별도 내 정보·로그아웃, 복원 중 확인 중으로 표시한다. 회원명은 접근성 문맥에만 사용하고 로그인됨 문구는 쓰지 않는다. 공통 로그인/내 정보 경로와 기존 local-first 로그아웃·시각 토큰을 재사용하며 긴 이름·320px·큰 글씨·44px 조작 영역을 확인한다. [공식 One Login 계정 헤더](https://www.sign-in.service.gov.uk/documentation/design-recommendations/let-users-navigate-sign-out)의 명시적인 계정 접근 원칙만 참고하고 브랜드를 복제하지 않는다. 주황 채움/흰 글씨와 내 정보 하단12px 간격은 기존 공용 구현을 유지한다.
+
+탈퇴 시 실명·전화·credential·live binding은 지우되, 자동 공통 가입 재생성을 막는 제한된 source UUID/tombstone 및 회사 확인 cohort association은 남긴다. 이를 공통 안내와 공개 개인정보 안내에 사실대로 구분한다. 필수 공통 동의 버전2026-10-12를 임의 승격하여 기존 회원에게 재동의를 강제하지 않으며, 안내 갱신일2026-10-14와 서비스 추가 동의insurance-additional-info-v1은 별도로 기록한다. 회사가 확보한 동의 문서의 법률 검토를 수행했다는 주장은 하지 않는다.
+
+이 절은 최신 로컬 구현 계약이며 아래 이전 회차의 명시적 legacy 공통 동의/FC 가입 UI 설명을 대체한다. 운영 반영·OTA·실제 단말 검증은 각각 별도 증거를 요구한다.
 
 2026-10-14 배포 준비: 가족간병 개인 초대·추천 입력은 기존 서버 관계를 사용한다. Android 신규 native source는 앞선 사진 선택 전용 image-picker 권한 제거와 초대 기능을 함께 포함한다. production `platform-service`의 오래된 SMS 완료 처리 묶음을 검증된 source에 맞추며 union 실패 사유를 `sent.ok === false`로 명시한다. OTP/RPC·추천/기존 회원·역할 정책은 유지하고 새 migration은 없다. 실제 가입/OS 공유와 source별 Android OTA·신규 스토어 성공 상태는 별도 영수증으로 확인한다. iOS 심사·공개 상태 확인은 읽기 전용이다.
 

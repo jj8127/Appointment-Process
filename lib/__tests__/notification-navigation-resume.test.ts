@@ -71,7 +71,7 @@ describe('notification navigation resume boundary', () => {
   });
 
   it('suppresses login fallback and preserves the exact handoff through identity gate', () => {
-    const login = read('app/login.tsx');
+    const login = read('app/services/login.tsx');
     const gateHook = read('hooks/use-identity-gate.ts');
     const gate = read('app/apply-gate.tsx');
     const identity = read('app/identity.tsx');

@@ -4,23 +4,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import ServiceHomeScreen from '@/components/service-home';
 import { useSession } from '@/hooks/use-session';
+import { useAppLogout } from '@/hooks/use-app-logout';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { resolveInsuranceServiceRoute } from '@/lib/service-home';
 
 export default function ServiceHub() {
   const session = useSession();
+  const logout = useAppLogout('/', 'service-hub');
   const insets = useSafeAreaInsets();
   const preset = resolveBottomNavPreset(session, { surface: 'service-hub' });
   const openInsurance = () => {
-    if (session.hydrated && !session.role) {
-      router.push({ pathname: '/services/[service]', params: { service: 'insurance' } });
-      return;
-    }
     const route = resolveInsuranceServiceRoute(session);
     if (route) router.push(route);
   };
   const openInformation = (service: 'care' | 'telecom' | 'rental' | 'car' | 'help') => {
-    router.push({ pathname: '/services/[service]', params: { service } });
+    router.navigate({ pathname: '/services/[service]', params: { service } });
   };
 
   return (
@@ -28,16 +26,21 @@ export default function ServiceHub() {
       <Stack.Screen options={{ headerShown: false, title: '모두온' }} />
       <ServiceHomeScreen
         isSignedIn={session.isPlatformSignedIn}
-        loading={!session.hydrated}
+        accountName={session.platformMember?.name || session.displayName}
+        loading={!session.hydrated || !session.platformHydrated}
         canResumeInsurance={session.hydrated && session.role === 'fc' && !session.isRequestBoardDesigner}
         bottomInset={insets.bottom}
-        onAccountPress={() => router.push('/services/account')}
+        onAccountPress={() => {
+          if (!session.hydrated || !session.platformHydrated) return;
+          router.navigate(session.isPlatformSignedIn ? '/services/account' : '/services/login');
+        }}
+        onLogoutPress={logout}
         onCarePress={() => openInformation('care')}
         onInsurancePress={openInsurance}
         onTelecomPress={() => openInformation('telecom')}
         onCarPress={() => openInformation('car')}
         onRentalPress={() => openInformation('rental')}
-        onHospitalPress={() => router.push('/services/hospitals')}
+        onHospitalPress={() => router.navigate('/services/hospitals')}
         onHelpPress={() => openInformation('help')}
         onResumeInsurancePress={openInsurance}
         navigation={preset ? (

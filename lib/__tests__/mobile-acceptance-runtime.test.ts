@@ -6,13 +6,16 @@ import { getDesignerRequestDetailActions } from '../request-board-review-actions
 import { getMessengerHubCapabilities } from '../messenger-role-capabilities';
 import { goBackOrReplace } from '../back-navigation';
 import { INSURANCE_HOME_ROUTE } from '../service-home';
-import { normalizePhone, validatePassword, validatePhone, validateRequired } from '../validation';
-import { resolvePlatformAuthRoute } from '../session-landing';
+import { normalizePhone, validateEmail, validatePassword, validatePhone, validateRequired } from '../validation';
+import { resolvePlatformAuthRoute, resolveSessionLandingRoute } from '../session-landing';
 import { normalizeReferralInviteCode, parseReferralInvite } from '../referral-deeplink';
 import { parseInboxListPayload } from '../inbox-list-contract';
 import { parseLoginSuccessResponse } from '../login-response-contract';
 import { collectSupabaseRows, chunkSupabaseFilterValues } from '../supabase-query-contract';
 import { buildExamPhoneCandidates, normalizeExamSingle } from '../exam-display';
+import { createCreationRequestTracker } from '../board-comment-request';
+import { buildStoredSignupReferral, getSignupReferralSelectionError, hasValidStoredSignupReferral } from '../signup-referral';
+import { normalizeLicenseStatuses } from '../license-statuses';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 const root = join(__dirname, '../..');
@@ -845,14 +848,17 @@ describe('common member signup and login use isolated verified authentication', 
     password: 'Synthetic1!', confirmation: 'Synthetic1!', termsAccepted: true, referralCode: ' testcode ',
     PLATFORM_TERMS_VERSION,
     validatePhone, validateRequired, validatePassword, normalizePhone,
-    resolvePlatformAuthRoute, service: undefined,
+    resolvePlatformAuthRoute, resolveSessionLandingRoute, service: undefined, skipAuto: undefined,
     Keyboard: { dismiss: jest.fn() }, setError: jest.fn(), setOtpError: jest.fn(), setNotice: jest.fn(), setLoading: jest.fn(), setCooldown: jest.fn(),
     PlatformApiError: TestPlatformApiError,
     beginAttempt: () => () => true, allowCompletedExit: jest.fn(), loginPlatformMember: jest.fn(async () => undefined),
     captureAppSessionOwner: () => () => true,
     acceptLoginResponse: jest.fn(async () => 'fc'),
+    handleLoginRejection: jest.fn(async () => false), setManualLoginSucceeded: jest.fn(),
+    rememberPassword: false, setSavedLoginCredentials: jest.fn(async () => undefined),
+    sessionKey: 'synthetic-session', currentSessionKey: { current: 'synthetic-session' },
     platformRequest: jest.fn(async () => ({ memberId: 'synthetic-member', displayName: '가상 회원', appSessionToken: 'fictional-consumer-token' })),
-    router: { replace: jest.fn() }, ...overrides,
+    router: { replace: jest.fn(), dismissTo: jest.fn() }, ...overrides,
   });
 
   it('submits phone proof and minimum member fields without creating an FC identity', async () => {
@@ -862,7 +868,15 @@ describe('common member signup and login use isolated verified authentication', 
       phone: '01000000000', code: '123456', name: '가상 회원', password: 'Synthetic1!', termsAccepted: true, termsVersion: PLATFORM_TERMS_VERSION, referralCode: 'TESTCODE',
     });
     expect(context.loginPlatformMember).toHaveBeenCalledWith({ id: 'synthetic-member', name: '가상 회원' }, 'fictional-consumer-token');
-    expect(context.router.replace).toHaveBeenCalledWith('/services/account');
+    expect(context.router.dismissTo).toHaveBeenCalledWith('/services/account');
+    expect(context.router.replace).not.toHaveBeenCalled();
+  });
+
+  it('signup preserves insurance intent instead of dismissing to the common account', async () => {
+    const context = authContext({ service: 'insurance' });
+    await routeHandler('app/services/signup.tsx', 'submit', context)('signup');
+    expect(context.router.replace).toHaveBeenCalledWith({ pathname: '/apply-gate', params: { next: '/?mode=insurance' } });
+    expect(context.router.dismissTo).not.toHaveBeenCalled();
   });
 
   it('OTP requests send only the phone and do not grant a local verified flag', async () => {
@@ -920,9 +934,10 @@ describe('common member signup and login use isolated verified authentication', 
     const insuranceSession = { ok: true, role: 'fc', residentId: '01000000000', appSessionToken: 'fictional-fc-token', requestBoardBridgeToken: 'fictional-bridge-token' };
     const context = authContext({ platformRequest: jest.fn(async () => ({ insuranceSession })) });
     await routeHandler('app/services/login.tsx', 'login', context)();
-    expect(context.acceptLoginResponse).toHaveBeenCalledWith(insuranceSession);
+    expect(context.acceptLoginResponse).toHaveBeenCalledWith(insuranceSession, '01000000000', expect.any(Function));
     expect(context.loginPlatformMember).not.toHaveBeenCalled();
-    expect(context.router.replace).toHaveBeenCalledWith('/services/account');
+    expect(context.setManualLoginSucceeded).toHaveBeenCalledWith(true);
+    expect(context.router.replace).not.toHaveBeenCalled();
   });
 
   it.each([true, false])('password recovery reuses the screen and keeps platform=%s transport separate', async isPlatform => {
@@ -936,13 +951,24 @@ describe('common member signup and login use isolated verified authentication', 
       expect(invoke).not.toHaveBeenCalled();
       expect(context.platformRequest).toHaveBeenCalledWith('request_password_reset', { phone: '01000000000' });
       expect(context.platformRequest).toHaveBeenCalledWith('reset_password', { phone: '01000000000', code: '123456', password: 'Synthetic1!' });
-      expect(context.router.replace).toHaveBeenCalledWith('/services/login');
+      expect(context.router.dismissTo).toHaveBeenCalledWith('/services/login');
     } else {
       expect(context.platformRequest).not.toHaveBeenCalled();
       expect(invoke).toHaveBeenCalledWith('request-password-reset', { body: { phone: '01000000000' } });
       expect(invoke).toHaveBeenCalledWith('reset-password', { body: { phone: '01000000000', token: '123456', newPassword: 'Synthetic1!' } });
-      expect(context.router.replace).toHaveBeenCalledWith('/login');
+      expect(context.router.dismissTo).toHaveBeenCalledWith('/services/login');
     }
+    expect(context.logout).toHaveBeenCalledTimes(1);
+    expect(context.logout.mock.invocationCallOrder[0]).toBeLessThan(context.router.dismissTo.mock.invocationCallOrder[0]);
+  });
+
+  it('password reset returns to the existing login while retaining insurance and skipAuto intent', async () => {
+    const context = { ...authContext({ service: 'insurance', skipAuto: '1' }), isPlatform: true, token: '123456', newPassword: 'Synthetic1!',
+      platformRequest: jest.fn(async () => ({ ok: true })), supabase: { auth: { signOut: jest.fn(async () => undefined) } },
+      logout: jest.fn(), Alert: { alert: jest.fn() } };
+    await routeHandler('app/reset-password.tsx', 'handleReset', context)();
+    expect(context.router.dismissTo).toHaveBeenCalledWith({ pathname: '/services/login', params: { service: 'insurance', skipAuto: '1' } });
+    expect(context.router.replace).not.toHaveBeenCalled();
     expect(context.logout).toHaveBeenCalledTimes(1);
   });
 
@@ -970,6 +996,7 @@ describe('common member signup and login use isolated verified authentication', 
     const context = {
       clearRequestBoardState: jest.fn(async () => undefined), setAppSessionToken: jest.fn(async () => undefined),
       setBridgeToken: jest.fn(async () => undefined), loginAs: jest.fn(), parseLoginSuccessResponse,
+      captureAppSessionOwner: () => () => true,
     };
     const result = await routeHandler('hooks/use-login.ts', 'acceptLoginResponse', context)({
       ok: true, role, staffType, residentId: '01000000000', displayName: '가상 계정', appSessionToken: 'fictional-fc-token', requestBoardBridgeToken: 'fictional-bridge-token', requestBoardRole,
@@ -981,15 +1008,54 @@ describe('common member signup and login use isolated verified authentication', 
   });
 
   it('a consumer role cannot be accepted as a legacy FC login response', async () => {
-    const context = { clearRequestBoardState: jest.fn(), setAppSessionToken: jest.fn(), setBridgeToken: jest.fn(), loginAs: jest.fn(), parseLoginSuccessResponse };
+    const context = { clearRequestBoardState: jest.fn(), setAppSessionToken: jest.fn(), setBridgeToken: jest.fn(), loginAs: jest.fn(), parseLoginSuccessResponse,
+      captureAppSessionOwner: () => () => true };
     await expect(routeHandler('hooks/use-login.ts', 'acceptLoginResponse', context)({ ok: true, role: 'member', appSessionToken: 'fictional-consumer-token' }))
       .rejects.toThrow('로그인 응답');
     expect(context.loginAs).not.toHaveBeenCalled();
     expect(context.setAppSessionToken).not.toHaveBeenCalled();
   });
+  it.each(['before', 'clear', 'app-token', 'bridge-token'])('stops a stale legacy session installation at %s before granting FC rights', async stage => {
+    let current = stage !== 'before';
+    const pause = deferred<void>();
+    const context = {
+      clearRequestBoardState: jest.fn(() => stage === 'clear' ? pause.promise : Promise.resolve()),
+      setAppSessionToken: jest.fn(() => stage === 'app-token' ? pause.promise : Promise.resolve()),
+      setBridgeToken: jest.fn(() => stage === 'bridge-token' ? pause.promise : Promise.resolve()),
+      loginAs: jest.fn(), parseLoginSuccessResponse, captureAppSessionOwner: () => () => current,
+    };
+    const result = routeHandler('hooks/use-login.ts', 'acceptLoginResponse', context)({
+      ok: true, role: 'fc', residentId: '01000000000', displayName: '합성 계정', appSessionToken: 'fictional-fc-token', requestBoardRole: 'fc',
+    }, '01000000000', () => current);
+    await Promise.resolve(); await Promise.resolve();
+    current = false; pause.resolve(); await result;
+    expect(context.loginAs).not.toHaveBeenCalled();
+    if (stage === 'before') expect(context.clearRequestBoardState).not.toHaveBeenCalled();
+    if (stage === 'before' || stage === 'clear') expect(context.setAppSessionToken).not.toHaveBeenCalled();
+    if (stage !== 'bridge-token') expect(context.setBridgeToken).not.toHaveBeenCalled();
+  });
+  it('keeps temporary-password proof and incomplete preregistration recovery on the common entry', async () => {
+    const context = { clearRequestBoardState: jest.fn(async () => undefined), clearSavedLoginCredentials: jest.fn(async () => undefined),
+      captureAppSessionOwner: () => () => true, setPendingAssistedPasswordChange: jest.fn(), resolvePlatformAuthRoute, router: { replace: jest.fn() } };
+    const reject = routeHandler('hooks/use-login.ts', 'handleLoginRejection', context);
+    await reject({ ok: false, code: 'password_change_required', passwordChangeToken: 'synthetic-change-proof', passwordChangeExpiresAt: '2026-10-14T00:00:00Z' }, 'insurance');
+    expect(context.setPendingAssistedPasswordChange).toHaveBeenCalledWith('synthetic-change-proof', '2026-10-14T00:00:00Z');
+    expect(context.router.replace).toHaveBeenLastCalledWith({ pathname: '/first-password-change', params: { service: 'insurance' } });
+    await reject({ ok: false, code: 'not_completed' }, 'insurance');
+    expect(context.router.replace).toHaveBeenLastCalledWith({ pathname: '/services/signup', params: { service: 'insurance' } });
+    await reject({ ok: false, code: 'needs_password_setup', role: 'fc' }, 'insurance');
+    expect(context.router.replace).toHaveBeenLastCalledWith({ pathname: '/reset-password', params: { audience: 'platform', service: 'insurance' } });
+  });
 });
 
 describe('family-care invitations keep common signup separate from insurance', () => {
+  it.each([
+    ['anonymous', null, true], ['anonymous', 'fc', false], ['anonymous', 'admin', false],
+    ['synthetic-member', null, false], ['fc:synthetic-phone', null, false],
+  ])('preserves the initial insurance invite only for %s entering common-only role %s', (previous, role, expected) => {
+    const keep = routeHandler<boolean>('app/_layout.tsx', 'keepInitialInsuranceInvite', { previousSessionKey: { current: previous }, role });
+    expect(keep).toBe(expected);
+  });
   it('ignores unrelated warm events without accepting or replacing a cold invitation', () => {
     const context = { active: true, parseReferralInvite, currentSessionKey: { current: 'anonymous' }, sequence: { current: 0 }, setPending: jest.fn() };
     const capture = routeHandler<(url: string) => boolean>('app/_layout.tsx', 'captureInvite', context);
@@ -1000,7 +1066,7 @@ describe('family-care invitations keep common signup separate from insurance', (
     expect(context.setPending).toHaveBeenCalledWith({ invite: { service: 'care', code: 'ABC123ABCDEF' }, owner: 'anonymous', nonce: 1 });
   });
   const inviteContext = (overrides: Record<string, unknown> = {}) => ({
-    active: true, sessionKey: 'anonymous', currentSessionKey: { current: 'anonymous' }, isPlatformSignedIn: false,
+    active: true, sessionKey: 'anonymous', currentSessionKey: { current: 'anonymous' }, isPlatformSignedIn: false, role: null,
     pending: { invite: { code: 'ABC123ABCDEF', service: 'care' }, nonce: 2 },
     clearPendingReferralCodes: jest.fn(async () => undefined), savePendingReferralCode: jest.fn(async () => undefined),
     router: { replace: jest.fn() }, setPending: jest.fn(), ...overrides,
@@ -1027,6 +1093,12 @@ describe('family-care invitations keep common signup separate from insurance', (
     await routeHandler('app/_layout.tsx', 'routeInvite', context)();
     expect(context.clearPendingReferralCodes).toHaveBeenCalledTimes(1);
     expect(context.savePendingReferralCode).not.toHaveBeenCalled();
+  });
+  it.each([null, 'fc', 'admin'])('insurance invitations are saved only before FC enrollment for role %s', async role => {
+    const context = inviteContext({ isPlatformSignedIn: true, role, pending: { invite: { code: 'ABC123ABCDEF' }, nonce: 2 } });
+    await routeHandler('app/_layout.tsx', 'routeInvite', context)();
+    if (role === null) expect(context.savePendingReferralCode).toHaveBeenCalledWith('ABC123ABCDEF', undefined);
+    else expect(context.savePendingReferralCode).not.toHaveBeenCalled();
   });
 
   it.each(['clear', 'save'])('does not route a delayed %s after ownership changes', async phase => {
@@ -1171,21 +1243,135 @@ it.each([
     expect(router.replace).not.toHaveBeenCalled();
   } else {
     expect(router.back).not.toHaveBeenCalled();
-    expect(router.replace).toHaveBeenCalledWith(expected === 'login' ? { pathname: '/login', params: { skipAuto: '1' } } : '/');
+    expect(router.replace).toHaveBeenCalledWith(expected === 'login' ? { pathname: '/services/login', params: { service: 'insurance', skipAuto: '1' } } : '/');
   }
 });
 
-it.each([true, false])('verification back restores the existing signup form when history exists (%s)', async (canGoBack) => {
-  const router = { back: jest.fn(), replace: jest.fn(), canGoBack: () => canGoBack };
-  const back = routeHandler('app/signup-verify.tsx', 'handleBack', { router, goBackOrReplace });
-  await back();
-  if (canGoBack) {
-    expect(router.back).toHaveBeenCalledTimes(1);
-    expect(router.replace).not.toHaveBeenCalled();
-  } else {
-    expect(router.back).not.toHaveBeenCalled();
-    expect(router.replace).toHaveBeenCalledWith('/signup');
-  }
+it.each(['signup', 'signup-verify', 'signup-password'])('legacy %s has one common signup boundary', route => {
+  const source = readFileSync(join(process.cwd(), `app/${route}.tsx`), 'utf8');
+  expect(source.trim()).toBe("export { default } from '@/components/LegacySignupRedirect';");
+});
+
+describe('unified common account to insurance registration callbacks', () => {
+  const selectedReferral = { fcId: 'fictional-inviter', name: '시험 추천인', affiliation: '1본부', code: 'TEST0001' };
+  const insuranceSession = { ok: true, role: 'fc', residentId: 'fictional-phone', appSessionToken: 'fictional-fc-session' };
+  const makeContext = (overrides: Record<string, unknown> = {}) => ({
+    token: 'fictional-common-session', tokenRef: { current: 'fictional-common-session' }, commonOnly: true,
+    pending: { current: false }, installingToken: { current: null }, consentAccepted: true,
+    affiliation: '1본부', email: 'test@example.invalid', carrier: 'KT', licenseStatuses: ['none'],
+    searchQuery: '시험 추천인', selectedReferral, validating: false,
+    buildStoredSignupReferral, getSignupReferralSelectionError, hasValidStoredSignupReferral,
+    validateEmail, validateRequired, normalizeLicenseStatuses, INSURANCE_CONSENT_VERSION: 'insurance-additional-info-v1',
+    tracker: { current: createCreationRequestTracker(() => 'fictional-operation') }, beginSubmit: actualBeginAttempt(),
+    setSubmitting: jest.fn(), setSaveError: jest.fn(), Alert: { alert: jest.fn() },
+    platformRequest: jest.fn(async () => ({ ok: true, insuranceSession, alreadyApplied: false })),
+    acceptLoginResponse: jest.fn(async () => 'fc'), allowExit: jest.fn(),
+    buildApplyGateIdentityRoute: (next: string) => ({ pathname: '/identity', params: { next } }),
+    safeNext: '/?mode=insurance', router: { replace: jest.fn() }, ...overrides,
+  });
+
+  it.each([
+    { consentAccepted: false }, { affiliation: '' }, { email: 'bad email' }, { carrier: '' }, { selectedReferral: null }, { validating: true },
+  ])('rejects an incomplete consent/service/referral selection before mutation: %j', async (missing) => {
+    const context = makeContext(missing);
+    await routeHandler('app/apply-gate.tsx', 'submitEnrollment', context)();
+    expect(context.platformRequest).not.toHaveBeenCalled();
+    expect(context.Alert.alert).toHaveBeenCalledWith('입력 확인', expect.any(String));
+  });
+
+  it('uses explicit insurance fields and signed common session, never repeating account signup', async () => {
+    const context = makeContext();
+    await routeHandler('app/apply-gate.tsx', 'submitEnrollment', context)();
+    expect(context.platformRequest).toHaveBeenCalledTimes(1);
+    const [action, body, token] = context.platformRequest.mock.calls[0] as unknown as [string, Record<string, unknown>, string];
+    expect(action).toBe('enroll_insurance'); expect(token).toBe(context.token);
+    expect(body).toMatchObject({ confirmed: true, consentAccepted: true, consentVersion: 'insurance-additional-info-v1',
+      referralCode: 'TEST0001', referralInviterFcId: 'fictional-inviter', email: 'test@example.invalid' });
+    for (const forbidden of ['password', 'phone', 'memberId', 'fcId', 'name', 'referrerId']) expect(body).not.toHaveProperty(forbidden);
+    expect(context.acceptLoginResponse).toHaveBeenCalledWith(insuranceSession, undefined, expect.any(Function));
+    expect(context.router.replace).toHaveBeenCalledWith({ pathname: '/identity', params: { next: '/?mode=insurance' } });
+  });
+
+  it('blocks a synchronous second registration and keeps one operation for an unchanged lost-response retry', async () => {
+    const pending = deferred<unknown>();
+    let call = 0;
+    const context = makeContext({ platformRequest: jest.fn(() => {
+      call += 1; return call === 1 ? pending.promise : Promise.resolve({ ok: true, insuranceSession, alreadyApplied: true });
+    }) });
+    const submit = routeHandler('app/apply-gate.tsx', 'submitEnrollment', context);
+    const first = submit(); await submit();
+    expect(context.platformRequest).toHaveBeenCalledTimes(1);
+    pending.resolve(Promise.reject(new Error('fictional timeout'))); await first;
+    expect(context.router.replace).not.toHaveBeenCalled();
+    await submit();
+    const calls = context.platformRequest.mock.calls as unknown as [string, { idempotencyKey: string }][];
+    expect(calls[0][1].idempotencyKey).toBe(calls[1][1].idempotencyKey);
+    expect(context.router.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not install the completed registration into an account changed during the request', async () => {
+    const pending = deferred<unknown>();
+    const context = makeContext({ platformRequest: jest.fn(() => pending.promise) });
+    const work = routeHandler('app/apply-gate.tsx', 'submitEnrollment', context)();
+    context.tokenRef.current = 'fictional-other-account';
+    pending.resolve({ ok: true, insuranceSession, alreadyApplied: false }); await work;
+    expect(context.acceptLoginResponse).not.toHaveBeenCalled(); expect(context.router.replace).not.toHaveBeenCalled();
+  });
+
+  it('does not navigate when guarded session installation was superseded', async () => {
+    const context = makeContext({ acceptLoginResponse: jest.fn(async () => null) });
+    await routeHandler('app/apply-gate.tsx', 'submitEnrollment', context)();
+    expect(context.router.replace).not.toHaveBeenCalled(); expect(context.allowExit).not.toHaveBeenCalled();
+  });
+
+  it('starts only the local service form after consent, without creating an FC on entry', () => {
+    const context = { commonOnly: true, consentAccepted: false, setFormShown: jest.fn(), addSentryBreadcrumb: jest.fn(),
+      buildHomeEntryBreadcrumb: jest.fn(), safeNext: '/?mode=insurance', router: { push: jest.fn() }, buildApplyGateIdentityRoute: jest.fn() };
+    routeHandler<() => void>('app/apply-gate.tsx', 'startIdentityInput', context)();
+    expect(context.setFormShown).not.toHaveBeenCalled();
+    context.consentAccepted = true;
+    routeHandler<() => void>('app/apply-gate.tsx', 'startIdentityInput', context)();
+    expect(context.setFormShown).toHaveBeenCalledWith(true); expect(context.router.push).not.toHaveBeenCalled();
+  });
+
+  it('returns later to common home rather than the separate FC home-lite', () => {
+    const context = { addSentryBreadcrumb: jest.fn(), buildHomeEntryBreadcrumb: jest.fn(), router: { replace: jest.fn() } };
+    routeHandler<() => void>('app/apply-gate.tsx', 'returnHomeLite', context)();
+    expect(context.router.replace).toHaveBeenCalledWith('/');
+  });
+
+  it('ignores stale insurance-referral validation after the member edits the selection', async () => {
+    const pending = deferred<unknown>();
+    const beginSelection = actualBeginAttempt();
+    const context = { token: 'fictional-common', tokenRef: { current: 'fictional-common' }, beginSelection,
+      setValidating: jest.fn(), setSelectedReferral: jest.fn(), setReferralError: jest.fn(), setSearchQuery: jest.fn(), setSearchResults: jest.fn(),
+      platformRequest: jest.fn(() => pending.promise) };
+    const work = routeHandler('app/apply-gate.tsx', 'validateReferral', context)('TEST0001');
+    beginSelection();
+    pending.resolve({ ok: true, inviterFcId: 'fictional-inviter', inviterName: '늦은 결과', inviterAffiliation: '', referralCode: 'TEST0001' }); await work;
+    expect(context.setSelectedReferral).toHaveBeenCalledTimes(1); expect(context.setSelectedReferral).toHaveBeenCalledWith(null);
+    expect(context.setSearchQuery).not.toHaveBeenCalled();
+  });
+});
+
+describe('identity save current account and duplicate boundary', () => {
+  it('ignores a late identity receipt after account change and blocks a synchronous duplicate', async () => {
+    const pendingWrite = deferred<unknown>();
+    const context = { pending: { current: false }, role: 'fc', residentId: 'fictional-phone', appSessionToken: 'fictional-session',
+      sessionRef: { current: { residentId: 'fictional-phone', appSessionToken: 'fictional-session' } }, beginSubmit: actualBeginAttempt(),
+      setSubmitting: jest.fn(), setError: jest.fn(), validateResidentId: () => ({ isValid: true }),
+      invokeStoreIdentity: jest.fn(() => pendingWrite.promise), requireStoreIdentityReceipt: jest.fn(),
+      queryClient: { invalidateQueries: jest.fn(), refetchQueries: jest.fn() }, Alert: { alert: jest.fn() }, router: { replace: jest.fn() } };
+    const submit = routeHandler('app/identity.tsx', 'onSubmit', context);
+    const values = { residentFront: '000000', residentBack: '0000000', address: '합성 주소', addressDetail: '합성 상세' };
+    const first = submit(values); await submit(values);
+    expect(context.invokeStoreIdentity).toHaveBeenCalledTimes(1);
+    context.sessionRef.current.appSessionToken = 'fictional-other-session';
+    pendingWrite.resolve({ data: { ok: true }, error: null }); await first;
+    expect(context.requireStoreIdentityReceipt).not.toHaveBeenCalled();
+    expect(context.queryClient.invalidateQueries).not.toHaveBeenCalled();
+    expect(context.router.replace).not.toHaveBeenCalled(); expect(context.Alert.alert).not.toHaveBeenCalled();
+  });
 });
 
 describe('request chat room back navigation', () => {

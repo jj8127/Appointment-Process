@@ -84,6 +84,12 @@ describe('EAS builds use the main source directory and its current app version',
     expect(createBuildPlan(['android'], options()).version).toBe('5.0.0-rc.1');
   });
 
+  it.each(['development', 'preview'])('explicitly enables fictional hospital data in the internal %s profile', profile => {
+    const config = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'eas.json'), 'utf8'));
+    expect(config.build[profile]).toMatchObject({ distribution: 'internal', env: { EXPO_PUBLIC_HOSPITAL_DEMO: 'true' } });
+    if (profile === 'development') expect(config.build[profile].developmentClient).toBe(true);
+  });
+
   it.each(['android', 'ios'])('launches %s using shell-free Node and the pinned CLI with the source cwd', (platform) => {
     const spawn = jest.fn().mockReturnValue({ status: 0 });
     const env = { PATH: 'test-path', TEST_BUILD: '1' };

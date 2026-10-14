@@ -84,6 +84,33 @@ describe('common platform transport', () => {
     invoke.mockResolvedValue({ data: { ok: false, code: 'future_error' }, error: null });
     await expect(platformRequest('apply')).rejects.toBeInstanceOf(PlatformApiError);
   });
+  it('preserves only recovery metadata from a rejected common login', async () => {
+    const response = { ok: false, code: 'password_change_required', role: 'fc', passwordChangeToken: 'synthetic-change-token',
+      passwordChangeExpiresAt: '2026-10-14T00:00:00Z', message: 'synthetic internal detail', password: 'must-not-pass' };
+    invoke.mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify(response), { status: 409 }) } });
+    await expect(platformRequest('login')).rejects.toMatchObject({ code: response.code, status: 409,
+      loginRejection: { role: 'fc', passwordChangeToken: response.passwordChangeToken, passwordChangeExpiresAt: response.passwordChangeExpiresAt } });
+    try { await platformRequest('login'); } catch (failure) {
+      expect((failure as PlatformApiError).loginRejection).not.toHaveProperty('password');
+      expect((failure as PlatformApiError).message).not.toContain('internal detail');
+    }
+  });
+  it('validates signed service enrollment receipts and authenticated referral responses', async () => {
+    const insuranceSession = { ok: true, role: 'fc', residentId: '01000000000', appSessionToken: 'synthetic-fc-token' };
+    invoke.mockResolvedValue({ data: { ok: true, insuranceSession, alreadyApplied: false }, error: null });
+    await expect(platformRequest('enroll_insurance', { confirmed: true }, 'synthetic-member-token')).resolves.toMatchObject({ alreadyApplied: false });
+    expect(invoke.mock.calls[0][1]).toMatchObject({ headers: { 'x-app-session-token': 'synthetic-member-token' }, timeout: 12000 });
+    invoke.mockResolvedValue({ data: { ok: true, insuranceSession: { ...insuranceSession, role: 'member' }, alreadyApplied: false }, error: null });
+    await expect(platformRequest('enroll_insurance')).rejects.toMatchObject({ code: 'invalid_response' });
+    invoke.mockResolvedValue({ data: { ok: true, results: [{ fcId: hospital.id, name: '합성 추천인', affiliation: '합성 소속', code: 'ABCDEFGH' }] }, error: null });
+    await expect(platformRequest('search_insurance_referral')).resolves.toMatchObject({ results: [{ name: '합성 추천인' }] });
+    invoke.mockResolvedValue({ data: { ok: true, results: [{ fcId: hospital.id }] }, error: null });
+    await expect(platformRequest('search_insurance_referral')).rejects.toMatchObject({ code: 'invalid_response' });
+    invoke.mockResolvedValue({ data: { ok: true, inviterFcId: hospital.id, inviterName: '합성 추천인', inviterAffiliation: '', referralCode: 'ABCDEFGH' }, error: null });
+    await expect(platformRequest('validate_insurance_referral')).resolves.toMatchObject({ inviterFcId: hospital.id });
+    invoke.mockResolvedValue({ data: { ok: true, inviterFcId: 'bad' }, error: null });
+    await expect(platformRequest('validate_insurance_referral')).rejects.toMatchObject({ code: 'invalid_response' });
+  });
   it('validates consumer identity and existing insurance sessions before persistence', async () => {
     const member = { ok: true, memberId: hospital.id, displayName: '합성 회원', residentId: '01000000000', appSessionToken: 'synthetic-consumer-token', role: 'member' };
     invoke.mockResolvedValue({ data: member, error: null });
@@ -102,6 +129,9 @@ describe('common platform transport', () => {
     expect(await platformRequest('get_account', {}, 'synthetic-fc-token')).toEqual(account);
     invoke.mockResolvedValue({ data: { ok: false, code: 'consent_required' }, error: null });
     await expect(platformRequest('get_account', {}, 'synthetic-fc-token')).rejects.toMatchObject({ code: 'consent_required' });
+    invoke.mockResolvedValue({ data: { ok: false, code: 'common_membership_withdrawn', message: 'synthetic internal detail' }, error: null });
+    await expect(platformRequest('get_account', {}, 'synthetic-fc-token')).rejects.toMatchObject({ code: 'common_membership_withdrawn',
+      message: '공통 회원에서 탈퇴한 계정입니다. 다시 가입하려면 동의를 확인해 주세요.' });
     invoke.mockResolvedValue({ data: { ok: true }, error: null });
     await platformRequest('request_password_reset', { phone: '01000000000' });
     await platformRequest('reset_password', { phone: '01000000000', code: '123456', password: 'Synthetic1!' });

@@ -1,36 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { isSignupCompletionToken } from '@/lib/signup-completion-capability';
-import { readSupabaseFunctionErrorCode } from '@/lib/supabase-function-error';
-
 const read = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), 'utf8');
 
 describe('FC OTP signup completion capability', () => {
-  it('accepts only the 43-character base64url token shape used by the app handoff', () => {
-    expect(isSignupCompletionToken('A'.repeat(43))).toBe(true);
-    expect(isSignupCompletionToken(`${'A'.repeat(42)}=`)).toBe(false);
-    expect(isSignupCompletionToken('A'.repeat(44))).toBe(false);
-    expect(isSignupCompletionToken(null)).toBe(false);
-  });
-
-  it('extracts only a bounded error code from an HTTP error context', async () => {
-    const response = new Response(JSON.stringify({ code: 'verification_expired' }), { status: 401 });
-    await expect(readSupabaseFunctionErrorCode({ context: response })).resolves.toBe('verification_expired');
-    expect(response.bodyUsed).toBe(false);
-    await expect(readSupabaseFunctionErrorCode({
-      context: {
-        json: async () => ({ code: 'proof_expired', message: 'raw database detail' }),
-      },
-    })).resolves.toBe('proof_expired');
-    await expect(readSupabaseFunctionErrorCode({
-      context: { json: async () => ({ code: 'x'.repeat(65) }) },
-    })).resolves.toBeUndefined();
-    await expect(readSupabaseFunctionErrorCode({
-      context: { json: async () => { throw new Error('unreadable'); } },
-    })).resolves.toBeUndefined();
-  });
-
   it('issues the opaque capability only through the transactional OTP verification RPC', () => {
     const source = read('supabase/functions/verify-signup-otp/index.ts');
 

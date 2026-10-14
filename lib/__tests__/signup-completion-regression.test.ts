@@ -39,48 +39,18 @@ describe('signup completion regression guards', () => {
     expect(source).not.toContain('signup_completed: true');
   });
 
-  it('requires the validated stored referral again on the password screen', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'app', 'signup-password.tsx'),
-      'utf8',
-    );
-
-    const referralGuardIndex = source.indexOf('if (!hasValidStoredSignupReferral(payload))');
-    const setPasswordInvokeIndex = source.indexOf("supabase.functions.invoke('set-password'");
-    expect(referralGuardIndex).toBeGreaterThan(-1);
-    expect(setPasswordInvokeIndex).toBeGreaterThan(referralGuardIndex);
+  it.each(['signup', 'signup-verify', 'signup-password'])('keeps legacy %s as a redirect rather than issuing FC credentials', route => {
+    const source = readFileSync(join(process.cwd(), 'app', `${route}.tsx`), 'utf8');
+    expect(source.trim()).toBe("export { default } from '@/components/LegacySignupRedirect';");
+    expect(source).not.toContain('set-password');
+    expect(source).not.toContain('completionToken');
   });
 
-  it('keeps the completion capability out of the general signup payload', () => {
-    const verifySource = readFileSync(
-      join(process.cwd(), 'app', 'signup-verify.tsx'),
-      'utf8',
-    );
-    const passwordSource = readFileSync(
-      join(process.cwd(), 'app', 'signup-password.tsx'),
-      'utf8',
-    );
-
-    expect(verifySource).toContain('sensitiveTokenStorage.setItem(');
-    expect(verifySource).toContain('SIGNUP_COMPLETION_TOKEN_STORAGE_KEY');
-    expect(verifySource).not.toContain('JSON.stringify({ ...payload, phone: digits, phoneVerified: true, completionToken');
-    expect(passwordSource).toContain('sensitiveTokenStorage.getItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY)');
-    expect(passwordSource).toContain('completionToken,');
-    expect(passwordSource).toContain('sensitiveTokenStorage.removeItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY)');
-    expect(passwordSource).not.toContain('context.text()');
-    expect(passwordSource).not.toContain('data?.message');
-  });
-
-  it('accepts the check-only availability wire contract without inventing a resident id receipt', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'app', 'signup.tsx'),
-      'utf8',
-    );
-
-    expect(source).toContain('body: { phone: digits, checkOnly: true }');
-    expect(source).toContain('if (!data?.ok)');
-    expect(source).not.toContain('requireSignupAvailabilityReceipt');
-    expect(source).not.toContain('@/lib/signup-otp-response');
+  it('uses the signed common service enrollment response for FC permissions', () => {
+    const source = readFileSync(join(process.cwd(), 'lib', 'platform-api.ts'), 'utf8');
+    expect(source).toContain("action === 'enroll_insurance' ? enrollmentSchema");
+    expect(source).toContain('insuranceSession: insuranceSessionSchema');
+    expect(source).toContain("parseSignupReferralSearchResponse(response)");
   });
 
   it('keeps signup referral eligibility aligned for manager referral shadow profiles', () => {

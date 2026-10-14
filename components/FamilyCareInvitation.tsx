@@ -27,7 +27,7 @@ export default function FamilyCareInvitation() {
   const begin = useReadAttempt();
   useEffect(() => { begin(); pendingRef.current = false; setPending(null); }, [owner, begin]);
 
-  const login = () => router.push({ pathname: '/services/login', params: { service: 'care' } });
+  const login = () => router.navigate({ pathname: '/services/login', params: { service: 'care' } });
   const invite = async (action: 'copy' | 'share') => {
     if (!available.current || !code || currentOwner.current !== owner || pendingRef.current) return;
     const actionOwner = owner;
@@ -61,7 +61,7 @@ export default function FamilyCareInvitation() {
       : !session.isPlatformSignedIn ? <Button variant="outline" onPress={login} fullWidth>로그인하고 초대하기</Button>
       : needsConsent ? <>
         <Text style={styles.note}>공통 서비스 이용 동의 후 초대할 수 있어요.</Text>
-        <Button variant="outline" onPress={() => router.push('/services/account')} fullWidth>동의하고 초대 준비하기</Button>
+        <Button variant="outline" onPress={() => router.navigate('/services/account')} fullWidth>동의하고 초대 준비하기</Button>
       </> : error ? <>
         <Text accessibilityRole="alert" style={styles.note}>추천 코드를 불러오지 못했어요. 다시 확인하거나 로그인해 주세요.</Text>
         <Button variant="outline" onPress={() => void refresh()} fullWidth>다시 확인</Button>

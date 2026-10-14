@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import test from 'node:test';
+import { webcrypto } from 'node:crypto';
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 const root = new URL('../../../', import.meta.url);
@@ -111,6 +112,109 @@ test('platform consent blocks common reads without enrolling legacy accounts and
   assert.equal(accepted.status,200);assert.equal(calls[1].name,'enroll_platform_legacy_member');
   assert.equal(calls[1].args.p_phone,'00000000002');assert.equal(calls[1].args.p_fc_id,'signed-fc-id');
   assert.equal(calls[1].args.p_account_kind,'fc');assert.equal(calls[1].args.p_account_id,'signed-fc-id');
+});
+
+test('insurance registration uses only the signed common owner and requires explicit confirmation before any write',async()=>{
+  const memberId='20000000-0000-4000-8000-000000000001',fcId='10000000-0000-4000-8000-000000000001';
+  const key='30000000-0000-4000-8000-000000000001',phone='00000000011';
+  const body={confirmed:true,consentAccepted:true,consentVersion:'insurance-additional-info-v1',idempotencyKey:key,
+    affiliation:'가람',email:'synthetic@example.invalid',carrier:'KT',licenseStatuses:['life'],referralCode:'synthetic',
+    referralInviterFcId:fcId,memberId:'client-spoof',phone:'00000000099',name:'Client Spoof'};
+  const calls=[];let linked=false;let unavailable=false;
+  const run=await extract('supabase/functions/platform-service/index.ts','insuranceEnrollment',{
+    crypto:webcrypto,TextEncoder,insuranceConsentVersion:'insurance-additional-info-v1',supabaseUrl:'https://synthetic.invalid',serviceKey:'synthetic-service',
+    uuid:/^[0-9a-f-]{36}$/i,
+    parsePlatformMemberToken:async()=>({memberId,phone,sessionVersion:3}),
+    actor:async()=>{calls.push('verified-current-common-owner');return {member:{id:memberId,phone}};},
+    db:{from(){return this;},select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{id:memberId,phone,
+      fc_id:linked ? fcId : null,insurance_enrollment_key:key,insurance_enrollment_member_version:3,insurance_enrollment_fc_version:4},error:null})},
+    verifySessionGeneration:async()=>unavailable ? {ok:false,reason:'invalid'} : {ok:true},
+    rpc:async(name,args)=>{calls.push({name,args});linked=true;return {ok:true,fcId,sessionVersion:4,alreadyApplied:false};},
+    legacyMember:async()=>({id:memberId,phone,fc_id:fcId}),insuranceSession:async()=>({ok:true,appSessionToken:'signed-insurance'}),
+    parseAppSessionTokenDetailed:async()=>({ok:true,payload:{accountId:fcId,sessionVersion:4}}),
+    json:(body,status=200)=>new Response(JSON.stringify(body),{status}),
+    fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+  });
+  const request=new Request('https://synthetic.invalid',{headers:{'x-app-session-token':'signed-common'}});
+  assert.equal((await run(request,{...body,confirmed:false})).status,400);assert.deepEqual(calls,[]);
+  const response=await run(request,body);assert.equal(response.status,200);
+  assert.equal(calls[0],'verified-current-common-owner');assert.equal(calls[1].name,'enroll_platform_insurance_v1');
+  assert.equal(calls[1].args.p_member_id,memberId);assert.equal(calls[1].args.p_phone,phone);
+  assert.equal(calls[1].args.p_member_session_version,3);assert.equal('p_name' in calls[1].args,false);
+  assert.match(calls[1].args.p_request_fingerprint,/^[a-f0-9]{64}$/);
+  calls.length=0;await run(request,body);assert.equal(calls.length,1);
+  unavailable=true;calls.length=0;await assert.rejects(run(request,body),/invalid_session/);assert.deepEqual(calls,[]);
+});
+
+test('existing insurance session preserves ordinary admin, developer, manager and linked designer role contracts',async()=>{
+  for(const [kind,staffType,affiliation,expectedRole] of [
+    ['admin','admin',null,null],['admin','developer',null,'fc'],['manager',null,null,'fc'],['fc',null,'Synthetic 설계매니저','designer'],['fc',null,'가람','fc']]) {
+    const calls=[];let table;
+    const run=await extract('supabase/functions/platform-service/index.ts','insuranceSession',{
+      db:{from(value){table=value;return this;},select(){return this;},eq(){return this;},maybeSingle:async()=>({data:table==='fc_credentials'
+        ? {session_version:4,password_set_at:'2026-01-01',must_change_password:false}
+        : {id:'source-id',name:'Synthetic Name',phone:'00000000011',active:true,signup_completed:true,
+          is_manager_referral_shadow:false,password_set_at:'2026-01-01',session_version:4,staff_type:staffType,affiliation},error:null})},
+      parseDesignerCompanyNameFromAffiliation:value=>value?.includes('설계매니저') ? 'Synthetic' : null,
+      resolveManagerAffiliation:()=> 'Synthetic Canonical Manager',
+      createAppSessionToken:async(...args)=>{calls.push(['app',...args]);return 'synthetic-app';},
+      createRequestBoardBridgeToken:async(...args)=>{calls.push(['bridge',...args]);return 'synthetic-bridge';},
+    });
+    const member={phone:'00000000011',...(kind==='fc' ? {fc_id:'source-id'} : {staff_account_kind:kind,staff_account_id:'source-id'})};
+    const session=await run(member,4);assert.equal(session.requestBoardRole,expectedRole);
+    assert.equal(session.role,kind);assert.equal(session.readOnly,kind==='manager');
+    if(kind==='manager') assert.equal(calls[1][3],'Synthetic Canonical Manager');
+    if(kind==='admin' && staffType==='admin') assert.equal(calls[1][2],'admin');
+    await assert.rejects(run(member,3),/invalid_session/);
+  }
+});
+
+test('common insurance referral search authenticates first, forwards only explicit query and strips extra identity fields',async()=>{
+  const calls=[];
+  const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
+    supabaseUrl:'https://synthetic.invalid',getEnv:()=> 'synthetic-anon',uuid:/^[0-9a-f-]{36}$/i,AbortSignal,
+    actor:async()=>{calls.push('authenticated');return {member:{id:'signed-member',phone:'00000000011'}};},
+    fetch:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return new Response(JSON.stringify({ok:true,
+      results:[{fcId:'10000000-0000-4000-8000-000000000001',name:'Synthetic Recruiter',affiliation:'가람',code:'SYNTHETIC',phone:'00000000099'}]}));},
+    json:(body,status=200)=>new Response(JSON.stringify(body),{status}),fail:()=>{throw new Error('unexpected failure');},
+  });
+  const response=await handler(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify({action:'search_insurance_referral',query:'Synthetic',phone:'client-spoof'})}));
+  assert.equal(calls[0],'authenticated');assert.deepEqual(calls[1].body,{query:'Synthetic'});
+  const data=await response.json();assert.deepEqual(Object.keys(data.results[0]),['fcId','name','affiliation','code']);
+});
+
+test('common login keeps legacy temporary-password recovery metadata without accepting role claims from the caller',async()=>{
+  const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
+    supabaseUrl:'https://synthetic.invalid',getEnv:()=> 'synthetic-anon',AbortSignal,
+    db:{from(){return this;},select(){return this;},eq(){return this;},maybeSingle:async()=>({data:null,error:null})},
+    fetch:async()=>new Response(JSON.stringify({ok:false,code:'password_change_required',message:'Synthetic Recovery',role:'fc',
+      passwordChangeToken:'synthetic-change-proof',passwordChangeExpiresAt:'2026-10-14T12:00:00Z'})),
+    json:(body,status=200)=>new Response(JSON.stringify(body),{status}),
+    fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+  });
+  const response=await handler(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify({action:'login',phone:'00000000011',password:'Synthetic!123',role:'admin'})}));
+  assert.equal(response.status,401);const body=await response.json();
+  assert.equal(body.role,'fc');assert.equal(body.passwordChangeToken,'synthetic-change-proof');assert.equal(body.code,'password_change_required');
+});
+
+test('one common recovery UI delegates insurance/staff accounts to their existing OTP reset boundary',async()=>{
+  for(const [action,kind] of [['request_password_reset','fc'],['reset_password','manager']]) {
+    const calls=[];
+    const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
+      supabaseUrl:'https://synthetic.invalid',getEnv:()=> 'synthetic-anon',AbortSignal,
+      db:{from(){return this;},select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{id:'synthetic-member',
+        ...(kind==='fc' ? {fc_id:'synthetic-fc'} : {staff_account_id:'synthetic-manager'})},error:null})},
+      fetch:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return new Response(JSON.stringify({ok:true,sent:true}));},
+      json:(body,status=200)=>new Response(JSON.stringify(body),{status}),
+      fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+    });
+    const response=await handler(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify({action,phone:'00000000011',
+      code:'123456',password:'Synthetic!123',kind:'client-spoof',fcId:'client-spoof'})}));
+    assert.equal(response.status,200);assert.equal(calls.length,1);
+    assert.equal(calls[0].url,`https://synthetic.invalid/functions/v1/${action==='request_password_reset' ? 'request-password-reset' : 'reset-password'}`);
+    assert.deepEqual(calls[0].body,action==='request_password_reset' ? {phone:'00000000011'}
+      : {phone:'00000000011',code:'123456',password:'Synthetic!123',confirm:'Synthetic!123'});
+  }
 });
 
 async function extractIfBranch(file, condition, context) {
@@ -415,16 +519,58 @@ test('common withdrawal uses the signed member and stays available without renew
       if(confirmed) assert.deepEqual(JSON.parse(JSON.stringify(calls[1])),{name:'delete_platform_member',args:{p_member_id:'signed-member-id'}});
     }
   }
-  for(const [member,expected] of [[null,'enrollment_required'],[{id:'existing',fc_id:'signed-fc-id'},'consent_required'],[{id:'wrong',fc_id:'different-fc-id'},'enrollment_required']]) {
+  for(const [member,expected] of [[null,'enrollment_required'],[{id:'existing',fc_id:'signed-fc-id'},null],[{id:'wrong',fc_id:'different-fc-id'},'enrollment_required']]) {
     const actor=await extract('supabase/functions/platform-service/index.ts','actor',{
       parsePlatformMemberToken:async()=>null,termsVersion:'2026-10-12',legacyMember:async()=>member,
       parseAppSessionTokenDetailed:async()=>({ok:true,payload:{accountKind:'fc',accountId:'signed-fc-id',phone:'00000000002'}}),
     });
     const request=new Request('https://synthetic.invalid');
-    await assert.rejects(actor(request),new RegExp(expected));
-    if(expected==='consent_required') assert.equal((await actor(request,false)).member.id,'existing');
+    if(expected===null) assert.equal((await actor(request,false)).member.id,'existing');
     else await assert.rejects(actor(request,false),new RegExp(expected));
   }
+});
+
+test('unavailable company import uses the old enrollment-required surface without automatic revival or attestation',async()=>{
+  for(const deniedCode of ['common_membership_withdrawn','company_attestation_unavailable','common_membership_unavailable']) {
+  const calls=[];
+  const context={Error,termsVersion:'2026-10-12',parsePlatformMemberToken:async()=>null,
+    legacyMember:async()=>null,
+    parseAppSessionTokenDetailed:async()=>({ok:true,payload:{accountKind:'fc',accountId:'signed-fc-id',phone:'00000000002',sessionVersion:0}}),
+    rpc:async(name,args)=>{calls.push({name,args});return {ok:false,code:deniedCode};},
+  };
+  const actor=await extract('supabase/functions/platform-service/index.ts','actor',context);
+  const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
+    Error,actor,json:(body,status=200)=>new Response(JSON.stringify(body),{status}),
+    fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+  });
+  const response=await handler(new Request('https://synthetic.invalid',{method:'POST',headers:{'x-app-session-token':'signed-original-fc'},
+    body:JSON.stringify({action:'get_account',memberId:'client-spoof'})}));
+  assert.equal(response.status,409);const body=await response.json();
+  assert.equal(body.code,'enrollment_required');assert.match(body.message,/새로 동의/);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)),[{name:'import_platform_legacy_member_v1',args:{p_phone:'00000000002',p_account_kind:'fc',p_account_id:'signed-fc-id'}}]);
+  }
+});
+
+test('valid legacy common login keeps its original insurance session when automatic company attestation is unavailable',async()=>{
+  const calls=[];
+  const legacy={ok:true,role:'fc',residentId:'00000000002',displayName:'Synthetic FC',appSessionToken:'signed-original-fc',
+    requestBoardRole:'fc',requestBoardBridgeToken:'signed-original-bridge'};
+  const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
+    supabaseUrl:'https://synthetic.invalid',getEnv:()=> 'synthetic-anon',AbortSignal,
+    db:{from(){return this;},select(){return this;},eq(){return this;},maybeSingle:async()=>({data:null,error:null})},
+    fetch:async()=>new Response(JSON.stringify(legacy)),
+    parseAppSessionTokenDetailed:async()=>({ok:true,payload:{role:'fc',accountKind:'fc',accountId:'signed-fc-id',phone:'00000000002',sessionVersion:0}}),
+    legacyMember:async()=>null,
+    rpc:async(name,args)=>{calls.push({name,args});return {ok:false,code:'company_attestation_unavailable'};},
+    authResponse:()=>{throw new Error('must not mint an attested common session');},
+    json:(body,status=200)=>new Response(JSON.stringify(body),{status}),
+    fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+  });
+  const response=await handler(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify({action:'login',phone:'00000000002',password:'Synthetic!123',role:'admin'})}));
+  assert.equal(response.status,200);const body=await response.json();
+  assert.deepEqual(body.insuranceSession,legacy);assert.equal(body.commonMembershipCode,'company_attestation_unavailable');
+  assert.equal('memberId' in body,false);assert.equal('appSessionToken' in body,false);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)),[{name:'import_platform_legacy_member_v1',args:{p_phone:'00000000002',p_account_kind:'fc',p_account_id:'signed-fc-id'}}]);
 });
 
 test('platform recovery separates signup codes and refuses hosted test SMS before challenge writes',async()=>{

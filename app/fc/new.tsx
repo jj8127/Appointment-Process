@@ -4,7 +4,7 @@ import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
 import { Feather } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
-import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Redirect, router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Controller, useForm, type Control } from 'react-hook-form';
 import {
@@ -43,7 +43,7 @@ import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { canOpenFcProfileRegistration } from '@/lib/fc-workflow';
 import { logger } from '@/lib/logger';
-import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
+import { INSURANCE_HOME_ROUTE, resolveInsuranceServiceRoute } from '@/lib/service-home';
 import { supabase } from '@/lib/supabase';
 import { parseResidentNumberReceipt } from '@/lib/resident-number-response';
 import { invokeStoreIdentity } from '@/lib/store-identity-api';
@@ -195,6 +195,9 @@ async function sendNotificationAndPush(
 
 export default function FcNewScreen() {
   const scope = useReadSessionScope();
+  const session = useSession();
+  if (!session.hydrated) return null;
+  if (!session.role) return <Redirect href={resolveInsuranceServiceRoute(session)!} />;
   return <FcNewScreenContent key={scope} />;
 }
 
@@ -569,7 +572,7 @@ function FcNewScreenContent() {
 
   const handleBack = useCallback(() => {
     if (!role) {
-      router.replace({ pathname: '/login', params: { skipAuto: '1' } } as any);
+      router.replace({ pathname: '/services/login', params: { service: 'insurance', skipAuto: '1' } });
       return;
     }
     if (fromParam === 'auth' || fromParam === 'login') {

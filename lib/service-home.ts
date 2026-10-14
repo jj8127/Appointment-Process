@@ -4,6 +4,7 @@ type ServiceSession = {
   role: 'admin' | 'fc' | null;
   hydrated: boolean;
   isRequestBoardDesigner: boolean;
+  isPlatformSignedIn?: boolean;
 };
 
 export const INSURANCE_HOME_ROUTE = '/?mode=insurance' as const;
@@ -13,7 +14,7 @@ export const SERVICE_INFORMATION_KEYS = ['insurance', 'care', 'telecom', 'rental
 /** The service picker delegates FC identity checks to the existing apply gate. */
 export function resolveInsuranceServiceRoute(session: ServiceSession) {
   if (!session.hydrated) return null;
-  if (!session.role) return '/login?service=insurance' as const;
+  if (!session.role && !session.isPlatformSignedIn) return '/services/login?service=insurance' as const;
   if (session.isRequestBoardDesigner) return '/request-board' as const;
   if (session.role === 'admin') return INSURANCE_HOME_ROUTE;
   return { pathname: '/apply-gate', params: { next: INSURANCE_HOME_ROUTE } } as const;

@@ -1,16 +1,27 @@
-import type { ReactNode } from 'react';
-import Svg, { Circle, G, Path, Rect } from 'react-native-svg';
+import { useId, type ReactNode } from 'react';
+import Svg, { Circle, ClipPath, Defs, G, Path, Rect } from 'react-native-svg';
 import { COLORS } from '@/lib/theme';
 
 // Shared geometry and palette, drawn for the 44px discovery tiles.
 const INK = '#216B78';
 const TEAL = '#9AD6D7';
 const ORANGE = COLORS.primaryLight;
+const LEAF_OUTLINE = 'M15 47c1-17 11-29 30-31-1 19-11 30-30 31Z';
 
 export function DepartmentIcon({ specialty, size = 44 }: { specialty: string; size?: number }) {
   let artwork: ReactNode;
+  const leafClipId = useId();
 
   switch (specialty) {
+    case '한방병원':
+      artwork = <>
+        <Defs><ClipPath id={leafClipId}><Path d={LEAF_OUTLINE} fill="white" stroke="none" /></ClipPath></Defs>
+        <Path d={LEAF_OUTLINE} fill={TEAL} />
+        <G clipPath={`url(#${leafClipId})`}><Path d="M19 43l21-20M28 35l-3-7M33 31l7 1" /></G>
+        <Circle cx={47} cy={46} r={9} fill={ORANGE} />
+        <Path d="M47 41v10M42 46h10" stroke="white" strokeWidth={3.2} />
+      </>;
+      break;
     case '내과':
       artwork = <>
         <Path d="M14 14v13c0 8 5 13 13 13s13-5 13-13V14" strokeWidth={5} />
@@ -49,6 +60,12 @@ export function DepartmentIcon({ specialty, size = 44 }: { specialty: string; si
         <Circle cx={32} cy={32} r={6} fill={INK} stroke="none" />
         <Circle cx={36} cy={28} r={3} fill="white" stroke="none" />
         <Path d="M32 9v3M14 14l3 3M50 14l-3 3" stroke={ORANGE} strokeWidth={3.2} />
+      </>;
+      break;
+    case '성형외과':
+      artwork = <>
+        <Path d="M34 9c-12 0-20 9-19 20l-5 9 8 3v8c0 5 4 7 10 6l12-3V41c9-5 14-15 10-23-3-6-9-9-16-9Z" fill={TEAL} />
+        <Path d="M49 15v10M44 20h10" stroke={ORANGE} strokeWidth={3.6} />
       </>;
       break;
     case '피부과':

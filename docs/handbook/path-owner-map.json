@@ -10,6 +10,7 @@
         "supabase/functions/_shared/signup-sms.ts",
         "supabase/migrations/20261012072525_platform_common_membership.sql",
         "supabase/migrations/20261012072611_hospital_directory_ad_performance.sql",
+        "supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql",
         "supabase/tests/platform-membership-sql.test.mjs",
         "lib/platform-api.ts",
         "hooks/use-platform-account.ts",

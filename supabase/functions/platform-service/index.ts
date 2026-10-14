@@ -1,11 +1,12 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import { serveWithConfiguredCors, referralCorsHeaders } from '../_shared/serve-with-cors.ts';
-import { createPlatformMemberToken, getEnv, parsePlatformMemberToken, parseAppSessionTokenDetailed } from '../_shared/request-board-auth.ts';
+import { createAppSessionToken, createRequestBoardBridgeToken, createPlatformMemberToken, getEnv, parsePlatformMemberToken, parseAppSessionTokenDetailed, parseDesignerCompanyNameFromAffiliation } from '../_shared/request-board-auth.ts';
 import { verifySessionGeneration } from '../_shared/session-generation.ts';
 import { hashPassword, signupCodeHash, toBase64 } from '../_shared/password-hash.ts';
 import { sendSignupSms } from '../_shared/signup-sms.ts';
 import { processPasswordResetChallenge } from '../_shared/password-reset-challenge.ts';
 import { getKoreanYmd } from '../_shared/exam-payment-proof.ts';
+import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
 
 const supabaseUrl = getEnv('SUPABASE_URL') ?? '';
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -13,6 +14,7 @@ const db = createClient(supabaseUrl,serviceKey);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const keys = ['insurance','care','telecom','rental','car','hospital'];
 const termsVersion = '2026-10-12';
+const insuranceConsentVersion = 'insurance-additional-info-v1';
 const json = (body: object,status=200) => new Response(JSON.stringify(body),{
   status,headers:{'Content-Type':'application/json','Cache-Control':'private, no-store',...referralCorsHeaders()},
 });
@@ -55,7 +57,8 @@ async function rpc(name:string,args:Record<string,unknown>) {
   if (error) throw new Error(error.code === '23505' ? 'already_exists' :
     error.code?.startsWith('22') || error.code==='23514' ? 'invalid_input' :
     ['revision_conflict','idempotency_conflict','settled_cancellation_requires_reconciliation','invalid_details',
-      'invalid_settlement','application_unavailable','partner_unavailable','partner_service_conflict','forbidden','invalid_transfer','invalid_partner','report_range_too_large']
+       'invalid_settlement','application_unavailable','partner_unavailable','partner_service_conflict','forbidden','invalid_transfer','invalid_partner','report_range_too_large',
+       'invalid_referral','consent_required','common_membership_withdrawn']
       .includes(error.message) ? error.message : 'database_error');
   return data;
 }
@@ -85,16 +88,28 @@ async function actor(request:Request,requireConsent=true) {
       if(credentialError) throw new Error('session_unavailable');
       if(!credential || Number(credential.session_version)!==platform.sessionVersion) throw new Error('invalid_session');
     }
-    if(requireConsent && (member.terms_version!==termsVersion || !member.terms_accepted_at)) throw new Error('consent_required');
-    return {member,adminId:null,generalMember:!platform.source};
+      if(requireConsent && (member.terms_version!==termsVersion
+        || (!member.terms_accepted_at && !(member.terms_basis==='company_attested_import' && member.terms_recorded_at)))) throw new Error('consent_required');
+    return {member,adminId:null,generalMember:!platform.source,sessionVersion:platform.sessionVersion};
   }
   const legacy = await parseAppSessionTokenDetailed(token);
   if(legacy.ok===false) throw new Error(legacy.code==='session_verification_unavailable' ? 'session_unavailable' : 'invalid_session');
   const signed = legacy.payload;
-  const member = await legacyMember(signed.phone);
+  let member = await legacyMember(signed.phone);
+  if(member && (signed.accountKind==='fc' ? member.fc_id && member.fc_id!==signed.accountId
+    : member.staff_account_id && (member.staff_account_kind!==signed.accountKind || member.staff_account_id!==signed.accountId)))
+    throw new Error('enrollment_required');
+  if(requireConsent && (!member || member.terms_version!==termsVersion
+    || (!member.terms_accepted_at && !(member.terms_basis==='company_attested_import' && member.terms_recorded_at)))) {
+    const imported=await rpc('import_platform_legacy_member_v1',{
+      p_phone:signed.phone,p_account_kind:signed.accountKind,p_account_id:signed.accountId});
+    if(!imported.ok) throw new Error(imported.code);
+    member=await legacyMember(signed.phone);
+  }
   if(!member || (signed.accountKind==='fc' ? member.fc_id!==signed.accountId
     : member.staff_account_kind!==signed.accountKind || member.staff_account_id!==signed.accountId)) throw new Error('enrollment_required');
-  if(requireConsent && (member.terms_version!==termsVersion || !member.terms_accepted_at)) throw new Error('consent_required');
+  if(requireConsent && (member.terms_version!==termsVersion
+    || (!member.terms_accepted_at && !(member.terms_basis==='company_attested_import' && member.terms_recorded_at)))) throw new Error('consent_required');
   let adminId:null|string=null;
   if(signed.role==='admin' && signed.staffType==='admin') {
     const {data:current,error}=await db.from('admin_accounts').select('id').eq('id',signed.accountId)
@@ -102,7 +117,7 @@ async function actor(request:Request,requireConsent=true) {
     if(error) throw new Error('session_unavailable');
     adminId=current?.id ?? null;
   }
-  return {member,adminId,generalMember:false};
+  return {member,adminId,generalMember:false,sessionVersion:signed.sessionVersion};
 }
 async function authResponse(member:{id:string;name:string;phone:string},version:number,source?:Parameters<typeof createPlatformMemberToken>[3],insuranceSession?:Record<string,unknown>) {
   const token = await createPlatformMemberToken(member.phone,member.id,version,source);
@@ -111,12 +126,104 @@ async function authResponse(member:{id:string;name:string;phone:string},version:
     ...(insuranceSession ? {insuranceSession} : {})});
 }
 
+/** Mint only from the same current canonical account checked by legacy login. */
+async function insuranceSession(member:Record<string,any>,expectedVersion?:number) {
+  const kind=member.fc_id ? 'fc' : member.staff_account_kind;
+  const id=member.fc_id ?? member.staff_account_id;
+  if(!id || !['fc','admin','manager'].includes(kind)) throw new Error('enrollment_required');
+  const table=kind==='fc' ? 'fc_profiles' : kind==='admin' ? 'admin_accounts' : 'manager_accounts';
+  const {data:sourceProfile,error}=await db.from(table).select(kind==='fc'
+    ? 'id,name,phone,affiliation,signup_completed,is_manager_referral_shadow'
+    : 'id,name,phone,active,session_version,password_set_at'+(kind==='admin' ? ',staff_type' : ''))
+    .eq('id',id).eq('phone',member.phone).maybeSingle();
+  if(error) throw new Error('session_unavailable');
+  const profile=sourceProfile as unknown as {name:string;affiliation?:string;signup_completed?:boolean;
+    is_manager_referral_shadow?:boolean;active?:boolean;password_set_at?:string;session_version?:number;staff_type?:string}|null;
+  if(!profile || (kind==='fc' ? !profile.signup_completed || profile.is_manager_referral_shadow
+    : !profile.active || !profile.password_set_at)) throw new Error('invalid_session');
+  let version=profile.session_version;
+  if(kind==='fc') {
+    const {data:credential,error:credentialError}=await db.from('fc_credentials')
+      .select('session_version,password_set_at,must_change_password').eq('fc_id',id).maybeSingle();
+    if(credentialError) throw new Error('session_unavailable');
+    if(!credential?.password_set_at || credential.must_change_password) throw new Error('invalid_session');
+    version=credential.session_version;
+  }
+  if(!Number.isSafeInteger(Number(version)) || Number(version)<0) throw new Error('session_unavailable');
+  if(expectedVersion!==undefined && Number(version)!==expectedVersion) throw new Error('invalid_session');
+  const generation={accountKind:kind as 'fc'|'admin'|'manager',accountId:id,sessionVersion:Number(version)};
+  const role=kind as 'fc'|'admin'|'manager';
+  const staffType=kind==='admin' ? profile.staff_type==='developer' ? 'developer' : 'admin' : undefined;
+  const designer=kind==='fc' && parseDesignerCompanyNameFromAffiliation(profile.affiliation);
+  const requestBoardRole=kind==='admin' && staffType==='admin' ? null : designer ? 'designer' : 'fc';
+  const bridgeRole=kind==='manager' ? 'manager' : kind==='admin' && staffType==='admin' ? 'admin' : requestBoardRole ?? 'fc';
+  const token=await createAppSessionToken(member.phone,role,staffType,kind==='fc' ? id : undefined,generation);
+  const bridge=await createRequestBoardBridgeToken(member.phone,bridgeRole,
+    kind==='manager' ? resolveManagerAffiliation(profile.name) : kind==='fc' && !designer ? profile.affiliation : undefined,generation);
+  if(!token || !profile.name?.trim()) throw new Error('session_unavailable');
+  return {ok:true,role,residentId:member.phone,displayName:profile.name,appSessionToken:token,
+    ...(staffType ? {staffType} : {}),requestBoardRole,readOnly:kind==='manager',
+    ...(bridge ? {requestBoardBridgeToken:bridge} : {})};
+}
+
+async function insuranceEnrollment(request:Request,body:Record<string,any>) {
+  const token=request.headers.get('x-app-session-token') ?? '';
+  const platform=await parsePlatformMemberToken(token);
+  // A valid source-backed session can reopen the existing service without
+  // rewriting its profile, workflow, recruiter or historical consent.
+  if(!platform || platform.source) {
+    const current=await actor(request);
+    return json({ok:true,insuranceSession:await insuranceSession(current.member,current.sessionVersion),alreadyApplied:true});
+  }
+  if(body.confirmed!==true || body.consentAccepted!==true || body.consentVersion!==insuranceConsentVersion
+    || !uuid.test(body.idempotencyKey ?? '') || typeof body.affiliation!=='string'
+    || body.affiliation.length>120 || body.affiliation.includes('설계매니저') || typeof body.email!=='string'
+    || body.email.length>254 || typeof body.carrier!=='string' || !Array.isArray(body.licenseStatuses)
+    || body.licenseStatuses.length>4 || body.licenseStatuses.some((value:unknown)=>typeof value!=='string')
+    || typeof body.referralCode!=='string' || body.referralCode.length>64 || !uuid.test(body.referralInviterFcId ?? ''))
+    return fail('invalid_input','추가 정보, 추천인과 서비스 등록 동의를 확인해 주세요.');
+  const {data:member,error}=await db.from('platform_members').select('*')
+    .eq('id',platform.memberId).eq('phone',platform.phone).eq('active',true).maybeSingle();
+  if(error) throw new Error('session_unavailable');
+  if(!member || member.staff_account_id) throw new Error('invalid_session');
+  if(!member.fc_id) await actor(request);
+  else {
+    // Only this exact recorded conversion may recover a lost response. An old
+    // common token gains no general FC/common authorization after handoff.
+    if(member.insurance_enrollment_key!==body.idempotencyKey
+      || Number(member.insurance_enrollment_member_version)!==platform.sessionVersion) throw new Error('invalid_session');
+    const generation=await verifySessionGeneration({accountKind:'fc',accountId:member.fc_id,phone:platform.phone,
+      role:'fc',sessionVersion:Number(member.insurance_enrollment_fc_version)},'app',{supabaseUrl,serviceRoleKey:serviceKey});
+    if(generation.ok===false) throw new Error(generation.reason==='unavailable' ? 'session_unavailable' : 'invalid_session');
+  }
+  const canonical=JSON.stringify({affiliation:body.affiliation.trim(),email:body.email.trim().toLowerCase(),carrier:body.carrier,
+    licenseStatuses:[...new Set(body.licenseStatuses.map((value:string)=>value.trim()))].sort(),
+    referralCode:body.referralCode.trim().toUpperCase(),referralInviterFcId:body.referralInviterFcId,
+    consentVersion:insuranceConsentVersion});
+  const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(canonical)));
+  const fingerprint=[...bytes].map(value=>value.toString(16).padStart(2,'0')).join('');
+  const result=await rpc('enroll_platform_insurance_v1',{p_member_id:platform.memberId,p_phone:platform.phone,
+    p_member_session_version:platform.sessionVersion,p_idempotency_key:body.idempotencyKey,p_request_fingerprint:fingerprint,
+    p_consent_version:insuranceConsentVersion,p_affiliation:body.affiliation.trim(),p_email:body.email.trim().toLowerCase(),
+    p_carrier:body.carrier,p_license_statuses:body.licenseStatuses,p_referral_code:body.referralCode.trim().toUpperCase(),
+    p_referral_inviter_fc_id:body.referralInviterFcId});
+  if(result.ok!==true || !uuid.test(result.fcId ?? '') || !Number.isSafeInteger(result.sessionVersion)) throw new Error('database_error');
+  const refreshed=await legacyMember(platform.phone);
+  if(!refreshed || refreshed.id!==platform.memberId || refreshed.fc_id!==result.fcId) throw new Error('session_unavailable');
+  const session=await insuranceSession(refreshed,result.sessionVersion);
+  const checked=await parseAppSessionTokenDetailed(session.appSessionToken);
+  if(!checked.ok || checked.payload.accountId!==result.fcId || checked.payload.sessionVersion!==result.sessionVersion)
+    throw new Error('invalid_session');
+  return json({ok:true,insuranceSession:session,alreadyApplied:result.alreadyApplied===true});
+}
+
 serveWithConfiguredCors(async request => {
   if(request.method!=='POST') return fail('method_not_allowed','허용되지 않은 요청입니다.',405);
+  let action='';
   try {
     const body = await request.json();
     if(!body || typeof body!=='object' || Array.isArray(body)) return fail('invalid_input','요청을 확인해 주세요.');
-    const action = body.action;
+    action = typeof body.action==='string' ? body.action : '';
     if(['list_hospitals','get_hospital','get_hospital_regions'].includes(action)) {
       const today=getKoreanYmd();
       if(action==='get_hospital' && !uuid.test(body.hospitalId ?? '')) return fail('invalid_input','병원 정보를 확인해 주세요.');
@@ -156,6 +263,26 @@ serveWithConfiguredCors(async request => {
     if(['request_otp','signup','login','request_password_reset','reset_password'].includes(action)) {
       const phone = typeof body.phone==='string' ? body.phone.replace(/\D/g,'') : '';
       if(!/^\d{11}$/.test(phone)) return fail('invalid_phone','휴대폰 번호 11자리를 입력해 주세요.');
+      if(action==='request_password_reset' || action==='reset_password') {
+        const {data:member,error}=await db.from('platform_members').select('id,fc_id,staff_account_id')
+          .eq('phone',phone).eq('active',true).maybeSingle();
+        if(error) throw new Error('database_error');
+        const credential=member && !member.fc_id && !member.staff_account_id
+          ? await db.from('platform_member_credentials').select('password_salt').eq('member_id',member.id).maybeSingle() : null;
+        if(credential?.error) throw new Error('database_error');
+        if(!credential?.data) {
+          const response=await fetch(`${supabaseUrl}/functions/v1/${action==='request_password_reset' ? 'request-password-reset' : 'reset-password'}`,{
+            method:'POST',headers:{'Content-Type':'application/json',apikey:getEnv('SUPABASE_ANON_KEY') ?? '',
+              Authorization:`Bearer ${getEnv('SUPABASE_ANON_KEY') ?? ''}`},body:JSON.stringify({phone,
+              ...(action==='reset_password' ? {code:body.code,password:body.password,confirm:body.password} : {})}),
+            signal:AbortSignal.timeout(10000)});
+          const result=await response.json();
+          if(!result || typeof result!=='object' || typeof result.ok!=='boolean') throw new Error('database_error');
+          return result.ok===true ? json({ok:true,...(action==='request_password_reset' ? {sent:true} : {})})
+            : json({ok:false,code:typeof result.code==='string' ? result.code : 'account_unavailable',
+              message:typeof result.message==='string' ? result.message : '계정 정보를 확인해 주세요.'},response.ok ? 400 : response.status);
+        }
+      }
       if(action==='request_otp' || action==='request_password_reset') {
         const local = (getEnv('TEST_SMS_MODE') ?? '').toLowerCase()==='true';
         // Reject known test codes before persisting a challenge in any hosted
@@ -262,15 +389,51 @@ serveWithConfiguredCors(async request => {
       });
       if(!response.ok) return fail('login_unavailable','로그인을 처리하지 못했습니다.',503);
       const legacy = await response.json();
-      if(!legacy.ok || !legacy.appSessionToken) return fail(legacy.code ?? 'invalid_password',legacy.message ?? '로그인 정보를 확인해 주세요.',401);
+      if(!legacy.ok || !legacy.appSessionToken) return json({ok:false,code:legacy.code ?? 'invalid_password',
+        message:legacy.message ?? '로그인 정보를 확인해 주세요.',
+        ...(['fc','admin','manager'].includes(legacy.role) ? {role:legacy.role} : {}),
+        ...(['admin','developer'].includes(legacy.staffType) ? {staffType:legacy.staffType} : {}),
+        ...(legacy.code==='password_change_required' && typeof legacy.passwordChangeToken==='string'
+          ? {passwordChangeToken:legacy.passwordChangeToken,passwordChangeExpiresAt:legacy.passwordChangeExpiresAt} : {}),
+      },401);
       const checked = await parseAppSessionTokenDetailed(legacy.appSessionToken);
       if(!checked.ok) throw new Error('invalid_session');
-      const mapped=await legacyMember(checked.payload.phone);
+      let mapped=await legacyMember(checked.payload.phone);
       const {accountKind,accountId,sessionVersion,role}=checked.payload;
-      if(!mapped || mapped.terms_version!==termsVersion || !mapped.terms_accepted_at
-        || (accountKind==='fc' ? mapped.fc_id!==accountId : mapped.staff_account_kind!==accountKind || mapped.staff_account_id!==accountId))
-        return json({ok:true,insuranceSession:legacy});
+      if(!mapped || mapped.terms_version!==termsVersion
+        || (!mapped.terms_accepted_at && !(mapped.terms_basis==='company_attested_import' && mapped.terms_recorded_at))) {
+        const imported=await rpc('import_platform_legacy_member_v1',{
+          p_phone:checked.payload.phone,p_account_kind:accountKind,p_account_id:accountId});
+        if(imported.ok!==true) return json({ok:true,insuranceSession:legacy,commonMembershipCode:imported.code});
+        mapped=await legacyMember(checked.payload.phone);
+      }
+      if(!mapped || (accountKind==='fc' ? mapped.fc_id!==accountId : mapped.staff_account_kind!==accountKind || mapped.staff_account_id!==accountId))
+        return json({ok:true,insuranceSession:legacy,commonMembershipCode:'common_membership_unavailable'});
       return authResponse(mapped,sessionVersion,{accountKind,accountId,role},legacy);
+    }
+    if(action==='enroll_insurance') return await insuranceEnrollment(request,body);
+    if(action==='search_insurance_referral' || action==='validate_insurance_referral') {
+      const current=await actor(request);
+      if(action==='validate_insurance_referral') {
+        if(typeof body.referralCode!=='string' || body.referralCode.length>64) return fail('invalid_referral','추천 코드를 확인해 주세요.');
+        const result=await rpc('validate_platform_insurance_referral_v1',{
+          p_phone:current.member.phone,p_code:body.referralCode});
+        return result.ok===true ? json(result) : fail('invalid_referral','유효한 보험 추천인을 선택해 주세요.');
+      }
+      if(typeof body.query!=='string' || body.query.trim().length>80) return fail('invalid_input','추천인 이름을 확인해 주세요.');
+      if(body.query.trim().length<2) return json({ok:true,results:[]});
+      const response=await fetch(`${supabaseUrl}/functions/v1/search-signup-referral`,{
+        method:'POST',headers:{'Content-Type':'application/json',apikey:getEnv('SUPABASE_ANON_KEY') ?? '',
+          Authorization:`Bearer ${getEnv('SUPABASE_ANON_KEY') ?? ''}`},
+        body:JSON.stringify({query:body.query.trim()}),signal:AbortSignal.timeout(10000)});
+      if(!response.ok) throw new Error('database_error');
+      const result=await response.json();
+      if(result.ok!==true || !Array.isArray(result.results) || result.results.length>10
+        || result.results.some((entry:Record<string,unknown>)=>!entry || !uuid.test(String(entry.fcId ?? ''))
+          || typeof entry.name!=='string' || typeof entry.affiliation!=='string' || typeof entry.code!=='string'))
+        throw new Error('database_error');
+      return json({ok:true,results:result.results.map((entry:Record<string,unknown>)=>({
+        fcId:entry.fcId,name:entry.name,affiliation:entry.affiliation,code:entry.code}))});
     }
     if(action==='accept_terms') {
       if(body.termsAccepted!==true || body.termsVersion!==termsVersion) return fail('invalid_input','약관 내용을 확인하고 동의해 주세요.');
@@ -278,7 +441,9 @@ serveWithConfiguredCors(async request => {
       const platform=await parsePlatformMemberToken(token);
       if(platform) {
         const current=await actor(request,false);
-        const {error}=await db.from('platform_members').update({terms_accepted_at:new Date().toISOString(),terms_version:termsVersion}).eq('id',current.member.id);
+        const now=new Date().toISOString();
+        const {error}=await db.from('platform_members').update({terms_accepted_at:current.member.terms_accepted_at ?? now,
+          terms_version:termsVersion,terms_basis:'user_acceptance',terms_recorded_at:now}).eq('id',current.member.id);
         if(error) throw new Error('database_error');
         return json({ok:true});
       }
@@ -315,7 +480,11 @@ serveWithConfiguredCors(async request => {
       if(applications.error || benefits.error) throw new Error('database_error');
       return json({ok:true,member:{id:signed.member.id,name:signed.member.name,referralCode:signed.member.referral_code,
         referrerId:signed.member.referrer_id,createdAt:signed.member.created_at,
-        termsAccepted:!!signed.member.terms_accepted_at && signed.member.terms_version===termsVersion,termsVersion:signed.member.terms_version},
+        termsAccepted:signed.member.terms_version===termsVersion && Boolean(signed.member.terms_accepted_at
+          || (signed.member.terms_basis==='company_attested_import' && signed.member.terms_recorded_at)),termsVersion:signed.member.terms_version,
+        insuranceEnrolled:Boolean(signed.member.fc_id || signed.member.staff_account_id),
+        insuranceConsentAccepted:Boolean(signed.member.insurance_consent_version===insuranceConsentVersion
+          && signed.member.insurance_consent_recorded_at)},
         applications:(applications.data ?? []).map(row=>({id:row.id,serviceKey:row.service_key,status:row.status,createdAt:row.created_at})),
         benefits:(benefits.data ?? []).map(row=>({id:row.id,serviceKey:row.service_key,kind:row.kind,amount:row.amount,dueAt:row.due_at,status:row.status}))});
     }
@@ -394,8 +563,15 @@ serveWithConfiguredCors(async request => {
   } catch(error) {
     const message=error instanceof Error ? error.message : '';
     if(message==='invalid_session') return fail('invalid_app_session','로그인이 필요합니다.',401);
+    if(action==='get_account' && ['common_membership_withdrawn','company_attestation_unavailable','common_membership_unavailable'].includes(message))
+      return fail('enrollment_required',message==='common_membership_withdrawn'
+        ? '탈퇴한 공통회원 계정은 자동으로 다시 등록하지 않습니다. 다시 가입하려면 공통 서비스 이용에 새로 동의해 주세요.'
+        : '공통 서비스 이용에 새로 동의한 뒤 계속해 주세요.',409);
     if(message==='consent_required' || message==='enrollment_required') return fail(message,'모두온 공통 서비스 약관에 동의한 뒤 이용해 주세요.',409);
     if(message==='session_unavailable') return fail('session_verification_unavailable','로그인을 확인하지 못했습니다. 다시 시도해 주세요.',503);
+    if(message==='common_membership_withdrawn') return fail(message,
+      '탈퇴한 공통회원 계정은 자동으로 다시 등록하지 않습니다. 다시 가입하려면 공통 서비스 이용에 새로 동의해 주세요.',409);
+    if(message==='invalid_referral') return fail(message,'유효한 보험 추천인을 선택해 주세요.');
     if(message==='already_exists') return fail('already_exists','이미 가입된 번호입니다. 로그인해 주세요.');
     if(message==='revision_conflict') return fail('revision_conflict','다른 관리자가 수정했습니다. 새로 불러온 뒤 다시 저장해 주세요.',409);
     if(message==='idempotency_conflict') return fail('idempotency_conflict','이미 처리된 요청과 내용이 다릅니다. 처리 내역을 확인해 주세요.',409);

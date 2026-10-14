@@ -1,4 +1,4 @@
-import { resolvePlatformAuthRoute, resolveSessionLandingRoute } from '@/lib/session-landing';
+import { resolveLegacyAuthRoute, resolvePlatformAuthRoute, resolveSessionLandingRoute } from '@/lib/session-landing';
 
 describe('resolveSessionLandingRoute', () => {
   it.each(['insurance', 'care', 'telecom', 'rental', 'car'])('preserves the %s service intent through signup, login and completion', service => {
@@ -52,5 +52,24 @@ describe('resolveSessionLandingRoute', () => {
     expect(resolveSessionLandingRoute({
       role: 'fc', residentId: '', isRequestBoardDesigner: false, requestedService: 'insurance',
     })).toBeNull();
+  });
+  it('keeps common-only insurance onboarding distinct from guest entry and existing FC routes', () => {
+    const session = { role: null, residentId: '', isRequestBoardDesigner: false } as const;
+    expect(resolveSessionLandingRoute(session)).toBeNull();
+    expect(resolveSessionLandingRoute({ ...session, isPlatformSignedIn: true })).toBe('/services/account');
+    expect(resolveSessionLandingRoute({ ...session, isPlatformSignedIn: true, requestedService: 'insurance' })).toEqual({
+      pathname: '/apply-gate', params: { next: '/?mode=insurance' },
+    });
+  });
+  it.each(['login', 'signup'] as const)('legacy %s preserves insurance intent and skips stale automatic login', destination => {
+    expect(resolveLegacyAuthRoute({ skipAuto: '1', referralNonce: '2' }, destination)).toEqual({
+      pathname: `/services/${destination}`, params: { service: 'insurance', skipAuto: '1', referralNonce: '2' },
+    });
+    expect(resolveLegacyAuthRoute({ service: 'care', skipAuto: '1' }, destination)).toEqual({
+      pathname: `/services/${destination}`, params: { service: 'care', skipAuto: '1' },
+    });
+    expect(resolveLegacyAuthRoute({ service: ['insurance'], skipAuto: ['1'] }, destination)).toEqual({
+      pathname: `/services/${destination}`, params: {},
+    });
   });
 });

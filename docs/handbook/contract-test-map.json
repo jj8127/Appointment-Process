@@ -22,6 +22,7 @@
         "supabase/migrations/20261012072611_hospital_directory_ad_performance.sql",
         "supabase/migrations/20261012072614_platform_membership_recovery_consent.sql",
         "supabase/migrations/20261012072615_platform_auth_cleanup_schedule.sql",
+        "supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql",
         "supabase/functions/_shared/password-hash.ts",
         "supabase/functions/_shared/signup-sms.ts"
       ],

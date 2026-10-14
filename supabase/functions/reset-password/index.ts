@@ -2,6 +2,7 @@ import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import {
+  canInitializeFcPassword,
   buildRequestBoardPasswordSyncOptions,
   findPasswordResetAccount,
 } from '../_shared/password-reset-account.ts';
@@ -197,8 +198,11 @@ serve(async (req: Request) => {
     return fail('inactive_account', '본부장 계정이 비활성화되었습니다.');
   }
 
-  if (account.kind === 'fc' && !account.signupCompleted) {
+  if (account.kind === 'fc' && (account.signupCompleted !== true || account.isManagerReferralShadow === true)) {
     return fail('not_completed', '회원가입이 완료되지 않았습니다.');
+  }
+  if (!account.passwordSetAt && !canInitializeFcPassword(account)) {
+    return fail('not_set', '비밀번호가 아직 설정되지 않았습니다.');
   }
   const bypassToken = smsBypassConfig.enabled && token === smsBypassConfig.code;
   // Development bypass still requires an issued, unexpired, unconsumed

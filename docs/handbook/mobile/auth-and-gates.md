@@ -2,10 +2,18 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-10-09
-source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx + hooks/use-referral-allowance.ts + app/referral-allowance.tsx
+last_verified: 2026-10-14
+source_of_truth: app/services/login.tsx + app/services/signup.tsx + app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx + hooks/use-referral-allowance.ts + app/referral-allowance.tsx
 
 # Mobile Playbook: Auth And Gates
+
+## 2026-10-14 계정 가입과 서비스 등록 분리
+
+공통 가입/로그인만 사용자에게 표시한다. legacy login/signup/verify/password 경로는 service·skipAuto·명시 보험 초대 의도를 보존하는 공통 진입 alias다. 공통 optional 추천 코드에 보험 초대를 혼입하지 않는다. 기존 임시 비밀번호와 완성 FC의 초기 비밀번호는 기존 OTP 복구를 사용하며 미완료 FC의 복구만으로 가입 완료/권한을 부여하지 않는다.
+
+공통 회원의 보험 선택은 apply-gate로 이동한다. 추가 동의와 서비스 필수 입력의 명시적 확정 전에는 FC를 생성하지 않는다. 서버 enrollment 후 기존 FC 세션 설치·identity 저장을 재사용한다. 설치 중 FC 상태와 이미 설치된 signed token을 함께 공개하여 common token 정리 때 무토큰 상태가 생기지 않는다. 늦은 가입/신원/주소 결과는 다른 계정에 적용하지 않는다. 주민번호/주소 draft는 계정 변경 때 지우고 같은 계정 token 갱신에는 유지한다.
+
+기존 회사 동의 회원의 공통 연결과 별도 보험 추천인·철회/세션 generation 경계는 [공통 서비스 계약](platform-services.md#2026-10-14-공통-가입서비스-추가-등록-통합)을 따른다. 나중에는 모두온 홈으로 돌아간다. 이후 SGI 동의를 최초 서비스 등록과 합치지 않는다. 아래 이전 FC 가입/로그인 UI 설명은 과거 이력이다.
 
 ## 2026-10-13 가입 증표 저장과 홈 조회 오류
 

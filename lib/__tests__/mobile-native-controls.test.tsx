@@ -11,6 +11,8 @@ import { parseCalendarDate } from '../calendar-date';
 import { buildReferralInviteUrl, buildReferralShareText } from '../referral-share';
 import { normalizeReferralInviteCode } from '../referral-deeplink';
 import { FAMILY_CARE_PROMOTION_URL, resolveInsuranceServiceRoute, resolveServiceInformationKey, SERVICE_INFORMATION_KEYS } from '../service-home';
+import { resolveLegacyAuthRoute } from '../session-landing';
+import { z } from 'zod';
 
 type Instance = { children: (Instance | string)[]; props: Record<string, unknown>; findAllByType: (type: string) => Instance[] };
 type Renderer = { root: Instance; unmount: () => void; update: (element: ReactElement) => void };
@@ -40,9 +42,130 @@ function executeComponent(path: string, dependencies: Record<string, unknown> = 
   return (exported[exportName] ?? exported.DaumPostcode) as (props: Record<string, unknown>) => ReactElement;
 }
 
+it('identity form clears a changed account draft and rejects its late address search while preserving same-account refresh', async () => {
+  let identity = { hydrated: true, role: 'fc', residentId: 'fictional-account-a', appSessionToken: 'fictional-a', isPlatformSignedIn: true };
+  const form = { control: {}, handleSubmit: jest.fn(), formState: { errors: {} }, setError: jest.fn(), setValue: jest.fn(), reset: jest.fn() };
+  const Screen = executeComponent('app/identity.tsx', {
+    'react-native': { Alert: { alert: jest.fn() }, InteractionManager: { runAfterInteractions: jest.fn() },
+      Modal: 'Modal', Pressable: 'Pressable', Text: 'Text', TextInput: 'TextInput', View: 'View', StyleSheet: { create: (styles: unknown) => styles } },
+    '@expo/vector-icons': { Feather: 'Feather' }, '@hookform/resolvers/zod': { zodResolver: jest.fn() },
+    '@tanstack/react-query': { useQueryClient: () => ({}) }, 'expo-router': { router: { replace: jest.fn() }, useLocalSearchParams: () => ({}) },
+    'react-hook-form': { useForm: () => form, Controller: () => null }, 'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
+    zod: { z }, '@/components/Button': { Button: 'Button' }, '@/components/DaumPostcode': { DaumPostcode: 'DaumPostcode' },
+    '@/components/KeyboardAwareWrapper': { KeyboardAwareWrapper: 'KeyboardAwareWrapper' },
+    '@/hooks/use-session': { useSession: () => identity }, '@/lib/use-read-attempt': { useReadAttempt },
+    '@/lib/home-entry-flow': {}, '@/lib/notification-open-authorization': {}, '@/lib/notification-navigation-coordinator': {},
+    '@/lib/pending-notification-navigation': {}, '@/lib/theme': { COLORS, RADIUS, SHADOWS, SPACING, TOUCH_TARGET, TYPOGRAPHY },
+    '@/lib/store-identity-api': {}, '@/lib/store-identity-error': {}, '@/lib/user-facing-error': {}, '@/lib/validation': {},
+  });
+  let renderer!: Renderer;
+  await act(async () => { renderer = create(createElement(Screen)); });
+  const open = () => (renderer.root.findAllByType('Button').find(node => node.children.includes('주소 검색'))!.props.onPress as () => void)();
+  await act(async () => { open(); });
+  const oldSelection = renderer.root.findAllByType('DaumPostcode')[0].props.onSelected as (value: unknown) => void;
+  identity = { ...identity, appSessionToken: 'fictional-a-renewed' };
+  await act(async () => { renderer.update(createElement(Screen)); });
+  expect(form.reset).not.toHaveBeenCalled();
+  identity = { ...identity, residentId: 'fictional-account-b', appSessionToken: 'fictional-b' };
+  await act(async () => { renderer.update(createElement(Screen)); });
+  expect(form.reset).toHaveBeenCalledTimes(1);
+  expect(renderer.root.findAllByType('Modal')[0].props.visible).toBe(false);
+  await act(async () => { oldSelection({ address: '합성 이전 주소' }); });
+  expect(form.setValue).not.toHaveBeenCalled();
+  await act(async () => { open(); });
+  await act(async () => { oldSelection({ address: '늦게 도착한 이전 계정 주소' }); });
+  expect(form.setValue).not.toHaveBeenCalled();
+  const newSelection = renderer.root.findAllByType('DaumPostcode')[0].props.onSelected as (value: unknown) => void;
+  await act(async () => { newSelection({ address: '합성 새 주소' }); });
+  expect(form.setValue).toHaveBeenCalledWith('address', '합성 새 주소', { shouldValidate: true, shouldDirty: true });
+  await act(async () => renderer.unmount());
+});
+
+it('hospital specialty art keeps a face outline and plus only, and clips leaf veins to its exact outline', async () => {
+  const Icon = executeComponent('components/hospitals/DepartmentIcon.tsx', {
+    'react-native-svg': { __esModule: true, default: 'Svg', Circle: 'Circle', ClipPath: 'ClipPath', Defs: 'Defs', G: 'G', Path: 'Path', Rect: 'Rect' },
+    '@/lib/theme': { COLORS },
+  });
+  let renderer!: Renderer;
+  await act(async () => { renderer = create(createElement(Icon, { specialty: '성형외과' })); });
+  const face = renderer.root.findAllByType('Path');
+  expect(face).toHaveLength(2);
+  expect(face[0].props.fill).toBe('#9AD6D7');
+  expect(face[1].props).toMatchObject({ stroke: COLORS.primaryLight, strokeWidth: 3.6 });
+  await act(async () => { renderer.update(createElement(Icon, { specialty: '한방병원' })); });
+  const clip = renderer.root.findAllByType('ClipPath')[0];
+  const veins = renderer.root.findAllByType('G').find(group => group.props.clipPath);
+  expect(veins?.props.clipPath).toBe(`url(#${clip.props.id})`);
+  const leaf = renderer.root.findAllByType('Path').find(item => item.props.fill === '#9AD6D7');
+  expect(clip.findAllByType('Path')[0].props.d).toBe(leaf?.props.d);
+  expect(renderer.root.findAllByType('Circle')[0].props).toMatchObject({ fill: COLORS.primaryLight, r: 9 });
+  expect(renderer.root.findAllByType('Path').some(item => item.props.stroke === 'white')).toBe(true);
+  await act(async () => renderer.unmount());
+});
+
 function texts(instance: Instance) {
   return instance.findAllByType('Text').map((node) => node.children.filter((child) => typeof child === 'string').join(''));
 }
+
+it.each(['signup', 'signup-verify', 'signup-password'])('legacy %s forwards insurance intent without turning its invitation into a common referrer', async route => {
+  const savePendingReferralCode = jest.fn(async () => undefined);
+  const Alias = executeComponent('components/LegacySignupRedirect.tsx', {
+    'expo-router': { Redirect: 'Redirect', useLocalSearchParams: () => ({ code: 'abcdefgh', skipAuto: '1', referralNonce: '2' }) },
+    '@/hooks/use-session': { useSession: () => ({ hydrated: true, role: null, isPlatformSignedIn: false }) },
+    '@/lib/referral-deeplink': { normalizeReferralInviteCode, savePendingReferralCode },
+    '@/lib/request-board-api': { captureAppSessionOwner: () => () => true },
+    '@/lib/session-landing': { resolveLegacyAuthRoute },
+  });
+  const Screen = executeComponent(`app/${route}.tsx`, { '@/components/LegacySignupRedirect': { default: Alias } });
+  let renderer!: Renderer;
+  await act(async () => { renderer = create(createElement(Screen)); });
+  expect(savePendingReferralCode).toHaveBeenCalledWith('ABCDEFGH');
+  expect(renderer.root.findAllByType('Redirect')[0].props.href).toEqual({
+    pathname: '/services/signup', params: { service: 'insurance', skipAuto: '1', referralNonce: '2' },
+  });
+  await act(async () => renderer.unmount());
+});
+
+it.each(['restoring', 'signed', 'care', 'invalid'])('legacy signup does not save an insurance invitation while %s', async state => {
+  const savePendingReferralCode = jest.fn(async () => undefined);
+  const Alias = executeComponent('components/LegacySignupRedirect.tsx', {
+    'expo-router': { Redirect: 'Redirect', useLocalSearchParams: () => ({ code: state === 'invalid' ? '<invalid>' : 'ABCDEFGH', ...(state === 'care' ? { service: 'care' } : {}) }) },
+    '@/hooks/use-session': { useSession: () => ({ hydrated: state !== 'restoring', role: state === 'signed' ? 'fc' : null, isPlatformSignedIn: state === 'signed' }) },
+    '@/lib/referral-deeplink': { normalizeReferralInviteCode, savePendingReferralCode },
+    '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/session-landing': { resolveLegacyAuthRoute },
+  });
+  let renderer!: Renderer;
+  await act(async () => { renderer = create(createElement(Alias)); });
+  expect(savePendingReferralCode).not.toHaveBeenCalled();
+  if (state === 'restoring') expect(renderer.root.findAllByType('Redirect')).toHaveLength(0);
+  await act(async () => renderer.unmount());
+});
+
+it('a common-only signed member retains an explicit insurance invitation before first FC enrollment', async () => {
+  const savePendingReferralCode = jest.fn(async () => undefined);
+  const Alias = executeComponent('components/LegacySignupRedirect.tsx', {
+    'expo-router': { Redirect: 'Redirect', useLocalSearchParams: () => ({ code: 'ABCDEFGH' }) },
+    '@/hooks/use-session': { useSession: () => ({ hydrated: true, role: null, isPlatformSignedIn: true, platformMember: { id: 'synthetic-member' } }) },
+    '@/lib/referral-deeplink': { normalizeReferralInviteCode, savePendingReferralCode },
+    '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/session-landing': { resolveLegacyAuthRoute },
+  });
+  let renderer!: Renderer;
+  await act(async () => { renderer = create(createElement(Alias)); });
+  expect(savePendingReferralCode).toHaveBeenCalledWith('ABCDEFGH');
+  expect(renderer.root.findAllByType('Redirect')[0].props.href).toEqual({ pathname: '/services/signup', params: { service: 'insurance' } });
+  await act(async () => renderer.unmount());
+});
+
+it('legacy login retains logout suppression and an explicit common service intention', async () => {
+  const Alias = executeComponent('app/login.tsx', {
+    'expo-router': { Redirect: 'Redirect', useLocalSearchParams: () => ({ service: 'care', skipAuto: '1' }) },
+    '@/lib/session-landing': { resolveLegacyAuthRoute },
+  });
+  let renderer!: Renderer;
+  await act(async () => { renderer = create(createElement(Alias)); });
+  expect(renderer.root.findAllByType('Redirect')[0].props.href).toEqual({ pathname: '/services/login', params: { service: 'care', skipAuto: '1' } });
+  await act(async () => renderer.unmount());
+});
 
 it('filled mobile actions share readable white labels without changing press or inactive states', async () => {
   const flatten = (style: unknown): Record<string, unknown> => Array.isArray(style)
@@ -59,6 +182,8 @@ it('filled mobile actions share readable white labels without changing press or 
   expect(flatten(renderer.root.findAllByType('Text')[0].props.style).color).toBe(COLORS.white);
   await act(async () => { (renderer.root.findAllByType('TouchableOpacity')[0].props.onPress as () => void)(); });
   expect(press).toHaveBeenCalledTimes(1);
+  await act(async () => { renderer.update(createElement(Button, { textStyle: { color: COLORS.black, fontSize: 17 } }, '계속하기')); });
+  expect(flatten(renderer.root.findAllByType('Text')[0].props.style)).toMatchObject({ color: COLORS.white, fontSize: 17 });
   await act(async () => { renderer.update(createElement(Button, { loading: true }, '계속하기')); });
   expect(renderer.root.findAllByType('TouchableOpacity')[0].props.disabled).toBe(true);
   expect(renderer.root.findAllByType('Spinner')[0].props.color).toBe(COLORS.white);
@@ -67,6 +192,8 @@ it('filled mobile actions share readable white labels without changing press or 
   await act(async () => { renderer.update(createElement(Button, { variant: 'outline' }, '탈퇴')); });
   expect(flatten(renderer.root.findAllByType('TouchableOpacity')[0].props.style).backgroundColor).toBe(COLORS.white);
   expect(flatten(renderer.root.findAllByType('Text')[0].props.style).color).toBe(COLORS.primary);
+  await act(async () => { renderer.update(createElement(Button, { variant: 'outline', style: { backgroundColor: COLORS.primaryPale }, textStyle: { color: COLORS.warning.dark } }, '추천 주소 복사')); });
+  expect(flatten(renderer.root.findAllByType('Text')[0].props.style).color).toBe(COLORS.warning.dark);
   await act(async () => renderer.unmount());
 
   const Action = executeComponent('components/ServiceInformation.tsx', {
@@ -94,16 +221,16 @@ describe('family-care invitation controls', () => {
   let renderer: Renderer;
   let screen: (props: Record<string, unknown>) => ReactElement;
   let width = 390; let fontScale = 1;
-  const copy = jest.fn(); const share = jest.fn(); const showToast = jest.fn(); const push = jest.fn(); const refresh = jest.fn();
+  const copy = jest.fn(); const share = jest.fn(); const showToast = jest.fn(); const push = jest.fn(); const navigate = jest.fn(); const refresh = jest.fn();
   const button = (label: string) => renderer.root.findAllByType('Button').find(node => node.children.includes(label))!;
   const render = async () => { await act(async () => { renderer = create(createElement(screen)); }); };
   beforeEach(() => {
     account = { data: { member: { id: 'synthetic-member', referralCode: 'CARE1234' } }, error: null, needsConsent: false, loading: false,
       token: 'synthetic-owner', session: { isPlatformSignedIn: true, logout: jest.fn() } };
     width = 390; fontScale = 1;
-    copy.mockReset().mockResolvedValue(undefined); share.mockReset().mockResolvedValue({ action: 'dismissedAction' }); showToast.mockReset(); push.mockReset(); refresh.mockReset();
+    copy.mockReset().mockResolvedValue(undefined); share.mockReset().mockResolvedValue({ action: 'dismissedAction' }); showToast.mockReset(); push.mockReset(); navigate.mockReset(); refresh.mockReset();
     screen = executeComponent('components/FamilyCareInvitation.tsx', {
-      '@expo/vector-icons': { Feather: 'Feather' }, 'expo-clipboard': { setStringAsync: copy }, 'expo-router': { router: { push } },
+      '@expo/vector-icons': { Feather: 'Feather' }, 'expo-clipboard': { setStringAsync: copy }, 'expo-router': { router: { push, navigate } },
       'react-native': { Share: { share }, Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles }, useWindowDimensions: () => ({ width, fontScale }) },
       '@/components/Button': { Button: 'Button' }, '@/components/Toast': { useToast: () => ({ showToast }) },
       '@/hooks/use-platform-account': { usePlatformAccount: () => ({ ...account, refresh }) }, '@/lib/theme': { COLORS },
@@ -149,9 +276,10 @@ describe('family-care invitation controls', () => {
     await render(); expect(button('추천 주소 복사')).toBeUndefined(); expect(button('공유하기')).toBeUndefined();
     if (state === 'signed-out') {
       await act(async () => { (button('로그인하고 초대하기').props.onPress as () => void)(); });
-      expect(push).toHaveBeenCalledWith({ pathname: '/services/login', params: { service: 'care' } });
+      expect(navigate).toHaveBeenCalledWith({ pathname: '/services/login', params: { service: 'care' } }); expect(push).not.toHaveBeenCalled();
     } else if (state === 'consent') {
-      await act(async () => { (button('동의하고 초대 준비하기').props.onPress as () => void)(); }); expect(push).toHaveBeenCalledWith('/services/account');
+      await act(async () => { const press = button('동의하고 초대 준비하기').props.onPress as () => void; press(); press(); });
+      expect(navigate.mock.calls).toEqual([['/services/account'], ['/services/account']]); expect(push).not.toHaveBeenCalled();
     } else if (state !== 'loading') {
       await act(async () => { (button('다시 확인').props.onPress as () => void)(); }); expect(refresh).toHaveBeenCalledTimes(1);
       if (state === 'error') { await act(async () => { (button('다시 로그인').props.onPress as () => void)(); }); expect(account.session.logout).toHaveBeenCalledTimes(1); }
@@ -187,6 +315,25 @@ it('care information preserves conditional registration guidance and separates p
   expect(new URL(FAMILY_CARE_PROMOTION_URL).search).toBe('');
   await act(async () => renderer.unmount());
 });
+
+it.each([['help', '내 정보 · 회원가입', '/services/account'], ['hospital', '제휴병원 찾아보기', '/services/hospitals']])(
+  '%s information opens its static leaf with NAVIGATE on repeated presses', async (service, label, destination) => {
+    const navigate = jest.fn(); const push = jest.fn();
+    const Information = executeComponent('app/services/[service].tsx', {
+      '@expo/vector-icons': { Feather: 'Feather' },
+      'expo-router': { router: { navigate, push, replace: jest.fn() }, useLocalSearchParams: () => ({ service }) },
+      'react-native': { Alert: { alert: jest.fn() }, Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles } },
+      '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
+      '@/components/FamilyCareInvitation': { default: 'FamilyCareInvitation' }, '@/hooks/use-session': { useSession: () => ({}) },
+      '@/lib/service-home': { FAMILY_CARE_PROMOTION_URL, resolveInsuranceServiceRoute, resolveServiceInformationKey, SERVICE_INFORMATION_KEYS },
+      '@/lib/open-external-url': { openExternalUrl: jest.fn() }, '@/lib/theme': { COLORS },
+    });
+    let renderer!: Renderer;
+    await act(async () => { renderer = create(createElement(Information)); });
+    await act(async () => { const press = renderer.root.findAllByType('ServiceAction').find(node => node.props.label === label)!.props.onPress as () => void; press(); press(); });
+    expect(navigate.mock.calls).toEqual([[destination], [destination]]); expect(push).not.toHaveBeenCalled();
+    await act(async () => renderer.unmount());
+  });
 
 it.each(['web', 'android'])('group chat avoids a refresh wrapper on web and preserves native refresh on %s', (os) => {
   const file = ts.createSourceFile('group-chat.tsx', readFileSync(join(root, 'app/group-chat.tsx'), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -289,11 +436,11 @@ it.each([
 it('public account offers common login and keeps insurance settings within the common account', async () => {
   let session = { role: 'fc' as string | null, isPlatformSignedIn: false };
   let data: null | { member: { name: string; referralCode: string }; applications: unknown[]; benefits: unknown[] } = null;
-  const push = jest.fn();
+  const push = jest.fn(); const navigate = jest.fn();
   const openPolicy = jest.fn(async () => undefined);
   const Account = executeComponent('app/services/account.tsx', {
     '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
-    'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { push } },
+    'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { push, navigate } },
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
     '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data, loading: false, error: null, session, token: null, refresh: jest.fn() }) },
@@ -305,8 +452,11 @@ it('public account offers common login and keeps insurance settings within the c
   await act(async () => { renderer = create(createElement(Account)); });
   const actions = () => renderer.root.findAllByType('ServiceAction');
   expect(actions().map((node) => node.props.label)).toEqual(expect.arrayContaining(['로그인', '회원가입']));
-  await act(async () => { (actions().find((node) => node.props.label === '로그인')!.props.onPress as () => void)(); });
-  expect(push).toHaveBeenCalledWith('/services/login');
+  for (const [label, destination] of [['로그인', '/services/login'], ['회원가입', '/services/signup']]) {
+    await act(async () => { const press = actions().find(node => node.props.label === label)!.props.onPress as () => void; press(); press(); });
+    expect(navigate).toHaveBeenLastCalledWith(destination);
+  }
+  expect(navigate).toHaveBeenCalledTimes(4); expect(push).not.toHaveBeenCalled();
   await act(async () => { (renderer.root.findAllByType('Pressable').find(node => texts(node).includes('개인정보처리방침'))!.props.onPress as () => void)(); });
   expect(openPolicy).toHaveBeenCalledWith('https://example.test/privacy/');
   data = { member: { name: '시험 회원', referralCode: 'synthetic-code' }, applications: [], benefits: [] };
@@ -317,12 +467,18 @@ it('public account offers common login and keeps insurance settings within the c
   expect(actionGroup.findAllByType('ServiceAction').map(node => node.props.label)).toEqual(['서비스 이용내역', '보험 계정 설정', '로그아웃']);
   expect(actionGroup.findAllByType('ServiceAction').every(node => (node.props.style as { marginTop: number }).marginTop === 0)).toBe(true);
   expect(actionGroup.findAllByType('Pressable').some(node => node.props.accessibilityRole === 'link')).toBe(true);
+  await act(async () => { const press = actions().find(node => node.props.label === '서비스 이용내역')!.props.onPress as () => void; press(); press(); });
+  expect(navigate.mock.calls.slice(-2)).toEqual([['/services/activity'], ['/services/activity']]);
   await act(async () => { (actions().find((node) => node.props.label === '보험 계정 설정')!.props.onPress as () => void)(); });
   expect(push).toHaveBeenCalledWith('/settings?surface=service-hub');
   session = { role: null, isPlatformSignedIn: true };
   await act(async () => { renderer.update(createElement(Account)); });
   expect(actions().some((node) => node.props.label === '보험 계정 설정')).toBe(false);
   expect(texts(renderer.root)).toContain('시험 회원님');
+  Object.assign(session, { role: 'admin', readOnly: false, staffType: 'admin' });
+  await act(async () => renderer.update(createElement(Account)));
+  await act(async () => { const press = actions().find(node => node.props.label === '제휴·정산 관리')!.props.onPress as () => void; press(); press(); });
+  expect(navigate.mock.calls.slice(-2)).toEqual([['/services/manage'], ['/services/manage']]);
   await act(async () => { renderer.unmount(); });
 });
 it('existing FC account requires explicit consent, blocks repeat saves and preserves refusal navigation', async () => {
@@ -421,6 +577,10 @@ it('common account preserves a connection failure and clears withdrawn data whil
   request.mockRejectedValue(new ApiError('enrollment_required', 409));
   await act(async () => { await state.refresh(); });
   expect(state.data).toBeNull(); expect(state.needsConsent).toBe(true); expect(state.canWithdraw).toBe(false);
+  expect(request.mock.calls.every(([action]) => action === 'get_account')).toBe(true);
+  request.mockResolvedValue(response);
+  await act(async () => { await state.refresh(); });
+  expect(state.data).toEqual(response); expect(state.needsConsent).toBe(false); expect(state.canWithdraw).toBe(true);
   await act(async () => { renderer.unmount(); });
 });
 describe('M06 / D10 actual address-search component controls', () => {

@@ -77,7 +77,7 @@ import {
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
-import { hasInsuranceHomeContext } from '@/lib/service-home';
+import { hasInsuranceHomeContext, resolveInsuranceServiceRoute } from '@/lib/service-home';
 import { waitForNotificationNavigationDecision } from '@/lib/notification-navigation-coordinator';
 import type { FcProfile } from '@/types/fc';
 
@@ -565,11 +565,12 @@ const getLinkIcon = (href: string) => {
 
 export default function Home() {
   const params = useLocalSearchParams();
-  const { hydrated, role, isRequestBoardDesigner } = useSession();
+  const session = useSession();
+  const { hydrated, role, isRequestBoardDesigner } = session;
   if (!hydrated) return <BrandedLoadingState />;
   if (!hasInsuranceHomeContext(params) && role && isRequestBoardDesigner) return <DesignerHomeLanding />;
   if (!hasInsuranceHomeContext(params)) return <ServiceHub />;
-  if (!role) return <Redirect href="/login?skipAuto=1" />;
+  if (!role) return <Redirect href={resolveInsuranceServiceRoute(session)!} />;
   return <LegacyInsuranceHome />;
 }
 

@@ -7,6 +7,14 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
+## 2026-10-14 공통 회원·보험 추가 등록 통합 (로컬)
+
+ordered migration `20261014043557_unified_common_insurance_enrollment.sql`과 schema snapshot을 함께 갱신한다. company-attested source UUID cohort는 적용 시점에 고정하고 public table RLS/직접 접근 회수를 유지한다. 새 import를 먼저 만든 뒤 기존 FC·manager-shadow 보험 추천을 canonical common inviter로 연결하며 기존 common 선택 관계(선택 없음 포함)는 덮지 않는다. 실제 수락 일시와 회사 확인의 기록 일시/출처를 구분한다. 탈퇴는 접근을 제한한 source UUID/tombstone과 cohort의 최초 연결 기록을 남겨 자동 재활성화를 막고 확인 근거를 유지하며 unknown historical withdrawal이면 migration을 중단한다. 이 UUID는 업무 계정과 연결 가능하므로 완전한 익명 자료라고 표현하지 않는다.
+
+새 common-to-FC transaction은 signed actor, 명시적 추가 동의/보험 추천/필수 항목과 요청 key/fingerprint를 확인한다. credential hash/generation 이전·FC 완료·추천·동의와 enrollment-only lost-response receipt를 원자 처리한다. canonical 비밀번호/역할/삭제 변경은 이전 회복 증표를 거부한다. common/legacy OTP 가입은 같은 잠금 순서와 source 조건을 사용하여 공통 가입 후 legacy capability가 다른 비밀번호/서비스 동의로 계정을 교체하지 못한다. 완성 일반 non-shadow FC의 누락 credential만 기존 bounded SMS reset proof로 초기화한다. 프로필 업무 상태는 reset으로 초기화하지 않는다.
+
+검증은 기존 platform/recovery PGlite+Edge fixture와 실제 PostgreSQL signup/recovery suite의 동시성·single-use·세션 generation·탈퇴 FK 사례다. 새 runner나 auth provider는 없다. 로컬 검증과 운영 적용을 구분한다.
+
 ## 2026-10-11 공통 회원·제휴 데이터 (로컬)
 
 `20261012072525_platform_common_membership.sql`과 canonical schema에 공통 회원·회원 인증·가입 인증번호·제휴사·관심 등록·제휴 정산·혜택 테이블을 추가했다. 모든 테이블은 RLS를 사용하며 직접 anon/authenticated 접근과 관련 RPC 실행을 회수한다. Edge의 서비스 역할이 서명된 세션과 현재 계정/관리자 권한을 검증한 뒤 호출한다. 클라이언트가 역할을 지정하여 권한을 얻지 않는다.

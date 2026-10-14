@@ -65,8 +65,8 @@ export default function ServiceAccount() {
     {loading && <Text accessibilityLiveRegion="polite" style={styles.body}>내 정보를 확인하고 있습니다.</Text>}
     {!loading && !session.isPlatformSignedIn && <>
       <Text style={styles.body}>한 번 가입하고 여러 서비스를 이용하세요. 서비스에 필요한 추가 정보는 신청할 때 입력합니다.</Text>
-      <ServiceAction label="로그인" onPress={() => router.push('/services/login')} />
-      <ServiceAction label="회원가입" onPress={() => router.push('/services/signup')} />
+      <ServiceAction label="로그인" onPress={() => router.navigate('/services/login')} />
+      <ServiceAction label="회원가입" onPress={() => router.navigate('/services/signup')} />
     </>}
     {needsConsent && <View>
       <Text style={styles.sectionTitle}>공통 서비스 이용 동의</Text>
@@ -101,9 +101,9 @@ export default function ServiceAccount() {
     </>}
     <View style={accountStyles.actions}>
       {data && !needsConsent && <>
-        <ServiceAction style={accountStyles.action} label="서비스 이용내역" onPress={() => router.push('/services/activity')} />
+        <ServiceAction style={accountStyles.action} label="서비스 이용내역" onPress={() => router.navigate('/services/activity')} />
         {session.role && <ServiceAction style={accountStyles.action} label="보험 계정 설정" onPress={() => router.push('/settings?surface=service-hub')} />}
-        {session.role === 'admin' && !session.readOnly && session.staffType === 'admin' && <ServiceAction style={accountStyles.action} label="제휴·정산 관리" onPress={() => router.push('/services/manage')} />}
+        {session.role === 'admin' && !session.readOnly && session.staffType === 'admin' && <ServiceAction style={accountStyles.action} label="제휴·정산 관리" onPress={() => router.navigate('/services/manage')} />}
       </>}
       {session.isPlatformSignedIn && <ServiceAction style={accountStyles.action} label="로그아웃" onPress={() => session.logout()} />}
       {needsConsent && session.role && <ServiceAction style={accountStyles.action} label="보험 계정 설정" onPress={() => router.push('/settings?surface=service-hub')} />}

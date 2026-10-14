@@ -33,6 +33,7 @@ type FcProfileRow = {
   phone: string;
   affiliation?: string | null;
   signup_completed?: boolean | null;
+  is_manager_referral_shadow?: boolean | null;
 };
 
 type FcCredentialRow = {
@@ -143,6 +144,7 @@ function decodeFcProfileRow(value: unknown): DecodedRow<FcProfileRow> {
     || typeof value.phone !== 'string'
     || !isOptionalNullableString(value.affiliation)
     || !isOptionalNullableBoolean(value.signup_completed)
+    || !isOptionalNullableBoolean(value.is_manager_referral_shadow)
   ) {
     return invalidRow('fc_profiles');
   }
@@ -155,6 +157,7 @@ function decodeFcProfileRow(value: unknown): DecodedRow<FcProfileRow> {
       phone: value.phone,
       affiliation: value.affiliation,
       signup_completed: value.signup_completed,
+      is_manager_referral_shadow: value.is_manager_referral_shadow,
     },
   };
 }
@@ -193,6 +196,7 @@ export type PasswordResetAccount = {
   staffType: 'admin' | 'developer' | null;
   affiliation: string | null;
   signupCompleted: boolean | null;
+  isManagerReferralShadow?: boolean;
   passwordSetAt: string | null;
   resetTokenHash: string | null;
   resetTokenExpiresAt: string | null;
@@ -225,7 +229,7 @@ const MANAGER_RESET_SELECT = [
   'reset_sent_at',
 ].join(',');
 
-const FC_PROFILE_RESET_SELECT = 'id,name,phone,affiliation,signup_completed';
+const FC_PROFILE_RESET_SELECT = 'id,name,phone,affiliation,signup_completed,is_manager_referral_shadow';
 const FC_CREDENTIAL_RESET_SELECT = 'password_set_at,reset_token_hash,reset_token_expires_at,reset_sent_at';
 
 export async function findPasswordResetAccount(
@@ -350,6 +354,7 @@ export async function findPasswordResetAccount(
       staffType: null,
       affiliation: profile.affiliation ?? null,
       signupCompleted: profile.signup_completed ?? null,
+      isManagerReferralShadow: profile.is_manager_referral_shadow === true,
       passwordSetAt: creds?.password_set_at ?? null,
       resetTokenHash: creds?.reset_token_hash ?? null,
       resetTokenExpiresAt: creds?.reset_token_expires_at ?? null,
@@ -357,6 +362,14 @@ export async function findPasswordResetAccount(
     },
     error: null,
   };
+}
+
+/** An existing completed FC may initialize a credential with the normal SMS proof. */
+export function canInitializeFcPassword(account: PasswordResetAccount): boolean {
+  return account.kind === 'fc'
+    && account.signupCompleted === true
+    && account.isManagerReferralShadow !== true
+    && !account.affiliation?.includes('설계매니저');
 }
 
 export function buildRequestBoardPasswordSyncOptions(

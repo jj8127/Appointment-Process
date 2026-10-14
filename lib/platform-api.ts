@@ -1,22 +1,26 @@
 import { supabase } from './supabase';
 import { z } from 'zod';
 import type { LoginResponse } from '@/hooks/use-login';
+import { parseSignupReferralSearchResponse } from '@/lib/referral-read-response';
 
 export const PLATFORM_SERVICES = { insurance: '보험', care: '가족간병', telecom: '통신', rental: '렌탈', car: '자동차', hospital: '제휴병원' } as const;
 export type PlatformService = keyof typeof PLATFORM_SERVICES;
 export type ApplicationService = Exclude<PlatformService, 'hospital'>;
 export const PLATFORM_TERMS_VERSION = '2026-10-12';
+export const INSURANCE_CONSENT_VERSION = 'insurance-additional-info-v1';
 export const PLATFORM_REQUEST_TIMEOUT_MS = 12_000;
-const timeoutActions = new Set(['request_otp','signup','login','request_password_reset','reset_password']);
+const timeoutActions = new Set(['request_otp','signup','login','request_password_reset','reset_password','enroll_insurance']);
 export const PLATFORM_PRIVACY_POLICY_URL = 'https://garam-public-web.vercel.app/moduon-privacy/';
 /** Release copy under review; keep signup and existing-member consent identical. */
-export const PLATFORM_CONSENT_TEXT = '수집 항목: 이름, 휴대폰 번호, 비밀번호 해시, 필수 동의 일시와 문서 버전, 선택한 추천 코드와 추천 관계\n이용 목적: 회원 확인, 휴대폰 인증, 로그인과 계정 복구, 공통 추천 관계 연결\n보유기간: 회원 이용 기간 동안 보관합니다. 공통 회원 탈퇴 시 공통 회원 정보의 이름·휴대폰 번호·비밀번호와 인증 기록을 삭제합니다. 이미 확정된 거래·정산 기록과 거래·정산 및 추천 관계를 연결하는 식별자는 정산 확인을 위해 유지합니다.\n비밀번호 원문은 보관하지 않습니다. 이 동의에는 마케팅 수신 동의가 포함되지 않습니다.\n동의를 거부할 수 있으며, 거부하면 공통 회원가입과 공통 추천 혜택 이용이 제한됩니다. 기존 보험·FC 업무와 공개 서비스 안내는 계속 이용할 수 있습니다.\n탈퇴 방법: 내 정보에서 공통 회원 탈퇴를 선택합니다. 기존 보험·FC 업무 계정은 유지되며 해당 계정 탈퇴는 보험 계정 설정에서 진행합니다.';
+export const PLATFORM_CONSENT_TEXT = '수집 항목: 이름, 휴대폰 번호, 비밀번호 해시, 필수 동의 일시와 문서 버전, 선택한 추천 코드와 추천 관계\n이용 목적: 회원 확인, 휴대폰 인증, 로그인과 계정 복구, 공통 추천 관계 연결\n보유기간: 회원 이용 기간 동안 보관합니다. 공통 회원 탈퇴 시 공통 회원 정보의 이름·휴대폰 번호·비밀번호와 인증 기록을 삭제합니다. 이미 확정된 거래·정산 기록과 거래·정산 및 추천 관계를 연결하는 식별자는 정산 확인을 위해 유지합니다. 탈퇴한 업무 계정의 공통 회원 정보가 자동으로 다시 생성되지 않도록, 이름·휴대폰 번호를 포함하지 않는 업무 계정 연결 UUID와 탈퇴 여부는 접근을 제한해 유지하며 자동 재가입 방지에만 사용합니다.\n비밀번호 원문은 보관하지 않습니다. 이 동의에는 마케팅 수신 동의가 포함되지 않습니다.\n동의를 거부할 수 있으며, 거부하면 공통 회원가입과 공통 추천 혜택 이용이 제한됩니다. 기존 보험·FC 업무와 공개 서비스 안내는 계속 이용할 수 있습니다.\n탈퇴 방법: 내 정보에서 공통 회원 탈퇴를 선택합니다. 기존 보험·FC 업무 계정은 유지되며 해당 계정 탈퇴는 보험 계정 설정에서 진행합니다.';
 export type PlatformAuthResponse = { ok: true; insuranceSession: LoginResponse } | { ok: true; memberId: string; displayName: string; residentId: string; appSessionToken: string; role: 'member'; insuranceSession?: undefined };
+export type PlatformInsuranceEnrollment = { ok: true; insuranceSession: LoginResponse; alreadyApplied: boolean };
 export type PlatformApplication = { id: string; serviceKey: ApplicationService; status: string; createdAt: string };
 export type PlatformBenefit = { id: string; serviceKey: ApplicationService; amount: number; dueAt: string; status: string };
 export type PlatformAccount = {
   ok: true;
-  member: { id: string; name: string; referralCode: string; referrerId: string | null; createdAt: string; termsAccepted: boolean; termsVersion: string | null };
+  member: { id: string; name: string; referralCode: string; referrerId: string | null; createdAt: string; termsAccepted: boolean; termsVersion: string | null;
+    insuranceEnrolled?: boolean; insuranceConsentAccepted?: boolean };
   applications: PlatformApplication[];
   benefits: PlatformBenefit[];
 };
@@ -45,19 +49,25 @@ export type PlatformHospitalReport = {
 type HospitalMetrics = { impressions: number; detailViews: number; phoneClicks: number; directionsClicks: number };
 
 export class PlatformApiError extends Error {
-  constructor(message: string, public readonly code: string, public readonly status?: number) { super(message); }
+  constructor(message: string, public readonly code: string, public readonly status?: number,
+    public readonly loginRejection?: Pick<LoginResponse, 'role' | 'passwordChangeToken' | 'passwordChangeExpiresAt'>) { super(message); }
 }
 
 const accountSchema = z.object({
   ok: z.literal(true),
-  member: z.object({ id: z.uuid(), name: z.string(), referralCode: z.string(), referrerId: z.uuid().nullable(), createdAt: z.string(), termsAccepted: z.boolean(), termsVersion: z.string().nullable() }),
+  member: z.object({ id: z.uuid(), name: z.string(), referralCode: z.string(), referrerId: z.uuid().nullable(), createdAt: z.string(), termsAccepted: z.boolean(), termsVersion: z.string().nullable(),
+    insuranceEnrolled: z.boolean().optional(), insuranceConsentAccepted: z.boolean().optional() }),
   applications: z.array(z.object({ id: z.uuid(), serviceKey: z.enum(['insurance', 'care', 'telecom', 'rental', 'car']), status: z.enum(['interest', 'settled', 'cancelled']), createdAt: z.string() })),
   benefits: z.array(z.object({ id: z.uuid(), serviceKey: z.enum(['care', 'telecom', 'rental', 'car']), amount: z.number().int().nonnegative().safe(), status: z.enum(['pending', 'paid']), dueAt: z.string() })),
 });
+const insuranceSessionSchema = z.object({ ok: z.literal(true), role: z.enum(['fc', 'admin', 'manager']), residentId: z.string().regex(/^\d{11}$/), appSessionToken: z.string().min(1) });
 const authSchema = z.union([
-  z.object({ ok: z.literal(true), insuranceSession: z.object({ ok: z.literal(true), role: z.enum(['fc', 'admin', 'manager']), residentId: z.string().regex(/^\d{11}$/), appSessionToken: z.string().min(1) }) }),
+  z.object({ ok: z.literal(true), insuranceSession: insuranceSessionSchema }),
   z.object({ ok: z.literal(true), memberId: z.uuid(), displayName: z.string().min(1), residentId: z.string().regex(/^\d{11}$/), appSessionToken: z.string().min(1), role: z.literal('member'), insuranceSession: z.undefined().optional() }),
 ]);
+const enrollmentSchema = z.object({ ok: z.literal(true), insuranceSession: insuranceSessionSchema, alreadyApplied: z.boolean() });
+const insuranceReferralSchema = z.object({ ok: z.literal(true), inviterFcId: z.uuid(), inviterName: z.string().min(1),
+  inviterAffiliation: z.string(), referralCode: z.string().min(1) });
 const hospitalSchema = z.object({
   id: z.uuid(), name: z.string().min(1), region: z.string(), provinceCode: z.string(), provinceName: z.string(), district: z.string(),
   address: z.string().nullable(), phone: z.string().nullable(), websiteUrl: z.string().nullable(), specialties: z.array(z.string()),
@@ -76,7 +86,15 @@ const messages: Record<string, string> = {
   invalid_app_session: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
   already_exists: '이미 가입된 번호입니다. 로그인해 주세요.',
   invalid_password: '휴대폰 번호와 비밀번호를 확인해 주세요.',
-  password_change_required: '임시 비밀번호를 변경해야 합니다. 보험·FC 업무 로그인에서 계속 진행해 주세요.',
+  password_change_required: '임시 비밀번호를 변경해야 합니다. 새 비밀번호를 설정해 주세요.',
+  needs_password_setup: '비밀번호를 먼저 설정해 주세요.',
+  not_completed: '공통 회원가입을 완료한 뒤 보험 업무에 필요한 정보를 등록해 주세요.',
+  insurance_consent_required: '보험 업무에 필요한 추가 정보와 개인정보 수집·이용 동의를 확인해 주세요.',
+  already_enrolled: '이미 등록한 보험 계정입니다. 다시 로그인해 주세요.',
+  invalid_details: '소속·이메일·통신사와 자격 정보를 확인해 주세요.',
+  referral_invalid: '보험 추천인을 다시 확인해 주세요.',
+  invalid_referral_code: '보험 추천 코드를 다시 확인해 주세요.',
+  idempotency_conflict: '이미 처리한 등록 요청입니다. 내 정보를 다시 확인해 주세요.',
   invalid_code: '인증번호를 확인해 주세요.',
   expired_code: '인증번호가 만료되었습니다. 새로 요청해 주세요.',
   invalid_referral: '추천 코드를 확인해 주세요.',
@@ -105,8 +123,9 @@ const messages: Record<string, string> = {
   invalid_phone: '올바른 휴대폰 번호를 입력해 주세요.',
   consent_required: '공통 서비스 이용을 위한 개인정보 수집·이용 내용을 확인해 주세요.',
   enrollment_required: '공통 서비스 이용을 위한 개인정보 수집·이용 내용을 확인해 주세요.',
+  common_membership_withdrawn: '공통 회원에서 탈퇴한 계정입니다. 다시 가입하려면 동의를 확인해 주세요.',
   invalid_terms: '최신 동의 내용을 확인한 뒤 다시 시도해 주세요.',
-  account_not_found: '가입한 휴대폰 번호를 확인해 주세요. 보험·FC 계정은 보험 로그인 화면에서 비밀번호를 변경할 수 있습니다.',
+  account_not_found: '가입한 휴대폰 번호를 확인해 주세요.',
   invalid_request: '비밀번호 변경 요청을 확인해주세요.',
   invalid_token: '인증 코드가 유효하지 않습니다.',
   expired_token: '인증 코드가 만료되었습니다. 새 코드를 요청해주세요.',
@@ -164,10 +183,25 @@ export async function platformRequest<T>(action: string, payload: Record<string,
         typeof wrappedContext?.message === 'string' ? wrappedContext.message : '',
       ].join(' ')));
       const code = typeof response?.code === 'string' ? response.code : timedOut ? 'request_timeout' : 'unavailable';
-      throw new PlatformApiError(messages[code] ?? (status === 401 ? messages.invalid_session : '연결하지 못했습니다. 입력 내용을 유지한 채 다시 시도해 주세요.'), code, status);
+      const loginRejection = action === 'login' ? {
+        ...(['fc', 'admin', 'manager'].includes(response?.role) ? { role: response.role as LoginResponse['role'] } : {}),
+        ...(typeof response?.passwordChangeToken === 'string' ? { passwordChangeToken: response.passwordChangeToken } : {}),
+        ...(typeof response?.passwordChangeExpiresAt === 'string' ? { passwordChangeExpiresAt: response.passwordChangeExpiresAt } : {}),
+      } : undefined;
+      const message = action === 'enroll_insurance' && ['consent_required', 'invalid_terms'].includes(code)
+        ? messages.insurance_consent_required : messages[code];
+      throw new PlatformApiError(message ?? (status === 401 ? messages.invalid_session : '연결하지 못했습니다. 입력 내용을 유지한 채 다시 시도해 주세요.'), code, status, loginRejection);
     }
   }
-  const schema = action === 'get_account' || action === 'verify' ? accountSchema : action === 'login' || action === 'signup' ? authSchema : hospitalResponseSchemas[action as keyof typeof hospitalResponseSchemas];
+  if (action === 'search_insurance_referral') {
+    try { parseSignupReferralSearchResponse(response); }
+    catch { throw new PlatformApiError('추천 조회 응답을 확인하지 못했습니다. 다시 시도해 주세요.', 'invalid_response'); }
+  }
+  const schema = action === 'get_account' || action === 'verify' ? accountSchema
+    : action === 'login' || action === 'signup' ? authSchema
+      : action === 'enroll_insurance' ? enrollmentSchema
+        : action === 'validate_insurance_referral' ? insuranceReferralSchema
+          : hospitalResponseSchemas[action as keyof typeof hospitalResponseSchemas];
   if (schema && !schema.safeParse(response).success) throw new PlatformApiError('응답을 확인하지 못했습니다. 기존 내용을 유지한 채 다시 확인해 주세요.', 'invalid_response');
   return response as T;
 }

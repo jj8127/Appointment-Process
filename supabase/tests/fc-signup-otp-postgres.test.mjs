@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import test, { after, before } from 'node:test';
 
@@ -530,4 +531,120 @@ test('a winning issuance invalidates a waiting stale completion proof', async ()
       signup_completed: false,
     },
   );
+});
+
+let platformContractsReady = false;
+async function installPlatformContracts() {
+  if (platformContractsReady) return;
+  await db.query(`
+    alter table admin_accounts add column name text default 'Synthetic Admin',
+      add column active boolean not null default true, add column staff_type text default 'admin',
+      add column password_hash text default '', add column password_salt text default '',
+      add column password_set_at timestamptz, add column created_at timestamptz default clock_timestamp();
+    alter table manager_accounts add column name text default 'Synthetic Manager',
+      add column password_hash text default '', add column password_salt text default '',
+      add column password_set_at timestamptz, add column created_at timestamptz default clock_timestamp();
+    create table fc_documents(id uuid primary key default gen_random_uuid(),
+      fc_id uuid references fc_profiles(id) on delete cascade);
+  `);
+  for (const filename of [
+    '20261004133155_credential_session_generations.sql',
+    '20261004143855_activate_credential_session_generations.sql',
+    '20261012072525_platform_common_membership.sql',
+    '20261012072614_platform_membership_recovery_consent.sql',
+    '20261014043557_unified_common_insurance_enrollment.sql',
+  ]) {
+    const sql = await readFile(new URL(`../migrations/${filename}`, import.meta.url), 'utf8');
+    await db.query('begin');
+    try { await db.query(sql); await db.query('commit'); }
+    catch (error) { await db.query('rollback'); throw error; }
+  }
+  platformContractsReady = true;
+}
+
+async function registerCommon(client, phone, referral = null) {
+  return (await client.query('select register_platform_member($1,$2,$3,$4,$5,$6) result',
+    [phone, HASH_A, 'Synthetic common member', HASH_B, PASSWORD_SALT, referral])).rows[0].result;
+}
+
+test('common registration waits for legacy completion and cannot create a competing password authority', async () => {
+  await installPlatformContracts();
+  const phone = '01033330031';
+  await seedCompletionReady(phone);
+  assert.equal((await db.query('select issue_platform_signup_otp($1,$2) result', [phone, HASH_A])).rows[0].result.ok, true);
+  const completer = await connect(); const registrant = await connect();
+  await completer.query('set role service_role'); await registrant.query('set role service_role');
+  await completer.query('begin');
+  assert.equal((await complete(completer, phone)).ok, true);
+  const pending = registerCommon(registrant, phone);
+  await waitForAdvisoryLock(registrant); await completer.query('commit');
+  assert.equal((await pending).code, 'already_exists');
+  assert.equal(Number((await db.query('select count(*) n from platform_member_credentials c join platform_members m on m.id=c.member_id where m.phone=$1', [phone])).rows[0].n), 0);
+  assert.equal((await db.query('select c.password_hash from fc_credentials c join fc_profiles f on f.id=c.fc_id where f.phone=$1', [phone])).rows[0].password_hash, PASSWORD_HASH);
+});
+
+test('legacy completion waits for common registration and cannot replace its credential or skip service consent', async () => {
+  await installPlatformContracts();
+  const phone = '01033330032';
+  await seedCompletionReady(phone);
+  assert.equal((await db.query('select issue_platform_signup_otp($1,$2) result', [phone, HASH_A])).rows[0].result.ok, true);
+  const registrant = await connect(); const completer = await connect();
+  await registrant.query('set role service_role'); await completer.query('set role service_role');
+  await registrant.query('begin');
+  const member = await registerCommon(registrant, phone);
+  assert.equal(member.ok, true);
+  const pending = complete(completer, phone);
+  await waitForAdvisoryLock(completer); await registrant.query('commit');
+  assert.equal((await pending).ok, false);
+  const current = (await db.query('select m.fc_id,m.insurance_consent_version,c.password_hash from platform_members m join platform_member_credentials c on c.member_id=m.id where m.id=$1', [member.memberId])).rows[0];
+  assert.deepEqual(current, { fc_id: null, insurance_consent_version: null, password_hash: HASH_B });
+  assert.equal(Number((await db.query('select count(*) n from fc_credentials c join fc_profiles f on f.id=c.fc_id where f.phone=$1', [phone])).rows[0].n), 0);
+});
+
+test('common-to-FC enrollment commits one conversion and exact retries stop after canonical password revocation', async () => {
+  await installPlatformContracts();
+  const inviterPhone = '01033330040'; const phone = '01033330041';
+  await db.query('select issue_platform_signup_otp($1,$2)', [inviterPhone, HASH_A]);
+  const commonInviter = await registerCommon(db, inviterPhone);
+  const commonCode = (await db.query('select referral_code from platform_members where id=$1', [commonInviter.memberId])).rows[0].referral_code;
+  await db.query('select issue_platform_signup_otp($1,$2)', [phone, HASH_A]);
+  const member = await registerCommon(db, phone, commonCode);
+  const operation = randomUUID(); const fingerprint = 'c'.repeat(64);
+  const enroll = async (client, requestFingerprint = fingerprint) => (await client.query(
+    'select enroll_platform_insurance_v1($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) result',
+    [member.memberId, phone, 0, operation, requestFingerprint, 'insurance-additional-info-v1',
+      'Synthetic headquarters', 'member@example.com', 'SKT', ['life'], 'GOODCODE', INVITER_ID])).rows[0].result;
+  const first = await connect(); const second = await connect();
+  await first.query('set role service_role'); await second.query('set role service_role');
+  await first.query('begin');
+  const winner = await enroll(first);
+  assert.equal(winner.ok, true); assert.equal(winner.alreadyApplied, false);
+  const pending = enroll(second);
+  await waitForAdvisoryLock(second); await first.query('commit');
+  const replay = await pending;
+  assert.equal(replay.alreadyApplied, true); assert.equal(replay.fcId, winner.fcId);
+  assert.equal(replay.sessionVersion, winner.sessionVersion);
+  assert.equal(Number((await db.query('select count(*) n from fc_profiles where phone=$1', [phone])).rows[0].n), 1);
+  assert.equal(Number((await db.query('select count(*) n from platform_member_credentials where member_id=$1', [member.memberId])).rows[0].n), 0);
+  assert.equal((await db.query('select referrer_id from platform_members where id=$1', [member.memberId])).rows[0].referrer_id, commonInviter.memberId);
+  const profile = (await db.query('select status,life_commission_completed,nonlife_commission_completed,recommender_fc_id from fc_profiles where id=$1', [winner.fcId])).rows[0];
+  assert.deepEqual(profile, { status: 'draft', life_commission_completed: false, nonlife_commission_completed: false, recommender_fc_id: INVITER_ID });
+  await assert.rejects(enroll(second, 'd'.repeat(64)), /idempotency_conflict/);
+  const writer = await connect();
+  await writer.query('begin');
+  await writer.query('update fc_credentials set password_hash=$1 where fc_id=$2', [PASSWORD_HASH, winner.fcId]);
+  const staleRetry = assert.rejects(enroll(second), /idempotency_conflict/);
+  // Enrollment retries lock the canonical credential after the source profile.
+  const deadline = Date.now() + 3000;
+  let waiting = false;
+  while (Date.now() < deadline) {
+    if ((await db.query('select wait_event_type from pg_stat_activity where pid=$1', [second.processID])).rows[0]?.wait_event_type === 'Lock') { waiting = true; break; }
+    await delay(10);
+  }
+  assert.equal(waiting, true); await writer.query('commit');
+  await staleRetry;
+  assert.equal(Number((await db.query('select session_version from fc_credentials where fc_id=$1', [winner.fcId])).rows[0].session_version), winner.sessionVersion + 1);
+  await db.query('delete from fc_profiles where id=$1', [winner.fcId]);
+  assert.deepEqual((await db.query('select active,phone,fc_id from platform_members where id=$1', [member.memberId])).rows[0], { active: false, phone: null, fc_id: null });
+  await assert.rejects(enroll(second), /forbidden/);
 });

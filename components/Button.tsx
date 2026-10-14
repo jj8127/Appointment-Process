@@ -122,6 +122,7 @@ export function Button({
             variantStyles.text,
             sizeStyles.text,
             textStyle,
+            variant === 'primary' && !isDisabled && variantStyles.text,
           ]}
           numberOfLines={1}
         >

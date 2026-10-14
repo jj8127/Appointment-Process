@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
-import { Redirect, Stack, router, useLocalSearchParams } from 'expo-router';
-import { useRef, useState } from 'react';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -10,23 +10,70 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import ModuonBrand from '@/components/ModuonBrand';
 import { useSession } from '@/hooks/use-session';
 import { useLogin } from '@/hooks/use-login';
-import { platformRequest, type PlatformAuthResponse } from '@/lib/platform-api';
+import { PlatformApiError, platformRequest, type PlatformAuthResponse } from '@/lib/platform-api';
 import { captureAppSessionOwner } from '@/lib/request-board-api';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/lib/theme';
-import { resolvePlatformAuthRoute } from '@/lib/session-landing';
+import { resolvePlatformAuthRoute, resolveSessionLandingRoute } from '@/lib/session-landing';
+import { waitForNotificationNavigationDecision } from '@/lib/notification-navigation-coordinator';
+import { clearSavedLoginCredentials, getSavedLoginCredentials, setSavedLoginCredentials } from '@/lib/saved-login-credentials';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 import { normalizePhone, validatePhone, validateRequired } from '@/lib/validation';
 
 export default function PlatformLogin() {
-  const { service } = useLocalSearchParams<{ service?: string }>();
-  const { hydrated, isPlatformSignedIn, loginPlatformMember } = useSession();
-  const { acceptLoginResponse } = useLogin();
+  const { service, skipAuto } = useLocalSearchParams<{ service?: string; skipAuto?: string }>();
+  const { hydrated, role, residentId, appSessionToken, platformSessionToken, isRequestBoardDesigner, isPlatformSignedIn, loginPlatformMember } = useSession();
+  const { acceptLoginResponse, handleLoginRejection } = useLogin();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [rememberPassword, setRememberPassword] = useState(false);
+  const [manualLoginSucceeded, setManualLoginSucceeded] = useState(false);
   const pending = useRef(false);
+  const rememberPasswordPressInHandledRef = useRef(false);
   const beginAttempt = useReadAttempt();
+  const sessionKey = JSON.stringify([role, residentId, appSessionToken, platformSessionToken]);
+  const currentSessionKey = useRef(sessionKey);
+  currentSessionKey.current = sessionKey;
+
+  useEffect(() => {
+    let active = true;
+    void getSavedLoginCredentials().then(saved => {
+      if (!active || !saved) return;
+      setPhone(saved.phone); setPassword(saved.password); setRememberPassword(true);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || (skipAuto === '1' && !manualLoginSucceeded)) return;
+    const route = resolveSessionLandingRoute({ role, residentId, isRequestBoardDesigner,
+      isPlatformSignedIn, requestedService: service });
+    if (!route) return;
+    let active = true;
+    void waitForNotificationNavigationDecision().then(hasPending => {
+      if (!active || hasPending) return;
+      if (route === '/services/account') router.dismissTo(route);
+      else router.replace(route);
+    });
+    return () => { active = false; };
+  }, [hydrated, role, residentId, isRequestBoardDesigner, isPlatformSignedIn, service, skipAuto, manualLoginSucceeded]);
+
+  const toggleRememberPassword = useCallback(() => {
+    if (rememberPassword) void clearSavedLoginCredentials().catch(() => undefined);
+    setRememberPassword(current => !current);
+  }, [rememberPassword]);
+  const handleRememberPasswordPressIn = useCallback(() => {
+    rememberPasswordPressInHandledRef.current = true;
+    toggleRememberPassword();
+  }, [toggleRememberPassword]);
+  const handleRememberPasswordPress = useCallback(() => {
+    if (rememberPasswordPressInHandledRef.current) {
+      rememberPasswordPressInHandledRef.current = false;
+      return;
+    }
+    toggleRememberPassword();
+  }, [toggleRememberPassword]);
 
   const login = async () => {
     if (pending.current) return;
@@ -43,17 +90,25 @@ export default function PlatformLogin() {
         phone: normalizePhone(phone), password: password.trim(),
       });
       if (!isCurrent() || !ownsSession()) return;
-      if (result.insuranceSession) await acceptLoginResponse(result.insuranceSession);
+      if (result.insuranceSession) {
+        const accepted = await acceptLoginResponse(result.insuranceSession, normalizePhone(phone),
+          () => isCurrent() && currentSessionKey.current === sessionKey);
+        if (!accepted) return;
+      }
       else await loginPlatformMember({ id: result.memberId, name: result.displayName }, result.appSessionToken);
-      if (isCurrent()) router.replace(resolvePlatformAuthRoute(service));
+      if (!isCurrent()) return;
+      setManualLoginSucceeded(true);
+      await setSavedLoginCredentials({ rememberPassword, phone, password }).catch(() => undefined);
     } catch (failure) {
-      if (isCurrent()) setError(failure instanceof Error ? failure.message : '로그인하지 못했습니다. 다시 시도해주세요.');
+      if (!isCurrent() || !ownsSession()) return;
+      if (failure instanceof PlatformApiError && await handleLoginRejection({
+        ok: false, code: failure.code, ...failure.loginRejection,
+      }, service, () => isCurrent() && currentSessionKey.current === sessionKey)) return;
+      setError(failure instanceof Error ? failure.message : '로그인하지 못했습니다. 다시 시도해주세요.');
     } finally {
       if (isCurrent()) { pending.current = false; setLoading(false); }
     }
   };
-
-  if (hydrated && isPlatformSignedIn) return <Redirect href={resolvePlatformAuthRoute(service)} />;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -65,7 +120,7 @@ export default function PlatformLogin() {
         </Pressable>
         <ModuonBrand />
       </View>
-      <KeyboardAwareWrapper contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareWrapper contentContainerStyle={styles.content} keyboardShouldPersistTaps="always">
         <Text style={styles.title}>한 번의 로그인으로{`\n`}여러 서비스를 이용하세요</Text>
         <Text style={styles.description}>기존 가람in 계정으로도 로그인할 수 있습니다.</Text>
         <FormInput label="휴대폰 번호" accessibilityLabel="휴대폰 번호" value={phone}
@@ -74,16 +129,19 @@ export default function PlatformLogin() {
         <FormInput label="비밀번호" accessibilityLabel="비밀번호" value={password}
           onChangeText={setPassword} variant="password" autoCapitalize="none"
           editable={!loading} returnKeyType="done" onSubmitEditing={login} containerStyle={styles.field} />
+        <Pressable accessibilityRole="checkbox" accessibilityLabel="비밀번호 저장"
+          accessibilityState={{ checked: rememberPassword }} disabled={loading}
+          onPressIn={handleRememberPasswordPressIn} onPress={handleRememberPasswordPress} style={styles.remember}>
+          <Feather name={rememberPassword ? 'check-square' : 'square'} size={22} color={COLORS.primary} />
+          <Text style={styles.linkText}>비밀번호 저장</Text>
+        </Pressable>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        <Button loading={loading} disabled={loading || !hydrated} onPress={login} fullWidth>로그인</Button>
-        <Pressable accessibilityRole="button" disabled={loading} onPress={() => router.push({ pathname: '/reset-password', params: { audience: 'platform', ...(typeof service === 'string' ? { service } : {}) } })} style={styles.link}>
+        <Button loading={loading} disabled={loading || !hydrated} onPress={login} submitOnPressIn dismissKeyboardOnPress fullWidth>로그인</Button>
+        <Pressable accessibilityRole="button" disabled={loading} onPress={() => router.push({ pathname: '/reset-password', params: { audience: 'platform', ...(typeof service === 'string' ? { service } : {}), ...(skipAuto === '1' ? { skipAuto } : {}) } })} style={styles.link}>
           <Text style={styles.linkText}>비밀번호 찾기</Text>
         </Pressable>
         <Pressable accessibilityRole="button" disabled={loading} onPress={() => router.replace(resolvePlatformAuthRoute(service, 'signup'))} style={styles.link}>
           <Text style={styles.linkText}>모두온 회원가입</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" disabled={loading} onPress={() => router.push('/login?service=insurance')} style={styles.link}>
-          <Text style={styles.linkText}>보험·FC 업무 로그인</Text>
         </Pressable>
       </KeyboardAwareWrapper>
     </SafeAreaView>
@@ -98,6 +156,7 @@ const styles = StyleSheet.create({
   title: { fontSize: TYPOGRAPHY.fontSize['2xl'], fontWeight: '700', color: COLORS.text.primary, lineHeight: 34 },
   description: { fontSize: TYPOGRAPHY.fontSize.base, color: COLORS.text.secondary, lineHeight: 23, marginTop: SPACING.sm, marginBottom: SPACING['2xl'] },
   field: { marginBottom: SPACING.lg },
+  remember: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center', minHeight: 44, marginBottom: SPACING.base },
   error: { color: COLORS.error, fontSize: TYPOGRAPHY.fontSize.sm, lineHeight: 20, marginBottom: SPACING.base },
   link: { minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: SPACING.sm },
   linkText: { color: COLORS.text.secondary, fontSize: TYPOGRAPHY.fontSize.base, textDecorationLine: 'underline' },

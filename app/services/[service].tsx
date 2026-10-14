@@ -35,13 +35,13 @@ export default function ServiceInformationRoute() {
     <Text accessibilityRole="header" style={styles.title}>먼저 서비스를 살펴보세요</Text>
     <View style={styles.list}>
       <Text style={styles.item}>서비스 안내는 로그인 전에 확인할 수 있습니다.</Text>
-      <Text style={styles.item}>보험·FC 업무는 기존 FC 계정으로 로그인한 후 이용합니다. 필요한 본인확인은 업무 진입 시 안내합니다.</Text>
+      <Text style={styles.item}>보험·FC 업무는 모두온 로그인 후 이용합니다. 처음 이용할 때 필요한 추가 정보와 본인확인을 안내합니다.</Text>
       <Text style={styles.item}>공통 회원가입은 한 번만 합니다. 서비스별로 필요한 추가 정보는 이용을 신청할 때 입력합니다.</Text>
       <Text style={styles.item}>추천 관계는 모든 서비스에서 하나로 연결합니다. 이용료 지급 비율과 정산은 제휴 서비스별로 다릅니다.</Text>
       <Text style={styles.item}>지급 대상 금액은 제휴사별 수수료 정산 완료일부터 일주일 이내에 정해진 비율로 지급합니다. 보험 증원수당과는 별도입니다.</Text>
       <Text style={styles.item}>준비 중인 서비스는 이용 방법이 확정되면 안내합니다.</Text>
     </View>
-    <ServiceAction label="내 정보 · 회원가입" onPress={() => router.push('/services/account')} />
+    <ServiceAction label="내 정보 · 회원가입" onPress={() => router.navigate('/services/account')} />
     <ServiceAction label="서비스 홈으로" onPress={home} />
   </ServiceInformation>;
 
@@ -73,7 +73,7 @@ export default function ServiceInformationRoute() {
   if (key === 'insurance') return <ServiceInformation title="가람in · 보험" service="insurance">
     <Text style={styles.badge}>보험 상담 준비 중</Text>
     <Text accessibilityRole="header" style={styles.title}>가람in 보험 서비스</Text>
-    <Text style={styles.body}>보험 상담 서비스를 준비하고 있습니다. FC 전용 시험·서류·설계 업무는 기존 FC 계정으로 이용할 수 있습니다.</Text>
+    <Text style={styles.body}>보험 상담 서비스를 준비하고 있습니다. 모두온 로그인 후 FC 업무에 필요한 정보를 등록하면 시험·서류·설계 업무를 이용할 수 있습니다.</Text>
     <ServiceAction label="보험·FC 업무" onPress={() => {
       const route = resolveInsuranceServiceRoute(session); if (route) router.push(route);
     }} />
@@ -82,7 +82,7 @@ export default function ServiceInformationRoute() {
   if (key === 'hospital') return <ServiceInformation title="제휴병원" service="hospital">
     <Text accessibilityRole="header" style={styles.title}>지역별 병원 안내</Text>
     <Text style={styles.body}>확인된 제휴 병원을 지역과 이름으로 찾아보세요. 병원 방문에 따른 추천 수당은 제공하지 않습니다.</Text>
-    <ServiceAction label="제휴병원 찾아보기" onPress={() => router.push('/services/hospitals')} />
+    <ServiceAction label="제휴병원 찾아보기" onPress={() => router.navigate('/services/hospitals')} />
   </ServiceInformation>;
 
   const title = key === 'telecom' ? '통신' : key === 'rental' ? '렌탈' : '자동차';

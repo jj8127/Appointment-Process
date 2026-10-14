@@ -2,15 +2,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 describe('referral permission contract', () => {
-  it('discards authenticated invite state and keeps signup referral wording mandatory', () => {
-    const source = readFileSync(join(process.cwd(), 'app', 'signup.tsx'), 'utf8');
-
-    expect(source).toContain('추천인 (필수)');
-    expect(source).not.toContain('추천인 (선택)');
-    expect(source).not.toContain('savePendingReferralCode');
-    expect(source).not.toContain("router.replace({ pathname: '/referral'");
-    expect(source).toContain('void consumePendingReferralCode()');
-    expect(source).not.toContain('입력값을 지워주세요');
+  it('keeps insurance invitations outside the common signup referrer', () => {
+    const legacy = readFileSync(join(process.cwd(), 'components', 'LegacySignupRedirect.tsx'), 'utf8');
+    const common = readFileSync(join(process.cwd(), 'app', 'services', 'signup.tsx'), 'utf8');
+    expect(legacy).toContain('!role && code');
+    expect(legacy).toContain('savePendingReferralCode(code)');
+    expect(legacy).not.toContain("savePendingReferralCode(code, 'care')");
+    expect(common).toContain("consumePendingReferralCode('care')");
+    expect(common).not.toContain('consumePendingReferralCode()');
   });
 
   it('keeps the FC referral surface read/share-only', () => {

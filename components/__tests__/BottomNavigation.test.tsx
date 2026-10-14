@@ -10,7 +10,7 @@ import { COLORS, SHADOWS } from '@/lib/theme';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { create } = require('react-test-renderer');
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-const router = { push: jest.fn(), replace: jest.fn(), setParams: jest.fn() };
+const router = { push: jest.fn(), navigate: jest.fn(), replace: jest.fn(), setParams: jest.fn() };
 let pathname = '/board';
 const exported: Record<string, unknown> = {};
 const output = ts.transpileModule(readFileSync(join(__dirname, '../BottomNavigation.tsx'), 'utf8'), {
@@ -60,8 +60,17 @@ describe('bottom navigation service context', () => {
     expect(buttons.find((item: { props: Record<string, unknown> }) => item.props.accessibilityLabel === '이용내역').props['aria-current']).toBe('page');
     expect(buttons.find((item: { props: Record<string, unknown> }) => item.props.accessibilityLabel === '홈').props['aria-current']).toBeUndefined();
     press('홈');
-    expect(router.push).toHaveBeenCalledWith('/');
+    expect(router.navigate).toHaveBeenCalledWith('/');
     expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it('repeated account entry reuses navigation instead of dispatching duplicate pushes', () => {
+    pathname = '/';
+    mount({ preset: 'service-hub', activeKey: 'home' });
+    press('내 정보'); press('내 정보');
+    expect(router.navigate).toHaveBeenCalledTimes(2);
+    expect(router.navigate.mock.calls.every(([route]) => route === '/services/account')).toBe(true);
+    expect(router.push).not.toHaveBeenCalled();
   });
 
   it.each(['admin-onboarding', 'admin-exam', 'manager'])('preserves %s onboarding and exam routing', (preset) => {

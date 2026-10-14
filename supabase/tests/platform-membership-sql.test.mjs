@@ -12,9 +12,10 @@ const recoveryMigration=await readFile(new URL('../migrations/20261012072614_pla
 const smsDeliveryMigration=await readFile(new URL('../migrations/20261013094533_moduon_signup_sms_delivery_state.sql',import.meta.url),'utf8');
 const extendedSmsDeliveryMigration=await readFile(new URL('../migrations/20261013094539_extend_sms_delivery_tracking.sql',import.meta.url),'utf8');
 const generations=await readFile(new URL('../migrations/20261004133155_credential_session_generations.sql',import.meta.url),'utf8');
+const enrollmentMigration=await readFile(new URL('../migrations/20261014043557_unified_common_insurance_enrollment.sql',import.meta.url),'utf8');
 const admin='90000000-0000-4000-8000-000000000001';
 const hash=Buffer.alloc(32,3).toString('base64'), salt=Buffer.alloc(16,4).toString('base64');
-async function fixture() {
+async function fixture(seedSql='') {
   const db=new PGlite();
   await db.exec(fixtureSql);
   await db.exec(`alter table fc_profiles add column name text default 'Synthetic FC';
@@ -25,11 +26,47 @@ async function fixture() {
     alter table admin_accounts add column name text default 'Synthetic Admin';
     alter table manager_accounts add column id uuid default gen_random_uuid() unique;
     alter table manager_accounts add column name text default 'Synthetic Manager';
-    create table referral_codes(fc_id uuid,code text,is_active boolean);
+    alter table admin_accounts add column password_set_at timestamptz default now();
+    alter table admin_accounts add column session_version bigint default 0;
+    alter table manager_accounts add column password_set_at timestamptz default now();
+    alter table manager_accounts add column session_version bigint default 0;
+    alter table fc_profiles alter column id set default gen_random_uuid();
+    create unique index on fc_profiles(phone);
+    alter table fc_profiles add column affiliation text default '가람';
+    alter table fc_profiles add column temp_id text;
+    alter table fc_profiles add column identity_completed boolean default false;
+    alter table fc_profiles add column email text;
+    alter table fc_profiles add column carrier text;
+    alter table fc_profiles add column license_statuses text[];
+    alter table fc_profiles add column phone_verification_hash text;
+    alter table fc_profiles add column phone_verification_expires_at timestamptz;
+    alter table fc_profiles add column signup_verification_method text;
+    alter table fc_profiles add column signup_verified_at timestamptz;
+    alter table fc_profiles add column signup_verified_by_admin_id uuid;
+    alter table fc_profiles add column updated_at timestamptz default now();
+    alter table fc_profiles add column created_at timestamptz default now();
+    create table fc_identity_secure(fc_id uuid primary key references fc_profiles(id) on delete cascade);
+    create table fc_credentials(fc_id uuid primary key references fc_profiles(id) on delete cascade,
+      password_hash text not null,password_salt text not null,password_set_at timestamptz,session_version bigint not null default 0,
+      failed_count integer default 0,locked_until timestamptz,must_change_password boolean default false,
+      reset_token_hash text,reset_token_expires_at timestamptz,reset_sent_at timestamptz,reset_failed_count integer default 0,
+      created_at timestamptz default now(),updated_at timestamptz default now());
+    create table fc_signup_completion_challenges(fc_id uuid primary key references fc_profiles(id) on delete cascade,
+      token_hash text,expires_at timestamptz,consumed_at timestamptz,request_fingerprint text,result jsonb,updated_at timestamptz);
+    insert into fc_credentials(fc_id,password_hash,password_salt,password_set_at) values('${fc}','${hash}','${salt}',now());
+    create table referral_codes(id uuid primary key default gen_random_uuid(),fc_id uuid,code text unique,is_active boolean);
+    create function apply_referral_link_state(p_invitee_fc_id uuid,p_inviter_fc_id uuid,p_referral_code_id uuid,
+      p_referral_code text,p_source text,p_actor_phone text,p_actor_role text,p_actor_staff_type text,p_reason text)
+      returns jsonb language plpgsql as $$ begin
+      update fc_profiles set recommender_fc_id=p_inviter_fc_id where id=p_invitee_fc_id;
+      if p_referral_code='FAILAPPLY' then raise exception 'synthetic_referral_failure'; end if;
+      return '{"ok":true}'::jsonb; end $$;
+    grant all on all tables in schema public to service_role;
   `);
   await db.exec(generations.slice(generations.indexOf('create or replace function public.advance_credential_session_version()'),
     generations.indexOf('-- The service verifies')));
-  try {await db.exec(migration);await db.exec(hospitalMigration);await db.exec(recoveryMigration);await db.exec(smsDeliveryMigration);await db.exec(extendedSmsDeliveryMigration);}
+  try {await db.exec(migration);await db.exec(hospitalMigration);await db.exec(recoveryMigration);await db.exec(smsDeliveryMigration);await db.exec(extendedSmsDeliveryMigration);
+    if(seedSql) await db.exec(seedSql);await db.exec(enrollmentMigration);}
   catch(error) {await db.close();throw new Error(error.message);}
   return db;
 }
@@ -154,7 +191,7 @@ test('minimal signup consumes OTP atomically, locks attempts, and has no FC or d
     await assert.rejects(db.query('select issue_platform_signup_otp($1,$2)',['00000000013',hash]),/permission denied/);
     await db.exec('reset role');
     const rls=(await db.query("select relname,relrowsecurity from pg_class where relname like 'platform_%' and relkind='r'")).rows;
-    assert.equal(rls.length,9);assert.ok(rls.every(row=>row.relrowsecurity));
+    assert.equal(rls.length,10);assert.ok(rls.every(row=>row.relrowsecurity));
   }finally{await db.close();}
 });
 
@@ -337,6 +374,7 @@ test('auth cleanup removes expired receipts while preserving live codes and acti
     const canonical=await readFile(new URL('../schema.sql',import.meta.url),'utf8');
     assert.ok(canonical.replaceAll('\r\n','\n').includes(recoveryMigration.replaceAll('\r\n','\n')));
     assert.ok(canonical.replaceAll('\r\n','\n').includes(smsDeliveryMigration.replaceAll('\r\n','\n')));
+    assert.ok(canonical.replaceAll('\r\n','\n').includes(enrollmentMigration.replaceAll('\r\n','\n').trimEnd()));
     const schedule=await readFile(new URL('../migrations/20261012072615_platform_auth_cleanup_schedule.sql',import.meta.url),'utf8');
     assert.match(schedule,/create extension if not exists pg_cron with schema pg_catalog/);
     assert.match(schedule,/cron\.schedule\('platform-auth-challenge-cleanup','\*\/5 \* \* \* \*'/);
@@ -379,7 +417,7 @@ test('care direct referral uses configured basis and recorded transfers are idem
 
 test('FC mapping preserves member identity across phone edits and consumer promotion retains shared referrer',async()=>{
   const db=await fixture();try{
-    assert.equal(Number((await db.query('select count(*) n from platform_members where fc_id=$1',[fc])).rows[0].n),0);
+    assert.equal(Number((await db.query('select count(*) n from platform_members where fc_id=$1',[fc])).rows[0].n),1);
     await rpc(db,'select enroll_platform_legacy_member($1,$2,$3,$4) result',['00000000002','Synthetic FC',fc,'2026-10-12']);
     const mapped=(await db.query('select id from platform_members where fc_id=$1',[fc])).rows[0].id;
     await db.query("update fc_profiles set phone='00000000020' where id=$1",[fc]);
@@ -399,29 +437,50 @@ test('FC mapping preserves member identity across phone edits and consumer promo
   }finally{await db.close();}
 });
 
-test('common withdrawal preserves FC work and erases signup receipts after promotion and phone changes',async()=>{
+test('common withdrawal keeps historical UUIDs and blocks automatic import while fresh explicit acceptance preserves FC work',async()=>{
   const db=await fixture();try {
     const created=await member(db),promoted='10000000-0000-4000-8000-000000000021';
     await db.query("insert into fc_profiles(id,phone,name,signup_completed) values($1,'00000000011','Synthetic FC',true)",[promoted]);
     await db.query("update fc_profiles set phone='00000000021' where id=$1",[promoted]);
     const application=await apply(db,created.memberId);
+    const originalReferralCode=(await db.query('select referral_code from platform_members where id=$1',[created.memberId])).rows[0].referral_code;
+    const child=await member(db,'00000000012',originalReferralCode);
+    const settledApplication=await apply(db,created.memberId,'telecom',randomUUID());
+    const settlementPartner=await partner(db);
+    await settle(db,settledApplication.applicationId,settlementPartner.partnerId);
+    const settlementId=(await db.query('select id from platform_partner_settlements where application_id=$1',[settledApplication.applicationId])).rows[0].id;
     assert.equal((await rpc(db,'select delete_platform_member($1) result',[created.memberId])).deleted,true);
     assert.equal((await db.query('select phone from fc_profiles where id=$1',[promoted])).rows[0].phone,'00000000021');
     const erased=(await db.query('select phone,name,active,fc_id,terms_version,terms_accepted_at from platform_members where id=$1',[created.memberId])).rows[0];
     assert.deepEqual(erased,{phone:null,name:'탈퇴 회원',active:false,fc_id:null,terms_version:null,terms_accepted_at:null});
-    assert.equal(Number((await db.query('select count(*) n from platform_signup_challenges')).rows[0].n),0);
+    assert.equal(Number((await db.query('select count(*) n from platform_signup_challenges where consumed_member_id=$1',[created.memberId])).rows[0].n),0);
     assert.equal((await db.query('select status,details from platform_service_applications where id=$1',[application.applicationId])).rows[0].status,'cancelled');
     await db.query("update fc_profiles set name='Synthetic changed FC' where id=$1",[promoted]);
     assert.equal((await db.query('select phone from platform_members where id=$1',[created.memberId])).rows[0].phone,null);
+    assert.equal((await rpc(db,'select import_platform_legacy_member_v1($1,$2,$3) result',
+      ['00000000021','fc',promoted])).code,'common_membership_withdrawn');
+    assert.equal((await rpc(db,'select enroll_platform_legacy_member($1,$2,$3,$4) result',
+      ['00000000021','Synthetic changed FC',promoted,'2026-10-12'])).ok,true);
+    const renewed=(await db.query('select id,terms_basis,terms_accepted_at from platform_members where fc_id=$1',[promoted])).rows[0];
+    assert.notEqual(renewed.id,created.memberId);assert.equal(renewed.terms_basis,'user_acceptance');assert.ok(renewed.terms_accepted_at);
+    const acceptedAt=String(renewed.terms_accepted_at);
     await rpc(db,'select enroll_platform_legacy_member($1,$2,$3,$4) result',['00000000021','Synthetic changed FC',promoted,'2026-10-12']);
-    const reenrolled=(await db.query('select id from platform_members where fc_id=$1',[promoted])).rows[0].id;
-    assert.notEqual(reenrolled,created.memberId);
-    await db.query("insert into platform_signup_challenges(phone,code_hash,expires_at,consumed_member_id) values('00000000011',$1,now()+interval '5 minutes',$2)",[hash,reenrolled]);
+    assert.equal(String((await db.query('select terms_accepted_at from platform_members where id=$1',[renewed.id])).rows[0].terms_accepted_at),acceptedAt);
+    assert.equal((await rpc(db,'select import_platform_legacy_member_v1($1,$2,$3) result',
+      ['00000000021','fc',promoted])).code,'common_membership_withdrawn');
+    assert.equal((await db.query('select referrer_id from platform_members where id=$1',[child.memberId])).rows[0].referrer_id,created.memberId);
+    assert.equal((await db.query('select member_id,status from platform_service_applications where id=$1',[settledApplication.applicationId])).rows[0].member_id,created.memberId);
+    assert.equal((await db.query('select id from platform_partner_settlements where application_id=$1',[settledApplication.applicationId])).rows[0].id,settlementId);
+    assert.equal((await db.query('select member_id from platform_member_benefits where settlement_id=$1',[settlementId])).rows[0].member_id,created.memberId);
+    assert.equal(Number((await db.query('select count(*) n from platform_member_benefits where member_id=$1',[renewed.id])).rows[0].n),0);
+    assert.deepEqual((await db.query('select active,phone,withdrawal_source_kind,withdrawal_source_id from platform_members where id=$1',[created.memberId])).rows[0],
+      {active:false,phone:null,withdrawal_source_kind:'fc',withdrawal_source_id:promoted});
     await db.query('delete from fc_profiles where id=$1',[promoted]);
-    assert.equal((await db.query('select active,phone from platform_members where id=$1',[reenrolled])).rows[0].active,false);
-    assert.equal(Number((await db.query('select count(*) n from platform_signup_challenges')).rows[0].n),0);
+    assert.equal((await db.query('select active,phone from platform_members where id=$1',[created.memberId])).rows[0].active,false);
+    assert.equal((await db.query('select active,phone from platform_members where id=$1',[renewed.id])).rows[0].active,false);
+    assert.equal(Number((await db.query('select count(*) n from platform_signup_challenges where consumed_member_id in ($1,$2)',[created.memberId,renewed.id])).rows[0].n),0);
     for(const role of ['anon','authenticated']) {
-      await db.exec(`set role ${role}`);await assert.rejects(db.query('select delete_platform_member($1)',[reenrolled]),/permission denied/);await db.exec('reset role');
+      await db.exec(`set role ${role}`);await assert.rejects(db.query('select delete_platform_member($1)',[created.memberId]),/permission denied/);await db.exec('reset role');
     }
   } finally {await db.close();}
 });
@@ -439,24 +498,157 @@ test('staff enrollment and deletion use the verified source while common withdra
         await db.query('insert into fc_profiles(id,phone,name,signup_completed) values($1,$2,$3,true)',[shadow,phone,'Synthetic manager FC']);
         await db.query("update fc_profiles set name='Synthetic FC changed' where id=$1",[shadow]);
         assert.equal((await db.query('select fc_id from platform_members where id=$1',[mapped])).rows[0].fc_id,null);
-        await rpc(db,'select enroll_platform_legacy_member($1,$2,$3,$4,$5,$6) result',[phone,'Synthetic FC changed',shadow,'2026-10-12','fc',shadow]);
-        assert.equal((await db.query('select id from platform_members where fc_id=$1',[shadow])).rows[0].id,mapped);
-        await enroll();
+        await assert.rejects(rpc(db,'select enroll_platform_legacy_member($1,$2,$3,$4,$5,$6) result',
+          [phone,'Synthetic FC changed',shadow,'2026-10-12','fc',shadow]),/forbidden/);
         assert.equal((await db.query('select id from platform_members where staff_account_id=$1',[id])).rows[0].id,mapped);
         assert.equal((await db.query('select fc_id from platform_members where id=$1',[mapped])).rows[0].fc_id,null);
       }
       await rpc(db,'select delete_platform_member($1) result',[mapped]);
       assert.equal(Number((await db.query(`select count(*) n from ${table} where id=$1`,[id])).rows[0].n),1);
-      await enroll();
-      const current=(await db.query('select id from platform_members where staff_account_id=$1',[id])).rows[0].id;
-      assert.notEqual(current,mapped);mapped=current;
+      assert.equal((await rpc(db,'select import_platform_legacy_member_v1($1,$2,$3) result',[phone,kind,id])).code,'common_membership_withdrawn');
+      assert.equal((await enroll()).ok,true);
+      const renewed=(await db.query('select id,terms_basis,terms_accepted_at from platform_members where staff_account_id=$1',[id])).rows[0];
+      assert.notEqual(renewed.id,mapped);assert.equal(renewed.terms_basis,'user_acceptance');assert.ok(renewed.terms_accepted_at);
+      assert.equal((await db.query('select created_member_id from platform_legacy_membership_cohort where account_kind=$1 and account_id=$2',[kind,id])).rows[0].created_member_id,mapped);
+      assert.equal((await rpc(db,'select import_platform_legacy_member_v1($1,$2,$3) result',[phone,kind,id])).code,'common_membership_withdrawn');
       await db.query(`update ${table} set phone=$1,name='Synthetic changed Staff' where id=$2`,[changedPhone,id]);
-      assert.equal((await db.query('select phone from platform_members where id=$1',[mapped])).rows[0].phone,changedPhone);
-      await db.query("insert into platform_signup_challenges(phone,code_hash,expires_at,consumed_member_id) values($1,$2,now()+interval '5 minutes',$3)",[phone,hash,mapped]);
+      assert.equal((await db.query('select phone from platform_members where id=$1',[mapped])).rows[0].phone,null);
+      assert.equal((await db.query('select phone from platform_members where id=$1',[renewed.id])).rows[0].phone,changedPhone);
       await db.query(`delete from ${table} where id=$1`,[id]);
       const erased=(await db.query('select phone,active,staff_account_id,terms_version from platform_members where id=$1',[mapped])).rows[0];
       assert.deepEqual(erased,{phone:null,active:false,staff_account_id:null,terms_version:null});
+      assert.equal((await db.query('select active from platform_members where id=$1',[renewed.id])).rows[0].active,false);
       assert.equal(Number((await db.query('select count(*) n from platform_signup_challenges where consumed_member_id=$1',[mapped])).rows[0].n),0);
     }
   } finally {await db.close();}
+});
+
+test('legacy import records company attestation, keeps real consent dates and follows existing recruiters independent of login order',async()=>{
+  const recruit=randomUUID();
+  const db=await fixture(`insert into fc_profiles(id,phone,name,signup_completed,recommender_fc_id) values('${recruit}','00000000041','Synthetic Recruit',true,'${fc}');
+    insert into fc_credentials(fc_id,password_hash,password_salt,password_set_at) values('${recruit}','${hash}','${salt}',now());`);try {
+    const imported=await rpc(db,'select import_platform_legacy_member_v1($1,$2,$3) result',['00000000041','fc',recruit]);
+    const row=(await db.query('select * from platform_members where id=$1',[imported.memberId])).rows[0];
+    assert.equal(row.terms_accepted_at,null);assert.equal(row.terms_basis,'company_attested_import');
+    assert.equal(row.insurance_consent_source,'company_attested_import');assert.ok(row.terms_recorded_at);
+    assert.equal(row.referrer_id,(await db.query('select id from platform_members where fc_id=$1',[fc])).rows[0].id);
+    assert.equal((await rpc(db,'select import_platform_legacy_member_v1($1,$2,$3) result',['00000000041','fc',recruit])).memberId,imported.memberId);
+    const before=Number((await db.query('select count(*) n from platform_members')).rows[0].n);
+    await rpc(db,'select delete_platform_member($1) result',[imported.memberId]);
+    assert.equal((await rpc(db,'select import_platform_legacy_member_v1($1,$2,$3) result',['00000000041','fc',recruit])).code,'common_membership_withdrawn');
+    assert.equal(Number((await db.query('select count(*) n from platform_members')).rows[0].n),before);
+    assert.deepEqual((await db.query('select withdrawal_source_kind,withdrawal_source_id from platform_members where id=$1',[imported.memberId])).rows[0],
+      {withdrawal_source_kind:'fc',withdrawal_source_id:recruit});
+    const original=(await db.query('select id from platform_members where fc_id=$1',[fc])).rows[0].id;
+    await db.query("update platform_members set terms_accepted_at='2026-01-02T03:04:05Z',terms_basis='user_acceptance',terms_recorded_at='2026-01-02T03:04:05Z' where id=$1",[original]);
+    await rpc(db,'select import_platform_legacy_member_v1($1,$2,$3) result',['00000000002','fc',fc]);
+    assert.equal(new Date((await db.query('select terms_accepted_at from platform_members where id=$1',[original])).rows[0].terms_accepted_at).toISOString(),'2026-01-02T03:04:05.000Z');
+    const code=(await db.query('select referral_code from platform_members where id=$1',[original])).rows[0].referral_code;
+    assert.equal((await member(db,'00000000042',code)).ok,true);
+    const shadow=randomUUID();
+    await db.query("insert into fc_profiles(id,phone,name,signup_completed,is_manager_referral_shadow) values($1,'00000000043','Synthetic Shadow',true,true)",[shadow]);
+    await db.query('insert into fc_credentials(fc_id,password_hash,password_salt,password_set_at) values($1,$2,$3,now())',[shadow,hash,salt]);
+    assert.equal((await rpc(db,'select import_platform_legacy_member_v1($1,$2,$3) result',['00000000043','fc',shadow])).code,'company_attestation_unavailable');
+  }finally{await db.close();}
+});
+
+test('company cohort freezes eligible source IDs, maps manager recruiters and preserves chosen null referral and consent dates',async()=>{
+  const draft=randomUUID(),shadow=randomUUID(),recruited=randomUUID(),missingPassword=randomUUID();
+  const db=await fixture(`
+    insert into fc_profiles(id,phone,name,signup_completed,status) values('${draft}','00000000051','Synthetic Draft',false,'draft');
+    insert into fc_profiles(id,phone,name,signup_completed,is_manager_referral_shadow,status)
+      values('${shadow}','00000000003','Synthetic Manager Shadow',false,true,'draft');
+    insert into fc_profiles(id,phone,name,signup_completed,recommender_fc_id,status)
+      values('${recruited}','00000000052','Synthetic Recruited',true,'${shadow}','draft');
+    insert into fc_profiles(id,phone,name,signup_completed,status)
+      values('${missingPassword}','00000000053','Synthetic Missing Password',true,'draft');
+    insert into platform_members(phone,name,fc_id,referrer_id,terms_accepted_at,terms_version)
+      values('00000000002','Synthetic Existing Choice','${fc}',null,'2026-01-02T03:04:05Z','2026-10-12');
+  `);try {
+    const original=(await db.query('select id,referrer_id,terms_accepted_at from platform_members where fc_id=$1',[fc])).rows[0];
+    assert.equal(original.referrer_id,null);assert.equal(new Date(original.terms_accepted_at).toISOString(),'2026-01-02T03:04:05.000Z');
+    const managerId=(await db.query("select id from platform_members where staff_account_kind='manager'")).rows[0].id;
+    assert.equal((await db.query('select referrer_id from platform_members where fc_id=$1',[recruited])).rows[0].referrer_id,managerId);
+    assert.equal(Number((await db.query('select count(*) n from platform_members where fc_id=$1',[shadow])).rows[0].n),0);
+    assert.equal(Number((await db.query('select count(*) n from platform_members where fc_id=$1',[missingPassword])).rows[0].n),1);
+    await db.query('update fc_profiles set signup_completed=true where id=$1',[draft]);
+    assert.equal((await rpc(db,'select import_platform_legacy_member_v1($1,$2,$3) result',['00000000051','fc',draft])).code,'company_attestation_unavailable');
+    const future=randomUUID();
+    await db.query("insert into fc_profiles(id,phone,name,signup_completed) values($1,'00000000054','Synthetic Future',true)",[future]);
+    assert.equal((await rpc(db,'select import_platform_legacy_member_v1($1,$2,$3) result',['00000000054','fc',future])).code,'company_attestation_unavailable');
+    const imported=(await db.query('select id from platform_members where fc_id=$1',[recruited])).rows[0].id;
+    await rpc(db,'select enroll_platform_legacy_member($1,$2,$3,$4) result',['00000000052','Synthetic Recruited',recruited,'2026-10-12']);
+    const accepted=(await db.query('select terms_basis,terms_accepted_at from platform_members where id=$1',[imported])).rows[0];
+    assert.equal(accepted.terms_basis,'user_acceptance');assert.ok(accepted.terms_accepted_at);
+    for(const role of ['anon','authenticated']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.query('select * from platform_legacy_membership_cohort'),/permission denied/);
+      await assert.rejects(db.query("insert into platform_legacy_membership_cohort(account_kind,account_id) values('fc',$1)",[future]),/permission denied/);
+      await db.exec('reset role');
+    }
+  }finally{await db.close();}
+  await assert.rejects(fixture("insert into platform_members(name,phone,active) values('Synthetic historical withdrawal',null,false)"),/platform_withdrawal_provenance_required/);
+});
+
+async function insuranceEnrollment(db,created,overrides={}) {
+  const input={phone:'00000000011',version:0,key:'70000000-0000-4000-8000-000000000001',fingerprint:'a'.repeat(64),
+    consent:'insurance-additional-info-v1',affiliation:'가람',email:'synthetic@example.invalid',carrier:'KT',statuses:['life'],
+    code:'SYNTHETIC',inviter:fc,...overrides};
+  return rpc(db,'select enroll_platform_insurance_v1($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) result',
+    [created.memberId,input.phone,input.version,input.key,input.fingerprint,input.consent,input.affiliation,input.email,
+      input.carrier,input.statuses,input.code,input.inviter]);
+}
+
+test('explicit insurance enrollment transfers credentials once, preserves common referral and keeps identity/workflow gates',async()=>{
+  const db=await fixture();try {
+    await db.query("insert into referral_codes(fc_id,code,is_active) values($1,'SYNTHETIC',true)",[fc]);
+    const commonInviter=await member(db,'00000000012');
+    const commonCode=(await db.query('select referral_code from platform_members where id=$1',[commonInviter.memberId])).rows[0].referral_code;
+    const created=await member(db,'00000000011',commonCode);
+    const first=await insuranceEnrollment(db,created);
+    assert.equal(first.ok,true);assert.equal(first.alreadyApplied,false);
+    const profile=(await db.query('select name,phone,status,identity_completed,signup_completed,signup_verification_method,life_commission_completed,nonlife_commission_completed,recommender_fc_id from fc_profiles where id=$1',[first.fcId])).rows[0];
+    assert.deepEqual(profile,{name:'Synthetic Member',phone:'00000000011',status:'draft',identity_completed:false,signup_completed:true,
+      signup_verification_method:'platform_member_session',life_commission_completed:false,nonlife_commission_completed:false,recommender_fc_id:fc});
+    assert.deepEqual((await db.query('select password_hash,password_salt from fc_credentials where fc_id=$1',[first.fcId])).rows[0],{password_hash:hash,password_salt:salt});
+    assert.equal(Number((await db.query('select count(*) n from platform_member_credentials where member_id=$1',[created.memberId])).rows[0].n),0);
+    const common=(await db.query('select id,referrer_id,insurance_consent_source,insurance_consent_recorded_at from platform_members where fc_id=$1',[first.fcId])).rows[0];
+    assert.equal(common.id,created.memberId);assert.equal(common.referrer_id,commonInviter.memberId);assert.equal(common.insurance_consent_source,'user_acceptance');
+    const retry=await insuranceEnrollment(db,created);
+    assert.equal(retry.fcId,first.fcId);assert.equal(retry.alreadyApplied,true);
+    assert.equal(String((await db.query('select insurance_consent_recorded_at from platform_members where id=$1',[created.memberId])).rows[0].insurance_consent_recorded_at),String(common.insurance_consent_recorded_at));
+    await assert.rejects(insuranceEnrollment(db,created,{fingerprint:'b'.repeat(64)}),/idempotency_conflict/);
+    await assert.rejects(insuranceEnrollment(db,created,{key:randomUUID()}),/idempotency_conflict/);
+    await db.query('update fc_credentials set session_version=session_version+1 where fc_id=$1',[first.fcId]);
+    await assert.rejects(insuranceEnrollment(db,created),/idempotency_conflict/);
+    for(const role of ['anon','authenticated']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.query('select enroll_platform_insurance_v1($1,$2,0,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+        [created.memberId,'00000000011',randomUUID(),'a'.repeat(64),'insurance-additional-info-v1','가람','synthetic@example.invalid','KT',['life'],'SYNTHETIC',fc]),/permission denied/);
+      await db.exec('reset role');
+    }
+  }finally{await db.close();}
+});
+
+test('insurance registration rejects authority claims, stale common sessions and invalid referrals without partial conversion',async()=>{
+  const db=await fixture();try {
+    await db.query("insert into referral_codes(fc_id,code,is_active) values($1,'SYNTHETIC',true),($1,'FAILAPPLY',true)",[fc]);
+    const created=await member(db);
+    for(const [overrides,error] of [[{affiliation:'Synthetic 설계매니저'},/invalid_input/],[{version:9},/forbidden/],
+      [{consent:'unapproved'},/invalid_input/],[{code:'missing'},/invalid_referral/],[{inviter:randomUUID()},/invalid_referral/],
+      [{code:'FAILAPPLY'},/synthetic_referral_failure/]]) await assert.rejects(insuranceEnrollment(db,created,overrides),error);
+    assert.equal((await db.query('select fc_id,insurance_consent_recorded_at from platform_members where id=$1',[created.memberId])).rows[0].fc_id,null);
+    assert.equal(Number((await db.query("select count(*) n from fc_profiles where phone='00000000011'")).rows[0].n),0);
+    assert.equal(Number((await db.query('select count(*) n from platform_member_credentials where member_id=$1',[created.memberId])).rows[0].n),1);
+    const draft=randomUUID();
+    await db.query("insert into fc_profiles(id,phone,name,signup_completed,status) values($1,'00000000011','Synthetic Prereg',false,'draft')",[draft]);
+    const completed=await insuranceEnrollment(db,created);assert.equal(completed.fcId,draft);
+    const member2=await member(db,'00000000013');
+    const established=randomUUID();
+    await db.query("insert into fc_profiles(id,phone,name,signup_completed,status) values($1,'00000000013','Synthetic Existing',false,'docs-pending')",[established]);
+    await assert.rejects(insuranceEnrollment(db,member2,{phone:'00000000013'}),/forbidden/);
+    assert.equal((await db.query('select status,signup_completed from fc_profiles where id=$1',[established])).rows[0].status,'docs-pending');
+    await db.query("insert into admin_accounts(phone,active,id,name,staff_type) values('00000000013',true,$1,'Synthetic Staff','developer')",[randomUUID()]);
+    await assert.rejects(insuranceEnrollment(db,member2,{phone:'00000000013'}),/forbidden/);
+  }finally{await db.close();}
 });

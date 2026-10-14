@@ -1,5 +1,17 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261014-unified-membership"></a>
+## 2026-10-14 모두온 공통 가입·가람in 추가 등록과 헤더
+
+- 공통 회원 가입과 가람in 서비스 추가 등록을 분리한다. 사전등록/별도 로그인 UI를 redirect alias로 줄이고 기존 공통 login/signup·shared 설치/복구를 사용한다. 폐기 UI의 소속·통신사·자격/보험 추천 검증은 기존 apply-gate로 재사용하며 새 인증 framework/wizard/runner는 없다.
+- 회사 확인은 migration 시점 기존 source UUID cohort에만 적용하고 실제 회원 수락 일시와 회사 반영 시각/출처를 구분한다. 탈퇴 원본 tombstone을 보존하여 자동 재활성화를 막는다. 기존 공통 referrer(선택 없음 포함)를 덮지 않고 신규 import의 기존 FC/본부장 추천만 두 단계로 연결한다.
+- 새 FC는 서비스 추가 동의와 별도 보험 추천인/필수 정보의 확정 때 원자 생성·연결한다. signed common actor의 해시를 이전하고 기존 FC/bridge 발급을 사용한다. exact lost-response recovery는 enrollment-only이며 현재 FC generation/상태에 종속한다. 기존 FC 완료/직원/설계사 권한을 초기화하거나 common token을 FC endpoint에 허용하지 않는다.
+- 공통/legacy 가입의 같은 번호 경쟁은 기존 잠금 순서와 completion guard에서 해결한다. 완성 non-shadow FC의 누락 비밀번호만 기존 SMS reset proof로 초기화하며 미완료 FC/직원 초기 setup은 가입 완료로 바꾸지 않는다.
+- useLogin 설치는 caller와 각 저장 단계의 owner를 검증하고 provider는 이미 설치한 signed token과 FC state를 함께 공개한다. identity는 duplicate/late-save를 막고 계정 변경 때 민감 draft와 주소 검색 owner를 초기화한다. 기존 실제 callback/render/provider fixture에서 검증한다.
+- 헤더는 기존 ServiceHomeScreen/ServiceHub의 session·props와 COLORS만 사용한다. signed 별도 내 정보·실제 로그아웃, guest 로그인, restoring 확인 중을 표시한다. 공식 GOV.UK One Login의 계정 접근 레퍼런스를 참고하고 브랜드는 복제하지 않는다. 주황 채움/흰 글씨·하단12px gap은 기존 공용 구현을 유지한다. 성형외과 얼굴의 눈·입을 제거하고 한방 잎맥은 기존 윤곽 clip으로 제한한다.
+- 계정 로그인/가입 완료가 account 위에 또 account를 쌓던 replace를 dismissTo로 바꾸고 공통 정적 메뉴는 navigate로 재사용한다. 병원 개발/preview 프로필과 기존 로컬 APK 빌더의 누락된 샘플 플래그를 복구한다. 설치된 APK나 운영 병원 자료가 변경됐다고 주장하지 않는다.
+- 현재 로컬 구현/검증. primary에는 사용자 지정 버튼·아이콘·공통 navigation과 동일한 로그인 저장 부작용만 최소 수정했고 나머지 사용자 dirty 변경을 보존했다. source baseline clean f02f7a4; canonical 기록은 D:/hanhwa/.codex/harness/unified-membership-20261014다. 외부 성공·단말 채택·전용 회원 추천 저장은 실제 확인 전 PASS로 표시하지 않는다.
+
 <a id="20261014-orange-button-polish"></a>
 ## 2026-10-14 주황 채움 버튼과 내 정보 하단 간격
 

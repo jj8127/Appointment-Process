@@ -7,6 +7,10 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 # Mobile Playbook: FC Onboarding
 
+## 2026-10-14 공통 계정에서 서비스 추가 등록
+
+현재 가람in 사전등록 UI는 공통 가입으로 통합하고 fc/new는 기존 완성 FC의 정보 편집으로 유지한다. 미완료 계정의 링크는 apply-gate의 서비스 추가 등록으로 연결한다. 기존 FC의 workflow·신원 조회·관리자/본부장/설계사 분기는 초기화하지 않는다. common-only 회원은 서비스 등록을 확정해야 FC 세션을 받으며 다음 identity 입력이 중단되면 기존 gate에서 이어간다. 나중에는 전체 서비스 홈으로 돌아간다. 이후 보증보험/서류/위촉 단계는 그대로다. [공통 서비스 계약](platform-services.md)과 [인증/gate](auth-and-gates.md)가 최신 진입 기준이다.
+
 ## 2026-10-09 서비스 선택과 보험 업무
 
 2026-10-10: FC 서비스 내부 하단 `홈`은 `/?mode=insurance`를 사용한다. 보험 홈의 `전체 서비스` 버튼으로 `/`에 돌아간다. 보험 홈의 하단 메뉴는 항상 표시하고 데이터/레이아웃 갱신이 메뉴 숨김을 유발하지 않게 한다. 위촉 상태·identity gate·읽기 query·권한은 이 수정으로 바뀌지 않는다.

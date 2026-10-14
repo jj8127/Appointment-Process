@@ -15,13 +15,13 @@ import { openExternalUrl } from '@/lib/open-external-url';
 import { consumePendingReferralCode, normalizeReferralInviteCode } from '@/lib/referral-deeplink';
 import { captureAppSessionOwner } from '@/lib/request-board-api';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/lib/theme';
-import { resolvePlatformAuthRoute } from '@/lib/session-landing';
+import { resolvePlatformAuthRoute, resolveSessionLandingRoute } from '@/lib/session-landing';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 import { normalizePhone, validatePassword, validatePhone, validateRequired } from '@/lib/validation';
 
 export default function PlatformSignup() {
   const { service, code: invitationCode, referralNonce } = useLocalSearchParams<{ service?: string; code?: string; referralNonce?: string }>();
-  const { hydrated, isPlatformSignedIn, loginPlatformMember } = useSession();
+  const { hydrated, role, residentId, isRequestBoardDesigner, isPlatformSignedIn, loginPlatformMember } = useSession();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
@@ -98,7 +98,12 @@ export default function PlatformSignup() {
         if (result.insuranceSession) throw new Error('이미 가입한 보험·FC 계정으로 로그인해 주세요.');
         allowCompletedExit();
         await loginPlatformMember({ id: result.memberId, name: result.displayName }, result.appSessionToken);
-        if (isCurrent()) router.replace(resolvePlatformAuthRoute(service));
+        if (isCurrent()) {
+          const route = resolveSessionLandingRoute({ role: null, residentId: '',
+            isRequestBoardDesigner: false, isPlatformSignedIn: true, requestedService: service })!;
+          if (route === '/services/account') router.dismissTo(route);
+          else router.replace(route);
+        }
       }
     } catch (failure) {
       if (isCurrent()) {
@@ -122,7 +127,13 @@ export default function PlatformSignup() {
     }
   };
 
-  if (hydrated && isPlatformSignedIn) return <Redirect href={resolvePlatformAuthRoute(service)} />;
+  const signedLanding = resolveSessionLandingRoute({ role, residentId, isRequestBoardDesigner,
+    isPlatformSignedIn, requestedService: service });
+  const returnToAccount = hydrated && signedLanding === '/services/account';
+  useEffect(() => {
+    if (returnToAccount) router.dismissTo('/services/account');
+  }, [returnToAccount]);
+  if (hydrated && signedLanding) return returnToAccount ? null : <Redirect href={signedLanding} />;
 
   return (
     <SafeAreaView style={styles.container}>
