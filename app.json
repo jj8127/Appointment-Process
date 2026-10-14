@@ -2,7 +2,7 @@
   "expo": {
     "name": "모두온",
     "slug": "fc-onboarding-app",
-    "version": "4.2.19",
+    "version": "4.2.20",
     "orientation": "portrait",
     "icon": "./assets/images/moduon/moduon-app-icon.png",
     "scheme": "hanwhafcpass",
