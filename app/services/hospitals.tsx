@@ -10,7 +10,7 @@ import { DepartmentIcon } from '@/components/hospitals/DepartmentIcon';
 import HospitalScreen, { hospitalStyles as styles } from '@/components/hospitals/HospitalScreen';
 import { useHospitalExposure } from '@/hooks/use-hospital-exposure';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
-import { platformRequest, type PlatformHospital, type PlatformHospitalList, type PlatformHospitalRegions } from '@/lib/platform-api';
+import { HOSPITAL_DIRECTORY_SPECIALTIES, platformRequest, type PlatformHospital, type PlatformHospitalList, type PlatformHospitalRegions } from '@/lib/platform-api';
 import { COLORS } from '@/lib/theme';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 
@@ -30,7 +30,6 @@ export default function ServiceHospitals() {
   const [loading, setLoading] = useState(false);
   const [picker, setPicker] = useState<'province' | 'district' | null>(null);
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
-  const [allSpecialties, setAllSpecialties] = useState(false);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [carouselFrame, setCarouselFrame] = useState({ y: 0, height: 0 });
   const [scrollY, setScrollY] = useState(0);
@@ -113,12 +112,12 @@ export default function ServiceHospitals() {
           </Pressable>}
         </View>
         {regionsError && <View style={[styles.error, local.section]}><Text accessibilityRole="alert" style={styles.body}>지역 선택 정보를 불러오지 못했습니다.</Text><Button variant="ghost" onPress={() => void loadRegions()}>지역 정보 다시 불러오기</Button></View>}
-        {!!regions?.specialties.length && (searching ? <ScrollView horizontal showsHorizontalScrollIndicator={false} style={local.section} contentContainerStyle={{ gap: 8 }}>
-          {['', ...regions.specialties].map((specialty) => <Pressable key={specialty} accessibilityRole="button" accessibilityState={{ selected: filters.specialty === specialty }} aria-pressed={filters.specialty === specialty} onPress={() => setFilters((current) => ({ ...current, specialty }))} style={[styles.chip, filters.specialty === specialty && styles.selectedChip]}><Text style={[styles.body, filters.specialty === specialty && styles.selectedText]}>{specialty || '전체 진료 분야'}</Text></Pressable>)}
+        {searching ? <ScrollView horizontal showsHorizontalScrollIndicator={false} style={local.section} contentContainerStyle={{ gap: 8 }}>
+          {['', ...HOSPITAL_DIRECTORY_SPECIALTIES].map((specialty) => <Pressable key={specialty} accessibilityRole="button" accessibilityState={{ selected: filters.specialty === specialty }} aria-pressed={filters.specialty === specialty} onPress={() => setFilters((current) => ({ ...current, specialty }))} style={[styles.chip, filters.specialty === specialty && styles.selectedChip]}><Text style={[styles.body, filters.specialty === specialty && styles.selectedText]}>{specialty || '전체 진료 분야'}</Text></Pressable>)}
         </ScrollView> : <View style={[local.section, { gap: 8 }]}>
-          <View style={styles.row}><Text accessibilityRole="header" style={[local.sectionTitle, styles.flexible]}>진료과로 찾기</Text>{regions.specialties.length > 6 && <Pressable accessibilityRole="button" onPress={() => setAllSpecialties((current) => !current)} style={local.textButton}><Text style={local.metadata}>{allSpecialties ? '간단히 보기' : '전체 보기'}</Text><Feather name={allSpecialties ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.text.secondary} accessible={false} /></Pressable>}</View>
-          <View style={local.departments}>{(allSpecialties ? regions.specialties : regions.specialties.slice(0, 6)).map((specialty) => <Pressable key={specialty} accessibilityRole="button" accessibilityLabel={`${specialty} 진료과 선택`} onPress={() => setFilters((current) => ({ ...current, specialty }))} style={({ pressed }) => [local.department, pressed && { opacity: 0.65 }]}><DepartmentIcon specialty={specialty} size={44} /><Text style={local.departmentName}>{specialty}</Text></Pressable>)}</View>
-        </View>)}
+          <Text accessibilityRole="header" style={local.sectionTitle}>진료과로 찾기</Text>
+          <View style={local.departments}>{HOSPITAL_DIRECTORY_SPECIALTIES.map((specialty) => <Pressable key={specialty} accessibilityRole="button" accessibilityLabel={`${specialty} 선택`} onPress={() => setFilters((current) => ({ ...current, specialty }))} style={({ pressed }) => [local.department, pressed && { opacity: 0.65 }]}><DepartmentIcon specialty={specialty} size={44} /><Text style={local.departmentName}>{specialty}</Text></Pressable>)}</View>
+        </View>}
         {error && <View style={[styles.error, local.section]}><Text accessibilityRole="alert" style={styles.body}>{error}</Text>{matching && data && <Text style={styles.caption}>최근 조회한 목록을 표시하고 있습니다.</Text>}<Button variant="outline" disabled={loading} onPress={() => void search(filters)}>다시 불러오기</Button></View>}
         {loading && <View style={[styles.row, local.section]}><ActivityIndicator color={COLORS.primary} /><Text accessibilityLiveRegion="polite" style={styles.body}>병원 정보를 확인하고 있어요.</Text></View>}
         {!!featured.length && <View style={[styles.row, local.featuredHeading]}>

@@ -1,5 +1,10 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-14 승인된 진료 분야 제한을 설치 소스에 누락함
+
+- 재현: primary에는 지정6개 진료 분야와 일치하는 샘플이 있었지만 clean release checkout에 해당 hunks를 반영하지 않았다. 앱은 샘플 전체 분야의 첫6개/전체보기를 표시했고 테스트도8개 이상을 기대해 사용자 요구와 다른 상태가 설치됐다.
+- 규칙: 작업트리 사이에 승인 변경을 옮길 때 요구별 기존 구현·실제 호출 경로·가장 가까운 behavioral test를 대조한다. 순서가 정해진6개 분류는 아이콘/검색칩/샘플 catalog에 같은 기존 상수를 재사용하고 unsupported metadata가 다시 들어와도6개만 탐색되는지 확인한다. 설치 hash/실행 성공만으로 모든 사용자 요구가 반영됐다고 판단하지 않는다.
+
 ## 2026-10-14 별도 로컬 staging에서 이전 Expo Router 캐시를 재사용함
 
 - 재현: 공통 node_modules를 쓰는 새 staging에서 JS 번들이 성공해도 router context가 이전 staging을 참조하면 실제 app route가0개인 빈 번들이 만들어질 수 있다. 같은 --reset-cache만 반복하는 것은 project-specific transform 입력을 보장하지 않는다.

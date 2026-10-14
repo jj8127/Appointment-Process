@@ -1,8 +1,8 @@
 # 작업 로그
 
-## 2026-10-14 페어링 기기 로컬 설치 준비
+## 2026-10-14 페어링 기기 로컬 설치와 진료 분야 누락 수정
 
-사용자가 현재 로컬 버전을 페어링된 단말에 설치하도록 승인했다. 제품 source8fc18f1의 clean snapshot으로 새 staging을 만들고 기존 별도 .local 패키지·서명·데이터 유지 설치를 사용한다. 실제 routes가 누락된 공유 Router 캐시와 dependency JAR 잠금을 로컬 전용 경로로 분리하며 APK와 단말의 exact hash/version·실행을 검증한다. 운영 서버·OTA·스토어 전환은 포함하지 않는다. [→ 상세](WORK_DETAIL.md#20261014-local-paired-install)
+사용자가 현재 로컬 버전을 페어링된 단말에 설치하도록 승인했다. 제품 source8fc18f1의 clean snapshot을 기존 별도 .local 패키지·서명으로 데이터 유지 설치하고 단말 hash/버전/실행을 확인했다. 이후 사용자 지적에 따라 clean source에 빠진 primary의 기존6개 진료 분야 상수·탐색 UI·샘플·아이콘 hunks만 재사용한다. 기존 검색/페이지/상세 및 실제 화면 suite를 보완하고 수정 소스를 커밋한 뒤 로컬 설치본을 다시 갱신한다. 운영 서버·OTA·스토어 전환은 포함하지 않는다. [→ 상세](WORK_DETAIL.md#20261014-local-paired-install)
 
 ## 2026-10-14 모두온 공통 가입·가람in 추가 등록과 헤더
 

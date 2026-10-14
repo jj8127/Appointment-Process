@@ -1,12 +1,13 @@
 # 작업 상세 로그 (Work Detail)
 
 <a id="20261014-local-paired-install"></a>
-## 2026-10-14 페어링 기기 로컬 설치 준비
+## 2026-10-14 페어링 기기 로컬 설치와 진료 분야 누락 수정
 
-- 현재 제품 byte는8fc18f1에 고정하고 기존 primary dirty snapshot/오래된 APK를 설치하지 않는다. source534개 hash를 대조한 새 staging은 app config·update hook·Metro lookup/cache만 명시적 로컬 override로 변경한다. 기기 식별값·비밀번호·원시 단말 로그는 저장하지 않는다.
+- 첫 제품 byte는8fc18f1에 고정했다. 새 staging의588개 runtime source closure는 app config·update hook·Metro lookup/cache·canonical tslib require의4개 명시적 로컬 override만 제외하고 source hash가 일치한다. 기기 식별값·비밀번호·원시 단말 로그는 저장하지 않는다.
 - 기존 .local 패키지의 signing key를 재사용하고 owner user0에 교체 설치한다. 데이터 삭제·앱 제거·기존 source/stage 삭제·다른 build process 종료는 하지 않는다. 별도 버전명과 versionCode3, 병원 샘플 활성·OTA/자체 update/Sentry upload 비활성으로 구분한다.
 - 첫 native 패키징은 공유 Expo core JAR 잠금으로 중단됐고 실제 JS map에서 이전 staging의 빈 router context를 확인했다. stage-specific router.root/Metro cacheStore로 해결하며 dependency 출력은 JS input root 외부에 분리한다. 실패·빌드 성공·APK 서명/필수 routes·설치 hash/실행 성공은 서로 다른 증거로 기록한다.
-- 이 문서 increment는 제품 byte를 변경하지 않는다. 정확한 최종 APK/단말 결과는 중앙 canonical QA/handoff에 남기며 운영 서버 migration/Edge·OTA·스토어는 계속 HOLD다.
+- 최초 local versionCode3의 실제 설치 hash/버전 및 foreground/process 실행을 확인했다. 이후6개 진료 분야 제한 누락을 사용자가 지적해 primary의 기존 상수·chips/icons·샘플12개를 해당 release source에 좁게 재사용했다. 전체보기/allSpecialties와 미사용 icon8분기를 삭제하고6개 순서/unsupported metadata/검색payload/샘플분류/페이지/상세/건강검진 artwork를 기존 suite에서 검증한다.
+- 사용자 지정은 한방병원·정형외과·안과·치과·성형외과·건강검진센터 순서다. 임의로 실제 병원 행의 진료 정보를 재명명하거나 paginated remote rows를 post-filter하지 않는다. 서버transport/DTO/measurement/offset·auth 변경은 보존한다. 후속 versionCode4도 같은 로컬 서명으로 데이터 유지 설치한다. 정확한 최종 APK/단말 결과는 중앙 canonical QA/handoff에 남기며 운영 서버 migration/Edge·OTA·스토어는 계속 HOLD다.
 
 <a id="20261014-unified-membership"></a>
 ## 2026-10-14 모두온 공통 가입·가람in 추가 등록과 헤더

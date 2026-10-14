@@ -32,6 +32,9 @@ export const HOSPITAL_PROVINCES = [
   { code: '47', name: '경북' }, { code: '48', name: '경남' }, { code: '50', name: '제주' },
   { code: '51', name: '강원' }, { code: '52', name: '전북' },
 ] as const;
+export const HOSPITAL_DIRECTORY_SPECIALTIES = [
+  '한방병원', '정형외과', '안과', '치과', '성형외과', '건강검진센터',
+] as const;
 export const HOSPITAL_DEMO_ENABLED = process.env.EXPO_PUBLIC_HOSPITAL_DEMO === 'true';
 export type PlatformHospital = {
   id: string; name: string; region: string; provinceCode: string; provinceName: string; district: string;
@@ -144,7 +147,7 @@ export async function platformRequest<T>(action: string, payload: Record<string,
     if (action === 'get_hospital_regions') {
       response = { ok: true, regions: HOSPITAL_PROVINCES.map(({ code, name }) => ({
         provinceCode: code, provinceName: name, districts: [...new Set(hospitals.filter((hospital) => hospital.provinceCode === code).map((hospital) => hospital.district))],
-      })), specialties: [...new Set(hospitals.flatMap((hospital) => hospital.specialties))] };
+      })), specialties: [...HOSPITAL_DIRECTORY_SPECIALTIES] };
     } else if (action === 'list_hospitals') {
       const search = typeof payload.search === 'string' ? payload.search.trim().toLowerCase() : '';
       const filtered = hospitals.filter((hospital) => (!payload.provinceCode || hospital.provinceCode === payload.provinceCode)

@@ -100,6 +100,9 @@ it('hospital specialty art keeps a face outline and plus only, and clips leaf ve
   expect(clip.findAllByType('Path')[0].props.d).toBe(leaf?.props.d);
   expect(renderer.root.findAllByType('Circle')[0].props).toMatchObject({ fill: COLORS.primaryLight, r: 9 });
   expect(renderer.root.findAllByType('Path').some(item => item.props.stroke === 'white')).toBe(true);
+  await act(async () => { renderer.update(createElement(Icon, { specialty: '건강검진센터' })); });
+  expect(renderer.root.findAllByType('Rect').map((item) => item.props.fill)).toEqual(['#9AD6D7', COLORS.primaryLight]);
+  expect(renderer.root.findAllByType('Path').some(item => item.props.stroke === 'white' && item.props.strokeWidth === 4)).toBe(true);
   await act(async () => renderer.unmount());
 });
 
@@ -616,12 +619,13 @@ describe('M06 / D10 actual address-search component controls', () => {
 });
 
 it('hospital discovery filters both placements, measures visible cards and preserves only matching failed reads', async () => {
-  const hospital = { id: 'synthetic-hospital', name: '시험병원', region: '서울 강남구', address: '시험 주소', specialties: ['내과'], description: '시험용 병원 소개입니다.', photoUrl: 'https://synthetic.invalid/clinic.png', adPlacement: 'regional_list' };
+  const specialties = ['한방병원', '정형외과', '안과', '치과', '성형외과', '건강검진센터'];
+  const hospital = { id: 'synthetic-hospital', name: '시험병원', region: '서울 강남구', address: '시험 주소', specialties: ['치과'], description: '시험용 병원 소개입니다.', photoUrl: 'https://synthetic.invalid/clinic.png', adPlacement: 'regional_list' };
   const featured = [{ ...hospital, adPlacement: 'regional_featured' }, { ...hospital, id: 'synthetic-hospital-2', name: '다른 시험병원', adPlacement: 'regional_featured' }];
   const exposure = jest.fn();
   const push = jest.fn();
   const request = jest.fn(async (action: string) => action === 'get_hospital_regions'
-    ? { regions: [{ provinceCode: '11', provinceName: '서울', districts: ['강남구'] }], specialties: ['내과', '치과'] }
+    ? { regions: [{ provinceCode: '11', provinceName: '서울', districts: ['강남구'] }], specialties: ['내과', '이비인후과', '피부과'] }
     : { hospitals: [hospital], featured, hasMore: false, nextOffset: null });
   const Hospitals = executeComponent('app/services/hospitals.tsx', {
     '@expo/vector-icons': { Feather: 'Feather' }, 'expo-router': { router: { push } },
@@ -634,7 +638,7 @@ it('hospital discovery filters both placements, measures visible cards and prese
     '@/components/hospitals/DepartmentIcon': { default: 'DepartmentIcon', DepartmentIcon: 'DepartmentIcon' },
     '@/components/service-home': { ServiceIcon: 'ServiceIcon' },
     '@/hooks/use-hospital-exposure': { useHospitalExposure: exposure },
-    '@/lib/platform-api': { platformRequest: request }, '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
+    '@/lib/platform-api': { HOSPITAL_DIRECTORY_SPECIALTIES: specialties, platformRequest: request }, '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
   });
   let renderer!: Renderer;
   await act(async () => { renderer = create(createElement(Hospitals)); });
@@ -648,7 +652,8 @@ it('hospital discovery filters both placements, measures visible cards and prese
   const carousel = () => renderer.root.findAllByType('ScrollView').find((node) => node.props.onScroll)!;
   expect(request).toHaveBeenCalledWith('list_hospitals', { provinceCode: '', district: '', search: '', specialty: '', offset: 0, limit: 20 });
   expect(texts(renderer.root)).toEqual(expect.arrayContaining(['진료과로 찾기', '제휴병원 소개', '전체 제휴병원']));
-  expect(renderer.root.findAllByType('DepartmentIcon').map((node) => node.props.specialty)).toEqual(['내과', '치과']);
+  expect(renderer.root.findAllByType('DepartmentIcon').map((node) => node.props.specialty)).toEqual(['한방병원', '정형외과', '안과', '치과', '성형외과', '건강검진센터']);
+  expect(texts(renderer.root)).not.toEqual(expect.arrayContaining(['전체 보기']));
   expect(texts(renderer.root)).toContain(hospital.description);
   expect(texts(renderer.root).filter((value) => value === '병원 알아보기 →')).toHaveLength(2);
   expect(renderer.root.findAllByType('Image').map((node) => (node.props.source as { uri: string }).uri)).toEqual([hospital.photoUrl, hospital.photoUrl, hospital.photoUrl]);
@@ -680,8 +685,10 @@ it('hospital discovery filters both placements, measures visible cards and prese
   expect(request).toHaveBeenLastCalledWith('list_hospitals', expect.objectContaining({ provinceCode: '11', district: '' }));
   await press('시·군·구 선택, 전체'); await press('강남구');
   expect(request).toHaveBeenLastCalledWith('list_hospitals', expect.objectContaining({ provinceCode: '11', district: '강남구' }));
-  await press('내과 진료과 선택');
-  expect(request).toHaveBeenLastCalledWith('list_hospitals', expect.objectContaining({ provinceCode: '11', district: '강남구', specialty: '내과' }));
+  await press('치과 선택');
+  expect(request).toHaveBeenLastCalledWith('list_hospitals', expect.objectContaining({ provinceCode: '11', district: '강남구', specialty: '치과' }));
+  const specialtyChips = renderer.root.findAllByType('ScrollView').find((node) => node.props.horizontal && !node.props.onScroll)!.findAllByType('Pressable');
+  expect(specialtyChips.map((node) => texts(node).join(''))).toEqual(['전체 진료 분야', '한방병원', '정형외과', '안과', '치과', '성형외과', '건강검진센터']);
   expect(texts(renderer.root)).toContain('검색 결과');
   expect(texts(renderer.root)).not.toContain('제휴병원 소개');
   await press('검색 초기화');

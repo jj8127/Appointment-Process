@@ -162,9 +162,11 @@ describe('explicit local hospital demo', () => {
   it('provides offline regions, specialties, featured photos and a complete fictional directory', async () => {
     const regions = await request<PlatformHospitalRegions>('get_hospital_regions');
     const list = await request<PlatformHospitalList>('list_hospitals');
-    expect(regions.specialties.length).toBeGreaterThanOrEqual(8);
+    expect(regions.specialties).toEqual(['한방병원', '정형외과', '안과', '치과', '성형외과', '건강검진센터']);
     expect(regions.regions.find((region) => region.provinceCode === '11')?.districts).toContain('강남구');
     expect(list.hospitals).toHaveLength(12);
+    expect(list.hospitals.every((item) => item.specialties.length === 1 && regions.specialties.includes(item.specialties[0]))).toBe(true);
+    expect(regions.specialties.map((specialty) => list.hospitals.filter((item) => item.specialties.includes(specialty)).length)).toEqual([2, 2, 2, 2, 2, 2]);
     expect(list.featured).toHaveLength(5);
     expect(list.hospitals.every((item) => item.phone === null && item.websiteUrl === null && item.address?.includes('가상 주소') && item.photoUrl && item.adPlacement === 'regional_list')).toBe(true);
     expect(list.featured.every((item) => item.adPlacement === 'regional_featured')).toBe(true);
@@ -177,11 +179,12 @@ describe('explicit local hospital demo', () => {
     const province = await request<PlatformHospitalList>('list_hospitals', { provinceCode: '11' });
     expect(province.hospitals).toHaveLength(3);
     expect(province.hospitals.every((item) => item.provinceCode === '11')).toBe(true);
-    const filtered = await request<PlatformHospitalList>('list_hospitals', { provinceCode: '11', district: '송파구', search: ' 온누리 ', specialty: '재활의학과' });
+    const filtered = await request<PlatformHospitalList>('list_hospitals', { provinceCode: '11', district: '송파구', search: ' 온누리 ', specialty: '정형외과' });
     expect(filtered.hospitals).toHaveLength(1);
     expect(filtered.hospitals[0].name).toBe('온누리정형외과');
     expect(filtered.featured).toHaveLength(1);
     expect((await request<PlatformHospitalList>('list_hospitals', { search: '없는 병원' })).hospitals).toEqual([]);
+    expect((await request<PlatformHospitalList>('list_hospitals', { specialty: '내과' })).hospitals).toEqual([]);
     expect(demoInvoke).not.toHaveBeenCalled();
   });
   it('pages without duplicates and opens details with the same embedded image', async () => {
