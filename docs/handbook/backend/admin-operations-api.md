@@ -7,6 +7,10 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 
 # Backend Runbook: Admin Operations API
 
+## 2026-10-15 탈퇴 정리 운영 확인 축소
+
+가람링크 직접 가입 일반 FC는 탈퇴 때 서명된 번호로 자동 연결·정리되므로 운영자 연결 확인이 필요 없다. 같은 번호 계정이 여러 개이거나 본부장·설계사·동기화된 계정이면 여전히 `affiliate_identity_unbound`로 보류되며, 운영자는 대상 계정을 확인한 뒤 `request_board_private.fc_account_bindings`에 해당 FC UUID 연결 1건을 넣어 재시도로 완료한다.
+
 ## 2026-10-11 공통 제휴 운영 API (로컬)
 
 `platform-service`는 공통 가입/로그인·회원 관심 등록/조회/취소/탈퇴·공개 광고 병원 목록과 관리자 제휴/정산/지급 기록을 제공한다. 일반 회원 토큰 목적은 FC API에서 거부한다. 관리자 읽기/쓰기는 현재 DB의 활성 일반 관리자만 허용한다. `get_admin`의 최신 목록은 정산 증빙 입력·기록 관리용이며 은행 이체 API가 아니다. 정산·지급은 실제 거래/정산/이체 식별 번호와 완료 시각을 확인한다.

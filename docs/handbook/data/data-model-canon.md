@@ -11,6 +11,10 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 `supabase/migrations/20261014130000_platform_service_referrals.sql`과 schema mirror는 `platform_service_referral_codes`(회원·서비스별 코드)와 `platform_service_referrals`(회원·서비스별 추천인, 첫 등록 확정)를 추가한다. 두 테이블은 RLS/직접 접근 회수를 유지하고 service-role RPC만 사용한다. `create_platform_application`은 공통 `referrer_id` 대신 같은 서비스의 추천인을 스냅숏한다. 공통 `referrer_id`는 과거 기록으로 남고 새 정산에 쓰이지 않는다. 운영 DB 미적용.
 
+## 2026-10-15 복구 FC와 공통 회원 연결
+
+2026-10-14 FC 명단 복구는 공통 회원 행을 보호해 변경하지 않았다. 그 사이 같은 번호로 공통 가입한 9개 계정이 복구된 가입 완료 FC와 연결되지 않아 보험 추가 등록이 `forbidden`으로 거절됐다. `20261015030000_link_restored_fc_common_members.sql`은 활성 일반 공통 회원과 같은 번호의 가입 완료·미종료·미연결 FC를 한 번 연결하고, 사용자 결정에 따라 공통 비밀번호를 FC credential로 옮긴 뒤 공통 credential을 지운다. 회사 확인 cohort에 있는 FC만 보험 추가 동의 출처를 회사 확인으로 기록한다. 재실행해도 대상이 없으면 아무것도 바꾸지 않는다.
+
 ## 2026-10-14 공통 탈퇴 drain 예약
 
 `20261014140000_platform_withdrawal_drain_schedule.sql`과 schema mirror는 pg_net 확장, `request_platform_withdrawal_drain_v1()`(security definer, 모든 API role 실행 회수)과 pg_cron `platform-withdrawal-cleanup-drain`(5분)을 추가한다. service key는 Vault `platform_withdrawal_drain_service_key`에서만 읽고 미등록이면 호출하지 않는다. 운영 절차는 [scheduled jobs](../backend/scheduled-jobs-and-runtime.md)를 따른다.

@@ -18,6 +18,21 @@
 - 이메일은 `아이디 @ 도메인 선택` 행으로 받고 "직접 입력"을 고르면 도메인 입력칸을 연다(`composeEmail`, `SIGNUP_EMAIL_DOMAIN_CHOICES`). 사용자가 primary checkout에서 만든 Android 내비게이션 바 변경(`enforceContrast: false`, 바 뒤 불투명 배경과 구분선, 설정 분리)을 해당 hunk만 이 브랜치에 옮겼다.
 - 기존 실패였던 `FamilyCareReferrer.tsx` 키보드 화면 미등록을 부모 소유 입력 섹션으로 등록했다. 초안 이탈 guard 규칙의 근거 테스트에 실제 guard 실행 테스트(`mobile-acceptance-runtime`)를 추가했다.
 
+<a id="20261015-auto-retire-direct-fc"></a>
+## 2026-10-15 탈퇴 때 가람링크 직접 가입 FC 자동 정리
+
+- 원인: 정리 대상 가람링크 계정이 `auth_source=direct`, 연결·동기화 기록 0이라 FC UUID 연결이 없어 보류됐다. 이번 건은 운영자 확인 연결 1건으로 처리 안내했다.
+- 변경: `createRequestBoardAccountRetirementAssertion`이 형식이 맞는 원본 번호만 서명에 포함한다. `finishWithdrawal`은 local 삭제 전 FC 번호를 읽어 보내고, 번호를 보낸 요청에 한해 `no_affiliate_account`(삭제 대상 없음)를 정리 완료로 받는다. 가람링크 쪽은 `release/rb-retirement-20261014`의 `20261015040000_auto_bind_direct_fc_retirement.sql`.
+- 검증: handler 36·assertion 8 PASS, deno check PASS. 가람링크 함수는 PGlite 임시 검증 9개 시나리오(자동 연결 정리·재시도·번호 없음·계정 없음·중복·본부장·설계사·동기화됨·형식 오류) PASS.
+
+<a id="20261015-link-restored-fc"></a>
+## 2026-10-15 복구 FC와 공통 회원 연결
+
+- 진단(대시보드 읽기 전용, 개인정보 없이 boolean/count): 해당 번호는 활성 일반 공통 회원(credential 1, 직원·FC 연결 없음)과 2026-07-24 생성된 가입 완료 draft FC(비밀번호 있음)가 따로 존재했다. 같은 상태 9쌍. `enroll_platform_insurance_v1`의 가입 완료 FC 거절이 `forbidden`을 낸다.
+- 원인: fc-roster-recovery-20261014 적용이 공통 회원·credential 불변을 guard로 보장해 projection 연결이 일어나지 않았다.
+- 조치: 같은 phone 잠금 순서로 쌍을 연결하고 공통 비밀번호를 FC credential로 옮긴다(실패 횟수·임시 비밀번호·재설정 상태 초기화, credential 세대 증가로 이전 FC 세션 무효). 기존 공통 세션도 credential 삭제로 무효가 되어 사용자는 공통 비밀번호로 다시 로그인한다. 복구 시나리오 PGlite 테스트를 기존 suite에 추가했다.
+- 운영 반영: clean `d4f4958`에서 dry-run 대상 1개 확인 후 `20261015030000` 적용, local/remote 이력 일치. 운영 읽기 확인(대시보드)에서 미연결 쌍 9 → 0. 실제 재로그인·신원 입력 E2E는 사용자 기기 확인 대상이다.
+
 <a id="20261014-withdrawal-drain-schedule"></a>
 ## 2026-10-14 공통 탈퇴 정리 자동 drain 예약
 

@@ -462,13 +462,14 @@ export async function createRequestBoardPasswordSyncV2Assertion(
 }
 
 /** Domain-separated destructive authority; never reuse a password/bridge token. */
-export async function createRequestBoardAccountRetirementAssertion(upstreamAccountId: string, operationId: string) {
+/** The optional source phone lets GaramLink claim a lone direct FC account. */
+export async function createRequestBoardAccountRetirementAssertion(upstreamAccountId: string, operationId: string, phone?: string) {
   const secret = getPasswordSyncAssertionSigningSecret();
   if (!secret) return null;
   const iat = Math.floor(Date.now() / 1000);
   return buildSignedToken({ kind: 'request_board_account_retirement', purpose: 'retire_all_affiliates',
     upstream_account_id: upstreamAccountId, operation_id: operationId, role: 'fc',
-    policyVersion: '2026-10-14', iat, exp: iat + 60 }, secret);
+    policyVersion: '2026-10-14', ...(phone && /^01[0-9]{9}$/.test(phone) ? { phone } : {}), iat, exp: iat + 60 }, secret);
 }
 
 export async function createAppSessionToken(

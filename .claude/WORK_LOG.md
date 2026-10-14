@@ -8,6 +8,14 @@
 
 사용자 요청으로 가람in 추가 정보 안내 화면과 앱 전체 확인 창을 레퍼런스(Material 대화상자 지침, GOV.UK 질문 페이지 패턴, 국내 금융·인증 앱의 선택 시트) 기반으로 다시 설계했다. 사용자가 고른 A+C 시안을 적용해 확인 창은 아이콘 없는 질문형·동일 폭 버튼으로, 입력 오류는 칸 아래 문구와 첫 오류 칸 이동으로 바꿨다. 소속·통신사는 하단 시트 선택 필드, 이메일은 도메인 추천으로 바꾸고 과도한 안내 문구를 뺐다. 로컬 기기 설치만 하며 운영 배포·OTA는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261015-enrollment-dialog-redesign)
 
+## 2026-10-15 탈퇴 때 가람링크 직접 가입 FC 자동 정리
+
+실제 탈퇴가 가람링크 직접 가입 계정 때문에 `affiliate_identity_unbound`로 보류됐다. 사용자 결정으로 서명된 원본 번호를 보내 가람링크가 조건을 모두 만족하는 단일 일반 FC를 자동 연결·정리하고, 계정이 없으면 완료하게 했다. [→ 상세](WORK_DETAIL.md#20261015-auto-retire-direct-fc)
+
+## 2026-10-15 복구 FC와 공통 회원 연결
+
+01051078127 등 9개 번호가 신원 입력 전 추가 등록에서 "이 계정으로 이용할 수 없는 기능"으로 막혔다. 10-14 FC 명단 복구가 공통 회원을 보호하며 복구 FC와 연결하지 않은 것이 원인이다. 사용자 결정으로 공통 비밀번호를 남기고 두 계정을 연결하는 1회 migration을 추가했다. [→ 상세](WORK_DETAIL.md#20261015-link-restored-fc)
+
 ## 2026-10-14 공통 탈퇴 정리 자동 drain 예약
 
 사용자 승인으로 pg_cron 5분 job이 Vault의 service key를 사용해 `platform-service` withdrawal drain을 호출하는 migration을 추가했다. key는 source에 없고 미등록 시 no-op이다. 의뢰게시판 retirement DB·web은 사용자 실행으로 운영 반영했다(`3dc9b84`). [→ 상세](WORK_DETAIL.md#20261014-withdrawal-drain-schedule)

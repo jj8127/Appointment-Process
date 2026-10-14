@@ -144,7 +144,11 @@ async function finishWithdrawal(job: WithdrawalJob,digest: string) {
     if(job.source_fc_id) {
       const syncUrl=getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL')?.trim() ?? '';
       const bridgeSecret=getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN')?.trim() ?? '';
-      const assertion=await createRequestBoardAccountRetirementAssertion(job.source_fc_id,operationId);
+      // The source phone is still present until local erasure below.
+      const {data:source,error:sourceError}=await db.from('fc_profiles').select('phone').eq('id',job.source_fc_id).maybeSingle();
+      if(sourceError) return result(false,'affiliate_unavailable');
+      const sourcePhone=typeof source?.phone==='string' && /^01[0-9]{9}$/.test(source.phone) ? source.phone : undefined;
+      const assertion=await createRequestBoardAccountRetirementAssertion(job.source_fc_id,operationId,sourcePhone);
       if(!syncUrl || !bridgeSecret || !assertion) return result(false,'affiliate_unavailable');
       try {
         const endpoint=new URL(syncUrl);
@@ -163,6 +167,9 @@ async function finishWithdrawal(job: WithdrawalJob,digest: string) {
         if(data.accountErased===true && data.runtimeRevoked===true
           && data.runtimeRevocationScope==='persisted_auth_and_local_runtime'
           && data.remoteSocketRevalidationIntervalMs===5000) affiliateState='erased';
+        // GaramLink holds no account for the signed phone: nothing remains to erase.
+        else if(sourcePhone && data.status==='no_affiliate_account' && data.accountErased===false && data.runtimeRevoked===false)
+          affiliateState='erased';
         else if(data.status==='company_account_preserved' && data.accountErased===false && data.runtimeRevoked===false
           && data.preservedRole==='designer' && data.independentLoginAvailable===true) {
           affiliateState='company_account_preserved'; preservedRole=data.preservedRole;
