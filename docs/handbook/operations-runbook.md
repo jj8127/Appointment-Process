@@ -205,6 +205,10 @@ rotation은 새 current → old current를 previous → 최대 token TTL 경과 
 - 외부 owner가 revoke/rotate하고, active config 제거와 Git history/clone 영향 범위를 판정한다.
 - non-sensitive revoke 증거와 scanner zero-result만 인수인계한다.
 
+## 공통 탈퇴 정리 자동 처리 (2026-10-14)
+
+접수된 공통 탈퇴는 pg_cron `platform-withdrawal-cleanup-drain`이 5분마다 마무리한다. 최초 1회 운영자가 대시보드 SQL 편집기에서 `select vault.create_secret('<service_role key>', 'platform_withdrawal_drain_service_key');`를 실행한다. 값은 Edge의 `SUPABASE_SERVICE_ROLE_KEY`와 같아야 하며 다른 곳에 기록하지 않는다. 확인은 `select jobname, schedule, active from cron.job where jobname='platform-withdrawal-cleanup-drain';`와 `select status_code, created from net._http_response order by created desc limit 5;`로 status만 본다. 중지는 `select cron.unschedule('platform-withdrawal-cleanup-drain');`이다.
+
 ## 직원 권한 수동 부여 (2026-10-14)
 
 관리자·본부장은 먼저 모두온 공통 회원으로 가입한다. 제휴 서비스 직원 권한은 운영자가 승인된 운영 DB 작업으로만 부여한다. `admin_accounts`/`manager_accounts`에 직접 insert하지 않는다. 공통 회원 번호와 겹치면 `platform_member_phone_requires_grant`로 거절된다.

@@ -1,5 +1,11 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261014-withdrawal-drain-schedule"></a>
+## 2026-10-14 공통 탈퇴 정리 자동 drain 예약
+
+- 의뢰게시판: `release/rb-retirement-20261014` clean `3dc9b84`(e55e94f + 운영 핫픽스 병합, v2 migration 파일명을 운영 version 20261013093030으로 정렬). DB `20261014073447` 적용·이력 일치, Vercel production Ready·alias requestboard-steel, health200·retire 무인증401 확인. 두 운영 반영은 이 세션 권한 거부로 사용자가 직접 실행했다.
+- 모두온: `20261014140000_platform_withdrawal_drain_schedule.sql`이 pg_net 활성화, security definer drain 요청 함수(모든 API role 실행 회수), 5분 pg_cron job을 만든다. Vault secret 미등록 또는 due 없음이면 호출하지 않는다. 기존 auth cleanup schedule 테스트에 cron 이름·주기·Vault 이름·action·권한 회수·credential 미포함·schema mirror 검사를 추가했다. pg_cron/pg_net/Vault 실행은 PGlite에서 재현할 수 없어 운영 적용 후 job 존재와 http status로 확인한다.
+
 <a id="20261014-moduon-server-release"></a>
 ## 2026-10-14 모두온 단일 계정·서비스별 추천인 서버 운영 반영
 

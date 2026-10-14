@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-14 공통 탈퇴 정리 자동 drain 예약
+
+사용자 승인으로 pg_cron 5분 job이 Vault의 service key를 사용해 `platform-service` withdrawal drain을 호출하는 migration을 추가했다. key는 source에 없고 미등록 시 no-op이다. 의뢰게시판 retirement DB·web은 사용자 실행으로 운영 반영했다(`3dc9b84`). [→ 상세](WORK_DETAIL.md#20261014-withdrawal-drain-schedule)
+
 ## 2026-10-14 모두온 단일 계정·서비스별 추천인 서버 운영 반영
 
 사용자 승인(구버전 앱 동작 중단 감수, 당일 앱 빌드 예정)으로 clean source `d6f0b8d`에서 운영 DB에 대기 마이그레이션 4개(043557·073458·120000·130000, `--include-all`)를 적용하고 Edge 5개(platform-service v5, delete-account v47, request-password-reset v49, reset-password v51, verify-request-board-session v4)만 재배포했다. 운영 이력과 로컬이 일치하고 계정 없는 응답 확인을 통과했다. 의뢰게시판 서버·탈퇴 정리 예약·관리자 웹은 반영하지 않았다. [→ 상세](WORK_DETAIL.md#20261014-moduon-server-release)

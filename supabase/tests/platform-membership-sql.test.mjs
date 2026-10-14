@@ -392,6 +392,14 @@ test('auth cleanup removes expired receipts while preserving live codes and acti
     assert.match(schedule,/create extension if not exists pg_cron with schema pg_catalog/);
     assert.match(schedule,/cron\.schedule\('platform-auth-challenge-cleanup','\*\/5 \* \* \* \*'/);
     assert.ok(canonical.replaceAll('\r\n','\n').includes(schedule.replaceAll('\r\n','\n')));
+    // The withdrawal drain reads its key from Vault and never embeds a credential.
+    const drain=await readFile(new URL('../migrations/20261014140000_platform_withdrawal_drain_schedule.sql',import.meta.url),'utf8');
+    assert.match(drain,/cron\.schedule\('platform-withdrawal-cleanup-drain','\*\/5 \* \* \* \*'/);
+    assert.match(drain,/vault\.decrypted_secrets\s+where name='platform_withdrawal_drain_service_key'/);
+    assert.match(drain,/'action','withdrawal_cleanup_drain'/);
+    assert.match(drain,/revoke all on function public\.request_platform_withdrawal_drain_v1\(\) from public,anon,authenticated,service_role/);
+    assert.doesNotMatch(drain,/eyJ[A-Za-z0-9_-]{10,}|sb_secret_/);
+    assert.ok(canonical.replaceAll('\r\n','\n').includes(drain.replaceAll('\r\n','\n')));
   } finally {await db.close();}
 });
 
