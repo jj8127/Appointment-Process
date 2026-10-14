@@ -86,6 +86,18 @@ describe('common platform transport', () => {
     await expect(platformRequest('get_account', {}, 'expired')).rejects.toMatchObject({ status: 401, code: 'invalid_app_session', message: expect.stringContaining('다시 로그인') });
   });
   it.each([
+    ['not_found', 401, '가입되지 않은 번호'],
+    ['inactive_admin', 401, '사용이 중지'],
+    ['inactive_manager', 401, '사용이 중지'],
+    ['missing_password', 401, '비밀번호를 입력'],
+    ['login_unavailable', 503, '로그인을 처리하지'],
+  ])('maps relayed %s login rejection instead of reporting an expired session', async (code, status, message) => {
+    invoke.mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify({ ok: false, code }), { status }) } });
+    const failure = platformRequest('login', { phone: '01000000000', password: 'Synthetic1!' });
+    await expect(failure).rejects.toMatchObject({ status, code, message: expect.stringContaining(message) });
+    await expect(failure).rejects.not.toMatchObject({ message: expect.stringContaining('만료') });
+  });
+  it.each([
     ['already_exists', 409, '이미 가입'],
     ['cooldown', 429, '60초'],
     ['locked', 429, '10분'],

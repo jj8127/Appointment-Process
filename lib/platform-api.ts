@@ -105,6 +105,12 @@ const messages: Record<string, string> = {
   password_change_required: '임시 비밀번호를 변경해야 합니다. 새 비밀번호를 설정해 주세요.',
   needs_password_setup: '비밀번호를 먼저 설정해 주세요.',
   not_completed: '공통 회원가입을 완료한 뒤 보험 업무에 필요한 정보를 등록해 주세요.',
+  // Relayed login-with-password rejections; unmapped 401s would read as an expired session.
+  not_found: '가입되지 않은 번호입니다. 모두온 회원가입을 먼저 진행해 주세요.',
+  inactive_admin: '사용이 중지된 계정입니다. 관리자에게 문의해 주세요.',
+  inactive_manager: '사용이 중지된 계정입니다. 관리자에게 문의해 주세요.',
+  missing_password: '비밀번호를 입력해 주세요.',
+  login_unavailable: '로그인을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.',
   insurance_consent_required: '보험 업무에 필요한 추가 정보와 개인정보 수집·이용 동의를 확인해 주세요.',
   already_enrolled: '이미 등록한 보험 계정입니다. 다시 로그인해 주세요.',
   invalid_details: '소속·이메일·통신사와 자격 정보를 확인해 주세요.',

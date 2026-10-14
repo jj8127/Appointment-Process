@@ -1036,13 +1036,21 @@ describe('common member signup and login use isolated verified authentication', 
   });
   it('keeps temporary-password proof and incomplete preregistration recovery on the common entry', async () => {
     const context = { clearRequestBoardState: jest.fn(async () => undefined), clearSavedLoginCredentials: jest.fn(async () => undefined),
-      captureAppSessionOwner: () => () => true, setPendingAssistedPasswordChange: jest.fn(), resolvePlatformAuthRoute, router: { replace: jest.fn() } };
+      captureAppSessionOwner: () => () => true, setPendingAssistedPasswordChange: jest.fn(), resolvePlatformAuthRoute, router: { replace: jest.fn() },
+      Alert: { alert: jest.fn() } };
     const reject = routeHandler('hooks/use-login.ts', 'handleLoginRejection', context);
     await reject({ ok: false, code: 'password_change_required', passwordChangeToken: 'synthetic-change-proof', passwordChangeExpiresAt: '2026-10-14T00:00:00Z' }, 'insurance');
     expect(context.setPendingAssistedPasswordChange).toHaveBeenCalledWith('synthetic-change-proof', '2026-10-14T00:00:00Z');
     expect(context.router.replace).toHaveBeenLastCalledWith({ pathname: '/first-password-change', params: { service: 'insurance' } });
     await reject({ ok: false, code: 'not_completed' }, 'insurance');
     expect(context.router.replace).toHaveBeenLastCalledWith({ pathname: '/services/signup', params: { service: 'insurance' } });
+    expect(context.Alert.alert).toHaveBeenLastCalledWith('안내', expect.stringContaining('가입이 완료되지 않은 번호'));
+    await reject({ ok: false, code: 'not_found' }, undefined);
+    expect(context.Alert.alert).toHaveBeenLastCalledWith('안내', expect.stringContaining('가입되지 않은 번호입니다'));
+    expect(context.router.replace).toHaveBeenLastCalledWith('/services/signup');
+    context.Alert.alert.mockClear();
+    expect(await reject({ ok: false, code: 'not_found', role: 'admin' }, undefined)).toBe(false);
+    expect(context.Alert.alert).not.toHaveBeenCalled();
     await reject({ ok: false, code: 'needs_password_setup', role: 'fc' }, 'insurance');
     expect(context.router.replace).toHaveBeenLastCalledWith({ pathname: '/reset-password', params: { audience: 'platform', service: 'insurance' } });
   });

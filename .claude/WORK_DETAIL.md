@@ -1,5 +1,14 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261014-moduon-staff-grant"></a>
+## 2026-10-14 모두온 단일 계정의 직원 권한 부여와 로그인 안내
+
+- 기준 source는 dc67f86이며 primary 미커밋 변경은 내용 대조 결과 대부분 dc67f86에 포함되거나 폐기된 화면 대상이었다. 실제로 옮긴 것은 로그인 오류 문구·테스트와 병원6개 분야 문서 단락이다. primary의 referral-allowance 등 인증 무관 작업은 옮기지 않고 그대로 보존한다.
+- `grant_platform_staff_account_v1`은 활성 공통 회원에 admin/manager 계정을 생성하거나 기존 충돌 행을 명시 연결한다. FC 등록과 같은 방식으로 공통 해시를 직원 계정으로 옮기고 공통 credential을 지워 비밀번호 저장소를 하나로 유지한다. 같은 phone advisory lock을 써서 가입·등록·탈퇴와 직렬화된다. FC 회원의 직원 전환은 정책 미정이라 거절한다.
+- 직원 insert·전화번호 변경 trigger는 다른 활성 공통 회원 번호를 거절한다. 일반 회원 credential이 직원 세션을 가리는 상태를 원천 차단한다. 기존 SQL 테스트의 충돌 시나리오는 가드 이전 데이터로 명시해 유지했다.
+- 공통 로그인의 relay 오류 코드(not_found·inactive_admin/manager·missing_password·login_unavailable)를 문구에 추가했다. 미가입·미완료 번호는 안내를 띄운 뒤 공통 가입으로 이동한다.
+- 운영 DB 조회·migration·Edge 배포·OTA는 하지 않았다. 운영 반영 순서와 구버전 앱 처리는 canonical unified-membership-20261014 문서에서 관리한다.
+
 <a id="20261014-all-affiliate-withdrawal"></a>
 ## 2026-10-14 공통 탈퇴의 전체 제휴 계정 정리
 

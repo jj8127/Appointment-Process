@@ -205,6 +205,15 @@ rotation은 새 current → old current를 previous → 최대 token TTL 경과 
 - 외부 owner가 revoke/rotate하고, active config 제거와 Git history/clone 영향 범위를 판정한다.
 - non-sensitive revoke 증거와 scanner zero-result만 인수인계한다.
 
+## 직원 권한 수동 부여 (2026-10-14)
+
+관리자·본부장은 먼저 모두온 공통 회원으로 가입한다. 제휴 서비스 직원 권한은 운영자가 승인된 운영 DB 작업으로만 부여한다. `admin_accounts`/`manager_accounts`에 직접 insert하지 않는다. 공통 회원 번호와 겹치면 `platform_member_phone_requires_grant`로 거절된다.
+
+1. 대상 공통 회원 UUID를 확인한다. 증거에는 UUID·결과 코드만 남기고 이름·전화번호는 남기지 않는다.
+2. service_role로 `select grant_platform_staff_account_v1('<member uuid>','admin','admin',null);`를 실행한다. 본부장은 `'manager'`, 개발자는 staff_type `'developer'`를 사용한다. 이 가드 이전에 같은 번호의 직원 행이 이미 있으면 마지막 인자에 그 행의 id를 넣어 명시적으로 연결한다.
+3. 결과가 `ok:true`면 회원은 기존 모두온 비밀번호로 다시 로그인한다. 관리자 웹도 같은 비밀번호를 사용한다. `staff_phone_conflict`, `fc_member_not_supported`, `credential_unavailable`, `consent_required`는 데이터를 고치지 말고 원인을 확인한 뒤 결정한다.
+4. 같은 호출을 다시 실행하면 `alreadyGranted:true`를 반환하며 아무것도 바꾸지 않는다.
+
 ## 종료와 인수인계
 
 다음이 모두 있어야 장애를 종료한다.

@@ -7,6 +7,10 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
+## 2026-10-14 공통 회원 직원 권한 부여 (로컬)
+
+`20261014120000_platform_staff_grant.sql`과 schema mirror는 service-role 전용 `grant_platform_staff_account_v1`과 직원 번호 가드 trigger를 추가한다. 부여는 활성 공통 회원을 같은 phone advisory lock에서 잠그고 `staff_account_kind/id`를 먼저 연결한 뒤 admin/manager 행을 만들거나 명시된 기존 행을 갱신한다. 공통 credential 해시를 직원 계정으로 옮기고 공통 credential을 지워 비밀번호 저장소를 하나로 유지한다. `admin_accounts`/`manager_accounts`의 insert·전화번호 변경은 다른 활성 공통 회원 번호면 거절한다. 검증은 기존 platform-membership PGlite fixture 확장이며 운영 DB 적용은 미실행이다.
+
 ## 2026-10-14 공통·제휴 계정 탈퇴 journal (로컬)
 
 `20261014073458_platform_affiliate_account_withdrawal.sql`과 schema mirror는 private withdrawal journal과 정확한 messenger cleanup ID 연결을 추가한다. 두 테이블은 RLS/직접 접근 회수를 유지하고 service-role RPC만 사용한다. operation UUID·source UUID·원래 세션 SHA256 digest로 소유 요청을 확인하고 완료/재시도 상태를 보존한다. raw token은 저장하지 않는다. due index·최대3개 처리·backoff로 재처리를 제한한다.

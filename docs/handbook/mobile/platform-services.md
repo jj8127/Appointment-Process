@@ -3,9 +3,19 @@ owner_repo: fc-onboarding-app
 owner_area: mobile-and-data
 audience: developer, operator
 last_verified: 2026-10-14
-source_of_truth: app/services + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261014073458_platform_affiliate_account_withdrawal.sql + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
+source_of_truth: app/services + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261014120000_platform_staff_grant.sql + supabase/migrations/20261014073458_platform_affiliate_account_withdrawal.sql + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
 
 # 모두온 공통 서비스
+
+## 2026-10-14 직원 권한 수동 부여와 단일 계정
+
+사용자 확정 정책: 모두온 계정이 유일한 계정이며 가람in을 포함한 제휴 서비스는 그 아래에서 서비스 정보만 추가 등록한다. 관리자·본부장도 먼저 모두온에 가입하고, 제휴 서비스 직원 권한은 운영자가 수동으로 붙인다.
+
+`grant_platform_staff_account_v1(member_id, 'admin'|'manager', staff_type, existing_account_id)`는 service_role 전용이다. 활성 공통 회원에 직원 계정을 만들거나(기존 행이 있으면 `existing_account_id`로 명시 연결) 연결하고, 공통 비밀번호 해시를 직원 계정으로 옮긴 뒤 공통 credential을 지운다. 회원의 비밀번호는 하나로 유지되며 다음 로그인부터 직원 세션이 발급된다. 이전 일반회원 토큰은 무효가 된다. 같은 요청 재실행은 `alreadyGranted`를 반환한다. FC 회원의 직원 전환은 미정 정책이므로 `fc_member_not_supported`로 거절한다.
+
+`admin_accounts`/`manager_accounts`의 insert와 전화번호 변경은 그 번호가 다른 활성 공통 회원이면 `platform_member_phone_requires_grant`로 거절한다. 직원 행이 공통 회원 번호를 가려 직원 세션에 도달하지 못하는 상태를 막기 위함이다. 이 가드 이전에 생긴 충돌은 부여 함수의 `existing_account_id`로만 정리한다.
+
+공통 로그인에서 가람in 계정 오류(`not_found`, `inactive_admin`, `inactive_manager`, `missing_password`, `login_unavailable`)는 각자의 문구로 표시하며 '로그인 만료'로 표시하지 않는다. 미가입 번호는 "가입되지 않은 번호입니다"를 명시한 뒤 모두온 회원가입으로 이동한다.
 
 ## 2026-10-14 일반 회원·FC의 전체 제휴 계정 탈퇴
 
@@ -76,6 +86,8 @@ revision-11(2026-10-11): 공통 플랫폼 이름은 ‘모두온’이다. 공�
 ## 병원과 보험
 
 2026-10-12 로컬 시험: 사용자가 가상 데이터를 요청하여 `EXPO_PUBLIC_HOSPITAL_DEMO=true`인 설치본에서만 서울·경기·부산·대전의 가상 병원12곳을 표시한다. 기존 목록·진료과·지역/구·검색·상세 UI와 응답 스키마를 재사용하며 기존 가상 사진3개를 앱에 포함한다. 화면 제목에 샘플을 표시한다. 전화/홈페이지는 제공하지 않고 가상 주소 길찾기는 비활성화한다. 병원 측정 요청도 로컬에서만 완료하며 운영 광고 집계에 보내지 않는다. 플래그가 없으면 기존 서버 API를 사용하고 실제 광고 계약만 표시한다. 플래그는 로컬 APK 빌더에만 설정하며 저장소 `.env`와 운영 DB/함수는 변경하지 않는다.
+
+revision-23(2026-10-14): 제휴병원 홈의 탐색 분야는 `한방병원`, `정형외과`, `안과`, `치과`, `성형외과`, `건강검진센터` 순서의 6개로 고정한다. 검색 칩과 3×2 아이콘 타일은 같은 목록을 사용하며 이전의 동적 진료과·전체 보기 동작을 대체한다. 로컬 샘플 12곳은 이 6개 분야를 각각 2곳씩 제공한다.
 
 revision-16(2026-10-11): 상단은 최소56px 헤더의 제목·시/도 선택과48px 검색으로 줄이고 중복 본문 제목·큰 지역 폼을 제거한다. 구 선택은 시/도 선택 후 제공한다. 등록 진료과는 기존 react-native-svg로 만든44px 컬러 그림으로 구분한다. 내과 청진기·정형외과 뼈·재활 관절·치과 치아·안과 눈·피부과 얼굴·소아 어린이·이비인후과 귀를 사용하며 그 외 진료과는 의료 십자를 사용한다. 소개 카드는 최대300px 폭·172px 사진과 실제 소개2줄·상세 링크, 일반 목록은88px 사진과 간결한 비교 정보를 제공한다. 병원별 photoUrl은 서버 값을 그대로 사용하며 합성 사진3장은 격리 검증에만 쓴다. 지역·검색·복귀와 아래 지면/가시성 집계 계약은 유지한다.
 

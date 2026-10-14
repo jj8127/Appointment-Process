@@ -601,6 +601,51 @@ test('staff enrollment and deletion use the verified source while common withdra
   } finally {await db.close();}
 });
 
+test('manual staff grant attaches to the common member, moves its single password and guards staff phones',async()=>{
+  const db=await fixture();try {
+    const grant=(...args)=>rpc(db,'select grant_platform_staff_account_v1($1,$2,$3,$4) result',args);
+    const created=await member(db,'00000000021');
+    const granted=await grant(created.memberId,'admin','developer',null);
+    assert.equal(granted.ok,true);assert.equal(granted.created,true);
+    const account=(await db.query('select name,phone,staff_type,password_hash,password_salt,active from admin_accounts where id=$1',[granted.accountId])).rows[0];
+    assert.deepEqual(account,{name:'Synthetic Member',phone:'00000000021',staff_type:'developer',password_hash:hash,password_salt:salt,active:true});
+    assert.deepEqual((await db.query('select staff_account_kind,staff_account_id from platform_members where id=$1',[created.memberId])).rows[0],
+      {staff_account_kind:'admin',staff_account_id:granted.accountId});
+    assert.equal(Number((await db.query('select count(*) n from platform_member_credentials where member_id=$1',[created.memberId])).rows[0].n),0);
+    assert.equal((await rpc(db,'select platform_login_attempt($1,$2) result',[created.memberId,hash])).ok,false);
+    assert.equal((await grant(created.memberId,'admin','admin',null)).alreadyGranted,true);
+    assert.equal((await grant(created.memberId,'manager','admin',null)).code,'staff_already_bound');
+    await assert.rejects(grant(created.memberId,'admin','owner',null),/invalid_input/);
+
+    // Direct staff rows and phone edits cannot shadow another common member.
+    const other=await member(db,'00000000022');
+    await assert.rejects(db.query("insert into manager_accounts(phone,active,id) values('00000000022',true,$1)",[randomUUID()]),/platform_member_phone_requires_grant/);
+    await assert.rejects(db.query("update admin_accounts set phone='00000000022' where id=$1",[granted.accountId]),/platform_member_phone_requires_grant/);
+    await db.query("update admin_accounts set name='Synthetic renamed' where id=$1",[granted.accountId]);
+
+    // A pre-guard collision binds explicitly and adopts the common password.
+    await db.exec('alter table manager_accounts disable trigger platform_manager_phone_guard');
+    const legacy=randomUUID(),otherHash=Buffer.alloc(32,9).toString('base64');
+    await db.query("insert into manager_accounts(phone,active,id,password_hash,password_salt) values('00000000022',true,$1,$2,$3)",[legacy,otherHash,salt]);
+    await db.exec('alter table manager_accounts enable trigger platform_manager_phone_guard');
+    assert.equal((await grant(other.memberId,'manager',null,null)).code,'staff_phone_conflict');
+    assert.equal((await grant(other.memberId,'admin','admin',legacy)).code,'staff_phone_conflict');
+    const bound=await grant(other.memberId,'manager',null,legacy);
+    assert.deepEqual([bound.ok,bound.created,bound.accountId],[true,false,legacy]);
+    assert.equal((await db.query('select password_hash from manager_accounts where id=$1',[legacy])).rows[0].password_hash,hash);
+
+    const fcMember=await member(db,'00000000023');
+    await db.query("insert into fc_profiles(id,phone,name,signup_completed) values($1,'00000000023','Synthetic FC',true)",[randomUUID()]);
+    assert.equal((await grant(fcMember.memberId,'admin','admin',null)).code,'fc_member_not_supported');
+    assert.equal((await grant(randomUUID(),'admin','admin',null)).code,'member_unavailable');
+    for(const role of ['anon','authenticated']) {
+      await db.exec(`set role ${role}`);
+      try {await assert.rejects(db.query('select grant_platform_staff_account_v1($1,$2,$3,$4)',[other.memberId,'admin','admin',null]),/permission denied/);}
+      finally {await db.exec('reset role');}
+    }
+  } finally {await db.close();}
+});
+
 test('legacy import records company attestation, keeps real consent dates and follows existing recruiters independent of login order',async()=>{
   const recruit=randomUUID();
   const db=await fixture(`insert into fc_profiles(id,phone,name,signup_completed,recommender_fc_id) values('${recruit}','00000000041','Synthetic Recruit',true,'${fc}');
@@ -726,7 +771,11 @@ test('insurance registration rejects authority claims, stale common sessions and
     await db.query("insert into fc_profiles(id,phone,name,signup_completed,status) values($1,'00000000013','Synthetic Existing',false,'docs-pending')",[established]);
     await assert.rejects(insuranceEnrollment(db,member2,{phone:'00000000013'}),/forbidden/);
     assert.equal((await db.query('select status,signup_completed from fc_profiles where id=$1',[established])).rows[0].status,'docs-pending');
-    await db.query("insert into admin_accounts(phone,active,id,name,staff_type) values('00000000013',true,$1,'Synthetic Staff','developer')",[randomUUID()]);
+    const staffInsert="insert into admin_accounts(phone,active,id,name,staff_type) values('00000000013',true,$1,'Synthetic Staff','developer')";
+    await assert.rejects(db.query(staffInsert,[randomUUID()]),/platform_member_phone_requires_grant/);
+    // Collisions created before the guard still block conversion.
+    await db.exec('alter table admin_accounts disable trigger platform_admin_phone_guard');
+    await db.query(staffInsert,[randomUUID()]);
     await assert.rejects(insuranceEnrollment(db,member2,{phone:'00000000013'}),/forbidden/);
   }finally{await db.close();}
 });

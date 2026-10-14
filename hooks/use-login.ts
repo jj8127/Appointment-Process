@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { Alert } from 'react-native';
 import { useSession } from '@/hooks/use-session';
 import { captureAppSessionOwner, clearRequestBoardState, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
 import { setPendingAssistedPasswordChange } from '@/lib/pending-assisted-password-change';
@@ -63,6 +64,10 @@ export function useLogin() {
     }
     if (data.code === 'not_completed' || data.code === 'not_found') {
       if (data.role === 'admin' || data.role === 'manager') return false;
+      // Unregistered numbers are named explicitly before the common signup.
+      Alert.alert('안내', data.code === 'not_found'
+        ? '가입되지 않은 번호입니다. 모두온 회원가입을 먼저 진행해 주세요.'
+        : '가입이 완료되지 않은 번호입니다. 모두온 회원가입을 진행해 주세요.');
       router.replace(resolvePlatformAuthRoute(service, 'signup'));
       return true;
     }

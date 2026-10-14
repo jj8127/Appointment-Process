@@ -50,11 +50,12 @@ export async function preparePlatformMembershipFixture(db,{seedSql='',withWithdr
   "enrollmentMigration": "20261014043557_unified_common_insurance_enrollment.sql",
   "withdrawalMigration": "20261014073458_platform_affiliate_account_withdrawal.sql",
   "accountDeletionMigration": "20260724131931_exam_bundle_monthly_slot_and_decisions.sql",
-  "messengerMigration": "20260725035711_add_private_messenger_attachments_v2.sql"
+  "messengerMigration": "20260725035711_add_private_messenger_attachments_v2.sql",
+  "staffGrantMigration": "20261014120000_platform_staff_grant.sql"
 };
   const sources=Object.fromEntries(await Promise.all(Object.entries(files).map(async([key,file])=>
     [key,await readFile(new URL('../migrations/'+file,import.meta.url),'utf8')])));
-  const {migration,hospitalMigration,recoveryMigration,smsDeliveryMigration,extendedSmsDeliveryMigration,generations,enrollmentMigration,withdrawalMigration,accountDeletionMigration,messengerMigration}=sources;
+  const {migration,hospitalMigration,recoveryMigration,smsDeliveryMigration,extendedSmsDeliveryMigration,generations,enrollmentMigration,withdrawalMigration,accountDeletionMigration,messengerMigration,staffGrantMigration}=sources;
   await db.exec(fixtureSql);
   await db.exec(`alter table fc_profiles add column name text default 'Synthetic FC';
     alter table fc_profiles add column recommender_fc_id uuid;
@@ -68,6 +69,14 @@ export async function preparePlatformMembershipFixture(db,{seedSql='',withWithdr
     alter table admin_accounts add column session_version bigint default 0;
     alter table manager_accounts add column password_set_at timestamptz default now();
     alter table manager_accounts add column session_version bigint default 0;
+    alter table admin_accounts add column password_hash text, add column password_salt text,
+      add column failed_count integer default 0, add column locked_until timestamptz,
+      add column reset_token_hash text, add column reset_token_expires_at timestamptz,
+      add column reset_failed_count integer default 0, add column updated_at timestamptz default now();
+    alter table manager_accounts add column password_hash text, add column password_salt text,
+      add column failed_count integer default 0, add column locked_until timestamptz,
+      add column reset_token_hash text, add column reset_token_expires_at timestamptz,
+      add column reset_failed_count integer default 0, add column updated_at timestamptz default now();
     alter table fc_profiles alter column id set default gen_random_uuid();
     create unique index on fc_profiles(phone);
     alter table fc_profiles add column affiliation text default '가람';
@@ -166,4 +175,5 @@ export async function preparePlatformMembershipFixture(db,{seedSql='',withWithdr
     await db.exec(withdrawalMigration);
     await db.exec('grant all on all tables in schema public to service_role; grant usage on schema auth to service_role');
   }
+  await db.exec(staffGrantMigration);
 }
