@@ -4,6 +4,7 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import ServiceInformation, { ServiceAction, informationStyles as styles } from '@/components/ServiceInformation';
 import FamilyCareInvitation from '@/components/FamilyCareInvitation';
+import FamilyCareReferrer from '@/components/FamilyCareReferrer';
 import { FAMILY_CARE_PROMOTION_URL, resolveInsuranceServiceRoute, resolveServiceInformationKey, SERVICE_INFORMATION_KEYS } from '@/lib/service-home';
 import { useSession } from '@/hooks/use-session';
 import { openExternalUrl } from '@/lib/open-external-url';
@@ -14,7 +15,7 @@ export function generateStaticParams() {
 }
 
 export default function ServiceInformationRoute() {
-  const { service } = useLocalSearchParams();
+  const { service, code: inviteCode } = useLocalSearchParams<{ service?: string; code?: string }>();
   const session = useSession();
   const key = resolveServiceInformationKey(service);
   const home = () => router.replace('/');
@@ -37,7 +38,7 @@ export default function ServiceInformationRoute() {
       <Text style={styles.item}>서비스 안내는 로그인 전에 확인할 수 있습니다.</Text>
       <Text style={styles.item}>보험·FC 업무는 모두온 로그인 후 이용합니다. 처음 이용할 때 필요한 추가 정보와 본인확인을 안내합니다.</Text>
       <Text style={styles.item}>공통 회원가입은 한 번만 합니다. 서비스별로 필요한 추가 정보는 이용을 신청할 때 입력합니다.</Text>
-      <Text style={styles.item}>추천 관계는 모든 서비스에서 하나로 연결합니다. 이용료 지급 비율과 정산은 제휴 서비스별로 다릅니다.</Text>
+      <Text style={styles.item}>추천인은 제휴 서비스마다 따로 등록합니다. 이용료 지급 비율과 정산도 제휴 서비스별로 다릅니다.</Text>
       <Text style={styles.item}>지급 대상 금액은 제휴사별 수수료 정산 완료일부터 일주일 이내에 정해진 비율로 지급합니다. 보험 증원수당과는 별도입니다.</Text>
       <Text style={styles.item}>준비 중인 서비스는 이용 방법이 확정되면 안내합니다.</Text>
     </View>
@@ -67,6 +68,7 @@ export default function ServiceInformationRoute() {
     </View>
     <Text style={careStyles.note}>앱에서 가족간병을 신청하는 기능은 준비 중이에요.{`\n`}지금은 아래에서 자세한 안내를 확인해 주세요.</Text>
     <ServiceAction label="가족간병 자세히 알아보기" onPress={openCarePromotion} />
+    {inviteCode && session.isPlatformSignedIn ? <FamilyCareReferrer inviteCode={inviteCode} /> : null}
     <FamilyCareInvitation />
   </ServiceInformation>;
 

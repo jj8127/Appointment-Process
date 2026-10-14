@@ -18,6 +18,9 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const keys = ['insurance','care','telecom','rental','car','hospital'];
 const termsVersion = '2026-10-12';
 const insuranceConsentVersion = 'insurance-additional-info-v1';
+// Affiliate services whose referrer can be registered today. Each keeps its own referrer.
+const referralServices = ['care'];
+const serviceReferralCode = (value:unknown) => typeof value==='string' && /^[A-Za-z0-9]{8,12}$/.test(value.trim());
 const json = (body: object,status=200) => new Response(JSON.stringify(body),{
   status,headers:{'Content-Type':'application/json','Cache-Control':'private, no-store',...referralCorsHeaders()},
 });
@@ -61,7 +64,7 @@ async function rpc(name:string,args:Record<string,unknown>) {
     error.code?.startsWith('22') || error.code==='23514' ? 'invalid_input' :
     ['revision_conflict','idempotency_conflict','settled_cancellation_requires_reconciliation','invalid_details',
        'invalid_settlement','application_unavailable','partner_unavailable','partner_service_conflict','forbidden','invalid_transfer','invalid_partner','report_range_too_large',
-       'invalid_referral','consent_required','common_membership_withdrawn']
+       'invalid_referral','consent_required','common_membership_withdrawn','referral_already_bound']
       .includes(error.message) ? error.message : 'database_error');
   return data;
 }
@@ -508,8 +511,24 @@ serveWithConfiguredCors(async request => {
         const credential=existing ? await db.from('platform_member_credentials').select('password_salt').eq('member_id',existing.id).maybeSingle() : null;
         if(credential?.error) throw new Error('database_error');
         const salt=credential?.data?.password_salt ?? toBase64(crypto.getRandomValues(new Uint8Array(16)));
-        const result=await rpc('register_platform_member',{p_phone:phone,p_code_hash:await signupCodeHash(body.code,phone),
-          p_name:body.name.trim(),p_password_hash:await hashPassword(password,salt),p_password_salt:salt,p_referral_code:body.referralCode || null});
+        // A service invitation binds that service's referrer with the account.
+        // Older apps may still send a common referralCode; it stays history only.
+        const invitation=body.serviceReferral;
+        if(invitation!=null && (body.referralCode || typeof invitation!=='object' || Array.isArray(invitation)
+          || !referralServices.includes(invitation.serviceKey) || !serviceReferralCode(invitation.code)))
+          return fail('invalid_input','추천 코드를 확인해 주세요.');
+        const registration={p_phone:phone,p_code_hash:await signupCodeHash(body.code,phone),
+          p_name:body.name.trim(),p_password_hash:await hashPassword(password,salt),p_password_salt:salt};
+        let result;
+        try {
+          result=invitation ? await rpc('register_platform_member_v2',{...registration,
+            p_service_key:invitation.serviceKey,p_service_referral_code:invitation.code.trim().toUpperCase()})
+            : await rpc('register_platform_member',{...registration,p_referral_code:body.referralCode || null});
+        } catch(error) {
+          if(error instanceof Error && error.message==='invalid_referral')
+            return fail('invalid_referral','가족간병 추천 코드를 확인해 주세요. 추천 연결 없이 가입할 수도 있어요.');
+          throw error;
+        }
         if(!result.ok) return fail(result.code,result.code==='invalid_referral' ? '추천 코드를 확인해 주세요.' : '인증번호 또는 가입 정보를 확인해 주세요.');
         return authResponse({id:result.memberId,name:result.displayName,phone},result.sessionVersion);
       }
@@ -615,6 +634,26 @@ serveWithConfiguredCors(async request => {
     if(action==='cancel_application') {
       if(!uuid.test(body.applicationId ?? '')) return fail('invalid_input','신청 정보를 확인해 주세요.');
       return json(await rpc('cancel_platform_application',{p_member_id:signed.member.id,p_application_id:body.applicationId}));
+    }
+    if(['get_service_referral','preview_service_referral','bind_service_referral'].includes(action)) {
+      if(!referralServices.includes(body.serviceKey)) return fail('invalid_input','서비스를 확인해 주세요.');
+      if(action==='get_service_referral') {
+        if(body.issueCode===true) await rpc('ensure_platform_service_referral_code_v1',{p_member_id:signed.member.id,p_service_key:body.serviceKey});
+        return json(await rpc('get_platform_service_referral_v1',{p_member_id:signed.member.id,p_service_key:body.serviceKey}));
+      }
+      if(!serviceReferralCode(body.referralCode)) return fail('invalid_referral','추천 코드를 확인해 주세요.');
+      const code=body.referralCode.trim().toUpperCase();
+      if(action==='preview_service_referral') {
+        const preview=await rpc('preview_platform_service_referral_v1',{p_member_id:signed.member.id,p_service_key:body.serviceKey,p_code:code});
+        return preview.ok===true ? json(preview) : fail('invalid_referral','추천 코드를 확인해 주세요.');
+      }
+      if(!['invite_confirmed','manual'].includes(body.source)) return fail('invalid_input','추천인 등록 방법을 확인해 주세요.');
+      const bound=await rpc('bind_platform_service_referral_v1',{p_member_id:signed.member.id,p_service_key:body.serviceKey,
+        p_code:code,p_source:body.source});
+      if(bound.ok===true) return json(bound);
+      return bound.code==='referral_already_bound'
+        ? fail('referral_already_bound','이미 등록된 가족간병 추천인은 앱에서 바꿀 수 없어요.',409)
+        : fail('invalid_referral','추천 코드를 확인해 주세요.');
     }
     if(action==='get_account' || action==='verify') {
       const [applications,benefits] = await Promise.all([

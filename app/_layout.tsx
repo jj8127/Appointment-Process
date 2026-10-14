@@ -525,7 +525,12 @@ function ReferralLinkBootstrap() {
         else await save;
       }
       if (!active || currentSessionKey.current !== sessionKey) return;
-      router.replace(pending.invite.service === 'care' ? {
+      // A signed member confirms the care referrer on the care screen; the
+      // invitation never changes an existing referrer or common membership.
+      router.replace(pending.invite.service === 'care' ? isPlatformSignedIn ? {
+        pathname: '/services/[service]',
+        params: { service: 'care', code: pending.invite.code, referralNonce: `${pending.nonce}` },
+      } : {
         pathname: '/services/signup',
         params: { service: 'care', code: pending.invite.code, referralNonce: `${pending.nonce}` },
       } : {

@@ -26,6 +26,13 @@ async function member(db,phone='00000000011',referral=null) {
   assert.equal((await rpc(db,'select issue_platform_signup_otp($1,$2) result',[phone,hash])).ok,true);
   return rpc(db,'select register_platform_member($1,$2,$3,$4,$5,$6) result',[phone,hash,'Synthetic Member',hash,salt,referral]);
 }
+async function serviceCode(db,id,key='care') {
+  return (await rpc(db,'select ensure_platform_service_referral_code_v1($1,$2) result',[id,key])).code;
+}
+async function careMember(db,phone,code) {
+  assert.equal((await rpc(db,'select issue_platform_signup_otp($1,$2) result',[phone,hash])).ok,true);
+  return rpc(db,'select register_platform_member_v2($1,$2,$3,$4,$5,$6,$7) result',[phone,hash,'Synthetic Member',hash,salt,'care',code]);
+}
 async function partner(db,key='telecom',consumer=.5,referrer=.1,basis='after_consumer') {
   return rpc(db,'select save_platform_partner($1,$2,$3) result',[admin,{id:randomUUID(),serviceKey:key,name:'Synthetic Partner',region:'Synthetic Region',
     active:true,consumerRate:consumer,referrerRate:referrer,referrerBasis:basis},0]);
@@ -139,7 +146,7 @@ test('minimal signup consumes OTP atomically, locks attempts, and has no FC or d
     await assert.rejects(db.query('select issue_platform_signup_otp($1,$2)',['00000000013',hash]),/permission denied/);
     await db.exec('reset role');
     const rls=(await db.query("select relname,relrowsecurity from pg_class where relname like 'platform_%' and relkind='r'")).rows;
-    assert.equal(rls.length,10);assert.ok(rls.every(row=>row.relrowsecurity));
+    assert.equal(rls.length,12);assert.ok(rls.every(row=>row.relrowsecurity));
   }finally{await db.close();}
 });
 
@@ -235,28 +242,85 @@ test('FC signup and password reset share a PII-free, service-only SMS delivery l
   assert.ok(schema.includes(`-- Migration: extended SMS delivery tracking (20261013094539).\n${extendedSmsDeliveryMigration.replaceAll('\r\n','\n')}`));
 });
 
-test('one shared referral code spans service interests; snapshots and idempotency survive later graph changes',async()=>{
+test('service referrers stay with their own service; snapshots and idempotency survive later graph changes',async()=>{
   const db=await fixture();try{
     const inviter=await member(db);
-    const code=(await db.query('select referral_code from platform_members where id=$1',[inviter.memberId])).rows[0].referral_code;
-    const buyer=await member(db,'00000000012',code);
-    const a=await apply(db,buyer.memberId);
-    assert.deepEqual(await apply(db,buyer.memberId),a);
+    const commonCode=(await db.query('select referral_code from platform_members where id=$1',[inviter.memberId])).rows[0].referral_code;
+    const code=await serviceCode(db,inviter.memberId);
+    assert.match(code,/^S[0-9A-F]{11}$/);
+    assert.equal(await serviceCode(db,inviter.memberId),code);
+    const buyer=await careMember(db,'00000000012',code);
+    assert.equal((await db.query('select referrer_id from platform_members where id=$1',[buyer.memberId])).rows[0].referrer_id,null);
+    const telecom=await apply(db,buyer.memberId);
+    const a=await apply(db,buyer.memberId,'care','20000000-0000-4000-8000-000000000013');
+    assert.deepEqual(await apply(db,buyer.memberId,'care','20000000-0000-4000-8000-000000000013'),a);
     await assert.rejects(rpc(db,'select create_platform_application($1,$2,$3,$4) result',[buyer.memberId,'care',{},'20000000-0000-4000-8000-000000000012']),/invalid_details/);
     await assert.rejects(apply(db,buyer.memberId,'care'),/idempotency_conflict/);
-    await db.query('update platform_members set referrer_id=null where id=$1',[buyer.memberId]);
-    const p=await partner(db);
+    const snapshots=(await db.query('select service_key,referrer_id_snapshot from platform_service_applications where member_id=$1 order by service_key',[buyer.memberId])).rows;
+    assert.deepEqual(snapshots.map(row=>[row.service_key,row.referrer_id_snapshot]),[['care',inviter.memberId],['telecom',null]]);
+    // A legacy common referrer is history only and never pays a service referral.
+    const legacy=await member(db,'00000000013',commonCode);
+    assert.equal((await db.query('select referrer_id from platform_members where id=$1',[legacy.memberId])).rows[0].referrer_id,inviter.memberId);
+    const legacyCare=await apply(db,legacy.memberId,'care','20000000-0000-4000-8000-000000000014');
+    assert.equal((await db.query('select referrer_id_snapshot from platform_service_applications where id=$1',[legacyCare.applicationId])).rows[0].referrer_id_snapshot,null);
+    await db.query('delete from platform_service_referrals where member_id=$1',[buyer.memberId]);
+    const p=await partner(db,'care');
     const first=await settle(db,a.applicationId,p.partnerId,500000,undefined,'  test-transaction  ');
     const repeat=await settle(db,a.applicationId,p.partnerId);
     assert.deepEqual(first,repeat);
     assert.equal(Date.parse(first.dueAt)-Date.parse('2026-01-01T00:00:00Z'),7*86400000);
-    const benefits=(await db.query('select member_id,kind,amount from platform_member_benefits order by kind')).rows;
-    assert.deepEqual(benefits.map(row=>[row.kind,Number(row.amount)]),[['consumer',250000],['direct_referrer',25000]]);
-    assert.equal(benefits[1].member_id,inviter.memberId);
+    const t=await partner(db);
+    await settle(db,telecom.applicationId,t.partnerId,500000,'30000000-0000-4000-8000-000000000012','telecom-transaction');
+    const benefits=(await db.query("select member_id,kind,amount from platform_member_benefits where kind='direct_referrer'")).rows;
+    assert.deepEqual(benefits.map(row=>[row.member_id,Number(row.amount)]),[[inviter.memberId,25000]]);
     await assert.rejects(settle(db,a.applicationId,p.partnerId,500001),/idempotency_conflict/);
     await assert.rejects(rpc(db,'select cancel_platform_application($1,$2) result',[buyer.memberId,a.applicationId]),/settled_cancellation/);
     await db.query('update admin_accounts set staff_type=$1 where id=$2',['developer',admin]);
     await assert.rejects(partner(db),/forbidden/);
+  }finally{await db.close();}
+});
+
+test('service referral binding is first-wins, cycle-free, consent-gated and rolls back an unusable signup code',async()=>{
+  const db=await fixture();try{
+    const inviter=await member(db);const code=await serviceCode(db,inviter.memberId);
+    const commonCode=(await db.query('select referral_code from platform_members where id=$1',[inviter.memberId])).rows[0].referral_code;
+    const other=await member(db,'00000000013');const otherCode=await serviceCode(db,other.memberId);
+    const signup=referral=>rpc(db,'select register_platform_member_v2($1,$2,$3,$4,$5,$6,$7) result',
+      ['00000000012',hash,'Synthetic Member',hash,salt,'care',referral]);
+    assert.equal((await rpc(db,'select issue_platform_signup_otp($1,$2) result',['00000000012',hash])).ok,true);
+    await assert.rejects(signup('SFFFFFFFFFFF'),/invalid_referral/);
+    assert.equal(Number((await db.query("select count(*) n from platform_members where phone='00000000012'")).rows[0].n),0);
+    const buyer=await signup(code);
+    assert.equal(buyer.ok,true);
+    assert.equal((await signup(code)).memberId,buyer.memberId);
+    const bind=(id,referral,source='manual',key='care')=>rpc(db,'select bind_platform_service_referral_v1($1,$2,$3,$4) result',[id,key,referral,source]);
+    assert.deepEqual(await bind(buyer.memberId,code),{ok:true,serviceKey:'care',alreadyBound:true});
+    assert.deepEqual(await bind(buyer.memberId,otherCode),{ok:false,code:'referral_already_bound'});
+    await assert.rejects(signup(otherCode),/invalid_referral/);
+    const telecomCode=await serviceCode(db,other.memberId,'telecom');
+    assert.deepEqual(await bind(buyer.memberId,telecomCode,'manual','telecom'),{ok:true,serviceKey:'telecom',alreadyBound:false});
+    assert.deepEqual(await bind(inviter.memberId,telecomCode),{ok:false,code:'invalid_referral'});
+    assert.deepEqual(await bind(inviter.memberId,code),{ok:false,code:'invalid_referral'});
+    assert.deepEqual(await bind(inviter.memberId,await serviceCode(db,buyer.memberId)),{ok:false,code:'invalid_referral'});
+    await assert.rejects(bind(inviter.memberId,code,'admin'),/invalid_input/);
+    assert.deepEqual(await bind(other.memberId,commonCode,'manual','telecom'),{ok:false,code:'invalid_referral'});
+    assert.deepEqual(await bind(other.memberId,commonCode.toLowerCase(),'invite_confirmed'),{ok:true,serviceKey:'care',alreadyBound:false});
+    assert.deepEqual(await rpc(db,'select preview_platform_service_referral_v1($1,$2,$3) result',[other.memberId,'care',code]),
+      {ok:true,serviceKey:'care',referrerName:'Synthetic Member'});
+    const state=await rpc(db,'select get_platform_service_referral_v1($1,$2) result',[buyer.memberId,'care']);
+    assert.equal(state.code,await serviceCode(db,buyer.memberId));
+    assert.deepEqual({...state.referrer,createdAt:undefined},{name:'Synthetic Member',source:'invite_signup',createdAt:undefined});
+    assert.equal((await rpc(db,'select get_platform_service_referral_v1($1,$2) result',[inviter.memberId,'care'])).referrer,null);
+    await db.query('update platform_members set terms_accepted_at=null,terms_basis=null where id=$1',[inviter.memberId]);
+    assert.deepEqual(await rpc(db,'select preview_platform_service_referral_v1($1,$2,$3) result',[other.memberId,'care',code]),{ok:false,code:'invalid_referral'});
+    await assert.rejects(rpc(db,'select ensure_platform_service_referral_code_v1($1,$2) result',[inviter.memberId,'care']),/consent_required/);
+    for(const role of ['anon','authenticated']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.query('select * from platform_service_referrals'),/permission denied/);
+      await assert.rejects(db.query('select * from platform_service_referral_codes'),/permission denied/);
+      await assert.rejects(db.query("select bind_platform_service_referral_v1($1,'care',$2,'manual')",[other.memberId,code]),/permission denied/);
+      await db.exec('reset role');
+    }
   }finally{await db.close();}
 });
 
@@ -352,8 +416,8 @@ test('partner edits require revision; hospital advertising and insurance intake 
 
 test('care direct referral uses configured basis and recorded transfers are idempotent',async()=>{
   const db=await fixture();try{
-    const inviter=await member(db);const code=(await db.query('select referral_code from platform_members where id=$1',[inviter.memberId])).rows[0].referral_code;
-    const buyer=await member(db,'00000000012',code);const a=await apply(db,buyer.memberId,'care');const p=await partner(db,'care',0,.5);
+    const inviter=await member(db);const code=await serviceCode(db,inviter.memberId);
+    const buyer=await careMember(db,'00000000012',code);const a=await apply(db,buyer.memberId,'care');const p=await partner(db,'care',0,.5);
     await settle(db,a.applicationId,p.partnerId,10000);
     const reward=(await db.query("select id,amount from platform_member_benefits where kind='direct_referrer'")).rows[0];
     assert.equal(Number(reward.amount),5000);

@@ -865,7 +865,8 @@ describe('common member signup and login use isolated verified authentication', 
     const context = authContext();
     await routeHandler('app/services/signup.tsx', 'submit', context)('signup');
     expect(context.platformRequest).toHaveBeenCalledWith('signup', {
-      phone: '01000000000', code: '123456', name: '가상 회원', password: 'Synthetic1!', termsAccepted: true, termsVersion: PLATFORM_TERMS_VERSION, referralCode: 'TESTCODE',
+      phone: '01000000000', code: '123456', name: '가상 회원', password: 'Synthetic1!', termsAccepted: true, termsVersion: PLATFORM_TERMS_VERSION,
+      serviceReferral: { serviceKey: 'care', code: 'TESTCODE' },
     });
     expect(context.loginPlatformMember).toHaveBeenCalledWith({ id: 'synthetic-member', name: '가상 회원' }, 'fictional-consumer-token');
     expect(context.router.dismissTo).toHaveBeenCalledWith('/services/account');
@@ -1096,11 +1097,12 @@ describe('family-care invitations keep common signup separate from insurance', (
     expect(context.router.replace).toHaveBeenCalledWith(expect.objectContaining({ params: expect.objectContaining({ code: 'ABC123ABCDEF' }) }));
   });
 
-  it('never saves a referral to reassign an existing signed member', async () => {
+  it('never saves a referral for a signed member and asks for care referrer confirmation instead', async () => {
     const context = inviteContext({ isPlatformSignedIn: true });
     await routeHandler('app/_layout.tsx', 'routeInvite', context)();
     expect(context.clearPendingReferralCodes).toHaveBeenCalledTimes(1);
     expect(context.savePendingReferralCode).not.toHaveBeenCalled();
+    expect(context.router.replace).toHaveBeenCalledWith({ pathname: '/services/[service]', params: { service: 'care', code: 'ABC123ABCDEF', referralNonce: '2' } });
   });
   it.each([null, 'fc', 'admin'])('insurance invitations are saved only before FC enrollment for role %s', async role => {
     const context = inviteContext({ isPlatformSignedIn: true, role, pending: { invite: { code: 'ABC123ABCDEF' }, nonce: 2 } });

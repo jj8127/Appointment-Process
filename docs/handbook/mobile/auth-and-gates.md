@@ -7,6 +7,10 @@ source_of_truth: app/services/login.tsx + app/services/signup.tsx + app/login.ts
 
 # Mobile Playbook: Auth And Gates
 
+## 2026-10-14 추천인은 제휴 서비스별
+
+공통 가입 화면은 추천 코드를 입력받지 않는다. 가족간병 초대 링크로 들어온 경우에만 간병 추천 코드 안내와 '추천인 없이 가입하기'를 보여 주고 가입과 함께 간병 추천인을 등록한다. apply-gate의 보험 추천인은 다른 제휴 서비스 추천인과 별도라는 문구로 맞췄다. 동의 문구의 추천 표현 변경은 사용자 확인(서면 동의 완료)에 따라 동의 버전 2026-10-12를 유지한다. 상세는 platform-services.md를 따른다.
+
 ## 2026-10-14 계정 가입과 서비스 등록 분리
 
 공통 가입/로그인만 사용자에게 표시한다. legacy login/signup/verify/password 경로는 service·skipAuto·명시 보험 초대 의도를 보존하는 공통 진입 alias다. 공통 optional 추천 코드에 보험 초대를 혼입하지 않는다. 기존 임시 비밀번호와 완성 FC의 초기 비밀번호는 기존 OTP 복구를 사용하며 미완료 FC의 복구만으로 가입 완료/권한을 부여하지 않는다.

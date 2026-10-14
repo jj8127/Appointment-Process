@@ -51,11 +51,12 @@ export async function preparePlatformMembershipFixture(db,{seedSql='',withWithdr
   "withdrawalMigration": "20261014073458_platform_affiliate_account_withdrawal.sql",
   "accountDeletionMigration": "20260724131931_exam_bundle_monthly_slot_and_decisions.sql",
   "messengerMigration": "20260725035711_add_private_messenger_attachments_v2.sql",
-  "staffGrantMigration": "20261014120000_platform_staff_grant.sql"
+  "staffGrantMigration": "20261014120000_platform_staff_grant.sql",
+  "serviceReferralMigration": "20261014130000_platform_service_referrals.sql"
 };
   const sources=Object.fromEntries(await Promise.all(Object.entries(files).map(async([key,file])=>
     [key,await readFile(new URL('../migrations/'+file,import.meta.url),'utf8')])));
-  const {migration,hospitalMigration,recoveryMigration,smsDeliveryMigration,extendedSmsDeliveryMigration,generations,enrollmentMigration,withdrawalMigration,accountDeletionMigration,messengerMigration,staffGrantMigration}=sources;
+  const {migration,hospitalMigration,recoveryMigration,smsDeliveryMigration,extendedSmsDeliveryMigration,generations,enrollmentMigration,withdrawalMigration,accountDeletionMigration,messengerMigration,staffGrantMigration,serviceReferralMigration}=sources;
   await db.exec(fixtureSql);
   await db.exec(`alter table fc_profiles add column name text default 'Synthetic FC';
     alter table fc_profiles add column recommender_fc_id uuid;
@@ -176,4 +177,5 @@ export async function preparePlatformMembershipFixture(db,{seedSql='',withWithdr
     await db.exec('grant all on all tables in schema public to service_role; grant usage on schema auth to service_role');
   }
   await db.exec(staffGrantMigration);
+  await db.exec(serviceReferralMigration);
 }

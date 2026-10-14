@@ -220,15 +220,20 @@ it('filled mobile actions share readable white labels without changing press or 
 });
 
 describe('family-care invitation controls', () => {
-  let account: { data: null | { member: { id: string; referralCode: string } }; error: string | null; needsConsent: boolean; loading: boolean; token: string | null; session: { isPlatformSignedIn: boolean; logout: jest.Mock } };
+  let account: { data: null | { member: { id: string } }; error: string | null; needsConsent: boolean; loading: boolean; token: string | null; session: { isPlatformSignedIn: boolean; logout: jest.Mock } };
   let renderer: Renderer;
   let screen: (props: Record<string, unknown>) => ReactElement;
   let width = 390; let fontScale = 1;
   const copy = jest.fn(); const share = jest.fn(); const showToast = jest.fn(); const push = jest.fn(); const navigate = jest.fn(); const refresh = jest.fn();
+  // Each owner receives its own family-care code; the common member code is never shared.
+  let careCodes: Record<string, string | null>;
+  const platformRequest = jest.fn(async (_action: string, _payload: unknown, token: string) => ({ ok: true, serviceKey: 'care', code: careCodes[token] ?? null, referrer: null }));
   const button = (label: string) => renderer.root.findAllByType('Button').find(node => node.children.includes(label))!;
   const render = async () => { await act(async () => { renderer = create(createElement(screen)); }); };
   beforeEach(() => {
-    account = { data: { member: { id: 'synthetic-member', referralCode: 'CARE1234' } }, error: null, needsConsent: false, loading: false,
+    careCodes = { 'synthetic-owner': 'SABCDEF12345', 'synthetic-other-owner': 'SABCDEF67890' };
+    platformRequest.mockClear();
+    account = { data: { member: { id: 'synthetic-member' } }, error: null, needsConsent: false, loading: false,
       token: 'synthetic-owner', session: { isPlatformSignedIn: true, logout: jest.fn() } };
     width = 390; fontScale = 1;
     copy.mockReset().mockResolvedValue(undefined); share.mockReset().mockResolvedValue({ action: 'dismissedAction' }); showToast.mockReset(); push.mockReset(); navigate.mockReset(); refresh.mockReset();
@@ -238,30 +243,31 @@ describe('family-care invitation controls', () => {
       '@/components/Button': { Button: 'Button' }, '@/components/Toast': { useToast: () => ({ showToast }) },
       '@/hooks/use-platform-account': { usePlatformAccount: () => ({ ...account, refresh }) }, '@/lib/theme': { COLORS },
       '@/lib/referral-share': { buildReferralInviteUrl, buildReferralShareText }, '@/lib/use-read-attempt': { useReadAttempt },
-      '@/lib/referral-deeplink': { normalizeReferralInviteCode },
+      '@/lib/referral-deeplink': { normalizeReferralInviteCode }, '@/lib/platform-api': { platformRequest },
     });
   });
   afterEach(async () => { await act(async () => renderer?.unmount()); });
-  it('copies the signed common-member care link, and shares code without claiming delivery or cancellation success', async () => {
+  it('copies the signed member own care-code link, and shares code without claiming delivery or cancellation success', async () => {
     await render();
-    expect(texts(renderer.root)).toContain('CARE1234');
+    expect(platformRequest).toHaveBeenCalledWith('get_service_referral', { serviceKey: 'care', issueCode: true }, 'synthetic-owner');
+    expect(texts(renderer.root)).toContain('SABCDEF12345');
     await act(async () => { (button('추천 주소 복사').props.onPress as () => void)(); });
     const link = new URL(copy.mock.calls[0][0]);
-    expect(link.searchParams.get('code')).toBe('CARE1234'); expect(link.searchParams.get('service')).toBe('care');
+    expect(link.searchParams.get('code')).toBe('SABCDEF12345'); expect(link.searchParams.get('service')).toBe('care');
     expect(showToast).toHaveBeenCalledWith({ message: '추천 주소를 복사했어요', variant: 'success' });
     showToast.mockClear();
     await act(async () => { (button('공유하기').props.onPress as () => void)(); });
-    expect(share).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('추천 코드: CARE1234') }));
+    expect(share).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('추천 코드: SABCDEF12345') }));
     expect(share.mock.calls[0][0].message).toContain('service=care'); expect(showToast).not.toHaveBeenCalled();
   });
   it('blocks repeat presses and stale-owner completions and handlers', async () => {
     let resolve!: () => void; copy.mockImplementation(() => new Promise<void>(done => { resolve = done; }));
     await render(); const oldPress = button('추천 주소 복사').props.onPress as () => void;
     await act(async () => { oldPress(); oldPress(); }); expect(copy).toHaveBeenCalledTimes(1); expect(button('공유하기').props.disabled).toBe(true);
-    account = { ...account, token: 'synthetic-other-owner', data: { member: { id: 'synthetic-other-member', referralCode: 'CARE5678' } } };
+    account = { ...account, token: 'synthetic-other-owner', data: { member: { id: 'synthetic-other-member' } } };
     await act(async () => renderer.update(createElement(screen)));
     await act(async () => { oldPress(); resolve(); }); expect(copy).toHaveBeenCalledTimes(1); expect(showToast).not.toHaveBeenCalled();
-    expect(texts(renderer.root)).toContain('CARE5678'); expect(button('공유하기').props.disabled).toBe(false);
+    expect(texts(renderer.root)).toContain('SABCDEF67890'); expect(button('공유하기').props.disabled).toBe(false);
   });
   it.each(['copy', 'share'])('shows an explicit %s failure and permits retry', async (action) => {
     const operation = action === 'copy' ? copy : share; operation.mockRejectedValueOnce(new Error('synthetic error'));
@@ -269,12 +275,13 @@ describe('family-care invitation controls', () => {
     await act(async () => { (button(action === 'copy' ? '추천 주소 복사' : '공유하기').props.onPress as () => void)(); });
     expect(showToast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'error' })); expect(button('공유하기').props.disabled).toBe(false);
   });
-  it.each(['signed-out', 'consent', 'error', 'missing-code', 'invalid-code', 'loading'])('provides recovery and does not expose invite actions in %s state', async (state) => {
+  it.each(['signed-out', 'consent', 'error', 'missing-code', 'invalid-code', 'code-error', 'loading'])('provides recovery and does not expose invite actions in %s state', async (state) => {
     if (state === 'signed-out') account.session.isPlatformSignedIn = false;
     if (state === 'consent') account.needsConsent = true;
     if (state === 'error') account.error = 'synthetic error';
     if (state === 'missing-code') account.data = null;
-    if (state === 'invalid-code') account.data = { member: { id: 'synthetic-member', referralCode: 'A' } };
+    if (state === 'invalid-code') careCodes['synthetic-owner'] = 'A';
+    if (state === 'code-error') platformRequest.mockRejectedValueOnce(new Error('synthetic error'));
     if (state === 'loading') account.loading = true;
     await render(); expect(button('추천 주소 복사')).toBeUndefined(); expect(button('공유하기')).toBeUndefined();
     if (state === 'signed-out') {
@@ -284,7 +291,9 @@ describe('family-care invitation controls', () => {
       await act(async () => { const press = button('동의하고 초대 준비하기').props.onPress as () => void; press(); press(); });
       expect(navigate.mock.calls).toEqual([['/services/account'], ['/services/account']]); expect(push).not.toHaveBeenCalled();
     } else if (state !== 'loading') {
-      await act(async () => { (button('다시 확인').props.onPress as () => void)(); }); expect(refresh).toHaveBeenCalledTimes(1);
+      await act(async () => { (button('다시 확인').props.onPress as () => void)(); });
+      if (state === 'error' || state === 'missing-code') expect(refresh).toHaveBeenCalledTimes(1);
+      else { expect(refresh).not.toHaveBeenCalled(); expect(platformRequest).toHaveBeenCalledTimes(2); }
       if (state === 'error') { await act(async () => { (button('다시 로그인').props.onPress as () => void)(); }); expect(account.session.logout).toHaveBeenCalledTimes(1); }
     }
     expect(copy).not.toHaveBeenCalled(); expect(share).not.toHaveBeenCalled();
@@ -304,7 +313,7 @@ it('care information preserves conditional registration guidance and separates p
     '@expo/vector-icons': { Feather: 'Feather' },
     'expo-router': { router: { push: jest.fn(), replace: jest.fn() }, useLocalSearchParams: () => ({ service: 'care' }) },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
-    '@/components/FamilyCareInvitation': { default: 'FamilyCareInvitation' }, '@/hooks/use-session': { useSession: () => ({}) },
+    '@/components/FamilyCareInvitation': { default: 'FamilyCareInvitation' }, '@/components/FamilyCareReferrer': { default: 'FamilyCareReferrer' }, '@/hooks/use-session': { useSession: () => ({}) },
     '@/lib/service-home': { FAMILY_CARE_PROMOTION_URL, resolveInsuranceServiceRoute, resolveServiceInformationKey, SERVICE_INFORMATION_KEYS },
     '@/lib/open-external-url': { openExternalUrl: openPromotion }, '@/lib/theme': { COLORS },
   });
@@ -313,9 +322,28 @@ it('care information preserves conditional registration guidance and separates p
   expect(texts(renderer.root).some(text => text.includes('소속·등록을 요구하는 보험은 등록이 필요해요.'))).toBe(true);
   expect(texts(renderer.root).some(text => text.includes('앱에서 가족간병을 신청하는 기능은 준비 중이에요.'))).toBe(true);
   expect(renderer.root.findAllByType('FamilyCareInvitation')).toHaveLength(1);
+  expect(renderer.root.findAllByType('FamilyCareReferrer')).toHaveLength(0);
   await act(async () => { await (renderer.root.findAllByType('ServiceAction')[0].props.onPress as () => Promise<void>)(); });
   expect(openPromotion).toHaveBeenCalledWith(FAMILY_CARE_PROMOTION_URL, { sameWindowOnWeb: true });
   expect(new URL(FAMILY_CARE_PROMOTION_URL).search).toBe('');
+  await act(async () => renderer.unmount());
+});
+
+it.each([[true, 1], [false, 0]])('care invitation link asks a signed member (%s) to confirm the care referrer', async (signedIn, shown) => {
+  const Care = executeComponent('app/services/[service].tsx', {
+    '@expo/vector-icons': { Feather: 'Feather' },
+    'expo-router': { router: { push: jest.fn(), replace: jest.fn() }, useLocalSearchParams: () => ({ service: 'care', code: 'SABCDEF12345' }) },
+    '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
+    '@/components/FamilyCareInvitation': { default: 'FamilyCareInvitation' }, '@/components/FamilyCareReferrer': { default: 'FamilyCareReferrer' },
+    '@/hooks/use-session': { useSession: () => ({ isPlatformSignedIn: signedIn }) },
+    '@/lib/service-home': { FAMILY_CARE_PROMOTION_URL, resolveInsuranceServiceRoute, resolveServiceInformationKey, SERVICE_INFORMATION_KEYS },
+    '@/lib/open-external-url': { openExternalUrl: jest.fn() }, '@/lib/theme': { COLORS },
+  });
+  let renderer!: Renderer;
+  await act(async () => { renderer = create(createElement(Care)); });
+  const referrer = renderer.root.findAllByType('FamilyCareReferrer');
+  expect(referrer).toHaveLength(shown);
+  if (shown) expect(referrer[0].props.inviteCode).toBe('SABCDEF12345');
   await act(async () => renderer.unmount());
 });
 
@@ -327,7 +355,7 @@ it.each([['help', '내 정보 · 회원가입', '/services/account'], ['hospital
       'expo-router': { router: { navigate, push, replace: jest.fn() }, useLocalSearchParams: () => ({ service }) },
       'react-native': { Alert: { alert: jest.fn() }, Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles } },
       '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
-      '@/components/FamilyCareInvitation': { default: 'FamilyCareInvitation' }, '@/hooks/use-session': { useSession: () => ({}) },
+      '@/components/FamilyCareInvitation': { default: 'FamilyCareInvitation' }, '@/components/FamilyCareReferrer': { default: 'FamilyCareReferrer' }, '@/hooks/use-session': { useSession: () => ({}) },
       '@/lib/service-home': { FAMILY_CARE_PROMOTION_URL, resolveInsuranceServiceRoute, resolveServiceInformationKey, SERVICE_INFORMATION_KEYS },
       '@/lib/open-external-url': { openExternalUrl: jest.fn() }, '@/lib/theme': { COLORS },
     });
@@ -442,7 +470,7 @@ it('public account offers common login and keeps insurance settings within the c
   const push = jest.fn(); const navigate = jest.fn();
   const openPolicy = jest.fn(async () => undefined);
   const Account = executeComponent('app/services/account.tsx', {
-    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
+    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' }, '@/components/FamilyCareReferrer': { default: 'FamilyCareReferrer' },
     'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { push, navigate } },
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
@@ -490,7 +518,7 @@ it('existing FC account requires explicit consent, blocks repeat saves and prese
   let reject!: (error: Error) => void;
   const request = jest.fn((..._args: unknown[]) => new Promise((_resolve, rejectRequest) => { reject = rejectRequest; }));
   const Account = executeComponent('app/services/account.tsx', {
-    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
+    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' }, '@/components/FamilyCareReferrer': { default: 'FamilyCareReferrer' },
     'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { push } },
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
@@ -541,7 +569,7 @@ it.each(['fc', 'member'])('common withdrawal remains available with expired cons
   });
   const alert = jest.fn((_title, _body, actions) => { buttons = actions; });
   const Account = executeComponent('app/services/account.tsx', {
-    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
+    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' }, '@/components/FamilyCareReferrer': { default: 'FamilyCareReferrer' },
     'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { replace } },
     'react-native': { Alert: { alert }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },

@@ -149,6 +149,17 @@ describe('common platform transport', () => {
     await expect(platformRequest('validate_insurance_referral')).resolves.toMatchObject({ inviterFcId: hospital.id });
     invoke.mockResolvedValue({ data: { ok: true, inviterFcId: 'bad' }, error: null });
     await expect(platformRequest('validate_insurance_referral')).rejects.toMatchObject({ code: 'invalid_response' });
+    // Family-care referral responses carry the service code and the referrer's name.
+    invoke.mockResolvedValue({ data: { ok: true, serviceKey: 'care', code: 'SABCDEF12345', referrer: { name: '합성 추천인', source: 'manual', createdAt: '2026-10-14T00:00:00Z' } }, error: null });
+    await expect(platformRequest('get_service_referral')).resolves.toMatchObject({ code: 'SABCDEF12345' });
+    invoke.mockResolvedValue({ data: { ok: true, serviceKey: 'care', code: 'ABCDEF123456', referrer: null }, error: null });
+    await expect(platformRequest('get_service_referral')).rejects.toMatchObject({ code: 'invalid_response' });
+    invoke.mockResolvedValue({ data: { ok: true, serviceKey: 'telecom', referrerName: '합성 추천인' }, error: null });
+    await expect(platformRequest('preview_service_referral')).rejects.toMatchObject({ code: 'invalid_response' });
+    invoke.mockResolvedValue({ data: { ok: true, serviceKey: 'care', alreadyBound: false }, error: null });
+    await expect(platformRequest('bind_service_referral')).resolves.toMatchObject({ alreadyBound: false });
+    invoke.mockResolvedValue({ data: { ok: false, code: 'referral_already_bound' }, error: null });
+    await expect(platformRequest('bind_service_referral')).rejects.toMatchObject({ code: 'referral_already_bound', message: '이미 등록된 가족간병 추천인은 앱에서 바꿀 수 없어요.' });
   });
   it('validates consumer identity and existing insurance sessions before persistence', async () => {
     const member = { ok: true, memberId: hospital.id, displayName: '합성 회원', residentId: '01000000000', appSessionToken: 'synthetic-consumer-token', role: 'member' };

@@ -92,7 +92,9 @@ export default function PlatformSignup() {
       } else {
         const result = await platformRequest<PlatformAuthResponse>('signup', {
           phone: normalizePhone(phone), code: code.trim(), name: name.trim(), password: password.trim(),
-          termsAccepted: true, termsVersion: PLATFORM_TERMS_VERSION, ...(referralCode.trim() ? { referralCode: referralCode.trim().toUpperCase() } : {}),
+          termsAccepted: true, termsVersion: PLATFORM_TERMS_VERSION,
+          // Only a family-care invitation carries a referrer; common signup has none.
+          ...(referralCode.trim() ? { serviceReferral: { serviceKey: 'care', code: referralCode.trim().toUpperCase() } } : {}),
         });
         if (!isCurrent() || !ownsSession()) return;
         if (result.insuranceSession) throw new Error('이미 가입한 보험·FC 계정으로 로그인해 주세요.');
@@ -167,9 +169,14 @@ export default function PlatformSignup() {
           editable={!loading} containerStyle={styles.field} />
         <FormInput label="비밀번호 확인" accessibilityLabel="비밀번호 확인" value={confirmation}
           onChangeText={setConfirmation} variant="password" autoCapitalize="none" editable={!loading} containerStyle={styles.field} />
-        <FormInput label="추천 코드 (선택)" accessibilityLabel="추천 코드 선택" value={referralCode}
-          onChangeText={value => { referralEdited.current = true; setReferralCode(value); }} autoCapitalize="characters" editable={!loading} containerStyle={styles.field} />
-        <Text style={styles.detail}>추천 관계는 모든 제휴 서비스에서 함께 사용됩니다.</Text>
+        {referralCode ? <View style={styles.invitation}>
+          <Text style={styles.invitationTitle}>가족간병 추천 코드 {referralCode}</Text>
+          <Text style={styles.invitationText}>가입하면 이 코드의 회원이 가족간병 추천인으로 함께 등록돼요. 다른 제휴 서비스의 추천인은 해당 서비스에서 따로 등록해요.</Text>
+          <Pressable accessibilityRole="button" disabled={Boolean(loading)} style={styles.invitationAction}
+            onPress={() => { referralEdited.current = true; setReferralCode(''); setError(''); }}>
+            <Text style={styles.detailLink}>추천인 없이 가입하기</Text>
+          </Pressable>
+        </View> : null}
         <Pressable accessibilityRole="checkbox" accessibilityLabel="필수 회원가입 및 개인정보 수집 이용 동의"
           accessibilityState={{ checked: termsAccepted }} disabled={Boolean(loading)}
           onPress={() => setTermsAccepted(value => !value)} style={styles.consent}>
@@ -208,6 +215,10 @@ const styles = StyleSheet.create({
   codeField: { marginTop: SPACING.lg, marginBottom: SPACING.lg },
   notice: { color: COLORS.text.secondary, fontSize: TYPOGRAPHY.fontSize.sm, marginTop: SPACING.sm },
   otpError: { color: COLORS.error, fontSize: TYPOGRAPHY.fontSize.sm, lineHeight: 20, marginTop: SPACING.sm },
+  invitation: { backgroundColor: COLORS.gray[50], borderRadius: 12, padding: SPACING.base, marginBottom: SPACING.lg },
+  invitationTitle: { color: COLORS.text.primary, fontSize: TYPOGRAPHY.fontSize.base, fontWeight: '700', marginBottom: SPACING.xs },
+  invitationText: { color: COLORS.text.secondary, fontSize: TYPOGRAPHY.fontSize.sm, lineHeight: 20 },
+  invitationAction: { minHeight: 44, justifyContent: 'center' },
   detail: { color: COLORS.text.secondary, fontSize: TYPOGRAPHY.fontSize.sm, lineHeight: 20, marginBottom: SPACING.lg },
   detailLink: { color: COLORS.text.secondary, fontSize: TYPOGRAPHY.fontSize.sm, textDecorationLine: 'underline' },
   consent: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center', minHeight: 44, marginBottom: SPACING.sm },

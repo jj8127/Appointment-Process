@@ -31,7 +31,7 @@ export function buildReferralShareText({
     return [
       '모두온 가족간병 안내를 함께 확인해 보세요.',
       '',
-      '내 초대 링크로 새로 가입하면 내 추천 회원으로 연결돼요.',
+      '이 링크로 모두온에 가입하면 저를 가족간병 추천인으로 등록할 수 있어요.',
       inviteUrl,
       `추천 코드: ${code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')}`,
       '',

@@ -239,7 +239,7 @@ export default function ApplyGateScreen() {
           <Text style={styles.body}>{commonOnly ? '소속·이메일·통신사·자격 상태와 보험 추천인을 확인한 뒤, 다음 단계에서 주민번호와 주소를 입력해 주세요.' : '주민번호와 주소를 입력해 주세요.'}</Text>
           <Text style={styles.body}>입력이 완료되면 설계 요청, 메신저, 공지/알림, 위촉 관련 기능을 모두 이용할 수 있습니다.</Text>
           {commonOnly && <>
-            <Text style={styles.body}>수집 목적: 가람in 위촉 신청 및 등록 처리. 신청 정보는 등록 처리에 사용하며 공통 추천 관계와 보험 추천 관계는 별도로 관리합니다. 다음 신원 입력 단계에서 보관·파기 안내를 확인할 수 있습니다.</Text>
+            <Text style={styles.body}>수집 목적: 가람in 위촉 신청 및 등록 처리. 신청 정보는 등록 처리에 사용하며 보험 추천 관계는 다른 제휴 서비스의 추천인과 별도로 관리합니다. 다음 신원 입력 단계에서 보관·파기 안내를 확인할 수 있습니다.</Text>
             <Pressable accessibilityRole="checkbox" accessibilityLabel="가람in 추가정보 수집·이용 동의" accessibilityState={{ checked: consentAccepted, disabled: submitting }} disabled={submitting}
               onPress={() => setConsentAccepted(value => !value)} style={styles.consent}>
               <Feather accessible={false} name={consentAccepted ? 'check-square' : 'square'} size={22} color={COLORS.primary} />
@@ -262,7 +262,7 @@ export default function ApplyGateScreen() {
           <View style={styles.options}>{LICENSE_STATUS_OPTIONS.map(option => <Pressable key={option} accessibilityRole="checkbox" accessibilityState={{ checked: licenseStatuses.includes(option), disabled: submitting }} disabled={submitting}
             onPress={() => setLicenseStatuses(current => toggleLicenseStatus(current, option))} style={[styles.option, licenseStatuses.includes(option) && styles.selected]}><Text style={styles.body}>{LICENSE_STATUS_LABELS[option]}</Text></Pressable>)}</View>
           <Text style={styles.label}>보험 추천인 (필수)</Text>
-          <Text style={styles.body}>공통 추천인과 별도로 선택합니다.</Text>
+          <Text style={styles.body}>다른 제휴 서비스의 추천인과 별도로 선택합니다.</Text>
           <ReferralSearchField searchQuery={searchQuery} searching={searching || validating} onChangeText={changeReferralSearch} onClear={() => changeReferralSearch('')}
             textInputProps={{ editable: !submitting, accessibilityLabel: '보험 추천인 이름 검색' }} />
           {!selectedReferral && <Text style={styles.body}>{searchQuery.trim().length < 2 ? REFERRAL_SEARCH_MIN_CHARS_HINT : !searching && !validating && !referralError && !searchResults.length ? REFERRAL_SEARCH_EMPTY_HINT : ''}</Text>}

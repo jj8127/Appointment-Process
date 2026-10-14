@@ -7,7 +7,11 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 
 # Data Handbook: Referral Schema And Admin RPCs
 
-## 2026-10-11 공통 제휴 추천 관계
+## 2026-10-14 제휴 서비스별 추천 관계
+
+2026-10-11 절의 공통 `platform_members.referrer_id` 기준은 대체되었다. 제휴 서비스 추천은 `platform_service_referrals`(member_id, service_key)가 기준이며 신청 시 같은 서비스의 추천인을 스냅숏한다. service-role RPC: `ensure_platform_service_referral_code_v1`, `get_platform_service_referral_v1`, `preview_platform_service_referral_v1`, `bind_platform_service_referral_v1`, `register_platform_member_v2`. 응답에는 추천 코드와 추천인 이름만 담는다(사용자 결정으로 이름을 가리지 않는다). 보험 증원 `referral_*` 계약은 변경하지 않는다.
+
+## 2026-10-11 공통 제휴 추천 관계 (대체됨)
 
 새 제휴 서비스의 가입 시 직접 추천 관계는 `platform_members.referrer_id`가 기준이다. 기존 FC를 최초 연결할 때 종전 추천 관계를 투영하고 이후 보험 증원 관계 변경으로 이 공통 관계를 자동 덮어쓰지 않는다. 일반 회원의 FC 전환도 이미 연결한 공통 관계를 유지한다. 종전 `referral_*`는 보험 증원 업무의 계약을 계속 담당한다.
 

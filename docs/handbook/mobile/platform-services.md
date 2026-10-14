@@ -3,9 +3,20 @@ owner_repo: fc-onboarding-app
 owner_area: mobile-and-data
 audience: developer, operator
 last_verified: 2026-10-14
-source_of_truth: app/services + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261014120000_platform_staff_grant.sql + supabase/migrations/20261014073458_platform_affiliate_account_withdrawal.sql + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
+source_of_truth: app/services + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + components/FamilyCareReferrer.tsx + supabase/functions/platform-service/index.ts + supabase/migrations/20261014130000_platform_service_referrals.sql + supabase/migrations/20261014120000_platform_staff_grant.sql + supabase/migrations/20261014073458_platform_affiliate_account_withdrawal.sql + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
 
 # 모두온 공통 서비스
+
+## 2026-10-14 제휴 서비스별 추천인 (가족간병 우선)
+
+사용자 확정 정책: 추천인은 제휴 시스템마다 따로 존재한다. 모두온 공통가입은 추천인을 받지 않으며 `platform_members.referrer_id`는 과거 기록으로만 남기고 정산에 쓰지 않는다. 이 절이 아래 '추천 관계는 모든 서비스에서 하나로 연결' 계약을 대체한다.
+
+- 회원은 서비스마다 추천 코드 하나(`S`+11자리, 처음 공유할 때 발급)와 추천인 하나를 가진다. 지금 등록 가능한 서비스는 가족간병(`care`)뿐이다. 보험 추천인은 기존 가람in 추가정보 절차와 `fc_profiles.recommender_*`가 그대로 담당한다.
+- 가족간병 소개하기는 간병 전용 코드로 `?code=…&service=care` 링크를 공유한다. 이 기능 이전에 공유된 링크(공통 회원 코드)는 가족간병에서만 계속 인정한다.
+- 링크로 처음 가입하면 공통가입 화면에 코드 안내만 보이고, 가입과 함께 `register_platform_member_v2`가 간병 추천인을 원자적으로 등록한다. 쓸 수 없는 코드면 가입 전체가 되돌아가고 '추천인 없이 가입하기'로 계속할 수 있다. 인증번호 확인 뒤에만 코드를 검사한다.
+- 이미 로그인한 회원이 링크를 열면 가족간병 화면에서 추천인 이름을 보고 직접 확인해 등록한다. 링크 없이 가입한 회원은 간병 신청 화면이 생길 때까지 내 정보 > 가족간병 추천인에서 코드를 입력한다.
+- 처음 등록한 추천인이 확정이다. 같은 추천인 재요청은 성공으로 처리하고 다른 추천인은 `referral_already_bound`(409)로 거절한다. 본인·순환 추천은 거절한다. 관리자 변경 기능은 아직 없다.
+- 신청(`create_platform_application`)은 해당 서비스의 추천인을 스냅숏하고 정산은 그 스냅숏만 사용한다.
 
 ## 2026-10-14 직원 권한 수동 부여와 단일 계정
 

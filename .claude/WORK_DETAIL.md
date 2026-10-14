@@ -1,5 +1,15 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261014-service-referrals"></a>
+## 2026-10-14 제휴 서비스별 추천인과 가족간병 소개 분리
+
+- 기준 05f4ae3. `20261014130000_platform_service_referrals.sql`은 `platform_service_referral_codes`·`platform_service_referrals`와 service-role RPC(코드 발급·조회·미리보기·등록, `register_platform_member_v2`)를 추가하고 `create_platform_application`이 같은 서비스 추천인을 스냅숏하게 바꾼다. 공통 `referrer_id`는 과거 기록으로만 남긴다.
+- 서비스 코드는 `S`+11자리 16진수라 공통 코드와 겹치지 않는다. 이전에 공유된 간병 링크(공통 코드)는 간병에서만 계속 인정한다.
+- 첫 등록이 확정이고 같은 추천인 재요청만 성공한다. 본인·순환 추천을 거절한다. 링크 가입의 코드 오류는 인증번호 확인 뒤 가입 전체를 되돌린다. 추천인 이름은 사용자 결정에 따라 가리지 않고 보여 준다.
+- 앱: 공통가입의 추천 코드 입력 제거(간병 링크 안내 카드와 '추천인 없이 가입하기'), 로그인 회원의 간병 링크는 간병 화면의 확인 카드로 이동, 내 정보의 공통 추천 코드 영역을 가족간병 추천인 등록으로 교체, 소개하기는 간병 전용 코드 사용. 구버전 앱의 `referralCode` 가입은 기존처럼 공통 기록만 남긴다.
+- 공통 필수 동의 문구(`PLATFORM_CONSENT_TEXT`)의 추천 표현을 제휴 서비스별 추천으로 고쳤다. 사용자가 회원 동의를 모두 서면으로 받았다고 확인해 동의 버전 2026-10-12와 기존 동의 상태를 유지한다. garam-public-web 개인정보 안내 문구도 로컬에서 같은 의미로 고쳤다.
+- 검증: platform-membership SQL 24/24, 관련 Jest 6개 suite, `deno check`(platform-service), tsc, eslint, governance 맵 갱신. `shared-function-contracts`의 inventory 1건 실패는 05f4ae3 기준에서도 같아 무관하다. 운영 DB 조회·적용, Edge·앱·웹 배포, push는 하지 않았다.
+
 <a id="20261014-moduon-staff-grant"></a>
 ## 2026-10-14 모두온 단일 계정의 직원 권한 부여와 로그인 안내
 

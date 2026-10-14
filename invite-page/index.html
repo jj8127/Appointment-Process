@@ -49,7 +49,7 @@
     <a class="btn btn-dark" href="https://apps.apple.com/kr/app/%EA%B0%80%EB%9E%8C-in/id6756690846" rel="external"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4" /></svg>iPhone · App Store</a>
   </div>
   <p class="copy-status" id="copyStatus" role="status" aria-live="polite"></p>
-  <p class="guidance" id="installHint" style="display:none">앱이 없다면 먼저 설치한 뒤 이 초대 링크를 다시 열어주세요. 자동 입력되지 않으면 위 추천 코드를 가입 화면에 직접 입력할 수 있어요. 기존 회원의 추천 관계는 바뀌지 않아요.</p>
+  <p class="guidance" id="installHint" style="display:none">앱이 없다면 먼저 설치한 뒤 이 초대 링크를 다시 열어주세요. 이미 회원이라면 앱에서 추천인 등록을 확인할 수 있어요. 자동으로 연결되지 않으면 내 정보의 가족간병 추천인 등록에 위 코드를 입력해 주세요. 이미 가족간병 추천인이 있으면 바뀌지 않아요.</p>
 
   <footer>가람PA지사 · 모두온</footer>
 
@@ -76,8 +76,8 @@
       if (isCare) {
         document.title = '모두온 가족간병 추천 초대';
         document.getElementById('title').textContent = '가족간병, 함께 알아보세요';
-        document.getElementById('msg').textContent = '이 초대 링크로 새로 가입하면 추천 회원으로 연결돼요.';
-        document.getElementById('codeHint').textContent = '모두온 가입 시 사용할 추천 코드';
+        document.getElementById('msg').textContent = '이 링크로 모두온에 가입하면 가족간병 추천인이 함께 등록돼요.';
+        document.getElementById('codeHint').textContent = '가족간병 추천 코드';
         document.getElementById('careDescription').style.display = 'block';
         document.getElementById('careInfo').style.display = 'flex';
         document.getElementById('installHint').style.display = 'block';

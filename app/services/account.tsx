@@ -1,4 +1,3 @@
-import * as Clipboard from 'expo-clipboard';
 import { randomUUID } from 'expo-crypto';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -7,6 +6,7 @@ import { Alert, Pressable, Text, View } from 'react-native';
 
 import ServiceInformation, { ServiceAction, informationStyles as styles } from '@/components/ServiceInformation';
 import { Button } from '@/components/Button';
+import FamilyCareReferrer from '@/components/FamilyCareReferrer';
 import { usePlatformAccount } from '@/hooks/use-platform-account';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { PLATFORM_CONSENT_TEXT, PLATFORM_PRIVACY_POLICY_URL, PLATFORM_SERVICES, PLATFORM_TERMS_VERSION, PLATFORM_WITHDRAWAL_VERSION, platformRequest, type PlatformWithdrawal, type PlatformWithdrawalStatus } from '@/lib/platform-api';
@@ -20,7 +20,6 @@ export default function ServiceAccount() {
   const logoutAll = useAppLogout('/', 'service-hub');
   const logoutRef = useRef(logoutAll);
   logoutRef.current = logoutAll;
-  const [copied, setCopied] = useState(false);
   const deleting = useRef(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -64,7 +63,7 @@ export default function ServiceAccount() {
     }
   }, [token, beginDelete, applyWithdrawal]);
   useEffect(() => {
-    beginDelete(); deleting.current = false; setDeleteError(null); setCopied(false);
+    beginDelete(); deleting.current = false; setDeleteError(null);
     setDeleteLoading(false); setDeletePending(false); setDeletionCheckFailed(false); deletionRequest.current = null;
     consentPending.current = false; setConsenting(false); setTermsAccepted(false); setConsentError(null);
     void checkWithdrawal();
@@ -125,15 +124,8 @@ export default function ServiceAccount() {
     </View>}
     {error && !needsConsent && <View><Text accessibilityRole="alert" style={styles.body}>{error}</Text><ServiceAction label="다시 확인" onPress={() => void refresh()} />{session.isPlatformSignedIn && <ServiceAction label="다시 로그인" onPress={() => { session.logout(); router.replace('/services/login'); }} />}</View>}
     {data && !needsConsent && <>
-      <Text style={styles.sectionTitle}>공통 추천 코드</Text>
-      <View style={styles.list}>
-        <Text selectable style={styles.sectionTitle}>{data.member.referralCode}</Text>
-        <Text style={styles.item}>{data.member.referrerId ? '가입 때 연결한 추천 관계를 모든 제휴 서비스에 함께 사용합니다.' : '현재 연결된 추천인이 없습니다.'}</Text>
-        <Text style={styles.item}>소개받은 분은 가입할 때 이 코드를 입력하면 됩니다. 보험 증원수당은 기존 업무 화면에서 확인하세요.</Text>
-        <ServiceAction label={copied ? '코드를 복사했습니다' : '추천 코드 복사'} onPress={() => {
-          void Clipboard.setStringAsync(data.member.referralCode).then(() => setCopied(true)).catch(() => setCopied(false));
-        }} />
-      </View>
+      <FamilyCareReferrer />
+      <Text style={styles.item}>추천인은 제휴 서비스마다 따로 등록해요. 보험 추천인과 증원수당은 기존 보험 업무 화면에서 확인하세요.</Text>
       <Text style={styles.sectionTitle}>제휴 서비스 혜택</Text>
       <Text style={styles.body}>각 제휴사의 정산이 끝난 뒤 7일 이내에 회사가 정한 비율로 지급합니다. 거래와 정산이 확인된 내역만 표시합니다.</Text>
       {data.benefits.length === 0 && <Text style={styles.body}>확정된 혜택 내역이 없습니다.</Text>}
