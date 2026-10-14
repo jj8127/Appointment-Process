@@ -20184,7 +20184,7 @@ revoke all on function public.list_due_platform_withdrawals_v1() from public,ano
 grant execute on function public.record_platform_withdrawal_retry_v1(uuid,text,text) to service_role;
 grant execute on function public.list_due_platform_withdrawals_v1() to service_role;
 
--- 20261014082220_detach_retired_fc_allowance_identity
+-- 20261014084133_detach_retired_fc_allowance_identity
 -- Preserve reviewed allowance history when its live FC account is removed.
 alter table public.referral_allowance_imports
   add column if not exists beneficiary_fc_id_snapshot uuid;

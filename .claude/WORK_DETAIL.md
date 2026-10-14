@@ -28,6 +28,8 @@
 - 직접/위조 중첩 해제, 재연결 및 archive 변경을 거부한다. archive의 출처/revision/단일 게시월 유일성도 유지하며 RLS·권한·기존 활성 수령인 API payload는 바꾸지 않는다.
 - 기존 referral-allowance SQL suite에 세 직접 회귀 시나리오를 확장했다. 로컬 SQL 실행과 schema mirror 검증을 통과했으며 운영 적용 전에는 배포 source를 커밋하고 clean 여부를 확인한다.
 - 실제 대상은 승인 당시 고정한 식별자/변경 guard로 제한한다. 신규 FC, 보존 대상, 관리자용 연결 프로필, 다른 계정의 파일·수당·인증은 변경하지 않는다. PII·비밀번호·token·원시 운영 기록은 source나 evidence에 기록하지 않는다.
+- 운영 schema migration `20261014084133`의 완료, nullable/FK/index 상태를 확인했다. 원본 적용 소스는 `5b5081f`다. 원격 도구가 부여한 실제 version에 파일명·schema marker·fixture 경로를 맞췄다.
+- 실제 계정의 롤백 검증에서 기존 profile projection이 보험 추천 관계 갱신 시 연결 및 credential을 다시 FC에 묶는 것을 확인했다. 기존 trigger는 유지하고 각 FC 삭제 직전에 credential 이관과 연결 분리를 수행한다. 공통 로그인 RPC, 수당 원본 및 다른 회원·인증 보호를 롤백 상태에서 확인했다. 실제 사용자 비밀번호로 로그인한 검증은 아니다.
 
 <a id="20261014-local-paired-install"></a>
 ## 2026-10-14 페어링 기기 로컬 설치와 진료 분야 누락 수정

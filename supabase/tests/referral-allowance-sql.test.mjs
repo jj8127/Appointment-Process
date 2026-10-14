@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 const { PGlite } = createRequire(import.meta.url)(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
 const migration = await readFile(new URL('../migrations/20260907053913_referral_allowance_pilot.sql', import.meta.url), 'utf8');
 const recipientsMigration = await readFile(new URL('../migrations/20260907115710_referral_allowance_recipients.sql', import.meta.url), 'utf8');
-const detachMigration = await readFile(new URL('../migrations/20261014082220_detach_retired_fc_allowance_identity.sql', import.meta.url), 'utf8');
+const detachMigration = await readFile(new URL('../migrations/20261014084133_detach_retired_fc_allowance_identity.sql', import.meta.url), 'utf8');
 const admin = '40000000-0000-4000-8000-000000000001';
 const inactiveAdmin = '40000000-0000-4000-8000-000000000002';
 const manager = '10000000-0000-4000-8000-000000000001';
@@ -77,7 +77,7 @@ test('the additive schema mirror exactly matches the executable migration', asyn
   assert.equal(schema.split(marker).length, 2);
   assert.ok(schema.includes(marker + migration.replace(/\r/g, '')));
   assert.ok(schema.includes('-- 20260907115710_referral_allowance_recipients\n' + recipientsMigration.replace(/\r/g, '')));
-  assert.ok(schema.includes('-- 20261014082220_detach_retired_fc_allowance_identity\n' + detachMigration.replace(/\r/g, '')));
+  assert.ok(schema.includes('-- 20261014084133_detach_retired_fc_allowance_identity\n' + detachMigration.replace(/\r/g, '')));
 });
 
 test('FC and manager recipients publish independently and cannot read each other or revive revoked data', async () => {
