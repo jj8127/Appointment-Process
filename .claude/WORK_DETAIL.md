@@ -1,5 +1,14 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261014-care-referral-invitation"></a>
+## 2026-10-14 가족간병 추천 초대 로컬 구현
+
+- clean `6b72d99`의 기존 통합 worktree에서 수정하며 primary 사용자 변경은 보존한다. 기존 canonical service-home harness와 다섯 문서만 재사용한다.
+- 가족간병 안내의 기존 CTA 아래 카드·본인 공통 추천 코드·복사/공유·로그인/동의/조회 오류 상태와 모바일 작은 폭/큰 글꼴 배치를 구현했다. 기존 공통 훅과 UI·공유 API를 재사용한다.
+- 기존 보험 초대는 유지하고 `service=care`는 공통 가입으로 연결한다. 목적별 pending과 owner 보호·명시 query 우선순위를 적용하며 신규 회원만 기존 서버 계약으로 연결한다. 공개 홍보 URL은 query-free다.
+- 기존 추천 공유·native controls·mobile acceptance suite를 확장했다. 오래된 mock의 판별기/수집기/로그인/문서 계약을 실제 기존 구현으로 갱신하며 새로운 러너나 일반 abstraction을 만들지 않는다.
+- 실제 제품 화면 컴포넌트를 React Native Web로 렌더하고 합성 계정·라우터 어댑터만 사용한다. 전체 Expo 개발 실행은 로컬 환경 설정 부재로 중단했다. native/실제 회원/SMS/OS 공유 전달은 미검증이며 설치 후 추천 코드 자동 보존을 보장하지 않는다. 최종 검사와 이미지 경로는 service-home revision-23 QA에 기록한다.
+
 <a id="20261013-cutover-review-repair"></a>
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
 

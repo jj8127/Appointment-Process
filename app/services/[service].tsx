@@ -1,10 +1,13 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Alert, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import ServiceInformation, { ServiceAction, informationStyles as styles } from '@/components/ServiceInformation';
+import FamilyCareInvitation from '@/components/FamilyCareInvitation';
 import { FAMILY_CARE_PROMOTION_URL, resolveInsuranceServiceRoute, resolveServiceInformationKey, SERVICE_INFORMATION_KEYS } from '@/lib/service-home';
 import { useSession } from '@/hooks/use-session';
 import { openExternalUrl } from '@/lib/open-external-url';
+import { COLORS } from '@/lib/theme';
 
 export function generateStaticParams() {
   return SERVICE_INFORMATION_KEYS.map((service) => ({ service }));
@@ -44,15 +47,27 @@ export default function ServiceInformationRoute() {
 
   if (key === 'care') return <ServiceInformation title="가족간병 안내" service="care">
     <Text style={styles.badge}>준비 중</Text>
-    <Text accessibilityRole="header" style={styles.title}>가족간병, 시작 전에 확인하세요</Text>
-    <Text style={styles.body}>간병업체 소속·등록을 요구하는 보험은 간병업체 등록이 필수입니다. 가입한 보험의 조건과 등록 절차를 먼저 확인하세요.</Text>
-    <View style={styles.list}>
-      <Text style={styles.item}>간병이 필요한 시기와 예상 기간</Text>
-      <Text style={styles.item}>환자와 간병을 맡을 가족의 관계</Text>
-      <Text style={styles.item}>이용하려는 서비스와 문의할 내용</Text>
+    <Text accessibilityRole="header" style={styles.title}>가족간병,{`\n`}먼저 알아보세요</Text>
+    <Text style={styles.body}>가족이 간병을 맡기 전, 보험 조건과 필요한 절차를 확인해 주세요.</Text>
+    <View style={careStyles.checks}>
+      <View style={careStyles.row}>
+        <Feather accessible={false} name="shield" size={21} color={COLORS.warning.dark} style={careStyles.icon} />
+        <View style={careStyles.detail}>
+          <Text style={careStyles.label}>가입한 보험 확인</Text>
+          <Text style={careStyles.description}>가족간병에 필요한 조건과 서류를 확인하세요.</Text>
+        </View>
+      </View>
+      <View style={careStyles.row}>
+        <Feather accessible={false} name="clipboard" size={21} color={COLORS.warning.dark} style={careStyles.icon} />
+        <View style={careStyles.detail}>
+          <Text style={careStyles.label}>간병업체 등록 확인</Text>
+          <Text style={careStyles.description}>업체 소속·등록을 요구하는 보험은 등록이 필요해요.</Text>
+        </View>
+      </View>
     </View>
-    <Text style={styles.body}>가족간병 신청 서비스를 준비하고 있습니다. 이용 방법이 확정되면 안내합니다.</Text>
+    <Text style={careStyles.note}>앱에서 가족간병을 신청하는 기능은 준비 중이에요.{`\n`}지금은 아래에서 자세한 안내를 확인해 주세요.</Text>
     <ServiceAction label="가족간병 자세히 알아보기" onPress={openCarePromotion} />
+    <FamilyCareInvitation />
   </ServiceInformation>;
 
   if (key === 'insurance') return <ServiceInformation title="가람in · 보험" service="insurance">
@@ -77,3 +92,13 @@ export default function ServiceInformationRoute() {
     <Text style={styles.body}>제휴 상품과 이용 조건은 확정되면 안내합니다.</Text>
   </ServiceInformation>;
 }
+
+const careStyles = StyleSheet.create({
+  checks: { gap: 19, marginBottom: 22 },
+  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  icon: { marginTop: 3 },
+  detail: { flex: 1, gap: 4 },
+  label: { fontSize: 15, lineHeight: 23, fontWeight: '700', color: COLORS.text.primary },
+  description: { fontSize: 13, lineHeight: 21, color: COLORS.text.secondary },
+  note: { fontSize: 13, lineHeight: 22, color: COLORS.text.secondary, marginBottom: 14 },
+});

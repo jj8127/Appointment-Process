@@ -2,7 +2,7 @@ doc_id: FC-MOBILE-PLATFORM-SERVICES
 owner_repo: fc-onboarding-app
 owner_area: mobile-and-data
 audience: developer, operator
-last_verified: 2026-10-12
+last_verified: 2026-10-14
 source_of_truth: app/services + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
 
 # 모두온 공통 서비스
@@ -28,6 +28,8 @@ revision-11(2026-10-11): 공통 플랫폼 이름은 ‘모두온’이다. 공�
 - 관리자 기능은 현재 활성 `staff_type=admin`을 서버에서 매번 확인한다. 본부장의 보험 업무 읽기 권한과 개인 생활 서비스 계정은 별개다. 개발자·본부장은 제휴·정산 관리자가 아니다.
 
 ## 추천 관계
+
+2026-10-14 로컬 가족간병 초대: 가입 화면은 검증한 `code` query를 우선 입력하고 보험 pending이 아닌 care pending만 한 번 소비한다. 명시 code가 있으면 오래된 pending을 폐기하며 직접 수정·계정 변경·이미 가입한 회원에게 지연 결과를 적용하지 않는다. 신규 가입의 기존 서버 검증으로 추천 관계를 연결한다. 기존 회원의 추천인 변경·제휴 정산·탈퇴 시 승계 정책은 이 초대 UI에서 구현하거나 변경하지 않는다. 복사 주소와 공유 문구에는 개인 추천 코드만 있으며 이름·전화번호·세션은 넣지 않는다. 설치 후에는 원래 링크 다시 열기/코드 입력이 필요할 수 있다.
 
 `platform_members.referrer_id` 하나를 모든 생활 제휴 서비스에 사용한다. 기존 FC는 최초 연결 시 기존 추천 관계를 가져온다. 공통 가입을 먼저 한 회원의 추천인은 나중에 FC가 되어도 덮어쓰지 않는다. 이후 보험 모집 관계 변경은 기존 증원수당 업무 계약에 따르며 공통 제휴 추천인을 자동 변경하지 않는다. 기존 보험 증원수당 명세와 제휴 혜택을 합산하지 않는다.
 

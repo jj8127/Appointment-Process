@@ -50,7 +50,7 @@ import {
   savePendingNotificationNavigation,
   type PendingNotificationNavigation,
 } from '@/lib/pending-notification-navigation';
-import { savePendingReferralCode } from '@/lib/referral-deeplink';
+import { clearPendingReferralCodes, parseReferralInvite, savePendingReferralCode } from '@/lib/referral-deeplink';
 import { withSentryRoot } from '@/lib/sentry';
 
 import {
@@ -469,42 +469,78 @@ function NotificationNavigationBootstrap() {
   return null;
 }
 
+function ReferralLinkBootstrap() {
+  const { hydrated, role, residentId, platformMember, isPlatformSignedIn } = useSession();
+  const rootNavigationState = useRootNavigationState();
+  const sessionKey = hydrated ? (platformMember?.id || (role ? `${role}:${residentId}` : 'anonymous')) : null;
+  const currentSessionKey = useRef(sessionKey);
+  currentSessionKey.current = sessionKey;
+  const previousSessionKey = useRef<string | null>(null);
+  const sequence = useRef(0);
+  const [pending, setPending] = useState<{
+    invite: NonNullable<ReturnType<typeof parseReferralInvite>>;
+    owner: string | null;
+    nonce: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (previousSessionKey.current && sessionKey && previousSessionKey.current !== sessionKey) {
+      void clearPendingReferralCodes().catch(() => {});
+    }
+    if (sessionKey) previousSessionKey.current = sessionKey;
+  }, [sessionKey]);
+
+  useEffect(() => {
+    let active = true;
+    let receivedWarmLink = false;
+    const captureInvite = (url: string | null) => {
+      const invite = parseReferralInvite(url);
+      if (!active || !invite) return false;
+      setPending({ invite, owner: currentSessionKey.current, nonce: ++sequence.current });
+      return true;
+    };
+    Linking.getInitialURL().then(url => {
+      if (!receivedWarmLink) captureInvite(url);
+    }).catch(() => {});
+    const subscription = Linking.addEventListener('url', event => {
+      if (captureInvite(event.url)) receivedWarmLink = true;
+    });
+    return () => { active = false; subscription.remove(); };
+  }, []);
+
+  useEffect(() => {
+    if (!pending || !sessionKey || !rootNavigationState?.key) return;
+    if (!pending.owner) { setPending({ ...pending, owner: sessionKey }); return; }
+    if (pending.owner && pending.owner !== sessionKey) { setPending(null); return; }
+    let active = true;
+    const routeInvite = async () => {
+      await clearPendingReferralCodes().catch(() => {});
+      if (!active || currentSessionKey.current !== sessionKey) return;
+      if (!isPlatformSignedIn) {
+        const save = savePendingReferralCode(pending.invite.code, pending.invite.service);
+        if (pending.invite.service === 'care') await save.catch(() => {});
+        else await save;
+      }
+      if (!active || currentSessionKey.current !== sessionKey) return;
+      router.replace(pending.invite.service === 'care' ? {
+        pathname: '/services/signup',
+        params: { service: 'care', code: pending.invite.code, referralNonce: `${pending.nonce}` },
+      } : {
+        pathname: '/signup',
+        params: { referralNonce: `${pending.nonce}` },
+      });
+      setPending(null);
+    };
+    void routeInvite().catch(() => { if (active) setPending(null); });
+    return () => { active = false; };
+  }, [isPlatformSignedIn, pending, rootNavigationState?.key, sessionKey]);
+
+  return null;
+}
+
 function RootLayout() {
   const isWeb = Platform.OS === 'web';
   const enableTourGuide = Platform.OS === 'android';
-
-  useEffect(() => {
-    function extractReferralCode(url: string | null): string | null {
-      if (!url) return null;
-      try {
-        const parsed = Linking.parse(url);
-        const code = parsed.queryParams?.code;
-        if (typeof code !== 'string' || !code.trim()) return null;
-        if (parsed.path === 'signup' || parsed.hostname === 'signup') return code.trim();
-      } catch {}
-      return null;
-    }
-
-    // cold start: expo-router가 이미 /signup으로 라우팅하므로 코드 저장만
-    Linking.getInitialURL().then((url) => {
-      const code = extractReferralCode(url);
-      if (code) savePendingReferralCode(code).catch(() => {});
-    }).catch(() => {});
-
-    // warm start: 코드 저장 후 /signup으로 이동
-    const sub = Linking.addEventListener('url', (event) => {
-      const code = extractReferralCode(event.url);
-      if (code) {
-        savePendingReferralCode(code).then(() => {
-          router.replace({
-            pathname: '/signup',
-            params: { referralNonce: `${Date.now()}` },
-          });
-        }).catch(() => {});
-      }
-    });
-    return () => sub.remove();
-  }, []);
 
   const fontSources = useMemo<Record<string, FontSource>>(() => {
     if (isWeb) {
@@ -598,6 +634,7 @@ function RootLayout() {
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
             <SessionProvider>
+              <ReferralLinkBootstrap />
               <NotificationNavigationBootstrap />
               <PresenceBootstrap />
               <AppAlertProvider>

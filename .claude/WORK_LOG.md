@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-14 가족간병 추천 초대 로컬 구현
+
+사용자가 승인한 카드 구성과 실제 결과 이미지를 위해 가족간병 안내에 개인 추천 주소 복사·공유를 추가했다. 기존 공통 계정 조회·Button/Toast/Clipboard/Share·가입 자동 입력을 재사용하고 보험 초대/공통 가입 목적과 pending을 분리한다. 기존 suite의 오래된 fixture 의존성도 현재 계약에 맞추되 실패/권한/동시성 assertion은 유지했다. 로컬 합성 화면과 행동 검증만 수행하며 운영 가입·DB·초대 웹·OTA·스토어 배포는 하지 않는다. [→ 상세](WORK_DETAIL.md#20261014-care-referral-invitation)
+
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
 
 통합 릴리스의 필수 governance 누락을 가장 가까운 owner map·handbook과 기존 검사에 맞췄다. native 가입 증표 저장 key, 본인정보 timeout, OTA production public 환경과 Node 회귀 발견을 담당자가 기존 코드로 수리한다. 적용된 migration 12개는 운영 이력과 SQL hash를 대조해 body를 유지하고 로컬 이름·schema·fixture 참조만 맞춘다. primary 사용자 로그는 보존하며 실제 수정·검증·배포 상태는 canonical 인증 harness가 관리한다. 이 기록만으로 새 배포나 실제 SMS 수신을 주장하지 않는다. [→ 상세](WORK_DETAIL.md#20261013-cutover-review-repair)

@@ -12,7 +12,7 @@ import { useSession } from '@/hooks/use-session';
 import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
 import { PLATFORM_CONSENT_TEXT, PLATFORM_PRIVACY_POLICY_URL, PLATFORM_TERMS_VERSION, PlatformApiError, platformRequest, type PlatformAuthResponse } from '@/lib/platform-api';
 import { openExternalUrl } from '@/lib/open-external-url';
-import { consumePendingReferralCode } from '@/lib/referral-deeplink';
+import { consumePendingReferralCode, normalizeReferralInviteCode } from '@/lib/referral-deeplink';
 import { captureAppSessionOwner } from '@/lib/request-board-api';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { resolvePlatformAuthRoute } from '@/lib/session-landing';
@@ -20,7 +20,7 @@ import { useReadAttempt } from '@/lib/use-read-attempt';
 import { normalizePhone, validatePassword, validatePhone, validateRequired } from '@/lib/validation';
 
 export default function PlatformSignup() {
-  const { service, code: invitationCode } = useLocalSearchParams<{ service?: string; code?: string }>();
+  const { service, code: invitationCode, referralNonce } = useLocalSearchParams<{ service?: string; code?: string; referralNonce?: string }>();
   const { hydrated, isPlatformSignedIn, loginPlatformMember } = useSession();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -41,16 +41,19 @@ export default function PlatformSignup() {
   const allowCompletedExit = useDraftExitGuard(Boolean(name || phone || code || password || referralCode || termsAccepted), Boolean(loading));
 
   useEffect(() => {
-    if (typeof invitationCode === 'string' && invitationCode.trim()) {
-      setReferralCode(invitationCode.trim().toUpperCase());
-      return;
-    }
     let active = true;
-    void consumePendingReferralCode().then(value => {
-      if (active && value && !referralEdited.current) setReferralCode(value);
-    }).catch(() => { /* Optional invitation recovery does not block signup. */ });
+    const ownsSession = captureAppSessionOwner();
+    const loadReferralInvite = async () => {
+      const explicitCode = normalizeReferralInviteCode(invitationCode);
+      if (!isPlatformSignedIn && invitationCode !== undefined) setReferralCode(explicitCode ?? '');
+      // Common membership never consumes an insurance-only invitation.
+      const savedCode = await consumePendingReferralCode('care').catch(() => null);
+      if (!active || !ownsSession() || isPlatformSignedIn || invitationCode !== undefined || referralEdited.current) return;
+      if (savedCode) setReferralCode(savedCode);
+    };
+    void loadReferralInvite();
     return () => { active = false; };
-  }, [invitationCode]);
+  }, [invitationCode, referralNonce, isPlatformSignedIn]);
 
   useEffect(() => {
     if (!cooldown) return;
