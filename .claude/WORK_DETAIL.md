@@ -1,5 +1,14 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261014-care-android-release"></a>
+## 2026-10-14 가족간병 추천 Android·초대 배포 준비
+
+- 기존 clean 권한 수정 worktree의 `2ac3693`와 clean 초대 기능 `58a714f`를 통합한다. 두 부모 commit/로그와 primary 사용자 변경을 보존하고 새 native source를 clean commit으로 고정한 후에만 빌드한다.
+- `sent.ok === false`로 실패 사유의 union 판별을 명시한다. 반환 내용·OTP 완료/취소·추천 관계·기존 회원 권한은 변경하지 않는다. 플랫폼 함수의 현재 타입·가입/추천·SMS·서명 검사를 통과한 exact closure만 배포한다. 새 SQL은 없다.
+- 통합 source에서 권한·추천 공유·native controls·mobile acceptance 4개 기존 suite의 207개 검사, TypeScript, 대상 ESLint, frozen Deno import 차단 타입 검사와 인증/복구·SMS/NCP 9개 행동 검사를 통과했다. 운영 배포와 실제 단말·가입 검증은 이 로컬 검사 결과와 구분한다.
+- 사용자 승인은 Android production OTA/스토어, 기존 초대 페이지 운영 업데이트와 전용 계정 검증이다. iOS는 공개 검색/심사 상태 읽기 전용이며 새 기능 OTA·스토어/심사 변경은 하지 않는다.
+- 초대 page의 HTML/board/PNG source hash·alias·200 응답·실제 브라우저15개 복사/링크/오류 상태를 확인했다. 사용자 제공 계정 정보·인증번호·비밀번호는 로그/영수증/소스에 기록하지 않는다. 실제 단말/가입 확인 전에는 성공이라고 표시하지 않는다.
+
 <a id="20261013-remove-unused-microphone"></a>
 ## 2026-10-13 사용하지 않는 촬영·마이크 권한 제거
 
@@ -11,6 +20,15 @@
 - 제품 소스 commit은 a15457d4be6ed04c531fcca581f6cfca3fe04058, tree는 b646e474322dab12659a94c62983b1bdf9fd9a31이다. 완성 IPA SHA-256 a480cd70534342e8db25069cc4aa32d20f3829b9dc142a55c4160b1fb0b82aed의 검증 33개가 PASS다. 실제 InfoPlist에 미사용 microphone/camera 설명이 없고 사진 목적 설명·앱 이름/버전·runtime·production channel이 소스와 일치한다. compiled Sentry DSN·가입 capability key도 검증했다.
 - Apple 처리 VALID 후 build 111을 같은 심사 건에 선택·재제출했다. 접수 시각은 2026-10-13T12:08:42.387Z, 별도 version/build/submission readback 시각은 2026-10-13T12:09:09.939Z다. 상태는 WAITING_FOR_REVIEW이고 releaseType은 AFTER_APPROVAL이다. Apple 승인 전이며 공개 iOS 버전은 4.2.18이다.
 - 근거는 D:/hanhwa/artifacts/ios-permission-repair-20261013의 verification-ios.json, ios-review-submit-111.json, ios-store-verification.json이다. 이후 문서 유지보수 commit은 이미 빌드·제출한 제품 source commit을 대체하지 않는다. 실제 단말의 SMS 수신·사진 첨부 acceptance도 binary 검사와 구분한다.
+
+<a id="20261014-care-referral-invitation"></a>
+## 2026-10-14 가족간병 추천 초대 로컬 구현
+
+- clean `6b72d99`의 기존 통합 worktree에서 수정하며 primary 사용자 변경은 보존한다. 기존 canonical service-home harness와 다섯 문서만 재사용한다.
+- 가족간병 안내의 기존 CTA 아래 카드·본인 공통 추천 코드·복사/공유·로그인/동의/조회 오류 상태와 모바일 작은 폭/큰 글꼴 배치를 구현했다. 기존 공통 훅과 UI·공유 API를 재사용한다.
+- 기존 보험 초대는 유지하고 `service=care`는 공통 가입으로 연결한다. 목적별 pending과 owner 보호·명시 query 우선순위를 적용하며 신규 회원만 기존 서버 계약으로 연결한다. 공개 홍보 URL은 query-free다.
+- 기존 추천 공유·native controls·mobile acceptance suite를 확장했다. 오래된 mock의 판별기/수집기/로그인/문서 계약을 실제 기존 구현으로 갱신하며 새로운 러너나 일반 abstraction을 만들지 않는다.
+- 실제 제품 화면 컴포넌트를 React Native Web로 렌더하고 합성 계정·라우터 어댑터만 사용한다. 전체 Expo 개발 실행은 로컬 환경 설정 부재로 중단했다. native/실제 회원/SMS/OS 공유 전달은 미검증이며 설치 후 추천 코드 자동 보존을 보장하지 않는다. 최종 검사와 이미지 경로는 service-home revision-23 QA에 기록한다.
 
 <a id="20261013-cutover-review-repair"></a>
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리

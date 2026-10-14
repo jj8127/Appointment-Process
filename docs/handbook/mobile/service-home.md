@@ -2,10 +2,16 @@ doc_id: FC-APP-SERVICE-HOME
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-10-12
-source_of_truth: app/index.tsx + app/services/* + components/ServiceHub.tsx + components/service-home/* + lib/service-home.ts + lib/session-landing.ts + lib/bottom-navigation.ts
+last_verified: 2026-10-14
+source_of_truth: app/index.tsx + app/_layout.tsx + app/services/* + components/FamilyCareInvitation.tsx + components/ServiceHub.tsx + components/service-home/* + lib/referral-share.ts + lib/referral-deeplink.ts + lib/service-home.ts + lib/session-landing.ts + lib/bottom-navigation.ts
 
 # Mobile Playbook: 서비스 선택 홈
+
+## 2026-10-14 가족간병 추천 초대 (로컬 구현)
+
+가족간병의 기존 자세히 알아보기 아래에 개인 초대 카드를 제공한다. 공통 계정의 서명된 `get_account` 추천 코드만 사용하며 로그인·필수 동의·조회 성공 전에는 링크를 만들지 않는다. 기존 Button·Toast·Clipboard·Share를 재사용하고 복사 실패·재시도와 계정 변경 후 늦은 응답을 구분한다. 좁은 화면/큰 글꼴은 버튼을 세로로 배치하며 공유창을 연 것만으로 실제 전달 완료를 표시하지 않는다.
+
+공개 가족간병 안내 URL은 아래 기존 query-free 계약을 유지한다. 개인 링크는 별도 초대 랜딩의 `code`와 allowlist `service=care`를 사용해 공통 `/services/signup`으로 연결한다. 보험 초대는 기존 `/signup`이다. cold/warm 링크 모두 목적별 pending을 분리하고 기존 회원/계정 변경에서 폐기한다. 앱 설치 후 자동 추천 보존을 보장하지 않고 링크 다시 열기와 수동 코드 입력을 안내한다. 이번 결과는 로컬 구현/합성 상태 검증이며 앱·초대 웹 배포와 실제 신규 가입은 별도다.
 
 ## 현재 구현: 모두온 공통 서비스 (2026-10-11)
 

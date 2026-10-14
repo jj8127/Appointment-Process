@@ -2,10 +2,12 @@ doc_id: FC-MOBILE-PLATFORM-SERVICES
 owner_repo: fc-onboarding-app
 owner_area: mobile-and-data
 audience: developer, operator
-last_verified: 2026-10-12
+last_verified: 2026-10-14
 source_of_truth: app/services + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
 
 # 모두온 공통 서비스
+
+2026-10-14 배포 준비: 가족간병 개인 초대·추천 입력은 기존 서버 관계를 사용한다. Android 신규 native source는 앞선 사진 선택 전용 image-picker 권한 제거와 초대 기능을 함께 포함한다. production `platform-service`의 오래된 SMS 완료 처리 묶음을 검증된 source에 맞추며 union 실패 사유를 `sent.ok === false`로 명시한다. OTP/RPC·추천/기존 회원·역할 정책은 유지하고 새 migration은 없다. 실제 가입/OS 공유와 source별 Android OTA·신규 스토어 성공 상태는 별도 영수증으로 확인한다. iOS 심사·공개 상태 확인은 읽기 전용이다.
 
 2026-10-12 revision-22 출시 준비: 사용자 승인 범위는 기존 앱 식별자를 유지한 모두온4.2.19 Android/iOS 출시이며 공통 가입까지 완성한 뒤 제출한다. 가입·로그인은 기존 해시/SMS/세션과 SQL 잠금 경계를 재사용한다. 소비자 비밀번호 복구는 기존 password-reset challenge RPC에 member 분기를 추가하며 FC/admin/manager 회복 계약은 별도 기존 suite로 검증한다. 공통 회원은 기존FC/직원도 명시적 동의 후에만 생성한다. 공통 탈퇴는 원래 보험·직원 계정과 세션을 유지하고 공통 이름·휴대폰·credential·원본 연결·인증 기록을 정리한다. 최신 동의 전에도 본인 탈퇴는 가능하다. 동의 문구와 버전은 기존 lib/platform-api.ts 한 곳을 두 화면이 공유한다.
 
@@ -28,6 +30,8 @@ revision-11(2026-10-11): 공통 플랫폼 이름은 ‘모두온’이다. 공�
 - 관리자 기능은 현재 활성 `staff_type=admin`을 서버에서 매번 확인한다. 본부장의 보험 업무 읽기 권한과 개인 생활 서비스 계정은 별개다. 개발자·본부장은 제휴·정산 관리자가 아니다.
 
 ## 추천 관계
+
+2026-10-14 로컬 가족간병 초대: 가입 화면은 검증한 `code` query를 우선 입력하고 보험 pending이 아닌 care pending만 한 번 소비한다. 명시 code가 있으면 오래된 pending을 폐기하며 직접 수정·계정 변경·이미 가입한 회원에게 지연 결과를 적용하지 않는다. 신규 가입의 기존 서버 검증으로 추천 관계를 연결한다. 기존 회원의 추천인 변경·제휴 정산·탈퇴 시 승계 정책은 이 초대 UI에서 구현하거나 변경하지 않는다. 복사 주소와 공유 문구에는 개인 추천 코드만 있으며 이름·전화번호·세션은 넣지 않는다. 설치 후에는 원래 링크 다시 열기/코드 입력이 필요할 수 있다.
 
 `platform_members.referrer_id` 하나를 모든 생활 제휴 서비스에 사용한다. 기존 FC는 최초 연결 시 기존 추천 관계를 가져온다. 공통 가입을 먼저 한 회원의 추천인은 나중에 FC가 되어도 덮어쓰지 않는다. 이후 보험 모집 관계 변경은 기존 증원수당 업무 계약에 따르며 공통 제휴 추천인을 자동 변경하지 않는다. 기존 보험 증원수당 명세와 제휴 혜택을 합산하지 않는다.
 

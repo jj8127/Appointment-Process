@@ -8,6 +8,11 @@ import { goBackOrReplace } from '../back-navigation';
 import { INSURANCE_HOME_ROUTE } from '../service-home';
 import { normalizePhone, validatePassword, validatePhone, validateRequired } from '../validation';
 import { resolvePlatformAuthRoute } from '../session-landing';
+import { normalizeReferralInviteCode, parseReferralInvite } from '../referral-deeplink';
+import { parseInboxListPayload } from '../inbox-list-contract';
+import { parseLoginSuccessResponse } from '../login-response-contract';
+import { collectSupabaseRows, chunkSupabaseFilterValues } from '../supabase-query-contract';
+import { buildExamPhoneCandidates, normalizeExamSingle } from '../exam-display';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 const root = join(__dirname, '../..');
@@ -216,9 +221,9 @@ function homeReadContext(overrides: Record<string, unknown> = {}) {
     shouldSkipRequestBoardPassiveRefresh: () => false, role: 'fc', requestBoardRole: 'designer', notificationInboxResidentId: 'synthetic', includeRequestBoardFcInbox: false,
     beginHomeRead: () => () => true, accountScope: { current: controlledScope() }, sessionReadKey: 'synthetic-session',
     isRequestBoardDesigner: true, hasRequestBoardFcReadAccess: false, REQUEST_BOARD_CATEGORY_PREFIX: 'request_board_',
-    invokeFcNotify: jest.fn(async () => ({ data: { ok: true, notifications: [] }, error: null })),
+    invokeFcNotify: jest.fn(async () => ({ data: { ok: true, notifications: [], notices: [] }, error: null })), parseInboxListPayload,
     fetchMobileUnreadNotificationCountOrThrow: jest.fn(async () => 0), ensureRequestBoardSession: jest.fn(async () => ({ ok: true })),
-    rbGetRequestList: jest.fn(async () => []), computeRequestBoardHomeStats: () => ({ total: 0 }),
+    rbGetRequestListOrThrow: jest.fn(async () => []), computeRequestBoardHomeStats: () => ({ total: 0 }),
     setRequestBoardAccessError: jest.fn(), setNotifications: jest.fn(), setUnreadNotifCount: jest.fn(), setUnreadNotifVerified: jest.fn(),
     setDesignerRequests: jest.fn(), setReqStats: jest.fn(), setLoading: jest.fn(), setRefreshing: jest.fn(),
     logger: { warn: jest.fn() }, toRequestBoardSessionErrorMessage: () => 'synthetic error', ...overrides,
@@ -227,7 +232,7 @@ function homeReadContext(overrides: Record<string, unknown> = {}) {
 
 describe('C03 / C04 / D06 / D08 request-board home reads', () => {
   it.each([undefined, null, {}])('retains the previous inbox and exposes malformed notifications %p', async (notifications) => {
-    const context = homeReadContext({ invokeFcNotify: async () => ({ data: { ok: true, notifications }, error: null }) });
+    const context = homeReadContext({ invokeFcNotify: async () => ({ data: { ok: true, notifications, notices: [] }, error: null }) });
     await routeHandler('app/request-board.tsx', 'fetchData', context)({ force: true });
     expect(context.setNotifications).not.toHaveBeenCalled();
     expect(context.setRequestBoardAccessError).toHaveBeenLastCalledWith(expect.stringContaining('알림을 불러오지 못'));
@@ -243,7 +248,7 @@ describe('C03 / C04 / D06 / D08 request-board home reads', () => {
   it('does not apply the original A home result after A to B to A', async () => {
     const scope = createReadScope(); scope.setScope('A');
     const pending = deferred<[]>();
-    const context = homeReadContext({ accountScope: { current: scope }, sessionReadKey: 'A', beginHomeRead: actualBeginAttempt(), rbGetRequestList: () => pending.promise });
+    const context = homeReadContext({ accountScope: { current: scope }, sessionReadKey: 'A', beginHomeRead: actualBeginAttempt(), rbGetRequestListOrThrow: () => pending.promise });
     const first = routeHandler('app/request-board.tsx', 'fetchData', context)({ force: true });
     await Promise.resolve(); await Promise.resolve();
     scope.setScope('B'); scope.setScope('A');
@@ -254,16 +259,16 @@ describe('C03 / C04 / D06 / D08 request-board home reads', () => {
 
   it('does not replace a later account with any old home read result', async () => {
     let current = true;
-    const inbox = deferred<{ data: { ok: boolean; notifications: [] }; error: null }>();
+    const inbox = deferred<{ data: { ok: boolean; notifications: []; notices: [] }; error: null }>();
     const count = deferred<number>();
     const requests = deferred<[]>();
-    const context = homeReadContext({ accountScope: { current: controlledScope(() => current) }, invokeFcNotify: () => inbox.promise, fetchMobileUnreadNotificationCountOrThrow: () => count.promise, rbGetRequestList: () => requests.promise });
+    const context = homeReadContext({ accountScope: { current: controlledScope(() => current) }, invokeFcNotify: () => inbox.promise, fetchMobileUnreadNotificationCountOrThrow: () => count.promise, rbGetRequestListOrThrow: () => requests.promise });
     const first = routeHandler('app/request-board.tsx', 'fetchData', context)({ force: true });
     await Promise.resolve();
     current = false;
     context.setRequestBoardAccessError.mockClear();
     context.requestBoardRefreshInFlightRef.current = null;
-    inbox.resolve({ data: { ok: true, notifications: [] }, error: null }); count.resolve(0); requests.resolve([]);
+    inbox.resolve({ data: { ok: true, notifications: [], notices: [] }, error: null }); count.resolve(0); requests.resolve([]);
     await first;
     for (const callback of [context.setNotifications, context.setUnreadNotifCount, context.setUnreadNotifVerified, context.setDesignerRequests, context.setReqStats, context.setLoading, context.setRefreshing, context.setRequestBoardAccessError]) {
       expect(callback).not.toHaveBeenCalled();
@@ -272,7 +277,7 @@ describe('C03 / C04 / D06 / D08 request-board home reads', () => {
 
   it('preserves successful counts and requests when their refresh fails', async () => {
     const context = homeReadContext({
-      rbGetRequestList: jest.fn(async () => { throw new Error('synthetic 503'); }),
+      rbGetRequestListOrThrow: jest.fn(async () => { throw new Error('synthetic 503'); }),
       fetchMobileUnreadNotificationCountOrThrow: jest.fn(async () => { throw new Error('synthetic 503'); }),
     });
     await routeHandler('app/request-board.tsx', 'fetchData', context)({ force: true });
@@ -285,10 +290,10 @@ describe('C03 / C04 / D06 / D08 request-board home reads', () => {
 
   it('coalesces overlapping home refreshes into one request list read', async () => {
     const pending = deferred<[]>();
-    const context = homeReadContext({ rbGetRequestList: jest.fn(() => pending.promise) });
+    const context = homeReadContext({ rbGetRequestListOrThrow: jest.fn(() => pending.promise) });
     const read = routeHandler('app/request-board.tsx', 'fetchData', context);
     const first = read({ force: true }); const second = read({ force: true });
-    await Promise.resolve(); expect(context.rbGetRequestList).toHaveBeenCalledTimes(1);
+    await Promise.resolve(); expect(context.rbGetRequestListOrThrow).toHaveBeenCalledTimes(1);
     pending.resolve([]); await Promise.all([first, second]);
   });
 });
@@ -663,11 +668,24 @@ describe('C01 / C02 / D01 / D08 actual mobile notice creation', () => {
 describe('mobile route regressions moved from the Edge fixture', () => {
   it('exam pending counts use the latest application status', async () => {
     const rows = [['a', 'applied', false], ['b', 'cancelled', false], ['c', 'rejected', false], ['d', 'confirmed', true], ['e', 'applied', false], ['e', 'cancelled', false]]
-      .map(([resident_id, status, is_confirmed]) => ({ resident_id, status, is_confirmed, exam_rounds: { exam_type: 'life' } }));
-    const read = routeHandler('app/index.tsx', 'fetchExamStats', { supabase: { from(table: string) {
-      return table === 'exam_registrations' ? { select() { return this; }, order(field: string) { return field === 'created_at' ? Promise.resolve({ data: rows, error: null }) : this; } }
-        : { select() { return this; }, in: async () => ({ data: ['a', 'b', 'c', 'd', 'e'].map(phone => ({ phone })), error: null }) };
-    } } });
+      .map(([resident_id, status, is_confirmed], index) => ({ id: `registration-${index}`, created_at: new Date(2026, 0, index + 1).toISOString(), resident_id, status, is_confirmed, exam_rounds: { exam_type: 'life' } }));
+    const isRecord = routeHandler('app/index.tsx', 'isRecord', {});
+    const isNullableBoolean = routeHandler('app/index.tsx', 'isNullableBoolean', {});
+    const isExamStatsRound = routeHandler('app/index.tsx', 'isExamStatsRound', { isRecord });
+    const isExamStatsRegistrationRow = routeHandler('app/index.tsx', 'isExamStatsRegistrationRow', { isRecord, isNullableBoolean, isExamStatsRound });
+    const isExamStatsProfileRow = routeHandler('app/index.tsx', 'isExamStatsProfileRow', { isRecord });
+    const read = routeHandler('app/index.tsx', 'fetchExamStats', {
+      collectSupabaseRows, chunkSupabaseFilterValues, buildExamPhoneCandidates, normalizeExamSingle,
+      isExamStatsRegistrationRow, isExamStatsProfileRow,
+      supabase: { from(table: string) {
+        let data: (typeof rows[number] | { id: string; phone: string })[] = table === 'exam_registrations' ? rows : ['a', 'b', 'c', 'd', 'e'].map(phone => ({ id: `profile-${phone}`, phone }));
+        return {
+          select() { return this; }, order() { return this; },
+          in(_field: string, phones: string[]) { data = data.filter(value => 'phone' in value && phones.includes(value.phone as string)); return this; },
+          range: async (from: number, to: number) => ({ data: data.slice(from, to + 1), error: null }),
+        };
+      } },
+    });
     const result = await read() as { lifeTotal: number; lifePending: number; nonlifePending: number };
     expect(result).toMatchObject({ lifeTotal: 5, lifePending: 1, nonlifePending: 0 });
   });
@@ -757,12 +775,14 @@ describe('mobile route regressions moved from the Edge fixture', () => {
 
   it('document re-entry restores the durable cleanup status without exposing queue records', async () => {
     const setCleanupPending = jest.fn(); const invokeAdminAction = jest.fn(async () => ({ cleanupPending: true }));
-    const query = { from() { return this; }, select() { return this; }, eq() { return this; }, maybeSingle: async () => ({ data: { id: 'synthetic-profile' }, error: null }), then: (resolve: (value: unknown) => void) => Promise.resolve({ data: [], error: null }).then(resolve) };
+    const loadAllDocuments = jest.fn(async () => []); const alert = jest.fn();
+    const query = { from() { return this; }, select() { return this; }, eq() { return this; }, maybeSingle: async () => ({ data: { id: 'synthetic-profile' }, error: null }) };
     await routeHandler('app/docs-upload.tsx', 'loadData', {
       beginRead: () => () => true, hasInvalidUserRoute: false, isAdmin: true, routeUserId: 'synthetic-profile', residentId: '00000000001', supabase: query,
-      setProfileLoadState: jest.fn(), setFc: jest.fn(), setDocs: jest.fn(), setCleanupStatusError: jest.fn(), setCleanupPending, invokeAdminAction,
+      setProfileLoadState: jest.fn(), setFc: jest.fn(), setDocs: jest.fn(), setCleanupStatusError: jest.fn(), setCleanupPending, invokeAdminAction, loadAllDocuments, Alert: { alert },
     })();
     expect(setCleanupPending).toHaveBeenCalledWith(true); expect(invokeAdminAction).toHaveBeenCalledWith('00000000001', 'getDocumentCleanupStatus', { fcId: 'synthetic-profile' });
+    expect(loadAllDocuments).toHaveBeenCalledWith('synthetic-profile'); expect(alert).not.toHaveBeenCalled();
   });
 
   it('failed messenger response preserves the old draft beside newly typed input', async () => {
@@ -944,27 +964,113 @@ describe('common member signup and login use isolated verified authentication', 
   });
 
   it.each([
-    ['fc', 'fc', false, null], ['admin', 'admin', false, 'admin'], ['manager', 'admin', true, null],
-  ])('shared legacy session install preserves %s permissions and tokens', async (role, expectedRole, readOnly, staffType) => {
+    ['fc', 'fc', false, null, 'fc'], ['admin', 'admin', false, 'admin', null], ['manager', 'admin', true, null, 'fc'],
+    ['admin', 'admin', false, 'developer', 'fc'],
+  ])('shared legacy session install preserves %s permissions and tokens', async (role, expectedRole, readOnly, staffType, requestBoardRole) => {
     const context = {
       clearRequestBoardState: jest.fn(async () => undefined), setAppSessionToken: jest.fn(async () => undefined),
-      setBridgeToken: jest.fn(async () => undefined), loginAs: jest.fn(), normalizeStaffType: (value: unknown) => value ?? null,
+      setBridgeToken: jest.fn(async () => undefined), loginAs: jest.fn(), parseLoginSuccessResponse,
     };
     const result = await routeHandler('hooks/use-login.ts', 'acceptLoginResponse', context)({
-      ok: true, role, staffType, residentId: '01000000000', displayName: '가상 계정', appSessionToken: 'fictional-fc-token', requestBoardBridgeToken: 'fictional-bridge-token', requestBoardRole: 'fc',
+      ok: true, role, staffType, residentId: '01000000000', displayName: '가상 계정', appSessionToken: 'fictional-fc-token', requestBoardBridgeToken: 'fictional-bridge-token', requestBoardRole,
     });
     expect(result).toBe(expectedRole);
     expect(context.setAppSessionToken).toHaveBeenCalledWith('fictional-fc-token');
     expect(context.setBridgeToken).toHaveBeenCalledWith('fictional-bridge-token');
-    expect(context.loginAs).toHaveBeenCalledWith(expectedRole, '01000000000', '가상 계정', staffType, readOnly, false, 'fc', 'fictional-fc-token');
+    expect(context.loginAs).toHaveBeenCalledWith(expectedRole, '01000000000', '가상 계정', staffType, readOnly, false, requestBoardRole, 'fictional-fc-token');
   });
 
   it('a consumer role cannot be accepted as a legacy FC login response', async () => {
-    const context = { clearRequestBoardState: jest.fn(), setAppSessionToken: jest.fn(), setBridgeToken: jest.fn(), loginAs: jest.fn() };
+    const context = { clearRequestBoardState: jest.fn(), setAppSessionToken: jest.fn(), setBridgeToken: jest.fn(), loginAs: jest.fn(), parseLoginSuccessResponse };
     await expect(routeHandler('hooks/use-login.ts', 'acceptLoginResponse', context)({ ok: true, role: 'member', appSessionToken: 'fictional-consumer-token' }))
-      .rejects.toThrow('로그인 결과');
+      .rejects.toThrow('로그인 응답');
     expect(context.loginAs).not.toHaveBeenCalled();
     expect(context.setAppSessionToken).not.toHaveBeenCalled();
+  });
+});
+
+describe('family-care invitations keep common signup separate from insurance', () => {
+  it('ignores unrelated warm events without accepting or replacing a cold invitation', () => {
+    const context = { active: true, parseReferralInvite, currentSessionKey: { current: 'anonymous' }, sequence: { current: 0 }, setPending: jest.fn() };
+    const capture = routeHandler<(url: string) => boolean>('app/_layout.tsx', 'captureInvite', context);
+    expect(capture('hanwhafcpass://services/care')).toBe(false);
+    expect(capture('https://unrelated.invalid/')).toBe(false);
+    expect(context.setPending).not.toHaveBeenCalled();
+    expect(capture('hanwhafcpass://services/signup?service=care&code=ABC123ABCDEF')).toBe(true);
+    expect(context.setPending).toHaveBeenCalledWith({ invite: { service: 'care', code: 'ABC123ABCDEF' }, owner: 'anonymous', nonce: 1 });
+  });
+  const inviteContext = (overrides: Record<string, unknown> = {}) => ({
+    active: true, sessionKey: 'anonymous', currentSessionKey: { current: 'anonymous' }, isPlatformSignedIn: false,
+    pending: { invite: { code: 'ABC123ABCDEF', service: 'care' }, nonce: 2 },
+    clearPendingReferralCodes: jest.fn(async () => undefined), savePendingReferralCode: jest.fn(async () => undefined),
+    router: { replace: jest.fn() }, setPending: jest.fn(), ...overrides,
+  });
+
+  it.each(['care', undefined])('routes %s invitations to their own signup with the current code', async service => {
+    const context = inviteContext({ pending: { invite: { code: 'ABC123ABCDEF', service }, nonce: 2 } });
+    await routeHandler('app/_layout.tsx', 'routeInvite', context)();
+    expect(context.savePendingReferralCode).toHaveBeenCalledWith('ABC123ABCDEF', service);
+    expect(context.router.replace).toHaveBeenCalledWith(service === 'care'
+      ? { pathname: '/services/signup', params: { service: 'care', code: 'ABC123ABCDEF', referralNonce: '2' } }
+      : { pathname: '/signup', params: { referralNonce: '2' } });
+    expect(context.setPending).toHaveBeenCalledWith(null);
+  });
+
+  it('preserves direct care code delivery when optional pending storage fails', async () => {
+    const context = inviteContext({ savePendingReferralCode: jest.fn(async () => { throw new Error('synthetic storage failure'); }) });
+    await routeHandler('app/_layout.tsx', 'routeInvite', context)();
+    expect(context.router.replace).toHaveBeenCalledWith(expect.objectContaining({ params: expect.objectContaining({ code: 'ABC123ABCDEF' }) }));
+  });
+
+  it('never saves a referral to reassign an existing signed member', async () => {
+    const context = inviteContext({ isPlatformSignedIn: true });
+    await routeHandler('app/_layout.tsx', 'routeInvite', context)();
+    expect(context.clearPendingReferralCodes).toHaveBeenCalledTimes(1);
+    expect(context.savePendingReferralCode).not.toHaveBeenCalled();
+  });
+
+  it.each(['clear', 'save'])('does not route a delayed %s after ownership changes', async phase => {
+    const deferredWork = deferred<void>();
+    const context = inviteContext({ [phase === 'clear' ? 'clearPendingReferralCodes' : 'savePendingReferralCode']: jest.fn(() => deferredWork.promise) });
+    const action = routeHandler('app/_layout.tsx', 'routeInvite', context)();
+    await Promise.resolve(); await Promise.resolve();
+    context.currentSessionKey.current = 'different-synthetic-member';
+    deferredWork.resolve(); await action;
+    expect(context.router.replace).not.toHaveBeenCalled();
+    if (phase === 'clear') expect(context.savePendingReferralCode).not.toHaveBeenCalled();
+  });
+
+  const signupInviteContext = (overrides: Record<string, unknown> = {}) => ({
+    invitationCode: undefined, isPlatformSignedIn: false, active: true, ownsSession: () => true,
+    referralEdited: { current: false }, normalizeReferralInviteCode,
+    setReferralCode: jest.fn(), consumePendingReferralCode: jest.fn(async () => 'ABC123ABCDEF'), ...overrides,
+  });
+
+  it('uses the explicit common invitation and discards older pending values', async () => {
+    const context = signupInviteContext({ invitationCode: ' def456abcdef ' });
+    await routeHandler('app/services/signup.tsx', 'loadReferralInvite', context)();
+    expect(context.setReferralCode).toHaveBeenCalledTimes(1);
+    expect(context.setReferralCode).toHaveBeenCalledWith('DEF456ABCDEF');
+    expect(context.consumePendingReferralCode).toHaveBeenCalledWith('care');
+  });
+
+  it.each(['manual-edit', 'owner-change', 'existing-member'])('does not apply pending common code after %s', async reason => {
+    const pending = deferred<string>(); let owns = true;
+    const context = signupInviteContext({ consumePendingReferralCode: jest.fn(() => pending.promise), ownsSession: () => owns,
+      isPlatformSignedIn: reason === 'existing-member' });
+    const action = routeHandler('app/services/signup.tsx', 'loadReferralInvite', context)();
+    if (reason === 'manual-edit') context.referralEdited.current = true;
+    if (reason === 'owner-change') owns = false;
+    pending.resolve('ABC123ABCDEF'); await action;
+    expect(context.setReferralCode).not.toHaveBeenCalled();
+    expect(context.consumePendingReferralCode).toHaveBeenCalledWith('care');
+  });
+
+  it('ignores an invalid direct code instead of importing an unrelated saved referral', async () => {
+    const context = signupInviteContext({ invitationCode: '<invalid>' });
+    await routeHandler('app/services/signup.tsx', 'loadReferralInvite', context)();
+    expect(context.setReferralCode).toHaveBeenCalledTimes(1);
+    expect(context.setReferralCode).toHaveBeenCalledWith('');
   });
 });
 

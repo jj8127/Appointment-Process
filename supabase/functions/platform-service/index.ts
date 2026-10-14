@@ -202,7 +202,7 @@ serveWithConfiguredCors(async request => {
               p_state:sent.ok ? 'accepted' : sent.deliveryState,
               p_provider_request_id:sent.providerRequestId,
               p_provider_status_code:sent.providerStatusCode,
-              p_failure_reason:sent.ok ? null : sent.reason,
+              p_failure_reason:sent.ok === false ? sent.reason : null,
             });
           } catch {
             return fail('sms_delivery_unknown','문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.',503);
