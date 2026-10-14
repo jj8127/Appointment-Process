@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-15 복구 FC와 공통 회원 연결
+
+01051078127 등 9개 번호가 신원 입력 전 추가 등록에서 "이 계정으로 이용할 수 없는 기능"으로 막혔다. 10-14 FC 명단 복구가 공통 회원을 보호하며 복구 FC와 연결하지 않은 것이 원인이다. 사용자 결정으로 공통 비밀번호를 남기고 두 계정을 연결하는 1회 migration을 추가했다. [→ 상세](WORK_DETAIL.md#20261015-link-restored-fc)
+
 ## 2026-10-14 공통 탈퇴 정리 자동 drain 예약
 
 사용자 승인으로 pg_cron 5분 job이 Vault의 service key를 사용해 `platform-service` withdrawal drain을 호출하는 migration을 추가했다. key는 source에 없고 미등록 시 no-op이다. 의뢰게시판 retirement DB·web은 사용자 실행으로 운영 반영했다(`3dc9b84`). [→ 상세](WORK_DETAIL.md#20261014-withdrawal-drain-schedule)

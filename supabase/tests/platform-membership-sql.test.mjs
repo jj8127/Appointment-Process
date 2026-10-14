@@ -718,6 +718,29 @@ test('manual staff grant attaches to the common member, moves its single passwor
   } finally {await db.close();}
 });
 
+test('restored completed FCs link to the existing common member and keep the common password once',async()=>{
+  const db=await fixture('',true);try {
+    const repair=await readFile(new URL('../migrations/20261015030000_link_restored_fc_common_members.sql',import.meta.url),'utf8');
+    await db.exec('alter table fc_credentials add column if not exists temporary_password_issued_at timestamptz');
+    const created=await member(db,'00000000041');
+    const restored=randomUUID(),closed=randomUUID(),oldHash=Buffer.alloc(32,7).toString('base64');
+    // The roster restore inserted FCs without touching common rows, so the projection trigger did not link them.
+    await db.exec('alter table fc_profiles disable trigger platform_fc_projection');
+    await db.query("insert into fc_profiles(id,phone,name,signup_completed,status) values($1,'00000000041','Synthetic Restored',true,'draft'),($2,'00000000042','Synthetic Closed',true,'draft')",[restored,closed]);
+    await db.query('insert into fc_credentials(fc_id,password_hash,password_salt,password_set_at) values($1,$2,$3,now())',[restored,oldHash,salt]);
+    await db.exec('alter table fc_profiles enable trigger platform_fc_projection');
+    const other=await member(db,'00000000043');
+    await db.exec(repair);
+    assert.equal((await db.query('select fc_id from platform_members where id=$1',[created.memberId])).rows[0].fc_id,restored);
+    assert.equal((await db.query('select password_hash from fc_credentials where fc_id=$1',[restored])).rows[0].password_hash,hash);
+    assert.equal(Number((await db.query('select count(*) n from platform_member_credentials where member_id=$1',[created.memberId])).rows[0].n),0);
+    assert.equal((await db.query('select fc_id from platform_members where id=$1',[other.memberId])).rows[0].fc_id,null);
+    assert.equal(Number((await db.query('select count(*) n from platform_member_credentials where member_id=$1',[other.memberId])).rows[0].n),1);
+    await db.exec(repair);
+    assert.equal((await db.query('select password_hash from fc_credentials where fc_id=$1',[restored])).rows[0].password_hash,hash);
+  } finally {await db.close();}
+});
+
 test('legacy import records company attestation, keeps real consent dates and follows existing recruiters independent of login order',async()=>{
   const recruit=randomUUID();
   const db=await fixture(`insert into fc_profiles(id,phone,name,signup_completed,recommender_fc_id) values('${recruit}','00000000041','Synthetic Recruit',true,'${fc}');
