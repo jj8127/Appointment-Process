@@ -6,6 +6,7 @@
 - 진단(대시보드 읽기 전용, 개인정보 없이 boolean/count): 해당 번호는 활성 일반 공통 회원(credential 1, 직원·FC 연결 없음)과 2026-07-24 생성된 가입 완료 draft FC(비밀번호 있음)가 따로 존재했다. 같은 상태 9쌍. `enroll_platform_insurance_v1`의 가입 완료 FC 거절이 `forbidden`을 낸다.
 - 원인: fc-roster-recovery-20261014 적용이 공통 회원·credential 불변을 guard로 보장해 projection 연결이 일어나지 않았다.
 - 조치: 같은 phone 잠금 순서로 쌍을 연결하고 공통 비밀번호를 FC credential로 옮긴다(실패 횟수·임시 비밀번호·재설정 상태 초기화, credential 세대 증가로 이전 FC 세션 무효). 기존 공통 세션도 credential 삭제로 무효가 되어 사용자는 공통 비밀번호로 다시 로그인한다. 복구 시나리오 PGlite 테스트를 기존 suite에 추가했다.
+- 운영 반영: clean `d4f4958`에서 dry-run 대상 1개 확인 후 `20261015030000` 적용, local/remote 이력 일치. 운영 읽기 확인(대시보드)에서 미연결 쌍 9 → 0. 실제 재로그인·신원 입력 E2E는 사용자 기기 확인 대상이다.
 
 <a id="20261014-withdrawal-drain-schedule"></a>
 ## 2026-10-14 공통 탈퇴 정리 자동 drain 예약
