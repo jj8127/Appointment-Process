@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-14 페어링 기기 로컬 설치 준비
+
+사용자가 현재 로컬 버전을 페어링된 단말에 설치하도록 승인했다. 제품 source8fc18f1의 clean snapshot으로 새 staging을 만들고 기존 별도 .local 패키지·서명·데이터 유지 설치를 사용한다. 실제 routes가 누락된 공유 Router 캐시와 dependency JAR 잠금을 로컬 전용 경로로 분리하며 APK와 단말의 exact hash/version·실행을 검증한다. 운영 서버·OTA·스토어 전환은 포함하지 않는다. [→ 상세](WORK_DETAIL.md#20261014-local-paired-install)
+
 ## 2026-10-14 모두온 공통 가입·가람in 추가 등록과 헤더
 
 사용자 승인에 따라 공통 가입/로그인을 유일한 UI로 하고 회사 동의 기존 회원은 별도 동의 없이 연결한다. 기존 서비스 필수 입력과 별도 보험 추천인을 유지하고 기존 gate/identity·인증·복구·추천·저장 코드를 재사용한다. 회사 확인의 source cohort·철회 경계와 최소 원자 enrollment를 추가하며 헤더 로그인 상태와 기존 주황/흰 버튼·하단 간격을 검증한다. 현재 로컬 구현/검증이며 운영 성공으로 표시하지 않는다. [→ 상세](WORK_DETAIL.md#20261014-unified-membership)

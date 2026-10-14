@@ -1,5 +1,10 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-14 별도 로컬 staging에서 이전 Expo Router 캐시를 재사용함
+
+- 재현: 공통 node_modules를 쓰는 새 staging에서 JS 번들이 성공해도 router context가 이전 staging을 참조하면 실제 app route가0개인 빈 번들이 만들어질 수 있다. 같은 --reset-cache만 반복하는 것은 project-specific transform 입력을 보장하지 않는다.
+- 규칙: 로컬 전용 app config의 router.root와 Metro cacheVersion/FileStore를 staging마다 분리한다. 실제 sourcemap의 필수 route와 nonempty context, 이전/dirty app source 부재를 검증한 뒤에만 설치한다. APK 패키지·서명·권한·설치 후 hash와 실행도 대조한다. 공유 dependency 출력의 Windows 잠금은 다른 작업을 종료/삭제하지 않고 이번 작업 전용 경로로 분리하며, JS 입력 root 바깥에 둔다.
+
 ## 2026-10-14 활성 작업트리를 절대 경로 제외 규칙으로 누락함
 
 - 재현: 공용 UI 감사가 absolute path에 .codex-tmp/node_modules/임시 이름 제외를 적용해 그 아래의 정상 checkout 전체를 제외했다. 운영 source 변경과 무관하게 실제 UI inventory가0이 되고 필수 계약 검사가 실패했다.
