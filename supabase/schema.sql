@@ -15476,7 +15476,7 @@ begin
       where member_id=m.id and password_hash=p_password_hash and password_salt=p_password_salt)
     then return jsonb_build_object('ok',false,'code','already_exists'); end if;
     return jsonb_build_object('ok',true,'memberId',m.id,'displayName',m.name,
-    'sessionVersion',(select session_version from platform_member_credentials where member_id=m.id));
+      'sessionVersion',(select session_version from platform_member_credentials where member_id=m.id));
   end if;
   if exists(select from platform_members where phone=p_phone) or exists(select from fc_profiles where phone=p_phone and signup_completed)
     or exists(select from admin_accounts where phone=p_phone) or exists(select from manager_accounts where phone=p_phone)
@@ -15495,7 +15495,6 @@ begin
   update platform_signup_challenges set consumed_member_id=m.id where phone=p_phone;
   return jsonb_build_object('ok',true,'memberId',m.id,'displayName',m.name,'sessionVersion',0);
 end $$;
-
 
 -- Reuse the existing reset lock, counters, expiry and consumption protocol.
 create or replace function public.process_password_reset_challenge(
