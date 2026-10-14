@@ -10,6 +10,14 @@
 - Play: 업로드 해시 일치, production 구성, validate, commit(`ERROR_IF_IN_REVIEW`) 성공 2026-10-14T18:11:15Z. 이후 조회에서 97 IN_REVIEW, 95 PUBLISHED. 공개 여부는 심사 후 별도 확인이 필요하다. iOS·OTA·서버 변경은 없다.
 - 증거: `D:/hanhwa/artifacts/moduon-ui-polish-20261015/android-native/`(빌드·다운로드·검증·제출 영수증).
 
+<a id="20261015-android-98-submit"></a>
+## 2026-10-15 모두온 4.2.20 Android versionCode 98 제출
+
+- source: clean `9440d443521a55de39e254f3fcf61ea382f90fb0`(tree `8f682b56`), 97 이후 변경은 `KeyboardAwareWrapper` 스크롤 위치 재동기화·테스트·문서뿐이다. push 안 함.
+- 기기: 같은 source의 로컬 ui10에서 키보드 연 상태·스크롤 후 칩 길게 누르기 12/12(12px 이동 포함).
+- EAS build `9edf8265-95bf-4801-8d7a-ac326327d965` FINISHED, 4.2.20/98/STORE/production. AAB SHA-256 `4f0a4fd1…5e8c8b89`, 검증 38항목 PASS.
+- Play: 업로드 해시 일치·production 구성·validate·commit(`CANCEL_IN_REVIEW_AND_SUBMIT`) 성공 2026-10-14T19:54:11Z. 이후 조회에서 98 IN_REVIEW, 97 PUBLISHED. 98 공개 여부는 심사 후 확인한다. 키트: `D:/hanhwa/artifacts/moduon-ui-polish-20261015/android-native-98/`.
+
 <a id="20261015-fabric-scroll-offset"></a>
 ## 2026-10-15 스크롤 후 누른 표시만 나고 동작하지 않던 탭의 근본 원인
 
