@@ -7,6 +7,9 @@ import { sendSignupSms } from '../_shared/signup-sms.ts';
 import { processPasswordResetChallenge } from '../_shared/password-reset-challenge.ts';
 import { getKoreanYmd } from '../_shared/exam-payment-proof.ts';
 import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
+import { createRequestBoardAccountRetirementAssertion, sha256Hex } from '../_shared/request-board-auth.ts';
+import { drainAccountDeletionCleanup } from '../_shared/account-deletion-cleanup.ts';
+import { drainMessengerAttachmentCleanup } from '../_shared/messenger-attachment-service.ts';
 
 const supabaseUrl = getEnv('SUPABASE_URL') ?? '';
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -67,6 +70,144 @@ async function legacyMember(phone:string) {
   if(error) throw new Error('database_error');
   return data;
 }
+
+type WithdrawalJob = { operation_id: string; member_id: string; source_fc_id: string | null;
+  local_erased: boolean; completed: boolean; cleanup_receipt: unknown;
+  pending_reason?: 'affiliate_identity_unbound'|'affiliate_unavailable'|'cleanup_pending'|null;
+  preserved_company_role: 'admin'|'manager'|'designer'|'developer'|null };
+function withdrawalJob(value: unknown): WithdrawalJob | null {
+  if(value===null) return null;
+  if(!value || typeof value!=='object') throw new Error('withdrawal_receipt_unverified');
+  const row=value as WithdrawalJob;
+  if(!uuid.test(row.operation_id) || !uuid.test(row.member_id)
+    || (row.source_fc_id!==null && !uuid.test(row.source_fc_id))
+    || typeof row.local_erased!=='boolean' || typeof row.completed!=='boolean'
+    || (row.completed && !row.local_erased)
+    || (row.preserved_company_role!==null && !['admin','manager','designer','developer'].includes(row.preserved_company_role)))
+    throw new Error('withdrawal_receipt_unverified');
+  return row;
+}
+function withdrawalResponse(job: WithdrawalJob, reason=job.pending_reason) {
+  if(reason!=null && !['affiliate_identity_unbound','affiliate_unavailable','cleanup_pending'].includes(reason))
+    throw new Error('withdrawal_receipt_unverified');
+  return {ok:true,operationId:job.operation_id,status:job.completed ? 'completed' : 'pending',
+    deleted:job.completed,cleanupPending:!job.completed,
+    ...(!job.completed && reason ? {reason} : {}),
+    ...(job.preserved_company_role ? {preservedCompanyAccount:job.preserved_company_role} : {})};
+}
+async function getWithdrawal(request: Request) {
+  const token=request.headers.get('x-app-session-token') ?? '';
+  if(!token.trim() || token.length>8192) throw new Error('invalid_session');
+  const job=withdrawalJob(await rpc('get_platform_withdrawal_v1',{
+    p_operation_id:null,p_session_digest:await sha256Hex(token)}));
+  return json({ok:true,withdrawal:job ? withdrawalResponse(job) : null});
+}
+async function withdrawMember(request: Request, body: Record<string,unknown>) {
+  if(body.confirmed!==true || body.scope!=='all_affiliates' || body.policyVersion!=='2026-10-14'
+    || typeof body.idempotencyKey!=='string' || !uuid.test(body.idempotencyKey))
+    return fail('invalid_input','전체 제휴 서비스 탈퇴 안내를 확인해 주세요.');
+  const operationId=body.idempotencyKey.toLowerCase();
+  const token=request.headers.get('x-app-session-token') ?? '';
+  if(!token || token.length>8192) throw new Error('invalid_session');
+  const digest=await sha256Hex(token);
+  // An exact operation/session digest is a resume-only capability. It cannot
+  // start another withdrawal or restore the login authority already revoked.
+  let job=withdrawalJob(await rpc('get_platform_withdrawal_v1',{p_operation_id:operationId,p_session_digest:digest}));
+  if(!job) {
+    const current=await actor(request,false);
+    job=withdrawalJob(await rpc('begin_platform_withdrawal_v1',{
+      p_member_id:current.member.id,p_operation_id:operationId,p_session_digest:digest}));
+  }
+  if(!job || job.operation_id!==operationId) throw new Error('withdrawal_receipt_unverified');
+  return await finishWithdrawal(job,digest);
+}
+async function finishWithdrawal(job: WithdrawalJob,digest: string) {
+  const operationId=job.operation_id;
+  const result=async(completed: boolean,reason?: string)=>{
+    if(!completed) {
+      const retry=await rpc('record_platform_withdrawal_retry_v1',{p_operation_id:operationId,p_session_digest:digest,p_reason:reason});
+      if(retry?.completed===true) {
+        const current=withdrawalJob(await rpc('get_platform_withdrawal_v1',{p_operation_id:operationId,p_session_digest:digest}));
+        if(!current?.completed) throw new Error('withdrawal_receipt_unverified');
+        job=current; completed=true;
+      }
+    }
+    return json(withdrawalResponse({...job,completed},reason as WithdrawalJob['pending_reason']));
+  };
+  if(job.completed) return result(true);
+  if(!job.local_erased) {
+    let affiliateState='not_applicable';
+    let preservedRole: string|null=null;
+    if(job.source_fc_id) {
+      const syncUrl=getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL')?.trim() ?? '';
+      const bridgeSecret=getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN')?.trim() ?? '';
+      const assertion=await createRequestBoardAccountRetirementAssertion(job.source_fc_id,operationId);
+      if(!syncUrl || !bridgeSecret || !assertion) return result(false,'affiliate_unavailable');
+      try {
+        const endpoint=new URL(syncUrl);
+        if(endpoint.protocol!=='https:' || endpoint.username || endpoint.password) return result(false,'affiliate_unavailable');
+        endpoint.pathname='/api/auth/retire-affiliate-account'; endpoint.search=''; endpoint.hash='';
+        const response=await fetch(endpoint,{method:'POST',redirect:'error',
+          headers:{'Content-Type':'application/json','x-request-bridge-token':bridgeSecret},
+          body:JSON.stringify({authAssertion:assertion}),signal:AbortSignal.timeout(10000)});
+        const receipt=await response.json();
+        if(response.status===409 && ['AFFILIATE_IDENTITY_UNBOUND','AFFILIATE_COMPANY_IDENTITY_REVIEW_REQUIRED'].includes(receipt?.code))
+          return result(false,'affiliate_identity_unbound');
+        const data=receipt?.data;
+        if(!response.ok || receipt?.success!==true || data?.operationId!==operationId
+          || data?.upstreamAccountId!==job.source_fc_id || data?.policyVersion!=='2026-10-14'
+          || typeof data?.alreadyApplied!=='boolean') return result(false,'affiliate_unavailable');
+        if(data.accountErased===true && data.runtimeRevoked===true
+          && data.runtimeRevocationScope==='persisted_auth_and_local_runtime'
+          && data.remoteSocketRevalidationIntervalMs===5000) affiliateState='erased';
+        else if(data.status==='company_account_preserved' && data.accountErased===false && data.runtimeRevoked===false
+          && data.preservedRole==='designer' && data.independentLoginAvailable===true) {
+          affiliateState='company_account_preserved'; preservedRole=data.preservedRole;
+        } else return result(false,'affiliate_unavailable');
+      } catch { return result(false,'affiliate_unavailable'); }
+    }
+    job=withdrawalJob(await rpc('erase_platform_withdrawal_v1',{p_operation_id:operationId,p_session_digest:digest,
+      p_affiliate_state:affiliateState,p_preserved_company_role:preservedRole}));
+    if(!job || !job.local_erased) throw new Error('withdrawal_receipt_unverified');
+  }
+  if(job.cleanup_receipt && await drainAccountDeletionCleanup(db,job.cleanup_receipt)) return result(false,'cleanup_pending');
+  const pending=await rpc('get_platform_withdrawal_cleanup_v1',{p_operation_id:operationId,p_session_digest:digest});
+  if(!pending || !Array.isArray(pending.batch_ids) || pending.batch_ids.length>25
+    || pending.batch_ids.some((id:unknown)=>typeof id!=='string' || !uuid.test(id))
+    || typeof pending.pending!=='boolean') throw new Error('withdrawal_receipt_unverified');
+  for(const batchId of pending.batch_ids) {
+    try {
+      const drained=await drainMessengerAttachmentCleanup({supabase:db,batchId,limit:100});
+      if(drained.claimFailed || drained.completionFailed) return result(false,'cleanup_pending');
+    } catch { return result(false,'cleanup_pending'); }
+  }
+  const checked=await rpc('get_platform_withdrawal_cleanup_v1',{p_operation_id:operationId,p_session_digest:digest});
+  if(checked?.pending!==false) return result(false,'cleanup_pending');
+  job=withdrawalJob(await rpc('complete_platform_withdrawal_v1',{p_operation_id:operationId,p_session_digest:digest}));
+  if(!job?.completed) throw new Error('withdrawal_receipt_unverified');
+  return result(true);
+}
+async function drainWithdrawals(request: Request) {
+  if(!serviceKey || request.headers.get('apikey')!==serviceKey
+    || request.headers.get('Authorization')!==`Bearer ${serviceKey}`)
+    return fail('forbidden','허용되지 않은 요청입니다.',403);
+  const jobs=await rpc('list_due_platform_withdrawals_v1',{});
+  if(!Array.isArray(jobs) || jobs.length>3) throw new Error('withdrawal_receipt_unverified');
+  let completed=0; let pending=0;
+  for(const value of jobs) {
+    const job=withdrawalJob(value);
+    const digest=(value as {session_digest?:unknown})?.session_digest;
+    if(!job || job.completed || typeof digest!=='string' || !/^[0-9a-f]{64}$/.test(digest))
+      throw new Error('withdrawal_receipt_unverified');
+    const response=await finishWithdrawal(job,digest);
+    const result=await response.json();
+    if(result.status==='completed' && result.deleted===true && result.cleanupPending===false) completed++;
+    else if(result.status==='pending' && result.deleted===false && result.cleanupPending===true) pending++;
+    else throw new Error('withdrawal_receipt_unverified');
+  }
+  return json({ok:true,processed:jobs.length,completed,pending});
+}
+
 async function actor(request:Request,requireConsent=true) {
   const token = request.headers.get('x-app-session-token') ?? '';
   const platform = await parsePlatformMemberToken(token);
@@ -458,11 +599,14 @@ serveWithConfiguredCors(async request => {
         p_fc_id:signed.accountKind==='fc' ? signed.accountId : null,p_terms_version:termsVersion,
         p_account_kind:signed.accountKind,p_account_id:signed.accountId}));
     }
-    const signed = await actor(request,action!=='delete_member');
     if(action==='delete_member') {
-      if(body.confirmed!==true) return fail('forbidden','공통회원 본인의 탈퇴 확인이 필요합니다.',403);
-      return json(await rpc('delete_platform_member',{p_member_id:signed.member.id}));
+      // Old clients confirmed a different scope (their FC account was kept).
+      return fail('upgrade_required','전체 제휴 서비스 탈퇴 안내를 확인하려면 앱을 업데이트해 주세요.',409);
     }
+    if(action==='withdraw_member') return await withdrawMember(request,body);
+    if(action==='get_withdrawal') return await getWithdrawal(request);
+    if(action==='withdrawal_cleanup_drain') return await drainWithdrawals(request);
+    const signed = await actor(request);
     if(action==='apply') {
       if(!uuid.test(body.idempotencyKey ?? '')) return fail('invalid_input','신청 정보를 확인해 주세요.');
       return json(await rpc('create_platform_application',{p_member_id:signed.member.id,p_service_key:body.serviceKey,

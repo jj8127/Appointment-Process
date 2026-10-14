@@ -1157,6 +1157,8 @@ describe('platform requests keep their account and service owner', () => {
       Alert: { alert: jest.fn() }, beginDelete: actualBeginAttempt(), beginCancel: actualBeginAttempt(),
       platformRequest: jest.fn(), setDeleteError: jest.fn(), setDeleteLoading: jest.fn(), setCancelError: jest.fn(), setCancelling: jest.fn(),
       session: { logout: jest.fn() }, router: { replace: jest.fn() }, refresh: jest.fn(),
+      deletePending: false,
+      deletionCheckFailed: false,
     };
     routeHandler<(id?: string) => void>(path, handler, context)('synthetic-application');
     revision += 1;

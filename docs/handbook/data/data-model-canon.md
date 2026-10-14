@@ -7,6 +7,16 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
+## 2026-10-14 공통·제휴 계정 탈퇴 journal (로컬)
+
+`20261014073458_platform_affiliate_account_withdrawal.sql`과 schema mirror는 private withdrawal journal과 정확한 messenger cleanup ID 연결을 추가한다. 두 테이블은 RLS/직접 접근 회수를 유지하고 service-role RPC만 사용한다. operation UUID·source UUID·원래 세션 SHA256 digest로 소유 요청을 확인하고 완료/재시도 상태를 보존한다. raw token은 저장하지 않는다. due index·최대3개 처리·backoff로 재처리를 제한한다.
+
+begin은 기존 phone advisory→source profile→common member→credential 잠금 순서에서 일반 FC credential과 signup_completed 권한을 함께 중지한다. company staff credential은 유지한다. 원래 작업/다른 작업/enrollment의 독립 연결 경쟁은 기존 PG runner에서 검증한다. 닫힌 profile을 재활성화하거나 credential을 다시 붙이는 쓰기는 거부한다. 기존 서명 토큰도 현재 credential 조회가 사라지면 유효하지 않다.
+
+Request Board는 기존 generation ledger의 canonical `fc:UUID`와 일치하는 대상만 정리한다. 정확한 제휴 영수증과 owned upload 만료 후 messenger 정리까지 확인한 뒤 완료한다. 기존 core/outbox를 재사용하며 확정 정산의 RESTRICT FK를 cascade 삭제하지 않고 개인정보 없는 닫힌 UUID를 보존한다. 완료 account cleanup payload/journal receipt의 개인 경로는 지운다. 제한된 UUID와 관계 이력은 완전한 익명 자료라고 표현하지 않는다.
+
+legacy 신원 연결·회사 source 모순·운영 인증 예약 호출·동시 서버 채택은 별도 배포 조건이다. 현재 실제 운영 계정 삭제나 DB/Edge 배포는 수행하지 않았다. 자세한 동의·client 확인·회사 예외는 [공통 서비스 계약](../mobile/platform-services.md)을 따른다.
+
 ## 2026-10-14 공통 회원·보험 추가 등록 통합 (로컬)
 
 ordered migration `20261014043557_unified_common_insurance_enrollment.sql`과 schema snapshot을 함께 갱신한다. company-attested source UUID cohort는 적용 시점에 고정하고 public table RLS/직접 접근 회수를 유지한다. 새 import를 먼저 만든 뒤 기존 FC·manager-shadow 보험 추천을 canonical common inviter로 연결하며 기존 common 선택 관계(선택 없음 포함)는 덮지 않는다. 실제 수락 일시와 회사 확인의 기록 일시/출처를 구분한다. 탈퇴는 접근을 제한한 source UUID/tombstone과 cohort의 최초 연결 기록을 남겨 자동 재활성화를 막고 확인 근거를 유지하며 unknown historical withdrawal이면 migration을 중단한다. 이 UUID는 업무 계정과 연결 가능하므로 완전한 익명 자료라고 표현하지 않는다.

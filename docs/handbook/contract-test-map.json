@@ -23,6 +23,7 @@
         "supabase/migrations/20261012072614_platform_membership_recovery_consent.sql",
         "supabase/migrations/20261012072615_platform_auth_cleanup_schedule.sql",
         "supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql",
+        "supabase/migrations/20261014073458_platform_affiliate_account_withdrawal.sql",
         "supabase/functions/_shared/password-hash.ts",
         "supabase/functions/_shared/signup-sms.ts"
       ],

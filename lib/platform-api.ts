@@ -8,14 +8,20 @@ export type PlatformService = keyof typeof PLATFORM_SERVICES;
 export type ApplicationService = Exclude<PlatformService, 'hospital'>;
 export const PLATFORM_TERMS_VERSION = '2026-10-12';
 export const INSURANCE_CONSENT_VERSION = 'insurance-additional-info-v1';
+export const PLATFORM_WITHDRAWAL_VERSION = '2026-10-14';
 export const PLATFORM_REQUEST_TIMEOUT_MS = 12_000;
-const timeoutActions = new Set(['request_otp','signup','login','request_password_reset','reset_password','enroll_insurance']);
+const timeoutActions = new Set(['request_otp','signup','login','request_password_reset','reset_password','enroll_insurance','withdraw_member','get_withdrawal']);
 export const PLATFORM_PRIVACY_POLICY_URL = 'https://garam-public-web.vercel.app/moduon-privacy/';
 /** Release copy under review; keep signup and existing-member consent identical. */
-export const PLATFORM_CONSENT_TEXT = '수집 항목: 이름, 휴대폰 번호, 비밀번호 해시, 필수 동의 일시와 문서 버전, 선택한 추천 코드와 추천 관계\n이용 목적: 회원 확인, 휴대폰 인증, 로그인과 계정 복구, 공통 추천 관계 연결\n보유기간: 회원 이용 기간 동안 보관합니다. 공통 회원 탈퇴 시 공통 회원 정보의 이름·휴대폰 번호·비밀번호와 인증 기록을 삭제합니다. 이미 확정된 거래·정산 기록과 거래·정산 및 추천 관계를 연결하는 식별자는 정산 확인을 위해 유지합니다. 탈퇴한 업무 계정의 공통 회원 정보가 자동으로 다시 생성되지 않도록, 이름·휴대폰 번호를 포함하지 않는 업무 계정 연결 UUID와 탈퇴 여부는 접근을 제한해 유지하며 자동 재가입 방지에만 사용합니다.\n비밀번호 원문은 보관하지 않습니다. 이 동의에는 마케팅 수신 동의가 포함되지 않습니다.\n동의를 거부할 수 있으며, 거부하면 공통 회원가입과 공통 추천 혜택 이용이 제한됩니다. 기존 보험·FC 업무와 공개 서비스 안내는 계속 이용할 수 있습니다.\n탈퇴 방법: 내 정보에서 공통 회원 탈퇴를 선택합니다. 기존 보험·FC 업무 계정은 유지되며 해당 계정 탈퇴는 보험 계정 설정에서 진행합니다.';
+export const PLATFORM_CONSENT_TEXT = '수집 항목: 이름, 휴대폰 번호, 비밀번호 해시, 필수 동의 일시와 문서 버전, 선택한 추천 코드와 추천 관계\n이용 목적: 회원 확인, 휴대폰 인증, 로그인과 계정 복구, 공통 추천 관계 연결\n보유기간: 회원 이용 기간 동안 보관합니다. 공통 회원 탈퇴 시 공통 회원과 연결된 일반 회원·보험 FC·가람링크 계정의 개인정보·로그인 정보와 인증 기록을 삭제하고 접속을 종료합니다. 관리자·본부장 등 회사 업무 계정은 유지됩니다. 이미 확정된 거래·정산 기록과 거래·정산 및 추천 관계를 연결하는 식별자는 정산 확인을 위해 유지합니다. 탈퇴한 계정의 자동 재가입과 계정 복원을 방지하기 위한 연결 UUID와 탈퇴 여부는 이름·휴대폰 번호 없이 접근을 제한해 유지합니다.\n비밀번호 원문은 보관하지 않습니다. 이 동의에는 마케팅 수신 동의가 포함되지 않습니다.\n동의를 거부할 수 있으며, 거부하면 공통 회원가입과 공통 추천 혜택 이용이 제한됩니다. 가입 동의 거부와 기존 서비스 계정 탈퇴는 서로 다르며 공개 서비스 안내는 계속 이용할 수 있습니다.\n탈퇴 방법: 내 정보에서 공통 회원 탈퇴를 선택하고 제휴 계정까지 삭제되는 범위를 확인합니다. 모든 대상 계정과 첨부자료 정리가 확인돼야 완료됩니다. 연결 확인이나 정리가 남아 있으면 처리 중으로 안내합니다. 외부 제휴사에 별도로 가입한 계정은 해당 회사의 탈퇴 절차를 따릅니다.';
 export type PlatformAuthResponse = { ok: true; insuranceSession: LoginResponse } | { ok: true; memberId: string; displayName: string; residentId: string; appSessionToken: string; role: 'member'; insuranceSession?: undefined };
 export type PlatformInsuranceEnrollment = { ok: true; insuranceSession: LoginResponse; alreadyApplied: boolean };
+export type PlatformWithdrawal = { ok: true; operationId: string; preservedCompanyAccount?: 'admin' | 'manager' | 'designer' | 'developer' } & (
+  { status: 'completed'; deleted: true; cleanupPending: false }
+  | { status: 'pending'; deleted: false; cleanupPending: true; reason?: 'affiliate_identity_unbound' | 'affiliate_unavailable' | 'cleanup_pending' }
+);
 export type PlatformApplication = { id: string; serviceKey: ApplicationService; status: string; createdAt: string };
+export type PlatformWithdrawalStatus = { ok: true; withdrawal: PlatformWithdrawal | null };
 export type PlatformBenefit = { id: string; serviceKey: ApplicationService; amount: number; dueAt: string; status: string };
 export type PlatformAccount = {
   ok: true;
@@ -69,6 +75,13 @@ const authSchema = z.union([
   z.object({ ok: z.literal(true), memberId: z.uuid(), displayName: z.string().min(1), residentId: z.string().regex(/^\d{11}$/), appSessionToken: z.string().min(1), role: z.literal('member'), insuranceSession: z.undefined().optional() }),
 ]);
 const enrollmentSchema = z.object({ ok: z.literal(true), insuranceSession: insuranceSessionSchema, alreadyApplied: z.boolean() });
+const withdrawalSchema = z.object({
+  ok: z.literal(true), operationId: z.uuid(), preservedCompanyAccount: z.enum(['admin', 'manager', 'designer', 'developer']).optional(),
+}).and(z.discriminatedUnion('status', [
+  z.object({ status: z.literal('completed'), deleted: z.literal(true), cleanupPending: z.literal(false) }),
+  z.object({ status: z.literal('pending'), deleted: z.literal(false), cleanupPending: z.literal(true),
+    reason: z.enum(['affiliate_identity_unbound', 'affiliate_unavailable', 'cleanup_pending']).optional() }),
+]));
 const insuranceReferralSchema = z.object({ ok: z.literal(true), inviterFcId: z.uuid(), inviterName: z.string().min(1),
   inviterAffiliation: z.string(), referralCode: z.string().min(1) });
 const hospitalSchema = z.object({
@@ -129,6 +142,7 @@ const messages: Record<string, string> = {
   common_membership_withdrawn: '공통 회원에서 탈퇴한 계정입니다. 다시 가입하려면 동의를 확인해 주세요.',
   invalid_terms: '최신 동의 내용을 확인한 뒤 다시 시도해 주세요.',
   account_not_found: '가입한 휴대폰 번호를 확인해 주세요.',
+  upgrade_required: '탈퇴 정책이 변경되었습니다. 최신 앱에서 삭제 범위를 확인한 뒤 다시 진행해 주세요.',
   invalid_request: '비밀번호 변경 요청을 확인해주세요.',
   invalid_token: '인증 코드가 유효하지 않습니다.',
   expired_token: '인증 코드가 만료되었습니다. 새 코드를 요청해주세요.',
@@ -203,8 +217,13 @@ export async function platformRequest<T>(action: string, payload: Record<string,
   const schema = action === 'get_account' || action === 'verify' ? accountSchema
     : action === 'login' || action === 'signup' ? authSchema
       : action === 'enroll_insurance' ? enrollmentSchema
-        : action === 'validate_insurance_referral' ? insuranceReferralSchema
+        : action === 'withdraw_member' ? withdrawalSchema
+          : action === 'get_withdrawal' ? z.object({ ok: z.literal(true), withdrawal: withdrawalSchema.nullable() })
+          : action === 'validate_insurance_referral' ? insuranceReferralSchema
           : hospitalResponseSchemas[action as keyof typeof hospitalResponseSchemas];
   if (schema && !schema.safeParse(response).success) throw new PlatformApiError('응답을 확인하지 못했습니다. 기존 내용을 유지한 채 다시 확인해 주세요.', 'invalid_response');
+  if (action === 'withdraw_member' && response.operationId.toLowerCase() !== String(payload.idempotencyKey).toLowerCase()) {
+    throw new PlatformApiError('탈퇴 처리 결과를 확인하지 못했습니다. 같은 요청으로 다시 확인해 주세요.', 'invalid_response');
+  }
   return response as T;
 }

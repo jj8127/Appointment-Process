@@ -1,5 +1,16 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261014-all-affiliate-withdrawal"></a>
+## 2026-10-14 공통 탈퇴의 전체 제휴 계정 정리
+
+- 사용자 확인 범위는 일반 회원·FC 삭제, 회사 admin/manager/designer/developer 계정 유지다. 회사 권한은 현재 DB의 계정 역할로만 판단하며 소속 문자열·요청 본문으로 확대하지 않는다. 독립 외부 제휴사의 별도 가입은 임의 삭제하지 않는다.
+- 신규 withdraw_member는 confirmed·all_affiliates·2026-10-14 정책·UUID 요청을 요구한다. 구 delete_member는 변경 없이 upgrade_required를 반환한다. 같은 요청/원래 세션의 SHA256 digest로 접수된 탈퇴만 이어가며 raw token은 저장하지 않는다.
+- FC 접수는 기존 잠금 순서로 공통/FC 자격 증명과 활동 권한을 중지한다. 정확한 Request Board v2 upstream UUID 연결과 서명된 삭제/회사 보존 영수증을 확인한 뒤 개인정보·인증 정보를 정리한다. 전화번호만 같은 계정의 삭제는 거부한다. UUID와 확정 업무·정산 이력은 접근 제한 상태로 유지하며 customer requests/financial FK를 cascade 삭제하지 않는다.
+- 기존 FC self-delete와 공통 탈퇴의 첨부·Auth 정리 코드를 공유한다. 계정 자체 정리, owned object 삭제, 진행 중 upload 만료 후 재정리까지 확인해야 completed다. 완료 outbox/receipt의 개인 경로는 지운다. 실패/누락은 pending으로 보존하며 성공으로 바꾸지 않는다.
+- 앱은 서버 journal의 읽기 전용 get_withdrawal로 화면 재진입 때 원래 요청을 복구하고 pending/응답 손실에 같은 요청 ID를 재사용한다. 고정 정책의 단일 요청이며 기존 tracker가 복구 ID를 받지 못하므로 추가 generic tracker API 대신 단순 operation ref를 사용한다. 확인창은 열기 전 mounted lease를 캡처하고, 검증된 completed에서만 기존 full local logout을 호출한다. 이전 계정의 늦은 응답은 다음 계정을 로그아웃시키지 않는다. 필수 가입 동의 버전은 유지하고 삭제 확인 버전은 별도다.
+- Request Board persisted token-version/활성 상태와 기존 runtime revoke를 재사용한다. 송수신 socket 권한과 idle 재검증은 후속 접근을 제한하지만 이미 전송 중인 전역 메시지를 즉시 회수한다고 주장하지 않는다. 구 phone-only 신원 연결과 legacy producer, 전체 서버 채택은 배포 선행 조건이다.
+- 기존 service-only 재처리 경로를 준비하되 운영 authenticated scheduler는 아직 설정·검증하지 않았다. 실제 계정 삭제/운영 조회·migration·Edge·웹·OTA·스토어·push는 수행하지 않는다. 정확한 최종 검사/커밋/남은 조건은 canonical unified-membership-20261014의 다섯 문서에서 관리한다.
+
 <a id="20261014-local-paired-install"></a>
 ## 2026-10-14 페어링 기기 로컬 설치와 진료 분야 누락 수정
 

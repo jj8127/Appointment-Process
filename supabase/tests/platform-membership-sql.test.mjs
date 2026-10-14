@@ -3,72 +3,20 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import {randomUUID} from 'node:crypto';
-import { fixtureSql, fc } from './ux-priority-one-fixture.mjs';
+import { preparePlatformMembershipFixture, fc } from './ux-priority-one-fixture.mjs';
 const require=createRequire(import.meta.url);
 const {PGlite}=require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
-const migration=await readFile(new URL('../migrations/20261012072525_platform_common_membership.sql',import.meta.url),'utf8');
-const hospitalMigration=await readFile(new URL('../migrations/20261012072611_hospital_directory_ad_performance.sql',import.meta.url),'utf8');
 const recoveryMigration=await readFile(new URL('../migrations/20261012072614_platform_membership_recovery_consent.sql',import.meta.url),'utf8');
 const smsDeliveryMigration=await readFile(new URL('../migrations/20261013094533_moduon_signup_sms_delivery_state.sql',import.meta.url),'utf8');
 const extendedSmsDeliveryMigration=await readFile(new URL('../migrations/20261013094539_extend_sms_delivery_tracking.sql',import.meta.url),'utf8');
-const generations=await readFile(new URL('../migrations/20261004133155_credential_session_generations.sql',import.meta.url),'utf8');
 const enrollmentMigration=await readFile(new URL('../migrations/20261014043557_unified_common_insurance_enrollment.sql',import.meta.url),'utf8');
+const withdrawalMigration=await readFile(new URL('../migrations/20261014073458_platform_affiliate_account_withdrawal.sql',import.meta.url),'utf8');
 const admin='90000000-0000-4000-8000-000000000001';
 const hash=Buffer.alloc(32,3).toString('base64'), salt=Buffer.alloc(16,4).toString('base64');
-async function fixture(seedSql='') {
+async function fixture(seedSql='',withWithdrawal=false) {
   const db=new PGlite();
-  await db.exec(fixtureSql);
-  await db.exec(`alter table fc_profiles add column name text default 'Synthetic FC';
-    alter table fc_profiles add column recommender_fc_id uuid;
-    alter table admin_accounts add column id uuid default gen_random_uuid() unique;
-    update admin_accounts set id='${admin}' where phone='00000000001';
-    alter table admin_accounts add column staff_type text default 'admin';
-    alter table admin_accounts add column name text default 'Synthetic Admin';
-    alter table manager_accounts add column id uuid default gen_random_uuid() unique;
-    alter table manager_accounts add column name text default 'Synthetic Manager';
-    alter table admin_accounts add column password_set_at timestamptz default now();
-    alter table admin_accounts add column session_version bigint default 0;
-    alter table manager_accounts add column password_set_at timestamptz default now();
-    alter table manager_accounts add column session_version bigint default 0;
-    alter table fc_profiles alter column id set default gen_random_uuid();
-    create unique index on fc_profiles(phone);
-    alter table fc_profiles add column affiliation text default '가람';
-    alter table fc_profiles add column temp_id text;
-    alter table fc_profiles add column identity_completed boolean default false;
-    alter table fc_profiles add column email text;
-    alter table fc_profiles add column carrier text;
-    alter table fc_profiles add column license_statuses text[];
-    alter table fc_profiles add column phone_verification_hash text;
-    alter table fc_profiles add column phone_verification_expires_at timestamptz;
-    alter table fc_profiles add column signup_verification_method text;
-    alter table fc_profiles add column signup_verified_at timestamptz;
-    alter table fc_profiles add column signup_verified_by_admin_id uuid;
-    alter table fc_profiles add column updated_at timestamptz default now();
-    alter table fc_profiles add column created_at timestamptz default now();
-    create table fc_identity_secure(fc_id uuid primary key references fc_profiles(id) on delete cascade);
-    create table fc_credentials(fc_id uuid primary key references fc_profiles(id) on delete cascade,
-      password_hash text not null,password_salt text not null,password_set_at timestamptz,session_version bigint not null default 0,
-      failed_count integer default 0,locked_until timestamptz,must_change_password boolean default false,
-      reset_token_hash text,reset_token_expires_at timestamptz,reset_sent_at timestamptz,reset_failed_count integer default 0,
-      created_at timestamptz default now(),updated_at timestamptz default now());
-    create table fc_signup_completion_challenges(fc_id uuid primary key references fc_profiles(id) on delete cascade,
-      token_hash text,expires_at timestamptz,consumed_at timestamptz,request_fingerprint text,result jsonb,updated_at timestamptz);
-    insert into fc_credentials(fc_id,password_hash,password_salt,password_set_at) values('${fc}','${hash}','${salt}',now());
-    create table referral_codes(id uuid primary key default gen_random_uuid(),fc_id uuid,code text unique,is_active boolean);
-    create function apply_referral_link_state(p_invitee_fc_id uuid,p_inviter_fc_id uuid,p_referral_code_id uuid,
-      p_referral_code text,p_source text,p_actor_phone text,p_actor_role text,p_actor_staff_type text,p_reason text)
-      returns jsonb language plpgsql as $$ begin
-      update fc_profiles set recommender_fc_id=p_inviter_fc_id where id=p_invitee_fc_id;
-      if p_referral_code='FAILAPPLY' then raise exception 'synthetic_referral_failure'; end if;
-      return '{"ok":true}'::jsonb; end $$;
-    grant all on all tables in schema public to service_role;
-  `);
-  await db.exec(generations.slice(generations.indexOf('create or replace function public.advance_credential_session_version()'),
-    generations.indexOf('-- The service verifies')));
-  try {await db.exec(migration);await db.exec(hospitalMigration);await db.exec(recoveryMigration);await db.exec(smsDeliveryMigration);await db.exec(extendedSmsDeliveryMigration);
-    if(seedSql) await db.exec(seedSql);await db.exec(enrollmentMigration);}
-  catch(error) {await db.close();throw new Error(error.message);}
-  return db;
+  try {await preparePlatformMembershipFixture(db,{seedSql,withWithdrawal,admin,hash,salt});return db;}
+  catch(error){await db.close();throw error;}
 }
 async function rpc(db,sql,args=[]) {
   await db.exec('set role service_role');
@@ -375,6 +323,7 @@ test('auth cleanup removes expired receipts while preserving live codes and acti
     assert.ok(canonical.replaceAll('\r\n','\n').includes(recoveryMigration.replaceAll('\r\n','\n')));
     assert.ok(canonical.replaceAll('\r\n','\n').includes(smsDeliveryMigration.replaceAll('\r\n','\n')));
     assert.ok(canonical.replaceAll('\r\n','\n').includes(enrollmentMigration.replaceAll('\r\n','\n').trimEnd()));
+    assert.ok(canonical.replaceAll('\r\n','\n').includes(withdrawalMigration.replaceAll('\r\n','\n').trimEnd()));
     const schedule=await readFile(new URL('../migrations/20261012072615_platform_auth_cleanup_schedule.sql',import.meta.url),'utf8');
     assert.match(schedule,/create extension if not exists pg_cron with schema pg_catalog/);
     assert.match(schedule,/cron\.schedule\('platform-auth-challenge-cleanup','\*\/5 \* \* \* \*'/);
@@ -412,6 +361,135 @@ test('care direct referral uses configured basis and recorded transfers are idem
     const first=await rpc(db,'select mark_platform_benefit_paid($1,$2,$3,$4) result',args);
     assert.deepEqual(await rpc(db,'select mark_platform_benefit_paid($1,$2,$3,$4) result',args),first);
     await assert.rejects(rpc(db,'select mark_platform_benefit_paid($1,$2,$3,$4) result',[...args.slice(0,3),'different-transfer']),/idempotency_conflict/);
+  }finally{await db.close();}
+});
+
+test('coordinated consumer withdrawal retains settled UUIDs, erases account data and replays only the same operation',async()=>{
+  const db=await fixture('',true);try {
+    const created=await member(db),operation=randomUUID(),digest='a'.repeat(64);
+    const application=await apply(db,created.memberId),settlementPartner=await partner(db);
+    await settle(db,application.applicationId,settlementPartner.partnerId);
+    const begin=()=>rpc(db,'select begin_platform_withdrawal_v1($1,$2,$3) result',[created.memberId,operation,digest]);
+    const first=await begin();assert.equal(first.completed,false);assert.equal(first.source_fc_id,null);
+    assert.deepEqual(await rpc(db,'select get_platform_withdrawal_v1(null,$1) result',[digest]),first);
+    assert.equal(await rpc(db,'select get_platform_withdrawal_v1(null,$1) result',['b'.repeat(64)]),null);
+    assert.deepEqual(await begin(),first);
+    assert.equal((await db.query('select active from platform_members where id=$1',[created.memberId])).rows[0].active,false);
+    assert.equal(Number((await db.query('select count(*) n from platform_member_credentials where member_id=$1',[created.memberId])).rows[0].n),0);
+    assert.equal(await rpc(db,'select get_platform_withdrawal_v1($1,$2) result',[operation,'b'.repeat(64)]),null);
+    await assert.rejects(rpc(db,'select erase_platform_withdrawal_v1($1,$2,$3) result',[operation,'b'.repeat(64),'not_applicable']),/forbidden/);
+    await assert.rejects(rpc(db,'select complete_platform_withdrawal_v1($1,$2) result',[operation,digest]),/forbidden/);
+    await rpc(db,'select erase_platform_withdrawal_v1($1,$2,$3) result',[operation,digest,'not_applicable']);
+    const done=await rpc(db,'select complete_platform_withdrawal_v1($1,$2) result',[operation,digest]);
+    assert.equal(done.completed,true);assert.equal(done.cleanup_receipt,null);
+    assert.equal((await begin()).completed,true);
+    assert.deepEqual((await db.query('select phone,name,active from platform_members where id=$1',[created.memberId])).rows[0],
+      {phone:null,name:'탈퇴 회원',active:false});
+    assert.equal(Number((await db.query('select count(*) n from platform_partner_settlements where application_id=$1',[application.applicationId])).rows[0].n),1);
+    for(const role of ['anon','authenticated']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.query('select get_platform_withdrawal_v1($1,$2)',[operation,digest]),/permission denied/);
+      await db.exec('reset role');
+    }
+  }finally{await db.close();}
+});
+
+test('coordinated common withdrawal preserves company admin and manager credentials and accounts',async()=>{
+  const db=await fixture('',true);try {
+    for(const [kind,table] of [['admin','admin_accounts'],['manager','manager_accounts']]) {
+      const account=(await db.query(`select id,phone,active,session_version,password_set_at from ${table} where active`)).rows[0];
+      const mapped=(await db.query('select id from platform_members where staff_account_id=$1',[account.id])).rows[0].id;
+      const operation=randomUUID(),digest='c'.repeat(64);
+      const started=await rpc(db,'select begin_platform_withdrawal_v1($1,$2,$3) result',[mapped,operation,digest]);
+      assert.equal(started.source_fc_id,null);assert.equal(started.preserved_company_role,kind);
+      await rpc(db,'select erase_platform_withdrawal_v1($1,$2,$3) result',[operation,digest,'not_applicable']);
+      assert.equal((await rpc(db,'select complete_platform_withdrawal_v1($1,$2) result',[operation,digest])).completed,true);
+      assert.deepEqual((await db.query(`select id,phone,active,session_version,password_set_at from ${table} where id=$1`,[account.id])).rows[0],account);
+    }
+  }finally{await db.close();}
+});
+
+test('coordinated FC withdrawal erases service PII without deleting financial principals and waits for every cleanup receipt',async()=>{
+  const db=await fixture('',true);try {
+    const mapped=(await db.query('select id from platform_members where fc_id=$1',[fc])).rows[0].id;
+    await db.exec(`create table synthetic_financial_snapshot(fc_id uuid references fc_profiles(id),amount bigint);
+      insert into synthetic_financial_snapshot values('${fc}',10000);
+      update fc_profiles set resident_id_masked='synthetic-private',address='Synthetic Address',admin_memo='Synthetic Private Memo',
+        hanwha_commission_pdf_path='hanwha-url-pdf/${fc}/synthetic-private.pdf',hanwha_commission_pdf_name='synthetic-private.pdf'
+        where id='${fc}';`);
+    const operation=randomUUID(),digest='d'.repeat(64);
+    await rpc(db,'select begin_platform_withdrawal_v1($1,$2,$3) result',[mapped,operation,digest]);
+    assert.ok((await db.query('select account_closed_at from fc_profiles where id=$1',[fc])).rows[0].account_closed_at);
+    assert.equal((await db.query('select signup_completed from fc_profiles where id=$1',[fc])).rows[0].signup_completed,false);
+    assert.equal(Number((await db.query('select count(*) n from fc_credentials where fc_id=$1',[fc])).rows[0].n),0);
+    await assert.rejects(db.query('insert into fc_credentials(fc_id,password_hash,password_salt) values($1,$2,$3)',[fc,hash,salt]),/account_closed/);
+    await assert.rejects(db.query("update fc_profiles set name='Revived' where id=$1",[fc]),/account_closed/);
+    await assert.rejects(rpc(db,'select erase_platform_withdrawal_v1($1,$2,$3) result',[operation,digest,'not_applicable']),/affiliate_receipt_required/);
+    const erased=await rpc(db,'select erase_platform_withdrawal_v1($1,$2,$3) result',[operation,digest,'erased']);
+    assert.equal(erased.local_erased,true);assert.equal(erased.completed,false);
+    assert.ok(erased.cleanup_receipt.document_paths.includes('synthetic-path'));
+    assert.ok(erased.cleanup_receipt.document_paths.includes(`hanwha-url-pdf/${fc}/synthetic-private.pdf`));
+    assert.deepEqual((await db.query('select phone,name,affiliation,resident_id_masked,address,admin_memo,signup_completed,hanwha_commission_pdf_path from fc_profiles where id=$1',[fc])).rows[0],
+      {phone:`deleted-fc:${fc}`,name:'탈퇴 회원',affiliation:'삭제',resident_id_masked:null,address:null,admin_memo:null,signup_completed:false,hanwha_commission_pdf_path:null});
+    assert.equal(Number((await db.query('select count(*) n from synthetic_financial_snapshot where fc_id=$1',[fc])).rows[0].n),1);
+    assert.equal(Number((await db.query('select count(*) n from fc_documents where fc_id=$1',[fc])).rows[0].n),0);
+    await assert.rejects(rpc(db,'select complete_platform_withdrawal_v1($1,$2) result',[operation,digest]),/cleanup_pending/);
+    await rpc(db,'select record_account_deletion_cleanup_attempt_v1($1,true,null) result',[erased.cleanup_outbox_id]);
+    assert.deepEqual((await db.query('select cleanup_payload from account_deletion_cleanup_outbox where id=$1',[erased.cleanup_outbox_id])).rows[0].cleanup_payload,{});
+    assert.equal((await rpc(db,'select get_platform_withdrawal_v1($1,$2) result',[operation,digest])).cleanup_receipt,null);
+    const queued=randomUUID(),batch=randomUUID();
+    await db.query("insert into messenger_attachment_cleanup_outbox(id,batch_id,status,bucket_id,storage_path,reason_code,sweep_phase) values($1,$2,'pending','messenger-attachments-v2','synthetic-private-file','account_deleted','post_token_expiry')",[queued,batch]);
+    await db.query('insert into platform_withdrawal_messenger_cleanup values($1,$2)',[operation,queued]);
+    assert.deepEqual(await rpc(db,'select get_platform_withdrawal_cleanup_v1($1,$2) result',[operation,digest]),{batch_ids:[batch],pending:true});
+    await assert.rejects(rpc(db,'select complete_platform_withdrawal_v1($1,$2) result',[operation,digest]),/cleanup_pending/);
+    await db.query("update messenger_attachment_cleanup_outbox set status='completed',storage_path=null where id=$1",[queued]);
+    assert.equal((await rpc(db,'select complete_platform_withdrawal_v1($1,$2) result',[operation,digest])).completed,true);
+    assert.equal((await rpc(db,'select erase_platform_withdrawal_v1($1,$2,$3) result',[operation,digest,'erased'])).completed,true);
+  }finally{await db.close();}
+});
+
+test('FC closure queues real messenger objects and upload intents, erases names, and completes only after the delayed expiry sweep',async()=>{
+  const db=await fixture('',true);try {
+    const mapped=(await db.query('select id from platform_members where fc_id=$1',[fc])).rows[0].id;
+    const operation=randomUUID(),digest='e'.repeat(64),batch=randomUUID(),attachment=randomUUID();
+    await db.query("insert into messenger_attachment_delivery_batches(id,actor_id,actor_role,context_kind,status,expires_at) values($1,$2,'fc','group','pending',clock_timestamp()+interval '10 minutes')",[batch,fc]);
+    await db.query("insert into messenger_attachment_objects(id,batch_id,original_name,byte_size,sha256,bucket_id,storage_path,status,reference_count) values($1,$2,'synthetic-private-name.pdf',100,$3,'messenger-attachments-v2','synthetic-object','active',1)",[attachment,batch,'f'.repeat(64)]);
+    await db.query("insert into messenger_attachment_upload_intents(id,batch_id,original_name,bucket_id,object_path,status) values($1,$2,'synthetic-private-name.pdf','messenger-attachments-v2','synthetic-intent','pending')",[randomUUID(),batch]);
+    await db.exec('create unique index on messenger_attachment_cleanup_outbox(bucket_id,storage_path,sweep_phase) where bucket_id is not null and storage_path is not null');
+    await rpc(db,'select begin_platform_withdrawal_v1($1,$2,$3) result',[mapped,operation,digest]);
+    assert.equal((await db.query('select original_name,status,storage_path from messenger_attachment_objects where id=$1',[attachment])).rows[0].original_name,'삭제');
+    assert.deepEqual((await db.query('select original_name,status,object_path from messenger_attachment_upload_intents where batch_id=$1',[batch])).rows[0],{original_name:'삭제',status:'revoked',object_path:null});
+    assert.equal((await db.query('select original_name from messenger_attachment_deletion_audit')).rows[0].original_name,'삭제');
+    assert.equal(Number((await db.query('select count(*) n from platform_withdrawal_messenger_cleanup where operation_id=$1',[operation])).rows[0].n),4);
+    const claim=async()=>{await db.exec('set role service_role');try{return (await db.query('select * from claim_messenger_attachment_cleanup_v2(100,$1)',[batch])).rows;}finally{await db.exec('reset role');}};
+    const immediate=await claim();assert.equal(immediate.length,2);assert.equal(immediate.every(row=>row.sweep_phase==='immediate'),true);
+    for(const row of immediate) await rpc(db,'select complete_messenger_attachment_cleanup_v2($1,true,null) result',[row.job_id]);
+    const erased=await rpc(db,'select erase_platform_withdrawal_v1($1,$2,$3) result',[operation,digest,'erased']);
+    await rpc(db,'select record_account_deletion_cleanup_attempt_v1($1,true,null) result',[erased.cleanup_outbox_id]);
+    await assert.rejects(rpc(db,'select complete_platform_withdrawal_v1($1,$2) result',[operation,digest]),/cleanup_pending/);
+    assert.equal((await claim()).length,0);
+    await db.exec("update messenger_attachment_cleanup_outbox set not_before=clock_timestamp()-interval '1 second' where status='pending'");
+    const delayed=await claim();assert.equal(delayed.length,2);
+    for(const row of delayed) await rpc(db,'select complete_messenger_attachment_cleanup_v2($1,true,null) result',[row.job_id]);
+    assert.equal((await rpc(db,'select complete_platform_withdrawal_v1($1,$2) result',[operation,digest])).completed,true);
+    assert.equal(Number((await db.query('select count(*) n from messenger_attachment_cleanup_outbox where storage_path is not null or bucket_id is not null')).rows[0].n),0);
+  }finally{await db.close();}
+});
+
+test('withdrawal worker selects only three due jobs and backs off blocked identities without starving later jobs',async()=>{
+  const db=await fixture('',true);try {
+    const operations=[];
+    for(let i=0;i<4;i++) {
+      const created=await member(db,`0000000001${i+1}`),operation=randomUUID();operations.push(operation);
+      await rpc(db,'select begin_platform_withdrawal_v1($1,$2,$3) result',[created.memberId,operation,'f'.repeat(64)]);
+    }
+    assert.equal((await rpc(db,'select list_due_platform_withdrawals_v1() result')).length,3);
+    await rpc(db,'select record_platform_withdrawal_retry_v1($1,$2,$3) result',[operations[0],'f'.repeat(64),'affiliate_identity_unbound']);
+    const due=await rpc(db,'select list_due_platform_withdrawals_v1() result');
+    assert.equal(due.length,3);assert.equal(due.some(row=>row.operation_id===operations[0]),false);
+    assert.equal(due.some(row=>row.operation_id===operations[3]),true);
+    assert.equal((await db.query('select attempt_count,pending_reason from platform_account_withdrawals where operation_id=$1',[operations[0]])).rows[0].attempt_count,1);
+    await assert.rejects(rpc(db,'select record_platform_withdrawal_retry_v1($1,$2,$3) result',[operations[0],'a'.repeat(64),'affiliate_unavailable']),/forbidden/);
   }finally{await db.close();}
 });
 

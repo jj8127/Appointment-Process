@@ -1,13 +1,15 @@
 import * as Clipboard from 'expo-clipboard';
+import { randomUUID } from 'expo-crypto';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 
 import ServiceInformation, { ServiceAction, informationStyles as styles } from '@/components/ServiceInformation';
 import { Button } from '@/components/Button';
 import { usePlatformAccount } from '@/hooks/use-platform-account';
-import { PLATFORM_CONSENT_TEXT, PLATFORM_PRIVACY_POLICY_URL, PLATFORM_SERVICES, PLATFORM_TERMS_VERSION, platformRequest } from '@/lib/platform-api';
+import { useAppLogout } from '@/hooks/use-app-logout';
+import { PLATFORM_CONSENT_TEXT, PLATFORM_PRIVACY_POLICY_URL, PLATFORM_SERVICES, PLATFORM_TERMS_VERSION, PLATFORM_WITHDRAWAL_VERSION, platformRequest, type PlatformWithdrawal, type PlatformWithdrawalStatus } from '@/lib/platform-api';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { captureAppSessionOwner } from '@/lib/request-board-api';
 import { useReadAttempt } from '@/lib/use-read-attempt';
@@ -15,20 +17,58 @@ import { COLORS, SPACING } from '@/lib/theme';
 
 export default function ServiceAccount() {
   const { data, error, needsConsent, canWithdraw, loading, refresh, session, token } = usePlatformAccount();
+  const logoutAll = useAppLogout('/', 'service-hub');
+  const logoutRef = useRef(logoutAll);
+  logoutRef.current = logoutAll;
   const [copied, setCopied] = useState(false);
   const deleting = useRef(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
+  const [deletionCheckFailed, setDeletionCheckFailed] = useState(false);
+  const deletionRequest = useRef<string | null>(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [consenting, setConsenting] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
   const consentPending = useRef(false);
   const beginDelete = useReadAttempt();
+  const applyWithdrawal = useCallback((receipt: PlatformWithdrawal) => {
+    deletionRequest.current = receipt.operationId;
+    if (receipt.status === 'pending') {
+      setDeletePending(true);
+      setDeleteError(receipt.reason === 'affiliate_identity_unbound'
+        ? '제휴 계정 연결 확인이 필요해 탈퇴가 아직 완료되지 않았습니다. 회사에 연결 확인을 요청해 주세요.'
+        : '일부 제휴 계정 또는 첨부자료 정리가 아직 완료되지 않았습니다. 같은 요청으로 다시 확인해 주세요.');
+    } else {
+      deletionRequest.current = null;
+      logoutRef.current();
+    }
+  }, []);
+  const checkWithdrawal = useCallback(async () => {
+    if (!token || deleting.current) return;
+    const owns = captureAppSessionOwner();
+    const mounted = beginDelete();
+    deleting.current = true; setDeleteLoading(true); setDeletionCheckFailed(false);
+    try {
+      const result = await platformRequest<PlatformWithdrawalStatus>('get_withdrawal', {}, token);
+      if (!owns() || !mounted()) return;
+      if (result.withdrawal) applyWithdrawal(result.withdrawal);
+      else { deletionRequest.current = null; setDeletePending(false); setDeleteError(null); }
+    } catch {
+      if (owns() && mounted()) {
+        setDeletionCheckFailed(true);
+        setDeleteError('이전 탈퇴 요청을 확인하지 못했습니다. 다시 확인한 뒤 진행해 주세요.');
+      }
+    } finally {
+      if (owns() && mounted()) { deleting.current = false; setDeleteLoading(false); }
+    }
+  }, [token, beginDelete, applyWithdrawal]);
   useEffect(() => {
     beginDelete(); deleting.current = false; setDeleteError(null); setCopied(false);
-    setDeleteLoading(false);
+    setDeleteLoading(false); setDeletePending(false); setDeletionCheckFailed(false); deletionRequest.current = null;
     consentPending.current = false; setConsenting(false); setTermsAccepted(false); setConsentError(null);
-  }, [token, beginDelete]);
+    void checkWithdrawal();
+  }, [token, beginDelete, checkWithdrawal]);
   const acceptTerms = async () => {
     if (!token || !termsAccepted || consentPending.current || deleting.current) return;
     consentPending.current = true; setConsenting(true); setConsentError(null);
@@ -44,18 +84,22 @@ export default function ServiceAccount() {
   };
   const requestDeletion = () => {
     if (deleting.current || consentPending.current || !token) return;
+    if (deletionCheckFailed) { void checkWithdrawal(); return; }
     const owns = captureAppSessionOwner();
-    Alert.alert('공통 회원 탈퇴', `공통 서비스 이용 동의를 철회하고 공통 회원 정보의 이름·휴대폰 번호 및 비밀번호를 삭제합니다. 거래·정산 기록과 추천 관계를 연결하는 식별자는 남습니다.${session.role ? '\n기존 보험·FC 업무 계정은 유지됩니다.' : ''}\n진행할까요?`, [
+    const mounted = beginDelete();
+    Alert.alert('모두온·제휴 계정 탈퇴', `모두온 공통 회원과 연결된 일반 회원·보험 FC·가람링크 계정의 개인정보 및 로그인 정보를 삭제하고 접속을 종료합니다. 관리자·본부장 등 회사 업무 계정은 유지됩니다. 거래·정산 기록과 추천 관계를 연결하는 식별자는 남습니다.${deletePending ? '\n아직 완료되지 않은 탈퇴 요청을 이어서 확인합니다.' : ''}\n진행할까요?`, [
       { text: '취소', style: 'cancel' },
       { text: '탈퇴', style: 'destructive', onPress: () => {
-        if (!owns() || deleting.current || consentPending.current) return; deleting.current = true; setDeleteLoading(true); setDeleteError(null);
-        const mounted = beginDelete();
-        void platformRequest('delete_member', { confirmed: true }, token).then(async () => {
+        if (!owns() || !mounted() || deleting.current || consentPending.current) return; deleting.current = true; setDeleteLoading(true); setDeleteError(null);
+        const idempotencyKey = deletionRequest.current ?? (deletionRequest.current = randomUUID());
+        void platformRequest<PlatformWithdrawal>('withdraw_member', { confirmed: true, scope: 'all_affiliates', policyVersion: PLATFORM_WITHDRAWAL_VERSION, idempotencyKey }, token).then((receipt) => {
           if (!owns() || !mounted()) return;
-          if (session.role) await refresh();
-          else { session.logout(); router.replace('/'); }
+          applyWithdrawal(receipt);
         })
-          .catch((cause) => { if (owns() && mounted()) setDeleteError(cause instanceof Error ? cause.message : '탈퇴하지 못했습니다. 다시 시도해 주세요.'); })
+          .catch((cause) => { if (owns() && mounted()) {
+            setDeletePending(true);
+            setDeleteError(cause instanceof Error ? cause.message : '탈퇴 처리 결과를 확인하지 못했습니다. 같은 요청으로 다시 시도해 주세요.');
+          } })
           .finally(() => { if (owns() && mounted()) { deleting.current = false; setDeleteLoading(false); } });
       } },
     ]);
@@ -107,7 +151,7 @@ export default function ServiceAccount() {
       </>}
       {session.isPlatformSignedIn && <ServiceAction style={accountStyles.action} label="로그아웃" onPress={() => session.logout()} />}
       {needsConsent && session.role && <ServiceAction style={accountStyles.action} label="보험 계정 설정" onPress={() => router.push('/settings?surface=service-hub')} />}
-      {session.isPlatformSignedIn && canWithdraw && token && <Button variant="outline" loading={deleteLoading} disabled={deleteLoading || consenting} onPress={requestDeletion} fullWidth>공통 회원 탈퇴</Button>}
+      {session.isPlatformSignedIn && (canWithdraw || deletePending || deletionCheckFailed) && token && <Button variant="outline" loading={deleteLoading} disabled={deleteLoading || consenting} onPress={requestDeletion} fullWidth>{deletionCheckFailed ? '탈퇴 요청 다시 확인' : deletePending ? '탈퇴 처리 재시도' : '공통 회원 탈퇴'}</Button>}
       {deleteError && <Text accessibilityRole="alert" style={styles.body}>{deleteError}</Text>}
       <Pressable accessibilityRole="link" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => {
         void openExternalUrl(PLATFORM_PRIVACY_POLICY_URL).catch(() => setConsentError('개인정보처리방침을 열지 못했습니다. 다시 시도해주세요.'));

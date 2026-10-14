@@ -447,6 +447,7 @@ it('public account offers common login and keeps insurance settings within the c
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
     '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data, loading: false, error: null, session, token: null, refresh: jest.fn() }) },
+    '@/hooks/use-app-logout': { useAppLogout: () => jest.fn() }, 'expo-crypto': { randomUUID: () => '10000000-0000-4000-8000-000000000001' },
     '@/lib/platform-api': { PLATFORM_PRIVACY_POLICY_URL: 'https://example.test/privacy/', PLATFORM_SERVICES: {}, platformRequest: jest.fn() }, '@/lib/theme': { COLORS, SPACING },
     '@/lib/open-external-url': { openExternalUrl: openPolicy },
     '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/use-read-attempt': { useReadAttempt },
@@ -487,14 +488,15 @@ it('public account offers common login and keeps insurance settings within the c
 it('existing FC account requires explicit consent, blocks repeat saves and preserves refusal navigation', async () => {
   const refresh = jest.fn(async () => undefined); const logout = jest.fn(); const push = jest.fn();
   let reject!: (error: Error) => void;
-  const request = jest.fn(() => new Promise((_resolve, rejectRequest) => { reject = rejectRequest; }));
+  const request = jest.fn((..._args: unknown[]) => new Promise((_resolve, rejectRequest) => { reject = rejectRequest; }));
   const Account = executeComponent('app/services/account.tsx', {
     '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
     'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { push } },
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
     '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data: null, loading: false, error: '동의 필요', needsConsent: true, canWithdraw: false, session: { role: 'fc', isPlatformSignedIn: true, logout }, token: 'synthetic-fc-token', refresh }) },
-    '@/lib/platform-api': { PLATFORM_CONSENT_TEXT: '검토용 동의 내용', PLATFORM_TERMS_VERSION: '2026-10-12', PLATFORM_SERVICES: {}, platformRequest: request },
+    '@/hooks/use-app-logout': { useAppLogout: () => logout }, 'expo-crypto': { randomUUID: () => '10000000-0000-4000-8000-000000000001' },
+    '@/lib/platform-api': { PLATFORM_CONSENT_TEXT: '검토용 동의 내용', PLATFORM_TERMS_VERSION: '2026-10-12', PLATFORM_SERVICES: {}, platformRequest: (action: string, ...args: unknown[]) => action === 'get_withdrawal' ? Promise.resolve({ ok: true, withdrawal: null }) : request(action, ...args) },
     '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/use-read-attempt': { useReadAttempt }, '@/lib/theme': { COLORS, SPACING },
   });
   let renderer!: Renderer;
@@ -520,24 +522,37 @@ it('existing FC account requires explicit consent, blocks repeat saves and prese
   expect(logout).toHaveBeenCalledTimes(1);
   await act(async () => { renderer.unmount(); });
 });
-it.each(['fc', 'member'])('common withdrawal remains available with expired consent and preserves %s account boundaries', async kind => {
+it.each(['fc', 'member'])('common withdrawal remains available with expired consent and closes linked %s accounts only on a completed receipt', async kind => {
   let buttons!: { text: string; style?: string; onPress?: () => void }[];
   let resolve!: (value: unknown) => void;
-  const request = jest.fn(() => new Promise(done => { resolve = done; }));
+  let reject!: (cause: Error) => void;
+  const request = jest.fn((..._args: unknown[]) => new Promise((done, failed) => { resolve = done; reject = failed; }));
   const refresh = jest.fn(async () => undefined); const logout = jest.fn(); const replace = jest.fn();
+  const logoutAll = jest.fn(); const useLogout = jest.fn(() => () => logoutAll());
+  const operationId = '10000000-0000-4000-8000-000000000001';
+  const nextOperationId = '10000000-0000-4000-8000-000000000002';
+  const createId = jest.fn().mockReturnValueOnce(operationId).mockReturnValue(nextOperationId);
+  let token = 'synthetic-session'; let ownerRevision = 0;
+  let canWithdraw = true; let lookupFailed = false;
+  let savedWithdrawal: null | Record<string, unknown> = null;
+  const readWithdrawal = jest.fn(async () => {
+    if (lookupFailed) throw new Error('synthetic lookup unavailable');
+    return { ok: true, withdrawal: savedWithdrawal };
+  });
   const alert = jest.fn((_title, _body, actions) => { buttons = actions; });
   const Account = executeComponent('app/services/account.tsx', {
     '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
     'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { replace } },
     'react-native': { Alert: { alert }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
-    '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data: null, loading: false, error: '동의 필요', needsConsent: true, canWithdraw: true, session: { role: kind === 'fc' ? 'fc' : null, isPlatformSignedIn: true, logout }, token: 'synthetic-session', refresh }) },
-    '@/lib/platform-api': { PLATFORM_CONSENT_TEXT: '검토용 동의 내용', PLATFORM_TERMS_VERSION: '2026-10-12', PLATFORM_SERVICES: {}, platformRequest: request },
-    '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/use-read-attempt': { useReadAttempt }, '@/lib/theme': { COLORS, SPACING },
+    '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data: null, loading: false, error: '동의 필요', needsConsent: true, canWithdraw, session: { role: kind === 'fc' ? 'fc' : null, isPlatformSignedIn: true, logout }, token, refresh }) },
+    '@/hooks/use-app-logout': { useAppLogout: useLogout }, 'expo-crypto': { randomUUID: createId },
+    '@/lib/platform-api': { PLATFORM_CONSENT_TEXT: '검토용 동의 내용', PLATFORM_TERMS_VERSION: '2026-10-12', PLATFORM_WITHDRAWAL_VERSION: '2026-10-14', PLATFORM_SERVICES: {}, platformRequest: (action: string, ...args: unknown[]) => action === 'get_withdrawal' ? readWithdrawal() : request(action, ...args) },
+    '@/lib/request-board-api': { captureAppSessionOwner: () => { const captured = ownerRevision; return () => captured === ownerRevision; } }, '@/lib/use-read-attempt': { useReadAttempt }, '@/lib/theme': { COLORS, SPACING },
   });
   let renderer!: Renderer;
   await act(async () => { renderer = create(createElement(Account)); });
-  const remove = () => renderer.root.findAllByType('Button').find(node => node.children.includes('공통 회원 탈퇴'))!;
+  const remove = () => renderer.root.findAllByType('Button').find(node => node.children.includes('공통 회원 탈퇴') || node.children.includes('탈퇴 처리 재시도') || node.children.includes('탈퇴 요청 다시 확인'))!;
   const actionGroup = renderer.root.findAllByType('View').find(node => (node.props.style as { gap?: number })?.gap === SPACING.md)!;
   expect(actionGroup.findAllByType('Button')).toContain(remove());
   expect(remove().props.variant).toBe('outline');
@@ -545,17 +560,52 @@ it.each(['fc', 'member'])('common withdrawal remains available with expired cons
   expect(buttons[0]).toMatchObject({ text: '취소', style: 'cancel' });
   expect(request).not.toHaveBeenCalled();
   expect(alert.mock.calls[0][1]).toContain('추천 관계를 연결하는 식별자는 남습니다');
-  if (kind === 'fc') expect(alert.mock.calls[0][1]).toContain('기존 보험·FC 업무 계정은 유지됩니다');
+  expect(alert.mock.calls[0][1]).toContain('일반 회원·보험 FC·가람링크 계정');
+  expect(alert.mock.calls[0][1]).toContain('관리자·본부장 등 회사 업무 계정은 유지됩니다');
   await act(async () => { buttons[1].onPress!(); buttons[1].onPress!(); });
   expect(request).toHaveBeenCalledTimes(1);
-  expect(request).toHaveBeenCalledWith('delete_member', { confirmed: true }, 'synthetic-session');
+  const payload = { confirmed: true, scope: 'all_affiliates', policyVersion: '2026-10-14', idempotencyKey: operationId };
+  expect(request).toHaveBeenCalledWith('withdraw_member', payload, 'synthetic-session');
   expect(remove().props.loading).toBe(true);
-  await act(async () => { resolve({ ok: true }); });
-  if (kind === 'fc') {
-    expect(refresh).toHaveBeenCalledTimes(1); expect(logout).not.toHaveBeenCalled(); expect(replace).not.toHaveBeenCalled();
-  } else {
-    expect(logout).toHaveBeenCalledTimes(1); expect(replace).toHaveBeenCalledWith('/'); expect(refresh).not.toHaveBeenCalled();
-  }
+  savedWithdrawal = { ok: true, operationId, status: 'pending', deleted: false, cleanupPending: true, reason: 'affiliate_identity_unbound' };
+  await act(async () => { reject(new Error('synthetic lost withdrawal response')); });
+  canWithdraw = false;
+  await act(async () => { renderer.update(createElement(Account)); });
+  expect(remove().children).toContain('탈퇴 처리 재시도');
+  expect(logoutAll).not.toHaveBeenCalled();
+  await act(async () => { (remove().props.onPress as () => void)(); buttons[1].onPress!(); });
+  expect(request).toHaveBeenNthCalledWith(2, 'withdraw_member', payload, 'synthetic-session');
+  await act(async () => { resolve(savedWithdrawal); });
+  expect(logoutAll).not.toHaveBeenCalled(); expect(refresh).not.toHaveBeenCalled();
+  expect(texts(renderer.root).some((text) => text.includes('탈퇴가 아직 완료되지 않았습니다'))).toBe(true);
+  expect(remove().props.loading).toBe(false);
+  await act(async () => { (remove().props.onPress as () => void)(); });
+  const abandonedConfirmation = buttons[1].onPress!;
+  await act(async () => { renderer.unmount(); });
+  abandonedConfirmation();
+  expect(request).toHaveBeenCalledTimes(2);
+  canWithdraw = false; lookupFailed = true;
+  await act(async () => { renderer = create(createElement(Account)); });
+  expect(remove().children).toContain('탈퇴 요청 다시 확인');
+  lookupFailed = false;
+  await act(async () => { (remove().props.onPress as () => void)(); });
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(remove().children).toContain('탈퇴 처리 재시도');
+  await act(async () => { (remove().props.onPress as () => void)(); buttons[1].onPress!(); });
+  expect(request).toHaveBeenNthCalledWith(3, 'withdraw_member', payload, 'synthetic-session');
+  await act(async () => { resolve({ ok: true, operationId, status: 'completed', deleted: true, cleanupPending: false }); });
+  expect(useLogout).toHaveBeenCalledWith('/', 'service-hub'); expect(logoutAll).toHaveBeenCalledTimes(1);
+  expect(refresh).not.toHaveBeenCalled(); expect(logout).not.toHaveBeenCalled(); expect(replace).not.toHaveBeenCalled();
+  expect(createId).toHaveBeenCalledTimes(1);
+  savedWithdrawal = null; canWithdraw = true;
+  token = 'synthetic-next-session'; ownerRevision += 1;
+  await act(async () => { renderer.update(createElement(Account)); });
+  await act(async () => { (remove().props.onPress as () => void)(); buttons[1].onPress!(); });
+  expect(request).toHaveBeenNthCalledWith(4, 'withdraw_member', { ...payload, idempotencyKey: nextOperationId }, token);
+  token = 'synthetic-third-session'; ownerRevision += 1;
+  await act(async () => { renderer.update(createElement(Account)); });
+  await act(async () => { resolve({ ok: true, operationId: nextOperationId, status: 'completed', deleted: true, cleanupPending: false }); });
+  expect(logoutAll).toHaveBeenCalledTimes(1); expect(remove().props.loading).toBe(false);
   await act(async () => { renderer.unmount(); });
 });
 it('common account preserves a connection failure and clears withdrawn data while separating enrollment from renewed consent', async () => {

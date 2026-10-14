@@ -156,17 +156,22 @@ describe('web cookies and bridge verification endpoint', () => {
     expect(verifyFcGraphSessionValue(cookie, { secret })).toMatchObject(state(2));
   });
 
-  it('returns only validity and role, and distinguishes revoked tokens from outages', async () => {
+  it('returns only verified signed generations, keeps legacy role-only and distinguishes revoked tokens from outages', async () => {
     let current = 2;
-    const verify = (token: string) => parseRequestBoardBridgeTokenDetailed(token, async input => checkSessionGeneration(input, state(current)));
+    const verify = (token: string) => parseRequestBoardBridgeTokenDetailed(token, lookup(current));
     const handler = createRequestBoardSessionVerificationHandler(verify);
     const bridge = await createRequestBoardBridgeToken(phone, 'fc', null, state(2));
     const request = () => new Request('https://local.invalid', { method: 'POST', body: JSON.stringify({ bridgeToken: bridge }) });
     const ok = await handler(request());
-    expect(await ok.json()).toEqual({ ok: true, role: 'fc' });
+    expect(await ok.json()).toEqual({ ok: true, role: 'fc', ...state(2) });
     current = 3;
     expect((await handler(request())).status).toBe(401);
     const unavailable = createRequestBoardSessionVerificationHandler(async () => ({ ok: false, code: 'session_verification_unavailable', message: 'Unavailable', status: 503 }));
     expect((await unavailable(request())).status).toBe(503);
+    current = 0;
+    const legacy = sign({ kind: 'request_board_bridge', phone, role: 'fc',
+      iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 60 });
+    expect(await (await handler(new Request('https://local.invalid', { method: 'POST',
+      body: JSON.stringify({ bridgeToken: legacy }) }))).json()).toEqual({ ok: true, role: 'fc' });
   });
 });

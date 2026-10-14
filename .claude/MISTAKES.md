@@ -5876,3 +5876,10 @@
 - Cause: a layout redesign was inferred from a request about spacing.
 - Guardrail: preserve existing alignment, typography and content during spacing fixes. Apply the user's explicit placement: left service context, centered title, right service switch in one row.
 - Evidence: the user rejected the left-aligned candidate; the local Android follow-up keeps the original title style and changes the row placement only.
+
+## 2026-10-14 | Cross-service identity fixtures skipped the actual producer
+
+- Symptom: retirement initially looked up a raw FC UUID while the established password-sync producer stored canonical `fc:UUID`, so a normally linked account would appear unbound despite passing convenient local fixtures.
+- Cause: the consumer and test fixture agreed on an invented representation without checking the real issuer and its bridge-only callers.
+- Guardrail: inspect existing producer/caller identity, signed claims and canonical lookup/lock namespace before adding a cross-service operation. Extend the closest fixture with the actual builder output and preserve credential-generation semantics; do not create a second identity or a fake password generation.
+- Evidence: existing request-board-auth and bridge tests, namespaced SQL fixture and independent PostgreSQL bridge/sync-retirement races. These are local product checks, not a production binding audit.

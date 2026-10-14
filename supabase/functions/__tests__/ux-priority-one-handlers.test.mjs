@@ -370,7 +370,7 @@ test('shared mutation receipts reject null, partial, mismatched, and malformed d
 test('all account deletion entrypoints verify the complete receipt before cleanup side effects', async () => {
   for (const [file, cleanupMarker] of [
     ['supabase/functions/admin-action/index.ts', "supabase.storage.from('exam-payment-proofs').remove"],
-    ['supabase/functions/delete-account/index.ts', 'removeStorageObjects('],
+    ['supabase/functions/delete-account/index.ts', 'drainAccountDeletionCleanup('],
     ['web/src/app/api/fc-delete/route.ts', 'removeStorageObjects('],
   ]) {
     const source = await readFile(new URL(file, root), 'utf8');
@@ -503,32 +503,179 @@ test('exam pending counts exclude latest cancelled/rejected applications while r
   const result=await run(); assert.equal(result.lifeTotal,5);assert.equal(result.lifePending,1);assert.equal(result.nonlifePending,0);
 });
 
-test('common withdrawal uses the signed member and stays available without renewing consent',async()=>{
-  for(const generalMember of [true,false]) {
-    const calls=[];
-    const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
-      actor:async(_request,requireConsent)=>{calls.push({requireConsent});return {member:{id:'signed-member-id'},generalMember};},
-      rpc:async(name,args)=>{calls.push({name,args});return {ok:true,deleted:true};},
-      json:(body,status=200)=>new Response(JSON.stringify(body),{status}),fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
-    });
-    for(const confirmed of [false,true]) {
-      calls.length=0;
-      const response=await handler(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify({action:'delete_member',confirmed,memberId:'client-owned'})}));
-      assert.equal(response.status,confirmed ? 200 : 403);assert.equal(calls[0].requireConsent,false);
-      assert.equal(calls.length,confirmed ? 2 : 1);
-      if(confirmed) assert.deepEqual(JSON.parse(JSON.stringify(calls[1])),{name:'delete_platform_member',args:{p_member_id:'signed-member-id'}});
-    }
+test('old common withdrawal confirmation refuses the changed scope without any mutation or actor lookup',async()=>{
+  const calls=[];
+  const handler=await extract('supabase/functions/platform-service/index.ts','handler',{
+    actor:async()=>{calls.push('actor');throw new Error('must not resolve old scope');},
+    rpc:async()=>{calls.push('rpc');throw new Error('must not mutate old scope');},
+    fail:(code,message,status)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+  });
+  for(const confirmed of [false,true]) {
+    const response=await handler(new Request('https://synthetic.invalid',{method:'POST',body:JSON.stringify({action:'delete_member',confirmed})}));
+    assert.equal(response.status,409);assert.equal((await response.json()).code,'upgrade_required');
   }
-  for(const [member,expected] of [[null,'enrollment_required'],[{id:'existing',fc_id:'signed-fc-id'},null],[{id:'wrong',fc_id:'different-fc-id'},'enrollment_required']]) {
-    const actor=await extract('supabase/functions/platform-service/index.ts','actor',{
-      parsePlatformMemberToken:async()=>null,termsVersion:'2026-10-12',legacyMember:async()=>member,
-      parseAppSessionTokenDetailed:async()=>({ok:true,payload:{accountKind:'fc',accountId:'signed-fc-id',phone:'00000000002'}}),
-    });
-    const request=new Request('https://synthetic.invalid');
-    if(expected===null) assert.equal((await actor(request,false)).member.id,'existing');
-    else await assert.rejects(actor(request,false),new RegExp(expected));
-  }
+  assert.deepEqual(calls,[]);
 });
+
+async function withdrawalFixture(options={}) {
+  const operation='00000000-0000-4000-8000-00000000000a',member='00000000-0000-4000-8000-000000000002';
+  const fc='00000000-0000-4000-8000-000000000003',batch='00000000-0000-4000-8000-000000000004',digest='a'.repeat(64);
+  const calls=[];
+  const initial={operation_id:operation,member_id:member,source_fc_id:options.fc ? fc : null,
+    session_digest:digest,local_erased:false,completed:false,cleanup_receipt:null,preserved_company_role:null};
+  let job=options.resume ? {...initial,local_erased:true,cleanup_receipt:options.cleanupReceipt ?? null} : null;
+  let messengerPending=Boolean(options.messengerPending);
+  const context={
+    Error,URL,AbortSignal,uuid:/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    actor:async(_request,requireConsent)=>{calls.push(['actor',requireConsent]);if(options.resume)throw new Error('revoked session');return {member:{id:member}};},
+    sha256Hex:async()=>digest,db:{},getEnv:(name)=>name==='REQUEST_BOARD_PASSWORD_SYNC_URL' ? 'https://synthetic.invalid/api/auth/sync-password' : 'synthetic-secret',
+    createRequestBoardAccountRetirementAssertion:async(upstream,id)=>{calls.push(['assertion',upstream,id]);return 'synthetic-domain-assertion';},
+    fetch:async(url,init)=>{
+      calls.push(['fetch',String(url),JSON.parse(init.body)]);
+      const data={operationId:operation,upstreamAccountId:fc,policyVersion:'2026-10-14',accountErased:true,runtimeRevoked:true,
+        runtimeRevocationScope:'persisted_auth_and_local_runtime',remoteSocketRevalidationIntervalMs:5000,alreadyApplied:false,...options.remote};
+      return new Response(JSON.stringify(options.unbound ? {success:false,code:'AFFILIATE_IDENTITY_UNBOUND'} : {success:true,data}),{status:options.unbound ? 409 : 200});
+    },
+    drainAccountDeletionCleanup:async()=>{calls.push(['account-cleanup']);return Boolean(options.cleanupPending);},
+    drainMessengerAttachmentCleanup:async(input)=>{calls.push(['messenger-cleanup',input.batchId]);if(options.messengerCompletes)messengerPending=false;return {claimFailed:false,completionFailed:false};},
+    rpc:async(name,args)=>{
+      calls.push([name,args]);
+      if(name==='get_platform_withdrawal_v1')return job;
+      if(name==='begin_platform_withdrawal_v1'){assert.equal(args.p_member_id,member);job={...initial};return job;}
+      if(name==='erase_platform_withdrawal_v1'){job={...job,local_erased:true,cleanup_receipt:options.cleanupReceipt ?? null,preserved_company_role:args.p_preserved_company_role};return job;}
+      if(name==='get_platform_withdrawal_cleanup_v1')return {batch_ids:messengerPending ? [batch] : [],pending:messengerPending};
+      if(name==='complete_platform_withdrawal_v1'){job={...job,completed:true};return job;}
+      if(name==='record_platform_withdrawal_retry_v1'){
+        if(options.completeDuringPending){job={...job,local_erased:true,completed:true};return {recorded:false,completed:true};}
+        return {recorded:true,completed:false};
+      }
+      throw new Error('unexpected RPC');
+    },
+    json:(body,status=200)=>new Response(JSON.stringify(body),{status}),
+    fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
+  };
+  context.withdrawalJob=await extract('supabase/functions/platform-service/index.ts','withdrawalJob',context);
+  context.withdrawalResponse=await extract('supabase/functions/platform-service/index.ts','withdrawalResponse',context);
+  context.finishWithdrawal=await extract('supabase/functions/platform-service/index.ts','finishWithdrawal',context);
+  const withdraw=await extract('supabase/functions/platform-service/index.ts','withdrawMember',context);
+  const get=await extract('supabase/functions/platform-service/index.ts','getWithdrawal',context);
+  return {calls,operation,member,fc,withdraw,get,request:new Request('https://synthetic.invalid',{headers:{'x-app-session-token':'synthetic-session'}}),
+    body:{confirmed:true,scope:'all_affiliates',policyVersion:'2026-10-14',idempotencyKey:operation,memberId:'body-selector-is-not-authority'}};
+}
+
+test('new withdrawal requires explicit scope/version, uses signed identity and canonicalizes uppercase UUID before freezing credentials',async()=>{
+  const fixture=await withdrawalFixture();
+  for(const change of [{confirmed:false},{scope:'member_only'},{policyVersion:'old'},{idempotencyKey:'bad'}]) {
+    const response=await fixture.withdraw(fixture.request,{...fixture.body,...change});
+    assert.equal(response.status,400);assert.deepEqual(fixture.calls,[]);
+  }
+  const response=await fixture.withdraw(fixture.request,{...fixture.body,idempotencyKey:fixture.operation.toUpperCase()});
+  assert.deepEqual(await response.json(),{ok:true,operationId:fixture.operation,status:'completed',deleted:true,cleanupPending:false});
+  assert.deepEqual(fixture.calls[1],['actor',false]);
+  const begins=fixture.calls.filter(([name])=>name==='begin_platform_withdrawal_v1');
+  assert.deepEqual(JSON.parse(JSON.stringify(begins[0][1])),{p_member_id:fixture.member,p_operation_id:fixture.operation,p_session_digest:'a'.repeat(64)});
+  const before=fixture.calls.length;
+  assert.equal((await (await fixture.withdraw(fixture.request,fixture.body)).json()).status,'completed');
+  assert.equal(fixture.calls.length,before+1);
+});
+
+test('withdrawal read resumes only an original session digest without actor authority or mutation',async()=>{
+  const fixture=await withdrawalFixture({resume:true});
+  assert.deepEqual(await (await fixture.get(fixture.request)).json(),{ok:true,withdrawal:{ok:true,
+    operationId:fixture.operation,status:'pending',deleted:false,cleanupPending:true}});
+  assert.deepEqual(JSON.parse(JSON.stringify(fixture.calls)),[['get_platform_withdrawal_v1',{p_operation_id:null,p_session_digest:'a'.repeat(64)}]]);
+  for(const token of ['', ' '.repeat(2), 'x'.repeat(8193)])
+    await assert.rejects(fixture.get(new Request('https://synthetic.invalid',{headers:{'x-app-session-token':token}})),/invalid_session/);
+  assert.equal(fixture.calls.length,1);
+  const empty=await withdrawalFixture();
+  assert.deepEqual(await (await empty.get(empty.request)).json(),{ok:true,withdrawal:null});
+});
+
+test('affiliate retirement accepts only exact ordinary-account or authoritative company-preservation receipts',async()=>{
+  for(const [remote,expected] of [
+    [{},'completed'],[{operationId:'another-operation'},'pending'],[{upstreamAccountId:'another-source'},'pending'],
+    [{policyVersion:'old'},'pending'],[{runtimeRevocationScope:undefined},'pending'],[{remoteSocketRevalidationIntervalMs:10000},'pending'],
+    [{accountErased:false},'pending'],
+    [{status:'company_account_preserved',preservedRole:'designer',independentLoginAvailable:true,accountErased:false,runtimeRevoked:false},'completed'],
+    [{status:'company_account_preserved',preservedRole:'designer',accountErased:false,runtimeRevoked:false},'pending'],
+    [{status:'company_account_preserved',preservedRole:'manager',independentLoginAvailable:true,accountErased:false,runtimeRevoked:false},'pending'],
+    [{status:'company_account_preserved',preservedRole:'fc',accountErased:false,runtimeRevoked:false},'pending'],
+  ]) {
+    const fixture=await withdrawalFixture({fc:true,remote});
+    const result=await (await fixture.withdraw(fixture.request,fixture.body)).json();
+    assert.equal(result.status,expected);assert.equal(result.deleted,expected==='completed');assert.equal(result.cleanupPending,expected!=='completed');
+    assert.equal(fixture.calls.some(([name])=>name==='erase_platform_withdrawal_v1'),expected==='completed');
+    assert.equal(fixture.calls.some(([name])=>name==='complete_platform_withdrawal_v1'),expected==='completed');
+  }
+  const fixture=await withdrawalFixture({fc:true,unbound:true});
+  assert.equal((await (await fixture.withdraw(fixture.request,fixture.body)).json()).reason,'affiliate_identity_unbound');
+  assert.equal(fixture.calls.some(([name])=>name==='erase_platform_withdrawal_v1'),false);
+});
+
+test('withdrawal resumes a lost-response operation without reviving sessions and waits for both cleanup phases',async()=>{
+  for(const options of [
+    {resume:true,cleanupReceipt:{synthetic:true},cleanupPending:true},
+    {resume:true,messengerPending:true},
+    {resume:true,messengerPending:true,messengerCompletes:true},
+  ]) {
+    const fixture=await withdrawalFixture(options);
+    const result=await (await fixture.withdraw(fixture.request,fixture.body)).json();
+    assert.equal(fixture.calls.some(([name])=>name==='actor'||name==='begin_platform_withdrawal_v1'||name==='erase_platform_withdrawal_v1'),false);
+    assert.equal(result.status,options.messengerCompletes ? 'completed' : 'pending');
+    if(options.messengerPending)assert.equal(fixture.calls.filter(([name])=>name==='messenger-cleanup').length,1);
+  }
+  const raced=await withdrawalFixture({fc:true,unbound:true,completeDuringPending:true});
+  assert.deepEqual(await (await raced.withdraw(raced.request,raced.body)).json(),
+    {ok:true,operationId:raced.operation,status:'completed',deleted:true,cleanupPending:false});
+});
+
+test('service-only withdrawal drain requires both exact service credentials and returns bounded counts, not identities',async()=>{
+  const calls=[];const serviceKey='synthetic-service-key';
+  const row={operation_id:'00000000-0000-4000-8000-000000000001',member_id:'00000000-0000-4000-8000-000000000002',
+    source_fc_id:null,session_digest:'a'.repeat(64),local_erased:false,completed:false,cleanup_receipt:null,preserved_company_role:null};
+  const context={serviceKey,Error,withdrawalJob:value=>value,rpc:async()=>{calls.push('list');return [row];},
+    finishWithdrawal:async(job,digest)=>{calls.push([job.operation_id,digest]);return new Response(JSON.stringify({status:'pending',deleted:false,cleanupPending:true}));},
+    json:body=>new Response(JSON.stringify(body)),fail:(code,message,status)=>new Response(JSON.stringify({code,message}),{status})};
+  const run=await extract('supabase/functions/platform-service/index.ts','drainWithdrawals',context);
+  for(const headers of [{},{apikey:serviceKey},{Authorization:`Bearer ${serviceKey}`},{apikey:'wrong',Authorization:`Bearer ${serviceKey}`}]) {
+    assert.equal((await run(new Request('https://synthetic.invalid',{headers}))).status,403);assert.deepEqual(calls,[]);
+  }
+  const response=await run(new Request('https://synthetic.invalid',{headers:{apikey:serviceKey,Authorization:`Bearer ${serviceKey}`}}));
+  assert.deepEqual(await response.json(),{ok:true,processed:1,completed:0,pending:1});
+  assert.deepEqual(calls,['list',[row.operation_id,row.session_digest]]);
+});
+
+test('shared deletion cleanup resumes post-commit failures, validates completion and accepts only confirmed Auth user absence',async()=>{
+  const {requireAccountDeletionReceipt}=await loadUxMutationContract();
+  const receipt={deleted:true,cleanup_outbox_id:'00000000-0000-4000-8000-000000000001',
+    proof_paths:['synthetic-proof'],document_paths:[],board_attachment_paths:[],chat_file_urls:[],
+    auth_user_ids:['00000000-0000-4000-8000-000000000002']};
+  for(const [authError,expectPending] of [[null,false],[{code:'user_not_found'},false],[{status:404},true],[{code:'upstream_error',status:404},true]]) {
+    const calls=[];
+    const db={from:()=>({select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{status:'pending'},error:null})}),
+      storage:{from:()=>({remove:async paths=>{calls.push(['storage',paths]);return {error:null};}})},
+      auth:{admin:{deleteUser:async id=>{calls.push(['auth',id]);return {error:authError};}}},
+      rpc:async(_name,args)=>{calls.push(['record',args.p_succeeded]);return {data:[{status:args.p_succeeded ? 'completed' : 'pending'}],error:null};}};
+    const run=await extract('supabase/functions/_shared/account-deletion-cleanup.ts','drainAccountDeletionCleanup',{
+      requireAccountDeletionReceipt,reportEdgeDiagnostic:()=>{},Set});
+    assert.equal(await run(db,receipt),expectPending);
+    assert.deepEqual(calls.map(([kind])=>kind),['storage','auth','record']);
+    assert.equal(calls[2][1],!expectPending);
+    calls.length=0;
+    db.from=()=>({select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{status:'completed'},error:null})});
+    assert.equal(await run(db,receipt),false);assert.deepEqual(calls,[]);
+    await assert.rejects(run(db,{...receipt,auth_user_ids:['not-an-auth-uuid']}),/mutation_receipt_unverified/);
+  }
+  const run=await extract('supabase/functions/_shared/account-deletion-cleanup.ts','drainAccountDeletionCleanup',{
+    requireAccountDeletionReceipt,reportEdgeDiagnostic:()=>{},Set});
+  const db={from:()=>({select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{status:'pending'},error:null})}),
+    storage:{from:()=>({remove:async()=>{throw new Error('synthetic-storage-network-error');}})},
+    auth:{admin:{deleteUser:async()=>({error:null})}},rpc:async()=>({data:[{status:'pending'}],error:null})};
+  assert.equal(await run(db,receipt),true);
+  db.storage.from=()=>({remove:async()=>({error:null})});db.rpc=async()=>({data:null,error:null});
+  assert.equal(await run(db,receipt),true);
+});
+
 
 test('unavailable company import uses the old enrollment-required surface without automatic revival or attestation',async()=>{
   for(const deniedCode of ['common_membership_withdrawn','company_attestation_unavailable','common_membership_unavailable']) {

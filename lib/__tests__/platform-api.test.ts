@@ -21,6 +21,33 @@ describe('common platform transport', () => {
     await platformRequest('apply', { serviceKey: 'care' }, 'synthetic-member-token');
     expect(invoke).toHaveBeenCalledWith('platform-service', { body: { action: 'apply', serviceKey: 'care' }, headers: { 'x-app-session-token': 'synthetic-member-token' } });
   });
+  it('requires a matching complete withdrawal receipt and keeps pending closure distinct from deletion', async () => {
+    const payload = { confirmed: true, scope: 'all_affiliates', policyVersion: '2026-10-14', idempotencyKey: hospital.id };
+    const completed = { ok: true, operationId: hospital.id, status: 'completed', deleted: true, cleanupPending: false };
+    invoke.mockResolvedValue({ data: completed, error: null });
+    expect(await platformRequest('withdraw_member', payload, 'synthetic-owner')).toEqual(completed);
+    expect(invoke.mock.calls[0][1]).toMatchObject({ body: { action: 'withdraw_member', ...payload }, timeout: 12000, headers: { 'x-app-session-token': 'synthetic-owner' } });
+    const pending = { ...completed, status: 'pending', deleted: false, cleanupPending: true, reason: 'affiliate_identity_unbound' };
+    invoke.mockResolvedValue({ data: pending, error: null });
+    expect(await platformRequest('withdraw_member', payload, 'synthetic-owner')).toEqual(pending);
+    invoke.mockResolvedValue({ data: { ok: true, withdrawal: pending }, error: null });
+    await expect(platformRequest('get_withdrawal', {}, 'synthetic-owner')).resolves.toEqual({ ok: true, withdrawal: pending });
+    invoke.mockResolvedValue({ data: { ok: true, withdrawal: null }, error: null });
+    await expect(platformRequest('get_withdrawal', {}, 'synthetic-owner')).resolves.toEqual({ ok: true, withdrawal: null });
+    invoke.mockResolvedValue({ data: { ok: true, withdrawal: { ...pending, deleted: true } }, error: null });
+    await expect(platformRequest('get_withdrawal', {}, 'synthetic-owner')).rejects.toMatchObject({ code: 'invalid_response' });
+    const canonicalId = 'abcdef00-0000-4000-8000-000000000001';
+    invoke.mockResolvedValue({ data: { ...completed, operationId: canonicalId }, error: null });
+    await expect(platformRequest('withdraw_member', { ...payload, idempotencyKey: canonicalId.toUpperCase() }, 'synthetic-owner')).resolves.toMatchObject({ operationId: canonicalId });
+    for (const invalid of [{ ok: true }, { ...completed, deleted: false }, { ...completed, cleanupPending: true },
+      { ...pending, deleted: true }, { ...pending, reason: 'unvalidated_reason' },
+      { ...completed, operationId: '10000000-0000-4000-8000-000000000099' }]) {
+      invoke.mockResolvedValue({ data: invalid, error: null });
+      await expect(platformRequest('withdraw_member', payload, 'synthetic-owner')).rejects.toMatchObject({ code: 'invalid_response' });
+    }
+    invoke.mockResolvedValue({ data: { ok: false, code: 'upgrade_required' }, error: null });
+    await expect(platformRequest('delete_member', { confirmed: true }, 'synthetic-owner')).rejects.toMatchObject({ code: 'upgrade_required', message: expect.stringContaining('최신 앱') });
+  });
   it('does not attach a protected token to public directory requests', async () => {
     const response = { ok: true, hospitals: [hospital], featured: [], hasMore: false, nextOffset: null };
     invoke.mockResolvedValue({ data: response, error: null });

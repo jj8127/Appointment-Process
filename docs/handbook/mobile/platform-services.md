@@ -3,9 +3,21 @@ owner_repo: fc-onboarding-app
 owner_area: mobile-and-data
 audience: developer, operator
 last_verified: 2026-10-14
-source_of_truth: app/services + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
+source_of_truth: app/services + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261014073458_platform_affiliate_account_withdrawal.sql + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
 
 # 모두온 공통 서비스
+
+## 2026-10-14 일반 회원·FC의 전체 제휴 계정 탈퇴
+
+공통 회원 탈퇴는 연결된 일반 회원·보험 FC·가람링크 계정의 개인정보와 로그인 정보를 함께 정리한다. 사용자 확인에 따라 회사 관리자·본부장과 Request Board의 현재 회사 업무 역할 계정은 유지한다. 권한 판단은 서명된 원본과 현재 DB 연결·역할을 사용한다. 요청 본문 actor/role/소속 문자열이나 전화번호 일치만으로 다른 계정을 삭제하지 않는다. 이 절이 과거 공통 탈퇴 시 FC 유지 계약을 대체한다.
+
+withdraw_member는 confirmed:true, scope:all_affiliates, policyVersion:2026-10-14와 UUID idempotencyKey를 요구한다. 과거 delete_member 확인은 제휴 계정 삭제를 승인하지 않으므로 upgrade_required409만 반환하며 변경하지 않는다. 공통 필수 동의 버전2026-10-12를 강제로 바꾸지 않고 새 탈퇴 확인 범위를 별도로 표시한다.
+
+접수는 공통/원본 계정 잠금과 함께 일반 FC credential·활동 권한을 중지한다. 원래 세션 SHA256 digest와 operation UUID로 소유한 요청만 재처리할 수 있다. 원문 토큰은 보관하지 않는다. Request Board는 기존 password_sync_generations의 canonical fc:UUID와 검증된 signed-generation 첫 bridge에서 원자 생성한 private fc_account_bindings만 신뢰한다. 신원 binding은 비밀번호 세대/fingerprint와 별개이며 가짜 세대를 만들지 않는다. legacy phone-only 연결은 affiliate_identity_unbound로 보류하며 추정 삭제하지 않는다. 정상 영수증은 정확한 operation/source UUID·정책·삭제 또는 검증된 독립 회사 보존 범위를 확인한다.
+
+completed는 대상 계정과 본인 첨부 정리가 모두 확인된 상태만 의미한다. 첨부 upload token 만료 후 재정리까지 포함하고, 완료 outbox/receipt의 개인 경로를 지운다. 정리 실패나 연결 확인은 pending이며 deleted:false/cleanupPending:true를 반환한다. get_withdrawal은 원래 세션 digest로 본인 journal 상태만 읽으며 로그인/삭제를 시작하지 않는다. 앱은 화면 재진입 때 원래 요청 ID를 복구하고 조회 실패 시 새 삭제보다 다시 확인을 먼저 제공한다. 닫힌 화면의 확인창은 실행하지 않으며 검증된 완료에서만 전체 로컬 로그아웃한다. OS 재시작 후 기존 세션이 정리되면 사용자 재처리 대신 운영 authenticated worker가 계속 처리해야 한다. 이미 확정된 거래·정산·의뢰 이력은 cascade 삭제하지 않으며 개인정보가 지워진 접근 불가능한 UUID와 탈퇴 표시만 제한적으로 유지한다.
+
+Request Board는 persisted active/token_version과 기존 runtime revoke를 재사용한다. 송수신 socket 검증과5초 idle 재검증은 이후 접근을 제한한다. 영수증 범위는 persisted_auth_and_local_runtime이며 즉각적인 전역 in-flight 회수를 보장하지 않는다. service-only withdrawal_cleanup_drain은 정확한 두 service-key 헤더 인증 뒤 최대3개 due 요청만 처리한다. 운영 예약 호출·신원 연결·legacy producer 및 모든 서버의 새 source 채택은 별도 배포 조건이며, 현재 로컬 구현을 운영 자동 완료로 표시하지 않는다.
 
 ## 2026-10-14 공통 가입·서비스 추가 등록 통합
 

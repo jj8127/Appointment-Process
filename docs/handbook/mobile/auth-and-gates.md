@@ -182,6 +182,7 @@ source_of_truth: app/services/login.tsx + app/services/signup.tsx + app/login.ts
 - 추천인 검색/검증/본등록은 같은 추천인 허용 기준을 써야 합니다. `search-signup-referral`, `validate-referral-code`, `set-password`는 모두 `signup_completed=true` 또는 `is_manager_referral_shadow=true` 추천인을 허용하고, 설계매니저 소속 프로필은 계속 제외합니다.
 - 전체 홈 unlock은 `identity_completed === true`만 신뢰합니다. `resident_id_masked`나 `address`는 표시/보조 필드이며, 잔존값만으로 `home-lite`를 건너뛰면 회귀입니다.
 - `delete-account`는 `user_presence`까지 정리하고, 삭제 후 blocker row(`fc_profiles` / `admin_accounts` / `manager_accounts`)가 남아 있으면 성공으로 끝내지 않아야 합니다.
+- 새 공통 `withdraw_member`는 [전체 제휴 계정 탈퇴](platform-services.md#2026-10-14-일반-회원fc의-전체-제휴-계정-탈퇴)를 따른다. 일반 FC의 credential과 signup 권한을 접수 시 중지하고 정확한 제휴·첨부 정리를 확인한다. 확정 금융 이력의 RESTRICT 참조를 위해 개인정보 없는 닫힌 원본 UUID를 유지하는 것은 legacy delete-account blocker 성공 판정과 별도 계약이다. 회사 업무 계정은 유지한다.
 - legacy 로컬 세션에 과거 `role='manager'` payload가 남아 있어도 restore 단계에서 현재 앱 권한모델인 `admin + readOnly`로 정규화해야 합니다. 그렇지 않으면 본부장용 읽기 전용 화면과 referral self-service gate가 재로그인 전까지 어긋날 수 있습니다.
 - referral self-service gate의 실제 모바일 surface는 `app/referral.tsx`다. FC 또는 `admin + readOnly` 본부장만 열고, plain admin/developer와 request_board designer는 같은 trusted path를 공유하지 않는다.
 - referral self-service는 로그인 화면 상태와 별개 `appSessionToken`을 쓴다. `/referral` 진입 시 현재 token이 없거나 만료되면 `hooks/use-referral-app-session.ts -> refresh-app-session`이 저장된 bridge token으로 1회 silent refresh를 시도하고, bridge token까지 없거나 만료면 relogin CTA를 보여야 한다.
