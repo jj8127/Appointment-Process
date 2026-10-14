@@ -1,5 +1,12 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261015-auto-retire-direct-fc"></a>
+## 2026-10-15 탈퇴 때 가람링크 직접 가입 FC 자동 정리
+
+- 원인: 정리 대상 가람링크 계정이 `auth_source=direct`, 연결·동기화 기록 0이라 FC UUID 연결이 없어 보류됐다. 이번 건은 운영자 확인 연결 1건으로 처리 안내했다.
+- 변경: `createRequestBoardAccountRetirementAssertion`이 형식이 맞는 원본 번호만 서명에 포함한다. `finishWithdrawal`은 local 삭제 전 FC 번호를 읽어 보내고, 번호를 보낸 요청에 한해 `no_affiliate_account`(삭제 대상 없음)를 정리 완료로 받는다. 가람링크 쪽은 `release/rb-retirement-20261014`의 `20261015040000_auto_bind_direct_fc_retirement.sql`.
+- 검증: handler 36·assertion 8 PASS, deno check PASS. 가람링크 함수는 PGlite 임시 검증 9개 시나리오(자동 연결 정리·재시도·번호 없음·계정 없음·중복·본부장·설계사·동기화됨·형식 오류) PASS.
+
 <a id="20261015-link-restored-fc"></a>
 ## 2026-10-15 복구 FC와 공통 회원 연결
 

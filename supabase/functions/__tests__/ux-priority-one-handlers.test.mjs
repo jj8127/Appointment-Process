@@ -528,8 +528,9 @@ async function withdrawalFixture(options={}) {
   const context={
     Error,URL,AbortSignal,uuid:/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     actor:async(_request,requireConsent)=>{calls.push(['actor',requireConsent]);if(options.resume)throw new Error('revoked session');return {member:{id:member}};},
-    sha256Hex:async()=>digest,db:{},getEnv:(name)=>name==='REQUEST_BOARD_PASSWORD_SYNC_URL' ? 'https://synthetic.invalid/api/auth/sync-password' : 'synthetic-secret',
-    createRequestBoardAccountRetirementAssertion:async(upstream,id)=>{calls.push(['assertion',upstream,id]);return 'synthetic-domain-assertion';},
+    sha256Hex:async()=>digest,
+    db:{from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{phone:options.sourcePhone ?? '01000000000'},error:null})})})})},getEnv:(name)=>name==='REQUEST_BOARD_PASSWORD_SYNC_URL' ? 'https://synthetic.invalid/api/auth/sync-password' : 'synthetic-secret',
+    createRequestBoardAccountRetirementAssertion:async(upstream,id,phone)=>{calls.push(['assertion',upstream,id,phone]);return 'synthetic-domain-assertion';},
     fetch:async(url,init)=>{
       calls.push(['fetch',String(url),JSON.parse(init.body)]);
       const data={operationId:operation,upstreamAccountId:fc,policyVersion:'2026-10-14',accountErased:true,runtimeRevoked:true,
@@ -596,6 +597,8 @@ test('affiliate retirement accepts only exact ordinary-account or authoritative 
     [{},'completed'],[{operationId:'another-operation'},'pending'],[{upstreamAccountId:'another-source'},'pending'],
     [{policyVersion:'old'},'pending'],[{runtimeRevocationScope:undefined},'pending'],[{remoteSocketRevalidationIntervalMs:10000},'pending'],
     [{accountErased:false},'pending'],
+    [{status:'no_affiliate_account',accountErased:false,runtimeRevoked:false},'completed'],
+    [{status:'no_affiliate_account',accountErased:false,runtimeRevoked:true},'pending'],
     [{status:'company_account_preserved',preservedRole:'designer',independentLoginAvailable:true,accountErased:false,runtimeRevoked:false},'completed'],
     [{status:'company_account_preserved',preservedRole:'designer',accountErased:false,runtimeRevoked:false},'pending'],
     [{status:'company_account_preserved',preservedRole:'manager',independentLoginAvailable:true,accountErased:false,runtimeRevoked:false},'pending'],

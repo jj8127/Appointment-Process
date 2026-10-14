@@ -7,6 +7,10 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 
 # Cross-Repo Bridge Contract
 
+## 2026-10-15 Withdrawal retirement assertion phone
+
+`request_board_account_retirement` may carry an optional `phone` (11 digits, `^01[0-9]{9}$`) signed by the FC Edge from the withdrawing FC profile. GaramLink rejects a malformed value and treats a missing value as before. With a phone and no `fc_account_bindings` row, `request_board_retire_fc_account(text,uuid,text)` binds and retires only a single active plain FC (`role`/`source_role` fc, not a designer, no binding or v2 generation) on that phone, returns `no_account` when the phone has no GaramLink user, and otherwise stays `unbound` for operator review. The route answers `no_account` as `status: no_affiliate_account` with `accountErased: false`; the FC Edge accepts it as complete only for an assertion that carried the phone.
+
 ## 2026-10-13 generation-idempotent password sync v2
 
 - 가람in의 FC credential이 기준입니다. `set-password`, `complete-assisted-password`, `reset-password`, 정상 FC `login-with-password`는 `fc:<fc_profiles.id>`와 비밀번호 hash/salt 변경 때 단조 증가하는 `fc_credentials.session_version`을 v2 세대로 보냅니다.

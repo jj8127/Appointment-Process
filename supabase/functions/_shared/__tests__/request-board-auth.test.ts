@@ -25,6 +25,10 @@ describe('administrator-assisted first-password challenge contract', () => {
       expect(buildFcPasswordSyncUpstream(payload.upstream_account_id.toUpperCase(),7)?.accountId)
         .toBe(`fc:${payload.upstream_account_id}`);
       expect(Object.keys(payload).sort()).toEqual(['exp','iat','kind','operation_id','policyVersion','purpose','role','upstream_account_id']);
+      const withPhone = await createRequestBoardAccountRetirementAssertion('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','01000000000');
+      expect(JSON.parse(Buffer.from(withPhone!.split('.')[0], 'base64url').toString('utf8')).phone).toBe('01000000000');
+      const malformed = await createRequestBoardAccountRetirementAssertion('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','010-0000-0000');
+      expect(JSON.parse(Buffer.from(malformed!.split('.')[0], 'base64url').toString('utf8'))).not.toHaveProperty('phone');
       delete process.env.REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET;
       expect(await createRequestBoardAccountRetirementAssertion('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222')).toBeNull();
     } finally {
