@@ -3524,7 +3524,7 @@ export default function DashboardScreen() {
           </View>
 
           {/* New: Affiliation Filter */}
-          <ScrollView
+          <ScrollView keyboardShouldPersistTaps="always"
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={[styles.filterContainer, { marginBottom: 8 }]}
@@ -3545,7 +3545,7 @@ export default function DashboardScreen() {
             })}
           </ScrollView>
 
-          <ScrollView
+          <ScrollView keyboardShouldPersistTaps="always"
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.filterContainer}
@@ -3736,7 +3736,7 @@ export default function DashboardScreen() {
       <KeyboardAwareWrapper
         refreshControl={screenRefreshControl}
         contentContainerStyle={{ paddingBottom: (deleteModalVisible ? 0 : keyboardPadding) + 40 }}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         keyboardDismissMode="none"
       >
         {screenContent}

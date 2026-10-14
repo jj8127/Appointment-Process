@@ -177,7 +177,7 @@ export function FormInput({
       </MotiView>
 
       {/* Error Message */}
-      {error && <Text style={styles.errorText}>{error}</Text>}
+      {!!error?.trim() && <Text style={styles.errorText}>{error}</Text>}
     </View>
   );
 }

@@ -1202,7 +1202,7 @@ export default function RequestBoardReviewScreen() {
             <ScrollView
               style={styles.attachmentDraftScroll}
               contentContainerStyle={styles.attachmentDraftList}
-              keyboardShouldPersistTaps="handled"
+              keyboardShouldPersistTaps="always" disableScrollViewPanResponder
               keyboardDismissMode="none"
             >
               {attachmentUploadDraft?.files.map((file, index) => (

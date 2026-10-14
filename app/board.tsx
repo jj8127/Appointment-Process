@@ -1075,7 +1075,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
 
         {/* 카테고리 필터 & 정렬 */}
         <View style={[styles.filterRow, selectedPost && styles.searchContainerHidden]} pointerEvents={selectedPost ? 'none' : 'auto'}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryChips}>
+          <ScrollView keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryChips}>
             <Pressable
               style={[styles.categoryChip, !selectedCategoryId && styles.categoryChipActive]}
               onPress={() => setSelectedCategoryId(null)}
@@ -1340,7 +1340,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
               <KeyboardAwareWrapper
                 style={styles.modalBody}
                 contentContainerStyle={{ paddingBottom: commentBarInset + insets.bottom, flexGrow: 1 }}
-                keyboardShouldPersistTaps="handled"
+                keyboardShouldPersistTaps="always"
                 keyboardDismissMode="none"
               >
                 {!hasCompleteDetail ? (

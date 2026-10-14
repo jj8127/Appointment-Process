@@ -635,7 +635,7 @@ export default function ExamRegisterScreen() {
       ref={scrollViewRef}
       contentContainerStyle={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      keyboardShouldPersistTaps="handled"
+      keyboardShouldPersistTaps="always" disableScrollViewPanResponder
       keyboardDismissMode="none"
       showsVerticalScrollIndicator={false}
       nestedScrollEnabled

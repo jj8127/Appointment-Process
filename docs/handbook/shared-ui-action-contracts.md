@@ -7,6 +7,21 @@ source_of_truth: components/* + app/* + hooks/use-keyboard-padding.ts + web/src/
 
 # Shared UI Action Contracts
 
+## 2026-10-15 Keyboard-open taps
+
+- Form screens use `keyboardShouldPersistTaps="always"` on their scroll container and on chip/option rows nested inside it; a tap with the keyboard open must reach the control instead of dismissing the keyboard and shifting layout under the finger. Chat and search result lists keep `"handled"` so an empty-area tap still closes the keyboard.
+- `KeyboardAwareWrapper` disables `enableResetScrollToCoords`: the animated return scroll on keyboard hide captured the next tap.
+- `KeyboardAwareWrapper` and every vertical `"always"` scroll container set `disableScrollViewPanResponder`. With an input focused, the JS scroll responder claimed held taps (about 70ms or longer, a normal finger tap), so the control showed press feedback but never fired. Native drag scrolling does not depend on it. The mobile keyboard audit rejects a vertical `"always"` container or the wrapper without it; `"handled"` lists keep the responder so an empty-area tap still closes the keyboard.
+- Auth CTAs keep `submitOnPressIn` (login, common signup). Signup validation failures close the keyboard so the message above the CTA is visible, and a successful signup shows a success toast before navigation.
+
+## 2026-10-15 Text-only dialogs and inline field errors
+
+- `AppAlertProvider` renders every `Alert.alert` as a text-only card: left-aligned title and message, no status glyph. Two actions share the row at equal width with the `cancel` action on the leading side; three or more stack with the primary first and `cancel` last. Dispatch still resolves the caller's original button index, so queue, repeated-press, throw and back-button contracts are unchanged.
+- Filled destructive actions use `COLORS.errorButton` (#dc2626) for a 4.5:1 white label, matching the `primaryButton` rule for orange.
+- Decision dialogs ask a question in the title ("앱을 종료할까요?", "작성 중인 내용을 버릴까요?"). Missing or invalid form input is not a dialog: the insurance additional-info form marks the field, shows the message under it, and scrolls to the first failing field through `KeyboardAwareWrapper`'s `scrollToY` handle. A whitespace `error` only marks a field border; `FormInput` and `OptionSheetField` render no message line for it, and form error text uses `TYPOGRAPHY.fontSize.xs`.
+- Android back on a root home (모두온 `ServiceHub`, insurance home, home-lite) goes through `useRootExitConfirm`: with a back stack it navigates normally, otherwise it asks "앱을 종료할까요?" before `BackHandler.exitApp()`.
+- `OptionSheetField` is the shared select field for fixed choice lists: a FormInput-sized field that opens a bottom-sheet list with a checked row, replacing wrapped chip walls. Email entry suggests `SIGNUP_EMAIL_DOMAINS` after the local part.
+
 ## 2026-10-14 Filled mobile actions and active worktree audit
 
 Filled Button/ServiceAction use COLORS.primaryButton with white labels (normal-state contrast4.52:1); decorative primary accents and pale/outline controls remain separate. ServiceAccount groups its existing authorized actions, logout, outline withdrawal and privacy link with12px gap and no per-action margin stacking. Labels, role/consent conditions, keyboard/press/loading semantics and withdrawal ownership remain unchanged. The audit applies exclusions only to paths relative to its selected root: excluded ancestor names cannot hide an active checkout, while existing excluded descendants remain skipped. Use the closest native-controls and shared-ui-action-contracts suites and the existing visual capture adapter; do not add another runner.

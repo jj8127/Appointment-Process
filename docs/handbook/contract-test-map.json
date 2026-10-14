@@ -63,7 +63,8 @@
         "supabase/tests/ux-priority-one-postgres.test.mjs",
         "supabase/tests/ux-priority-one-fixture.mjs",
         "supabase/functions/__tests__/ux-priority-one-handlers.test.mjs",
-        "lib/__tests__/calendar-date.test.ts"
+        "lib/__tests__/calendar-date.test.ts",
+        "lib/__tests__/mobile-acceptance-runtime.test.ts"
       ]
     },
     {

@@ -522,7 +522,7 @@ export default function RequestBoardFcCodesScreen() {
 
             <ScrollView
               style={styles.modalBody}
-              keyboardShouldPersistTaps="always"
+              keyboardShouldPersistTaps="always" disableScrollViewPanResponder
               keyboardDismissMode="none"
             >
               {formError && (
@@ -554,7 +554,7 @@ export default function RequestBoardFcCodesScreen() {
                   <ScrollView
                     style={styles.suggestionsList}
                     nestedScrollEnabled
-                    keyboardShouldPersistTaps="always"
+                    keyboardShouldPersistTaps="always" disableScrollViewPanResponder
                     keyboardDismissMode="none"
                     showsVerticalScrollIndicator
                   >

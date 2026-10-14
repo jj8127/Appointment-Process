@@ -2050,7 +2050,7 @@ export default function ChatScreen() {
             </Pressable>
           </View>
         ) : (
-          <FlatList
+          <FlatList keyboardShouldPersistTaps="handled"
             data={fcTargets}
             keyExtractor={(item) => item.id}
             renderItem={renderFcTargetItem}

@@ -17,6 +17,15 @@ describe('common signup OTP feedback contract', () => {
     expect(source).toContain('인증 문자 발송 요청이 접수되었습니다.');
   });
 
+  it('keeps auth CTAs working while the keyboard is open and confirms completion', () => {
+    const source = read('app/services/signup.tsx');
+    expect(source).toContain('keyboardShouldPersistTaps="always"');
+    expect(source).toContain("<Button onPress={() => submit('signup')} loading={loading === 'signup'} submitOnPressIn");
+    expect(source).toContain("<Button onPress={() => submit('otp')} variant=\"outline\" loading={loading === 'otp'} submitOnPressIn");
+    expect(source).toContain('if (blocked) { Keyboard.dismiss(); setError(blocked); return; }');
+    expect(source).toContain('모두온 가입이 완료됐어요');
+  });
+
   it('keeps duplicate membership distinct from cooldown and lock throttles', () => {
     const source = read('supabase/functions/platform-service/index.ts');
     expect(source).toContain("const status=result.code==='already_exists' ? 409 : 429");

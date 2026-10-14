@@ -112,7 +112,7 @@ export default function ServiceHospitals() {
           </Pressable>}
         </View>
         {regionsError && <View style={[styles.error, local.section]}><Text accessibilityRole="alert" style={styles.body}>지역 선택 정보를 불러오지 못했습니다.</Text><Button variant="ghost" onPress={() => void loadRegions()}>지역 정보 다시 불러오기</Button></View>}
-        {searching ? <ScrollView horizontal showsHorizontalScrollIndicator={false} style={local.section} contentContainerStyle={{ gap: 8 }}>
+        {searching ? <ScrollView keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} style={local.section} contentContainerStyle={{ gap: 8 }}>
           {['', ...HOSPITAL_DIRECTORY_SPECIALTIES].map((specialty) => <Pressable key={specialty} accessibilityRole="button" accessibilityState={{ selected: filters.specialty === specialty }} aria-pressed={filters.specialty === specialty} onPress={() => setFilters((current) => ({ ...current, specialty }))} style={[styles.chip, filters.specialty === specialty && styles.selectedChip]}><Text style={[styles.body, filters.specialty === specialty && styles.selectedText]}>{specialty || '전체 진료 분야'}</Text></Pressable>)}
         </ScrollView> : <View style={[local.section, { gap: 8 }]}>
           <Text accessibilityRole="header" style={local.sectionTitle}>진료과로 찾기</Text>
@@ -157,7 +157,7 @@ export default function ServiceHospitals() {
     <Modal visible={picker !== null} transparent animationType="fade" onRequestClose={() => setPicker(null)}>
       <View style={local.modalBackdrop}><View accessibilityViewIsModal style={local.modalPanel}>
         <View style={styles.row}><Text accessibilityRole="header" style={[styles.heading, styles.flexible]}>{picker === 'province' ? '시·도 선택' : '시·군·구 선택'}</Text><Pressable accessibilityRole="button" accessibilityLabel="지역 선택 닫기" style={styles.iconButton} onPress={() => setPicker(null)}><Feather name="x" size={22} color={COLORS.text.primary} accessible={false} /></Pressable></View>
-        <ScrollView>{choices.map((choice) => <Pressable key={choice.value} accessibilityRole="button" accessibilityState={{ selected: choice.value === (picker === 'province' ? filters.provinceCode : filters.district) }} aria-pressed={choice.value === (picker === 'province' ? filters.provinceCode : filters.district)} style={local.choice} onPress={() => choose(picker === 'province' ? 'provinceCode' : 'district', choice.value)}><Text style={styles.body}>{choice.label}</Text>{choice.value === (picker === 'province' ? filters.provinceCode : filters.district) && <Feather name="check" size={18} color={COLORS.primaryDark} accessible={false} />}</Pressable>)}</ScrollView>
+        <ScrollView keyboardShouldPersistTaps="always" disableScrollViewPanResponder>{choices.map((choice) => <Pressable key={choice.value} accessibilityRole="button" accessibilityState={{ selected: choice.value === (picker === 'province' ? filters.provinceCode : filters.district) }} aria-pressed={choice.value === (picker === 'province' ? filters.provinceCode : filters.district)} style={local.choice} onPress={() => choose(picker === 'province' ? 'provinceCode' : 'district', choice.value)}><Text style={styles.body}>{choice.label}</Text>{choice.value === (picker === 'province' ? filters.provinceCode : filters.district) && <Feather name="check" size={18} color={COLORS.primaryDark} accessible={false} />}</Pressable>)}</ScrollView>
       </View></View>
     </Modal>
   </HospitalScreen>;

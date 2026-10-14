@@ -509,7 +509,7 @@ export default function ExamManageLifeScreen() {
       <ScrollView
         contentContainerStyle={styles.container}
         keyboardDismissMode="none"
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always" disableScrollViewPanResponder
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <View style={styles.header}>
@@ -545,7 +545,7 @@ export default function ExamManageLifeScreen() {
 
           <View style={styles.affiliationSection}>
             <Text style={styles.affiliationLabel}>소속 필터</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.affiliationRow}>
+            <ScrollView keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.affiliationRow}>
               {affiliationOptions.map((affiliation) => (
                 <Pressable
                   key={affiliation}

@@ -7,6 +7,10 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 # Mobile Playbook: Exam Flows
 
+## 2026-10-15 키보드가 열린 상태의 탭
+
+키보드가 열린 상태에서 화면 안의 버튼·칩·선택 행 탭이 키보드만 닫고 무시되던 문제를 막기 위해 시험 신청(`exam-register`, `exam-register2`)과 시험 관리(`exam-manage`, `exam-manage2`)의 폼 스크롤과 중첩 칩 행은 `keyboardShouldPersistTaps="always"`를 쓴다. 실시간 채널과 선택·저장 동작은 바뀌지 않았다.
+
 ## 2026-10-13 전체 조회와 세션 범위
 
 모바일 신청·등록·관리와 관리자 신청자 목록은 필수 회차/신청 페이지의 오류나 잘못된 응답을 빈 결과로 처리하지 않는다. 추가 조회 실패는 이미 확인한 목록과 재시도 동선을 보존하며 검색·회차·계정 변경 뒤 이전 결과는 격리한다. `exam-read-query-contract`와 `exam-admin-applicant-query-contract`의 기존 페이지·필터 검사를 재사용한다.

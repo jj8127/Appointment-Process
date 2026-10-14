@@ -61,6 +61,11 @@ const dependencies: Record<string, unknown> = {
   '@/lib/notification-receipt-ui': { NotificationReceiptStatusBanner: 'ReceiptBanner' },
   '@/lib/use-notification-receipt': { useNotificationReceiptCompletion: () => ({ state: 'idle' }) },
 };
+const hookExports: Record<string, unknown> = {};
+new Function('require', 'exports', ts.transpileModule(readFileSync(join(__dirname, '../../hooks/use-root-exit-confirm.ts'), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS },
+}).outputText)((name: string) => dependencies[name], hookExports);
+dependencies['@/hooks/use-root-exit-confirm'] = hookExports;
 const exported: Record<string, unknown> = {};
 const output = ts.transpileModule(`${readFileSync(join(__dirname, '../../app/index.tsx'), 'utf8')}\nexports.InsuranceHome = LegacyInsuranceHome;`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
@@ -119,7 +124,7 @@ describe('insurance home persistent navigation', () => {
     focusEffects.forEach((effect) => effect());
     expect(hardwareBackPress!()).toBe(!canGoBack);
     if (canGoBack) expect(alert).not.toHaveBeenCalled();
-    else expect(alert).toHaveBeenCalledWith('앱 종료', expect.any(String), expect.any(Array), { cancelable: true });
+    else expect(alert).toHaveBeenCalledWith('앱을 종료할까요?', undefined, expect.any(Array), { cancelable: true });
     expect(router.replace).not.toHaveBeenCalled();
   });
 

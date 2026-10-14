@@ -1,5 +1,23 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261015-keyboard-taps"></a>
+## 2026-10-15 키보드가 열린 상태의 터치 누락
+
+- 회원가입에서 재현: 로그인에 적용된 `always`·`submitOnPressIn` 수정이 회원가입에 빠져 있었고, KASV의 키보드 내림 시 위치 복귀 애니메이션과 `handled`의 빈 곳 탭 blur가 누름을 취소했다(MISTAKES "Auth Button Keyboard Dismiss Regression"와 같은 유형).
+- 전수 점검: TypeScript JSX 파서로 입력이 있는 화면의 스크롤 컨테이너를 모두 확인해 폼 화면·중첩 칩 행 26곳을 `always`로, 채팅 FC 선택 목록을 `handled`로 맞췄다. 채팅·검색 목록의 `handled`는 유지했다. 공용 래퍼의 `enableResetScrollToCoords`를 껐다.
+- 남은 간헐 누락(가람in 추가 정보 자격증 칩 등): 기기에서 입력칸 포커스 상태로 70ms 이상 누르는 탭이 첫 번째 이후 모두 무시되는 것을 결정적으로 재현했다(즉시 탭은 성공). JS ScrollView 응답자가 누름을 가져가는 경로라 `KeyboardAwareWrapper`와 세로 `always` 컨테이너 12곳에 `disableScrollViewPanResponder`를 켰다. ui8 설치 후 같은 절차에서 70·90·150ms 누름 12/12, 4~16px 움직인 누름 6/6 성공, 드래그 스크롤·키보드 유지 정상. keyboard 감사에 누락 검출 규칙을 추가했다(제거 시 실패 확인).
+- 출시 전 기기 점검에서 발견: 모두온 홈(`ServiceHub`)은 뒤로가기 시 확인 없이 앱이 종료됐다(보험 홈·home-lite만 확인 창). 세 곳의 같은 처리 블록을 `hooks/use-root-exit-confirm.ts`로 합쳐 `ServiceHub`에도 적용하고 기존 `ServiceHub.test`에 뒤로가기 사례를 추가했다. 테두리 표시용 빈 오류(`' '`)가 빈 문구 줄을 만들고 이메일·추천인 오류 글자 크기가 달랐던 것을 맞췄다. 전체 Jest는 기준 `bc01595` 대비 새 실패 0(기존 125, 이번에 1개 해소).
+- 회원가입 성공 시 성공 토스트를 띄운다. 검증: Jest 전체에서 이 브랜치에서만 실패하는 suite 0(기준 브랜치와 동일한 기존 실패 116은 별도), tsc·eslint·keyboard 계약 PASS. 기기 재현 확인은 설치 후 사용자 확인 대상이다.
+
+<a id="20261015-enrollment-dialog-redesign"></a>
+## 2026-10-15 보험 추가 정보 안내·입력과 확인 창 재설계
+
+- 브랜치 `feature/moduon-ui-polish-20261015`(기준 `bc01595`). `AppAlertProvider` 한 곳에서 424개 `Alert.alert` 호출의 표시를 바꾸며 버튼 원래 index 디스패치·대기열·중복 터치·뒤로가기 계약은 유지한다. 순서 테스트 2개를 기존 suite에 추가했다.
+- `apply-gate`: 진행 표시·준비 목록·동의 카드·하단 고정 버튼, 입력 단계 분리. 검증은 `lib/insurance-enrollment-errors.ts` 순수 함수로 옮겨 칸별 오류와 `KeyboardAwareWrapper.scrollToY` 이동으로 표시한다. 기존 submit 실행 테스트를 창 대신 칸 오류·이동 기대로 갱신했다. 핸들러 이름·제출 payload·idempotency·계정 전환 보호는 그대로다.
+- 신규 `OptionSheetField`(소속·통신사 2곳). 이메일 도메인 목록은 `SIGNUP_EMAIL_DOMAINS`로 올려 `fc/new.tsx`와 공유한다. `COLORS.errorButton` 토큰 추가.
+- 이메일은 `아이디 @ 도메인 선택` 행으로 받고 "직접 입력"을 고르면 도메인 입력칸을 연다(`composeEmail`, `SIGNUP_EMAIL_DOMAIN_CHOICES`). 사용자가 primary checkout에서 만든 Android 내비게이션 바 변경(`enforceContrast: false`, 바 뒤 불투명 배경과 구분선, 설정 분리)을 해당 hunk만 이 브랜치에 옮겼다.
+- 기존 실패였던 `FamilyCareReferrer.tsx` 키보드 화면 미등록을 부모 소유 입력 섹션으로 등록했다. 초안 이탈 guard 규칙의 근거 테스트에 실제 guard 실행 테스트(`mobile-acceptance-runtime`)를 추가했다.
+
 <a id="20261014-withdrawal-drain-schedule"></a>
 ## 2026-10-14 공통 탈퇴 정리 자동 drain 예약
 

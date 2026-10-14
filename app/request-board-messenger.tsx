@@ -2405,7 +2405,7 @@ export default function RequestBoardMessengerScreen() {
             {/* Pending Files Preview */}
             {pendingFiles.length > 0 && (
               <View style={styles.pendingStrip}>
-              <FlatList<PendingFile>
+              <FlatList<PendingFile> keyboardShouldPersistTaps="always"
                 horizontal
                 data={pendingFiles}
                 keyExtractor={(_, i) => String(i)}

@@ -1,8 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { ALERT_VARIANTS, COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { inferAlertVariantFromTitle, inferUserFacingAlertFallback, toUserFacingAlertMessage } from '@/lib/user-facing-error';
-import StatusGlyph from '@/components/StatusGlyph';
 import {
   hasCallableAlertAction,
   resolveAlertButtonByIndex,
@@ -52,7 +51,7 @@ function resolveButtonStyle(button: AppAlertButton) {
   if (button.style === 'destructive') {
     return {
       container: [styles.button, styles.buttonDestructive],
-      text: [styles.buttonText, styles.buttonTextDestructive],
+      text: [styles.buttonText, styles.buttonTextOnFill],
     };
   }
   if (button.style === 'cancel') {
@@ -63,12 +62,20 @@ function resolveButtonStyle(button: AppAlertButton) {
   }
   return {
     container: [styles.button, styles.buttonPrimary],
-    text: [styles.buttonText, styles.buttonTextPrimary],
+    text: [styles.buttonText, styles.buttonTextOnFill],
   };
 }
 
-function getVariantConfig(variant: AlertVariant = 'info') {
-  return ALERT_VARIANTS[variant];
+/**
+ * Platform dialog convention: in a row the dismissive action sits on the
+ * leading side; in a stack the primary action leads and cancel goes last.
+ * Original indexes are kept so dispatch still resolves the caller's button.
+ */
+function orderButtons(buttons: AppAlertButton[]) {
+  const indexed = buttons.map((button, index) => ({ button, index }));
+  const cancels = indexed.filter(({ button }) => button.style === 'cancel');
+  const others = indexed.filter(({ button }) => button.style !== 'cancel');
+  return buttons.length > 2 ? [...others, ...cancels] : [...cancels, ...others];
 }
 
 function AlertCard({
@@ -78,7 +85,6 @@ function AlertCard({
   alert: AppAlert;
   onButtonPress: (buttonIndex?: number) => void;
 }) {
-  const variant = getVariantConfig(alert.options?.variant);
   const isStacked = (alert.buttons?.length ?? 0) > 2;
 
   return (
@@ -94,37 +100,19 @@ function AlertCard({
       {/* Modal visibility must never depend on a worklet or animation callback.
           Store navigation/backgrounding can interrupt those callbacks. */}
       <View style={styles.card} onStartShouldSetResponder={() => true} accessibilityViewIsModal>
-        {/* Icon */}
-        <View style={[styles.iconCircle, { backgroundColor: variant.iconBg }]}>
-          <StatusGlyph
-            variant={alert.options?.variant ?? 'info'}
-            size={22}
-            color={variant.iconColor}
-          />
-        </View>
+        <Text accessibilityRole="header" style={styles.title}>{alert.title}</Text>
 
-        {/* Title */}
-        <Text style={styles.title}>{alert.title}</Text>
-
-        {/* Message */}
         {!!alert.message && <Text style={styles.message}>{alert.message}</Text>}
 
-        {/* Buttons */}
-        <View
-          style={[
-            styles.buttonRow,
-            (alert.buttons?.length ?? 0) === 1 && styles.buttonRowCenter,
-            isStacked && styles.buttonStack,
-          ]}
-        >
-          {alert.buttons.map((button, index) => {
+        <View style={[styles.buttonRow, isStacked && styles.buttonStack]}>
+          {orderButtons(alert.buttons).map(({ button, index }) => {
             const buttonStyle = resolveButtonStyle(button);
             return (
               <Pressable
                 key={`${button.text ?? 'button'}-${index}`}
                 style={({ pressed }) => [
                   buttonStyle.container,
-                  isStacked ? styles.buttonFull : styles.buttonCompact,
+                  isStacked ? styles.buttonFull : styles.buttonFlex,
                   pressed && styles.buttonPressed,
                 ]}
                 accessibilityRole="button"
@@ -212,56 +200,43 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: SPACING.xl,
+    paddingHorizontal: SPACING.lg,
   },
   card: {
     width: '100%',
-    maxWidth: 340,
+    maxWidth: 320,
     backgroundColor: COLORS.white,
     borderRadius: RADIUS.xl,
-    paddingHorizontal: SPACING.xl,
-    paddingBottom: SPACING.xl,
-    paddingTop: SPACING.lg,
-    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.xl,
+    paddingBottom: SPACING.base,
+    alignItems: 'stretch',
     shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
     elevation: 12,
-  },
-  iconCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: SPACING.base,
   },
   title: {
     fontSize: TYPOGRAPHY.fontSize.lg,
     fontWeight: TYPOGRAPHY.fontWeight.bold,
+    lineHeight: TYPOGRAPHY.fontSize.lg * TYPOGRAPHY.lineHeight.normal,
     color: COLORS.text.primary,
-    textAlign: 'center',
   },
   message: {
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    lineHeight: TYPOGRAPHY.fontSize.sm * TYPOGRAPHY.lineHeight.relaxed,
+    fontSize: TYPOGRAPHY.fontSize.base,
+    lineHeight: TYPOGRAPHY.fontSize.base * TYPOGRAPHY.lineHeight.relaxed,
     color: COLORS.text.secondary,
-    textAlign: 'center',
     marginTop: SPACING.sm,
   },
   buttonRow: {
-    marginTop: SPACING.lg,
+    marginTop: SPACING.xl,
     width: '100%',
     flexDirection: 'row',
-    justifyContent: 'space-between',
     gap: SPACING.sm,
-  },
-  buttonRowCenter: {
-    justifyContent: 'center',
   },
   buttonStack: {
     flexDirection: 'column',
@@ -269,45 +244,38 @@ const styles = StyleSheet.create({
   button: {
     borderRadius: RADIUS.md,
     paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.lg,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    paddingHorizontal: SPACING.base,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 44,
+    minHeight: 52,
   },
-  buttonCompact: {
-    width: 100,
+  buttonFlex: {
+    flex: 1,
   },
   buttonFull: {
     width: '100%',
   },
   buttonPressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.85,
   },
   buttonPrimary: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.primaryButton,
   },
   buttonSecondary: {
     backgroundColor: COLORS.gray[100],
-    borderColor: COLORS.border.light,
   },
   buttonDestructive: {
-    backgroundColor: COLORS.errorLight,
-    borderColor: '#fecaca',
+    backgroundColor: COLORS.errorButton,
   },
   buttonText: {
-    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontSize: TYPOGRAPHY.fontSize.base,
     fontWeight: TYPOGRAPHY.fontWeight.semibold,
+    textAlign: 'center',
   },
-  buttonTextPrimary: {
+  buttonTextOnFill: {
     color: COLORS.white,
   },
   buttonTextSecondary: {
     color: COLORS.text.primary,
-  },
-  buttonTextDestructive: {
-    color: '#b91c1c',
   },
 });

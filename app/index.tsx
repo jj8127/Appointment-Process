@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
-  BackHandler,
   Dimensions,
   Platform,
   Pressable,
@@ -46,6 +45,7 @@ import { useAppLogout } from '@/hooks/use-app-logout';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useSession } from '@/hooks/use-session';
+import { useRootExitConfirm } from '@/hooks/use-root-exit-confirm';
 import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
 import {
@@ -1115,27 +1115,7 @@ function LegacyInsuranceHome() {
     };
   }, [refetchMsgCount, refetchNotifCount, refetchLatestNotice, refetchMyFc, residentId, role]);
 
-  // Android 뒤로가기 버튼: 앱 종료 확인 다이얼로그
-  useFocusEffect(
-    useCallback(() => {
-      if (Platform.OS !== 'android') return;
-      const onBackPress = () => {
-        if (router.canGoBack()) return false;
-        Alert.alert(
-          '앱 종료',
-          '앱을 종료하시겠습니까?',
-          [
-            { text: '취소', style: 'cancel' },
-            { text: '종료', style: 'destructive', onPress: () => BackHandler.exitApp() },
-          ],
-          { cancelable: true }
-        );
-        return true;
-      };
-      const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
-      return () => sub.remove();
-    }, [])
-  );
+  useRootExitConfirm();
 
   const getAppointmentStatus = (completed: boolean) => {
     if (completed) return { label: '완료', color: '#ffffff', bg: '#16a34a' };

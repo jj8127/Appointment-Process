@@ -517,7 +517,7 @@ function DesignerBottomSheet({
             <ScrollView
               style={styles.sheetScroll}
               showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
+              keyboardShouldPersistTaps="always" disableScrollViewPanResponder
               contentContainerStyle={styles.sheetList}
             >
               {filteredDesigners.length === 0 ? (
@@ -2016,7 +2016,7 @@ export default function RequestBoardCreateScreen() {
             <Text style={styles.sectionTitle}>요청 예시</Text>
             <Text style={styles.sectionMeta}>탭하면 문구에 추가됩니다</Text>
           </View>
-          <ScrollView
+          <ScrollView keyboardShouldPersistTaps="always"
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.templateRail}
@@ -2265,7 +2265,7 @@ export default function RequestBoardCreateScreen() {
         >
           <ScrollView
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="always"
+            keyboardShouldPersistTaps="always" disableScrollViewPanResponder
             keyboardDismissMode="none"
             contentContainerStyle={[
               styles.scrollContent,

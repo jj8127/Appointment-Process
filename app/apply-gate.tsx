@@ -2,13 +2,14 @@ import { QueryReadState } from '@/components/QueryReadState';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { randomUUID } from 'expo-crypto';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
-import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { KeyboardAwareWrapper, type KeyboardAwareWrapperHandle } from '@/components/KeyboardAwareWrapper';
+import { OptionSheetField } from '@/components/OptionSheetField';
 import { ReferralSearchField, ReferralSearchResultList, REFERRAL_SEARCH_MIN_CHARS_HINT, REFERRAL_SEARCH_EMPTY_HINT, type ReferralSearchResult } from '@/components/ReferralSearchField';
 import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
 import { useLogin } from '@/hooks/use-login';
@@ -16,14 +17,14 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { createCreationRequestTracker } from '@/lib/board-comment-request';
+import { ENROLLMENT_FIELD_ORDER, getEnrollmentFieldErrors, type EnrollmentField, type EnrollmentFieldErrors } from '@/lib/insurance-enrollment-errors';
 import { LICENSE_STATUS_LABELS, LICENSE_STATUS_NONE, LICENSE_STATUS_OPTIONS, normalizeLicenseStatuses, toggleLicenseStatus } from '@/lib/license-statuses';
 import { INSURANCE_CONSENT_VERSION, platformRequest, type PlatformInsuranceEnrollment } from '@/lib/platform-api';
 import { consumePendingReferralCode } from '@/lib/referral-deeplink';
 import { parseSignupReferralSearchResponse } from '@/lib/referral-read-response';
-import { buildStoredSignupReferral, getSignupReferralSelectionError, hasValidStoredSignupReferral } from '@/lib/signup-referral';
-import { SIGNUP_AFFILIATION_OPTIONS, SIGNUP_CARRIER_OPTIONS } from '@/lib/signup-profile-options';
+import { buildStoredSignupReferral, hasValidStoredSignupReferral } from '@/lib/signup-referral';
+import { composeEmail, EMAIL_DOMAIN_DIRECT_INPUT, SIGNUP_AFFILIATION_OPTIONS, SIGNUP_CARRIER_OPTIONS, SIGNUP_EMAIL_DOMAIN_CHOICES } from '@/lib/signup-profile-options';
 import { useReadAttempt } from '@/lib/use-read-attempt';
-import { validateEmail, validateRequired } from '@/lib/validation';
 import type { LicenseStatus } from '@/types/fc';
 import { buildApplyGateIdentityRoute, buildHomeEntryBreadcrumb, normalizeApplyGateNext } from '@/lib/home-entry-flow';
 import {
@@ -33,7 +34,17 @@ import {
 import { markNotificationNavigationIdle } from '@/lib/notification-navigation-coordinator';
 import { clearPendingNotificationNavigation } from '@/lib/pending-notification-navigation';
 import { addSentryBreadcrumb } from '@/lib/sentry-monitor';
-import { COLORS } from '@/lib/theme';
+import { COLORS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+
+type FeatherName = React.ComponentProps<typeof Feather>['name'];
+// The last item is the only step for an existing FC without identity data.
+const PREPARATION_ITEMS: { icon: FeatherName; title: string }[] = [
+  { icon: 'briefcase', title: '소속 · 이메일 · 통신사' },
+  { icon: 'award', title: '자격증 보유 현황' },
+  { icon: 'user-check', title: '보험 추천인' },
+  { icon: 'shield', title: '주민번호 · 주소' },
+];
+const UNLOCKED_FEATURES = ['설계 요청', '메신저', '공지·알림', '위촉 진행'];
 
 export default function ApplyGateScreen() {
   const { next } = useLocalSearchParams<{ next?: string }>();
@@ -45,8 +56,12 @@ export default function ApplyGateScreen() {
   const { acceptLoginResponse } = useLogin();
   const [formShown, setFormShown] = useState(false);
   const [consentAccepted, setConsentAccepted] = useState(false);
+  const [consentDetailShown, setConsentDetailShown] = useState(false);
   const [affiliation, setAffiliation] = useState('');
-  const [email, setEmail] = useState('');
+  const [emailLocal, setEmailLocal] = useState('');
+  const [emailDomain, setEmailDomain] = useState('');
+  const [customEmailDomain, setCustomEmailDomain] = useState('');
+  const email = composeEmail(emailLocal, emailDomain, customEmailDomain);
   const [carrier, setCarrier] = useState('');
   const [licenseStatuses, setLicenseStatuses] = useState<LicenseStatus[]>([LICENSE_STATUS_NONE]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,6 +71,10 @@ export default function ApplyGateScreen() {
   const [validating, setValidating] = useState(false);
   const [referralError, setReferralError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<EnrollmentFieldErrors>({});
+  const scrollHandle = useRef<KeyboardAwareWrapperHandle>(null);
+  const formTop = useRef(0);
+  const fieldTops = useRef<Partial<Record<EnrollmentField, number>>>({});
   const [submitting, setSubmitting] = useState(false);
   const pending = useRef(false);
   const installingToken = useRef<string | null>(null);
@@ -65,7 +84,7 @@ export default function ApplyGateScreen() {
   const beginSelection = useReadAttempt();
   const beginSubmit = useReadAttempt();
   const keyboardPadding = useKeyboardPadding();
-  const allowExit = useDraftExitGuard(commonOnly && formShown && Boolean(affiliation || email || carrier || searchQuery), submitting);
+  const allowExit = useDraftExitGuard(commonOnly && formShown && Boolean(affiliation || emailLocal || emailDomain || carrier || searchQuery), submitting);
   const { data, isLoading, isError, error, refetch, isFetching } = useIdentityStatus();
   const safeNext = useMemo(() => normalizeApplyGateNext(next), [next]);
   const forwardToSafeNext = useCallback(async () => {
@@ -140,7 +159,7 @@ export default function ApplyGateScreen() {
       if (!isCurrent()) return;
       if (result.referralCode !== code) throw new Error('추천인 응답을 확인하지 못했습니다. 다시 선택해 주세요.');
       setSelectedReferral({ fcId: result.inviterFcId, name: result.inviterName, affiliation: result.inviterAffiliation, code });
-      setSearchQuery(result.inviterName); setSearchResults([]);
+      setSearchQuery(result.inviterName); setSearchResults([]); clearFieldError('referral');
     } catch (cause) {
       if (isCurrent()) setReferralError(cause instanceof Error ? cause.message : '추천인을 확인하지 못했습니다. 다시 선택해 주세요.');
     } finally { if (isCurrent()) setValidating(false); }
@@ -151,9 +170,9 @@ export default function ApplyGateScreen() {
     beginSubmit(); beginSelection(); beginSearch(); pending.current = false;
     installingToken.current = null;
     tracker.current.complete(); referralEditVersion.current = 0;
-    setFormShown(false); setConsentAccepted(false); setAffiliation(''); setEmail(''); setCarrier('');
+    setFormShown(false); setConsentAccepted(false); setAffiliation(''); setEmailLocal(''); setEmailDomain(''); setCustomEmailDomain(''); setCarrier('');
     setLicenseStatuses([LICENSE_STATUS_NONE]); setSearchQuery(''); setSearchResults([]); setSelectedReferral(null);
-    setSubmitting(false); setSearching(false); setValidating(false); setReferralError(null); setSaveError(null);
+    setSubmitting(false); setSearching(false); setValidating(false); setReferralError(null); setSaveError(null); setFieldErrors({});
   }, [token, beginSubmit, beginSelection, beginSearch]);
 
   useEffect(() => {
@@ -184,7 +203,17 @@ export default function ApplyGateScreen() {
     return () => { clearTimeout(timer); beginSearch(); };
   }, [beginSearch, commonOnly, searchQuery, selectedReferral, token, validating]);
 
+  const clearFieldError = (field: EnrollmentField) => setFieldErrors(current => {
+    if (!current[field]) return current;
+    const next = { ...current }; delete next[field]; return next;
+  });
+
+  const revealField = (field: EnrollmentField) => {
+    scrollHandle.current?.scrollToY(formTop.current + (fieldTops.current[field] ?? 0) - 24);
+  };
+
   const changeReferralSearch = (value: string) => {
+    clearFieldError('referral');
     referralEditVersion.current += 1; beginSelection(); beginSearch();
     setSearchQuery(value); setSelectedReferral(null); setSearchResults([]); setValidating(false); setReferralError(null);
   };
@@ -193,11 +222,12 @@ export default function ApplyGateScreen() {
     if (!token || pending.current || !commonOnly) return;
     const referral = buildStoredSignupReferral({ selectedReferral, referralStatus: selectedReferral ? 'valid' : 'idle',
       referralInviterName: selectedReferral?.name ?? '', referralInviterFcId: selectedReferral?.fcId ?? null });
-    const invalid = !consentAccepted ? '추가정보 수집·이용 동의를 확인해 주세요.'
-      : validateRequired(affiliation, '소속').error ?? validateEmail(email.trim()).error ?? validateRequired(carrier, '통신사').error
-      ?? getSignupReferralSelectionError(searchQuery, selectedReferral)
-      ?? (validating || !hasValidStoredSignupReferral(referral) ? '유효한 보험 추천인을 선택해 주세요.' : null);
-    if (invalid) { Alert.alert('입력 확인', invalid); return; }
+    if (!consentAccepted) { setSaveError('추가정보 수집·이용에 동의해 주세요.'); return; }
+    const errors = getEnrollmentFieldErrors({ affiliation, email, carrier, searchQuery, selectedReferral,
+      referralReady: !validating && hasValidStoredSignupReferral(referral) });
+    setFieldErrors(errors);
+    const firstInvalid = ENROLLMENT_FIELD_ORDER.find(field => errors[field]);
+    if (firstInvalid) { revealField(firstInvalid); return; }
     const payload = { confirmed: true, consentAccepted: true, consentVersion: INSURANCE_CONSENT_VERSION,
       affiliation, email: email.trim(), carrier, licenseStatuses: normalizeLicenseStatuses(licenseStatuses),
       referralCode: referral.referralCode, referralInviterFcId: referral.referralInviterFcId };
@@ -227,112 +257,196 @@ export default function ApplyGateScreen() {
       onRetry={isLoading ? undefined : () => void refetch()} retrying={isFetching} />
   </SafeAreaView>;
 
+  const showForm = commonOnly && formShown;
+  const preparation = commonOnly ? PREPARATION_ITEMS : PREPARATION_ITEMS.slice(-1);
+
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: Math.max(80, keyboardPadding + 40) }]} keyboardDismissMode="none">
-        <View style={styles.card}>
-          <View style={styles.iconCircle}>
-            <Feather name="shield" size={20} color={COLORS.primary} />
+      <KeyboardAwareWrapper handleRef={scrollHandle} contentContainerStyle={[styles.container, { paddingBottom: Math.max(showForm ? 80 : 32, keyboardPadding + 40) }]} keyboardDismissMode="none">
+        <View accessible accessibilityLabel="2단계 중 1단계" style={styles.progress}>
+          {[0, 1].map(step => <View key={step} style={[styles.progressBar, step === 0 && styles.progressBarActive]} />)}
+        </View>
+
+        {!showForm && <>
+          <View style={styles.header}>
+            <Text style={styles.eyebrow}>가람in 이용 준비</Text>
+            <Text accessibilityRole="header" style={styles.title}>{commonOnly ? '가람in을 이용하려면\n추가 정보가 필요해요' : '신원 정보만 입력하면\n모든 기능을 이용할 수 있어요'}</Text>
           </View>
-          <Text style={styles.title}>추가 정보 입력 안내</Text>
-          <Text style={styles.body}>모두온 계정으로 가람in을 이용합니다. 회원가입과 비밀번호 설정을 다시 하지 않습니다.</Text>
-          <Text style={styles.body}>{commonOnly ? '소속·이메일·통신사·자격 상태와 보험 추천인을 확인한 뒤, 다음 단계에서 주민번호와 주소를 입력해 주세요.' : '주민번호와 주소를 입력해 주세요.'}</Text>
-          <Text style={styles.body}>입력이 완료되면 설계 요청, 메신저, 공지/알림, 위촉 관련 기능을 모두 이용할 수 있습니다.</Text>
-          {commonOnly && <>
-            <Text style={styles.body}>수집 목적: 가람in 위촉 신청 및 등록 처리. 신청 정보는 등록 처리에 사용하며 보험 추천 관계는 다른 제휴 서비스의 추천인과 별도로 관리합니다. 다음 신원 입력 단계에서 보관·파기 안내를 확인할 수 있습니다.</Text>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>준비할 정보</Text>
+            {preparation.map(item => <View key={item.title} style={styles.prepRow}>
+              <View style={styles.prepIcon}><Feather accessible={false} name={item.icon} size={18} color={COLORS.primaryButton} /></View>
+              <Text style={[styles.prepTitle, styles.grow]}>{item.title}</Text>
+            </View>)}
+          </View>
+
+          {commonOnly && <View style={[styles.consentCard, consentAccepted && styles.consentCardChecked]}>
             <Pressable accessibilityRole="checkbox" accessibilityLabel="가람in 추가정보 수집·이용 동의" accessibilityState={{ checked: consentAccepted, disabled: submitting }} disabled={submitting}
               onPress={() => setConsentAccepted(value => !value)} style={styles.consent}>
-              <Feather accessible={false} name={consentAccepted ? 'check-square' : 'square'} size={22} color={COLORS.primary} />
-              <Text style={[styles.body, styles.grow]}>[필수] 가람in 추가정보 수집·이용에 동의합니다.</Text>
+              <View style={[styles.checkbox, consentAccepted && styles.checkboxChecked]}>
+                {consentAccepted && <Feather accessible={false} name="check" size={16} color={COLORS.white} />}
+              </View>
+              <Text style={[styles.consentText, styles.grow]}><Text style={styles.required}>[필수] </Text>가람in 추가정보 수집·이용 동의</Text>
             </Pressable>
-          </>}
-        </View>
+            <Pressable accessibilityRole="button" accessibilityLabel={consentDetailShown ? '동의 내용 접기' : '동의 내용 보기'} accessibilityState={{ expanded: consentDetailShown }}
+              onPress={() => setConsentDetailShown(value => !value)} style={styles.detailToggle}>
+              <Text style={styles.detailToggleText}>{consentDetailShown ? '내용 접기' : '내용 보기'}</Text>
+              <Feather accessible={false} name={consentDetailShown ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.text.secondary} />
+            </Pressable>
+            {consentDetailShown && <View style={styles.consentDetail}>
+              <Text style={styles.prepBody}>수집 목적: 가람in 위촉 신청 및 등록 처리</Text>
+              <Text style={styles.prepBody}>수집 항목: 소속, 이메일, 통신사, 자격증 보유 현황, 보험 추천인</Text>
+              <Text style={styles.prepBody}>보험 추천 관계는 다른 제휴 서비스의 추천인과 별도로 관리합니다. 보관·파기 안내는 다음 신원 입력 단계에서 확인할 수 있습니다.</Text>
+            </View>}
+          </View>}
 
-        {commonOnly && formShown && <View style={styles.fields}>
-          <Text accessibilityRole="header" style={styles.title}>가람in 추가 등록</Text>
-          <Text style={styles.body}>{platformMember?.name}님의 공통 가입 정보를 사용합니다.</Text>
-          <Text style={styles.label}>소속</Text>
-          <View style={styles.options}>{SIGNUP_AFFILIATION_OPTIONS.map(option => <Pressable key={option} accessibilityRole="radio" accessibilityState={{ checked: affiliation === option, disabled: submitting }} disabled={submitting}
-            onPress={() => setAffiliation(option)} style={[styles.option, affiliation === option && styles.selected]}><Text style={styles.body}>{option}</Text></Pressable>)}</View>
-          <FormInput label="이메일" accessibilityLabel="이메일" placeholder="이메일 주소" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" editable={!submitting} />
-          <Text style={styles.label}>통신사</Text>
-          <View style={styles.options}>{SIGNUP_CARRIER_OPTIONS.map(option => <Pressable key={option} accessibilityRole="radio" accessibilityState={{ checked: carrier === option, disabled: submitting }} disabled={submitting}
-            onPress={() => setCarrier(option)} style={[styles.option, carrier === option && styles.selected]}><Text style={styles.body}>{option}</Text></Pressable>)}</View>
-          <Text style={styles.label}>자격증 보유 현황</Text>
-          <View style={styles.options}>{LICENSE_STATUS_OPTIONS.map(option => <Pressable key={option} accessibilityRole="checkbox" accessibilityState={{ checked: licenseStatuses.includes(option), disabled: submitting }} disabled={submitting}
-            onPress={() => setLicenseStatuses(current => toggleLicenseStatus(current, option))} style={[styles.option, licenseStatuses.includes(option) && styles.selected]}><Text style={styles.body}>{LICENSE_STATUS_LABELS[option]}</Text></Pressable>)}</View>
-          <Text style={styles.label}>보험 추천인 (필수)</Text>
-          <Text style={styles.body}>다른 제휴 서비스의 추천인과 별도로 선택합니다.</Text>
-          <ReferralSearchField searchQuery={searchQuery} searching={searching || validating} onChangeText={changeReferralSearch} onClear={() => changeReferralSearch('')}
-            textInputProps={{ editable: !submitting, accessibilityLabel: '보험 추천인 이름 검색' }} />
-          {!selectedReferral && <Text style={styles.body}>{searchQuery.trim().length < 2 ? REFERRAL_SEARCH_MIN_CHARS_HINT : !searching && !validating && !referralError && !searchResults.length ? REFERRAL_SEARCH_EMPTY_HINT : ''}</Text>}
-          {!submitting && searchResults.length > 0 && <ReferralSearchResultList results={searchResults} onSelect={item => { if (item.code) { referralEditVersion.current += 1; void validateReferral(item.code); } }} />}
-          {selectedReferral && <Text style={styles.body}>선택한 보험 추천인: {selectedReferral.name} · {selectedReferral.affiliation}</Text>}
-          {referralError && <Text accessibilityRole="alert" style={styles.failure}>{referralError}</Text>}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>입력을 마치면 이용할 수 있어요</Text>
+            <View style={styles.chips}>{UNLOCKED_FEATURES.map(feature => <View key={feature} style={styles.chip}>
+              <Feather accessible={false} name="check" size={14} color={COLORS.primaryButton} />
+              <Text style={styles.chipText}>{feature}</Text>
+            </View>)}</View>
+          </View>
+        </>}
+
+        {showForm && <View style={styles.fields} onLayout={event => { formTop.current = event.nativeEvent.layout.y; }}>
+          <View style={styles.header}>
+            <Text style={styles.eyebrow}>1단계 · 추가 정보</Text>
+            <Text accessibilityRole="header" style={styles.title}>추가 정보를 입력해 주세요</Text>
+          </View>
+          <View onLayout={event => { fieldTops.current.affiliation = event.nativeEvent.layout.y; }}>
+            <OptionSheetField<string> label="소속" value={affiliation} options={SIGNUP_AFFILIATION_OPTIONS} error={fieldErrors.affiliation}
+              onChange={value => { setAffiliation(value); clearFieldError('affiliation'); }} disabled={submitting} />
+          </View>
+          <View style={styles.fieldGroup} onLayout={event => { fieldTops.current.email = event.nativeEvent.layout.y; }}>
+            <Text style={styles.label}>이메일</Text>
+            <View style={styles.emailRow}>
+              <View style={styles.grow}>
+                <FormInput accessibilityLabel="이메일 아이디" placeholder="아이디" value={emailLocal} error={fieldErrors.email ? ' ' : undefined}
+                  onChangeText={value => { setEmailLocal(value.replace(/@.*$/, '')); clearFieldError('email'); }}
+                  autoCapitalize="none" autoCorrect={false} autoComplete="username" keyboardType="email-address" editable={!submitting} />
+              </View>
+              <Text style={styles.emailAt}>@</Text>
+              <View style={styles.grow}>
+                <OptionSheetField<string> label="이메일 도메인" hideLabel value={emailDomain} options={SIGNUP_EMAIL_DOMAIN_CHOICES} placeholder="선택"
+                  error={fieldErrors.email && !emailDomain ? ' ' : undefined} disabled={submitting}
+                  onChange={value => { setEmailDomain(value); clearFieldError('email'); }} />
+              </View>
+            </View>
+            {emailDomain === EMAIL_DOMAIN_DIRECT_INPUT && <FormInput accessibilityLabel="이메일 도메인 직접 입력" placeholder="example.com" value={customEmailDomain}
+              onChangeText={value => { setCustomEmailDomain(value.replace(/^@/, '')); clearFieldError('email'); }}
+              autoCapitalize="none" autoCorrect={false} keyboardType="email-address" editable={!submitting} />}
+            {fieldErrors.email && <Text accessibilityRole="alert" style={styles.fieldError}>{fieldErrors.email}</Text>}
+          </View>
+          <View onLayout={event => { fieldTops.current.carrier = event.nativeEvent.layout.y; }}>
+            <OptionSheetField<string> label="통신사" value={carrier} options={SIGNUP_CARRIER_OPTIONS} error={fieldErrors.carrier}
+              onChange={value => { setCarrier(value); clearFieldError('carrier'); }} disabled={submitting} />
+          </View>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>자격증 보유 현황</Text>
+            <View style={styles.options}>{LICENSE_STATUS_OPTIONS.map(option => <Pressable key={option} accessibilityRole="checkbox" accessibilityState={{ checked: licenseStatuses.includes(option), disabled: submitting }} disabled={submitting}
+              onPress={() => setLicenseStatuses(current => toggleLicenseStatus(current, option))} style={[styles.option, licenseStatuses.includes(option) && styles.selected]}><Text style={[styles.optionText, licenseStatuses.includes(option) && styles.optionTextSelected]}>{LICENSE_STATUS_LABELS[option]}</Text></Pressable>)}</View>
+          </View>
+          <View style={styles.fieldGroup} onLayout={event => { fieldTops.current.referral = event.nativeEvent.layout.y; }}>
+            <Text style={styles.label}>보험 추천인 <Text style={styles.required}>(필수)</Text></Text>
+            <Text style={styles.hint}>다른 제휴 서비스의 추천인과 별도로 선택해요.</Text>
+            <ReferralSearchField searchQuery={searchQuery} searching={searching || validating} onChangeText={changeReferralSearch} onClear={() => changeReferralSearch('')}
+              textInputProps={{ editable: !submitting, accessibilityLabel: '보험 추천인 이름 검색' }} />
+            {!selectedReferral && <Text style={styles.hint}>{searchQuery.trim().length < 2 ? REFERRAL_SEARCH_MIN_CHARS_HINT : !searching && !validating && !referralError && !searchResults.length ? REFERRAL_SEARCH_EMPTY_HINT : ''}</Text>}
+            {!submitting && searchResults.length > 0 && <ReferralSearchResultList results={searchResults} onSelect={item => { if (item.code) { referralEditVersion.current += 1; void validateReferral(item.code); } }} />}
+            {selectedReferral && <View style={styles.selectedReferral}>
+              <Feather accessible={false} name="user-check" size={18} color={COLORS.primaryButton} />
+              <Text style={[styles.prepTitle, styles.grow]}>{selectedReferral.name} · {selectedReferral.affiliation}</Text>
+            </View>}
+          </View>
+          {(referralError || fieldErrors.referral) && <Text accessibilityRole="alert" style={styles.fieldError}>{referralError ?? fieldErrors.referral}</Text>}
           {saveError && <Text accessibilityRole="alert" style={styles.failure}>{saveError}</Text>}
-          <Button onPress={submitEnrollment} loading={submitting} disabled={submitting || validating || !consentAccepted} fullWidth>추가 등록 확정 후 신원 정보 입력</Button>
+          <Button onPress={submitEnrollment} loading={submitting} disabled={submitting || validating || !consentAccepted} fullWidth>저장하고 신원 정보 입력</Button>
+          <View style={styles.linkRow}>
+            <Pressable accessibilityRole="button" accessibilityLabel="안내로 돌아가기" disabled={submitting} onPress={() => setFormShown(false)} style={styles.link}>
+              <Text style={styles.linkText}>이전</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="나중에" disabled={submitting} onPress={returnHomeLite} style={styles.link}>
+              <Text style={styles.linkText}>나중에 할게요</Text>
+            </Pressable>
+          </View>
         </View>}
-
-        <View style={styles.buttonRow}>
-          <Button
-            onPress={returnHomeLite}
-            variant="outline"
-            size="md"
-            style={styles.button}
-            accessibilityLabel="나중에"
-            disabled={submitting}
-          >
-            나중에
-          </Button>
-          {(!commonOnly || !formShown) && <Button
-            onPress={startIdentityInput}
-            variant="primary"
-            size="md"
-            style={styles.button}
-            accessibilityLabel="추가 정보 입력 시작"
-            disabled={commonOnly && !consentAccepted}
-          >
-            추가 정보 입력 시작
-          </Button>}
-        </View>
       </KeyboardAwareWrapper>
+
+      {!showForm && <View style={styles.bottomBar}>
+        <Button
+          onPress={returnHomeLite}
+          variant="outline"
+          size="lg"
+          style={styles.secondaryAction}
+          accessibilityLabel="나중에"
+          disabled={submitting}
+        >
+          나중에
+        </Button>
+        <Button
+          onPress={startIdentityInput}
+          variant="primary"
+          size="lg"
+          style={styles.primaryAction}
+          accessibilityLabel={commonOnly ? '추가 정보 입력 시작하기' : '신원 정보 입력'}
+          disabled={commonOnly && !consentAccepted}
+        >
+          {commonOnly ? '시작하기' : '신원 정보 입력'}
+        </Button>
+      </View>}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
-  container: { padding: 20, gap: 20 },
-  card: {
-    backgroundColor: '#fff7f0',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#fed7aa',
-    gap: 10,
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-  },
-  title: { fontSize: 20, fontWeight: '800', color: COLORS.text.primary },
-  body: { fontSize: 14, color: COLORS.text.secondary, lineHeight: 20 },
-  buttonRow: { flexDirection: 'row', gap: 12 },
-  button: {
-    flex: 1,
-  },
-  fields: { gap: 12 },
-  label: { fontSize: 15, fontWeight: '700', color: COLORS.text.primary },
-  options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  option: { minHeight: 44, justifyContent: 'center', padding: 12, borderWidth: 1, borderColor: COLORS.border.light, borderRadius: 12 },
-  selected: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryPale },
-  consent: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 },
+  safe: { flex: 1, backgroundColor: COLORS.white },
+  container: { paddingHorizontal: 20, paddingTop: 12, gap: 28 },
+  progress: { flexDirection: 'row', gap: 6 },
+  progressBar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: COLORS.gray[100] },
+  progressBarActive: { backgroundColor: COLORS.primary },
+  header: { gap: 8 },
+  eyebrow: { fontSize: 13, fontWeight: '700', color: COLORS.primaryButton },
+  title: { fontSize: 24, lineHeight: 33, fontWeight: '800', color: COLORS.text.primary },
+  section: { gap: 14 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text.primary },
+  prepRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  prepIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.primaryPale, alignItems: 'center', justifyContent: 'center' },
+  prepTitle: { fontSize: 15, fontWeight: '600', color: COLORS.text.primary },
+  prepBody: { fontSize: 13, lineHeight: 19, color: COLORS.text.secondary, marginTop: 2 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, backgroundColor: COLORS.gray[100] },
+  chipText: { fontSize: 14, color: COLORS.text.primary },
+  consentCard: { borderWidth: 1, borderColor: COLORS.border.light, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 8 },
+  consentCardChecked: { borderColor: COLORS.primary },
+  consent: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48 },
+  checkbox: { width: 24, height: 24, borderRadius: 7, borderWidth: 1.5, borderColor: COLORS.border.light, alignItems: 'center', justifyContent: 'center' },
+  checkboxChecked: { backgroundColor: COLORS.primaryButton, borderColor: COLORS.primaryButton },
+  consentText: { fontSize: 15, fontWeight: '600', color: COLORS.text.primary },
+  required: { color: COLORS.primaryButton, fontWeight: '700' },
+  detailToggle: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 4, minHeight: 44, marginLeft: 36 },
+  detailToggleText: { fontSize: 14, color: COLORS.text.secondary, textDecorationLine: 'underline' },
+  consentDetail: { gap: 6, paddingBottom: 12, marginLeft: 36 },
+  bottomBar: { flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: COLORS.border.light, backgroundColor: COLORS.white },
+  secondaryAction: { flex: 1 },
+  primaryAction: { flex: 2 },
   grow: { flex: 1 },
+  fields: { gap: 24 },
+  fieldGroup: { gap: 10 },
+  label: { fontSize: 13, fontWeight: '700', color: COLORS.text.primary, marginLeft: 4 },
+  hint: { fontSize: 13, lineHeight: 19, color: COLORS.text.secondary },
+  options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  option: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, borderWidth: 1, borderColor: COLORS.border.light, borderRadius: 12, backgroundColor: COLORS.white },
+  optionText: { fontSize: 15, color: COLORS.text.primary },
+  selected: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryPale },
+  optionTextSelected: { color: COLORS.primaryButton, fontWeight: '700' },
+  selectedReferral: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, backgroundColor: COLORS.primaryPale },
+  linkRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  link: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
+  linkText: { fontSize: 15, color: COLORS.text.secondary, fontWeight: '600' },
+  emailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  emailAt: { fontSize: 16, color: COLORS.text.secondary, lineHeight: 56 },
+  fieldError: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.error, marginLeft: SPACING.xs },
   failure: { color: COLORS.error, fontSize: 14 },
 });

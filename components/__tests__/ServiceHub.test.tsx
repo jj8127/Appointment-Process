@@ -24,7 +24,12 @@ let session: Session = { role: null, hydrated: true, isRequestBoardDesigner: fal
 const push = jest.fn();
 const replace = jest.fn();
 const navigate = jest.fn();
-const router = { push, replace, navigate };
+const canGoBack = jest.fn(() => false);
+const router = { push, replace, navigate, canGoBack };
+const platform = { OS: 'ios' };
+const exitApp = jest.fn();
+let focusEffects: (() => unknown)[] = [];
+let hardwareBackPress: (() => boolean) | undefined;
 const openExternalUrl = jest.fn();
 const alert = jest.fn();
 const load = (file: string): Record<string, unknown> => {
@@ -35,14 +40,15 @@ const load = (file: string): Record<string, unknown> => {
   new Function('require', 'exports', output)((name: string) => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   if (name === 'react' || name === 'react/jsx-runtime') return require(name);
-  if (name === 'expo-router') return { Stack: { Screen: 'StackScreen' }, router, useRouter: () => router };
+  if (name === 'expo-router') return { Stack: { Screen: 'StackScreen' }, router, useRouter: () => router, useFocusEffect: (effect: () => unknown) => { focusEffects.push(effect); } };
   if (name === '@react-navigation/native') return { useIsFocused: () => true };
-  if (name === 'react-native') return { Alert: { alert } };
+  if (name === 'react-native') return { Alert: { alert }, Platform: platform, BackHandler: { exitApp, addEventListener: (_event: string, handler: () => boolean) => { hardwareBackPress = handler; return { remove: jest.fn() }; } } };
   if (name === 'react-native-safe-area-context') return { useSafeAreaInsets: () => ({ bottom: 34 }) };
   if (name === '@/components/BottomNavigation') return { BottomNavigation: 'BottomNavigation' };
   if (name === '@/components/service-home') return { default: 'ServiceHomeScreen' };
   if (name === '@/hooks/use-session') return { useSession: () => session };
   if (name === '@/hooks/use-app-logout') return load('hooks/use-app-logout.ts');
+  if (name === '@/hooks/use-root-exit-confirm') return load('hooks/use-root-exit-confirm.ts');
   if (name === '@/lib/bottom-navigation') return { resolveBottomNavActiveKey, resolveBottomNavPreset };
   if (name === '@/lib/open-external-url') return { openExternalUrl };
   if (name === '@/lib/service-home') return { FAMILY_CARE_PROMOTION_URL, resolveInsuranceServiceRoute };
@@ -62,9 +68,29 @@ describe('service hub controller', () => {
     navigate.mockReset();
     openExternalUrl.mockReset().mockResolvedValue(FAMILY_CARE_PROMOTION_URL);
     alert.mockReset();
+    canGoBack.mockReset().mockReturnValue(false);
+    exitApp.mockReset();
+    platform.OS = 'ios';
+    focusEffects = [];
+    hardwareBackPress = undefined;
   });
   afterEach(() => { act(() => renderer?.unmount()); });
   const render = () => act(() => { renderer = create(createElement(Hub)); });
+
+  it.each([false, true])('asks before Android back closes the app from the root hub (back stack=%s)', (hasBackStack) => {
+    platform.OS = 'android';
+    canGoBack.mockReturnValue(hasBackStack);
+    render();
+    focusEffects.forEach((effect) => effect());
+    expect(hardwareBackPress!()).toBe(!hasBackStack);
+    if (hasBackStack) {
+      expect(alert).not.toHaveBeenCalled();
+      return;
+    }
+    expect(alert).toHaveBeenCalledWith('앱을 종료할까요?', undefined, expect.any(Array), { cancelable: true });
+    alert.mock.calls[0][2].find((button: { text: string }) => button.text === '종료').onPress();
+    expect(exitApp).toHaveBeenCalledTimes(1);
+  });
 
   it('opens care information before promotion or interest registration', () => {
     render();

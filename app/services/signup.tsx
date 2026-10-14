@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { toast, useToast } from '@/components/Toast';
 import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
@@ -61,6 +62,8 @@ export default function PlatformSignup() {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
+  const { showToast } = useToast();
+
   const submit = async (action: 'otp' | 'signup') => {
     if (pending.current || (action === 'otp' && cooldown > 0)) return;
     const validations = [validatePhone(phone), ...(action === 'signup'
@@ -68,13 +71,14 @@ export default function PlatformSignup() {
     const invalid = validations.find(value => !value.isValid);
     if (invalid) {
       const message = invalid.error ?? '입력 내용을 확인해주세요.';
-      if (action === 'otp') setOtpError(message); else setError(message);
+      if (action === 'otp') setOtpError(message); else { Keyboard.dismiss(); setError(message); }
       return;
     }
     if (action === 'signup') {
-      if (!/^\d{6}$/.test(code.trim())) { setError('문자로 받은 6자리 인증 코드를 입력해주세요.'); return; }
-      if (password.trim() !== confirmation.trim()) { setError('비밀번호가 일치하지 않습니다.'); return; }
-      if (!termsAccepted) { setError('필수 동의 내용을 확인해주세요.'); return; }
+      const blocked = !/^\d{6}$/.test(code.trim()) ? '문자로 받은 6자리 인증 코드를 입력해주세요.'
+        : password.trim() !== confirmation.trim() ? '비밀번호가 일치하지 않습니다.'
+        : !termsAccepted ? '필수 동의 내용을 확인해주세요.' : null;
+      if (blocked) { Keyboard.dismiss(); setError(blocked); return; }
     }
     Keyboard.dismiss();
     pending.current = true;
@@ -101,6 +105,7 @@ export default function PlatformSignup() {
         allowCompletedExit();
         await loginPlatformMember({ id: result.memberId, name: result.displayName }, result.appSessionToken);
         if (isCurrent()) {
+          showToast(toast.success(`${result.displayName}님, 모두온 가입이 완료됐어요`));
           const route = resolveSessionLandingRoute({ role: null, residentId: '',
             isRequestBoardDesigner: false, isPlatformSignedIn: true, requestedService: service })!;
           if (route === '/services/account') router.dismissTo(route);
@@ -147,7 +152,7 @@ export default function PlatformSignup() {
         </Pressable>
         <ModuonBrand />
       </View>
-      <KeyboardAwareWrapper contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareWrapper contentContainerStyle={styles.content} keyboardShouldPersistTaps="always">
         <Text style={styles.title}>처음에는{`\n`}기본 정보만 입력하세요</Text>
         <Text style={styles.description}>한 번 가입하면 여러 서비스를 이용할 수 있어요.{`\n`}추가 정보는 해당 서비스를 신청할 때 입력합니다.</Text>
         <FormInput label="이름" accessibilityLabel="이름" value={name} onChangeText={setName}
@@ -155,7 +160,7 @@ export default function PlatformSignup() {
         <FormInput label="휴대폰 번호" accessibilityLabel="휴대폰 번호" value={phone}
           onChangeText={value => { setPhone(value); setCode(''); setCooldown(0); setNotice(''); setOtpError(''); }} keyboardType="phone-pad" autoComplete="tel"
           placeholder="010으로 시작하는 11자리" editable={!loading} containerStyle={styles.field} />
-        <Button onPress={() => submit('otp')} variant="outline" loading={loading === 'otp'}
+        <Button onPress={() => submit('otp')} variant="outline" loading={loading === 'otp'} submitOnPressIn
           disabled={Boolean(loading) || cooldown > 0 || !hydrated} fullWidth>
           {cooldown ? `${cooldown}초 후 다시 받기` : '인증 코드 받기'}
         </Button>
@@ -194,7 +199,7 @@ export default function PlatformSignup() {
           </Pressable>
         </> : null}
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        <Button onPress={() => submit('signup')} loading={loading === 'signup'}
+        <Button onPress={() => submit('signup')} loading={loading === 'signup'} submitOnPressIn
           disabled={Boolean(loading) || !hydrated} fullWidth>회원가입 완료</Button>
         <Pressable accessibilityRole="button" disabled={Boolean(loading)} onPress={() => router.replace(resolvePlatformAuthRoute(service, 'login'))} style={styles.link}>
           <Text style={styles.linkText}>이미 계정이 있어요</Text>

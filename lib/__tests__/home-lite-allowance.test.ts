@@ -8,7 +8,14 @@ const parsed = ts.createSourceFile('home-lite.tsx', source, ts.ScriptTarget.Late
 const screen = parsed.statements.find((node): node is ts.FunctionDeclaration =>
   ts.isFunctionDeclaration(node) && node.name?.text === 'HomeLiteScreen');
 if (!screen) throw new Error('Home-lite screen is missing.');
-const renderScript = ts.transpileModule(`(${screen.getText(parsed).replace('export default function', 'function')})();`, {
+// The root back-exit hook runs with the same injected router/BackHandler doubles as the screen.
+const exitHookSource = readFileSync(join(process.cwd(), 'hooks/use-root-exit-confirm.ts'), 'utf8');
+const exitHookParsed = ts.createSourceFile('use-root-exit-confirm.ts', exitHookSource, ts.ScriptTarget.Latest, true);
+const exitHook = exitHookParsed.statements.find((node): node is ts.FunctionDeclaration =>
+  ts.isFunctionDeclaration(node) && node.name?.text === 'useRootExitConfirm');
+if (!exitHook) throw new Error('Root exit hook is missing.');
+const renderScript = ts.transpileModule(`${exitHook.getText(exitHookParsed).replace('export function', 'function')}
+(${screen.getText(parsed).replace('export default function', 'function')})();`, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
 }).outputText;
 
@@ -85,7 +92,7 @@ describe('allowance access from the incomplete-identity FC home', () => {
     result.activate();
     expect(result.hardwareBack()).toBe(!canGoBack);
     if (canGoBack) expect(result.alert).not.toHaveBeenCalled();
-    else expect(result.alert).toHaveBeenCalledWith('앱 종료', expect.any(String), expect.anything(), { cancelable: true });
+    else expect(result.alert).toHaveBeenCalledWith('앱을 종료할까요?', undefined, expect.anything(), { cancelable: true });
     expect(result.replace).not.toHaveBeenCalled();
   });
 });

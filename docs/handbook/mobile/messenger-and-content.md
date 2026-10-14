@@ -7,6 +7,10 @@ source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversa
 
 # Mobile Playbook: Messenger And Content
 
+## 2026-10-15 키보드가 열린 상태의 탭
+
+키보드가 열린 상태에서 화면 안의 버튼·칩·선택 행 탭이 키보드만 닫고 무시되던 문제를 막기 위해 게시판 작성·상세·관리와 공지 작성 폼, 중첩 칩 행은 `keyboardShouldPersistTaps="always"`를 쓴다. 채팅·메신저 메시지와 검색 결과 목록은 빈 곳 탭으로 키보드를 닫도록 `"handled"`를 유지하며, 채팅 FC 선택 목록에도 `"handled"`를 명시했다. 첨부 대기 줄은 `"always"`다.
+
 ## 2026-10-13 조회 결과와 실패 복구
 
 개인·단체·관리자·의뢰 대화와 공지 목록은 정상 배열과 실패를 구분한다. 잘못된 행·페이지·cursor 응답은 빈 목록이나 미확인 수 0으로 바꾸지 않는다. 같은 계정·조건의 성공 자료는 갱신 실패 안내와 함께 유지하며 계정/대화가 바뀐 뒤 이전 응답은 노출하지 않는다. 대화 대상과 unread 권한은 서명 세션에서 정한다.

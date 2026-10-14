@@ -32,6 +32,9 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.jj8127.Garam_in"
     },
+    "androidNavigationBar": {
+      "enforceContrast": false
+    },
     "web": {
       "output": "static",
       "favicon": "./assets/images/moduon/moduon-symbol.png"

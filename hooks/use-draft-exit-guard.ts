@@ -12,9 +12,9 @@ export function useDraftExitGuard(dirty: boolean, busy = false) {
       Alert.alert('처리 중', '현재 작업이 끝난 뒤 이동해 주세요.');
       return;
     }
-    Alert.alert('작성 내용 확인', '저장하지 않은 내용이 있습니다. 작성을 계속할까요?', [
+    Alert.alert('작성 중인 내용을 버릴까요?', '저장하지 않은 내용은 사라져요.', [
       { text: '계속 작성', style: 'cancel' },
-      { text: '내용 버리고 나가기', style: 'destructive', onPress: () => navigation.dispatch(data.action) },
+      { text: '버리고 나가기', style: 'destructive', onPress: () => navigation.dispatch(data.action) },
     ]);
   });
   useFocusEffect(useCallback(() => {
@@ -30,7 +30,12 @@ export function useDraftExitGuard(dirty: boolean, busy = false) {
     }
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (navigation.canGoBack()) navigation.goBack();
-      else Alert.alert('작성 중', '작성 내용을 저장하거나 화면의 뒤로 가기로 취소해 주세요.');
+      else if (busy) Alert.alert('처리 중', '현재 작업이 끝난 뒤 이동해 주세요.');
+      // Root screen: back would close the app, so ask the same discard question.
+      else Alert.alert('작성 중인 내용을 버릴까요?', '저장하지 않은 내용은 사라져요.', [
+        { text: '계속 작성', style: 'cancel' },
+        { text: '버리고 나가기', style: 'destructive', onPress: () => { allowExitRef.current = true; BackHandler.exitApp(); } },
+      ]);
       return true;
     });
     return () => subscription.remove();

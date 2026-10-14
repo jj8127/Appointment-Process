@@ -64,11 +64,7 @@ function button(label) {
     node.children.some((child) => child.type === 'Text' && child.props.children === label));
 }
 function cardStyle() {
-  const card = root.root.findAll((node) => {
-    if (typeof node.type !== 'string') return false;
-    const style = flatten(node.props.style);
-    return style.width === '100%' && style.maxWidth === 340;
-  })[0];
+  const card = root.root.findAll((node) => typeof node.type === 'string' && node.props.accessibilityViewIsModal)[0];
   return flatten(card.props.style);
 }
 function isVisible() { return root.root.findAllByType('Modal').some((modal) => modal.props.visible); }
@@ -148,4 +144,32 @@ test('native Alert override routes through the same queue and is restored on unm
   expect(isVisible()).toBe(false);
   await act(async () => root.unmount());
   expect(Alert.alert).toBe(nativeAlert);
+});
+
+function buttonLabels() {
+  return root.root.findAllByProps({ accessibilityRole: 'button' })
+    .filter((node) => typeof node.type === 'string')
+    .map((node) => node.findByType('Text').props.children);
+}
+
+test('two actions place cancel on the leading side and still dispatch the caller button', async () => {
+  const exit = jest.fn();
+  await act(async () => show('앱 종료', '앱을 종료하시겠습니까?', [
+    { text: '종료', style: 'destructive', onPress: exit },
+    { text: '취소', style: 'cancel' },
+  ]));
+  expect(buttonLabels()).toEqual(['취소', '종료']);
+  await press('종료');
+  expect(exit).toHaveBeenCalledTimes(1);
+  expect(isVisible()).toBe(false);
+});
+
+test('three or more actions stack with the primary first and cancel last', async () => {
+  const pick = jest.fn();
+  await act(async () => show('Choose', '', [
+    { text: 'Cancel', style: 'cancel' }, { text: 'Camera', onPress: pick }, { text: 'Library' },
+  ]));
+  expect(buttonLabels()).toEqual(['Camera', 'Library', 'Cancel']);
+  await press('Camera');
+  expect(pick).toHaveBeenCalledTimes(1);
 });

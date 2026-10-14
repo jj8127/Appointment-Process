@@ -6,10 +6,10 @@ import * as Notifications from 'expo-notifications';
 import { Stack, router, useRootNavigationState } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { enableScreens } from 'react-native-screens';
 import { TourGuideProvider } from 'rn-tourguide';
 
@@ -24,6 +24,7 @@ import { SessionProvider, useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import { logger } from '@/lib/logger';
+import { COLORS } from '@/lib/theme';
 import {
   buildNotificationTargetRoute,
   parseNotificationPushData,
@@ -140,6 +141,14 @@ function HomeLiteLogoutBackButton() {
       <Feather name="log-out" size={24} color="#000" />
     </Pressable>
   );
+}
+
+// Edge-to-edge is mandatory on SDK 54, so the system navigation bar is transparent and
+// NavigationBar.setBackgroundColorAsync is a no-op. Paint an opaque bar behind it instead.
+function AndroidNavigationBarBackdrop() {
+  const { bottom } = useSafeAreaInsets();
+  if (Platform.OS !== 'android' || bottom <= 0) return null;
+  return <View pointerEvents="none" style={[styles.navigationBarBackdrop, { height: bottom }]} />;
 }
 
 function PresenceBootstrap() {
@@ -627,13 +636,19 @@ function RootLayout() {
         });
         const channels = await Notifications.getNotificationChannelsAsync();
         logger.debug('[notifications] android channels', { channels });
-        await NavigationBar.setVisibilityAsync('visible');
-        await NavigationBar.setBackgroundColorAsync(DEFAULT_SCREEN_BACKGROUND);
-        await NavigationBar.setStyle('dark');
       } catch (err) {
-        logger.warn('NavigationBar/Notification setup failed', err);
+        logger.warn('Notification setup failed', err);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    NavigationBar.setVisibilityAsync('visible').catch((err) => {
+      logger.warn('NavigationBar setup failed', err);
+    });
+    // setStyle takes the bar style: 'light' bar => dark buttons on the white backdrop.
+    NavigationBar.setStyle('light');
   }, []);
 
   return (
@@ -865,11 +880,24 @@ function RootLayout() {
               </AppAlertProvider>
             </SessionProvider>
           </QueryClientProvider>
+          <AndroidNavigationBarBackdrop />
         </SafeAreaProvider>
         {showSplash && <SplashAnimation onDone={() => setShowSplash(false)} />}
       </GestureHandlerRootView>
     </ErrorBoundary>
   );
 }
+
+const styles = StyleSheet.create({
+  navigationBarBackdrop: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: DEFAULT_SCREEN_BACKGROUND,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.border.light,
+  },
+});
 
 export default withSentryRoot(RootLayout);

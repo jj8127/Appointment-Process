@@ -1,4 +1,5 @@
 import { useReadAttempt } from '@/lib/use-read-attempt';
+import { SIGNUP_EMAIL_DOMAINS } from '@/lib/signup-profile-options';
 import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
 import { Feather } from '@expo/vector-icons';
@@ -161,14 +162,7 @@ const normalizeAffiliationLabel = (value: string): string => {
   return trimmed;
 };
 
-const EMAIL_DOMAINS = [
-  'naver.com',
-  'gmail.com',
-  'daum.net',
-  'hanmail.net',
-  'nate.com',
-  '직접입력',
-];
+const EMAIL_DOMAINS: string[] = [...SIGNUP_EMAIL_DOMAINS, '직접입력'];
 const CARRIER_OPTIONS = ['SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰'];
 async function sendNotificationAndPush(
   role: 'admin' | 'fc',
@@ -948,7 +942,7 @@ function FcNewScreenContent() {
         contentContainerStyle={[styles.container, { paddingBottom: Math.max(160, keyboardPadding + 120) }]}
         extraScrollHeight={Platform.OS === 'android' ? 220 : 140}
         refreshControl={screenRefreshControl}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         keyboardDismissMode="none"
       >
         {screenContent}

@@ -40,6 +40,8 @@ export const COLORS = {
     dark: '#9a3412',
   },
   error: '#ef4444',
+  // Filled destructive actions: white labels need 4.5:1, which #ef4444 misses.
+  errorButton: '#dc2626',
   errorLight: '#fee2e2',
   info: '#3b82f6',
   infoLight: '#dbeafe',

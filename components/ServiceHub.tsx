@@ -5,6 +5,7 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import ServiceHomeScreen from '@/components/service-home';
 import { useSession } from '@/hooks/use-session';
 import { useAppLogout } from '@/hooks/use-app-logout';
+import { useRootExitConfirm } from '@/hooks/use-root-exit-confirm';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { resolveInsuranceServiceRoute } from '@/lib/service-home';
 
@@ -12,6 +13,7 @@ export default function ServiceHub() {
   const session = useSession();
   const logout = useAppLogout('/', 'service-hub');
   const insets = useSafeAreaInsets();
+  useRootExitConfirm();
   const preset = resolveBottomNavPreset(session, { surface: 'service-hub' });
   const openInsurance = () => {
     const route = resolveInsuranceServiceRoute(session);

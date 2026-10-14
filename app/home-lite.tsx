@@ -1,11 +1,12 @@
 import { QueryReadState } from '@/components/QueryReadState';
 import { Feather } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
+import { router } from 'expo-router';
 import { useCallback, useEffect } from 'react';
-import { Alert, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
+import { useRootExitConfirm } from '@/hooks/use-root-exit-confirm';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { HOME_LITE_PRIMARY_ACTION_ROUTE, buildHomeEntryBreadcrumb } from '@/lib/home-entry-flow';
@@ -66,27 +67,7 @@ export default function HomeLiteScreen() {
     }
   }, [data?.identityCompleted, hydrated, isError, isLoading, isRequestBoardDesigner, role]);
 
-  // Android 뒤로가기 버튼: 앱 종료 확인 다이얼로그
-  useFocusEffect(
-    useCallback(() => {
-      if (Platform.OS !== 'android') return;
-      const onBackPress = () => {
-        if (router.canGoBack()) return false;
-        Alert.alert(
-          '앱 종료',
-          '앱을 종료하시겠습니까?',
-          [
-            { text: '취소', style: 'cancel' },
-            { text: '종료', style: 'destructive', onPress: () => BackHandler.exitApp() },
-          ],
-          { cancelable: true }
-        );
-        return true;
-      };
-      const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
-      return () => sub.remove();
-    }, [])
-  );
+  useRootExitConfirm();
 
   if (isLoading || isError || !data) return <SafeAreaView style={styles.safe}>
     <QueryReadState error={error} message={isLoading ? '신원 정보를 확인하고 있습니다.' : '신원 정보 확인에 실패했습니다. 미입력 상태로 판단하지 않습니다.'}

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { ENROLLMENT_FIELD_ORDER, getEnrollmentFieldErrors } from '../insurance-enrollment-errors';
 import { join } from 'node:path';
 import * as ts from 'typescript';
 import { createReadScope } from '../request-board-read-state';
@@ -813,22 +814,26 @@ describe('mobile route regressions moved from the Edge fixture', () => {
 
 
 it('draft navigation preserves cancellation and busy exits; explicit discard and saved exits dispatch once', () => {
-  function scenario(dirty: boolean, busy: boolean, os = 'android', focused = true) {
+  const exitApp = jest.fn();
+  function scenario(dirty: boolean, busy: boolean, os = 'android', focused = true, canGoBack = true) {
     let callback!: (event: { data: { action: string } }) => void;
     let buttons: { style: string; onPress?: () => void }[] | undefined;
     let hardware!: () => boolean; let beforeUnload!: (event: { preventDefault: () => void; returnValue: string | null }) => void;
     const dispatch: string[] = []; const effects: (() => unknown)[] = [];
     const removeBack = jest.fn();
-    const navigation = { dispatch: (action: string) => dispatch.push(action), canGoBack: () => true, goBack: () => callback({ data: { action: 'back' } }) };
+    const navigation = { dispatch: (action: string) => dispatch.push(action), canGoBack: () => canGoBack, goBack: () => callback({ data: { action: 'back' } }) };
     const allow = mobileModule('hooks/use-draft-exit-guard.ts', {
       '@react-navigation/native': { useNavigation: () => navigation, usePreventRemove: (_enabled: boolean, fn: typeof callback) => { callback = fn; }, useFocusEffect: (fn: () => unknown) => { if (focused) effects.push(fn); } },
       react: { useRef: (value: unknown) => ({ current: value }), useCallback: (fn: unknown) => fn },
-      'react-native': { Alert: { alert: (_title: string, _text: string, next: typeof buttons) => { buttons = next; } }, BackHandler: { addEventListener: (_event: string, fn: typeof hardware) => { hardware = fn; return { remove: removeBack }; } }, Platform: { OS: os } },
+      'react-native': { Alert: { alert: (_title: string, _text: string, next: typeof buttons) => { buttons = next; } }, BackHandler: { exitApp, addEventListener: (_event: string, fn: typeof hardware) => { hardware = fn; return { remove: removeBack }; } }, Platform: { OS: os } },
     }, { window: { addEventListener: (_event: string, fn: typeof beforeUnload) => { beforeUnload = fn; }, removeEventListener() {} } }).useDraftExitGuard(dirty, busy);
     const cleanups = effects.map(effect => effect());
     return { dispatch, allow, exit: () => callback({ data: { action: 'leave' } }), get buttons() { return buttons; }, hardware, event: () => beforeUnload,
       blur: () => cleanups.forEach(cleanup => { if (typeof cleanup === 'function') cleanup(); }), removeBack };
   }
+  const root = scenario(true, false, 'android', true, false); root.hardware();
+  expect(root.buttons!.map(button => button.style)).toEqual(['cancel', 'destructive']); expect(exitApp).not.toHaveBeenCalled();
+  root.buttons![1].onPress!(); expect(exitApp).toHaveBeenCalledTimes(1);
   const dirty = scenario(true, false); dirty.exit(); expect(dirty.dispatch).toEqual([]); expect(dirty.buttons![0].style).toBe('cancel'); dirty.buttons![1].onPress!(); expect(dirty.dispatch).toEqual(['leave']);
   const busy = scenario(false, true); busy.hardware(); expect(busy.dispatch).toEqual([]); expect(busy.buttons).toBeUndefined();
   const saved = scenario(true, true); saved.allow(); saved.exit(); expect(saved.dispatch).toEqual(['leave']);
@@ -852,6 +857,7 @@ describe('common member signup and login use isolated verified authentication', 
     Keyboard: { dismiss: jest.fn() }, setError: jest.fn(), setOtpError: jest.fn(), setNotice: jest.fn(), setLoading: jest.fn(), setCooldown: jest.fn(),
     PlatformApiError: TestPlatformApiError,
     beginAttempt: () => () => true, allowCompletedExit: jest.fn(), loginPlatformMember: jest.fn(async () => undefined),
+    showToast: jest.fn(), toast: { success: (message: string) => ({ message, variant: 'success' }) },
     captureAppSessionOwner: () => () => true,
     acceptLoginResponse: jest.fn(async () => 'fc'),
     handleLoginRejection: jest.fn(async () => false), setManualLoginSucceeded: jest.fn(),
@@ -871,6 +877,7 @@ describe('common member signup and login use isolated verified authentication', 
     expect(context.loginPlatformMember).toHaveBeenCalledWith({ id: 'synthetic-member', name: '가상 회원' }, 'fictional-consumer-token');
     expect(context.router.dismissTo).toHaveBeenCalledWith('/services/account');
     expect(context.router.replace).not.toHaveBeenCalled();
+    expect(context.showToast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success', message: expect.stringContaining('가입이 완료') }));
   });
 
   it('signup preserves insurance intent instead of dismissing to the common account', async () => {
@@ -1275,7 +1282,8 @@ describe('unified common account to insurance registration callbacks', () => {
     buildStoredSignupReferral, getSignupReferralSelectionError, hasValidStoredSignupReferral,
     validateEmail, validateRequired, normalizeLicenseStatuses, INSURANCE_CONSENT_VERSION: 'insurance-additional-info-v1',
     tracker: { current: createCreationRequestTracker(() => 'fictional-operation') }, beginSubmit: actualBeginAttempt(),
-    setSubmitting: jest.fn(), setSaveError: jest.fn(), Alert: { alert: jest.fn() },
+    setSubmitting: jest.fn(), setSaveError: jest.fn(), setFieldErrors: jest.fn(), revealField: jest.fn(),
+    getEnrollmentFieldErrors, ENROLLMENT_FIELD_ORDER,
     platformRequest: jest.fn(async () => ({ ok: true, insuranceSession, alreadyApplied: false })),
     acceptLoginResponse: jest.fn(async () => 'fc'), allowExit: jest.fn(),
     buildApplyGateIdentityRoute: (next: string) => ({ pathname: '/identity', params: { next } }),
@@ -1283,12 +1291,22 @@ describe('unified common account to insurance registration callbacks', () => {
   });
 
   it.each([
-    { consentAccepted: false }, { affiliation: '' }, { email: 'bad email' }, { carrier: '' }, { selectedReferral: null }, { validating: true },
-  ])('rejects an incomplete consent/service/referral selection before mutation: %j', async (missing) => {
+    [{ affiliation: '' }, 'affiliation'], [{ email: 'bad email' }, 'email'], [{ carrier: '' }, 'carrier'],
+    [{ selectedReferral: null }, 'referral'], [{ validating: true }, 'referral'],
+  ])('marks the incomplete field inline and reveals it before mutation: %j', async (missing, field) => {
     const context = makeContext(missing);
     await routeHandler('app/apply-gate.tsx', 'submitEnrollment', context)();
     expect(context.platformRequest).not.toHaveBeenCalled();
-    expect(context.Alert.alert).toHaveBeenCalledWith('입력 확인', expect.any(String));
+    expect(context.setFieldErrors).toHaveBeenCalledWith(expect.objectContaining({ [field]: expect.any(String) }));
+    expect(context.revealField).toHaveBeenCalledWith(field);
+  });
+
+  it('requires consent before validating fields or mutating', async () => {
+    const context = makeContext({ consentAccepted: false });
+    await routeHandler('app/apply-gate.tsx', 'submitEnrollment', context)();
+    expect(context.platformRequest).not.toHaveBeenCalled();
+    expect(context.setSaveError).toHaveBeenCalledWith(expect.stringContaining('동의'));
+    expect(context.revealField).not.toHaveBeenCalled();
   });
 
   it('uses explicit insurance fields and signed common session, never repeating account signup', async () => {
