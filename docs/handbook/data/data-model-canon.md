@@ -21,6 +21,10 @@ Request Board는 기존 generation ledger의 canonical `fc:UUID`와 일치하는
 
 legacy 신원 연결·회사 source 모순·운영 인증 예약 호출·동시 서버 채택은 별도 배포 조건이다. 현재 실제 운영 계정 삭제나 DB/Edge 배포는 수행하지 않았다. 자세한 동의·client 확인·회사 예외는 [공통 서비스 계약](../mobile/platform-services.md)을 따른다.
 
+## 2026-10-14 퇴사 FC의 수당 신원 분리
+
+게시 수당의 활성 FC FK는 nullable/ON DELETE SET NULL로 분리한다. private `beneficiary_fc_id_snapshot`은 이전 UUID를 보존하지만 인증·수당 접근 권한을 주지 않는다. 기존 불변 trigger는 삭제된 FC의 중첩 FK 갱신에만 신원 분리 예외를 두며 금액·명세·게시 상태·revision을 유지한다. 직접 또는 위조 연결 해제와 archive 변경/재연결은 거부한다. 활성 계정의 기존 conflict target과 API payload는 유지하고 archive의 출처·revision·단일 게시월 유일성을 추가 검증한다. 기존 SQL fixture로 실제 삭제, 다른 수령인 보호, 재적용, 불변성·권한·중복 제약을 검증한다.
+
 ## 2026-10-14 공통 회원·보험 추가 등록 통합 (로컬)
 
 ordered migration `20261014043557_unified_common_insurance_enrollment.sql`과 schema snapshot을 함께 갱신한다. company-attested source UUID cohort는 적용 시점에 고정하고 public table RLS/직접 접근 회수를 유지한다. 새 import를 먼저 만든 뒤 기존 FC·manager-shadow 보험 추천을 canonical common inviter로 연결하며 기존 common 선택 관계(선택 없음 포함)는 덮지 않는다. 실제 수락 일시와 회사 확인의 기록 일시/출처를 구분한다. 탈퇴는 접근을 제한한 source UUID/tombstone과 cohort의 최초 연결 기록을 남겨 자동 재활성화를 막고 확인 근거를 유지하며 unknown historical withdrawal이면 migration을 중단한다. 이 UUID는 업무 계정과 연결 가능하므로 완전한 익명 자료라고 표현하지 않는다.

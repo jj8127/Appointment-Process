@@ -5883,3 +5883,10 @@
 - Cause: the consumer and test fixture agreed on an invented representation without checking the real issuer and its bridge-only callers.
 - Guardrail: inspect existing producer/caller identity, signed claims and canonical lookup/lock namespace before adding a cross-service operation. Extend the closest fixture with the actual builder output and preserve credential-generation semantics; do not create a second identity or a fake password generation.
 - Evidence: existing request-board-auth and bridge tests, namespaced SQL fixture and independent PostgreSQL bridge/sync-retirement races. These are local product checks, not a production binding audit.
+
+## 2026-10-14 | Deleting through a live row-locking cursor skipped rewritten targets
+
+- Symptom: an account-cleanup batch failed its final target-count guard and was fully rolled back.
+- Cause: a live FOR UPDATE cursor was traversed while account deletion rewrote later target rows through referral FK SET NULL actions.
+- Guardrail: freeze opaque approved target keys, lock rows in a stable order, then iterate the frozen keys and reread/validate each row. Keep exact count and identity postconditions; never relax them or retry an uncertain commit without checking state.
+- Verification: a rollback-only reproduction and committed per-batch count/cleanup checks. This is an operations ordering rule, not a reason to change shared grants or disable financial immutability triggers.

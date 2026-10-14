@@ -108,3 +108,9 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 - Edge는 signed FC/manager의 정확한 profile과 수령인 행을 매번 확인한다. body에는 action/month만 허용한다. 응답은 그 사람의 게시된 월 목록과 선택 명세뿐이며 익명 요청은 401/no-store다.
 - 사용자 승인으로 migration `20260907115710`, Edge v2 ACTIVE, 19명(18명 신규)의 6월 게시가 완료됐다. 각 명세와 작업자/원본 결과가 일치하고 기존 시범 revision은 1이다. 보류 24명은 별도 사용자 명단으로 정리했다. 공개 모바일/웹 배포와 실기기 검증은 별도다.
 - 계보 4개·200개 관계를 DB와 대조해 null 연결 25건만 기존 audited RPC로 추가했다. non-null 변경 0건, 기존 불일치 21건 유지, 관리자 상위자 후보 2건과 신원 미확정 122건 보류다. 역할 규칙을 우회하거나 계정을 만들지 않았다.
+
+### 퇴사 FC 삭제와 게시 명세 보존
+
+- 활성 FC 참조는 삭제 시 null로 분리하고, private `beneficiary_fc_id_snapshot`에 원래 UUID를 남긴다. 명세 JSON, 금액, 출처, revision, 게시 상태·시각은 바뀌지 않는다.
+- 기존 불변 가드는 실제 FC 삭제의 중첩 FK 갱신에만 예외를 둔다. archive 재연결·수정과 직접 신원 해제는 차단하며, archive의 출처/revision/단일 게시월 제약도 유지한다.
+- 보존 행은 운영 이력이며 새로운 FC나 공통회원에게 수당 조회 권한을 주지 않는다. 활성 수령인 검증과 기존 API 응답은 유지한다.

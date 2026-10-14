@@ -20,6 +20,15 @@
 - Request Board persisted token-version/활성 상태와 기존 runtime revoke를 재사용한다. 송수신 socket 권한과 idle 재검증은 후속 접근을 제한하지만 이미 전송 중인 전역 메시지를 즉시 회수한다고 주장하지 않는다. 구 phone-only 신원 연결과 legacy producer, 전체 서버 채택은 배포 선행 조건이다.
 - 기존 service-only 재처리 경로를 준비하되 운영 authenticated scheduler는 아직 설정·검증하지 않았다. 실제 계정 삭제/운영 조회·migration·Edge·웹·OTA·스토어·push는 수행하지 않는다. 정확한 최종 검사/커밋/남은 조건은 canonical unified-membership-20261014의 다섯 문서에서 관리한다.
 
+<a id="20261014-retired-fc-detach"></a>
+## 2026-10-14 퇴사 FC와 공통 인증·수당 이력 분리
+
+- 기존 FC·공통 로그인 모두 PBKDF2/SHA-256, 같은 salt와 iteration을 사용한다. 같은 회원의 credential·잠금 상태를 이관하고 FC 연결만 해제한다. 기존 FC 기반 세션은 종료되고 공통 재로그인이 필요하다. 동의·추천·회원 식별값은 유지한다.
+- 게시 수당의 기존 불변 guard를 재사용하여 FK에 의한 실제 FC 삭제만 신원 분리한다. private 이전 UUID를 남기고 live FK는 null로 바꾸며, 명세·금액·게시 시각/상태·revision은 유지한다.
+- 직접/위조 중첩 해제, 재연결 및 archive 변경을 거부한다. archive의 출처/revision/단일 게시월 유일성도 유지하며 RLS·권한·기존 활성 수령인 API payload는 바꾸지 않는다.
+- 기존 referral-allowance SQL suite에 세 직접 회귀 시나리오를 확장했다. 로컬 SQL 실행과 schema mirror 검증을 통과했으며 운영 적용 전에는 배포 source를 커밋하고 clean 여부를 확인한다.
+- 실제 대상은 승인 당시 고정한 식별자/변경 guard로 제한한다. 신규 FC, 보존 대상, 관리자용 연결 프로필, 다른 계정의 파일·수당·인증은 변경하지 않는다. PII·비밀번호·token·원시 운영 기록은 source나 evidence에 기록하지 않는다.
+
 <a id="20261014-local-paired-install"></a>
 ## 2026-10-14 페어링 기기 로컬 설치와 진료 분야 누락 수정
 

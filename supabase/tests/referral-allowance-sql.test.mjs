@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 const { PGlite } = createRequire(import.meta.url)(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
 const migration = await readFile(new URL('../migrations/20260907053913_referral_allowance_pilot.sql', import.meta.url), 'utf8');
 const recipientsMigration = await readFile(new URL('../migrations/20260907115710_referral_allowance_recipients.sql', import.meta.url), 'utf8');
+const detachMigration = await readFile(new URL('../migrations/20261014082220_detach_retired_fc_allowance_identity.sql', import.meta.url), 'utf8');
 const admin = '40000000-0000-4000-8000-000000000001';
 const inactiveAdmin = '40000000-0000-4000-8000-000000000002';
 const manager = '10000000-0000-4000-8000-000000000001';
@@ -34,7 +35,7 @@ function snapshot(amount = 1000) {
   };
 }
 
-async function database(expand = true) {
+async function database(expand = true, detach = true) {
   const db = new PGlite();
   await db.exec(`
     create role anon; create role authenticated; create role service_role bypassrls;
@@ -48,6 +49,7 @@ async function database(expand = true) {
   `);
   await db.exec(migration);
   if (expand) await db.exec(recipientsMigration);
+  if (detach) await db.exec(detachMigration);
   await db.exec('set role service_role');
   return db;
 }
@@ -75,6 +77,7 @@ test('the additive schema mirror exactly matches the executable migration', asyn
   assert.equal(schema.split(marker).length, 2);
   assert.ok(schema.includes(marker + migration.replace(/\r/g, '')));
   assert.ok(schema.includes('-- 20260907115710_referral_allowance_recipients\n' + recipientsMigration.replace(/\r/g, '')));
+  assert.ok(schema.includes('-- 20261014082220_detach_retired_fc_allowance_identity\n' + detachMigration.replace(/\r/g, '')));
 });
 
 test('FC and manager recipients publish independently and cannot read each other or revive revoked data', async () => {
@@ -301,5 +304,102 @@ test('queued publication attempts retain one published month and fresh active-ac
     assert.deepEqual(await read(db, 'access'), { ok: true, enabled: false });
     await rejectsCode(read(db), '42501');
     await configure(db, 1, false);
+  } finally { await db.close(); }
+});
+
+test('deleting an FC detaches reviewed history without altering it or another recipient', async () => {
+  const db = await database(true, false);
+  try {
+    await configure(db);
+    const own = (await draft(db)).import;
+    await publish(db, own);
+    await configure(db, 0, true, { manager: otherManager, fc: otherFc, employeeCode: '000002' });
+    const other = (await draft(db, { manager: otherManager, fc: otherFc, employeeCode: '000002', snapshot: snapshot(2000) })).import;
+    await publish(db, other);
+    const before = (await db.query('select * from referral_allowance_imports where id=$1', [own.id])).rows[0];
+    const otherBefore = await read(db, 'statement', null, otherManager, otherFc);
+    await db.exec('reset role');
+    await db.exec(detachMigration);
+    await db.exec(detachMigration);
+    await db.query('delete from referral_allowance_recipients where beneficiary_fc_id=$1', [fc]);
+    await db.query('delete from referral_allowance_pilot where beneficiary_fc_id=$1', [fc]);
+    await db.query('delete from fc_profiles where id=$1', [fc]);
+    const after = (await db.query('select * from referral_allowance_imports where id=$1', [own.id])).rows[0];
+    assert.equal(after.beneficiary_fc_id, null);
+    assert.equal(after.beneficiary_fc_id_snapshot, fc);
+    const historyBefore = { ...before };
+    const historyAfter = { ...after };
+    delete historyBefore.beneficiary_fc_id;
+    delete historyAfter.beneficiary_fc_id;
+    delete historyAfter.beneficiary_fc_id_snapshot;
+    assert.deepEqual(historyAfter, historyBefore);
+    assert.equal((await db.query('select count(*)::int as count from fc_profiles where id=$1', [fc])).rows[0].count, 0);
+    await db.exec('set role service_role');
+    assert.deepEqual(await read(db, 'statement', null, otherManager, otherFc), otherBefore);
+    assert.deepEqual(await read(db, 'access'), { ok: true, enabled: false });
+    await rejectsCode(read(db), '42501');
+  } finally { await db.close(); }
+});
+
+test('direct and forged nested detachment fail, and archived history cannot be edited or relinked', async () => {
+  const db = await database();
+  try {
+    await configure(db);
+    const row = (await draft(db)).import;
+    await publish(db, row);
+    await rejectsCode(db.query('update referral_allowance_imports set beneficiary_fc_id=null where id=$1', [row.id]), '23514');
+    await rejectsCode(db.query('update referral_allowance_imports set beneficiary_fc_id=$1 where id=$2', [otherFc, row.id]), '23514');
+    await db.exec('reset role');
+    await db.exec(`
+      create table synthetic_detach_attempt(id uuid);
+      create function synthetic_nested_detach() returns trigger language plpgsql as $$
+      begin
+        update referral_allowance_imports set beneficiary_fc_id=null where id=new.id;
+        return new;
+      end $$;
+      create trigger synthetic_nested_detach after insert on synthetic_detach_attempt
+      for each row execute function synthetic_nested_detach();
+    `);
+    await rejectsCode(db.query('insert into synthetic_detach_attempt values ($1)', [row.id]), '23514');
+    await db.query('delete from referral_allowance_recipients where beneficiary_fc_id=$1', [fc]);
+    await db.query('delete from referral_allowance_pilot where beneficiary_fc_id=$1', [fc]);
+    await db.query('delete from fc_profiles where id=$1', [fc]);
+    await db.exec('set role service_role');
+    await rejectsCode(db.query("update referral_allowance_imports set snapshot='{}'::jsonb where id=$1", [row.id]), '23514');
+    await rejectsCode(db.query("update referral_allowance_imports set status='superseded',superseded_at=now() where id=$1", [row.id]), '23514');
+    await rejectsCode(db.query('update referral_allowance_imports set beneficiary_fc_id=$1,beneficiary_fc_id_snapshot=null where id=$2', [otherFc, row.id]), '23514');
+    await rejectsCode(db.query('update referral_allowance_imports set beneficiary_fc_id_snapshot=$1 where id=$2', [otherFc, row.id]), '23514');
+  } finally { await db.close(); }
+});
+
+test('archived imports preserve source idempotency, revision uniqueness and one published month', async () => {
+  const db = await database();
+  try {
+    await configure(db);
+    const row = (await draft(db)).import;
+    await publish(db, row);
+    await db.exec('reset role');
+    await db.query('delete from referral_allowance_recipients where beneficiary_fc_id=$1', [fc]);
+    await db.query('delete from referral_allowance_pilot where beneficiary_fc_id=$1', [fc]);
+    await db.query('delete from fc_profiles where id=$1', [fc]);
+    for (const duplicate of [
+      { hash: 'a'.repeat(64), revision: 11, status: 'draft' },
+      { hash: 'b'.repeat(64), revision: 1, status: 'draft' },
+      { hash: 'b'.repeat(64), revision: 2, status: 'published' },
+    ]) {
+      await rejectsCode(db.query(`
+        insert into referral_allowance_imports (
+          manager_account_id,beneficiary_fc_id,beneficiary_fc_id_snapshot,employee_code,
+          performance_month,payment_date,genealogy_as_of,source_sha256,policy_version,
+          pilot_revision,revision,snapshot,status,created_by,published_by,published_at
+        ) select manager_account_id,null,beneficiary_fc_id_snapshot,employee_code,
+          performance_month,payment_date,genealogy_as_of,$2,policy_version,
+          pilot_revision,$3,snapshot,$4,created_by,
+          case when $4='published' then published_by else null end,
+          case when $4='published' then published_at else null end
+        from referral_allowance_imports where id=$1
+      `, [row.id, duplicate.hash, duplicate.revision, duplicate.status]), '23505');
+    }
+    assert.equal((await db.query('select count(*)::int as count from referral_allowance_imports')).rows[0].count, 1);
   } finally { await db.close(); }
 });
