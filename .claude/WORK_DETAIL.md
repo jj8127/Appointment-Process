@@ -1,5 +1,14 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261014-moduon-server-release"></a>
+## 2026-10-14 모두온 단일 계정·서비스별 추천인 서버 운영 반영
+
+- 배포 source: `feature/moduon-single-account-20261014` clean `d6f0b8da4a9de4775870250194de9aeae5bcc2db`(로컬 커밋, push 안 함). 운영 Edge의 기존 source(3b546af·58a714f)는 모두 이 커밋의 조상이다.
+- DB: dry-run에서 대기 4개만 확인 후 `supabase db push --linked --include-all`로 20261014043557·20261014073458·20261014120000·20261014130000 적용. 043557·073458은 이미 적용된 20261014084133보다 앞선 timestamp라 include-all이 필요했다. 적용 후 migration list의 local/remote가 일치한다.
+- Edge: 공용 모듈 변경은 additive라 새 동작을 쓰는 5개만 재배포했다(platform-service v5 verify_jwt=false, delete-account v47, request-password-reset v49, reset-password v51, verify-request-board-session v4, 모두 ACTIVE·config.toml과 같은 JWT 설정). 나머지 45개는 재배포하지 않았다.
+- 확인: 계정 없이 공개 병원 지역 200, 잘못된 번호 400 invalid_phone, 무세션 401, bridge 없는 검증 401을 확인했다. 실제 계정 로그인·가입·직원 부여·추천·탈퇴와 Edge 오류 로그 조회는 수행하지 않았다(이 세션에 로그 조회 도구 없음).
+- 사용자 결정: 구버전 앱(4.2.17/4.2.18)의 가입·탈퇴 등 동작 중단을 감수하고 당일 앱 빌드로 대체한다. 의뢰게시판 서버(retire/v2 sync)와 탈퇴 정리 예약이 없어 새 탈퇴 요청은 잠금 후 pending으로 남는다. 관리자 웹 배포는 포함하지 않았다.
+
 <a id="20261014-service-referrals"></a>
 ## 2026-10-14 제휴 서비스별 추천인과 가족간병 소개 분리
 
