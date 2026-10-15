@@ -17,6 +17,7 @@ describe('direct message read receipts', () => {
   it('formats bounded numeric receipt counts', () => {
     expect(formatUnreadReceiptCount(0)).toBe('');
     expect(formatUnreadReceiptCount(1)).toBe('1');
-    expect(formatUnreadReceiptCount(101)).toBe('99+');
+    expect(formatUnreadReceiptCount(698)).toBe('698');
+    expect(formatUnreadReceiptCount(1200)).toBe('999+');
   });
 });

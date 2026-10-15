@@ -10,6 +10,7 @@ import {
   type MessengerPersonRole,
   type MessengerPersonRoleFilter,
 } from '@/lib/messenger-hub-model';
+import { formatMessengerListTime } from '@/lib/messenger-time';
 
 const ACCENT = '#f36f21';
 
@@ -189,7 +190,7 @@ export const MessengerHubConversationRow = memo(function MessengerHubConversatio
   onToggleMuted?: (item: MessengerHubConversation) => void;
   muting?: boolean;
 }) {
-  const formattedTime = formatConversationTime(item.timestamp);
+  const formattedTime = formatMessengerListTime(item.timestamp);
   const suppressNextPressRef = useRef(false);
   return (
     <Pressable
@@ -310,13 +311,6 @@ export function MessengerHubEmpty({ tab }: { tab: 'people' | 'chats' }) {
       <Text style={styles.emptyDetail}>{tab === 'people' ? '잠시 후 다시 불러와 주세요.' : '사람 탭에서 대화를 시작할 수 있습니다.'}</Text>
     </View>
   );
-}
-
-function formatConversationTime(value: string | null) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return '';
-  return date.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
 }
 
 const styles = StyleSheet.create({

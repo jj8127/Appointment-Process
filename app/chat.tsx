@@ -32,12 +32,15 @@ import {
   MessengerMessageActionSheet,
 } from '@/components/MessengerMessageActionSheet';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
+import { useLatestMessageJump } from '@/hooks/use-latest-message-jump';
 import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
 import { useSession } from '@/hooks/use-session';
 import { createReadScope } from '@/lib/request-board-read-state';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
+import { JumpToLatestButton } from '@/components/messenger/JumpToLatestButton';
+import { MessengerDayDivider } from '@/components/messenger/MessengerDayDivider';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import {
   deleteGaraminDirectMessage,
@@ -96,6 +99,7 @@ import {
   sortConversationsByLastMessageTime,
 } from '@/lib/messenger-room-ordering';
 import { formatOperationsMessengerName } from '@/lib/messenger-hub-model';
+import { formatMessengerTime, startsMessengerDay } from '@/lib/messenger-time';
 import {
   aggregatePresence,
   formatPresenceLabel,
@@ -1621,11 +1625,6 @@ export default function ChatScreen() {
     if (message) handleDeleteMessage(message);
   };
 
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-  };
-
   const openFcChatTarget = (target: FcChatTarget) => {
     router.push({
       pathname: '/chat',
@@ -1785,7 +1784,7 @@ export default function ChatScreen() {
     );
   };
 
-  const renderItem = ({ item }: { item: Message }) => {
+  const renderItem = ({ item, index }: { item: Message; index: number }) => {
     const isMe = item.sender_id === myId;
     const isHighlighted = highlightedMessageId === item.id;
     const unreadReceiptCount = getDirectMessageUnreadCount({
@@ -1795,11 +1794,15 @@ export default function ChatScreen() {
     const messageMeta = (
       <View style={[styles.messageSideMeta, isMe ? styles.messageSideMetaMe : styles.messageSideMetaOther]}>
         <MessageUnreadReceiptBadge count={unreadReceiptCount} />
-        <Text style={styles.timeText}>{formatTime(item.created_at)}</Text>
+        <Text style={styles.timeText}>{formatMessengerTime(item.created_at)}</Text>
       </View>
     );
 
     return (
+      <>
+      {startsMessengerDay(messages, index, (message) => message.created_at) ? (
+        <MessengerDayDivider createdAt={item.created_at} />
+      ) : null}
       <View
         style={[
           styles.msgRow,
@@ -1851,6 +1854,7 @@ export default function ChatScreen() {
           </View>
         </View>
       </View>
+      </>
     );
   };
 
@@ -2028,6 +2032,9 @@ export default function ChatScreen() {
     }
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, []);
+
+  const isOwnDirectMessage = useCallback((message: Message) => message.sender_id === myId, [myId]);
+  const latestJump = useLatestMessageJump(messages, isOwnDirectMessage, flatListRef);
 
   const showAnchorReturnToLatest = Boolean(
     anchorMessageIdValue
@@ -2243,19 +2250,26 @@ export default function ChatScreen() {
       ) : null}
 
       <View style={{ flex: 1 }}>
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          extraData={highlightedMessageId}
-          inverted
-          onScrollToIndexFailed={handleAnchorScrollFailure}
-          contentContainerStyle={styles.listContent}
-          style={styles.list}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="none"
-        />
+        <View style={styles.list}>
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            extraData={highlightedMessageId}
+            inverted
+            onScroll={latestJump.onScroll}
+            scrollEventThrottle={64}
+            onScrollToIndexFailed={handleAnchorScrollFailure}
+            contentContainerStyle={styles.listContent}
+            style={styles.list}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="none"
+          />
+          {latestJump.awayFromLatest && !showAnchorReturnToLatest ? (
+            <JumpToLatestButton hasNewMessage={latestJump.hasNewMessage} onPress={latestJump.jumpToLatest} />
+          ) : null}
+        </View>
 
         <KeyboardSafeBottomBar>
           <View

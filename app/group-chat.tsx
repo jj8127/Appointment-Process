@@ -43,7 +43,10 @@ import {
 } from '@/components/MessengerMessageActionSheet';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
+import { JumpToLatestButton } from '@/components/messenger/JumpToLatestButton';
+import { MessengerDayDivider } from '@/components/messenger/MessengerDayDivider';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
+import { useLatestMessageJump } from '@/hooks/use-latest-message-jump';
 import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
 import { useSession } from '@/hooks/use-session';
 import { createReadScope } from '@/lib/request-board-read-state';
@@ -59,6 +62,7 @@ import {
   normalizeGroupChatMemberSearch,
   resolveGroupChatSendPermission,
 } from '@/lib/group-chat-display';
+import { startsMessengerDay } from '@/lib/messenger-time';
 import {
   openAuthorizedMessengerAttachment,
   openMessengerAttachment,
@@ -226,8 +230,13 @@ const MemberListRow = memo(function MemberListRow({
 }: MemberListRowProps) {
   const statusTone = getGroupChatMemberStatusTone(member);
   const canManageSendPermission = canManageMemberSendPermissions && member.role === 'fc';
+  // The switch sits in a scrolling list, so a stray touch must not change someone's permission.
   const handleSwitchChange = useCallback((nextValue: boolean) => {
-    onToggle(member, nextValue);
+    const name = member.name ?? '이 참여자';
+    Alert.alert(nextValue ? `${name} 님의 채팅을 허용할까요?` : `${name} 님의 채팅을 금지할까요?`, undefined, [
+      { text: '취소', style: 'cancel' },
+      { text: nextValue ? '허용' : '금지', onPress: () => onToggle(member, nextValue) },
+    ]);
   }, [member, onToggle]);
 
   return (
@@ -862,35 +871,56 @@ export default function GroupChatScreen() {
 
     const shouldClear = notice?.message_id === message.id;
     setActionMessage(null);
-    setNoticeUpdating(true);
-    try {
-      if (shouldClear) {
-        await groupChatClearNotice();
-        setNotice(null);
-      } else {
-        const result = await groupChatSetNotice(message.id);
-        setNotice(result.notice);
+    const apply = async () => {
+      setNoticeUpdating(true);
+      try {
+        if (shouldClear) {
+          await groupChatClearNotice();
+          setNotice(null);
+        } else {
+          const result = await groupChatSetNotice(message.id);
+          setNotice(result.notice);
+        }
+      } catch (error) {
+        logger.warn('[group-chat] notice update failed', error);
+        showGroupChatErrorAlert(error);
+      } finally {
+        setNoticeUpdating(false);
       }
-    } catch (error) {
-      logger.warn('[group-chat] notice update failed', error);
-      showGroupChatErrorAlert(error);
-    } finally {
-      setNoticeUpdating(false);
+    };
+    // Clearing or replacing the notice reaches every member at once, so it asks first.
+    if (shouldClear || notice) {
+      Alert.alert(shouldClear ? '공지를 내릴까요?' : '공지를 바꿀까요?', undefined, [
+        { text: '취소', style: 'cancel' },
+        { text: shouldClear ? '내리기' : '바꾸기', onPress: () => void apply() },
+      ]);
+      return;
     }
-  }, [actionMessage, canManageNotice, notice?.message_id]);
+    await apply();
+  }, [actionMessage, canManageNotice, notice]);
 
-  const handleNoticeClear = useCallback(async () => {
+  const handleNoticeClear = useCallback(() => {
     if (!canManageNotice || !notice) return;
-    setNoticeUpdating(true);
-    try {
-      await groupChatClearNotice();
-      setNotice(null);
-    } catch (error) {
-      logger.warn('[group-chat] notice clear failed', error);
-      showGroupChatErrorAlert(error);
-    } finally {
-      setNoticeUpdating(false);
-    }
+    Alert.alert('공지를 내릴까요?', undefined, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '내리기',
+        onPress: () => {
+          void (async () => {
+            setNoticeUpdating(true);
+            try {
+              await groupChatClearNotice();
+              setNotice(null);
+            } catch (error) {
+              logger.warn('[group-chat] notice clear failed', error);
+              showGroupChatErrorAlert(error);
+            } finally {
+              setNoticeUpdating(false);
+            }
+          })();
+        },
+      },
+    ]);
   }, [canManageNotice, notice]);
 
   const handleReactionAction = useCallback(async (message: GroupChatMessage, reaction: string) => {
@@ -919,13 +949,6 @@ export default function GroupChatScreen() {
       },
     });
   }, [actionMessage, canDeleteMessage, notice?.message_id, updateMessage]);
-
-  const handleMessagePress = useCallback((message: GroupChatMessage) => {
-    if (message.deleted_at) return;
-    if ((message.message_type === 'image' || message.message_type === 'file') && message.file_url) {
-      void openMessengerAttachment(message.file_url, { logScope: 'group-chat' });
-    }
-  }, []);
 
   const buildOptimisticMessage = useCallback((input: OptimisticMessageInput): GroupChatMessage | null => {
     if (!actor || !room) return null;
@@ -1088,6 +1111,41 @@ export default function GroupChatScreen() {
     }
     return true;
   }, [applyMessages, load, removeMessage, updateMessage]);
+
+  // A failed text keeps its bubble; tapping it offers a resend (a new idempotent send) or removal.
+  const handleFailedMessagePress = useCallback((message: GroupChatMessage) => {
+    if (message.send_status !== 'failed') return;
+    Alert.alert('전송 실패', undefined, [
+      { text: '취소', style: 'cancel' },
+      { text: '삭제', style: 'destructive', onPress: () => removeMessage(message.id) },
+      {
+        text: '다시 보내기',
+        onPress: () => {
+          if (!canSendMessages) {
+            showSendPermissionAlert();
+            return;
+          }
+          updateMessage(message.id, { send_status: 'sending' });
+          void sendOptimisticToServer(message.id, {
+            content: message.content,
+            messageType: message.message_type,
+            replyToMessageId: message.reply_to_message_id,
+          });
+        },
+      },
+    ]);
+  }, [canSendMessages, removeMessage, sendOptimisticToServer, showSendPermissionAlert, updateMessage]);
+
+  const handleMessagePress = useCallback((message: GroupChatMessage) => {
+    if (message.deleted_at) return;
+    if (message.send_status === 'failed') {
+      handleFailedMessagePress(message);
+      return;
+    }
+    if ((message.message_type === 'image' || message.message_type === 'file') && message.file_url) {
+      void openMessengerAttachment(message.file_url, { logScope: 'group-chat' });
+    }
+  }, [handleFailedMessagePress]);
 
   const sendPayload = useCallback(async (
     content: string,
@@ -1603,7 +1661,7 @@ export default function GroupChatScreen() {
     );
   }, [openMessageActions]);
 
-  const renderItem = useCallback(({ item }: { item: GroupChatMessage }) => {
+  const renderItem = useCallback(({ item, index }: { item: GroupChatMessage; index: number }) => {
     const isMe = item.sender_actor_id === actor?.id;
     const isHighlighted = item.id === highlightedMessageId;
     const unreadCount = Math.max(0, Number(item.unread_count ?? 0));
@@ -1615,12 +1673,27 @@ export default function GroupChatScreen() {
           <MessageUnreadReceiptBadge count={unreadCount} />
         )}
         {item.send_status === 'sending' && <Text style={styles.messageSendStatus}>전송중</Text>}
-        {item.send_status === 'failed' && <Text style={[styles.messageSendStatus, styles.messageSendStatusFailed]}>실패</Text>}
+        {item.send_status === 'failed' && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="전송 실패, 다시 보내기 또는 삭제"
+            hitSlop={8}
+            onPress={() => handleFailedMessagePress(item)}
+            style={styles.messageSendFailedButton}
+          >
+            <Feather name="rotate-cw" size={11} color="#DC2626" />
+            <Text style={[styles.messageSendStatus, styles.messageSendStatusFailed]}>실패</Text>
+          </Pressable>
+        )}
         <Text style={styles.timeText}>{formatGroupChatTime(item.created_at)}</Text>
       </View>
     );
 
     return (
+      <>
+      {startsMessengerDay(messages, index, (message) => message.created_at) ? (
+        <MessengerDayDivider createdAt={item.created_at} />
+      ) : null}
       <View style={[
         styles.msgRow,
         isMe ? styles.msgRowMe : styles.msgRowOther,
@@ -1671,8 +1744,12 @@ export default function GroupChatScreen() {
           )}
         </View>
       </View>
+      </>
     );
-  }, [actor?.id, handleMessagePress, handleReactionAction, highlightedMessageId, openMessageActions, renderMessageContent, renderReplyPreview]);
+  }, [actor?.id, handleFailedMessagePress, handleMessagePress, handleReactionAction, highlightedMessageId, messages, openMessageActions, renderMessageContent, renderReplyPreview]);
+
+  const isOwnGroupMessage = useCallback((message: GroupChatMessage) => message.sender_actor_id === actor?.id, [actor?.id]);
+  const latestJump = useLatestMessageJump(messages, isOwnGroupMessage, flatListRef);
 
   const headerSubtitle = useMemo(() => `${memberCount.toLocaleString('ko-KR')}명 참여`, [memberCount]);
   const showAnchorReturnToLatest = Boolean(
@@ -1736,7 +1813,7 @@ export default function GroupChatScreen() {
               disabled={noticeUpdating}
               onPress={(event) => {
                 event.stopPropagation();
-                void handleNoticeClear();
+                handleNoticeClear();
               }}
             >
               <Feather name="x" size={18} color={MUTED} />
@@ -1787,12 +1864,15 @@ export default function GroupChatScreen() {
         <MessengerLoadingState variant="group-chat" />
       ) : (
         <View style={{ flex: 1 }}>
+          <View style={{ flex: 1 }}>
           <FlatList
             ref={flatListRef}
             data={messages}
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
             inverted
+            onScroll={latestJump.onScroll}
+            scrollEventThrottle={64}
             onScrollToIndexFailed={handleAnchorScrollToIndexFailed}
             style={styles.list}
             contentContainerStyle={styles.listContent}
@@ -1833,6 +1913,10 @@ export default function GroupChatScreen() {
               </View>
             ) : null}
           />
+          {latestJump.awayFromLatest && !showAnchorReturnToLatest ? (
+            <JumpToLatestButton hasNewMessage={latestJump.hasNewMessage} onPress={latestJump.jumpToLatest} />
+          ) : null}
+          </View>
 
           <KeyboardSafeBottomBar>
             {uploading && (
@@ -2260,6 +2344,7 @@ const styles = StyleSheet.create({
   messageSideMetaMe: { alignItems: 'flex-end' },
   messageSideMetaOther: { alignItems: 'flex-start' },
   messageSendStatus: { fontSize: 10, lineHeight: 13, color: '#9CA3AF', fontWeight: '800' },
+  messageSendFailedButton: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   messageSendStatusFailed: { color: '#DC2626' },
   timeText: { fontSize: 11, color: '#9CA3AF' },
   replyPreview: {

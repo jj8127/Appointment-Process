@@ -10,7 +10,7 @@ export function MessageUnreadReceiptBadge({ count }: MessageUnreadReceiptBadgePr
   const text = formatUnreadReceiptCount(Number(count ?? 0));
   if (!text) return null;
 
-  return <Text style={styles.messageUnreadCount}>{text}</Text>;
+  return <Text style={styles.messageUnreadCount} accessibilityLabel={`읽지 않은 사람 ${text}명`}>{text}</Text>;
 }
 
 const styles = StyleSheet.create({

@@ -1128,8 +1128,16 @@ export default function MessengerHubScreen() {
     });
   }, [openRoute, updateConversationUnreadCount]);
 
+  // The row bell is one tap away from the open-room target; turning a room off asks first.
   const handleConversationMute = useCallback((item: MessengerHubConversation) => {
-    void toggleConversationMuted(item);
+    if (item.muted) {
+      void toggleConversationMuted(item);
+      return;
+    }
+    Alert.alert(`${item.name} 알림을 끌까요?`, undefined, [
+      { text: '취소', style: 'cancel' },
+      { text: '끄기', onPress: () => void toggleConversationMuted(item) },
+    ]);
   }, [toggleConversationMuted]);
 
   const handleConversationLongPress = useCallback((item: MessengerHubConversation) => {
