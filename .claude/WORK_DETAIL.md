@@ -10,6 +10,15 @@
 - Play: 업로드 해시 일치, production 구성, validate, commit(`ERROR_IF_IN_REVIEW`) 성공 2026-10-14T18:11:15Z. 이후 조회에서 97 IN_REVIEW, 95 PUBLISHED. 공개 여부는 심사 후 별도 확인이 필요하다. iOS·OTA·서버 변경은 없다.
 - 증거: `D:/hanhwa/artifacts/moduon-ui-polish-20261015/android-native/`(빌드·다운로드·검증·제출 영수증).
 
+<a id="20261015-ota-4220"></a>
+## 2026-10-15 모두온 4.2.20 Android OTA 배포
+
+- source: `1ef3731cfad813d4101cb78acca7f2d9955ad748`를 별도 detached 작업 트리로 만들어 clean 상태에서 export·publish 후 작업 트리를 제거했다. 원래 작업 트리의 다른 세션 미커밋 파일(계정·가족간병 화면 등 5개)은 손대지 않았다. push 안 함.
+- 네이티브 입력(app.json·eas.json·package/lock·plugins·patches·babel·metro·android/ios) 변경 없음: 97(`7439982`)·98(`9440d44`) 모두 대비. 이전 4.2.19 OTA 도구를 4.2.20용으로 고친 `D:/hanhwa/artifacts/moduon-ui-polish-20261015/ota-4-2-20/eas-release.mjs`(가입 토큰 키 retired·추천 문장 변경 반영, 이번 수정 marker 추가).
+- preflight PASS(production 채널·branch, 운영 Supabase URL, anon key, profile 공개 설정). export: Android Hermes 1개, 공개 설정·이번 수정 marker 포함 PASS, Sentry 업로드 없음.
+- 게시: group `f26d1737-8f32-432c-ada8-0ab02fbc77bf`, update `01a13d30-af46-7423-bdbe-32a5694b410a`, android, runtime 4.2.20, commit 일치. readback PASS, `u.expo.dev` 앱 요청 형식 HTTP 200·같은 update id. iOS는 게시하지 않았다.
+- 제한: 기기 채택(실제 다운로드·적용)과 배포 후 오류 조회는 아직 하지 않았다(무선 ADB 끊김, Sentry 연결 미인증).
+
 <a id="20261015-step-card-spacing"></a>
 ## 2026-10-15 보험 홈 다음 단계 카드 여백
 
