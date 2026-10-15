@@ -220,15 +220,15 @@ test('quick-filter tabs clear the KPI filter and reset the page like workflow ta
 test('bulk exam reception confirms each applicant and reports partial failures', async () => {
   const shown = []; let cache = [{ id: 'a', is_confirmed: false, status: 'applied' }, { id: 'b', is_confirmed: false, status: 'applied' }];
   const options = execute(extract('app/dashboard/exam/applicants/page.tsx', 'bulkConfirmMutation'), {
-    requestReception: async (item) => { if (item.id === 'b') throw new Error('synthetic failure'); return { ok: true }; },
+    requestReception: async (item) => { if (item.id === 'b') throw new Error('synthetic failure'); return { json: { ok: true }, transition: { isConfirmed: true, status: 'confirmed' } }; },
     getAdminNotificationWarning: () => null,
-    setReceptionInCache: (ids, isConfirmed) => { cache = cache.map((row) => ids.has(row.id) ? { ...row, is_confirmed: isConfirmed } : row); },
+    setReceptionInCache: (updates) => { cache = cache.map((row) => updates.has(row.id) ? { ...row, is_confirmed: updates.get(row.id).isConfirmed, status: updates.get(row.id).status } : row); },
     setBulkConfirmOpened() {}, notifications: { show: (item) => shown.push(item) },
   });
   const result = await options.mutationFn(cache);
-  assert.equal(result.confirmedIds.size, 1); assert.equal(result.failed, 1);
+  assert.equal(result.confirmed.size, 1); assert.equal(result.failed, 1);
   options.onSuccess(result);
-  assert.deepEqual(cache.map((row) => row.is_confirmed), [true, false]);
+  assert.deepEqual(cache.map((row) => [row.is_confirmed, row.status]), [[true, 'confirmed'], [false, 'applied']]);
   assert.equal(shown[0].title, '일괄 접수 일부 실패'); assert.equal(shown[0].color, 'yellow');
 });
 
