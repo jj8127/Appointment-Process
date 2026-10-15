@@ -68,7 +68,7 @@ export default function ServiceInformationRoute() {
     </View>
     <Text style={careStyles.note}>앱에서 가족간병을 신청하는 기능은 준비 중이에요.{`\n`}지금은 아래에서 자세한 안내를 확인해 주세요.</Text>
     <ServiceAction label="가족간병 자세히 알아보기" onPress={openCarePromotion} />
-    {inviteCode && session.isPlatformSignedIn ? <FamilyCareReferrer inviteCode={inviteCode} /> : null}
+    {session.isPlatformSignedIn ? <FamilyCareReferrer inviteCode={inviteCode} /> : null}
     <FamilyCareInvitation />
   </ServiceInformation>;
 

@@ -329,10 +329,10 @@ it('care information preserves conditional registration guidance and separates p
   await act(async () => renderer.unmount());
 });
 
-it.each([[true, 1], [false, 0]])('care invitation link asks a signed member (%s) to confirm the care referrer', async (signedIn, shown) => {
+it.each([['SABCDEF12345', true, 1], ['SABCDEF12345', false, 0], [undefined, true, 1]])('care page shows the care referrer next to the invitation for link code %s, signed in %s', async (code, signedIn, shown) => {
   const Care = executeComponent('app/services/[service].tsx', {
     '@expo/vector-icons': { Feather: 'Feather' },
-    'expo-router': { router: { push: jest.fn(), replace: jest.fn() }, useLocalSearchParams: () => ({ service: 'care', code: 'SABCDEF12345' }) },
+    'expo-router': { router: { push: jest.fn(), replace: jest.fn() }, useLocalSearchParams: () => ({ service: 'care', code }) },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
     '@/components/FamilyCareInvitation': { default: 'FamilyCareInvitation' }, '@/components/FamilyCareReferrer': { default: 'FamilyCareReferrer' },
     '@/hooks/use-session': { useSession: () => ({ isPlatformSignedIn: signedIn }) },
@@ -343,7 +343,8 @@ it.each([[true, 1], [false, 0]])('care invitation link asks a signed member (%s)
   await act(async () => { renderer = create(createElement(Care)); });
   const referrer = renderer.root.findAllByType('FamilyCareReferrer');
   expect(referrer).toHaveLength(shown);
-  if (shown) expect(referrer[0].props.inviteCode).toBe('SABCDEF12345');
+  if (shown) expect(referrer[0].props.inviteCode).toBe(code);
+  expect(renderer.root.findAllByType('FamilyCareInvitation')).toHaveLength(1);
   await act(async () => renderer.unmount());
 });
 
@@ -470,7 +471,7 @@ it('public account offers common login and keeps insurance settings within the c
   const push = jest.fn(); const navigate = jest.fn();
   const openPolicy = jest.fn(async () => undefined);
   const Account = executeComponent('app/services/account.tsx', {
-    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' }, '@/components/FamilyCareReferrer': { default: 'FamilyCareReferrer' },
+    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
     'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { push, navigate } },
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
@@ -518,7 +519,7 @@ it('existing FC account requires explicit consent, blocks repeat saves and prese
   let reject!: (error: Error) => void;
   const request = jest.fn((..._args: unknown[]) => new Promise((_resolve, rejectRequest) => { reject = rejectRequest; }));
   const Account = executeComponent('app/services/account.tsx', {
-    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' }, '@/components/FamilyCareReferrer': { default: 'FamilyCareReferrer' },
+    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
     'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { push } },
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
@@ -569,7 +570,7 @@ it.each(['fc', 'member'])('common withdrawal remains available with expired cons
   });
   const alert = jest.fn((_title, _body, actions) => { buttons = actions; });
   const Account = executeComponent('app/services/account.tsx', {
-    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' }, '@/components/FamilyCareReferrer': { default: 'FamilyCareReferrer' },
+    '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
     'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { replace } },
     'react-native': { Alert: { alert }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },

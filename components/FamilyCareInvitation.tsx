@@ -101,7 +101,7 @@ export default function FamilyCareInvitation() {
             accessibilityLabel="공유하기" accessibilityHint="가족간병 소개 문구와 초대 주소를 휴대폰 공유창으로 전달합니다"
             leftIcon={<Feather accessible={false} name="share-2" size={17} color={COLORS.warning.dark} />} onPress={() => void invite('share')}>공유하기</Button>
         </View>
-        <Text style={styles.note}>링크가 열리지 않으면 내 정보의 가족간병 추천인 등록에서 이 코드를 입력하면 돼요. 이미 가족간병 추천인이 있는 분은 바뀌지 않아요.</Text>
+        <Text style={styles.note}>링크가 열리지 않으면 가족간병 안내의 가족간병 추천인에 이 코드를 입력하면 돼요. 이미 가족간병 추천인이 있는 분은 바뀌지 않아요.</Text>
       </>}
   </View>;
 }

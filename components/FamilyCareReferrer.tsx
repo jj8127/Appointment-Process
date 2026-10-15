@@ -13,7 +13,7 @@ const failureMessage = (cause: unknown) => cause instanceof Error ? cause.messag
 
 /**
  * Registers the signed member's family-care referrer, either from a care
- * invitation link (`inviteCode`) or by a code typed in 내 정보. The first
+ * invitation link (`inviteCode`) or by a code typed on the care page. The first
  * registration is final; the server refuses a different referrer later.
  */
 export default function FamilyCareReferrer({ inviteCode }: { inviteCode?: string | null }) {
