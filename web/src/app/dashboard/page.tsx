@@ -761,11 +761,13 @@ export default function DashboardPage() {
 
   // 페이지네이션 처리
   const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
+  // A page restored from the URL can exceed the current result count.
+  const visiblePage = Math.min(currentPage, Math.max(totalPages, 1));
   const paginatedData = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const startIndex = (visiblePage - 1) * ITEMS_PER_PAGE;
     const endIndex = startIndex + ITEMS_PER_PAGE;
     return filteredData.slice(startIndex, endIndex);
-  }, [filteredData, currentPage, ITEMS_PER_PAGE]);
+  }, [filteredData, visiblePage, ITEMS_PER_PAGE]);
   const visibleFcIds = useMemo(
     () => paginatedData.map((fc: FCProfileWithDocuments) => fc.id),
     [paginatedData],
@@ -2340,7 +2342,7 @@ export default function DashboardPage() {
               <Group justify="center" mt="lg">
                 <Pagination
                   total={totalPages}
-                  value={currentPage}
+                  value={visiblePage}
                   onChange={setCurrentPage}
                   size="md"
                   radius="md"
@@ -2355,7 +2357,7 @@ export default function DashboardPage() {
         <Paper p="md" radius="md" withBorder>
           <Group justify="space-between">
             <Text size="sm" c="dimmed">
-              {fcs ? `전체 ${filteredData.length}명 중 ${paginatedData.length}명 표시 (페이지 ${currentPage}/${totalPages})` : isError ? 'FC 목록 확인 불가' : 'FC 목록 조회 중'}
+              {fcs ? `전체 ${filteredData.length}명 중 ${paginatedData.length}명 표시 (페이지 ${visiblePage}/${totalPages})` : isError ? 'FC 목록 확인 불가' : 'FC 목록 조회 중'}
             </Text>
           </Group>
         </Paper>
