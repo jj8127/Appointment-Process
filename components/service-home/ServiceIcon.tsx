@@ -3,11 +3,11 @@ import { Image, View } from 'react-native';
 export type ServiceName = 'care' | 'insurance' | 'telecom' | 'rental' | 'car' | 'hospital';
 
 const images = {
-  care: { source: require('@/assets/images/service-home/care.png'), scale: 1.06 },
-  insurance: { source: require('@/assets/images/service-home/insurance.png'), scale: 1.2 },
-  telecom: { source: require('@/assets/images/service-home/telecom.png'), scale: 1.12 },
-  rental: { source: require('@/assets/images/service-home/rental.png'), scale: 1.08 },
-  car: { source: require('@/assets/images/service-home/car.png'), scale: 1.24 },
+  care: { source: require('@/assets/images/service-home/care.png'), scale: 1 },
+  insurance: { source: require('@/assets/images/service-home/insurance.png'), scale: 1 },
+  telecom: { source: require('@/assets/images/service-home/telecom.png'), scale: 1 },
+  rental: { source: require('@/assets/images/service-home/rental.png'), scale: 1 },
+  car: { source: require('@/assets/images/service-home/car.png'), scale: 1 },
   hospital: { source: require('@/assets/images/service-home/hospital.png'), scale: 1 },
 } as const;
 
