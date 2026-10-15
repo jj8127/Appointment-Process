@@ -36,7 +36,8 @@
         "supabase/functions/__tests__/ux-priority-one-handlers.test.mjs",
         "lib/__tests__/platform-api.test.ts",
         "lib/__tests__/mobile-acceptance-runtime.test.ts",
-        "lib/__tests__/mobile-native-controls.test.tsx"
+        "lib/__tests__/mobile-native-controls.test.tsx",
+        "lib/__tests__/login-navigation.test.js"
       ]
     },
     {
