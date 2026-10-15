@@ -1129,6 +1129,7 @@ export default function ExamApplicantsPage() {
                                                     }}
                                                     disabled={
                                                         isReadOnly ||
+                                                        bulkConfirmMutation.isPending ||
                                                         !['applied', 'confirmed'].includes(item.status) ||
                                                         (updateStatusMutation.isPending && updateStatusMutation.variables?.item.id === item.id)
                                                     }
