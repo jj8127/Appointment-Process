@@ -1,5 +1,10 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-15 증분 release 빌드에서 이미지 교체 후 expo-updates 자산 목록이 갱신되지 않음
+
+- 재현: 같은 `android/`에서 `assembleRelease`를 반복하며 같은 이름의 PNG만 바꾸자 `createReleaseUpdatesResources/app.manifest`가 첫 빌드의 해시를 유지했다. JS 번들은 새 해시를 찾고 내장 목록에는 옛 해시만 있어, 홈 서비스 아이콘이 오류 로그 없이 빈칸으로 표시됐다. 레이아웃·배경·이미지 컴포넌트를 바꾸는 시험으로 원인을 잘못 좁혀 시간을 썼다.
+- 규칙: 자산 파일 내용만 바뀐 로컬 release 빌드 전에는 `app/build/generated/assets/createReleaseUpdatesResources`와 `createBundleReleaseJsAndAssets` 출력을 지우고 빌드한다. 이미지가 비면 먼저 `app.manifest`의 `packagerHash`와 원본 파일 md5를 대조한다. EAS 빌드는 매번 새로 만들어 해당하지 않는다.
+
 ## 2026-10-15 압축 바이너리에서 짧은 매직 바이트를 위장 파일로 판정함
 
 - 재현: 첨부 polyglot 검사가 이미지·PDF·Office 데이터 전체에서 `#!`(2바이트)와 `PK\x03\x04`·`\x7fELF`(4바이트)를 위치와 구조 확인 없이 찾았다. 압축 데이터는 무작위에 가까워 `#!`가 약 64KiB마다 우연히 나타나므로, 실제 사진·스크린샷과 대부분의 PDF가 `invalid_attachment_polyglot`(400)으로 거부됐다. 반대로 64바이트 미만 파일은 아예 검사하지 않아 짧은 셸 스크립트가 TXT로 통과했다. 테스트는 수십 바이트 fixture만 써서 두 문제 모두 놓쳤다.
