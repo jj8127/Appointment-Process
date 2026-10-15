@@ -30,7 +30,7 @@ test('applicant rows expose hover identity and keyboard-accessible detail naviga
 });
 
 test('applicant table headers carry stable keys', () => {
-  assert.match(listSource, /<Table\.Th key=\{field\} style=\{headerStyle\}>/);
+  assert.match(listSource, /<Table\.Th key=\{field\}[^>]*style=\{headerStyle\}>/);
 });
 
 test('top filters render compact selected states and structured round options', () => {

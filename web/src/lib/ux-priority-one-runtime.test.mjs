@@ -194,6 +194,44 @@ test('appointment confirm saves the FC-submitted date shown in 확정일 and blo
   assert.deepEqual(shown, ['성공', '입력 필요']);
 });
 
+test('dashboard list state round-trips through the URL and ignores unknown values', () => {
+  const page = 'app/dashboard/page.tsx';
+  const read = execute(extract(page, 'readDashboardListState'), { URLSearchParams });
+  const write = execute(extract(page, 'writeDashboardListState'), { URLSearchParams });
+  const tabs = ['all', 'g_done', 'step2'];
+  const state = { activeTab: 'step2', metricFilter: 'pendingDocs', keyword: '가상', currentPage: 3 };
+  const search = write('?fcId=keep', state);
+  assert.deepEqual({ ...read(search, tabs) }, state);
+  assert.equal(new URLSearchParams(search).get('fcId'), 'keep');
+  assert.equal(write(search, { activeTab: 'all', metricFilter: 'all', keyword: '', currentPage: 1 }), 'fcId=keep');
+  assert.deepEqual({ ...read('?tab=bogus&metric=bogus&page=-2', tabs) }, { activeTab: 'all', metricFilter: 'all', keyword: '', currentPage: 1 });
+});
+
+test('quick-filter tabs clear the KPI filter and reset the page like workflow tabs', () => {
+  const source = syntax('app/dashboard/page.tsx').getFullText();
+  assert.equal((source.match(/onChange=\{handleActiveTabChange\}/g) || []).length, 2);
+  const calls = [];
+  execute(extract('app/dashboard/page.tsx', 'handleActiveTabChange'), {
+    setActiveTab: (v) => calls.push(['tab', v]), setMetricFilter: (v) => calls.push(['metric', v]), setCurrentPage: (v) => calls.push(['page', v]),
+  })('g_done');
+  assert.deepEqual(calls, [['tab', 'g_done'], ['metric', 'all'], ['page', 1]]);
+});
+
+test('bulk exam reception confirms each applicant and reports partial failures', async () => {
+  const shown = []; let cache = [{ id: 'a', is_confirmed: false, status: 'applied' }, { id: 'b', is_confirmed: false, status: 'applied' }];
+  const options = execute(extract('app/dashboard/exam/applicants/page.tsx', 'bulkConfirmMutation'), {
+    requestReception: async (item) => { if (item.id === 'b') throw new Error('synthetic failure'); return { ok: true }; },
+    getAdminNotificationWarning: () => null,
+    setReceptionInCache: (ids, isConfirmed) => { cache = cache.map((row) => ids.has(row.id) ? { ...row, is_confirmed: isConfirmed } : row); },
+    setBulkConfirmOpened() {}, notifications: { show: (item) => shown.push(item) },
+  });
+  const result = await options.mutationFn(cache);
+  assert.equal(result.confirmedIds.size, 1); assert.equal(result.failed, 1);
+  options.onSuccess(result);
+  assert.deepEqual(cache.map((row) => row.is_confirmed), [true, false]);
+  assert.equal(shown[0].title, '일괄 접수 일부 실패'); assert.equal(shown[0].color, 'yellow');
+});
+
 test('canceling composer discard keeps the draft and attachment; busy create cannot close', () => {
   let closes = 0; let prompts = 0;
   const values = { createPostMutation: { isPending: false }, updatePostMutation: { isPending: false },

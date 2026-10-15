@@ -83,6 +83,7 @@ import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { StatusToggle } from '../../components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import {
   getAllowanceDisplayState,
   hasHanwhaApprovedPdf,
@@ -405,6 +406,42 @@ const getDefaultModalTab = (profile: FCProfileWithDocuments): string => {
   return 'info';
 };
 
+type DashboardListState = {
+  activeTab: string;
+  metricFilter: 'all' | 'pendingAllowance' | 'pendingDocs';
+  keyword: string;
+  currentPage: number;
+};
+
+// List state lives in the URL so returning from an FC detail page restores the same view.
+function readDashboardListState(search: string, tabs: readonly string[]): DashboardListState {
+  const params = new URLSearchParams(search);
+  const tab = params.get('tab');
+  const metric = params.get('metric');
+  const page = Number(params.get('page'));
+  return {
+    activeTab: tab && tabs.includes(tab) ? tab : 'all',
+    metricFilter: metric === 'pendingAllowance' || metric === 'pendingDocs' ? metric : 'all',
+    keyword: params.get('q') ?? '',
+    currentPage: Number.isInteger(page) && page > 1 ? page : 1,
+  };
+}
+
+function writeDashboardListState(search: string, state: DashboardListState): string {
+  const params = new URLSearchParams(search);
+  const entries: [string, string | null][] = [
+    ['tab', state.activeTab !== 'all' ? state.activeTab : null],
+    ['metric', state.metricFilter !== 'all' ? state.metricFilter : null],
+    ['q', state.keyword || null],
+    ['page', state.currentPage > 1 ? String(state.currentPage) : null],
+  ];
+  for (const [key, value] of entries) {
+    if (value === null) params.delete(key);
+    else params.set(key, value);
+  }
+  return params.toString();
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -413,7 +450,29 @@ export default function DashboardPage() {
   const [metricFilter, setMetricFilter] = useState<'all' | 'pendingAllowance' | 'pendingDocs'>('all');
   const [keyword, setKeyword] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [listStateRestored, setListStateRestored] = useState(false);
   const ITEMS_PER_PAGE = 20;
+
+  useEffect(() => {
+    const restored = readDashboardListState(
+      window.location.search,
+      ['all', 'g_done', 'g_others', ...Object.keys(ADMIN_STEP_LABELS)],
+    );
+    setActiveTab(restored.activeTab);
+    setMetricFilter(restored.metricFilter);
+    setKeyword(restored.keyword);
+    setCurrentPage(restored.currentPage);
+    setListStateRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (!listStateRestored) return;
+    const next = writeDashboardListState(window.location.search, {
+      activeTab: activeTab ?? 'all', metricFilter, keyword, currentPage,
+    });
+    if (next === window.location.search.replace(/^\?/, '')) return;
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${next ? `?${next}` : ''}`);
+  }, [listStateRestored, activeTab, metricFilter, keyword, currentPage]);
 
   // 모달 상태
   const [opened, { open, close }] = useDisclosure(false);
@@ -723,18 +782,16 @@ export default function DashboardPage() {
   });
 
   // 탭이나 검색어가 변경되면 첫 페이지로 이동
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [activeTab, keyword, metricFilter]);
-
   const handleMetricFilterChange = (nextFilter: 'all' | 'pendingAllowance' | 'pendingDocs') => {
     setMetricFilter((current) => current === nextFilter && nextFilter !== 'all' ? 'all' : nextFilter);
     setActiveTab('all');
+    setCurrentPage(1);
   };
 
   const handleActiveTabChange = (nextTab: string | null) => {
     setActiveTab(nextTab);
     setMetricFilter('all');
+    setCurrentPage(1);
   };
 
   const {
@@ -2258,6 +2315,7 @@ export default function DashboardPage() {
                 onChange={(e) => {
                   const val = e.currentTarget?.value || '';
                   setKeyword(val);
+                  setCurrentPage(1);
                 }}
                 radius="xl"
                 w={260}
@@ -2267,7 +2325,7 @@ export default function DashboardPage() {
               <Text size="xs" c="dimmed" fw={500}>빠른 분류:</Text>
               <Tabs
                 value={activeTab}
-                onChange={setActiveTab}
+                onChange={handleActiveTabChange}
                 variant="pills"
                 radius="xl"
                 color="blue"
@@ -3398,32 +3456,16 @@ export default function DashboardPage() {
         submitting={rejectSubmitting}
       />
 
-      {/* 확인 모달 */}
-      <Modal
+      <ConfirmModal
         opened={confirmOpened}
-        onClose={() => { if (!confirmSubmitting) closeConfirm(); }}
-        title={<Text fw={700}>{confirmConfig?.title}</Text>}
-        size="sm"
-        padding="lg"
-        radius="md"
-        centered
-        overlayProps={{ blur: 2 }}
-      >
-        <Stack gap="md">
-          <Text size="sm">{confirmConfig?.message}</Text>
-          <Group justify="flex-end">
-            <Button variant="default" disabled={confirmSubmitting} onClick={closeConfirm}>
-              취소
-            </Button>
-            <Button
-              color={confirmConfig?.color || 'blue'}
-              loading={confirmSubmitting} onClick={() => void handleConfirm()}
-            >
-              {confirmConfig?.confirmLabel || '확인'}
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+        onClose={closeConfirm}
+        onConfirm={() => void handleConfirm()}
+        title={confirmConfig?.title}
+        message={selectedFc?.name && confirmConfig ? `${selectedFc.name} · ${confirmConfig.message}` : confirmConfig?.message}
+        confirmLabel={confirmConfig?.confirmLabel}
+        color={confirmConfig?.color}
+        submitting={confirmSubmitting}
+      />
     </Box >
   );
 }

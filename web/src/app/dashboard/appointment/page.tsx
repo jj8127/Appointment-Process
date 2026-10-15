@@ -11,7 +11,6 @@ import {
   Divider,
   Group,
   LoadingOverlay,
-  Modal,
   Paper,
   Popover,
   ScrollArea,
@@ -35,6 +34,7 @@ import { useCallback, useMemo, useRef, useState, useTransition } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { fetchAdminFcList, isAdminFcProfile } from '@/lib/admin-document-client';
@@ -472,7 +472,9 @@ export default function AppointmentPage() {
 
     showConfirm({
         title: type === 'confirm' ? '생명/손해 위촉 승인' : '생명/손해 위촉 예정월 저장',
-      message: `${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`,
+      message: type === 'confirm'
+        ? `${fc.name || 'FC'} · ${category === 'life' ? '생명' : '손해'} 위촉을 승인하시겠습니까?\n확정일: ${value}`
+        : `${fc.name || 'FC'} · ${category === 'life' ? '생명' : '손해'} 위촉 예정 메모를 저장하시겠습니까?`,
       onConfirm: async () => {
           const result = await updateAppointmentAction(
             { success: false },
@@ -645,25 +647,14 @@ export default function AppointmentPage() {
         />
 
         {/* 확인 모달 */}
-        <Modal
+        <ConfirmModal
           opened={confirmOpened}
-          onClose={() => { if (!confirmSubmitting) closeConfirm(); }}
-          title={<Text fw={700}>{confirmConfig?.title}</Text>}
-          size="sm"
-          centered
-        >
-          <Stack gap="md">
-            <Text size="sm">{confirmConfig?.message}</Text>
-            <Group justify="flex-end">
-              <Button variant="default" disabled={confirmSubmitting} onClick={closeConfirm}>
-                취소
-              </Button>
-              <Button color="blue" loading={confirmSubmitting} onClick={() => void handleConfirm()}>
-                확인
-              </Button>
-            </Group>
-          </Stack>
-        </Modal>
+          onClose={closeConfirm}
+          onConfirm={() => void handleConfirm()}
+          title={confirmConfig?.title}
+          message={confirmConfig?.message}
+          submitting={confirmSubmitting}
+        />
 
         <Group justify="space-between" align="flex-end">
           <div>

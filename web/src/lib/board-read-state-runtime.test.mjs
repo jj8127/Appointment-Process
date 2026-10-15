@@ -599,6 +599,7 @@ test('safe read-error UI never renders upstream text and provides login only for
 const commonListMocks = {
   '@/components/StatusToggle': ui,
   '@/components/RejectReasonModal': ui,
+  '@/components/ConfirmModal': ui,
   '@/components/NotificationDestinationReady': ui,
   '@/lib/supabase': { supabase: {} },
   '@/lib/admin-document-client': {
@@ -678,7 +679,7 @@ test('dashboard failed FC reads do not display empty-list text or invented zero 
     './page.module.css': { default: {} },
     '@/lib/dashboard-table-display': { DASHBOARD_FC_LIST_COLUMNS: [], DASHBOARD_FC_LIST_COLUMN_COUNT: 9 },
     '../../lib/logger': { logger: {} },
-  });
+  }, { window: { location: { search: '', pathname: '/dashboard' }, history: { state: null, replaceState() {} } } });
   await page.render();
   assert.deepEqual(await page.fetch('dashboard-list'), []);
   listOutcome = new queryError.QueryReadError(500);
