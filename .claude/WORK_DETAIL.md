@@ -1,5 +1,14 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261015-messenger-attachment-fix"></a>
+## 2026-10-15 메신저 사진 전송 실패 수정·배포
+
+- 원인: `_shared/messenger-attachment-policy.ts`가 이미지·PDF·Office 바이트 전체에서 `#!`·`PK`·`ELF`를 위치·구조 확인 없이 찾아 `invalid_attachment_polyglot`(400)을 냈다(실제 3.2MiB PNG에서 재현 조건 충족). 64바이트 미만 파일은 검사를 건너뛰어 짧은 셸 스크립트가 TXT로 통과했다. 앱 `group-chat.tsx`·`chat.tsx`는 모든 오류에 같은 키 재확인 창을 띄워 확정 거부가 무한 반복됐고 code·status를 남기지 않아 Sentry 기록이 없었다.
+- 수정(`c3e7e8a`): 시작 위치 shebang, ELF ident, MZ 뒤 PE, ZIP local header 필드 검증 + `indexOf` 검색. 앱은 `classifyMessengerSendFailure`로 결과 불명(네트워크·408·429·5xx·응답 해석 실패)만 재확인하고 확정 거부는 사유 표시, 로그에 code·status·uncertain. 회귀: Deno 정책(우연 바이트 통과, 실제 ELF·짧은 스크립트 거부; 수정 전 코드에서 실패 확인), 앱 분류 테스트. Deno 첨부 47 PASS, 앱 첨부 13 PASS, tsc·eslint·deno check PASS. 기존 무관 실패: `messenger-group-anchor-source`(load 구간), `request-board-read-state`(테스트 내 미처리 rejection).
+- 서버 배포: 브랜치에 미배포 기능(탈퇴 연동·플랫폼 세션 등)이 있어 브랜치 전체 배포 대신, 운영 `group-chat` v26·`fc-notify` v97 소스를 내려받아 정책 파일만 `c3e7e8a` 버전으로 교체해 배포했다. 결과 `group-chat` v28·`fc-notify` v99 ACTIVE, verify_jwt=true, import map 유지(v27/v98은 import map 누락으로 재배포). readback에서 직전 운영 대비 정책 파일 하나만 다르고 커밋과 일치. 비로그인 401, anon 키 요청은 함수 자체 `invalid_app_session` 응답으로 기동 확인. 첨부 검사를 하지 않는 `messenger-attachments`·`admin-action`·`platform-service`는 재배포하지 않았다.
+- OTA: clean detached 작업 트리 `c3e7e8a`(97·98 대비 네이티브 입력 변경 없음), 도구 `D:/hanhwa/artifacts/moduon-ui-polish-20261015/ota-4-2-20-attach/eas-release.mjs`. preflight·export(이번 문구 marker 포함) PASS, group `eefd2e94-ea4d-450c-baf8-580eeeb4bedd`, update `01a13e7d-b07b-785f-87d7-d9d738a21d3c`, android, runtime 4.2.20, readback PASS, `u.expo.dev` HTTP 200·같은 id. iOS 공개 버전은 4.2.19(runtime 4.2.19)라 이 source로 게시하지 않았다. push 안 함.
+- 배포 후: Sentry 최근 30분 이슈 0건. Edge Function 로그는 조회 수단이 없어 확인하지 못했고, 실제 기기 전송·OTA 채택은 미확인.
+
 <a id="20261015-android-4220-submit"></a>
 ## 2026-10-15 모두온 4.2.20 Android 스토어 제출
 
