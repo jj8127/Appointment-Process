@@ -171,6 +171,29 @@ test('independent memo draft survives profile refresh, but an unchanged memo upd
   assert.equal(memo, 'changed elsewhere');
 });
 
+test('appointment confirm saves the FC-submitted date shown in 확정일 and blocks a cleared date', async () => {
+  const page = 'app/dashboard/appointment/page.tsx';
+  const fc = { id: 'fc-1', appointment_date_life: null, appointment_date_life_sub: '2026-10-03' };
+  const shown = []; const calls = []; let confirmConfig = null;
+  const values = {
+    dayjs: require('dayjs'), canManageInsuranceStage: () => true, inputs: {},
+    resolveInsuranceDate: execute(extract(page, 'resolveInsuranceDate'), {}),
+    notifications: { show: (item) => shown.push(item.title) },
+    showConfirm: (config) => { confirmConfig = config; }, openRejectModal() {},
+    updateAppointmentAction: async (_state, input) => { calls.push(input); return { success: true, message: 'ok' }; },
+    showAdminNotificationWarning() {}, refetch() {},
+  };
+  execute(extract(page, 'executeAction'), values)(fc, 'confirm', 'life');
+  assert.deepEqual(shown, []);
+  await confirmConfig.onConfirm();
+  assert.equal(calls[0].value, '2026-10-03');
+
+  confirmConfig = null;
+  execute(extract(page, 'executeAction'), { ...values, inputs: { 'fc-1': { lifeDate: null } } })(fc, 'confirm', 'life');
+  assert.equal(confirmConfig, null);
+  assert.deepEqual(shown, ['성공', '입력 필요']);
+});
+
 test('canceling composer discard keeps the draft and attachment; busy create cannot close', () => {
   let closes = 0; let prompts = 0;
   const values = { createPostMutation: { isPending: false }, updatePostMutation: { isPending: false },
