@@ -41,7 +41,7 @@ export const MESSENGER_ATTACHMENT_ERROR_COPY = {
   readFailed: '선택한 파일을 읽지 못했습니다. 다시 선택해 주세요.',
   uploadFailed: '파일을 업로드하지 못했습니다. 다시 시도해 주세요.',
   downloadFailed: '파일을 열지 못했습니다. 다시 시도해 주세요.',
-  missingSession: '세션이 만료되었습니다. 다시 로그인해 주세요.',
+  missingSession: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
   rejected: '보낼 수 없는 파일입니다. 다른 파일로 다시 시도해 주세요.',
 } as const;
 

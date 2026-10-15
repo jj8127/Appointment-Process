@@ -239,7 +239,7 @@ export default function MutedConversationsScreen() {
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 20) + 20 }]}>
         <View style={styles.infoCard}>
           <Feather name="info" size={17} color="#6B7280" />
-          <Text style={styles.infoText}>음소거해도 메시지와 읽지 않은 개수는 대화 목록에 그대로 남습니다.</Text>
+          <Text style={styles.infoText}>알림을 꺼도 메시지와 읽지 않은 개수는 대화 목록에 그대로 남습니다.</Text>
         </View>
 
         {errors.length > 0 ? (

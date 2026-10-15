@@ -19,7 +19,6 @@ export default function MessengerSearchLanding(props: Props) {
         <Feather aria-hidden accessible={false} name="search" size={22} color="#F36F21" />
         <View style={styles.helperCopy}>
           <Text style={styles.helperTitle}>메신저 전체에서 찾아보세요</Text>
-          <Text style={styles.helperBody}>사람과 채팅방은 현재 목록에서, 메시지는 열람 가능한 범위에서 검색합니다.</Text>
         </View>
       </View>
 
@@ -54,11 +53,10 @@ export default function MessengerSearchLanding(props: Props) {
 
       <View style={styles.toggleRow}>
         <View style={styles.toggleCopy}>
-          <Text style={styles.toggleTitle}>최근 검색어 저장</Text>
-          <Text style={styles.toggleBody}>앱을 종료하면 검색 기록은 사라집니다.</Text>
+          <Text style={styles.toggleTitle}>최근 검색어 기록</Text>
         </View>
         <Switch
-          accessibilityLabel="최근 검색어 저장"
+          accessibilityLabel="최근 검색어 기록"
           onValueChange={props.onToggleSave}
           thumbColor="#FFFFFF"
           trackColor={{ false: '#D5D5D5', true: '#F36F21' }}
@@ -82,7 +80,6 @@ const styles = StyleSheet.create({
   },
   helperCopy: { flex: 1, gap: 5 },
   helperTitle: { color: '#242424', fontSize: 16, fontWeight: '700' },
-  helperBody: { color: '#686868', fontSize: 13, lineHeight: 19 },
   headingRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -110,5 +107,4 @@ const styles = StyleSheet.create({
   },
   toggleCopy: { flex: 1, gap: 3, paddingRight: 16 },
   toggleTitle: { color: '#333333', fontSize: 14, fontWeight: '600' },
-  toggleBody: { color: '#8A8A8A', fontSize: 12 },
 });

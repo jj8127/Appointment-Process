@@ -439,7 +439,7 @@ async function readGroupChatFunctionErrorPayload(error: unknown) {
 async function invokeGroupChat<T>(body: Record<string, unknown>): Promise<T> {
   const appSessionToken = await getStoredAppSessionToken();
   if (!appSessionToken) {
-    throw new GroupChatRequestError('단톡방 세션이 없습니다. 다시 로그인해주세요.', {
+    throw new GroupChatRequestError('로그인이 만료되었습니다. 다시 로그인해 주세요.', {
       code: 'missing_app_session',
       status: 401,
     });

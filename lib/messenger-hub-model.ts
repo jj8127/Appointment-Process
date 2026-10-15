@@ -175,6 +175,18 @@ const targetDetail = (kind: 'manager' | 'developer' | 'admin') => {
   return '총무';
 };
 
+/**
+ * Role badge and detail line for a people row. "권슬기총무" already names the role, so a badge
+ * or detail that only repeats it is dropped.
+ */
+export function getMessengerPersonRowLabels(person: Pick<MessengerHubPerson, 'name' | 'detail' | 'role'>) {
+  const roleLabel = MESSENGER_PERSON_ROLE_LABELS[person.role];
+  return {
+    roleBadge: person.name.endsWith(roleLabel) ? '' : roleLabel,
+    detail: person.detail === roleLabel ? '' : person.detail,
+  };
+}
+
 export function formatOperationsMessengerName(value?: string | null): string {
   const realName = String(value ?? '').trim().replace(/\s*총무\s*$/, '').trim();
   return realName ? `${realName}총무` : '총무';
@@ -321,7 +333,7 @@ export function buildGroupConversation(
         : `${sender}: ${last.content}`;
   return {
     key: `internal-group:${summary.room.id}`,
-    name: summary.room.title?.trim() || '가람in 단체방',
+    name: summary.room.title?.trim() || '가람PA 단톡방',
     detail: `${summary.member_count.toLocaleString('ko-KR')}명 참여`,
     role: 'other',
     sourceLabel: '가람in',

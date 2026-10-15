@@ -553,7 +553,7 @@ export default function MessengerHubScreen() {
         return null;
       }).catch((error: unknown) => {
         logger.debug('[messenger-hub] 단체방을 불러오지 못했습니다.', error);
-        return '단체방';
+        return '단톡방';
       }).finally(() => markSourceSettled('group')));
     } else {
       updateSources((current) => ({ ...current, groupConversations: [] }));
@@ -1452,7 +1452,8 @@ export default function MessengerHubScreen() {
                   <Text style={styles.newConversationText}>새 대화</Text>
                   <Feather name="chevron-right" size={18} color="#9CA3AF" />
                 </Pressable>
-                <MessengerHubSourceLoading labels={peopleLoadingLabels} />
+                {/* Pull-to-refresh already shows a spinner; per-source rows would repeat it. */}
+                <MessengerHubSourceLoading labels={refreshing ? [] : peopleLoadingLabels} />
               </View>
             )}
             ListEmptyComponent={peopleLoadingLabels.length > 0
@@ -1493,7 +1494,7 @@ export default function MessengerHubScreen() {
             onEndReached={handleConversationEndReached}
             onEndReachedThreshold={0.4}
             ListHeaderComponent={(
-              <MessengerHubSourceLoading labels={conversationLoadingLabels} />
+              <MessengerHubSourceLoading labels={refreshing ? [] : conversationLoadingLabels} />
             )}
             ListEmptyComponent={conversationLoadingLabels.length > 0
               ? null

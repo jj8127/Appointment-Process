@@ -12,6 +12,7 @@ import {
   dedupePeople,
   formatMessengerPersonDetail,
   formatOperationsMessengerName,
+  getMessengerPersonRowLabels,
   groupMessengerPeopleByRole,
   getMessengerTotalUnread,
   isMessengerConversationVisible,
@@ -87,6 +88,15 @@ describe('Messenger V2 hub model', () => {
     timestampMs: 0,
     unreadCount: 0,
     ...overrides,
+  });
+
+  test('does not repeat a role the person name already carries', () => {
+    expect(getMessengerPersonRowLabels({ name: '권슬기총무', detail: '총무', role: 'operations' }))
+      .toEqual({ roleBadge: '', detail: '' });
+    expect(getMessengerPersonRowLabels({ name: '개발자', detail: '개발자', role: 'developer' }))
+      .toEqual({ roleBadge: '', detail: '' });
+    expect(getMessengerPersonRowLabels({ name: '홍길동', detail: '서울 본부', role: 'manager' }))
+      .toEqual({ roleBadge: '본부장', detail: '서울 본부' });
   });
 
   test('sorts by server timestamp and stable source/key fallback without current time', () => {

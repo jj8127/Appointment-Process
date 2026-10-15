@@ -1,6 +1,5 @@
 import { Feather } from '@expo/vector-icons';
 import { randomUUID } from 'expo-crypto';
-import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -29,6 +28,7 @@ import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
 import {
   MessageSelectCopySheet,
+  MESSENGER_MESSAGE_LONG_PRESS_MS,
   MessengerMessageActionSheet,
 } from '@/components/MessengerMessageActionSheet';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
@@ -81,11 +81,9 @@ import {
   openMessengerAttachment,
 } from '@/lib/messenger-attachment-actions';
 import {
-  appendMessengerAttachmentCandidates,
   classifyMessengerSendFailure,
   formatMessengerAttachmentSize,
   isPreparedMessengerAttachmentBatchForDraft,
-  MESSENGER_ATTACHMENT_MIME_BY_EXTENSION,
   prepareMessengerAttachmentBatch,
   removeSelectedMessengerAttachment,
   toMessengerFunctionError,
@@ -100,6 +98,7 @@ import {
 } from '@/lib/messenger-room-ordering';
 import { formatOperationsMessengerName } from '@/lib/messenger-hub-model';
 import { formatMessengerTime, startsMessengerDay } from '@/lib/messenger-time';
+import { pickMessengerFiles, pickMessengerPhotos } from '@/lib/messenger-attachment-picker';
 import {
   aggregatePresence,
   formatPresenceLabel,
@@ -130,7 +129,7 @@ const ANCHOR_SCROLL_RETRY_LIMIT = 3;
 const ANCHOR_CONTEXT_UNAVAILABLE_MESSAGE =
   '요청한 메시지를 열 수 없습니다. 현재 대화에서 다시 확인해 주세요.';
 const FILE_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.64, 260);
-const LEGACY_SESSION_ERROR = '세션이 오래되었습니다. 로그아웃 후 다시 로그인해주세요.';
+const LEGACY_SESSION_ERROR = '로그인이 만료되었습니다. 로그아웃 후 다시 로그인해 주세요.';
 const HEADER_AVATAR_COLORS = [
   '#3B82F6',
   '#10B981',
@@ -1524,39 +1523,20 @@ export default function ChatScreen() {
       });
   };
 
-  const handleAttachment = async () => {
+  const pickAttachments = async (
+    pick: typeof pickMessengerFiles,
+  ) => {
     if (pickingRef.current || sendingAttachments) return;
     pickingRef.current = true;
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: Array.from(
-          new Set(Object.values(MESSENGER_ATTACHMENT_MIME_BY_EXTENSION)),
-        ),
-        copyToCacheDirectory: true,
-        multiple: true,
-        base64: false,
-      });
-      if (result.canceled) return;
-      const next = await appendMessengerAttachmentCandidates(
-        selectedAttachments,
-        result.assets.map((asset) => ({
-          uri: asset.uri,
-          name: asset.name,
-          size: asset.size,
-          mimeType: asset.mimeType,
-          webFile: asset.file,
-        })),
-      );
-      setSelectedAttachments(next);
-    } catch (error) {
-      Alert.alert(
-        '파일 선택 실패',
-        error instanceof Error ? error.message : '파일을 선택하지 못했습니다.',
-      );
+      const next = await pick(selectedAttachments);
+      if (next) setSelectedAttachments(next);
     } finally {
       pickingRef.current = false;
     }
   };
+  const handleAttachment = () => void pickAttachments(pickMessengerFiles);
+  const handleImageAttachment = () => void pickAttachments(pickMessengerPhotos);
 
   const handleDeleteMessage = (message: Message) => {
     if (
@@ -1666,13 +1646,14 @@ export default function ChatScreen() {
             const card = (
             <TouchableOpacity
               key={attachment.id}
+              accessibilityRole="button"
               style={[
                 styles.fileCard,
                 isMe ? styles.fileCardMe : styles.fileCardOther,
               ]}
               onPress={open}
               onLongPress={() => openMessageActions(item)}
-              delayLongPress={500}
+              delayLongPress={MESSENGER_MESSAGE_LONG_PRESS_MS}
               activeOpacity={0.82}
             >
               <View style={[
@@ -1716,7 +1697,7 @@ export default function ChatScreen() {
             </TouchableOpacity>
             );
             return attachment.mimeType.startsWith('image/')
-              ? <MessengerImageAttachment key={attachment.id} attachment={attachment} fallback={card} onLongPress={() => openMessageActions(item)} delayLongPress={500} />
+              ? <MessengerImageAttachment key={attachment.id} attachment={attachment} fallback={card} onLongPress={() => openMessageActions(item)} delayLongPress={MESSENGER_MESSAGE_LONG_PRESS_MS} />
               : card;
           })}
         </View>
@@ -1726,6 +1707,8 @@ export default function ChatScreen() {
     if (item.message_type === 'image' && item.file_url) {
       return (
         <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="사진 크게 보기"
           onPress={() => {
             void openMessengerAttachment(item.file_url, { logScope: 'chat' });
           }}
@@ -1740,6 +1723,7 @@ export default function ChatScreen() {
       const fileName = safeDecodeFileName(item.file_name) || '파일';
       return (
         <TouchableOpacity
+          accessibilityRole="button"
           style={[styles.fileCard, isMe ? styles.fileCardMe : styles.fileCardOther]}
           onPress={() => {
             void openMessengerAttachment(item.file_url, { logScope: 'chat' });
@@ -1827,7 +1811,7 @@ export default function ChatScreen() {
             {isMe && messageMeta}
             <Pressable
               onLongPress={() => openMessageActions(item)}
-              delayLongPress={500}
+              delayLongPress={MESSENGER_MESSAGE_LONG_PRESS_MS}
               style={({ pressed }) => [
                 styles.bubbleWrapper,
                 isMe ? styles.bubbleWrapperMe : styles.bubbleWrapperOther,
@@ -1864,6 +1848,7 @@ export default function ChatScreen() {
 
     return (
       <Pressable
+        accessibilityRole="button"
         style={({ pressed }) => [
           styles.targetItem,
           pressed && { opacity: 0.85 },
@@ -2093,6 +2078,7 @@ export default function ChatScreen() {
           <View style={styles.center}>
             <Text style={styles.targetHelperText}>{targetsError}</Text>
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.retryButton, pressed && { opacity: 0.9 }]}
               onPress={() => {
                 if (targetsError === LEGACY_SESSION_ERROR) {
@@ -2209,6 +2195,7 @@ export default function ChatScreen() {
           </Text>
           {canRetryVisibleLoadError ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [
                 styles.retryButton,
                 pressed && { opacity: 0.9 },
@@ -2324,6 +2311,17 @@ export default function ChatScreen() {
             </ScrollView>
           ) : null}
           <View style={styles.inputContainer}>
+            <TouchableOpacity accessibilityLabel="사진 첨부" accessibilityRole="button" accessibilityState={{ disabled: sendingAttachments }}
+              onPress={handleImageAttachment}
+              style={[
+                styles.attachBtn,
+                sendingAttachments && styles.attachBtnDisabled,
+              ]}
+              activeOpacity={0.7}
+              disabled={sendingAttachments}
+            >
+              <Feather name="image" size={22} color={MUTED} />
+            </TouchableOpacity>
             <TouchableOpacity accessibilityLabel="파일 첨부" accessibilityRole="button" accessibilityState={{ disabled: sendingAttachments }}
               onPress={handleAttachment}
               style={[

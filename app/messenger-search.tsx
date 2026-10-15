@@ -66,7 +66,7 @@ const EMPTY_SOURCES: SourceStores = {
 
 function sourceErrorMessage(source: MessengerSearchSource): string {
   if (source === 'internal') return '가람in 1:1 목록을 불러오지 못했습니다.';
-  if (source === 'group') return '단체 채팅 범위를 불러오지 못했습니다.';
+  if (source === 'group') return '단톡방 범위를 불러오지 못했습니다.';
   return '가람Link 목록을 불러오지 못했습니다.';
 }
 
@@ -558,7 +558,7 @@ export default function MessengerSearchScreen() {
     } catch {
       if (!groupMessageSequence.current.owns(sequence)) return;
       groupMessagePendingRef.current = false;
-      const error = '단체 채팅 메시지를 검색하지 못했습니다.';
+      const error = '단톡방 메시지를 검색하지 못했습니다.';
       groupMessageErrorRef.current = error;
       updateSource('group', {
         status: 'error',

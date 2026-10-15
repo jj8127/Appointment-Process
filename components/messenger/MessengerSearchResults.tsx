@@ -10,12 +10,12 @@ import { groupMessengerSearchResultsByKind } from '@/lib/messenger-search-model'
 
 const SOURCE_LABELS = {
   internal: '가람in 1:1',
-  group: '단체 채팅',
+  group: '단톡방',
   garamlink: '가람Link',
 } as const;
 
 const KIND_LABELS = {
-  person: '친구',
+  person: '사람',
   room: '채팅방',
   message: '메시지',
 } as const;

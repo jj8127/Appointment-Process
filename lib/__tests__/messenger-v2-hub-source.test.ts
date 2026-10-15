@@ -67,7 +67,7 @@ describe('Messenger V2 hub UI contract', () => {
     expect(source).toContain('capabilities.canCreateRequestBoardDm');
     expect(source).toContain("!source.endsWith('알림 설정')");
     expect(source).toContain('visibleFailedSources');
-    expect(hubRowsSource).toContain('{item.detail}</Text>');
+    expect(hubRowsSource).toContain('{detail}</Text>');
     expect(hubRowsSource).not.toContain('{item.detail} · {item.sourceLabel}');
     expect(hubRowsSource).toContain("name={item.muted ? 'bell-off' : 'bell'}");
     expect(source).toContain('toggleConversationMuted');
@@ -128,8 +128,8 @@ describe('Messenger V2 hub UI contract', () => {
     expect(source).toContain('actorId: residentId');
     expect(source).toContain('setSelectedPerson(null);');
     expect(source).toContain('setRequestCreateRetry(null);');
-    expect(source).toContain('<MessengerHubSourceLoading labels={peopleLoadingLabels} />');
-    expect(source).toContain('<MessengerHubSourceLoading labels={conversationLoadingLabels} />');
+    expect(source).toContain('<MessengerHubSourceLoading labels={refreshing ? [] : peopleLoadingLabels} />');
+    expect(source).toContain('<MessengerHubSourceLoading labels={refreshing ? [] : conversationLoadingLabels} />');
     expect(source).toContain("markSourceSettled('internal')");
     expect(source).toContain("markSourceSettled('request-people')");
     expect(source).toContain("markSourceSettled('request-conversations')");
@@ -174,7 +174,7 @@ describe('Messenger V2 hub UI contract', () => {
     expect(source).toContain("setRoleFilter('all');");
     expect(source).toContain('onRetry={handleHubRetry}');
     expect(hubRowsSource).toContain('accessibilityState={{ expanded: filterExpanded }}');
-    expect(hubRowsSource).toContain('MESSENGER_PERSON_ROLE_LABELS[item.role]');
+    expect(hubRowsSource).toContain('getMessengerPersonRowLabels(item)');
     expect(hubRowsSource).toContain('personRoleLine');
   });
 

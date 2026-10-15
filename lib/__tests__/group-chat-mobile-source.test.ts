@@ -47,15 +47,19 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain("logger.warn('[group-chat] post-send read state update failed')");
     expect(source).not.toContain('result.warning.message');
     expect(source).toContain('send_status');
-    expect(source).toContain('DocumentPicker.getDocumentAsync');
-    expect(source).toContain('multiple: true');
-    expect(source).toContain('appendMessengerAttachmentCandidates');
+    // Photo and file pickers are shared with the 1:1 room.
+    const pickerSource = readFileSync(join(workspaceRoot, 'lib', 'messenger-attachment-picker.ts'), 'utf8');
+    expect(source).toContain('pickMessengerFiles(selectedAttachments)');
+    expect(source).toContain('pickMessengerPhotos(selectedAttachments)');
+    expect(pickerSource).toContain('DocumentPicker.getDocumentAsync');
+    expect(pickerSource).toContain('multiple: true');
+    expect(pickerSource).toContain('appendMessengerAttachmentCandidates');
     expect(source).toContain('prepareMessengerAttachmentBatch');
     expect(source).toContain('uploadMessengerAttachmentBatch');
     expect(source).toContain('openAuthorizedMessengerAttachment');
-    expect(source).toContain('ImagePicker.launchImageLibraryAsync');
+    expect(pickerSource).toContain('ImagePicker.launchImageLibraryAsync');
     expect(source).toContain('accessibilityLabel="사진 첨부"');
-    expect(source).toContain('selectionLimit: MAX_MESSENGER_ATTACHMENTS - selectedAttachments.length');
+    expect(pickerSource).toContain('selectionLimit: MAX_MESSENGER_ATTACHMENTS - existing.length');
     expect(source).not.toContain('createSignedUploadUrl');
     expect(source).not.toContain('getPublicUrl');
     expect(source).toContain('keyboardShouldPersistTaps="handled"');

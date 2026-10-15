@@ -181,7 +181,7 @@ export default function NewConversationScreen() {
         }
       } catch (error) {
         logger.debug('[new-conversation] 내부 사람 목록을 불러오지 못했습니다.', error);
-        failures.push('가라민');
+        failures.push('가람in');
       }
     })();
 
