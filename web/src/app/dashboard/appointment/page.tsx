@@ -98,6 +98,15 @@ const hasInsuranceStageActivity = (fc: FcProfile) =>
 const isLegacyInsuranceStageRow = (fc: FcProfile) =>
   hasInsuranceStageActivity(fc) && !hasHanwhaApprovedPdf(fc);
 
+// The date shown in 확정일 is the date saved on confirm: typed value, then saved date, then FC-submitted date.
+const resolveInsuranceDate = (inputValue: unknown, dbDate?: string | null, subDate?: string | null): Date | null => {
+  if (inputValue === null) return null;
+  if (inputValue instanceof Date) return inputValue;
+  if (inputValue) return new Date(inputValue as string);
+  if (dbDate) return new Date(dbDate);
+  return subDate ? new Date(subDate) : null;
+};
+
 // --- Filter Types & Components ---
 type FilterState = Record<string, string[]>;
 
@@ -446,8 +455,8 @@ export default function AppointmentPage() {
     } else if (type === 'confirm') {
       const dateKey = category === 'life' ? 'lifeDate' : 'nonLifeDate';
       const dbDateKey = category === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
-      const dbDateValue = fc[dbDateKey];
-      const dateVal = input[dateKey as keyof typeof input] ?? (dbDateValue ? new Date(dbDateValue) : null);
+      const subDateKey = category === 'life' ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub';
+      const dateVal = resolveInsuranceDate(input[dateKey as keyof typeof input], fc[dbDateKey], fc[subDateKey]);
 
       if (!dateVal) {
         notifications.show({ title: '입력 필요', message: '확정일(Start Date)을 선택해주세요.', color: 'orange' });
@@ -519,11 +528,7 @@ export default function AppointmentPage() {
 
     const scheduleValue = (input[scheduleKey as keyof typeof input] ?? (dbSchedule ?? '')) as string | undefined;
 
-    const dateValueRaw = input[dateKey as keyof typeof input];
-    const dateValue = dateValueRaw === null ? null : dateValueRaw instanceof Date ? dateValueRaw
-      : (dateValueRaw
-        ? new Date(dateValueRaw as string)
-        : (dbDate ? new Date(dbDate) : (subDate ? new Date(subDate) : null)));
+    const dateValue = resolveInsuranceDate(input[dateKey as keyof typeof input], dbDate, subDate);
 
     const isConfirmed = !!dbDate;
     const hasSubmitted = !!subDate && !dbDate;

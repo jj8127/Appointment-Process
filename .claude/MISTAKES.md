@@ -5844,3 +5844,10 @@
 - Cause: a layout redesign was inferred from a request about spacing.
 - Guardrail: preserve existing alignment, typography and content during spacing fixes. Apply the user's explicit placement: left service context, centered title, right service switch in one row.
 - Evidence: the user rejected the left-aligned candidate; the local Android follow-up keeps the original title style and changes the row placement only.
+
+## 2026-10-15 | A field showed a fallback value that the save action ignored
+
+- Symptom: the appointment 확정일 input displayed the FC-submitted date, but confirm rejected it with "확정일을 선택해주세요"; re-clicking the same calendar day cleared the value.
+- Cause: the render path and `executeAction` derived the date separately; only the render path fell back to the submitted date.
+- Guardrail: derive a displayed default and the submitted value from one helper (`resolveInsuranceDate`). When a field shows a fallback, the action must submit that same value or the field must show it as a placeholder only.
+- Evidence: `web/src/lib/ux-priority-one-runtime.test.mjs` appointment confirm case; synthetic admin fixture confirm without re-selecting the date; artifacts/admin-ux-baseline-20261015/baseline.md.
