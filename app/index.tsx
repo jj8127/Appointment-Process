@@ -11,6 +11,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  Share,
   StyleSheet,
   Text,
   View
@@ -41,7 +42,14 @@ import {
   getFcHomeQuickLinkDescriptions,
 } from '@/lib/fc-workflow';
 import { isFcStatus } from '@/lib/fc-status';
+import { FcHomeExamRounds } from '@/components/fc-home/FcHomeExamRounds';
+import { FcHomeMessages } from '@/components/fc-home/FcHomeMessages';
+import { FcHomeNews } from '@/components/fc-home/FcHomeNews';
+import { FcHomeProgressCard } from '@/components/fc-home/FcHomeProgressCard';
+import { FcHomeSectionBoundary } from '@/components/fc-home/FcHomeSectionBoundary';
+import { FcHomeShortcuts } from '@/components/fc-home/FcHomeShortcuts';
 import { useAppLogout } from '@/hooks/use-app-logout';
+import { useMyReferralCode } from '@/hooks/use-my-referral-code';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useSession } from '@/hooks/use-session';
@@ -52,7 +60,10 @@ import {
   parseLatestNoticePayload,
   type LatestNoticeSummary,
 } from '@/lib/inbox-list-contract';
-import { formatLicenseStatuses } from '@/lib/license-statuses';
+import { formatLicenseStatuses, LICENSE_STATUS_LABELS, LICENSE_STATUS_NONE, normalizeLicenseStatuses } from '@/lib/license-statuses';
+import { buildBoardActor } from '@/lib/board-api';
+import { formatHomeRelativeTime } from '@/lib/fc-home-sections';
+import { buildReferralShareText } from '@/lib/referral-share';
 import { logger } from '@/lib/logger';
 import { formatHomeCount } from '@/lib/home-read-state';
 import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
@@ -62,12 +73,6 @@ import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-sco
 import { resolveHomeLatestNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
-import {
-  HOME_GUIDE_ICON_BACKGROUND,
-  HOME_GUIDE_ICON_BORDER,
-  HOME_GUIDE_ICON_FOREGROUND,
-  HOME_GUIDE_ICON_SHADOW,
-} from '@/lib/home-guide-ui';
 import { supabase } from '@/lib/supabase';
 import {
   chunkSupabaseFilterValues,
@@ -83,18 +88,16 @@ import type { FcProfile } from '@/types/fc';
 
 const YOUTUBE_URL = 'https://youtube.com/playlist?list=PLF5rd5c2rE9xy-VsAdwq4NEUsJQtKD7Qd&si=vKx4TDq6ww9ZgKiT';
 
-const SHORTCUT_TOUR_TEXTS = [
-  '생명/제3보험 시험 일정을 확인하고 접수할 수 있어요.',
-  '손해보험 시험 접수 메뉴예요.',
-  '이름, 소속, 주소 등 기본 정보를 관리해요.',
-  '보증 보험 동의 상태를 확인해요.',
-  '필수 서류를 업로드하고 상태를 확인해요.',
-  '다위촉 URL 진행 단계예요.',
-  '생명/손해 위촉 진행 단계예요.',
-  '총무/설계매니저와 대화할 수 있어요.',
-  '추천인 코드를 확인하고 친구를 초대할 수 있어요.',
-  '공개된 수당 내역과 기여 흐름을 그래프로 확인할 수 있어요.',
-];
+const SHORTCUT_TOUR_TEXTS: Record<string, string> = {
+  '/exam-apply': '생명/제3보험 시험 일정을 확인하고 접수할 수 있어요.',
+  '/exam-apply2': '손해보험 시험 접수 메뉴예요.',
+  '/fc/new': '이름, 소속, 주소 등 기본 정보를 관리해요.',
+  '/signup': '사전등록 정보를 먼저 완료해요.',
+  '/consent': '보증 보험 동의 상태를 확인해요.',
+  '/docs-upload': '필수 서류를 업로드하고 상태를 확인해요.',
+  '/hanwha-commission': '다위촉 URL 진행 단계예요.',
+  '/appointment': '생명/손해 위촉 진행 단계예요.',
+};
 
 // Android Crash Fix: Strips Moti props on Android to prevent Reanimated from attaching to unmounting views
 const AndroidSafeMotiView = ({ from, animate, transition, state, exit, exitTransition, delay, ...props }: any) => {
@@ -714,6 +717,7 @@ function LegacyInsuranceHome() {
   // Auto-scroll refs & cached positions
   const scrollViewRef = useAnimatedRef<Animated.ScrollView>();
   const contentRef = useRef<View>(null);
+  const zone1Ref = useRef<View>(null);
   const zone2Ref = useRef<View>(null);
   const zone3Ref = useRef<View>(null);
   const zone4Ref = useRef<View>(null);
@@ -884,6 +888,16 @@ function LegacyInsuranceHome() {
     }
   }, [isFc, canStartShortcutTour, cacheShortcutZonePositions, startShortcutTour, stopMainTour]);
 
+  const openHowToOptions = useCallback(() => {
+    Haptics.selectionAsync();
+    Alert.alert('사용법', undefined, [
+      { text: '홈 화면 안내', onPress: startFcTour },
+      { text: '바로가기 안내', onPress: startShortcutGuide },
+      { text: '영상 가이드', onPress: () => void openHomeYoutube() },
+      { text: '취소', style: 'cancel' },
+    ]);
+  }, [openHomeYoutube, startFcTour, startShortcutGuide]);
+
 
 
 
@@ -970,6 +984,29 @@ function LegacyInsuranceHome() {
         : nextAction.key === 'hanwha'
           ? '/hanwha-commission'
           : '/appointment');
+  const fcLicenseLabels = normalizeLicenseStatuses(myFc?.license_statuses)
+    .filter((status) => status !== LICENSE_STATUS_NONE)
+    .map((status) => LICENSE_STATUS_LABELS[status].replace(' 보험', ''));
+  const boardActor = useMemo(
+    () => (hydrated ? buildBoardActor({ role, residentId, displayName, readOnly }) : null),
+    [displayName, hydrated, readOnly, residentId, role],
+  );
+  const { data: fcReferralInfo } = useMyReferralCode();
+  const fcReferralCode = isFc ? fcReferralInfo?.code ?? null : null;
+  const shareFcReferralCode = useCallback(async () => {
+    if (!fcReferralCode) return;
+    try {
+      await Share.share({
+        message: buildReferralShareText({
+          code: fcReferralCode,
+          inviteBaseUrl: process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '',
+          appStoreUrl: (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim(),
+        }),
+      });
+    } catch (err: unknown) {
+      Alert.alert('공유 실패', err instanceof Error ? err.message : '추천 코드를 공유하지 못했습니다.');
+    }
+  }, [fcReferralCode]);
   const currentStepYoutube = FC_STAGE_YOUTUBE_PLACEHOLDERS[nextAction.key];
   const hasCurrentStepYoutubeUrl = Boolean(currentStepYoutube?.url);
   const openCurrentStepYoutube = useCallback(async () => {
@@ -1291,7 +1328,7 @@ function LegacyInsuranceHome() {
   const contentBottomPadding = (role === 'admin' ? 160 : 96) + (insets.bottom || 0);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+    <SafeAreaView style={[styles.safe, isFc && styles.fcHomeSurface]} edges={['left', 'right', 'bottom']}>
       <NotificationReceiptStatusBanner
         state={notificationReceipt.state}
         onRetry={() => void notificationReceipt.retryMarkRead()}
@@ -1307,7 +1344,7 @@ function LegacyInsuranceHome() {
         <View
           ref={contentRef}
           collapsable={false}
-          style={[styles.container, { paddingBottom: contentBottomPadding }]}
+          style={[styles.container, { paddingBottom: contentBottomPadding }, isFc && styles.fcHomeSurface]}
         >
           <AppTopActionBar
             title={homeHeaderTitle}
@@ -1355,27 +1392,8 @@ function LegacyInsuranceHome() {
 
 
 
-          {latestNoticeError ? (
+          {isFc ? null : latestNoticeError ? (
             <QueryReadState error={latestNoticeReadError} message="최신 공지를 불러오지 못했습니다." onRetry={() => void refetchLatestNotice()} retrying={latestNoticeFetching} />
-          ) : isFc ? (
-            <View collapsable={false}>
-              <AndroidSafeMotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
-                <TourGuideZone
-                  zone={1}
-                  text="여기서 최신 공지와 가람Pick을 확인해요. 눌러서 상세로 이동할 수 있어요."
-                  borderRadius={12}>
-                  <Pressable
-                    style={({ pressed }) => [styles.notice, pressed && styles.pressedOpacity]}
-                    onPress={handleOpenLatestNotice}>
-                    <View style={styles.noticeDot} />
-                    <Text style={styles.noticeText} numberOfLines={1}>
-                      {latestNoticeLoading ? '최신 공지를 불러오는 중...' : formatLatestNoticeLabel(latestNotice)}
-                    </Text>
-                    <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
-                  </Pressable>
-                </TourGuideZone>
-              </AndroidSafeMotiView>
-            </View>
           ) : (
             <AndroidSafeMotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
               <Pressable
@@ -1387,69 +1405,6 @@ function LegacyInsuranceHome() {
                 </Text>
                 <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
               </Pressable>
-            </AndroidSafeMotiView>
-          )}
-
-          {/* Guide Card (Modern) - Moved below Notice */}
-          {role === 'fc' && (
-            <AndroidSafeMotiView
-              from={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: 'spring', delay: 180 }}
-              style={{ marginBottom: 10 }}
-            >
-              <View style={styles.guideCardNew}>
-                <Pressable
-                  onPress={startFcTour}
-                  accessibilityRole="button"
-                  accessibilityLabel="앱 사용 가이드 시작"
-                  style={({ pressed }) => [
-                    styles.guideMainActionNew,
-                    pressed && styles.guideCardNewPressed,
-                  ]}
-                >
-                  <View style={styles.guideIconWrapNew}>
-                    <View style={styles.guideIconBadgeNew}>
-                      <View style={styles.guidePlayTriangle} />
-                    </View>
-                  </View>
-
-                  <View style={styles.guideTextWrapNew}>
-                    <View style={styles.guideBadgeRowNew}>
-                      <View style={styles.guideBadgeNew}>
-                        <Text style={styles.guideBadgeTextNew}>GUIDE</Text>
-                      </View>
-                      <Text style={styles.guideBadgeHintNew}>처음 오셨나요?</Text>
-                    </View>
-
-                    <Text style={styles.guideTitleNew} numberOfLines={1}>
-                      앱 사용법 안내 시작하기
-                    </Text>
-                  </View>
-
-                  <View style={styles.guideCtaNew}>
-                    <View style={styles.guideCtaChipNew}>
-                      <Text style={styles.guideCtaTextNew}>시작</Text>
-                      <Feather name="chevron-right" size={16} color="#fff" />
-                    </View>
-                  </View>
-                </Pressable>
-                <Pressable
-                  onPress={openHomeYoutube}
-                  accessibilityRole="button"
-                  accessibilityLabel="유튜브 가이드 영상 보기"
-                  style={({ pressed }) => [styles.youtubeGuideActionNew, pressed && styles.pressedOpacity]}
-                >
-                  <View style={styles.youtubeGuideIconNew}>
-                    <Feather name="youtube" size={20} color="#DC2626" />
-                  </View>
-                  <View style={styles.youtubeGuideTextWrapNew}>
-                    <Text style={styles.youtubeGuideTitleNew}>유튜브 영상 가이드 보기</Text>
-                    <Text style={styles.youtubeGuideSubTextNew}>화면 설명을 영상으로 바로 확인하세요</Text>
-                  </View>
-                  <Feather name="external-link" size={16} color="#DC2626" />
-                </Pressable>
-              </View>
             </AndroidSafeMotiView>
           )}
 
@@ -1542,193 +1497,30 @@ function LegacyInsuranceHome() {
                 </View>
               )
             ) : isFc ? (
-              <View>
-                <View style={styles.progressCard}>
-                  <View style={{ marginBottom: 5 }} collapsable={false}>
-                    <View ref={zone3Ref} collapsable={false}>
-                      <TourGuideZone
-                        zone={3}
-                        text="현재 위촉 진행 단계를 여기서 확인해요."
-                        borderRadius={20}
-                        maskOffset={8}
-                      >
-                        <View style={{ width: '100%' }}>
-                          <View style={styles.cardHeader} collapsable={false}>
-                            <Text style={styles.sectionTitle}>내 진행 상황</Text>
-                            <View style={styles.progressHeaderActions}>
-                              <View
-                                style={[
-                                  styles.tempIdBadge,
-                                  hasTempId ? styles.tempIdBadgeIssued : styles.tempIdBadgeMissing,
-                                ]}
-                              >
-                                <Feather
-                                  name={hasTempId ? 'hash' : 'alert-circle'}
-                                  size={12}
-                                  color={hasTempId ? '#166534' : '#9A3412'}
-                                />
-                                <Text
-                                  style={[
-                                    styles.tempIdBadgeText,
-                                    hasTempId ? styles.tempIdBadgeTextIssued : styles.tempIdBadgeTextMissing,
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {tempIdBadgeLabel}
-                                </Text>
-                              </View>
-                              <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
-                            </View>
-                          </View>
-                          {statusLoading ? (
-                            <View style={{ marginVertical: 20 }}>
-                              <Skeleton width="100%" height={60} style={{ marginBottom: 12 }} />
-                              <View style={{ flexDirection: 'row', gap: 8 }}>
-                                <Skeleton width="48%" height={80} />
-                                <Skeleton width="48%" height={80} />
-                              </View>
-                            </View>
-                          ) : (
-                            <>
-                              {/* 위촉 상태 배지 행 */}
-                              <View style={styles.statusRow}>
-                                <View style={styles.statusItem}>
-                                  <Text style={styles.statusLabel}>생명 위촉</Text>
-                                  <View style={[styles.statusBadge, { backgroundColor: lifeStatus.bg }]}>
-                                    <Text style={[styles.statusText, { color: lifeStatus.color }]}>{lifeStatus.label}</Text>
-                                  </View>
-                                </View>
-                                <View style={styles.statusDivider} />
-                                <View style={styles.statusItem}>
-                                  <Text style={styles.statusLabel}>손해 위촉</Text>
-                                  <View style={[styles.statusBadge, { backgroundColor: nonLifeStatus.bg }]}>
-                                    <Text style={[styles.statusText, { color: nonLifeStatus.color }]}>{nonLifeStatus.label}</Text>
-                                  </View>
-                                </View>
-                              </View>
-                              <Text style={styles.statusSummaryText}>위촉 완료 {completedCommissionCount}/2</Text>
-                              <Text style={styles.licenseSummaryText}>
-                                자격증 보유 현황: {licenseStatusDisplay}
-                              </Text>
-                              {/* 진행 단계 (기존 Stepper) */}
-                              <View style={[styles.stepContainer, { marginTop: 8 }]}>
-                                {fcHomeSteps.map((step, index) => {
-                                  const stepNum = index + 1;
-                                  const isActive = stepNum === currentStep;
-                                  const isDone = stepNum < currentStep;
-                                  return (
-                                    <View key={step.key} style={styles.stepWrapper}>
-                                      {index < fcHomeSteps.length - 1 && (
-                                        <View style={[styles.stepConnector, isDone && styles.stepConnectorDone]} />
-                                      )}
-                                      <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isDone && styles.stepCircleDone]}>
-                                        {isDone ? (
-                                          <Feather name="check" size={14} color="#fff" />
-                                        ) : (
-                                          <Text style={[styles.stepNumber, isActive && styles.stepNumberActive]}>{stepNum}</Text>
-                                        )}
-                                      </View>
-                                      <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>{step.label}</Text>
-                                    </View>
-                                  );
-                                })}
-                              </View>
-                            </>
-                          )}
-                        </View>
-                      </TourGuideZone>
-                    </View>
-                  </View>
-
-                  {/* Spacer to prevent Step 3 highlight from bleeding into Step 4 */}
-                  <View style={{ height: 15 }} collapsable={false} />
-
-                  <View style={styles.glanceRow}>
-                    <View ref={zone4Ref} style={{ flex: 1 }} collapsable={false}>
-                      <TourGuideZone
-                        zone={4}
-                        text="지금 해야 할 ‘다음 단계’로 바로 이동할 수 있어요."
-                        borderRadius={20}
-                        style={{ flex: 1 }}>
-                        <Pressable
-                          onPress={() => {
-                            handlePressLink(nextActionRoute);
-                          }}
-                          style={({ pressed }) => [
-                            { flex: 1 },
-                            pressed && styles.pressedScale,
-                          ]}
-                        >
-                          <View style={styles.premiumStepCard}>
-                            <View style={styles.premiumStepContent}>
-                              <View style={styles.premiumStepHeader}>
-                                <View style={styles.premiumStepBadge}>
-                                  <Text style={styles.premiumStepBadgeText}>다음 단계</Text>
-                                </View>
-                                <View style={styles.premiumStepIcon}>
-                                  <Feather name="arrow-right" size={20} color="#fff" />
-                                </View>
-                              </View>
-                              <Text style={styles.premiumStepTitle} numberOfLines={1}>
-                                {nextAction.title}
-                              </Text>
-                              <Text style={styles.premiumStepSub}>
-                                {nextAction.subtitle}
-                              </Text>
-                            </View>
-                            <View style={styles.premiumStepDeco1} />
-                            <View style={styles.premiumStepDeco2} />
-                          </View>
-                        </Pressable>
-                      </TourGuideZone>
-                    </View>
-                    <Pressable
-                      onPress={openCurrentStepYoutube}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${nextAction.title} 유튜브 가이드`}
-                      accessibilityHint={
-                        hasCurrentStepYoutubeUrl
-                          ? '현재 단계 영상 가이드를 엽니다.'
-                          : '현재 단계 영상이 준비 중임을 안내합니다.'
-                      }
-                      style={({ pressed }) => [
-                        styles.stepYoutubeButton,
-                        !hasCurrentStepYoutubeUrl && styles.stepYoutubeButtonPending,
-                        pressed && styles.pressedOpacity,
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.stepYoutubeIcon,
-                          !hasCurrentStepYoutubeUrl && styles.stepYoutubeIconPending,
-                        ]}
-                      >
-                        <Feather
-                          name="youtube"
-                          size={18}
-                          color={hasCurrentStepYoutubeUrl ? '#DC2626' : '#9CA3AF'}
-                        />
-                      </View>
-                      <Text
-                        style={[
-                          styles.stepYoutubeTitle,
-                          !hasCurrentStepYoutubeUrl && styles.stepYoutubeTitlePending,
-                        ]}
-                      >
-                        영상
-                      </Text>
-                      <Text
-                        style={[
-                          styles.stepYoutubeStatus,
-                          !hasCurrentStepYoutubeUrl && styles.stepYoutubeStatusPending,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {hasCurrentStepYoutubeUrl ? '보기' : '준비 중'}
-                      </Text>
-                    </Pressable>
-                  </View>
-                </View>
+              <View ref={zone1Ref} collapsable={false}>
+                <TourGuideZone
+                  zone={1}
+                  text="현재 위촉 진행 단계와 다음에 할 일을 여기서 확인해요."
+                  borderRadius={24}
+                  maskOffset={6}
+                >
+                  <FcHomeSectionBoundary title="내 진행 상황">
+                    <FcHomeProgressCard
+                      steps={fcHomeSteps}
+                      currentStep={currentStep}
+                      loading={statusLoading}
+                      storageScope={residentId || null}
+                      hasTempId={hasTempId}
+                      tempIdLabel={tempIdBadgeLabel}
+                      nextTitle={nextAction.title}
+                      nextSubtitle={nextAction.subtitle}
+                      onPressNext={() => handlePressLink(nextActionRoute)}
+                      lifeCompleted={lifeCompleted}
+                      nonLifeCompleted={nonLifeCompleted}
+                      licenseLabels={fcLicenseLabels}
+                    />
+                  </FcHomeSectionBoundary>
+                </TourGuideZone>
               </View>
             ) : (
               <View style={styles.progressCard}>
@@ -1903,59 +1695,48 @@ function LegacyInsuranceHome() {
                   </Pressable>
                 </AndroidSafeMotiView>
               ) : isFc ? (
-                <View ref={zone2Ref} collapsable={false}>
-                  <TourGuideZone
-                    zone={2}
-                    text="메신저 허브에서 가람지사/설계요청 대화를 선택할 수 있어요."
-                    borderRadius={24}>
-                    <AndroidSafeMotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'spring', delay: 100 }}>
-                      <Pressable onPress={() => handlePressLink('/messenger')}>
-                        <View style={styles.ctaCard}>
-                          <View style={styles.ctaContent}>
-                            <View style={styles.ctaBadge}>
-                              <Text style={styles.ctaBadgeText}>메신저</Text>
-                            </View>
-                            <Text style={styles.ctaTitle}>통합 메신저 열기</Text>
-                            <Text style={styles.ctaSub} numberOfLines={2}>
-                              {latestAdminMsgLoading
-                                ? '메시지 불러오는 중...'
-                                : latestAdminMsgError
-                                  ? '최근 메시지를 확인할 수 없습니다. 메신저에서 다시 확인해주세요.'
-                                  : latestAdminMsg?.content
-                                  ? latestAdminMsg.content
-                                  : '최근 총무팀 메시지를 확인하세요.'}
-                            </Text>
-                          </View>
-                          <View style={styles.ctaIconCircle}>
-                            <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
-                            {hasUnreadMessages && (
-                              <View
-                                style={{
-                                  position: 'absolute',
-                                  top: -8,
-                                  right: -8,
-                                  minWidth: 24,
-                                  height: 24,
-                                  borderRadius: 12,
-                                  backgroundColor: '#EF4444',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  borderWidth: 1.5,
-                                  borderColor: '#fff',
-                                }}
-                              >
-                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>
-                                  {unreadMessageBadge}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                          <View style={styles.ctaDecoCircle} />
-                        </View>
-                      </Pressable>
-                    </AndroidSafeMotiView>
-                  </TourGuideZone>
-                </View>
+                <>
+                  <View ref={zone2Ref} collapsable={false}>
+                    <TourGuideZone zone={2} text="총무팀 메시지를 확인하고 메신저로 이동해요." borderRadius={24}>
+                      <FcHomeSectionBoundary title="메시지">
+                        <FcHomeMessages
+                          preview={
+                            latestAdminMsgLoading
+                              ? '메시지 불러오는 중'
+                              : latestAdminMsgError
+                                ? '최근 메시지를 확인할 수 없습니다'
+                                : latestAdminMsg?.content || '최근 메시지가 없습니다'
+                          }
+                          timeLabel={formatHomeRelativeTime(latestAdminMsg?.created_at) || null}
+                          unreadCount={hasUnreadMessages && typeof unreadMsgCount === 'number' ? unreadMsgCount : 0}
+                          onOpenMessenger={() => handlePressLink('/messenger')}
+                        />
+                      </FcHomeSectionBoundary>
+                    </TourGuideZone>
+                  </View>
+                  <View ref={zone3Ref} collapsable={false}>
+                    <TourGuideZone zone={3} text="열려 있는 시험 회차와 마감일을 보고 바로 신청해요." borderRadius={24}>
+                      <FcHomeSectionBoundary title="시험 접수">
+                        <FcHomeExamRounds sessionScope={sessionScope} onOpen={handlePressLink} />
+                      </FcHomeSectionBoundary>
+                    </TourGuideZone>
+                  </View>
+                  <View ref={zone4Ref} collapsable={false}>
+                    <TourGuideZone zone={4} text="최신 공지와 게시판 새 글을 확인해요." borderRadius={24}>
+                      <FcHomeSectionBoundary title="새 소식">
+                        <FcHomeNews
+                          actor={boardActor}
+                          sessionScope={sessionScope}
+                          latestNotice={latestNoticeError ? { title: '최신 공지를 불러오지 못했습니다' } : latestNotice}
+                          latestNoticeLoading={latestNoticeLoading}
+                          onOpenNotice={handleOpenLatestNotice}
+                          onOpenPost={(postId) => router.push({ pathname: '/board', params: { postId } } as any)}
+                          onOpenBoard={() => router.push('/board')}
+                        />
+                      </FcHomeSectionBoundary>
+                    </TourGuideZone>
+                  </View>
+                </>
               ) : (
                 <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
                   <Pressable onPress={() => handlePressLink('/messenger')}>
@@ -1986,6 +1767,34 @@ function LegacyInsuranceHome() {
             </>
           )}
 
+          {isFc ? (
+            <FcHomeSectionBoundary title="바로가기">
+              <FcHomeShortcuts
+                links={quickLinks.filter((item) => item.href !== '/messenger')}
+                referralCode={fcReferralCode}
+                onOpen={(href) => handlePressLink(href)}
+                onShareReferral={() => void shareFcReferralCode()}
+                onHowTo={openHowToOptions}
+                renderTile={(tile, link, index) => (
+                  <View
+                    collapsable={false}
+                    ref={(node) => {
+                      shortcutZoneRefs.current[index] = node;
+                    }}
+                  >
+                    <ShortcutTourGuideZone
+                      zone={index + 1}
+                      text={SHORTCUT_TOUR_TEXTS[link.href] ?? `${link.title} 메뉴예요.`}
+                      borderRadius={16}
+                    >
+                      {tile}
+                    </ShortcutTourGuideZone>
+                  </View>
+                )}
+              />
+            </FcHomeSectionBoundary>
+          ) : (
+            <>
           <View style={styles.linksSection}>
             <Text style={styles.sectionTitle}>
               {role === 'admin' && isManagerExam
@@ -2003,68 +1812,6 @@ function LegacyInsuranceHome() {
             ) : null}
           </View>
 
-          {/* Guide Banner Button (Modern) */}
-          {role === 'fc' && (
-            <AndroidSafeMotiView
-              from={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: 'spring', delay: 180 }}
-              style={{ marginBottom: 20 }}
-            >
-              <View style={styles.guideCardNew}>
-                <Pressable
-                  onPress={startShortcutGuide}
-                  accessibilityRole="button"
-                  accessibilityLabel="바로가기 사용법 설명 듣기"
-                  style={({ pressed }) => [
-                    styles.guideMainActionNew,
-                    pressed && styles.guideCardNewPressed,
-                  ]}
-                >
-                  <View style={styles.guideIconWrapNew}>
-                    <View style={styles.guideIconBadgeNew}>
-                      <View style={styles.guidePlayTriangle} />
-                    </View>
-                  </View>
-
-                  <View style={styles.guideTextWrapNew}>
-                    <View style={styles.guideBadgeRowNew}>
-                      <View style={styles.guideBadgeNew}>
-                        <Text style={styles.guideBadgeTextNew}>SHORTCUT</Text>
-                      </View>
-                      <Text style={styles.guideBadgeHintNew}>기능이 궁금한가요?</Text>
-                    </View>
-
-                    <Text style={styles.guideTitleNew} numberOfLines={1}>
-                      바로가기 사용법 설명 듣기
-                    </Text>
-                  </View>
-
-                  <View style={styles.guideCtaNew}>
-                    <View style={styles.guideCtaChipNew}>
-                      <Text style={styles.guideCtaTextNew}>시작</Text>
-                      <Feather name="chevron-right" size={16} color="#fff" />
-                    </View>
-                  </View>
-                </Pressable>
-                <Pressable
-                  onPress={openHomeYoutube}
-                  accessibilityRole="button"
-                  accessibilityLabel="유튜브 바로가기 영상 보기"
-                  style={({ pressed }) => [styles.youtubeGuideActionNew, pressed && styles.pressedOpacity]}
-                >
-                  <View style={styles.youtubeGuideIconNew}>
-                    <Feather name="youtube" size={20} color="#DC2626" />
-                  </View>
-                  <View style={styles.youtubeGuideTextWrapNew}>
-                    <Text style={styles.youtubeGuideTitleNew}>바로가기 영상 가이드 보기</Text>
-                    <Text style={styles.youtubeGuideSubTextNew}>메뉴별 이동 방법을 영상으로 확인하세요</Text>
-                  </View>
-                  <Feather name="external-link" size={16} color="#DC2626" />
-                </Pressable>
-              </View>
-            </AndroidSafeMotiView>
-          )}
           <View style={styles.actionGrid}>
             {quickLinks.map((item, index) => {
               const key = `${item.href}-${item.stepKey ?? item.title ?? index}`;
@@ -2104,27 +1851,6 @@ function LegacyInsuranceHome() {
                 </AndroidSafeMotiView>
               );
 
-              if (role === 'fc') {
-                return (
-                  <View
-                    key={key}
-                    style={{ width: '48%' }}
-                    collapsable={false}
-                    ref={(node) => {
-                      shortcutZoneRefs.current[index] = node;
-                    }}
-                  >
-                    <ShortcutTourGuideZone
-                      zone={index + 1}
-                      text={SHORTCUT_TOUR_TEXTS[index] ?? `${item.title} 메뉴예요.`}
-                      borderRadius={16}
-                    >
-                      {card}
-                    </ShortcutTourGuideZone>
-                  </View>
-                );
-              }
-
               return (
                 <View key={key} style={{ width: '48%' }}>
                   {card}
@@ -2132,6 +1858,8 @@ function LegacyInsuranceHome() {
               );
             })}
           </View>
+            </>
+          )}
         </View >
       </Animated.ScrollView >
 
@@ -2167,6 +1895,8 @@ const MetricCard = ({ label, value, onPress }: { label: string; value: string; o
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
+  // FC home sections are white cards on a gray page so each area reads separately.
+  fcHomeSurface: { backgroundColor: '#f3f4f6' },
   scroll: { flex: 1 },
   container: {
     paddingBottom: 20,
@@ -2733,182 +2463,5 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
-  guideCardNew: {
-    marginHorizontal: 20,
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#F1F5F9', // Slate-100 느낌
-    gap: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
-  },
 
-  guideMainActionNew: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  guideCardNewPressed: {
-    transform: [{ scale: 0.985 }],
-    opacity: 0.95,
-  },
-
-  guideIconWrapNew: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    marginRight: 12,
-    backgroundColor: HOME_GUIDE_ICON_BACKGROUND,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  guideIconBadgeNew: {
-    flex: 1,
-    width: '100%',
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: HOME_GUIDE_ICON_BORDER,
-    backgroundColor: HOME_GUIDE_ICON_BACKGROUND,
-    shadowColor: HOME_GUIDE_ICON_SHADOW,
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 0,
-  },
-
-  guidePlayTriangle: {
-    width: 0,
-    height: 0,
-    marginLeft: 2,
-    borderTopWidth: 7,
-    borderBottomWidth: 7,
-    borderLeftWidth: 10,
-    borderTopColor: 'transparent',
-    borderBottomColor: 'transparent',
-    borderLeftColor: HOME_GUIDE_ICON_FOREGROUND,
-  },
-
-  guideTextWrapNew: {
-    flex: 1,
-    paddingRight: 10,
-  },
-
-  guideBadgeRowNew: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
-  },
-
-  guideBadgeNew: {
-    backgroundColor: ORANGE_FAINT,
-    borderWidth: 1,
-    borderColor: '#FFEDD5',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-
-  guideBadgeTextNew: {
-    color: '#9A3412', // Orange-900
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0,
-  },
-
-  guideBadgeHintNew: {
-    color: '#6B7280',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-
-  guideTitleNew: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: CHARCOAL,
-    letterSpacing: 0,
-    marginBottom: 2,
-  },
-
-  guideSubTitleNew: {
-    fontSize: 13,
-    color: '#6B7280',
-    lineHeight: 18,
-    fontWeight: '500',
-  },
-
-  guideCtaNew: {
-    justifyContent: 'center',
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-
-  youtubeGuideActionNew: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-    backgroundColor: '#FEF2F2',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-
-  youtubeGuideIconNew: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  youtubeGuideTextWrapNew: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  youtubeGuideTitleNew: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#991B1B',
-    marginBottom: 2,
-  },
-
-  youtubeGuideSubTextNew: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#B91C1C',
-  },
-
-  guideCtaChipNew: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: HANWHA_ORANGE,
-    shadowColor: '#f36f21',
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-
-  guideCtaTextNew: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '800',
-  },
 });

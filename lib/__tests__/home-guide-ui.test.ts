@@ -17,17 +17,15 @@ describe('home guide icon visual contract', () => {
     expect(Object.values(contract).map((value) => value.toLowerCase())).not.toContain('black');
   });
 
-  it('keeps the mobile home guide play badge out of vector-icon and elevated-circle fallback paths', () => {
+  it('opens the app guides from the home 사용법 shortcut instead of standing guide cards', () => {
     const homeSource = readFileSync(join(process.cwd(), 'app/index.tsx'), 'utf8');
-    const guideBadgeStyle = homeSource.slice(
-      homeSource.indexOf('guideIconBadgeNew:'),
-      homeSource.indexOf('guideTextWrapNew:'),
-    );
+    const shortcutsSource = readFileSync(join(process.cwd(), 'components/fc-home/FcHomeShortcuts.tsx'), 'utf8');
 
-    expect(homeSource).toContain('styles.guidePlayTriangle');
-    expect(homeSource).not.toContain('<Feather name="play"');
-    expect(guideBadgeStyle).toContain('shadowOpacity: 0');
-    expect(guideBadgeStyle).toContain('elevation: 0');
-    expect(guideBadgeStyle).not.toContain("shadowColor: '#000'");
+    expect(homeSource).toContain('onHowTo={openHowToOptions}');
+    expect(homeSource).toContain("{ text: '홈 화면 안내', onPress: startFcTour }");
+    expect(homeSource).toContain("{ text: '바로가기 안내', onPress: startShortcutGuide }");
+    expect(homeSource).not.toContain('앱 사용법 안내 시작하기');
+    expect(homeSource).not.toContain('바로가기 사용법 설명 듣기');
+    expect(shortcutsSource).toContain('label="사용법"');
   });
 });

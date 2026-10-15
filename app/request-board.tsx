@@ -1,5 +1,4 @@
 import { Feather } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -56,6 +55,7 @@ import { getRequestBoardWebBaseUrl } from '@/lib/request-board-url';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
+import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
 
 /* ─── Constants ─── */
 
@@ -655,13 +655,11 @@ export default function RequestBoardScreen() {
   };
 
   const copyRequestBoardUrl = async () => {
-    try {
-      await Clipboard.setStringAsync(REQUEST_BOARD_WEB_URL);
-      Alert.alert('복사 완료', '가람Link 주소를 복사했습니다.');
-    } catch (err) {
-      logger.warn('failed to copy request_board url', err);
-      Alert.alert('복사 실패', '주소 복사 중 오류가 발생했습니다.');
-    }
+    await copyTextWithFeedback(REQUEST_BOARD_WEB_URL, {
+      successMessage: '가람Link 주소를 복사했습니다.',
+      failureMessage: '주소 복사 중 오류가 발생했습니다.',
+      logScope: 'request-board',
+    });
   };
 
   const resolveRequestFilterFromCategory = (

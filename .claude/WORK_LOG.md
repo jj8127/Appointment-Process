@@ -125,6 +125,13 @@
 통합 릴리스의 필수 governance 누락을 가장 가까운 owner map·handbook과 기존 검사에 맞췄다. native 가입 증표 저장 key, 본인정보 timeout, OTA production public 환경과 Node 회귀 발견을 담당자가 기존 코드로 수리한다. 적용된 migration 12개는 운영 이력과 SQL hash를 대조해 body를 유지하고 로컬 이름·schema·fixture 참조만 맞춘다. primary 사용자 로그는 보존하며 실제 수정·검증·배포 상태는 canonical 인증 harness가 관리한다. 이 기록만으로 새 배포나 실제 SMS 수신을 주장하지 않는다. [→ 상세](WORK_DETAIL.md#20261013-cutover-review-repair)
 
 추가로 legacy 가입 RPC 4개의 forward 퇴역 migration을 clean source `3b546af`에서 운영 적용했다. 반환된 이력 `20261013113212`에 로컬 파일명·schema·fixture 참조를 맞췄으며 SQL body는 유지했다. 활성 Edge 55개/457개 source의 참조, catalog·cron 의존과 legacy 상태는 적용 전 0이었고 적용 후 retired RPC도 0개다. 기존 컬럼·이력은 유지하며 실제 적용 영수증과 남은 앱/SMS acceptance는 canonical QA/handoff에서 구분한다.
+## 2026-10-16 가람in FC 홈 개편
+
+승인된 프로토타입대로 FC 홈을 진행 상황·메시지·시험 접수·새 소식·바로가기 다섯 영역으로 바꿨다. 단계 완료 체크, 시험 카드 손가락 추적, 분류 칩 이동, 바로가기 누름 반응을 확정된 2배 속도로 넣고 "동작 줄이기"를 따른다. 없는 데이터(수당 금액·접수 시작일·글별 안읽음)는 만들지 않았다. 관리자 홈·헤더·하단 메뉴는 그대로다. 실기기 확인 전, 커밋·배포 없음. [→ 상세](WORK_DETAIL.md#20261016-fc-home-redesign)
+
+## 2026-10-15 복사 토스트·손 뗄 때 실행
+
+다섯 앱 인터랙션 조사에서 정리한 피드백 등급을 적용했다. 복사 결과를 차단형 Alert에서 토스트로 바꾸고, 미리보기 Modal 안의 복사는 버튼 상태로 표시한다. 단체방·요청게시판 뒤로가기와 메신저 탭은 손을 뗄 때 실행해 취소할 수 있다. 로그인 `submitOnPressIn` 예외는 유지한다. 실기기 확인·커밋·배포는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261015-copy-toast-release-press)
 
 ## 2026-10-11 제휴병원 홈 시각 개선
 

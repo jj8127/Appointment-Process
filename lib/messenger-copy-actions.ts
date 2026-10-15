@@ -1,43 +1,52 @@
 import * as Clipboard from 'expo-clipboard';
-import { Alert } from 'react-native';
+import { Platform } from 'react-native';
 
+import { showToast } from '@/components/Toast';
 import { logger } from '@/lib/logger';
 
 type CopyTextWithFeedbackOptions = {
-  emptyTitle?: string;
   emptyMessage?: string;
-  successTitle?: string;
   successMessage?: string;
-  failureTitle?: string;
   failureMessage?: string;
+  /** 'none' lets a caller show the result on the control itself, e.g. inside a modal that would cover a toast. */
+  feedback?: 'toast' | 'none';
   logScope?: string;
 };
 
+const ANDROID_SYSTEM_CLIPBOARD_CONFIRMATION_API = 33;
+
+function systemConfirmsClipboardCopy() {
+  return Platform.OS === 'android' && Number(Platform.Version) >= ANDROID_SYSTEM_CLIPBOARD_CONFIRMATION_API;
+}
+
+// Copying is reversible and frequent, so its result never blocks the screen with a modal.
 export async function copyTextWithFeedback(
   rawText: string | null | undefined,
   {
-    emptyTitle = '복사할 수 없어요',
     emptyMessage = '복사할 메시지 내용이 없습니다.',
-    successTitle = '복사 완료',
     successMessage = '메시지를 복사했습니다.',
-    failureTitle = '복사 실패',
     failureMessage = '메시지를 복사하지 못했습니다.',
+    feedback = 'toast',
     logScope = 'messenger',
   }: CopyTextWithFeedbackOptions = {},
 ) {
+  const notify = (message: string, variant: 'success' | 'warning' | 'error') => {
+    if (feedback === 'toast') showToast({ message, variant });
+  };
   const text = String(rawText ?? '');
   if (!text.trim()) {
-    Alert.alert(emptyTitle, emptyMessage);
+    notify(emptyMessage, 'warning');
     return false;
   }
 
   try {
     await Clipboard.setStringAsync(text);
-    Alert.alert(successTitle, successMessage);
+    // Android 13+ shows its own clipboard confirmation, so an app toast would duplicate it.
+    if (!systemConfirmsClipboardCopy()) notify(successMessage, 'success');
     return true;
   } catch (error) {
     logger.warn(`[${logScope}] copy failed`, error);
-    Alert.alert(failureTitle, failureMessage);
+    notify(failureMessage, 'error');
     return false;
   }
 }

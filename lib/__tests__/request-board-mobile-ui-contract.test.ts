@@ -668,4 +668,12 @@ describe('request-board mobile UI contracts', () => {
     expect(createSource).toContain('7일 이상 치료');
     expect(reviewSource).toContain('7일 이상 치료');
   });
+
+  it('reports copies without blocking alerts and keeps preview copy feedback on its button', () => {
+    expect(homeSource).toContain('copyTextWithFeedback(REQUEST_BOARD_WEB_URL');
+    expect(homeSource).not.toContain('Clipboard.setStringAsync');
+    expect(homeSource).not.toContain("Alert.alert('복사 완료'");
+    expect(messengerSource).toContain("feedback: 'none'");
+    expect(messengerSource).toContain("previewCopyState === 'copied' ? '복사됨'");
+  });
 });

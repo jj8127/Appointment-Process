@@ -9,7 +9,9 @@ import * as examRole from '@/lib/exam-role';
 import * as fcWorkflow from '@/lib/fc-workflow';
 import * as homeGuide from '@/lib/home-guide-ui';
 import { formatHomeCount } from '@/lib/home-read-state';
-import { formatLicenseStatuses } from '@/lib/license-statuses';
+import * as fcHomeSections from '@/lib/fc-home-sections';
+import * as licenseStatuses from '@/lib/license-statuses';
+import * as referralShare from '@/lib/referral-share';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
 
 // Render the actual protected home with fictional session/query state. No
@@ -55,7 +57,11 @@ const dependencies: Record<string, unknown> = {
   '@/lib/home-guide-ui': homeGuide,
   '@/lib/home-read-state': { formatHomeCount },
   '@/lib/home-latest-notice': { formatLatestNoticeLabel: () => '합성 공지' },
-  '@/lib/license-statuses': { formatLicenseStatuses },
+  '@/lib/license-statuses': licenseStatuses,
+  '@/lib/fc-home-sections': fcHomeSections,
+  '@/lib/referral-share': referralShare,
+  '@/lib/board-api': { buildBoardActor: () => null },
+  '@/hooks/use-my-referral-code': { useMyReferralCode: () => ({ data: undefined }) },
   '@/lib/welcome-title': { buildWelcomeTitle },
   '@/lib/notification-inbox-scope': { resolveNotificationInboxResidentId: () => '' },
   '@/lib/notification-receipt-ui': { NotificationReceiptStatusBanner: 'ReceiptBanner' },

@@ -5,7 +5,6 @@ import { parseCalendarDate } from '@/lib/calendar-date';
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router, useLocalSearchParams } from 'expo-router';
-import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -37,6 +36,7 @@ import { logger } from '@/lib/logger';
 import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { openExternalUrl } from '@/lib/open-external-url';
+import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
@@ -230,18 +230,12 @@ function AllowanceConsentScreenContent() {
   };
 
   const copyTempId = useCallback(async () => {
-    const trimmedTempId = tempId.trim();
-    if (!trimmedTempId) {
-      Alert.alert('복사할 임시사번 없음', '임시사번이 발급된 후 다시 시도해주세요.');
-      return;
-    }
-
-    try {
-      await Clipboard.setStringAsync(trimmedTempId);
-      Alert.alert('복사 완료', '임시사번을 복사했습니다.');
-    } catch {
-      Alert.alert('복사 실패', '임시사번 복사 중 오류가 발생했습니다.');
-    }
+    await copyTextWithFeedback(tempId.trim(), {
+      emptyMessage: '임시사번이 발급된 후 다시 시도해주세요.',
+      successMessage: '임시사번을 복사했습니다.',
+      failureMessage: '임시사번 복사 중 오류가 발생했습니다.',
+      logScope: 'consent',
+    });
   }, [tempId]);
 
   const { width } = useWindowDimensions();

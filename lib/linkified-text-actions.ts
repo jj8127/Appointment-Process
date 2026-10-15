@@ -34,9 +34,7 @@ export function showLinkifiedTextOptions(rawUrl: string) {
       text: '복사',
       onPress: () => {
         void copyTextWithFeedback(normalized, {
-          successTitle: '복사 완료',
           successMessage: '링크를 클립보드에 복사했습니다.',
-          failureTitle: '복사 실패',
           failureMessage: '링크 복사에 실패했습니다.',
           logScope: 'linkified-text',
         });

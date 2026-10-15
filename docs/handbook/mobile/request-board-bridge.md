@@ -164,3 +164,8 @@ Quick acceptance displays saved success even if follow-up notification feedback 
 - 직접·그룹 채팅의 알림 설정 준비 여부는 현재 방 key와 loaded key의 일치로 계산한다. 조회 순번 보호는 유지한다.
 - 알림 전달 미확정 시 `getRequestBoardNotificationFeedback`은 2026-07-23 계약의 고정 안내를 반환한다. 진단에 식별자나 원문을 추가하지 않고, 완료한 상태 변경을 다시 실행하지 않는다.
 - 홈과 상세의 수락·거절 가능 여부는 기존 `getDesignerRequestDetailActions`를 사용한다. 연결 메신저의 실패 응답과 예외는 한 복구 경로를 사용하며 새 초안과 최신 미리보기를 보존한다.
+
+## 2026-10-15 복사 피드백
+
+- 가람Link 주소 복사는 토스트로 결과를 알린다.
+- 이미지 미리보기는 Modal이 토스트를 가리므로 `feedback: 'none'`으로 복사하고 버튼이 `복사됨`/`복사 실패`로 바뀐다. 다른 이미지를 열면 원래 상태로 돌아간다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.

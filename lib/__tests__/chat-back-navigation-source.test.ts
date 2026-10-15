@@ -10,4 +10,15 @@ describe('direct chat back navigation contract', () => {
     expect(source).toContain('onPress={handleBack}');
     expect(source).not.toContain('onPressIn={handleBack}');
   });
+
+  it.each(['group-chat.tsx', 'request-board-messenger.tsx'])(
+    '%s header back fires on release so sliding off cancels it',
+    (file) => {
+      const source = readFileSync(join(process.cwd(), 'app', file), 'utf8');
+
+      // group-chat falls back to the messenger hub when there is no history.
+      expect(source).toMatch(/onPress=\{\(\) => (router\.back\(\)|goBackOrReplace\(router, '\/messenger'\))\}/);
+      expect(source).not.toMatch(/onPressIn=\{\(\) => (router\.back|goBackOrReplace)/);
+    },
+  );
 });

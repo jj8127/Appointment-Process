@@ -224,3 +224,7 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 ## 2026-10-09 Local exam display and atomic round removal
 
 For TBD rounds, administrators see the saved `exam_month` and an explicit unset date. Home pending reception counts use each resident's latest lifecycle state and exclude cancelled/rejected history. A confirmed round deletion has one in-flight owner and calls `delete_exam_round_atomic_v1`: any existing registration protects the whole round; location and round deletion share one transaction. Isolated PostgreSQL tests exercise FK insertion racing deletion in both orders; production and native UI checks remain gates.
+
+## 2026-10-15 응시료 계좌 복사 피드백
+
+- `exam-apply.tsx`/`exam-apply2.tsx`의 응시료 납입 계좌 복사는 `copyTextWithFeedback`을 사용하고 결과를 토스트로 알린다. selection 햅틱은 복사 성공 시에만 낸다. 신청·결제 증빙·취소 흐름은 바뀌지 않는다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.

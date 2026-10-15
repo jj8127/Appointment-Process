@@ -281,3 +281,8 @@ Identity query errors stop the apply/home gate and offer retry; they are not use
 ## 2026-10-16 보험 계정 설정의 가람in 탈퇴
 
 - 모두온 회원과 연결된 FC가 설정에서 탈퇴하면 `withdraw_member`(scope `insurance`)로 가람in만 탈퇴하고, 응답의 `memberSession`으로 모두온 로그인을 다시 세운 뒤 서비스 홈(`/`)으로 이동한다. 세션이 오지 않으면 기존처럼 전체 로그아웃한다. 연결되지 않은 FC는 `delete-account` 삭제와 `appLogout`을 그대로 쓴다.
+
+## 2026-10-15 Referral code copy and press-in exception
+
+- 설정의 추천 코드 복사는 `copyTextWithFeedback` 토스트를 사용한다.
+- 로그인 CTA의 `submitOnPressIn`은 2026-06-16 Android 키보드 회귀를 막는 문서화된 예외로 유지한다. 다른 이동·탭 컨트롤은 `onPress`를 사용한다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.

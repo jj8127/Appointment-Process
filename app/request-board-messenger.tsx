@@ -1822,13 +1822,19 @@ export default function RequestBoardMessengerScreen() {
     }, [activeConv, handleBack, sending]),
   );
 
+  const [previewCopyState, setPreviewCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  useEffect(() => {
+    setPreviewCopyState('idle');
+  }, [previewImage]);
+
+  // The preview is a modal that would cover a toast, so the copy button itself reports the result.
   const handleCopyPreviewImage = useCallback(async () => {
     if (!previewImage) return;
-    await copyTextWithFeedback(previewImage, {
+    const copied = await copyTextWithFeedback(previewImage, {
       logScope: 'request-board-messenger:image',
-      successMessage: '이미지 주소를 복사했습니다.',
-      failureMessage: '이미지 주소를 복사하지 못했습니다.',
+      feedback: 'none',
     });
+    setPreviewCopyState(copied ? 'copied' : 'failed');
   }, [previewImage]);
 
   const handleDownloadPreviewImage = useCallback(async () => {
@@ -2039,7 +2045,7 @@ export default function RequestBoardMessengerScreen() {
         {/* Header - fixed at top */}
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4, paddingBottom: SPACING.md }]}>
           <View style={styles.headerRow}>
-            <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={styles.backBtn} onPressIn={() => router.back()}>
+            <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={({ pressed }) => [styles.backBtn, pressed && styles.backBtnPressed]} onPress={() => router.back()}>
               <Feather name="arrow-left" size={22} color={COLORS.gray[800]} />
             </Pressable>
             <Text style={styles.headerTitleCenter}>가람Link 메신저</Text>
@@ -2498,9 +2504,16 @@ export default function RequestBoardMessengerScreen() {
             />
             <View style={[styles.previewHeader, { paddingTop: Math.max(insets.top, 20) }]}>
               <View style={styles.previewActionRow}>
-                <Pressable style={styles.previewActionBtn} onPress={handleCopyPreviewImage}>
-                  <Feather name="copy" size={14} color="#fff" />
-                  <Text style={styles.previewActionText}>복사</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLiveRegion="polite"
+                  style={({ pressed }) => [styles.previewActionBtn, pressed && styles.previewActionBtnPressed]}
+                  onPress={handleCopyPreviewImage}
+                >
+                  <Feather name={previewCopyState === 'copied' ? 'check' : 'copy'} size={14} color="#fff" />
+                  <Text style={styles.previewActionText}>
+                    {previewCopyState === 'copied' ? '복사됨' : previewCopyState === 'failed' ? '복사 실패' : '복사'}
+                  </Text>
                 </Pressable>
                 <Pressable style={styles.previewActionBtn} onPress={handleDownloadPreviewImage}>
                   <Feather name="download" size={14} color="#fff" />
@@ -2614,7 +2627,7 @@ export default function RequestBoardMessengerScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
         <View style={styles.headerRow}>
-          <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={styles.backBtn} onPressIn={() => router.back()}>
+          <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={({ pressed }) => [styles.backBtn, pressed && styles.backBtnPressed]} onPress={() => router.back()}>
             <Feather name="arrow-left" size={22} color={COLORS.gray[800]} />
           </Pressable>
           <View style={styles.headerTitleRow}>
@@ -2925,6 +2938,7 @@ const styles = StyleSheet.create({
   },
   unreadBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
   backBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  backBtnPressed: { backgroundColor: COLORS.gray[100] },
 
   /* Search */
   searchRow: {
@@ -3246,6 +3260,9 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 17,
     backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  previewActionBtnPressed: {
+    backgroundColor: 'rgba(255,255,255,0.32)',
   },
   previewActionText: {
     fontSize: 12,

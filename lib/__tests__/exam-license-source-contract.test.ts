@@ -61,7 +61,8 @@ describe('license status follow-up display source contract', () => {
     const source = readSource('app/index.tsx');
     const fetchFcStatus = sliceBetween(source, 'const fetchFcStatus = async', 'type ExamStats');
 
-    expect(source).toContain("import { formatLicenseStatuses } from '@/lib/license-statuses';");
+    expect(source).toContain("import { formatLicenseStatuses, LICENSE_STATUS_LABELS, LICENSE_STATUS_NONE, normalizeLicenseStatuses } from '@/lib/license-statuses';");
+    expect(source).toContain('licenseLabels={fcLicenseLabels}');
     expect(fetchFcStatus).toContain('license_statuses');
     expect(source).toContain(
       'const licenseStatusDisplay = myFc ? formatLicenseStatuses(myFc.license_statuses) : formatLicenseStatuses(null);',

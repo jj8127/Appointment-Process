@@ -56,7 +56,7 @@ function TabButton({
       accessibilityState={{ selected }}
       aria-selected={selected}
       hitSlop={4}
-      onPressIn={() => onChange(tab)}
+      onPress={() => onChange(tab)}
       style={({ pressed }) => [styles.tab, pressed && styles.pressed]}
     >
       <View style={styles.tabTopSpace} />
