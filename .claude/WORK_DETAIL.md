@@ -1,5 +1,15 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261015-ota-4220-msg"></a>
+## 2026-10-15 메신저 사진·실시간 채널·가족간병 추천인 OTA
+
+- source: `abe7d2365695515c57be5e36f1e5903b228f60c0`(직전 OTA `c3e7e8a` 이후 `a14c925`·`8495552`·`7ae35d0`·`ab4f779`·`abe7d23`), clean detached 작업 트리에서 export·publish 후 제거. 홈 재디자인(`dd55dac`·미커밋 아이콘)은 제외. push 안 함.
+- 내용: 이미지 첨부 미리보기·앱 내 전체 화면 보기·저장, 사진 첨부를 대화 목록·답장에서 "사진/사진 N장"으로 표시, 실시간 채널 topic을 인스턴스마다 고유하게(`createRealtimeChannelTopic`; 단톡방·관리자 대시보드·서류 업로드·시험 등록, 기존 3개 helper 통합) — 재진입 시 "cannot add postgres_changes callbacks after subscribe()" 화면 오류와 Sentry `REACT-NATIVE-Q`의 원인, 가족간병 추천인 카드를 가족간병 안내로 이동, 내 정보 추천인 문구 삭제.
+- 검증: 변경 관련 suite 통과. 전체 jest에서 실패한 lib/supabase 19개 suite는 수정 전 `c3e7e8a`에서도 같은 결과(기존 실패), web/node:test 파일은 jest 대상이 아님. 실기기(Android, 로컬 release 빌드)에서 미리보기·보기·닫기·"사진 2장"·가족간병·내 정보·단톡방 8회 빠른 재진입 오류 0건 확인. 사진 저장(SAF 권한)과 실시간 새 메시지 수신은 미확인.
+- 도구: `D:/hanhwa/artifacts/moduon-ui-polish-20261015/ota-4-2-20-msg/eas-release.mjs`(OTA_PLATFORM android|ios). Android: 97·98 대비 네이티브 입력 변경 없음. iOS: 112(`bc01595`) 대비 app.json의 Android 전용 키만 다름. iOS 번들은 Android 전용 종료 확인 문구 marker를 제외.
+- 게시: Android group `1c06c70a-699f-4272-af04-eecda58d6bda` update `01a13ec5-b589-79e9-8adc-cc7637e01030`, iOS group `67dbed9b-b6d4-4129-8f60-efa68c8393d5` update `01a13ec6-5c00-7201-baf8-beb58a1d649a`, runtime 4.2.20, commit 일치, readback PASS, `u.expo.dev` 두 플랫폼 HTTP 200·같은 id. iOS 4.2.20(112)은 App Store 미출시 상태라 출시 후 적용된다(공개 4.2.19 대상 아님).
+- 배포 후: Sentry 최근 30분 이슈 0건. 스토어 앱의 OTA 채택은 미확인. 롤백: 직전 Android group `eefd2e94-ea4d-450c-baf8-580eeeb4bedd` 재게시.
+
 <a id="20261015-messenger-attachment-fix"></a>
 ## 2026-10-15 메신저 사진 전송 실패 수정·배포
 
