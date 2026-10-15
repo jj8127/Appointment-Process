@@ -5,6 +5,7 @@ import {
   formatGroupChatTime,
   getGroupChatMessageCopyText,
   getGroupChatReplyLabel,
+  getMessengerAttachmentSummary,
   getGroupChatRoleLabel,
   isStaffGroupChatActor,
   normalizeGroupChatMemberSearch,
@@ -41,6 +42,20 @@ describe('group chat display/function contracts', () => {
       content: '',
     })).toBe('첫째.pdf\n둘째.pptx');
     expect(getGroupChatMessageCopyText({ message_type: 'text', content: 'copy me' })).toBe('copy me');
+    // Photos read as 사진 in replies and the conversation list, not as their camera file names.
+    expect(getGroupChatReplyLabel({
+      message_type: 'file',
+      attachments: [{ name: 'IMG_3402.png', mimeType: 'image/png' }],
+      content: '',
+    })).toBe('사진');
+    expect(getMessengerAttachmentSummary([
+      { name: 'IMG_3402.png', mimeType: 'image/png' },
+      { name: 'IMG_3403.jpg', mimeType: 'image/jpeg' },
+    ])).toBe('사진 2장');
+    expect(getMessengerAttachmentSummary([
+      { name: 'IMG_3402.png', mimeType: 'image/png' },
+      { name: '안내.pdf', mimeType: 'application/pdf' },
+    ])).toBe('IMG_3402.png 외 1개');
   });
 
   it('formats group chat message time through one helper', () => {

@@ -335,6 +335,26 @@ describe('Messenger V2 hub model', () => {
     expect(dm.timestampMs).toBe(new Date('2026-08-02T00:00:00.000Z').getTime());
   });
 
+  test('previews a photo message in the group row as 사진, not as a generic file', () => {
+    const group = buildGroupConversation({
+      room: { id: 'room-v2', slug: 'main', title: '가람PA 단톡방' },
+      member_count: 700,
+      unread_count: 0,
+      last_message: {
+        sender_name: '송효원 팀장',
+        message_type: 'file',
+        file_name: null,
+        content: '',
+        created_at: '2026-10-15T07:47:00.000Z',
+        attachments: [
+          { id: 'a', name: 'IMG_3402.png', size: 1, mimeType: 'image/png', sha256: 'a'.repeat(64) },
+          { id: 'b', name: 'IMG_3403.jpg', size: 1, mimeType: 'image/jpeg', sha256: 'b'.repeat(64) },
+        ],
+      },
+    } as unknown as GroupChatBootstrapResponse);
+    expect(group.preview).toBe('송효원 팀장: 사진 2장');
+  });
+
   test('uses the designer company-title format for GaramLink directory people', () => {
     const person = buildRequestDirectoryPeople([{
       id: 9,

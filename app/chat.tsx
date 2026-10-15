@@ -1685,7 +1685,7 @@ export default function ChatScreen() {
             </TouchableOpacity>
             );
             return attachment.mimeType.startsWith('image/')
-              ? <MessengerImageAttachment key={attachment.id} attachment={attachment} onPress={open} fallback={card} />
+              ? <MessengerImageAttachment key={attachment.id} attachment={attachment} fallback={card} />
               : card;
           })}
         </View>

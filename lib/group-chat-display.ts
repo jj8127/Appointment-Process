@@ -12,7 +12,7 @@ type GroupChatMessageLike = {
   message_type?: 'text' | 'image' | 'file' | string | null;
   file_name?: string | null;
   content?: string | null;
-  attachments?: { name?: string | null }[] | null;
+  attachments?: { name?: string | null; mimeType?: string | null }[] | null;
 };
 
 type GroupChatMemberLike = {
@@ -57,17 +57,22 @@ export function getGroupChatMemberStatusTone(member: GroupChatMemberLike): Group
   return 'partial';
 }
 
+/** "사진" or "사진 N장" when every attachment is a photo; otherwise the first file name. */
+export function getMessengerAttachmentSummary(attachments?: GroupChatMessageLike['attachments']) {
+  const items = attachments ?? [];
+  if (items.length > 0 && items.every((attachment) => attachment.mimeType?.startsWith('image/'))) {
+    return items.length === 1 ? '사진' : `사진 ${items.length}장`;
+  }
+  const names = items.map((attachment) => safeDecodeFileName(attachment.name)).filter(Boolean);
+  if (names.length === 0) return '';
+  return names.length === 1 ? names[0] : `${names[0]} 외 ${names.length - 1}개`;
+}
+
 export function getGroupChatReplyLabel(message?: GroupChatMessageLike | null) {
   if (!message) return '';
   if (message.deleted_at) return '삭제된 메시지';
-  const attachmentNames = (message.attachments ?? [])
-    .map((attachment) => safeDecodeFileName(attachment.name))
-    .filter(Boolean);
-  if (attachmentNames.length > 0) {
-    return attachmentNames.length === 1
-      ? attachmentNames[0]
-      : `${attachmentNames[0]} 외 ${attachmentNames.length - 1}개`;
-  }
+  const attachmentSummary = getMessengerAttachmentSummary(message.attachments);
+  if (attachmentSummary) return attachmentSummary;
   if (message.message_type === 'image') return '사진';
   if (message.message_type === 'file') return safeDecodeFileName(message.file_name) || '파일';
   return message.content ?? '';

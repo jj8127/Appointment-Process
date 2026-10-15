@@ -1,4 +1,5 @@
 import type { GroupChatBootstrapResponse } from './group-chat-api';
+import { getMessengerAttachmentSummary } from './group-chat-display';
 import type {
   ChatTargetWithUnread,
   InternalChatListItem,
@@ -308,9 +309,12 @@ export function buildGroupConversation(
 ): MessengerHubConversation {
   const last = summary.last_message;
   const sender = last?.sender_name?.trim() || '참여자';
+  const attachmentSummary = getMessengerAttachmentSummary(last?.attachments);
   const preview = !last
     ? 'FC와 운영진이 함께 이야기하는 공간입니다.'
-    : last.message_type === 'image'
+    : attachmentSummary
+      ? `${sender}: ${attachmentSummary}`
+      : last.message_type === 'image'
       ? `${sender}: 사진`
       : last.message_type === 'file'
         ? `${sender}: ${last.file_name?.trim() || '파일'}`

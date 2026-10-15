@@ -123,7 +123,6 @@ export default function ServiceAccount() {
     </View>}
     {error && !needsConsent && <View><Text accessibilityRole="alert" style={styles.body}>{error}</Text><ServiceAction label="다시 확인" onPress={() => void refresh()} />{session.isPlatformSignedIn && <ServiceAction label="다시 로그인" onPress={() => { session.logout(); router.replace('/services/login'); }} />}</View>}
     {data && !needsConsent && <>
-      <Text style={styles.item}>추천인은 제휴 서비스마다 따로 등록해요. 보험 추천인과 증원수당은 기존 보험 업무 화면에서 확인하세요.</Text>
       <Text style={styles.sectionTitle}>제휴 서비스 혜택</Text>
       <Text style={styles.body}>각 제휴사의 정산이 끝난 뒤 7일 이내에 회사가 정한 비율로 지급합니다. 거래와 정산이 확인된 내역만 표시합니다.</Text>
       {data.benefits.length === 0 && <Text style={styles.body}>확정된 혜택 내역이 없습니다.</Text>}
