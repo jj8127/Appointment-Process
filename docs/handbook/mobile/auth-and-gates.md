@@ -48,6 +48,7 @@ source_of_truth: app/services/login.tsx + app/services/signup.tsx + app/login.ts
 
 - 앱 기본 시작과 FC 로그인 후 landing은 공개 서비스 홈 `/`이다. 저장 세션의 linked designer는 focused 상태에서 알림 네비게이션 결정을 기다린 뒤 `/request-board`로 이동한다.
 - 보험/FC 카드의 FC 진입은 기존 apply-gate에 `next=/?mode=insurance`를 전달한다. 비회원은 `/login?service=insurance`에서 로그인한 뒤 같은 선택을 이어간다. 본인확인 완료와 실패·재시도는 기존 gate가 판단한다. 관리자/매니저/개발자는 기존 보험 mode, designer는 기존 request-board를 사용한다. 다른 service 값·배열은 일반 landing을 사용하며 skipAuto·hydration·알림 우선순위는 유지한다.
+- 보험 홈 다음 단계 카드는 고정 높이 대신 최소 높이로 내용에 맞게 늘어난다(레이아웃만 변경, 로그아웃·진입 gate 동작은 그대로).
 - 보호된 보험 mode·알림 문맥은 로그인 전에 LegacyInsuranceHome를 mount하지 않는다. signed-out 진입은 `/login?skipAuto=1`이며 명시적 로그아웃·수동 재로그인과 알림 우선순위를 보존한다.
 - 현재 회원가입은 FC용이다. 로그인 화면의 `서비스 둘러보기`는 공개 홈으로 돌아간다. 세부 계약: [서비스 선택 홈](./service-home.md).
 - 로그인 화면의 관리자/FC 번호 안내는 제거했다. 안전 영역 상단44px `서비스 홈으로 돌아가기` 버튼은 `router.replace('/')`로 공개 홈을 연다. 일반 방문·보험 직접 진입·세션 복구 전에도 동일하며 로그인 처리 중에는 비활성화한다.
