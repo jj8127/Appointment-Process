@@ -769,14 +769,15 @@ export default function ChatScreen() {
       if (result.conversation.counterpartyId !== otherId) {
         throw new Error('대화 상대가 일치하지 않습니다.');
       }
-      const filtered = result.messages.filter(
-        (message) => !deletedIdsRef.current.has(message.id),
-      );
       // Keep messages still being sent; a background refresh must not drop them.
       const pendingLocal = silent
         ? messagesRef.current.filter((message) => message.id.startsWith('local-'))
         : [];
-      applyMessages([...pendingLocal, ...filtered, ...contextMessagesRef.current]);
+      const filtered = [
+        ...pendingLocal,
+        ...result.messages.filter((message) => !deletedIdsRef.current.has(message.id)),
+      ];
+      applyMessages([...filtered, ...contextMessagesRef.current]);
 
       const hasUnreadIncoming = filtered.some(
         (message) =>
@@ -1087,11 +1088,21 @@ export default function ChatScreen() {
   useFocusEffect(useCallback(() => {
     if (!myId || !otherId || !resolvedConversation?.id) return undefined;
 
+    let active = true;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    // Direct messages have no realtime feed. Refresh quietly while the room is open, scheduling the
+    // next request only after the previous one settles so slow responses never overlap.
+    const scheduleRefresh = () => {
+      refreshTimer = setTimeout(() => {
+        void (async () => {
+          if (AppState.currentState === 'active') await fetchMessages({ silent: true });
+          if (active) scheduleRefresh();
+        })();
+      }, DIRECT_MESSAGE_REFRESH_MS);
+    };
+
     void fetchMessages();
-    // Direct messages have no realtime feed; refresh quietly while the room is open and the app is active.
-    const pollId = setInterval(() => {
-      if (AppState.currentState === 'active') void fetchMessages({ silent: true });
-    }, DIRECT_MESSAGE_REFRESH_MS);
+    scheduleRefresh();
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         void fetchMessages();
@@ -1099,7 +1110,8 @@ export default function ChatScreen() {
     });
 
     return () => {
-      clearInterval(pollId);
+      active = false;
+      if (refreshTimer) clearTimeout(refreshTimer);
       appStateSub.remove();
     };
   }, [
@@ -1642,7 +1654,7 @@ export default function ChatScreen() {
               style={[
                 styles.msgText,
                 isMe ? styles.msgTextMe : styles.msgTextOther,
-                { textAlign: 'left', width: '100%' },
+                { textAlign: 'left' },
               ]}
               linkStyle={styles.msgLinkText}
               linkPressBehavior="open"
@@ -1765,7 +1777,7 @@ export default function ChatScreen() {
         style={[
           styles.msgText,
           isMe ? styles.msgTextMe : styles.msgTextOther,
-          { textAlign: 'left', width: '100%' },
+          { textAlign: 'left' },
         ]}
         linkStyle={styles.msgLinkText}
         linkPressBehavior="open"
@@ -2574,7 +2586,8 @@ const styles = StyleSheet.create({
   },
   bubbleMe: { backgroundColor: HANWHA_ORANGE, borderTopRightRadius: 2 },
   bubbleOther: { backgroundColor: '#ffffff', borderTopLeftRadius: 2, borderWidth: 1, borderColor: '#F3F4F6' },
-  msgText: { fontSize: 15, lineHeight: 22, flexWrap: 'wrap', flexShrink: 1, width: '100%' },
+  // No width: '100%' here: inside the shrink-to-fit bubble Android measured short text as two lines.
+  msgText: { fontSize: 15, lineHeight: 22 },
   msgTextMe: { color: '#ffffff', fontWeight: '500' },
   msgTextOther: { color: CHARCOAL },
   msgLinkText: { color: '#2563EB', textDecorationLine: 'underline', fontWeight: '700' },
