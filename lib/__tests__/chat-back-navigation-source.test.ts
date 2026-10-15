@@ -10,4 +10,14 @@ describe('direct chat back navigation contract', () => {
     expect(source).toContain('onPress={handleBack}');
     expect(source).not.toContain('onPressIn={handleBack}');
   });
+
+  it.each(['group-chat.tsx', 'request-board-messenger.tsx'])(
+    '%s header back fires on release so sliding off cancels it',
+    (file) => {
+      const source = readFileSync(join(process.cwd(), 'app', file), 'utf8');
+
+      expect(source).toContain('onPress={() => router.back()}');
+      expect(source).not.toContain('onPressIn={() => router.back()}');
+    },
+  );
 });

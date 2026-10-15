@@ -259,7 +259,7 @@ describe.each([
       'react-native': native,
       '@expo/vector-icons': { Feather: 'Feather' },
       'expo-router': { router, useLocalSearchParams: () => ({}) },
-      'expo-clipboard': { setStringAsync: jest.fn() },
+      'expo-clipboard': { setStringAsync: jest.fn() }, '@/lib/messenger-copy-actions': { copyTextWithFeedback: jest.fn(async () => true) },
       'expo-crypto': { randomUUID: () => 'fictional-request' },
       'expo-haptics': { selectionAsync: jest.fn(), notificationAsync: jest.fn(),
         NotificationFeedbackType: { Warning: 'warning' } },

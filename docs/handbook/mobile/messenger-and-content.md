@@ -235,3 +235,9 @@ Board and admin-board logout redirects are owned by focused `useAppLogout` after
 - A fixed board or chat composer must keep both its focused input and primary submit action inside `KeyboardAvoidingView` or `KeyboardSafeBottomBar`. A keyboard-aware scroll sibling does not own a fixed footer.
 - Plain-scroll Android forms may use the normalized reported keyboard height as explicit scroll room. Modal editors own avoidance inside the modal, and reviewed top-search lists dismiss on drag.
 - Source and build checks prove structural coverage only. Physical Android/iOS focus, typing, multiline growth, submit, dismiss, rotation, and reopen evidence remains mandatory before native release.
+
+## 2026-10-15 Copy toast and release-to-act navigation
+
+- 메시지·링크 복사 결과는 `showToast` 토스트로 표시한다. 같은 문구가 이미 보이면 새로 쌓지 않고 교체한다.
+- 단체방·요청게시판 메신저 헤더의 뒤로가기와 메신저 허브 탭은 `onPress`(손을 뗄 때)로 실행한다. 누른 채 영역 밖으로 벗어나면 취소되고, 누르는 동안 배경 눌림 상태를 보인다.
+- 2026-10-15 Android 실기기에서 단체방 키보드가 열린 상태의 뒤로가기 한 번 이동, 손가락 이탈 취소, 메신저 탭 전환·이탈 취소를 확인했다. 요청게시판 메신저 헤더와 iOS는 미확인이다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.

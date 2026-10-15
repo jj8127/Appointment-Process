@@ -178,3 +178,14 @@ Home and home-lite delegate navigation to focused `useAppLogout` after local ses
 ## 2026-10-09 Local read and draft preservation
 
 Document, consent and commission pages block initial unknown data from becoming zero progress or a pending business state. A failed refresh keeps last confirmed approval/profile data with retry feedback; session/route keys and read-attempt ownership reject late responses. Basic-information refresh preserves dirty values and ordinary exit requires a discard decision. Calendar-only selection keeps the saved YMD in each timezone. Document deletion now confirms the downstream reset and uses the transactional/cleanup contract in `shared-ui-action-contracts.md`; device acceptance and migration activation remain separate.
+
+## 2026-10-15 Temporary ID copy feedback
+
+- 수당 동의 화면의 임시사번 복사는 `copyTextWithFeedback`을 사용한다. 성공·빈 값·실패는 차단형 Alert가 아니라 토스트로 알린다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.
+
+## 2026-10-16 FC home redesign
+
+- FC 홈은 `components/fc-home/`의 다섯 영역으로 구성한다: 내 진행 상황(`FcHomeProgressCard`), 메시지, 시험 접수(열린 회차·D-day), 새 소식(최신 공지 + 게시판 분류), 바로가기(3D 아이콘 + 수당·추천 카드).
+- 진행 단계 계산·다음 단계 문구·이동 경로는 기존 `fc-workflow`를 그대로 사용한다. 단계 완료 체크 애니메이션은 마지막으로 본 단계(`fc-home-last-seen-step:<phone>`)보다 진행됐을 때만 한 번 재생하고, 첫 방문과 "동작 줄이기"에서는 재생하지 않는다.
+- 앱 안내 투어 구역은 1 진행 상황, 2 메시지, 3 시험 접수, 4 새 소식이다. 바로가기 투어 문구는 경로별로 매긴다. 홈 안내 카드는 없애고 "사용법" 바로가기에서 홈 안내·바로가기 안내·영상 가이드를 고른다.
+- 애니메이션 시간은 `FC_HOME_MOTION`(2026-10-16 프로토타입 확정값)을 따른다.

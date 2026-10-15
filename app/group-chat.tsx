@@ -1601,7 +1601,7 @@ export default function GroupChatScreen() {
         onRetry={() => void notificationReceipt.retryMarkRead()}
       />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
-        <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={styles.headerButton} onPressIn={() => router.back()}>
+        <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]} onPress={() => router.back()}>
           <Feather name="arrow-left" size={22} color={CHARCOAL} />
         </Pressable>
         <View style={styles.headerCenter}>
@@ -2017,6 +2017,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerButtonPressed: { backgroundColor: '#F3F4F6' },
   headerActions: { flexDirection: 'row', alignItems: 'center' },
   headerCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0 },
   headerTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL },

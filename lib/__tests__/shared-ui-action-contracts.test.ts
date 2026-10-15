@@ -72,6 +72,7 @@ describe('shared UI/action primitive audit', () => {
     expect(handbook).toContain('scripts/audit/shared-ui-contract-audit.cjs');
     expect(handbook).toContain('openMessengerAttachment');
     expect(handbook).toContain('copyTextWithFeedback');
+    expect(handbook).toContain('Copy results never use a blocking `Alert.alert`');
     expect(handbook).toContain('confirmMessengerDelete');
     expect(handbook).toContain('downloadRemoteFileToUserStorage');
     expect(handbook).toContain('openBoardAttachment');
@@ -88,7 +89,9 @@ describe('shared UI/action primitive audit', () => {
     expect(attachmentActionsSource).toContain('openExternalUrl');
     expect(attachmentActionsSource).toContain('Alert.alert');
     expect(copyActionsSource).toContain('Clipboard.setStringAsync');
-    expect(copyActionsSource).toContain('Alert.alert');
+    expect(copyActionsSource).toContain('showToast');
+    expect(handbook).toContain('the helper skips the app success toast there');
+    expect(copyActionsSource).not.toContain('Alert.alert');
     expect(deleteActionsSource).toContain('Alert.alert');
     expect(nativeFileActionsSource).toContain('FileSystem.downloadAsync');
     expect(boardAttachmentActionsSource).toContain('openExternalUrl(signedUrl)');

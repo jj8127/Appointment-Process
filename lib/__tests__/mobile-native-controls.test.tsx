@@ -113,7 +113,7 @@ it.each([
     '@expo/vector-icons': { Feather: 'Feather' },
     'expo-router': { router, useLocalSearchParams: () => ({ surface }) },
     'react-native': { Alert: { alert: jest.fn() }, Modal: 'Modal', Pressable: 'Pressable', Text: 'Text', View: 'View', Share: { share: jest.fn() }, StyleSheet: { create: (styles: unknown) => styles } },
-    'expo-clipboard': { setStringAsync: jest.fn() },
+    'expo-clipboard': { setStringAsync: jest.fn() }, '@/lib/messenger-copy-actions': { copyTextWithFeedback: jest.fn(async () => true) },
     'react-native-reanimated': { default: { ScrollView: 'ScrollView' } },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ bottom: 0 }) },
     '@/components/BottomNavigation': { BottomNavigation: 'BottomNavigation' },
@@ -145,7 +145,7 @@ it('public account offers common login and keeps insurance settings within the c
   const openPolicy = jest.fn(async () => undefined);
   const Account = executeComponent('app/services/account.tsx', {
     '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
-    'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { push } },
+    'expo-clipboard': { setStringAsync: jest.fn() }, '@/lib/messenger-copy-actions': { copyTextWithFeedback: jest.fn(async () => true) }, 'expo-router': { router: { push } },
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
     '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data, loading: false, error: null, session, token: null, refresh: jest.fn() }) },
@@ -178,7 +178,7 @@ it('existing FC account requires explicit consent, blocks repeat saves and prese
   const request = jest.fn(() => new Promise((_resolve, rejectRequest) => { reject = rejectRequest; }));
   const Account = executeComponent('app/services/account.tsx', {
     '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
-    'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { push } },
+    'expo-clipboard': { setStringAsync: jest.fn() }, '@/lib/messenger-copy-actions': { copyTextWithFeedback: jest.fn(async () => true) }, 'expo-router': { router: { push } },
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
     '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data: null, loading: false, error: '동의 필요', needsConsent: true, canWithdraw: false, session: { role: 'fc', isPlatformSignedIn: true, logout }, token: 'synthetic-fc-token', refresh }) },
@@ -216,7 +216,7 @@ it.each(['fc', 'member'])('common withdrawal remains available with expired cons
   const alert = jest.fn((_title, _body, actions) => { buttons = actions; });
   const Account = executeComponent('app/services/account.tsx', {
     '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
-    'expo-clipboard': { setStringAsync: jest.fn() }, 'expo-router': { router: { replace } },
+    'expo-clipboard': { setStringAsync: jest.fn() }, '@/lib/messenger-copy-actions': { copyTextWithFeedback: jest.fn(async () => true) }, 'expo-router': { router: { replace } },
     'react-native': { Alert: { alert }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
     '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data: null, loading: false, error: '동의 필요', needsConsent: true, canWithdraw: true, session: { role: kind === 'fc' ? 'fc' : null, isPlatformSignedIn: true, logout }, token: 'synthetic-session', refresh }) },

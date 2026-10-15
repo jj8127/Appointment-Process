@@ -242,3 +242,8 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 ## 2026-10-09 Local identity, address and deletion feedback
 
 Identity query errors stop the apply/home gate and offer retry; they are not user non-entry. Address lookup handles script/HTTP/native failure and timeouts with a visible retry/close surface; closing returns to the same form. Account deletion copy describes removal of login/profile data and possible retained shared history, matching the existing server deletion policy. Physical-device navigation/WebView checks and production activation remain unverified.
+
+## 2026-10-15 Referral code copy and press-in exception
+
+- 설정의 추천 코드 복사는 `copyTextWithFeedback` 토스트를 사용한다.
+- 로그인 CTA의 `submitOnPressIn`은 2026-06-16 Android 키보드 회귀를 막는 문서화된 예외로 유지한다. 다른 이동·탭 컨트롤은 `onPress`를 사용한다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.

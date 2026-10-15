@@ -44,8 +44,9 @@ describe('Messenger V2 hub UI contract', () => {
     expect(gapIndex).toBeLessThan(underlineIndex);
     expect(source).toContain("fontVariant: ['tabular-nums']");
     expect(source).toContain('badge > 0 ?');
-    expect(source).toContain('onPressIn={() => onChange(tab)}');
-    expect(source).not.toContain('onPress={() => onChange(tab)}');
+    // Tabs switch on release so sliding a finger off a tab cancels the switch.
+    expect(source).toContain('onPress={() => onChange(tab)}');
+    expect(source).not.toContain('onPressIn={() => onChange(tab)}');
     expect(hubRowsSource).toContain('onBack: () => void;');
     expect(hubRowsSource).toContain('width: 44, height: 44');
     expect(hubRowsSource).toContain('name="arrow-left"');

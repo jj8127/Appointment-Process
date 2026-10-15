@@ -1,6 +1,5 @@
 import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -88,6 +87,7 @@ import {
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { supabase } from '@/lib/supabase';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
+import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 import {
   getExamApplicationHistoryGuardState,
@@ -814,13 +814,12 @@ export default function ExamApplyScreen() {
   ]);
 
   const copyFeeAccount = useCallback(async () => {
-    try {
-      await Clipboard.setStringAsync(feeAccountCopy.value);
-      void Haptics.selectionAsync().catch(() => {});
-      Alert.alert('복사 완료', '응시료 납입 계좌를 복사했습니다.');
-    } catch {
-      Alert.alert('복사 실패', '응시료 납입 계좌를 복사하지 못했습니다.');
-    }
+    const copied = await copyTextWithFeedback(feeAccountCopy.value, {
+      successMessage: '응시료 납입 계좌를 복사했습니다.',
+      failureMessage: '응시료 납입 계좌를 복사하지 못했습니다.',
+      logScope: 'exam-apply',
+    });
+    if (copied) void Haptics.selectionAsync().catch(() => {});
   }, []);
 
   const discardPreparedPaymentProof = useCallback(async () => {

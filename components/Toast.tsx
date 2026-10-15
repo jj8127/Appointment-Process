@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Dimensions, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Alert, Dimensions, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   SlideInUp,
@@ -154,6 +154,22 @@ function ToastItem({
   );
 }
 
+type ShowToast = ToastContextValue['showToast'];
+
+let mountedShowToast: ShowToast | null = null;
+
+/**
+ * Non-blocking feedback for actions started outside React state (copy helpers, callbacks).
+ * Without a mounted provider it falls back to the blocking alert so feedback is never lost.
+ */
+export function showToast(config: Omit<ToastConfig, 'id'>) {
+  if (mountedShowToast) {
+    mountedShowToast(config);
+    return;
+  }
+  Alert.alert(config.message);
+}
+
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastConfig[]>([]);
   const insets = useSafeAreaInsets();
@@ -161,12 +177,21 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const showToast = useCallback((config: Omit<ToastConfig, 'id'>) => {
     const id = `toast-${++toastIdRef.current}`;
-    setToasts((prev) => [...prev, { ...config, id }]);
+    // Repeating the same action replaces its toast and restarts the timer instead of stacking copies.
+    setToasts((prev) => [...prev.filter((t) => t.message !== config.message), { ...config, id }]);
+    AccessibilityInfo.announceForAccessibility(config.message);
   }, []);
 
   const hideToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  useEffect(() => {
+    mountedShowToast = showToast;
+    return () => {
+      if (mountedShowToast === showToast) mountedShowToast = null;
+    };
+  }, [showToast]);
 
   const contextValue = useMemo(() => ({ showToast, hideToast }), [hideToast, showToast]);
 

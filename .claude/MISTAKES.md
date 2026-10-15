@@ -5851,3 +5851,10 @@
 - Cause: the render path and `executeAction` derived the date separately; only the render path fell back to the submitted date.
 - Guardrail: derive a displayed default and the submitted value from one helper (`resolveInsuranceDate`). When a field shows a fallback, the action must submit that same value or the field must show it as a placeholder only.
 - Evidence: `web/src/lib/ux-priority-one-runtime.test.mjs` appointment confirm case; synthetic admin fixture confirm without re-selecting the date; artifacts/admin-ux-baseline-20261015/baseline.md.
+
+## 2026-10-16 | A new home section assumed a nullable column and took down the whole home
+
+- Symptom: on a physical Android device the redesigned FC home showed only the global "앗, 문제가 발생했습니다" screen.
+- Cause: `FcHomeExamRounds` formatted `exam_rounds.exam_date` with `.split('-')`; production rounds can have a null `exam_date`. The section had no local error boundary, so one render error replaced the entire home.
+- Guardrail: treat every column read in a new home/dashboard section as nullable unless the schema says NOT NULL, format through a null-safe helper with a test, and wrap each independent home section in `FcHomeSectionBoundary` so a failure stays local.
+- Evidence: device logcat `TypeError: Cannot read property 'split' of null at formatMonthDay`; regression case in `lib/__tests__/fc-home-sections.test.ts` (`formatHomeMonthDay(null)`).

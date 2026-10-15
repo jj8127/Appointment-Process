@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -16,6 +15,7 @@ import { buildReferralShareText } from '@/lib/referral-share';
 import { getAccountRoleLabel } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
+import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
 
 const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
@@ -104,13 +104,11 @@ export default function SettingsScreen() {
   const handleCopyReferralCode = async () => {
     if (!myReferralCode) return;
 
-    try {
-      await Clipboard.setStringAsync(myReferralCode);
-      Alert.alert('복사 완료', '추천 코드가 클립보드에 복사되었습니다.');
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '추천 코드를 복사하지 못했습니다.';
-      Alert.alert('복사 실패', message);
-    }
+    await copyTextWithFeedback(myReferralCode, {
+      successMessage: '추천 코드를 복사했습니다.',
+      failureMessage: '추천 코드를 복사하지 못했습니다.',
+      logScope: 'settings',
+    });
   };
 
   return (
