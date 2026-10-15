@@ -7,6 +7,10 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 # Mobile Playbook: FC Onboarding
 
+## 2026-10-15 다음 단계 카드 여백
+
+보험 홈의 다음 단계 카드(`premiumStepCard`)는 고정 높이 120 대신 최소 높이 136으로 두 줄 설명에 맞게 늘어난다. 같은 줄의 영상 버튼은 카드 높이를 따른다. 단계 판정·이동 경로는 바뀌지 않았다.
+
 ## 2026-10-15 홈 종료 확인과 이메일 도메인
 
 공통 홈과 FC 홈의 Android 뒤로가기 종료 확인은 "앱을 종료할까요?" 질문형 제목과 취소·종료 두 버튼만 쓴다. FC 등록(`fc/new.tsx`)의 이메일 도메인 목록은 `SIGNUP_EMAIL_DOMAINS`를 공유하며 화면 동작은 그대로다.
