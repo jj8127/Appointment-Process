@@ -51,6 +51,7 @@ import {
   hasPresentRouteParam,
   parseExactlyOneUuidRouteParam,
 } from '@/lib/strict-route-params';
+import { createRealtimeChannelTopic } from '@/lib/realtime-channel-topic';
 import { supabase } from '@/lib/supabase';
 import { collectSupabaseRows } from '@/lib/supabase-query-contract';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
@@ -229,11 +230,11 @@ export default function ExamRegisterScreen() {
 
   useEffect(() => {
     const roundChannel = supabase
-      .channel(examFlowConfig.registerRoundChannel)
+      .channel(createRealtimeChannelTopic(examFlowConfig.registerRoundChannel))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_rounds' }, () => refetch())
       .subscribe();
     const locationChannel = supabase
-      .channel(examFlowConfig.registerLocationChannel)
+      .channel(createRealtimeChannelTopic(examFlowConfig.registerLocationChannel))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_locations' }, () => refetch())
       .subscribe();
 

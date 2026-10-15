@@ -54,6 +54,7 @@ import {
   type ResidentNumberEntry as ResolvedResidentNumberEntry,
 } from '@/lib/resident-number-response';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import { createRealtimeChannelTopic } from '@/lib/realtime-channel-topic';
 import { supabase } from '@/lib/supabase';
 import { collectSupabaseRows } from '@/lib/supabase-query-contract';
 import { escapePostgrestLikeLiteral } from '@/supabase/functions/_shared/direct-message-search';
@@ -802,11 +803,11 @@ export default function DashboardScreen() {
   // Realtime: FC 프로필 / 서류 변경 시 대시보드 갱신
   useEffect(() => {
     const profileChannel = supabase
-      .channel('dashboard-profiles')
+      .channel(createRealtimeChannelTopic('dashboard-profiles'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'fc_profiles' }, () => refetch())
       .subscribe();
     const docChannel = supabase
-      .channel('dashboard-documents')
+      .channel(createRealtimeChannelTopic('dashboard-documents'))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'fc_documents' }, () => refetch())
       .subscribe();
 

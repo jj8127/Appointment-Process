@@ -114,6 +114,7 @@ import {
   hasPresentRouteParam,
   parseExactlyOneUuidRouteParam,
 } from '@/lib/strict-route-params';
+import { createRealtimeChannelTopic } from '@/lib/realtime-channel-topic';
 import { supabase } from '@/lib/supabase';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { safeDecodeFileName } from '@/lib/validation';
@@ -695,7 +696,7 @@ export default function GroupChatScreen() {
   useEffect(() => {
     if (!room?.id) return undefined;
     const channel = supabase
-      .channel(`group-chat-room-${room.id}`)
+      .channel(createRealtimeChannelTopic('group-chat-room'))
       .on(
         'postgres_changes',
         {
