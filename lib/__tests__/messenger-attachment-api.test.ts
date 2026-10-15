@@ -60,6 +60,10 @@ jest.mock('../request-board-api', () => ({
   getStoredAppSessionToken: jest.fn(async () => 'app-session-token'),
 }));
 
+// Only for the shared signed-URL reuse in messenger-attachment-actions.
+jest.mock('react-native', () => ({ Alert: { alert: jest.fn() } }));
+jest.mock('../open-external-url', () => ({ openExternalUrl: jest.fn() }));
+
 jest.mock('../supabase', () => ({
   supabase: {
     functions: { invoke: mockInvoke },
@@ -77,6 +81,8 @@ import {
   prepareMessengerAttachmentBatch,
   uploadMessengerAttachmentBatch,
 } from '../messenger-attachment-api';
+// eslint-disable-next-line import/first
+import { getMessengerAttachmentSignedUrl } from '../messenger-attachment-actions';
 
 const CONVERSATION_A = '11111111-1111-4111-8111-111111111111';
 const CONVERSATION_B = '22222222-2222-4222-8222-222222222222';
@@ -437,6 +443,28 @@ describe('native messenger attachment API', () => {
 
     await expect(createMessengerAttachmentDownloadUrl(INTENT_ID))
       .rejects.toThrow('파일을 열지 못했습니다. 다시 시도해 주세요.');
+  });
+
+  // Previews in a large room must not ask the server once per render.
+  test('reuses one signed URL per attachment for previews and concurrent opens', async () => {
+    const signedUrl = 'https://example.invalid/storage/v1/object/sign/private?token=preview';
+    const attachmentId = '77777777-7777-4777-8777-777777777777';
+    mockInvoke.mockResolvedValue({
+      data: {
+        ok: true,
+        attachment: { id: attachmentId, name: 'photo.png', size: 1, mimeType: 'image/png', sha256: 'a'.repeat(64) },
+        download: { signedUrl, expiresAt: '2026-07-25T12:00:00.000Z' },
+      },
+      error: null,
+    });
+
+    const [first, second] = await Promise.all([
+      getMessengerAttachmentSignedUrl(attachmentId),
+      getMessengerAttachmentSignedUrl(attachmentId),
+    ]);
+    await expect(getMessengerAttachmentSignedUrl(attachmentId)).resolves.toBe(signedUrl);
+    expect([first, second]).toEqual([signedUrl, signedUrl]);
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
   });
 
   // A refused send must not loop on the same-key "다시 확인" prompt; only an unknown outcome may.

@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import MessengerImageAttachment from '@/components/MessengerImageAttachment';
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
@@ -1629,18 +1630,18 @@ export default function ChatScreen() {
               linkPressBehavior="open"
             />
           ) : null}
-          {item.attachments.map((attachment) => (
+          {item.attachments.map((attachment) => {
+            const open = () => {
+              void openAuthorizedMessengerAttachment(attachment.id, { logScope: 'chat' });
+            };
+            const card = (
             <TouchableOpacity
               key={attachment.id}
               style={[
                 styles.fileCard,
                 isMe ? styles.fileCardMe : styles.fileCardOther,
               ]}
-              onPress={() => {
-                void openAuthorizedMessengerAttachment(attachment.id, {
-                  logScope: 'chat',
-                });
-              }}
+              onPress={open}
               activeOpacity={0.82}
             >
               <View style={[
@@ -1682,7 +1683,11 @@ export default function ChatScreen() {
                 color={isMe ? 'rgba(255,255,255,0.82)' : '#9CA3AF'}
               />
             </TouchableOpacity>
-          ))}
+            );
+            return attachment.mimeType.startsWith('image/')
+              ? <MessengerImageAttachment key={attachment.id} attachment={attachment} onPress={open} fallback={card} />
+              : card;
+          })}
         </View>
       );
     }
