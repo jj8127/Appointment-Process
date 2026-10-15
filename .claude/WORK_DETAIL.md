@@ -17,7 +17,8 @@
 - 네이티브 입력(app.json·eas.json·package/lock·plugins·patches·babel·metro·android/ios) 변경 없음: 97(`7439982`)·98(`9440d44`) 모두 대비. 이전 4.2.19 OTA 도구를 4.2.20용으로 고친 `D:/hanhwa/artifacts/moduon-ui-polish-20261015/ota-4-2-20/eas-release.mjs`(가입 토큰 키 retired·추천 문장 변경 반영, 이번 수정 marker 추가).
 - preflight PASS(production 채널·branch, 운영 Supabase URL, anon key, profile 공개 설정). export: Android Hermes 1개, 공개 설정·이번 수정 marker 포함 PASS, Sentry 업로드 없음.
 - 게시: group `f26d1737-8f32-432c-ada8-0ab02fbc77bf`, update `01a13d30-af46-7423-bdbe-32a5694b410a`, android, runtime 4.2.20, commit 일치. readback PASS, `u.expo.dev` 앱 요청 형식 HTTP 200·같은 update id. iOS는 게시하지 않았다.
-- 제한: 기기 채택(실제 다운로드·적용)과 배포 후 오류 조회는 아직 하지 않았다(무선 ADB 끊김, Sentry 연결 미인증).
+- 배포 후 오류(Sentry `hanhwa-lifelab/react-native`, production): 게시(01:32Z) 이후 오류 이벤트 0건. 최근 24시간 이슈는 게시 약 20시간 전 4.2.19의 `REACT-NATIVE-Q`(관리자 대시보드 realtime 구독 순서) 1건뿐으로 이번 배포와 무관하다. 다만 최근 7일 오류가 릴리스별 1건씩 총 3건일 만큼 수집량이 적고 4.2.20 이벤트도 아직 없어, 0건은 채택 초기의 제한된 증거다.
+- 제한: 기기 채택(실제 다운로드·적용)은 확인하지 못했다(무선 ADB 끊김).
 
 <a id="20261015-step-card-spacing"></a>
 ## 2026-10-15 보험 홈 다음 단계 카드 여백
