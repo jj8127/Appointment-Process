@@ -1,5 +1,6 @@
 'use client';
 
+import { getAdminNotificationWarning } from '@/lib/admin-notification-warning';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { useSession } from '@/hooks/use-session';
 import {
@@ -70,6 +71,7 @@ import {
     buildExamPaymentProofImagePath,
     type ExamPaymentProofExportLink,
 } from '@/lib/exam-payment-proof-admin';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -351,6 +353,7 @@ export default function ExamApplicantsPage() {
     const queryClient = useQueryClient();
     const { isReadOnly, hydrated, role } = useSession();
     const [rejectTarget, setRejectTarget] = useState<Applicant | null>(null);
+    const [bulkConfirmOpened, setBulkConfirmOpened] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
     const [filters, setFilters] = useState<FilterState>({});
     const [quickAffiliation, setQuickAffiliation] = useState(EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE);
@@ -361,7 +364,7 @@ export default function ExamApplicantsPage() {
     const tableColumnCount = EXAM_APPLICANT_EXPORT_COLUMNS.length + 3;
     const proofColumnMinWidth = 120;
     const statusColumnMinWidth = 130;
-    const actionsColumnMinWidth = 90;
+    const actionsColumnMinWidth = 116;
     const tableMinWidth = EXAM_APPLICANT_EXPORT_COLUMNS.reduce(
         (sum, column) => sum + column.minWidth,
         proofColumnMinWidth + statusColumnMinWidth + actionsColumnMinWidth,
@@ -519,8 +522,7 @@ export default function ExamApplicantsPage() {
     };
 
     // --- Mutations ---
-    const updateStatusMutation = useMutation({
-        mutationFn: async ({ item, isConfirmed }: { item: Applicant; isConfirmed: boolean }) => {
+    const requestReception = async (item: Applicant, isConfirmed: boolean) => {
             const response = await fetch('/api/admin/exam-applicants', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
@@ -531,7 +533,6 @@ export default function ExamApplicantsPage() {
                 }),
             });
             const json: unknown = await response.json().catch(() => null);
-            const nextStatus = isConfirmed ? 'confirmed' : 'applied';
             const isOk =
                 response.ok &&
                 isRecord(json) &&
@@ -543,16 +544,26 @@ export default function ExamApplicantsPage() {
                         : '시험 신청 상태 변경에 실패했습니다.';
                 throw new Error(message);
             }
-            showAdminNotificationWarning(json);
-            return { item, isConfirmed, nextStatus };
+            return json;
+    };
+
+    const setReceptionInCache = (ids: Set<string>, isConfirmed: boolean) => {
+        const nextStatus = isConfirmed ? 'confirmed' : 'applied';
+        queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
+            if (!Array.isArray(old)) return old;
+            return (old as Applicant[]).map((row) =>
+                ids.has(row.id) ? { ...row, is_confirmed: isConfirmed, status: nextStatus } : row,
+            );
+        });
+    };
+
+    const updateStatusMutation = useMutation({
+        mutationFn: async ({ item, isConfirmed }: { item: Applicant; isConfirmed: boolean }) => {
+            showAdminNotificationWarning(await requestReception(item, isConfirmed));
+            return { item, isConfirmed };
         },
-        onSuccess: ({ item, isConfirmed, nextStatus }) => {
-            queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
-                if (!Array.isArray(old)) return old;
-                return (old as Applicant[]).map((row) =>
-                    row.id === item.id ? { ...row, is_confirmed: isConfirmed, status: nextStatus } : row,
-                );
-            });
+        onSuccess: ({ item, isConfirmed }) => {
+            setReceptionInCache(new Set([item.id]), isConfirmed);
             notifications.show({
                 title: '상태 변경 완료',
                 message: isConfirmed ? '접수 완료 상태로 변경되었습니다.' : '미접수 상태로 변경되었습니다.',
@@ -563,6 +574,37 @@ export default function ExamApplicantsPage() {
         onError: (err: unknown) => {
             const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
             notifications.show({ title: '오류', message: msg, color: 'red' });
+        },
+    });
+
+    const bulkConfirmTargets = filteredRows.filter((row) => row.status === 'applied' && !row.is_confirmed);
+
+    // Sequential so each registration keeps the single-row API's validation and audit path.
+    const bulkConfirmMutation = useMutation({
+        mutationFn: async (items: Applicant[]) => {
+            const confirmedIds = new Set<string>();
+            let failed = 0;
+            let warnings = 0;
+            for (const item of items) {
+                try {
+                    const json = await requestReception(item, true);
+                    confirmedIds.add(item.id);
+                    if (getAdminNotificationWarning(json)) warnings += 1;
+                } catch {
+                    failed += 1;
+                }
+            }
+            return { confirmedIds, failed, warnings };
+        },
+        onSuccess: ({ confirmedIds, failed, warnings }) => {
+            setReceptionInCache(confirmedIds, true);
+            setBulkConfirmOpened(false);
+            notifications.show({
+                title: failed ? '일괄 접수 일부 실패' : '일괄 접수 완료',
+                message: [`${confirmedIds.size}명 접수 완료`, failed ? `${failed}명 실패` : '', warnings ? `알림 확인 필요 ${warnings}건` : '']
+                    .filter(Boolean).join(' · '),
+                color: failed || warnings ? 'yellow' : 'green',
+            });
         },
     });
 
@@ -753,7 +795,7 @@ export default function ExamApplicantsPage() {
         }
     };
 
-    const renderHeader = (title: string, field: ColumnField, minWidth?: number) => {
+    const renderHeader = (title: string, field: ColumnField, minWidth?: number, className?: string) => {
         const headerStyle = {
             minWidth,
             textAlign: 'center' as const,
@@ -764,14 +806,14 @@ export default function ExamApplicantsPage() {
 
         if (field === 'actions' || field === 'payment_proof') {
             return (
-            <Table.Th key={field} style={headerStyle}>
+            <Table.Th key={field} className={className} style={headerStyle}>
                 <Text fw={700} size="sm" c="dimmed" ta="center" style={{ whiteSpace: 'normal', wordBreak: 'keep-all', lineHeight: 1.25 }}>{title}</Text>
             </Table.Th>
             );
         }
 
         return (
-            <Table.Th key={field} style={headerStyle}>
+            <Table.Th key={field} className={className} style={headerStyle}>
                 <ExcelColumnFilter
                     title={title}
                     field={field}
@@ -890,6 +932,16 @@ export default function ExamApplicantsPage() {
                         <Text c={MUTED} size="sm">최근 신청자 목록 및 응시 과목을 확인합니다.</Text>
                     </div>
                     <Group gap="xs">
+                        <Button
+                            variant="light"
+                            color="orange"
+                            radius="md"
+                            disabled={isReadOnly || bulkConfirmTargets.length === 0}
+                            loading={bulkConfirmMutation.isPending}
+                            onClick={() => setBulkConfirmOpened(true)}
+                        >
+                            일괄 접수 ({bulkConfirmTargets.length}명)
+                        </Button>
                         <Button
                             leftSection={<IconDownload size={16} />}
                             variant="filled"
@@ -1023,8 +1075,8 @@ export default function ExamApplicantsPage() {
                                         renderHeader(column.title, column.key, column.minWidth),
                                     )}
                                     {renderHeader('입금 증빙', 'payment_proof', proofColumnMinWidth)}
-                                    {renderHeader('접수 상태', 'is_confirmed', statusColumnMinWidth)}
-                                    {renderHeader('관리', 'actions', actionsColumnMinWidth)}
+                                    {renderHeader('접수 상태', 'is_confirmed', statusColumnMinWidth, styles.stickyStatus)}
+                                    {renderHeader('관리', 'actions', actionsColumnMinWidth, styles.stickyActions)}
                                 </Table.Tr>
                             </Table.Thead>
                             <Table.Tbody>
@@ -1081,7 +1133,7 @@ export default function ExamApplicantsPage() {
                                                     <Text size="sm" c="dimmed" ta="center">없음</Text>
                                                 )}
                                             </Table.Td>
-                                            <Table.Td onClick={(event) => event.stopPropagation()}>
+                                            <Table.Td className={styles.stickyStatus} onClick={(event) => event.stopPropagation()}>
                                                 <SegmentedControl
                                                     size="xs"
                                                     radius="xl"
@@ -1104,7 +1156,7 @@ export default function ExamApplicantsPage() {
                                                     }
                                                 />
                                             </Table.Td>
-                                            <Table.Td onClick={(event) => event.stopPropagation()}>
+                                            <Table.Td className={styles.stickyActions} onClick={(event) => event.stopPropagation()}>
                                                 <Group gap="xs" justify="center" wrap="nowrap">
                                                 <Tooltip label={isReadOnly ? '본부장은 반려할 수 없습니다.' : '시험 신청 반려'}>
                                                     <ActionIcon aria-label="시험 신청 반려"
@@ -1168,6 +1220,15 @@ export default function ExamApplicantsPage() {
                     </ScrollArea>
                 </Paper>
             </Stack>
+            <ConfirmModal
+                opened={bulkConfirmOpened}
+                onClose={() => setBulkConfirmOpened(false)}
+                onConfirm={() => bulkConfirmMutation.mutate(bulkConfirmTargets)}
+                title="일괄 접수"
+                message={`현재 목록의 미접수 ${bulkConfirmTargets.length}명을 접수 완료로 변경합니다.`}
+                confirmLabel="접수 완료"
+                submitting={bulkConfirmMutation.isPending}
+            />
             <RejectReasonModal
                 opened={Boolean(rejectTarget)}
                 onClose={() => {

@@ -27,6 +27,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { createNoticeAction } from '../actions';
+import { ConfirmModal } from '@/components/ConfirmModal';
 
 import { logger } from '@/lib/logger';
 import { noticeSchema as schema, noticeGlassStyle as glassStyle, uploadNoticeAttachment as uploadToSupabase } from '../form';
@@ -49,6 +50,7 @@ export default function CreateNoticePage() {
         // Avoid `any` while still satisfying the resolver's expected schema type.
         validate: zodResolver(schema as unknown as Parameters<typeof zodResolver>[0]),
     });
+    const [pendingSend, setPendingSend] = useState<typeof form.values | null>(null);
 
     const handleSubmit = async (values: typeof form.values) => {
         if (submittingRef.current) return;
@@ -280,7 +282,7 @@ export default function CreateNoticePage() {
                     <LoadingOverlay visible={isPending} overlayProps={{ radius: 'lg', blur: 2 }} />
                     {isPending ? <Text role="status" size="sm">{submitPhase}</Text> : null}
 
-                    <form onSubmit={form.onSubmit(handleSubmit)}>
+                    <form onSubmit={form.onSubmit((values) => { if (!submittingRef.current) setPendingSend(values); })}>
                         <Stack gap="xl">
                             <TextInput
                                 label="카테고리"
@@ -444,6 +446,18 @@ export default function CreateNoticePage() {
                     </form>
                 </Paper>
             </motion.div>
+            <ConfirmModal
+                opened={pendingSend !== null}
+                onClose={() => setPendingSend(null)}
+                onConfirm={() => {
+                    const values = pendingSend;
+                    setPendingSend(null);
+                    if (values) void handleSubmit(values);
+                }}
+                title="공지 전송"
+                message={`전체 FC에게 알림이 전송됩니다.\n제목: ${pendingSend?.title ?? ''}\n첨부: 이미지 ${images.length}개 · 파일 ${files.length}개`}
+                confirmLabel="전송"
+            />
         </Container>
     );
 }

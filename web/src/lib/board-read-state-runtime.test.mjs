@@ -599,6 +599,7 @@ test('safe read-error UI never renders upstream text and provides login only for
 const commonListMocks = {
   '@/components/StatusToggle': ui,
   '@/components/RejectReasonModal': ui,
+  '@/components/ConfirmModal': ui,
   '@/components/NotificationDestinationReady': ui,
   '@/lib/supabase': { supabase: {} },
   '@/lib/admin-document-client': { fetchAdminDocuments: async () => [], fetchAdminFcList: async () => [], signAdminDocument: async () => 'https://storage.example.test/synthetic' },
@@ -656,7 +657,7 @@ test('dashboard failed FC reads do not display empty-list text or invented zero 
     './page.module.css': { default: {} },
     '@/lib/dashboard-table-display': { DASHBOARD_FC_LIST_COLUMNS: [], DASHBOARD_FC_LIST_COLUMN_COUNT: 9 },
     '../../lib/logger': { logger: {} },
-  }, { fetch: async () => response });
+  }, { fetch: async () => response, window: { location: { search: '', pathname: '/dashboard' }, history: { state: null, replaceState() {} } } });
   await page.render();
   for (const payload of [[], { data: [] }]) {
     response = { ok: true, json: async () => payload };
