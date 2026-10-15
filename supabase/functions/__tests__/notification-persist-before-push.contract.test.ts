@@ -33,6 +33,14 @@ describe('canonical notification persistence before provider delivery', () => {
     );
   });
 
+  it('group chat text resend with the same client id returns the stored row without a second push', () => {
+    const source = read('supabase/functions/group-chat/index.ts');
+    expect(source).toContain('...(clientMessageId ? { id: clientMessageId } : {}),');
+    expect(source).toMatch(/clientMessageId && \(result\.error as \{ code\?: string \}\)\.code === '23505'/);
+    expect(source).toContain("return fail('idempotency_conflict'");
+    expect(source).toContain('skipNativePush: attachmentCommit?.replayed === true || textReplayed');
+  });
+
   it('group chat does not query tokens or call Expo when inbox fanout mapping is incomplete', () => {
     const source = read('supabase/functions/group-chat/index.ts');
     const notifyStart = source.indexOf('async function notifyRecipients');

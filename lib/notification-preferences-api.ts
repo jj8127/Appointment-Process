@@ -39,6 +39,20 @@ function isRfc3339Timestamp(value: unknown): value is string {
     && Number.isFinite(Date.parse(value));
 }
 
+/**
+ * A room row exists for pins and hides too, so its presence alone does not mean
+ * muted. Without a row the server's resolved value (e.g. the group chat's
+ * legacy mute) applies, matching how the server decides push delivery.
+ */
+export function resolveMessengerRoomMuted(
+  rooms: readonly Pick<MessengerRoomPreference, 'roomKey' | 'muted'>[],
+  roomKey: string,
+  fallbackMuted: boolean,
+) {
+  const row = rooms.find((room) => room.roomKey === roomKey);
+  return row ? row.muted : fallbackMuted;
+}
+
 export function buildMessengerRoomRef(
   kind: MessengerRoomRef['kind'],
   rawId: string,

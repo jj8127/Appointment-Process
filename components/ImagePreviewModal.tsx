@@ -67,7 +67,8 @@ function StaticPreviewImage({ uri, pageWidth, pageHeight }: Pick<ZoomableImagePr
   );
 }
 
-function ZoomableImage({ uri, pageWidth, pageHeight, isZoomed, onZoomStateChange }: ZoomableImageProps) {
+/** Pinch-zoom and pan image. On Android use it in a regular screen, not inside a native Modal (see image-preview-modal-policy). */
+export function ZoomableImage({ uri, pageWidth, pageHeight, isZoomed, onZoomStateChange }: ZoomableImageProps) {
   const scale = useSharedValue(1);
   const baseScale = useSharedValue(1);
   const translateX = useSharedValue(0);

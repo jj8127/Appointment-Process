@@ -69,6 +69,7 @@ import {
 import {
   buildMessengerRoomRef,
   getNotificationPreferences,
+  resolveMessengerRoomMuted,
   setRoomMuted,
 } from '@/lib/notification-preferences-api';
 import { getDirectMessageUnreadCount } from '@/lib/message-read-receipts';
@@ -275,6 +276,8 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
   }
   return true;
 };
+
+const DIRECT_MESSAGE_REFRESH_MS = 5000;
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -743,10 +746,13 @@ export default function ChatScreen() {
     hasAmbiguousConversationParams,
   ]);
 
-  const fetchMessages = useCallback(async () => {
+  const fetchMessages = useCallback(async (options?: { silent?: boolean }) => {
     if (!myId || !otherId || !resolvedConversation?.id) return;
-    setMessageLoadState('loading');
-    setMessageLoadError('');
+    const silent = options?.silent === true;
+    if (!silent) {
+      setMessageLoadState('loading');
+      setMessageLoadError('');
+    }
     try {
       const prefetched = directMessagePrefetchRef.current;
       let result: Awaited<ReturnType<typeof fetchGaraminDirectMessages>>;
@@ -766,7 +772,11 @@ export default function ChatScreen() {
       const filtered = result.messages.filter(
         (message) => !deletedIdsRef.current.has(message.id),
       );
-      applyMessages([...filtered, ...contextMessagesRef.current]);
+      // Keep messages still being sent; a background refresh must not drop them.
+      const pendingLocal = silent
+        ? messagesRef.current.filter((message) => message.id.startsWith('local-'))
+        : [];
+      applyMessages([...pendingLocal, ...filtered, ...contextMessagesRef.current]);
 
       const hasUnreadIncoming = filtered.some(
         (message) =>
@@ -782,7 +792,10 @@ export default function ChatScreen() {
       logger.debug('[messages] fetch error', {
         error: error instanceof Error ? error.message : String(error),
         conversationId: resolvedConversation.id,
+        silent,
       });
+      // A failed background refresh keeps the conversation already on screen.
+      if (silent) return;
       setMessageLoadState('error');
       setMessageLoadError('대화 내용을 불러오지 못했습니다.');
     }
@@ -1075,6 +1088,10 @@ export default function ChatScreen() {
     if (!myId || !otherId || !resolvedConversation?.id) return undefined;
 
     void fetchMessages();
+    // Direct messages have no realtime feed; refresh quietly while the room is open and the app is active.
+    const pollId = setInterval(() => {
+      if (AppState.currentState === 'active') void fetchMessages({ silent: true });
+    }, DIRECT_MESSAGE_REFRESH_MS);
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         void fetchMessages();
@@ -1082,6 +1099,7 @@ export default function ChatScreen() {
     });
 
     return () => {
+      clearInterval(pollId);
       appStateSub.remove();
     };
   }, [
@@ -1642,6 +1660,8 @@ export default function ChatScreen() {
                 isMe ? styles.fileCardMe : styles.fileCardOther,
               ]}
               onPress={open}
+              onLongPress={() => openMessageActions(item)}
+              delayLongPress={500}
               activeOpacity={0.82}
             >
               <View style={[
@@ -1685,7 +1705,7 @@ export default function ChatScreen() {
             </TouchableOpacity>
             );
             return attachment.mimeType.startsWith('image/')
-              ? <MessengerImageAttachment key={attachment.id} attachment={attachment} fallback={card} />
+              ? <MessengerImageAttachment key={attachment.id} attachment={attachment} fallback={card} onLongPress={() => openMessageActions(item)} delayLongPress={500} />
               : card;
           })}
         </View>
@@ -1909,7 +1929,7 @@ export default function ChatScreen() {
     try {
       const preferences = await getNotificationPreferences();
       if (sequence !== roomPreferenceSequenceRef.current) return;
-      setRoomMutedState(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setRoomMutedState(resolveMessengerRoomMuted(preferences.rooms, roomRef.key, false));
       setRoomPreferenceLoadedKey(roomRef.key);
       setRoomPreferenceFailure(null);
     } catch (error) {
@@ -1952,7 +1972,7 @@ export default function ChatScreen() {
     try {
       const preferences = await setRoomMuted(roomRef, nextMuted);
       if (sequence !== roomPreferenceSequenceRef.current) return;
-      setRoomMutedState(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setRoomMutedState(resolveMessengerRoomMuted(preferences.rooms, roomRef.key, false));
       setRoomPreferenceLoadedKey(roomRef.key);
     } catch (error) {
       if (sequence !== roomPreferenceSequenceRef.current) return;

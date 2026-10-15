@@ -745,6 +745,7 @@ function RootLayout() {
                           />
                           <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
+                          <Stack.Screen name="photo-viewer" options={{ headerShown: false, animation: 'fade' }} />
                           <Stack.Screen name="messenger-search" options={{ headerShown: false }} />
                           <Stack.Screen name="new-conversation" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
@@ -843,6 +844,7 @@ function RootLayout() {
                           />
                           <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
+                          <Stack.Screen name="photo-viewer" options={{ headerShown: false, animation: 'fade' }} />
                           <Stack.Screen name="messenger-search" options={{ headerShown: false }} />
                           <Stack.Screen name="new-conversation" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />

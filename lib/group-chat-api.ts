@@ -204,8 +204,16 @@ export function buildGroupChatSendBody(input: {
   attachmentIntentIds?: readonly string[];
   deliveryKey?: string;
   payloadFingerprint?: string;
+  /** Lets a resend after an unknown outcome return the stored message instead of a duplicate. */
+  clientMessageId?: string;
 }) {
   const messageType = input.messageType ?? 'text';
+  const clientMessageId = input.clientMessageId?.trim().toLowerCase();
+  if (clientMessageId !== undefined && !isNotificationUuid(clientMessageId)) {
+    throw new GroupChatRequestError('메시지 식별자가 올바르지 않습니다.', {
+      code: 'invalid_message_id',
+    });
+  }
   const hasAttachmentFields =
     input.attachmentIntentIds !== undefined
     || input.deliveryKey !== undefined
@@ -248,6 +256,7 @@ export function buildGroupChatSendBody(input: {
     ...(input.fileName ? { file_name: input.fileName } : {}),
     ...(typeof input.fileSize === 'number' ? { file_size: input.fileSize } : {}),
     ...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
+    ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
     ...(attachmentIntentIds
       ? {
           attachment_intent_ids: attachmentIntentIds,

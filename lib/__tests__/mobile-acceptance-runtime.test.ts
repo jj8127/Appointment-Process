@@ -368,6 +368,7 @@ describe('C02 / D08 Garamin direct and group text sends', () => {
       groupChatMarkRead: jest.fn(async () => undefined), hasGroupChatPostCommitWarning: () => false,
       getGroupChatNotificationRetry: () => null, removeMessage: jest.fn(), updateMessage: jest.fn(),
       logger: { warn: jest.fn(), debug: jest.fn() }, showGroupChatErrorAlert: jest.fn(),
+      randomUUID: () => 'synthetic-client-message',
     };
     const first = routeHandler('app/group-chat.tsx', 'sendOptimisticToServer', context)('synthetic-local', { content: 'synthetic message', messageType: 'text' }, () => current);
     current = false;

@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
+import { randomUUID } from 'expo-crypto';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -108,6 +109,7 @@ import {
 import {
   buildMessengerRoomRef,
   getNotificationPreferences,
+  resolveMessengerRoomMuted,
 } from '@/lib/notification-preferences-api';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import {
@@ -305,6 +307,8 @@ export default function GroupChatScreen() {
   const pendingAnchorMessageIdRef = useRef<string | null>(null);
   const anchorScrollRetryCountRef = useRef(0);
   const roomPreferenceSequenceRef = useRef(0);
+  // The bootstrap's resolved mute (canonical preference, else the legacy group setting).
+  const serverMutedRef = useRef(false);
   const historyLoadInFlightRef = useRef(false);
   const historyLoadGenerationRef = useRef(0);
   const historyExhaustedRef = useRef(false);
@@ -432,6 +436,7 @@ export default function GroupChatScreen() {
       setActor(data.actor);
       setMemberCount(data.member_count);
       setMembers(data.members);
+      serverMutedRef.current = data.muted;
       setMuted(data.muted);
       setCanSendMessages(resolveGroupChatSendPermission(data.actor, data.can_send_messages));
       setNotice(data.notice);
@@ -963,6 +968,8 @@ export default function GroupChatScreen() {
     if (!isCurrentSend()) return false;
     let notificationRetry: GroupChatNotificationRetry | null = null;
     let shouldShowDeliveryWarning = false;
+    // Text has no delivery key; one id per send keeps a "다시 확인" resend from posting twice.
+    const clientMessageId = input.attachmentBatch ? undefined : randomUUID().toLowerCase();
     const commit = async () => {
       let attachmentIntentIds: string[] | null = null;
       if (input.attachmentBatch) {
@@ -980,6 +987,7 @@ export default function GroupChatScreen() {
         content: input.content,
         messageType: input.messageType,
         replyToMessageId: input.replyToMessageId,
+        ...(clientMessageId ? { clientMessageId } : {}),
         ...(input.attachmentBatch && attachmentIntentIds
           ? {
               attachmentIntentIds,
@@ -997,13 +1005,15 @@ export default function GroupChatScreen() {
         return await commit();
       } catch (error) {
         if (!isCurrentSend()) return null;
-        if (!input.attachmentBatch) throw error;
         const failure = classifyMessengerSendFailure(error);
-        logger.warn('[group-chat] attachment send failed', {
+        logger.warn('[group-chat] send failed', {
           code: failure.code,
           status: failure.status,
           uncertain: failure.uncertain,
+          attachment: Boolean(input.attachmentBatch),
         });
+        // A refused text keeps the existing failed-bubble path and its explained alert.
+        if (!input.attachmentBatch && !failure.uncertain) throw error;
         if (!failure.uncertain) {
           // A definite refusal: re-sending the same request would be refused again.
           Alert.alert('파일 전송 실패', failure.message);
@@ -1012,7 +1022,9 @@ export default function GroupChatScreen() {
         return new Promise((resolve) => {
           Alert.alert(
             '전송 확인 필요',
-            '파일 메시지 전송 결과를 확인하지 못했습니다. 같은 요청으로 다시 확인하면 중복 전송되지 않습니다.',
+            input.attachmentBatch
+              ? '파일 메시지 전송 결과를 확인하지 못했습니다. 같은 요청으로 다시 확인하면 중복 전송되지 않습니다.'
+              : '메시지 전송 결과를 확인하지 못했습니다. 다시 확인해도 중복으로 보내지지 않습니다.',
             [
               { text: '취소', style: 'cancel', onPress: () => resolve(null) },
               {
@@ -1323,7 +1335,7 @@ export default function GroupChatScreen() {
     try {
       const preferences = await getNotificationPreferences();
       if (sequence !== roomPreferenceSequenceRef.current) return;
-      setMuted(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setMuted(resolveMessengerRoomMuted(preferences.rooms, roomRef.key, serverMutedRef.current));
       setRoomPreferenceLoadedKey(roomRef.key);
       setRoomPreferenceFailure(null);
     } catch (error) {
@@ -1383,7 +1395,7 @@ export default function GroupChatScreen() {
     try {
       const preferences = await getNotificationPreferences();
       if (sequence !== roomPreferenceSequenceRef.current) return;
-      setMuted(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setMuted(resolveMessengerRoomMuted(preferences.rooms, roomRef.key, serverMutedRef.current));
       setRoomPreferenceLoadedKey(roomRef.key);
       setRoomPreferenceFailure(null);
     } catch (error) {
@@ -1493,6 +1505,8 @@ export default function GroupChatScreen() {
                 isMe ? styles.fileCardMe : styles.fileCardOther,
               ]}
               onPress={open}
+              onLongPress={() => openMessageActions(item)}
+              delayLongPress={220}
             >
               <View style={[
                 styles.fileIconBox,
@@ -1541,7 +1555,7 @@ export default function GroupChatScreen() {
             </Pressable>
             );
             return attachment.mimeType.startsWith('image/')
-              ? <MessengerImageAttachment key={attachment.id} attachment={attachment} fallback={card} />
+              ? <MessengerImageAttachment key={attachment.id} attachment={attachment} fallback={card} onLongPress={() => openMessageActions(item)} delayLongPress={220} />
               : card;
           })}
         </View>
@@ -1587,7 +1601,7 @@ export default function GroupChatScreen() {
         selectable={false}
       />
     );
-  }, []);
+  }, [openMessageActions]);
 
   const renderItem = useCallback(({ item }: { item: GroupChatMessage }) => {
     const isMe = item.sender_actor_id === actor?.id;

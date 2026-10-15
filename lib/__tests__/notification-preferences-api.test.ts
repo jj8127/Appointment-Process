@@ -21,6 +21,7 @@ import {
   setPushCategoryEnabled,
   setRoomPinned,
   setRoomMuted,
+  resolveMessengerRoomMuted,
   NotificationPreferenceWriteConfirmedError,
 } from '../notification-preferences-api';
 
@@ -79,6 +80,15 @@ describe('notification preferences mobile API', () => {
     await expect(getNotificationPreferences()).rejects.toThrow(
       'notification_preferences_request_failed',
     );
+  });
+
+  // A row exists for pins and hides too; its presence alone must not read as muted.
+  it('resolves a room mute from the row value, else the server fallback', () => {
+    const key = 'garamin:group:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    expect(resolveMessengerRoomMuted([{ roomKey: key, muted: false }], key, true)).toBe(false);
+    expect(resolveMessengerRoomMuted([{ roomKey: key, muted: true }], key, false)).toBe(true);
+    expect(resolveMessengerRoomMuted([], key, true)).toBe(true);
+    expect(resolveMessengerRoomMuted([], key, false)).toBe(false);
   });
 
   it('sends only canonical room keys', async () => {
