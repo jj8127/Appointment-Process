@@ -2608,12 +2608,13 @@ const styles = StyleSheet.create({
   stepLabelActive: { color: CHARCOAL, fontWeight: '700' },
   premiumStepCard: {
     borderRadius: 20,
-    paddingVertical: 22,
-    paddingHorizontal: 24,
+    paddingVertical: 20,
+    paddingHorizontal: 22,
     marginHorizontal: 4,
     overflow: 'hidden',
     position: 'relative',
-    height: 120, // Taller for impact
+    // Grows with a two-line subtitle instead of clipping the bottom edge.
+    minHeight: 136,
     justifyContent: 'center',
     shadowColor: '#f36f21',
     shadowOffset: { width: 0, height: 8 },
@@ -2629,8 +2630,8 @@ const styles = StyleSheet.create({
   premiumStepHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
+    alignItems: 'center',
+    marginBottom: 12,
   },
   premiumStepBadge: {
     backgroundColor: 'rgba(255,255,255,0.2)',
@@ -2652,14 +2653,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   premiumStepTitle: {
-    fontSize: 24,
+    fontSize: 22,
+    lineHeight: 30,
     fontWeight: '800',
     color: '#fff',
-    marginBottom: 4,
+    marginBottom: 6,
     letterSpacing: 0,
   },
   premiumStepSub: {
     fontSize: 14,
+    lineHeight: 21,
     color: 'rgba(255,255,255,0.9)',
     fontWeight: '500',
   },

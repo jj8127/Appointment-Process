@@ -10,6 +10,11 @@
 - Play: 업로드 해시 일치, production 구성, validate, commit(`ERROR_IF_IN_REVIEW`) 성공 2026-10-14T18:11:15Z. 이후 조회에서 97 IN_REVIEW, 95 PUBLISHED. 공개 여부는 심사 후 별도 확인이 필요하다. iOS·OTA·서버 변경은 없다.
 - 증거: `D:/hanhwa/artifacts/moduon-ui-polish-20261015/android-native/`(빌드·다운로드·검증·제출 영수증).
 
+<a id="20261015-step-card-spacing"></a>
+## 2026-10-15 보험 홈 다음 단계 카드 여백
+
+- `app/index.tsx` `premiumStepCard`: `height: 120`→`minHeight: 136`, 세로 여백 22→20, 가로 24→22. 머리줄 간격 8→12, 제목 24→22(lineHeight 30, 아래 6), 설명 lineHeight 21. 같은 줄의 영상 버튼은 높이를 따라 늘어난다. 타입·lint·보험 홈 테스트 PASS, 기기 미확인.
+
 <a id="20261015-login-notification-handoff"></a>
 ## 2026-10-15 로그인 후 화면이 넘어가지 않던 문제
 
