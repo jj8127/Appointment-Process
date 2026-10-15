@@ -77,11 +77,13 @@ import {
 } from '@/lib/messenger-attachment-actions';
 import {
   appendMessengerAttachmentCandidates,
+  classifyMessengerSendFailure,
   formatMessengerAttachmentSize,
   isPreparedMessengerAttachmentBatchForDraft,
   MESSENGER_ATTACHMENT_MIME_BY_EXTENSION,
   prepareMessengerAttachmentBatch,
   removeSelectedMessengerAttachment,
+  toMessengerFunctionError,
   uploadMessengerAttachmentBatch,
   type MessengerAttachmentMetadata,
   type PreparedMessengerAttachmentBatch,
@@ -1297,13 +1299,26 @@ export default function ChatScreen() {
     > => {
       try {
         return await commitMessage();
-      } catch (error) {
+      } catch (rawError) {
         if (!isCurrentSend()) return null;
+        // fc-notify errors carry the HTTP response in `context`; read its code and status.
+        const error = rawError && typeof rawError === 'object' && 'context' in rawError
+          ? await toMessengerFunctionError(rawError, null, '메시지를 보내지 못했습니다. 다시 시도해 주세요.')
+          : rawError;
+        if (!isCurrentSend()) return null;
+        const failure = classifyMessengerSendFailure(error);
         logger.warn('sendMessage error', {
-          error: error instanceof Error ? error.message : String(error),
+          code: failure.code,
+          status: failure.status,
+          uncertain: failure.uncertain,
           conversationId: resolvedConversation.id,
           clientMessageId,
         });
+        if (!failure.uncertain) {
+          // A definite refusal: re-sending the same request would be refused again.
+          Alert.alert(attachmentBatch ? '파일 전송 실패' : '전송 실패', failure.message);
+          return null;
+        }
         return new Promise((resolve) => {
           Alert.alert(
             '전송 확인 필요',

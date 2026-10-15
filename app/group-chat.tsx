@@ -63,6 +63,7 @@ import {
 } from '@/lib/messenger-attachment-actions';
 import {
   appendMessengerAttachmentCandidates,
+  classifyMessengerSendFailure,
   formatMessengerAttachmentSize,
   isPreparedMessengerAttachmentBatchForDraft,
   MAX_MESSENGER_ATTACHMENTS,
@@ -995,7 +996,17 @@ export default function GroupChatScreen() {
       } catch (error) {
         if (!isCurrentSend()) return null;
         if (!input.attachmentBatch) throw error;
-        logger.warn('[group-chat] attachment send result unavailable');
+        const failure = classifyMessengerSendFailure(error);
+        logger.warn('[group-chat] attachment send failed', {
+          code: failure.code,
+          status: failure.status,
+          uncertain: failure.uncertain,
+        });
+        if (!failure.uncertain) {
+          // A definite refusal: re-sending the same request would be refused again.
+          Alert.alert('파일 전송 실패', failure.message);
+          return null;
+        }
         return new Promise((resolve) => {
           Alert.alert(
             '전송 확인 필요',

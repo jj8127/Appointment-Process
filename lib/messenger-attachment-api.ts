@@ -42,6 +42,7 @@ export const MESSENGER_ATTACHMENT_ERROR_COPY = {
   uploadFailed: '파일을 업로드하지 못했습니다. 다시 시도해 주세요.',
   downloadFailed: '파일을 열지 못했습니다. 다시 시도해 주세요.',
   missingSession: '세션이 만료되었습니다. 다시 로그인해 주세요.',
+  rejected: '보낼 수 없는 파일입니다. 다른 파일로 다시 시도해 주세요.',
 } as const;
 
 export type MessengerAttachmentContext =
@@ -474,6 +475,71 @@ async function readFunctionErrorPayload(error: unknown) {
   }
 }
 
+/** Turns a failed Edge Function call into an Error that keeps the server's code, message and HTTP status. */
+export async function toMessengerFunctionError(
+  error: unknown,
+  data: { code?: unknown; message?: unknown } | null | undefined,
+  fallbackMessage: string,
+) {
+  const payload = await readFunctionErrorPayload(error);
+  const message =
+    (typeof payload?.message === 'string' && payload.message)
+    || (typeof data?.message === 'string' && data.message)
+    || fallbackMessage;
+  const code =
+    (typeof payload?.code === 'string' && payload.code)
+    || (typeof data?.code === 'string' && data.code)
+    || undefined;
+  return new MessengerAttachmentError(message, {
+    code,
+    status: readErrorStatus(error),
+  });
+}
+
+export type MessengerSendFailure = {
+  /** True when the server may have stored the message, so only the same idempotent request can tell. */
+  uncertain: boolean;
+  code?: string;
+  status?: number;
+  message: string;
+};
+
+// Codes raised on the client after the request may already have reached the server.
+const UNCERTAIN_CLIENT_CODES = new Set([
+  'attachment_upload_failed',
+  'invalid_attachment_response',
+  'invalid_attachment_commit_response',
+]);
+
+/**
+ * Separates "the outcome is unknown" (network failure, timeout, 408/429, 5xx,
+ * unreadable response) from a definite refusal (any other 4xx, or a local
+ * validation error). Only the former may offer a same-key re-check; repeating a
+ * refused request can only be refused again.
+ */
+export function classifyMessengerSendFailure(error: unknown): MessengerSendFailure {
+  const record = error && typeof error === 'object'
+    ? error as { code?: unknown; status?: unknown }
+    : {};
+  const code = typeof record.code === 'string' && record.code ? record.code : undefined;
+  const status = typeof record.status === 'number' ? record.status : readErrorStatus(error);
+  const uncertain = status === undefined
+    ? !code || UNCERTAIN_CLIENT_CODES.has(code)
+    : status >= 500 || status === 408 || status === 429;
+  const contentRejected =
+    !uncertain
+    && status !== undefined
+    && Boolean(code && /^(invalid_attachment|attachment_)/.test(code));
+  return {
+    uncertain,
+    code,
+    status,
+    message: contentRejected
+      ? MESSENGER_ATTACHMENT_ERROR_COPY.rejected
+      : (error instanceof Error && error.message) || MESSENGER_ATTACHMENT_ERROR_COPY.uploadFailed,
+  };
+}
+
 async function invokeMessengerAttachmentFunction<T>(
   body: Record<string, unknown>,
 ) {
@@ -495,19 +561,11 @@ async function invokeMessengerAttachmentFunction<T>(
     },
   });
   if (error || !data || data.ok !== true) {
-    const payload = await readFunctionErrorPayload(error);
-    const message =
-      (typeof payload?.message === 'string' && payload.message)
-      || (typeof data?.message === 'string' && data.message)
-      || MESSENGER_ATTACHMENT_ERROR_COPY.uploadFailed;
-    const code =
-      (typeof payload?.code === 'string' && payload.code)
-      || (typeof data?.code === 'string' && data.code)
-      || undefined;
-    throw new MessengerAttachmentError(message, {
-      code,
-      status: readErrorStatus(error),
-    });
+    throw await toMessengerFunctionError(
+      error,
+      data,
+      MESSENGER_ATTACHMENT_ERROR_COPY.uploadFailed,
+    );
   }
   return data;
 }
@@ -688,9 +746,14 @@ async function uploadPendingIntents(
         },
       );
     if (error && !isExactAssetAlreadyExistsError(error)) {
+      const value = error as { status?: unknown; statusCode?: unknown };
+      const status = Number(value.status ?? value.statusCode);
       throw new MessengerAttachmentError(
         MESSENGER_ATTACHMENT_ERROR_COPY.uploadFailed,
-        { code: 'attachment_upload_failed' },
+        {
+          code: 'attachment_upload_failed',
+          ...(Number.isInteger(status) && status > 0 ? { status } : {}),
+        },
       );
     }
   }

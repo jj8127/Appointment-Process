@@ -190,29 +190,60 @@ const startsWith = (bytes: Uint8Array, signature: number[], offset = 0) =>
 const ascii = (bytes: Uint8Array, start = 0, end = bytes.length) =>
   new TextDecoder('latin1').decode(bytes.subarray(start, end));
 
-function hasPlausibleEmbeddedExecutable(bytes: Uint8Array): boolean {
-  for (let offset = 0; offset + 64 <= bytes.length; offset += 1) {
-    if (startsWith(bytes, [0x7f, 0x45, 0x4c, 0x46], offset)) return true;
-    if (startsWith(bytes, [0x23, 0x21], offset)) return true;
-    if (!startsWith(bytes, [0x4d, 0x5a], offset)) continue;
-    const view = new DataView(bytes.buffer, bytes.byteOffset + offset, bytes.length - offset);
-    const peOffset = view.getUint32(0x3c, true);
-    if (
-      peOffset >= 0x40
-      && peOffset + 4 <= view.byteLength
-      && view.getUint32(peOffset, true) === 0x00004550
-    ) {
-      return true;
-    }
+/** Offsets where `first` occurs, found with the native indexOf instead of a per-byte JS loop. */
+function* offsetsOf(bytes: Uint8Array, first: number, from = 0) {
+  for (let offset = bytes.indexOf(first, from); offset !== -1; offset = bytes.indexOf(first, offset + 1)) {
+    yield offset;
   }
+}
+
+/*
+ * Compressed image, PDF and Office data is effectively random, so a short magic
+ * number alone appears by chance in almost every real file ("#!" about once per
+ * 64 KiB). A match therefore only counts when the whole header is structurally
+ * valid: a script shebang only at the start, an ELF ident with valid class/data/
+ * version, a PE header behind MZ, and a ZIP local header with sane fields.
+ */
+function hasElfHeaderAt(bytes: Uint8Array, offset: number): boolean {
+  return startsWith(bytes, [0x7f, 0x45, 0x4c, 0x46], offset)
+    && [1, 2].includes(byteAt(bytes, offset + 4))
+    && [1, 2].includes(byteAt(bytes, offset + 5))
+    && byteAt(bytes, offset + 6) === 1;
+}
+
+function hasPeHeaderAt(bytes: Uint8Array, offset: number): boolean {
+  if (offset + 64 > bytes.length || !startsWith(bytes, [0x4d, 0x5a], offset)) return false;
+  const view = new DataView(bytes.buffer, bytes.byteOffset + offset, bytes.length - offset);
+  const peOffset = view.getUint32(0x3c, true);
+  return peOffset >= 0x40
+    && peOffset + 4 <= view.byteLength
+    && view.getUint32(peOffset, true) === 0x00004550;
+}
+
+const ZIP_KNOWN_METHODS = new Set([0, 8, 9, 12, 14, 93, 95, 98, 99]);
+
+function hasZipLocalHeaderAt(bytes: Uint8Array, offset: number): boolean {
+  if (offset + 30 > bytes.length || !startsWith(bytes, [0x50, 0x4b, 0x03, 0x04], offset)) return false;
+  const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 30);
+  const versionNeeded = view.getUint16(4, true);
+  const method = view.getUint16(8, true);
+  const nameLength = view.getUint16(26, true);
+  return versionNeeded <= 63
+    && ZIP_KNOWN_METHODS.has(method)
+    && nameLength >= 1
+    && nameLength <= 1024
+    && offset + 30 + nameLength <= bytes.length;
+}
+
+function hasPlausibleEmbeddedExecutable(bytes: Uint8Array): boolean {
+  if (startsWith(bytes, [0x23, 0x21])) return true;
+  for (const offset of offsetsOf(bytes, 0x7f)) if (hasElfHeaderAt(bytes, offset)) return true;
+  for (const offset of offsetsOf(bytes, 0x4d)) if (hasPeHeaderAt(bytes, offset)) return true;
   return false;
 }
 
-function hasEmbeddedZip(bytes: Uint8Array, allowAtStart = false): boolean {
-  const start = allowAtStart ? 1 : 0;
-  for (let offset = start; offset + 4 <= bytes.length; offset += 1) {
-    if (startsWith(bytes, [0x50, 0x4b, 0x03, 0x04], offset)) return true;
-  }
+function hasEmbeddedZip(bytes: Uint8Array): boolean {
+  for (const offset of offsetsOf(bytes, 0x50)) if (hasZipLocalHeaderAt(bytes, offset)) return true;
   return false;
 }
 
