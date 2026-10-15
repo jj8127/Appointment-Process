@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { Stack, router, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,7 +19,11 @@ import { clearSavedLoginCredentials, getSavedLoginCredentials, setSavedLoginCred
 import { useReadAttempt } from '@/lib/use-read-attempt';
 import { normalizePhone, validatePhone, validateRequired } from '@/lib/validation';
 
+// A manual login yields to a pending notification only while that handoff can still take focus.
+const NOTIFICATION_HANDOFF_GRACE_MS = 1200;
+
 export default function PlatformLogin() {
+  const navigation = useNavigation();
   const { service, skipAuto } = useLocalSearchParams<{ service?: string; skipAuto?: string }>();
   const { hydrated, role, residentId, appSessionToken, platformSessionToken, isRequestBoardDesigner, isPlatformSignedIn, loginPlatformMember } = useSession();
   const { acceptLoginResponse, handleLoginRejection } = useLogin();
@@ -51,13 +55,23 @@ export default function PlatformLogin() {
       isPlatformSignedIn, requestedService: service });
     if (!route) return;
     let active = true;
-    void waitForNotificationNavigationDecision().then(hasPending => {
-      if (!active || hasPending) return;
+    let handoffFallback: ReturnType<typeof setTimeout> | undefined;
+    const land = () => {
       if (route === '/services/account') router.dismissTo(route);
       else router.replace(route);
+    };
+    void waitForNotificationNavigationDecision().then(hasPending => {
+      if (!active) return;
+      if (!hasPending) { land(); return; }
+      if (!manualLoginSucceeded) return;
+      // The pending flag can outlive an intent that was already opened or failed to
+      // acknowledge. A user who just signed in here must not be left on this screen.
+      handoffFallback = setTimeout(() => {
+        if (active && navigation.isFocused()) land();
+      }, NOTIFICATION_HANDOFF_GRACE_MS);
     });
-    return () => { active = false; };
-  }, [hydrated, role, residentId, isRequestBoardDesigner, isPlatformSignedIn, service, skipAuto, manualLoginSucceeded]);
+    return () => { active = false; if (handoffFallback) clearTimeout(handoffFallback); };
+  }, [hydrated, role, residentId, isRequestBoardDesigner, isPlatformSignedIn, service, skipAuto, manualLoginSucceeded, navigation]);
 
   const toggleRememberPassword = useCallback(() => {
     if (rememberPassword) void clearSavedLoginCredentials().catch(() => undefined);

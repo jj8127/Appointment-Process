@@ -94,6 +94,7 @@ source_of_truth: app/services/login.tsx + app/services/signup.tsx + app/login.ts
 
 - `/login?skipAuto=1` suppresses stale-session automatic entry only until a new manual login succeeds. Pending or failed login keeps that protection active.
 - Successful login resumes the existing hydrated session landing route and respects pending notification navigation. Saving login preferences must not delay this transition. The effect cancels pending navigation on unmount.
+- The notification coordinator's pending flag lasts for the app process and can outlive an intent that was already opened or whose read acknowledgement failed. After a manual login on the common login screen, a pending decision therefore yields only for 1.2s: if the login screen is still focused (no notification destination took over), it lands on the normal route. Automatic entry without a manual login still never overrides a pending notification. `lib/__tests__/login-navigation.test.js` covers both.
 - Runtime regression: `lib/__tests__/login-navigation.test.js`. Both checkouts pass the related 8 suites / 39 tests, TypeScript and scoped ESLint; release Android/iOS offline Hermes exports pass. These local checks do not establish installed-device recovery or deployment.
 
 ### 2026-09-09 Focused logout navigation and native transition

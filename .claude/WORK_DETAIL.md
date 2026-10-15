@@ -10,6 +10,14 @@
 - Play: 업로드 해시 일치, production 구성, validate, commit(`ERROR_IF_IN_REVIEW`) 성공 2026-10-14T18:11:15Z. 이후 조회에서 97 IN_REVIEW, 95 PUBLISHED. 공개 여부는 심사 후 별도 확인이 필요하다. iOS·OTA·서버 변경은 없다.
 - 증거: `D:/hanhwa/artifacts/moduon-ui-polish-20261015/android-native/`(빌드·다운로드·검증·제출 영수증).
 
+<a id="20261015-login-notification-handoff"></a>
+## 2026-10-15 로그인 후 화면이 넘어가지 않던 문제
+
+- 증상(사용자 보고, 운영 97): 로그인 버튼 후 무반응, 재실행하면 로그인 상태. 재실행 시 로그인돼 있었으므로 `loginAs`까지 실행돼 세션은 저장됐고 화면 이동만 빠졌다.
+- 원인: `app/services/login.tsx`는 `waitForNotificationNavigationDecision()`이 pending이면 이동하지 않는다. 조정기의 pending은 프로세스 동안 유지되며, 알림 대상으로 이미 이동했거나 읽음 처리(`markPendingNotificationRead`)가 실패하면 idle로 돌아가지 않는다. 이후 로그아웃·재로그인 시 `_layout`은 이미 보낸 알림이라 아무것도 하지 않고, 로그인 화면은 양보해 멈춘다. 재실행하면 조정기가 초기화된다.
+- 수정: 직접 로그인 성공 뒤 pending이면 1.2초 양보하고, 그때도 로그인 화면이 포커스면 정상 착지 경로로 이동한다. 자동 진입(직접 로그인 아님)은 기존처럼 알림을 덮지 않는다. 늦게 온 알림 이동은 홈 위에 쌓여 손실되지 않는다.
+- 검증: 기존 `login-navigation.test.js`의 pending 사례를 포커스 유지/알림 포커스 두 경우와 자동 진입 비덮어쓰기로 확장(30건 PASS, 수정 전 코드에서는 stale 사례 실패). 기기 재현은 무선 ADB 연결이 끊겨 수행하지 못했다. 이전 출시(98)에는 포함되지 않는다.
+
 <a id="20261015-android-98-submit"></a>
 ## 2026-10-15 모두온 4.2.20 Android versionCode 98 제출
 
