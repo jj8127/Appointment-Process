@@ -77,7 +77,7 @@ describe('notification navigation resume boundary', () => {
     const identity = read('app/identity.tsx');
 
     expect(login).toContain('waitForNotificationNavigationDecision()');
-    expect(login).toContain('if (!active || hasPending) return');
+    // Yield timing and the stale-flag fallback are exercised by login-navigation.test.js.
     expect(gateHook).toContain('parseNotificationPushData({');
     expect(gateHook).toContain('buildNotificationTargetRoute({');
     expect(gateHook).toContain('params: { next: notificationNext');
