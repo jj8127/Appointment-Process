@@ -40,6 +40,7 @@ type ImagePreviewModalProps = {
 };
 
 const OVERLAY_HORIZONTAL_PADDING = 16;
+const DOUBLE_TAP_SCALE = 2.5;
 
 const clampIndex = (index: number, length: number) => {
   if (length <= 0) return 0;
@@ -67,7 +68,7 @@ function StaticPreviewImage({ uri, pageWidth, pageHeight }: Pick<ZoomableImagePr
   );
 }
 
-/** Pinch-zoom and pan image. On Android use it in a regular screen, not inside a native Modal (see image-preview-modal-policy). */
+/** Pinch/double-tap zoom and pan image. On Android use it in a regular screen, not inside a native Modal (see image-preview-modal-policy). */
 export function ZoomableImage({ uri, pageWidth, pageHeight, isZoomed, onZoomStateChange }: ZoomableImageProps) {
   const scale = useSharedValue(1);
   const baseScale = useSharedValue(1);
@@ -137,7 +138,28 @@ export function ZoomableImage({ uri, pageWidth, pageHeight, isZoomed, onZoomStat
       }
     });
 
-  const composedGesture = Gesture.Simultaneous(pinchGesture, panGesture);
+  // Double tap toggles between fit and DOUBLE_TAP_SCALE, keeping the tapped point under the finger.
+  const doubleTapGesture = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd((event) => {
+      if (scale.value > 1.01) {
+        scale.value = withTiming(1);
+        translateX.value = withTiming(0);
+        translateY.value = withTiming(0);
+        baseScale.value = 1;
+        runOnJS(onZoomStateChange)(false);
+        return;
+      }
+      const maxX = ((pageWidth * DOUBLE_TAP_SCALE) - pageWidth) / 2;
+      const maxY = ((pageHeight * DOUBLE_TAP_SCALE) - pageHeight) / 2;
+      scale.value = withTiming(DOUBLE_TAP_SCALE);
+      translateX.value = withTiming(clamp((1 - DOUBLE_TAP_SCALE) * (event.x - pageWidth / 2), -maxX, maxX));
+      translateY.value = withTiming(clamp((1 - DOUBLE_TAP_SCALE) * (event.y - pageHeight / 2), -maxY, maxY));
+      baseScale.value = DOUBLE_TAP_SCALE;
+      runOnJS(onZoomStateChange)(true);
+    });
+
+  const composedGesture = Gesture.Simultaneous(pinchGesture, panGesture, doubleTapGesture);
   const animatedImageStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: translateX.value },
