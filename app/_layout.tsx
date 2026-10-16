@@ -19,7 +19,6 @@ import SplashAnimation from '@/components/SplashAnimation';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import FcTourTooltip from '@/components/FcTourTooltip';
 import { ToastProvider } from '@/components/Toast';
-import { ModuonMessengerEntry } from '@/components/messenger/ModuonMessengerEntry';
 import { useAppPresenceHeartbeat } from '@/hooks/use-app-presence-heartbeat';
 import { SessionProvider, useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
@@ -782,7 +781,6 @@ function RootLayout() {
                           <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '증원수당 흐름' }} />
                           <Stack.Screen name="referral-allowance" options={{ ...baseHeader, title: '수당 그래프' }} />
                         </Stack>
-                        <ModuonMessengerEntry />
 
                         <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
                       </TourGuideProvider>
@@ -882,7 +880,6 @@ function RootLayout() {
                           <Stack.Screen name="referral-revenue-graph" options={{ ...baseHeader, title: '증원수당 흐름' }} />
                           <Stack.Screen name="referral-allowance" options={{ ...baseHeader, title: '수당 그래프' }} />
                         </Stack>
-                        <ModuonMessengerEntry />
                         <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
                       </>
                     )}
