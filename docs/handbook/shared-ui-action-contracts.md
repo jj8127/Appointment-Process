@@ -150,3 +150,7 @@ Business formatting, normalization, mapping, grouping, and permission predicates
 - Reads distinguish loading, confirmed zero/empty, failure and retained old data. Failed unread reads do not call native badge/notification cleanup. Failed profile/approval/identity reads do not invent an unapproved or incomplete state.
 - Date-only fields use `lib/calendar-date.ts` without UTC conversion. An unset exam date displays the stored exam month. Allowance graph metadata distinguishes performance month from scheduled payment date.
 - Verification is local: actual-handler mocks, PGlite and isolated PostgreSQL16.14 multi-connection fixtures, compilers and source contracts. Native WebView/back/IME/font acceptance and operational DB/Storage/Edge rollout are separate gates. The migration must be applied and verified before its new callers are deployed; no split-write fallback is allowed.
+
+## 2026-10-16 Bottom sheets and the navigation bar
+
+- 화면 아래 가장자리에 붙는 시트는 Android 화면 끝까지 그려지므로 하단 안전 영역(`useSafeAreaInsets().bottom`)을 직접 더한다. `StackSheet`(가입·추가 정보 선택 시트)와 `ExamApplicationTargetSelector` 시트가 이를 따르고, 기존 `OptionSheetField`와 메신저 시트(`bottomInset`)도 같은 방식이다. 마지막 항목이나 버튼이 내비게이션 바에 가리지 않아야 한다.

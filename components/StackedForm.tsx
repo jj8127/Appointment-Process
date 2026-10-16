@@ -142,6 +142,8 @@ export function StackSheet({ contentKey, title, onClose, children, footer }: {
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  // The sheet sits on the screen edge, so it adds the navigation bar height itself.
+  const insets = useSafeAreaInsets();
   if (!contentKey) return null;
   return (
     <>
@@ -152,7 +154,7 @@ export function StackSheet({ contentKey, title, onClose, children, footer }: {
         entering={SlideInDown.duration(SIGNUP_MOTION.sheet).easing(MOTION_EASING)}
         exiting={SlideOutDown.duration(SIGNUP_MOTION.sheet)}
         layout={SHEET_LAYOUT}
-        style={styles.sheet}
+        style={[styles.sheet, { paddingBottom: SPACING.xl + insets.bottom }]}
       >
         <Animated.View key={contentKey} entering={FadeIn.duration(SIGNUP_MOTION.sheetSwap)} exiting={FadeOut.duration(SIGNUP_MOTION.sheetSwap / 2)}>
           <View style={styles.sheetHeader}>
@@ -214,7 +216,6 @@ const styles = StyleSheet.create({
     maxHeight: '78%',
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.lg,
-    paddingBottom: SPACING.xl,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     backgroundColor: COLORS.white,

@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ExamApplicationTarget } from '@/lib/exam-payment-proof-api';
 
@@ -38,6 +39,7 @@ export function ExamApplicationTargetSelector({
   disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const normalizedSearch = normalizeSearch(search);
   const filteredTargets = useMemo(
@@ -113,7 +115,7 @@ export function ExamApplicationTargetSelector({
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.overlay}
         >
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, { paddingBottom: 18 + insets.bottom }]}>
             <View style={styles.header}>
               <Text style={styles.title}>시험 신청 대상 선택</Text>
               <Pressable

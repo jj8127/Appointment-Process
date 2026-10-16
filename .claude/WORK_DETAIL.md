@@ -14764,3 +14764,10 @@ Verification:
 - `app/apply-gate.tsx`: intro/consent unchanged; the form opens the 소속 sheet, chains 통신사 → 자격증 in one sheet, then email (domain sheet) → insurance referral search → `저장하고 신원 정보 입력`. `submitEnrollment`, `startIdentityInput`, `validateReferral`, `returnHomeLite` are byte-identical; field errors render on their stacked questions and `revealField` still scrolls to them.
 - `lib/platform-api.ts`: `check_signup_otp` uses the request timeout.
 - Checks: `signup-steps`, `platform-signup-otp-feedback-source` (layout markers updated to the stacked phone question and press-in CTAs), `mobile-acceptance-runtime` (new `verifyCode` case: success advances, failure shows the message, short code makes no request, stale answer ignored), keyboard surface audit, TypeScript, ESLint.
+
+## <a id="20261016-sheet-bottom-inset"></a> 2026-10-16 Bottom sheet navigation-bar inset
+
+- User device screenshot: the 가람in 통신사 sheet's last option touched the Android navigation bar.
+- Cause: `StackSheet` is absolutely positioned on the edge-to-edge screen with a fixed `paddingBottom`; `ExamApplicationTargetSelector`'s modal sheet had a fixed 18px padding.
+- Fix: both add `useSafeAreaInsets().bottom`. Audit of bottom-anchored sheets: `OptionSheetField` and messenger sheets (`bottomInset` from every caller) already did; the messenger action menu is a centered card.
+- Checks: selector suite (safe-area mock added), signup/stack suites, keyboard contract. Baseline note: `exam-flow-contract`, `exam-cancellation-mobile-callers`, `exam-bundle-decision-contract` fail identically at `d9455e5` before this change.
