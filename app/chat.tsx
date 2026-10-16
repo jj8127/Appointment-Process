@@ -41,6 +41,8 @@ import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
 import { JumpToLatestButton } from '@/components/messenger/JumpToLatestButton';
 import { MessengerDayDivider } from '@/components/messenger/MessengerDayDivider';
+import { MessengerReadLine } from '@/components/messenger/MessengerReadLine';
+import { findMessengerReadLineId } from '@/lib/messenger-read-line';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import {
   deleteGaraminDirectMessage,
@@ -415,6 +417,9 @@ export default function ChatScreen() {
   const [roomPreferenceFailure, setRoomPreferenceFailure] =
     useState<MessengerNotificationPreferenceFailure | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState('');
+  // Fixed once per room visit, before the opening fetch marks messages read.
+  const [readLineMessageId, setReadLineMessageId] = useState<string | null>(null);
+  const readLineConversationRef = useRef<string | null>(null);
   const [actionMessage, setActionMessage] = useState<Message | null>(null);
   const [selectCopyMessage, setSelectCopyMessage] = useState<Message | null>(null);
   const [text, setText] = useState('');
@@ -803,6 +808,14 @@ export default function ChatScreen() {
         ...result.messages.filter((message) => !deletedIdsRef.current.has(message.id)),
       ];
       applyMessages([...filtered, ...contextMessagesRef.current]);
+
+      if (!silent && readLineConversationRef.current !== resolvedConversation.id) {
+        readLineConversationRef.current = resolvedConversation.id;
+        setReadLineMessageId(findMessengerReadLineId(
+          sortMessagesDesc(filtered),
+          (message) => message.sender_id === otherId && message.receiver_id === myId && !message.is_read,
+        ));
+      }
 
       const hasUnreadIncoming = filtered.some(
         (message) =>
@@ -1812,6 +1825,7 @@ export default function ChatScreen() {
       {startsMessengerDay(messages, index, (message) => message.created_at) ? (
         <MessengerDayDivider createdAt={item.created_at} />
       ) : null}
+      {item.id === readLineMessageId ? <MessengerReadLine /> : null}
       <View
         style={[
           styles.msgRow,
