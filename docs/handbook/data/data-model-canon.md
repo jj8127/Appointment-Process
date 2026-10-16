@@ -7,6 +7,21 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
+## 2026-10-16 통합 메신저 1단계 모델 (운영 미적용)
+
+`20261016100000`~`20261016100400` 마이그레이션 5개와 schema mirror가 1단계 모델을 이룬다.
+
+- 통합 메신저 테이블: 사람(`messenger_actors`), 조직과 본부 하위 조직, 대화방, 참여자, 방별 순번 메시지와 이벤트, 반응, 옛 방 대응표, 동기화 이슈, 대조 기록, 가져오기 커서.
+- 옛 1:1·단체방 테이블에는 이중 기록 trigger가 붙는다.
+  - trigger는 실패해도 원래 쓰기를 막지 않고 이슈로만 남긴다.
+- pg_cron 작업 두 개:
+  - `messenger-unified-daily-sync`(03:30 KST): 백필 → 본부 → 순서 복구 → 대조
+  - `messenger-garamlink-sync`(10분): Vault 키가 없으면 아무것도 하지 않는다.
+- 비공개 bucket `messenger-imported-attachments`를 둔다.
+- 권한: 모든 테이블은 RLS를 켜고 anon/authenticated 권한을 회수한다. 함수는 service_role만 실행한다.
+- 앱은 아직 이 모델을 읽지 않는다. 그래서 순서 복구(번호 다시 매기기)가 안전하고, 2단계에서 클라이언트가 읽기 시작하기 전에 순서 복구 호출을 빼야 한다.
+- 운영 적용 순서와 되돌리기는 `docs/deployment/messenger-stage1-rollout.md`를 따른다.
+
 ## 2026-10-14 제휴 서비스별 추천 관계 (로컬)
 
 `supabase/migrations/20261014130000_platform_service_referrals.sql`과 schema mirror는 `platform_service_referral_codes`(회원·서비스별 코드)와 `platform_service_referrals`(회원·서비스별 추천인, 첫 등록 확정)를 추가한다. 두 테이블은 RLS/직접 접근 회수를 유지하고 service-role RPC만 사용한다. `create_platform_application`은 공통 `referrer_id` 대신 같은 서비스의 추천인을 스냅숏한다. 공통 `referrer_id`는 과거 기록으로 남고 새 정산에 쓰이지 않는다. 운영 DB 미적용.

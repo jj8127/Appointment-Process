@@ -648,3 +648,40 @@ test('stage-1 finishing functions are service_role only and the import bucket is
     }
   } finally { await db.close(); }
 });
+
+test('rollback levels detach the legacy tables and then remove only stage-1 objects', async () => {
+  const rollback = await readFile(new URL('../../scripts/ops/messenger-stage1-rollback.sql', import.meta.url), 'utf8');
+  const level = (n) => rollback.split(`-- level ${n} --`)[1].split(/-- level \d --/)[0]
+    // PGlite has no pg_cron.
+    .replace(/select cron\.unschedule\(jobid\) from cron\.job\s+where jobname in \([^)]*\);/g, '');
+  assert.match(rollback, /cron\.unschedule\(jobid\) from cron\.job\s+where jobname in \('messenger-unified-daily-sync', 'messenger-garamlink-sync'\)/);
+
+  const db = await fixture();
+  try {
+    await one(db, 'select messenger_backfill_v1() r');
+    await db.exec(level(2));
+    await call(db, `insert into messages(id, sender_id, receiver_id, content, sender_actor_id, thread_id)
+      values ($1, $2, $3, 'after detach', $4, $5)`, [id(960), PHONE.manager, PHONE.fc, MANAGER, MANAGER_THREAD]);
+    assert.equal((await one(db, 'select count(*)::int n from messenger_messages where id=$1', [id(960)])).n, 0, 'no longer mirrored');
+    assert.equal((await one(db, "select count(*)::int n from pg_trigger where tgname like 'trg_messenger_mirror_%'")).n, 0);
+
+    await db.exec(level(3));
+    const left = await call(db, `select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind = 'r' and c.relname like 'messenger_%' order by 1`);
+    assert.deepEqual(left.map((r) => r.relname), ['messenger_room_notification_preferences'], 'only the pre-stage-1 table stays');
+    const functions = await call(db, `select count(*)::int n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and (p.proname like 'messenger_%' or p.proname = 'request_messenger_garamlink_sync_v1')`);
+    assert.equal(functions[0].n, 0);
+    await call(db, `insert into group_chat_messages(room_id, sender_actor_id, sender_role, sender_phone, content)
+      values ($1, 'fc:${PHONE.fc}', 'fc', $2, 'after removal')`, [ROOM, PHONE.fc]);
+    assert.equal((await one(db, 'select count(*)::int n from messages')).n, 5, 'legacy rows untouched');
+
+    // Re-applying the migrations restores the model from the legacy tables.
+    await db.exec(modelMigration);
+    await db.exec(backfillMigration);
+    await db.exec(dailySyncFunctions);
+    await db.exec(garamLinkSyncFunctions);
+    await db.exec(stage1FinishFunctions);
+    assert.equal((await one(db, 'select messenger_daily_sync_v1() r')).r.ok, true);
+  } finally { await db.close(); }
+});
