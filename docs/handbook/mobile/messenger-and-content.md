@@ -264,6 +264,22 @@ Board and admin-board logout redirects are owned by focused `useAppLogout` after
   and stops subsequent GET/PATCH HTTP attempts until restart. Deploying the
   additive server endpoint restores the normal preference path.
 
+## GaramIn 1:1 change cursor
+
+- `messages.changed_at` moves on every insert and update (trigger
+  `messages_touch_changed_at`, `clock_timestamp()`), so sends, read marks and
+  deletes all advance it.
+- `direct_message_list` returns `mode`, `deleted_ids` and `cursor` (the newest
+  `changed_at` it read, deleted rows included). Sent back as `since`, it returns
+  only rows changed after `since` minus a 10-second overlap, with deleted rows as
+  ids filtered by the same visibility rules. A missing, unreadable, future or
+  over-24-hour cursor gets the whole conversation (`mode: 'full'`) as before.
+- `app/chat.tsx` sends the cursor only on quiet refreshes of the same room and
+  merges changes into the rows it holds; opening a room always loads it whole.
+  A server without cursors answers `full` with no cursor, so old and new clients
+  and servers mix safely. The 5-second refresh remains until a realtime signal
+  replaces it.
+
 ## Native keyboard ownership
 
 - Every direct or registered shared native input under `app/**` and `components/**` is classified in `scripts/audit/mobile-keyboard-surfaces.json`; `npm run audit:mobile-keyboard` must remain exact.

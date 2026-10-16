@@ -471,6 +471,7 @@ export default function ChatScreen() {
   const anchorScrollRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchorHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const roomPreferenceSequenceRef = useRef(0);
+  const directMessageCursorRef = useRef<{ conversationId: string; cursor: string } | null>(null);
   const directMessagePrefetchRef = useRef<{
     conversationId: string;
     request: Promise<
@@ -789,9 +790,17 @@ export default function ChatScreen() {
       setMessageLoadError('');
     }
     try {
+      // A quiet refresh asks only for what changed after the newest change this
+      // screen holds; opening the room (or a server without cursors) loads it all.
+      const cursorEntry = directMessageCursorRef.current;
+      const since = silent && cursorEntry?.conversationId === resolvedConversation.id
+        ? cursorEntry.cursor
+        : null;
       const prefetched = directMessagePrefetchRef.current;
       let result: Awaited<ReturnType<typeof fetchGaraminDirectMessages>>;
-      if (prefetched?.conversationId === resolvedConversation.id) {
+      if (since) {
+        result = await fetchGaraminDirectMessages(resolvedConversation.id, { since });
+      } else if (prefetched?.conversationId === resolvedConversation.id) {
         const response = await prefetched.request;
         if ('error' in response) throw response.error;
         result = response.result;
@@ -804,15 +813,31 @@ export default function ChatScreen() {
       if (result.conversation.counterpartyId !== otherId) {
         throw new Error('대화 상대가 일치하지 않습니다.');
       }
-      // Keep messages still being sent; a background refresh must not drop them.
-      const pendingLocal = silent
-        ? messagesRef.current.filter((message) => message.id.startsWith('local-'))
-        : [];
-      const filtered = [
-        ...pendingLocal,
-        ...result.messages.filter((message) => !deletedIdsRef.current.has(message.id)),
-      ];
-      applyMessages([...filtered, ...contextMessagesRef.current]);
+      directMessageCursorRef.current = result.cursor
+        ? { conversationId: resolvedConversation.id, cursor: result.cursor }
+        : null;
+      let filtered: Message[];
+      if (result.mode === 'changes') {
+        const removedIds = new Set(result.deletedIds);
+        const changedIds = new Set(result.messages.map((message) => message.id));
+        filtered = [
+          ...messagesRef.current.filter(
+            (message) => !removedIds.has(message.id) && !changedIds.has(message.id),
+          ),
+          ...result.messages.filter((message) => !deletedIdsRef.current.has(message.id)),
+        ];
+        applyMessages(filtered);
+      } else {
+        // Keep messages still being sent; a background refresh must not drop them.
+        const pendingLocal = silent
+          ? messagesRef.current.filter((message) => message.id.startsWith('local-'))
+          : [];
+        filtered = [
+          ...pendingLocal,
+          ...result.messages.filter((message) => !deletedIdsRef.current.has(message.id)),
+        ];
+        applyMessages([...filtered, ...contextMessagesRef.current]);
+      }
 
       if (!silent && readLineConversationRef.current !== resolvedConversation.id) {
         readLineConversationRef.current = resolvedConversation.id;
