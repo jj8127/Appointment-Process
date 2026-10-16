@@ -83,10 +83,8 @@ import {
 import dayjs from 'dayjs';
 import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
 const GROUP_CHAT_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
 function showGroupChatErrorNotification(error: unknown) {

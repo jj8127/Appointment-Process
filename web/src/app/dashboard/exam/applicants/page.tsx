@@ -79,15 +79,13 @@ import {
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { requireExamTransitionSuccess } from '@/lib/user-intent-policy';
+import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 // --- Constants ---
-const HANWHA_ORANGE = '#F37321';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
 
 // Filter state type: key is column key, value is array of selected strings
 type FilterState = Record<string, string[]>;

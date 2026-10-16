@@ -84,6 +84,7 @@ import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryCli
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { CHARCOAL } from '@/lib/brand-colors';
 
 // 감정 표현 타입
 const REACTION_TYPES = [
@@ -1383,7 +1384,7 @@ function BoardContent() {
         {/* 헤더 */}
         <Group justify="space-between" align="flex-start">
           <div>
-            <Title order={1} fw={800} c="dark.8">
+            <Title order={2} c={CHARCOAL}>
               정보 게시판
             </Title>
             <Text c="dimmed" mt={4}>

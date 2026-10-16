@@ -25,6 +25,14 @@ export async function GET() {
     );
   }
 
+  // Developer tooling: staff and managers have no business need for agent runtime state.
+  if (sessionCheck.session.staffType !== 'developer') {
+    return NextResponse.json(
+      { error: '개발자 계정만 조회할 수 있습니다.', ok: false },
+      { headers: RESPONSE_HEADERS, status: 403 },
+    );
+  }
+
   try {
     const snapshot = await getAgentRoomSnapshot();
     return NextResponse.json(snapshot, {

@@ -20,6 +20,7 @@ import dayjs from 'dayjs';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { notificationFeedbackColor } from '@/lib/notification-delivery-feedback';
+import { CHARCOAL } from '@/lib/brand-colors';
 
 type FormState = {
   exam_date: DateValue;
@@ -101,7 +102,7 @@ export default function ExamNewPage() {
     <Container size="md" py="lg">
       <Paper withBorder radius="md" shadow="sm" p="lg">
         <Stack gap="md">
-          <Title order={3}>시험 일정 등록</Title>
+          <Title order={2} c={CHARCOAL}>시험 일정 등록</Title>
           <SegmentedControl
             fullWidth
             radius="md"

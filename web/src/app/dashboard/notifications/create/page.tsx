@@ -31,6 +31,7 @@ import { ConfirmModal } from '@/components/ConfirmModal';
 
 import { logger } from '@/lib/logger';
 import { noticeSchema as schema, noticeGlassStyle as glassStyle, uploadNoticeAttachment as uploadToSupabase } from '../form';
+import { CHARCOAL } from '@/lib/brand-colors';
 export default function CreateNoticePage() {
     const router = useRouter();
     const [isPending, setSubmitting] = useState(false);
@@ -264,7 +265,7 @@ export default function CreateNoticePage() {
                 </Group>
 
                 <Stack gap="xs" mb={rem(40)}>
-                    <Title order={1} style={{ fontSize: rem(32), fontWeight: 800, color: '#333' }}>
+                    <Title order={2} c={CHARCOAL}>
                         공지사항 등록
                     </Title>
                     <Text c="dimmed" size="lg">

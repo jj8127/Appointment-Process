@@ -65,10 +65,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import styles from './page.module.css';
+import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 
-const HANWHA_ORANGE = '#F37321';
-const CHARCOAL = '#111827';
-const MUTED = '#6B7280';
 
 type ApplicantDetailData = {
   applicant: Applicant;

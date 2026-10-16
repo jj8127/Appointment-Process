@@ -45,6 +45,7 @@ import {
   parseNotificationDeliveryFeedback,
 } from '@/lib/notification-delivery-feedback';
 import { getWebStaffChatActorId } from '@/lib/staff-identity';
+import { HANWHA_ORANGE, CHARCOAL } from '@/lib/brand-colors';
 type Message = {
   id: string;
   content: string;
@@ -65,8 +66,6 @@ type ChatMessage = Message & {
   errorMessage?: string | null;
 };
 
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
 const sanitize = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
 
 function ChatContent() {

@@ -13,6 +13,7 @@ import { QueryReadError } from './query-read-error.ts';
 import { createChatRequestGuard } from './chat-request-guard.ts';
 import { collectSupabaseRows, requireSupabaseRows } from './supabase-query-contract.ts';
 import { normalizeAdminTempId, resolveAdminTempIdUpdate } from './admin-temp-id-update.ts';
+import { searchFcRows } from './fc-global-search.ts';
 import {
   isNonEmptyResponseString,
   isHttpsResponseUrl,
@@ -73,6 +74,32 @@ function execute(code, values) {
   return vm.runInNewContext(output, { exports: {}, ...values, require: () => ({ jsx: () => null }) });
 }
 const noNotifications = { show() {} };
+
+test('sidebar keeps the most specific menu active on detail pages and maps chat to messenger', () => {
+  const find = execute(extract('app/dashboard/layout.tsx', 'findActiveNavHref'), { NAV_ALIASES: {
+    '/dashboard/chat': '/dashboard/messenger', '/dashboard/group-chat': '/dashboard/messenger',
+  } });
+  const hrefs = ['/dashboard', '/dashboard/referrals', '/dashboard/referrals/graph', '/dashboard/notifications', '/dashboard/messenger', '/dashboard/exam/applicants'];
+  assert.equal(find('/dashboard', hrefs), '/dashboard');
+  assert.equal(find('/dashboard/referrals/graph', hrefs), '/dashboard/referrals/graph');
+  assert.equal(find('/dashboard/notifications/abc/edit', hrefs), '/dashboard/notifications');
+  assert.equal(find('/dashboard/exam/applicants/r1', hrefs), '/dashboard/exam/applicants');
+  assert.equal(find('/dashboard/group-chat', hrefs), '/dashboard/messenger');
+  assert.equal(find('/dashboard/settings', hrefs), null);
+});
+
+test('global FC search matches name, affiliation and phone digits, with a result limit', () => {
+  const rows = [
+    { id: '1', name: '가상 김', phone: '010-1111-2222', affiliation: '1본부' },
+    { id: '2', name: '가상 이', phone: '01033334444', affiliation: '2본부' },
+  ];
+  assert.deepEqual(searchFcRows(rows, '김').map((row) => row.id), ['1']);
+  assert.deepEqual(searchFcRows(rows, '2본부').map((row) => row.id), ['2']);
+  assert.deepEqual(searchFcRows(rows, '3333').map((row) => row.id), ['2']);
+  assert.deepEqual(searchFcRows(rows, '01').map((row) => row.id), [], 'short digit queries do not scan phones');
+  assert.deepEqual(searchFcRows(rows, '  '), []);
+  assert.equal(searchFcRows(rows, '가상', 1).length, 1);
+});
 
 test('appointment years include current and returned data years without hiding current-year FCs', () => {
   const dayjs = require('dayjs');

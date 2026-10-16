@@ -32,6 +32,7 @@ import { fetchAdminNotice, type AdminNoticeFile } from '@/lib/admin-notice-clien
 import { logger } from '@/lib/logger';
 import { noticeSchema as schema, noticeGlassStyle as glassStyle, uploadNoticeAttachment as uploadToSupabase } from '../../form';
 import { useSession } from '@/hooks/use-session';
+import { CHARCOAL } from '@/lib/brand-colors';
 
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 
@@ -219,7 +220,7 @@ function EditNoticeContent({ id }: { id: string }) {
                 </Group>
 
                 <Stack gap="xs" mb={rem(40)}>
-                    <Title order={1} style={{ fontSize: rem(32), fontWeight: 800, color: '#333' }}>
+                    <Title order={2} c={CHARCOAL}>
                         공지사항 수정
                     </Title>
                     <Text c="dimmed" size="lg">내용을 수정한 후 저장하세요.</Text>

@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import * as policy from './user-intent-policy.ts';
 import * as readError from './query-read-error.ts';
 import * as tempId from './admin-temp-id-update.ts';
+import * as brandColors from './brand-colors.ts';
 
 const require = createRequire(new URL('../../../package.json', import.meta.url));
 const React = require('react');
@@ -68,6 +69,7 @@ function harness() {
   vm.runInNewContext(code, { exports, require: (id) => {
     if (id in mocks) return mocks[id];
     if (id === 'react' || id === 'react/jsx-runtime') return require(id);
+    if (id === '@/lib/brand-colors') return brandColors;
     if (id === '@mantine/core' || id === '@tabler/icons-react') return ui;
     if (id === 'dayjs') return createRequire(import.meta.url)(id);
     throw new Error(`Unmocked dependency: ${id}`);

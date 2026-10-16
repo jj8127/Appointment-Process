@@ -26,9 +26,8 @@ import { notifications } from '@mantine/notifications';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, type FormEvent, useEffect, useState } from 'react';
 import { IconPhone, IconLock, IconArrowRight } from '@tabler/icons-react';
+import { HANWHA_ORANGE, HANWHA_ORANGE_DARK } from '@/lib/brand-colors';
 
-const HANWHA_ORANGE = '#f36f21';
-const HANWHA_ORANGE_DARK = '#d65a16';
 
 function readErrorField(error: unknown, field: 'name' | 'message') {
     if (!error || typeof error !== 'object') return '';

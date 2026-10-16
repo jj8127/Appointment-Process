@@ -111,6 +111,7 @@ import {
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 
 import { logger } from '../../lib/logger';
+import { CHARCOAL } from '@/lib/brand-colors';
 
 const DOCS_STAGE_LOCK_STATUSES: FcStatus[] = [
   'hanwha-commission-review',
@@ -2143,7 +2144,7 @@ export default function DashboardPage() {
         {/* Header Section */}
         <Group justify="space-between" align="flex-end">
           <div>
-            <Title order={1} fw={800} c="dark.8">대시보드</Title>
+            <Title order={2} c={CHARCOAL}>대시보드</Title>
             <Text c="dimmed" mt={4}>FC 온보딩 전체 현황판</Text>
           </div>
           <Group gap="xs">

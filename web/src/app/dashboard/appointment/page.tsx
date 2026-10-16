@@ -39,6 +39,7 @@ import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { fetchAdminFcList, isAdminFcProfile } from '@/lib/admin-document-client';
 import { updateAppointmentAction } from './actions';
+import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 
 // FC Profile 타입 정의
 interface FcProfile {
@@ -67,9 +68,6 @@ interface FcProfile {
   fc_documents?: unknown[];
 }
 
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
-const HANWHA_ORANGE = '#F37321';
 const HANWHA_APPROVED_STATUSES = ['hanwha-commission-approved', 'appointment-completed', 'final-link-sent'] as const;
 
 const trimValue = (value?: string | null) => String(value ?? '').trim();

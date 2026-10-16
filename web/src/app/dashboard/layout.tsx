@@ -2,9 +2,10 @@
 
 import { useSession } from '@/hooks/use-session';
 import { DashboardNotificationBell } from '@/components/DashboardNotificationBell';
+import { GlobalFcSearch } from '@/components/GlobalFcSearch';
 import { NotificationReadAcknowledger } from '@/components/NotificationReadAcknowledger';
 import { getDashboardRoleLabel, getDashboardRoleSubLabel } from '@/lib/staff-identity';
-import { AppShell, Avatar, Box, Burger, Group, Menu, NavLink, Text, UnstyledButton, useMantineTheme } from '@mantine/core';
+import { AppShell, Avatar, Box, Burger, Divider, Group, Menu, NavLink, Text, UnstyledButton, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
   IconCalendarEvent,
@@ -19,6 +20,7 @@ import {
   IconMessage,
   IconNews,
   IconSettings,
+  IconSpeakerphone,
   IconUserPlus,
   IconUsers
 } from '@tabler/icons-react';
@@ -30,8 +32,26 @@ type NavItem = {
   label: string;
   href: string;
   icon: React.ComponentType<{ size?: number; stroke?: number }>;
-  children?: { label: string; href: string }[];
 };
+
+type NavGroup = { label: string | null; items: NavItem[] };
+
+// Chat screens open from the messenger menu.
+const NAV_ALIASES: Record<string, string> = {
+  '/dashboard/chat': '/dashboard/messenger',
+  '/dashboard/group-chat': '/dashboard/messenger',
+};
+
+// The longest menu href that equals or contains the current path is active, so detail pages keep their menu lit.
+function findActiveNavHref(pathname: string, hrefs: string[]): string | null {
+  const path = NAV_ALIASES[pathname] ?? pathname;
+  let best: string | null = null;
+  for (const href of hrefs) {
+    const matches = path === href || (href !== '/dashboard' && path.startsWith(`${href}/`));
+    if (matches && (!best || href.length > best.length)) best = href;
+  }
+  return best;
+}
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [opened, { toggle }] = useDisclosure();
@@ -50,35 +70,44 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const subLabel = getDashboardRoleSubLabel({ role, staffType, isReadOnly }) ?? (residentMask || '전화번호 미등록');
   const userInitial = displayName?.trim()?.[0] ?? roleLabel[0] ?? 'F';
 
-  const navItems: NavItem[] = useMemo(
+  const navGroups: NavGroup[] = useMemo(
     () => {
       if (role === 'fc') {
-        return [
+        return [{ label: null, items: [
           { label: '추천인 그래프', icon: IconGraph, href: '/dashboard/referrals/graph' },
-        ];
+        ] }];
       }
 
+      const canWrite = role === 'admin' && !isReadOnly;
       return [
-        { label: '홈', icon: IconHome, href: '/dashboard' },
-        ...(role === 'admin' && !isReadOnly
-          ? [{ label: '서면확인 회원가입', icon: IconUserPlus, href: '/dashboard/fc-signup' }]
+        { label: null, items: [{ label: '홈', icon: IconHome, href: '/dashboard' }] },
+        { label: '온보딩', items: [
+          ...(canWrite ? [{ label: '서면확인 회원가입', icon: IconUserPlus, href: '/dashboard/fc-signup' }] : []),
+          { label: '서류 관리', icon: IconFileText, href: '/dashboard/docs' },
+          { label: '생명/손해 위촉', icon: IconLink, href: '/dashboard/appointment' },
+        ] },
+        { label: '시험', items: [
+          { label: '시험 일정', icon: IconCalendarEvent, href: '/dashboard/exam/schedule' },
+          { label: '시험 신청자', icon: IconClipboardList, href: '/dashboard/exam/applicants' },
+        ] },
+        { label: '소통', items: [
+          { label: '공지사항', icon: IconSpeakerphone, href: '/dashboard/notifications' },
+          { label: '게시판', icon: IconNews, href: '/dashboard/board' },
+          { label: '메신저', icon: IconMessage, href: '/dashboard/messenger' },
+        ] },
+        { label: '추천·수당', items: [
+          { label: '추천인 그래프', icon: IconGraph, href: '/dashboard/referrals/graph' },
+          { label: '추천인 코드', icon: IconKey, href: '/dashboard/referrals' },
+          ...(canWrite ? [{ label: '증원수당 관리', icon: IconReceipt, href: '/dashboard/referrals/allowances' }] : []),
+        ] },
+        ...(staffType === 'developer'
+          ? [{ label: '개발', items: [{ label: '에이전트 룸', icon: IconUsers, href: '/dashboard/agent-room' }] }]
           : []),
-        { label: '문서 관리', icon: IconFileText, href: '/dashboard/docs' },
-        { label: '생명/손해 위촉', icon: IconLink, href: '/dashboard/appointment' },
-        { label: '추천인 그래프', icon: IconGraph, href: '/dashboard/referrals/graph' },
-        { label: '추천인 코드', icon: IconKey, href: '/dashboard/referrals' },
-        ...(role === 'admin' && !isReadOnly
-          ? [{ label: '증원수당 관리', icon: IconReceipt, href: '/dashboard/referrals/allowances' }]
-          : []),
-        { label: '게시판', icon: IconNews, href: '/dashboard/board' },
-        { label: '메신저', icon: IconMessage, href: '/dashboard/messenger' },
-        { label: '에이전트 룸', icon: IconUsers, href: '/dashboard/agent-room' },
-        { label: '시험 일정', icon: IconCalendarEvent, href: '/dashboard/exam/schedule' },
-        { label: '시험 신청자', icon: IconClipboardList, href: '/dashboard/exam/applicants' },
       ];
     },
-    [isReadOnly, role],
+    [isReadOnly, role, staffType],
   );
+  const activeHref = findActiveNavHref(pathname, navGroups.flatMap((group) => group.items.map((item) => item.href)));
 
   useEffect(() => {
     return () => {
@@ -140,7 +169,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <Group gap={isDesktop ? "sm" : 4} wrap="nowrap" style={{ flexShrink: 0 }}>
             {!isFcSession ? (
-              <DashboardNotificationBell role={role} residentId={residentId} staffType={staffType} />
+              <>
+                <GlobalFcSearch role={role} residentId={residentId} />
+                <DashboardNotificationBell role={role} residentId={residentId} staffType={staffType} />
+              </>
             ) : null}
 
             <Menu shadow="md" width={220} position="bottom-end">
@@ -191,64 +223,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         style={isDesktop ? { transition: 'width 160ms ease' } : undefined}
       >
         <AppShell.Section grow>
-          {navItems.map((item) => {
-            const isMessenger = item.href === '/dashboard/messenger';
-            const isParentActive = item.children
-              ? item.children.some((c) => pathname === c.href)
-              : false;
-            const active = isMessenger
-              ? pathname === '/dashboard/messenger' || pathname === '/dashboard/chat'
-              : isParentActive || pathname === item.href;
-            const Icon = item.icon;
-
-            if (item.children && navbarExpanded) {
-              return (
-                <NavLink
-                  key={item.href}
-                  label={item.label}
-                  active={active}
-                  leftSection={<Icon size={16} stroke={2} />}
-                  variant="light"
-                  aria-label={item.label}
-                  defaultOpened={isParentActive}
-                >
-                  {item.children.map((child) => (
-                    <NavLink
-                      key={child.href}
-                      label={child.label}
-                      active={pathname === child.href}
-                      aria-current={pathname === child.href ? "page" : undefined}
-                      onClick={() => router.push(child.href)}
-                      variant="light"
-                      pl="xl"
-                    />
-                  ))}
-                </NavLink>
-              );
-            }
-
-            return (
-              <NavLink
-                key={item.href}
-                label={navbarExpanded ? item.label : null}
-                active={active}
-                aria-current={active ? "page" : undefined}
-                leftSection={<Icon size={navbarExpanded ? 16 : 18} stroke={2} />}
-                onClick={() => router.push(item.href)}
-                variant="light"
-                aria-label={item.label}
-                title={!navbarExpanded ? item.label : undefined}
-                styles={
-                  !navbarExpanded
-                    ? {
-                        root: { justifyContent: 'center' },
-                        section: { marginInlineEnd: 0 },
-                      }
-                    : undefined
-                }
-              />
-            );
-          })}
+          {navGroups.map((group, groupIndex) => (
+            <Box key={group.label ?? 'home'} component="nav" aria-label={group.label ?? '홈'}>
+              {groupIndex > 0 && (navbarExpanded && group.label ? (
+                <Text size="xs" fw={700} c="dimmed" px="sm" mt="md" mb={4}>{group.label}</Text>
+              ) : (
+                <Divider my={6} />
+              ))}
+              {group.items.map((item) => {
+                const active = item.href === activeHref;
+                const Icon = item.icon;
+                return (
+                  <NavLink
+                    key={item.href}
+                    label={navbarExpanded ? item.label : null}
+                    active={active}
+                    aria-current={active ? "page" : undefined}
+                    leftSection={<Icon size={navbarExpanded ? 16 : 18} stroke={2} />}
+                    onClick={() => router.push(item.href)}
+                    variant="light"
+                    aria-label={item.label}
+                    title={!navbarExpanded ? item.label : undefined}
+                    styles={
+                      !navbarExpanded
+                        ? {
+                            root: { justifyContent: 'center' },
+                            section: { marginInlineEnd: 0 },
+                          }
+                        : undefined
+                    }
+                  />
+                );
+              })}
+            </Box>
+          ))}
         </AppShell.Section>
 
         <AppShell.Section>

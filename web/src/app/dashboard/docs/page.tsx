@@ -44,10 +44,8 @@ import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { fetchAdminDocuments, signAdminDocument, type AdminDocumentRow as DocumentRow } from '@/lib/admin-document-client';
 import { requireDocumentStatusReceipt } from '@/lib/user-intent-policy';
+import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 // App Design Tokens
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
 const BACKGROUND_LIGHT = '#F9FAFB';
 
 // Status Badge Helper
@@ -395,7 +393,7 @@ export default function DocumentsPage() {
         <Container size="xl" py="xl" style={{ backgroundColor: '#fff', minHeight: '100vh' }}>
             <Group justify="space-between" mb="lg" align="flex-end">
                 <div>
-                    <Title order={2} c={CHARCOAL}>서류 통합 관리</Title>
+                    <Title order={2} c={CHARCOAL}>서류 관리</Title>
                     <Text c={MUTED} size="sm" mt={4}>요청 서류를 검토하고, 승인된 FC를 다위촉 단계로 넘깁니다.</Text>
                 </div>
                 <Button variant="light" color="gray" leftSection={<IconRefresh size={16} />} onClick={() => queryClient.invalidateQueries({ queryKey: ['documents-list'] })}>
