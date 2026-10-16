@@ -8,6 +8,7 @@ import {
   parseMessengerAttachmentMetadataList,
   type MessengerAttachmentMetadata,
 } from './messenger-attachment-contract';
+import { monotonicNow, recordMessengerLatency } from './messenger-latency';
 import { ADMIN_CHAT_ID, sanitizePhone } from './messenger-participants';
 import { isNotificationUuid } from './notification-target';
 
@@ -362,6 +363,7 @@ export async function sendGaraminDirectMessage(input: {
   ) {
     throw new Error('메시지 내용을 확인해 주세요.');
   }
+  const sendStartedAt = monotonicNow();
   const transport = await invokeFcNotify<{
     ok?: boolean;
     message?: unknown;
@@ -380,6 +382,11 @@ export async function sendGaraminDirectMessage(input: {
       : {}),
   });
   const data = transport.data;
+  recordMessengerLatency('send_ack', monotonicNow() - sendStartedAt, {
+    room_type: 'direct',
+    has_attachments: Boolean(attachmentFields),
+    outcome: transport.error || !data || data.ok !== true ? 'error' : 'ok',
+  });
   if (transport.error || !data || data.ok !== true) {
     const message =
       data && typeof data.message === 'string'

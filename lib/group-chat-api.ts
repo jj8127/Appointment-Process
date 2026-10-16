@@ -5,6 +5,7 @@ import {
   parseMessengerAttachmentMetadataList,
   type MessengerAttachmentMetadata,
 } from './messenger-attachment-contract';
+import { measureMessengerLatency } from './messenger-latency';
 import { isNotificationUuid } from './notification-target';
 import { supabase } from './supabase';
 
@@ -852,8 +853,13 @@ export async function groupChatContext(roomId: string, messageId: string) {
 
 export async function groupChatSend(input: Parameters<typeof buildGroupChatSendBody>[0]) {
   const body = buildGroupChatSendBody(input);
-  const result = await invokeGroupChat<GroupChatSendResponse>(
-    body,
+  const result = await measureMessengerLatency(
+    'send_ack',
+    () => invokeGroupChat<GroupChatSendResponse>(body),
+    {
+      room_type: 'group',
+      has_attachments: 'attachment_intent_ids' in body,
+    },
   );
   const message = hydrateGroupChatMessage(result.message);
   const expectedAttachmentCount =

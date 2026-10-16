@@ -45,6 +45,10 @@ import {
 } from '@/lib/internal-chat-api';
 import { logger } from '@/lib/logger';
 import {
+  markMessengerIntent,
+  useMessengerRenderLatency,
+} from '@/lib/messenger-latency';
+import {
   buildMessengerHubCacheScope,
   getMessengerHubSnapshot,
   setMessengerHubSnapshot,
@@ -481,6 +485,11 @@ export default function MessengerHubScreen() {
     }
     return labels;
   }, [loadingSources]);
+  useMessengerRenderLatency(
+    'room_list_render',
+    hydrated && Boolean(role) && (conversations.length > 0 || conversationLoadingLabels.length === 0),
+    { complete: conversationLoadingLabels.length === 0 },
+  );
 
   const visibleFailedSources = useMemo(
     () => failedSources.filter((source) => !source.endsWith('알림 설정')),
@@ -871,6 +880,7 @@ export default function MessengerHubScreen() {
   const openRoute = useCallback(async (route: MessengerHubRoute): Promise<boolean> => {
     if (readOnly && !isExactExistingRoute(route)) return false;
     if (route.kind === 'internal') {
+      markMessengerIntent('room_render');
       router.push({
         pathname: '/chat',
         params: {
@@ -881,6 +891,7 @@ export default function MessengerHubScreen() {
       });
       return true;
     } else if (route.kind === 'group') {
+      markMessengerIntent('room_render');
       router.push('/group-chat');
       return true;
     } else if (route.kind === 'request') {

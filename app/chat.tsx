@@ -109,6 +109,11 @@ import { fetchUserPresence, type AppPresenceSnapshot } from '@/lib/user-presence
 import { supabase } from '@/lib/supabase';
 import { isValidMobilePhone, safeDecodeFileName } from '@/lib/validation';
 import {
+  createPeerDeliveryTracker,
+  useMessengerRenderLatency,
+  useScrollFrameMonitor,
+} from '@/lib/messenger-latency';
+import {
   ADMIN_CHAT_ID,
   formatManagerMessengerDetail,
   sanitizePhone,
@@ -391,6 +396,12 @@ export default function ChatScreen() {
   const [messageLoadState, setMessageLoadState] =
     useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [messageLoadError, setMessageLoadError] = useState('');
+  useMessengerRenderLatency(
+    'room_render',
+    messages.length > 0 || messageLoadState === 'success' || messageLoadState === 'error',
+    { room_type: 'direct', outcome: messageLoadState === 'error' ? 'error' : 'ok' },
+  );
+  const scrollFrameMonitor = useScrollFrameMonitor('direct');
   const [anchorContextError, setAnchorContextError] = useState('');
   const [anchorContextRetryKey, setAnchorContextRetryKey] = useState(0);
   const [pendingAnchorMessageId, setPendingAnchorMessageId] = useState('');
@@ -429,6 +440,16 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList<Message>>(null);
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const messagesRef = useRef<Message[]>([]);
+  const peerIdentityRef = useRef({ myId, otherId });
+  peerIdentityRef.current = { myId, otherId };
+  const [peerDeliveryTracker] = useState(() => createPeerDeliveryTracker<Message>({
+    roomType: 'direct',
+    getId: (message) => message.id,
+    getCreatedAt: (message) => message.created_at,
+    isIncoming: (message) =>
+      message.sender_id === peerIdentityRef.current.otherId
+      && message.receiver_id === peerIdentityRef.current.myId,
+  }));
   const contextMessagesRef = useRef<Message[]>([]);
   const anchorContextRequestKeyRef = useRef('');
   const anchorScrollTargetMessageIdRef = useRef('');
@@ -497,8 +518,9 @@ export default function ChatScreen() {
     if (areMessagesEqual(messagesRef.current, sorted)) return false;
     messagesRef.current = sorted;
     setMessages(sorted);
+    peerDeliveryTracker.observe(sorted, { path: 'refetch' });
     return true;
-  }, []);
+  }, [peerDeliveryTracker]);
 
   const highlightAnchorMessage = useCallback((messageId: string) => {
     setHighlightedMessageId(messageId);
@@ -2248,6 +2270,10 @@ export default function ChatScreen() {
             onScroll={latestJump.onScroll}
             scrollEventThrottle={64}
             onScrollToIndexFailed={handleAnchorScrollFailure}
+            onScrollBeginDrag={scrollFrameMonitor.onScrollBeginDrag}
+            onScrollEndDrag={scrollFrameMonitor.onScrollEndDrag}
+            onMomentumScrollBegin={scrollFrameMonitor.onMomentumScrollBegin}
+            onMomentumScrollEnd={scrollFrameMonitor.onMomentumScrollEnd}
             contentContainerStyle={styles.listContent}
             style={styles.list}
             keyboardShouldPersistTaps="handled"
