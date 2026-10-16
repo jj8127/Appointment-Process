@@ -104,6 +104,12 @@ import {
   type MessengerNotificationPreferenceFailure,
 } from '@/lib/messenger-notification-preferences';
 import {
+  createPeerDeliveryTracker,
+  recordMessengerLatency,
+  useMessengerRenderLatency,
+  useScrollFrameMonitor,
+} from '@/lib/messenger-latency';
+import {
   buildMessengerRoomRef,
   getNotificationPreferences,
 } from '@/lib/notification-preferences-api';
@@ -379,11 +385,34 @@ export default function GroupChatScreen() {
   const canManageNotice = isStaffGroupChatActor(actor);
   const deferredMemberSearch = useDeferredValue(memberSearch);
 
-  const applyMessages = useCallback((nextRows: GroupChatMessage[]) => {
+  const actorIdRef = useRef<string | null>(null);
+  actorIdRef.current = actor?.id ?? null;
+  const [peerDeliveryTracker] = useState(() => createPeerDeliveryTracker<GroupChatMessage>({
+    roomType: 'group',
+    getId: (message) => message.id,
+    getCreatedAt: (message) => message.created_at,
+    isIncoming: (message) =>
+      !message.send_status && message.sender_actor_id !== actorIdRef.current,
+  }));
+  useMessengerRenderLatency('room_render', !loading, { room_type: 'group' });
+  const scrollFrameMonitor = useScrollFrameMonitor('group');
+  const olderPageRecordedRef = useRef(false);
+  const handleMessagesEndReached = useCallback(() => {
+    // 단체방은 최근 MESSAGE_LIMIT개만 받고 이전 페이지가 없다. 기준선에서는 사용자가 끝에 닿은 횟수만 센다.
+    if (olderPageRecordedRef.current || messagesRef.current.length < MESSAGE_LIMIT) return;
+    olderPageRecordedRef.current = true;
+    recordMessengerLatency('older_page', 0, { room_type: 'group', outcome: 'unavailable' });
+  }, []);
+
+  const applyMessages = useCallback((
+    nextRows: GroupChatMessage[],
+    path: 'realtime' | 'refetch' = 'refetch',
+  ) => {
     const sorted = sortMessagesDesc(dedupeMessages(nextRows));
     messagesRef.current = sorted;
     setMessages(sorted);
-  }, []);
+    peerDeliveryTracker.observe(sorted, { path });
+  }, [peerDeliveryTracker]);
 
   const updateMessage = useCallback((messageId: string, patch: Partial<GroupChatMessage>) => {
     const nextRows = messagesRef.current.map((message) =>
@@ -695,7 +724,7 @@ export default function GroupChatScreen() {
               unread_count: existingMessage?.unread_count ?? nextMessage.unread_count ?? 0,
             },
             ...messagesRef.current,
-          ]);
+          ], 'realtime');
           void groupChatMarkRead(nextMessage.id).catch((error) => {
             logger.debug('[group-chat] mark read after realtime failed', error);
           });
@@ -1702,6 +1731,12 @@ export default function GroupChatScreen() {
             renderItem={renderItem}
             inverted
             onScrollToIndexFailed={handleAnchorScrollToIndexFailed}
+            onScrollBeginDrag={scrollFrameMonitor.onScrollBeginDrag}
+            onScrollEndDrag={scrollFrameMonitor.onScrollEndDrag}
+            onMomentumScrollBegin={scrollFrameMonitor.onMomentumScrollBegin}
+            onMomentumScrollEnd={scrollFrameMonitor.onMomentumScrollEnd}
+            onEndReached={handleMessagesEndReached}
+            onEndReachedThreshold={0.2}
             style={styles.list}
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"

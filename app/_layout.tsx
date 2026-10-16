@@ -24,6 +24,7 @@ import { SessionProvider, useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import { logger } from '@/lib/logger';
+import { recordPushDelivery } from '@/lib/messenger-latency';
 import {
   buildNotificationTargetRoute,
   parseNotificationPushData,
@@ -312,6 +313,7 @@ function NotificationNavigationBootstrap() {
     mountedRef.current = true;
     const subscription =
       Notifications.addNotificationResponseReceivedListener((response) => {
+        recordPushDelivery(response.notification, 'opened');
         void enqueueResponse(response).catch(() => {
           logger.warn('[notification-navigation] response capture failed');
         });
@@ -328,6 +330,9 @@ function NotificationNavigationBootstrap() {
     };
     const restoredTask = responseQueueRef.current.then(restore, restore);
     responseQueueRef.current = restoredTask.catch(() => undefined);
+    const receivedSubscription = Notifications.addNotificationReceivedListener((notification) => {
+      recordPushDelivery(notification, 'received');
+    });
 
     void bootstrapNotificationNavigation({
       restorePending: () => restoredTask,
@@ -351,6 +356,7 @@ function NotificationNavigationBootstrap() {
     return () => {
       mountedRef.current = false;
       subscription?.remove?.();
+      receivedSubscription?.remove?.();
     };
   }, [clearForUnavailableTarget, enqueueResponse]);
 
