@@ -888,6 +888,37 @@ describe('common member signup and login use isolated verified authentication', 
     expect(context.router.dismissTo).not.toHaveBeenCalled();
   });
 
+  it('confirms the SMS code on its own step, opens the next question only on success and ignores stale answers', async () => {
+    const codeContext = (overrides: Record<string, unknown> = {}) => {
+      const code = {
+        codeCheckRef: { current: 0 }, setCodeChecking: jest.fn(), setCodeError: jest.fn(), setCodeVerified: jest.fn(), advance: jest.fn(),
+        platformRequest: jest.fn(async (..._args: unknown[]): Promise<unknown> => ({ ok: true })),
+      };
+      return { ...authContext(), ...code, ...overrides } as ReturnType<typeof authContext> & typeof code;
+    };
+    const confirmed = codeContext();
+    await routeHandler('app/services/signup.tsx', 'verifyCode', confirmed)('123456');
+    expect(confirmed.platformRequest).toHaveBeenCalledWith('check_signup_otp', { phone: '01000000000', code: '123456' });
+    expect(confirmed.setCodeVerified).toHaveBeenCalledWith(true); expect(confirmed.advance).toHaveBeenCalledWith('code');
+
+    const wrong = codeContext({ platformRequest: jest.fn(async () => { throw new Error('인증 코드가 맞지 않습니다.'); }) });
+    await routeHandler('app/services/signup.tsx', 'verifyCode', wrong)('111111');
+    expect(wrong.setCodeError).toHaveBeenLastCalledWith('인증 코드가 맞지 않습니다.');
+    expect(wrong.advance).not.toHaveBeenCalled(); expect(wrong.setCodeVerified).not.toHaveBeenCalled();
+
+    const short = codeContext();
+    await routeHandler('app/services/signup.tsx', 'verifyCode', short)('12345');
+    expect(short.platformRequest).not.toHaveBeenCalled();
+
+    // An edited code invalidates the in-flight answer.
+    const pendingCheck = deferred<unknown>();
+    const stale = codeContext({ platformRequest: jest.fn(() => pendingCheck.promise) });
+    const work = routeHandler<(value: string) => Promise<void>>('app/services/signup.tsx', 'verifyCode', stale)('123456');
+    stale.codeCheckRef.current += 1;
+    pendingCheck.resolve({ ok: true }); await work;
+    expect(stale.advance).not.toHaveBeenCalled(); expect(stale.setCodeVerified).not.toHaveBeenCalled();
+  });
+
   it('OTP requests send only the phone and do not grant a local verified flag', async () => {
     const context = authContext();
     await routeHandler('app/services/signup.tsx', 'submit', context)('otp');

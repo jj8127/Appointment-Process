@@ -269,3 +269,10 @@ source_of_truth: app/services/login.tsx + app/services/signup.tsx + app/login.ts
 ## 2026-10-09 Local identity, address and deletion feedback
 
 Identity query errors stop the apply/home gate and offer retry; they are not user non-entry. Address lookup handles script/HTTP/native failure and timeouts with a visible retry/close surface; closing returns to the same form. Account deletion copy describes removal of login/profile data and possible retained shared history, matching the existing server deletion policy. Physical-device navigation/WebView checks and production activation remain unverified.
+
+## 2026-10-16 쌓이는 가입·추가 정보 입력
+
+- 모두온 공통 회원가입(`app/services/signup.tsx`)과 가람in 추가 정보(`app/apply-gate.tsx` 폼)는 신한 SOL라이프 녹화를 기준으로 한 화면에서 질문을 하나씩 연다. 새 질문은 맨 위에 생기고 답한 질문은 아래로 밀려 다시 고칠 수 있다. 공용 부품은 `components/StackedForm.tsx`, 순서와 시간(원본 속도 약 300ms)은 `lib/signup-steps.ts`가 소유한다.
+- 공통 회원가입: 이름 → 휴대폰(키보드 위 `인증 코드 받기`) → 인증 코드(6자리면 `check_signup_otp`로 자동 확인, `확인` 버튼도 있음) → 비밀번호 → 비밀번호 확인 → 동의 시트(가족간병 초대 코드가 있으면 시트 안에 표시) → `동의하고 가입하기`. `submit` 검증·요청·쿨다운·세션 처리는 그대로다.
+- 가람in 추가 정보: 동의 후 `시작하기`를 누르면 소속 시트가 바로 열리고, 소속 → 통신사 → 자격증이 같은 시트 안에서 이어진다. 그다음 이메일(도메인 시트) → 보험 추천인 검색 → `저장하고 신원 정보 입력`. `submitEnrollment`·`startIdentityInput`·`validateReferral`은 바꾸지 않았다.
+- 키보드 위 버튼은 둥근 `StackButton`(공용 `Button` 재사용)이고 키보드가 열린 상태에서 누르므로 `submitOnPressIn`을 쓴다. 화면은 아래 안전 영역을 두지 않고 키보드가 내려간 마지막 버튼만 하단 inset을 더한다.

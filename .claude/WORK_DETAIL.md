@@ -14755,3 +14755,12 @@ Verification:
 - Migration `20261016040348_check_platform_signup_otp.sql`: same advisory locks, expiry, 5-attempt 10-minute lock and attempt counter as production `register_platform_member`; does not consume the challenge. `service_role` only. Mirrored in `supabase/schema.sql`.
 - Edge `platform-service` action `check_signup_otp` (phone + 6-digit code) returns `{ok:true}` or `invalid_code`/`expired_code` (400) / `locked` (429).
 - Checks: `supabase/tests/platform-membership-sql.test.mjs` (new case: wrong code counts, right code passes without consuming, lock shared with signup, anon denied), `deno check`, governance.
+
+## <a id="20261016-stacked-signup-prodline"></a> 2026-10-16 Stacked 모두온 signup and 가람in additional info
+
+- Base: the production app line (`8f9b8da`, latest OTA source), where the FC pre-registration screens are a `LegacySignupRedirect`; the earlier pass on `release/all-surfaces-20261004` targeted a stale line.
+- `components/StackedForm.tsx`: stack item/field/label/select/sheet/sheet option, keyboard-docked `StackDockedNext` and final `StackSubmit`; `StackButton` reuses `Button` with `submitOnPressIn` for keyboard-open taps. `lib/signup-steps.ts`: `PLATFORM_SIGNUP_STEPS`, `INSURANCE_ENROLLMENT_STEPS`, `getStackOrder`, `advanceStackReveal`, `SIGNUP_MOTION` (measured reference timings).
+- `app/services/signup.tsx`: name → phone → code (auto `check_signup_otp` at 6 digits, docked 확인) → password → confirmation → consent sheet (family-care invitation shown inside). `submit` is byte-identical.
+- `app/apply-gate.tsx`: intro/consent unchanged; the form opens the 소속 sheet, chains 통신사 → 자격증 in one sheet, then email (domain sheet) → insurance referral search → `저장하고 신원 정보 입력`. `submitEnrollment`, `startIdentityInput`, `validateReferral`, `returnHomeLite` are byte-identical; field errors render on their stacked questions and `revealField` still scrolls to them.
+- `lib/platform-api.ts`: `check_signup_otp` uses the request timeout.
+- Checks: `signup-steps`, `platform-signup-otp-feedback-source` (layout markers updated to the stacked phone question and press-in CTAs), `mobile-acceptance-runtime` (new `verifyCode` case: success advances, failure shows the message, short code makes no request, stale answer ignored), keyboard surface audit, TypeScript, ESLint.

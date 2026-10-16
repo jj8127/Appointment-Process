@@ -10,7 +10,7 @@ export const PLATFORM_TERMS_VERSION = '2026-10-12';
 export const INSURANCE_CONSENT_VERSION = 'insurance-additional-info-v1';
 export const PLATFORM_WITHDRAWAL_VERSION = '2026-10-14';
 export const PLATFORM_REQUEST_TIMEOUT_MS = 12_000;
-const timeoutActions = new Set(['request_otp','signup','login','request_password_reset','reset_password','enroll_insurance','withdraw_member','get_withdrawal']);
+const timeoutActions = new Set(['request_otp','check_signup_otp','signup','login','request_password_reset','reset_password','enroll_insurance','withdraw_member','get_withdrawal']);
 export const PLATFORM_PRIVACY_POLICY_URL = 'https://garam-public-web.vercel.app/moduon-privacy/';
 /** Release copy under review; keep signup and existing-member consent identical.
  * 2026-10-14: referral wording now describes per-service referrers without a
