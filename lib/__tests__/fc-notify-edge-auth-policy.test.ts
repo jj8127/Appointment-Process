@@ -347,6 +347,16 @@ describe('direct Edge fc-notify authentication policy', () => {
       },
     });
     expect(buildAppFcNotifyPayload({
+      type: 'direct_message_list',
+      conversation_id: conversationId,
+      since: '2026-10-16T14:00:00.000Z',
+    }, fc)).toMatchObject({ ok: true, payload: { since: '2026-10-16T14:00:00.000Z' } });
+    expect(buildAppFcNotifyPayload({
+      type: 'direct_message_mark_read',
+      conversation_id: conversationId,
+      since: '2026-10-16T14:00:00.000Z',
+    }, fc)).toEqual(expect.objectContaining({ payload: expect.not.objectContaining({ since: expect.anything() }) }));
+    expect(buildAppFcNotifyPayload({
       type: 'direct_message_send',
       conversation_id: conversationId,
       content: 'Please check SERVICE_API_TOKEN=do-not-expose',
