@@ -336,6 +336,30 @@ test('thread-less messages are placed by phone, interleaved by time, or skipped 
   } finally { await db.close(); }
 });
 
+test('an empty thread whose staff account is gone is recorded, and blocks again once it has messages', async () => {
+  const db = await fixture();
+  try {
+    const GONE_MANAGER = id(8), GONE_THREAD = id(34);
+    await db.exec(`insert into garamin_direct_threads(id, legacy_conversation_id, counterparty_role, counterparty_actor_id)
+      values ('${GONE_THREAD}', '${CONVERSATION}', 'manager', '${GONE_MANAGER}');`);
+    await one(db, 'select messenger_backfill_v1() r');
+    await one(db, 'select messenger_backfill_v1() r');
+    assert.deepEqual(await call(db, 'select reason, resolved_at is null as open from messenger_sync_issues where source_key=$1', [GONE_THREAD]),
+      [{ reason: 'thread_counterparty_missing_empty', open: true }], 'recorded once, never as a blocking issue');
+    const first = (await one(db, 'select messenger_reconcile_v1() r')).r;
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.deepEqual([first.unmappedDirectThreads, first.skippedEmptyThreads, first.openIssues], [0, 1, 0]);
+
+    await call(db, `insert into messages(id, sender_id, receiver_id, content, sender_actor_id, thread_id)
+      values ($1, $2, '01000000008', 'late message', $3, $4)`, [id(108), PHONE.fc, FC, GONE_THREAD]);
+    const second = (await one(db, 'select messenger_reconcile_v1() r')).r;
+    assert.equal(second.ok, false, 'a message in the thread makes it block again');
+    assert.deepEqual([second.unmappedDirectThreads, second.skippedEmptyThreads], [1, 0]);
+    await one(db, 'select messenger_backfill_v1() r');
+    assert.equal((await one(db, "select count(*)::int n from messenger_sync_issues where source_key=$1 and reason='staff_actor_missing' and resolved_at is null", [GONE_THREAD])).n, 1);
+  } finally { await db.close(); }
+});
+
 test('rehearsal script refuses unmarked databases and runs end to end on a marked copy', async () => {
   const rehearsal = await readFile(new URL('../../scripts/ops/messenger-stage1-rehearsal.sql', import.meta.url), 'utf8');
   const db = await fixture();

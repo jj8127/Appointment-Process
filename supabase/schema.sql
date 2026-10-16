@@ -21331,6 +21331,23 @@ language sql stable set search_path = public, pg_temp as $$
   select id from public.messenger_orgs where slug = p_slug;
 $$;
 
+-- Records an open issue once per (source, key, reason); re-runs add nothing.
+create or replace function public.messenger_record_issue_once(
+  p_source text,
+  p_source_key text,
+  p_reason text,
+  p_detail jsonb default '{}'::jsonb
+) returns void
+language sql security invoker set search_path = public, pg_temp as $$
+  insert into public.messenger_sync_issues (source, source_key, reason, detail)
+  select p_source, p_source_key, p_reason, p_detail
+   where not exists (
+     select 1 from public.messenger_sync_issues
+      where source = p_source and source_key is not distinct from p_source_key
+        and reason = p_reason and resolved_at is null
+   );
+$$;
+
 -- Ensures the conversation for one legacy 1:1 thread and maps it.
 create or replace function public.messenger_ensure_direct_thread(p_thread_id uuid)
 returns uuid
@@ -21357,8 +21374,7 @@ begin
   end if;
   v_fc := public.messenger_actor_for('fc', v_thread.fc_id::text);
   if v_fc is null then
-    insert into public.messenger_sync_issues (source, source_key, reason)
-    values ('garamin_direct_thread', p_thread_id::text, 'fc_actor_missing');
+    perform public.messenger_record_issue_once('garamin_direct_thread', p_thread_id::text, 'fc_actor_missing');
     return null;
   end if;
 
@@ -21379,8 +21395,17 @@ begin
       v_thread.counterparty_actor_id::text
     );
     if v_staff is null then
-      insert into public.messenger_sync_issues (source, source_key, reason)
-      values ('garamin_direct_thread', p_thread_id::text, 'staff_actor_missing');
+      -- Decision 2026-10-16: a thread whose staff account is gone and that has
+      -- no messages is only recorded. Once it has messages it blocks again.
+      if exists (select 1 from public.messages where thread_id = p_thread_id) then
+        perform public.messenger_record_issue_once('garamin_direct_thread', p_thread_id::text, 'staff_actor_missing');
+      else
+        update public.messenger_sync_issues set resolved_at = now()
+         where source = 'garamin_direct_thread' and source_key = p_thread_id::text
+           and reason = 'staff_actor_missing' and resolved_at is null;
+        perform public.messenger_record_issue_once('garamin_direct_thread', p_thread_id::text,
+          'thread_counterparty_missing_empty');
+      end if;
       return null;
     end if;
     v_key := least(v_fc::text, v_staff::text) || ':' || greatest(v_fc::text, v_staff::text);
@@ -22171,7 +22196,18 @@ begin
     'mismatchSample', coalesce((select jsonb_agg(to_jsonb(d)) from (select * from diff limit 20) d), '[]'::jsonb),
     'unmappedDirectThreads', (select count(*) from public.garamin_direct_threads t
                                where not exists (select 1 from public.messenger_legacy_map map
-                                                  where map.source_kind = 'garamin_direct_thread' and map.source_key = t.id::text)),
+                                                  where map.source_kind = 'garamin_direct_thread' and map.source_key = t.id::text)
+                                 and not (
+                                   exists (select 1 from public.messenger_sync_issues i
+                                            where i.source = 'garamin_direct_thread' and i.source_key = t.id::text
+                                              and i.reason = 'thread_counterparty_missing_empty')
+                                   and not exists (select 1 from public.messages m where m.thread_id = t.id)
+                                 )),
+    'skippedEmptyThreads', (select count(*) from public.garamin_direct_threads t
+                             where exists (select 1 from public.messenger_sync_issues i
+                                            where i.source = 'garamin_direct_thread' and i.source_key = t.id::text
+                                              and i.reason = 'thread_counterparty_missing_empty')
+                               and not exists (select 1 from public.messages m where m.thread_id = t.id)),
     'unmappedGroupRooms', (select count(*) from public.group_chat_rooms r
                             where not exists (select 1 from public.messenger_legacy_map map
                                                where map.source_kind = 'group_chat_room' and map.source_key = r.id::text)),
@@ -22190,7 +22226,8 @@ begin
       where not exists (select 1 from public.messenger_actor_links l where l.source_kind = a.k and l.source_id = a.s)),
     'openIssues', (select count(*) from public.messenger_sync_issues
                     where resolved_at is null
-                      and reason not in ('orphan_deleted_skipped', 'orphan_participant_missing'))
+                      and reason not in ('orphan_deleted_skipped', 'orphan_participant_missing',
+                                         'thread_counterparty_missing_empty'))
   ) into v_result;
 
   v_ok := (v_result->>'mismatchedRooms')::int = 0
@@ -22300,6 +22337,7 @@ begin
        and p.proname in (
          'messenger_normalize_phone', 'messenger_actor_for', 'messenger_actor_for_account',
          'messenger_actor_for_group_key', 'messenger_ensure_actor', 'messenger_org_by_slug',
+         'messenger_record_issue_once',
          'messenger_ensure_direct_thread', 'messenger_direct_sender', 'messenger_fill_direct_thread',
          'messenger_actor_by_phone', 'messenger_record_orphan_issue', 'messenger_place_orphan_messages',
          'messenger_fill_direct_conversation',
