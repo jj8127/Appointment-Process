@@ -2873,17 +2873,22 @@ type DirectConversationThreadRow = {
   counterparty_actor_id: string | null;
 };
 
-async function resolveActiveDirectCounterparty(input: {
-  role: 'admin' | 'manager' | 'developer';
-  actorId: string | null;
-}): Promise<
+type ActiveDirectCounterpartyResult =
   | {
       ok: true;
       counterparty: DirectConversationCounterparty;
       name: string | null;
     }
-  | { ok: false; status: 400 | 403 | 404 | 500; message: string }
-> {
+  | { ok: false; status: 400 | 403 | 404 | 500; message: string };
+
+type DirectCounterpartyAccountRows = { rows: unknown[] | null; failed: boolean };
+
+// Reads the account rows a counterparty check needs. `rows` is null when the
+// response was not a list; `failed` marks a database error.
+async function fetchDirectCounterpartyAccountRows(input: {
+  role: 'admin' | 'manager' | 'developer';
+  actorId: string | null;
+}): Promise<DirectCounterpartyAccountRows> {
   if (input.role === 'admin') {
     let query = supabase
       .from('admin_accounts')
@@ -2892,47 +2897,65 @@ async function resolveActiveDirectCounterparty(input: {
       .or('staff_type.neq.developer,staff_type.is.null');
     query = input.actorId === null ? query.limit(1) : query.eq('id', input.actorId).limit(1);
     const { data, error } = await query;
-    if (error) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation target lookup failed',
-      };
-    }
-    const accounts = parseQueryRows(data, isActiveStaffIdentityQueryRow);
-    if (!accounts || accounts.length > 1) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation target lookup failed',
-      };
-    }
-    if (accounts.length === 0) {
-      return {
-        ok: false,
-        status: 404,
-        message: 'Direct conversation target not found',
-      };
-    }
+    return { rows: Array.isArray(data) ? data : null, failed: Boolean(error) };
+  }
+  if (!input.actorId) return { rows: [], failed: false };
+  const { data, error } = input.role === 'developer'
+    ? await supabase
+      .from('admin_accounts')
+      .select('id,name,phone,staff_type,active')
+      .eq('id', input.actorId)
+      .eq('active', true)
+      .eq('staff_type', 'developer')
+      .maybeSingle()
+    : await supabase
+      .from('manager_accounts')
+      .select('id,name,phone,active')
+      .eq('id', input.actorId)
+      .eq('active', true)
+      .maybeSingle();
+  return { rows: data === null ? [] : [data], failed: Boolean(error) };
+}
+
+// Decides whether the counterparty is an active account it may talk to, from
+// rows read either by fetchDirectCounterpartyAccountRows or by the one-call
+// thread snapshot; both read the same columns with the same filters.
+function judgeActiveDirectCounterparty(
+  input: { role: 'admin' | 'manager' | 'developer'; actorId: string | null },
+  fetched: DirectCounterpartyAccountRows,
+): ActiveDirectCounterpartyResult {
+  const lookupFailed = {
+    ok: false as const,
+    status: 500 as const,
+    message: 'Direct conversation target lookup failed',
+  };
+  const notFound = {
+    ok: false as const,
+    status: 404 as const,
+    message: 'Direct conversation target not found',
+  };
+  if (input.role !== 'admin' && !input.actorId) {
+    return {
+      ok: false,
+      status: 400,
+      message: 'Direct conversation target is invalid',
+    };
+  }
+  if (fetched.failed) return lookupFailed;
+
+  if (input.role === 'admin') {
+    const accounts = parseQueryRows(fetched.rows, isActiveStaffIdentityQueryRow);
+    if (!accounts || accounts.length > 1) return lookupFailed;
+    if (accounts.length === 0) return notFound;
     const account = accounts[0];
     if (
       account.staff_type === 'developer' ||
       (input.actorId !== null && account.id !== input.actorId)
     ) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation target lookup failed',
-      };
+      return lookupFailed;
     }
     const phone = input.actorId === null ? null : sanitize(account.phone);
-    if (input.actorId !== null && phone?.length !== 11) {
-      return {
-        ok: false,
-        status: 404,
-        message: 'Direct conversation target not found',
-      };
-    }
+    if (input.actorId !== null && phone?.length !== 11) return notFound;
     return {
       ok: true,
       counterparty: { role: 'admin', actorId: input.actorId, phone },
@@ -2940,87 +2963,41 @@ async function resolveActiveDirectCounterparty(input: {
     };
   }
 
-  if (!input.actorId) {
-    return {
-      ok: false,
-      status: 400,
-      message: 'Direct conversation target is invalid',
-    };
-  }
+  if (!fetched.rows || fetched.rows.length > 1) return lookupFailed;
+  if (fetched.rows.length === 0) return notFound;
+  const data = fetched.rows[0];
   if (input.role === 'developer') {
-    const { data, error } = await supabase
-      .from('admin_accounts')
-      .select('id,name,phone,staff_type,active')
-      .eq('id', input.actorId)
-      .eq('active', true)
-      .eq('staff_type', 'developer')
-      .maybeSingle();
-    if (error) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation target lookup failed',
-      };
-    }
-    if (data === null) {
-      return {
-        ok: false,
-        status: 404,
-        message: 'Direct conversation target not found',
-      };
-    }
     if (
       !isActiveStaffIdentityQueryRow(data) ||
       data.id !== input.actorId ||
       data.staff_type !== 'developer'
     ) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation target lookup failed',
-      };
+      return lookupFailed;
     }
-    const phone = sanitize(data.phone);
     return {
       ok: true,
-      counterparty: { role: 'developer', actorId: data.id, phone },
+      counterparty: { role: 'developer', actorId: data.id, phone: sanitize(data.phone) },
       name: '개발자',
     };
   }
-
-  const { data, error } = await supabase
-    .from('manager_accounts')
-    .select('id,name,phone,active')
-    .eq('id', input.actorId)
-    .eq('active', true)
-    .maybeSingle();
-  if (error) {
-    return {
-      ok: false,
-      status: 500,
-      message: 'Direct conversation target lookup failed',
-    };
-  }
-  if (data === null) {
-    return {
-      ok: false,
-      status: 404,
-      message: 'Direct conversation target not found',
-    };
-  }
   if (!isActiveManagerIdentityQueryRow(data) || data.id !== input.actorId) {
-    return {
-      ok: false,
-      status: 500,
-      message: 'Direct conversation target lookup failed',
-    };
+    return lookupFailed;
   }
-  const phone = sanitize(data.phone);
   return {
     ok: true,
-    counterparty: { role: 'manager', actorId: data.id, phone },
+    counterparty: { role: 'manager', actorId: data.id, phone: sanitize(data.phone) },
     name: typeof data.name === 'string' ? data.name.trim() || null : null,
   };
+}
+
+async function resolveActiveDirectCounterparty(input: {
+  role: 'admin' | 'manager' | 'developer';
+  actorId: string | null;
+}): Promise<ActiveDirectCounterpartyResult> {
+  if (input.role !== 'admin' && !input.actorId) {
+    return judgeActiveDirectCounterparty(input, { rows: [], failed: false });
+  }
+  return judgeActiveDirectCounterparty(input, await fetchDirectCounterpartyAccountRows(input));
 }
 
 async function resolveDirectCounterpartyFromTarget(targetId?: string | null): Promise<
@@ -3117,14 +3094,82 @@ async function resolveDirectCounterpartyFromTarget(targetId?: string | null): Pr
 
 type DirectCounterpartyResolution = Awaited<ReturnType<typeof resolveActiveDirectCounterparty>>;
 
-function fetchDirectConversationProfile(fcId: string) {
-  return supabase
+type DirectConversationProfileRow = {
+  id: string;
+  phone: string | null;
+  name: string | null;
+  affiliation: string | null;
+  signup_completed: boolean | null;
+  is_manager_referral_shadow: boolean | null;
+};
+
+type DirectConversationProfileRead = {
+  data: DirectConversationProfileRow | null;
+  error: unknown;
+};
+
+async function fetchDirectConversationProfile(fcId: string): Promise<DirectConversationProfileRead> {
+  const { data, error } = await supabase
     .from('fc_profiles')
     .select('id,phone,name,affiliation,signup_completed,is_manager_referral_shadow')
     .eq('id', fcId)
     .eq('signup_completed', true)
     .eq('is_manager_referral_shadow', false)
-    .maybeSingle();
+    .maybeSingle<DirectConversationProfileRow>();
+  return { data, error };
+}
+
+type DirectThreadSnapshot = {
+  thread: DirectConversationThreadRow;
+  fcId: string | null;
+  counterpartyRows: unknown[] | null;
+  profile: DirectConversationProfileRow | null;
+};
+
+// One round trip for an existing thread (messenger_direct_thread_snapshot_v1
+// reads the same rows as the separate queries). Any failure or unknown thread
+// returns null and the caller takes the query-by-query path.
+async function loadDirectThreadSnapshot(threadId: string): Promise<DirectThreadSnapshot | null> {
+  try {
+    const { data, error } = await supabase.rpc('messenger_direct_thread_snapshot_v1', {
+      p_thread_id: threadId,
+    });
+    if (error || !isRecord(data) || !isRecord(data.thread)) return null;
+    const thread = data.thread;
+    const role = thread.counterparty_role;
+    if (
+      thread.id !== threadId ||
+      typeof thread.legacy_conversation_id !== 'string' ||
+      (role !== 'admin' && role !== 'manager' && role !== 'developer') ||
+      !isNullableUuid(thread.counterparty_actor_id)
+    ) {
+      return null;
+    }
+    const conversation = data.conversation;
+    const fcId =
+      isRecord(conversation) &&
+      conversation.id === thread.legacy_conversation_id &&
+      typeof conversation.fc_id === 'string'
+        ? conversation.fc_id
+        : null;
+    const profile =
+      isRecord(data.profile) && typeof data.profile.id === 'string' && data.profile.id === fcId
+        ? (data.profile as DirectConversationProfileRow)
+        : null;
+    return {
+      thread: {
+        id: thread.id,
+        legacy_conversation_id: thread.legacy_conversation_id,
+        counterparty_role: role,
+        counterparty_actor_id: (thread.counterparty_actor_id as string | null) ?? null,
+      },
+      fcId,
+      counterpartyRows: Array.isArray(data.counterparty_rows) ? data.counterparty_rows : null,
+      profile,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function resolveGaraminDirectConversation(input: {
@@ -3139,8 +3184,43 @@ async function resolveGaraminDirectConversation(input: {
   // Each query is a round trip to the database region, so independent lookups
   // run together: the thread comes with its conversation, and the FC profile is
   // read while the counterparty is checked.
-  let profileRequest: ReturnType<typeof fetchDirectConversationProfile> | null = null;
-  if (input.conversationId) {
+  let profileRequest: Promise<DirectConversationProfileRead> | null = null;
+  const snapshot = input.conversationId
+    ? await loadDirectThreadSnapshot(input.conversationId)
+    : null;
+  if (snapshot) {
+    if (!snapshot.fcId) {
+      return {
+        ok: false,
+        status: 404,
+        message: 'Direct conversation not found',
+      };
+    }
+    const snapshotCounterparty = judgeActiveDirectCounterparty(
+      {
+        role: snapshot.thread.counterparty_role,
+        actorId: snapshot.thread.counterparty_actor_id,
+      },
+      { rows: snapshot.counterpartyRows, failed: false },
+    );
+    if (snapshotCounterparty.ok === false) return snapshotCounterparty;
+    if (
+      !canAccessDirectConversation(input.actor, {
+        fcActorId: snapshot.fcId,
+        counterparty: snapshotCounterparty.counterparty,
+      })
+    ) {
+      return {
+        ok: false,
+        status: 404,
+        message: 'Direct conversation not found',
+      };
+    }
+    thread = snapshot.thread;
+    fcId = snapshot.fcId;
+    counterpartyResult = snapshotCounterparty;
+    profileRequest = Promise.resolve({ data: snapshot.profile, error: null });
+  } else if (input.conversationId) {
     let embeddedFcId: string | null = null;
     const { data: directThread, error: threadError } = await supabase
       .from('garamin_direct_threads')
