@@ -89,3 +89,21 @@ select source, last_imported_at, batches, messages, last_error, last_error_at fr
   - 목록 확인: `select * from messenger_orphan_purge_candidates_v1();`
   - 삭제: `select messenger_purge_orphan_messages_v1(<목록 건수>);`
 - 본부를 읽을 수 없는 본부장(`headquarters_unknown`)은 소속 표기를 고쳐 주면 다음 날 자동으로 들어간다.
+
+## 2단계 첫 조치: 저장 후 바로 응답, 푸시는 응답 뒤 (2026-10-16 22:45 배포)
+
+- 브랜치 `deploy/messenger-push-background-20261016`(운영 배포 줄 8d7e3d6 기준, 43662751).
+- 운영 반영: fc-notify v101, group-chat v31, JWT 확인 유지. 1:1 응답은 `pushStatus: 'not_attempted'`, 단체방 전송은 `push_status: 'queued'`로 답하고 푸시는 `EdgeRuntime.waitUntil`에서 보낸다. 단체방 알림 재시도는 그대로 푸시 결과를 기다린다.
+- 되돌리기: 8d7e3d6에서 두 함수를 다시 배포한다. DB 변경은 없다.
+
+봇으로 비교한 보내기 응답(서버 왕복, ms)
+
+| 실행 | 텍스트 p50 | 텍스트 p95 | 파일 p50 | 건수 |
+| --- | --- | --- | --- | --- |
+| 배포 전 20:25 | 1413 | 2033 | 2514 | 60 |
+| 배포 전 22:21 | 1419 | 4871 | 2431 | 20 |
+| 배포 후 22:51 | 1272 | 2357 | 2585 | 20 |
+
+- 텍스트는 약 140ms(10%) 줄었다. 파일은 업로드 시간이 대부분이라 변화가 없다.
+- 남은 1.27초의 대부분은 푸시가 아니다. 다음 조치 전에 보내기 요청 안에서 시간이 어디에 쓰이는지 단계별로 잰다.
+- 봇은 `scripts/ops/register-messenger-bot-task.ps1`로 매일 09:30에 20회 돈다(작업 이름 `GaraminMessengerBot`). 결과는 `.messenger-bot/run-*.jsonl`과 `run-*.log`에 쌓인다.
