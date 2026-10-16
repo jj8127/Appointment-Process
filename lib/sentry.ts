@@ -26,6 +26,10 @@ if (dsn) {
     replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: 1.0,
     integrations: [
+      // Send app start as its own transaction. Otherwise the SDK attaches it to
+      // the first root span of the run (often a messenger.latency sample),
+      // rewriting that span's op to ui.load and its start to the app start.
+      Sentry.appStartIntegration({ standalone: true }),
       Sentry.mobileReplayIntegration({
         maskAllText: true,
         maskAllImages: true,
