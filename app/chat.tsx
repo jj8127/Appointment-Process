@@ -110,6 +110,7 @@ import {
 } from '@/lib/presence';
 import { fetchUserPresence, type AppPresenceSnapshot } from '@/lib/user-presence-api';
 import { supabase } from '@/lib/supabase';
+import { subscribeDirectMessageSignal } from '@/lib/direct-message-realtime';
 import { isValidMobilePhone, safeDecodeFileName } from '@/lib/validation';
 import {
   createPeerDeliveryTracker,
@@ -291,6 +292,8 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
 };
 
 const DIRECT_MESSAGE_REFRESH_MS = 5000;
+// While the "changed" signal is live the timer is only a safety net.
+const DIRECT_MESSAGE_REALTIME_FALLBACK_MS = 30_000;
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -472,6 +475,8 @@ export default function ChatScreen() {
   const anchorHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const roomPreferenceSequenceRef = useRef(0);
   const directMessageCursorRef = useRef<{ conversationId: string; cursor: string } | null>(null);
+  const [directMessageRealtimeTopic, setDirectMessageRealtimeTopic] = useState<string | null>(null);
+  const directMessageRealtimeLiveRef = useRef(false);
   const directMessagePrefetchRef = useRef<{
     conversationId: string;
     request: Promise<
@@ -816,6 +821,7 @@ export default function ChatScreen() {
       directMessageCursorRef.current = result.cursor
         ? { conversationId: resolvedConversation.id, cursor: result.cursor }
         : null;
+      if (result.mode === 'full') setDirectMessageRealtimeTopic(result.realtimeTopic);
       let filtered: Message[];
       if (result.mode === 'changes') {
         const removedIds = new Set(result.deletedIds);
@@ -1153,6 +1159,50 @@ export default function ChatScreen() {
     pendingAnchorMessageId,
   ]);
 
+  // A "changed" broadcast makes the open room fetch the changes after its
+  // cursor at once instead of waiting for the timer. Signals that arrive while a
+  // fetch runs fold into one more fetch after it.
+  const fetchMessagesRef = useRef(fetchMessages);
+  fetchMessagesRef.current = fetchMessages;
+  useEffect(() => {
+    if (!directMessageRealtimeTopic) return undefined;
+    let active = true;
+    let inFlight = false;
+    let again = false;
+    const pull = async () => {
+      if (inFlight) {
+        again = true;
+        return;
+      }
+      inFlight = true;
+      try {
+        do {
+          again = false;
+          await fetchMessagesRef.current({ silent: true });
+        } while (again && active);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const unsubscribe = subscribeDirectMessageSignal(
+      directMessageRealtimeTopic,
+      () => {
+        if (active) void pull();
+      },
+      (status) => {
+        const live = status === 'live';
+        directMessageRealtimeLiveRef.current = live;
+        // Catch up on anything missed while the channel was down.
+        if (live && active) void pull();
+      },
+    );
+    return () => {
+      active = false;
+      directMessageRealtimeLiveRef.current = false;
+      unsubscribe();
+    };
+  }, [directMessageRealtimeTopic]);
+
   useFocusEffect(useCallback(() => {
     if (!myId || !otherId || !resolvedConversation?.id) return undefined;
 
@@ -1166,7 +1216,9 @@ export default function ChatScreen() {
           if (AppState.currentState === 'active') await fetchMessages({ silent: true });
           if (active) scheduleRefresh();
         })();
-      }, DIRECT_MESSAGE_REFRESH_MS);
+      }, directMessageRealtimeLiveRef.current
+        ? DIRECT_MESSAGE_REALTIME_FALLBACK_MS
+        : DIRECT_MESSAGE_REFRESH_MS);
     };
 
     void fetchMessages();

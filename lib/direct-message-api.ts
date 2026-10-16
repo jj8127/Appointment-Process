@@ -316,6 +316,8 @@ export type GaraminDirectMessagePage = {
   mode: 'full' | 'changes';
   deletedIds: string[];
   cursor: string | null;
+  // Public broadcast channel that only says "this conversation changed"; set on full loads.
+  realtimeTopic: string | null;
 };
 
 export async function fetchGaraminDirectMessages(
@@ -333,6 +335,7 @@ export async function fetchGaraminDirectMessages(
     mode?: unknown;
     deleted_ids?: unknown;
     cursor?: unknown;
+    realtime_topic?: unknown;
   }>({
     type: 'direct_message_list',
     conversation_id: conversationId,
@@ -363,7 +366,11 @@ export async function fetchGaraminDirectMessages(
   const cursor = typeof data.cursor === 'string' && Number.isFinite(Date.parse(data.cursor))
     ? data.cursor
     : null;
-  return { conversation, messages, mode, deletedIds, cursor };
+  const realtimeTopic = typeof data.realtime_topic === 'string'
+    && /^dm-[0-9a-f]{64}$/.test(data.realtime_topic)
+    ? data.realtime_topic
+    : null;
+  return { conversation, messages, mode, deletedIds, cursor, realtimeTopic };
 }
 
 export async function sendGaraminDirectMessage(input: {

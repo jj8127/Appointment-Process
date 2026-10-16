@@ -22,4 +22,12 @@ describe('1:1 room refresh asks only for changes', () => {
     expect(fetchMessages).toContain('directMessageCursorRef.current = result.cursor');
     expect(fetchMessages).toContain(': null;');
   });
+
+  it('pulls changes as soon as the conversation signals, and slows the timer while live', () => {
+    expect(source).toContain('const unsubscribe = subscribeDirectMessageSignal(');
+    expect(source).toContain('await fetchMessagesRef.current({ silent: true });');
+    expect(source).toContain("if (live && active) void pull();");
+    expect(source).toContain('? DIRECT_MESSAGE_REALTIME_FALLBACK_MS');
+    expect(source).toContain('unsubscribe();');
+  });
 });

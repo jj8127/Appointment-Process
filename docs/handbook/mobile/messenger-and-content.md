@@ -277,8 +277,17 @@ Board and admin-board logout redirects are owned by focused `useAppLogout` after
 - `app/chat.tsx` sends the cursor only on quiet refreshes of the same room and
   merges changes into the rows it holds; opening a room always loads it whole.
   A server without cursors answers `full` with no cursor, so old and new clients
-  and servers mix safely. The 5-second refresh remains until a realtime signal
-  replaces it.
+  and servers mix safely.
+- Every statement that inserts or updates `messages` sends one content-free
+  `changed` broadcast per thread (`messages_signal_direct_change`). The channel
+  is public because the app has no Supabase Auth session; its name is
+  `dm-` + HMAC-SHA256(thread id, Vault `messenger_realtime_topic_key`), handed
+  out only on a full `direct_message_list` as `realtime_topic`. A missing key
+  or a failed send skips the signal and never blocks the write.
+- `lib/direct-message-realtime.ts` shares one channel per topic across screens
+  (a fixed topic returns the existing channel and adding a listener to it
+  throws). On a signal or a reconnect the room fetches changes after its
+  cursor; the timer drops from 5 to 30 seconds while the channel is live.
 
 ## Native keyboard ownership
 
