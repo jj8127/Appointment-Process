@@ -34,6 +34,15 @@ describe('1:1 list answers with changes after a cursor', () => {
     expect(listBlock).toContain('cursor,');
   });
 
+  it('hands out the realtime channel only on a full load, without delaying it', () => {
+    expect(listBlock).toContain('since ? Promise.resolve(null) : loadDirectMessageRealtimeTopic(resolution.threadId),');
+    expect(listBlock).toContain('realtime_topic: realtimeTopic,');
+    const loader = fcNotify.slice(fcNotify.indexOf('async function loadDirectMessageRealtimeTopic('), fcNotify.indexOf('function latestDirectMessageChange('));
+    expect(loader).toContain("supabase.rpc('messenger_direct_realtime_topic_v1'");
+    expect(loader).toContain('/^dm-[0-9a-f]{64}$/');
+    expect(loader).toContain('return null;');
+  });
+
   it('leaves the other caller on the old column set', () => {
     expect(fcNotify.split('collectCurrentMessageRows(),').length - 1).toBe(1);
     expect(fcNotify.split('collectLegacyMessageRows(),').length - 1).toBe(1);
