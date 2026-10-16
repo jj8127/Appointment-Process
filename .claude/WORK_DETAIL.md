@@ -1,5 +1,16 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261016-admin-web-ux-r2-audit"></a>
+## 2026-10-16 관리자 web 메뉴·검색·브랜드 정리와 처리·다운로드·개인정보 조회 기록
+
+- 기준: 운영 `6b72d99` 위 `deploy/admin-web-ux-20261015`(운영 배포 `3d2fd16`). `release/all-surfaces-20261004`는 운영 계열이 아니어서 사용하지 않았다.
+- 메뉴: 홈 / 온보딩 / 시험 / 소통(공지사항 추가) / 추천·수당 / 관리(처리 이력, 관리자 쓰기 계정) / 개발(에이전트 룸, developer 전용). 상세 경로는 가장 구체적인 메뉴를 활성화한다. 에이전트 룸 API는 developer가 아니면 403.
+- 검색: 헤더 `GlobalFcSearch`가 대시보드와 같은 FC 목록 query key를 재사용하고, 이름·소속·연락처 숫자 3자리 이상으로 찾는다(Ctrl+K).
+- 브랜드: `lib/brand-colors.ts` 단일 주황 `#f36f21`, Mantine orange shade 6·theme-color·manifest 동일. 페이지 제목은 order 2·charcoal. 용어는 `서류 관리`, `1:1 메신저`로 정리하고 모바일과 공유하는 단계명 `2단계 문서제출`은 유지했다.
+- 기록: `supabase/migrations/20261016100000_admin_audit_events.sql`(schema.sql 동시 반영). 처리 기록은 변경 성공 후 best-effort, 엑셀 다운로드·주민번호 조회는 기록 실패 시 데이터를 반환하지 않는다(fail-closed). 주민번호·입력값은 저장하지 않는다. 상세는 `docs/handbook/backend/admin-audit-log.md`.
+- 검증: web-node 804/804, SQL PGlite 117/117(새 `admin-audit-events-sql` 포함), TypeScript, 변경 파일 ESLint, Sentry 업로드 없는 Next 운영 빌드. 합성 관리자 화면에서 메뉴 그룹·검색 확인.
+- 미적용: 운영 DB migration, push, 배포. 운영 적용은 migration → 관리자 web 배포 순서여야 한다.
+
 <a id="20261013-cutover-review-repair"></a>
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
 

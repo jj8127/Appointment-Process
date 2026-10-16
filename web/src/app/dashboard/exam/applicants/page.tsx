@@ -20,6 +20,7 @@ import {
     Popover,
     ScrollArea,
     SegmentedControl,
+    Select,
     Stack,
     Table,
     Text,
@@ -80,6 +81,7 @@ import { ConfirmModal } from '@/components/ConfirmModal';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { requireExamTransitionSuccess } from '@/lib/user-intent-policy';
 import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
+import { EXPORT_REASONS } from '@/lib/admin-audit-event';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -341,6 +343,8 @@ export default function ExamApplicantsPage() {
     const [examSubjectFilter, setExamSubjectFilter] = useState(EXAM_APPLICANT_ALL_FILTER_VALUE);
     const [examRoundFilter, setExamRoundFilter] = useState(EXAM_APPLICANT_ALL_FILTER_VALUE);
     const [isExporting, setIsExporting] = useState(false);
+    const [exportReasonOpened, setExportReasonOpened] = useState(false);
+    const [exportReason, setExportReason] = useState<string | null>(null);
 
     const tableColumnCount = EXAM_APPLICANT_EXPORT_COLUMNS.length + 3;
     const proofColumnMinWidth = 120;
@@ -683,14 +687,33 @@ export default function ExamApplicantsPage() {
     });
 
     // --- Styled XLSX Download ---
-    const handleDownloadExcel = async () => {
+    const openExportReason = () => {
         if (filteredRows.length === 0) {
             notifications.show({ title: '알림', message: '다운로드할 데이터가 없습니다.', color: 'blue' });
             return;
         }
+        setExportReason(null);
+        setExportReasonOpened(true);
+    };
 
+    // The download is recorded (who, when, row count, reason) before the file is built.
+    const handleDownloadExcel = async (reason: string) => {
+        setExportReasonOpened(false);
         setIsExporting(true);
         try {
+            const auditResponse = await fetch('/api/admin/audit/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ kind: 'exam_applicants_xlsx', rowCount: filteredRows.length, reason }),
+            });
+            const auditJson: unknown = await auditResponse.json().catch(() => null);
+            if (!auditResponse.ok || !isRecord(auditJson) || auditJson.ok !== true) {
+                throw new Error(isRecord(auditJson) && typeof auditJson.error === 'string'
+                    ? auditJson.error
+                    : '다운로드 기록을 남기지 못해 다운로드를 중단했습니다.');
+            }
+
             const attachedRegistrationIds = filteredRows
                 .filter((item) => item.payment_proof_attached)
                 .map((item) => item.id);
@@ -916,7 +939,7 @@ export default function ExamApplicantsPage() {
                             leftSection={<IconDownload size={16} />}
                             variant="filled"
                             color="green"
-                            onClick={handleDownloadExcel}
+                            onClick={openExportReason}
                             loading={isExporting}
                             radius="md"
                         >
@@ -1197,6 +1220,27 @@ export default function ExamApplicantsPage() {
                     </ScrollArea>
                 </Paper>
             </Stack>
+            <ConfirmModal
+                opened={exportReasonOpened}
+                onClose={() => setExportReasonOpened(false)}
+                onConfirm={() => { if (exportReason) void handleDownloadExcel(exportReason); }}
+                title="엑셀 다운로드"
+                message={(
+                    <Stack gap="sm">
+                        <Text size="sm">{`${filteredRows.length}명의 개인정보가 포함됩니다. 다운로드 사유를 선택해주세요.`}</Text>
+                        <Select
+                            aria-label="다운로드 사유"
+                            placeholder="사유 선택"
+                            data={[...EXPORT_REASONS]}
+                            value={exportReason}
+                            onChange={setExportReason}
+                            comboboxProps={{ withinPortal: false }}
+                        />
+                    </Stack>
+                )}
+                confirmLabel="다운로드"
+                confirmDisabled={!exportReason}
+            />
             <ConfirmModal
                 opened={bulkConfirmOpened}
                 onClose={() => setBulkConfirmOpened(false)}

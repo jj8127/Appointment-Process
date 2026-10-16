@@ -60,3 +60,7 @@ Admin web shares the mobile comment operation lifetime: an unchanged failed draf
 ## 2026-10-09 Local admin draft and result contracts
 
 IME composition/229 Enter cannot send chat text, and deletion asks for confirmation. Profile basic/recommender/memo drafts survive refetch independently; modal cancellation keeps dirty edits while pending saves prevent close. Notice upload through save owns one pending guard. Malformed upstream business receipts fail closed; committed business writes stay successful when follow-up notification/cleanup fails. Read failures remain distinct from empty lists. Web compiler/tests/no-upload build are local evidence, with browser/account/production gates retained.
+
+## 2026-10-16 Notice audit records (local)
+
+Notice create and update record `notice_create` / `notice_update` with the notice id in `admin_audit_events` after the write succeeds. A failed record is logged without changing the notice result. The create screen asks for confirmation (all FCs, title, attachment counts) before sending.

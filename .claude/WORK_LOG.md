@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-16 관리자 web 메뉴·검색·브랜드 정리와 처리·다운로드·개인정보 조회 기록
+
+운영 계열 `deploy/admin-web-ux-20261015` 위 `feature/admin-web-ux-r2-20261016`에서 진행했다. 메뉴를 업무 단위로 묶고 공지사항 메뉴를 추가했으며 에이전트 룸은 개발자 계정 전용(메뉴·페이지·API)으로 제한했다. 헤더 전체 FC 검색, 브랜드 주황 단일값, 페이지 제목·용어를 통일했다. append-only `admin_audit_events` migration과 처리·엑셀 다운로드·주민번호 조회 기록, 처리 이력 화면을 추가했다. migration은 로컬 PGlite에서만 검증했고 운영 DB 적용·push·배포는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261016-admin-web-ux-r2-audit)
+
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
 
 통합 릴리스의 필수 governance 누락을 가장 가까운 owner map·handbook과 기존 검사에 맞췄다. native 가입 증표 저장 key, 본인정보 timeout, OTA production public 환경과 Node 회귀 발견을 담당자가 기존 코드로 수리한다. 적용된 migration 12개는 운영 이력과 SQL hash를 대조해 body를 유지하고 로컬 이름·schema·fixture 참조만 맞춘다. primary 사용자 로그는 보존하며 실제 수정·검증·배포 상태는 canonical 인증 harness가 관리한다. 이 기록만으로 새 배포나 실제 SMS 수신을 주장하지 않는다. [→ 상세](WORK_DETAIL.md#20261013-cutover-review-repair)

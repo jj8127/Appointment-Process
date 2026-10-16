@@ -13,6 +13,7 @@ import {
   IconReceipt,
   IconClipboardList,
   IconGraph,
+  IconHistory,
   IconHome,
   IconKey,
   IconLink,
@@ -100,6 +101,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           { label: '추천인 코드', icon: IconKey, href: '/dashboard/referrals' },
           ...(canWrite ? [{ label: '증원수당 관리', icon: IconReceipt, href: '/dashboard/referrals/allowances' }] : []),
         ] },
+        ...(canWrite
+          ? [{ label: '관리', items: [{ label: '처리 이력', icon: IconHistory, href: '/dashboard/audit' }] }]
+          : []),
         ...(staffType === 'developer'
           ? [{ label: '개발', items: [{ label: '에이전트 룸', icon: IconUsers, href: '/dashboard/agent-room' }] }]
           : []),

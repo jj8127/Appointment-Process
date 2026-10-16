@@ -735,6 +735,25 @@
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/contract-test-map.json"
       ]
+    },
+    {
+      "id": "admin-audit-log",
+      "prefixes": [
+        "supabase/migrations/20261016100000_admin_audit_events.sql",
+        "web/src/lib/admin-audit-event.ts",
+        "web/src/lib/admin-audit-server.ts",
+        "web/src/app/api/admin/audit/",
+        "web/src/app/dashboard/audit/",
+        "web/src/app/api/admin/resident-numbers/",
+        "web/src/lib/resident-number-route-handler.ts"
+      ],
+      "requires_any": [
+        "supabase/tests/admin-audit-events-sql.test.mjs",
+        "web/src/lib/admin-audit-event.test.ts",
+        "web/src/lib/resident-number-route-handler.test.ts",
+        "web/src/lib/ux-priority-one-runtime.test.mjs",
+        "docs/handbook/backend/admin-audit-log.md"
+      ]
     }
   ]
 }
