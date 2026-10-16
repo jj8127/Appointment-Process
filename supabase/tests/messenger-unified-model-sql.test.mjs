@@ -17,6 +17,7 @@ const stage1FinishMigration = await readFile(new URL('../migrations/202610161102
 const [stage1FinishFunctions, stage1FinishStorage] = stage1FinishMigration.split('-- storage --');
 const headquartersShadowFix = await readFile(new URL('../migrations/20261016120000_messenger_headquarters_manager_shadow.sql', import.meta.url), 'utf8');
 const mirrorNewRooms = await readFile(new URL('../migrations/20261016111950_messenger_mirror_new_rooms.sql', import.meta.url), 'utf8');
+const mirrorDeleteContent = await readFile(new URL('../migrations/20261016120249_messenger_mirror_delete_content.sql', import.meta.url), 'utf8');
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const FC = id(1), MANAGER = id(2), ADMIN = id(3), DEVELOPER = id(4), DESIGNER_FC = id(5);
@@ -110,6 +111,7 @@ async function fixture() {
     await db.exec(stage1FinishFunctions);
     await db.exec(headquartersShadowFix);
     await db.exec(mirrorNewRooms);
+    await db.exec(mirrorDeleteContent);
     await db.exec(seed);
     return db;
   } catch (error) {
@@ -733,6 +735,27 @@ test('a 1:1 thread or group room created after the backfill is mirrored from its
     assert.deepEqual((await seqs(db, group)).map((m) => m.content), ['hello new room']);
 
     assert.equal((await one(db, "select count(*)::int n from messenger_sync_issues where reason like 'mirror_%'")).n, 0);
+    assert.equal((await one(db, 'select messenger_reconcile_v1() r')).r.ok, true);
+  } finally { await db.close(); }
+});
+
+test('a delete that clears the legacy text clears the unified copy too, and old rows are repaired', async () => {
+  const db = await fixture();
+  try {
+    await one(db, 'select messenger_backfill_v1() r');
+    await call(db, `insert into messages(id, sender_id, receiver_id, content, sender_actor_id, thread_id, file_url, file_name)
+      values ($1, $2, $3, 'private text', $4, $5, 'chat/x.png', 'x.png')`, [id(990), PHONE.manager, PHONE.fc, MANAGER, MANAGER_THREAD]);
+    // The app deletes by stamping deleted_at and clearing the text and file in one update.
+    await call(db, "update messages set deleted_at = now(), content = '', file_url = null, file_name = null where id = $1", [id(990)]);
+    const row = await one(db, 'select content, legacy_file_url, legacy_file_name, deleted_at is not null as deleted from messenger_messages where id = $1', [id(990)]);
+    assert.deepEqual(row, { content: '', legacy_file_url: null, legacy_file_name: null, deleted: true });
+    assert.equal((await one(db, 'select messenger_reconcile_v1() r')).r.ok, true);
+
+    // A row deleted before the fix still holds its text; re-running the migration repairs it.
+    await call(db, "update messenger_messages set content = 'left behind' where id = $1", [id(990)]);
+    assert.equal((await one(db, 'select messenger_reconcile_v1() r')).r.ok, false);
+    await db.exec(mirrorDeleteContent);
+    assert.equal((await one(db, 'select content from messenger_messages where id = $1', [id(990)])).content, '');
     assert.equal((await one(db, 'select messenger_reconcile_v1() r')).r.ok, true);
   } finally { await db.close(); }
 });
