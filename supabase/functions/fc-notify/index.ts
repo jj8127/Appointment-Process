@@ -170,6 +170,8 @@ type Payload =
   | {
       type: 'direct_message_list' | 'direct_message_mark_read';
       conversation_id: string;
+      // direct_message_list only: the cursor from an earlier list; asks for changes after it.
+      since?: string | null;
       viewer_actor_id?: string;
       viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
     }
@@ -1243,6 +1245,7 @@ type AdminWebPushResult = {
 };
 type DirectMessageRow = {
   id: string;
+  changed_at?: string;
   conversation_id: string | null;
   thread_id: string | null;
   sender_id: string;
@@ -1361,6 +1364,31 @@ function isTokenQueryRow(value: unknown): value is TokenRow {
     isNullableString(value.display_name) &&
     isNullableString(value.role)
   );
+}
+
+// Rows stamped just before another transaction commits can become visible a
+// moment later, so a changes request re-reads this much before its cursor.
+const DIRECT_MESSAGE_CURSOR_OVERLAP_MS = 10_000;
+// A cursor older than this is treated as missing: the client reloads in full.
+const DIRECT_MESSAGE_CURSOR_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function parseDirectMessageCursor(value: unknown): Date | null {
+  if (typeof value !== 'string' || value.length > 64) return null;
+  const parsed = new Date(value);
+  const time = parsed.getTime();
+  if (!Number.isFinite(time)) return null;
+  const now = Date.now();
+  if (time > now + 60_000 || time < now - DIRECT_MESSAGE_CURSOR_MAX_AGE_MS) return null;
+  return parsed;
+}
+
+function latestDirectMessageChange(rows: DirectMessageRow[]): string | null {
+  let latest: number | null = null;
+  for (const row of rows) {
+    const time = typeof row.changed_at === 'string' ? Date.parse(row.changed_at) : NaN;
+    if (Number.isFinite(time) && (latest === null || time > latest)) latest = time;
+  }
+  return latest === null ? null : new Date(latest).toISOString();
 }
 
 function isDirectMessageRow(value: unknown): value is DirectMessageRow {
@@ -4426,8 +4454,12 @@ serve(async (req: Request) => {
         : sanitize(appActor.phone);
     const legacyCounterpartId =
       appActor.sessionRole === 'fc' ? resolution.counterpartyId : resolution.fcPhone;
-    const buildCurrentMessageQuery = () => {
-      let query = supabase.from('messages').select(messageColumns);
+    type MessageRowsOptions = { withChangedAt?: boolean; changedSince?: string | null };
+    const columnsFor = (options?: MessageRowsOptions) =>
+      options?.withChangedAt ? `${messageColumns},changed_at` : messageColumns;
+    const buildCurrentMessageQuery = (options?: MessageRowsOptions) => {
+      let query = supabase.from('messages').select(columnsFor(options));
+      if (options?.changedSince) query = query.gte('changed_at', options.changedSince);
       query =
         resolution.counterparty.role === 'admin' && resolution.counterparty.actorId === null
         ? query.or(
@@ -4437,34 +4469,37 @@ serve(async (req: Request) => {
         : query.eq('thread_id', resolution.threadId);
       return query;
     };
-    const collectCurrentMessageRows = () =>
+    const collectCurrentMessageRows = (options?: MessageRowsOptions) =>
       collectSupabaseRows<DirectMessageRow>({
         queryName: 'direct_messages_current',
         isRow: isDirectMessageRow,
         rowKey: (row) => row.id,
         fetchPage: (from, to) =>
-          buildCurrentMessageQuery()
+          buildCurrentMessageQuery(options)
             .order('created_at', { ascending: true })
             .order('id', { ascending: true })
             .range(from, to),
       });
-    const collectLegacyMessageRows = () =>
+    const collectLegacyMessageRows = (options?: MessageRowsOptions) =>
       collectSupabaseRows<DirectMessageRow>({
         queryName: 'direct_messages_legacy',
         isRow: isDirectMessageRow,
         rowKey: (row) => row.id,
-        fetchPage: (from, to) =>
-          supabase
+        fetchPage: (from, to) => {
+          let query = supabase
             .from('messages')
-            .select(messageColumns)
-            .is('conversation_id', null)
+            .select(columnsFor(options))
+            .is('conversation_id', null);
+          if (options?.changedSince) query = query.gte('changed_at', options.changedSince);
+          return query
             .or(
               `and(sender_id.eq.${legacyActorId},receiver_id.eq.${legacyCounterpartId}),` +
                 `and(sender_id.eq.${legacyCounterpartId},receiver_id.eq.${legacyActorId})`,
             )
             .order('created_at', { ascending: true })
             .order('id', { ascending: true })
-            .range(from, to),
+            .range(from, to);
+        },
       });
     const normalizeMessage = (
       row: DirectMessageRow,
@@ -4485,16 +4520,54 @@ serve(async (req: Request) => {
     });
 
     if (body.type === 'direct_message_list') {
+      // With a cursor only rows changed since it come back, deleted ones as ids,
+      // and the client merges them into what it holds. Without one (or with a
+      // cursor that cannot be read) the whole conversation comes back as before.
+      const since = parseDirectMessageCursor(body.since);
+      const changedSince = since
+        ? new Date(since.getTime() - DIRECT_MESSAGE_CURSOR_OVERLAP_MS).toISOString()
+        : null;
       let currentQueryRows: DirectMessageRow[];
       let legacyQueryRows: DirectMessageRow[];
       try {
         [currentQueryRows, legacyQueryRows] = await Promise.all([
-          collectCurrentMessageRows(),
-          collectLegacyMessageRows(),
+          collectCurrentMessageRows({ withChangedAt: true, changedSince }),
+          collectLegacyMessageRows({ withChangedAt: true, changedSince }),
       ]);
       } catch {
         return err('Direct message lookup failed', 500);
       }
+
+      const cursor = latestDirectMessageChange([...currentQueryRows, ...legacyQueryRows]) ??
+        (since ? since.toISOString() : null);
+      const isVisibleCurrentRow = (row: DirectMessageRow) =>
+        isCurrentDirectMessageVisible({
+          fcActorId: resolution.fcId,
+          fcPhone: resolution.fcPhone,
+          counterparty: resolution.counterparty,
+          row,
+        }) ||
+        (!row.sender_actor_id &&
+          !row.receiver_actor_id &&
+          isLegacyDirectMessageVisible({
+            actor: appActor,
+            fcPhone: resolution.fcPhone,
+            counterpartyId: resolution.counterpartyId,
+            row,
+          }));
+      const isVisibleLegacyRow = (row: DirectMessageRow) =>
+        isLegacyDirectMessageVisible({
+          actor: appActor,
+          fcPhone: resolution.fcPhone,
+          counterpartyId: resolution.counterpartyId,
+          row,
+        });
+      const deletedIds = since
+        ? Array.from(new Set([
+            ...currentQueryRows.filter((row) => row.deleted_at !== null && isVisibleCurrentRow(row)),
+            ...legacyQueryRows.filter((row) => row.deleted_at !== null && isVisibleLegacyRow(row)),
+          ].map((row) => row.id)))
+        : [];
 
       const currentRows = currentQueryRows.filter(
         (row) =>
@@ -4556,6 +4629,9 @@ serve(async (req: Request) => {
             row.attachment_batch_id ? (attachmentsByBatch.get(row.attachment_batch_id) ?? []) : [],
           ),
         ),
+        mode: since ? 'changes' : 'full',
+        deleted_ids: deletedIds,
+        cursor,
       });
     }
 
