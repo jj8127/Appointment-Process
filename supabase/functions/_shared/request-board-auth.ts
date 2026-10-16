@@ -608,6 +608,10 @@ export async function hashAssistedPasswordChangeNonce(nonce: string) {
 export async function parseAppSessionTokenDetailed(
   token: string,
   lookup: SessionGenerationLookup = lookupSessionGeneration,
+  // Called once the signature and shape check out, before the revocation
+  // lookup, so a caller can start its own reads in parallel. The session is not
+  // accepted yet: anything started here must be discarded if this call fails.
+  onSignatureVerified?: (payload: AppSessionTokenPayload) => void,
 ): Promise<AppSessionTokenParseResult> {
   const secrets = getAppSessionVerificationSecrets();
   if (secrets.length === 0) {
@@ -666,6 +670,7 @@ export async function parseAppSessionTokenDetailed(
       message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
     };
   }
+  onSignatureVerified?.(payload);
   const generation = await lookup(payload, 'app');
   if (generation.ok === false) {
     return generation.reason === 'unavailable' ? unavailableSession : {
@@ -769,6 +774,7 @@ export function getAppSessionTokenFromRequest(req: Request) {
 
 export async function requireAppSessionFromRequest(
   req: Request,
+  onSignatureVerified?: (payload: AppSessionTokenPayload) => void,
 ): Promise<RequiredAppSessionResult> {
   const token = getAppSessionTokenFromRequest(req);
   if (!token) {
@@ -780,7 +786,7 @@ export async function requireAppSessionFromRequest(
     };
   }
 
-  const parsed = await parseAppSessionTokenDetailed(token);
+  const parsed = await parseAppSessionTokenDetailed(token, lookupSessionGeneration, onSignatureVerified);
   if (parsed.ok === false) {
     return {
       ok: false,
