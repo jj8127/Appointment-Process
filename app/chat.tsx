@@ -195,6 +195,8 @@ type Message = {
   attachments: MessengerAttachmentMetadata[];
   sender_label?: string | null;
   is_context_preview?: boolean;
+  /** Set on a local bubble the server refused; it stays with retry and delete. */
+  local_status?: 'failed';
 };
 
 type AnchorScrollFailureInfo = {
@@ -428,6 +430,8 @@ export default function ChatScreen() {
     SelectedMessengerAttachment[]
   >([]);
   const [sendingAttachments, setSendingAttachments] = useState(false);
+  // What a refused bubble needs to be sent again, keyed by its local id.
+  const failedPayloadsRef = useRef(new Map<string, { content: string; attachments: readonly SelectedMessengerAttachment[] }>());
   const sendingTextRef = useRef(false);
   const sendOwnerScope = useRef(createReadScope());
   const sendOwnerKey = `${role ?? ''}:${residentId ?? ''}:${appSessionToken ?? ''}:${conversationIdValue}:${normalizedTargetId}`;
@@ -1327,6 +1331,7 @@ export default function ChatScreen() {
 
     const clientMessageId = randomUUID();
     let uploadedIntentIds: string[] | null = null;
+    let definiteFailureMessage: string | null = null;
     const sendCommittedMessage = async (
       attachmentIntentIds: readonly string[] | null,
     ) => {
@@ -1385,8 +1390,9 @@ export default function ChatScreen() {
           clientMessageId,
         });
         if (!failure.uncertain) {
-          // A definite refusal: re-sending the same request would be refused again.
-          Alert.alert(attachmentBatch ? '파일 전송 실패' : '전송 실패', failure.message);
+          // A definite refusal: re-sending the same request would be refused
+          // again. The bubble stays as failed with retry and delete.
+          definiteFailureMessage = failure.message;
           return null;
         }
         return new Promise((resolve) => {
@@ -1409,6 +1415,20 @@ export default function ChatScreen() {
     };
     const commitResult = await commitMessageWithRetry();
     if (!isCurrentSend()) return false;
+    if (!commitResult && definiteFailureMessage && optimisticMessage) {
+      failedPayloadsRef.current.set(optimisticMessage.id, { content, attachments: [...attachments] });
+      applyMessages(messagesRef.current.map((message) => (
+        message.id === optimisticMessage.id
+          ? {
+              ...message,
+              local_status: 'failed' as const,
+              content: content || `파일 ${attachments.length}개`,
+            }
+          : message
+      )));
+      // The bubble now holds the draft, so the composer is cleared.
+      return true;
+    }
     if (!commitResult) {
       if (optimisticMessage) {
         applyMessages(
@@ -1804,10 +1824,44 @@ export default function ChatScreen() {
     );
   };
 
+  const removeFailedMessage = (messageId: string) => {
+    failedPayloadsRef.current.delete(messageId);
+    applyMessages(messagesRef.current.filter((message) => message.id !== messageId));
+  };
+
+  const resendFailedMessage = (messageId: string) => {
+    const payload = failedPayloadsRef.current.get(messageId);
+    if (!payload || sendingTextRef.current) return;
+    removeFailedMessage(messageId);
+    const isMountedSend = beginSend();
+    const ownsSend = sendOwnerScope.current.captureOwner(sendOwnerKey);
+    const isCurrentSend = () => isMountedSend() && ownsSend();
+    if (!isCurrentSend()) return;
+    sendingTextRef.current = true;
+    setSendingAttachments(true);
+    void sendPayload(payload.content, payload.attachments, isCurrentSend)
+      .catch(() => {
+        if (isCurrentSend()) Alert.alert('전송 확인 필요', '메시지 전송 결과를 확인하지 못했습니다. 대화 내용을 확인한 뒤 다시 시도해 주세요.');
+      })
+      .finally(() => {
+        if (isCurrentSend()) { sendingTextRef.current = false; setSendingAttachments(false); }
+      });
+  };
+
+  const handleFailedMessagePress = (message: Message) => {
+    if (message.local_status !== 'failed') return;
+    Alert.alert('전송 실패', '메시지를 보내지 못했습니다.', [
+      { text: '취소', style: 'cancel' },
+      { text: '삭제', style: 'destructive', onPress: () => removeFailedMessage(message.id) },
+      { text: '다시 보내기', onPress: () => resendFailedMessage(message.id) },
+    ]);
+  };
+
   const renderItem = ({ item, index }: { item: Message; index: number }) => {
     const isMe = item.sender_id === myId;
     const isHighlighted = highlightedMessageId === item.id;
-    const unreadReceiptCount = getDirectMessageUnreadCount({
+    const isFailed = item.local_status === 'failed';
+    const unreadReceiptCount = isFailed ? 0 : getDirectMessageUnreadCount({
       isOwn: isMe,
       isRead: item.is_read,
     });
@@ -1817,7 +1871,18 @@ export default function ChatScreen() {
     const messageMeta = (
       <View style={[styles.messageSideMeta, isMe ? styles.messageSideMetaMe : styles.messageSideMetaOther]}>
         <MessageUnreadReceiptBadge count={unreadReceiptCount} />
-        {run.last ? <Text style={styles.timeText}>{formatMessengerTime(item.created_at)}</Text> : null}
+        {isFailed ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="전송 실패, 다시 보내기 또는 삭제"
+            hitSlop={8}
+            onPress={() => handleFailedMessagePress(item)}
+            style={styles.messageSendFailedButton}
+          >
+            <Feather name="rotate-cw" size={11} color="#DC2626" />
+            <Text style={styles.messageSendFailedText}>실패</Text>
+          </Pressable>
+        ) : run.last ? <Text style={styles.timeText}>{formatMessengerTime(item.created_at)}</Text> : null}
       </View>
     );
 
@@ -2668,6 +2733,8 @@ const styles = StyleSheet.create({
   messageSideMetaMe: { alignItems: 'flex-end' },
   messageSideMetaOther: { alignItems: 'flex-start' },
   timeText: { fontSize: 11, color: '#9CA3AF', marginBottom: 2, minWidth: 30 },
+  messageSendFailedButton: { flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: 2 },
+  messageSendFailedText: { fontSize: 10, lineHeight: 13, color: '#DC2626', fontWeight: '800' },
   inputWrapper: {
     backgroundColor: '#fff',
     borderTopWidth: 1,
