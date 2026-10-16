@@ -1,3 +1,4 @@
+import { formatMessengerTime } from '@/lib/messenger-time';
 import { safeDecodeFileName } from '@/lib/validation';
 
 export type GroupChatDisplayRole = 'fc' | 'manager' | 'admin' | string;
@@ -45,9 +46,9 @@ export function normalizeGroupChatMemberSearch(value?: string | null) {
   return String(value ?? '').replace(/\s+/g, '').trim().toLowerCase();
 }
 
+/** Bubble time in Korea time, the same format as 1:1 rooms ("오후 3:05"). */
 export function formatGroupChatTime(iso: string) {
-  const date = new Date(iso);
-  return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  return formatMessengerTime(iso);
 }
 
 export function getGroupChatMemberStatusTone(member: GroupChatMemberLike): GroupChatMemberStatusTone {

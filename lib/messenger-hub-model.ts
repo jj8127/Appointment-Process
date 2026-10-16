@@ -135,10 +135,11 @@ export function groupMessengerPeopleByRole(
     .filter((section) => section.data.length > 0);
 }
 
+/** Unread total for the tab badge. Muted rooms keep their own badge but stay out of the total. */
 export function getMessengerTotalUnread(
   rows: readonly MessengerHubConversation[],
 ): number {
-  return rows.reduce((sum, row) => sum + Math.max(0, row.unreadCount), 0);
+  return rows.reduce((sum, row) => sum + (row.muted ? 0 : Math.max(0, row.unreadCount)), 0);
 }
 
 const safeUnread = (value: number) =>
@@ -458,6 +459,44 @@ export function applyMessengerRoomPreferences(
       leftAt: garaminPreference?.leftAt ?? requestPreference?.leftAt ?? null,
     };
   });
+}
+
+export type MessengerConversationFilter = 'all' | 'unread' | 'group' | 'garamlink';
+
+export const MESSENGER_CONVERSATION_FILTERS: readonly { key: MessengerConversationFilter; label: string }[] = [
+  { key: 'all', label: '전체' },
+  { key: 'unread', label: '안읽음' },
+  { key: 'group', label: '단체방' },
+  { key: 'garamlink', label: '가람Link' },
+];
+
+/** A room shows in the chat list once it has a message, or when the user pinned it. */
+export function hasMessengerConversationActivity(row: MessengerHubConversation): boolean {
+  return row.timestampMs > 0 || Boolean(row.pinnedAt);
+}
+
+export function matchesMessengerConversationFilter(
+  row: MessengerHubConversation,
+  filter: MessengerConversationFilter,
+): boolean {
+  switch (filter) {
+    case 'unread': return row.unreadCount > 0;
+    case 'group': return row.route.kind === 'group';
+    case 'garamlink': return row.sourceLabel === '가람Link';
+    default: return true;
+  }
+}
+
+export function countMessengerConversationFilters(
+  rows: readonly MessengerHubConversation[],
+): Record<MessengerConversationFilter, number> {
+  const counts: Record<MessengerConversationFilter, number> = { all: 0, unread: 0, group: 0, garamlink: 0 };
+  for (const row of rows) {
+    for (const { key } of MESSENGER_CONVERSATION_FILTERS) {
+      if (matchesMessengerConversationFilter(row, key)) counts[key] += 1;
+    }
+  }
+  return counts;
 }
 
 export function isMessengerConversationVisible(row: MessengerHubConversation): boolean {

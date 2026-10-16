@@ -2,10 +2,26 @@ doc_id: FC-APP-MESSENGER-CONTENT
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-10-12
+last_verified: 2026-10-16
 source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversation.tsx + app/notification-settings.tsx + app/muted-conversations.tsx + app/chat.tsx + app/group-chat.tsx + app/request-board-messenger.tsx + lib/messenger-hub-model.ts + lib/messenger-search-model.ts + lib/notification-preferences-api.ts + lib/chat-keyboard-layout.ts + app/board*.tsx + app/notice*.tsx + app/notifications.tsx
 
 # Mobile Playbook: Messenger And Content
+
+## 2026-10-16 메신저 화면 개편 1차 (설계 기준 문서 '가람in 메신저 화면 개편 방향')
+
+- 날짜와 시간은 기기 시간대와 상관없이 한국 시간으로 계산한다(`lib/messenger-time.ts`, 고정 +9시간).
+  - UTC로 설정된 기기에서 오전 9시에 날짜선이 생기던 문제가 없어졌다.
+  - 말풍선 시간은 `오후 3:05` 형식이고, 단체방(`formatGroupChatTime`)도 같은 함수를 쓴다.
+- 1:1과 단체방은 같은 사람이 같은 1분 안에 보낸 메시지를 묶는다(`messengerRunPosition`).
+  - 이름과 프로필은 묶음의 첫 말풍선에, 시간은 마지막 말풍선에만 둔다.
+  - 안 읽은 사람 수는 말풍선마다 그대로 둔다.
+  - 단체방에서 전송 중이거나 실패한 메시지는 묶음 중간이어도 시간을 보여준다.
+- 대화 탭 위에 `전체 · 안읽음 · 단체방 · 가람Link` 칩을 둔다.
+  - 메시지가 한 번도 없는 방은 고정하지 않았으면 대화 탭에서 빼고, 사람 탭에서 시작한다.
+  - 안 읽은 방은 미리보기를 진하게 보여준다.
+- 알림을 끈 방은 자기 배지는 유지하지만 메신저 탭 합계에서 빠진다.
+- 단체방에서 발언 권한이 없는 사람은 입력창 대신 '공지 전용 방' 안내를 본다. 보내기 시도 뒤 뜨던 경고 대신 미리 이유를 보여준다.
+- 1:1 전송 실패는 아직 팝업으로 안내하고, 작성 내용은 입력창에 남긴다. 말풍선 옆 재전송·삭제 방식은 2단계 전송 경로 교체와 함께 바꾼다.
 
 ## 2026-10-15 키보드가 열린 상태의 탭
 

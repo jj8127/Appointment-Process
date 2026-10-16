@@ -221,6 +221,7 @@ describe('Messenger V2 hub model', () => {
       result.conversations[0],
       baseConversation({ key: 'negative', unreadCount: -10 }),
       baseConversation({ key: 'large', unreadCount: 101 }),
+      baseConversation({ key: 'muted', unreadCount: 40, muted: true }),
     ])).toBe(104);
   });
 

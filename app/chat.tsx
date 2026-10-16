@@ -97,7 +97,7 @@ import {
   sortConversationsByLastMessageTime,
 } from '@/lib/messenger-room-ordering';
 import { formatOperationsMessengerName } from '@/lib/messenger-hub-model';
-import { formatMessengerTime, startsMessengerDay } from '@/lib/messenger-time';
+import { formatMessengerTime, messengerRunPosition, startsMessengerDay } from '@/lib/messenger-time';
 import { pickMessengerFiles, pickMessengerPhotos } from '@/lib/messenger-attachment-picker';
 import {
   aggregatePresence,
@@ -1797,10 +1797,13 @@ export default function ChatScreen() {
       isOwn: isMe,
       isRead: item.is_read,
     });
+    // One sender's messages in the same minute form a run: name and avatar on
+    // the first bubble, time on the last (KakaoTalk style).
+    const run = messengerRunPosition(messages, index, (message) => message.sender_id, (message) => message.created_at);
     const messageMeta = (
       <View style={[styles.messageSideMeta, isMe ? styles.messageSideMetaMe : styles.messageSideMetaOther]}>
         <MessageUnreadReceiptBadge count={unreadReceiptCount} />
-        <Text style={styles.timeText}>{formatMessengerTime(item.created_at)}</Text>
+        {run.last ? <Text style={styles.timeText}>{formatMessengerTime(item.created_at)}</Text> : null}
       </View>
     );
 
@@ -1812,18 +1815,21 @@ export default function ChatScreen() {
       <View
         style={[
           styles.msgRow,
+          !run.last && styles.msgRowInRun,
           isMe ? styles.msgRowMe : styles.msgRowOther,
           isHighlighted && styles.msgRowHighlighted,
         ]}
       >
-        {!isMe && (
+        {!isMe && (run.first ? (
           <View style={styles.avatar}>
             <Feather name="user" size={20} color={MUTED} />
           </View>
-        )}
+        ) : (
+          <View style={styles.avatarSpacer} />
+        ))}
 
         <View style={[styles.msgContainer, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}>
-          {!isMe && (
+          {!isMe && run.first && (
             <Text style={styles.senderName}>
               {item.sender_label || headerTitle}
             </Text>
@@ -1843,6 +1849,7 @@ export default function ChatScreen() {
                 style={[
                   styles.bubble,
                   isMe ? styles.bubbleMe : styles.bubbleOther,
+                  !run.first && styles.bubbleInRun,
                   item.message_type === 'image' && {
                     paddingHorizontal: 4,
                     paddingVertical: 4,
@@ -2577,6 +2584,8 @@ const styles = StyleSheet.create({
   anchorLatestButtonPressed: { backgroundColor: '#FFEDD5' },
   anchorLatestButtonText: { color: HANWHA_ORANGE, fontSize: 12, fontWeight: '700' },
   msgRow: { flexDirection: 'row', marginBottom: 12, width: '100%' },
+  // Bubbles inside one sender's run sit close together.
+  msgRowInRun: { marginBottom: 3 },
   msgRowHighlighted: {
     backgroundColor: '#FFF1E8',
     borderRadius: 16,
@@ -2603,6 +2612,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  avatarSpacer: { width: 36, marginRight: 8 },
   senderName: { fontSize: 12, color: MUTED, marginLeft: 2, marginBottom: 4 },
   msgContainer: { flex: 1, minWidth: 0 },
   // Size against the remaining row width and leave room for the timestamp.
@@ -2624,6 +2634,8 @@ const styles = StyleSheet.create({
   },
   bubbleMe: { backgroundColor: HANWHA_ORANGE, borderTopRightRadius: 2 },
   bubbleOther: { backgroundColor: '#ffffff', borderTopLeftRadius: 2, borderWidth: 1, borderColor: '#F3F4F6' },
+  // Only the first bubble of a run points at its sender.
+  bubbleInRun: { borderTopLeftRadius: 16, borderTopRightRadius: 16 },
   // No width: '100%' here: inside the shrink-to-fit bubble Android measured short text as two lines.
   msgText: { fontSize: 15, lineHeight: 22 },
   msgTextMe: { color: '#ffffff', fontWeight: '500' },
