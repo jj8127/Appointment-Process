@@ -1,4 +1,6 @@
-import { BoardApiError, invokeBoardWithDeps } from '../board-api';
+import { BoardApiError, fetchBoardDetail, invokeBoardWithDeps } from '../board-api';
+import { getStoredAppSessionToken } from '../request-board-api';
+import { supabase } from '../supabase';
 
 jest.mock('../supabase', () => ({ supabase: { functions: { invoke: jest.fn() } } }));
 jest.mock('../request-board-api', () => ({ getStoredAppSessionToken: jest.fn() }));
@@ -77,6 +79,30 @@ describe('board read recovery metadata', () => {
       getStoredAppSessionToken: async () => 'fictional-token',
       invoke: async () => ({ data: { ok: true, data: { items: [] } }, error: null }),
     })).resolves.toEqual({ items: [] });
+  });
+
+  it('stamps when the detail attachment URLs were signed so stale URLs can be re-signed', async () => {
+    jest.mocked(getStoredAppSessionToken).mockResolvedValue('fictional-token');
+    jest.mocked(supabase.functions.invoke).mockResolvedValue({
+      data: { ok: true, data: {
+        post: {
+          id: 'fictional-post', categoryId: 'fictional-category', title: '', content: '', authorName: '관리자',
+          authorRole: 'admin', createdAt: '2026-10-16T00:00:00Z', updatedAt: '2026-10-16T00:00:00Z',
+          isPinned: false, isMine: false, viewCount: 0,
+        },
+        attachments: [],
+        reactions: { like: 0, heart: 0, check: 0, smile: 0, myReaction: null },
+        comments: [],
+      } },
+      error: null,
+    } as never);
+    const before = Date.now();
+
+    const detail = await fetchBoardDetail({ role: 'fc', residentId: 'fictional' } as never, 'fictional-post');
+
+    expect(detail.post.id).toBe('fictional-post');
+    expect(detail.attachmentsSignedAt).toBeGreaterThanOrEqual(before);
+    expect(detail.attachmentsSignedAt).toBeLessThanOrEqual(Date.now());
   });
 
   it('requires login without making a request when the signed token is missing', async () => {

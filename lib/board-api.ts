@@ -89,6 +89,8 @@ export type BoardDetail = {
     storagePath: string;
     signedUrl?: string;
   }[];
+  /** Client receive time of `attachments[].signedUrl` (board-detail signs them for 1 hour). */
+  attachmentsSignedAt?: number;
   reactions: {
     like: number;
     heart: number;
@@ -545,8 +547,9 @@ export async function fetchBoardCategories(actor: BoardActor) {
   return invokeBoard<BoardCategory[]>('board-categories-list', { actor });
 }
 
-export async function fetchBoardDetail(actor: BoardActor, postId: string) {
-  return invokeBoard<BoardDetail>('board-detail', { actor, postId });
+export async function fetchBoardDetail(actor: BoardActor, postId: string): Promise<BoardDetail> {
+  const detail = await invokeBoard<BoardDetail>('board-detail', { actor, postId });
+  return { ...detail, attachmentsSignedAt: Date.now() };
 }
 
 export async function createBoardPost(

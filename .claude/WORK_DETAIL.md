@@ -1,5 +1,17 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261016-board-attachment-black-screen"></a>
+## 2026-10-16 게시판 첨부 열기 검은 화면 수정
+
+- 기준: 운영 라인 `feature/messenger-ux-p1-20261015`(`8f9b8da`)에서 분기. 게시판 첨부 파일은 통합 빌드 `integration/local-all-20261016`과 같다.
+- 원인 1(파일): `lib/board-attachment-actions.ts`가 `openExternalUrl` 기본값으로 `WebBrowser.openBrowserAsync`(Android Custom Tab)를 썼다. PDF·HWP·Office 응답은 Custom Tab이 렌더링하지 못해 다운로드만 시작하고 빈(다크 모드에서 검은) 탭이 남는다. 메신저 첨부는 이미 `preferExternalBrowser: true`를 쓰고 있었다. `app/admin-board.tsx` 수정 화면의 기존 첨부도 같은 경로였다.
+- 원인 2(만료): `board-detail`은 첨부 URL을 1시간으로 서명한다. 상세를 열어 둔 채(또는 백그라운드 후 복귀, `refetchOnWindowFocus: false`) 1시간이 지나면 사진 미리보기는 빈 검은 오버레이, 파일은 저장소 오류 페이지가 된다. 수정: `fetchBoardDetail`이 `attachmentsSignedAt`을 기록하고, 열기 전에 `getFreshBoardAttachments`가 50분 이상 지난 경우 상세를 다시 조회한다. 재조회 실패 시 만료 URL로 열지 않고 실패를 알린다. URL이 없거나 안전하지 않을 때 아무 반응 없던 것도 실패 안내로 바꿨다.
+- 원인 3(표시): `components/ImagePreviewModal.tsx`는 이미지 로딩·실패 상태가 없어 큰 사진을 받는 동안이나 실패 시 0.92 검은 오버레이만 보였다. 페이지마다 로딩 표시와 `이미지를 불러올 수 없습니다.`를 추가했다.
+- 원인 4(메모리): RN 0.81 Android `Image`는 `resizeMethod` 기본값 auto에서 로컬 파일만 줄여 읽고 원격 https 이미지는 원본 해상도로 디코딩한다(`ReactImageView.shouldResize`). Android 미리보기는 가상화 없이 모든 장을 한 번에 마운트해 큰 사진 여러 장이면 메모리 부족으로 그리지 못할 수 있다. 미리보기·첨부 썸네일·그리드에 `resizeMethod="resize"`를 지정했다.
+- 원인 5(시작 위치): Android 미리보기의 ScrollView에는 처음 위치 이동이 연결돼 있지 않아(`listRef`는 FlatList 전용) 몇 번째 사진을 눌러도 1번째 사진이 보이고 제목만 "N번째"였다. 실기기(SM-S942N)에서 "10월 원수사 시책(생명보험)"(사진 20장, 14.7MB) 2번째 사진으로 재현. `contentOffset`·`scrollTo`로 누른 사진에서 시작하고, 현재 장과 앞뒤 한 장만 이미지를 그리게 했다.
+- 제보 맥락: 사용자 통화 녹음(로컬 faster-whisper로만 받아 적음)에서 시책 게시글의 사진 열몇 장 중 하나를 크게 보면 검은 화면으로 멈춘다는 제보(갤럭시, 최신 업데이트).
+- 검증: `board-attachment-actions`·`board-read-recovery`·`image-preview-modal-policy` suite에 회귀 추가, tsc·eslint·governance 통과. 실기기 확인은 폰이 PIN 잠금이라 하지 못했다. 배포·OTA·push 없음.
+
 <a id="20261015-ota-4220-msg"></a>
 ## 2026-10-15 메신저 사진·실시간 채널·가족간병 추천인 OTA
 

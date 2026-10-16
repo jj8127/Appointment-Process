@@ -97,6 +97,11 @@ Board/공지/댓글/첨부의 필수 쿼리는 query-result와 board-read contra
 - `policy`는 `시책` 표시명과 sort order 5를 사용합니다.
 - canonical 5종 밖의 legacy category 게시글은 migration에서 `general`로 재배치하고 old category는 inactive 처리합니다.
 
+## 2026-10-16 첨부 서명 URL 재사용 한도
+
+- `board-detail` 첨부 URL은 1시간 서명이다. 모바일 `fetchBoardDetail`은 받은 시각을 `attachmentsSignedAt`으로 남기고, 상세·관리 화면은 첨부를 열기 전 50분 이상 지났으면 상세를 다시 조회한다. 서버 응답 형식과 서명 시간은 바꾸지 않았다.
+- 파일 첨부는 외부 브라우저(`preferExternalBrowser`)로 연다. Android Custom Tab은 PDF·HWP·Office 응답에서 빈 탭만 남긴다.
+
 ## 2026-07-13 actor·automation·attachment 계약
 
 - Board Edge Functions derive the actor from `x-app-session-token` plus the canonical active account/profile. A client `actor` object may be checked for mismatch, but it cannot grant a role or identity.

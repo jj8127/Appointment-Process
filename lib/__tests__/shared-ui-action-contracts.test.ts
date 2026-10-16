@@ -119,7 +119,7 @@ describe('shared UI/action primitive audit', () => {
     expect(copyActionsSource).toContain('Alert.alert');
     expect(deleteActionsSource).toContain('Alert.alert');
     expect(nativeFileActionsSource).toContain('FileSystem.downloadAsync');
-    expect(boardAttachmentActionsSource).toContain('openExternalUrl(signedUrl)');
+    expect(boardAttachmentActionsSource).toContain('openExternalUrl(signedUrl, { preferExternalBrowser: true })');
     expect(boardAttachmentActionsSource).toContain('첨부파일을 열 수 없습니다.');
     expect(boardCommentActionsSource).toContain('댓글 관리');
     expect(boardCommentActionsSource).toContain("style: 'destructive'");

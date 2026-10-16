@@ -48,7 +48,7 @@ import { useAppLogout } from '@/hooks/use-app-logout';
 import { useBoardList } from '@/hooks/use-board-list';
 import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useSession } from '@/hooks/use-session';
-import { openBoardAttachment } from '@/lib/board-attachment-actions';
+import { getFreshBoardAttachments, openBoardAttachment } from '@/lib/board-attachment-actions';
 import { showBoardFeedbackAlert } from '@/lib/board-feedback-alerts';
 import {
   applyBoardReactionUpdate,
@@ -102,6 +102,16 @@ type CommentLikeMutationContext = {
   detailKey: (string | number)[];
   previousDetail?: BoardDetail;
 };
+const toAttachmentPreviewImages = (attachments: BoardDetail['attachments']) =>
+  attachments
+    .filter((item) => item.fileType === 'image' && !!item.signedUrl)
+    .map((item) => ({
+      id: item.id,
+      url: item.signedUrl as string,
+      title: safeDecodeFileName(item.fileName),
+      fileSize: item.fileSize,
+    }));
+
 type PreviewModalState = {
   images: { url: string; title?: string }[];
   initialIndex: number;
@@ -199,6 +209,7 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
         <Image
           source={{ uri }}
           style={styles.attachmentThumbImage}
+          resizeMethod="resize"
           onError={() => setFailed(true)}
         />
       ) : (
@@ -428,18 +439,34 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
     ...fallbackReactions,
     myReaction: null,
   };
-  const modalAttachmentImages = useMemo(
-    () =>
-      modalAttachments
-        .filter((item) => item.fileType === 'image' && !!item.signedUrl)
-        .map((item) => ({
-          id: item.id,
-          url: item.signedUrl as string,
-          title: safeDecodeFileName(item.fileName),
-          fileSize: item.fileSize,
-        })),
-    [modalAttachments],
+  const modalAttachmentImages = useMemo(() => toAttachmentPreviewImages(modalAttachments), [modalAttachments]);
+  const loadFreshAttachments = useCallback(
+    () => getFreshBoardAttachments(modalAttachments, detailData?.attachmentsSignedAt ?? 0, async () => {
+      const result = await refetchDetail();
+      return result.isError ? null : result.data?.attachments;
+    }),
+    [detailData?.attachmentsSignedAt, modalAttachments, refetchDetail],
   );
+  const openAttachmentImagePreview = useCallback(async (attachmentId: string) => {
+    const images = toAttachmentPreviewImages((await loadFreshAttachments()) ?? []);
+    if (images.length === 0) {
+      Alert.alert('오류', '첨부파일을 열 수 없습니다.');
+      return;
+    }
+    setPreviewImage({
+      images: images.map((image) => ({ url: image.url, title: image.title })),
+      initialIndex: Math.max(images.findIndex((image) => image.id === attachmentId), 0),
+    });
+  }, [loadFreshAttachments]);
+  const openFileAttachment = useCallback(async (attachmentId: string) => {
+    const attachments = await loadFreshAttachments();
+    await openBoardAttachment({
+      signedUrl: attachments?.find((item) => item.id === attachmentId)?.signedUrl,
+      openExternalUrl,
+      alert: Alert.alert,
+      logError: logBoardError,
+    });
+  }, [loadFreshAttachments]);
   const modalReactionCounts = {
     like: modalReactions.like,
     heart: modalReactions.heart,
@@ -1415,7 +1442,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                   <Text style={styles.sectionTitle}>첨부파일</Text>
 
                   <View style={styles.attachmentGrid}>
-                    {modalAttachmentImages.map((item, index) => (
+                    {modalAttachmentImages.map((item) => (
                         <Pressable
                           key={item.id}
                           style={({ pressed }) => [
@@ -1423,13 +1450,10 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                             pressed && { opacity: 0.75 },
                           ]}
                           onPress={() => {
-                            setPreviewImage({
-                              images: modalAttachmentImages.map((image) => ({ url: image.url, title: image.title })),
-                              initialIndex: index,
-                            });
+                            void openAttachmentImagePreview(item.id);
                           }}
                         >
-                          <Image source={{ uri: item.url }} style={styles.attachmentGridImage} />
+                          <Image source={{ uri: item.url }} style={styles.attachmentGridImage} resizeMethod="resize" />
                           <Text style={styles.attachmentName} numberOfLines={1}>
                             {item.title}
                           </Text>
@@ -1446,12 +1470,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                           key={item.id}
                           style={styles.attachmentItem}
                           onPress={() => {
-                            void openBoardAttachment({
-                              signedUrl: item.signedUrl,
-                              openExternalUrl,
-                              alert: Alert.alert,
-                              logError: logBoardError,
-                            });
+                            void openFileAttachment(item.id);
                           }}
                         >
                           <View style={styles.attachmentIcon}>

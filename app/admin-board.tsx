@@ -31,6 +31,7 @@ import { useBoardEditorSource } from '@/hooks/use-board-editor-source';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useSession } from '@/hooks/use-session';
+import { openBoardAttachment } from '@/lib/board-attachment-actions';
 import {
   deliverBoardAttachments,
   type BoardAttachmentManifest,
@@ -622,14 +623,10 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
             pressed && { opacity: 0.7 },
           ]}
           onPress={() => {
-            if (item.uri) {
-              openExternalUrl(item.uri).catch(() => {
-                Alert.alert('오류', '첨부파일을 열 수 없습니다.');
-              });
-            }
+            void openBoardAttachment({ signedUrl: item.uri, openExternalUrl, alert: Alert.alert });
           }}
         >
-          <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} />
+          <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} resizeMethod="resize" />
           <View style={{ flex: 1 }}>
             <Text style={styles.attachmentName} numberOfLines={1}>
               {item.fileName}
@@ -678,7 +675,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
             pressed && { opacity: 0.7 },
           ]}
         >
-          <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} />
+          <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} resizeMethod="resize" />
           <View style={{ flex: 1 }}>
             <Text style={styles.attachmentName} numberOfLines={1}>
               {item.fileName}
@@ -907,11 +904,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
                             pressed && { opacity: 0.7 },
                           ]}
                           onPress={() => {
-                            if (file.uri) {
-                              openExternalUrl(file.uri).catch(() => {
-                                Alert.alert('오류', '첨부파일을 열 수 없습니다.');
-                              });
-                            }
+                            void openBoardAttachment({ signedUrl: file.uri, openExternalUrl, alert: Alert.alert });
                           }}
                         >
                           <View style={styles.attachmentIcon}>
