@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const require = createRequire(import.meta.url);
 const { PGlite } = require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
-const migration = await readFile(new URL('../migrations/20261016150000_messages_realtime_signal.sql', import.meta.url), 'utf8');
+const migration = await readFile(new URL('../migrations/20261016145730_messages_realtime_signal.sql', import.meta.url), 'utf8');
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const THREAD_A = id(1), THREAD_B = id(2);
