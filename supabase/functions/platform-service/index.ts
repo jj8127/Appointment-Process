@@ -106,9 +106,11 @@ async function getWithdrawal(request: Request) {
   return json({ok:true,withdrawal:job ? withdrawalResponse(job) : null});
 }
 async function withdrawMember(request: Request, body: Record<string,unknown>) {
-  if(body.confirmed!==true || body.scope!=='all_affiliates' || body.policyVersion!=='2026-10-14'
+  // all_affiliates leaves 모두온 and every service; insurance leaves only 가람in (FC and 가람링크).
+  const scope=body.scope;
+  if(body.confirmed!==true || (scope!=='all_affiliates' && scope!=='insurance') || body.policyVersion!=='2026-10-14'
     || typeof body.idempotencyKey!=='string' || !uuid.test(body.idempotencyKey))
-    return fail('invalid_input','전체 제휴 서비스 탈퇴 안내를 확인해 주세요.');
+    return fail('invalid_input','탈퇴 안내를 확인해 주세요.');
   const operationId=body.idempotencyKey.toLowerCase();
   const token=request.headers.get('x-app-session-token') ?? '';
   if(!token || token.length>8192) throw new Error('invalid_session');
@@ -118,11 +120,22 @@ async function withdrawMember(request: Request, body: Record<string,unknown>) {
   let job=withdrawalJob(await rpc('get_platform_withdrawal_v1',{p_operation_id:operationId,p_session_digest:digest}));
   if(!job) {
     const current=await actor(request,false);
-    job=withdrawalJob(await rpc('begin_platform_withdrawal_v1',{
+    job=withdrawalJob(await rpc(scope==='insurance' ? 'begin_platform_insurance_withdrawal_v1' : 'begin_platform_withdrawal_v1',{
       p_member_id:current.member.id,p_operation_id:operationId,p_session_digest:digest}));
   }
   if(!job || job.operation_id!==operationId) throw new Error('withdrawal_receipt_unverified');
-  return await finishWithdrawal(job,digest);
+  const finished=await finishWithdrawal(job,digest);
+  if(scope!=='insurance') return finished;
+  // The 모두온 account stays: hand back a common-member session for the moved password.
+  const receipt=await finished.json();
+  const {data:member,error:memberError}=await db.from('platform_members').select('id,name,phone,active,fc_id')
+    .eq('id',job.member_id).maybeSingle();
+  const {data:credential,error:credentialError}=await db.from('platform_member_credentials').select('session_version')
+    .eq('member_id',job.member_id).maybeSingle();
+  if(memberError || credentialError) throw new Error('session_unavailable');
+  const memberToken=member?.active && !member.fc_id && typeof member.phone==='string' && credential
+    ? await createPlatformMemberToken(member.phone,member.id,Number(credential.session_version)) : null;
+  return json({...receipt,...(memberToken ? {memberSession:{memberId:member!.id,displayName:member!.name,appSessionToken:memberToken}} : {})});
 }
 async function finishWithdrawal(job: WithdrawalJob,digest: string) {
   const operationId=job.operation_id;

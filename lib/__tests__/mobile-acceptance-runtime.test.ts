@@ -888,6 +888,28 @@ describe('common member signup and login use isolated verified authentication', 
     expect(context.router.dismissTo).not.toHaveBeenCalled();
   });
 
+  it('leaving only 가람in keeps the 모두온 login with the returned member session and retries with the same request', async () => {
+    const withdrawal = (receipt: Record<string, unknown>) => ({
+      platformSessionToken: 'fictional-common-session', appSessionToken: 'fictional-fc-session', withdrawalKey: { current: null as string | null },
+      randomUUID: () => 'fictional-operation', PLATFORM_WITHDRAWAL_VERSION: '2026-10-14',
+      platformRequest: jest.fn(async (..._args: unknown[]): Promise<unknown> => receipt),
+      setShowDeleteConfirm: jest.fn(), appLogout: jest.fn(), loginPlatformMember: jest.fn(async () => undefined),
+      Alert: { alert: jest.fn() }, router: { replace: jest.fn() },
+    });
+    const kept = withdrawal({ ok: true, status: 'completed', memberSession: { memberId: 'synthetic-member', displayName: '가상 회원', appSessionToken: 'fictional-member-token' } });
+    await routeHandler('app/settings.tsx', 'withdrawGaramin', kept)();
+    expect(kept.platformRequest).toHaveBeenCalledWith('withdraw_member',
+      { confirmed: true, scope: 'insurance', policyVersion: '2026-10-14', idempotencyKey: 'fictional-operation' }, 'fictional-common-session');
+    expect(kept.loginPlatformMember).toHaveBeenCalledWith({ id: 'synthetic-member', name: '가상 회원' }, 'fictional-member-token');
+    expect(kept.appLogout).not.toHaveBeenCalled(); expect(kept.router.replace).toHaveBeenCalledWith('/');
+
+    const failed = withdrawal({});
+    failed.platformRequest.mockRejectedValueOnce(new Error('가람링크 확인 실패'));
+    await expect(routeHandler('app/settings.tsx', 'withdrawGaramin', failed)()).rejects.toThrow('가람링크 확인 실패');
+    // A retry after a failed answer reuses the same operation.
+    expect(failed.withdrawalKey.current).toBe('fictional-operation');
+  });
+
   it('confirms the SMS code on its own step, opens the next question only on success and ignores stale answers', async () => {
     const codeContext = (overrides: Record<string, unknown> = {}) => {
       const code = {

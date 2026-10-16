@@ -282,3 +282,11 @@ Read-only preflight found zero catalog/cron dependencies and zero legacy challen
 
 - `check_platform_signup_otp(phone, code_hash)`는 `register_platform_member`와 같은 두 advisory lock(741012, 8102026), 만료, 5회 실패 10분 잠금, 시도 횟수를 공유하고 challenge를 소비하지 않는다. 최종 가입은 같은 코드를 다시 검증한다. 실행 권한은 `service_role`만 가진다.
 - Edge `platform-service`의 `check_signup_otp` 액션이 이 함수를 호출한다. 마이그레이션 `20261016040348_check_platform_signup_otp.sql`, 검증 `supabase/tests/platform-membership-sql.test.mjs`.
+
+## 2026-10-16 서비스별 탈퇴 범위
+
+- `platform_account_withdrawals.scope`: `all_affiliates`(모두온 탈퇴, 회원당 1건)와 `insurance`(가람in만 탈퇴, 진행 중 1건). 가람in을 다시 등록한 뒤 다시 탈퇴할 수 있다.
+- `begin_platform_insurance_withdrawal_v1`: 가입·등록과 같은 잠금 순서로 FC를 닫고, `detach_platform_member_insurance_v1`로 FC에 옮겨 둔 비밀번호를 공통 회원으로 되돌린 뒤(세션 세대 +1) 연결과 가람in 동의·등록 기록을 지운다. 모두온 회원·로그인·다른 서비스 신청·서비스 추천인은 남는다.
+- `erase_platform_withdrawal_v1`: 두 범위 모두 FC를 closure 방식으로 지우고(정산이 참조하는 UUID만 익명으로 남음), `all_affiliates`일 때만 `delete_platform_member`를 부른다.
+- `delete_platform_member`: 정산 기록이 없는 서비스 신청은 삭제하고, 정산된 신청은 익명화해 UUID만 남긴다.
+- FC 행 삭제 트리거(`platform_fc_delete_identity`)는 더 이상 모두온 계정을 탈퇴시키지 않고 연결만 끊는다. 관리자·본부장 계정 삭제는 기존처럼 연결된 회원을 지운다.

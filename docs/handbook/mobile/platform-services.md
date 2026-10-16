@@ -133,3 +133,8 @@ revision-15(2026-10-11): 제휴병원 홈은 빈 검색 조건으로 처음부�
 ## 2026-10-16 가입 인증 코드 확인 요청
 
 - 앱은 `check_signup_otp`(phone, 6자리 code)를 다른 인증 요청과 같은 요청 제한 시간(`PLATFORM_REQUEST_TIMEOUT_MS`)으로 보낸다. 성공해야 가입 화면의 비밀번호 질문이 열리고, 최종 `signup`이 같은 코드를 다시 검증한다.
+
+## 2026-10-16 가람in만 탈퇴
+
+- 보험 계정 설정에서 모두온 회원과 연결된 FC는 `가람in 탈퇴`를 본다. `withdraw_member`(scope `insurance`, 같은 정책 버전·멱등 키)를 보내고, 응답의 `memberSession`으로 `loginPlatformMember`를 호출해 모두온 로그인을 유지한다. 연결되지 않은 FC 계정은 기존 `delete-account` 삭제를 쓴다.
+- 내 정보의 `공통 회원 탈퇴`(scope `all_affiliates`)는 6개 서비스(가족간병·보험·통신·렌탈·자동차·제휴병원)를 모두 지운다. 제휴병원은 회원 데이터가 없는 지역 안내다.

@@ -529,7 +529,10 @@ async function withdrawalFixture(options={}) {
     Error,URL,AbortSignal,uuid:/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     actor:async(_request,requireConsent)=>{calls.push(['actor',requireConsent]);if(options.resume)throw new Error('revoked session');return {member:{id:member}};},
     sha256Hex:async()=>digest,
-    db:{from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{phone:options.sourcePhone ?? '01000000000'},error:null})})})})},getEnv:(name)=>name==='REQUEST_BOARD_PASSWORD_SYNC_URL' ? 'https://synthetic.invalid/api/auth/sync-password' : 'synthetic-secret',
+    db:{from:(table)=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:table==='platform_members'
+      ? {id:member,name:'가상 회원',phone:'01000000000',active:true,fc_id:null}
+      : table==='platform_member_credentials' ? {session_version:1} : {phone:options.sourcePhone ?? '01000000000'},error:null})})})})},
+    createPlatformMemberToken:async(phone,id,version)=>{calls.push(['member-token',phone,id,version]);return 'fictional-member-token';},getEnv:(name)=>name==='REQUEST_BOARD_PASSWORD_SYNC_URL' ? 'https://synthetic.invalid/api/auth/sync-password' : 'synthetic-secret',
     createRequestBoardAccountRetirementAssertion:async(upstream,id,phone)=>{calls.push(['assertion',upstream,id,phone]);return 'synthetic-domain-assertion';},
     fetch:async(url,init)=>{
       calls.push(['fetch',String(url),JSON.parse(init.body)]);
@@ -542,7 +545,7 @@ async function withdrawalFixture(options={}) {
     rpc:async(name,args)=>{
       calls.push([name,args]);
       if(name==='get_platform_withdrawal_v1')return job;
-      if(name==='begin_platform_withdrawal_v1'){assert.equal(args.p_member_id,member);job={...initial};return job;}
+      if(name==='begin_platform_withdrawal_v1'||name==='begin_platform_insurance_withdrawal_v1'){assert.equal(args.p_member_id,member);job={...initial};return job;}
       if(name==='erase_platform_withdrawal_v1'){job={...job,local_erased:true,cleanup_receipt:options.cleanupReceipt ?? null,preserved_company_role:args.p_preserved_company_role};return job;}
       if(name==='get_platform_withdrawal_cleanup_v1')return {batch_ids:messengerPending ? [batch] : [],pending:messengerPending};
       if(name==='complete_platform_withdrawal_v1'){job={...job,completed:true};return job;}
@@ -578,6 +581,20 @@ test('new withdrawal requires explicit scope/version, uses signed identity and c
   const before=fixture.calls.length;
   assert.equal((await (await fixture.withdraw(fixture.request,fixture.body)).json()).status,'completed');
   assert.equal(fixture.calls.length,before+1);
+});
+
+test('leaving only 가람in retires the FC and 가람링크 accounts and returns a common-member session',async()=>{
+  const fixture=await withdrawalFixture({fc:true});
+  const result=await (await fixture.withdraw(fixture.request,{...fixture.body,scope:'insurance'})).json();
+  assert.deepEqual(result,{ok:true,operationId:fixture.operation,status:'completed',deleted:true,cleanupPending:false,
+    memberSession:{memberId:fixture.member,displayName:'가상 회원',appSessionToken:'fictional-member-token'}});
+  assert.equal(fixture.calls.some(([name])=>name==='begin_platform_insurance_withdrawal_v1'),true);
+  assert.equal(fixture.calls.some(([name])=>name==='begin_platform_withdrawal_v1'),false);
+  assert.equal(fixture.calls.some(([name,url])=>name==='fetch' && String(url).endsWith('/api/auth/retire-affiliate-account')),true);
+  assert.deepEqual(fixture.calls.find(([name])=>name==='member-token'),['member-token','01000000000',fixture.member,1]);
+  // The 모두온 withdrawal keeps its receipt shape without a member session.
+  const all=await withdrawalFixture({fc:true});
+  assert.equal('memberSession' in await (await all.withdraw(all.request,all.body)).json(),false);
 });
 
 test('withdrawal read resumes only an original session digest without actor authority or mutation',async()=>{

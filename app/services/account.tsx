@@ -85,7 +85,7 @@ export default function ServiceAccount() {
     if (deletionCheckFailed) { void checkWithdrawal(); return; }
     const owns = captureAppSessionOwner();
     const mounted = beginDelete();
-    Alert.alert('모두온·제휴 계정 탈퇴', `모두온 공통 회원과 연결된 일반 회원·보험 FC·가람링크 계정의 개인정보 및 로그인 정보를 삭제하고 접속을 종료합니다. 관리자·본부장 등 회사 업무 계정은 유지됩니다. 거래·정산 기록과 추천 관계를 연결하는 식별자는 남습니다.${deletePending ? '\n아직 완료되지 않은 탈퇴 요청을 이어서 확인합니다.' : ''}\n진행할까요?`, [
+    Alert.alert('모두온·제휴 계정 탈퇴', `모두온 계정과 가족간병·보험(가람in)·통신·렌탈·자동차·제휴병원 등 모든 서비스의 개인정보와 로그인 정보, 가람링크 계정을 삭제하고 접속을 종료합니다. 가람in만 탈퇴하려면 보험 계정 설정의 가람in 탈퇴를 이용하세요. 관리자·본부장 등 회사 업무 계정은 유지됩니다. 거래·정산 기록과 추천 관계를 연결하는 식별자는 남습니다.${deletePending ? '\n아직 완료되지 않은 탈퇴 요청을 이어서 확인합니다.' : ''}\n진행할까요?`, [
       { text: '취소', style: 'cancel' },
       { text: '탈퇴', style: 'destructive', onPress: () => {
         if (!owns() || !mounted() || deleting.current || consentPending.current) return; deleting.current = true; setDeleteLoading(true); setDeleteError(null);

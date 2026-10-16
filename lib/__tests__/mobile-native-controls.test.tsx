@@ -401,9 +401,11 @@ it.each(['web', 'android'])('group chat avoids a refresh wrapper on web and pres
 
 it('M10 account delete confirmation explains retained history and cancel performs no write', async () => {
   const file = ts.createSourceFile('settings.tsx', readFileSync(join(root, 'app/settings.tsx'), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  let callback = ''; let modal = '';
+  let callback = ''; let modal = ''; let title = ''; let message = '';
   function visit(node: ts.Node) {
     if (ts.isVariableDeclaration(node) && node.name.getText(file) === 'handleDelete') callback = node.initializer!.getText(file);
+    if (ts.isVariableDeclaration(node) && node.name.getText(file) === 'deleteTitle') title = node.initializer!.getText(file);
+    if (ts.isVariableDeclaration(node) && node.name.getText(file) === 'deleteMessage') message = node.initializer!.getText(file);
     if (ts.isJsxElement(node) && node.openingElement.tagName.getText(file) === 'Modal') modal = node.getText(file);
     ts.forEachChild(node, visit);
   }
@@ -412,10 +414,19 @@ it('M10 account delete confirmation explains retained history and cancel perform
   const execute = (code: string, dependencies: Record<string, unknown>) => new Function('exports', ...Object.keys(dependencies), ts.transpileModule(code, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2020 } }).outputText)({}, ...Object.values(dependencies));
   const open = execute(`return (${callback});`, { canDeleteAccount: true, residentId: 'synthetic-actor', appSessionToken: 'synthetic-session', Alert: { alert: jest.fn() }, setShowDeleteConfirm }) as () => void;
   open(); expect(setShowDeleteConfirm).toHaveBeenCalledWith(true);
+  // An FC linked to a 모두온 member leaves only 가람in; an unlinked FC deletes the whole account.
+  const copy = (garaminOnly: boolean) => ({
+    garaminOnly,
+    deleteTitle: execute(`return (${title});`, { garaminOnly }) as string,
+    deleteMessage: execute(`return (${message});`, { garaminOnly }) as string,
+  });
+  expect(copy(true)).toEqual({ garaminOnly: true, deleteTitle: '가람in 탈퇴',
+    deleteMessage: expect.stringContaining('모두온 계정과 다른 서비스는 그대로예요') });
   const Modal = execute(`return function Render() { return (${modal}); };`, {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     require: (name: string) => { if (name === 'react/jsx-runtime') return require('react/jsx-runtime'); throw new Error(name); },
     Modal: 'Modal', View: 'View', Text: 'Text', Pressable: 'Pressable', styles: {}, showDeleteConfirm: true, deleting: false, setShowDeleteConfirm, confirmDelete,
+    ...copy(false),
   }) as () => ReactElement;
   let renderer!: Renderer;
   await act(async () => { renderer = create(createElement(Modal)); });
@@ -448,6 +459,8 @@ it.each([
     '@/hooks/use-bottom-nav-animation': { useBottomNavAnimation: () => ({ scrollHandler: jest.fn(), animatedStyle: {} }) },
     '@/hooks/use-my-referral-code': { useMyReferralCode: () => ({ data: null, isLoading: false, error: null }) },
     '@/hooks/use-session': { useSession: () => session },
+    'expo-crypto': { randomUUID: jest.fn() },
+    '@/lib/platform-api': { PLATFORM_WITHDRAWAL_VERSION: '2026-10-14', platformRequest: jest.fn() },
     '@/lib/bottom-navigation': { resolveBottomNavActiveKey, resolveBottomNavPreset },
     '@/lib/referral-share': { buildReferralShareText: jest.fn() },
     '@/lib/staff-identity': { getAccountRoleLabel: () => '합성 역할' },
@@ -589,7 +602,8 @@ it.each(['fc', 'member'])('common withdrawal remains available with expired cons
   expect(buttons[0]).toMatchObject({ text: '취소', style: 'cancel' });
   expect(request).not.toHaveBeenCalled();
   expect(alert.mock.calls[0][1]).toContain('추천 관계를 연결하는 식별자는 남습니다');
-  expect(alert.mock.calls[0][1]).toContain('일반 회원·보험 FC·가람링크 계정');
+  expect(alert.mock.calls[0][1]).toContain('가족간병·보험(가람in)·통신·렌탈·자동차·제휴병원');
+  expect(alert.mock.calls[0][1]).toContain('가람링크 계정');
   expect(alert.mock.calls[0][1]).toContain('관리자·본부장 등 회사 업무 계정은 유지됩니다');
   await act(async () => { buttons[1].onPress!(); buttons[1].onPress!(); });
   expect(request).toHaveBeenCalledTimes(1);

@@ -14773,3 +14773,13 @@ Verification:
 - Checks: selector suite (safe-area mock added), signup/stack suites, keyboard contract. Baseline note: `exam-flow-contract`, `exam-cancellation-mobile-callers`, `exam-bundle-decision-contract` fail identically at `d9455e5` before this change.
 
 - 2026-10-16 paired phone, local release build of `c26c112` (OTA off, same signing key, user's own login): 모두온 signup advanced name → 다음 → phone → `인증 코드 받기` (no further SMS sent); the exit alert showed the existing two-button design. 가람in additional info: consent → `시작하기` opened the 소속 sheet, 소속 → 통신사 → 자격증 chained in one sheet, `선택 완료` → email → `다음` → domain sheet → referral question focused. Every sheet's last option and button sat above the navigation bar. Stopped before referral search (production FC names) and before saving.
+
+## <a id="20261016-service-scoped-withdrawal"></a> 2026-10-16 Service-scoped withdrawal
+
+- Rule from the user: leaving 모두온 removes all six services; leaving one service removes only that service. For 가람in that means the information 가람in collected plus the FC and 가람링크 accounts.
+- Before: the 모두온 withdrawal only closed FC/가람링크 and anonymized other applications; deleting the FC account (settings → 계정 삭제) fired `platform_fc_delete_identity`, which withdrew the whole 모두온 member and wiped other service applications.
+- Migration `20261016090000_platform_insurance_only_withdrawal.sql`: withdrawal `scope`, partial unique indexes, `detach_platform_member_insurance_v1` (moves the enrolled password back, session generation +1), `begin_platform_insurance_withdrawal_v1`, scope-aware `erase_platform_withdrawal_v1`, `delete_platform_member` deleting unsettled applications, FC delete trigger detaching instead of withdrawing.
+- Edge `withdraw_member` accepts `scope: 'insurance'` and returns `memberSession` (common-member token from the moved credential); the rest of the job (가람링크 retirement, closure, cleanup, retry/drain) is shared.
+- App: `app/settings.tsx` shows `가람in 탈퇴` for members linked to 모두온 and signs back in with `memberSession`; `app/services/account.tsx` alert lists all six services.
+- Checks: `platform-membership-sql` 27/27 (new scoped withdrawal case; mapping case updated to the detach contract), Edge handlers 37/37 (new insurance case), app suites, `deno check` (only the two pre-existing `WithdrawalJob | null` errors), TypeScript, ESLint.
+- Not done: production migration and Edge deploy (await approval); per-service withdrawal for the five services without their own accounts.
