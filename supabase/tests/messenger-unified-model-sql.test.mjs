@@ -288,6 +288,21 @@ test('only service_role can touch unified messenger tables and functions', async
   } finally { await db.close(); }
 });
 
+test('rehearsal script refuses unmarked databases and runs end to end on a marked copy', async () => {
+  const rehearsal = await readFile(new URL('../../scripts/ops/messenger-stage1-rehearsal.sql', import.meta.url), 'utf8');
+  const db = await fixture();
+  try {
+    await assert.rejects(db.exec(rehearsal), /not a rehearsal database/);
+    assert.equal((await one(db, 'select count(*)::int n from messenger_messages')).n, 0, 'nothing ran before the guard');
+    await db.exec('create table messenger_rehearsal_marker (restored_at timestamptz primary key default now()); insert into messenger_rehearsal_marker default values;');
+    await db.exec(rehearsal);
+    assert.equal((await one(db, 'select count(*)::int n from messenger_messages')).n, 6);
+    assert.equal((await one(db, "select count(*)::int n from messenger_messages where content like 'rehearsal%'")).n, 0, 'probe rolled back');
+    assert.equal((await one(db, "select count(*)::int n from messages where content like 'rehearsal%'")).n, 0, 'legacy probe rolled back');
+    assert.equal((await db.query('select mirrored from rehearsal_probe')).rows[0].mirrored, 1, 'the probe was mirrored before the rollback');
+  } finally { await db.close(); }
+});
+
 test('GaramLink import merges people by phone and keeps one room per pair', async () => {
   const db = await fixture();
   try {
