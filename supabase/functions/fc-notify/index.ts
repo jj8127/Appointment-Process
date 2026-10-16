@@ -1382,6 +1382,21 @@ function parseDirectMessageCursor(value: unknown): Date | null {
   return parsed;
 }
 
+// The public broadcast channel that says "this conversation changed". Its name
+// is an HMAC of the thread id kept in the database, so only participants learn
+// it. A failure only costs the realtime hint: the room keeps its timer refresh.
+async function loadDirectMessageRealtimeTopic(threadId: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.rpc('messenger_direct_realtime_topic_v1', {
+      p_thread_id: threadId,
+    });
+    if (error) return null;
+    return typeof data === 'string' && /^dm-[0-9a-f]{64}$/.test(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 function latestDirectMessageChange(rows: DirectMessageRow[]): string | null {
   let latest: number | null = null;
   for (const row of rows) {
@@ -4529,10 +4544,13 @@ serve(async (req: Request) => {
         : null;
       let currentQueryRows: DirectMessageRow[];
       let legacyQueryRows: DirectMessageRow[];
+      let realtimeTopic: string | null;
       try {
-        [currentQueryRows, legacyQueryRows] = await Promise.all([
+        [currentQueryRows, legacyQueryRows, realtimeTopic] = await Promise.all([
           collectCurrentMessageRows({ withChangedAt: true, changedSince }),
           collectLegacyMessageRows({ withChangedAt: true, changedSince }),
+          // Only a full load (opening the room) hands out the signal channel.
+          since ? Promise.resolve(null) : loadDirectMessageRealtimeTopic(resolution.threadId),
       ]);
       } catch {
         return err('Direct message lookup failed', 500);
@@ -4632,6 +4650,7 @@ serve(async (req: Request) => {
         mode: since ? 'changes' : 'full',
         deleted_ids: deletedIds,
         cursor,
+        realtime_topic: realtimeTopic,
       });
     }
 
