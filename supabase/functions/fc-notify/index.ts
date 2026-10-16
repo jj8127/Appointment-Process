@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { startServerTiming, withServerTiming, type ServerTiming } from '../_shared/server-timing.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   attachChatSummariesToContacts,
@@ -3116,6 +3117,16 @@ async function resolveDirectCounterpartyFromTarget(targetId?: string | null): Pr
 
 type DirectCounterpartyResolution = Awaited<ReturnType<typeof resolveActiveDirectCounterparty>>;
 
+function fetchDirectConversationProfile(fcId: string) {
+  return supabase
+    .from('fc_profiles')
+    .select('id,phone,name,affiliation,signup_completed,is_manager_referral_shadow')
+    .eq('id', fcId)
+    .eq('signup_completed', true)
+    .eq('is_manager_referral_shadow', false)
+    .maybeSingle();
+}
+
 async function resolveGaraminDirectConversation(input: {
   actor: FcNotifyAppActor;
   conversationId?: string | null;
@@ -3125,12 +3136,17 @@ async function resolveGaraminDirectConversation(input: {
   let fcId: string | null = null;
   let thread: DirectConversationThreadRow | null = null;
   let counterpartyResult: DirectCounterpartyResolution | null = null;
+  // Each query is a round trip to the database region, so independent lookups
+  // run together: the thread comes with its conversation, and the FC profile is
+  // read while the counterparty is checked.
+  let profileRequest: ReturnType<typeof fetchDirectConversationProfile> | null = null;
   if (input.conversationId) {
+    let embeddedFcId: string | null = null;
     const { data: directThread, error: threadError } = await supabase
       .from('garamin_direct_threads')
-      .select('id,legacy_conversation_id,counterparty_role,counterparty_actor_id')
+      .select('id,legacy_conversation_id,counterparty_role,counterparty_actor_id,conversation:garamin_direct_conversations(id,fc_id)')
       .eq('id', input.conversationId)
-      .maybeSingle();
+      .maybeSingle<DirectConversationThreadRow & { conversation?: unknown }>();
     if (threadError) {
       return {
         ok: false,
@@ -3139,7 +3155,20 @@ async function resolveGaraminDirectConversation(input: {
       };
     }
     if (directThread?.id) {
-      thread = directThread as DirectConversationThreadRow;
+      const embedded = directThread.conversation;
+      if (
+        isRecord(embedded) &&
+        embedded.id === directThread.legacy_conversation_id &&
+        typeof embedded.fc_id === 'string'
+      ) {
+        embeddedFcId = embedded.fc_id;
+      }
+      thread = {
+        id: directThread.id,
+        legacy_conversation_id: directThread.legacy_conversation_id,
+        counterparty_role: directThread.counterparty_role,
+        counterparty_actor_id: directThread.counterparty_actor_id,
+      } as DirectConversationThreadRow;
     } else {
       if (input.existingCanonicalOnly) {
         return {
@@ -3203,26 +3232,32 @@ async function resolveGaraminDirectConversation(input: {
       }
       thread = matchingThread as DirectConversationThreadRow;
     }
-    const { data: legacyConversation, error: legacyError } = await supabase
-      .from('garamin_direct_conversations')
-      .select('id,fc_id')
-      .eq('id', thread.legacy_conversation_id)
-      .maybeSingle();
-    if (legacyError) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation lookup failed',
-      };
+    let threadFcId = embeddedFcId;
+    if (!threadFcId) {
+      const { data: legacyConversation, error: legacyError } = await supabase
+        .from('garamin_direct_conversations')
+        .select('id,fc_id')
+        .eq('id', thread.legacy_conversation_id)
+        .maybeSingle();
+      if (legacyError) {
+        return {
+          ok: false,
+          status: 500,
+          message: 'Direct conversation lookup failed',
+        };
+      }
+      threadFcId = typeof legacyConversation?.fc_id === 'string' ? legacyConversation.fc_id : null;
     }
-    if (!legacyConversation?.fc_id) {
+    if (!threadFcId) {
       return {
         ok: false,
         status: 404,
         message: 'Direct conversation not found',
       };
     }
-    fcId = legacyConversation.fc_id;
+    fcId = threadFcId;
+    // Read only; used below only after the access check passes.
+    profileRequest = fetchDirectConversationProfile(threadFcId);
     counterpartyResult = await resolveActiveDirectCounterparty({
       role: thread.counterparty_role,
       actorId: thread.counterparty_actor_id,
@@ -3230,7 +3265,7 @@ async function resolveGaraminDirectConversation(input: {
     if (counterpartyResult.ok === false) return counterpartyResult;
     if (
       !canAccessDirectConversation(input.actor, {
-      fcActorId: legacyConversation.fc_id,
+      fcActorId: threadFcId,
       counterparty: counterpartyResult.counterparty,
       })
     ) {
@@ -3300,13 +3335,8 @@ async function resolveGaraminDirectConversation(input: {
     };
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from('fc_profiles')
-    .select('id,phone,name,affiliation,signup_completed,is_manager_referral_shadow')
-    .eq('id', fcId)
-    .eq('signup_completed', true)
-    .eq('is_manager_referral_shadow', false)
-    .maybeSingle();
+  const { data: profile, error: profileError } = await (profileRequest ??
+    fetchDirectConversationProfile(fcId));
   if (profileError) {
     return {
       ok: false,
@@ -3945,6 +3975,12 @@ async function fetchDirectMessageContextSide(input: {
 }
 
 serve(async (req: Request) => {
+  const timing = startServerTiming();
+  const response = await handleFcNotifyRequest(req, timing);
+  return withServerTiming(response, timing);
+});
+
+async function handleFcNotifyRequest(req: Request, timing: ServerTiming): Promise<Response> {
   // Preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -3963,6 +3999,7 @@ serve(async (req: Request) => {
   } catch {
     return err('Invalid JSON', 400);
   }
+  timing.mark('parse');
 
   let body: Payload;
   let authMode: 'public' | 'service' | 'app';
@@ -3992,14 +4029,27 @@ serve(async (req: Request) => {
       body = rawBody as unknown as Payload;
     }
   } else {
-    const sessionResult = await requireAppSessionFromRequest(req);
+    // The account lookup runs alongside the session revocation check; its result
+    // is used only if the session is accepted.
+    let actorRequest: Promise<FcNotifyActorResolution> | null = null;
+    const sessionResult = await requireAppSessionFromRequest(req, (payload) => {
+      actorRequest = resolveFcNotifyAppActor(payload).catch(
+        (error: unknown): FcNotifyActorResolution => ({
+          ok: false,
+          status: 500,
+          message: error instanceof Error ? error.message : 'Actor lookup failed',
+        }),
+      );
+    });
     if (sessionResult.ok === false) {
       return err(sessionResult.message, sessionResult.status);
     }
-    const actorResult = await resolveFcNotifyAppActor(sessionResult.session);
+    timing.mark('session');
+    const actorResult = await (actorRequest ?? resolveFcNotifyAppActor(sessionResult.session));
     if (actorResult.ok === false) {
       return err(actorResult.message, actorResult.status);
     }
+    timing.mark('actor');
     const policyResult = buildAppFcNotifyPayload(rawBody, actorResult.actor);
     if (policyResult.ok === false) {
       return err(policyResult.error, policyResult.status);
@@ -4448,6 +4498,7 @@ serve(async (req: Request) => {
     if (resolution.ok === false) {
       return err(resolution.message, resolution.status);
     }
+    timing.mark('conversation');
 
     const identity = buildDirectMessageIdentity({
       actor: appActor,
@@ -4555,6 +4606,7 @@ serve(async (req: Request) => {
       } catch {
         return err('Direct message lookup failed', 500);
       }
+      timing.mark('rows');
 
       const cursor = latestDirectMessageChange([...currentQueryRows, ...legacyQueryRows]) ??
         (since ? since.toISOString() : null);
@@ -4630,6 +4682,7 @@ serve(async (req: Request) => {
       } catch (error) {
         return messengerAttachmentErrorResponse(error);
       }
+      timing.mark('attachments');
 
       return ok({
         ok: true,
@@ -6695,4 +6748,4 @@ serve(async (req: Request) => {
       rejected: delivery.rejected,
     }),
   });
-});
+}
