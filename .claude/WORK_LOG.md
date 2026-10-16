@@ -2,7 +2,7 @@
 
 ## 2026-10-16 관리자 web 메뉴·검색·브랜드 정리와 처리·다운로드·개인정보 조회 기록
 
-운영 계열 `deploy/admin-web-ux-20261015` 위 `feature/admin-web-ux-r2-20261016`에서 진행했다. 메뉴를 업무 단위로 묶고 공지사항 메뉴를 추가했으며 에이전트 룸은 개발자 계정 전용(메뉴·페이지·API)으로 제한했다. 헤더 전체 FC 검색, 브랜드 주황 단일값, 페이지 제목·용어를 통일했다. append-only `admin_audit_events` migration과 처리·엑셀 다운로드·주민번호 조회 기록, 처리 이력 화면을 추가했다. migration은 로컬 PGlite에서만 검증했고 운영 DB 적용·push·배포는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261016-admin-web-ux-r2-audit)
+운영 계열 `deploy/admin-web-ux-20261015` 위 `feature/admin-web-ux-r2-20261016`에서 진행했다. 메뉴를 업무 단위로 묶고 공지사항 메뉴를 추가했으며 에이전트 룸은 개발자 계정 전용(메뉴·페이지·API)으로 제한했다. 헤더 전체 FC 검색, 브랜드 주황 단일값, 페이지 제목·용어를 통일했다. append-only `admin_audit_events` migration과 처리·엑셀 다운로드·주민번호 조회 기록, 처리 이력 화면을 추가했다. migration은 로컬 PGlite 검증 후 사용자가 운영 SQL Editor에서 적용했고(이력 미기록), 운영 핫픽스 `6c19783`을 포함한 `f0dfa73`으로 배포했다(`dpl_2KZ2XuBxLgEjra6U9iX5d7cUwWKY`). push는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261016-admin-web-ux-r2-audit)
 
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
 
