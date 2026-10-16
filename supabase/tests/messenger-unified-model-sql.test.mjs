@@ -16,6 +16,7 @@ const stage1FinishMigration = await readFile(new URL('../migrations/202610161102
 // PGlite has no storage schema: the bucket part is checked as text.
 const [stage1FinishFunctions, stage1FinishStorage] = stage1FinishMigration.split('-- storage --');
 const headquartersShadowFix = await readFile(new URL('../migrations/20261016120000_messenger_headquarters_manager_shadow.sql', import.meta.url), 'utf8');
+const mirrorNewRooms = await readFile(new URL('../migrations/20261016111950_messenger_mirror_new_rooms.sql', import.meta.url), 'utf8');
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const FC = id(1), MANAGER = id(2), ADMIN = id(3), DEVELOPER = id(4), DESIGNER_FC = id(5);
@@ -108,6 +109,7 @@ async function fixture() {
     await db.exec(garamLinkSyncFunctions);
     await db.exec(stage1FinishFunctions);
     await db.exec(headquartersShadowFix);
+    await db.exec(mirrorNewRooms);
     await db.exec(seed);
     return db;
   } catch (error) {
@@ -685,6 +687,7 @@ test('rollback levels detach the legacy tables and then remove only stage-1 obje
     await db.exec(garamLinkSyncFunctions);
     await db.exec(stage1FinishFunctions);
     await db.exec(headquartersShadowFix);
+    await db.exec(mirrorNewRooms);
     assert.equal((await one(db, 'select messenger_daily_sync_v1() r')).r.ok, true);
   } finally { await db.close(); }
 });
@@ -702,5 +705,34 @@ test('a manager whose affiliation is only on the referral shadow profile still j
       join messenger_orgs o on o.id = m.org_id where o.slug like 'garam-hq-%' order by o.slug`);
     assert.deepEqual(members, [{ slug: 'garam-hq-7', role: 'manager' }], 'a shadow profile without a manager account is ignored');
     assert.equal((await one(db, "select count(*)::int n from messenger_sync_issues where reason='headquarters_unknown' and resolved_at is null")).n, 0);
+  } finally { await db.close(); }
+});
+
+test('a 1:1 thread or group room created after the backfill is mirrored from its first message', async () => {
+  const db = await fixture();
+  try {
+    await one(db, 'select messenger_backfill_v1() r');
+    const NEW_THREAD = id(970);
+    await call(db, `insert into garamin_direct_threads(id, legacy_conversation_id, counterparty_role, counterparty_actor_id)
+      values ($1, $2, 'developer', $3)`, [NEW_THREAD, CONVERSATION, DEVELOPER]);
+    await call(db, `insert into messages(id, sender_id, receiver_id, content, sender_actor_id, thread_id, created_at)
+      values ($1, $2, $3, 'first in new room', $4, $5, '2026-10-16T11:17:26Z')`, [id(971), PHONE.fc, PHONE.developer, FC, NEW_THREAD]);
+    const room = await conversationFor(db, 'garamin_direct_thread', NEW_THREAD);
+    assert.ok(room, 'the new thread is mapped by its first message');
+    await call(db, `insert into messages(id, sender_id, receiver_id, content, sender_actor_id, thread_id, created_at)
+      values ($1, $2, $3, 'reply in new room', $4, $5, '2026-10-16T11:17:28Z')`, [id(972), PHONE.developer, PHONE.fc, DEVELOPER, NEW_THREAD]);
+    assert.deepEqual((await seqs(db, room)).map((m) => [Number(m.seq), m.content]), [[1, 'first in new room'], [2, 'reply in new room']]);
+    const developer = await actor(db, 'admin', DEVELOPER);
+    assert.equal((await seqs(db, room))[1].sender_actor_id, developer);
+
+    const NEW_ROOM = id(980);
+    await call(db, "insert into group_chat_rooms values ($1, 'test-room', 'Test room', now())", [NEW_ROOM]);
+    await call(db, `insert into group_chat_messages(id, room_id, sender_actor_id, sender_role, sender_phone, content)
+      values ($1, $2, $3, 'manager', $4, 'hello new room')`, [id(981), NEW_ROOM, `manager:${PHONE.manager}`, PHONE.manager]);
+    const group = await conversationFor(db, 'group_chat_room', NEW_ROOM);
+    assert.deepEqual((await seqs(db, group)).map((m) => m.content), ['hello new room']);
+
+    assert.equal((await one(db, "select count(*)::int n from messenger_sync_issues where reason like 'mirror_%'")).n, 0);
+    assert.equal((await one(db, 'select messenger_reconcile_v1() r')).r.ok, true);
   } finally { await db.close(); }
 });
