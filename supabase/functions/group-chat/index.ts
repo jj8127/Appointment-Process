@@ -1,3 +1,4 @@
+import { runAfterResponse } from '../_shared/run-after-response.ts';
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
@@ -1680,6 +1681,8 @@ async function notifyRecipients(input: {
   eventKey: string;
   members?: GroupChatMember[];
   skipNativePush?: boolean;
+  /** Answer once the inbox rows are saved and send the push after the response. */
+  deferNativePush?: boolean;
 }): Promise<GroupChatNotificationSummary> {
   const members = input.members ?? await listEligibleMembers();
   const immutableActorIds = Array.from(new Set(
@@ -1820,6 +1823,39 @@ async function notifyRecipients(input: {
     };
   }
 
+  if (input.deferNativePush) {
+    // The inbox rows are saved; token lookup and the Expo send run after the
+    // response so a 700-member fan-out never holds the sender's answer.
+    runAfterResponse(
+      () => sendGroupChatNativePush(input, recipients, notificationInsert),
+      () => console.warn('[group-chat] deferred push failed', { reason: 'deferred_push_failed' }),
+    );
+    return {
+      ok: true,
+      status: 'inbox_only',
+      stored: true,
+      push_status: 'queued',
+      recipient_count: recipients.length,
+      notification_count: notificationInsert.inserted_count,
+      push_token_count: 0,
+      push_accepted_count: 0,
+      push_rejected_count: 0,
+      delivery: {
+        notificationStored: true,
+        pushStatus: 'not_attempted',
+        retryable: false,
+        notificationIds: Array.from(notificationInsert.ids_by_actor.values()),
+      },
+    };
+  }
+  return sendGroupChatNativePush(input, recipients, notificationInsert);
+}
+
+async function sendGroupChatNativePush(
+  input: { roomId: string; message: MessageRow },
+  recipients: GroupChatMember[],
+  notificationInsert: NotificationInsertSummary,
+): Promise<GroupChatNotificationSummary> {
   const nativePushResolution = await resolveNativePushRecipients(recipients);
   if (!nativePushResolution.ok) {
     return {
@@ -2292,6 +2328,7 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
       eventKey,
       members,
       skipNativePush: attachmentCommit?.replayed === true || textReplayed,
+      deferNativePush: true,
     });
   } catch {
     console.warn('[group-chat] notification fanout failed', {

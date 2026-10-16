@@ -6,6 +6,7 @@ import {
   buildInternalChatList,
   shouldIncludeInternalChatParticipant,
 } from '../_shared/internal-chat.ts';
+import { runAfterResponse } from '../_shared/run-after-response.ts';
 import { filterManagerTokensForNotification } from '../_shared/notification-delivery-policy.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import {
@@ -4772,97 +4773,95 @@ serve(async (req: Request) => {
         });
       }
 
-      const recipientPhones = Array.from(
-        new Set(
-          retainedNotifications
-            .filter((row) => expoEligibleNotificationIds.has(row.notificationId))
-            .map((row) => row.residentId),
-        ),
-      );
-      const { data: tokenRows, error: tokenError } = await supabase
-        .from('device_tokens')
-        .select('expo_push_token,resident_id,display_name,role')
-        .in('resident_id', recipientPhones);
-      const notificationByResident = new Map(
+      const recipientCount = new Set(
         retainedNotifications
           .filter((row) => expoEligibleNotificationIds.has(row.notificationId))
-          .map((row) => [row.residentId, row]),
-      );
-      const parsedTokenRows = parseQueryRows(tokenRows, isTokenQueryRow);
-      const tokenLookupFailed =
-        Boolean(tokenError) ||
-        !parsedTokenRows ||
-        parsedTokenRows.some((token) => !recipientPhones.includes(String(token.resident_id ?? '')));
-      const eligibleTokens = tokenLookupFailed
-        ? []
-        : dedupeTokens(
-            parsedTokenRows.filter((token) => {
-          const notification = notificationByResident.get(String(token.resident_id ?? ''));
-          return Boolean(
-                notification &&
-                  (notification.recipientRole === 'manager'
-                ? ['manager']
-                    : getAllowedNotificationTokenRoles(notification.recipientRole, 'message')
-                  ).includes(String(token.role ?? '') as 'admin' | 'manager' | 'fc'),
+          .map((row) => row.residentId),
+      ).size;
+      // The message and its notification rows are committed and the muted
+      // recipients' rows are gone, so the sender gets the answer now. Token
+      // lookup and the Expo send run after the response; the client treats
+      // 'not_attempted' as stored with push unconfirmed and shows no alert.
+      const deliverPush = async () => {
+        const recipientPhones = Array.from(
+          new Set(
+            retainedNotifications
+              .filter((row) => expoEligibleNotificationIds.has(row.notificationId))
+              .map((row) => row.residentId),
+          ),
+        );
+        const { data: tokenRows, error: tokenError } = await supabase
+          .from('device_tokens')
+          .select('expo_push_token,resident_id,display_name,role')
+          .in('resident_id', recipientPhones);
+        const notificationByResident = new Map(
+          retainedNotifications
+            .filter((row) => expoEligibleNotificationIds.has(row.notificationId))
+            .map((row) => [row.residentId, row]),
+        );
+        const parsedTokenRows = parseQueryRows(tokenRows, isTokenQueryRow);
+        const tokenLookupFailed =
+          Boolean(tokenError) ||
+          !parsedTokenRows ||
+          parsedTokenRows.some((token) => !recipientPhones.includes(String(token.resident_id ?? '')));
+        const eligibleTokens = tokenLookupFailed
+          ? []
+          : dedupeTokens(
+              parsedTokenRows.filter((token) => {
+            const notification = notificationByResident.get(String(token.resident_id ?? ''));
+            return Boolean(
+                  notification &&
+                    (notification.recipientRole === 'manager'
+                  ? ['manager']
+                      : getAllowedNotificationTokenRoles(notification.recipientRole, 'message')
+                    ).includes(String(token.role ?? '') as 'admin' | 'manager' | 'fc'),
+                );
+              }),
+            );
+        const pushPayload = eligibleTokens.map((token) => {
+          const notification = notificationByResident.get(String(token.resident_id ?? ''))!;
+          const preview = body.content || '첨부파일을 보냈습니다.';
+          return {
+            to: token.expo_push_token,
+            title: '새 메시지',
+            body: preview.slice(0, 160),
+            data: {
+              url: '/chat',
+              type: 'message',
+              notificationId: notification.notificationId,
+              target: directTarget,
+              conversationId: resolution.id,
+              sentAt: new Date().toISOString(),
+            },
+            sound: 'default',
+            priority: 'high',
+            channelId: 'alerts',
+          };
+        });
+        const adminWebResults = await Promise.all(
+          retainedNotifications
+            .filter(
+              (notification) =>
+                notification.recipientRole === 'admin' &&
+                expoEligibleNotificationIds.has(notification.notificationId),
+            )
+            .map((notification) => {
+              const preview = body.content || '첨부파일을 보냈습니다.';
+              return notifyAdminWebPush(
+                '새 메시지',
+                preview.slice(0, 160),
+                '/chat',
+                notification.residentId,
+                notification.notificationId,
+                directTarget,
               );
             }),
-          );
-      const pushPayload = eligibleTokens.map((token) => {
-        const notification = notificationByResident.get(String(token.resident_id ?? ''))!;
-        const preview = body.content || '첨부파일을 보냈습니다.';
-        return {
-          to: token.expo_push_token,
-          title: '새 메시지',
-          body: preview.slice(0, 160),
-          data: {
-            url: '/chat',
-            type: 'message',
-            notificationId: notification.notificationId,
-            target: directTarget,
-            conversationId: resolution.id,
-            sentAt: new Date().toISOString(),
-          },
-          sound: 'default',
-          priority: 'high',
-          channelId: 'alerts',
-        };
-      });
-      const adminWebResults = await Promise.all(
-        retainedNotifications
-          .filter(
-            (notification) =>
-              notification.recipientRole === 'admin' &&
-              expoEligibleNotificationIds.has(notification.notificationId),
-          )
-          .map((notification) => {
-            const preview = body.content || '첨부파일을 보냈습니다.';
-            return notifyAdminWebPush(
-              '새 메시지',
-              preview.slice(0, 160),
-              '/chat',
-              notification.residentId,
-              notification.notificationId,
-              directTarget,
-            );
-          }),
-      );
-      const expoDelivery = tokenLookupFailed
-        ? { attempted: 0, accepted: 0, rejected: 0 }
-        : await sendExpoPushPayloads(pushPayload);
-      const webAccepted = adminWebResults.reduce(
-        (sum, result) => sum + (result.ok ? result.sent : 0),
-        0,
-      );
-      const providerRejected =
-        tokenLookupFailed ||
-        expoDelivery.rejected > 0 ||
-        adminWebResults.some((result) => !result.ok && !result.noTarget);
-      const providerAccepted = expoDelivery.accepted > 0 || webAccepted > 0;
-      const pushStatus = providerRejected
-        ? ('provider_rejected' as const)
-        : providerAccepted
-          ? ('accepted' as const)
-          : ('no_registered_device' as const);
+        );
+        const expoDelivery = tokenLookupFailed
+          ? { attempted: 0, accepted: 0, rejected: 0 }
+          : await sendExpoPushPayloads(pushPayload);
+      };
+      if (recipientCount > 0) runAfterResponse(deliverPush);
       const notificationIds = retainedNotifications.map((row) => row.notificationId);
       return ok({
         ok: true,
@@ -4877,14 +4876,11 @@ serve(async (req: Request) => {
           : {}),
         delivery: buildDeliveryMetadata({
           notificationStored: true,
-          pushStatus,
-          retryable: providerRejected,
+          pushStatus: recipientCount > 0 ? 'not_attempted' : 'no_registered_device',
+          retryable: false,
           ...(notificationIds.length === 1
             ? { notificationId: notificationIds[0] }
             : { notificationIds }),
-          attempted: expoDelivery.attempted,
-          accepted: expoDelivery.accepted + webAccepted,
-          rejected: expoDelivery.rejected,
         }),
       });
     }

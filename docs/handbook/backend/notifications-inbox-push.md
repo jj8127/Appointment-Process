@@ -2,7 +2,7 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-10-04
+last_verified: 2026-10-16
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/group-chat-data-api-batching.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + lib/session-logout.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
 
 ## Web Edge CORS boundary (2026-10-10)
@@ -144,6 +144,20 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
   bodies must not supply or override `residentId`/`role`.
 
 # Backend Runbook: Notifications, Inbox, And Push
+
+## 2026-10-16 메신저 전송은 저장 뒤 바로 응답 (2단계 시작)
+
+- 1:1(`fc-notify` `direct_message_send`)
+  - 메시지와 알림 행 저장, 알림 끈 사람 제외까지 끝나면 바로 응답한다.
+  - 토큰 조회와 Expo 전송은 `runAfterResponse`(`_shared/run-after-response.ts`, `EdgeRuntime.waitUntil`)로 응답 뒤에 돈다.
+  - 응답의 `pushStatus`는 수신자가 있으면 `not_attempted`, 없으면 `no_registered_device`다. 앱은 둘 다 '저장됨'으로 처리하고 팝업을 띄우지 않는다.
+- 단체방(`group-chat` 전송)
+  - 알림 행 저장(`insertNotificationsWithFallback`)까지 기다린 뒤, 푸시는 `sendGroupChatNativePush`로 떼어 응답 뒤에 보낸다.
+  - 응답의 `push_status`는 `queued`, `delivery.pushStatus`는 `not_attempted`다.
+  - 알림만 다시 보내기(`group_chat_notification_retry`)는 지금처럼 푸시 결과를 기다린다.
+- "알림 행을 먼저 저장하고 나서 푸시" 순서는 그대로다.
+- 뒤에서 실패한 푸시는 사용자에게 보이지 않는다. 1:1은 기록도 남지 않고, 단체방은 경고 로그만 남는다.
+- 푸시 결과 기록과 재시도 작업은 다음 단계(outbox)에서 붙인다.
 
 ## 소유 범위
 
