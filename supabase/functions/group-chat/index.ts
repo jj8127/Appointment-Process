@@ -1948,6 +1948,7 @@ async function notifyRecipients(input: {
           category: GROUP_CHAT_NOTIFICATION_CATEGORY,
           notificationId,
           target: { version: 1, kind: 'group_chat', roomId: input.roomId },
+          sentAt: new Date().toISOString(),
         },
       };
     })
