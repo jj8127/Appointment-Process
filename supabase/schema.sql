@@ -22102,28 +22102,22 @@ begin
 end;
 $$;
 
-drop trigger if exists trg_messenger_mirror_direct_insert on public.messages;
-create trigger trg_messenger_mirror_direct_insert
+create or replace trigger trg_messenger_mirror_direct_insert
   after insert on public.messages
   for each row execute function public.messenger_mirror_direct_message();
-drop trigger if exists trg_messenger_mirror_direct_update on public.messages;
-create trigger trg_messenger_mirror_direct_update
+create or replace trigger trg_messenger_mirror_direct_update
   after update of is_read, deleted_at on public.messages
   for each row execute function public.messenger_mirror_direct_update();
-drop trigger if exists trg_messenger_mirror_group_message on public.group_chat_messages;
-create trigger trg_messenger_mirror_group_message
+create or replace trigger trg_messenger_mirror_group_message
   after insert or update of deleted_at on public.group_chat_messages
   for each row execute function public.messenger_mirror_group_message();
-drop trigger if exists trg_messenger_mirror_group_read on public.group_chat_reads;
-create trigger trg_messenger_mirror_group_read
+create or replace trigger trg_messenger_mirror_group_read
   after insert or update on public.group_chat_reads
   for each row execute function public.messenger_mirror_group_read();
-drop trigger if exists trg_messenger_mirror_group_reaction on public.group_chat_reactions;
-create trigger trg_messenger_mirror_group_reaction
+create or replace trigger trg_messenger_mirror_group_reaction
   after insert or update or delete on public.group_chat_reactions
   for each row execute function public.messenger_mirror_group_reaction();
-drop trigger if exists trg_messenger_mirror_group_notice on public.group_chat_notices;
-create trigger trg_messenger_mirror_group_notice
+create or replace trigger trg_messenger_mirror_group_notice
   after insert or update or delete on public.group_chat_notices
   for each row execute function public.messenger_mirror_group_notice();
 
