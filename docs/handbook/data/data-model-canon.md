@@ -281,4 +281,4 @@ Read-only preflight found zero catalog/cron dependencies and zero legacy challen
 ## 2026-10-16 모두온 가입 인증 코드 단독 확인
 
 - `check_platform_signup_otp(phone, code_hash)`는 `register_platform_member`와 같은 두 advisory lock(741012, 8102026), 만료, 5회 실패 10분 잠금, 시도 횟수를 공유하고 challenge를 소비하지 않는다. 최종 가입은 같은 코드를 다시 검증한다. 실행 권한은 `service_role`만 가진다.
-- Edge `platform-service`의 `check_signup_otp` 액션이 이 함수를 호출한다. 마이그레이션 `20261016040000_check_platform_signup_otp.sql`, 검증 `supabase/tests/platform-membership-sql.test.mjs`.
+- Edge `platform-service`의 `check_signup_otp` 액션이 이 함수를 호출한다. 마이그레이션 `20261016040348_check_platform_signup_otp.sql`, 검증 `supabase/tests/platform-membership-sql.test.mjs`.

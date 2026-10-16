@@ -11,7 +11,7 @@ const smsDeliveryMigration=await readFile(new URL('../migrations/20261013094533_
 const extendedSmsDeliveryMigration=await readFile(new URL('../migrations/20261013094539_extend_sms_delivery_tracking.sql',import.meta.url),'utf8');
 const enrollmentMigration=await readFile(new URL('../migrations/20261014043557_unified_common_insurance_enrollment.sql',import.meta.url),'utf8');
 const withdrawalMigration=await readFile(new URL('../migrations/20261014073458_platform_affiliate_account_withdrawal.sql',import.meta.url),'utf8');
-const checkOtpMigration=await readFile(new URL('../migrations/20261016040000_check_platform_signup_otp.sql',import.meta.url),'utf8');
+const checkOtpMigration=await readFile(new URL('../migrations/20261016040348_check_platform_signup_otp.sql',import.meta.url),'utf8');
 const admin='90000000-0000-4000-8000-000000000001';
 const hash=Buffer.alloc(32,3).toString('base64'), salt=Buffer.alloc(16,4).toString('base64');
 async function fixture(seedSql='',withWithdrawal=false) {
