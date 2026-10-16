@@ -40,9 +40,10 @@ import {
   MESSENGER_MESSAGE_LONG_PRESS_MS,
   MESSENGER_REACTIONS,
 } from '@/components/MessengerMessageActionSheet';
-import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
 import { JumpToLatestButton } from '@/components/messenger/JumpToLatestButton';
+import { MessengerReadLine } from '@/components/messenger/MessengerReadLine';
+import { MessengerRoomSkeleton } from '@/components/messenger/MessengerRoomSkeleton';
 import { MessengerDayDivider } from '@/components/messenger/MessengerDayDivider';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
 import { useLatestMessageJump } from '@/hooks/use-latest-message-jump';
@@ -52,6 +53,7 @@ import { createReadScope } from '@/lib/request-board-read-state';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 import { classifyGroupChatError } from '@/lib/group-chat-error';
 import {
+  formatGroupChatSeenLabel,
   formatGroupChatTime,
   getGroupChatMemberStatusTone,
   getGroupChatMessageCopyText,
@@ -61,7 +63,8 @@ import {
   normalizeGroupChatMemberSearch,
   resolveGroupChatSendPermission,
 } from '@/lib/group-chat-display';
-import { startsMessengerDay } from '@/lib/messenger-time';
+import { findMessengerReadLineId } from '@/lib/messenger-read-line';
+import { messengerRunPosition, startsMessengerDay } from '@/lib/messenger-time';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import { pickMessengerFiles, pickMessengerPhotos } from '@/lib/messenger-attachment-picker';
 import {
@@ -339,6 +342,8 @@ export default function GroupChatScreen() {
   const [room, setRoom] = useState<GroupChatRoom | null>(null);
   const [actor, setActor] = useState<GroupChatActor | null>(null);
   const [memberCount, setMemberCount] = useState(0);
+  const [readLineMessageId, setReadLineMessageId] = useState<string | null>(null);
+  const readLineFixedRef = useRef(false);
   const [members, setMembers] = useState<GroupChatMember[]>([]);
   const [memberListVisible, setMemberListVisible] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
@@ -477,6 +482,18 @@ export default function GroupChatScreen() {
       setMuted(data.muted);
       setCanSendMessages(resolveGroupChatSendPermission(data.actor, data.can_send_messages));
       setNotice(data.notice);
+      // Bootstrap reports the read position before this visit marks anything
+      // read, so the line is fixed once per visit from it.
+      if (!options?.silent && !readLineFixedRef.current) {
+        readLineFixedRef.current = true;
+        const lastReadAt = data.last_read_at ? Date.parse(data.last_read_at) : Number.NaN;
+        setReadLineMessageId(Number.isFinite(lastReadAt)
+          ? findMessengerReadLineId(
+              [...data.messages].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)),
+              (message) => message.sender_actor_id !== data.actor.id && Date.parse(message.created_at) > lastReadAt,
+            )
+          : null);
+      }
       const localMessages = messagesRef.current.filter((message) => message.id.startsWith('local-'));
       const preservedMessages = messagesRef.current.filter((message) => !message.id.startsWith('local-'));
       let contextMessages: GroupChatMessage[] = [];
@@ -1651,9 +1668,16 @@ export default function GroupChatScreen() {
     const unreadCount = Math.max(0, Number(item.unread_count ?? 0));
     const showUnreadCount = unreadCount > 0;
     const reactions = item.reactions ?? [];
+    // One sender's messages in the same minute form a run: name and avatar on
+    // the first bubble, time on the last (KakaoTalk style).
+    const run = messengerRunPosition(messages, index, (message) => message.sender_actor_id, (message) => message.created_at);
+    // In a large room a per-bubble "687" says nothing; show how many read it.
+    const seenLabel = item.send_status ? null : formatGroupChatSeenLabel(memberCount, unreadCount);
     const messageMeta = (
       <View style={[styles.messageSideMeta, isMe ? styles.messageSideMetaMe : styles.messageSideMetaOther]}>
-        {showUnreadCount && (
+        {seenLabel ? (
+          run.last ? <Text style={styles.seenText}>{seenLabel}</Text> : null
+        ) : showUnreadCount && (
           <MessageUnreadReceiptBadge count={unreadCount} />
         )}
         {item.send_status === 'sending' && <Text style={styles.messageSendStatus}>전송중</Text>}
@@ -1669,7 +1693,7 @@ export default function GroupChatScreen() {
             <Text style={[styles.messageSendStatus, styles.messageSendStatusFailed]}>실패</Text>
           </Pressable>
         )}
-        <Text style={styles.timeText}>{formatGroupChatTime(item.created_at)}</Text>
+        {run.last || item.send_status ? <Text style={styles.timeText}>{formatGroupChatTime(item.created_at)}</Text> : null}
       </View>
     );
 
@@ -1678,18 +1702,22 @@ export default function GroupChatScreen() {
       {startsMessengerDay(messages, index, (message) => message.created_at) ? (
         <MessengerDayDivider createdAt={item.created_at} />
       ) : null}
+      {item.id === readLineMessageId ? <MessengerReadLine /> : null}
       <View style={[
         styles.msgRow,
+        !run.last && reactions.length === 0 && styles.msgRowInRun,
         isMe ? styles.msgRowMe : styles.msgRowOther,
         isHighlighted && styles.anchorMessageRow,
       ]}>
-        {!isMe && (
+        {!isMe && (run.first ? (
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{getInitial(item.sender_name)}</Text>
           </View>
-        )}
+        ) : (
+          <View style={styles.avatarSpacer} />
+        ))}
         <View style={[styles.msgContainer, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}>
-          {!isMe && (
+          {!isMe && run.first && (
             <Text style={styles.senderName} numberOfLines={1}>
               {item.sender_name || getGroupChatRoleLabel(item.sender_role)}
             </Text>
@@ -1703,6 +1731,7 @@ export default function GroupChatScreen() {
               style={[
                 styles.bubble,
                 isMe ? styles.bubbleMe : styles.bubbleOther,
+                !run.first && styles.bubbleInRun,
                 item.message_type === 'image' && !item.deleted_at && styles.bubbleImage,
                 item.message_type === 'file' && !item.deleted_at && styles.bubbleFile,
                 isHighlighted && styles.anchorMessageBubble,
@@ -1733,7 +1762,7 @@ export default function GroupChatScreen() {
       </View>
       </>
     );
-  }, [actor?.id, handleFailedMessagePress, handleMessagePress, handleReactionAction, highlightedMessageId, messages, openMessageActions, renderMessageContent, renderReplyPreview]);
+  }, [actor?.id, handleFailedMessagePress, handleMessagePress, handleReactionAction, highlightedMessageId, memberCount, messages, openMessageActions, readLineMessageId, renderMessageContent, renderReplyPreview]);
 
   const isOwnGroupMessage = useCallback((message: GroupChatMessage) => message.sender_actor_id === actor?.id, [actor?.id]);
   const latestJump = useLatestMessageJump(messages, isOwnGroupMessage, flatListRef);
@@ -1850,7 +1879,7 @@ export default function GroupChatScreen() {
       ) : null}
 
       {loading ? (
-        <MessengerLoadingState variant="group-chat" />
+        <MessengerRoomSkeleton />
       ) : (
         <View style={{ flex: 1 }}>
           <View style={{ flex: 1 }}>
@@ -1912,7 +1941,18 @@ export default function GroupChatScreen() {
           </View>
 
           <KeyboardSafeBottomBar>
-            {uploading && (
+            {actor && !canSendMessages ? (
+              // A member without speaking permission sees why, instead of a
+              // composer that only answers with an alert.
+              <View
+                accessibilityRole="text"
+                style={[styles.readOnlyComposer, { paddingBottom: composerBottomPadding + 12 }]}
+              >
+                <Text style={styles.readOnlyComposerTitle}>공지 전용 방이에요.</Text>
+                <Text style={styles.readOnlyComposerText}>발언은 총무와 본부장만 할 수 있어요. 필요하면 총무에게 권한을 요청해 주세요.</Text>
+              </View>
+            ) : null}
+            {actor && !canSendMessages ? null : uploading && (
               <View
                 style={[
                   styles.uploadingOverlay,
@@ -1927,6 +1967,7 @@ export default function GroupChatScreen() {
                 style={[
                   styles.inputWrapper,
                   { paddingBottom: composerBottomPadding },
+                  actor && !canSendMessages && styles.composerHidden,
                 ]}
               >
                 {replyTarget && (
@@ -2279,6 +2320,8 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   listContent: { paddingVertical: 20, paddingHorizontal: 16, gap: 12, flexGrow: 1 },
   msgRow: { flexDirection: 'row', marginBottom: 12, width: '100%' },
+  // Bubbles inside one sender's run sit close together.
+  msgRowInRun: { marginBottom: 3 },
   msgRowMe: { justifyContent: 'flex-end' },
   msgRowOther: { justifyContent: 'flex-start' },
   anchorMessageRow: {
@@ -2299,6 +2342,20 @@ const styles = StyleSheet.create({
     borderColor: '#FED7AA',
   },
   avatarText: { fontSize: 15, fontWeight: '800', color: HANWHA_ORANGE },
+  avatarSpacer: { width: 36, marginRight: 8 },
+  seenText: { fontSize: 10, lineHeight: 13, color: '#9CA3AF', fontWeight: '600', fontVariant: ['tabular-nums'] },
+  readOnlyComposer: {
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    gap: 2,
+  },
+  readOnlyComposerTitle: { fontSize: 14, fontWeight: '700', color: CHARCOAL },
+  readOnlyComposerText: { fontSize: 12, lineHeight: 17, color: MUTED, textAlign: 'center' },
+  composerHidden: { display: 'none' },
   msgContainer: { flex: 1, minWidth: 0 },
   senderName: { maxWidth: '82%', fontSize: 12, color: MUTED, marginLeft: 2, marginBottom: 4, fontWeight: '700' },
   messageBubbleLine: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, width: '100%' },
@@ -2319,6 +2376,8 @@ const styles = StyleSheet.create({
   },
   bubbleMe: { backgroundColor: HANWHA_ORANGE, borderTopRightRadius: 2 },
   bubbleOther: { backgroundColor: '#fff', borderTopLeftRadius: 2, borderWidth: 1, borderColor: '#F3F4F6' },
+  // Only the first bubble of a run points at its sender.
+  bubbleInRun: { borderTopLeftRadius: 16, borderTopRightRadius: 16 },
   bubbleImage: { paddingHorizontal: 4, paddingVertical: 4 },
   bubbleFile: { paddingHorizontal: 8, paddingVertical: 8 },
   anchorMessageBubble: {

@@ -5901,3 +5901,10 @@
 - Cause: a live FOR UPDATE cursor was traversed while account deletion rewrote later target rows through referral FK SET NULL actions.
 - Guardrail: freeze opaque approved target keys, lock rows in a stable order, then iterate the frozen keys and reread/validate each row. Keep exact count and identity postconditions; never relax them or retry an uncertain commit without checking state.
 - Verification: a rollback-only reproduction and committed per-batch count/cleanup checks. This is an operations ordering rule, not a reason to change shared grants or disable financial immutability triggers.
+
+## 2026-10-16 | A failed `cd` let a destructive build step run in the main checkout
+
+- Symptom: `git worktree move ... && cd D:/hanhwa/w1 ...; rm -rf android && npx expo prebuild` deleted and regenerated `android/` in `D:/hanhwa/fc-onboarding-app` instead of the intended worktree.
+- Cause: the move failed, `cd` into the new path failed, and the following `rm -rf` was chained with `;`, so it ran in the previous working directory.
+- Guardrail: never chain `rm -rf` or prebuild after a `cd` with `;`. Use one `cd <path> && [ "$(pwd -W)" = "<path>" ] && ...` chain, or pass absolute paths to destructive commands. Check `git check-ignore` before assuming a generated folder is safe.
+- Evidence: the main checkout's `android/` is git-ignored and regenerated with the same `AndroidManifest.xml` hash (`5b8d9284`); only build outputs were lost.

@@ -3,17 +3,28 @@ import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { randomUUID } from 'expo-crypto';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { LayoutAnimationConfig } from 'react-native-reanimated';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
-import { FormInput } from '@/components/FormInput';
 import { KeyboardAwareWrapper, type KeyboardAwareWrapperHandle } from '@/components/KeyboardAwareWrapper';
-import { OptionSheetField } from '@/components/OptionSheetField';
 import { ReferralSearchField, ReferralSearchResultList, REFERRAL_SEARCH_MIN_CHARS_HINT, REFERRAL_SEARCH_EMPTY_HINT, type ReferralSearchResult } from '@/components/ReferralSearchField';
+import {
+  StackButton,
+  StackDockedNext,
+  StackField,
+  StackItem,
+  StackLabel,
+  StackSelectValue,
+  StackSheet,
+  StackSheetOption,
+  StackSubmit,
+  stackFormStyles,
+} from '@/components/StackedForm';
 import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
 import { useLogin } from '@/hooks/use-login';
-import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import { useKeyboardPadding, useKeyboardVisible } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { createCreationRequestTracker } from '@/lib/board-comment-request';
@@ -24,6 +35,7 @@ import { consumePendingReferralCode } from '@/lib/referral-deeplink';
 import { parseSignupReferralSearchResponse } from '@/lib/referral-read-response';
 import { buildStoredSignupReferral, hasValidStoredSignupReferral } from '@/lib/signup-referral';
 import { composeEmail, EMAIL_DOMAIN_DIRECT_INPUT, SIGNUP_AFFILIATION_OPTIONS, SIGNUP_CARRIER_OPTIONS, SIGNUP_EMAIL_DOMAIN_CHOICES } from '@/lib/signup-profile-options';
+import { advanceStackReveal, getStackOrder, INSURANCE_ENROLLMENT_STEPS, SIGNUP_MOTION, type InsuranceEnrollmentStep } from '@/lib/signup-steps';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 import type { LicenseStatus } from '@/types/fc';
 import { buildApplyGateIdentityRoute, buildHomeEntryBreadcrumb, normalizeApplyGateNext } from '@/lib/home-entry-flow';
@@ -45,6 +57,14 @@ const PREPARATION_ITEMS: { icon: FeatherName; title: string }[] = [
   { icon: 'shield', title: '주민번호 · 주소' },
 ];
 const UNLOCKED_FEATURES = ['설계 요청', '메신저', '공지·알림', '위촉 진행'];
+type EnrollmentSheet = 'affiliation' | 'carrier' | 'license' | 'domain';
+const ENROLLMENT_SHEET_TITLES: Record<EnrollmentSheet, string> = {
+  affiliation: '소속을 선택해 주세요',
+  carrier: '통신사를 선택해 주세요',
+  license: '보유한 자격증을 선택해 주세요',
+  domain: '이메일 주소를 선택해 주세요',
+};
+type TypingField = 'emailLocal' | 'customDomain' | 'referral';
 
 export default function ApplyGateScreen() {
   const { next } = useLocalSearchParams<{ next?: string }>();
@@ -84,6 +104,15 @@ export default function ApplyGateScreen() {
   const beginSelection = useReadAttempt();
   const beginSubmit = useReadAttempt();
   const keyboardPadding = useKeyboardPadding();
+  const keyboardVisible = useKeyboardVisible();
+  const insets = useSafeAreaInsets();
+  const [revealed, setRevealed] = useState(1);
+  const revealedRef = useRef(1);
+  const [sheet, setSheet] = useState<EnrollmentSheet | null>(null);
+  const [focusedField, setFocusedField] = useState<TypingField | null>(null);
+  const emailLocalRef = useRef<TextInput>(null);
+  const customDomainRef = useRef<TextInput>(null);
+  const referralInputRef = useRef<TextInput>(null);
   const allowExit = useDraftExitGuard(commonOnly && formShown && Boolean(affiliation || emailLocal || emailDomain || carrier || searchQuery), submitting);
   const { data, isLoading, isError, error, refetch, isFetching } = useIdentityStatus();
   const safeNext = useMemo(() => normalizeApplyGateNext(next), [next]);
@@ -173,7 +202,63 @@ export default function ApplyGateScreen() {
     setFormShown(false); setConsentAccepted(false); setAffiliation(''); setEmailLocal(''); setEmailDomain(''); setCustomEmailDomain(''); setCarrier('');
     setLicenseStatuses([LICENSE_STATUS_NONE]); setSearchQuery(''); setSearchResults([]); setSelectedReferral(null);
     setSubmitting(false); setSearching(false); setValidating(false); setReferralError(null); setSaveError(null); setFieldErrors({});
+    revealedRef.current = 1; setRevealed(1); setSheet(null); setFocusedField(null);
   }, [token, beginSubmit, beginSelection, beginSearch]);
+
+  /** Reveals the next question when the newest one was answered; editing an earlier answer keeps the stack. */
+  const advance = useCallback((answered: InsuranceEnrollmentStep) => {
+    const next = advanceStackReveal(INSURANCE_ENROLLMENT_STEPS, revealedRef.current, answered);
+    revealedRef.current = next.revealed;
+    setRevealed(next.revealed);
+    return next.advanced;
+  }, []);
+
+  const focusAfterInsert = (ref: { current: TextInput | null }) => {
+    setTimeout(() => ref.current?.focus(), SIGNUP_MOTION.focusDelay);
+  };
+
+  const openSheet = (next: EnrollmentSheet) => {
+    Keyboard.dismiss();
+    setFocusedField(null);
+    setSheet(next);
+  };
+
+  // The form opens on its first question, like the reference's picker-first step.
+  useEffect(() => {
+    if (formShown && revealedRef.current === 1 && !affiliation) setSheet('affiliation');
+    if (!formShown) setSheet(null);
+  }, [formShown, affiliation]);
+
+  /** A picked option stays highlighted briefly, then the same sheet moves on to the next picker. */
+  const pickAndContinue = (answered: InsuranceEnrollmentStep, nextSheet: EnrollmentSheet | null) => {
+    setTimeout(() => setSheet(advance(answered) ? nextSheet : null), SIGNUP_MOTION.pickHold);
+  };
+
+  const finishLicense = () => {
+    setSheet(null);
+    if (advance('license')) focusAfterInsert(emailLocalRef);
+  };
+
+  const pickDomain = (domain: string) => {
+    setEmailDomain(domain); clearFieldError('email');
+    setTimeout(() => {
+      setSheet(null);
+      if (domain === EMAIL_DOMAIN_DIRECT_INPUT) setTimeout(() => customDomainRef.current?.focus(), SIGNUP_MOTION.sheet);
+      else if (advance('email')) focusAfterInsert(referralInputRef);
+    }, SIGNUP_MOTION.pickHold);
+  };
+
+  const emailLocalNext = () => {
+    if (!emailDomain) openSheet('domain');
+    else if (emailDomain === EMAIL_DOMAIN_DIRECT_INPUT) customDomainRef.current?.focus();
+    else if (advance('email')) focusAfterInsert(referralInputRef);
+    else Keyboard.dismiss();
+  };
+
+  const customDomainNext = () => {
+    if (advance('email')) focusAfterInsert(referralInputRef);
+    else Keyboard.dismiss();
+  };
 
   useEffect(() => {
     if (!commonOnly || !token) return;
@@ -259,10 +344,85 @@ export default function ApplyGateScreen() {
 
   const showForm = commonOnly && formShown;
   const preparation = commonOnly ? PREPARATION_ITEMS : PREPARATION_ITEMS.slice(-1);
+  // Web reports no keyboard events, so the bar follows focus there.
+  const typingVisible = (keyboardVisible || Platform.OS === 'web') && !sheet;
+  const isTyping = (field: TypingField) => focusedField === field && typingVisible;
+  const dockedActions: Partial<Record<TypingField, { ready: boolean; onPress: () => void }>> = {
+    emailLocal: { ready: Boolean(emailLocal), onPress: emailLocalNext },
+    customDomain: { ready: Boolean(customEmailDomain), onPress: customDomainNext },
+  };
+  const docked = focusedField && typingVisible ? dockedActions[focusedField] : undefined;
+  const allRevealed = revealed >= INSURANCE_ENROLLMENT_STEPS.length;
+  const licenseSummary = normalizeLicenseStatuses(licenseStatuses).map(status => LICENSE_STATUS_LABELS[status]).join(', ');
+  const typingProps = (field: TypingField) => ({
+    onFocus: () => setFocusedField(field),
+    editable: !submitting,
+    scrollEnabled: false,
+    placeholderTextColor: COLORS.text.muted,
+  });
+
+  const renderStep = (step: InsuranceEnrollmentStep) => {
+    switch (step) {
+      case 'affiliation':
+        return (
+          <StackField label="소속" active={sheet === 'affiliation'} error={fieldErrors.affiliation}>
+            <StackSelectValue value={affiliation} placeholder="소속 선택" accessibilityLabel={`소속 선택, ${affiliation || '미선택'}`} onPress={() => openSheet('affiliation')} />
+          </StackField>
+        );
+      case 'carrier':
+        return (
+          <StackField label="통신사" active={sheet === 'carrier'} error={fieldErrors.carrier}>
+            <StackSelectValue value={carrier} placeholder="통신사 선택" accessibilityLabel={`통신사 선택, ${carrier || '미선택'}`} onPress={() => openSheet('carrier')} />
+          </StackField>
+        );
+      case 'license':
+        return (
+          <StackField label="자격증 보유 현황" active={sheet === 'license'}>
+            <StackSelectValue value={licenseSummary} placeholder="자격증 선택" accessibilityLabel={`자격증 보유 현황, ${licenseSummary}`} onPress={() => openSheet('license')} />
+          </StackField>
+        );
+      case 'email':
+        return (
+          <StackField label="이메일" active={isTyping('emailLocal') || isTyping('customDomain') || sheet === 'domain'} error={fieldErrors.email}>
+            <View style={styles.emailRow}>
+              <TextInput ref={emailLocalRef} {...typingProps('emailLocal')} style={[stackFormStyles.input, styles.grow]} accessibilityLabel="이메일 아이디" placeholder="아이디"
+                value={emailLocal} onChangeText={value => { setEmailLocal(value.replace(/@.*$/, '')); clearFieldError('email'); }}
+                autoCapitalize="none" autoCorrect={false} autoComplete="username" keyboardType="email-address" returnKeyType="next" blurOnSubmit={false} onSubmitEditing={emailLocalNext} />
+              <Text style={styles.emailAt}>@</Text>
+              {emailDomain === EMAIL_DOMAIN_DIRECT_INPUT ? (
+                <TextInput ref={customDomainRef} {...typingProps('customDomain')} style={[stackFormStyles.input, styles.grow]} accessibilityLabel="이메일 도메인 직접 입력" placeholder="example.com"
+                  value={customEmailDomain} onChangeText={value => { setCustomEmailDomain(value.replace(/^@/, '')); clearFieldError('email'); }}
+                  autoCapitalize="none" autoCorrect={false} keyboardType="email-address" returnKeyType="next" blurOnSubmit={false} onSubmitEditing={customDomainNext} />
+              ) : (
+                <View style={styles.grow}>
+                  <StackSelectValue value={emailDomain} placeholder="선택" accessibilityLabel={`이메일 도메인 선택, ${emailDomain || '미선택'}`} onPress={() => openSheet('domain')} />
+                </View>
+              )}
+            </View>
+          </StackField>
+        );
+      case 'referral':
+        return (
+          <View style={styles.fieldGroup}>
+            <StackLabel>보험 추천인 (필수)</StackLabel>
+            <Text style={styles.hint}>다른 제휴 서비스의 추천인과 별도로 선택해요.</Text>
+            <ReferralSearchField inputRef={referralInputRef} searchQuery={searchQuery} searching={searching || validating} onChangeText={changeReferralSearch} onClear={() => changeReferralSearch('')}
+              textInputProps={{ ...typingProps('referral'), accessibilityLabel: '보험 추천인 이름 검색' }} />
+            {!selectedReferral && <Text style={styles.hint}>{searchQuery.trim().length < 2 ? REFERRAL_SEARCH_MIN_CHARS_HINT : !searching && !validating && !referralError && !searchResults.length ? REFERRAL_SEARCH_EMPTY_HINT : ''}</Text>}
+            {!submitting && searchResults.length > 0 && <ReferralSearchResultList results={searchResults} onSelect={item => { if (item.code) { Keyboard.dismiss(); referralEditVersion.current += 1; void validateReferral(item.code); } }} />}
+            {selectedReferral && <View style={styles.selectedReferral}>
+              <Feather accessible={false} name="user-check" size={18} color={COLORS.primaryButton} />
+              <Text style={[styles.prepTitle, styles.grow]}>{selectedReferral.name} · {selectedReferral.affiliation}</Text>
+            </View>}
+            {(referralError || fieldErrors.referral) && <Text accessibilityRole="alert" style={styles.fieldError}>{referralError ?? fieldErrors.referral}</Text>}
+          </View>
+        );
+    }
+  };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper handleRef={scrollHandle} contentContainerStyle={[styles.container, { paddingBottom: Math.max(showForm ? 80 : 32, keyboardPadding + 40) }]} keyboardDismissMode="none">
+    <SafeAreaView style={styles.safe} edges={['left', 'right']}>
+      <KeyboardAwareWrapper handleRef={scrollHandle} contentContainerStyle={[styles.container, { paddingBottom: Math.max(showForm ? 120 : 32, keyboardPadding + 40) }]} keyboardDismissMode="none" keyboardShouldPersistTaps="handled">
         <View accessible accessibilityLabel="2단계 중 1단계" style={styles.progress}>
           {[0, 1].map(step => <View key={step} style={[styles.progressBar, step === 0 && styles.progressBarActive]} />)}
         </View>
@@ -315,54 +475,16 @@ export default function ApplyGateScreen() {
             <Text style={styles.eyebrow}>1단계 · 추가 정보</Text>
             <Text accessibilityRole="header" style={styles.title}>추가 정보를 입력해 주세요</Text>
           </View>
-          <View onLayout={event => { fieldTops.current.affiliation = event.nativeEvent.layout.y; }}>
-            <OptionSheetField<string> label="소속" value={affiliation} options={SIGNUP_AFFILIATION_OPTIONS} error={fieldErrors.affiliation}
-              onChange={value => { setAffiliation(value); clearFieldError('affiliation'); }} disabled={submitting} />
+          <View style={stackFormStyles.content}>
+            <LayoutAnimationConfig skipEntering>
+              {getStackOrder(INSURANCE_ENROLLMENT_STEPS, revealed).map(step => (
+                <StackItem key={step}>
+                  <View onLayout={event => { fieldTops.current[step as EnrollmentField] = event.nativeEvent.layout.y; }}>{renderStep(step)}</View>
+                </StackItem>
+              ))}
+            </LayoutAnimationConfig>
           </View>
-          <View style={styles.fieldGroup} onLayout={event => { fieldTops.current.email = event.nativeEvent.layout.y; }}>
-            <Text style={styles.label}>이메일</Text>
-            <View style={styles.emailRow}>
-              <View style={styles.grow}>
-                <FormInput accessibilityLabel="이메일 아이디" placeholder="아이디" value={emailLocal} error={fieldErrors.email ? ' ' : undefined}
-                  onChangeText={value => { setEmailLocal(value.replace(/@.*$/, '')); clearFieldError('email'); }}
-                  autoCapitalize="none" autoCorrect={false} autoComplete="username" keyboardType="email-address" editable={!submitting} />
-              </View>
-              <Text style={styles.emailAt}>@</Text>
-              <View style={styles.grow}>
-                <OptionSheetField<string> label="이메일 도메인" hideLabel value={emailDomain} options={SIGNUP_EMAIL_DOMAIN_CHOICES} placeholder="선택"
-                  error={fieldErrors.email && !emailDomain ? ' ' : undefined} disabled={submitting}
-                  onChange={value => { setEmailDomain(value); clearFieldError('email'); }} />
-              </View>
-            </View>
-            {emailDomain === EMAIL_DOMAIN_DIRECT_INPUT && <FormInput accessibilityLabel="이메일 도메인 직접 입력" placeholder="example.com" value={customEmailDomain}
-              onChangeText={value => { setCustomEmailDomain(value.replace(/^@/, '')); clearFieldError('email'); }}
-              autoCapitalize="none" autoCorrect={false} keyboardType="email-address" editable={!submitting} />}
-            {fieldErrors.email && <Text accessibilityRole="alert" style={styles.fieldError}>{fieldErrors.email}</Text>}
-          </View>
-          <View onLayout={event => { fieldTops.current.carrier = event.nativeEvent.layout.y; }}>
-            <OptionSheetField<string> label="통신사" value={carrier} options={SIGNUP_CARRIER_OPTIONS} error={fieldErrors.carrier}
-              onChange={value => { setCarrier(value); clearFieldError('carrier'); }} disabled={submitting} />
-          </View>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>자격증 보유 현황</Text>
-            <View style={styles.options}>{LICENSE_STATUS_OPTIONS.map(option => <Pressable key={option} accessibilityRole="checkbox" accessibilityState={{ checked: licenseStatuses.includes(option), disabled: submitting }} disabled={submitting}
-              onPress={() => setLicenseStatuses(current => toggleLicenseStatus(current, option))} style={[styles.option, licenseStatuses.includes(option) && styles.selected]}><Text style={[styles.optionText, licenseStatuses.includes(option) && styles.optionTextSelected]}>{LICENSE_STATUS_LABELS[option]}</Text></Pressable>)}</View>
-          </View>
-          <View style={styles.fieldGroup} onLayout={event => { fieldTops.current.referral = event.nativeEvent.layout.y; }}>
-            <Text style={styles.label}>보험 추천인 <Text style={styles.required}>(필수)</Text></Text>
-            <Text style={styles.hint}>다른 제휴 서비스의 추천인과 별도로 선택해요.</Text>
-            <ReferralSearchField searchQuery={searchQuery} searching={searching || validating} onChangeText={changeReferralSearch} onClear={() => changeReferralSearch('')}
-              textInputProps={{ editable: !submitting, accessibilityLabel: '보험 추천인 이름 검색' }} />
-            {!selectedReferral && <Text style={styles.hint}>{searchQuery.trim().length < 2 ? REFERRAL_SEARCH_MIN_CHARS_HINT : !searching && !validating && !referralError && !searchResults.length ? REFERRAL_SEARCH_EMPTY_HINT : ''}</Text>}
-            {!submitting && searchResults.length > 0 && <ReferralSearchResultList results={searchResults} onSelect={item => { if (item.code) { referralEditVersion.current += 1; void validateReferral(item.code); } }} />}
-            {selectedReferral && <View style={styles.selectedReferral}>
-              <Feather accessible={false} name="user-check" size={18} color={COLORS.primaryButton} />
-              <Text style={[styles.prepTitle, styles.grow]}>{selectedReferral.name} · {selectedReferral.affiliation}</Text>
-            </View>}
-          </View>
-          {(referralError || fieldErrors.referral) && <Text accessibilityRole="alert" style={styles.fieldError}>{referralError ?? fieldErrors.referral}</Text>}
           {saveError && <Text accessibilityRole="alert" style={styles.failure}>{saveError}</Text>}
-          <Button onPress={submitEnrollment} loading={submitting} disabled={submitting || validating || !consentAccepted} fullWidth>저장하고 신원 정보 입력</Button>
           <View style={styles.linkRow}>
             <Pressable accessibilityRole="button" accessibilityLabel="안내로 돌아가기" disabled={submitting} onPress={() => setFormShown(false)} style={styles.link}>
               <Text style={styles.linkText}>이전</Text>
@@ -374,7 +496,12 @@ export default function ApplyGateScreen() {
         </View>}
       </KeyboardAwareWrapper>
 
-      {!showForm && <View style={styles.bottomBar}>
+      {showForm && docked?.ready ? <StackDockedNext onPress={docked.onPress} /> : null}
+      {showForm && allRevealed && !sheet && !keyboardVisible ? (
+        <StackSubmit label={submitting ? '저장하는 중...' : '저장하고 신원 정보 입력'} disabled={submitting || validating || !consentAccepted} onPress={() => { void submitEnrollment(); }} />
+      ) : null}
+
+      {!showForm && <View style={[styles.bottomBar, { paddingBottom: 12 + insets.bottom }]}>
         <Button
           onPress={returnHomeLite}
           variant="outline"
@@ -396,6 +523,28 @@ export default function ApplyGateScreen() {
           {commonOnly ? '시작하기' : '신원 정보 입력'}
         </Button>
       </View>}
+      <StackSheet
+        contentKey={showForm ? sheet : null}
+        title={sheet ? ENROLLMENT_SHEET_TITLES[sheet] : ''}
+        onClose={() => setSheet(null)}
+        footer={sheet === 'license' ? <StackButton label="선택 완료" onPress={finishLicense} /> : null}
+      >
+        {sheet === 'affiliation' && SIGNUP_AFFILIATION_OPTIONS.map(option => (
+          <StackSheetOption key={option} label={option} selected={affiliation === option}
+            onPress={() => { setAffiliation(option); clearFieldError('affiliation'); pickAndContinue('affiliation', 'carrier'); }} />
+        ))}
+        {sheet === 'carrier' && SIGNUP_CARRIER_OPTIONS.map(option => (
+          <StackSheetOption key={option} label={option} selected={carrier === option}
+            onPress={() => { setCarrier(option); clearFieldError('carrier'); pickAndContinue('carrier', 'license'); }} />
+        ))}
+        {sheet === 'license' && LICENSE_STATUS_OPTIONS.map(option => (
+          <StackSheetOption key={option} label={LICENSE_STATUS_LABELS[option]} multiple selected={licenseStatuses.includes(option)}
+            onPress={() => setLicenseStatuses(current => toggleLicenseStatus(current, option))} />
+        ))}
+        {sheet === 'domain' && SIGNUP_EMAIL_DOMAIN_CHOICES.map(option => (
+          <StackSheetOption key={option} label={option} selected={emailDomain === option} onPress={() => pickDomain(option)} />
+        ))}
+      </StackSheet>
     </SafeAreaView>
   );
 }
@@ -445,8 +594,8 @@ const styles = StyleSheet.create({
   linkRow: { flexDirection: 'row', justifyContent: 'space-between' },
   link: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
   linkText: { fontSize: 15, color: COLORS.text.secondary, fontWeight: '600' },
-  emailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  emailAt: { fontSize: 16, color: COLORS.text.secondary, lineHeight: 56 },
+  emailRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  emailAt: { fontSize: 16, color: COLORS.text.secondary },
   fieldError: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.error, marginLeft: SPACING.xs },
   failure: { color: COLORS.error, fontSize: 14 },
 });

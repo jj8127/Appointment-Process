@@ -888,6 +888,59 @@ describe('common member signup and login use isolated verified authentication', 
     expect(context.router.dismissTo).not.toHaveBeenCalled();
   });
 
+  it('leaving only 가람in keeps the 모두온 login with the returned member session and retries with the same request', async () => {
+    const withdrawal = (receipt: Record<string, unknown>) => ({
+      platformSessionToken: 'fictional-common-session', appSessionToken: 'fictional-fc-session', withdrawalKey: { current: null as string | null },
+      randomUUID: () => 'fictional-operation', PLATFORM_WITHDRAWAL_VERSION: '2026-10-14',
+      platformRequest: jest.fn(async (..._args: unknown[]): Promise<unknown> => receipt),
+      setShowDeleteConfirm: jest.fn(), appLogout: jest.fn(), loginPlatformMember: jest.fn(async () => undefined),
+      Alert: { alert: jest.fn() }, router: { replace: jest.fn() },
+    });
+    const kept = withdrawal({ ok: true, status: 'completed', memberSession: { memberId: 'synthetic-member', displayName: '가상 회원', appSessionToken: 'fictional-member-token' } });
+    await routeHandler('app/settings.tsx', 'withdrawGaramin', kept)();
+    expect(kept.platformRequest).toHaveBeenCalledWith('withdraw_member',
+      { confirmed: true, scope: 'insurance', policyVersion: '2026-10-14', idempotencyKey: 'fictional-operation' }, 'fictional-common-session');
+    expect(kept.loginPlatformMember).toHaveBeenCalledWith({ id: 'synthetic-member', name: '가상 회원' }, 'fictional-member-token');
+    expect(kept.appLogout).not.toHaveBeenCalled(); expect(kept.router.replace).toHaveBeenCalledWith('/');
+
+    const failed = withdrawal({});
+    failed.platformRequest.mockRejectedValueOnce(new Error('가람링크 확인 실패'));
+    await expect(routeHandler('app/settings.tsx', 'withdrawGaramin', failed)()).rejects.toThrow('가람링크 확인 실패');
+    // A retry after a failed answer reuses the same operation.
+    expect(failed.withdrawalKey.current).toBe('fictional-operation');
+  });
+
+  it('confirms the SMS code on its own step, opens the next question only on success and ignores stale answers', async () => {
+    const codeContext = (overrides: Record<string, unknown> = {}) => {
+      const code = {
+        codeCheckRef: { current: 0 }, setCodeChecking: jest.fn(), setCodeError: jest.fn(), setCodeVerified: jest.fn(), advance: jest.fn(),
+        platformRequest: jest.fn(async (..._args: unknown[]): Promise<unknown> => ({ ok: true })),
+      };
+      return { ...authContext(), ...code, ...overrides } as ReturnType<typeof authContext> & typeof code;
+    };
+    const confirmed = codeContext();
+    await routeHandler('app/services/signup.tsx', 'verifyCode', confirmed)('123456');
+    expect(confirmed.platformRequest).toHaveBeenCalledWith('check_signup_otp', { phone: '01000000000', code: '123456' });
+    expect(confirmed.setCodeVerified).toHaveBeenCalledWith(true); expect(confirmed.advance).toHaveBeenCalledWith('code');
+
+    const wrong = codeContext({ platformRequest: jest.fn(async () => { throw new Error('인증 코드가 맞지 않습니다.'); }) });
+    await routeHandler('app/services/signup.tsx', 'verifyCode', wrong)('111111');
+    expect(wrong.setCodeError).toHaveBeenLastCalledWith('인증 코드가 맞지 않습니다.');
+    expect(wrong.advance).not.toHaveBeenCalled(); expect(wrong.setCodeVerified).not.toHaveBeenCalled();
+
+    const short = codeContext();
+    await routeHandler('app/services/signup.tsx', 'verifyCode', short)('12345');
+    expect(short.platformRequest).not.toHaveBeenCalled();
+
+    // An edited code invalidates the in-flight answer.
+    const pendingCheck = deferred<unknown>();
+    const stale = codeContext({ platformRequest: jest.fn(() => pendingCheck.promise) });
+    const work = routeHandler<(value: string) => Promise<void>>('app/services/signup.tsx', 'verifyCode', stale)('123456');
+    stale.codeCheckRef.current += 1;
+    pendingCheck.resolve({ ok: true }); await work;
+    expect(stale.advance).not.toHaveBeenCalled(); expect(stale.setCodeVerified).not.toHaveBeenCalled();
+  });
+
   it('OTP requests send only the phone and do not grant a local verified flag', async () => {
     const context = authContext();
     await routeHandler('app/services/signup.tsx', 'submit', context)('otp');

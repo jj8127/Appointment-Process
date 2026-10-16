@@ -22,6 +22,7 @@ import {
   type MessengerConversationAction,
 } from '@/components/messenger/MessengerConversationActionsSheet';
 import {
+  MessengerConversationFilterPanel,
   MessengerHubConversationRow,
   MessengerHubEmpty,
   MessengerHubHeader,
@@ -67,8 +68,12 @@ import {
   groupMessengerPeopleByRole,
   peopleFromConversations,
   isMessengerConversationVisible,
+  countMessengerConversationFilters,
+  hasMessengerConversationActivity,
+  matchesMessengerConversationFilter,
   parseMessengerHubTab,
   sortMessengerConversations,
+  type MessengerConversationFilter,
   type MessengerHubConversation,
   type MessengerHubPerson,
   type MessengerHubRoute,
@@ -421,6 +426,22 @@ export default function MessengerHubScreen() {
     scopedRequestRoomPreferences,
     scopedSources,
   ]);
+
+  // Rooms without any message stay out of the chat list (they are reachable
+  // from the people tab); the chips narrow what is left.
+  const [conversationFilter, setConversationFilter] = useState<MessengerConversationFilter>('all');
+  const activeConversations = useMemo(
+    () => conversations.filter(hasMessengerConversationActivity),
+    [conversations],
+  );
+  const conversationFilterCounts = useMemo(
+    () => countMessengerConversationFilters(activeConversations),
+    [activeConversations],
+  );
+  const filteredConversations = useMemo(
+    () => activeConversations.filter((row) => matchesMessengerConversationFilter(row, conversationFilter)),
+    [activeConversations, conversationFilter],
+  );
 
   const people = useMemo(() => dedupePeople([
     ...scopedSources.internalPeople,
@@ -1499,20 +1520,27 @@ export default function MessengerHubScreen() {
         >
           <FlatList
             style={styles.tabList}
-            data={conversations}
+            data={filteredConversations}
             keyExtractor={conversationKeyExtractor}
             renderItem={renderConversationItem}
             onEndReached={handleConversationEndReached}
             onEndReachedThreshold={0.4}
             ListHeaderComponent={(
-              <MessengerHubSourceLoading labels={refreshing ? [] : conversationLoadingLabels} />
+              <>
+                <MessengerConversationFilterPanel
+                  value={conversationFilter}
+                  counts={conversationFilterCounts}
+                  onChange={setConversationFilter}
+                />
+                <MessengerHubSourceLoading labels={refreshing ? [] : conversationLoadingLabels} />
+              </>
             )}
             ListEmptyComponent={conversationLoadingLabels.length > 0
               ? null
               : <MessengerHubEmpty tab="chats" />}
             contentContainerStyle={[
               styles.listContent,
-              conversations.length === 0 && styles.emptyListContent,
+              filteredConversations.length === 0 && styles.emptyListContent,
               { paddingBottom: Math.max(insets.bottom, 12) + 20 },
             ]}
             refreshControl={(

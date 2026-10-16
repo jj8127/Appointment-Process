@@ -11,6 +11,8 @@ const smsDeliveryMigration=await readFile(new URL('../migrations/20261013094533_
 const extendedSmsDeliveryMigration=await readFile(new URL('../migrations/20261013094539_extend_sms_delivery_tracking.sql',import.meta.url),'utf8');
 const enrollmentMigration=await readFile(new URL('../migrations/20261014043557_unified_common_insurance_enrollment.sql',import.meta.url),'utf8');
 const withdrawalMigration=await readFile(new URL('../migrations/20261014073458_platform_affiliate_account_withdrawal.sql',import.meta.url),'utf8');
+const checkOtpMigration=await readFile(new URL('../migrations/20261016040348_check_platform_signup_otp.sql',import.meta.url),'utf8');
+const insuranceOnlyWithdrawalMigration=await readFile(new URL('../migrations/20261016090000_platform_insurance_only_withdrawal.sql',import.meta.url),'utf8');
 const admin='90000000-0000-4000-8000-000000000001';
 const hash=Buffer.alloc(32,3).toString('base64'), salt=Buffer.alloc(16,4).toString('base64');
 async function fixture(seedSql='',withWithdrawal=false) {
@@ -122,6 +124,26 @@ async function apply(db,id,key='telecom',nonce='20000000-0000-4000-8000-00000000
 const settle=(db,a,p,amount=500000,nonce='30000000-0000-4000-8000-000000000011',transaction='test-transaction')=>rpc(db,
   'select settle_platform_application($1,$2,$3,$4,$5,$6,$7,$8) result',
   [admin,a,p,amount,'2026-01-01T00:00:00Z',nonce,transaction,'test-settlement-evidence']);
+
+test('the separate code check shares the signup lock and leaves the challenge for signup',async()=>{
+  const db=await fixture();try{
+    await db.exec(checkOtpMigration);
+    const check=(phone,code)=>rpc(db,'select check_platform_signup_otp($1,$2) result',[phone,code]);
+    await rpc(db,'select issue_platform_signup_otp($1,$2) result',['00000000014',hash]);
+    assert.equal((await check('00000000014',null)).code,'invalid_code');
+    assert.equal((await check('00000000014',hash)).ok,true);
+    // A confirmed code is not consumed: signup still verifies and uses it.
+    assert.equal((await rpc(db,'select register_platform_member($1,$2,$3,$4,$5,$6) result',['00000000014',hash,'Synthetic',hash,salt,null])).ok,true);
+    await rpc(db,'select issue_platform_signup_otp($1,$2) result',['00000000015',hash]);
+    for(let n=0;n<5;n++) assert.equal((await check('00000000015',null)).code,'invalid_code');
+    assert.equal((await check('00000000015',hash)).code,'locked');
+    assert.equal((await rpc(db,'select register_platform_member($1,$2,$3,$4,$5,$6) result',['00000000015',hash,'Synthetic',hash,salt,null])).code,'locked');
+    assert.equal((await check('00000000099',hash)).code,'expired_code');
+    await db.exec('set role anon');
+    await assert.rejects(db.query('select check_platform_signup_otp($1,$2)',['00000000014',hash]),/permission denied/);
+    await db.exec('reset role');
+  }finally{await db.close();}
+});
 
 test('minimal signup consumes OTP atomically, locks attempts, and has no FC or direct client privilege',async()=>{
   const db=await fixture();try{
@@ -566,7 +588,8 @@ test('withdrawal worker selects only three due jobs and backs off blocked identi
 });
 
 test('FC mapping preserves member identity across phone edits and consumer promotion retains shared referrer',async()=>{
-  const db=await fixture();try{
+  const db=await fixture('',true);try{
+    await db.exec(insuranceOnlyWithdrawalMigration);
     assert.equal(Number((await db.query('select count(*) n from platform_members where fc_id=$1',[fc])).rows[0].n),1);
     await rpc(db,'select enroll_platform_legacy_member($1,$2,$3,$4) result',['00000000002','Synthetic FC',fc,'2026-10-12']);
     const mapped=(await db.query('select id from platform_members where fc_id=$1',[fc])).rows[0].id;
@@ -580,8 +603,9 @@ test('FC mapping preserves member identity across phone edits and consumer promo
     await assert.rejects(db.query('update platform_members set referrer_id=$1 where id=$2',[buyer.memberId,inviter.memberId]),/referral_cycle/);
     await db.query('delete from fc_documents where fc_id=$1',[fc]);
     await db.query('delete from fc_profiles where id=$1',[fc]);
-    const erased=(await db.query('select phone,name,active,fc_id from platform_members where id=$1',[mapped])).rows[0];
-    assert.deepEqual(erased,{phone:null,name:'탈퇴 회원',active:false,fc_id:null});
+    // Deleting only the insurance account detaches it; the 모두온 member stays.
+    const detached=(await db.query('select phone,active,fc_id from platform_members where id=$1',[mapped])).rows[0];
+    assert.deepEqual(detached,{phone:'00000000020',active:true,fc_id:null});
     assert.equal((await rpc(db,'select delete_platform_member($1) result',[inviter.memberId])).deleted,true);
     assert.equal((await db.query('select phone,active from platform_members where id=$1',[inviter.memberId])).rows[0].phone,null);
   }finally{await db.close();}
@@ -843,6 +867,54 @@ test('explicit insurance enrollment transfers credentials once, preserves common
       await db.exec(`set role ${role}`);
       await assert.rejects(db.query('select enroll_platform_insurance_v1($1,$2,0,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
         [created.memberId,'00000000011',randomUUID(),'a'.repeat(64),'insurance-additional-info-v1','가람','synthetic@example.invalid','KT',['life'],'SYNTHETIC',fc]),/permission denied/);
+      await db.exec('reset role');
+    }
+  }finally{await db.close();}
+});
+
+test('leaving only 가람in keeps the 모두온 account, its password and other services; leaving 모두온 removes them',async()=>{
+  const db=await fixture('',true);try {
+    await db.exec(insuranceOnlyWithdrawalMigration);
+    await db.query("insert into referral_codes(fc_id,code,is_active) values($1,'SYNTHETIC',true)",[fc]);
+    const created=await member(db,'00000000011');
+    const telecom=await apply(db,created.memberId);
+    const enrolled=await insuranceEnrollment(db,created);
+    const operation=randomUUID(),digest='a'.repeat(64);
+    const begin=(id=operation,d=digest)=>rpc(db,'select begin_platform_insurance_withdrawal_v1($1,$2,$3) result',[created.memberId,id,d]);
+    const started=await begin();
+    assert.equal(started.scope,'insurance');assert.equal(started.source_fc_id,enrolled.fcId);
+    assert.deepEqual(await begin(),started);
+    await assert.rejects(begin(operation,'b'.repeat(64)),/forbidden/);
+    // The common account stays signed-in capable with the same password, under a new session generation.
+    assert.deepEqual((await db.query('select active,phone,fc_id,insurance_consent_version from platform_members where id=$1',[created.memberId])).rows[0],
+      {active:true,phone:'00000000011',fc_id:null,insurance_consent_version:null});
+    assert.deepEqual((await db.query('select password_hash,password_salt,session_version from platform_member_credentials where member_id=$1',[created.memberId])).rows[0],
+      {password_hash:hash,password_salt:salt,session_version:1});
+    assert.equal(Number((await db.query('select count(*) n from fc_credentials where fc_id=$1',[enrolled.fcId])).rows[0].n),0);
+    assert.ok((await db.query('select account_closed_at from fc_profiles where id=$1',[enrolled.fcId])).rows[0].account_closed_at);
+    await assert.rejects(rpc(db,'select erase_platform_withdrawal_v1($1,$2,$3) result',[operation,digest,'not_applicable']),/affiliate_receipt_required/);
+    const erased=await rpc(db,'select erase_platform_withdrawal_v1($1,$2,$3) result',[operation,digest,'erased']);
+    assert.equal(erased.local_erased,true);
+    assert.deepEqual((await db.query('select phone,name,email,carrier,license_statuses from fc_profiles where id=$1',[enrolled.fcId])).rows[0],
+      {phone:`deleted-fc:${enrolled.fcId}`,name:'탈퇴 회원',email:null,carrier:null,license_statuses:null});
+    assert.equal((await db.query('select active from platform_members where id=$1',[created.memberId])).rows[0].active,true);
+    assert.equal((await db.query('select status from platform_service_applications where id=$1',[telecom.applicationId])).rows[0].status,'interest');
+    await rpc(db,'select record_account_deletion_cleanup_attempt_v1($1,true,null) result',[erased.cleanup_outbox_id]);
+    assert.equal((await rpc(db,'select complete_platform_withdrawal_v1($1,$2) result',[operation,digest])).completed,true);
+
+    // The member can register for 가람in again with a fresh FC account.
+    const again=await insuranceEnrollment(db,created,{version:1,key:randomUUID()});
+    assert.equal(again.ok,true);assert.notEqual(again.fcId,enrolled.fcId);
+
+    // Leaving 모두온 afterwards removes every service; an unsettled application is deleted.
+    const all=randomUUID();
+    await rpc(db,'select begin_platform_withdrawal_v1($1,$2,$3) result',[created.memberId,all,'c'.repeat(64)]);
+    await rpc(db,'select erase_platform_withdrawal_v1($1,$2,$3) result',[all,'c'.repeat(64),'erased']);
+    assert.equal((await db.query('select active from platform_members where id=$1',[created.memberId])).rows[0].active,false);
+    assert.equal(Number((await db.query('select count(*) n from platform_service_applications where id=$1',[telecom.applicationId])).rows[0].n),0);
+    for(const role of ['anon','authenticated']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.query('select begin_platform_insurance_withdrawal_v1($1,$2,$3)',[created.memberId,randomUUID(),digest]),/permission denied/);
       await db.exec('reset role');
     }
   }finally{await db.close();}

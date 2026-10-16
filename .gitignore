@@ -96,3 +96,6 @@ web_deploy/
 
 .vercel
 .env*.local
+
+# Synthetic messenger bot results (scripts/ops/run-messenger-bot.ps1)
+.messenger-bot/

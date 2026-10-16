@@ -307,22 +307,39 @@ export async function resolveGaraminDirectConversation(
   );
 }
 
-export async function fetchGaraminDirectMessages(
-  conversationId: string,
-): Promise<{
+// `full` replaces what the screen holds; `changes` carries only rows changed
+// after `since` (deleted ones in deletedIds) and is merged into it. A server
+// that predates cursors always answers `full` with no cursor.
+export type GaraminDirectMessagePage = {
   conversation: GaraminDirectConversation;
   messages: GaraminDirectMessage[];
-}> {
+  mode: 'full' | 'changes';
+  deletedIds: string[];
+  cursor: string | null;
+  // Public broadcast channel that only says "this conversation changed"; set on full loads.
+  realtimeTopic: string | null;
+};
+
+export async function fetchGaraminDirectMessages(
+  conversationId: string,
+  options?: { since?: string | null },
+): Promise<GaraminDirectMessagePage> {
   if (!isNotificationUuid(conversationId)) {
     throw new Error('대상 대화를 확인할 수 없습니다.');
   }
+  const since = typeof options?.since === 'string' && options.since ? options.since : null;
   const data = await invokeDirectMessageAction<{
     ok: true;
     conversation?: DirectConversationWire;
     messages?: DirectMessageWire[];
+    mode?: unknown;
+    deleted_ids?: unknown;
+    cursor?: unknown;
+    realtime_topic?: unknown;
   }>({
     type: 'direct_message_list',
     conversation_id: conversationId,
+    ...(since ? { since } : {}),
   });
   const conversation = parseConversation(
     data.conversation,
@@ -342,7 +359,18 @@ export async function fetchGaraminDirectMessages(
       throw new Error('대화 응답 순서가 올바르지 않습니다.');
     }
   }
-  return { conversation, messages };
+  const mode = since && data.mode === 'changes' ? 'changes' : 'full';
+  const deletedIds = mode === 'changes' && Array.isArray(data.deleted_ids)
+    ? data.deleted_ids.filter((value): value is string => typeof value === 'string')
+    : [];
+  const cursor = typeof data.cursor === 'string' && Number.isFinite(Date.parse(data.cursor))
+    ? data.cursor
+    : null;
+  const realtimeTopic = typeof data.realtime_topic === 'string'
+    && /^dm-[0-9a-f]{64}$/.test(data.realtime_topic)
+    ? data.realtime_topic
+    : null;
+  return { conversation, messages, mode, deletedIds, cursor, realtimeTopic };
 }
 
 export async function sendGaraminDirectMessage(input: {

@@ -20613,3 +20613,2568 @@ begin
     delete from platform_member_credentials where member_id=pair.member_id;
   end loop;
 end $$;
+
+-- 모두온 signup: confirm the SMS code on its own step before the password questions.
+-- Same locks, expiry, lock-out and attempt counting as register_platform_member; the
+-- challenge is not consumed, so the final signup still verifies the same code.
+create or replace function public.check_platform_signup_otp(p_phone text,p_code_hash text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare c platform_signup_challenges; checked_at timestamptz;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_phone,741012));
+  perform pg_advisory_xact_lock(hashtextextended(p_phone,8102026));
+  select * into c from platform_signup_challenges where phone=p_phone for update;
+  checked_at:=clock_timestamp();
+  if not found or c.expires_at<=checked_at then return jsonb_build_object('ok',false,'code','expired_code'); end if;
+  if c.locked_until>checked_at then return jsonb_build_object('ok',false,'code','locked'); end if;
+  if c.code_hash is distinct from p_code_hash then
+    update platform_signup_challenges set attempts=attempts+1,
+      locked_until=case when attempts>=4 then checked_at+interval '10 minutes' else null end where phone=p_phone;
+    return jsonb_build_object('ok',false,'code','invalid_code');
+  end if;
+  return jsonb_build_object('ok',true);
+end $$;
+revoke all on function public.check_platform_signup_otp(text,text) from public,anon,authenticated;
+grant execute on function public.check_platform_signup_otp(text,text) to service_role;
+
+-- A member may leave one service. Leaving 가람in (insurance) erases only what
+-- 가람in collected plus the FC/가람링크 account; the 모두온 account, its login,
+-- other service applications and service referrers stay. Leaving 모두온 still
+-- removes every service. Settled business history keeps its anonymized UUIDs.
+set local lock_timeout='3s';
+set local statement_timeout='30s';
+
+alter table public.platform_account_withdrawals
+  add column scope text not null default 'all_affiliates' check (scope in ('all_affiliates','insurance'));
+-- One 모두온 withdrawal per member; a member may leave 가람in again after re-registering.
+alter table public.platform_account_withdrawals drop constraint platform_account_withdrawals_member_id_key;
+create unique index platform_withdrawals_member_all on public.platform_account_withdrawals(member_id)
+  where scope='all_affiliates';
+create unique index platform_withdrawals_member_insurance_open on public.platform_account_withdrawals(member_id)
+  where scope='insurance' and not completed;
+
+-- Unlink 가람in from the common member. Enrollment moved the common password into
+-- fc_credentials, so move a usable one back before the FC credential is removed.
+create function public.detach_platform_member_insurance_v1(p_member_id uuid,p_fc_id uuid)
+returns void language plpgsql security invoker set search_path=public,pg_temp as $$
+begin
+  insert into platform_member_credentials(member_id,password_hash,password_salt,session_version,failed_count,
+    locked_until,password_set_at,updated_at)
+    select p_member_id,c.password_hash,c.password_salt,coalesce(c.session_version,0)+1,0,null,c.password_set_at,clock_timestamp()
+      from fc_credentials c where c.fc_id=p_fc_id and c.password_set_at is not null
+        and c.password_hash is not null and c.password_salt is not null and not coalesce(c.must_change_password,false)
+    on conflict(member_id) do nothing;
+  update platform_members set fc_id=null,insurance_consent_version=null,insurance_consent_source=null,
+    insurance_consent_recorded_at=null,insurance_enrollment_key=null,insurance_enrollment_fingerprint=null,
+    insurance_enrollment_member_version=null,insurance_enrollment_fc_version=null
+    where id=p_member_id and fc_id=p_fc_id;
+end $$;
+revoke all on function public.detach_platform_member_insurance_v1(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.detach_platform_member_insurance_v1(uuid,uuid) to service_role;
+
+create function public.begin_platform_insurance_withdrawal_v1(
+  p_member_id uuid,p_operation_id uuid,p_session_digest text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members; f fc_profiles; w platform_account_withdrawals; source_phone text; source_fc uuid;
+begin
+  if p_operation_id is null or p_member_id is null or p_session_digest is null
+    or p_session_digest !~ '^[0-9a-f]{64}$' then raise exception 'invalid_input'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_operation_id::text,741014));
+  select * into w from platform_account_withdrawals where operation_id=p_operation_id;
+  if found then
+    if w.member_id<>p_member_id or w.session_digest<>p_session_digest or w.scope<>'insurance' then raise exception 'forbidden'; end if;
+    return to_jsonb(w);
+  end if;
+  select * into m from platform_members where id=p_member_id;
+  if not found or not m.active or m.phone is null then raise exception 'member_unavailable'; end if;
+  if m.fc_id is null or m.staff_account_id is not null then raise exception 'forbidden'; end if;
+  source_phone:=m.phone; source_fc:=m.fc_id;
+  -- Same lock order as insurance enrollment: phone domains, FC profile, member.
+  perform pg_advisory_xact_lock(hashtextextended(source_phone,741012));
+  perform pg_advisory_xact_lock(hashtextextended(source_phone,8102026));
+  select * into f from fc_profiles where id=source_fc for update;
+  if not found or f.phone<>source_phone or f.signup_completed is distinct from true
+    or f.is_manager_referral_shadow or f.account_closed_at is not null then raise exception 'forbidden'; end if;
+  select * into m from platform_members where id=p_member_id for update;
+  if not m.active or m.phone is distinct from source_phone or m.fc_id is distinct from source_fc
+    or m.staff_account_id is not null then raise exception 'forbidden'; end if;
+  insert into platform_account_withdrawals(operation_id,member_id,session_digest,source_fc_id,scope)
+    values(p_operation_id,m.id,p_session_digest,f.id,'insurance') returning * into w;
+  perform set_config('moduon.withdrawal_operation_id',w.operation_id::text,true);
+  update fc_profiles set account_closed_at=clock_timestamp(),signup_completed=false where id=f.id;
+  perform set_config('moduon.withdrawal_operation_id','',true);
+  perform detach_platform_member_insurance_v1(m.id,f.id);
+  delete from fc_credentials where fc_id=f.id;
+  delete from fc_signup_completion_challenges where fc_id=f.id;
+  return to_jsonb(w);
+end $$;
+revoke all on function public.begin_platform_insurance_withdrawal_v1(uuid,uuid,text) from public,anon,authenticated;
+grant execute on function public.begin_platform_insurance_withdrawal_v1(uuid,uuid,text) to service_role;
+
+-- The erase step closes the FC account for both scopes; only a 모두온 withdrawal
+-- erases the common member.
+create or replace function public.erase_platform_withdrawal_v1(
+  p_operation_id uuid,p_session_digest text,p_affiliate_state text,p_preserved_company_role text default null)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare w platform_account_withdrawals; receipt jsonb;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_operation_id::text,741014));
+  select * into w from platform_account_withdrawals
+    where operation_id=p_operation_id and session_digest=p_session_digest;
+  if not found then raise exception 'forbidden'; end if;
+  if w.local_erased then return to_jsonb(w); end if;
+  if w.source_fc_id is not null then
+    if p_affiliate_state not in ('erased','company_account_preserved') or p_affiliate_state is null
+      or (p_affiliate_state='company_account_preserved' and
+        coalesce(p_preserved_company_role,'') not in ('admin','manager','designer','developer')) then raise exception 'affiliate_receipt_required'; end if;
+    perform from fc_profiles where id=w.source_fc_id for update;
+  elsif p_affiliate_state is distinct from 'not_applicable' then raise exception 'forbidden'; end if;
+  perform from platform_members where id=w.member_id for update;
+  if w.source_fc_id is not null then
+    perform set_config('moduon.fc_closure_id',w.source_fc_id::text,true);
+    receipt:=delete_account_core_transaction_v1('fc',w.source_fc_id);
+    perform set_config('moduon.fc_closure_id','',true);
+  end if;
+  -- Reuse the existing erase-only function. It does not call the core delete
+  -- transaction, so BEFORE DELETE projection triggers cannot recurse.
+  if w.scope='all_affiliates' then perform delete_platform_member(w.member_id); end if;
+  update platform_account_withdrawals set local_erased=true,cleanup_receipt=receipt,
+    cleanup_outbox_id=(receipt->>'cleanup_outbox_id')::uuid,
+    preserved_company_role=coalesce(p_preserved_company_role,preserved_company_role)
+    where operation_id=w.operation_id returning * into w;
+  return to_jsonb(w);
+end $$;
+
+-- 모두온 withdrawal removes every service: applications without a settlement are
+-- deleted; settled ones keep only their anonymized UUID for settlement checks.
+create or replace function public.delete_platform_member(p_member_id uuid)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members;
+begin
+  select * into m from platform_members where id=p_member_id for update;
+  if not found then raise exception 'member_unavailable'; end if;
+  delete from platform_member_credentials where member_id=m.id;
+  delete from platform_signup_challenges where phone=m.phone or consumed_member_id=m.id;
+  delete from platform_service_applications a where a.member_id=m.id
+    and not exists(select from platform_partner_settlements s where s.application_id=a.id);
+  update platform_service_applications set details='{"region":"삭제","requestType":"삭제"}'::jsonb,
+    status=case when status='interest' then 'cancelled' else status end where member_id=m.id;
+  -- Erase live source bindings and direct identifying fields. Restricted source
+  -- tombstones/cohort associations remain solely as no-auto-import/audit evidence.
+  update platform_members set phone=null,name='탈퇴 회원',active=false,fc_id=null,
+    staff_account_kind=null,staff_account_id=null,terms_accepted_at=null,terms_version=null,
+    terms_basis=null,terms_recorded_at=null,insurance_consent_version=null,
+    insurance_consent_source=null,insurance_consent_recorded_at=null,
+    insurance_enrollment_key=null,insurance_enrollment_fingerprint=null,
+    insurance_enrollment_member_version=null,insurance_enrollment_fc_version=null,
+    withdrawal_source_kind=coalesce(withdrawal_source_kind,case when m.fc_id is not null then 'fc'
+      when m.staff_account_id is not null then m.staff_account_kind else 'member' end),
+    withdrawal_source_id=coalesce(withdrawal_source_id,m.fc_id,m.staff_account_id,m.id)
+    where id=m.id;
+  return jsonb_build_object('ok',true,'deleted',true);
+end $$;
+
+-- Deleting only the insurance account (FC hard delete) detaches it from the
+-- common member instead of withdrawing the whole 모두온 account. Company staff
+-- account deletion keeps its existing full erase.
+create or replace function public.erase_platform_fc_identity() returns trigger
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare mapped uuid;
+begin
+  if tg_table_name='fc_profiles' then
+    select id into mapped from platform_members where fc_id=old.id for update;
+    if mapped is not null then perform detach_platform_member_insurance_v1(mapped,old.id); end if;
+  else
+    select id into mapped from platform_members where
+      staff_account_kind=case tg_table_name when 'admin_accounts' then 'admin' when 'manager_accounts' then 'manager' end
+      and staff_account_id=old.id for update;
+    if mapped is not null then perform delete_platform_member(mapped); end if;
+    delete from platform_signup_challenges where phone=old.phone;
+  end if;
+  return old;
+end $$;
+-- 20261016104031_messenger_unified_model
+-- Messenger stage 1: unified data model.
+-- People (actors), organizations, memberships, conversations, participants,
+-- messages and events with one per-conversation sequence counter.
+-- Legacy messenger tables stay the source of truth until stage 2. These tables
+-- are filled by messenger_backfill_v1() and kept in step by dual-write
+-- triggers (next migration). All access is service_role only.
+
+create table if not exists public.messenger_actors (
+  id uuid primary key default gen_random_uuid(),
+  display_name text not null default '',
+  phone text check (phone is null or phone ~ '^[0-9]{9,11}$'),
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+-- Not unique: a reused phone number must not silently merge two people.
+create index if not exists idx_messenger_actors_phone
+  on public.messenger_actors (phone) where phone is not null;
+
+create table if not exists public.messenger_actor_links (
+  source_kind text not null check (
+    source_kind in ('fc', 'admin', 'manager', 'platform_member', 'request_board_user')
+  ),
+  source_id text not null check (char_length(source_id) between 1 and 64),
+  actor_id uuid not null references public.messenger_actors(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (source_kind, source_id)
+);
+create index if not exists idx_messenger_actor_links_actor
+  on public.messenger_actor_links (actor_id);
+
+create table if not exists public.messenger_orgs (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null check (kind in ('garam', 'moduon_ops', 'partner')),
+  parent_id uuid references public.messenger_orgs(id) on delete restrict,
+  partner_id uuid unique references public.platform_partners(id) on delete restrict,
+  slug text unique check (slug is null or slug ~ '^[a-z0-9][a-z0-9-]{1,62}$'),
+  name text not null check (char_length(trim(name)) between 1 and 120),
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check ((kind = 'partner') = (partner_id is not null)),
+  check (parent_id is null or parent_id <> id)
+);
+
+create table if not exists public.messenger_org_members (
+  org_id uuid not null references public.messenger_orgs(id) on delete cascade,
+  actor_id uuid not null references public.messenger_actors(id) on delete cascade,
+  role text not null check (
+    role in ('fc', 'manager', 'admin', 'developer', 'designer', 'agent', 'org_admin')
+  ),
+  status text not null default 'pending' check (status in ('pending', 'approved', 'revoked')),
+  approved_by_actor_id uuid references public.messenger_actors(id) on delete set null,
+  approved_at timestamptz,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (org_id, actor_id, role),
+  check (status <> 'approved' or approved_at is not null),
+  check (status <> 'revoked' or revoked_at is not null)
+);
+create index if not exists idx_messenger_org_members_actor
+  on public.messenger_org_members (actor_id) where status = 'approved';
+
+-- Operators allowed to approve partner staff memberships (decision 2026-10-16:
+-- start with the owner's own admin account; allowlist so it can grow later).
+create table if not exists public.messenger_member_approvers (
+  actor_id uuid primary key references public.messenger_actors(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.messenger_conversations (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null check (kind in ('direct', 'group', 'org_room', 'shared')),
+  owner_org_id uuid references public.messenger_orgs(id) on delete restrict,
+  subject_actor_id uuid references public.messenger_actors(id) on delete restrict,
+  direct_key text unique,
+  title text,
+  last_event_seq bigint not null default 0 check (last_event_seq >= 0),
+  last_message_seq bigint,
+  last_message_at timestamptz,
+  pinned_notice_seq bigint,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check ((kind = 'direct') = (direct_key is not null)),
+  check (kind <> 'direct' or (owner_org_id is null and subject_actor_id is null)),
+  check (kind <> 'org_room' or (owner_org_id is not null and subject_actor_id is not null)),
+  check (kind not in ('group', 'shared') or owner_org_id is not null)
+);
+-- One room per (organization, customer).
+create unique index if not exists idx_messenger_conversations_org_room
+  on public.messenger_conversations (owner_org_id, subject_actor_id)
+  where kind = 'org_room';
+
+create table if not exists public.messenger_conversation_orgs (
+  conversation_id uuid not null references public.messenger_conversations(id) on delete cascade,
+  org_id uuid not null references public.messenger_orgs(id) on delete cascade,
+  last_read_seq bigint not null default 0 check (last_read_seq >= 0),
+  created_at timestamptz not null default now(),
+  primary key (conversation_id, org_id)
+);
+create index if not exists idx_messenger_conversation_orgs_org
+  on public.messenger_conversation_orgs (org_id);
+
+create table if not exists public.messenger_participants (
+  conversation_id uuid not null references public.messenger_conversations(id) on delete cascade,
+  actor_id uuid not null references public.messenger_actors(id) on delete cascade,
+  -- 'agent' rows only hold an org agent's own read position and preferences;
+  -- access to org rooms comes from approved org membership, never from this row.
+  role text not null default 'member' check (role in ('member', 'owner', 'subject', 'agent')),
+  joined_at timestamptz not null default now(),
+  left_at timestamptz,
+  last_read_seq bigint not null default 0 check (last_read_seq >= 0),
+  muted boolean not null default false,
+  pinned_at timestamptz,
+  can_send boolean not null default true,
+  blocked_at timestamptz,
+  updated_at timestamptz not null default now(),
+  primary key (conversation_id, actor_id)
+);
+create index if not exists idx_messenger_participants_actor
+  on public.messenger_participants (actor_id) where left_at is null;
+
+create table if not exists public.messenger_messages (
+  conversation_id uuid not null references public.messenger_conversations(id) on delete cascade,
+  seq bigint not null check (seq > 0),
+  id uuid not null unique,
+  sender_actor_id uuid references public.messenger_actors(id) on delete set null,
+  sender_org_id uuid references public.messenger_orgs(id) on delete set null,
+  kind text not null check (kind in ('text', 'image', 'file', 'system')),
+  content text not null default '',
+  reply_to_seq bigint,
+  context jsonb,
+  attachment_batch_id uuid,
+  legacy_file_url text,
+  legacy_file_name text,
+  legacy_file_size bigint,
+  client_message_id uuid,
+  created_at timestamptz not null,
+  deleted_at timestamptz,
+  deleted_by_actor_id uuid references public.messenger_actors(id) on delete set null,
+  primary key (conversation_id, seq),
+  check (context is null or jsonb_typeof(context) = 'object')
+);
+create unique index if not exists idx_messenger_messages_client_id
+  on public.messenger_messages (sender_actor_id, client_message_id)
+  where client_message_id is not null;
+create index if not exists idx_messenger_messages_conversation_created
+  on public.messenger_messages (conversation_id, created_at);
+
+create table if not exists public.messenger_events (
+  conversation_id uuid not null references public.messenger_conversations(id) on delete cascade,
+  event_seq bigint not null check (event_seq > 0),
+  type text not null check (type in ('message', 'delete', 'reaction', 'read', 'notice', 'member')),
+  message_seq bigint,
+  actor_id uuid references public.messenger_actors(id) on delete set null,
+  payload jsonb not null default '{}'::jsonb check (jsonb_typeof(payload) = 'object'),
+  created_at timestamptz not null default now(),
+  primary key (conversation_id, event_seq)
+);
+
+create table if not exists public.messenger_reactions (
+  conversation_id uuid not null,
+  message_seq bigint not null,
+  actor_id uuid not null references public.messenger_actors(id) on delete cascade,
+  reaction text not null check (char_length(reaction) between 1 and 16),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (conversation_id, message_seq, actor_id),
+  foreign key (conversation_id, message_seq)
+    references public.messenger_messages(conversation_id, seq) on delete cascade
+);
+
+-- Legacy room -> new conversation. Dual-write triggers only mirror rooms that
+-- are mapped here, so a room is never half-filled before its backfill.
+create table if not exists public.messenger_legacy_map (
+  source_kind text not null check (
+    source_kind in ('garamin_direct_thread', 'group_chat_room', 'request_board_pair', 'request_board_direct')
+  ),
+  source_key text not null,
+  conversation_id uuid not null references public.messenger_conversations(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (source_kind, source_key)
+);
+create index if not exists idx_messenger_legacy_map_conversation
+  on public.messenger_legacy_map (conversation_id);
+
+-- Rows the backfill or dual-write could not map, for operator review.
+create table if not exists public.messenger_sync_issues (
+  id bigint generated always as identity primary key,
+  source text not null,
+  source_key text,
+  reason text not null,
+  detail jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+create table if not exists public.messenger_reconcile_runs (
+  id bigint generated always as identity primary key,
+  ran_at timestamptz not null default now(),
+  ok boolean not null,
+  result jsonb not null
+);
+
+-- Hands out the next sequence number of a conversation. The row lock taken by
+-- the update serializes writers of one conversation, so sequences have no gaps
+-- or duplicates within a room.
+create or replace function public.messenger_next_seq(p_conversation_id uuid)
+returns bigint
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_seq bigint;
+begin
+  update public.messenger_conversations
+     set last_event_seq = last_event_seq + 1,
+         updated_at = now()
+   where id = p_conversation_id
+  returning last_event_seq into v_seq;
+  if v_seq is null then
+    raise exception 'messenger_conversation_not_found';
+  end if;
+  return v_seq;
+end;
+$$;
+
+-- Appends one message (idempotent on message id) and its 'message' event.
+create or replace function public.messenger_append_message(
+  p_conversation_id uuid,
+  p_id uuid,
+  p_sender_actor_id uuid,
+  p_sender_org_id uuid,
+  p_kind text,
+  p_content text,
+  p_created_at timestamptz,
+  p_context jsonb default null,
+  p_attachment_batch_id uuid default null,
+  p_legacy_file_url text default null,
+  p_legacy_file_name text default null,
+  p_legacy_file_size bigint default null,
+  p_client_message_id uuid default null
+) returns bigint
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_existing record;
+  v_seq bigint;
+begin
+  select conversation_id, seq into v_existing
+    from public.messenger_messages where id = p_id;
+  if found then
+    if v_existing.conversation_id <> p_conversation_id then
+      raise exception 'messenger_message_conversation_conflict';
+    end if;
+    return v_existing.seq;
+  end if;
+
+  v_seq := public.messenger_next_seq(p_conversation_id);
+  insert into public.messenger_messages (
+    conversation_id, seq, id, sender_actor_id, sender_org_id, kind, content,
+    context, attachment_batch_id, legacy_file_url, legacy_file_name,
+    legacy_file_size, client_message_id, created_at
+  ) values (
+    p_conversation_id, v_seq, p_id, p_sender_actor_id, p_sender_org_id, p_kind,
+    coalesce(p_content, ''), p_context, p_attachment_batch_id, p_legacy_file_url,
+    p_legacy_file_name, p_legacy_file_size, p_client_message_id, p_created_at
+  );
+  insert into public.messenger_events (conversation_id, event_seq, type, message_seq, actor_id, created_at)
+  values (p_conversation_id, v_seq, 'message', v_seq, p_sender_actor_id, p_created_at);
+  update public.messenger_conversations
+     set last_message_seq = v_seq,
+         last_message_at = greatest(coalesce(last_message_at, p_created_at), p_created_at)
+   where id = p_conversation_id;
+  return v_seq;
+end;
+$$;
+
+-- Records a non-message change as its own event so clients can sync with one
+-- "events after N" cursor.
+create or replace function public.messenger_record_event(
+  p_conversation_id uuid,
+  p_type text,
+  p_message_seq bigint,
+  p_actor_id uuid,
+  p_payload jsonb default '{}'::jsonb
+) returns bigint
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_seq bigint;
+begin
+  v_seq := public.messenger_next_seq(p_conversation_id);
+  insert into public.messenger_events (conversation_id, event_seq, type, message_seq, actor_id, payload)
+  values (p_conversation_id, v_seq, p_type, p_message_seq, p_actor_id, coalesce(p_payload, '{}'::jsonb));
+  return v_seq;
+end;
+$$;
+
+-- Single place that decides who may read a conversation.
+create or replace function public.messenger_can_access(p_actor_id uuid, p_conversation_id uuid)
+returns boolean
+language sql stable security invoker set search_path = public, pg_temp as $$
+  select exists (
+    select 1
+      from public.messenger_participants p
+     where p.conversation_id = p_conversation_id
+       and p.actor_id = p_actor_id
+       and p.role <> 'agent'
+       and p.left_at is null
+  ) or exists (
+    select 1
+      from public.messenger_conversation_orgs co
+      join public.messenger_org_members m
+        on m.org_id = co.org_id and m.actor_id = p_actor_id and m.status = 'approved'
+      join public.messenger_orgs o on o.id = co.org_id and o.active
+     where co.conversation_id = p_conversation_id
+  );
+$$;
+
+-- Who may open an org room (decisions 2026-10-16): a customer may always contact
+-- an active partner; an approved agent may contact a customer first only when
+-- that customer applied for the partner's service, and never after a block.
+create or replace function public.messenger_can_start_org_room(
+  p_initiator_actor_id uuid,
+  p_org_id uuid,
+  p_subject_actor_id uuid
+) returns boolean
+language plpgsql stable security invoker set search_path = public, pg_temp as $$
+declare
+  v_org public.messenger_orgs%rowtype;
+  v_service_key text;
+begin
+  select * into v_org from public.messenger_orgs where id = p_org_id;
+  if not found or not v_org.active then
+    return false;
+  end if;
+  if exists (
+    select 1
+      from public.messenger_conversations c
+      join public.messenger_participants p
+        on p.conversation_id = c.id and p.actor_id = p_subject_actor_id
+     where c.kind = 'org_room' and c.owner_org_id = p_org_id
+       and c.subject_actor_id = p_subject_actor_id and p.blocked_at is not null
+  ) then
+    return false;
+  end if;
+  if p_initiator_actor_id = p_subject_actor_id then
+    return true;
+  end if;
+  if not exists (
+    select 1 from public.messenger_org_members
+     where org_id = p_org_id and actor_id = p_initiator_actor_id and status = 'approved'
+  ) then
+    return false;
+  end if;
+  if v_org.kind <> 'partner' then
+    return true;
+  end if;
+  select service_key into v_service_key from public.platform_partners where id = v_org.partner_id;
+  return exists (
+    select 1
+      from public.messenger_actor_links l
+      join public.platform_service_applications a
+        on a.member_id::text = l.source_id and a.service_key = v_service_key
+     where l.actor_id = p_subject_actor_id and l.source_kind = 'platform_member'
+  );
+end;
+$$;
+
+-- Approves or revokes a membership. Only allowlisted operators may decide.
+create or replace function public.messenger_decide_org_member(
+  p_approver_actor_id uuid,
+  p_org_id uuid,
+  p_actor_id uuid,
+  p_role text,
+  p_approve boolean
+) returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_row public.messenger_org_members%rowtype;
+begin
+  if not exists (select 1 from public.messenger_member_approvers where actor_id = p_approver_actor_id) then
+    raise exception 'messenger_approver_forbidden';
+  end if;
+  update public.messenger_org_members
+     set status = case when p_approve then 'approved' else 'revoked' end,
+         approved_by_actor_id = case when p_approve then p_approver_actor_id else approved_by_actor_id end,
+         approved_at = case when p_approve then now() else approved_at end,
+         revoked_at = case when p_approve then null else now() end,
+         updated_at = now()
+   where org_id = p_org_id and actor_id = p_actor_id and role = p_role
+  returning * into v_row;
+  if not found then
+    raise exception 'messenger_membership_not_found';
+  end if;
+  return jsonb_build_object('orgId', v_row.org_id, 'actorId', v_row.actor_id, 'role', v_row.role, 'status', v_row.status);
+end;
+$$;
+
+do $$
+declare
+  t text;
+  f record;
+begin
+  foreach t in array array[
+    'messenger_actors', 'messenger_actor_links', 'messenger_orgs', 'messenger_org_members',
+    'messenger_member_approvers', 'messenger_conversations', 'messenger_conversation_orgs',
+    'messenger_participants', 'messenger_messages', 'messenger_events', 'messenger_reactions',
+    'messenger_legacy_map', 'messenger_sync_issues', 'messenger_reconcile_runs'
+  ] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('revoke all on public.%I from public, anon, authenticated', t);
+    execute format('grant select, insert, update, delete on public.%I to service_role', t);
+  end loop;
+  for f in
+    select p.oid::regprocedure as signature
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in (
+         'messenger_next_seq', 'messenger_append_message', 'messenger_record_event',
+         'messenger_can_access', 'messenger_can_start_org_room', 'messenger_decide_org_member'
+       )
+  loop
+    execute format('revoke all on function %s from public, anon, authenticated', f.signature);
+    execute format('grant execute on function %s to service_role', f.signature);
+  end loop;
+end;
+$$;
+
+-- 20261016104248_messenger_unified_backfill
+-- Messenger stage 1: backfill, dual-write triggers, reconciliation and the
+-- GaramLink (request board) import entry point.
+-- Legacy tables remain the source of truth. Dual-write triggers never raise:
+-- a mirroring failure is written to messenger_sync_issues and the legacy write
+-- still succeeds. Unmapped rooms are filled by the next messenger_backfill_v1().
+
+create or replace function public.messenger_normalize_phone(p_phone text)
+returns text
+language sql immutable set search_path = public, pg_temp as $$
+  select case
+    when regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g') ~ '^[0-9]{9,11}$'
+      then regexp_replace(p_phone, '[^0-9]', '', 'g')
+  end;
+$$;
+
+create or replace function public.messenger_actor_for(p_kind text, p_source_id text)
+returns uuid
+language sql stable set search_path = public, pg_temp as $$
+  select actor_id from public.messenger_actor_links
+   where source_kind = p_kind and source_id = p_source_id;
+$$;
+
+-- Account uuid (fc/admin/manager) -> actor, for legacy *_actor_id columns.
+create or replace function public.messenger_actor_for_account(p_account_id uuid)
+returns uuid
+language sql stable set search_path = public, pg_temp as $$
+  select actor_id from public.messenger_actor_links
+   where source_id = p_account_id::text and source_kind in ('fc', 'manager', 'admin')
+   order by case source_kind when 'fc' then 0 when 'manager' then 1 else 2 end
+   limit 1;
+$$;
+
+-- Group chat actor key '{role}:{phone}' -> actor.
+create or replace function public.messenger_actor_for_group_key(p_key text)
+returns uuid
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  v_role text := split_part(coalesce(p_key, ''), ':', 1);
+  v_phone text := public.messenger_normalize_phone(split_part(coalesce(p_key, ''), ':', 2));
+  v_id uuid;
+begin
+  if v_phone is null then
+    return null;
+  end if;
+  if v_role = 'fc' then
+    select id into v_id from public.fc_profiles where phone = v_phone limit 1;
+    return public.messenger_actor_for('fc', v_id::text);
+  elsif v_role = 'manager' then
+    select id into v_id from public.manager_accounts where phone = v_phone;
+    return public.messenger_actor_for('manager', v_id::text);
+  elsif v_role = 'admin' then
+    select id into v_id from public.admin_accounts where phone = v_phone;
+    return public.messenger_actor_for('admin', v_id::text);
+  end if;
+  return null;
+end;
+$$;
+
+-- Finds or creates the person behind one source account. A new account joins an
+-- existing person only when exactly one person already has that phone; two or
+-- more candidates are recorded as an issue instead of guessing.
+create or replace function public.messenger_ensure_actor(
+  p_kind text,
+  p_source_id text,
+  p_name text,
+  p_phone text
+) returns uuid
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_actor uuid;
+  v_phone text := public.messenger_normalize_phone(p_phone);
+  v_candidates uuid[];
+begin
+  if p_source_id is null then
+    return null;
+  end if;
+  v_actor := public.messenger_actor_for(p_kind, p_source_id);
+  if v_actor is not null then
+    return v_actor;
+  end if;
+  if v_phone is not null then
+    select array_agg(distinct id) into v_candidates
+      from public.messenger_actors where phone = v_phone;
+    if cardinality(v_candidates) = 1 then
+      v_actor := v_candidates[1];
+    elsif cardinality(v_candidates) > 1 then
+      insert into public.messenger_sync_issues (source, source_key, reason, detail)
+      values ('actor', p_kind || ':' || p_source_id, 'ambiguous_phone',
+              jsonb_build_object('candidates', to_jsonb(v_candidates)));
+    end if;
+  end if;
+  if v_actor is null then
+    insert into public.messenger_actors (display_name, phone)
+    values (coalesce(nullif(trim(p_name), ''), ''), v_phone)
+    returning id into v_actor;
+  end if;
+  insert into public.messenger_actor_links (source_kind, source_id, actor_id)
+  values (p_kind, p_source_id, v_actor)
+  on conflict (source_kind, source_id) do nothing;
+  return public.messenger_actor_for(p_kind, p_source_id);
+end;
+$$;
+
+create or replace function public.messenger_org_by_slug(p_slug text)
+returns uuid
+language sql stable set search_path = public, pg_temp as $$
+  select id from public.messenger_orgs where slug = p_slug;
+$$;
+
+-- Records an open issue once per (source, key, reason); re-runs add nothing.
+create or replace function public.messenger_record_issue_once(
+  p_source text,
+  p_source_key text,
+  p_reason text,
+  p_detail jsonb default '{}'::jsonb
+) returns void
+language sql security invoker set search_path = public, pg_temp as $$
+  insert into public.messenger_sync_issues (source, source_key, reason, detail)
+  select p_source, p_source_key, p_reason, p_detail
+   where not exists (
+     select 1 from public.messenger_sync_issues
+      where source = p_source and source_key is not distinct from p_source_key
+        and reason = p_reason and resolved_at is null
+   );
+$$;
+
+-- Ensures the conversation for one legacy 1:1 thread and maps it.
+create or replace function public.messenger_ensure_direct_thread(p_thread_id uuid)
+returns uuid
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_thread record;
+  v_fc uuid;
+  v_staff uuid;
+  v_garam uuid := public.messenger_org_by_slug('garam');
+  v_conversation uuid;
+  v_key text;
+begin
+  select conversation_id into v_conversation from public.messenger_legacy_map
+   where source_kind = 'garamin_direct_thread' and source_key = p_thread_id::text;
+  if found then
+    return v_conversation;
+  end if;
+  select t.id, t.counterparty_role, t.counterparty_actor_id, c.fc_id into v_thread
+    from public.garamin_direct_threads t
+    join public.garamin_direct_conversations c on c.id = t.legacy_conversation_id
+   where t.id = p_thread_id;
+  if not found then
+    return null;
+  end if;
+  v_fc := public.messenger_actor_for('fc', v_thread.fc_id::text);
+  if v_fc is null then
+    perform public.messenger_record_issue_once('garamin_direct_thread', p_thread_id::text, 'fc_actor_missing');
+    return null;
+  end if;
+
+  if v_thread.counterparty_role = 'admin' then
+    select id into v_conversation from public.messenger_conversations
+     where kind = 'org_room' and owner_org_id = v_garam and subject_actor_id = v_fc;
+    if v_conversation is null then
+      insert into public.messenger_conversations (kind, owner_org_id, subject_actor_id)
+      values ('org_room', v_garam, v_fc) returning id into v_conversation;
+    end if;
+    insert into public.messenger_conversation_orgs (conversation_id, org_id)
+    values (v_conversation, v_garam) on conflict do nothing;
+    insert into public.messenger_participants (conversation_id, actor_id, role)
+    values (v_conversation, v_fc, 'subject') on conflict do nothing;
+  else
+    v_staff := public.messenger_actor_for(
+      case v_thread.counterparty_role when 'manager' then 'manager' else 'admin' end,
+      v_thread.counterparty_actor_id::text
+    );
+    if v_staff is null then
+      -- Decision 2026-10-16: a thread whose staff account is gone and that has
+      -- no messages is only recorded. Once it has messages it blocks again.
+      if exists (select 1 from public.messages where thread_id = p_thread_id) then
+        perform public.messenger_record_issue_once('garamin_direct_thread', p_thread_id::text, 'staff_actor_missing');
+      else
+        update public.messenger_sync_issues set resolved_at = now()
+         where source = 'garamin_direct_thread' and source_key = p_thread_id::text
+           and reason = 'staff_actor_missing' and resolved_at is null;
+        perform public.messenger_record_issue_once('garamin_direct_thread', p_thread_id::text,
+          'thread_counterparty_missing_empty');
+      end if;
+      return null;
+    end if;
+    v_key := least(v_fc::text, v_staff::text) || ':' || greatest(v_fc::text, v_staff::text);
+    insert into public.messenger_conversations (kind, direct_key)
+    values ('direct', v_key)
+    on conflict (direct_key) do update set updated_at = public.messenger_conversations.updated_at
+    returning id into v_conversation;
+    insert into public.messenger_participants (conversation_id, actor_id)
+    values (v_conversation, v_fc), (v_conversation, v_staff) on conflict do nothing;
+  end if;
+
+  insert into public.messenger_legacy_map (source_kind, source_key, conversation_id)
+  values ('garamin_direct_thread', p_thread_id::text, v_conversation);
+  return v_conversation;
+end;
+$$;
+
+-- The one person with this phone, or null when none or several match.
+create or replace function public.messenger_actor_by_phone(p_phone text)
+returns uuid
+language sql stable set search_path = public, pg_temp as $$
+  select case when count(*) = 1 then (array_agg(id))[1] end
+    from public.messenger_actors
+   where phone = public.messenger_normalize_phone(p_phone);
+$$;
+
+-- Sender of one legacy 1:1 message: the account uuid when recorded, otherwise
+-- the person with the sender phone ('admin' means the shared Garam inbox).
+create or replace function public.messenger_direct_sender(
+  p_sender_id text,
+  p_sender_actor_id uuid,
+  p_fc_actor uuid,
+  p_fc_phone text
+) returns uuid
+language sql stable set search_path = public, pg_temp as $$
+  select coalesce(
+    public.messenger_actor_for_account(p_sender_actor_id),
+    case when public.messenger_normalize_phone(p_sender_id) = public.messenger_normalize_phone(p_fc_phone)
+      then p_fc_actor end,
+    case when p_sender_id <> 'admin' then public.messenger_actor_by_phone(p_sender_id) end
+  );
+$$;
+
+-- Legacy 1:1 messages saved without a thread are placed into a conversation by
+-- the phones on both sides (decision 2026-10-16). Deleted ones and ones whose
+-- other side no longer exists are not moved; they are recorded as issues.
+create table if not exists public.messenger_orphan_placements (
+  message_id uuid primary key,
+  conversation_id uuid not null references public.messenger_conversations(id) on delete cascade,
+  placed_at timestamptz not null default now()
+);
+create index if not exists idx_messenger_orphan_placements_conversation
+  on public.messenger_orphan_placements (conversation_id);
+alter table public.messenger_orphan_placements enable row level security;
+revoke all on public.messenger_orphan_placements from public, anon, authenticated;
+grant select, insert, update, delete on public.messenger_orphan_placements to service_role;
+
+create or replace function public.messenger_record_orphan_issue(
+  p_message_id uuid,
+  p_reason text,
+  p_detail jsonb default '{}'::jsonb
+) returns void
+language sql security invoker set search_path = public, pg_temp as $$
+  insert into public.messenger_sync_issues (source, source_key, reason, detail)
+  select 'messages', p_message_id::text, p_reason, p_detail
+   where not exists (
+     select 1 from public.messenger_sync_issues
+      where source = 'messages' and source_key = p_message_id::text and reason = p_reason
+   );
+$$;
+
+create or replace function public.messenger_place_orphan_messages()
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  m record;
+  v_sender uuid;
+  v_receiver uuid;
+  v_subject uuid;
+  v_conversation uuid;
+  v_garam uuid := public.messenger_org_by_slug('garam');
+  v_placed integer := 0;
+  v_skipped integer := 0;
+begin
+  for m in
+    select l.* from public.messages l
+     where l.thread_id is null
+       and not exists (select 1 from public.messenger_orphan_placements p where p.message_id = l.id)
+     order by l.created_at, l.id
+  loop
+    if m.deleted_at is not null then
+      perform public.messenger_record_orphan_issue(m.id, 'orphan_deleted_skipped');
+      v_skipped := v_skipped + 1;
+      continue;
+    end if;
+    v_sender := case when m.sender_id = 'admin' then null
+                     else coalesce(public.messenger_actor_for_account(m.sender_actor_id),
+                                   public.messenger_actor_by_phone(m.sender_id)) end;
+    v_receiver := case when m.receiver_id = 'admin' then null
+                       else coalesce(public.messenger_actor_for_account(m.receiver_actor_id),
+                                     public.messenger_actor_by_phone(m.receiver_id)) end;
+    if (m.sender_id <> 'admin' and v_sender is null)
+       or (m.receiver_id <> 'admin' and v_receiver is null)
+       or (m.sender_id = 'admin' and m.receiver_id = 'admin') then
+      perform public.messenger_record_orphan_issue(m.id, 'orphan_participant_missing',
+        jsonb_build_object('senderFound', v_sender is not null or m.sender_id = 'admin',
+                           'receiverFound', v_receiver is not null or m.receiver_id = 'admin'));
+      v_skipped := v_skipped + 1;
+      continue;
+    end if;
+
+    if m.sender_id = 'admin' or m.receiver_id = 'admin' then
+      v_subject := coalesce(v_sender, v_receiver);
+      select id into v_conversation from public.messenger_conversations
+       where kind = 'org_room' and owner_org_id = v_garam and subject_actor_id = v_subject;
+      if v_conversation is null then
+        insert into public.messenger_conversations (kind, owner_org_id, subject_actor_id)
+        values ('org_room', v_garam, v_subject) returning id into v_conversation;
+      end if;
+      insert into public.messenger_conversation_orgs (conversation_id, org_id)
+      values (v_conversation, v_garam) on conflict do nothing;
+      insert into public.messenger_participants (conversation_id, actor_id, role)
+      values (v_conversation, v_subject, 'subject') on conflict do nothing;
+    elsif v_sender = v_receiver then
+      perform public.messenger_record_orphan_issue(m.id, 'orphan_self_message');
+      v_skipped := v_skipped + 1;
+      continue;
+    else
+      insert into public.messenger_conversations (kind, direct_key)
+      values ('direct', least(v_sender::text, v_receiver::text) || ':' || greatest(v_sender::text, v_receiver::text))
+      on conflict (direct_key) do update set updated_at = public.messenger_conversations.updated_at
+      returning id into v_conversation;
+      insert into public.messenger_participants (conversation_id, actor_id)
+      values (v_conversation, v_sender), (v_conversation, v_receiver) on conflict do nothing;
+    end if;
+    insert into public.messenger_orphan_placements (message_id, conversation_id)
+    values (m.id, v_conversation);
+    v_placed := v_placed + 1;
+  end loop;
+  return jsonb_build_object('placed', v_placed, 'skipped', v_skipped);
+end;
+$$;
+
+-- Copies every not-yet-mirrored legacy 1:1 message of one conversation (its
+-- mapped threads plus placed thread-less messages) in (created_at, id) order,
+-- then derives read positions from is_read.
+create or replace function public.messenger_fill_direct_conversation(p_conversation_id uuid)
+returns integer
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_conv public.messenger_conversations%rowtype;
+  v_inserted integer := 0;
+  v_late integer := 0;
+begin
+  select * into v_conv from public.messenger_conversations where id = p_conversation_id for update;
+  if not found then
+    return 0;
+  end if;
+
+  select count(*) into v_late
+    from public.messages m
+   where (m.thread_id::text in (select source_key from public.messenger_legacy_map
+                                 where source_kind = 'garamin_direct_thread' and conversation_id = p_conversation_id)
+          or m.id in (select message_id from public.messenger_orphan_placements where conversation_id = p_conversation_id))
+     and not exists (select 1 from public.messenger_messages x where x.id = m.id)
+     and v_conv.last_message_at is not null and m.created_at < v_conv.last_message_at;
+  if v_late > 0 then
+    insert into public.messenger_sync_issues (source, source_key, reason, detail)
+    values ('messenger_conversation', p_conversation_id::text, 'late_backfill_out_of_order',
+            jsonb_build_object('count', v_late));
+  end if;
+
+  with src as (
+    select m.*,
+           coalesce(public.messenger_actor_for_account(m.sender_actor_id),
+                    case when m.sender_id <> 'admin' then public.messenger_actor_by_phone(m.sender_id) end) as sender_actor,
+           row_number() over (order by m.created_at, m.id) as rn
+      from public.messages m
+     where (m.thread_id::text in (select source_key from public.messenger_legacy_map
+                                   where source_kind = 'garamin_direct_thread' and conversation_id = p_conversation_id)
+            or m.id in (select message_id from public.messenger_orphan_placements where conversation_id = p_conversation_id))
+       and not exists (select 1 from public.messenger_messages x where x.id = m.id)
+  ), ins as (
+    insert into public.messenger_messages (
+      conversation_id, seq, id, sender_actor_id, sender_org_id, kind, content,
+      attachment_batch_id, legacy_file_url, legacy_file_name, legacy_file_size,
+      created_at, deleted_at, deleted_by_actor_id
+    )
+    select p_conversation_id, v_conv.last_event_seq + src.rn, src.id, src.sender_actor,
+           case when v_conv.kind = 'org_room' and src.sender_actor is distinct from v_conv.subject_actor_id
+             then v_conv.owner_org_id end,
+           case when src.message_type in ('text', 'image', 'file') then src.message_type else 'text' end,
+           coalesce(src.content, ''), src.attachment_batch_id, src.file_url, src.file_name, src.file_size,
+           src.created_at, src.deleted_at, public.messenger_actor_for_account(src.deleted_by_actor_id)
+      from src
+    returning conversation_id, seq, sender_actor_id, created_at
+  ), ev as (
+    insert into public.messenger_events (conversation_id, event_seq, type, message_seq, actor_id, created_at)
+    select conversation_id, seq, 'message', seq, sender_actor_id, created_at from ins
+    returning event_seq
+  )
+  select count(*) into v_inserted from ev;
+
+  if v_inserted > 0 then
+    update public.messenger_conversations c
+       set last_event_seq = c.last_event_seq + v_inserted,
+           last_message_seq = c.last_event_seq + v_inserted,
+           last_message_at = (select max(created_at) from public.messenger_messages where conversation_id = p_conversation_id),
+           updated_at = now()
+     where c.id = p_conversation_id;
+  end if;
+
+  -- Each person read up to the newest message from someone else that the
+  -- legacy row marks read; in org rooms the owning org reads the subject's.
+  update public.messenger_participants p
+     set last_read_seq = greatest(p.last_read_seq, coalesce((
+           select max(mm.seq) from public.messenger_messages mm
+             join public.messages lm on lm.id = mm.id
+            where mm.conversation_id = p_conversation_id and lm.is_read
+              and mm.sender_actor_id is distinct from p.actor_id), 0)),
+         updated_at = now()
+   where p.conversation_id = p_conversation_id and p.role <> 'agent';
+  if v_conv.kind = 'org_room' then
+    update public.messenger_conversation_orgs co
+       set last_read_seq = greatest(co.last_read_seq, coalesce((
+             select max(mm.seq) from public.messenger_messages mm
+               join public.messages lm on lm.id = mm.id
+              where mm.conversation_id = p_conversation_id and lm.is_read
+                and mm.sender_actor_id = v_conv.subject_actor_id), 0))
+     where co.conversation_id = p_conversation_id and co.org_id = v_conv.owner_org_id;
+  end if;
+  return v_inserted;
+end;
+$$;
+
+create or replace function public.messenger_fill_direct_thread(p_thread_id uuid)
+returns integer
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_conversation uuid := public.messenger_ensure_direct_thread(p_thread_id);
+begin
+  if v_conversation is null then
+    return 0;
+  end if;
+  return public.messenger_fill_direct_conversation(v_conversation);
+end;
+$$;
+
+-- Ensures the conversation for one group chat room, its participants and map.
+create or replace function public.messenger_ensure_group_room(p_room_id uuid)
+returns uuid
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_room public.group_chat_rooms%rowtype;
+  v_garam uuid := public.messenger_org_by_slug('garam');
+  v_conversation uuid;
+begin
+  select conversation_id into v_conversation from public.messenger_legacy_map
+   where source_kind = 'group_chat_room' and source_key = p_room_id::text;
+  if v_conversation is null then
+    select * into v_room from public.group_chat_rooms where id = p_room_id;
+    if not found then
+      return null;
+    end if;
+    insert into public.messenger_conversations (kind, owner_org_id, title)
+    values ('group', v_garam, v_room.title) returning id into v_conversation;
+    insert into public.messenger_legacy_map (source_kind, source_key, conversation_id)
+    values ('group_chat_room', p_room_id::text, v_conversation);
+  end if;
+
+  -- Same eligibility the group-chat function computes today: approved Garam
+  -- members except design managers. FCs need an explicit send permission.
+  insert into public.messenger_participants (conversation_id, actor_id, can_send)
+  select v_conversation, m.actor_id, m.role <> 'fc'
+    from public.messenger_org_members m
+   where m.org_id = v_garam and m.status = 'approved'
+     and m.role in ('fc', 'manager', 'admin', 'developer')
+  on conflict (conversation_id, actor_id) do nothing;
+
+  update public.messenger_participants p
+     set can_send = s.can_send_messages, updated_at = now()
+    from public.group_chat_member_send_permissions s
+   where s.room_id = p_room_id and p.conversation_id = v_conversation
+     and p.actor_id = public.messenger_actor_for_group_key(s.actor_id);
+  return v_conversation;
+end;
+$$;
+
+create or replace function public.messenger_fill_group_room(p_room_id uuid)
+returns integer
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_conversation uuid := public.messenger_ensure_group_room(p_room_id);
+  v_conv public.messenger_conversations%rowtype;
+  v_inserted integer := 0;
+  v_late integer := 0;
+begin
+  if v_conversation is null then
+    return 0;
+  end if;
+  select * into v_conv from public.messenger_conversations where id = v_conversation for update;
+
+  select count(*) into v_late
+    from public.group_chat_messages g
+   where g.room_id = p_room_id
+     and not exists (select 1 from public.messenger_messages x where x.id = g.id)
+     and v_conv.last_message_at is not null and g.created_at < v_conv.last_message_at;
+  if v_late > 0 then
+    insert into public.messenger_sync_issues (source, source_key, reason, detail)
+    values ('group_chat_room', p_room_id::text, 'late_backfill_out_of_order',
+            jsonb_build_object('count', v_late));
+  end if;
+
+  with src as (
+    select g.*,
+           coalesce(public.messenger_actor_for_group_key(g.sender_actor_id),
+                    public.messenger_actor_for_group_key(g.sender_role || ':' || g.sender_phone)) as sender_actor,
+           row_number() over (order by g.created_at, g.id) as rn
+      from public.group_chat_messages g
+     where g.room_id = p_room_id
+       and not exists (select 1 from public.messenger_messages x where x.id = g.id)
+  ), ins as (
+    insert into public.messenger_messages (
+      conversation_id, seq, id, sender_actor_id, kind, content, attachment_batch_id,
+      legacy_file_url, legacy_file_name, legacy_file_size, created_at, deleted_at,
+      deleted_by_actor_id
+    )
+    select v_conversation, v_conv.last_event_seq + src.rn, src.id, src.sender_actor,
+           src.message_type, coalesce(src.content, ''), src.attachment_batch_id,
+           src.file_url, src.file_name, src.file_size, src.created_at, src.deleted_at,
+           public.messenger_actor_for_group_key(src.deleted_by_actor_id)
+      from src
+    returning conversation_id, seq, sender_actor_id, created_at
+  ), ev as (
+    insert into public.messenger_events (conversation_id, event_seq, type, message_seq, actor_id, created_at)
+    select conversation_id, seq, 'message', seq, sender_actor_id, created_at from ins
+    returning event_seq
+  )
+  select count(*) into v_inserted from ev;
+
+  if v_inserted > 0 then
+    update public.messenger_conversations c
+       set last_event_seq = c.last_event_seq + v_inserted,
+           last_message_seq = c.last_event_seq + v_inserted,
+           last_message_at = (select max(created_at) from public.messenger_messages where conversation_id = v_conversation),
+           updated_at = now()
+     where c.id = v_conversation;
+  end if;
+
+  update public.messenger_messages mm
+     set reply_to_seq = parent.seq
+    from public.group_chat_messages g
+    join public.messenger_messages parent on parent.id = g.reply_to_message_id
+   where mm.id = g.id and g.room_id = p_room_id and mm.reply_to_seq is null;
+
+  update public.messenger_participants p
+     set last_read_seq = greatest(p.last_read_seq, mm.seq), updated_at = now()
+    from public.group_chat_reads r
+    join public.messenger_messages mm on mm.id = r.last_read_message_id
+   where r.room_id = p_room_id and p.conversation_id = v_conversation
+     and p.actor_id = public.messenger_actor_for_group_key(r.actor_id);
+
+  insert into public.messenger_reactions (conversation_id, message_seq, actor_id, reaction, created_at, updated_at)
+  select v_conversation, mm.seq, public.messenger_actor_for_group_key(r.actor_id), r.reaction, r.created_at, r.updated_at
+    from public.group_chat_reactions r
+    join public.messenger_messages mm on mm.id = r.message_id
+   where r.room_id = p_room_id and public.messenger_actor_for_group_key(r.actor_id) is not null
+  on conflict (conversation_id, message_seq, actor_id) do update
+    set reaction = excluded.reaction, updated_at = excluded.updated_at;
+
+  update public.messenger_conversations c
+     set pinned_notice_seq = mm.seq
+    from public.group_chat_notices n
+    join public.messenger_messages mm on mm.id = n.message_id
+   where n.room_id = p_room_id and c.id = v_conversation;
+  return v_inserted;
+end;
+$$;
+
+-- Applies existing per-room preferences (mute, pin, leave) to participants.
+create or replace function public.messenger_apply_room_preferences()
+returns integer
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_count integer;
+begin
+  with prefs as (
+    select map.conversation_id,
+           public.messenger_actor_for(p.actor_role, p.actor_id::text) as actor_id,
+           p.muted, p.pinned_at, p.left_at
+      from public.messenger_room_notification_preferences p
+      join public.messenger_legacy_map map
+        on map.source_kind = case split_part(p.room_key, ':', 2)
+             when 'direct-thread' then 'garamin_direct_thread'
+             when 'group' then 'group_chat_room' end
+       and map.source_key = split_part(p.room_key, ':', 3)
+  ), upserted as (
+    insert into public.messenger_participants (conversation_id, actor_id, role, muted, pinned_at, left_at)
+    select conversation_id, actor_id, 'agent', muted, pinned_at, left_at
+      from prefs where actor_id is not null
+    on conflict (conversation_id, actor_id) do update
+      set muted = excluded.muted, pinned_at = excluded.pinned_at,
+          left_at = excluded.left_at, updated_at = now()
+    returning 1
+  )
+  select count(*) into v_count from upserted;
+  return v_count;
+end;
+$$;
+
+-- Idempotent full backfill. Safe to re-run: existing links, rooms and messages
+-- are kept, and only missing rows are added.
+create or replace function public.messenger_backfill_v1()
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  r record;
+  v_garam uuid;
+  v_direct integer := 0;
+  v_group integer := 0;
+  v_actor uuid;
+  v_orphans jsonb;
+begin
+  -- 1. People.
+  for r in select id, name, phone from public.fc_profiles loop
+    perform public.messenger_ensure_actor('fc', r.id::text, r.name, r.phone);
+  end loop;
+  for r in select id, name, phone from public.admin_accounts loop
+    perform public.messenger_ensure_actor('admin', r.id::text, r.name, r.phone);
+  end loop;
+  for r in select id, name, phone from public.manager_accounts loop
+    perform public.messenger_ensure_actor('manager', r.id::text, r.name, r.phone);
+  end loop;
+  for r in select id, name, phone, fc_id, staff_account_kind, staff_account_id from public.platform_members loop
+    v_actor := case
+      when r.fc_id is not null then public.messenger_actor_for('fc', r.fc_id::text)
+      when r.staff_account_id is not null then public.messenger_actor_for(r.staff_account_kind, r.staff_account_id::text)
+    end;
+    if v_actor is not null then
+      insert into public.messenger_actor_links (source_kind, source_id, actor_id)
+      values ('platform_member', r.id::text, v_actor) on conflict do nothing;
+    else
+      perform public.messenger_ensure_actor('platform_member', r.id::text, r.name, r.phone);
+    end if;
+  end loop;
+
+  -- 2. Organizations.
+  insert into public.messenger_orgs (kind, slug, name) values ('garam', 'garam', '가람')
+  on conflict (slug) do nothing;
+  insert into public.messenger_orgs (kind, slug, name) values ('moduon_ops', 'moduon-ops', '모두온 운영')
+  on conflict (slug) do nothing;
+  insert into public.messenger_orgs (kind, partner_id, name, active)
+  select 'partner', p.id, p.name, p.active from public.platform_partners p
+  on conflict (partner_id) do update set name = excluded.name, active = excluded.active, updated_at = now();
+  v_garam := public.messenger_org_by_slug('garam');
+
+  -- 3. Garam memberships (headquarters/team sub-orgs are added by operators).
+  insert into public.messenger_org_members (org_id, actor_id, role, status, approved_at)
+  select v_garam, public.messenger_actor_for('fc', f.id::text),
+         case when f.affiliation like '%설계매니저%' then 'designer' else 'fc' end,
+         'approved', now()
+    from public.fc_profiles f
+   where coalesce(f.signup_completed, false)
+     and not coalesce(f.is_manager_referral_shadow, false)
+     and f.account_closed_at is null
+     and public.messenger_actor_for('fc', f.id::text) is not null
+  on conflict do nothing;
+  insert into public.messenger_org_members (org_id, actor_id, role, status, approved_at)
+  select v_garam, public.messenger_actor_for('manager', m.id::text), 'manager', 'approved', now()
+    from public.manager_accounts m where m.active
+  on conflict do nothing;
+  insert into public.messenger_org_members (org_id, actor_id, role, status, approved_at)
+  select v_garam, public.messenger_actor_for('admin', a.id::text), a.staff_type, 'approved', now()
+    from public.admin_accounts a where a.active
+  on conflict do nothing;
+
+  -- 4. 1:1 rooms: map every thread, place thread-less messages by phone, then
+  -- fill each room once so thread and placed messages interleave by time.
+  for r in select id from public.garamin_direct_threads order by created_at, id loop
+    perform public.messenger_ensure_direct_thread(r.id);
+  end loop;
+  v_orphans := public.messenger_place_orphan_messages();
+  for r in
+    select conversation_id from public.messenger_legacy_map where source_kind = 'garamin_direct_thread'
+    union
+    select conversation_id from public.messenger_orphan_placements
+  loop
+    v_direct := v_direct + public.messenger_fill_direct_conversation(r.conversation_id);
+  end loop;
+
+  -- 5. Group rooms and their messages.
+  for r in select id from public.group_chat_rooms order by created_at, id loop
+    v_group := v_group + public.messenger_fill_group_room(r.id);
+  end loop;
+
+  return jsonb_build_object(
+    'actors', (select count(*) from public.messenger_actors),
+    'directMessagesAdded', v_direct,
+    'orphans', v_orphans,
+    'groupMessagesAdded', v_group,
+    'preferencesApplied', public.messenger_apply_room_preferences(),
+    'openIssues', (select count(*) from public.messenger_sync_issues where resolved_at is null)
+  );
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Dual-write triggers. Mapped rooms only; failures become sync issues.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.messenger_mirror_direct_message()
+returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_conversation uuid;
+  v_conv public.messenger_conversations%rowtype;
+  v_fc uuid;
+  v_fc_phone text;
+  v_sender uuid;
+  v_seq bigint;
+begin
+  if new.thread_id is null then
+    return null;
+  end if;
+  select conversation_id into v_conversation from public.messenger_legacy_map
+   where source_kind = 'garamin_direct_thread' and source_key = new.thread_id::text;
+  if v_conversation is null then
+    return null;
+  end if;
+  begin
+    select * into v_conv from public.messenger_conversations where id = v_conversation;
+    select public.messenger_actor_for('fc', c.fc_id::text), f.phone into v_fc, v_fc_phone
+      from public.garamin_direct_threads t
+      join public.garamin_direct_conversations c on c.id = t.legacy_conversation_id
+      join public.fc_profiles f on f.id = c.fc_id
+     where t.id = new.thread_id;
+    v_sender := public.messenger_direct_sender(new.sender_id, new.sender_actor_id, v_fc, v_fc_phone);
+    v_seq := public.messenger_append_message(
+      v_conversation, new.id, v_sender,
+      case when v_conv.kind = 'org_room' and v_sender is distinct from v_fc
+        then public.messenger_org_by_slug('garam') end,
+      case when new.message_type in ('text', 'image', 'file') then new.message_type else 'text' end,
+      new.content, new.created_at, null, new.attachment_batch_id,
+      new.file_url, new.file_name, new.file_size, null
+    );
+  exception when others then
+    insert into public.messenger_sync_issues (source, source_key, reason, detail)
+    values ('messages', new.id::text, 'mirror_insert_failed', jsonb_build_object('error', sqlerrm));
+  end;
+  return null;
+end;
+$$;
+
+create or replace function public.messenger_mirror_direct_update()
+returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_message public.messenger_messages%rowtype;
+  v_conv public.messenger_conversations%rowtype;
+begin
+  select * into v_message from public.messenger_messages where id = new.id;
+  if not found then
+    return null;
+  end if;
+  begin
+    select * into v_conv from public.messenger_conversations where id = v_message.conversation_id;
+    if new.deleted_at is not null and old.deleted_at is null then
+      update public.messenger_messages
+         set deleted_at = new.deleted_at,
+             deleted_by_actor_id = public.messenger_actor_for_account(new.deleted_by_actor_id)
+       where id = new.id;
+      perform public.messenger_record_event(v_message.conversation_id, 'delete', v_message.seq,
+        public.messenger_actor_for_account(new.deleted_by_actor_id));
+    end if;
+    -- Legacy read flags move read positions only; stage 2 emits read events.
+    if new.is_read and not old.is_read then
+      if v_conv.kind = 'org_room' and v_message.sender_actor_id = v_conv.subject_actor_id then
+        update public.messenger_conversation_orgs
+           set last_read_seq = greatest(last_read_seq, v_message.seq)
+         where conversation_id = v_conv.id and org_id = v_conv.owner_org_id;
+      else
+        update public.messenger_participants
+           set last_read_seq = greatest(last_read_seq, v_message.seq), updated_at = now()
+         where conversation_id = v_conv.id and role <> 'agent'
+           and actor_id is distinct from v_message.sender_actor_id;
+      end if;
+    end if;
+  exception when others then
+    insert into public.messenger_sync_issues (source, source_key, reason, detail)
+    values ('messages', new.id::text, 'mirror_update_failed', jsonb_build_object('error', sqlerrm));
+  end;
+  return null;
+end;
+$$;
+
+create or replace function public.messenger_mirror_group_message()
+returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_conversation uuid;
+  v_seq bigint;
+  v_parent bigint;
+begin
+  select conversation_id into v_conversation from public.messenger_legacy_map
+   where source_kind = 'group_chat_room' and source_key = new.room_id::text;
+  if v_conversation is null then
+    return null;
+  end if;
+  begin
+    if tg_op = 'INSERT' then
+      v_seq := public.messenger_append_message(
+        v_conversation, new.id,
+        coalesce(public.messenger_actor_for_group_key(new.sender_actor_id),
+                 public.messenger_actor_for_group_key(new.sender_role || ':' || new.sender_phone)),
+        null, new.message_type, new.content, new.created_at, null, new.attachment_batch_id,
+        new.file_url, new.file_name, new.file_size, null
+      );
+      if new.reply_to_message_id is not null then
+        select seq into v_parent from public.messenger_messages where id = new.reply_to_message_id;
+        update public.messenger_messages set reply_to_seq = v_parent
+         where conversation_id = v_conversation and seq = v_seq;
+      end if;
+    elsif new.deleted_at is not null and old.deleted_at is null then
+      update public.messenger_messages
+         set deleted_at = new.deleted_at,
+             deleted_by_actor_id = public.messenger_actor_for_group_key(new.deleted_by_actor_id)
+       where id = new.id
+      returning seq into v_seq;
+      if v_seq is not null then
+        perform public.messenger_record_event(v_conversation, 'delete', v_seq,
+          public.messenger_actor_for_group_key(new.deleted_by_actor_id));
+      end if;
+    end if;
+  exception when others then
+    insert into public.messenger_sync_issues (source, source_key, reason, detail)
+    values ('group_chat_messages', new.id::text, 'mirror_failed', jsonb_build_object('error', sqlerrm, 'op', tg_op));
+  end;
+  return null;
+end;
+$$;
+
+create or replace function public.messenger_mirror_group_read()
+returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  begin
+    update public.messenger_participants p
+       set last_read_seq = greatest(p.last_read_seq, mm.seq), updated_at = now()
+      from public.messenger_legacy_map map, public.messenger_messages mm
+     where map.source_kind = 'group_chat_room' and map.source_key = new.room_id::text
+       and p.conversation_id = map.conversation_id
+       and mm.id = new.last_read_message_id
+       and p.actor_id = public.messenger_actor_for_group_key(new.actor_id);
+  exception when others then
+    insert into public.messenger_sync_issues (source, source_key, reason, detail)
+    values ('group_chat_reads', new.room_id::text || ':' || new.actor_id, 'mirror_failed', jsonb_build_object('error', sqlerrm));
+  end;
+  return null;
+end;
+$$;
+
+create or replace function public.messenger_mirror_group_reaction()
+returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_row public.group_chat_reactions%rowtype := case when tg_op = 'DELETE' then old else new end;
+  v_message public.messenger_messages%rowtype;
+  v_actor uuid := public.messenger_actor_for_group_key(v_row.actor_id);
+begin
+  select * into v_message from public.messenger_messages where id = v_row.message_id;
+  if not found or v_actor is null then
+    return null;
+  end if;
+  begin
+    if tg_op = 'DELETE' then
+      delete from public.messenger_reactions
+       where conversation_id = v_message.conversation_id and message_seq = v_message.seq and actor_id = v_actor;
+    else
+      insert into public.messenger_reactions (conversation_id, message_seq, actor_id, reaction)
+      values (v_message.conversation_id, v_message.seq, v_actor, v_row.reaction)
+      on conflict (conversation_id, message_seq, actor_id) do update
+        set reaction = excluded.reaction, updated_at = now();
+    end if;
+    perform public.messenger_record_event(v_message.conversation_id, 'reaction', v_message.seq, v_actor,
+      jsonb_build_object('reaction', case when tg_op = 'DELETE' then null else v_row.reaction end));
+  exception when others then
+    insert into public.messenger_sync_issues (source, source_key, reason, detail)
+    values ('group_chat_reactions', v_row.message_id::text, 'mirror_failed', jsonb_build_object('error', sqlerrm));
+  end;
+  return null;
+end;
+$$;
+
+create or replace function public.messenger_mirror_group_notice()
+returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_room uuid := case when tg_op = 'DELETE' then old.room_id else new.room_id end;
+  v_conversation uuid;
+  v_seq bigint;
+begin
+  select conversation_id into v_conversation from public.messenger_legacy_map
+   where source_kind = 'group_chat_room' and source_key = v_room::text;
+  if v_conversation is null then
+    return null;
+  end if;
+  begin
+    if tg_op <> 'DELETE' then
+      select seq into v_seq from public.messenger_messages where id = new.message_id;
+    end if;
+    update public.messenger_conversations set pinned_notice_seq = v_seq, updated_at = now()
+     where id = v_conversation;
+    perform public.messenger_record_event(v_conversation, 'notice', v_seq, null);
+  exception when others then
+    insert into public.messenger_sync_issues (source, source_key, reason, detail)
+    values ('group_chat_notices', v_room::text, 'mirror_failed', jsonb_build_object('error', sqlerrm));
+  end;
+  return null;
+end;
+$$;
+
+create or replace trigger trg_messenger_mirror_direct_insert
+  after insert on public.messages
+  for each row execute function public.messenger_mirror_direct_message();
+create or replace trigger trg_messenger_mirror_direct_update
+  after update of is_read, deleted_at on public.messages
+  for each row execute function public.messenger_mirror_direct_update();
+create or replace trigger trg_messenger_mirror_group_message
+  after insert or update of deleted_at on public.group_chat_messages
+  for each row execute function public.messenger_mirror_group_message();
+create or replace trigger trg_messenger_mirror_group_read
+  after insert or update on public.group_chat_reads
+  for each row execute function public.messenger_mirror_group_read();
+create or replace trigger trg_messenger_mirror_group_reaction
+  after insert or update or delete on public.group_chat_reactions
+  for each row execute function public.messenger_mirror_group_reaction();
+create or replace trigger trg_messenger_mirror_group_notice
+  after insert or update or delete on public.group_chat_notices
+  for each row execute function public.messenger_mirror_group_notice();
+
+-- ---------------------------------------------------------------------------
+-- Reconciliation: legacy vs unified, per mapped room. Records one run row.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.messenger_reconcile_v1()
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_result jsonb;
+  v_ok boolean;
+begin
+  with direct_rows as (
+    select map.conversation_id, m.id, m.content, m.deleted_at
+      from public.messenger_legacy_map map
+      join public.messages m on m.thread_id::text = map.source_key
+     where map.source_kind = 'garamin_direct_thread'
+    union
+    select p.conversation_id, m.id, m.content, m.deleted_at
+      from public.messenger_orphan_placements p
+      join public.messages m on m.id = p.message_id
+  ), direct_legacy as (
+    select conversation_id, count(*) as n,
+           md5(string_agg(id::text || '|' || md5(coalesce(content, '')) || '|' || coalesce(deleted_at::text, ''), ',' order by id)) as fp
+      from direct_rows
+     group by conversation_id
+  ), group_legacy as (
+    select map.conversation_id, count(*) as n,
+           md5(string_agg(g.id::text || '|' || md5(coalesce(g.content, '')) || '|' || coalesce(g.deleted_at::text, ''), ',' order by g.id)) as fp
+      from public.messenger_legacy_map map
+      join public.group_chat_messages g on g.room_id::text = map.source_key
+     where map.source_kind = 'group_chat_room'
+     group by map.conversation_id
+  ), legacy as (
+    select * from direct_legacy union all select * from group_legacy
+  ), unified as (
+    select mm.conversation_id, count(*) as n,
+           md5(string_agg(mm.id::text || '|' || md5(mm.content) || '|' || coalesce(mm.deleted_at::text, ''), ',' order by mm.id)) as fp
+      from public.messenger_messages mm
+     where mm.conversation_id in (select conversation_id from legacy)
+     group by mm.conversation_id
+  ), diff as (
+    select l.conversation_id, l.n as legacy_count, coalesce(u.n, 0) as unified_count
+      from legacy l left join unified u on u.conversation_id = l.conversation_id
+     where u.fp is distinct from l.fp
+  )
+  select jsonb_build_object(
+    'mismatchedRooms', (select count(*) from diff),
+    'mismatchSample', coalesce((select jsonb_agg(to_jsonb(d)) from (select * from diff limit 20) d), '[]'::jsonb),
+    'unmappedDirectThreads', (select count(*) from public.garamin_direct_threads t
+                               where not exists (select 1 from public.messenger_legacy_map map
+                                                  where map.source_kind = 'garamin_direct_thread' and map.source_key = t.id::text)
+                                 and not (
+                                   exists (select 1 from public.messenger_sync_issues i
+                                            where i.source = 'garamin_direct_thread' and i.source_key = t.id::text
+                                              and i.reason = 'thread_counterparty_missing_empty')
+                                   and not exists (select 1 from public.messages m where m.thread_id = t.id)
+                                 )),
+    'skippedEmptyThreads', (select count(*) from public.garamin_direct_threads t
+                             where exists (select 1 from public.messenger_sync_issues i
+                                            where i.source = 'garamin_direct_thread' and i.source_key = t.id::text
+                                              and i.reason = 'thread_counterparty_missing_empty')
+                               and not exists (select 1 from public.messages m where m.thread_id = t.id)),
+    'unmappedGroupRooms', (select count(*) from public.group_chat_rooms r
+                            where not exists (select 1 from public.messenger_legacy_map map
+                                               where map.source_kind = 'group_chat_room' and map.source_key = r.id::text)),
+    'unhandledOrphanMessages', (select count(*) from public.messages m
+                                 where m.thread_id is null
+                                   and not exists (select 1 from public.messenger_orphan_placements p where p.message_id = m.id)
+                                   and not exists (select 1 from public.messenger_sync_issues i
+                                                    where i.source = 'messages' and i.source_key = m.id::text
+                                                      and i.reason in ('orphan_deleted_skipped', 'orphan_participant_missing'))),
+    'skippedOrphanMessages', (select count(distinct source_key) from public.messenger_sync_issues
+                               where source = 'messages' and reason in ('orphan_deleted_skipped', 'orphan_participant_missing')),
+    'unlinkedAccounts', (select count(*) from (
+        select 'fc' k, id::text s from public.fc_profiles
+        union all select 'admin', id::text from public.admin_accounts
+        union all select 'manager', id::text from public.manager_accounts) a
+      where not exists (select 1 from public.messenger_actor_links l where l.source_kind = a.k and l.source_id = a.s)),
+    'openIssues', (select count(*) from public.messenger_sync_issues
+                    where resolved_at is null
+                      and reason not in ('orphan_deleted_skipped', 'orphan_participant_missing',
+                                         'thread_counterparty_missing_empty'))
+  ) into v_result;
+
+  v_ok := (v_result->>'mismatchedRooms')::int = 0
+      and (v_result->>'unmappedDirectThreads')::int = 0
+      and (v_result->>'unmappedGroupRooms')::int = 0
+      and (v_result->>'unhandledOrphanMessages')::int = 0
+      and (v_result->>'unlinkedAccounts')::int = 0;
+  insert into public.messenger_reconcile_runs (ok, result) values (v_ok, v_result);
+  return v_result || jsonb_build_object('ok', v_ok);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- GaramLink import. The request board lives in another database, so its server
+-- exports batches in this shape (oldest first; later batches only carry newer
+-- rows):
+-- {"users":[{"id":1,"phone":"010...","name":"..."}],
+--  "messages":[{"source":"request"|"direct","id":7,"senderUserId":1,
+--               "peerUserId":2,"requestId":3,"directConversationId":null,
+--               "content":"...","createdAt":"...","isRead":true}]}
+-- One room per pair of people (decision 2026-10-16); request messages carry
+-- {"requestBoard":{"requestId":n}} in context. Attachments follow separately.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.messenger_import_request_board_v1(p_payload jsonb)
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  u jsonb;
+  m jsonb;
+  v_sender uuid;
+  v_peer uuid;
+  v_key text;
+  v_conversation uuid;
+  v_id uuid;
+  v_users integer := 0;
+  v_messages integer := 0;
+  v_source_kind text;
+  v_source_key text;
+begin
+  if jsonb_typeof(p_payload) <> 'object' then
+    raise exception 'invalid_payload';
+  end if;
+  for u in select * from jsonb_array_elements(coalesce(p_payload->'users', '[]'::jsonb)) loop
+    perform public.messenger_ensure_actor('request_board_user', u->>'id', u->>'name', u->>'phone');
+    v_users := v_users + 1;
+  end loop;
+
+  for m in
+    select value from jsonb_array_elements(coalesce(p_payload->'messages', '[]'::jsonb))
+     order by (value->>'createdAt')::timestamptz, value->>'source', (value->>'id')::bigint
+  loop
+    v_sender := public.messenger_actor_for('request_board_user', m->>'senderUserId');
+    v_peer := public.messenger_actor_for('request_board_user', m->>'peerUserId');
+    if v_sender is null or v_peer is null or v_sender = v_peer then
+      insert into public.messenger_sync_issues (source, source_key, reason)
+      values ('request_board', (m->>'source') || ':' || (m->>'id'), 'participant_missing');
+      continue;
+    end if;
+    v_key := least(v_sender::text, v_peer::text) || ':' || greatest(v_sender::text, v_peer::text);
+    insert into public.messenger_conversations (kind, direct_key)
+    values ('direct', v_key)
+    on conflict (direct_key) do update set updated_at = public.messenger_conversations.updated_at
+    returning id into v_conversation;
+    insert into public.messenger_participants (conversation_id, actor_id)
+    values (v_conversation, v_sender), (v_conversation, v_peer) on conflict do nothing;
+
+    if m->>'source' = 'direct' then
+      v_source_kind := 'request_board_direct';
+      v_source_key := m->>'directConversationId';
+    else
+      v_source_kind := 'request_board_pair';
+      v_source_key := least((m->>'senderUserId')::bigint, (m->>'peerUserId')::bigint) || ':'
+                   || greatest((m->>'senderUserId')::bigint, (m->>'peerUserId')::bigint);
+    end if;
+    if v_source_key is not null then
+      insert into public.messenger_legacy_map (source_kind, source_key, conversation_id)
+      values (v_source_kind, v_source_key, v_conversation) on conflict do nothing;
+    end if;
+
+    v_id := md5('request_board:' || (m->>'source') || ':' || (m->>'id'))::uuid;
+    perform public.messenger_append_message(
+      v_conversation, v_id, v_sender, null, 'text', m->>'content', (m->>'createdAt')::timestamptz,
+      case when m->>'requestId' is not null
+        then jsonb_build_object('requestBoard', jsonb_build_object('requestId', (m->>'requestId')::bigint)) end
+    );
+    if coalesce((m->>'isRead')::boolean, false) then
+      update public.messenger_participants p
+         set last_read_seq = greatest(p.last_read_seq, mm.seq), updated_at = now()
+        from public.messenger_messages mm
+       where mm.id = v_id and p.conversation_id = v_conversation and p.actor_id = v_peer;
+    end if;
+    v_messages := v_messages + 1;
+  end loop;
+  return jsonb_build_object('users', v_users, 'messages', v_messages);
+end;
+$$;
+
+do $$
+declare
+  f record;
+begin
+  for f in
+    select p.oid::regprocedure as signature
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in (
+         'messenger_normalize_phone', 'messenger_actor_for', 'messenger_actor_for_account',
+         'messenger_actor_for_group_key', 'messenger_ensure_actor', 'messenger_org_by_slug',
+         'messenger_record_issue_once',
+         'messenger_ensure_direct_thread', 'messenger_direct_sender', 'messenger_fill_direct_thread',
+         'messenger_actor_by_phone', 'messenger_record_orphan_issue', 'messenger_place_orphan_messages',
+         'messenger_fill_direct_conversation',
+         'messenger_ensure_group_room', 'messenger_fill_group_room', 'messenger_apply_room_preferences',
+         'messenger_backfill_v1', 'messenger_mirror_direct_message', 'messenger_mirror_direct_update',
+         'messenger_mirror_group_message', 'messenger_mirror_group_read', 'messenger_mirror_group_reaction',
+         'messenger_mirror_group_notice', 'messenger_reconcile_v1', 'messenger_import_request_board_v1'
+       )
+  loop
+    execute format('revoke all on function %s from public, anon, authenticated', f.signature);
+    execute format('grant execute on function %s to service_role', f.signature);
+  end loop;
+end;
+$$;
+
+-- 20261016110000_messenger_unified_daily_sync
+-- Messenger stage 1: run the backfill and the reconciliation every day.
+-- The backfill maps rooms, members and thread-less messages that appeared
+-- since the last run; the reconciliation then records one row in
+-- messenger_reconcile_runs. The stage-1 gate is 7 consecutive ok runs.
+
+create or replace function public.messenger_daily_sync_v1()
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_started timestamptz := clock_timestamp();
+  v_backfill jsonb;
+  v_reconcile jsonb;
+begin
+  -- One run at a time; an overlapping start returns without doing anything.
+  if not pg_try_advisory_xact_lock(hashtext('messenger_daily_sync_v1')) then
+    return jsonb_build_object('skipped', 'already_running');
+  end if;
+
+  begin
+    v_backfill := public.messenger_backfill_v1();
+    v_reconcile := public.messenger_reconcile_v1();
+  exception when others then
+    -- The failed work is rolled back; the failure itself is kept as a run row
+    -- so the daily check sees it.
+    insert into public.messenger_reconcile_runs (ok, result)
+    values (false, jsonb_build_object('error', sqlerrm, 'sqlstate', sqlstate, 'stage', 'daily_sync'));
+    return jsonb_build_object('ok', false, 'error', sqlerrm);
+  end;
+
+  -- Keep half a year of run history.
+  delete from public.messenger_reconcile_runs where ran_at < now() - interval '180 days';
+
+  return jsonb_build_object(
+    'ok', coalesce((v_reconcile->>'ok')::boolean, false),
+    'backfill', v_backfill,
+    'reconcile', v_reconcile,
+    'elapsedMs', round(extract(epoch from clock_timestamp() - v_started) * 1000)
+  );
+end;
+$$;
+
+-- How many of the most recent runs passed in a row (the stage-1 gate needs 7).
+create or replace function public.messenger_reconcile_streak_v1()
+returns integer
+language sql stable security invoker set search_path = public, pg_temp as $$
+  select count(*)::integer
+    from public.messenger_reconcile_runs r
+   where r.ok
+     and r.ran_at > coalesce((select max(ran_at) from public.messenger_reconcile_runs where not ok), '-infinity');
+$$;
+
+revoke all on function public.messenger_daily_sync_v1() from public, anon, authenticated;
+grant execute on function public.messenger_daily_sync_v1() to service_role;
+revoke all on function public.messenger_reconcile_streak_v1() from public, anon, authenticated;
+grant execute on function public.messenger_reconcile_streak_v1() to service_role;
+
+-- schedule --
+-- 18:30 UTC is 03:30 KST, the quietest hour for the messenger.
+create extension if not exists pg_cron with schema pg_catalog;
+select cron.unschedule(jobid) from cron.job where jobname = 'messenger-unified-daily-sync';
+select cron.schedule('messenger-unified-daily-sync', '30 18 * * *',
+  'select public.messenger_daily_sync_v1();');
+
+-- 20261016110100_messenger_garamlink_sync
+-- Messenger stage 1: pull GaramLink chats into the unified model.
+-- The request board exports batches at GET /api/messenger-export (its own
+-- database). The messenger-garamlink-sync Edge Function fetches them and hands
+-- each one to messenger_import_request_board_batch_v1, which imports the batch
+-- and moves the stored cursor in one transaction. A batch whose cursor no
+-- longer matches (another run got there first) is refused as a whole.
+
+create table if not exists public.messenger_import_cursors (
+  source text primary key,
+  cursor jsonb,
+  batches bigint not null default 0,
+  messages bigint not null default 0,
+  last_imported_at timestamptz,
+  last_error text,
+  last_error_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.messenger_import_cursors enable row level security;
+revoke all on public.messenger_import_cursors from public, anon, authenticated;
+grant select, insert, update, delete on public.messenger_import_cursors to service_role;
+
+create or replace function public.messenger_import_request_board_batch_v1(
+  p_payload jsonb,
+  p_expected_cursor jsonb,
+  p_next_cursor jsonb
+)
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_current jsonb;
+  v_result jsonb;
+begin
+  if jsonb_typeof(p_payload) is distinct from 'object'
+     or (p_next_cursor is not null and jsonb_typeof(p_next_cursor) <> 'object') then
+    raise exception 'invalid_payload';
+  end if;
+
+  insert into public.messenger_import_cursors (source) values ('request_board') on conflict do nothing;
+  select cursor into v_current from public.messenger_import_cursors where source = 'request_board' for update;
+  if v_current is distinct from p_expected_cursor then
+    raise exception 'cursor_conflict';
+  end if;
+
+  v_result := public.messenger_import_request_board_v1(p_payload);
+
+  update public.messenger_import_cursors
+     set cursor = coalesce(p_next_cursor, cursor),
+         batches = batches + 1,
+         messages = messages + coalesce((v_result->>'messages')::bigint, 0),
+         last_imported_at = now(),
+         last_error = null,
+         last_error_at = null,
+         updated_at = now()
+   where source = 'request_board';
+  return v_result || jsonb_build_object('cursor', coalesce(p_next_cursor, v_current));
+end;
+$$;
+
+-- Failures are kept beside the cursor so the daily check can see a stuck sync.
+create or replace function public.messenger_import_record_error_v1(p_source text, p_error text)
+returns void
+language sql security invoker set search_path = public, pg_temp as $$
+  insert into public.messenger_import_cursors (source, last_error, last_error_at, updated_at)
+  values (p_source, left(p_error, 500), now(), now())
+  on conflict (source) do update
+     set last_error = excluded.last_error, last_error_at = excluded.last_error_at, updated_at = now();
+$$;
+
+revoke all on function public.messenger_import_request_board_batch_v1(jsonb, jsonb, jsonb) from public, anon, authenticated;
+grant execute on function public.messenger_import_request_board_batch_v1(jsonb, jsonb, jsonb) to service_role;
+revoke all on function public.messenger_import_record_error_v1(text, text) from public, anon, authenticated;
+grant execute on function public.messenger_import_record_error_v1(text, text) to service_role;
+
+-- schedule --
+-- The service-role key never enters source control: the operator stores it once
+-- in Vault as 'messenger_garamlink_sync_service_key'. Until then the job is a
+-- no-op. Every 10 minutes keeps the unified copy close to GaramLink while both
+-- messengers run side by side.
+create extension if not exists pg_net with schema extensions;
+create extension if not exists pg_cron with schema pg_catalog;
+
+create or replace function public.request_messenger_garamlink_sync_v1()
+returns bigint language plpgsql security definer set search_path = pg_catalog, public as $$
+declare service_key text;
+begin
+  select decrypted_secret into service_key from vault.decrypted_secrets
+    where name = 'messenger_garamlink_sync_service_key' limit 1;
+  if coalesce(service_key, '') = '' then return null; end if;
+  return net.http_post(
+    url := 'https://ubeginyxaotcamuqpmud.supabase.co/functions/v1/messenger-garamlink-sync',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'apikey', service_key, 'Authorization', 'Bearer ' || service_key),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 60000);
+end $$;
+revoke all on function public.request_messenger_garamlink_sync_v1() from public, anon, authenticated, service_role;
+
+select cron.unschedule(jobid) from cron.job where jobname = 'messenger-garamlink-sync';
+select cron.schedule('messenger-garamlink-sync', '*/10 * * * *',
+  'select public.request_messenger_garamlink_sync_v1();');
+
+-- 20261016110200_messenger_stage1_finish
+-- Messenger stage 1, finishing work (decisions 2026-10-16):
+-- 1. Headquarters (본부) become sub-organizations of 가람, assigned
+--    automatically from the affiliation number ("1본부 서선미" -> 1본부).
+-- 2. A room whose late backfill landed out of time order is renumbered.
+--    Safe only while no client reads the unified model (stage 1).
+-- 3. Thread-less legacy messages whose participant no longer exists are kept
+--    for a grace period after detection, then purged by the operator.
+-- 4. GaramLink attachments are imported as file/image messages that point at
+--    copies in the private 'messenger-imported-attachments' bucket.
+-- 5. GaramLink deletions arrive through their own cursor feed.
+
+-- ---------------------------------------------------------------------------
+-- 1. Headquarters sub-organizations
+-- ---------------------------------------------------------------------------
+create or replace function public.messenger_headquarters_numbers(p_affiliation text)
+returns integer[]
+language sql immutable set search_path = public, pg_temp as $$
+  select coalesce(array_agg(distinct m[1]::integer order by m[1]::integer), '{}')
+    from regexp_matches(coalesce(p_affiliation, ''), '(?:^|[^0-9])(10|[1-9])\s*(?:본부|팀)(?=$|[^가-힣0-9])', 'g') as m;
+$$;
+
+create or replace function public.messenger_sync_headquarters_v1()
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_garam uuid := public.messenger_org_by_slug('garam');
+  v_approved integer;
+  v_revoked integer;
+  v_unknown integer;
+begin
+  if v_garam is null then
+    return jsonb_build_object('skipped', 'garam_missing');
+  end if;
+
+  -- One row per (person, headquarters). A manager is the person behind an
+  -- active manager account with the same phone as an FC profile.
+  create temp table if not exists messenger_hq_desired (
+    actor_id uuid not null, hq integer not null, role text not null
+  ) on commit drop;
+  truncate messenger_hq_desired;
+  insert into messenger_hq_desired (actor_id, hq, role)
+  select distinct coalesce(public.messenger_actor_for('manager', ma.id::text), public.messenger_actor_for('fc', f.id::text)),
+         n, case when ma.id is not null then 'manager' else 'fc' end
+    from public.fc_profiles f
+    left join public.manager_accounts ma on ma.phone = f.phone and ma.active
+    cross join lateral unnest(public.messenger_headquarters_numbers(f.affiliation)) as n
+   where coalesce(f.signup_completed, false)
+     and not coalesce(f.is_manager_referral_shadow, false)
+     and f.account_closed_at is null
+     and coalesce(public.messenger_actor_for('manager', ma.id::text), public.messenger_actor_for('fc', f.id::text)) is not null;
+
+  insert into public.messenger_orgs (kind, parent_id, slug, name)
+  select distinct 'garam', v_garam, 'garam-hq-' || hq, hq || '본부' from messenger_hq_desired
+  on conflict (slug) do nothing;
+
+  with up as (
+    insert into public.messenger_org_members (org_id, actor_id, role, status, approved_at)
+    select o.id, d.actor_id, d.role, 'approved', now()
+      from messenger_hq_desired d join public.messenger_orgs o on o.slug = 'garam-hq-' || d.hq
+    on conflict (org_id, actor_id, role) do update
+       set status = 'approved', approved_at = now(), revoked_at = null, updated_at = now()
+     where public.messenger_org_members.status <> 'approved'
+    returning 1
+  )
+  select count(*) into v_approved from up;
+
+  with gone as (
+    update public.messenger_org_members m
+       set status = 'revoked', revoked_at = now(), updated_at = now()
+      from public.messenger_orgs o
+     where o.id = m.org_id and o.parent_id = v_garam and o.slug like 'garam-hq-%'
+       and m.status = 'approved'
+       and not exists (select 1 from messenger_hq_desired d
+                        where d.actor_id = m.actor_id and d.role = m.role and o.slug = 'garam-hq-' || d.hq)
+    returning 1
+  )
+  select count(*) into v_revoked from gone;
+
+  -- Active managers whose headquarters cannot be read stay in 가람 only.
+  with unknown as (
+    select ma.id from public.manager_accounts ma
+     where ma.active
+       and not exists (select 1 from public.fc_profiles f
+                        where f.phone = ma.phone and cardinality(public.messenger_headquarters_numbers(f.affiliation)) > 0)
+  )
+  select count(*) into v_unknown from unknown;
+  perform public.messenger_record_issue_once('manager_accounts', ma.id::text, 'headquarters_unknown')
+     from public.manager_accounts ma
+    where ma.active
+      and not exists (select 1 from public.fc_profiles f
+                       where f.phone = ma.phone and cardinality(public.messenger_headquarters_numbers(f.affiliation)) > 0);
+
+  return jsonb_build_object('approved', v_approved, 'revoked', v_revoked, 'managersWithoutHeadquarters', v_unknown);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 2. Room order repair
+-- ---------------------------------------------------------------------------
+-- Messages keep the set of sequence slots they occupy; the slots are handed out
+-- again in (created_at, id) order. Replies, events, reactions and the pinned
+-- notice follow their message. Read positions stay as they are.
+create or replace function public.messenger_repair_conversation_order_v1(p_conversation_id uuid)
+returns integer
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_old bigint[];
+  v_new bigint[];
+  v_offset bigint;
+  v_reactions jsonb;
+begin
+  select last_event_seq + 1 into v_offset
+    from public.messenger_conversations where id = p_conversation_id for update;
+  if not found then
+    return 0;
+  end if;
+
+  select coalesce(array_agg(o.seq order by o.seq), '{}'), coalesce(array_agg(n.seq order by o.seq), '{}')
+    into v_old, v_new
+    from (select seq, row_number() over (order by created_at, id) rn
+            from public.messenger_messages where conversation_id = p_conversation_id) o
+    join (select seq, row_number() over (order by seq) rn
+            from public.messenger_messages where conversation_id = p_conversation_id) n on n.rn = o.rn
+   where o.seq <> n.seq;
+
+  if cardinality(v_old) > 0 then
+    select jsonb_agg(to_jsonb(r)) into v_reactions
+      from public.messenger_reactions r
+     where r.conversation_id = p_conversation_id and r.message_seq = any(v_old);
+    delete from public.messenger_reactions
+     where conversation_id = p_conversation_id and message_seq = any(v_old);
+
+    -- Two steps through free slots above last_event_seq keep keys unique.
+    update public.messenger_messages set seq = seq + v_offset
+     where conversation_id = p_conversation_id and seq = any(v_old);
+    update public.messenger_messages m set seq = map.new_seq
+      from unnest(v_old, v_new) as map(old_seq, new_seq)
+     where m.conversation_id = p_conversation_id and m.seq = map.old_seq + v_offset;
+    update public.messenger_messages m set reply_to_seq = map.new_seq
+      from unnest(v_old, v_new) as map(old_seq, new_seq)
+     where m.conversation_id = p_conversation_id and m.reply_to_seq = map.old_seq;
+
+    update public.messenger_events set event_seq = event_seq + v_offset
+     where conversation_id = p_conversation_id and type = 'message' and event_seq = any(v_old);
+    update public.messenger_events e set event_seq = map.new_seq
+      from unnest(v_old, v_new) as map(old_seq, new_seq)
+     where e.conversation_id = p_conversation_id and e.type = 'message' and e.event_seq = map.old_seq + v_offset;
+    update public.messenger_events e set message_seq = map.new_seq
+      from unnest(v_old, v_new) as map(old_seq, new_seq)
+     where e.conversation_id = p_conversation_id and e.message_seq = map.old_seq;
+
+    insert into public.messenger_reactions (conversation_id, message_seq, actor_id, reaction, created_at, updated_at)
+    select r.conversation_id, map.new_seq, r.actor_id, r.reaction, r.created_at, r.updated_at
+      from jsonb_populate_recordset(null::public.messenger_reactions, coalesce(v_reactions, '[]'::jsonb)) r
+      join unnest(v_old, v_new) as map(old_seq, new_seq) on map.old_seq = r.message_seq;
+
+    update public.messenger_conversations c set pinned_notice_seq = map.new_seq, updated_at = now()
+      from unnest(v_old, v_new) as map(old_seq, new_seq)
+     where c.id = p_conversation_id and c.pinned_notice_seq = map.old_seq;
+  end if;
+
+  update public.messenger_sync_issues set resolved_at = now()
+   where source = 'messenger_conversation' and source_key = p_conversation_id::text
+     and reason = 'late_backfill_out_of_order' and resolved_at is null;
+  return cardinality(v_old);
+end;
+$$;
+
+create or replace function public.messenger_repair_late_conversations_v1()
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  c record;
+  v_rooms integer := 0;
+  v_moved integer := 0;
+begin
+  for c in
+    select distinct source_key::uuid as id from public.messenger_sync_issues
+     where source = 'messenger_conversation' and reason = 'late_backfill_out_of_order' and resolved_at is null
+  loop
+    v_moved := v_moved + public.messenger_repair_conversation_order_v1(c.id);
+    v_rooms := v_rooms + 1;
+  end loop;
+  return jsonb_build_object('rooms', v_rooms, 'messagesMoved', v_moved);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 3. Retention of messages whose participant no longer exists
+-- ---------------------------------------------------------------------------
+-- The privacy policy keeps member data only while the membership lasts. The
+-- grace period gives a re-registered phone time to be matched again by the
+-- daily backfill. Listing never returns message text or phone numbers.
+create or replace function public.messenger_orphan_purge_candidates_v1(p_grace interval default interval '30 days')
+returns table (message_id uuid, created_at timestamptz, detected_at timestamptz, has_file boolean)
+language sql stable security invoker set search_path = public, pg_temp as $$
+  select m.id, m.created_at, i.created_at, m.file_url is not null
+    from public.messenger_sync_issues i
+    join public.messages m on m.id::text = i.source_key
+   where i.source = 'messages' and i.reason = 'orphan_participant_missing' and i.resolved_at is null
+     and i.created_at < now() - p_grace
+     and not exists (select 1 from public.messenger_orphan_placements p where p.message_id = m.id)
+   order by m.created_at, m.id;
+$$;
+
+-- Deletes the candidates for good. The operator passes the count the listing
+-- showed; any other count refuses the whole purge. Returns the storage paths
+-- of attached files so they can be removed from the bucket as well.
+create or replace function public.messenger_purge_orphan_messages_v1(
+  p_expected_count integer,
+  p_grace interval default interval '30 days'
+)
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_ids uuid[];
+  v_files text[];
+begin
+  select coalesce(array_agg(message_id), '{}') into v_ids
+    from public.messenger_orphan_purge_candidates_v1(p_grace);
+  if cardinality(v_ids) <> p_expected_count then
+    raise exception 'purge_count_mismatch: expected %, found %', p_expected_count, cardinality(v_ids);
+  end if;
+  select coalesce(array_agg(file_url) filter (where file_url is not null), '{}') into v_files
+    from public.messages where id = any(v_ids);
+  delete from public.messages where id = any(v_ids);
+  update public.messenger_sync_issues set resolved_at = now(), detail = detail || '{"purged":true}'::jsonb
+   where source = 'messages' and reason = 'orphan_participant_missing' and source_key = any(v_ids::text[]);
+  return jsonb_build_object('deleted', cardinality(v_ids), 'fileUrls', to_jsonb(v_files));
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 4. GaramLink import with attachments
+-- ---------------------------------------------------------------------------
+-- Each message may carry "attachments":[{"id","fileName","fileType","fileSize",
+-- "storagePath"|null,"missing":bool}]. The sync copies the file first and
+-- passes its path in 'messenger-imported-attachments'. Every attachment becomes
+-- its own image/file message right after the text, sharing one batch id.
+create or replace function public.messenger_import_request_board_v1(p_payload jsonb)
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  u jsonb;
+  m jsonb;
+  a jsonb;
+  v_sender uuid;
+  v_peer uuid;
+  v_key text;
+  v_conversation uuid;
+  v_id uuid;
+  v_seq bigint;
+  v_context jsonb;
+  v_batch uuid;
+  v_base text;
+  v_users integer := 0;
+  v_messages integer := 0;
+  v_attachments integer := 0;
+  v_source_kind text;
+  v_source_key text;
+begin
+  if jsonb_typeof(p_payload) <> 'object' then
+    raise exception 'invalid_payload';
+  end if;
+  for u in select * from jsonb_array_elements(coalesce(p_payload->'users', '[]'::jsonb)) loop
+    perform public.messenger_ensure_actor('request_board_user', u->>'id', u->>'name', u->>'phone');
+    v_users := v_users + 1;
+  end loop;
+
+  for m in
+    select value from jsonb_array_elements(coalesce(p_payload->'messages', '[]'::jsonb))
+     order by (value->>'createdAt')::timestamptz, value->>'source', (value->>'id')::bigint
+  loop
+    v_sender := public.messenger_actor_for('request_board_user', m->>'senderUserId');
+    v_peer := public.messenger_actor_for('request_board_user', m->>'peerUserId');
+    if v_sender is null or v_peer is null or v_sender = v_peer then
+      perform public.messenger_record_issue_once('request_board', (m->>'source') || ':' || (m->>'id'), 'participant_missing');
+      continue;
+    end if;
+    v_key := least(v_sender::text, v_peer::text) || ':' || greatest(v_sender::text, v_peer::text);
+    insert into public.messenger_conversations (kind, direct_key)
+    values ('direct', v_key)
+    on conflict (direct_key) do update set updated_at = public.messenger_conversations.updated_at
+    returning id into v_conversation;
+    insert into public.messenger_participants (conversation_id, actor_id)
+    values (v_conversation, v_sender), (v_conversation, v_peer) on conflict do nothing;
+
+    if m->>'source' = 'direct' then
+      v_source_kind := 'request_board_direct';
+      v_source_key := m->>'directConversationId';
+    else
+      v_source_kind := 'request_board_pair';
+      v_source_key := least((m->>'senderUserId')::bigint, (m->>'peerUserId')::bigint) || ':'
+                   || greatest((m->>'senderUserId')::bigint, (m->>'peerUserId')::bigint);
+    end if;
+    if v_source_key is not null then
+      insert into public.messenger_legacy_map (source_kind, source_key, conversation_id)
+      values (v_source_kind, v_source_key, v_conversation) on conflict do nothing;
+    end if;
+
+    v_base := 'request_board:' || (m->>'source') || ':' || (m->>'id');
+    v_context := case when m->>'requestId' is not null
+      then jsonb_build_object('requestBoard', jsonb_build_object('requestId', (m->>'requestId')::bigint)) end;
+    v_batch := case when jsonb_array_length(coalesce(m->'attachments', '[]'::jsonb)) > 0
+      then md5(v_base || ':batch')::uuid end;
+    v_seq := null;
+
+    -- A message that only carries files has no text row of its own.
+    if coalesce(m->>'content', '') <> '' or v_batch is null then
+      v_id := md5(v_base)::uuid;
+      v_seq := public.messenger_append_message(
+        v_conversation, v_id, v_sender, null, 'text', m->>'content', (m->>'createdAt')::timestamptz, v_context);
+      v_messages := v_messages + 1;
+    end if;
+
+    for a in select value from jsonb_array_elements(coalesce(m->'attachments', '[]'::jsonb)) loop
+      v_id := md5(v_base || ':att:' || (a->>'id'))::uuid;
+      v_seq := public.messenger_append_message(
+        v_conversation, v_id, v_sender, null,
+        case when a->>'fileType' like 'image/%' then 'image' else 'file' end,
+        '', (m->>'createdAt')::timestamptz,
+        coalesce(v_context, '{}'::jsonb) || case
+          when coalesce((a->>'missing')::boolean, false) or a->>'storagePath' is null
+            then jsonb_build_object('importedFile', jsonb_build_object('missing', true))
+          else jsonb_build_object('importedFile', jsonb_build_object(
+                 'bucket', 'messenger-imported-attachments', 'path', a->>'storagePath', 'mimeType', a->>'fileType'))
+        end,
+        v_batch, null, a->>'fileName', nullif(a->>'fileSize', '')::bigint);
+      v_attachments := v_attachments + 1;
+    end loop;
+
+    if coalesce((m->>'isRead')::boolean, false) and v_seq is not null then
+      update public.messenger_participants p
+         set last_read_seq = greatest(p.last_read_seq, v_seq), updated_at = now()
+       where p.conversation_id = v_conversation and p.actor_id = v_peer;
+    end if;
+  end loop;
+  return jsonb_build_object('users', v_users, 'messages', v_messages, 'attachments', v_attachments);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 5. GaramLink deletions feed
+-- ---------------------------------------------------------------------------
+-- p_deletions: [{"source","id","deletedAt"}]. A deletion marks the text row and
+-- its attachment rows, once, each with a 'delete' event.
+create or replace function public.messenger_import_request_board_deletions_batch_v1(
+  p_deletions jsonb,
+  p_expected_cursor jsonb,
+  p_next_cursor jsonb
+)
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_current jsonb;
+  d jsonb;
+  r record;
+  v_base text;
+  v_deleted integer := 0;
+begin
+  if jsonb_typeof(p_deletions) is distinct from 'array'
+     or (p_next_cursor is not null and jsonb_typeof(p_next_cursor) <> 'object') then
+    raise exception 'invalid_payload';
+  end if;
+  insert into public.messenger_import_cursors (source) values ('request_board_deletions') on conflict do nothing;
+  select cursor into v_current from public.messenger_import_cursors where source = 'request_board_deletions' for update;
+  if v_current is distinct from p_expected_cursor then
+    raise exception 'cursor_conflict';
+  end if;
+
+  for d in select value from jsonb_array_elements(p_deletions) loop
+    v_base := 'request_board:' || (d->>'source') || ':' || (d->>'id');
+    for r in
+      update public.messenger_messages
+         set deleted_at = (d->>'deletedAt')::timestamptz
+       where (id = md5(v_base)::uuid or attachment_batch_id = md5(v_base || ':batch')::uuid)
+         and deleted_at is null
+      returning conversation_id, seq, sender_actor_id
+    loop
+      perform public.messenger_record_event(r.conversation_id, 'delete', r.seq, r.sender_actor_id);
+      v_deleted := v_deleted + 1;
+    end loop;
+  end loop;
+
+  update public.messenger_import_cursors
+     set cursor = coalesce(p_next_cursor, cursor), batches = batches + 1,
+         messages = messages + v_deleted, last_imported_at = now(),
+         last_error = null, last_error_at = null, updated_at = now()
+   where source = 'request_board_deletions';
+  return jsonb_build_object('deleted', v_deleted, 'cursor', coalesce(p_next_cursor, v_current));
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Daily sync: also keep headquarters and repair late rooms before reconciling.
+-- Stage 2 must drop the repair call once clients read sequences.
+-- ---------------------------------------------------------------------------
+create or replace function public.messenger_daily_sync_v1()
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_started timestamptz := clock_timestamp();
+  v_backfill jsonb;
+  v_headquarters jsonb;
+  v_repair jsonb;
+  v_reconcile jsonb;
+begin
+  if not pg_try_advisory_xact_lock(hashtext('messenger_daily_sync_v1')) then
+    return jsonb_build_object('skipped', 'already_running');
+  end if;
+
+  begin
+    v_backfill := public.messenger_backfill_v1();
+    v_headquarters := public.messenger_sync_headquarters_v1();
+    v_repair := public.messenger_repair_late_conversations_v1();
+    v_reconcile := public.messenger_reconcile_v1();
+  exception when others then
+    insert into public.messenger_reconcile_runs (ok, result)
+    values (false, jsonb_build_object('error', sqlerrm, 'sqlstate', sqlstate, 'stage', 'daily_sync'));
+    return jsonb_build_object('ok', false, 'error', sqlerrm);
+  end;
+
+  delete from public.messenger_reconcile_runs where ran_at < now() - interval '180 days';
+
+  return jsonb_build_object(
+    'ok', coalesce((v_reconcile->>'ok')::boolean, false),
+    'backfill', v_backfill,
+    'headquarters', v_headquarters,
+    'repair', v_repair,
+    'reconcile', v_reconcile,
+    'elapsedMs', round(extract(epoch from clock_timestamp() - v_started) * 1000)
+  );
+end;
+$$;
+
+do $$
+declare
+  f record;
+begin
+  for f in
+    select p.oid::regprocedure as signature
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in (
+         'messenger_headquarters_numbers', 'messenger_sync_headquarters_v1',
+         'messenger_repair_conversation_order_v1', 'messenger_repair_late_conversations_v1',
+         'messenger_orphan_purge_candidates_v1', 'messenger_purge_orphan_messages_v1',
+         'messenger_import_request_board_v1', 'messenger_import_request_board_deletions_batch_v1',
+         'messenger_daily_sync_v1'
+       )
+  loop
+    execute format('revoke all on function %s from public, anon, authenticated', f.signature);
+    execute format('grant execute on function %s to service_role', f.signature);
+  end loop;
+end;
+$$;
+
+-- storage --
+-- Private bucket for copied GaramLink files; only the service role reaches it.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('messenger-imported-attachments', 'messenger-imported-attachments', false, 52428800)
+on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit;
+
+-- 20261016120000_messenger_headquarters_manager_shadow
+-- Messenger stage 1 fix: managers whose affiliation lives only on their
+-- referral shadow profile (7 of 9 active managers on 2026-10-16) were left out
+-- of their headquarters. A profile now counts for a manager when an active
+-- manager account has its phone, shadow or not; plain FCs keep the regular
+-- signup rule. The "headquarters unknown" check uses the same rule.
+
+create or replace function public.messenger_sync_headquarters_v1()
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_garam uuid := public.messenger_org_by_slug('garam');
+  v_approved integer;
+  v_revoked integer;
+  v_unknown integer;
+begin
+  if v_garam is null then
+    return jsonb_build_object('skipped', 'garam_missing');
+  end if;
+
+  -- One row per (person, headquarters).
+  create temp table if not exists messenger_hq_desired (
+    actor_id uuid not null, hq integer not null, role text not null
+  ) on commit drop;
+  truncate messenger_hq_desired;
+  insert into messenger_hq_desired (actor_id, hq, role)
+  select distinct coalesce(public.messenger_actor_for('manager', ma.id::text), public.messenger_actor_for('fc', f.id::text)),
+         n, case when ma.id is not null then 'manager' else 'fc' end
+    from public.fc_profiles f
+    left join public.manager_accounts ma on ma.phone = f.phone and ma.active
+    cross join lateral unnest(public.messenger_headquarters_numbers(f.affiliation)) as n
+   where f.account_closed_at is null
+     and (ma.id is not null
+          or (coalesce(f.signup_completed, false) and not coalesce(f.is_manager_referral_shadow, false)))
+     and coalesce(public.messenger_actor_for('manager', ma.id::text), public.messenger_actor_for('fc', f.id::text)) is not null;
+
+  insert into public.messenger_orgs (kind, parent_id, slug, name)
+  select distinct 'garam', v_garam, 'garam-hq-' || hq, hq || '본부' from messenger_hq_desired
+  on conflict (slug) do nothing;
+
+  with up as (
+    insert into public.messenger_org_members (org_id, actor_id, role, status, approved_at)
+    select o.id, d.actor_id, d.role, 'approved', now()
+      from messenger_hq_desired d join public.messenger_orgs o on o.slug = 'garam-hq-' || d.hq
+    on conflict (org_id, actor_id, role) do update
+       set status = 'approved', approved_at = now(), revoked_at = null, updated_at = now()
+     where public.messenger_org_members.status <> 'approved'
+    returning 1
+  )
+  select count(*) into v_approved from up;
+
+  with gone as (
+    update public.messenger_org_members m
+       set status = 'revoked', revoked_at = now(), updated_at = now()
+      from public.messenger_orgs o
+     where o.id = m.org_id and o.parent_id = v_garam and o.slug like 'garam-hq-%'
+       and m.status = 'approved'
+       and not exists (select 1 from messenger_hq_desired d
+                        where d.actor_id = m.actor_id and d.role = m.role and o.slug = 'garam-hq-' || d.hq)
+    returning 1
+  )
+  select count(*) into v_revoked from gone;
+
+  -- Active managers that received no headquarters stay in 가람 only.
+  select count(*) into v_unknown
+    from public.manager_accounts ma
+   where ma.active
+     and not exists (select 1 from messenger_hq_desired d
+                      where d.role = 'manager' and d.actor_id = public.messenger_actor_for('manager', ma.id::text));
+  perform public.messenger_record_issue_once('manager_accounts', ma.id::text, 'headquarters_unknown')
+     from public.manager_accounts ma
+    where ma.active
+      and not exists (select 1 from messenger_hq_desired d
+                       where d.role = 'manager' and d.actor_id = public.messenger_actor_for('manager', ma.id::text));
+
+  return jsonb_build_object('approved', v_approved, 'revoked', v_revoked, 'managersWithoutHeadquarters', v_unknown);
+end;
+$$;
+
+revoke all on function public.messenger_sync_headquarters_v1() from public, anon, authenticated;
+grant execute on function public.messenger_sync_headquarters_v1() to service_role;
+
+-- 20261016111950_messenger_mirror_new_rooms
+-- Messenger stage 1 fix: rooms created after the last backfill were not
+-- mirrored until the next daily run (found 2026-10-16 when a new FC-developer
+-- thread stayed unmapped). The mirror triggers now map such a room on its
+-- first message and fill it in time order, so it appears at once. When the
+-- people behind the room are not known yet (a brand-new account), the trigger
+-- leaves the room to the daily backfill, which creates the people first.
+
+create or replace function public.messenger_mirror_direct_message()
+returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_conversation uuid;
+  v_conv public.messenger_conversations%rowtype;
+  v_fc uuid;
+  v_fc_phone text;
+  v_sender uuid;
+  v_seq bigint;
+begin
+  if new.thread_id is null then
+    return null;
+  end if;
+  select conversation_id into v_conversation from public.messenger_legacy_map
+   where source_kind = 'garamin_direct_thread' and source_key = new.thread_id::text;
+  begin
+    if v_conversation is null then
+      -- A room born after the last backfill: map it and copy it whole.
+      if public.messenger_org_by_slug('garam') is null then
+        return null;
+      end if;
+      v_conversation := public.messenger_ensure_direct_thread(new.thread_id);
+      if v_conversation is not null then
+        perform public.messenger_fill_direct_conversation(v_conversation);
+      end if;
+      return null;
+    end if;
+    select * into v_conv from public.messenger_conversations where id = v_conversation;
+    select public.messenger_actor_for('fc', c.fc_id::text), f.phone into v_fc, v_fc_phone
+      from public.garamin_direct_threads t
+      join public.garamin_direct_conversations c on c.id = t.legacy_conversation_id
+      join public.fc_profiles f on f.id = c.fc_id
+     where t.id = new.thread_id;
+    v_sender := public.messenger_direct_sender(new.sender_id, new.sender_actor_id, v_fc, v_fc_phone);
+    v_seq := public.messenger_append_message(
+      v_conversation, new.id, v_sender,
+      case when v_conv.kind = 'org_room' and v_sender is distinct from v_fc
+        then public.messenger_org_by_slug('garam') end,
+      case when new.message_type in ('text', 'image', 'file') then new.message_type else 'text' end,
+      new.content, new.created_at, null, new.attachment_batch_id,
+      new.file_url, new.file_name, new.file_size, null
+    );
+  exception when others then
+    insert into public.messenger_sync_issues (source, source_key, reason, detail)
+    values ('messages', new.id::text, 'mirror_insert_failed', jsonb_build_object('error', sqlerrm));
+  end;
+  return null;
+end;
+$$;
+
+create or replace function public.messenger_mirror_group_message()
+returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_conversation uuid;
+  v_seq bigint;
+  v_parent bigint;
+begin
+  select conversation_id into v_conversation from public.messenger_legacy_map
+   where source_kind = 'group_chat_room' and source_key = new.room_id::text;
+  begin
+    if v_conversation is null then
+      -- A group room born after the last backfill: map and fill it whole.
+      if tg_op = 'INSERT' and public.messenger_org_by_slug('garam') is not null then
+        perform public.messenger_fill_group_room(new.room_id);
+      end if;
+      return null;
+    end if;
+    if tg_op = 'INSERT' then
+      v_seq := public.messenger_append_message(
+        v_conversation, new.id,
+        coalesce(public.messenger_actor_for_group_key(new.sender_actor_id),
+                 public.messenger_actor_for_group_key(new.sender_role || ':' || new.sender_phone)),
+        null, new.message_type, new.content, new.created_at, null, new.attachment_batch_id,
+        new.file_url, new.file_name, new.file_size, null
+      );
+      if new.reply_to_message_id is not null then
+        select seq into v_parent from public.messenger_messages where id = new.reply_to_message_id;
+        update public.messenger_messages set reply_to_seq = v_parent
+         where conversation_id = v_conversation and seq = v_seq;
+      end if;
+    elsif new.deleted_at is not null and old.deleted_at is null then
+      update public.messenger_messages
+         set deleted_at = new.deleted_at,
+             deleted_by_actor_id = public.messenger_actor_for_group_key(new.deleted_by_actor_id)
+       where id = new.id
+      returning seq into v_seq;
+      if v_seq is not null then
+        perform public.messenger_record_event(v_conversation, 'delete', v_seq,
+          public.messenger_actor_for_group_key(new.deleted_by_actor_id));
+      end if;
+    end if;
+  exception when others then
+    insert into public.messenger_sync_issues (source, source_key, reason, detail)
+    values ('group_chat_messages', new.id::text, 'mirror_failed', jsonb_build_object('error', sqlerrm, 'op', tg_op));
+  end;
+  return null;
+end;
+$$;
+
+revoke all on function public.messenger_mirror_direct_message() from public, anon, authenticated;
+grant execute on function public.messenger_mirror_direct_message() to service_role;
+revoke all on function public.messenger_mirror_group_message() from public, anon, authenticated;
+grant execute on function public.messenger_mirror_group_message() to service_role;

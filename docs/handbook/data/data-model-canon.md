@@ -7,6 +7,21 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
+## 2026-10-16 통합 메신저 1단계 모델 (가람in 운영 적용)
+
+`20261016104031`~`20261016120000` 마이그레이션 7개와 schema mirror가 1단계 모델을 이룬다. `111950`은 백필 뒤에 생긴 방을 첫 메시지에서 연결해 바로 복사하는 수정이고, `120000`은 그림자 프로필에만 소속이 있는 본부장도 본부에 넣는 수정이다.
+
+- 통합 메신저 테이블: 사람(`messenger_actors`), 조직과 본부 하위 조직, 대화방, 참여자, 방별 순번 메시지와 이벤트, 반응, 옛 방 대응표, 동기화 이슈, 대조 기록, 가져오기 커서.
+- 옛 1:1·단체방 테이블에는 이중 기록 trigger가 붙는다.
+  - trigger는 실패해도 원래 쓰기를 막지 않고 이슈로만 남긴다.
+- pg_cron 작업 두 개:
+  - `messenger-unified-daily-sync`(03:30 KST): 백필 → 본부 → 순서 복구 → 대조
+  - `messenger-garamlink-sync`(10분): Vault 키가 없으면 아무것도 하지 않는다.
+- 비공개 bucket `messenger-imported-attachments`를 둔다.
+- 권한: 모든 테이블은 RLS를 켜고 anon/authenticated 권한을 회수한다. 함수는 service_role만 실행한다.
+- 앱은 아직 이 모델을 읽지 않는다. 그래서 순서 복구(번호 다시 매기기)가 안전하고, 2단계에서 클라이언트가 읽기 시작하기 전에 순서 복구 호출을 빼야 한다.
+- 운영 적용 순서와 되돌리기는 `docs/deployment/messenger-stage1-rollout.md`를 따른다.
+
 ## 2026-10-14 제휴 서비스별 추천 관계 (로컬)
 
 `supabase/migrations/20261014130000_platform_service_referrals.sql`과 schema mirror는 `platform_service_referral_codes`(회원·서비스별 코드)와 `platform_service_referrals`(회원·서비스별 추천인, 첫 등록 확정)를 추가한다. 두 테이블은 RLS/직접 접근 회수를 유지하고 service-role RPC만 사용한다. `create_platform_application`은 공통 `referrer_id` 대신 같은 서비스의 추천인을 스냅숏한다. 공통 `referrer_id`는 과거 기록으로 남고 새 정산에 쓰이지 않는다. 운영 DB 미적용.
@@ -277,3 +292,16 @@ The twelve operational history entries below were compared with the local migrat
 `20261013113212_retire_legacy_fc_signup_rpcs.sql` was applied on 2026-10-13 from clean source `3b546af03750f6db5810be37c0edc93a0f4a4e1c`. It is a forward migration, not a rewrite of the applied migrations above. It retires the exact signatures of `issue_signup_otp_challenge_v1`, `process_signup_otp_challenge_v1`, `validate_signup_verification_proof_v1` and `complete_fc_signup_atomic_v1` with `DROP FUNCTION ... RESTRICT`. It keeps historical SQL and profile columns intact. A nonempty legacy challenge/proof state aborts the migration; unexpected dependencies prevent the DROP rather than being removed with CASCADE. The local filename, schema marker and fixture path now use the returned operational history version without changing the SQL body.
 
 Read-only preflight found zero catalog/cron dependencies and zero legacy challenge/proof state. The active source closures of all 55 Edge Functions, covering 457 files, contained zero references to the four retired RPCs. The closest capability SQL fixture covers historical → current → retirement lifecycle, the nonempty-state guard and dependency restriction. Supabase migration application succeeded with history version `20261013113212`; the post-application catalog contained zero retired RPCs. The exact source and post-application evidence are recorded in the canonical QA/handoff. This database receipt does not establish mobile installation adoption, real-device SMS delivery or authenticated admin UI acceptance.
+
+## 2026-10-16 모두온 가입 인증 코드 단독 확인
+
+- `check_platform_signup_otp(phone, code_hash)`는 `register_platform_member`와 같은 두 advisory lock(741012, 8102026), 만료, 5회 실패 10분 잠금, 시도 횟수를 공유하고 challenge를 소비하지 않는다. 최종 가입은 같은 코드를 다시 검증한다. 실행 권한은 `service_role`만 가진다.
+- Edge `platform-service`의 `check_signup_otp` 액션이 이 함수를 호출한다. 마이그레이션 `20261016040348_check_platform_signup_otp.sql`, 검증 `supabase/tests/platform-membership-sql.test.mjs`.
+
+## 2026-10-16 서비스별 탈퇴 범위
+
+- `platform_account_withdrawals.scope`: `all_affiliates`(모두온 탈퇴, 회원당 1건)와 `insurance`(가람in만 탈퇴, 진행 중 1건). 가람in을 다시 등록한 뒤 다시 탈퇴할 수 있다.
+- `begin_platform_insurance_withdrawal_v1`: 가입·등록과 같은 잠금 순서로 FC를 닫고, `detach_platform_member_insurance_v1`로 FC에 옮겨 둔 비밀번호를 공통 회원으로 되돌린 뒤(세션 세대 +1) 연결과 가람in 동의·등록 기록을 지운다. 모두온 회원·로그인·다른 서비스 신청·서비스 추천인은 남는다.
+- `erase_platform_withdrawal_v1`: 두 범위 모두 FC를 closure 방식으로 지우고(정산이 참조하는 UUID만 익명으로 남음), `all_affiliates`일 때만 `delete_platform_member`를 부른다.
+- `delete_platform_member`: 정산 기록이 없는 서비스 신청은 삭제하고, 정산된 신청은 익명화해 UUID만 남긴다.
+- FC 행 삭제 트리거(`platform_fc_delete_identity`)는 더 이상 모두온 계정을 탈퇴시키지 않고 연결만 끊는다. 관리자·본부장 계정 삭제는 기존처럼 연결된 회원을 지운다.

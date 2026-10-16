@@ -5,6 +5,10 @@ project_id = "fc-onboarding-app"
 [functions.platform-service]
 verify_jwt = false
 
+# Scheduled GaramLink import; the handler accepts only the exact service-role key.
+[functions.messenger-garamlink-sync]
+verify_jwt = false
+
 # Authentication is the signed custom app session, checked inside this function.
 [functions.get-my-referral-allowance]
 verify_jwt = false

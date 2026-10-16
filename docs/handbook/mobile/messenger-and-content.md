@@ -2,10 +2,35 @@ doc_id: FC-APP-MESSENGER-CONTENT
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-10-12
+last_verified: 2026-10-16
 source_of_truth: app/messenger.tsx + app/messenger-search.tsx + app/new-conversation.tsx + app/notification-settings.tsx + app/muted-conversations.tsx + app/chat.tsx + app/group-chat.tsx + app/request-board-messenger.tsx + lib/messenger-hub-model.ts + lib/messenger-search-model.ts + lib/notification-preferences-api.ts + lib/chat-keyboard-layout.ts + app/board*.tsx + app/notice*.tsx + app/notifications.tsx
 
 # Mobile Playbook: Messenger And Content
+
+## 2026-10-16 메신저 화면 개편 1차 (설계 기준 문서 '가람in 메신저 화면 개편 방향')
+
+- 날짜와 시간은 기기 시간대와 상관없이 한국 시간으로 계산한다(`lib/messenger-time.ts`, 고정 +9시간).
+  - UTC로 설정된 기기에서 오전 9시에 날짜선이 생기던 문제가 없어졌다.
+  - 말풍선 시간은 `오후 3:05` 형식이고, 단체방(`formatGroupChatTime`)도 같은 함수를 쓴다.
+- 1:1과 단체방은 같은 사람이 같은 1분 안에 보낸 메시지를 묶는다(`messengerRunPosition`).
+  - 이름과 프로필은 묶음의 첫 말풍선에, 시간은 마지막 말풍선에만 둔다.
+  - 안 읽은 사람 수는 말풍선마다 그대로 둔다.
+  - 단체방에서 전송 중이거나 실패한 메시지는 묶음 중간이어도 시간을 보여준다.
+- 대화 탭 위에 `전체 · 안읽음 · 단체방 · 가람Link` 칩을 둔다.
+  - 메시지가 한 번도 없는 방은 고정하지 않았으면 대화 탭에서 빼고, 사람 탭에서 시작한다.
+  - 안 읽은 방은 미리보기를 진하게 보여준다.
+- 알림을 끈 방은 자기 배지는 유지하지만 메신저 탭 합계에서 빠진다.
+- 1:1 방을 열 때 안 읽은 상대 메시지가 있으면 가장 오래된 안 읽은 메시지 위에 '여기까지 읽었어요' 선을 그린다. 위치는 읽음 처리 전 첫 불러오기에서 한 번 정하고, 방을 나갈 때까지 유지한다. 모든 메시지가 안 읽은 상태면 그리지 않는다(`findMessengerReadLineId`).
+- 단체방도 같은 선을 그린다. 입장 응답의 `last_read_at`(이번 입장의 읽음 처리 전 값)보다 늦게 온 다른 사람의 메시지 중 가장 오래된 것 위에 둔다. `last_read_at`이 없으면(처음 입장) 그리지 않는다.
+- 방의 첫 페이지를 불러오는 동안 화면 전체 스피너 대신 말풍선 모양 자리 표시(`MessengerRoomSkeleton`)를 보여준다. 1:1은 빈 화면 대신, 단체방은 `MessengerLoadingState` 대신 쓴다.
+- 50명 이상 단체방은 말풍선마다 안 읽은 사람 수 대신 묶음 마지막에 `N명 읽음`을 작게 보여준다(`formatGroupChatSeenLabel`). 작은 방은 카카오식 숫자를 유지한다.
+- 단체방에서 발언 권한이 없는 사람은 입력창 대신 '공지 전용 방' 안내를 본다. 보내기 시도 뒤 뜨던 경고 대신 미리 이유를 보여준다.
+- 모두온 플로팅 메신저 입구(`components/messenger/ModuonMessengerEntry.tsx`)를 루트 레이아웃의 두 Stack 갈래에 모두 그린다.
+  - 보이는 곳: 홈, 게시판, 공지, 설정, 알림, 서비스 화면(`shouldShowMessengerEntry`). 로그인·가입·신청서·메신저 화면과 사진 보기에서는 숨긴다.
+  - 위치: 하단 탭 위(안전 영역 + 72 + 12).
+  - 누르면 홍보 사이트 서비스 레일처럼 모두온 → 가람in → 가족간병 → 통신 → 렌탈 → 자동차 → 제휴병원이 세로로 펼쳐진다. 지금 대화가 되는 서비스는 모두온과 가람in이고(`/messenger`로 이동), 나머지는 '준비 중' 토스트를 띄운다.
+  - 안 읽은 수는 홈 화면과 같은 쿼리 키(`unread-msg-count`)로 읽어 캐시를 함께 쓴다.
+- 1:1에서 서버가 확실히 거절한 전송은 팝업 대신 말풍선을 '실패' 상태로 남기고 입력창을 비운다. '실패'를 누르면 다시 보내기·삭제를 고른다. 다시 보내기는 새 전송 요청이다. 결과가 불확실한 실패는 중복 전송을 막기 위해 기존처럼 같은 요청으로 '다시 확인'하는 팝업을 유지한다.
 
 ## 2026-10-15 키보드가 열린 상태의 탭
 
@@ -238,6 +263,31 @@ Board and admin-board logout redirects are owned by focused `useAppLogout` after
   client records that capability once per process, uses an empty preference list,
   and stops subsequent GET/PATCH HTTP attempts until restart. Deploying the
   additive server endpoint restores the normal preference path.
+
+## GaramIn 1:1 change cursor
+
+- `messages.changed_at` moves on every insert and update (trigger
+  `messages_touch_changed_at`, `clock_timestamp()`), so sends, read marks and
+  deletes all advance it.
+- `direct_message_list` returns `mode`, `deleted_ids` and `cursor` (the newest
+  `changed_at` it read, deleted rows included). Sent back as `since`, it returns
+  only rows changed after `since` minus a 10-second overlap, with deleted rows as
+  ids filtered by the same visibility rules. A missing, unreadable, future or
+  over-24-hour cursor gets the whole conversation (`mode: 'full'`) as before.
+- `app/chat.tsx` sends the cursor only on quiet refreshes of the same room and
+  merges changes into the rows it holds; opening a room always loads it whole.
+  A server without cursors answers `full` with no cursor, so old and new clients
+  and servers mix safely.
+- Every statement that inserts or updates `messages` sends one content-free
+  `changed` broadcast per thread (`messages_signal_direct_change`). The channel
+  is public because the app has no Supabase Auth session; its name is
+  `dm-` + HMAC-SHA256(thread id, Vault `messenger_realtime_topic_key`), handed
+  out only on a full `direct_message_list` as `realtime_topic`. A missing key
+  or a failed send skips the signal and never blocks the write.
+- `lib/direct-message-realtime.ts` shares one channel per topic across screens
+  (a fixed topic returns the existing channel and adding a listener to it
+  throws). On a signal or a reconnect the room fetches changes after its
+  cursor; the timer drops from 5 to 30 seconds while the channel is live.
 
 ## Native keyboard ownership
 

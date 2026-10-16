@@ -106,9 +106,11 @@ async function getWithdrawal(request: Request) {
   return json({ok:true,withdrawal:job ? withdrawalResponse(job) : null});
 }
 async function withdrawMember(request: Request, body: Record<string,unknown>) {
-  if(body.confirmed!==true || body.scope!=='all_affiliates' || body.policyVersion!=='2026-10-14'
+  // all_affiliates leaves 모두온 and every service; insurance leaves only 가람in (FC and 가람링크).
+  const scope=body.scope;
+  if(body.confirmed!==true || (scope!=='all_affiliates' && scope!=='insurance') || body.policyVersion!=='2026-10-14'
     || typeof body.idempotencyKey!=='string' || !uuid.test(body.idempotencyKey))
-    return fail('invalid_input','전체 제휴 서비스 탈퇴 안내를 확인해 주세요.');
+    return fail('invalid_input','탈퇴 안내를 확인해 주세요.');
   const operationId=body.idempotencyKey.toLowerCase();
   const token=request.headers.get('x-app-session-token') ?? '';
   if(!token || token.length>8192) throw new Error('invalid_session');
@@ -118,11 +120,22 @@ async function withdrawMember(request: Request, body: Record<string,unknown>) {
   let job=withdrawalJob(await rpc('get_platform_withdrawal_v1',{p_operation_id:operationId,p_session_digest:digest}));
   if(!job) {
     const current=await actor(request,false);
-    job=withdrawalJob(await rpc('begin_platform_withdrawal_v1',{
+    job=withdrawalJob(await rpc(scope==='insurance' ? 'begin_platform_insurance_withdrawal_v1' : 'begin_platform_withdrawal_v1',{
       p_member_id:current.member.id,p_operation_id:operationId,p_session_digest:digest}));
   }
   if(!job || job.operation_id!==operationId) throw new Error('withdrawal_receipt_unverified');
-  return await finishWithdrawal(job,digest);
+  const finished=await finishWithdrawal(job,digest);
+  if(scope!=='insurance') return finished;
+  // The 모두온 account stays: hand back a common-member session for the moved password.
+  const receipt=await finished.json();
+  const {data:member,error:memberError}=await db.from('platform_members').select('id,name,phone,active,fc_id')
+    .eq('id',job.member_id).maybeSingle();
+  const {data:credential,error:credentialError}=await db.from('platform_member_credentials').select('session_version')
+    .eq('member_id',job.member_id).maybeSingle();
+  if(memberError || credentialError) throw new Error('session_unavailable');
+  const memberToken=member?.active && !member.fc_id && typeof member.phone==='string' && credential
+    ? await createPlatformMemberToken(member.phone,member.id,Number(credential.session_version)) : null;
+  return json({...receipt,...(memberToken ? {memberSession:{memberId:member!.id,displayName:member!.name,appSessionToken:memberToken}} : {})});
 }
 async function finishWithdrawal(job: WithdrawalJob,digest: string) {
   const operationId=job.operation_id;
@@ -411,7 +424,7 @@ serveWithConfiguredCors(async request => {
         p_event_id:body.eventId,p_event_type:body.eventType,p_session_digest:await hospitalSignature(`session:${getKoreanYmd()}:${body.sessionId}`),
         p_source_digest:await hospitalSignature(`source:${getKoreanYmd()}:${source}`)}));
     }
-    if(['request_otp','signup','login','request_password_reset','reset_password'].includes(action)) {
+    if(['request_otp','check_signup_otp','signup','login','request_password_reset','reset_password'].includes(action)) {
       const phone = typeof body.phone==='string' ? body.phone.replace(/\D/g,'') : '';
       if(!/^\d{11}$/.test(phone)) return fail('invalid_phone','휴대폰 번호 11자리를 입력해 주세요.');
       if(action==='request_password_reset' || action==='reset_password') {
@@ -492,6 +505,14 @@ serveWithConfiguredCors(async request => {
         return sent.deliveryState==='unknown'
           ? fail('sms_delivery_unknown','문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.',503)
           : fail('sms_send_failed','인증 문자를 보내지 못했습니다. 바로 다시 요청해 주세요.',503);
+      }
+      if(action==='check_signup_otp') {
+        // Confirms the code on its own step; signup verifies the same unconsumed challenge again.
+        if(typeof body.code!=='string' || !/^\d{6}$/.test(body.code)) return fail('invalid_code','문자로 받은 6자리 인증 코드를 입력해 주세요.');
+        const result=await rpc('check_platform_signup_otp',{p_phone:phone,p_code_hash:await signupCodeHash(body.code,phone)});
+        if(result.ok) return json({ok:true});
+        return fail(result.code,result.code==='locked' ? '여러 번 틀려 잠시 잠겼습니다. 10분 뒤 다시 시도해 주세요.'
+          : result.code==='expired_code' ? '인증 코드가 만료되었습니다. 다시 받아 주세요.' : '인증 코드가 맞지 않습니다.',result.code==='locked' ? 429 : 400);
       }
       const password = typeof body.password==='string' ? body.password : '';
       if(!password || password.length>128) return fail('invalid_password','비밀번호를 확인해 주세요.');

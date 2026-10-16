@@ -10,7 +10,7 @@ export const PLATFORM_TERMS_VERSION = '2026-10-12';
 export const INSURANCE_CONSENT_VERSION = 'insurance-additional-info-v1';
 export const PLATFORM_WITHDRAWAL_VERSION = '2026-10-14';
 export const PLATFORM_REQUEST_TIMEOUT_MS = 12_000;
-const timeoutActions = new Set(['request_otp','signup','login','request_password_reset','reset_password','enroll_insurance','withdraw_member','get_withdrawal']);
+const timeoutActions = new Set(['request_otp','check_signup_otp','signup','login','request_password_reset','reset_password','enroll_insurance','withdraw_member','get_withdrawal']);
 export const PLATFORM_PRIVACY_POLICY_URL = 'https://garam-public-web.vercel.app/moduon-privacy/';
 /** Release copy under review; keep signup and existing-member consent identical.
  * 2026-10-14: referral wording now describes per-service referrers without a
@@ -18,7 +18,9 @@ export const PLATFORM_PRIVACY_POLICY_URL = 'https://garam-public-web.vercel.app/
 export const PLATFORM_CONSENT_TEXT = '수집 항목: 이름, 휴대폰 번호, 비밀번호 해시, 필수 동의 일시와 문서 버전, 제휴 서비스별 추천 코드와 추천 관계\n이용 목적: 회원 확인, 휴대폰 인증, 로그인과 계정 복구, 제휴 서비스별 추천 관계 연결\n보유기간: 회원 이용 기간 동안 보관합니다. 공통 회원 탈퇴 시 공통 회원과 연결된 일반 회원·보험 FC·가람링크 계정의 개인정보·로그인 정보와 인증 기록을 삭제하고 접속을 종료합니다. 관리자·본부장 등 회사 업무 계정은 유지됩니다. 이미 확정된 거래·정산 기록과 거래·정산 및 추천 관계를 연결하는 식별자는 정산 확인을 위해 유지합니다. 탈퇴한 계정의 자동 재가입과 계정 복원을 방지하기 위한 연결 UUID와 탈퇴 여부는 이름·휴대폰 번호 없이 접근을 제한해 유지합니다.\n비밀번호 원문은 보관하지 않습니다. 이 동의에는 마케팅 수신 동의가 포함되지 않습니다.\n동의를 거부할 수 있으며, 거부하면 공통 회원가입과 제휴 서비스별 추천 혜택 이용이 제한됩니다. 가입 동의 거부와 기존 서비스 계정 탈퇴는 서로 다르며 공개 서비스 안내는 계속 이용할 수 있습니다.\n탈퇴 방법: 내 정보에서 공통 회원 탈퇴를 선택하고 제휴 계정까지 삭제되는 범위를 확인합니다. 모든 대상 계정과 첨부자료 정리가 확인돼야 완료됩니다. 연결 확인이나 정리가 남아 있으면 처리 중으로 안내합니다. 외부 제휴사에 별도로 가입한 계정은 해당 회사의 탈퇴 절차를 따릅니다.';
 export type PlatformAuthResponse = { ok: true; insuranceSession: LoginResponse } | { ok: true; memberId: string; displayName: string; residentId: string; appSessionToken: string; role: 'member'; insuranceSession?: undefined };
 export type PlatformInsuranceEnrollment = { ok: true; insuranceSession: LoginResponse; alreadyApplied: boolean };
-export type PlatformWithdrawal = { ok: true; operationId: string; preservedCompanyAccount?: 'admin' | 'manager' | 'designer' | 'developer' } & (
+export type PlatformWithdrawal = { ok: true; operationId: string; preservedCompanyAccount?: 'admin' | 'manager' | 'designer' | 'developer';
+  /** Leaving only 가람in keeps the 모두온 account; the server hands back its session. */
+  memberSession?: { memberId: string; displayName: string; appSessionToken: string } } & (
   { status: 'completed'; deleted: true; cleanupPending: false }
   | { status: 'pending'; deleted: false; cleanupPending: true; reason?: 'affiliate_identity_unbound' | 'affiliate_unavailable' | 'cleanup_pending' }
 );
