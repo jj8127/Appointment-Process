@@ -248,7 +248,14 @@ export const MessengerHubConversationRow = memo(function MessengerHubConversatio
       }}
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
     >
-      <View style={styles.avatar}><Text style={styles.avatarText}>{avatarText(item.name)}</Text></View>
+      {item.route.kind === 'group' ? (
+        // Group rooms read as a group at a glance, not as one person's initial.
+        <View style={[styles.avatar, styles.avatarGroup]}>
+          <Feather aria-hidden accessible={false} name="users" size={20} color="#FFFFFF" />
+        </View>
+      ) : (
+        <View style={styles.avatar}><Text style={styles.avatarText}>{avatarText(item.name)}</Text></View>
+      )}
       <View style={styles.body}>
         <View style={styles.nameLine}>
           <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
@@ -377,6 +384,7 @@ const styles = StyleSheet.create({
   personRoleLine: { position: 'absolute', left: 0, top: 12, bottom: 12, width: 4, borderTopRightRadius: 2, borderBottomRightRadius: 2 },
   avatar: { width: 46, height: 46, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0E6' },
   avatarText: { color: '#B84D0B', fontSize: 17, fontWeight: '800' },
+  avatarGroup: { backgroundColor: '#f36f21' },
   body: { flex: 1, minWidth: 0, gap: 3 },
   nameLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   name: { flexShrink: 1, color: '#111827', fontSize: 16, lineHeight: 22, fontWeight: '700' },
