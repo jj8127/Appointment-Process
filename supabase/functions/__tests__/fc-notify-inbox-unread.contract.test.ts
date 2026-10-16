@@ -45,7 +45,7 @@ describe('fc-notify inbox unread count contract', () => {
     expect(source).toContain('limit: limit + 1');
     expect(source).toMatch(/applyNotificationInboxCursor\(\s*buildQuery\(/);
     expect(source).toContain('dedupedNotifications.sort(compareInboxRowsDescending)');
-    expect(source).toContain('fetchUnifiedNoticePage(limit, noticeCursor)');
+    expect(source).toContain('fetchUnifiedNoticePage(limit, noticeCursor, historyStart)');
     expect(source).toContain('fetchNoticesWithOptionalAttachments(sourceLimit, cursor)');
     expect(source).toContain('fetchBoardNoticesWithAttachments(sourceLimit, cursor)');
     expect(source).toContain('LEGACY_NOTICE_ID_AFTER_BOARD_PREFIX_BOUNDARY');
@@ -86,5 +86,19 @@ describe('fc-notify inbox unread count contract', () => {
     expect(source).not.toContain('function parseQueryRows<T>');
     expect(source).not.toContain('function isExactCount(');
     expect(source).not.toContain('const safeCount = typeof count === \'number\' ? count : 0');
+  });
+});
+
+describe('FC inbox history starts when the FC joined', () => {
+  const source = readFileSync(join(__dirname, '..', 'fc-notify', 'index.ts'), 'utf8');
+
+  it('leaves broadcasts and notices from before the FC joined out of the count and the list', () => {
+    const loader = source.slice(source.indexOf('async function loadInboxHistoryStart('), source.indexOf('function laterIso('));
+    expect(loader).toContain("if (role !== 'fc' || !actor?.fcId) return null;");
+    expect(loader).toContain(".from('fc_profiles')");
+    expect(source).toContain('created_at.gt."${broadcastSince}"');
+    expect(source).toContain('broadcastSince: historyStart,');
+    expect(source).toContain('fetchUnifiedNoticePage(limit, noticeCursor, historyStart)');
+    expect(source).toMatch(/const noticeSinceIso = laterIso\(/);
   });
 });
