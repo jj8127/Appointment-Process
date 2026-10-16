@@ -411,7 +411,7 @@ serveWithConfiguredCors(async request => {
         p_event_id:body.eventId,p_event_type:body.eventType,p_session_digest:await hospitalSignature(`session:${getKoreanYmd()}:${body.sessionId}`),
         p_source_digest:await hospitalSignature(`source:${getKoreanYmd()}:${source}`)}));
     }
-    if(['request_otp','signup','login','request_password_reset','reset_password'].includes(action)) {
+    if(['request_otp','check_signup_otp','signup','login','request_password_reset','reset_password'].includes(action)) {
       const phone = typeof body.phone==='string' ? body.phone.replace(/\D/g,'') : '';
       if(!/^\d{11}$/.test(phone)) return fail('invalid_phone','휴대폰 번호 11자리를 입력해 주세요.');
       if(action==='request_password_reset' || action==='reset_password') {
@@ -492,6 +492,14 @@ serveWithConfiguredCors(async request => {
         return sent.deliveryState==='unknown'
           ? fail('sms_delivery_unknown','문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.',503)
           : fail('sms_send_failed','인증 문자를 보내지 못했습니다. 바로 다시 요청해 주세요.',503);
+      }
+      if(action==='check_signup_otp') {
+        // Confirms the code on its own step; signup verifies the same unconsumed challenge again.
+        if(typeof body.code!=='string' || !/^\d{6}$/.test(body.code)) return fail('invalid_code','문자로 받은 6자리 인증 코드를 입력해 주세요.');
+        const result=await rpc('check_platform_signup_otp',{p_phone:phone,p_code_hash:await signupCodeHash(body.code,phone)});
+        if(result.ok) return json({ok:true});
+        return fail(result.code,result.code==='locked' ? '여러 번 틀려 잠시 잠겼습니다. 10분 뒤 다시 시도해 주세요.'
+          : result.code==='expired_code' ? '인증 코드가 만료되었습니다. 다시 받아 주세요.' : '인증 코드가 맞지 않습니다.',result.code==='locked' ? 429 : 400);
       }
       const password = typeof body.password==='string' ? body.password : '';
       if(!password || password.length>128) return fail('invalid_password','비밀번호를 확인해 주세요.');

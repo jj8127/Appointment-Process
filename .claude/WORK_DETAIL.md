@@ -14748,3 +14748,10 @@ Verification:
 
 
 2026-10-11 제휴병원 검색 전 탐색 조사: 스토어 외 UI 모음4곳의 공개 사례와 지역·진료과·사진 소개·전체 목록 구성안을 outputs/moduon-hospital-research-20261011/discovery.html에 정리했다. 제품 화면 구조는 제안 단계. 첫 진입은 기존 코드가 빈 조건으로 자동 조회하며 기본 자료는 공개된 제휴 계약을 따른다.
+
+## <a id="20261016-signup-code-check"></a> 2026-10-16 Moduon signup code check
+
+- Base: production `platform-service` v6 matched `feature/messenger-ux-p1-20261015` (`8f9b8da`) for every bundled file except `_shared/messenger-attachment-policy.ts`, whose branch copy is the newer polyglot fix already live in `group-chat`.
+- Migration `20261016040000_check_platform_signup_otp.sql`: same advisory locks, expiry, 5-attempt 10-minute lock and attempt counter as production `register_platform_member`; does not consume the challenge. `service_role` only. Mirrored in `supabase/schema.sql`.
+- Edge `platform-service` action `check_signup_otp` (phone + 6-digit code) returns `{ok:true}` or `invalid_code`/`expired_code` (400) / `locked` (429).
+- Checks: `supabase/tests/platform-membership-sql.test.mjs` (new case: wrong code counts, right code passes without consuming, lock shared with signup, anon denied), `deno check`, governance.
