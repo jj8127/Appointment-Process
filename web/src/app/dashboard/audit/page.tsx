@@ -58,7 +58,7 @@ export default function AuditPage() {
   const [keyword, setKeyword] = useState('');
   const canRead = hydrated && role === 'admin' && !isReadOnly;
 
-  const { data, error, isLoading, refetch } = useQuery({
+  const { data, error, isError, isFetching, isLoading, refetch } = useQuery({
     queryKey: ['admin-audit', month, category],
     queryFn: () => fetchAuditEvents(month, category),
     enabled: canRead,
@@ -108,7 +108,7 @@ export default function AuditPage() {
           />
         </Group>
 
-        <QueryErrorAlert error={error} hasData={Boolean(data)} onRetry={() => void refetch()} subject="처리 이력" />
+        {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={Boolean(data)} subject="처리 이력" />}
 
         <Paper withBorder radius="md" pos="relative" mih={240}>
           <LoadingOverlay visible={isLoading} />
@@ -118,7 +118,7 @@ export default function AuditPage() {
                 <Table.Tr>
                   <Table.Th w={150}>시각</Table.Th>
                   <Table.Th w={110}>처리자</Table.Th>
-                  <Table.Th w={110}>구분</Table.Th>
+                  <Table.Th w={140}>구분</Table.Th>
                   <Table.Th w={170}>동작</Table.Th>
                   <Table.Th w={140}>대상</Table.Th>
                   <Table.Th>내용</Table.Th>
@@ -141,7 +141,7 @@ export default function AuditPage() {
                     <Table.Td>{describeAuditDetail(item)}</Table.Td>
                   </Table.Tr>
                 ))}
-                {data && rows.length === 0 ? (
+                {data && !isError && rows.length === 0 ? (
                   <Table.Tr>
                     <Table.Td colSpan={6} ta="center" py="xl" c="dimmed">기록이 없습니다.</Table.Td>
                   </Table.Tr>

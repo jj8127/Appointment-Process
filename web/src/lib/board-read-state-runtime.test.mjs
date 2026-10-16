@@ -10,6 +10,7 @@ import * as commentRequest from './board-comment-request.ts';
 import * as boardListPages from './board-list-pages.ts';
 import * as creationRequest from './creation-request.ts';
 import * as brandColors from './brand-colors.ts';
+import * as adminAuditEvent from './admin-audit-event.ts';
 
 const rootRequire = createRequire(new URL('../../../package.json', import.meta.url));
 const webRequire = createRequire(import.meta.url);
@@ -602,6 +603,7 @@ const commonListMocks = {
   '@/components/StatusToggle': ui,
   '@/components/RejectReasonModal': ui,
   '@/components/ConfirmModal': ui,
+  '@/lib/admin-audit-event': adminAuditEvent,
   '@/components/NotificationDestinationReady': ui,
   '@/lib/supabase': { supabase: {} },
   '@/lib/admin-document-client': {
@@ -630,6 +632,7 @@ for (const [path, emptyText, subject] of [
   ['docs', '해당 조건의 서류가 존재하지 않습니다.', '서류 목록'],
   ['notifications', '등록된 공지사항이 없습니다.', '공지 목록'],
   ['exam/schedule', '등록된 일정이 없습니다.', '시험 일정'],
+  ['audit', '기록이 없습니다.', '처리 이력'],
 ]) {
   test(`${path}: initial error/refresh error/loading/verified empty render distinct states and retry`, async () => {
     const page = simplePage(`../app/dashboard/${path}/page.tsx`, commonListMocks);
