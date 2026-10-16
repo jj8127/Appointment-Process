@@ -12,6 +12,8 @@ param(
   [int]$AttachEvery = 4,
   [string]$APhone = '01012341234',
   [string]$BPhone = '01058006018',
+  # Another account's password lives in its own variable, e.g. MSGBOT_OWNER_PASSWORD.
+  [string]$APasswordVar = 'MSGBOT_A_PASSWORD',
   [switch]$Unattended
 )
 
@@ -35,7 +37,7 @@ function Get-BotPassword([string]$Name, [string]$Prompt) {
   Read-Secret $Prompt
 }
 
-$env:MSGBOT_A_PASSWORD = Get-BotPassword 'MSGBOT_A_PASSWORD' "Password for $APhone (FC)"
+$env:MSGBOT_A_PASSWORD = Get-BotPassword $APasswordVar "Password for $APhone (FC)"
 $env:MSGBOT_B_PASSWORD = Get-BotPassword 'MSGBOT_B_PASSWORD' "Password for $BPhone (staff)"
 $env:MSGBOT_ROUNDS = "$Rounds"
 $env:MSGBOT_INTERVAL_MS = "$IntervalMs"
