@@ -3,7 +3,7 @@ owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
 last_verified: 2026-10-16
-source_of_truth: supabase/migrations/20261016100400_messenger_stage1_finish.sql + supabase/migrations/20261016100300_messenger_garamlink_sync.sql + supabase/functions/messenger-garamlink-sync/index.ts + supabase/migrations/20261014140000_platform_withdrawal_drain_schedule.sql + supabase/functions/docs-deadline-reminder/index.ts + supabase/functions/user-presence/index.ts + hooks/use-app-presence-heartbeat.ts
+source_of_truth: supabase/migrations/20261016110200_messenger_stage1_finish.sql + supabase/migrations/20261016110100_messenger_garamlink_sync.sql + supabase/functions/messenger-garamlink-sync/index.ts + supabase/migrations/20261014140000_platform_withdrawal_drain_schedule.sql + supabase/functions/docs-deadline-reminder/index.ts + supabase/functions/user-presence/index.ts + hooks/use-app-presence-heartbeat.ts
 
 # Backend Runbook: Scheduled Jobs And Runtime
 

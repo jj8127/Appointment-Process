@@ -2,8 +2,8 @@
 -- Run ONLY on a project restored from a production backup, never on production.
 -- Each step is run separately and its result is reviewed before the next one.
 -- Every step starts with the same guard, so a step pasted alone is still safe.
--- Step 2 applies supabase/migrations/20261016100000_messenger_unified_model.sql
--- and 20261016100100_messenger_unified_backfill.sql (not repeated here).
+-- Step 2 applies supabase/migrations/20261016104031_messenger_unified_model.sql
+-- and 20261016104248_messenger_unified_backfill.sql (not repeated here).
 
 -- ===========================================================================
 -- Step 0. Guard: this database must be the restored rehearsal copy.

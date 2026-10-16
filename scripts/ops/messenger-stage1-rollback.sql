@@ -43,7 +43,7 @@ drop trigger if exists trg_messenger_mirror_group_read on public.group_chat_read
 drop trigger if exists trg_messenger_mirror_group_reaction on public.group_chat_reactions;
 drop trigger if exists trg_messenger_mirror_group_notice on public.group_chat_notices;
 
--- Functions created by 20261016100000-100400 only (other messenger_* objects
+-- Functions created by 20261016104031-100400 only (other messenger_* objects
 -- such as attachments, room hub and search predate stage 1 and stay).
 do $$
 declare

@@ -5,16 +5,17 @@ import test from 'node:test';
 
 const require = createRequire(import.meta.url);
 const { PGlite } = require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
-const modelMigration = await readFile(new URL('../migrations/20261016100000_messenger_unified_model.sql', import.meta.url), 'utf8');
-const backfillMigration = await readFile(new URL('../migrations/20261016100100_messenger_unified_backfill.sql', import.meta.url), 'utf8');
-const dailySyncMigration = await readFile(new URL('../migrations/20261016100200_messenger_unified_daily_sync.sql', import.meta.url), 'utf8');
+const modelMigration = await readFile(new URL('../migrations/20261016104031_messenger_unified_model.sql', import.meta.url), 'utf8');
+const backfillMigration = await readFile(new URL('../migrations/20261016104248_messenger_unified_backfill.sql', import.meta.url), 'utf8');
+const dailySyncMigration = await readFile(new URL('../migrations/20261016110000_messenger_unified_daily_sync.sql', import.meta.url), 'utf8');
 // PGlite has no pg_cron: run the functions here and check the schedule as text.
 const [dailySyncFunctions, dailySyncSchedule] = dailySyncMigration.split('-- schedule --');
-const garamLinkSyncMigration = await readFile(new URL('../migrations/20261016100300_messenger_garamlink_sync.sql', import.meta.url), 'utf8');
+const garamLinkSyncMigration = await readFile(new URL('../migrations/20261016110100_messenger_garamlink_sync.sql', import.meta.url), 'utf8');
 const [garamLinkSyncFunctions, garamLinkSyncSchedule] = garamLinkSyncMigration.split('-- schedule --');
-const stage1FinishMigration = await readFile(new URL('../migrations/20261016100400_messenger_stage1_finish.sql', import.meta.url), 'utf8');
+const stage1FinishMigration = await readFile(new URL('../migrations/20261016110200_messenger_stage1_finish.sql', import.meta.url), 'utf8');
 // PGlite has no storage schema: the bucket part is checked as text.
 const [stage1FinishFunctions, stage1FinishStorage] = stage1FinishMigration.split('-- storage --');
+const headquartersShadowFix = await readFile(new URL('../migrations/20261016120000_messenger_headquarters_manager_shadow.sql', import.meta.url), 'utf8');
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const FC = id(1), MANAGER = id(2), ADMIN = id(3), DEVELOPER = id(4), DESIGNER_FC = id(5);
@@ -106,6 +107,7 @@ async function fixture() {
     await db.exec(dailySyncFunctions);
     await db.exec(garamLinkSyncFunctions);
     await db.exec(stage1FinishFunctions);
+    await db.exec(headquartersShadowFix);
     await db.exec(seed);
     return db;
   } catch (error) {
@@ -682,6 +684,23 @@ test('rollback levels detach the legacy tables and then remove only stage-1 obje
     await db.exec(dailySyncFunctions);
     await db.exec(garamLinkSyncFunctions);
     await db.exec(stage1FinishFunctions);
+    await db.exec(headquartersShadowFix);
     assert.equal((await one(db, 'select messenger_daily_sync_v1() r')).r.ok, true);
+  } finally { await db.close(); }
+});
+
+test('a manager whose affiliation is only on the referral shadow profile still joins those headquarters', async () => {
+  const db = await fixture();
+  try {
+    // Shadow profiles are not completed signups; only the manager account makes them count.
+    await call(db, `insert into fc_profiles values ($1, 'Synthetic Manager Shadow', '7본부 [본부장: Synthetic Manager]', $2, false, true, null),
+      ($3, 'Synthetic Plain Shadow', '5본부 someone', '01000000077', false, true, null)`, [id(7), PHONE.manager, id(8)]);
+    await one(db, 'select messenger_backfill_v1() r');
+    const result = (await one(db, 'select messenger_sync_headquarters_v1() r')).r;
+    assert.deepEqual(result, { approved: 1, revoked: 0, managersWithoutHeadquarters: 0 });
+    const members = await call(db, `select o.slug, m.role from messenger_org_members m
+      join messenger_orgs o on o.id = m.org_id where o.slug like 'garam-hq-%' order by o.slug`);
+    assert.deepEqual(members, [{ slug: 'garam-hq-7', role: 'manager' }], 'a shadow profile without a manager account is ignored');
+    assert.equal((await one(db, "select count(*)::int n from messenger_sync_issues where reason='headquarters_unknown' and resolved_at is null")).n, 0);
   } finally { await db.close(); }
 });
