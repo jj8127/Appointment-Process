@@ -18,6 +18,10 @@ fc-onboarding-app's `messenger-garamlink-sync` Edge function pulls GaramLink cha
 - The export is read-only. It merges request chats and direct chats in `(createdAt, source, id)` order and pages by that cursor.
 - It leaves out deleted messages and messages younger than 60 seconds.
 - Each batch has the shape `messenger_import_request_board_v1` expects. Request messages carry `requestId`. A sender outside the request pair gets `peerUserId: null` and is recorded as `participant_missing`.
+- Each message carries `attachments: [{id, fileName, fileType, fileSize, downloadUrl}]`.
+  - `downloadUrl` is a 10-minute signed link, or the row's own public storage URL. It is `null` when the file cannot be located.
+  - fc-onboarding fetches only links under `REQUEST_BOARD_STORAGE_ORIGIN/storage/v1/object/` and copies them into its private `messenger-imported-attachments` bucket.
+- `GET /api/messenger-export/deletions?afterDeletedAt=&afterSource=&afterId=&limit=` returns `{deletions:[{source,id,deletedAt}], cursor, hasMore}` in `(deletedAt, source, id)` order with the same 60-second settle window.
 
 ## 2026-10-15 Withdrawal retirement assertion phone
 

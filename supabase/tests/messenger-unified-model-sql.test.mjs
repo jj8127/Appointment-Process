@@ -12,6 +12,9 @@ const dailySyncMigration = await readFile(new URL('../migrations/20261016100200_
 const [dailySyncFunctions, dailySyncSchedule] = dailySyncMigration.split('-- schedule --');
 const garamLinkSyncMigration = await readFile(new URL('../migrations/20261016100300_messenger_garamlink_sync.sql', import.meta.url), 'utf8');
 const [garamLinkSyncFunctions, garamLinkSyncSchedule] = garamLinkSyncMigration.split('-- schedule --');
+const stage1FinishMigration = await readFile(new URL('../migrations/20261016100400_messenger_stage1_finish.sql', import.meta.url), 'utf8');
+// PGlite has no storage schema: the bucket part is checked as text.
+const [stage1FinishFunctions, stage1FinishStorage] = stage1FinishMigration.split('-- storage --');
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const FC = id(1), MANAGER = id(2), ADMIN = id(3), DEVELOPER = id(4), DESIGNER_FC = id(5);
@@ -102,6 +105,7 @@ async function fixture() {
     await db.exec(backfillMigration);
     await db.exec(dailySyncFunctions);
     await db.exec(garamLinkSyncFunctions);
+    await db.exec(stage1FinishFunctions);
     await db.exec(seed);
     return db;
   } catch (error) {
@@ -437,7 +441,7 @@ test('GaramLink import merges people by phone and keeps one room per pair', asyn
         { source: 'direct', id: 9, senderUserId: 2, peerUserId: 1, directConversationId: 5, content: 'direct hello', createdAt: '2026-10-02T00:01:00Z', isRead: false },
       ],
     };
-    assert.deepEqual((await one(db, 'select messenger_import_request_board_v1($1) r', [payload])).r, { users: 2, messages: 2 });
+    assert.deepEqual((await one(db, 'select messenger_import_request_board_v1($1) r', [payload])).r, { users: 2, messages: 2, attachments: 0 });
     await one(db, 'select messenger_import_request_board_v1($1) r', [payload]);
 
     const fc = await actor(db, 'fc', FC);
@@ -464,7 +468,7 @@ test('GaramLink batch import moves the cursor with the batch and refuses stale c
     const c1 = { createdAt: '2026-10-02T00:00:00+00:00', source: 'request', id: 7 };
     const c2 = { createdAt: '2026-10-02T00:01:00+00:00', source: 'direct', id: 9 };
     const r1 = (await one(db, 'select messenger_import_request_board_batch_v1($1, null, $2) r', [first, c1])).r;
-    assert.deepEqual(r1, { users: 2, messages: 1, cursor: c1 });
+    assert.deepEqual(r1, { users: 2, messages: 1, attachments: 0, cursor: c1 });
 
     const second = { users, messages: [
       { source: 'direct', id: 9, senderUserId: 2, peerUserId: 1, directConversationId: 5, content: 'two', createdAt: '2026-10-02T00:01:00Z', isRead: false },
@@ -498,6 +502,148 @@ test('GaramLink sync is service_role only and scheduled every 10 minutes through
       await db.exec(`set role ${role}`);
       await assert.rejects(db.query("select messenger_import_request_board_batch_v1('{}'::jsonb, null, null)"), /permission denied/);
       await assert.rejects(db.query('select * from messenger_import_cursors'), /permission denied/);
+      await db.exec('reset role');
+    }
+  } finally { await db.close(); }
+});
+
+test('headquarters come from the affiliation number and follow later changes', async () => {
+  const db = await fixture();
+  try {
+    await call(db, "update fc_profiles set affiliation = '1본부 서선미' where id = $1", [FC]);
+    await call(db, `insert into fc_profiles values ($1, 'Synthetic Manager Profile', '2본부·3본부 [본부장: Synthetic Manager]', $2, true, false, null)`,
+      [id(6), PHONE.manager]);
+    await one(db, 'select messenger_backfill_v1() r');
+    assert.deepEqual((await one(db, "select messenger_headquarters_numbers('10본부 김가람') n")).n, [10]);
+    assert.deepEqual((await one(db, "select messenger_headquarters_numbers('가람지사') n")).n, []);
+
+    const first = (await one(db, 'select messenger_sync_headquarters_v1() r')).r;
+    assert.deepEqual(first, { approved: 3, revoked: 0, managersWithoutHeadquarters: 0 });
+    const members = await call(db, `select o.slug, o.name, m.role, m.status from messenger_org_members m
+      join messenger_orgs o on o.id = m.org_id where o.slug like 'garam-hq-%' order by o.slug, m.role`);
+    assert.deepEqual(members, [
+      { slug: 'garam-hq-1', name: '1본부', role: 'fc', status: 'approved' },
+      { slug: 'garam-hq-2', name: '2본부', role: 'manager', status: 'approved' },
+      { slug: 'garam-hq-3', name: '3본부', role: 'manager', status: 'approved' },
+    ]);
+    const garam = (await one(db, "select messenger_org_by_slug('garam') g")).g;
+    assert.equal((await one(db, "select count(*)::int n from messenger_orgs where slug like 'garam-hq-%' and parent_id <> $1", [garam])).n, 0);
+
+    assert.equal((await one(db, 'select messenger_sync_headquarters_v1() r')).r.approved, 0, 'rerun changes nothing');
+    await call(db, "update fc_profiles set affiliation = '4본부 서선미' where id = $1", [FC]);
+    const moved = (await one(db, 'select messenger_sync_headquarters_v1() r')).r;
+    assert.deepEqual([moved.approved, moved.revoked], [1, 1]);
+    assert.equal((await one(db, "select m.status from messenger_org_members m join messenger_orgs o on o.id = m.org_id where o.slug = 'garam-hq-1'")).status, 'revoked');
+  } finally { await db.close(); }
+});
+
+test('a manager without a readable headquarters is recorded once', async () => {
+  const db = await fixture();
+  try {
+    await one(db, 'select messenger_backfill_v1() r');
+    assert.equal((await one(db, 'select messenger_sync_headquarters_v1() r')).r.managersWithoutHeadquarters, 1);
+    await one(db, 'select messenger_sync_headquarters_v1() r');
+    assert.equal((await one(db, "select count(*)::int n from messenger_sync_issues where reason='headquarters_unknown' and source_key=$1", [MANAGER])).n, 1);
+  } finally { await db.close(); }
+});
+
+test('repair renumbers a late room by time and moves replies, events, reactions and the notice', async () => {
+  const db = await fixture();
+  try {
+    const conv = id(901);
+    const fc = (await one(db, 'select messenger_ensure_actor($1,$2,$3,$4) a', ['fc', FC, 'Synthetic FC', PHONE.fc])).a;
+    await call(db, "insert into messenger_conversations(id, kind, direct_key) values ($1, 'direct', 'repair-test')", [conv]);
+    // Appended as B(10:02), C(10:03), a reaction event on C, then the late A(10:01).
+    await one(db, "select messenger_append_message($1,$2,$3,null,'text','B','2026-10-01T10:02:00Z') s", [conv, id(911), fc]);
+    await one(db, "select messenger_append_message($1,$2,$3,null,'text','C','2026-10-01T10:03:00Z') s", [conv, id(912), fc]);
+    await one(db, "select messenger_record_event($1,'reaction',2,$2) s", [conv, fc]);
+    await one(db, "select messenger_append_message($1,$2,$3,null,'text','A','2026-10-01T10:01:00Z') s", [conv, id(913), fc]);
+    await call(db, 'update messenger_messages set reply_to_seq = 4 where conversation_id = $1 and id = $2', [conv, id(912)]);
+    await call(db, "insert into messenger_reactions(conversation_id, message_seq, actor_id, reaction) values ($1, 2, $2, '👍')", [conv, fc]);
+    await call(db, 'update messenger_conversations set pinned_notice_seq = 4 where id = $1', [conv]);
+    await call(db, "insert into messenger_sync_issues(source, source_key, reason) values ('messenger_conversation', $1, 'late_backfill_out_of_order')", [conv]);
+
+    const repaired = (await one(db, 'select messenger_repair_late_conversations_v1() r')).r;
+    assert.deepEqual(repaired, { rooms: 1, messagesMoved: 3 });
+    assert.deepEqual((await seqs(db, conv)).map((m) => [Number(m.seq), m.content, m.reply_to_seq === null ? null : Number(m.reply_to_seq)]),
+      [[1, 'A', null], [2, 'B', null], [4, 'C', 1]]);
+    assert.deepEqual(await call(db, 'select event_seq::int e, type, message_seq::int m from messenger_events where conversation_id=$1 order by event_seq', [conv]),
+      [{ e: 1, type: 'message', m: 1 }, { e: 2, type: 'message', m: 2 }, { e: 3, type: 'reaction', m: 4 }, { e: 4, type: 'message', m: 4 }]);
+    assert.equal(Number((await one(db, 'select message_seq from messenger_reactions where conversation_id=$1', [conv])).message_seq), 4, 'reaction stays on C');
+    assert.equal(Number((await one(db, 'select pinned_notice_seq p from messenger_conversations where id=$1', [conv])).p), 1, 'notice stays on A');
+    assert.equal((await one(db, 'select count(*)::int n from messenger_sync_issues where source_key=$1 and resolved_at is null', [conv])).n, 0);
+    assert.deepEqual((await one(db, 'select messenger_repair_late_conversations_v1() r')).r, { rooms: 0, messagesMoved: 0 });
+  } finally { await db.close(); }
+});
+
+test('orphan messages are purged only after the grace period and only with the listed count', async () => {
+  const db = await fixture();
+  try {
+    await call(db, `insert into messages(id, sender_id, receiver_id, content, created_at, file_url) values
+      ($1, $2, '01099999999', 'to a withdrawn number', '2026-09-01T00:00:00Z', 'chat-uploads/x.png')`, [id(950), PHONE.fc]);
+    await one(db, 'select messenger_backfill_v1() r');
+    assert.equal((await call(db, 'select * from messenger_orphan_purge_candidates_v1()')).length, 0, 'still inside the grace period');
+    await call(db, "update messenger_sync_issues set created_at = now() - interval '31 days' where source_key = $1", [id(950)]);
+    const listed = await call(db, 'select message_id, has_file from messenger_orphan_purge_candidates_v1()');
+    assert.deepEqual(listed, [{ message_id: id(950), has_file: true }]);
+    await assert.rejects(call(db, 'select messenger_purge_orphan_messages_v1(2)'), /purge_count_mismatch/);
+    const purged = (await one(db, 'select messenger_purge_orphan_messages_v1(1) r')).r;
+    assert.deepEqual(purged, { deleted: 1, fileUrls: ['chat-uploads/x.png'] });
+    assert.equal((await one(db, 'select count(*)::int n from messages where id=$1', [id(950)])).n, 0);
+    assert.equal((await call(db, 'select * from messenger_orphan_purge_candidates_v1()')).length, 0);
+  } finally { await db.close(); }
+});
+
+test('GaramLink attachments become file messages and deletions arrive through their own cursor', async () => {
+  const db = await fixture();
+  try {
+    await one(db, 'select messenger_backfill_v1() r');
+    const users = [{ id: 1, phone: PHONE.fc, name: 'Synthetic FC' }, { id: 2, phone: '01000000099', name: 'Synthetic GaramLink Designer' }];
+    const payload = { users, messages: [
+      { source: 'request', id: 7, senderUserId: 2, peerUserId: 1, requestId: 3, content: 'see files', createdAt: '2026-10-02T00:00:00Z', isRead: true,
+        attachments: [
+          { id: 70, fileName: 'plan.pdf', fileType: 'application/pdf', fileSize: 1200, storagePath: 'request_board/request/7/70-plan.pdf' },
+          { id: 71, fileName: 'photo.jpg', fileType: 'image/jpeg', fileSize: 900, storagePath: null, missing: true },
+        ] },
+      { source: 'direct', id: 9, senderUserId: 1, peerUserId: 2, directConversationId: 5, content: '', createdAt: '2026-10-02T00:01:00Z', isRead: false,
+        attachments: [{ id: 90, fileName: 'scan.png', fileType: 'image/png', fileSize: 10, storagePath: 'request_board/direct/9/90-scan.png' }] },
+    ] };
+    assert.deepEqual((await one(db, 'select messenger_import_request_board_v1($1) r', [payload])).r, { users: 2, messages: 1, attachments: 3 });
+    await one(db, 'select messenger_import_request_board_v1($1) r', [payload]);
+    const pair = await conversationFor(db, 'request_board_pair', '1:2');
+    const rows = await call(db, `select kind, content, legacy_file_name, context, attachment_batch_id is not null as batched
+      from messenger_messages where conversation_id=$1 order by seq`, [pair]);
+    assert.deepEqual(rows.map((r) => [r.kind, r.content, r.legacy_file_name, r.batched]),
+      [['text', 'see files', null, false], ['file', '', 'plan.pdf', true], ['image', '', 'photo.jpg', true], ['image', '', 'scan.png', true]]);
+    assert.deepEqual(rows[1].context, { requestBoard: { requestId: 3 },
+      importedFile: { bucket: 'messenger-imported-attachments', path: 'request_board/request/7/70-plan.pdf', mimeType: 'application/pdf' } });
+    assert.deepEqual(rows[2].context.importedFile, { missing: true });
+    const fcActor = await actor(db, 'request_board_user', '1');
+    assert.equal(Number((await one(db, 'select last_read_seq s from messenger_participants where conversation_id=$1 and actor_id=$2', [pair, fcActor])).s), 3,
+      'a read message counts its last attachment as read');
+
+    const c1 = { deletedAt: '2026-10-03T00:00:00+00:00', source: 'request', id: 7 };
+    const deletions = [{ source: 'request', id: 7, deletedAt: '2026-10-03T00:00:00Z' }];
+    assert.deepEqual((await one(db, 'select messenger_import_request_board_deletions_batch_v1($1, null, $2) r', [deletions, c1])).r, { deleted: 3, cursor: c1 });
+    await assert.rejects(call(db, 'select messenger_import_request_board_deletions_batch_v1($1, null, $2)', [deletions, c1]), /cursor_conflict/);
+    assert.equal((await one(db, 'select messenger_import_request_board_deletions_batch_v1($1, $2, $2) r', [deletions, c1])).r.deleted, 0, 'deleting twice does nothing');
+    assert.deepEqual((await call(db, 'select kind from messenger_messages where conversation_id=$1 and deleted_at is null order by seq', [pair])).map((r) => r.kind), ['image']);
+    assert.equal((await one(db, "select count(*)::int n from messenger_events where conversation_id=$1 and type='delete'", [pair])).n, 3);
+  } finally { await db.close(); }
+});
+
+test('stage-1 finishing functions are service_role only and the import bucket is private', async () => {
+  assert.match(stage1FinishStorage, /insert into storage\.buckets \(id, name, public, file_size_limit\)\s+values \('messenger-imported-attachments', 'messenger-imported-attachments', false, 52428800\)/);
+  assert.match(stage1FinishStorage, /on conflict \(id\) do update set public = false/);
+  const db = await fixture();
+  try {
+    for (const role of ['anon', 'authenticated']) {
+      await db.exec(`set role ${role}`);
+      for (const sql of ['select messenger_sync_headquarters_v1()', 'select messenger_repair_late_conversations_v1()',
+        'select * from messenger_orphan_purge_candidates_v1()', 'select messenger_purge_orphan_messages_v1(0)',
+        "select messenger_import_request_board_deletions_batch_v1('[]'::jsonb, null, null)"]) {
+        await assert.rejects(db.query(sql), /permission denied/, `${role}: ${sql}`);
+      }
       await db.exec('reset role');
     }
   } finally { await db.close(); }
