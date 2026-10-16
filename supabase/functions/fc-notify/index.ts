@@ -1136,12 +1136,45 @@ function buildNotificationReceiptViewer(input: {
   };
 }
 
-function applyNotificationAudienceScope(query: any, viewer: NotificationReceiptViewer) {
+// broadcastSince: broadcasts sent before this time (the FC joined) are left out.
+function applyNotificationAudienceScope(
+  query: any,
+  viewer: NotificationReceiptViewer,
+  broadcastSince: string | null = null,
+) {
+  const broadcastScope = broadcastSince
+    ? `and(recipient_actor_id.is.null,resident_id.is.null,created_at.gt."${broadcastSince}")`
+    : 'and(recipient_actor_id.is.null,resident_id.is.null)';
   return viewer.allowBroadcast
-    ? query.or(
-      `recipient_actor_id.eq.${viewer.actorId},and(recipient_actor_id.is.null,resident_id.is.null)`,
-    )
+    ? query.or(`recipient_actor_id.eq.${viewer.actorId},${broadcastScope}`)
     : query.eq('recipient_actor_id', viewer.actorId);
+}
+
+// When an FC's inbox history starts: notifications sent to all FCs and notices
+// posted before this moment are neither counted nor listed for them. Staff
+// inboxes have no start. A failed lookup keeps the full history.
+async function loadInboxHistoryStart(
+  role: 'admin' | 'fc',
+  actor: FcNotifyAppActor | null,
+): Promise<string | null> {
+  if (role !== 'fc' || !actor?.fcId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('fc_profiles')
+      .select('created_at')
+      .eq('id', actor.fcId)
+      .maybeSingle<{ created_at: string | null }>();
+    if (error || typeof data?.created_at !== 'string') return null;
+    const time = Date.parse(data.created_at);
+    return Number.isFinite(time) ? new Date(time).toISOString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function laterIso(left: string, right: string | null): string {
+  if (!right) return left;
+  return Date.parse(right) > Date.parse(left) ? right : left;
 }
 
 function toNotificationOwnershipRow(row: Record<string, unknown>): NotificationOwnershipRow {
@@ -1158,6 +1191,7 @@ type NotificationOwnershipQueryOptions = {
   role: 'admin' | 'fc';
   receiptViewer: NotificationReceiptViewer;
   sinceIso?: string;
+  broadcastSince?: string | null;
   excludeRequestBoardCategories?: boolean;
   onlyRequestBoardCategories?: boolean;
 };
@@ -1192,6 +1226,7 @@ async function fetchVisibleNotificationOwnershipRows({
   role,
   receiptViewer,
   sinceIso,
+  broadcastSince = null,
   excludeRequestBoardCategories = false,
   onlyRequestBoardCategories = false,
 }: NotificationOwnershipQueryOptions): Promise<Array<Record<string, unknown>>> {
@@ -1210,6 +1245,7 @@ async function fetchVisibleNotificationOwnershipRows({
       applyNotificationAudienceScope(
         supabase.from('notifications').select(selectColumns).eq('recipient_role', role),
         receiptViewer,
+        broadcastSince,
       ),
     ),
   );
@@ -2211,6 +2247,9 @@ async function fetchBoardNoticesWithAttachments(
 async function fetchUnifiedNoticePage(
   limit = 20,
   cursor: FcNotifyInboxCursor | null = null,
+  // Notices at or before this time are left out. Rows come newest first, so
+  // trimming the old tail keeps the cursor paging correct.
+  postedAfter: string | null = null,
 ): Promise<InboxCursorPage<NoticeRow>> {
   const safeLimit = Math.max(1, Math.min(limit, 200));
   const sourceLimit = safeLimit + 1;
@@ -2230,7 +2269,11 @@ async function fetchUnifiedNoticePage(
     throw new Error('unified_notice_query_contract_invalid');
   }
   merged.sort(compareInboxRowsDescending);
-  return toInboxCursorPage(merged, safeLimit);
+  const floor = postedAfter ? Date.parse(postedAfter) : NaN;
+  const visible = Number.isFinite(floor)
+    ? merged.filter((row) => Date.parse(String(row.created_at)) > floor)
+    : merged;
+  return toInboxCursorPage(visible, safeLimit);
 }
 
 async function fetchUnifiedNotices(limit = 20): Promise<NoticeRow[]> {
@@ -5681,6 +5724,7 @@ async function handleFcNotifyRequest(req: Request, timing: ServerTiming): Promis
       includeRequestBoardFc,
     });
 
+    const historyStart = await loadInboxHistoryStart(role, appActor);
     const buildPrimaryNotifQuery = (selectColumns: string) => {
       let query = applyNotificationAudienceScope(
         supabase
@@ -5690,6 +5734,7 @@ async function handleFcNotifyRequest(req: Request, timing: ServerTiming): Promis
           .order('created_at', { ascending: false })
           .order('id', { ascending: false }),
         receiptViewer,
+        historyStart,
       );
 
       if (onlyRequestBoardCategories) {
@@ -5781,7 +5826,7 @@ async function handleFcNotifyRequest(req: Request, timing: ServerTiming): Promis
       const notificationPage = toInboxCursorPage(dedupedNotifications, limit);
       const noticePage: InboxCursorPage<NoticeRow> = onlyRequestBoardCategories
         ? { rows: [], hasMore: false, nextCursor: null }
-        : await fetchUnifiedNoticePage(limit, noticeCursor);
+        : await fetchUnifiedNoticePage(limit, noticeCursor, historyStart);
 
       return ok({
         ok: true,
@@ -5868,15 +5913,18 @@ async function handleFcNotifyRequest(req: Request, timing: ServerTiming): Promis
       ? new Date(0).toISOString()
       : sinceDate.toISOString();
     const noticeSinceDate = body.notice_since ? new Date(body.notice_since) : sinceDate;
-    const noticeSinceIso = Number.isNaN(noticeSinceDate.getTime())
-      ? sinceIso
-      : noticeSinceDate.toISOString();
+    const historyStart = await loadInboxHistoryStart(role, appActor);
+    const noticeSinceIso = laterIso(
+      Number.isNaN(noticeSinceDate.getTime()) ? sinceIso : noticeSinceDate.toISOString(),
+      historyStart,
+    );
 
     try {
       const visibleRows = await fetchVisibleNotificationOwnershipRows({
         role,
             receiptViewer,
         sinceIso,
+        broadcastSince: historyStart,
         excludeRequestBoardCategories,
         onlyRequestBoardCategories,
       });
