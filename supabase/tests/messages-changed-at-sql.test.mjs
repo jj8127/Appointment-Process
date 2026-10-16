@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const require = createRequire(import.meta.url);
 const { PGlite } = require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
-const migration = await readFile(new URL('../migrations/20261016140000_messages_changed_at.sql', import.meta.url), 'utf8');
+const migration = await readFile(new URL('../migrations/20261016144208_messages_changed_at.sql', import.meta.url), 'utf8');
 
 const schema = `
 create role anon; create role authenticated;

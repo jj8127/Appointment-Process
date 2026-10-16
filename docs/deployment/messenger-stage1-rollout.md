@@ -107,3 +107,12 @@ select source, last_imported_at, batches, messages, last_error, last_error_at fr
 - 텍스트는 약 140ms(10%) 줄었다. 파일은 업로드 시간이 대부분이라 변화가 없다.
 - 남은 1.27초의 대부분은 푸시가 아니다. 다음 조치 전에 보내기 요청 안에서 시간이 어디에 쓰이는지 단계별로 잰다.
 - 봇은 `scripts/ops/register-messenger-bot-task.ps1`로 매일 09:30에 20회 돈다(작업 이름 `GaraminMessengerBot`). 결과는 `.messenger-bot/run-*.jsonl`과 `run-*.log`에 쌓인다.
+
+## 2단계 둘째 조치: 1:1 변경분만 받기 (2026-10-16 23:42 반영)
+
+- DB: `20261016144208_messages_changed_at` (`messages.changed_at`, 방아쇠 `messages_touch_changed_at`, 색인 2개). 적용 도구가 `drop` 문구를 위험 작업으로 보고 자동 거절해서 `create or replace trigger`로 바꿔 적용했다.
+- fc-notify: `deploy/messenger-push-background-20261016`. `direct_message_list`가 `since`를 받으면 그 이후 바뀐 행과 삭제된 id만 돌려준다. 인증 계층(`fc-notify-auth-policy.ts`)이 요청을 다시 만들 때 `since`를 넘기도록 함께 고쳤다.
+- 앱: `feature/messenger-ui-redesign-20261016`에서 방이 열린 동안의 조용한 새로고침이 커서를 보낸다. 아직 배포 전이라 지금 운영 앱은 계속 전체를 받는다(서버는 둘 다 처리).
+- `scripts/ops/messenger-changes-check.mjs` 확인 결과(72건 방): 전체 29,374바이트 → 변경분 306~667바이트, 응답 0.8~1.2초. 새 메시지 포함, 삭제 id 보고 모두 확인.
+- 응답 시간은 거의 그대로다. 남은 시간은 데이터 양이 아니라 인증·대화 확인 같은 고정 비용이다.
+- 되돌리기: fc-notify는 이전 커밋으로 다시 배포. 컬럼과 방아쇠는 남겨도 옛 서버에 영향이 없다.

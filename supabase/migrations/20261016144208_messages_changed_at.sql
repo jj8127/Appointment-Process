@@ -24,8 +24,7 @@ $$;
 
 revoke all on function public.messages_touch_changed_at() from public, anon, authenticated;
 
-drop trigger if exists messages_touch_changed_at on public.messages;
-create trigger messages_touch_changed_at
+create or replace trigger messages_touch_changed_at
   before insert or update on public.messages
   for each row execute function public.messages_touch_changed_at();
 
