@@ -40,10 +40,10 @@ import {
   MESSENGER_MESSAGE_LONG_PRESS_MS,
   MESSENGER_REACTIONS,
 } from '@/components/MessengerMessageActionSheet';
-import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
 import { JumpToLatestButton } from '@/components/messenger/JumpToLatestButton';
 import { MessengerReadLine } from '@/components/messenger/MessengerReadLine';
+import { MessengerRoomSkeleton } from '@/components/messenger/MessengerRoomSkeleton';
 import { MessengerDayDivider } from '@/components/messenger/MessengerDayDivider';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
 import { useLatestMessageJump } from '@/hooks/use-latest-message-jump';
@@ -1879,7 +1879,7 @@ export default function GroupChatScreen() {
       ) : null}
 
       {loading ? (
-        <MessengerLoadingState variant="group-chat" />
+        <MessengerRoomSkeleton />
       ) : (
         <View style={{ flex: 1 }}>
           <View style={{ flex: 1 }}>

@@ -42,6 +42,7 @@ import { ConversationSettingsSheet } from '@/components/messenger/ConversationSe
 import { JumpToLatestButton } from '@/components/messenger/JumpToLatestButton';
 import { MessengerDayDivider } from '@/components/messenger/MessengerDayDivider';
 import { MessengerReadLine } from '@/components/messenger/MessengerReadLine';
+import { MessengerRoomSkeleton } from '@/components/messenger/MessengerRoomSkeleton';
 import { findMessengerReadLineId } from '@/lib/messenger-read-line';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import {
@@ -2281,6 +2282,11 @@ export default function ChatScreen() {
 
       <View style={{ flex: 1 }}>
         <View style={styles.list}>
+          {messages.length === 0 && messageLoadState === 'loading' ? (
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
+              <MessengerRoomSkeleton />
+            </View>
+          ) : null}
           <FlatList
             ref={flatListRef}
             data={messages}
