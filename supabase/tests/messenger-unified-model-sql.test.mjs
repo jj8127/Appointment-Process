@@ -10,6 +10,8 @@ const backfillMigration = await readFile(new URL('../migrations/20261016100100_m
 const dailySyncMigration = await readFile(new URL('../migrations/20261016100200_messenger_unified_daily_sync.sql', import.meta.url), 'utf8');
 // PGlite has no pg_cron: run the functions here and check the schedule as text.
 const [dailySyncFunctions, dailySyncSchedule] = dailySyncMigration.split('-- schedule --');
+const garamLinkSyncMigration = await readFile(new URL('../migrations/20261016100300_messenger_garamlink_sync.sql', import.meta.url), 'utf8');
+const [garamLinkSyncFunctions, garamLinkSyncSchedule] = garamLinkSyncMigration.split('-- schedule --');
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const FC = id(1), MANAGER = id(2), ADMIN = id(3), DEVELOPER = id(4), DESIGNER_FC = id(5);
@@ -99,6 +101,7 @@ async function fixture() {
     await db.exec(modelMigration);
     await db.exec(backfillMigration);
     await db.exec(dailySyncFunctions);
+    await db.exec(garamLinkSyncFunctions);
     await db.exec(seed);
     return db;
   } catch (error) {
@@ -447,5 +450,55 @@ test('GaramLink import merges people by phone and keeps one room per pair', asyn
       { requestBoard: { requestId: 3 } });
     const designer = await actor(db, 'request_board_user', '2');
     assert.equal(Number((await one(db, 'select last_read_seq s from messenger_participants where conversation_id=$1 and actor_id=$2', [pair, designer])).s), 1);
+  } finally { await db.close(); }
+});
+
+test('GaramLink batch import moves the cursor with the batch and refuses stale cursors', async () => {
+  const db = await fixture();
+  try {
+    await one(db, 'select messenger_backfill_v1() r');
+    const users = [{ id: 1, phone: PHONE.fc, name: 'Synthetic FC' }, { id: 2, phone: '01000000099', name: 'Synthetic GaramLink Designer' }];
+    const first = { users, messages: [
+      { source: 'request', id: 7, senderUserId: 1, peerUserId: 2, requestId: 3, content: 'one', createdAt: '2026-10-02T00:00:00Z', isRead: false },
+    ] };
+    const c1 = { createdAt: '2026-10-02T00:00:00+00:00', source: 'request', id: 7 };
+    const c2 = { createdAt: '2026-10-02T00:01:00+00:00', source: 'direct', id: 9 };
+    const r1 = (await one(db, 'select messenger_import_request_board_batch_v1($1, null, $2) r', [first, c1])).r;
+    assert.deepEqual(r1, { users: 2, messages: 1, cursor: c1 });
+
+    const second = { users, messages: [
+      { source: 'direct', id: 9, senderUserId: 2, peerUserId: 1, directConversationId: 5, content: 'two', createdAt: '2026-10-02T00:01:00Z', isRead: false },
+    ] };
+    await assert.rejects(call(db, 'select messenger_import_request_board_batch_v1($1, null, $2)', [second, c2]), /cursor_conflict/);
+    const pair = await conversationFor(db, 'request_board_pair', '1:2');
+    assert.deepEqual((await seqs(db, pair)).map((m) => m.content), ['one'], 'a refused batch imports nothing');
+
+    await one(db, 'select messenger_import_request_board_batch_v1($1, $2, $3) r', [second, c1, c2]);
+    assert.deepEqual((await seqs(db, pair)).map((m) => m.content), ['one', 'two']);
+    const row = await one(db, "select cursor, batches::int b, messages::int m, last_error from messenger_import_cursors where source='request_board'");
+    assert.deepEqual(row, { cursor: c2, b: 2, m: 2, last_error: null });
+
+    await one(db, "select messenger_import_record_error_v1('request_board', 'garamlink_export_http_503') r");
+    const failed = await one(db, "select cursor, last_error from messenger_import_cursors where source='request_board'");
+    assert.deepEqual(failed, { cursor: c2, last_error: 'garamlink_export_http_503' }, 'an error keeps the cursor');
+    await one(db, 'select messenger_import_request_board_batch_v1($1, $2, $3) r', [{ users: [], messages: [] }, c2, c2]);
+    assert.equal((await one(db, "select last_error from messenger_import_cursors where source='request_board'")).last_error, null);
+  } finally { await db.close(); }
+});
+
+test('GaramLink sync is service_role only and scheduled every 10 minutes through Vault', async () => {
+  assert.match(garamLinkSyncSchedule, /vault\.decrypted_secrets\s+where name = 'messenger_garamlink_sync_service_key'/);
+  assert.match(garamLinkSyncSchedule, /if coalesce\(service_key, ''\) = '' then return null; end if;/);
+  assert.match(garamLinkSyncSchedule, /functions\/v1\/messenger-garamlink-sync/);
+  assert.match(garamLinkSyncSchedule, /revoke all on function public\.request_messenger_garamlink_sync_v1\(\) from public, anon, authenticated, service_role;/);
+  assert.match(garamLinkSyncSchedule, /cron\.schedule\('messenger-garamlink-sync', '\*\/10 \* \* \* \*',\s*'select public\.request_messenger_garamlink_sync_v1\(\);'\)/);
+  const db = await fixture();
+  try {
+    for (const role of ['anon', 'authenticated']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.query("select messenger_import_request_board_batch_v1('{}'::jsonb, null, null)"), /permission denied/);
+      await assert.rejects(db.query('select * from messenger_import_cursors'), /permission denied/);
+      await db.exec('reset role');
+    }
   } finally { await db.close(); }
 });

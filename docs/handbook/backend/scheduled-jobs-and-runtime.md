@@ -2,10 +2,27 @@ doc_id: FC-BACKEND-SCHEDULED-RUNTIME
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-10-14
-source_of_truth: supabase/migrations/20261014140000_platform_withdrawal_drain_schedule.sql + supabase/functions/docs-deadline-reminder/index.ts + supabase/functions/user-presence/index.ts + hooks/use-app-presence-heartbeat.ts
+last_verified: 2026-10-16
+source_of_truth: supabase/migrations/20261016100300_messenger_garamlink_sync.sql + supabase/functions/messenger-garamlink-sync/index.ts + supabase/migrations/20261014140000_platform_withdrawal_drain_schedule.sql + supabase/functions/docs-deadline-reminder/index.ts + supabase/functions/user-presence/index.ts + hooks/use-app-presence-heartbeat.ts
 
 # Backend Runbook: Scheduled Jobs And Runtime
+
+## 2026-10-16 가람Link 대화 가져오기 예약 (통합 메신저 1단계)
+
+pg_cron `messenger-garamlink-sync`가 10분마다 `public.request_messenger_garamlink_sync_v1()`를 실행한다.
+- Vault secret `messenger_garamlink_sync_service_key`가 있을 때만 pg_net으로 Edge `messenger-garamlink-sync`를 호출한다.
+- Edge는 같은 service-role 값이 `apikey`와 `Authorization: Bearer`에 모두 있을 때만 요청을 받는다.
+- Edge는 가람Link `GET /api/messenger-export`를 커서로 이어 받는다. 한 번 호출에 최대 20배치, 40초까지 받는다.
+- 각 배치는 `messenger_import_request_board_batch_v1(payload, 기대 커서, 다음 커서)`로 넣는다. 가져오기와 커서 이동은 한 트랜잭션이다. 커서가 어긋나면 `cursor_conflict`로 배치 전체를 거부한다.
+
+- Edge secret: `REQUEST_BOARD_MESSENGER_EXPORT_URL`(예: `https://<garamlink-origin>/api/messenger-export`)과 `REQUEST_BOARD_MESSENGER_EXPORT_TOKEN`.
+  - token은 가람Link의 `FC_ONBOARDING_MESSENGER_EXPORT_TOKEN`과 같아야 한다.
+  - 둘 중 하나라도 없으면 Edge는 503 `not_configured`를 돌려준다.
+- 상태 확인: `select cursor, batches, messages, last_imported_at, last_error, last_error_at from messenger_import_cursors where source='request_board';`
+  - 실패 메시지는 `last_error`에 남고, 커서는 그대로다.
+- 중지: `select cron.unschedule('messenger-garamlink-sync');`
+- secret 값은 source·migration·로그·증거에 넣지 않는다.
+- 첨부파일과, 이미 가져온 메시지의 삭제는 아직 옮기지 않는다.
 
 ## 2026-10-14 공통 탈퇴 정리 drain 예약
 
