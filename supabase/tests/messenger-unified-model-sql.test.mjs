@@ -7,6 +7,9 @@ const require = createRequire(import.meta.url);
 const { PGlite } = require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
 const modelMigration = await readFile(new URL('../migrations/20261016100000_messenger_unified_model.sql', import.meta.url), 'utf8');
 const backfillMigration = await readFile(new URL('../migrations/20261016100100_messenger_unified_backfill.sql', import.meta.url), 'utf8');
+const dailySyncMigration = await readFile(new URL('../migrations/20261016100200_messenger_unified_daily_sync.sql', import.meta.url), 'utf8');
+// PGlite has no pg_cron: run the functions here and check the schedule as text.
+const [dailySyncFunctions, dailySyncSchedule] = dailySyncMigration.split('-- schedule --');
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const FC = id(1), MANAGER = id(2), ADMIN = id(3), DEVELOPER = id(4), DESIGNER_FC = id(5);
@@ -95,6 +98,7 @@ async function fixture() {
     await db.exec(legacySchema);
     await db.exec(modelMigration);
     await db.exec(backfillMigration);
+    await db.exec(dailySyncFunctions);
     await db.exec(seed);
     return db;
   } catch (error) {
@@ -357,6 +361,50 @@ test('an empty thread whose staff account is gone is recorded, and blocks again 
     assert.deepEqual([second.unmappedDirectThreads, second.skippedEmptyThreads], [1, 0]);
     await one(db, 'select messenger_backfill_v1() r');
     assert.equal((await one(db, "select count(*)::int n from messenger_sync_issues where source_key=$1 and reason='staff_actor_missing' and resolved_at is null", [GONE_THREAD])).n, 1);
+  } finally { await db.close(); }
+});
+
+test('daily sync backfills, reconciles, keeps a pass streak and records failures', async () => {
+  const db = await fixture();
+  try {
+    const first = (await one(db, 'select messenger_daily_sync_v1() r')).r;
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(first.backfill.directMessagesAdded, 4);
+    assert.equal(typeof first.elapsedMs, 'number');
+
+    await call(db, `insert into messages(id, sender_id, receiver_id, content, sender_actor_id, thread_id)
+      values ($1, $2, $3, 'arrives between runs', $4, $5)`, [id(109), PHONE.manager, PHONE.fc, MANAGER, MANAGER_THREAD]);
+    const second = (await one(db, 'select messenger_daily_sync_v1() r')).r;
+    assert.equal(second.ok, true);
+    assert.equal(second.backfill.directMessagesAdded, 0, 'the dual-write trigger already mirrored it');
+    assert.equal((await one(db, 'select messenger_reconcile_streak_v1() n')).n, 2);
+
+    await db.exec(`create or replace function public.messenger_reconcile_v1() returns jsonb
+      language plpgsql as $$ begin raise exception 'forced reconcile failure'; end $$;`);
+    const failed = (await one(db, 'select messenger_daily_sync_v1() r')).r;
+    await db.exec(backfillMigration);
+    assert.equal(failed.ok, false);
+    assert.match(failed.error, /forced reconcile failure/);
+    const lastRun = await one(db, 'select ok, result->>\'stage\' as stage from messenger_reconcile_runs order by id desc limit 1');
+    assert.deepEqual(lastRun, { ok: false, stage: 'daily_sync' });
+    assert.equal((await one(db, 'select messenger_reconcile_streak_v1() n')).n, 0, 'a failure resets the streak');
+
+    assert.equal((await one(db, 'select messenger_daily_sync_v1() r')).r.ok, true);
+    assert.equal((await one(db, 'select messenger_reconcile_streak_v1() n')).n, 1);
+  } finally { await db.close(); }
+});
+
+test('daily sync is scheduled once a day at 03:30 KST and service_role only', async () => {
+  assert.match(dailySyncSchedule, /create extension if not exists pg_cron with schema pg_catalog;/);
+  assert.match(dailySyncSchedule, /cron\.unschedule\(jobid\) from cron\.job where jobname = 'messenger-unified-daily-sync'/);
+  assert.match(dailySyncSchedule, /cron\.schedule\('messenger-unified-daily-sync', '30 18 \* \* \*',\s*'select public\.messenger_daily_sync_v1\(\);'\)/);
+  const db = await fixture();
+  try {
+    for (const role of ['anon', 'authenticated']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.query('select messenger_daily_sync_v1()'), /permission denied/);
+      await db.exec('reset role');
+    }
   } finally { await db.close(); }
 });
 
