@@ -1,3 +1,4 @@
+import { formatGroupChatSeenLabel } from '../group-chat-display';
 import {
   countMessengerConversationFilters,
   hasMessengerConversationActivity,
@@ -38,5 +39,15 @@ describe('messenger conversation filters', () => {
     expect(active.filter((r) => matchesMessengerConversationFilter(r, 'group')).map((r) => r.key)).toEqual(['group']);
     expect(active.filter((r) => matchesMessengerConversationFilter(r, 'garamlink')).map((r) => r.key)).toEqual(['link']);
     expect(countMessengerConversationFilters(active)).toEqual({ all: 4, unread: 2, group: 1, garamlink: 1 });
+  });
+});
+
+describe('large group room read label', () => {
+  it('counts readers in a large room and stays out of small rooms', () => {
+    expect(formatGroupChatSeenLabel(688, 275)).toBe('412명 읽음');
+    expect(formatGroupChatSeenLabel(688, 0)).toBe('687명 읽음');
+    expect(formatGroupChatSeenLabel(688, 9999)).toBe('0명 읽음');
+    expect(formatGroupChatSeenLabel(12, 3)).toBeNull();
+    expect(formatGroupChatSeenLabel(Number.NaN, 3)).toBeNull();
   });
 });

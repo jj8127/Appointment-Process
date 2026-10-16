@@ -52,6 +52,7 @@ import { createReadScope } from '@/lib/request-board-read-state';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 import { classifyGroupChatError } from '@/lib/group-chat-error';
 import {
+  formatGroupChatSeenLabel,
   formatGroupChatTime,
   getGroupChatMemberStatusTone,
   getGroupChatMessageCopyText,
@@ -1654,9 +1655,13 @@ export default function GroupChatScreen() {
     // One sender's messages in the same minute form a run: name and avatar on
     // the first bubble, time on the last (KakaoTalk style).
     const run = messengerRunPosition(messages, index, (message) => message.sender_actor_id, (message) => message.created_at);
+    // In a large room a per-bubble "687" says nothing; show how many read it.
+    const seenLabel = item.send_status ? null : formatGroupChatSeenLabel(memberCount, unreadCount);
     const messageMeta = (
       <View style={[styles.messageSideMeta, isMe ? styles.messageSideMetaMe : styles.messageSideMetaOther]}>
-        {showUnreadCount && (
+        {seenLabel ? (
+          run.last ? <Text style={styles.seenText}>{seenLabel}</Text> : null
+        ) : showUnreadCount && (
           <MessageUnreadReceiptBadge count={unreadCount} />
         )}
         {item.send_status === 'sending' && <Text style={styles.messageSendStatus}>전송중</Text>}
@@ -1740,7 +1745,7 @@ export default function GroupChatScreen() {
       </View>
       </>
     );
-  }, [actor?.id, handleFailedMessagePress, handleMessagePress, handleReactionAction, highlightedMessageId, messages, openMessageActions, renderMessageContent, renderReplyPreview]);
+  }, [actor?.id, handleFailedMessagePress, handleMessagePress, handleReactionAction, highlightedMessageId, memberCount, messages, openMessageActions, renderMessageContent, renderReplyPreview]);
 
   const isOwnGroupMessage = useCallback((message: GroupChatMessage) => message.sender_actor_id === actor?.id, [actor?.id]);
   const latestJump = useLatestMessageJump(messages, isOwnGroupMessage, flatListRef);
@@ -2321,6 +2326,7 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontSize: 15, fontWeight: '800', color: HANWHA_ORANGE },
   avatarSpacer: { width: 36, marginRight: 8 },
+  seenText: { fontSize: 10, lineHeight: 13, color: '#9CA3AF', fontWeight: '600', fontVariant: ['tabular-nums'] },
   readOnlyComposer: {
     paddingTop: 12,
     paddingHorizontal: 20,
