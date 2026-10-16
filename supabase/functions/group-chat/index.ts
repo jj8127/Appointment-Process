@@ -2127,16 +2127,18 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
     );
   }
 
+  // Optional client-chosen id: a resend with the same id returns the stored message instead of a duplicate.
+  const clientMessageId = normalizeGroupChatText(payload.client_message_id).toLowerCase();
+  if (payload.client_message_id && !UUID_PATTERN.test(clientMessageId)) {
+    return fail('invalid_message_id', '메시지 식별자가 올바르지 않습니다.', 400, origin);
+  }
   const replySnapshot = await getReplySnapshot(room.id, payload.reply_to_message_id);
   let message: MessageRow;
+  let textReplayed = false;
   let messageAttachments: MessengerAttachmentMetadata[] = [];
   let attachmentCommit: { batchId: string; replayed: boolean } | null = null;
   let membersForSend: GroupChatMember[] | null = null;
   if (hasAttachments) {
-    const clientMessageId = normalizeGroupChatText(payload.client_message_id).toLowerCase();
-    if (payload.client_message_id && !UUID_PATTERN.test(clientMessageId)) {
-      return fail('invalid_message_id', '메시지 식별자가 올바르지 않습니다.', 400, origin);
-    }
     membersForSend = await listEligibleMembers();
     const senderMember = membersForSend.find((member) => member.actor_id === actor.id);
     if (!senderMember) {
@@ -2212,9 +2214,11 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
       replayed: finalized.replayed || committed.replayed === true,
     };
   } else {
-    const result = await supabase
+    const messageSelect = 'id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,attachment_batch_id,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id';
+    let result = await supabase
       .from('group_chat_messages')
       .insert({
+        ...(clientMessageId ? { id: clientMessageId } : {}),
         room_id: room.id,
         sender_actor_id: actor.id,
         sender_role: actor.role,
@@ -2229,8 +2233,22 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
         reply_to_sender_name: replySnapshot?.reply_to_sender_name ?? null,
         reply_to_content: replySnapshot?.reply_to_content ?? null,
       })
-      .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,attachment_batch_id,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
+      .select(messageSelect)
       .single();
+    if (result.error && clientMessageId && (result.error as { code?: string }).code === '23505') {
+      // Same client id already stored: an earlier attempt succeeded but its response was lost.
+      result = await supabase
+        .from('group_chat_messages')
+        .select(messageSelect)
+        .eq('room_id', room.id)
+        .eq('id', clientMessageId)
+        .single();
+      if (!result.error && isMessageRow(result.data)
+        && (result.data.sender_actor_id !== actor.id || result.data.content !== content)) {
+        return fail('idempotency_conflict', '같은 메시지 식별자로 다른 내용을 보낼 수 없습니다.', 409, origin);
+      }
+      textReplayed = true;
+    }
     if (result.error) return dbError(result.error, origin);
     if (
       !isMessageRow(result.data)
@@ -2272,7 +2290,7 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
       message,
       eventKey,
       members,
-      skipNativePush: attachmentCommit?.replayed === true,
+      skipNativePush: attachmentCommit?.replayed === true || textReplayed,
     });
   } catch {
     console.warn('[group-chat] notification fanout failed', {
