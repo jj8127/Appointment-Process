@@ -288,6 +288,54 @@ test('only service_role can touch unified messenger tables and functions', async
   } finally { await db.close(); }
 });
 
+test('thread-less messages are placed by phone, interleaved by time, or skipped with a record', async () => {
+  const db = await fixture();
+  try {
+    const DUAL_FC = id(6), DUAL_MANAGER = id(7), DUAL_PHONE = '01000000007';
+    await db.exec(`
+      insert into fc_profiles values ('${DUAL_FC}', 'Synthetic Dual', '가람지사', '${DUAL_PHONE}', true, false, null);
+      insert into manager_accounts values ('${DUAL_MANAGER}', 'Synthetic Dual', '${DUAL_PHONE}', true);
+      insert into messages(id, sender_id, receiver_id, content, created_at, is_read) values
+        ('${id(301)}', '${PHONE.fc}', '${PHONE.manager}', 'orphan inside thread room', '2026-10-01T00:01:00Z', true),
+        ('${id(302)}', '${PHONE.fc}', '${DUAL_PHONE}', 'orphan to dual person', '2026-10-01T00:03:00Z', false),
+        ('${id(303)}', 'admin', '01099999999', 'to a withdrawn FC', '2026-10-01T00:04:00Z', false);
+      insert into messages(id, sender_id, receiver_id, content, created_at, deleted_at) values
+        ('${id(304)}', '${PHONE.developer}', '${PHONE.fc}', 'deleted orphan', '2026-10-01T00:05:00Z', now());
+    `);
+    const result = (await one(db, 'select messenger_backfill_v1() r')).r;
+    assert.deepEqual(result.orphans, { placed: 2, skipped: 2 });
+
+    const fc = await actor(db, 'fc', FC);
+    const dual = await actor(db, 'fc', DUAL_FC);
+    assert.equal(await actor(db, 'manager', DUAL_MANAGER), dual, 'FC and manager accounts on one phone are one person');
+
+    const direct = await conversationFor(db, 'garamin_direct_thread', MANAGER_THREAD);
+    assert.deepEqual((await seqs(db, direct)).map((m) => [Number(m.seq), m.content]),
+      [[1, 'manager to fc'], [2, 'orphan inside thread room'], [3, 'fc to manager']], 'placed messages interleave by time');
+
+    const dualRoom = (await one(db, `select c.id, c.kind from messenger_conversations c
+      join messenger_orphan_placements p on p.conversation_id = c.id where p.message_id = $1`, [id(302)]));
+    assert.equal(dualRoom.kind, 'direct');
+    const dualParticipants = await call(db, 'select actor_id from messenger_participants where conversation_id=$1 order by actor_id', [dualRoom.id]);
+    assert.deepEqual(dualParticipants.map((p) => p.actor_id).sort(), [fc, dual].sort());
+
+    const skipped = await call(db, `select source_key, reason from messenger_sync_issues
+      where reason like 'orphan%' order by source_key`);
+    assert.deepEqual(skipped, [
+      { source_key: id(303), reason: 'orphan_participant_missing' },
+      { source_key: id(304), reason: 'orphan_deleted_skipped' },
+    ]);
+    assert.equal((await one(db, 'select count(*)::int n from messenger_messages where id = any($1)', [[id(303), id(304)]])).n, 0);
+
+    await one(db, 'select messenger_backfill_v1() r');
+    assert.equal((await one(db, 'select count(*)::int n from messenger_sync_issues where reason like $1', ['orphan%'])).n, 2, 'skips are recorded once');
+    const reconcile = (await one(db, 'select messenger_reconcile_v1() r')).r;
+    assert.equal(reconcile.ok, true, JSON.stringify(reconcile));
+    assert.equal(reconcile.unhandledOrphanMessages, 0);
+    assert.equal(reconcile.skippedOrphanMessages, 2);
+  } finally { await db.close(); }
+});
+
 test('rehearsal script refuses unmarked databases and runs end to end on a marked copy', async () => {
   const rehearsal = await readFile(new URL('../../scripts/ops/messenger-stage1-rehearsal.sql', import.meta.url), 'utf8');
   const db = await fixture();

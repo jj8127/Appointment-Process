@@ -21398,7 +21398,17 @@ begin
 end;
 $$;
 
--- Sender of one legacy 1:1 message.
+-- The one person with this phone, or null when none or several match.
+create or replace function public.messenger_actor_by_phone(p_phone text)
+returns uuid
+language sql stable set search_path = public, pg_temp as $$
+  select case when count(*) = 1 then (array_agg(id))[1] end
+    from public.messenger_actors
+   where phone = public.messenger_normalize_phone(p_phone);
+$$;
+
+-- Sender of one legacy 1:1 message: the account uuid when recorded, otherwise
+-- the person with the sender phone ('admin' means the shared Garam inbox).
 create or replace function public.messenger_direct_sender(
   p_sender_id text,
   p_sender_actor_id uuid,
@@ -21409,53 +21419,149 @@ language sql stable set search_path = public, pg_temp as $$
   select coalesce(
     public.messenger_actor_for_account(p_sender_actor_id),
     case when public.messenger_normalize_phone(p_sender_id) = public.messenger_normalize_phone(p_fc_phone)
-      then p_fc_actor end
+      then p_fc_actor end,
+    case when p_sender_id <> 'admin' then public.messenger_actor_by_phone(p_sender_id) end
   );
 $$;
 
--- Copies every not-yet-mirrored message of one legacy 1:1 thread, in
--- (created_at, id) order, and derives read positions from is_read.
-create or replace function public.messenger_fill_direct_thread(p_thread_id uuid)
+-- Legacy 1:1 messages saved without a thread are placed into a conversation by
+-- the phones on both sides (decision 2026-10-16). Deleted ones and ones whose
+-- other side no longer exists are not moved; they are recorded as issues.
+create table if not exists public.messenger_orphan_placements (
+  message_id uuid primary key,
+  conversation_id uuid not null references public.messenger_conversations(id) on delete cascade,
+  placed_at timestamptz not null default now()
+);
+create index if not exists idx_messenger_orphan_placements_conversation
+  on public.messenger_orphan_placements (conversation_id);
+alter table public.messenger_orphan_placements enable row level security;
+revoke all on public.messenger_orphan_placements from public, anon, authenticated;
+grant select, insert, update, delete on public.messenger_orphan_placements to service_role;
+
+create or replace function public.messenger_record_orphan_issue(
+  p_message_id uuid,
+  p_reason text,
+  p_detail jsonb default '{}'::jsonb
+) returns void
+language sql security invoker set search_path = public, pg_temp as $$
+  insert into public.messenger_sync_issues (source, source_key, reason, detail)
+  select 'messages', p_message_id::text, p_reason, p_detail
+   where not exists (
+     select 1 from public.messenger_sync_issues
+      where source = 'messages' and source_key = p_message_id::text and reason = p_reason
+   );
+$$;
+
+create or replace function public.messenger_place_orphan_messages()
+returns jsonb
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  m record;
+  v_sender uuid;
+  v_receiver uuid;
+  v_subject uuid;
+  v_conversation uuid;
+  v_garam uuid := public.messenger_org_by_slug('garam');
+  v_placed integer := 0;
+  v_skipped integer := 0;
+begin
+  for m in
+    select l.* from public.messages l
+     where l.thread_id is null
+       and not exists (select 1 from public.messenger_orphan_placements p where p.message_id = l.id)
+     order by l.created_at, l.id
+  loop
+    if m.deleted_at is not null then
+      perform public.messenger_record_orphan_issue(m.id, 'orphan_deleted_skipped');
+      v_skipped := v_skipped + 1;
+      continue;
+    end if;
+    v_sender := case when m.sender_id = 'admin' then null
+                     else coalesce(public.messenger_actor_for_account(m.sender_actor_id),
+                                   public.messenger_actor_by_phone(m.sender_id)) end;
+    v_receiver := case when m.receiver_id = 'admin' then null
+                       else coalesce(public.messenger_actor_for_account(m.receiver_actor_id),
+                                     public.messenger_actor_by_phone(m.receiver_id)) end;
+    if (m.sender_id <> 'admin' and v_sender is null)
+       or (m.receiver_id <> 'admin' and v_receiver is null)
+       or (m.sender_id = 'admin' and m.receiver_id = 'admin') then
+      perform public.messenger_record_orphan_issue(m.id, 'orphan_participant_missing',
+        jsonb_build_object('senderFound', v_sender is not null or m.sender_id = 'admin',
+                           'receiverFound', v_receiver is not null or m.receiver_id = 'admin'));
+      v_skipped := v_skipped + 1;
+      continue;
+    end if;
+
+    if m.sender_id = 'admin' or m.receiver_id = 'admin' then
+      v_subject := coalesce(v_sender, v_receiver);
+      select id into v_conversation from public.messenger_conversations
+       where kind = 'org_room' and owner_org_id = v_garam and subject_actor_id = v_subject;
+      if v_conversation is null then
+        insert into public.messenger_conversations (kind, owner_org_id, subject_actor_id)
+        values ('org_room', v_garam, v_subject) returning id into v_conversation;
+      end if;
+      insert into public.messenger_conversation_orgs (conversation_id, org_id)
+      values (v_conversation, v_garam) on conflict do nothing;
+      insert into public.messenger_participants (conversation_id, actor_id, role)
+      values (v_conversation, v_subject, 'subject') on conflict do nothing;
+    elsif v_sender = v_receiver then
+      perform public.messenger_record_orphan_issue(m.id, 'orphan_self_message');
+      v_skipped := v_skipped + 1;
+      continue;
+    else
+      insert into public.messenger_conversations (kind, direct_key)
+      values ('direct', least(v_sender::text, v_receiver::text) || ':' || greatest(v_sender::text, v_receiver::text))
+      on conflict (direct_key) do update set updated_at = public.messenger_conversations.updated_at
+      returning id into v_conversation;
+      insert into public.messenger_participants (conversation_id, actor_id)
+      values (v_conversation, v_sender), (v_conversation, v_receiver) on conflict do nothing;
+    end if;
+    insert into public.messenger_orphan_placements (message_id, conversation_id)
+    values (m.id, v_conversation);
+    v_placed := v_placed + 1;
+  end loop;
+  return jsonb_build_object('placed', v_placed, 'skipped', v_skipped);
+end;
+$$;
+
+-- Copies every not-yet-mirrored legacy 1:1 message of one conversation (its
+-- mapped threads plus placed thread-less messages) in (created_at, id) order,
+-- then derives read positions from is_read.
+create or replace function public.messenger_fill_direct_conversation(p_conversation_id uuid)
 returns integer
 language plpgsql security invoker set search_path = public, pg_temp as $$
 declare
-  v_conversation uuid := public.messenger_ensure_direct_thread(p_thread_id);
   v_conv public.messenger_conversations%rowtype;
-  v_fc_id uuid;
-  v_fc_phone text;
-  v_fc uuid;
-  v_garam uuid := public.messenger_org_by_slug('garam');
   v_inserted integer := 0;
   v_late integer := 0;
 begin
-  if v_conversation is null then
+  select * into v_conv from public.messenger_conversations where id = p_conversation_id for update;
+  if not found then
     return 0;
   end if;
-  select * into v_conv from public.messenger_conversations where id = v_conversation for update;
-  select c.fc_id, f.phone into v_fc_id, v_fc_phone
-    from public.garamin_direct_threads t
-    join public.garamin_direct_conversations c on c.id = t.legacy_conversation_id
-    join public.fc_profiles f on f.id = c.fc_id
-   where t.id = p_thread_id;
-  v_fc := public.messenger_actor_for('fc', v_fc_id::text);
 
   select count(*) into v_late
     from public.messages m
-   where m.thread_id = p_thread_id
+   where (m.thread_id::text in (select source_key from public.messenger_legacy_map
+                                 where source_kind = 'garamin_direct_thread' and conversation_id = p_conversation_id)
+          or m.id in (select message_id from public.messenger_orphan_placements where conversation_id = p_conversation_id))
      and not exists (select 1 from public.messenger_messages x where x.id = m.id)
      and v_conv.last_message_at is not null and m.created_at < v_conv.last_message_at;
   if v_late > 0 then
     insert into public.messenger_sync_issues (source, source_key, reason, detail)
-    values ('garamin_direct_thread', p_thread_id::text, 'late_backfill_out_of_order',
+    values ('messenger_conversation', p_conversation_id::text, 'late_backfill_out_of_order',
             jsonb_build_object('count', v_late));
   end if;
 
   with src as (
     select m.*,
-           public.messenger_direct_sender(m.sender_id, m.sender_actor_id, v_fc, v_fc_phone) as sender_actor,
+           coalesce(public.messenger_actor_for_account(m.sender_actor_id),
+                    case when m.sender_id <> 'admin' then public.messenger_actor_by_phone(m.sender_id) end) as sender_actor,
            row_number() over (order by m.created_at, m.id) as rn
       from public.messages m
-     where m.thread_id = p_thread_id
+     where (m.thread_id::text in (select source_key from public.messenger_legacy_map
+                                   where source_kind = 'garamin_direct_thread' and conversation_id = p_conversation_id)
+            or m.id in (select message_id from public.messenger_orphan_placements where conversation_id = p_conversation_id))
        and not exists (select 1 from public.messenger_messages x where x.id = m.id)
   ), ins as (
     insert into public.messenger_messages (
@@ -21463,8 +21569,9 @@ begin
       attachment_batch_id, legacy_file_url, legacy_file_name, legacy_file_size,
       created_at, deleted_at, deleted_by_actor_id
     )
-    select v_conversation, v_conv.last_event_seq + src.rn, src.id, src.sender_actor,
-           case when v_conv.kind = 'org_room' and src.sender_actor is distinct from v_fc then v_garam end,
+    select p_conversation_id, v_conv.last_event_seq + src.rn, src.id, src.sender_actor,
+           case when v_conv.kind = 'org_room' and src.sender_actor is distinct from v_conv.subject_actor_id
+             then v_conv.owner_org_id end,
            case when src.message_type in ('text', 'image', 'file') then src.message_type else 'text' end,
            coalesce(src.content, ''), src.attachment_batch_id, src.file_url, src.file_name, src.file_size,
            src.created_at, src.deleted_at, public.messenger_actor_for_account(src.deleted_by_actor_id)
@@ -21481,40 +21588,44 @@ begin
     update public.messenger_conversations c
        set last_event_seq = c.last_event_seq + v_inserted,
            last_message_seq = c.last_event_seq + v_inserted,
-           last_message_at = (select max(created_at) from public.messenger_messages where conversation_id = v_conversation),
+           last_message_at = (select max(created_at) from public.messenger_messages where conversation_id = p_conversation_id),
            updated_at = now()
-     where c.id = v_conversation;
+     where c.id = p_conversation_id;
   end if;
 
-  -- Read positions: the FC read up to the newest message it received and read;
-  -- the other side (a staff member, or the Garam inbox for org rooms) likewise.
+  -- Each person read up to the newest message from someone else that the
+  -- legacy row marks read; in org rooms the owning org reads the subject's.
   update public.messenger_participants p
      set last_read_seq = greatest(p.last_read_seq, coalesce((
            select max(mm.seq) from public.messenger_messages mm
              join public.messages lm on lm.id = mm.id
-            where mm.conversation_id = v_conversation and lm.is_read
-              and mm.sender_actor_id is distinct from v_fc), 0)),
+            where mm.conversation_id = p_conversation_id and lm.is_read
+              and mm.sender_actor_id is distinct from p.actor_id), 0)),
          updated_at = now()
-   where p.conversation_id = v_conversation and p.actor_id = v_fc;
+   where p.conversation_id = p_conversation_id and p.role <> 'agent';
   if v_conv.kind = 'org_room' then
     update public.messenger_conversation_orgs co
        set last_read_seq = greatest(co.last_read_seq, coalesce((
              select max(mm.seq) from public.messenger_messages mm
                join public.messages lm on lm.id = mm.id
-              where mm.conversation_id = v_conversation and lm.is_read
-                and mm.sender_actor_id = v_fc), 0))
-     where co.conversation_id = v_conversation and co.org_id = v_garam;
-  else
-    update public.messenger_participants p
-       set last_read_seq = greatest(p.last_read_seq, coalesce((
-             select max(mm.seq) from public.messenger_messages mm
-               join public.messages lm on lm.id = mm.id
-              where mm.conversation_id = v_conversation and lm.is_read
-                and mm.sender_actor_id = v_fc), 0)),
-           updated_at = now()
-     where p.conversation_id = v_conversation and p.actor_id <> v_fc;
+              where mm.conversation_id = p_conversation_id and lm.is_read
+                and mm.sender_actor_id = v_conv.subject_actor_id), 0))
+     where co.conversation_id = p_conversation_id and co.org_id = v_conv.owner_org_id;
   end if;
   return v_inserted;
+end;
+$$;
+
+create or replace function public.messenger_fill_direct_thread(p_thread_id uuid)
+returns integer
+language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_conversation uuid := public.messenger_ensure_direct_thread(p_thread_id);
+begin
+  if v_conversation is null then
+    return 0;
+  end if;
+  return public.messenger_fill_direct_conversation(v_conversation);
 end;
 $$;
 
@@ -21691,6 +21802,7 @@ declare
   v_direct integer := 0;
   v_group integer := 0;
   v_actor uuid;
+  v_orphans jsonb;
 begin
   -- 1. People.
   for r in select id, name, phone from public.fc_profiles loop
@@ -21745,9 +21857,18 @@ begin
     from public.admin_accounts a where a.active
   on conflict do nothing;
 
-  -- 4. 1:1 threads and their messages.
+  -- 4. 1:1 rooms: map every thread, place thread-less messages by phone, then
+  -- fill each room once so thread and placed messages interleave by time.
   for r in select id from public.garamin_direct_threads order by created_at, id loop
-    v_direct := v_direct + public.messenger_fill_direct_thread(r.id);
+    perform public.messenger_ensure_direct_thread(r.id);
+  end loop;
+  v_orphans := public.messenger_place_orphan_messages();
+  for r in
+    select conversation_id from public.messenger_legacy_map where source_kind = 'garamin_direct_thread'
+    union
+    select conversation_id from public.messenger_orphan_placements
+  loop
+    v_direct := v_direct + public.messenger_fill_direct_conversation(r.conversation_id);
   end loop;
 
   -- 5. Group rooms and their messages.
@@ -21755,15 +21876,10 @@ begin
     v_group := v_group + public.messenger_fill_group_room(r.id);
   end loop;
 
-  -- 6. Legacy messages without a thread cannot be placed; report them.
-  insert into public.messenger_sync_issues (source, reason, detail)
-  select 'messages', 'thread_missing', jsonb_build_object('count', count(*))
-    from public.messages where thread_id is null
-  having count(*) > 0;
-
   return jsonb_build_object(
     'actors', (select count(*) from public.messenger_actors),
     'directMessagesAdded', v_direct,
+    'orphans', v_orphans,
     'groupMessagesAdded', v_group,
     'preferencesApplied', public.messenger_apply_room_preferences(),
     'openIssues', (select count(*) from public.messenger_sync_issues where resolved_at is null)
@@ -22022,13 +22138,20 @@ declare
   v_result jsonb;
   v_ok boolean;
 begin
-  with direct_legacy as (
-    select map.conversation_id, count(*) as n,
-           md5(string_agg(m.id::text || '|' || md5(coalesce(m.content, '')) || '|' || coalesce(m.deleted_at::text, ''), ',' order by m.id)) as fp
+  with direct_rows as (
+    select map.conversation_id, m.id, m.content, m.deleted_at
       from public.messenger_legacy_map map
       join public.messages m on m.thread_id::text = map.source_key
      where map.source_kind = 'garamin_direct_thread'
-     group by map.conversation_id
+    union
+    select p.conversation_id, m.id, m.content, m.deleted_at
+      from public.messenger_orphan_placements p
+      join public.messages m on m.id = p.message_id
+  ), direct_legacy as (
+    select conversation_id, count(*) as n,
+           md5(string_agg(id::text || '|' || md5(coalesce(content, '')) || '|' || coalesce(deleted_at::text, ''), ',' order by id)) as fp
+      from direct_rows
+     group by conversation_id
   ), group_legacy as (
     select map.conversation_id, count(*) as n,
            md5(string_agg(g.id::text || '|' || md5(coalesce(g.content, '')) || '|' || coalesce(g.deleted_at::text, ''), ',' order by g.id)) as fp
@@ -22058,17 +22181,28 @@ begin
     'unmappedGroupRooms', (select count(*) from public.group_chat_rooms r
                             where not exists (select 1 from public.messenger_legacy_map map
                                                where map.source_kind = 'group_chat_room' and map.source_key = r.id::text)),
+    'unhandledOrphanMessages', (select count(*) from public.messages m
+                                 where m.thread_id is null
+                                   and not exists (select 1 from public.messenger_orphan_placements p where p.message_id = m.id)
+                                   and not exists (select 1 from public.messenger_sync_issues i
+                                                    where i.source = 'messages' and i.source_key = m.id::text
+                                                      and i.reason in ('orphan_deleted_skipped', 'orphan_participant_missing'))),
+    'skippedOrphanMessages', (select count(distinct source_key) from public.messenger_sync_issues
+                               where source = 'messages' and reason in ('orphan_deleted_skipped', 'orphan_participant_missing')),
     'unlinkedAccounts', (select count(*) from (
         select 'fc' k, id::text s from public.fc_profiles
         union all select 'admin', id::text from public.admin_accounts
         union all select 'manager', id::text from public.manager_accounts) a
       where not exists (select 1 from public.messenger_actor_links l where l.source_kind = a.k and l.source_id = a.s)),
-    'openIssues', (select count(*) from public.messenger_sync_issues where resolved_at is null)
+    'openIssues', (select count(*) from public.messenger_sync_issues
+                    where resolved_at is null
+                      and reason not in ('orphan_deleted_skipped', 'orphan_participant_missing'))
   ) into v_result;
 
   v_ok := (v_result->>'mismatchedRooms')::int = 0
       and (v_result->>'unmappedDirectThreads')::int = 0
       and (v_result->>'unmappedGroupRooms')::int = 0
+      and (v_result->>'unhandledOrphanMessages')::int = 0
       and (v_result->>'unlinkedAccounts')::int = 0;
   insert into public.messenger_reconcile_runs (ok, result) values (v_ok, v_result);
   return v_result || jsonb_build_object('ok', v_ok);
@@ -22173,6 +22307,8 @@ begin
          'messenger_normalize_phone', 'messenger_actor_for', 'messenger_actor_for_account',
          'messenger_actor_for_group_key', 'messenger_ensure_actor', 'messenger_org_by_slug',
          'messenger_ensure_direct_thread', 'messenger_direct_sender', 'messenger_fill_direct_thread',
+         'messenger_actor_by_phone', 'messenger_record_orphan_issue', 'messenger_place_orphan_messages',
+         'messenger_fill_direct_conversation',
          'messenger_ensure_group_room', 'messenger_fill_group_room', 'messenger_apply_room_preferences',
          'messenger_backfill_v1', 'messenger_mirror_direct_message', 'messenger_mirror_direct_update',
          'messenger_mirror_group_message', 'messenger_mirror_group_read', 'messenger_mirror_group_reaction',

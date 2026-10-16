@@ -99,26 +99,40 @@ select kind, count(*) as conversations, sum(last_message_seq) as messages
   from public.messenger_conversations group by kind order by kind;
 select role, status, count(*) from public.messenger_org_members group by role, status order by role;
 
--- Unread parity for FCs in 1:1 rooms: legacy unread vs unified unread.
-with legacy as (
-  select c.fc_id, count(*) filter (where not m.is_read and m.sender_actor_id is distinct from c.fc_id) as unread
-    from public.messages m
-    join public.garamin_direct_threads t on t.id = m.thread_id
-    join public.garamin_direct_conversations c on c.id = t.legacy_conversation_id
-   where m.deleted_at is null
-   group by c.fc_id
-), unified as (
-  select l.source_id::uuid as fc_id,
-         count(*) filter (where mm.seq > p.last_read_seq and mm.sender_actor_id is distinct from p.actor_id) as unread
+-- Thread-less legacy messages: placed by phone, or skipped with a reason.
+select 'placed' as outcome, count(*) as n from public.messenger_orphan_placements
+union all
+select reason, count(distinct source_key) from public.messenger_sync_issues
+ where source = 'messages' and reason like 'orphan%' group by reason;
+
+-- Unread parity for FCs in 1:1 rooms, per room: unread legacy rows from someone
+-- else vs unified messages after the FC's read position.
+with legacy_rows as (
+  select map.conversation_id, m.id, m.is_read
+    from public.messenger_legacy_map map
+    join public.messages m on m.thread_id::text = map.source_key
+   where map.source_kind = 'garamin_direct_thread'
+  union
+  select p.conversation_id, m.id, m.is_read
+    from public.messenger_orphan_placements p
+    join public.messages m on m.id = p.message_id
+), fc_rooms as (
+  select p.conversation_id, p.actor_id, p.last_read_seq
     from public.messenger_participants p
-    join public.messenger_actor_links l on l.actor_id = p.actor_id and l.source_kind = 'fc'
-    join public.messenger_legacy_map map on map.conversation_id = p.conversation_id and map.source_kind = 'garamin_direct_thread'
-    join public.messenger_messages mm on mm.conversation_id = p.conversation_id and mm.deleted_at is null
-   group by l.source_id
+   where p.role <> 'agent'
+     and exists (select 1 from public.messenger_actor_links l where l.actor_id = p.actor_id and l.source_kind = 'fc')
+), per_room as (
+  select f.conversation_id, f.actor_id,
+         count(*) filter (where not lr.is_read and mm.deleted_at is null and mm.sender_actor_id is distinct from f.actor_id) as legacy_unread,
+         count(*) filter (where mm.seq > f.last_read_seq and mm.deleted_at is null and mm.sender_actor_id is distinct from f.actor_id) as unified_unread
+    from fc_rooms f
+    join legacy_rows lr on lr.conversation_id = f.conversation_id
+    join public.messenger_messages mm on mm.id = lr.id
+   group by f.conversation_id, f.actor_id
 )
-select count(*) filter (where coalesce(legacy.unread, 0) <> coalesce(unified.unread, 0)) as fc_unread_mismatches,
-       count(*) as fcs_compared
-  from legacy full join unified using (fc_id);
+select count(*) filter (where legacy_unread <> unified_unread) as fc_unread_mismatches,
+       count(*) as fc_rooms_compared
+  from per_room;
 
 -- ===========================================================================
 -- Step 5. Idempotency: a second run must add nothing.
