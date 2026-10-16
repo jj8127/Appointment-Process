@@ -43,6 +43,7 @@ import {
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
 import { JumpToLatestButton } from '@/components/messenger/JumpToLatestButton';
+import { MessengerReadLine } from '@/components/messenger/MessengerReadLine';
 import { MessengerDayDivider } from '@/components/messenger/MessengerDayDivider';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
 import { useLatestMessageJump } from '@/hooks/use-latest-message-jump';
@@ -62,6 +63,7 @@ import {
   normalizeGroupChatMemberSearch,
   resolveGroupChatSendPermission,
 } from '@/lib/group-chat-display';
+import { findMessengerReadLineId } from '@/lib/messenger-read-line';
 import { messengerRunPosition, startsMessengerDay } from '@/lib/messenger-time';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import { pickMessengerFiles, pickMessengerPhotos } from '@/lib/messenger-attachment-picker';
@@ -340,6 +342,8 @@ export default function GroupChatScreen() {
   const [room, setRoom] = useState<GroupChatRoom | null>(null);
   const [actor, setActor] = useState<GroupChatActor | null>(null);
   const [memberCount, setMemberCount] = useState(0);
+  const [readLineMessageId, setReadLineMessageId] = useState<string | null>(null);
+  const readLineFixedRef = useRef(false);
   const [members, setMembers] = useState<GroupChatMember[]>([]);
   const [memberListVisible, setMemberListVisible] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
@@ -478,6 +482,18 @@ export default function GroupChatScreen() {
       setMuted(data.muted);
       setCanSendMessages(resolveGroupChatSendPermission(data.actor, data.can_send_messages));
       setNotice(data.notice);
+      // Bootstrap reports the read position before this visit marks anything
+      // read, so the line is fixed once per visit from it.
+      if (!options?.silent && !readLineFixedRef.current) {
+        readLineFixedRef.current = true;
+        const lastReadAt = data.last_read_at ? Date.parse(data.last_read_at) : Number.NaN;
+        setReadLineMessageId(Number.isFinite(lastReadAt)
+          ? findMessengerReadLineId(
+              [...data.messages].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)),
+              (message) => message.sender_actor_id !== data.actor.id && Date.parse(message.created_at) > lastReadAt,
+            )
+          : null);
+      }
       const localMessages = messagesRef.current.filter((message) => message.id.startsWith('local-'));
       const preservedMessages = messagesRef.current.filter((message) => !message.id.startsWith('local-'));
       let contextMessages: GroupChatMessage[] = [];
@@ -1686,6 +1702,7 @@ export default function GroupChatScreen() {
       {startsMessengerDay(messages, index, (message) => message.created_at) ? (
         <MessengerDayDivider createdAt={item.created_at} />
       ) : null}
+      {item.id === readLineMessageId ? <MessengerReadLine /> : null}
       <View style={[
         styles.msgRow,
         !run.last && reactions.length === 0 && styles.msgRowInRun,
@@ -1745,7 +1762,7 @@ export default function GroupChatScreen() {
       </View>
       </>
     );
-  }, [actor?.id, handleFailedMessagePress, handleMessagePress, handleReactionAction, highlightedMessageId, memberCount, messages, openMessageActions, renderMessageContent, renderReplyPreview]);
+  }, [actor?.id, handleFailedMessagePress, handleMessagePress, handleReactionAction, highlightedMessageId, memberCount, messages, openMessageActions, readLineMessageId, renderMessageContent, renderReplyPreview]);
 
   const isOwnGroupMessage = useCallback((message: GroupChatMessage) => message.sender_actor_id === actor?.id, [actor?.id]);
   const latestJump = useLatestMessageJump(messages, isOwnGroupMessage, flatListRef);
