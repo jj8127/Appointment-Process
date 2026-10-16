@@ -14792,3 +14792,8 @@ Verification:
 - Edge: `supabase functions deploy platform-service --use-api` → v8 ACTIVE, `verify_jwt=false`; all 16 deployed files equal `13708f4`.
 - Route checks: unknown scope → 400 `invalid_input`; insurance scope with an invalid session → 401 `invalid_app_session`; short code check → 400; `get_hospital_regions` → 200. No withdrawal row was created. Post-deploy logs: only those four requests, no 5xx. Security advisors unchanged.
 - Remaining: the app-side `가람in 탈퇴` button needs an OTA/store release; until then old apps' settings `계정 삭제` uses `delete-account`, whose FC deletion now detaches instead of withdrawing 모두온.
+
+## <a id="20261016-login-navigation-stacked-signup"></a> 2026-10-16 Login navigation test for the stacked signup
+
+- Found by the full Jest comparison against `8f9b8da`: only `lib/__tests__/login-navigation.test.js` was new. It transpiles `app/services/signup.tsx` and required the real `react-native-reanimated`, which Jest cannot parse.
+- The test now mocks `react-native-reanimated`, `@/components/StackedForm` and `@/lib/signup-steps` (all questions shown), fills each `TextInput` by accessibility label and submits through the consent sheet's `StackButton`. The account-dismissal assertions are unchanged.

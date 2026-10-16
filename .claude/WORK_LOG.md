@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-16 로그인 이동 테스트를 쌓이는 가입 화면에 맞춤
+
+`login-navigation` 테스트가 예전 가입 화면(FormInput·회원가입 완료 버튼)을 직접 불러와 reanimated 파싱에서 실패했다. 쌓이는 화면 부품을 대체하고 질문별 입력칸과 동의 시트의 `동의하고 가입하기`로 제출하도록 바꿨다(30/30). [→ 상세](WORK_DETAIL.md#20261016-login-navigation-stacked-signup)
+
 ## 2026-10-16 서비스별 탈퇴 범위 운영 반영
 
 사용자 승인으로 깨끗한 `13708f4`에서 마이그레이션 `20261016090000_platform_insurance_only_withdrawal`을 운영 DB에 적용하고(승인 창이 뜨지 않아 Supabase CLI `db push`로 이 파일 하나만 적용) `platform-service` v8을 배포했다. 배포 파일 16개 일치, 범위 인덱스·권한·트리거 확인, 검증 요청 4건 정상·기록 미생성, 배포 후 5xx 0건, 새 보안 경고 없음. 앱의 가람in 탈퇴 버튼은 OTA·스토어 배포 전이다. [→ 상세](WORK_DETAIL.md#20261016-service-scoped-withdrawal-release)
