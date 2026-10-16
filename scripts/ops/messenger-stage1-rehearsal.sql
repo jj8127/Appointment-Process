@@ -26,7 +26,8 @@ $$;
 do $$
 begin
   if to_regclass('cron.job') is not null then
-    execute 'update cron.job set active = false where active';
+    -- Supabase does not let postgres update cron.job directly; alter_job does.
+    perform cron.alter_job(jobid, active := false) from cron.job where active;
   end if;
 end;
 $$;
