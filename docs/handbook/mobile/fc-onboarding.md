@@ -102,6 +102,7 @@ Home and home-lite delegate navigation to focused `useAppLogout` after local ses
 
 ## 상태/분기
 
+- 위촉 1~4단계 화면(`consent`, `docs-upload`, `hanwha-commission`, `appointment`)은 맨 위에 `OnboardingStepNowCard`를 둔다. 상태(내 차례/총무 확인 중/다시 제출 필요/완료/이전 단계 진행 중)와 할 일 한 문장, 반려 사유는 `lib/onboarding-step-now.ts`가 계산한다. 잠긴 단계는 비활성 입력칸을 보여주지 않고, 서류 반려 사유는 해당 서류 카드에서 다시 올리기 버튼과 함께 보인다.
 - `home-lite`는 unlock 전 안내 역할
 - 본등록 후 정식 홈(`/`) 진입은 `fc_profiles.identity_completed === true`일 때만 허용한다. `resident_id_masked`나 `address` 같은 public profile 잔존값만으로는 홈 진입을 unlock하지 않는다.
 - `set-password`는 추천인 코드가 전달된 가입에서 추천인 코드를 다시 검증하고 `apply_referral_link_state`를 비밀번호 저장과 `signup_completed=true`보다 먼저 완료해야 한다. 추천인 코드가 해석되지 않으면 본등록을 완료시키지 않고 사용자가 추천인을 다시 선택하게 한다.

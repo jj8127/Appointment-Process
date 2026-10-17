@@ -24,7 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { Button } from '@/components/Button';
-import { ScreenHeader } from '@/components/ScreenHeader';
+import { OnboardingStepNowCard } from '@/components/OnboardingStepNowCard';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
@@ -32,8 +32,9 @@ import { APPOINTMENT_GUIDE_IMAGES } from '@/lib/guide-images';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
+import { getAppointmentStepNow } from '@/lib/onboarding-step-now';
 import { supabase } from '@/lib/supabase';
-import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 const { width } = Dimensions.get('window');
 const HANWHA_APPROVED_STATUSES = ['hanwha-commission-approved', 'appointment-completed', 'final-link-sent'] as const;
@@ -311,6 +312,13 @@ function AppointmentScreenContent() {
   const hasInsuranceSubmission = Boolean(approvedLife || approvedNonLife || submittedLife || submittedNonLife);
   const insuranceGateLocked = !hasHanwhaApprovedPdf && !hasInsuranceSubmission;
   const noAssignedInsuranceSchedule = !scheduleLife && !scheduleNonLife && !hasInsuranceSubmission;
+  const stepNow = getAppointmentStepNow({
+    gateLocked: insuranceGateLocked,
+    tracks: [
+      { label: '생명', scheduled: !!scheduleLife, approved: !!approvedLife, pending: !approvedLife && !!submittedLife, rejectReason: rejectReasonLife },
+      { label: '손해', scheduled: !!scheduleNonLife, approved: !!approvedNonLife, pending: !approvedNonLife && !!submittedNonLife, rejectReason: rejectReasonNonLife },
+    ],
+  });
 
   if (role !== 'fc') {
     return (
@@ -343,22 +351,25 @@ function AppointmentScreenContent() {
               {isLife ? '생명보험' : '손해보험'}
             </Text>
           </View>
-          <Text style={styles.sectionTitle}>{scheduleMonth}월 위촉 진행</Text>
+          <Text style={styles.sectionTitle}>{scheduleMonth}월 위촉</Text>
+          <Text style={[styles.trackState, isApproved && styles.trackStateDone]}>
+            {isApproved ? '승인 완료' : isPending ? '총무 확인 중' : rejectReason ? '다시 보고' : '내 차례'}
+          </Text>
         </View>
-        <Text style={styles.sectionDesc}>
-          {isApproved
-            ? '위촉이 최종 승인되었습니다.'
-            : isPending
-              ? '위촉 완료일을 제출했습니다. 총무 승인을 기다려주세요.'
-              : `현재 ${scheduleMonth}월 위촉이 진행 중입니다. 완료되면 날짜를 입력하세요.`}
-        </Text>
-        {!!rejectReason && (
+        {!!rejectReason && !isLocked && (
           <View style={styles.rejectBox}>
             <Text style={styles.rejectTitle}>반려 사유</Text>
             <Text style={styles.rejectText}>{rejectReason}</Text>
           </View>
         )}
 
+        {isLocked ? (
+          <View style={styles.reportedRow}>
+            <Text style={styles.reportedLabel}>보고한 완료일</Text>
+            <Text style={styles.reportedValue}>{formatKoreanDate((approvedDate ?? submittedDate) as Date)}</Text>
+          </View>
+        ) : (
+        <>
         <View style={styles.inputGroup}>
           <Text style={styles.label}>완료 날짜</Text>
           {Platform.OS === 'web' ? (
@@ -431,8 +442,10 @@ function AppointmentScreenContent() {
           fullWidth
           style={{ marginTop: 8 }}
         >
-          {isApproved ? '승인 완료' : isPending ? '승인 대기 중' : '완료 보고하기'}
+          완료 보고하기
         </Button>
+        </>
+        )}
       </View>
     );
   };
@@ -453,34 +466,20 @@ function AppointmentScreenContent() {
         contentInsetAdjustmentBehavior="never"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <ScreenHeader
-          title="생명/손해 위촉"
-          subtitle="다위촉 URL 승인과 PDF 등록이 끝나면 이 화면에서 생명·손해 위촉 진행 상황을 입력합니다."
-        />
+        <OnboardingStepNowCard step={4} now={stepNow} />
 
         {loading ? (
           <BrandedLoadingState variant="appointment" layout="section" />
         ) : (
           <>
-            {insuranceGateLocked ? (
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>생명/손해 위촉 대기</Text>
-                <Text style={styles.sectionDesc}>다위촉 URL 승인과 PDF 등록이 끝나면 이 단계가 열립니다.</Text>
-              </View>
-            ) : noAssignedInsuranceSchedule ? (
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>위촉 차수 입력 대기</Text>
-                <Text style={styles.sectionDesc}>총무가 위촉 차수를 입력중입니다. 기다려주세요.</Text>
-              </View>
-            ) : (
+            {insuranceGateLocked || noAssignedInsuranceSchedule ? null : (
               <>
                 {scheduleLife && renderCard('life', scheduleLife)}
                 {scheduleNonLife && renderCard('nonlife', scheduleNonLife)}
 
                 {(scheduleLife || scheduleNonLife) && (
                   <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>위촉 진행 가이드</Text>
-                    <Text style={styles.sectionDesc}>아래 화면을 참고해 위촉 절차를 완료해주세요.</Text>
+                    <Text style={styles.sectionTitle}>위촉 방법</Text>
                     <FlatList
                       data={APPOINTMENT_GUIDE_IMAGES}
                       keyExtractor={(_, i) => String(i)}
@@ -607,50 +606,28 @@ function AppointmentScreenContent() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.white },
+  safe: { flex: 1, backgroundColor: '#f3f4f6' },
   container: {
-    paddingHorizontal: SPACING.lg,
-    paddingTop: 0,
+    paddingHorizontal: SPACING.base,
+    paddingTop: SPACING.base,
     paddingBottom: SPACING.xl,
-    gap: SPACING.lg
+    gap: 12
   },
   card: {
     backgroundColor: COLORS.white,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    padding: SPACING.lg,
+    borderRadius: 24,
+    padding: 20,
     gap: SPACING.base,
-    ...SHADOWS.base,
   },
+  trackState: { marginLeft: 'auto', fontSize: 13, fontWeight: '800', color: COLORS.primaryButton },
+  trackStateDone: { color: '#047857' },
+  reportedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  reportedLabel: { fontSize: 14, color: COLORS.gray[500] },
+  reportedValue: { fontSize: 16, fontWeight: '700', color: COLORS.gray[900] },
   sectionTitle: {
     fontSize: TYPOGRAPHY.fontSize.lg,
     fontWeight: TYPOGRAPHY.fontWeight.extrabold,
     color: COLORS.text.primary
-  },
-  sectionDesc: {
-    fontSize: TYPOGRAPHY.fontSize.sm + 1,
-    color: COLORS.text.muted,
-    lineHeight: 20
-  },
-  hanwhaInfoList: {
-    gap: SPACING.sm,
-  },
-  hanwhaInfoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: SPACING.base,
-  },
-  hanwhaInfoLabel: {
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    color: COLORS.text.muted,
-  },
-  hanwhaInfoValue: {
-    flex: 1,
-    textAlign: 'right',
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    fontWeight: TYPOGRAPHY.fontWeight.semibold,
-    color: COLORS.text.primary,
   },
   rejectBox: {
     backgroundColor: COLORS.errorLight,
@@ -681,14 +658,14 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.xs,
     borderRadius: RADIUS.base
   },
-  badgeLife: { backgroundColor: '#fff7ed' },
-  badgeNonLife: { backgroundColor: '#eff6ff' },
+  badgeLife: { backgroundColor: COLORS.primaryPale },
+  badgeNonLife: { backgroundColor: COLORS.gray[100] },
   badgeText: {
     fontSize: TYPOGRAPHY.fontSize.xs + 1,
     fontWeight: TYPOGRAPHY.fontWeight.bold
   },
-  badgeTextLife: { color: COLORS.primary },
-  badgeTextNonLife: { color: '#2563eb' },
+  badgeTextLife: { color: '#9a3412' },
+  badgeTextNonLife: { color: COLORS.gray[700] },
   inputGroup: {
     gap: SPACING.sm,
     marginTop: SPACING.xs

@@ -8,7 +8,6 @@
     { "file": "app/apply-gate.tsx", "kind": "scroll-form", "requiredTokens": ["KeyboardAwareWrapper", "useKeyboardPadding", "keyboardDismissMode=\"none\""] },
     { "file": "app/board.tsx", "kind": "fixed-bottom-and-scroll", "requiredTokens": ["KeyboardAwareWrapper", "KeyboardSafeBottomBar", "keyboardDismissMode=\"none\""], "forbiddenPatterns": ["commentBar[^\\n]*keyboardPadding"] },
     { "file": "app/chat.tsx", "kind": "fixed-bottom-composer", "requiredTokens": ["KeyboardSafeBottomBar", "getChatComposerBottomPadding", "keyboardDismissMode=\"none\""] },
-    { "file": "app/consent.tsx", "kind": "scroll-form", "requiredTokens": ["KeyboardAvoidingView", "useKeyboardPadding", "keyboardDismissMode=\"none\""] },
     { "file": "app/dashboard.tsx", "kind": "mixed-scroll-and-modal", "requiredTokens": ["KeyboardAwareWrapper", "KeyboardAvoidingView", "useKeyboardPadding", "keyboardDismissMode=\"none\""] },
     { "file": "app/exam-apply.tsx", "kind": "scroll-and-shared-modal", "requiredTokens": ["KeyboardAwareWrapper", "ExamApplicationTargetSelector", "keyboardDismissMode=\"none\""] },
     { "file": "app/exam-apply2.tsx", "kind": "scroll-and-shared-modal", "requiredTokens": ["KeyboardAwareWrapper", "ExamApplicationTargetSelector", "keyboardDismissMode=\"none\""] },

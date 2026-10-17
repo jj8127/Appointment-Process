@@ -24,8 +24,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
-import { FormInput } from '@/components/FormInput';
-import { ScreenHeader } from '@/components/ScreenHeader';
+import { OnboardingStepNowCard } from '@/components/OnboardingStepNowCard';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
@@ -33,6 +32,7 @@ import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-comm
 import { AGREEMENT_GUIDE_IMAGES } from '@/lib/guide-images';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { getConsentStepNow } from '@/lib/onboarding-step-now';
 import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { openExternalUrl } from '@/lib/open-external-url';
@@ -84,6 +84,7 @@ function AllowanceConsentScreenContent() {
   const [careerType, setCareerType] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState<string | null>(null);
   const [isApproved, setIsApproved] = useState(false);
+  const [profileStatus, setProfileStatus] = useState<string | null>(null);
   const keyboardPadding = useKeyboardPadding();
   const [showPicker, setShowPicker] = useState(false);
   const [tempDate, setTempDate] = useState<Date | null>(null);
@@ -130,6 +131,7 @@ function AllowanceConsentScreenContent() {
 
       // Fix: Check status to block edits
       setIsApproved(isConsentLockedStatus(data?.status));
+      setProfileStatus(data?.status ?? null);
 
     } catch { if (isCurrentRead()) { setProfileLoadState('error');  } }
   }, [beginRead, residentId]);
@@ -160,6 +162,13 @@ function AllowanceConsentScreenContent() {
   }, []);
 
   const ymd = useMemo(() => (selectedDate ? toYMD(selectedDate) : ''), [selectedDate]);
+  const stepNow = getConsentStepNow({
+    approved: isApproved,
+    tempId,
+    allowanceDate: selectedDate,
+    status: profileStatus,
+    rejectReason,
+  });
 
   const submit = async () => {
     if (!tempId) {
@@ -252,7 +261,7 @@ function AllowanceConsentScreenContent() {
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <ProfileReadState state={profileLoadState} retained={!!profileId} onRetry={() => void loadProfile()} />
       <NotificationReceiptStatusBanner
         state={notificationReceipt.state}
@@ -270,24 +279,99 @@ function AllowanceConsentScreenContent() {
             < RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
-          <ScreenHeader
-            title="보증 보험 동의 가이드"
-            subtitle="서울보증보험 사이트에서 진행해주세요."
-            style={styles.header}
+          <OnboardingStepNowCard
+            step={1}
+            now={stepNow}
+            style={styles.stepCard}
+            action={stepNow.tone === 'mine' || stepNow.tone === 'rejected'
+              ? { label: '서울보증보험 열기', onPress: openAllowanceSite, icon: 'external-link' }
+              : undefined}
           />
 
-          <View style={{ paddingHorizontal: SPACING.xl, marginBottom: SPACING.xl }}>
-            <Button
-              onPress={openAllowanceSite}
-              variant="outline"
-              size="md"
-              fullWidth
-              rightIcon={<Feather name="external-link" size={16} color={COLORS.primary} />}
-            >
-              서울보증보험 바로가기
-            </Button>
+          <View style={styles.card}>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>지원 유형</Text>
+              <Text style={[styles.infoValue, !careerType && styles.infoValueMuted]}>{careerType || '조회 중'}</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>임시사번</Text>
+              <Text style={[styles.infoValue, !tempId.trim() && styles.infoValueMuted]} selectable>
+                {tempId.trim() || '발급 중'}
+              </Text>
+              {tempId.trim() ? (
+                <Pressable
+                  onPress={() => { void copyTempId(); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="임시사번 복사"
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.tempIdCopyChip, pressed && styles.buttonPressed]}
+                >
+                  <Feather name="copy" size={13} color={COLORS.primaryButton} />
+                  <Text style={styles.tempIdCopyChipLabel}>복사</Text>
+                </Pressable>
+              ) : null}
+            </View>
+
+            {tempId.trim() ? (
+            <>
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, isApproved && styles.dateLabelDisabled]}>보증보험 조회 동의일</Text>
+              <Pressable
+                style={[
+                  styles.dateInput,
+                  !isApproved && styles.dateInputEmphasis,
+                ]}
+                disabled={isApproved}
+                onPress={() => {
+                  if (isApproved) return;
+                  setTempDate(selectedDate ?? new Date());
+                  setShowPicker(true);
+                }}
+              >
+                <Text style={[
+                  styles.dateText,
+                  !selectedDate && styles.dateTextPlaceholder,
+                  isApproved && styles.dateTextDisabled,
+                ]}>
+                  {selectedDate ? formatKoreanDate(selectedDate) : '날짜를 선택해주세요'}
+                </Text>
+                <Feather name="calendar" size={18} color={isApproved ? COLORS.text.secondary : COLORS.primaryButton} />
+              </Pressable>
+              {showPicker && Platform.OS !== 'ios' && (
+                <DateTimePicker
+                  value={selectedDate ?? new Date()}
+                  maximumDate={new Date()}
+                  mode="date"
+                  display="default"
+                  locale="ko-KR"
+                  onChange={(event, d) => {
+                    setShowPicker(false);
+                    if (event.type === 'dismissed') {
+                      return;
+                    }
+                    if (d) setSelectedDate(d);
+                  }}
+                />
+              )}
+            </View>
+
+            {!isApproved ? (
+              <Button
+                onPress={submit}
+                disabled={loading}
+                loading={loading}
+                variant="primary"
+                size="lg"
+                fullWidth
+              >
+                저장하기
+              </Button>
+            ) : null}
+            </>
+            ) : null}
           </View>
 
+          <Text style={styles.guideTitle}>동의 방법</Text>
           <View style={styles.sliderContainer}>
             <FlatList keyboardShouldPersistTaps="always"
               ref={sliderRef}
@@ -315,7 +399,6 @@ function AllowanceConsentScreenContent() {
               }}
               renderItem={({ item }) => (
                 <View style={{ width, alignItems: 'center', paddingHorizontal: 24 }}>
-                  {/* Container width is full screen width, padding centers the card */}
                   <View style={[styles.imageFrame, { height: cardHeight, width: cardWidth }]}>
                     <Image source={item} style={styles.guideImage} resizeMode="contain" />
                   </View>
@@ -327,136 +410,6 @@ function AllowanceConsentScreenContent() {
                 <View key={i} style={[styles.dot, currentIndex === i && styles.dotActive]} />
               ))}
             </View>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.formSection}>
-            <Text style={styles.sectionTitle}>동의 정보 입력</Text>
-            <Text style={styles.sectionDesc}>
-              보증 보험 동의 완료 후 날짜를 입력해주세요. 총무 승인 후에는 수정할 수 없습니다.
-            </Text>
-            {!!rejectReason && (
-              <View style={styles.rejectBox}>
-                <Text style={styles.rejectTitle}>반려 사유</Text>
-                <Text style={styles.rejectText}>{rejectReason}</Text>
-              </View>
-            )}
-
-            <View style={styles.careerCard}>
-              <View style={styles.careerBadge}>
-                <Text style={styles.careerBadgeLabel}>지원 유형</Text>
-              </View>
-              <Text style={styles.careerMainText}>{careerType || '조회중'}</Text>
-              <Text style={styles.careerSubText}>
-                {careerType === '신입'
-                  ? '신입 유형으로 등록되었습니다.'
-                  : careerType === '경력'
-                    ? '경력 유형으로 등록되었습니다.'
-                    : '총무가 경력 여부를 조회중입니다.'}
-              </Text>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <View style={styles.fieldHeaderRow}>
-                <Text style={styles.fieldHeaderLabel}>임시사번</Text>
-                <Pressable
-                  onPress={() => { void copyTempId(); }}
-                  disabled={!tempId.trim()}
-                  accessibilityRole="button"
-                  accessibilityLabel="임시사번 복사"
-                  accessibilityHint="발급된 임시사번을 클립보드에 복사합니다."
-                  style={({ pressed }) => [
-                    styles.tempIdCopyChip,
-                    !tempId.trim() && styles.tempIdCopyChipDisabled,
-                    pressed && tempId.trim() && styles.buttonPressed,
-                  ]}
-                >
-                  <Feather
-                    name="copy"
-                    size={14}
-                    color={tempId.trim() ? COLORS.primary : COLORS.text.disabled}
-                  />
-                  <Text
-                    style={[
-                      styles.tempIdCopyChipLabel,
-                      !tempId.trim() && styles.tempIdCopyChipLabelDisabled,
-                    ]}
-                  >
-                    복사
-                  </Text>
-                </Pressable>
-              </View>
-              <FormInput
-                placeholder="총무가 임시사번을 발급하는 중입니다."
-                value={tempId}
-                editable={false}
-                selectTextOnFocus={false}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, styles.dateLabel, isApproved && styles.dateLabelDisabled]}>
-                보증보험 조회 동의일
-              </Text>
-              <Pressable
-                style={[
-                  styles.dateInput,
-                  styles.dateInputEmphasis,
-                  isApproved && styles.dateInputApprovedDisabled,
-                ]}
-                disabled={isApproved}
-                onPress={() => {
-                  if (isApproved) return;
-                  setTempDate(selectedDate ?? new Date());
-                  setShowPicker(true);
-                }}
-              >
-                <Text style={[
-                  styles.dateText,
-                  !selectedDate && styles.dateTextPlaceholder,
-                  isApproved && styles.dateTextDisabled,
-                ]}>
-                  {selectedDate ? formatKoreanDate(selectedDate) : '날짜를 선택해주세요'}
-                </Text>
-                <Feather name="calendar" size={18} color={isApproved ? COLORS.text.secondary : COLORS.primary} />
-              </Pressable>
-              {showPicker && Platform.OS !== 'ios' && (
-                <DateTimePicker
-                  value={selectedDate ?? new Date()}
-                  maximumDate={new Date()}
-                  mode="date"
-                  display="default"
-                  locale="ko-KR"
-                  onChange={(event, d) => {
-                    setShowPicker(false);
-                    if (event.type === 'dismissed') {
-                      return;
-                    }
-                    if (d) setSelectedDate(d);
-                  }}
-                />
-              )}
-            </View>
-
-            {isApproved ? (
-              <View style={{ marginTop: 8, padding: 16, backgroundColor: '#ECFDF5', borderRadius: 8, borderWidth: 1, borderColor: '#10B981', alignItems: 'center' }}>
-                <Text style={{ color: '#047857', fontWeight: 'bold', fontSize: 16 }}>총무 승인 완료</Text>
-                <Text style={{ color: '#059669', fontSize: 14, marginTop: 4 }}>수정이 불가능합니다.</Text>
-              </View>
-            ) : (
-              <Button
-                onPress={submit}
-                disabled={loading}
-                loading={loading}
-                variant="primary"
-                size="lg"
-                fullWidth
-                style={{ marginTop: 8 }}
-              >
-                저장하기
-              </Button>
-            )}
           </View>
         </ScrollView >
       </KeyboardAvoidingView >
@@ -510,18 +463,41 @@ function AllowanceConsentScreenContent() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.white },
-  container: { paddingBottom: SPACING['2xl'] + 8 },
-  header: { paddingHorizontal: SPACING.xl },
+  stepCard: { marginHorizontal: SPACING.base },
+  card: {
+    marginHorizontal: SPACING.base,
+    marginBottom: SPACING.xl,
+    padding: 20,
+    borderRadius: 24,
+    backgroundColor: COLORS.white,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    minHeight: 44,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.gray[100],
+  },
+  infoLabel: { width: 76, fontSize: 14, color: COLORS.gray[500] },
+  infoValue: { flex: 1, fontSize: 16, fontWeight: '700', color: COLORS.gray[900] },
+  infoValueMuted: { color: COLORS.gray[400], fontWeight: '500' },
+  guideTitle: {
+    marginHorizontal: SPACING.base + 4,
+    marginBottom: SPACING.sm,
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.gray[900],
+  },
+  safe: { flex: 1, backgroundColor: '#f3f4f6' },
+  container: { paddingTop: SPACING.base, paddingBottom: SPACING['2xl'] + 8 },
 
   sliderContainer: { marginBottom: SPACING.xl },
   guideList: { flexGrow: 0 },
   imageFrame: {
-    backgroundColor: COLORS.gray[100],
-    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
   },
   guideImage: { width: '100%', height: '100%' },
   pagination: {
@@ -537,123 +513,32 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.gray[300]
   },
   dotActive: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.primaryButton,
     width: 18
   },
 
-  divider: {
-    height: SPACING.sm,
-    backgroundColor: COLORS.background.secondary,
-    marginBottom: SPACING.xl
-  },
 
-  formSection: { paddingHorizontal: SPACING.xl },
-  careerCard: {
-    backgroundColor: '#FFF0E6',
-    borderRadius: RADIUS.md,
-    padding: SPACING.base,
-    marginBottom: SPACING.xl,
-    borderWidth: 1,
-    borderColor: '#ffcca8',
-    alignItems: 'center',
-  },
-  careerBadge: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.xs,
-    borderRadius: RADIUS.full,
-    marginBottom: SPACING.sm,
-  },
-  careerBadgeLabel: {
-    color: COLORS.white,
-    fontSize: TYPOGRAPHY.fontSize.xs + 1,
-    fontWeight: TYPOGRAPHY.fontWeight.bold,
-  },
-  careerMainText: {
-    fontSize: TYPOGRAPHY.fontSize['2xl'],
-    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
-    color: COLORS.primary,
-    marginBottom: SPACING.xs,
-  },
-  careerSubText: {
-    fontSize: TYPOGRAPHY.fontSize.sm + 1,
-    color: '#9a3412',
-  },
-  sectionTitle: {
-    fontSize: TYPOGRAPHY.fontSize.lg,
-    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
-    color: COLORS.text.primary,
-    marginBottom: SPACING.xs
-  },
-  sectionDesc: {
-    fontSize: TYPOGRAPHY.fontSize.sm + 1,
-    color: COLORS.text.muted,
-    marginBottom: SPACING.lg
-  },
-  rejectBox: {
-    backgroundColor: '#FEF2F2', // Red-50
-    borderColor: '#FECACA',
-    borderWidth: 1,
-    padding: SPACING.md,
-    borderRadius: RADIUS.md,
-    marginBottom: SPACING.base,
-  },
-  rejectTitle: {
-    fontSize: 15,
-    fontWeight: TYPOGRAPHY.fontWeight.bold,
-    color: '#B91C1C', // Red-700
-    marginBottom: SPACING.xs + 2,
-  },
-  rejectText: {
-    fontSize: 20,
-    color: '#7F1D1D', // Red-900
-    lineHeight: 32,
-  },
 
-  inputGroup: { marginBottom: SPACING.base },
-  fieldHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: SPACING.sm,
-  },
-  fieldHeaderLabel: {
-    fontSize: TYPOGRAPHY.fontSize.sm + 1,
-    fontWeight: TYPOGRAPHY.fontWeight.semibold,
-    color: COLORS.text.primary,
-  },
+  inputGroup: { marginTop: SPACING.base, marginBottom: SPACING.base },
   tempIdCopyChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.xs,
-    paddingHorizontal: SPACING.sm + 2,
-    paddingVertical: SPACING.xs + 2,
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: RADIUS.full,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    backgroundColor: '#FFF4EC',
-  },
-  tempIdCopyChipDisabled: {
-    borderColor: COLORS.border.light,
-    backgroundColor: COLORS.background.secondary,
+    backgroundColor: COLORS.primaryPale,
   },
   tempIdCopyChipLabel: {
-    fontSize: TYPOGRAPHY.fontSize.xs + 1,
+    fontSize: 12,
     fontWeight: TYPOGRAPHY.fontWeight.bold,
-    color: COLORS.primary,
-  },
-  tempIdCopyChipLabelDisabled: {
-    color: COLORS.text.disabled,
+    color: COLORS.primaryButton,
   },
   label: {
     fontSize: TYPOGRAPHY.fontSize.sm + 1,
     fontWeight: TYPOGRAPHY.fontWeight.semibold,
     color: COLORS.text.primary,
     marginBottom: SPACING.sm
-  },
-  dateLabel: {
-    color: COLORS.primary,
-    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
   },
   dateLabelDisabled: {
     color: COLORS.text.secondary,
@@ -670,14 +555,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   dateInputEmphasis: {
-    backgroundColor: '#FFF4EC',
+    backgroundColor: COLORS.primaryPale,
     borderColor: COLORS.primary,
-    borderWidth: 2,
-  },
-  dateInputApprovedDisabled: {
-    backgroundColor: COLORS.background.secondary,
-    borderColor: COLORS.border.light,
-    borderWidth: 1,
+    borderWidth: 1.5,
   },
   dateText: {
     fontSize: TYPOGRAPHY.fontSize.md,
@@ -687,7 +567,6 @@ const styles = StyleSheet.create({
   dateTextDisabled: { color: COLORS.text.secondary },
 
   buttonPressed: { opacity: 0.9 },
-  buttonDisabled: { backgroundColor: COLORS.text.muted },
   pickerOverlay: {
     flex: 1,
     backgroundColor: COLORS.background.overlay,
