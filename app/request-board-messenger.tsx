@@ -2550,7 +2550,6 @@ export default function RequestBoardMessengerScreen() {
           visible={Boolean(selectCopyMessage)}
           text={getUnifiedMessageCopyText(selectCopyMessage)}
           onClose={() => setSelectCopyMessage(null)}
-          bottomInset={insets.bottom}
         />
 
         {requestBoardSheetRoom ? (

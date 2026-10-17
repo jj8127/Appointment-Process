@@ -2,6 +2,8 @@ import { Feather } from '@expo/vector-icons';
 import type { ComponentProps, ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { SystemBarsModal } from '@/components/SystemBarsModal';
+
 const CHARCOAL = '#111827';
 
 type FeatherName = ComponentProps<typeof Feather>['name'];
@@ -138,20 +140,18 @@ type MessageSelectCopySheetProps = {
   visible: boolean;
   text?: string | null;
   onClose: () => void;
-  bottomInset?: number;
 };
 
 export function MessageSelectCopySheet({
   visible,
   text,
   onClose,
-  bottomInset = 0,
 }: MessageSelectCopySheetProps) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.selectCopyBackdrop}>
+    <SystemBarsModal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      {(insets) => <View style={styles.selectCopyBackdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[styles.selectCopySheet, { paddingBottom: Math.max(bottomInset, 16) + 18 }]}>
+        <View style={[styles.selectCopySheet, { paddingBottom: insets.bottom + 18 }]}>
           <View style={styles.sheetHandleDark} />
           <View style={styles.selectCopyHeader}>
             <Text style={styles.selectCopyTitle}>선택 복사</Text>
@@ -165,8 +165,8 @@ export function MessageSelectCopySheet({
             </Text>
           </ScrollView>
         </View>
-      </View>
-    </Modal>
+      </View>}
+    </SystemBarsModal>
   );
 }
 

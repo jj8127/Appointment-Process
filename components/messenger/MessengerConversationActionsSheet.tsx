@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import type { MessengerHubConversation } from '@/lib/messenger-hub-model';
 
 export type MessengerConversationAction = 'pin' | 'mute' | 'read' | 'leave';
@@ -29,20 +29,18 @@ export function MessengerConversationActionsSheet({
   onRead,
   onLeave,
 }: Props) {
-  const insets = useSafeAreaInsets();
   const blocked = pendingAction !== null;
   if (!conversation) return null;
 
   return (
-    <Modal
+    <SystemBarsModal
       animationType="fade"
       onRequestClose={blocked ? undefined : onClose}
       presentationStyle="overFullScreen"
-      statusBarTranslucent
       transparent
       visible={visible}
     >
-      <View style={styles.overlay}>
+      {(insets) => <View style={styles.overlay}>
         <Pressable
           accessibilityLabel="채팅방 설정 닫기"
           accessibilityRole="button"
@@ -53,7 +51,7 @@ export function MessengerConversationActionsSheet({
         <View
           accessibilityLabel={`${conversation.name} 채팅방 설정`}
           accessibilityViewIsModal
-          style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}
+          style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}
         >
           <View style={styles.handle} />
           <View style={styles.roomHeader}>
@@ -98,8 +96,8 @@ export function MessengerConversationActionsSheet({
             pendingAction={pendingAction}
           />
         </View>
-      </View>
-    </Modal>
+      </View>}
+    </SystemBarsModal>
   );
 }
 

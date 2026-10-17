@@ -1,8 +1,9 @@
 import { Feather } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 
 // pdf.js renders inside the WebView because Android WebView and Custom Tabs cannot show PDFs.
 const PDFJS_VERSION = '3.11.174';
@@ -67,7 +68,6 @@ type Props = {
 };
 
 export function PdfViewerModal({ visible, url, title, onClose, onSave, onShare, onOpenExternal, saving }: Props) {
-  const insets = useSafeAreaInsets();
   const [state, setState] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [pages, setPages] = useState(0);
   const source = useMemo(() => (url ? { html: buildPdfViewerHtml(url), baseUrl: 'https://localhost/' } : null), [url]);
@@ -86,8 +86,8 @@ export function PdfViewerModal({ visible, url, title, onClose, onSave, onShare, 
   };
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <View style={[styles.screen, { paddingTop: insets.top }]}>
+    <SystemBarsModal visible={visible} animationType="slide" onRequestClose={onClose}>
+      {(insets) => <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Pressable accessibilityRole="button" accessibilityLabel="PDF 닫기" hitSlop={8} onPress={onClose}
             style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}>
@@ -136,8 +136,8 @@ export function PdfViewerModal({ visible, url, title, onClose, onSave, onShare, 
           </View>
         ) : null}
         <View style={{ height: insets.bottom, backgroundColor: '#e5e7eb' }} />
-      </View>
-    </Modal>
+      </View>}
+    </SystemBarsModal>
   );
 }
 

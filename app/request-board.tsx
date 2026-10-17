@@ -8,7 +8,6 @@ import {
   Dimensions,
   Image,
   KeyboardAvoidingView,
-  Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -22,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
@@ -1294,13 +1294,13 @@ export default function RequestBoardScreen() {
         bottomInset={insets.bottom}
       />
 
-      <Modal
+      <SystemBarsModal
         visible={designerRejectModalVisible}
         transparent
         animationType="slide"
         onRequestClose={resetDesignerRejectModal}
       >
-        <KeyboardAvoidingView
+        {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
           behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
         >
@@ -1308,7 +1308,7 @@ export default function RequestBoardScreen() {
             style={styles.modalOverlay}
             onPress={resetDesignerRejectModal}
           />
-          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+          <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>의뢰 거절 사유</Text>
             <Text style={styles.modalDesc}>
@@ -1349,8 +1349,8 @@ export default function RequestBoardScreen() {
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
     </View>
   );
 }

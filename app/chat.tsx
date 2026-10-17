@@ -2581,7 +2581,6 @@ export default function ChatScreen() {
         visible={Boolean(selectCopyMessage)}
         text={getMessageCopyText(selectCopyMessage)}
         onClose={() => setSelectCopyMessage(null)}
-        bottomInset={insets.bottom}
       />
 
       {directSheetRoom ? (

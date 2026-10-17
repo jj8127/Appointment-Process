@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
@@ -513,18 +514,18 @@ export default function RequestBoardFcCodesScreen() {
       )}
 
       {/* Add/Edit Modal */}
-      <Modal
+      <SystemBarsModal
         visible={editModalVisible}
         animationType="slide"
         transparent
         onRequestClose={closeEditModal}
       >
-        <KeyboardAvoidingView
+        {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalOverlay}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <Pressable style={styles.modalBackdrop} onPress={closeEditModal} />
-          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             {/* Modal Header */}
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
@@ -648,8 +649,8 @@ export default function RequestBoardFcCodesScreen() {
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
 
       {/* Delete Confirmation Modal */}
       <Modal

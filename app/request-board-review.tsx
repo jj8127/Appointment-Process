@@ -5,7 +5,6 @@ import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,6 +19,7 @@ import { getAssignmentProgress, summarizeRequestProgress } from '@/lib/request-b
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
@@ -1199,13 +1199,13 @@ export default function RequestBoardReviewScreen() {
       />
 
       {/* Attachment Metadata Modal */}
-      <Modal
+      <SystemBarsModal
         visible={attachmentUploadDraft != null}
         transparent
         animationType="slide"
         onRequestClose={resetAttachmentUploadDraft}
       >
-        <KeyboardAvoidingView
+        {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
           behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
         >
@@ -1217,7 +1217,7 @@ export default function RequestBoardReviewScreen() {
             style={[
               styles.modalSheet,
               styles.attachmentModalSheet,
-              { paddingBottom: Math.max(insets.bottom, 16) + 8 },
+              { paddingBottom: modalInsets.bottom + 16 },
             ]}
           >
             <View style={styles.modalHandle} />
@@ -1277,17 +1277,17 @@ export default function RequestBoardReviewScreen() {
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
 
       {/* Designer Reject Modal */}
-      <Modal
+      <SystemBarsModal
         visible={designerRejectModalVisible}
         transparent
         animationType="slide"
         onRequestClose={resetDesignerRejectModal}
       >
-        <KeyboardAvoidingView
+        {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
           behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
         >
@@ -1295,7 +1295,7 @@ export default function RequestBoardReviewScreen() {
             style={styles.modalOverlay}
             onPress={resetDesignerRejectModal}
           />
-          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+          <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>의뢰 거절 사유</Text>
             <Text style={styles.modalDesc}>설계 요청을 거절하는 이유를 입력해주세요.</Text>
@@ -1336,17 +1336,17 @@ export default function RequestBoardReviewScreen() {
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
 
       {/* FC Reject Modal */}
-      <Modal
+      <SystemBarsModal
         visible={rejectModalVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setRejectModalVisible(false)}
       >
-        <KeyboardAvoidingView
+        {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
           behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
         >
@@ -1354,7 +1354,7 @@ export default function RequestBoardReviewScreen() {
             style={styles.modalOverlay}
             onPress={() => setRejectModalVisible(false)}
           />
-          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+          <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>설계 거절</Text>
             <Text style={styles.modalDesc}>거절 사유를 입력해주세요. (필수)</Text>
@@ -1395,8 +1395,8 @@ export default function RequestBoardReviewScreen() {
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
     </View>
   );
 }

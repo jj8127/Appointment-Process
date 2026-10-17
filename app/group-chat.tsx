@@ -15,7 +15,6 @@ import {
   AppState,
   FlatList,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -32,6 +31,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MessengerImageAttachment from '@/components/MessengerImageAttachment';
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
 import {
@@ -2107,19 +2107,19 @@ export default function GroupChatScreen() {
         </View>
       )}
 
-      <Modal
+      <SystemBarsModal
         visible={memberListVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setMemberListVisible(false)}
       >
-        <KeyboardAvoidingView
+        {(modalInsets) => <KeyboardAvoidingView
           style={styles.memberSheetKeyboardAvoider}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <View style={styles.memberSheetBackdrop}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setMemberListVisible(false)} />
-          <View style={[styles.memberSheet, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
+          <View style={[styles.memberSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.memberSheetHeader}>
               <View>
@@ -2172,8 +2172,8 @@ export default function GroupChatScreen() {
             />
           </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
 
       <MessengerMessageActionSheet
         visible={Boolean(actionMessage)}
@@ -2202,7 +2202,6 @@ export default function GroupChatScreen() {
         visible={Boolean(selectCopyMessage)}
         text={getGroupChatMessageCopyText(selectCopyMessage)}
         onClose={() => setSelectCopyMessage(null)}
-        bottomInset={insets.bottom}
       />
 
       {groupSheetRoom ? (

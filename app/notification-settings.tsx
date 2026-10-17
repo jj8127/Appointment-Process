@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,8 +12,9 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import { useSession } from '@/hooks/use-session';
 import { createReadScope } from '@/lib/request-board-read-state';
 import { useReadAttempt } from '@/lib/use-read-attempt';
@@ -344,29 +344,29 @@ export default function NotificationSettingsScreen() {
         </ScrollView>
       )}
 
-      {/* The modal draws under the system bars, so it measures its own insets (same as referral-allowance). */}
-      <Modal
+      <SystemBarsModal
         visible={confirmGlobalOff}
         transparent
         animationType="slide"
-        statusBarTranslucent
-        navigationBarTranslucent
         onRequestClose={() => setConfirmGlobalOff(false)}
       >
-        <SafeAreaProvider>
-          <GlobalOffSheet onConfirm={() => void commitGlobal(false)} onCancel={() => setConfirmGlobalOff(false)} />
-        </SafeAreaProvider>
-      </Modal>
+        {(modalInsets) => (
+          <GlobalOffSheet
+            bottomInset={modalInsets.bottom}
+            onConfirm={() => void commitGlobal(false)}
+            onCancel={() => setConfirmGlobalOff(false)}
+          />
+        )}
+      </SystemBarsModal>
     </SafeAreaView>
   );
 }
 
-function GlobalOffSheet({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
-  const insets = useSafeAreaInsets();
+function GlobalOffSheet({ bottomInset, onConfirm, onCancel }: { bottomInset: number; onConfirm: () => void; onCancel: () => void }) {
   return (
     <View style={styles.modalBackdrop}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} />
-      <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+      <View style={[styles.sheet, { paddingBottom: bottomInset + 16 }]}>
         <View style={styles.sheetHandle} />
         <Text style={styles.sheetTitle}>전체 알림을 끌까요?</Text>
         <Text style={styles.sheetDescription}>
