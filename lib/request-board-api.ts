@@ -32,6 +32,9 @@ const REQUEST_BOARD_APP_RELOGIN_ERROR_CODES = new Set([
   'expired_app_session',
   'expired_bridge_token',
 ]);
+// Re-login cannot repair a retired or conflicting GaramLink identity binding.
+const REQUEST_BOARD_IDENTITY_REVIEW_CODES = new Set(['FC_IDENTITY_BINDING_CONFLICT', 'FC_ACCOUNT_RETIRED']);
+export const REQUEST_BOARD_IDENTITY_REVIEW_MESSAGE = '가람Link 계정 확인이 필요합니다. 관리자에게 문의해주세요.';
 
 /* ─── Types ─── */
 
@@ -511,6 +514,16 @@ async function bridgeLogin(
         json?.error ?? json?.message ?? '브릿지 로그인 실패',
         403,
       );
+    }
+
+    if (res.status === 409 && REQUEST_BOARD_IDENTITY_REVIEW_CODES.has(json?.code)) {
+      return {
+        success: false,
+        error: REQUEST_BOARD_IDENTITY_REVIEW_MESSAGE,
+        errorCode: json.code,
+        status: 409,
+        retryable: false,
+      };
     }
 
     if (!res.ok || !json?.success || !json.data?.token) {
