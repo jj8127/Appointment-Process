@@ -1,5 +1,17 @@
 # 작업 로그
 
+## 2026-10-18 로컬 최신 통합 배포(게시판·설계요청·위촉 단계·설정 개편, 가람Link 연결·FC 삭제 수정)
+
+로컬 브랜치의 미배포 커밋을 운영 기준선 위에 합쳤다. 앱·Edge 기준선은 운영 OTA `e2bf640c`와 같은 `980695c9` 계열이고(board-list·delete-account 운영 소스가 이 계열과 일치), 관리자 웹 기준선은 운영 `d67cdfd`(admin-web-ux-r2)다. `release/all-latest-20261018`(`6e43670f`)에 게시판·설계요청·위촉 단계·설정·알림 설정 개편(feat/board-home-must-read-20261017, `4449d4bf`까지), `95c574c1`(가람Link 신원 검토 재로그인 안내 중단), `cccbcd0b`(FC 하드 삭제 전 가람Link 은퇴), 메신저 stage1, push-background의 fc-notify 커밋 6개(cherry-pick, 운영 fc-notify v108과 일치), admin-web-ux-r2·admin-referrals-embed·moduon-signup-code-check를 합쳤다. 이미 다른 SHA로 들어 있는 커밋(첨부 검은 화면, FC 홈 개편, 서비스 홈 사진, 지연 기준선, 10-13 계약 강화)과 stage1에 포함된 unified-model 초안은 다시 넣지 않았다. 메인 체크아웃의 커밋 안 된 변경 125건은 넣지 않았다.
+
+- request_board `release/rb-all-latest-20261018`(`96360fd` = 운영 `1ffc4bd` + `3e27b35`·`3b513ee` + messenger-export): Vercel `dpl_3UWu8eKs618oWCncGaUztufgBtrA` READY, alias `requestboard-steel.vercel.app`, `/api/health` 200, `/api/messenger-export` 토큰 미설정이라 503(의도), bridge-login 빈 요청 400, 배포 후 오류는 url.parse 경고 1건.
+- Edge(`6e43670f`): board-list v31, delete-account v48, admin-action v32(verify_jwt 유지), platform-service v9(verify_jwt false 유지). 인증 없는 요청은 모두 401/400으로 정상 거절.
+- 관리자 웹(`6e43670f`): Vercel `dpl_BUXfuJ28tWTFopTE5bcAjrgVARUA` READY, alias `adminweb-red.vercel.app`, 미로그인 경로 307·`/auth` 200·`/api/fc-delete` 미세션 401, 배포 후 오류 0건.
+- OTA(`6e43670f`): production 채널 update group `5cd2b0ab-b7f9-491b-aef7-d507de7acf18`, runtime 4.2.21, Android·iOS, production 환경 변수 로드 확인.
+- 검증: 앱 tsc·lint(기존 경고 1) 통과, 웹 build 통과, 웹 테스트 806/806, root Jest는 병합 전 기준선 대비 새 실패 0(통합으로 생긴 소스 계약 테스트 3개와 웹 fc-delete 계약 1개는 새 코드에 맞춰 갱신). request_board 서버 build·messenger-export 10/10·bridge 22/22, 기존 실패(ACL rollout evidence, sentry-sanitize 등)는 `1ffc4bd`·`3b513ee`에서도 같다.
+- 한계: 기기는 OTA 꺼진 로컬 빌드라 OTA 수신을 직접 확인하지 못했다. Edge 함수 로그는 Supabase 플러그인 인증이 없어 확인하지 못했다. 배포 뒤 하단 시트 세션이 만든 `78c21ceb`는 이번 OTA에 없다.
+- 워크트리 정리: 병합·포함된 깨끗한 워크트리 16개를 지웠다(브랜치는 유지, 공유 node_modules 링크는 먼저 해제). 커밋 안 된 변경이 있는 board-attachment·latency, 메인 체크아웃, w1, 두 release 워크트리는 남겼다.
+
 ## 2026-10-17 메신저 개편·가입 쌓이는 입력·FC 홈 개편 Android·iOS OTA
 
 운영 OTA(`be2190c`, 4.2.21) 위에 가람in 메신저 화면 개편(말풍선 묶음·한국 시간·읽은 위치·실패 말풍선 재전송·목록 필터·변경분만 받기·실시간 신호), 모두온 가입·가람in 추가 정보 쌓이는 입력, 서비스별 탈퇴, 하단 시트 여백, FC 홈 개편을 합쳐 `release/ota-messenger-20261017`(`42903f3`)에서 production 채널로 배포했다(update group `e2bf640c-73f8-40a3-80c9-ae46c13d1175`). 플로팅 모두온 메신저 입구는 사용자 결정으로 빼고(revert), 메인 체크아웃의 커밋 안 된 변경(DB·Edge 미반영 포함)은 넣지 않았다. 필요한 서버(fc-notify 변경분·실시간 신호·대화방 스냅샷 함수, platform-service v8)는 먼저 운영에 있었다. 타입·lint 통과, Jest 실패는 기존 17개 suite와 같다. 기기 확인은 다음 실행부터 가능하다. `eas update`는 `--environment production`이 있어야 Supabase 공개 값이 들어간다.
