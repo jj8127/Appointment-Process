@@ -5,7 +5,7 @@ import {
 } from '@/lib/request-board-submit-readiness';
 
 const ready = {
-  drivingStatus: '자가용',
+  drivingStatus: 'other',
   productCount: 1,
   requestText: '갱신형 위주로 비교 부탁드립니다',
   designerCount: 1,
@@ -17,6 +17,8 @@ describe('request board submit readiness', () => {
     const items = buildRequestReadiness(ready);
     expect(items.map((item) => item.key)).toEqual(['driving', 'product', 'request', 'designer', 'fcCode']);
     expect(items.every((item) => item.ok === true)).toBe(true);
+    expect(items[0].detail).toBe('기타');
+    expect(buildRequestReadiness({ ...ready, drivingStatus: '자가용' })[0].detail).toBe('자가용');
     expect(firstRequestBlocker(items)).toBeNull();
   });
 

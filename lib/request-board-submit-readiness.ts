@@ -3,6 +3,8 @@
  * compose screen, so the FC sees each blocker before pressing submit instead of after.
  */
 
+import { formatRequestBoardDrivingStatus } from '@/lib/request-board-driving-status';
+
 export type RequestReadinessKey = 'driving' | 'product' | 'request' | 'designer' | 'fcCode';
 
 export type RequestReadinessItem = {
@@ -25,7 +27,10 @@ export type RequestReadinessInput = {
 };
 
 export function buildRequestReadiness(input: RequestReadinessInput): RequestReadinessItem[] {
-  const hasDriving = String(input.drivingStatus ?? '').trim().length > 0;
+  const drivingValue = String(input.drivingStatus ?? '').trim();
+  const hasDriving = drivingValue.length > 0;
+  // Stored values are codes ("other"); show the label, or the raw text for legacy free-form values.
+  const drivingLabel = formatRequestBoardDrivingStatus(drivingValue);
   const hasRequest = input.requestText.trim().length > 0;
   const missingCodes = [...new Set(input.companiesMissingFcCode.filter(Boolean))];
   return [
@@ -33,7 +38,7 @@ export function buildRequestReadiness(input: RequestReadinessInput): RequestRead
       key: 'driving',
       label: '운전구분',
       ok: hasDriving,
-      detail: hasDriving ? String(input.drivingStatus).trim() : '고객 정보에 없음',
+      detail: hasDriving ? (drivingLabel === '미입력' ? drivingValue : drivingLabel) : '고객 정보에 없음',
       action: '운전구분을 선택해주세요',
     },
     {
