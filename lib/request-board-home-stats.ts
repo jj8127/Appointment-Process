@@ -143,3 +143,22 @@ export function computeRequestBoardHomeStats(
 
   return { total, pending, reviewPending: 0, inProgress, completed, completedThisMonth, avgDays };
 }
+
+export type FcRequestPipelineStep = {
+  key: 'pending' | 'in_progress' | 'review_pending' | 'completed';
+  label: string;
+  count: number;
+};
+
+/**
+ * The FC home shows where requests are as four steps. FC stats count review-pending assignments
+ * inside `completed`, so the last step shows only assignments the FC already decided.
+ */
+export function buildFcRequestPipeline(stats: RequestBoardHomeStats): FcRequestPipelineStep[] {
+  return [
+    { key: 'pending', label: '수락 대기', count: stats.pending },
+    { key: 'in_progress', label: '설계 중', count: stats.inProgress },
+    { key: 'review_pending', label: '검토 대기', count: stats.reviewPending },
+    { key: 'completed', label: '완료', count: Math.max(stats.completed - stats.reviewPending, 0) },
+  ];
+}

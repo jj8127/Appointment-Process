@@ -7,6 +7,12 @@ source_of_truth: app/request-board*.tsx + lib/chat-keyboard-layout.ts + lib/requ
 
 # Mobile Playbook: GaramLink Bridge
 
+## 2026-10-17 FC 설계요청 홈
+
+- FC 홈은 위에서부터 "새 설계 요청" 버튼 → (검토할 설계가 있으면) "내 차례" 카드 → 진행 상황 4단계(수락 대기 → 설계 중 → 검토 대기 → 완료, 각 단계를 누르면 해당 필터 목록) → 도구 6개(의뢰 목록·고객관리·설계코드·메신저·가람Link 주소·사용법 영상) → 최근 활동 → 알아두세요 순이다.
+- 단계 수는 `buildFcRequestPipeline`이 만든다. FC 통계의 `completed`에는 검토 대기가 포함되므로 "완료"는 `completed - reviewPending`이다.
+- 설계매니저와 조회 전용 계정 화면(빠른 실행, 통계, 처리할 의뢰, 메신저 카드)은 바꾸지 않았다. 실제 진행과 무관하던 "설계 요청 흐름" 안내는 모든 역할에서 뺐다.
+
 ## 2026-10-17 제출 전 막힘 미리 보기
 
 - 작성 화면은 `lib/request-board-submit-readiness.ts`로 운전구분 → 보험 상품 → 요청 내용 → 설계매니저 → 설계코드를 화면 순서대로 계산해 "보내기 전 확인" 카드에 보여준다. 설계코드는 매니저를 고른 뒤에만 판정한다(`ok: null`).
