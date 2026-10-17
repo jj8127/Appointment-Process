@@ -429,7 +429,6 @@ function HanwhaCommissionScreenContent() {
         <OnboardingStepNowCard
           step={3}
           now={stepNow}
-          action={hasAttachedPdf ? { label: `${pdfCardTitle} 열기`, onPress: () => { void openPdf(); }, icon: 'file-text' } : undefined}
         />
 
         {loading ? (

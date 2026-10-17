@@ -371,6 +371,8 @@ function AllowanceConsentScreenContent() {
             ) : null}
           </View>
 
+          {!isApproved ? (
+          <>
           <Text style={styles.guideTitle}>동의 방법</Text>
           <View style={styles.sliderContainer}>
             <FlatList keyboardShouldPersistTaps="always"
@@ -411,6 +413,8 @@ function AllowanceConsentScreenContent() {
               ))}
             </View>
           </View>
+          </>
+          ) : null}
         </ScrollView >
       </KeyboardAvoidingView >
 

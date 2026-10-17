@@ -466,7 +466,8 @@ function AppointmentScreenContent() {
         contentInsetAdjustmentBehavior="never"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <OnboardingStepNowCard step={4} now={stepNow} />
+        {/* Each track card shows its own rejection reason next to its form. */}
+        <OnboardingStepNowCard step={4} now={{ ...stepNow, reason: null }} />
 
         {loading ? (
           <BrandedLoadingState variant="appointment" layout="section" />

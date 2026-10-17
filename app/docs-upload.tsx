@@ -257,6 +257,7 @@ function DocsUploadScreenContent() {
       });
 
       const statusRank = (doc: DocItem) => {
+        if (doc.status === 'rejected') return -1; // 반려됨: 다시 올릴 서류가 맨 위
         if (doc.status === 'approved') return 2; // 승인됨
         if (!doc.storagePath) return 0; // 미제출
         return 1; // 미승인 (제출됨)
@@ -841,7 +842,7 @@ function DocsUploadScreenContent() {
                       </Pressable>
                     )}
 
-                    <Pressable
+                    {!isLocked ? <Pressable
                       style={({ pressed }) => [
                         styles.btnSecondary,
                         isRejected && styles.btnRetry,
@@ -861,9 +862,9 @@ function DocsUploadScreenContent() {
                           </Text>
                         </>
                       )}
-                    </Pressable>
+                    </Pressable> : null}
 
-                    {isUploaded && (
+                    {isUploaded && !isLocked && (
                       <Pressable
                         style={({ pressed }) => [styles.iconDanger, pressed && styles.pressed]}
                         onPress={() => handleDelete(doc.type, doc.storagePath)}
