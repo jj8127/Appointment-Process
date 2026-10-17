@@ -287,15 +287,25 @@ export default function NotificationSettingsScreen() {
                 />
               </View>
 
+              {/* With the master off the per-type switches are hidden, not greyed out; their saved values return when it is back on. */}
+              {!preferences.globalPushEnabled ? (
+                <View style={styles.infoCard}>
+                  <Feather name="info" size={17} color="#9A4C16" />
+                  <Text style={styles.infoText}>알림을 꺼도 앱 안의 메시지와 읽지 않은 개수는 유지됩니다.</Text>
+                </View>
+              ) : null}
+
               <SectionTitle title="메시지" />
               <View style={styles.section}>
-                <PreferenceSwitch
-                  {...CATEGORY_COPY.messages}
-                  disabled={!preferences.globalPushEnabled || pendingKey !== null}
-                  pending={pendingKey === 'messages'}
-                  value={preferences.categories.messages}
-                  onChange={(enabled) => void commitCategory('messages', enabled)}
-                />
+                {preferences.globalPushEnabled ? (
+                  <PreferenceSwitch
+                    {...CATEGORY_COPY.messages}
+                    disabled={pendingKey !== null}
+                    pending={pendingKey === 'messages'}
+                    value={preferences.categories.messages}
+                    onChange={(enabled) => void commitCategory('messages', enabled)}
+                  />
+                ) : null}
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => router.push('/muted-conversations' as never)}
@@ -312,25 +322,22 @@ export default function NotificationSettingsScreen() {
                 </Pressable>
               </View>
 
-              <SectionTitle title="업무" />
-              <View style={styles.section}>
-                {PUSH_CATEGORIES.filter((category) => category !== 'messages').map((category) => (
-                  <PreferenceSwitch
-                    key={category}
-                    {...CATEGORY_COPY[category]}
-                    disabled={!preferences.globalPushEnabled || pendingKey !== null}
-                    pending={pendingKey === category}
-                    value={preferences.categories[category]}
-                    onChange={(enabled) => void commitCategory(category, enabled)}
-                  />
-                ))}
-              </View>
-
-              {!preferences.globalPushEnabled ? (
-                <View style={styles.infoCard}>
-                  <Feather name="info" size={17} color="#9A4C16" />
-                  <Text style={styles.infoText}>알림을 꺼도 앱 안의 메시지와 읽지 않은 개수는 유지됩니다.</Text>
-                </View>
+              {preferences.globalPushEnabled ? (
+                <>
+                  <SectionTitle title="업무" />
+                  <View style={styles.section}>
+                    {PUSH_CATEGORIES.filter((category) => category !== 'messages').map((category) => (
+                      <PreferenceSwitch
+                        key={category}
+                        {...CATEGORY_COPY[category]}
+                        disabled={pendingKey !== null}
+                        pending={pendingKey === category}
+                        value={preferences.categories[category]}
+                        onChange={(enabled) => void commitCategory(category, enabled)}
+                      />
+                    ))}
+                  </View>
+                </>
               ) : null}
             </>
           ) : null}
