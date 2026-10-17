@@ -279,11 +279,13 @@ export default function NotificationSettingsScreen() {
               <View style={styles.section}>
                 <PreferenceSwitch
                   description="끄면 이 계정으로 로그인한 모든 기기에서 모두온 알림을 받지 않습니다."
-                  disabled={pendingKey !== null}
                   pending={pendingKey === 'global'}
                   title="알림 받기"
                   value={preferences.globalPushEnabled}
-                  onChange={(enabled) => enabled ? void commitGlobal(true) : setConfirmGlobalOff(true)}
+                  onChange={(enabled) => {
+                    if (pendingKey) return;
+                    if (enabled) void commitGlobal(true); else setConfirmGlobalOff(true);
+                  }}
                 />
               </View>
 
@@ -300,7 +302,6 @@ export default function NotificationSettingsScreen() {
                 {preferences.globalPushEnabled ? (
                   <PreferenceSwitch
                     {...CATEGORY_COPY.messages}
-                    disabled={pendingKey !== null}
                     pending={pendingKey === 'messages'}
                     value={preferences.categories.messages}
                     onChange={(enabled) => void commitCategory('messages', enabled)}
@@ -330,7 +331,6 @@ export default function NotificationSettingsScreen() {
                       <PreferenceSwitch
                         key={category}
                         {...CATEGORY_COPY[category]}
-                        disabled={pendingKey !== null}
                         pending={pendingKey === category}
                         value={preferences.categories[category]}
                         onChange={(enabled) => void commitCategory(category, enabled)}
@@ -374,19 +374,18 @@ function PreferenceSwitch({
   title,
   description,
   value,
-  disabled,
   pending,
   onChange,
 }: {
   title: string;
   description: string;
   value: boolean;
-  disabled: boolean;
   pending: boolean;
   onChange: (value: boolean) => void;
 }) {
   return (
-    <View style={[styles.switchRow, disabled && styles.disabled]}>
+    // Only the row being saved shows progress; other rows keep their look and the commit guards ignore taps meanwhile.
+    <View style={styles.switchRow}>
       <View style={styles.flex}>
         <Text style={styles.rowTitle}>{title}</Text>
         <Text style={styles.description}>{description}</Text>
@@ -397,7 +396,6 @@ function PreferenceSwitch({
         <Switch
           accessibilityLabel={title}
           accessibilityRole="switch"
-          disabled={disabled}
           onValueChange={onChange}
           thumbColor="#FFFFFF"
           trackColor={{ false: '#D1D5DB', true: ACCENT }}
@@ -427,7 +425,6 @@ const styles = StyleSheet.create({
   navigationRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 11 },
   rowIcon: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#FFF0E6' },
   rowTitle: { color: '#111827', fontSize: 15, lineHeight: 20, fontWeight: '700' },
-  disabled: { opacity: 0.45 },
   pressed: { backgroundColor: '#F3F4F6' },
   errorCard: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 12, backgroundColor: '#FEF3F2', borderWidth: 1, borderColor: '#FECDCA' },
   errorText: { flex: 1, color: '#912018', fontSize: 12, lineHeight: 17 },
