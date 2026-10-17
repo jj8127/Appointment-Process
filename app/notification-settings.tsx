@@ -13,7 +13,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
 import { createReadScope } from '@/lib/request-board-read-state';
@@ -344,25 +344,42 @@ export default function NotificationSettingsScreen() {
         </ScrollView>
       )}
 
-      <Modal visible={confirmGlobalOff} transparent animationType="slide" onRequestClose={() => setConfirmGlobalOff(false)}>
-        <View style={styles.modalBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setConfirmGlobalOff(false)} />
-          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>전체 알림을 끌까요?</Text>
-            <Text style={styles.sheetDescription}>
-              모든 메시지와 업무 알림 전달이 중단됩니다. 앱 안의 읽지 않은 항목은 그대로 남습니다.
-            </Text>
-            <Pressable accessibilityRole="button" onPress={() => void commitGlobal(false)} style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>전체 알림 끄기</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => setConfirmGlobalOff(false)} style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>취소</Text>
-            </Pressable>
-          </View>
-        </View>
+      {/* The modal draws under the system bars, so it measures its own insets (same as referral-allowance). */}
+      <Modal
+        visible={confirmGlobalOff}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        navigationBarTranslucent
+        onRequestClose={() => setConfirmGlobalOff(false)}
+      >
+        <SafeAreaProvider>
+          <GlobalOffSheet onConfirm={() => void commitGlobal(false)} onCancel={() => setConfirmGlobalOff(false)} />
+        </SafeAreaProvider>
       </Modal>
     </SafeAreaView>
+  );
+}
+
+function GlobalOffSheet({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={styles.modalBackdrop}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} />
+      <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+        <View style={styles.sheetHandle} />
+        <Text style={styles.sheetTitle}>전체 알림을 끌까요?</Text>
+        <Text style={styles.sheetDescription}>
+          모든 메시지와 업무 알림 전달이 중단됩니다. 앱 안의 읽지 않은 항목은 그대로 남습니다.
+        </Text>
+        <Pressable accessibilityRole="button" onPress={onConfirm} style={styles.primaryButton}>
+          <Text style={styles.primaryButtonText}>전체 알림 끄기</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={onCancel} style={styles.secondaryButton}>
+          <Text style={styles.secondaryButtonText}>취소</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
