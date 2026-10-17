@@ -40,6 +40,8 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
+import { PdfViewerModal } from '@/components/PdfViewerModal';
+import { showToast } from '@/components/Toast';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { ListSkeleton } from '@/components/LoadingSkeleton';
 import { DEFAULT_REACTIONS, ReactionPicker } from '@/components/ReactionPicker';
@@ -88,6 +90,7 @@ import {
   type BoardListPage,
   type BoardListPages,
 } from '@/lib/board-list-pages';
+import { downloadRemoteFileToUserStorage } from '@/lib/native-file-actions';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { getBoardAuthorRoleLabel, getBoardRoleBadgeStyle } from '@/lib/staff-identity';
 import { ANIMATION } from '@/lib/theme';
@@ -144,9 +147,11 @@ const toAttachmentPreviewImages = (attachments: BoardDetail['attachments']) =>
     }));
 
 type PreviewModalState = {
-  images: { url: string; title?: string }[];
+  images: { id: string; url: string; title?: string }[];
   initialIndex: number;
 };
+
+type PdfViewerState = { attachmentId: string; url: string; title: string };
 
 const safeText = (value?: string | null) => (typeof value === 'string' ? value : '');
 const getInitial = (value?: string | null) => {
@@ -429,6 +434,8 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPost, setSelectedPost] = useState<BoardPost | null>(null);
   const [previewImage, setPreviewImage] = useState<PreviewModalState | null>(null);
+  const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null);
+  const [savingAttachmentId, setSavingAttachmentId] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -649,11 +656,11 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
       return;
     }
     setPreviewImage({
-      images: images.map((image) => ({ url: image.url, title: image.title })),
+      images: images.map((image) => ({ id: image.id, url: image.url, title: image.title })),
       initialIndex: Math.max(images.findIndex((image) => image.id === attachmentId), 0),
     });
   }, [loadFreshAttachments]);
-  const openFileAttachment = useCallback(async (attachmentId: string) => {
+  const openExternalAttachment = useCallback(async (attachmentId: string) => {
     const attachments = await loadFreshAttachments();
     await openBoardAttachment({
       signedUrl: attachments?.find((item) => item.id === attachmentId)?.signedUrl,
@@ -662,6 +669,36 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
       logError: logBoardError,
     });
   }, [loadFreshAttachments]);
+  // PDFs open in the in-app viewer; other documents (HWP, Office) still need another app.
+  const openFileAttachment = useCallback(async (attachmentId: string) => {
+    const attachment = (await loadFreshAttachments())?.find((item) => item.id === attachmentId);
+    if (attachment?.signedUrl && getBoardFileKind(attachment.fileName, attachment.mimeType) === 'PDF') {
+      setPdfViewer({ attachmentId, url: attachment.signedUrl, title: safeDecodeFileName(attachment.fileName) });
+      return;
+    }
+    await openExternalAttachment(attachmentId);
+  }, [loadFreshAttachments, openExternalAttachment]);
+  const saveAttachment = useCallback(async (attachmentId: string) => {
+    if (savingAttachmentId) return;
+    setSavingAttachmentId(attachmentId);
+    try {
+      const attachment = (await loadFreshAttachments())?.find((item) => item.id === attachmentId);
+      if (!attachment?.signedUrl) throw new Error('첨부파일 주소를 불러오지 못했습니다.');
+      await downloadRemoteFileToUserStorage({
+        url: attachment.signedUrl,
+        fileName: safeDecodeFileName(attachment.fileName),
+        mimeType: attachment.mimeType,
+        tempPrefix: 'board-attachment',
+        fallbackFileName: `board-attachment-${attachmentId}`,
+      });
+      showToast({ message: '다운로드 폴더에 저장했어요.', variant: 'success' });
+    } catch (error) {
+      logBoardError('attachment-save', error);
+      Alert.alert('저장 실패', error instanceof Error && error.message ? error.message : '첨부파일을 저장하지 못했어요. 다시 시도해 주세요.');
+    } finally {
+      setSavingAttachmentId(null);
+    }
+  }, [loadFreshAttachments, savingAttachmentId]);
   const modalReactionCounts = {
     like: modalReactions.like,
     heart: modalReactions.heart,
@@ -1104,6 +1141,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
       setCollapsedThreadIds([]);
       setIsThreadInitialized(false);
       setPreviewImage(null);
+      setPdfViewer(null);
     }
   }, [selectedPost]);
 
@@ -1482,7 +1520,21 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                             <Text style={styles.fileCardName} numberOfLines={2}>{fileName}</Text>
                             <Text style={styles.fileCardMeta}>{size ? `${kind} · ${size}` : kind}</Text>
                           </View>
-                          <Feather name="chevron-right" size={18} color={TEXT_MUTED} />
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`${fileName} 저장`}
+                            accessibilityState={{ busy: savingAttachmentId === item.id, disabled: !!savingAttachmentId }}
+                            disabled={!!savingAttachmentId}
+                            hitSlop={6}
+                            style={({ pressed }) => [styles.fileSaveButton, pressed && { opacity: 0.6 }]}
+                            onPress={() => {
+                              void saveAttachment(item.id);
+                            }}
+                          >
+                            {savingAttachmentId === item.id
+                              ? <ActivityIndicator size="small" color={TEXT_MUTED} />
+                              : <Feather name="download" size={18} color={TEXT_MUTED} />}
+                          </Pressable>
                         </Pressable>
                       );
                     })}
@@ -1600,6 +1652,24 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
         images={previewImage?.images ?? []}
         initialIndex={previewImage?.initialIndex ?? 0}
         onClose={closePreviewImage}
+        onSave={(index) => {
+          const imageId = previewImage?.images[index]?.id;
+          if (imageId) void saveAttachment(imageId);
+        }}
+        saving={!!savingAttachmentId}
+      />
+      <PdfViewerModal
+        visible={!!pdfViewer}
+        url={pdfViewer?.url ?? null}
+        title={pdfViewer?.title ?? ''}
+        onClose={() => setPdfViewer(null)}
+        onSave={() => {
+          if (pdfViewer) void saveAttachment(pdfViewer.attachmentId);
+        }}
+        saving={!!savingAttachmentId}
+        onOpenExternal={() => {
+          if (pdfViewer) void openExternalAttachment(pdfViewer.attachmentId);
+        }}
       />
     </SafeAreaView>
   );
@@ -1974,6 +2044,7 @@ const styles = StyleSheet.create({
   fileCardBody: { flex: 1, minWidth: 0, gap: 2 },
   fileCardName: { fontSize: 15, lineHeight: 21, fontWeight: '600', color: CHARCOAL },
   fileCardMeta: { fontSize: 12, color: TEXT_MUTED },
+  fileSaveButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6' },
   imageStrip: { gap: 8 },
   imageThumb: {
     width: 112,

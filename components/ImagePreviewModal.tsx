@@ -38,6 +38,9 @@ type ImagePreviewModalProps = {
   images: PreviewImageItem[];
   initialIndex?: number;
   onClose: () => void;
+  /** Shows a save button for the image on screen; callers without saving omit it. */
+  onSave?: (index: number) => void;
+  saving?: boolean;
 };
 
 const OVERLAY_HORIZONTAL_PADDING = 16;
@@ -220,7 +223,7 @@ export function ZoomableImage({ uri, pageWidth, pageHeight, isZoomed, onZoomStat
   );
 }
 
-export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }: ImagePreviewModalProps) {
+export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose, onSave, saving }: ImagePreviewModalProps) {
   const { width, height } = useWindowDimensions();
   const pageWidth = Math.max(width - OVERLAY_HORIZONTAL_PADDING * 2, 1);
   const defaultBodyHeight = Math.max(height - 140, 1);
@@ -290,6 +293,20 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }
                 <Text style={styles.indexText}>{`총 ${totalCount}장 중 ${currentIndex + 1}번째`}</Text>
               )}
             </View>
+            {onSave && totalCount > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="사진 저장"
+                accessibilityState={{ busy: !!saving, disabled: !!saving }}
+                disabled={saving}
+                style={({ pressed }) => [styles.closeButton, (pressed || saving) && { opacity: 0.7 }]}
+                onPress={() => onSave(currentIndex)}
+              >
+                {saving
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Feather aria-hidden accessible={false} name="download" size={20} color="#fff" />}
+              </Pressable>
+            ) : null}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="사진 미리보기 닫기"
@@ -381,11 +398,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
     marginBottom: 12,
   },
   headerTextWrap: {
     flex: 1,
-    marginRight: 12,
+    marginRight: 4,
   },
   title: {
     color: '#fff',
