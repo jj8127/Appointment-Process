@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import type { MessengerHubPerson } from '@/lib/messenger-hub-model';
 
 const ACCENT = '#F36F21';
@@ -27,17 +27,15 @@ export function MessengerPersonProfileSheet({
   onClose,
   onStartChat,
 }: MessengerPersonProfileSheetProps) {
-  const insets = useSafeAreaInsets();
-
   return (
-    <Modal
+    <SystemBarsModal
       animationType="slide"
       onRequestClose={onClose}
       presentationStyle="overFullScreen"
       transparent
       visible={visible && person !== null}
     >
-      <View style={styles.root}>
+      {(insets) => <View style={styles.root}>
         <Pressable
           accessibilityLabel="프로필 닫기"
           accessibilityRole="button"
@@ -47,7 +45,7 @@ export function MessengerPersonProfileSheet({
         {person ? (
           <View
             accessibilityViewIsModal
-            style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}
+            style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}
           >
             <View style={styles.handle} />
             <View style={styles.header}>
@@ -103,8 +101,8 @@ export function MessengerPersonProfileSheet({
             </Pressable>
           </View>
         ) : null}
-      </View>
-    </Modal>
+      </View>}
+    </SystemBarsModal>
   );
 }
 

@@ -1,8 +1,8 @@
 import { Feather } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 type OptionSheetFieldProps<T extends string> = {
@@ -32,7 +32,6 @@ export function OptionSheetField<T extends string>({
   hideLabel = false,
 }: OptionSheetFieldProps<T>) {
   const [open, setOpen] = useState(false);
-  const insets = useSafeAreaInsets();
   const close = () => setOpen(false);
 
   return (
@@ -51,12 +50,12 @@ export function OptionSheetField<T extends string>({
       </Pressable>
       {!!error?.trim() && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
 
-      <Modal visible={open} transparent animationType="slide" statusBarTranslucent onRequestClose={close}>
-        <Pressable accessibilityLabel={`${label} 선택 닫기`} style={styles.backdrop} onPress={close}>
+      <SystemBarsModal visible={open} transparent animationType="slide" onRequestClose={close}>
+        {(insets) => <Pressable accessibilityLabel={`${label} 선택 닫기`} style={styles.backdrop} onPress={close}>
           <View
             accessibilityViewIsModal
             onStartShouldSetResponder={() => true}
-            style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, SPACING.base) + SPACING.sm }]}
+            style={[styles.sheet, { paddingBottom: insets.bottom + SPACING.base }]}
           >
             <View style={styles.handle} />
             <Text accessibilityRole="header" style={styles.sheetTitle}>{label}</Text>
@@ -78,8 +77,8 @@ export function OptionSheetField<T extends string>({
               })}
             </ScrollView>
           </View>
-        </Pressable>
-      </Modal>
+        </Pressable>}
+      </SystemBarsModal>
     </View>
   );
 }
