@@ -13,7 +13,13 @@ import Animated, {
 import { Skeleton } from '@/components/LoadingSkeleton';
 import { QueryReadState } from '@/components/QueryReadState';
 import { type BoardActor, fetchBoardCategories, fetchBoardList } from '@/lib/board-api';
-import { FC_HOME_MOTION, formatHomeRelativeTime, getHomeCategoryTone, isRecentHomePost } from '@/lib/fc-home-sections';
+import {
+  FC_HOME_MOTION,
+  formatHomeRelativeTime,
+  getHomeCategoryTone,
+  isUnreadHomePost,
+  rankHomeBoardPosts,
+} from '@/lib/fc-home-sections';
 
 const EASE = Easing.bezier(0.2, 0.8, 0.2, 1);
 const ALL = '';
@@ -57,15 +63,18 @@ export function FcHomeNews({ actor, sessionScope, latestNotice, latestNoticeLoad
   );
   const categoryName = useMemo(() => new Map(categories.map((category) => [category.id, category.name])), [categories]);
   const chips = useMemo(() => [{ id: ALL, name: '전체' }, ...categories.map(({ id, name }) => ({ id, name }))], [categories]);
-  const posts = postsQuery.data?.items ?? [];
-  // The prototype leads with one large post: a pinned one when present, otherwise the newest.
-  const featured = posts.find((post) => post.isPinned) ?? posts[0] ?? null;
-  const rows = posts.filter((post) => post !== featured).slice(0, 2);
-  const recentCount = categoryId === ALL ? posts.filter((post) => isRecentHomePost(post.createdAt)).length : 0;
-  const [allRecentCount, setAllRecentCount] = useState(0);
+  // The list returns every pinned post plus the newest ones; unread must-read posts lead, then the board order.
+  const posts = useMemo(() => rankHomeBoardPosts(postsQuery.data?.items ?? []), [postsQuery.data]);
+  const featured = posts[0] ?? null;
+  const rows = posts.slice(1, 3);
+  // Counts follow the 전체 list so switching chips does not change the header.
+  const unreadCount = posts.filter((post) => isUnreadHomePost(post)).length;
+  const unreadMustReadCount = posts.filter((post) => post.isPinned && post.isRead === false).length;
+  const [allCounts, setAllCounts] = useState({ unread: 0, mustRead: 0 });
   useEffect(() => {
-    if (categoryId === ALL && postsQuery.data) setAllRecentCount(recentCount);
-  }, [categoryId, postsQuery.data, recentCount]);
+    if (categoryId === ALL && postsQuery.data) setAllCounts({ unread: unreadCount, mustRead: unreadMustReadCount });
+  }, [categoryId, postsQuery.data, unreadCount, unreadMustReadCount]);
+  const featuredUnread = !!featured && isUnreadHomePost(featured);
 
   // The selection pill slides to the tapped chip.
   const layouts = useRef<Record<string, { x: number; width: number }>>({});
@@ -112,8 +121,13 @@ export function FcHomeNews({ actor, sessionScope, latestNotice, latestNoticeLoad
         <View style={styles.sectionTitle}>
           <Image source={require('@/assets/images/fc-home/section-notice.png')} style={styles.sectionIcon} accessibilityIgnoresInvertColors />
           <Text style={styles.title}>
-            새 소식{allRecentCount > 0 ? <Text style={styles.titleCount}> {allRecentCount}</Text> : null}
+            새 소식{allCounts.unread > 0 ? <Text style={styles.titleCount}> {allCounts.unread}</Text> : null}
           </Text>
+          {allCounts.mustRead > 0 ? (
+            <Text style={styles.mustReadBadge} accessibilityLabel={`안 읽은 필독 ${allCounts.mustRead}건`}>
+              필독 {allCounts.mustRead}
+            </Text>
+          ) : null}
         </View>
         <Pressable onPress={onOpenBoard} hitSlop={8} accessibilityRole="button" accessibilityLabel="게시판 열기">
           <Text style={styles.link}>게시판</Text>
@@ -156,12 +170,18 @@ export function FcHomeNews({ actor, sessionScope, latestNotice, latestNoticeLoad
             <Pressable
               onPress={() => onOpenPost(featured.id)}
               accessibilityRole="button"
-              style={({ pressed }) => [styles.featured, pressed && styles.featuredPressed]}
+              accessibilityLabel={`${featuredUnread ? '안 읽음, ' : ''}${featured.isPinned ? '필독, ' : ''}${featured.title}`}
+              style={({ pressed }) => [
+                styles.featured,
+                featured.isPinned && featuredUnread && styles.featuredMustRead,
+                pressed && styles.featuredPressed,
+              ]}
             >
               <View style={styles.metaRow}>
                 {featured.isPinned ? <Text style={[styles.tag, styles.tagPinned]}>필독</Text> : null}
                 <CategoryTag name={categoryName.get(featured.categoryId)} />
                 <View style={styles.flex} />
+                {featuredUnread ? <View style={styles.newDot} /> : null}
                 <Text style={styles.time}>{formatHomeRelativeTime(featured.createdAt)}</Text>
               </View>
               <Text style={styles.featuredTitle} numberOfLines={2}>{featured.title}</Text>
@@ -181,18 +201,18 @@ export function FcHomeNews({ actor, sessionScope, latestNotice, latestNoticeLoad
             </Pressable>
           ) : null}
           {rows.map((post, rowIndex) => {
-            const recent = isRecentHomePost(post.createdAt);
+            const unread = isUnreadHomePost(post);
             return (
               <Pressable
                 key={post.id}
                 onPress={() => onOpenPost(post.id)}
                 accessibilityRole="button"
-                accessibilityLabel={recent ? `새 글, ${post.title}` : post.title}
+                accessibilityLabel={`${unread ? '안 읽음, ' : ''}${post.isPinned ? '필독, ' : ''}${post.title}`}
                 style={({ pressed }) => [styles.row, rowIndex < rows.length - 1 && styles.rowDivider, pressed && styles.rowPressed]}
               >
-                <CategoryTag name={categoryName.get(post.categoryId)} />
-                <Text style={[styles.rowTitle, !recent && styles.rowTitleOld]} numberOfLines={1}>{post.title}</Text>
-                {recent ? <View style={styles.newDot} /> : null}
+                {post.isPinned ? <Text style={[styles.tag, styles.tagPinned]}>필독</Text> : <CategoryTag name={categoryName.get(post.categoryId)} />}
+                <Text style={[styles.rowTitle, !unread && styles.rowTitleOld]} numberOfLines={1}>{post.title}</Text>
+                {unread ? <View style={styles.newDot} /> : null}
                 <Text style={styles.time}>{formatHomeRelativeTime(post.createdAt)}</Text>
               </Pressable>
             );
@@ -224,6 +244,7 @@ const styles = StyleSheet.create({
   sectionIcon: { width: 28, height: 28 },
   title: { fontSize: 18, fontWeight: '800', color: '#111827' },
   titleCount: { fontSize: 15, color: '#c65312' },
+  mustReadBadge: { fontSize: 12, fontWeight: '800', color: '#ffffff', backgroundColor: '#c65312', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden' },
   link: { fontSize: 14, fontWeight: '500', color: '#4b5563' },
   flex: { flex: 1 },
   chips: { gap: 6, paddingBottom: 14 },
@@ -234,6 +255,7 @@ const styles = StyleSheet.create({
   chipTextSelected: { color: '#ffffff', fontWeight: '700' },
   loading: { gap: 10, paddingBottom: 10 },
   featured: { gap: 10, padding: 16, borderRadius: 18, backgroundColor: '#f7f8fa' },
+  featuredMustRead: { backgroundColor: '#fff4ec', borderWidth: 1, borderColor: '#fed7aa' },
   featuredPressed: { backgroundColor: '#eef0f3' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   featuredTitle: { fontSize: 16, lineHeight: 23, fontWeight: '800', color: '#111827' },

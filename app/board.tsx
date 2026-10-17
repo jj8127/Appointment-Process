@@ -81,7 +81,12 @@ import {
   BOARD_LIST_SORT_LABELS,
   BoardListSortOption,
 } from '@/lib/board-list-query';
-import { patchBoardListViewedPost, type BoardListPages } from '@/lib/board-list-pages';
+import {
+  patchBoardListPageViewedPost,
+  patchBoardListViewedPost,
+  type BoardListPage,
+  type BoardListPages,
+} from '@/lib/board-list-pages';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { getBoardAuthorRoleLabel, getBoardRoleBadgeStyle } from '@/lib/staff-identity';
 import { ANIMATION } from '@/lib/theme';
@@ -591,6 +596,13 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
         predicate: (query) => query.queryKey[6] === 'infinite' && query.queryKey[7] === sessionScope,
       },
       (current) => patchBoardListViewedPost(current, targetPostId, nextViewCount),
+    );
+    // The FC home preview keeps its own single-page list; clear its unread mark too.
+    queryClient.setQueriesData<BoardListPage>(
+      {
+        queryKey: ['board-posts', actor.role, actor.residentId, 'home'],
+      },
+      (current) => patchBoardListPageViewedPost(current, targetPostId, nextViewCount),
     );
   }, [actor, detailData?.post?.id, detailData?.post?.viewCount, queryClient, sessionScope]);
 

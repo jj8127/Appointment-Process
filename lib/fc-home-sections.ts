@@ -147,6 +147,24 @@ export function isRecentHomePost(iso: string | null | undefined, now = new Date(
   return !Number.isNaN(time) && now.getTime() - time <= 7 * 86_400_000;
 }
 
+type HomeBoardPost = { isPinned: boolean; isRead?: boolean; createdAt: string };
+
+/** Unread by the viewer's read state; before the list reports it, fall back to "posted this week". */
+export function isUnreadHomePost(post: HomeBoardPost, now = new Date()) {
+  return post.isRead === undefined ? isRecentHomePost(post.createdAt, now) : !post.isRead;
+}
+
+/**
+ * Home preview order: unread must-read, then other unread posts, then the rest, each in the board's order.
+ * Without reported read state nothing is reordered, so pinned posts still lead as before.
+ */
+export function rankHomeBoardPosts<T extends HomeBoardPost>(posts: T[]): T[] {
+  const rank = (post: T) => (post.isRead !== false ? 2 : post.isPinned ? 0 : 1);
+  return posts.map((post, index) => ({ post, index }))
+    .sort((a, b) => rank(a.post) - rank(b.post) || a.index - b.index)
+    .map(({ post }) => post);
+}
+
 export type FcHomeShortcutIcon =
   | 'profile'
   | 'documents'

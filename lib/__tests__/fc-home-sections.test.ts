@@ -10,6 +10,8 @@ import {
   getNewlyCompletedSteps,
   isFcHomeNextActionWaiting,
   isRecentHomePost,
+  isUnreadHomePost,
+  rankHomeBoardPosts,
   pickHomeExamRounds,
 } from '@/lib/fc-home-sections';
 
@@ -96,6 +98,26 @@ describe('FC home news tags', () => {
     expect(isRecentHomePost('2026-10-10T01:00:00Z', NOW)).toBe(true);
     expect(isRecentHomePost('2026-10-08T00:00:00Z', NOW)).toBe(false);
     expect(isRecentHomePost(null, NOW)).toBe(false);
+  });
+
+  it('leads with unread must-read, then other unread posts, then already-read ones', () => {
+    const post = (id: string, isPinned: boolean, isRead?: boolean) => ({ id, isPinned, isRead, createdAt: '2026-10-10T01:00:00Z' });
+    const ranked = rankHomeBoardPosts([
+      post('read-pin', true, true),
+      post('unread-pin', true, false),
+      post('new', false, false),
+      post('old', false, true),
+    ]);
+    expect(ranked.map((item) => item.id)).toEqual(['unread-pin', 'new', 'read-pin', 'old']);
+    expect(rankHomeBoardPosts([post('legacy-pin', true), post('legacy', false)]).map((item) => item.id))
+      .toEqual(['legacy-pin', 'legacy']);
+  });
+
+  it('treats read state as unread when reported and falls back to recency when it is not', () => {
+    expect(isUnreadHomePost({ isPinned: false, isRead: false, createdAt: '2026-01-01T00:00:00Z' }, NOW)).toBe(true);
+    expect(isUnreadHomePost({ isPinned: false, isRead: true, createdAt: '2026-10-10T01:00:00Z' }, NOW)).toBe(false);
+    expect(isUnreadHomePost({ isPinned: false, createdAt: '2026-10-10T01:00:00Z' }, NOW)).toBe(true);
+    expect(isUnreadHomePost({ isPinned: false, createdAt: '2026-10-08T00:00:00Z' }, NOW)).toBe(false);
   });
 });
 

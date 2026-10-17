@@ -1,5 +1,10 @@
 import type { BoardListItem } from '@/lib/board-api';
-import { mergeBoardListPages, patchBoardListViewedPost, type BoardListPages } from '@/lib/board-list-pages';
+import {
+  mergeBoardListPages,
+  patchBoardListPageViewedPost,
+  patchBoardListViewedPost,
+  type BoardListPages,
+} from '@/lib/board-list-pages';
 
 const item = (id: string, viewCount = 0) => ({ id, stats: { viewCount, commentCount: 2 } }) as BoardListItem;
 
@@ -41,5 +46,14 @@ describe('board paged list cache', () => {
     expect(patchBoardListViewedPost(patched, 'pin', 7)).toBe(patched);
     expect(patchBoardListViewedPost(data, 'missing', 7)).toBe(data);
     expect(patchBoardListViewedPost(undefined, 'pin', 7)).toBeUndefined();
+  });
+
+  it('marks a viewed post read in the single-page home preview', () => {
+    const page = { items: [item('pin'), item('other')], nextCursor: null };
+    const patched = patchBoardListPageViewedPost(page, 'pin', 4)!;
+    expect(patched.items[0]).toMatchObject({ isRead: true, stats: { viewCount: 4 } });
+    expect(patched.items[1]).toBe(page.items[1]);
+    expect(patchBoardListPageViewedPost(patched, 'pin', 4)).toBe(patched);
+    expect(patchBoardListPageViewedPost(undefined, 'pin', 4)).toBeUndefined();
   });
 });
