@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -57,6 +57,10 @@ const formatDate = (value: string) => {
 
 export default function RequestBoardFcCodesScreen() {
   const router = useRouter();
+  // The compose screen sends the company whose code blocks a request and expects to get the FC back.
+  const { company: companyParam, returnTo } = useLocalSearchParams<{ company?: string; returnTo?: string }>();
+  const returnToCompose = returnTo === 'request-create';
+  const prefillCompanyHandled = useRef(false);
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
   const {
@@ -164,6 +168,13 @@ export default function RequestBoardFcCodesScreen() {
   }, [fetchData]);
 
   useEffect(() => {
+    const company = typeof companyParam === 'string' ? companyParam.trim() : '';
+    if (!company || !hasLoadedData || prefillCompanyHandled.current) return;
+    prefillCompanyHandled.current = true;
+    openAdd(company);
+  }, [companyParam, hasLoadedData]);
+
+  useEffect(() => {
     if (!hydrated || canManageCodes) return;
     router.replace('/request-board' as any);
   }, [canManageCodes, hydrated, router]);
@@ -217,9 +228,9 @@ export default function RequestBoardFcCodesScreen() {
   }, [activeCodes, formInsurerName]);
 
   /* ─── Modal actions ─── */
-  const openAdd = () => {
+  const openAdd = (prefillCompany = '') => {
     setEditingCode(null);
-    setFormInsurerName('');
+    setFormInsurerName(prefillCompany);
     setFormCodeValue('');
     setFormError(null);
     setShowSuggestions(false);
@@ -265,6 +276,10 @@ export default function RequestBoardFcCodesScreen() {
         if (!res.success) throw new Error(res.error ?? '등록에 실패했습니다.');
       }
       closeEditModal();
+      if (returnToCompose && !editingCode) {
+        router.back();
+        return;
+      }
       await fetchData();
     } catch (err) {
       setFormError(toRequestBoardSessionErrorMessage(err, '저장에 실패했습니다.'));
@@ -356,7 +371,7 @@ export default function RequestBoardFcCodesScreen() {
               !canManageCodes && { opacity: 0.5 },
               pressed && canManageCodes && { opacity: 0.8 },
             ]}
-            onPress={openAdd}
+            onPress={() => openAdd()}
             disabled={!canManageCodes || loading || Boolean(fetchError) || !hasLoadedData}
           >
             <Feather name="plus" size={16} color="#fff" />

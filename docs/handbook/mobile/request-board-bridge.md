@@ -7,6 +7,14 @@ source_of_truth: app/request-board*.tsx + lib/chat-keyboard-layout.ts + lib/requ
 
 # Mobile Playbook: GaramLink Bridge
 
+## 2026-10-17 제출 전 막힘 미리 보기
+
+- 작성 화면은 `lib/request-board-submit-readiness.ts`로 운전구분 → 보험 상품 → 요청 내용 → 설계매니저 → 설계코드를 화면 순서대로 계산해 "보내기 전 확인" 카드에 보여준다. 설계코드는 매니저를 고른 뒤에만 판정한다(`ok: null`).
+- 막힌 항목이 있으면 제출 버튼은 회색으로 비활성화하지 않고 첫 막힘의 할 일(예: "설계매니저를 선택해주세요")을 문구로 보여주며, 누르면 해당 섹션으로 스크롤·입력 포커스·매니저 시트·설계코드 화면으로 보낸다. `submitRequest`의 기존 검사는 최종 방어선으로 유지한다.
+- 운전구분이 없는 기존 고객은 고객 카드 아래에서 바로 고르고 저장하며, 이미 고른 상품·매니저·요청 내용·첨부는 지우지 않는다.
+- 설계코드가 없으면 `/request-board-fc-codes?company=…&returnTo=request-create`로 보내 회사명이 채워진 등록창을 열고, 새 코드를 저장하면 작성 화면으로 돌아온다(복귀 시 기존 focus 재조회가 코드를 갱신).
+- 상품 수 × 매니저 수가 2 이상이면 버튼 위에 생성될 의뢰 건수를 보여준다.
+
 ## 2026-10-15 키보드가 열린 상태의 탭
 
 키보드가 열린 상태에서 화면 안의 버튼·칩·선택 행 탭이 키보드만 닫고 무시되던 문제를 막기 위해 의뢰 첨부 정보 시트와 메신저 첨부 대기 줄은 `keyboardShouldPersistTaps="always"`를 쓴다. 메시지·검색 목록은 `"handled"`를 유지한다.
