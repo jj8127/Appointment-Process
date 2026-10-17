@@ -3,12 +3,13 @@ import { StyleSheet, Text, View } from 'react-native';
 import { REQUEST_PROGRESS_STEPS, type RequestProgressTone } from '@/lib/request-board-progress';
 import { COLORS } from '@/lib/theme';
 
-export const REQUEST_PROGRESS_TONE: Record<RequestProgressTone, { color: string; background: string }> = {
-  waiting: { color: '#B45309', background: '#FEF3C7' },
-  active: { color: '#2563EB', background: '#EFF6FF' },
-  action: { color: '#7C3AED', background: '#F5F3FF' },
-  done: { color: '#059669', background: '#ECFDF5' },
-  stopped: { color: '#DC2626', background: '#FEF2F2' },
+// Moving requests stay in the app's orange; only "my turn" is filled, finished is green, stopped is red.
+export const REQUEST_PROGRESS_TONE: Record<RequestProgressTone, { color: string; background: string; fill: string }> = {
+  waiting: { color: '#9a3412', background: COLORS.primaryPale, fill: COLORS.primary },
+  active: { color: '#9a3412', background: COLORS.primaryPale, fill: COLORS.primary },
+  action: { color: '#ffffff', background: COLORS.primaryButton, fill: COLORS.primaryButton },
+  done: { color: '#047857', background: '#ecfdf5', fill: COLORS.success },
+  stopped: { color: '#b91c1c', background: '#fef2f2', fill: COLORS.error },
 };
 
 type Props = {
@@ -20,7 +21,7 @@ type Props = {
 
 /** Four segments for 수락 대기 → 설계 중 → 검토 대기 → 완료; a stopped request keeps its reached step in red. */
 export function RequestProgressSteps({ step, tone, showLabels = false }: Props) {
-  const fill = REQUEST_PROGRESS_TONE[tone].color;
+  const fill = REQUEST_PROGRESS_TONE[tone].fill;
   return (
     <View accessibilityLabel={`진행 ${step + 1}/${REQUEST_PROGRESS_STEPS.length} 단계`}>
       <View style={styles.bar}>

@@ -1407,13 +1407,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border.light,
   },
-  progressSummaryMine: { borderColor: '#DDD6FE', backgroundColor: '#FAF8FF' },
+  progressSummaryMine: { borderColor: '#fed7aa', backgroundColor: COLORS.primaryPale },
   progressSummaryTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   progressSummaryTurn: { fontSize: 14, fontWeight: '800', color: COLORS.gray[600] },
   progressSummaryManager: { fontSize: 13, color: COLORS.gray[600] },
   assignmentProgress: { gap: 8, marginTop: 12 },
   assignmentTurn: { fontSize: 13, fontWeight: '700', color: COLORS.gray[600] },
-  assignmentTurnMine: { color: '#7C3AED' },
+  assignmentTurnMine: { color: COLORS.primaryButton },
   container: { flex: 1, backgroundColor: COLORS.gray[50] },
 
   /* Header */

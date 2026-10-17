@@ -465,38 +465,28 @@ export default function RequestBoardRequestsScreen() {
           </View>
         </View>
 
-        <View style={styles.summaryRow}>
+        {/* One summary in the app's orange tone: what waits on the manager, and what waits on me. */}
+        <View style={styles.summaryStrip}>
           <Pressable
-            style={({ pressed }) => [
-              styles.summaryCard,
-              styles.summaryCardPending,
-              pressed && styles.summaryCardPressed,
-            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`설계매니저 수락 대기 ${pendingCount}건`}
+            style={({ pressed }) => [styles.summaryHalf, pressed && styles.summaryCardPressed]}
             onPress={() => setActiveFilter('pending')}
           >
-            <View style={[styles.summaryIconWrap, { backgroundColor: '#FEF3C7' }]}>
-              <Feather name="clock" size={15} color="#B45309" />
-            </View>
-            <View style={styles.summaryText}>
-              <Text style={styles.summaryLabel}>설계매니저 수락 대기</Text>
-              <Text style={[styles.summaryValue, { color: '#B45309' }]}>{pendingCount}건</Text>
-            </View>
+            <Text style={styles.summaryLabel}>매니저 수락 대기</Text>
+            <Text style={styles.summaryValue}>{pendingCount}<Text style={styles.summaryUnit}>건</Text></Text>
           </Pressable>
+          <View style={styles.summaryDivider} />
           <Pressable
-            style={({ pressed }) => [
-              styles.summaryCard,
-              styles.summaryCardReview,
-              pressed && styles.summaryCardPressed,
-            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`내 검토 대기 ${reviewPendingCount}건`}
+            style={({ pressed }) => [styles.summaryHalf, pressed && styles.summaryCardPressed]}
             onPress={() => setActiveFilter('review_pending')}
           >
-            <View style={[styles.summaryIconWrap, { backgroundColor: '#EDE9FE' }]}>
-              <Feather name="eye" size={15} color="#7C3AED" />
-            </View>
-            <View style={styles.summaryText}>
-              <Text style={styles.summaryLabel}>FC 검토 대기</Text>
-              <Text style={[styles.summaryValue, { color: '#7C3AED' }]}>{reviewPendingCount}건</Text>
-            </View>
+            <Text style={styles.summaryLabel}>내 검토 대기</Text>
+            <Text style={[styles.summaryValue, reviewPendingCount > 0 && styles.summaryValueAlert]}>
+              {reviewPendingCount}<Text style={styles.summaryUnit}>건</Text>
+            </Text>
           </Pressable>
         </View>
 
@@ -599,12 +589,23 @@ export default function RequestBoardRequestsScreen() {
 
 /* ─── Styles ─── */
 const styles = StyleSheet.create({
+  summaryStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.md,
+    borderRadius: 18,
+    backgroundColor: COLORS.primaryPale,
+  },
+  summaryHalf: { flex: 1, paddingHorizontal: 18, paddingVertical: 14, gap: 2 },
+  summaryDivider: { width: 1, alignSelf: 'stretch', marginVertical: 14, backgroundColor: '#fed7aa' },
+  summaryUnit: { fontSize: 14, fontWeight: '700' as const, color: COLORS.gray[600] },
+  summaryValueAlert: { color: COLORS.primaryButton },
   progressBlock: { marginTop: 10, gap: 8 },
   progressMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   turnText: { fontSize: 13, fontWeight: '700', color: COLORS.gray[600] },
-  turnTextMine: { color: '#7C3AED' },
+  turnTextMine: { color: COLORS.primaryButton },
   managerText: { flex: 1, textAlign: 'right', fontSize: 12, color: COLORS.gray[500] },
-  container: { flex: 1, backgroundColor: COLORS.gray[50] },
+  container: { flex: 1, backgroundColor: '#f3f4f6' },
 
   /* Header */
   header: {
@@ -640,50 +641,19 @@ const styles = StyleSheet.create({
     color: COLORS.text.muted,
     marginTop: 1,
   },
-  summaryRow: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-    marginBottom: SPACING.sm,
-  },
-  summaryCard: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    backgroundColor: COLORS.gray[50],
-  },
-  summaryCardPending: {
-    borderColor: '#FCD34D',
-  },
-  summaryCardReview: {
-    borderColor: '#DDD6FE',
-  },
   summaryCardPressed: {
     opacity: 0.85,
   },
-  summaryIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  summaryText: {
-    flex: 1,
-  },
   summaryLabel: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontSize: 12,
     fontWeight: '600' as const,
-    color: COLORS.gray[600],
+    color: '#9a3412',
   },
   summaryValue: {
-    fontSize: TYPOGRAPHY.fontSize.base,
+    fontSize: 22,
     fontWeight: '800' as const,
-    marginTop: 1,
+    color: COLORS.gray[900],
+    fontVariant: ['tabular-nums'],
   },
 
   /* Filter tabs */
@@ -700,21 +670,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    backgroundColor: COLORS.gray[50],
+    minHeight: 34,
+    paddingHorizontal: 14,
+    borderRadius: 17,
+    backgroundColor: COLORS.gray[100],
   },
-  filterTabActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
+  filterTabActive: { backgroundColor: COLORS.primaryButton },
   filterTabText: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontSize: 13,
     fontWeight: '600' as const,
-    color: COLORS.gray[600],
+    color: COLORS.gray[700],
   },
   filterTabTextActive: { color: '#fff' },
   filterTabCount: {
@@ -727,14 +692,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   filterTabCountActive: { backgroundColor: 'rgba(255,255,255,0.3)' },
-  filterTabCountAlert: { backgroundColor: '#FEE2E2' },
+  filterTabCountAlert: { backgroundColor: COLORS.primaryPale },
   filterTabCountText: {
     fontSize: 10,
     fontWeight: '700' as const,
     color: COLORS.gray[600],
   },
   filterTabCountTextActive: { color: '#fff' },
-  filterTabCountTextAlert: { color: COLORS.error },
+  filterTabCountTextAlert: { color: COLORS.primaryButton },
 
   /* Error */
   errorBanner: {
@@ -758,7 +723,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: SPACING.sm,
   },
-  loadingText: { fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.text.muted },
   emptyWrap: {
     flex: 1,
     alignItems: 'center',
