@@ -32,6 +32,7 @@ const NON_REAUTH_PATTERNS = [
   '회원가입이 완료되지 않았습니다',
   '비활성화된 계정입니다',
   '계정을 찾을 수 없습니다',
+  '관리자에게 문의',
 ];
 
 function extractMessage(input: unknown): string | null {
