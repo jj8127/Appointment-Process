@@ -5,12 +5,14 @@ import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } fro
 import { ONBOARDING_STEP_NAMES, STEP_NOW_LABEL, type StepNow, type StepNowTone } from '@/lib/onboarding-step-now';
 import { COLORS } from '@/lib/theme';
 
-const TONE: Record<StepNowTone, { color: string; background: string; fill: string }> = {
-  mine: { color: '#ffffff', background: COLORS.primaryButton, fill: COLORS.primaryButton },
-  waiting: { color: '#9a3412', background: COLORS.primaryPale, fill: COLORS.primary },
-  rejected: { color: '#b91c1c', background: '#fef2f2', fill: COLORS.error },
-  done: { color: '#047857', background: '#ecfdf5', fill: COLORS.success },
-  locked: { color: COLORS.gray[600], background: COLORS.gray[100], fill: COLORS.gray[300] },
+const ORANGE = COLORS.primaryButton;
+
+const TONE: Record<StepNowTone, { color: string; background: string; ring: string }> = {
+  mine: { color: '#ffffff', background: COLORS.primaryButton, ring: ORANGE },
+  waiting: { color: '#9a3412', background: COLORS.primaryPale, ring: ORANGE },
+  rejected: { color: '#b91c1c', background: '#fef2f2', ring: COLORS.error },
+  done: { color: '#047857', background: '#ecfdf5', ring: ORANGE },
+  locked: { color: COLORS.gray[600], background: COLORS.gray[100], ring: '#e5e7eb' },
 };
 
 type Props = {
@@ -28,25 +30,40 @@ export function OnboardingStepNowCard({ step, now, action, style }: Props) {
   const earlierDone = now.tone !== 'locked';
   return (
     <View style={[styles.card, style]} accessibilityLabel={`위촉 ${step}단계 ${ONBOARDING_STEP_NAMES[step - 1]}, ${STEP_NOW_LABEL[now.tone]}`}>
-      <View style={styles.topRow}>
-        <Text style={styles.stepText}>
-          {step}/5 · {ONBOARDING_STEP_NAMES[step - 1]}
-        </Text>
-        <View style={[styles.pill, { backgroundColor: tone.background }]}>
-          <Text style={[styles.pillText, { color: tone.color }]}>{STEP_NOW_LABEL[now.tone]}</Text>
-        </View>
+      {/* Same stepper as the home progress card, without its celebration motion. */}
+      <View style={styles.stepper} accessibilityRole="progressbar" accessibilityLabel={`위촉 진행 ${step}단계`}>
+        <View style={styles.track} />
+        {earlierDone && step > 1 ? (
+          <View style={[styles.trackFill, { width: `${((step - (now.tone === 'done' ? 0 : 1)) / 4) * 80}%` }]} />
+        ) : null}
+        {ONBOARDING_STEP_NAMES.map((name, index) => {
+          const stepNum = index + 1;
+          const done = (earlierDone && stepNum < step) || (stepNum === step && now.tone === 'done');
+          const active = stepNum === step && !done;
+          return (
+            <View key={name} style={styles.stepItem}>
+              {done ? (
+                <View style={styles.circleDone}>
+                  <Feather name="check" size={15} color="#ffffff" />
+                </View>
+              ) : active && now.tone !== 'locked' ? (
+                <View style={[styles.circleActive, { borderColor: tone.ring }]}>
+                  <View style={[styles.circleActiveDot, { backgroundColor: tone.ring }]} />
+                </View>
+              ) : (
+                <View style={styles.circleTodo}>
+                  <Text style={styles.circleTodoText}>{stepNum}</Text>
+                </View>
+              )}
+              <Text style={[styles.stepLabel, stepNum === step && styles.stepLabelActive, done && stepNum !== step && styles.stepLabelDone]}>
+                {name}
+              </Text>
+            </View>
+          );
+        })}
       </View>
-      <View style={styles.bar}>
-        {ONBOARDING_STEP_NAMES.map((name, index) => (
-          <View
-            key={name}
-            style={[
-              styles.segment,
-              earlierDone && index < step - 1 && styles.segmentDone,
-              index === step - 1 && { backgroundColor: tone.fill },
-            ]}
-          />
-        ))}
+      <View style={[styles.pill, { backgroundColor: tone.background }]}>
+        <Text style={[styles.pillText, { color: tone.color }]}>{STEP_NOW_LABEL[now.tone]}</Text>
       </View>
       <Text style={styles.title}>{now.title}</Text>
       {now.detail ? <Text style={styles.detail}>{now.detail}</Text> : null}
@@ -72,18 +89,26 @@ export function OnboardingStepNowCard({ step, now, action, style }: Props) {
 
 const styles = StyleSheet.create({
   card: { marginBottom: 12, padding: 20, borderRadius: 24, backgroundColor: '#ffffff' },
-  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  stepText: { fontSize: 13, fontWeight: '700', color: COLORS.gray[600] },
-  pill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  stepper: { flexDirection: 'row', marginBottom: 18 },
+  track: { position: 'absolute', left: '10%', right: '10%', top: 13, height: 2, backgroundColor: '#eceef1' },
+  trackFill: { position: 'absolute', left: '10%', top: 13, height: 2, backgroundColor: ORANGE },
+  stepItem: { flex: 1, alignItems: 'center', gap: 8 },
+  circleDone: { width: 28, height: 28, borderRadius: 14, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center' },
+  circleActive: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center' },
+  circleActiveDot: { width: 10, height: 10, borderRadius: 5 },
+  circleTodo: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: '#e5e7eb', backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center' },
+  circleTodoText: { fontSize: 12, fontWeight: '700', color: '#9ca3af' },
+  stepLabel: { fontSize: 12, lineHeight: 16, color: '#6b7280', fontWeight: '500', textAlign: 'center' },
+  stepLabelActive: { color: COLORS.gray[900], fontWeight: '700' },
+  stepLabelDone: { color: '#374151' },
+  pill: { alignSelf: 'flex-start', marginBottom: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   pillText: { fontSize: 12, fontWeight: '800' },
-  bar: { flexDirection: 'row', gap: 4, marginTop: 12, marginBottom: 16 },
-  segment: { flex: 1, height: 6, borderRadius: 3, backgroundColor: COLORS.gray[200] },
-  segmentDone: { backgroundColor: COLORS.primary },
   title: { fontSize: 20, lineHeight: 28, fontWeight: '800', color: COLORS.gray[900], letterSpacing: -0.3 },
   detail: { marginTop: 6, fontSize: 14, lineHeight: 20, color: COLORS.gray[600] },
-  reasonBox: { marginTop: 14, padding: 14, borderRadius: 16, backgroundColor: '#fef2f2' },
+  // Neutral box with a red edge: the label carries the alarm, the reason stays easy to read.
+  reasonBox: { marginTop: 14, padding: 14, borderRadius: 12, borderLeftWidth: 3, borderLeftColor: COLORS.error, backgroundColor: COLORS.gray[50] },
   reasonLabel: { fontSize: 12, fontWeight: '800', color: '#b91c1c' },
-  reasonText: { marginTop: 4, fontSize: 15, lineHeight: 22, color: '#7f1d1d' },
+  reasonText: { marginTop: 4, fontSize: 15, lineHeight: 22, color: COLORS.gray[800] },
   action: {
     flexDirection: 'row',
     alignItems: 'center',

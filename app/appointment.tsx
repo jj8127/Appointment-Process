@@ -631,23 +631,22 @@ const styles = StyleSheet.create({
     color: COLORS.text.primary
   },
   rejectBox: {
-    backgroundColor: COLORS.errorLight,
-    borderColor: '#FECACA',
-    borderWidth: 1,
     padding: SPACING.md,
-    borderRadius: RADIUS.md,
-    marginBottom: SPACING.md,
+    borderRadius: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.error,
+    backgroundColor: COLORS.gray[50],
   },
   rejectTitle: {
-    fontSize: TYPOGRAPHY.fontSize.xs + 1,
-    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    fontSize: 12,
+    fontWeight: '800',
     color: '#B91C1C',
-    marginBottom: SPACING.xs + 2,
+    marginBottom: 4,
   },
   rejectText: {
-    fontSize: TYPOGRAPHY.fontSize.xs + 1,
-    color: '#7F1D1D',
-    lineHeight: 18,
+    fontSize: 15,
+    color: COLORS.gray[800],
+    lineHeight: 22,
   },
   badgeRow: {
     flexDirection: 'row',

@@ -1003,9 +1003,9 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   cardRejected: { borderColor: '#fecaca' },
-  rejectBox: { padding: 12, borderRadius: 14, backgroundColor: '#fef2f2' },
+  rejectBox: { padding: 12, borderRadius: 12, borderLeftWidth: 3, borderLeftColor: COLORS.error, backgroundColor: COLORS.gray[50] },
   rejectLabel: { fontSize: 12, fontWeight: '800', color: '#b91c1c' },
-  rejectText: { marginTop: 4, fontSize: 15, lineHeight: 22, color: '#7f1d1d' },
+  rejectText: { marginTop: 4, fontSize: 15, lineHeight: 22, color: COLORS.gray[800] },
   btnRetry: { backgroundColor: COLORS.primaryButton, borderColor: COLORS.primaryButton },
   btnRetryText: { color: '#fff' },
 

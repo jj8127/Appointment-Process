@@ -14,7 +14,8 @@ import { enableScreens } from 'react-native-screens';
 import { TourGuideProvider } from 'rn-tourguide';
 
 import { AppAlertProvider } from '@/components/AppAlertProvider';
-import CompactHeader from '@/components/CompactHeader';
+import CompactHeader, { FallbackBackButton } from '@/components/CompactHeader';
+import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import SplashAnimation from '@/components/SplashAnimation';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import FcTourTooltip from '@/components/FcTourTooltip';
@@ -92,6 +93,12 @@ const baseHeader = {
   header: (props: any) => <CompactHeader {...props} />,
   contentStyle: { backgroundColor: DEFAULT_SCREEN_BACKGROUND },
 } as const;
+
+// Appointment step screens open from notifications too; back then lands on the insurance home.
+const onboardingStepHeader = {
+  ...baseHeader,
+  headerLeft: () => <FallbackBackButton href={INSURANCE_HOME_ROUTE} />,
+};
 
 const authHeader = {
   ...baseHeader,
@@ -729,8 +736,8 @@ function RootLayout() {
                               ),
                             }}
                           />
-                          <Stack.Screen name="consent" options={{ ...baseHeader, title: '보증 보험 동의' }} />
-                          <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
+                          <Stack.Screen name="consent" options={{ ...onboardingStepHeader, title: '보증 보험 동의' }} />
+                          <Stack.Screen name="docs-upload" options={{ ...onboardingStepHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
                           <Stack.Screen
@@ -759,7 +766,7 @@ function RootLayout() {
                           <Stack.Screen name="muted-conversations" options={{ headerShown: false }} />
 
                           <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
-                          <Stack.Screen name="appointment" options={{ ...baseHeader, title: '생명/손해 위촉' }} />
+                          <Stack.Screen name="appointment" options={{ ...onboardingStepHeader, title: '생명/손해 위촉' }} />
                           <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
                           <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
                           <Stack.Screen name="notice-detail" options={{ ...baseHeader, title: '공지 상세' }} />
@@ -828,8 +835,8 @@ function RootLayout() {
                           <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '추가 정보 입력 안내' }} />
                           <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
                           <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />
-                          <Stack.Screen name="consent" options={{ ...baseHeader, title: '보증 보험 동의' }} />
-                          <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
+                          <Stack.Screen name="consent" options={{ ...onboardingStepHeader, title: '보증 보험 동의' }} />
+                          <Stack.Screen name="docs-upload" options={{ ...onboardingStepHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
                           <Stack.Screen
@@ -858,7 +865,7 @@ function RootLayout() {
                           <Stack.Screen name="muted-conversations" options={{ headerShown: false }} />
 
                           <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
-                      <Stack.Screen name="appointment" options={{ ...baseHeader, title: '생명/손해 위촉' }} />
+                      <Stack.Screen name="appointment" options={{ ...onboardingStepHeader, title: '생명/손해 위촉' }} />
                           <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
                           <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
                           <Stack.Screen name="notice-detail" options={{ ...baseHeader, title: '공지 상세' }} />

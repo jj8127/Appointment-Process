@@ -21,7 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { Button } from '@/components/Button';
-import CompactHeader from '@/components/CompactHeader';
+import CompactHeader, { FallbackBackButton } from '@/components/CompactHeader';
 import { OnboardingStepNowCard } from '@/components/OnboardingStepNowCard';
 import { getHanwhaStepNow } from '@/lib/onboarding-step-now';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
@@ -33,6 +33,7 @@ import { useSession } from '@/hooks/use-session';
 import { downloadRemoteFileToUserStorage } from '@/lib/native-file-actions';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { openExternalUrl } from '@/lib/open-external-url';
+import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
@@ -418,6 +419,7 @@ function HanwhaCommissionScreenContent() {
           headerShown: true,
           title: '다위촉 URL',
           header: (props) => <CompactHeader {...props} />,
+          headerLeft: () => <FallbackBackButton href={INSURANCE_HOME_ROUTE} />,
         }}
       />
 

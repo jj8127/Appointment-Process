@@ -10,7 +10,8 @@ export type StepNow = {
   reason?: string | null;
 };
 
-export const ONBOARDING_STEP_NAMES = ['보증보험 동의', '문서 제출', '다위촉 URL', '생명/손해 위촉', '완료'] as const;
+// Same labels as the home progress card's stepper.
+export const ONBOARDING_STEP_NAMES = ['보증 보험 동의', '문서제출', '다위촉 URL', '생명/손해 위촉', '완료'] as const;
 
 export const STEP_NOW_LABEL: Record<StepNowTone, string> = {
   mine: '내 차례',
