@@ -9,6 +9,10 @@ import {
   parseDesignerCompanyNameFromAffiliation,
 } from '../request-board-auth';
 import { buildFcPasswordSyncUpstream } from '../request-board-password-sync';
+import {
+  fcAccountDeletionRetirementOperationId,
+  retireFcBeforeAccountDeletion,
+} from '../request-board-fc-retirement';
 
 describe('administrator-assisted first-password challenge contract', () => {
   it('signs account retirement with a distinct purpose, exact source/operation and no phone or password fields', async () => {
@@ -158,5 +162,76 @@ describe('request_board password-sync assertion contract', () => {
         process.env.REQUEST_BOARD_BRIDGE_TOKEN_SECRET = originalBridgeSecret;
       }
     }
+  });
+});
+
+describe('FC hard-deletion GaramLink retirement guard', () => {
+  const fcId = '11111111-1111-4111-8111-111111111111';
+  const envNames = ['REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET', 'REQUEST_BOARD_PASSWORD_SYNC_URL', 'REQUEST_BOARD_PASSWORD_SYNC_TOKEN'] as const;
+  const original = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
+  beforeEach(() => {
+    process.env.REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET = 'synthetic-retirement-secret';
+    process.env.REQUEST_BOARD_PASSWORD_SYNC_URL = 'https://garamlink.example.test/api/auth/sync-password';
+    process.env.REQUEST_BOARD_PASSWORD_SYNC_TOKEN = 'synthetic-transport-secret';
+  });
+  afterEach(() => {
+    for (const name of envNames) {
+      if (original[name] === undefined) delete process.env[name];
+      else process.env[name] = original[name];
+    }
+  });
+  const reply = (status: number, body: unknown) => jest.fn(async (_url: URL, _init: RequestInit) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
+  const erased = (operationId: string, alreadyApplied = false) => ({ success: true, data: {
+    operationId, upstreamAccountId: fcId, policyVersion: '2026-10-14', accountErased: true, runtimeRevoked: true,
+    runtimeRevocationScope: 'persisted_auth_and_local_runtime', remoteSocketRevalidationIntervalMs: 5000, alreadyApplied } });
+
+  it('derives one stable retirement operation per FC so retries replay the committed receipt', async () => {
+    const operationId = await fcAccountDeletionRetirementOperationId(fcId);
+    expect(operationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    await expect(fcAccountDeletionRetirementOperationId(fcId.toUpperCase())).resolves.toBe(operationId);
+    await expect(fcAccountDeletionRetirementOperationId('22222222-2222-4222-8222-222222222222')).resolves.not.toBe(operationId);
+  });
+
+  it('signs the FC, operation and phone digits, and allows deletion only on an exact erased receipt', async () => {
+    const operationId = await fcAccountDeletionRetirementOperationId(fcId);
+    const fetchImpl = reply(200, erased(operationId, true));
+    await expect(retireFcBeforeAccountDeletion(fcId, '010-0000-0000', fetchImpl))
+      .resolves.toEqual({ ok: true, affiliateState: 'erased', preservedRole: null });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(String(url)).toBe('https://garamlink.example.test/api/auth/retire-affiliate-account');
+    expect((init.headers as Record<string, string>)['x-request-bridge-token']).toBe('synthetic-transport-secret');
+    const assertion = JSON.parse(String(init.body)).authAssertion as string;
+    expect(JSON.parse(Buffer.from(assertion.split('.')[0], 'base64url').toString('utf8')))
+      .toMatchObject({ upstream_account_id: fcId, operation_id: operationId, phone: '01000000000' });
+  });
+
+  it('accepts no GaramLink account for the signed phone and a preserved designer account', async () => {
+    const operationId = await fcAccountDeletionRetirementOperationId(fcId);
+    const base = { operationId, upstreamAccountId: fcId, policyVersion: '2026-10-14', alreadyApplied: false };
+    await expect(retireFcBeforeAccountDeletion(fcId, '01000000000', reply(200, { success: true, data: {
+      ...base, status: 'no_affiliate_account', accountErased: false, runtimeRevoked: false } })))
+      .resolves.toMatchObject({ ok: true, affiliateState: 'erased' });
+    await expect(retireFcBeforeAccountDeletion(fcId, '01000000000', reply(200, { success: true, data: {
+      ...base, status: 'company_account_preserved', preservedRole: 'designer', accountErased: false,
+      runtimeRevoked: false, independentLoginAvailable: true } })))
+      .resolves.toEqual({ ok: true, affiliateState: 'company_account_preserved', preservedRole: 'designer' });
+  });
+
+  it('blocks deletion when GaramLink rejects, mismatches the receipt, fails, or is not configured', async () => {
+    await expect(retireFcBeforeAccountDeletion(fcId, '01000000000', reply(409, { success: false, code: 'AFFILIATE_IDENTITY_UNBOUND' })))
+      .resolves.toEqual({ ok: false, reason: 'affiliate_identity_unbound' });
+    await expect(retireFcBeforeAccountDeletion(fcId, '01000000000', reply(409, { success: false, code: 'AFFILIATE_RETIREMENT_CONFLICT' })))
+      .resolves.toEqual({ ok: false, reason: 'affiliate_unavailable' });
+    await expect(retireFcBeforeAccountDeletion(fcId, '01000000000', reply(200, erased('33333333-3333-4333-8333-333333333333'))))
+      .resolves.toEqual({ ok: false, reason: 'affiliate_unavailable' });
+    await expect(retireFcBeforeAccountDeletion(fcId, '01000000000', jest.fn(async () => { throw new Error('offline'); })))
+      .resolves.toEqual({ ok: false, reason: 'affiliate_unavailable' });
+    delete process.env.REQUEST_BOARD_PASSWORD_SYNC_TOKEN;
+    const unconfigured = reply(200, erased(await fcAccountDeletionRetirementOperationId(fcId)));
+    await expect(retireFcBeforeAccountDeletion(fcId, '01000000000', unconfigured))
+      .resolves.toEqual({ ok: false, reason: 'affiliate_unavailable' });
+    expect(unconfigured).not.toHaveBeenCalled();
   });
 });

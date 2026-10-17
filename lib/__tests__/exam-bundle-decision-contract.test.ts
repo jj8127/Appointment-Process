@@ -320,7 +320,7 @@ describe('exam bundle client and admin source contract', () => {
   });
 
   it('commits all database deletion work through one trusted transaction, then cleans storage', () => {
-    for (const source of [deleteAccountEdge, webFcDelete]) {
+    for (const source of [deleteAccountEdge]) {
       expect(source).toContain(
         "'delete_account_core_transaction_v1'",
       );

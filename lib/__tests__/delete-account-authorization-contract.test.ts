@@ -187,4 +187,25 @@ describe('delete-account caller source boundary', () => {
     expect(webSelfDeleteRoute).toContain('Authorization: `Bearer ${anonKey}`');
     expect(webSelfDeleteRoute).not.toContain('SUPABASE_SERVICE_ROLE_KEY');
   });
+
+  it('retires the GaramLink account before every hard FC deletion and stops when it is not retired', () => {
+    const adminEdge = read('supabase/functions/admin-action/index.ts');
+    const adminDelete = adminEdge.split("if (action === 'deleteFc')")[1]?.split("if (action === 'sendNotification')")[0] ?? '';
+    const webAdminDelete = read('web/src/app/api/fc-delete/route.ts');
+    for (const [source, guardedBy] of [
+      [edge, "if (authorization.targetRole === 'fc')"],
+      [adminDelete, "if (!fcId) return fail('fcId is required');"],
+    ] as const) {
+      const retire = source.indexOf('await retireFcBeforeAccountDeletion(');
+      expect(source.indexOf(guardedBy)).toBeGreaterThanOrEqual(0);
+      expect(retire).toBeGreaterThan(source.indexOf(guardedBy));
+      expect(retire).toBeLessThan(source.indexOf("'delete_account_core_transaction_v1'"));
+      expect(source.slice(retire)).toMatch(/if \(retired\.ok === false\) \{\s+const blocked = fcRetirementBlockedResponse\(retired\.reason\);\s+return /);
+    }
+    expect(webAdminDelete).toContain('/functions/v1/admin-action');
+    expect(webAdminDelete).toContain("action: 'deleteFc'");
+    expect(webAdminDelete).not.toContain('delete_account_core_transaction_v1');
+    expect(webAdminDelete).not.toContain('.storage');
+    expect(read('supabase/functions/platform-service/index.ts')).toContain('await retireRequestBoardFcAccount(job.source_fc_id,operationId,');
+  });
 });

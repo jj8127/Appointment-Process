@@ -211,7 +211,7 @@ describe('diagnostic privacy source boundary', () => {
     expect(webDeleteRoute).not.toMatch(
       /logger\.(?:debug|info|warn|error)\([\s\S]{0,160}\b(?:fcId|phone|cleanupOutboxId)\b/,
     );
-    expect(webDeleteRoute).toContain('pathCount: paths.length');
+    expect(webDeleteRoute).toContain("logger.warn('[api/fc-delete] deletion rejected', { status: response.status })");
 
     const settings = read('web/src/app/dashboard/settings/page.tsx');
     expect(settings).not.toContain('Starting account deletion via delete-account function');
