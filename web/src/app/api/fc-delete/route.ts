@@ -1,12 +1,8 @@
-import { cleanupFailed } from '@/lib/upstream-response-policy';
 import { NextResponse } from 'next/server';
 
-import { adminSupabase } from '@/lib/admin-supabase';
 import { adminRouteAuthErrorResponse, requireAdminRoute } from '@/lib/admin-route-auth';
-import { serverError } from '@/lib/api-error';
 import { checkRateLimit } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
-import { requireAccountDeletionReceipt } from '@shared/supabase/functions/_shared/ux-mutation-contract';
 
 type DeleteRequestBody = {
   fcId?: string;
@@ -15,29 +11,8 @@ type DeleteRequestBody = {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return Array.from(
-    new Set(
-      value
-        .map((item) => String(item ?? '').trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-async function removeStorageObjects(bucket: string, paths: string[]) {
-  if (paths.length === 0) return false;
-  const failed = await cleanupFailed(() => adminSupabase.storage.from(bucket).remove(paths));
-  const error = failed;
-  if (error) {
-    logger.warn('[api/fc-delete] post-commit storage cleanup failed', {
-      bucket,
-      pathCount: paths.length,
-    });
-  }
-  return Boolean(error);
-}
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 export async function POST(req: Request) {
   let body: DeleteRequestBody;
@@ -65,58 +40,51 @@ export async function POST(req: Request) {
   if (!UUID_PATTERN.test(fcId)) {
     return NextResponse.json({ error: '유효하지 않은 FC 식별자입니다.' }, { status: 400 });
   }
-
-  const { data, error } = await adminSupabase.rpc(
-    'delete_account_core_transaction_v1',
-    {
-      p_target_role: 'fc',
-      p_target_id: fcId,
-    },
-  );
-  if (error) {
-    if (error.message === 'account_delete_target_not_found') {
-      logger.warn('[api/fc-delete] deletion target not found', { code: error.code ?? 'unknown' });
-      return NextResponse.json({ error: '삭제할 FC 계정을 찾을 수 없습니다.' }, { status: 404 });
-    }
-    return serverError(error, 'api/fc-delete');
+  if (!supabaseUrl || !serviceKey) {
+    return NextResponse.json({ error: 'Missing Supabase admin credentials.' }, { status: 500 });
   }
 
-  let result: ReturnType<typeof requireAccountDeletionReceipt>;
+  // admin-action deleteFc retires the GaramLink account before the local
+  // deletion transaction, so the web keeps no second deletion path.
+  let response: Response;
   try {
-    result = requireAccountDeletionReceipt(data);
+    response = await fetch(`${supabaseUrl}/functions/v1/admin-action`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        adminPhone: sessionCheck.session.residentId,
+        action: 'deleteFc',
+        payload: { fcId },
+      }),
+    });
   } catch {
-    return NextResponse.json({ error: '삭제 결과를 확인할 수 없습니다. 목록을 새로고침하여 확인해 주세요.' }, { status: 502 });
-  }
-  const proofPaths = readStringArray(result.proof_paths);
-  const documentPaths = readStringArray(result.document_paths);
-  const boardPaths = readStringArray(result.board_attachment_paths);
-  const authUserIds = readStringArray(result.auth_user_ids);
-  const cleanupOutboxId = result.cleanup_outbox_id;
-
-  const cleanupWarnings = await Promise.all([
-    removeStorageObjects('exam-payment-proofs', proofPaths),
-    removeStorageObjects('fc-documents', documentPaths),
-    removeStorageObjects('board-attachments', boardPaths),
-  ]);
-
-  let authCleanupWarning = false;
-  for (const authUserId of authUserIds) {
-    if (await cleanupFailed(() => adminSupabase.auth.admin.deleteUser(authUserId))) authCleanupWarning = true;
+    logger.warn('[api/fc-delete] admin-action unavailable');
+    return NextResponse.json({ error: '삭제 요청을 처리하지 못했습니다. 다시 시도해 주세요.' }, { status: 502 });
   }
 
-  const postCommitCleanupFailed =
-    cleanupWarnings.some(Boolean) || authCleanupWarning;
-  const outboxError = await cleanupFailed(async () => await adminSupabase.rpc('record_account_deletion_cleanup_attempt_v1', {
-    p_outbox_id: cleanupOutboxId,
-    p_succeeded: !postCommitCleanupFailed,
-    p_error_code: postCommitCleanupFailed
-      ? 'post_commit_cleanup_partial_failure'
-      : null,
-  }));
+  const result = await response.json().catch(() => null) as {
+    ok?: unknown;
+    deleted?: unknown;
+    cleanupWarning?: unknown;
+    message?: unknown;
+  } | null;
+  if (!response.ok || result?.ok !== true) {
+    logger.warn('[api/fc-delete] deletion rejected', { status: response.status });
+    return NextResponse.json({
+      error: typeof result?.message === 'string' && result.message
+        ? result.message
+        : '삭제 요청을 처리하지 못했습니다. 다시 시도해 주세요.',
+    }, { status: response.ok ? 502 : response.status });
+  }
 
   return NextResponse.json({
     ok: true,
     deleted: result.deleted === true,
-    cleanupWarning: postCommitCleanupFailed || Boolean(outboxError),
+    cleanupWarning: result.cleanupWarning === true,
   });
 }
