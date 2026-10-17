@@ -10,6 +10,7 @@ import './globals.css';
 import { SessionProvider } from '@/hooks/use-session';
 import { PwaServiceWorkerRegistrar } from '@/components/PwaServiceWorkerRegistrar';
 import { SystemNotificationRetirer } from '@/components/SystemNotificationRetirer';
+import { BRAND_ORANGE_TUPLE, HANWHA_ORANGE } from '@/lib/brand-colors';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
@@ -18,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ko" suppressHydrationWarning>
       <head>
         <ColorSchemeScript />
-        <meta name="theme-color" content="#f97316" />
+        <meta name="theme-color" content={HANWHA_ORANGE} />
       </head>
       <body>
         <PwaServiceWorkerRegistrar />
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           defaultColorScheme="light"
           theme={{
             primaryColor: 'orange',
+            colors: { orange: BRAND_ORANGE_TUPLE },
             fontFamily: 'Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif',
           }}
         >

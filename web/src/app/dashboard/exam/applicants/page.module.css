@@ -151,3 +151,32 @@
   border-color: #475569;
   background: #f8fafc;
 }
+
+/* Keep reception and row actions reachable while the wide table scrolls horizontally. */
+.stickyStatus,
+.stickyActions {
+  position: sticky;
+  z-index: 1;
+}
+
+.stickyStatus {
+  right: 116px;
+  box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.18);
+}
+
+.stickyActions {
+  right: 0;
+  min-width: 116px;
+  width: 116px;
+}
+
+th.stickyStatus,
+th.stickyActions {
+  z-index: 3;
+  background: var(--mantine-color-gray-0);
+}
+
+.applicantRow td.stickyStatus,
+.applicantRow td.stickyActions {
+  background-clip: padding-box;
+}

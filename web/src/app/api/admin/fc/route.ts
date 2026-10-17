@@ -38,6 +38,8 @@ import { buildPhoneCandidates, getVerifiedServerSession } from '@/lib/server-ses
 import { requireSupabaseRows } from '@/lib/supabase-query-contract';
 import { readAdminDocumentWorkflowRows } from '@/lib/admin-document-workflow';
 import { ADMIN_FC_DETAIL_SELECT } from '@/lib/admin-document-client';
+import { summarizeFcActionPayload, toAuditAction } from '@/lib/admin-audit-event';
+import { recordAdminAuditEvent } from '@/lib/admin-audit-server';
 
 type AdminAction =
   | 'getProfile'
@@ -99,6 +101,22 @@ type AdminRequest = {
   action: AdminAction;
   payload: Record<string, unknown>;
 };
+
+// Actions that change FC data; reads, signed URLs and upload-URL issuance are not history.
+const AUDITED_FC_ACTIONS = new Set<AdminAction>([
+  'updateProfile',
+  'updateStatus',
+  'updateAllowanceDate',
+  'updateHanwhaSubmissionDate',
+  'markDawichokUrlSent',
+  'updateAppointmentDate',
+  'updateDocsRequest',
+  'updateDocStatus',
+  'deleteDocFile',
+  'retryDocumentCleanup',
+  'deleteHanwhaPdf',
+  'sendReminder',
+]);
 
 const DAWICHOK_URL_SIGNAL_STATUSES = new Set([
   'docs-approved',
@@ -489,6 +507,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: sessionCheck.error }, { status: sessionCheck.status });
   }
 
+  const response = await runAdminFcAction(action, payload, sessionCheck);
+  if (response.ok && AUDITED_FC_ACTIONS.has(action) && sessionCheck.session.role === 'admin') {
+    // The change is committed; a failed history write is logged but does not undo it.
+    const fcId = typeof payload?.fcId === 'string' ? payload.fcId : null;
+    await recordAdminAuditEvent(
+      { role: 'admin', staffType: sessionCheck.session.staffType, residentDigits: sessionCheck.session.residentDigits },
+      { category: 'fc_action', action: toAuditAction(action), targetFcId: fcId, detail: summarizeFcActionPayload(payload) },
+    );
+  }
+  return response;
+}
+
+async function runAdminFcAction(
+  action: AdminAction,
+  payload: AdminRequest['payload'],
+  sessionCheck: SessionSuccessResult<AdminSession | ManagerSession>,
+): Promise<Response> {
   try {
     if (isRetiredLegacyRecommenderSearchAction(action)) {
       return badRequest('추천인 검색은 추천인 관계 전용 경로에서만 사용할 수 있습니다.');

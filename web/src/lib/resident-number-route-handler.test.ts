@@ -54,6 +54,7 @@ test('resident-number route handler returns session failures before later work',
     normalizeFcIds,
     logInvalidJson: () => undefined,
     logReadFailure: () => undefined,
+    recordView: async () => true,
   });
 
   assert.deepEqual(response, {
@@ -90,6 +91,7 @@ test('resident-number route handler rate-limits before parsing the body', async 
     normalizeFcIds,
     logInvalidJson: () => undefined,
     logReadFailure: () => undefined,
+    recordView: async () => true,
   });
 
   assert.deepEqual(response, {
@@ -124,6 +126,7 @@ test('resident-number route handler logs invalid JSON and returns current 400 re
     normalizeFcIds,
     logInvalidJson: (error) => invalidJsonLogs.push(error),
     logReadFailure: () => undefined,
+    recordView: async () => true,
   });
 
   assert.deepEqual(response, {
@@ -150,6 +153,7 @@ test('resident-number route handler short-circuits empty fcIds without reading r
     normalizeFcIds,
     logInvalidJson: () => undefined,
     logReadFailure: () => undefined,
+    recordView: async () => true,
   });
 
   assert.deepEqual(response, {
@@ -165,6 +169,7 @@ test('resident-number route handler short-circuits empty fcIds without reading r
 
 test('resident-number route handler reads normalized fcIds with current staff phone and log prefix', async () => {
   const readCalls: unknown[] = [];
+  const viewed: string[][] = [];
 
   const response = await handleResidentNumberRoutePost({
     getSession: async () => ({
@@ -189,6 +194,7 @@ test('resident-number route handler reads normalized fcIds with current staff ph
     normalizeFcIds,
     logInvalidJson: () => undefined,
     logReadFailure: () => undefined,
+    recordView: async (fcIds) => { viewed.push(fcIds); return true; },
   });
 
   assert.deepEqual(response, {
@@ -210,6 +216,25 @@ test('resident-number route handler reads normalized fcIds with current staff ph
     staffPhone: '01012345678',
     logPrefix: '[api/admin/resident-numbers]',
   }]);
+  assert.deepEqual(viewed, [['fc-1']], 'only FCs whose number is returned are recorded');
+});
+
+test('resident-number route handler withholds numbers when the view cannot be recorded', async () => {
+  const response = await handleResidentNumberRoutePost({
+    getSession: async () => ({ ok: true, session: { residentDigits: verifiedStaffDigits } }),
+    checkRateLimit: () => ({ allowed: true }),
+    readJson: async () => ({ fcIds: ['fc-1'] }),
+    readResidentNumbers: async () => ({
+      residentNumbers: { 'fc-1': '900101-1234567' },
+      residentNumberStatuses: { 'fc-1': 'ready' },
+    }),
+    normalizeFcIds,
+    logInvalidJson: () => undefined,
+    logReadFailure: () => undefined,
+    recordView: async () => false,
+  });
+  assert.equal(response.status, 503);
+  assert.equal(JSON.stringify(response.body).includes('900101'), false);
 });
 
 test('resident-number route handler rejects non-object JSON payloads', async () => {
@@ -228,6 +253,7 @@ test('resident-number route handler rejects non-object JSON payloads', async () 
     normalizeFcIds,
     logInvalidJson: () => undefined,
     logReadFailure: () => undefined,
+    recordView: async () => true,
   });
 
   assert.deepEqual(response, {
@@ -255,6 +281,7 @@ test('resident-number route handler rejects more than twenty unique FC ids', asy
     normalizeFcIds,
     logInvalidJson: () => undefined,
     logReadFailure: () => undefined,
+    recordView: async () => true,
   });
 
   assert.deepEqual(response, {
@@ -281,6 +308,7 @@ test('resident-number route handler logs read failures and returns the generic 5
     normalizeFcIds,
     logInvalidJson: () => undefined,
     logReadFailure: (error) => readFailureLogs.push(error),
+    recordView: async () => true,
   });
 
   assert.deepEqual(response, {

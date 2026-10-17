@@ -230,6 +230,19 @@
 - 기존 보험 초대는 유지하고 `service=care`는 공통 가입으로 연결한다. 목적별 pending과 owner 보호·명시 query 우선순위를 적용하며 신규 회원만 기존 서버 계약으로 연결한다. 공개 홍보 URL은 query-free다.
 - 기존 추천 공유·native controls·mobile acceptance suite를 확장했다. 오래된 mock의 판별기/수집기/로그인/문서 계약을 실제 기존 구현으로 갱신하며 새로운 러너나 일반 abstraction을 만들지 않는다.
 - 실제 제품 화면 컴포넌트를 React Native Web로 렌더하고 합성 계정·라우터 어댑터만 사용한다. 전체 Expo 개발 실행은 로컬 환경 설정 부재로 중단했다. native/실제 회원/SMS/OS 공유 전달은 미검증이며 설치 후 추천 코드 자동 보존을 보장하지 않는다. 최종 검사와 이미지 경로는 service-home revision-23 QA에 기록한다.
+<a id="20261016-admin-web-ux-r2-audit"></a>
+## 2026-10-16 관리자 web 메뉴·검색·브랜드 정리와 처리·다운로드·개인정보 조회 기록
+
+- 기준: 운영 `6b72d99` 위 `deploy/admin-web-ux-20261015`(운영 배포 `3d2fd16`). `release/all-surfaces-20261004`는 운영 계열이 아니어서 사용하지 않았다.
+- 메뉴: 홈 / 온보딩 / 시험 / 소통(공지사항 추가) / 추천·수당 / 관리(처리 이력, 관리자 쓰기 계정) / 개발(에이전트 룸, developer 전용). 상세 경로는 가장 구체적인 메뉴를 활성화한다. 에이전트 룸 API는 developer가 아니면 403.
+- 검색: 헤더 `GlobalFcSearch`가 대시보드와 같은 FC 목록 query key를 재사용하고, 이름·소속·연락처 숫자 3자리 이상으로 찾는다(Ctrl+K).
+- 브랜드: `lib/brand-colors.ts` 단일 주황 `#f36f21`, Mantine orange shade 6·theme-color·manifest 동일. 페이지 제목은 order 2·charcoal. 용어는 `서류 관리`, `1:1 메신저`로 정리하고 모바일과 공유하는 단계명 `2단계 문서제출`은 유지했다.
+- 기록: `supabase/migrations/20261016100000_admin_audit_events.sql`(schema.sql 동시 반영). 처리 기록은 변경 성공 후 best-effort, 엑셀 다운로드·주민번호 조회는 기록 실패 시 데이터를 반환하지 않는다(fail-closed). 주민번호·입력값은 저장하지 않는다. 상세는 `docs/handbook/backend/admin-audit-log.md`.
+- 검증: web-node 804/804, SQL PGlite 117/117(새 `admin-audit-events-sql` 포함), TypeScript, 변경 파일 ESLint, Sentry 업로드 없는 Next 운영 빌드. 합성 관리자 화면에서 메뉴 그룹·검색 확인.
+- 운영 적용(2026-10-16, 사용자 승인): Supabase MCP `apply_migration`은 도구 확인 단계가 자동 거절되어 3회 실패했고, 사용자가 SQL Editor에서 커밋본과 동일한 migration을 직접 실행했다. catalog로 테이블·RLS·권한(anon/authenticated 거부, service_role 허용)·append-only trigger 2개·주민번호 형태 check를 확인했다. 행은 쓰지 않았다. Supabase migration 이력(`supabase_migrations.schema_migrations`)에는 아직 기록되지 않았다.
+- 운영 배포: 다른 세션이 `3d2fd16` 위 핫픽스 `6c19783`을 이미 배포해 둔 상태여서, 이를 cherry-pick한 `f0dfa73b2daa27ded3711a3d7587a3ff7af3f7fa`(= `dc8062c` + `6c19783`)로 배포했다. 운영 대비 web 변경분이 `3d2fd16..dc8062c`와 동일함을 diff로 확인했다. Vercel `dpl_2KZ2XuBxLgEjra6U9iX5d7cUwWKY` READY, alias `adminweb-red.vercel.app`. 비로그인 요청에서 `/auth` 200, 대시보드 경로 307→`/auth`, 새 API 401. 배포 후 30분 오류 로그 0건·5xx 0건. 로그인 화면 동작은 사용자 확인 대기.
+- 처리 이력 화면 수정 배포: 조회 성공에도 오류 알림이 보이던 무조건 렌더링과 실패 시 빈 목록 문구, 잘리는 구분 배지를 고친 `d67cdfde5c732cb5b0bd3427eaefc17a1ef01161`을 `f0dfa73` 위에서 배포했다. Vercel `dpl_D8Y281HK6YYZ4oGsGCBw96ZLygW6` READY, alias `adminweb-red.vercel.app`, 경로 응답 정상, 배포 후 오류 로그 0건·5xx 0건. 목록 상태 회귀는 기존 `board-read-state-runtime` 목록 화면 반복 검사에 처리 이력을 추가해 고정했다.
+- 후속: migration 이력을 맞추려면 로컬 파일을 운영 최신(`20261016120000`) 이후 버전으로 바꾸고 `supabase migration repair --status applied <version>`을 별도 승인 후 실행한다.
 
 <a id="20261013-cutover-review-repair"></a>
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리

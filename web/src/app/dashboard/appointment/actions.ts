@@ -12,6 +12,7 @@ import {
 } from '@/lib/privileged-action-input-policy';
 import { getVerifiedAdminSession } from '@/lib/server-session';
 import { requireProfileMutationReceipt } from '@/lib/user-intent-policy';
+import { recordAdminAuditEvent } from '@/lib/admin-audit-server';
 type UpdateAppointmentState = {
     success: boolean;
     message?: string;
@@ -267,6 +268,11 @@ export async function updateAppointmentAction(
     } else {
         notificationWarning = 'notification_target_unavailable';
     }
+
+    await recordAdminAuditEvent(
+        { role: 'admin', staffType: sessionCheck.session.staffType, residentDigits: sessionCheck.session.residentDigits },
+        { category: 'fc_action', action: 'appointment_decision', targetFcId: fcId, detail: { type, category } },
+    );
 
     revalidatePath('/dashboard/appointment');
     notificationWarning = workflowWarning ?? notificationWarning;

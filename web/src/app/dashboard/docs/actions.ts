@@ -12,6 +12,7 @@ import {
 } from '@/lib/privileged-action-input-policy';
 import { getVerifiedAdminSession } from '@/lib/server-session';
 import { readAdminDocumentWorkflowRows } from '@/lib/admin-document-workflow';
+import { recordAdminAuditEvent } from '@/lib/admin-audit-server';
 type UpdateDocStatusState = {
     success: boolean;
     message?: string;
@@ -189,6 +190,11 @@ export async function updateDocStatusAction(
         });
         return { success: false, error: '서류 상태를 업데이트하지 못했습니다.' };
     }
+
+    await recordAdminAuditEvent(
+        { role: 'admin', staffType: sessionCheck.session.staffType, residentDigits: sessionCheck.session.residentDigits },
+        { category: 'fc_action', action: 'document_decision', targetFcId: fcId, detail: { docType, status } },
+    );
 
     let message = '서류 상태가 업데이트되었습니다.';
 

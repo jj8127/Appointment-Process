@@ -29,7 +29,7 @@ function loadServerError() {
 }
 
 function loadAgentRoomRoute({
-  sessionResult = { ok: true, session: { role: 'admin' } },
+  sessionResult = { ok: true, session: { role: 'admin', staffType: 'developer' } },
   snapshot,
   snapshotError,
 } = {}) {
@@ -96,6 +96,9 @@ function loadAgentRoomFetcher() {
     if (id === '@mantine/core') return new Proxy({}, { get: () => noopComponent });
     if (id === '@tabler/icons-react') return new Proxy({}, { get: () => noopComponent });
     if (id === '@tanstack/react-query') return { useQuery: () => ({}) };
+    if (id === 'next/navigation') return { useRouter: () => ({ replace() {} }) };
+    if (id === 'react') return { useEffect() {} };
+    if (id === '@/hooks/use-session') return { useSession: () => ({ hydrated: true, staffType: 'developer' }) };
     if (id === '@/components/agent-room/AgentRoomScene') return { AgentRoomScene: noopComponent };
     if (id === '@/components/QueryErrorAlert') return { QueryErrorAlert: noopComponent };
     if (id === '@/lib/query-read-error') return { QueryReadError };
@@ -209,6 +212,17 @@ test('agent-room API prevents caching for successful and rejected reads', async 
   }).GET();
   assert.equal(unauthorized.status, 401);
   assert.equal(unauthorized.headers['Cache-Control'], 'no-store');
+});
+
+test('agent-room API serves developer accounts only', async () => {
+  for (const session of [{ role: 'manager', staffType: null }, { role: 'admin', staffType: 'admin' }]) {
+    const rejected = await loadAgentRoomRoute({
+      sessionResult: { ok: true, session },
+      snapshotError: new Error('snapshot must not be read'),
+    }).GET();
+    assert.equal(rejected.status, 403);
+    assert.equal(rejected.headers['Cache-Control'], 'no-store');
+  }
 });
 
 test('shared serverError logs private detail but returns only the stable public contract', () => {

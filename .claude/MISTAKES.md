@@ -5908,6 +5908,7 @@
 - Cause: the move failed, `cd` into the new path failed, and the following `rm -rf` was chained with `;`, so it ran in the previous working directory.
 - Guardrail: never chain `rm -rf` or prebuild after a `cd` with `;`. Use one `cd <path> && [ "$(pwd -W)" = "<path>" ] && ...` chain, or pass absolute paths to destructive commands. Check `git check-ignore` before assuming a generated folder is safe.
 - Evidence: the main checkout's `android/` is git-ignored and regenerated with the same `AndroidManifest.xml` hash (`5b8d9284`); only build outputs were lost.
+## 2026-10-15 | A field showed a fallback value that the save action ignored
 
 - Symptom: the appointment 확정일 input displayed the FC-submitted date, but confirm rejected it with "확정일을 선택해주세요"; re-clicking the same calendar day cleared the value.
 - Cause: the render path and `executeAction` derived the date separately; only the render path fell back to the submitted date.

@@ -16,6 +16,7 @@ import {
 } from '@shared/lib/referral-allowance-response.ts';
 import type { ReferralAllowanceAdminMutationExpectation } from '@shared/lib/referral-allowance-response.ts';
 import type { ReferralAllowanceStatement } from '@shared/types/referral-allowance';
+import { CHARCOAL } from '@/lib/brand-colors';
 
 const API = '/api/admin/referral-allowance';
 type Pilot = { manager_account_id: string | null; beneficiary_fc_id: string; employee_code: string; enabled: boolean; revision: number; name: string };
@@ -215,7 +216,7 @@ function AllowanceAdminWorkspace({ sessionKey }: { sessionKey: string }) {
     <Container size="lg" py="xl">
       <Stack gap="xl">
         <Group justify="space-between" align="flex-start">
-          <div><Title order={2}>증원수당 월별 관리</Title><Text c="dimmed" mt={6}>대상자를 선택하고 월별 자료를 검토·게시합니다. 각 계정은 본인 수당만 조회합니다.</Text></div>
+          <div><Title order={2} c={CHARCOAL}>증원수당 월별 관리</Title><Text c="dimmed" mt={6}>대상자를 선택하고 월별 자료를 검토·게시합니다. 각 계정은 본인 수당만 조회합니다.</Text></div>
           <Badge color="orange" variant="light" size="lg">등록 대상 {query.data ? `${query.data.recipients.length}명` : query.isPending ? '조회 중' : '확인 불가'}</Badge>
         </Group>
         <Alert color="orange" title="당월 신규 산정 내역">

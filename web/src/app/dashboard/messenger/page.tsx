@@ -22,10 +22,8 @@ import { IconArrowRight, IconExternalLink, IconFileText, IconMessageCircle2, Ico
 import { useQuery } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
+import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
 
 type FcNotifyProxyEnvelope<T> = {
   ok?: boolean;

@@ -11,7 +11,6 @@ import {
   Divider,
   Group,
   LoadingOverlay,
-  Modal,
   Paper,
   Popover,
   ScrollArea,
@@ -35,10 +34,12 @@ import { useCallback, useMemo, useRef, useState, useTransition } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { fetchAdminFcList, isAdminFcProfile } from '@/lib/admin-document-client';
 import { updateAppointmentAction } from './actions';
+import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 
 // FC Profile 타입 정의
 interface FcProfile {
@@ -67,9 +68,6 @@ interface FcProfile {
   fc_documents?: unknown[];
 }
 
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
-const HANWHA_ORANGE = '#F37321';
 const HANWHA_APPROVED_STATUSES = ['hanwha-commission-approved', 'appointment-completed', 'final-link-sent'] as const;
 
 const trimValue = (value?: string | null) => String(value ?? '').trim();
@@ -97,6 +95,15 @@ const hasInsuranceStageActivity = (fc: FcProfile) =>
 
 const isLegacyInsuranceStageRow = (fc: FcProfile) =>
   hasInsuranceStageActivity(fc) && !hasHanwhaApprovedPdf(fc);
+
+// The date shown in 확정일 is the date saved on confirm: typed value, then saved date, then FC-submitted date.
+const resolveInsuranceDate = (inputValue: unknown, dbDate?: string | null, subDate?: string | null): Date | null => {
+  if (inputValue === null) return null;
+  if (inputValue instanceof Date) return inputValue;
+  if (inputValue) return new Date(inputValue as string);
+  if (dbDate) return new Date(dbDate);
+  return subDate ? new Date(subDate) : null;
+};
 
 // --- Filter Types & Components ---
 type FilterState = Record<string, string[]>;
@@ -448,8 +455,8 @@ export default function AppointmentPage() {
     } else if (type === 'confirm') {
       const dateKey = category === 'life' ? 'lifeDate' : 'nonLifeDate';
       const dbDateKey = category === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
-      const dbDateValue = fc[dbDateKey];
-      const dateVal = input[dateKey as keyof typeof input] ?? (dbDateValue ? new Date(dbDateValue) : null);
+      const subDateKey = category === 'life' ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub';
+      const dateVal = resolveInsuranceDate(input[dateKey as keyof typeof input], fc[dbDateKey], fc[subDateKey]);
 
       if (!dateVal) {
         notifications.show({ title: '입력 필요', message: '확정일(Start Date)을 선택해주세요.', color: 'orange' });
@@ -463,7 +470,9 @@ export default function AppointmentPage() {
 
     showConfirm({
         title: type === 'confirm' ? '생명/손해 위촉 승인' : '생명/손해 위촉 예정월 저장',
-      message: `${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`,
+      message: type === 'confirm'
+        ? `${fc.name || 'FC'} · ${category === 'life' ? '생명' : '손해'} 위촉을 승인하시겠습니까?\n확정일: ${value}`
+        : `${fc.name || 'FC'} · ${category === 'life' ? '생명' : '손해'} 위촉 예정 메모를 저장하시겠습니까?`,
       onConfirm: async () => {
           const result = await updateAppointmentAction(
             { success: false },
@@ -521,11 +530,7 @@ export default function AppointmentPage() {
 
     const scheduleValue = (input[scheduleKey as keyof typeof input] ?? (dbSchedule ?? '')) as string | undefined;
 
-    const dateValueRaw = input[dateKey as keyof typeof input];
-    const dateValue = dateValueRaw === null ? null : dateValueRaw instanceof Date ? dateValueRaw
-      : (dateValueRaw
-        ? new Date(dateValueRaw as string)
-        : (dbDate ? new Date(dbDate) : (subDate ? new Date(subDate) : null)));
+    const dateValue = resolveInsuranceDate(input[dateKey as keyof typeof input], dbDate, subDate);
 
     const isConfirmed = !!dbDate;
     const hasSubmitted = !!subDate && !dbDate;
@@ -640,25 +645,14 @@ export default function AppointmentPage() {
         />
 
         {/* 확인 모달 */}
-        <Modal
+        <ConfirmModal
           opened={confirmOpened}
-          onClose={() => { if (!confirmSubmitting) closeConfirm(); }}
-          title={<Text fw={700}>{confirmConfig?.title}</Text>}
-          size="sm"
-          centered
-        >
-          <Stack gap="md">
-            <Text size="sm">{confirmConfig?.message}</Text>
-            <Group justify="flex-end">
-              <Button variant="default" disabled={confirmSubmitting} onClick={closeConfirm}>
-                취소
-              </Button>
-              <Button color="blue" loading={confirmSubmitting} onClick={() => void handleConfirm()}>
-                확인
-              </Button>
-            </Group>
-          </Stack>
-        </Modal>
+          onClose={closeConfirm}
+          onConfirm={() => void handleConfirm()}
+          title={confirmConfig?.title}
+          message={confirmConfig?.message}
+          submitting={confirmSubmitting}
+        />
 
         <Group justify="space-between" align="flex-end">
           <div>

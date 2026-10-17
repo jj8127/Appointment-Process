@@ -305,3 +305,6 @@ Read-only preflight found zero catalog/cron dependencies and zero legacy challen
 - `erase_platform_withdrawal_v1`: 두 범위 모두 FC를 closure 방식으로 지우고(정산이 참조하는 UUID만 익명으로 남음), `all_affiliates`일 때만 `delete_platform_member`를 부른다.
 - `delete_platform_member`: 정산 기록이 없는 서비스 신청은 삭제하고, 정산된 신청은 익명화해 UUID만 남긴다.
 - FC 행 삭제 트리거(`platform_fc_delete_identity`)는 더 이상 모두온 계정을 탈퇴시키지 않고 연결만 끊는다. 관리자·본부장 계정 삭제는 기존처럼 연결된 회원을 지운다.
+## 2026-10-16 Admin audit events (local, not applied)
+
+`20261016100000_admin_audit_events.sql` adds append-only `public.admin_audit_events` for admin FC changes, personal-data exports and resident-number views. It stores actor role, staff type and staff phone digits, time, category, action, target FC, target count, reason and a detail object of action codes and edited field names. Resident numbers, decrypted values and entered values are never stored; a check constraint and the server builder reject resident-number-shaped detail or reason. RLS is enabled with select/insert granted to `service_role` only; update, delete and truncate are rejected by trigger. Retention is at least two years with no purge job yet. Verified only in a disposable PGlite database; production application requires separate approval and must precede the admin web release. See `docs/handbook/backend/admin-audit-log.md`.

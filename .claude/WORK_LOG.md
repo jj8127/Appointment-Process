@@ -123,6 +123,9 @@
 ## 2026-10-14 가족간병 추천 초대 로컬 구현
 
 사용자가 승인한 카드 구성과 실제 결과 이미지를 위해 가족간병 안내에 개인 추천 주소 복사·공유를 추가했다. 기존 공통 계정 조회·Button/Toast/Clipboard/Share·가입 자동 입력을 재사용하고 보험 초대/공통 가입 목적과 pending을 분리한다. 기존 suite의 오래된 fixture 의존성도 현재 계약에 맞추되 실패/권한/동시성 assertion은 유지했다. 로컬 합성 화면과 행동 검증만 수행하며 운영 가입·DB·초대 웹·OTA·스토어 배포는 하지 않는다. [→ 상세](WORK_DETAIL.md#20261014-care-referral-invitation)
+## 2026-10-16 관리자 web 메뉴·검색·브랜드 정리와 처리·다운로드·개인정보 조회 기록
+
+운영 계열 `deploy/admin-web-ux-20261015` 위 `feature/admin-web-ux-r2-20261016`에서 진행했다. 메뉴를 업무 단위로 묶고 공지사항 메뉴를 추가했으며 에이전트 룸은 개발자 계정 전용(메뉴·페이지·API)으로 제한했다. 헤더 전체 FC 검색, 브랜드 주황 단일값, 페이지 제목·용어를 통일했다. append-only `admin_audit_events` migration과 처리·엑셀 다운로드·주민번호 조회 기록, 처리 이력 화면을 추가했다. migration은 로컬 PGlite 검증 후 사용자가 운영 SQL Editor에서 적용했고(이력 미기록), 운영 핫픽스 `6c19783`을 포함한 `f0dfa73`으로 배포했다(`dpl_2KZ2XuBxLgEjra6U9iX5d7cUwWKY`). push는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261016-admin-web-ux-r2-audit)
 
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
 

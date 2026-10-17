@@ -59,3 +59,11 @@ test('admin referral loading uses bounded chunks instead of one unbounded FC-id 
   );
   assert.doesNotMatch(source, /fcIds\.join\(','\)/);
 });
+
+test('referral code summary counts name the owner relationship to fc_profiles', () => {
+  const source = readFileSync(new URL('./admin-referrals.ts', import.meta.url), 'utf8');
+
+  // fc_profiles.recommender_code_id also references referral_codes; an unnamed embed is ambiguous.
+  assert.doesNotMatch(source, /fc_profiles!inner\(/);
+  assert.equal(source.match(/fc_profiles!referral_codes_fc_id_fkey!inner\(id\)/g)?.length, 2);
+});

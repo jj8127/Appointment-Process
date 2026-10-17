@@ -38,15 +38,14 @@ import dayjs from 'dayjs';
 import { useMemo, useRef, useState } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { fetchAdminDocuments, signAdminDocument, type AdminDocumentRow as DocumentRow } from '@/lib/admin-document-client';
 import { requireDocumentStatusReceipt } from '@/lib/user-intent-policy';
+import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 // App Design Tokens
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
 const BACKGROUND_LIGHT = '#F9FAFB';
 
 // Status Badge Helper
@@ -265,9 +264,10 @@ export default function DocumentsPage() {
 
     const handleApprove = (doc: DocumentRow) => {
         const noFileDoc = isNoFileDoc(doc);
+        const target = `${doc.fc_profiles?.name || '알수없음'} · [${doc.doc_type}]`;
         const message = noFileDoc
-            ? `[${doc.doc_type}] 문서는 파일이 미제출입니다. "총무 수동 승인: 파일 미제출" 사유로 승인하시겠습니까?`
-            : `[${doc.doc_type}] 문서를 승인하시겠습니까?`;
+            ? `${target} 문서는 파일이 미제출입니다. "총무 수동 승인: 파일 미제출" 사유로 승인하시겠습니까?`
+            : `${target} 문서를 승인하시겠습니까?`;
         showConfirm({
             title: '서류 승인',
             message,
@@ -393,7 +393,7 @@ export default function DocumentsPage() {
         <Container size="xl" py="xl" style={{ backgroundColor: '#fff', minHeight: '100vh' }}>
             <Group justify="space-between" mb="lg" align="flex-end">
                 <div>
-                    <Title order={2} c={CHARCOAL}>서류 통합 관리</Title>
+                    <Title order={2} c={CHARCOAL}>서류 관리</Title>
                     <Text c={MUTED} size="sm" mt={4}>요청 서류를 검토하고, 승인된 FC를 다위촉 단계로 넘깁니다.</Text>
                 </div>
                 <Button variant="light" color="gray" leftSection={<IconRefresh size={16} />} onClick={() => queryClient.invalidateQueries({ queryKey: ['documents-list'] })}>
@@ -640,27 +640,13 @@ export default function DocumentsPage() {
                 minRows={5}
             />
 
-            {/* Confirm Modal */}
-            <Modal
+            <ConfirmModal
                 opened={confirmOpened}
                 onClose={closeConfirm}
-                title={<Text fw={700}>{confirmConfig?.title}</Text>}
-                size="sm"
-                centered
-                radius="md"
-            >
-                <Stack gap="md">
-                    <Text size="sm">{confirmConfig?.message}</Text>
-                    <Group justify="flex-end">
-                        <Button variant="default" onClick={closeConfirm}>
-                            취소
-                        </Button>
-                        <Button color="blue" onClick={handleConfirm}>
-                            확인
-                        </Button>
-                    </Group>
-                </Stack>
-            </Modal>
+                onConfirm={handleConfirm}
+                title={confirmConfig?.title}
+                message={confirmConfig?.message}
+            />
 
         </Container>
     );

@@ -998,15 +998,17 @@ async function fetchReferralAdminSummary(
     .select('id', { count: 'exact', head: true })
     .not('affiliation', 'ilike', '%설계매니저%')
     .like('phone', '___________');
+  // fc_profiles also points back at referral_codes (recommender_code_id), so the owner
+  // relationship must be named; an unnamed embed fails with PGRST201 (HTTP 300).
   let activeCodeQuery = adminSupabase
     .from('referral_codes')
-    .select('id,fc_profiles!inner(id)', { count: 'exact', head: true })
+    .select('id,fc_profiles!referral_codes_fc_id_fkey!inner(id)', { count: 'exact', head: true })
     .eq('is_active', true)
     .not('fc_profiles.affiliation', 'ilike', '%설계매니저%')
     .like('fc_profiles.phone', '___________');
   let disabledCodeQuery = adminSupabase
     .from('referral_codes')
-    .select('id,fc_profiles!inner(id)', { count: 'exact', head: true })
+    .select('id,fc_profiles!referral_codes_fc_id_fkey!inner(id)', { count: 'exact', head: true })
     .eq('is_active', false)
     .not('fc_profiles.affiliation', 'ilike', '%설계매니저%')
     .like('fc_profiles.phone', '___________');

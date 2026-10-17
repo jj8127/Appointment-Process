@@ -25,6 +25,7 @@ import {
   requireExamTransitionReceipt,
   type ExamTransitionReceipt,
 } from '@shared/supabase/functions/_shared/ux-mutation-contract';
+import { recordAdminAuditEvent } from '@/lib/admin-audit-server';
 
 type DeleteBody = {
   registrationId?: string;
@@ -259,7 +260,7 @@ async function listApplicants(staffPhone: string, roundId?: string, registration
   const phoneCandidates = buildExamApplicantPhoneCandidates(base, buildPhoneCandidates);
 
   if (phoneCandidates.length === 0) {
-    return [];
+    return { applicants: [], viewedFcIds: [] };
   }
 
   const profileRows: ExamApplicantProfileRow[] = [];
@@ -299,12 +300,16 @@ async function listApplicants(staffPhone: string, roundId?: string, registration
     logPrefix: '[api/admin/exam-applicants]',
   });
 
-  return enrichExamApplicantsWithResidentNumbers({
+  const applicants = enrichExamApplicantsWithResidentNumbers({
     applicants: base,
     profileByCandidate: profileMatchPlan.profileByCandidate,
     residentNumbersByFcId,
     buildPhoneCandidates,
   });
+  const viewedFcIds = Object.entries(residentNumbersByFcId)
+    .filter(([, value]) => typeof value === 'string' && value.length > 0)
+    .map(([fcId]) => fcId);
+  return { applicants, viewedFcIds };
 }
 
 export async function GET(req: Request) {
@@ -331,11 +336,31 @@ export async function GET(req: Request) {
         { status: 400, headers: SECURITY_HEADERS },
       );
     }
-    const applicants = await listApplicants(
+    const { applicants, viewedFcIds } = await listApplicants(
       readCheck.session.residentId.replace(/[^0-9]/g, ''),
       roundId,
       registrationId,
     );
+    // The list carries full resident numbers, so the view is recorded before it is returned.
+    if (viewedFcIds.length > 0) {
+      const { session } = readCheck;
+      const stored = await recordAdminAuditEvent(
+        { role: session.role === 'manager' ? 'manager' : 'admin', staffType: session.staffType, residentDigits: session.residentDigits },
+        {
+          category: 'personal_info_view',
+          action: 'resident_number_view',
+          targetFcId: viewedFcIds.length === 1 ? viewedFcIds[0] : null,
+          targetCount: viewedFcIds.length,
+          detail: { source: 'exam_applicants', fcIds: viewedFcIds },
+        },
+      );
+      if (!stored) {
+        return NextResponse.json(
+          { error: '조회 기록을 남기지 못해 신청자 목록을 표시하지 않았습니다.' },
+          { status: 503, headers: SECURITY_HEADERS },
+        );
+      }
+    }
     const navigation = registrationId
       ? await readApplicantNavigation(registrationId)
       : undefined;

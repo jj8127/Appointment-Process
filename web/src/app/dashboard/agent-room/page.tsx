@@ -15,9 +15,12 @@ import {
 } from '@mantine/core';
 import { IconRefresh } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 import { AgentRoomScene } from '@/components/agent-room/AgentRoomScene';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { useSession } from '@/hooks/use-session';
 import { QueryReadError } from '@/lib/query-read-error';
 import {
   AGENT_ROOM_STATUSES,
@@ -396,12 +399,22 @@ function getFreshnessTone(agent: AgentRoomAgent, nowMs: number) {
 }
 
 export default function AgentRoomPage() {
+  const router = useRouter();
+  const { hydrated, staffType } = useSession();
+  const isDeveloper = staffType === 'developer';
   const { data, error, isFetching, isLoading, refetch } = useQuery({
     queryFn: fetchAgentRoom,
     queryKey: ['agent-room'],
     refetchInterval: 5_000,
     staleTime: 4_000,
+    enabled: isDeveloper,
   });
+
+  useEffect(() => {
+    if (hydrated && !isDeveloper) router.replace('/dashboard');
+  }, [hydrated, isDeveloper, router]);
+
+  if (!isDeveloper) return null;
 
   const snapshot = data ?? EMPTY_SNAPSHOT;
   const roster = sortAgents(snapshot.agents);

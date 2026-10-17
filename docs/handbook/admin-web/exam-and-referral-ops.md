@@ -110,3 +110,7 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 ## 2026-10-09 Local schedule and allowance accuracy
 
 Admin round deletion now follows the shared service-only atomic RPC and protects every registration-bearing round, with safe notification/result feedback and pending controls. TBD schedule display retains the stored month. Allowance UI and exports use the explicitly selected statement's performance month/payment date rather than an assumed June label. Local checks do not establish operator/browser/production acceptance.
+
+## 2026-10-16 Applicant export and resident-number view records (local)
+
+The applicant Excel download requires a reason and is recorded through `POST /api/admin/audit/export` before the workbook is built; a failed record aborts the download. The applicant list returns full resident numbers, so `GET /api/admin/exam-applicants` records the viewed FCs and withholds the list (503) if the record cannot be stored. Bulk reception and pinned reception/action columns are unchanged. Production use requires the `admin_audit_events` migration first.
