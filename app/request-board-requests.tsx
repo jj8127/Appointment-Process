@@ -428,12 +428,9 @@ export default function RequestBoardRequestsScreen() {
         </View>
         {designerRejectionSummary ? (
           <View style={styles.rejectionReasonBox}>
-            <View style={styles.rejectionReasonHeader}>
-              <Feather name="message-square" size={11} color="#DC2626" />
-              <Text style={styles.rejectionReasonLabel}>
-                {designerRejectionSummary.label}
-              </Text>
-            </View>
+            <Text style={styles.rejectionReasonLabel}>
+              {designerRejectionSummary.label}
+            </Text>
             <Text style={styles.rejectionReasonText} numberOfLines={2}>
               {designerRejectionSummary.reason}
             </Text>
@@ -868,29 +865,24 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.gray[500],
   },
+  // Same treatment as the appointment screens: neutral box, red edge and label, readable reason.
   rejectionReasonBox: {
     marginTop: SPACING.sm,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: 8,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    backgroundColor: '#FEF2F2',
-  },
-  rejectionReasonHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 3,
+    padding: 12,
+    borderRadius: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.error,
+    backgroundColor: COLORS.gray[50],
   },
   rejectionReasonLabel: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    fontWeight: '700' as const,
-    color: '#DC2626',
+    fontSize: 12,
+    fontWeight: '800' as const,
+    color: '#B91C1C',
+    marginBottom: 4,
   },
   rejectionReasonText: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    lineHeight: 17,
-    color: COLORS.gray[700],
+    fontSize: 14,
+    lineHeight: 20,
+    color: COLORS.gray[800],
   },
 });
