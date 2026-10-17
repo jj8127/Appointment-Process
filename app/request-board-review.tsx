@@ -15,6 +15,8 @@ import {
 } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { REQUEST_PROGRESS_TONE, RequestProgressSteps } from '@/components/RequestProgressSteps';
+import { getAssignmentProgress, summarizeRequestProgress } from '@/lib/request-board-progress';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
@@ -113,13 +115,6 @@ const ASSIGNMENT_STATUS_LABEL: Record<string, { label: string; color: string; bg
   completed: { label: '설계 완료', color: '#8B5CF6', bg: '#EDE9FE' },
   rejected: { label: '설계 거절', color: '#EF4444', bg: '#FEE2E2' },
   cancelled: { label: '요청 취소', color: COLORS.gray[500], bg: COLORS.gray[100] },
-};
-
-const REQUEST_STATUS_LABEL: Record<string, { label: string; color: string; bg: string }> = {
-  pending: { label: '수락 대기', color: '#F59E0B', bg: '#FEF3C7' },
-  in_progress: { label: '진행중', color: '#3B82F6', bg: '#EFF6FF' },
-  completed: { label: '완료', color: '#10B981', bg: '#ECFDF5' },
-  cancelled: { label: '취소', color: COLORS.gray[500], bg: COLORS.gray[100] },
 };
 
 const getProductNames = (detail: RbRequestDetail): string => {
@@ -635,6 +630,7 @@ export default function RequestBoardReviewScreen() {
     const fcDecided = assignment.fc_decision === 'accepted' || assignment.fc_decision === 'rejected';
     const attachments = assignment.request_attachments ?? [];
     const assignmentCode = formatDesignCodeDisplay(assignment.fc_code_value, assignment.fc_code_name);
+    const assignmentProgress = getAssignmentProgress(assignment, isRequestBoardDesigner ? 'designer' : 'fc');
 
     return (
       <View
@@ -659,6 +655,13 @@ export default function RequestBoardReviewScreen() {
             <StatusBadge {...statusInfo} status={assignment.status} />
           </View>
         )}
+
+        <View style={styles.assignmentProgress}>
+          <RequestProgressSteps step={assignmentProgress.step} tone={assignmentProgress.tone} showLabels />
+          <Text style={[styles.assignmentTurn, assignmentProgress.isMyTurn && styles.assignmentTurnMine]}>
+            {assignmentProgress.turnLabel}
+          </Text>
+        </View>
 
         {/* Timeline */}
         <View style={styles.timelineRow}>
@@ -979,6 +982,45 @@ export default function RequestBoardReviewScreen() {
           onScroll={scrollHandler}
           scrollEventThrottle={16}
         >
+          {/* Where the request stands and whose turn it is, before the customer details. */}
+          {(() => {
+            const progress = summarizeRequestProgress(detail.request_designers, isRequestBoardDesigner ? 'designer' : 'fc');
+            if (!progress) return null;
+            const tone = REQUEST_PROGRESS_TONE[progress.tone];
+            return (
+              <View style={[styles.progressSummary, progress.isMyTurn && styles.progressSummaryMine]}>
+                <View style={styles.progressSummaryTop}>
+                  <View style={[styles.badge, { backgroundColor: tone.background }]}>
+                    <Text style={[styles.badgeText, { color: tone.color }]}>{progress.label}</Text>
+                  </View>
+                  <Text style={[styles.progressSummaryTurn, progress.isMyTurn && styles.assignmentTurnMine]}>
+                    {progress.turnLabel}
+                  </Text>
+                </View>
+                <RequestProgressSteps step={progress.step} tone={progress.tone} showLabels />
+                {progress.manager ? (
+                  <Text style={styles.progressSummaryManager}>
+                    담당 {progress.manager}{progress.others > 0 ? ` 외 ${progress.others}명` : ''}
+                  </Text>
+                ) : null}
+              </View>
+            );
+          })()}
+
+          {/* Designer Assignments */}
+          <Text style={styles.sectionTitle}>
+            설계 진행 ({(detail.request_designers ?? []).length}건)
+          </Text>
+
+          {(detail.request_designers ?? []).length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <Feather name="users" size={36} color={COLORS.gray[200]} />
+              <Text style={styles.emptyText}>배정된 설계 매니저가 없습니다</Text>
+            </View>
+          ) : (
+            (detail.request_designers ?? []).map(renderAssignment)
+          )}
+
           {(() => {
             const hasSeparatePolicyholder = Boolean(detail.has_separate_policyholder);
             const customerDisplayName = formatRequestBoardCustomerDisplayName({
@@ -1056,16 +1098,6 @@ export default function RequestBoardReviewScreen() {
             <View style={styles.infoCardHeader}>
               <View style={styles.infoCardTitleRow}>
                 <Text style={styles.infoCustomerName}>{detail.customer_name}</Text>
-                {(() => {
-                  const s = REQUEST_STATUS_LABEL[detail.status] ?? {
-                    label: detail.status, color: COLORS.gray[500], bg: COLORS.gray[100],
-                  };
-                  return (
-                    <View style={[styles.badge, { backgroundColor: s.bg }]}>
-                      <Text style={[styles.badgeText, { color: s.color }]}>{s.label}</Text>
-                    </View>
-                  );
-                })()}
               </View>
               <Text style={styles.infoProducts}>{getProductNames(detail)}</Text>
               {hasSeparatePolicyholder ? (
@@ -1151,19 +1183,6 @@ export default function RequestBoardReviewScreen() {
             );
           })()}
 
-          {/* Designer Assignments */}
-          <Text style={styles.sectionTitle}>
-            설계 진행 ({(detail.request_designers ?? []).length}건)
-          </Text>
-
-          {(detail.request_designers ?? []).length === 0 ? (
-            <View style={styles.emptyWrap}>
-              <Feather name="users" size={36} color={COLORS.gray[200]} />
-              <Text style={styles.emptyText}>배정된 설계 매니저가 없습니다</Text>
-            </View>
-          ) : (
-            (detail.request_designers ?? []).map(renderAssignment)
-          )}
         </Animated.ScrollView>
       ) : null}
 
@@ -1379,6 +1398,22 @@ export default function RequestBoardReviewScreen() {
 
 /* ─── Styles ─── */
 const styles = StyleSheet.create({
+  progressSummary: {
+    gap: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+  },
+  progressSummaryMine: { borderColor: '#DDD6FE', backgroundColor: '#FAF8FF' },
+  progressSummaryTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  progressSummaryTurn: { fontSize: 14, fontWeight: '800', color: COLORS.gray[600] },
+  progressSummaryManager: { fontSize: 13, color: COLORS.gray[600] },
+  assignmentProgress: { gap: 8, marginTop: 12 },
+  assignmentTurn: { fontSize: 13, fontWeight: '700', color: COLORS.gray[600] },
+  assignmentTurnMine: { color: '#7C3AED' },
   container: { flex: 1, backgroundColor: COLORS.gray[50] },
 
   /* Header */

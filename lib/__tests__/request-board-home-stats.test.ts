@@ -1,7 +1,7 @@
 import { buildFcRequestPipeline, computeRequestBoardHomeStats } from '@/lib/request-board-home-stats';
 
 describe('request board home stats', () => {
-  it('counts rejected designer assignments in the completed bucket for FC views', () => {
+  it('keeps rejected designer assignments out of the completed bucket for FC views', () => {
     const stats = computeRequestBoardHomeStats(
       [
         {
@@ -14,7 +14,7 @@ describe('request board home stats', () => {
 
     expect(stats).toMatchObject({
       total: 1,
-      completed: 1,
+      completed: 0,
       pending: 0,
       inProgress: 0,
     });

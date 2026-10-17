@@ -48,8 +48,9 @@ const assignmentStatusToBucket = (
 ): 'pending' | 'in_progress' | 'completed' | 'cancelled' | null => {
   if (status === 'pending') return 'pending';
   if (status === 'accepted' || status === 'in_progress') return 'in_progress';
-  if (status === 'completed' || status === 'rejected') return 'completed';
-  if (status === 'cancelled' || status === 'canceled') return 'cancelled';
+  if (status === 'completed') return 'completed';
+  // A manager's rejection is not a finished design for the FC.
+  if (status === 'rejected' || status === 'cancelled' || status === 'canceled') return 'cancelled';
   return null;
 };
 

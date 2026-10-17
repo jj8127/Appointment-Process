@@ -38,6 +38,17 @@ describe('request board list filters', () => {
     );
   });
 
+  it('files manager-rejected requests with cancellations instead of done', () => {
+    const allRejected = { status: 'completed', request_designers: [{ status: 'rejected', fc_decision: null }] };
+    expect(getRequestBoardListBuckets(allRejected, false)).toEqual(new Set(['cancelled']));
+    expect(getRequestBoardListBuckets(allRejected, true)).toEqual(new Set(['cancelled']));
+    const mixed = {
+      status: 'completed',
+      request_designers: [{ status: 'rejected', fc_decision: null }, { status: 'completed', fc_decision: 'accepted' }],
+    };
+    expect(getRequestBoardListBuckets(mixed, false)).toEqual(new Set(['completed']));
+  });
+
   it('does not keep designer-rejected assignments stuck in the FC review bucket', () => {
     const request = {
       status: 'completed',

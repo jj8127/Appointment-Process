@@ -338,9 +338,10 @@ describe('request-board mobile UI contracts', () => {
     expect(reviewSource).toContain('detail.policyholder_name');
     expect(reviewSource).toContain('detail.policyholder_phone');
     expect(reviewSource).toContain('계약자:');
+    const detailContentStart = reviewSource.indexOf('<InfoSection title="고객 정보">');
     const detailContentBlock = reviewSource.slice(
-      reviewSource.indexOf('<InfoSection title="고객 정보">'),
-      reviewSource.indexOf('{/* Designer Assignments */}'),
+      detailContentStart,
+      reviewSource.indexOf('</Animated.ScrollView>', detailContentStart),
     );
 
     expect(detailContentBlock).toContain('<Text style={styles.sectionTitle}>계약자 정보</Text>');

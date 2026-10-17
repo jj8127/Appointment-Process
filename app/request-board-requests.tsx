@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { REQUEST_PROGRESS_TONE, RequestProgressSteps } from '@/components/RequestProgressSteps';
+import { summarizeRequestProgress } from '@/lib/request-board-progress';
 
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { BottomNavigation } from '@/components/BottomNavigation';
@@ -289,7 +291,7 @@ export default function RequestBoardRequestsScreen() {
     { key: 'pending', label: '수락 대기', count: pendingCount },
     { key: 'in_progress', label: '진행중', count: inProgressCount },
     { key: 'completed', label: '완료', count: completedCount },
-    { key: 'cancelled', label: '취소', count: cancelledCount },
+    { key: 'cancelled', label: '거절·취소', count: cancelledCount },
     { key: 'review_pending', label: '검토 대기', count: reviewPendingCount },
   ];
 
@@ -307,6 +309,8 @@ export default function RequestBoardRequestsScreen() {
     const designCodeDisplay = getRequestDesignCodeDisplay(item);
     const fcContactSummary = getRequestFcContactSummary(item, designCodeDisplay);
     const fcMeta = fcDecisionMeta;
+    const progress = summarizeRequestProgress(item.request_designers, isRequestBoardDesigner ? 'designer' : 'fc');
+    const progressTone = progress ? REQUEST_PROGRESS_TONE[progress.tone] : null;
     const designerRejectionSummary = getDesignerRejectionSummary(item);
     const customerName = String(item.customer_name ?? '').trim();
     const policyholderName = String(item.policyholder_name ?? '').trim();
@@ -357,9 +361,9 @@ export default function RequestBoardRequestsScreen() {
                   <Text style={styles.reviewStatusBadgeText}>검토 대기</Text>
                 </View>
               )}
-              <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
-                <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
-                  {statusInfo.label}
+              <View style={[styles.statusBadge, { backgroundColor: progressTone?.background ?? statusInfo.bg }]}>
+                <Text style={[styles.statusBadgeText, { color: progressTone?.color ?? statusInfo.color }]}>
+                  {progress?.label ?? statusInfo.label}
                 </Text>
               </View>
             </View>
@@ -378,6 +382,21 @@ export default function RequestBoardRequestsScreen() {
           <Text style={styles.productNames} numberOfLines={1}>
             {getProductNames(item)}
           </Text>
+          {progress ? (
+            <View style={styles.progressBlock}>
+              <RequestProgressSteps step={progress.step} tone={progress.tone} />
+              <View style={styles.progressMetaRow}>
+                <Text style={[styles.turnText, progress.isMyTurn && styles.turnTextMine]}>
+                  {progress.turnLabel}
+                </Text>
+                {progress.manager ? (
+                  <Text style={styles.managerText} numberOfLines={1}>
+                    담당 {progress.manager}{progress.others > 0 ? ` 외 ${progress.others}명` : ''}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
           {fcContactSummary ? (
             <View style={styles.requestFcSummaryRow}>
               <Feather name="user" size={11} color={COLORS.primary} />
@@ -392,12 +411,14 @@ export default function RequestBoardRequestsScreen() {
             <Feather name="calendar" size={11} color={COLORS.gray[400]} />
             <Text style={styles.cardMetaText}>{formatDate(item.created_at)}</Text>
           </View>
-          <View style={styles.cardMeta}>
-            <Feather name={fcMeta.icon} size={11} color={fcMeta.color} />
-            <Text style={[styles.cardMetaText, { color: fcMeta.color }]} numberOfLines={1}>
-              {fcMeta.text}
-            </Text>
-          </View>
+          {!progress ? (
+            <View style={styles.cardMeta}>
+              <Feather name={fcMeta.icon} size={11} color={fcMeta.color} />
+              <Text style={[styles.cardMetaText, { color: fcMeta.color }]} numberOfLines={1}>
+                {fcMeta.text}
+              </Text>
+            </View>
+          ) : null}
           <View style={[styles.cardMeta, { marginLeft: 'auto' }]}>
             <Text style={[styles.cardMetaText, { color: COLORS.primary }]}>
               상세 보기
@@ -578,6 +599,11 @@ export default function RequestBoardRequestsScreen() {
 
 /* ─── Styles ─── */
 const styles = StyleSheet.create({
+  progressBlock: { marginTop: 10, gap: 8 },
+  progressMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  turnText: { fontSize: 13, fontWeight: '700', color: COLORS.gray[600] },
+  turnTextMine: { color: '#7C3AED' },
+  managerText: { flex: 1, textAlign: 'right', fontSize: 12, color: COLORS.gray[500] },
   container: { flex: 1, backgroundColor: COLORS.gray[50] },
 
   /* Header */
