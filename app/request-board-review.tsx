@@ -110,9 +110,9 @@ const formatFileSize = (bytes: number): string => {
 };
 
 const ASSIGNMENT_STATUS_LABEL: Record<string, { label: string; color: string; bg: string }> = {
-  pending: { label: '수락 대기', color: '#F59E0B', bg: '#FEF3C7' },
-  accepted: { label: '진행중', color: '#3B82F6', bg: '#EFF6FF' },
-  completed: { label: '설계 완료', color: '#8B5CF6', bg: '#EDE9FE' },
+  pending: { label: '수락 대기', color: '#9a3412', bg: COLORS.primaryPale },
+  accepted: { label: '진행중', color: '#9a3412', bg: COLORS.primaryPale },
+  completed: { label: '설계 완료', color: '#9a3412', bg: COLORS.primaryPale },
   rejected: { label: '설계 거절', color: '#EF4444', bg: '#FEE2E2' },
   cancelled: { label: '요청 취소', color: COLORS.gray[500], bg: COLORS.gray[100] },
 };
@@ -158,11 +158,17 @@ function StatusBadge({ status, label, color, bg }: { status: string; label: stri
 }
 
 function InfoField({ label, value, fullWidth = false }: { label: string; value: string; fullWidth?: boolean }) {
-  const valueLineLimit = fullWidth ? undefined : 3;
+  const stacked = fullWidth || label.length > 8;
+  const empty = value === '-';
   return (
-    <View style={[styles.infoField, fullWidth && styles.infoFieldFull]}>
-      <Text style={styles.infoFieldLabel}>{label}</Text>
-      <Text style={styles.infoFieldValue} numberOfLines={valueLineLimit}>{value}</Text>
+    <View style={[styles.infoField, stacked && styles.infoFieldStacked]}>
+      <Text style={[styles.infoFieldLabel, !stacked && styles.infoFieldLabelInline]}>{label}</Text>
+      <Text
+        style={[styles.infoFieldValue, !stacked && styles.infoFieldValueInline, empty && styles.infoFieldValueEmpty]}
+        numberOfLines={stacked ? undefined : 3}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -171,7 +177,7 @@ function InfoSection({ title, children }: { title: string; children: ReactNode }
   return (
     <View style={styles.infoSection}>
       <Text style={styles.infoSectionTitle}>{title}</Text>
-      <View style={styles.infoGrid}>{children}</View>
+      <View>{children}</View>
     </View>
   );
 }
@@ -652,7 +658,6 @@ export default function RequestBoardReviewScreen() {
               <Text style={styles.designerName}>{designerName}</Text>
               {companyName && <Text style={styles.designerCompany}>{companyName}</Text>}
             </View>
-            <StatusBadge {...statusInfo} status={assignment.status} />
           </View>
         )}
 
@@ -674,8 +679,8 @@ export default function RequestBoardReviewScreen() {
           )}
           {assignment.completed_at && (
             <View style={styles.timelineItem}>
-              <Feather name="check" size={14} color="#8B5CF6" />
-              <Text style={[styles.timelineLabel, { color: '#8B5CF6' }]}>완료</Text>
+              <Feather name="check" size={14} color={COLORS.primaryButton} />
+              <Text style={[styles.timelineLabel, { color: COLORS.primaryButton }]}>완료</Text>
               <Text style={styles.timelineDate}>{formatDate(assignment.completed_at)}</Text>
             </View>
           )}
@@ -1166,7 +1171,7 @@ export default function RequestBoardReviewScreen() {
             <>
               <Text style={styles.sectionTitle}>계약자 정보</Text>
               <View style={styles.infoCard}>
-                <View style={styles.infoGrid}>
+                <View>
                   {policyholderFields.map((field) => (
                     <InfoField
                       key={field.label}
@@ -1414,7 +1419,7 @@ const styles = StyleSheet.create({
   assignmentProgress: { gap: 8, marginTop: 12 },
   assignmentTurn: { fontSize: 13, fontWeight: '700', color: COLORS.gray[600] },
   assignmentTurnMine: { color: COLORS.primaryButton },
-  container: { flex: 1, backgroundColor: COLORS.gray[50] },
+  container: { flex: 1, backgroundColor: '#f3f4f6' },
 
   /* Header */
   header: {
@@ -1457,7 +1462,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: SPACING.sm,
   },
-  loadingText: { fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.text.muted },
   errorWrap: {
     flex: 1,
     alignItems: 'center',
@@ -1490,12 +1494,10 @@ const styles = StyleSheet.create({
   /* Info Card */
   infoCard: {
     backgroundColor: '#fff',
-    borderRadius: RADIUS.lg,
-    padding: SPACING.base,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: SPACING.lg,
     marginBottom: SPACING.lg,
-    ...SHADOWS.sm,
   },
   infoCardHeader: {
     marginBottom: SPACING.sm,
@@ -1568,44 +1570,35 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     lineHeight: 18,
   },
-  infoSection: {
-    marginTop: SPACING.md,
-  },
+  infoSection: { marginTop: SPACING.lg },
   infoSectionTitle: {
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    fontWeight: '700' as const,
-    color: COLORS.gray[800],
-    marginBottom: SPACING.sm,
-  },
-  infoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-  },
-  infoField: {
-    width: '100%',
-    minWidth: 0,
-    borderWidth: 1,
-    borderColor: COLORS.gray[100],
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    backgroundColor: COLORS.gray[50],
-  },
-  infoFieldFull: {
-    width: '100%',
-  },
-  infoFieldLabel: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    color: COLORS.gray[500],
+    fontSize: TYPOGRAPHY.fontSize.base,
+    fontWeight: '800' as const,
+    color: COLORS.gray[900],
     marginBottom: 4,
   },
-  infoFieldValue: {
+  infoField: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.md,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.gray[100],
+  },
+  infoFieldStacked: { flexDirection: 'column', gap: 4 },
+  infoFieldLabel: {
     fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.gray[500],
+  },
+  infoFieldLabelInline: { width: 76 },
+  infoFieldValue: {
+    fontSize: TYPOGRAPHY.fontSize.base,
     color: COLORS.gray[900],
     fontWeight: '600' as const,
-    lineHeight: 20,
+    lineHeight: 21,
   },
+  infoFieldValueInline: { flex: 1, textAlign: 'right' },
+  infoFieldValueEmpty: { color: COLORS.gray[300], fontWeight: '400' as const },
 
   /* Section */
   sectionTitle: {
@@ -1641,12 +1634,12 @@ const styles = StyleSheet.create({
   /* Assignment Card */
   assignmentCard: {
     backgroundColor: '#fff',
-    borderRadius: RADIUS.lg,
-    padding: SPACING.base,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: SPACING.base,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
     marginBottom: SPACING.md,
-    ...SHADOWS.sm,
   },
   assignmentCardHighlight: {
     borderColor: COLORS.primary,
@@ -1983,8 +1976,7 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingVertical: 10,
     borderRadius: RADIUS.md,
-    backgroundColor: '#059669',
-    ...SHADOWS.sm,
+    backgroundColor: COLORS.primaryButton,
   },
   approveBtnText: {
     fontSize: TYPOGRAPHY.fontSize.sm,

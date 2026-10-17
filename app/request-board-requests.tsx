@@ -355,7 +355,7 @@ export default function RequestBoardRequestsScreen() {
               {customerDisplayName}
             </Text>
             <View style={styles.badgeColumn}>
-              {isPendingReview && (
+              {isPendingReview && !progress && (
                 <View style={styles.reviewStatusBadge}>
                   <Feather name="eye" size={10} color="#fff" />
                   <Text style={styles.reviewStatusBadgeText}>검토 대기</Text>
