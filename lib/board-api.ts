@@ -43,6 +43,8 @@ export type BoardListItem = {
   editedAt?: string;
   isPinned: boolean;
   isMine: boolean;
+  /** Absent until the list function reports read state; treat as read. */
+  isRead?: boolean;
   stats: {
     commentCount: number;
     reactionCount: number;

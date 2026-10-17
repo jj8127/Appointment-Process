@@ -130,6 +130,16 @@ function fakePostgrest(request, response) {
     return;
   }
 
+  if (table === 'board_post_views') {
+    assert.match(url.searchParams.get('resident_id') ?? '', /^eq./);
+    // The viewer opened the pinned post twice; duplicate view rows must still mean "read".
+    const pinnedId = fixturePost(100).id;
+    sendJson(response, 200, state.name.startsWith('app pagination')
+      ? [{ post_id: pinnedId }, { post_id: pinnedId }]
+      : []);
+    return;
+  }
+
   if (table === 'board_post_reactions' || table === 'board_attachments') {
     sendJson(response, 200, []);
     return;
@@ -380,6 +390,10 @@ async function runScenarios() {
         assert.equal(first.status, 200);
         assert.equal(first.body.data.items.filter((post) => !post.isPinned).length, 20);
         assert.equal(first.body.data.items.filter((post) => post.isPinned).length, 1);
+        assert.deepEqual(
+          first.body.data.items.map((post) => post.isRead),
+          first.body.data.items.map((post) => post.isPinned),
+        );
         assert.equal(typeof first.body.data.nextCursor, 'string');
         const second = await invoke({ sort, order, limit: 20, cursor: first.body.data.nextCursor }, headers);
         assert.equal(second.status, 200);

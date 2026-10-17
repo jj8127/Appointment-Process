@@ -1,5 +1,5 @@
 import type { BoardListItem } from '@/lib/board-api';
-import { mergeBoardListPages, patchBoardListViewCount, type BoardListPages } from '@/lib/board-list-pages';
+import { mergeBoardListPages, patchBoardListViewedPost, type BoardListPages } from '@/lib/board-list-pages';
 
 const item = (id: string, viewCount = 0) => ({ id, stats: { viewCount, commentCount: 2 } }) as BoardListItem;
 
@@ -19,7 +19,7 @@ describe('board paged list cache', () => {
     expect(merged[21].id).toBe('post-21');
   });
 
-  it('patches every cached occurrence of a viewed post and preserves cursor metadata and unrelated pages', () => {
+  it('patches every cached occurrence of a viewed post as read and preserves cursor metadata and unrelated pages', () => {
     const data: BoardListPages = {
       pages: [
         { items: [item('pin'), item('first')], nextCursor: 'page-2' },
@@ -28,15 +28,18 @@ describe('board paged list cache', () => {
       ],
       pageParams: [null, 'page-2', 'page-3'],
     };
-    const patched = patchBoardListViewCount(data, 'pin', 7)!;
+    const patched = patchBoardListViewedPost(data, 'pin', 7)!;
     expect(patched.pages[0].items[0].stats).toEqual({ viewCount: 7, commentCount: 2 });
     expect(patched.pages[1].items[0].stats.viewCount).toBe(7);
+    expect(patched.pages[0].items[0].isRead).toBe(true);
+    expect(patched.pages[1].items[0].isRead).toBe(true);
+    expect(patched.pages[0].items[1].isRead).toBeUndefined();
     expect(patched.pages[0].nextCursor).toBe('page-2');
     expect(patched.pages[2]).toBe(data.pages[2]);
     expect(patched.pageParams).toBe(data.pageParams);
     expect(data.pages[0].items[0].stats.viewCount).toBe(0);
-    expect(patchBoardListViewCount(patched, 'pin', 7)).toBe(patched);
-    expect(patchBoardListViewCount(data, 'missing', 7)).toBe(data);
-    expect(patchBoardListViewCount(undefined, 'pin', 7)).toBeUndefined();
+    expect(patchBoardListViewedPost(patched, 'pin', 7)).toBe(patched);
+    expect(patchBoardListViewedPost(data, 'missing', 7)).toBe(data);
+    expect(patchBoardListViewedPost(undefined, 'pin', 7)).toBeUndefined();
   });
 });

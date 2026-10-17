@@ -12,7 +12,8 @@ export function mergeBoardListPages(data: BoardListPages | undefined): BoardList
   return [...items.values()];
 }
 
-export function patchBoardListViewCount(
+/** Opening a post updates its view count and marks it read in every cached page. */
+export function patchBoardListViewedPost(
   data: BoardListPages | undefined,
   postId: string,
   viewCount: number,
@@ -22,10 +23,10 @@ export function patchBoardListViewCount(
   const pages = data.pages.map((page) => {
     let pageChanged = false;
     const items = page.items.map((item) => {
-      if (item.id !== postId || item.stats.viewCount === viewCount) return item;
+      if (item.id !== postId || (item.stats.viewCount === viewCount && item.isRead)) return item;
       changed = true;
       pageChanged = true;
-      return { ...item, stats: { ...item.stats, viewCount } };
+      return { ...item, isRead: true, stats: { ...item.stats, viewCount } };
     });
     return pageChanged ? { ...page, items } : page;
   });
