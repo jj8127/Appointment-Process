@@ -90,7 +90,7 @@ import {
   type BoardListPage,
   type BoardListPages,
 } from '@/lib/board-list-pages';
-import { downloadRemoteFileToUserStorage } from '@/lib/native-file-actions';
+import { downloadRemoteFileToUserStorage, loadFileSharing, shareRemoteFile } from '@/lib/native-file-actions';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { getBoardAuthorRoleLabel, getBoardRoleBadgeStyle } from '@/lib/staff-identity';
 import { ANIMATION } from '@/lib/theme';
@@ -101,6 +101,8 @@ const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
+// Older store builds lack the native share module; their share buttons stay hidden.
+const CAN_SHARE_FILES = loadFileSharing() !== null;
 const BOARD_SHARE_BASE_URL = process.env.EXPO_PUBLIC_GARAMIN_SHARE_BASE_URL
   ?? process.env.EXPO_PUBLIC_INVITE_BASE_URL;
 const CARD_SHADOW = {
@@ -695,6 +697,26 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
     } catch (error) {
       logBoardError('attachment-save', error);
       Alert.alert('저장 실패', error instanceof Error && error.message ? error.message : '첨부파일을 저장하지 못했어요. 다시 시도해 주세요.');
+    } finally {
+      setSavingAttachmentId(null);
+    }
+  }, [loadFreshAttachments, savingAttachmentId]);
+  // Saving and sharing both download the file, so they share the busy state.
+  const shareAttachment = useCallback(async (attachmentId: string) => {
+    if (savingAttachmentId) return;
+    setSavingAttachmentId(attachmentId);
+    try {
+      const attachment = (await loadFreshAttachments())?.find((item) => item.id === attachmentId);
+      if (!attachment?.signedUrl) throw new Error('첨부파일 주소를 불러오지 못했습니다.');
+      await shareRemoteFile({
+        url: attachment.signedUrl,
+        fileName: safeDecodeFileName(attachment.fileName),
+        mimeType: attachment.mimeType,
+        fallbackFileName: `board-attachment-${attachmentId}`,
+      });
+    } catch (error) {
+      logBoardError('attachment-share', error);
+      Alert.alert('공유 실패', error instanceof Error && error.message ? error.message : '첨부파일을 공유하지 못했어요. 다시 시도해 주세요.');
     } finally {
       setSavingAttachmentId(null);
     }
@@ -1520,6 +1542,20 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                             <Text style={styles.fileCardName} numberOfLines={2}>{fileName}</Text>
                             <Text style={styles.fileCardMeta}>{size ? `${kind} · ${size}` : kind}</Text>
                           </View>
+                          {CAN_SHARE_FILES ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`${fileName} 공유`}
+                              disabled={!!savingAttachmentId}
+                              hitSlop={6}
+                              style={({ pressed }) => [styles.fileSaveButton, pressed && { opacity: 0.6 }]}
+                              onPress={() => {
+                                void shareAttachment(item.id);
+                              }}
+                            >
+                              <Feather name="share-2" size={18} color={TEXT_MUTED} />
+                            </Pressable>
+                          ) : null}
                           <Pressable
                             accessibilityRole="button"
                             accessibilityLabel={`${fileName} 저장`}
@@ -1656,6 +1692,10 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
           const imageId = previewImage?.images[index]?.id;
           if (imageId) void saveAttachment(imageId);
         }}
+        onShare={CAN_SHARE_FILES ? (index) => {
+          const imageId = previewImage?.images[index]?.id;
+          if (imageId) void shareAttachment(imageId);
+        } : undefined}
         saving={!!savingAttachmentId}
       />
       <PdfViewerModal
@@ -1666,6 +1706,9 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
         onSave={() => {
           if (pdfViewer) void saveAttachment(pdfViewer.attachmentId);
         }}
+        onShare={CAN_SHARE_FILES ? () => {
+          if (pdfViewer) void shareAttachment(pdfViewer.attachmentId);
+        } : undefined}
         saving={!!savingAttachmentId}
         onOpenExternal={() => {
           if (pdfViewer) void openExternalAttachment(pdfViewer.attachmentId);

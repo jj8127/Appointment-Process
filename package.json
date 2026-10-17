@@ -74,6 +74,7 @@
     "expo-screen-orientation": "~9.0.9",
     "expo-secure-store": "~15.0.7",
     "expo-server-sdk": "^4.0.0",
+    "expo-sharing": "~14.0.8",
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.8",
     "expo-symbols": "~1.0.7",

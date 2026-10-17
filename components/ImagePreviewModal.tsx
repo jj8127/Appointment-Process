@@ -40,6 +40,8 @@ type ImagePreviewModalProps = {
   onClose: () => void;
   /** Shows a save button for the image on screen; callers without saving omit it. */
   onSave?: (index: number) => void;
+  /** Shows a share button (system share sheet) for the image on screen. */
+  onShare?: (index: number) => void;
   saving?: boolean;
 };
 
@@ -223,7 +225,7 @@ export function ZoomableImage({ uri, pageWidth, pageHeight, isZoomed, onZoomStat
   );
 }
 
-export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose, onSave, saving }: ImagePreviewModalProps) {
+export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose, onSave, onShare, saving }: ImagePreviewModalProps) {
   const { width, height } = useWindowDimensions();
   const pageWidth = Math.max(width - OVERLAY_HORIZONTAL_PADDING * 2, 1);
   const defaultBodyHeight = Math.max(height - 140, 1);
@@ -293,6 +295,17 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose, 
                 <Text style={styles.indexText}>{`총 ${totalCount}장 중 ${currentIndex + 1}번째`}</Text>
               )}
             </View>
+            {onShare && totalCount > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="사진 공유"
+                disabled={saving}
+                style={({ pressed }) => [styles.closeButton, (pressed || saving) && { opacity: 0.7 }]}
+                onPress={() => onShare(currentIndex)}
+              >
+                <Feather aria-hidden accessible={false} name="share-2" size={20} color="#fff" />
+              </Pressable>
+            ) : null}
             {onSave && totalCount > 0 ? (
               <Pressable
                 accessibilityRole="button"
