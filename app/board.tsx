@@ -263,6 +263,10 @@ function BoardPostRow({ post, categoryName, isLast, onPress }: BoardPostRowProps
               <Text style={styles.rowMetaText}>{post.stats.commentCount}</Text>
             </View>
           )}
+          <View style={styles.rowMetaItem} accessibilityLabel={`조회 ${post.stats.viewCount ?? 0}`}>
+            <Feather name="eye" size={12} color={TEXT_MUTED} />
+            <Text style={styles.rowMetaText}>{post.stats.viewCount ?? 0}</Text>
+          </View>
         </View>
       </View>
       {firstImage && <AttachmentPreviewThumb uri={firstImage.signedUrl} />}
