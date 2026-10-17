@@ -53,6 +53,7 @@ import {
   type BoardReactionKey,
 } from '@/lib/board-reaction-state';
 import { showBoardCommentActions } from '@/lib/board-comment-actions';
+import { getBoardFileKind, splitBoardPostLead } from '@/lib/board-detail-layout';
 import { buildBoardPostShareContent } from '@/lib/board-share-link';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { useReadSessionScope } from '@/hooks/use-read-session-scope';
@@ -631,6 +632,9 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
     myReaction: null,
   };
   const modalAttachmentImages = useMemo(() => toAttachmentPreviewImages(modalAttachments), [modalAttachments]);
+  const modalFileAttachments = useMemo(() => modalAttachments.filter((item) => item.fileType === 'file'), [modalAttachments]);
+  // The first paragraph leads the first screen, right above the attachments; the rest follows as body.
+  const modalLead = useMemo(() => splitBoardPostLead(modalPost?.content), [modalPost?.content]);
   const loadFreshAttachments = useCallback(
     () => getFreshBoardAttachments(modalAttachments, detailData?.attachmentsSignedAt ?? 0, async () => {
       const result = await refetchDetail();
@@ -1125,7 +1129,6 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
   const regularPosts = useMemo(() => posts.filter((post) => !post.isPinned), [posts]);
 
   const contentBottomPadding = (role === 'admin' ? 160 : 96) + (insets.bottom || 0);
-  const modalHeaderPaddingTop = Math.max(insets.top - 12, 8);
   const modalTopGap = Math.max(insets.top + 12, 24);
   const commentBarInset = 96;
   const handleLogout = () => {
@@ -1354,8 +1357,8 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
           <Animated.View style={[styles.modalContent, modalAnimatedStyle]}>
             <View style={styles.modalContentInner}>
               <GestureDetector gesture={modalPanGesture}>
-                <View style={[styles.modalHeader, { paddingTop: modalHeaderPaddingTop }]}>
-                  <Text style={styles.modalTitle}>게시글 상세</Text>
+                <View style={styles.modalHeader}>
+                  <View style={styles.modalGrabber} />
                   <View style={styles.modalHeaderActions}>
                     <Pressable
                       accessibilityRole="button"
@@ -1438,10 +1441,9 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                   <Text style={styles.detailMetaText}>
                     {modalPost?.createdAt
                       ? new Date(modalPost.createdAt).toLocaleDateString('ko-KR', {
-                        year: 'numeric',
                         month: 'long',
                         day: 'numeric',
-                        hour: '2-digit',
+                        hour: 'numeric',
                         minute: '2-digit',
                       })
                       : ''}
@@ -1449,59 +1451,79 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                   </Text>
                 </View>
 
-                <View style={styles.divider} />
-
-                <LinkifiedSelectableText text={modalPost?.content} style={styles.modalPostContent} />
+                {modalLead.lead ? (
+                  <View style={styles.leadBox}>
+                    <LinkifiedSelectableText text={modalLead.lead} style={styles.leadText} />
+                  </View>
+                ) : null}
 
                 {modalAttachments.length > 0 && (
                   <View style={styles.attachmentSection}>
-                    <Text style={styles.sectionTitle}>첨부파일 {modalAttachments.length}</Text>
+                    <Text style={styles.attachmentHeading}>첨부 {modalAttachments.length}</Text>
 
-                    <View style={styles.attachmentList}>
-                      {modalAttachments
-                        .filter((item) => item.fileType === 'file')
-                        .map((item) => (
-                          <Pressable
-                            key={item.id}
-                            style={styles.attachmentItem}
-                            onPress={() => {
-                              void openFileAttachment(item.id);
-                            }}
-                          >
-                            <View style={styles.attachmentIcon}>
-                              <Feather name="file-text" size={16} color={HANWHA_ORANGE} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.attachmentName}>{safeDecodeFileName(item.fileName)}</Text>
-                              <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
-                            </View>
-                            <Feather name="download" size={16} color={TEXT_MUTED} />
-                          </Pressable>
-                        ))}
-                    </View>
-
-                    <View style={styles.attachmentGrid}>
-                      {modalAttachmentImages.map((item) => (
+                    {modalFileAttachments.map((item) => {
+                      const kind = getBoardFileKind(item.fileName, item.mimeType);
+                      const fileName = safeDecodeFileName(item.fileName);
+                      const size = formatFileSize(item.fileSize);
+                      return (
                         <Pressable
                           key={item.id}
-                          style={({ pressed }) => [
-                            styles.attachmentGridItem,
-                            pressed && { opacity: 0.75 },
-                          ]}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${fileName}, ${kind}${size ? `, ${size}` : ''} 열기`}
+                          style={({ pressed }) => [styles.fileCard, pressed && styles.fileCardPressed]}
                           onPress={() => {
-                            void openAttachmentImagePreview(item.id);
+                            void openFileAttachment(item.id);
                           }}
                         >
-                          <Image source={{ uri: item.url }} style={styles.attachmentGridImage} resizeMethod="resize" />
-                          <Text style={styles.attachmentName} numberOfLines={1}>
-                            {item.title}
-                          </Text>
-                          <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
+                          <View style={[styles.fileKind, kind === 'PDF' && styles.fileKindPdf]}>
+                            <Text style={[styles.fileKindText, kind === 'PDF' && styles.fileKindTextPdf]}>{kind}</Text>
+                          </View>
+                          <View style={styles.fileCardBody}>
+                            <Text style={styles.fileCardName} numberOfLines={2}>{fileName}</Text>
+                            <Text style={styles.fileCardMeta}>{size ? `${kind} · ${size}` : kind}</Text>
+                          </View>
+                          <Feather name="chevron-right" size={18} color={TEXT_MUTED} />
                         </Pressable>
-                      ))}
-                    </View>
+                      );
+                    })}
+
+                    {modalAttachmentImages.length > 0 && (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        keyboardShouldPersistTaps="always"
+                        contentContainerStyle={styles.imageStrip}
+                      >
+                        {modalAttachmentImages.map((item, index) => (
+                          <Pressable
+                            key={item.id}
+                            accessibilityRole="imagebutton"
+                            accessibilityLabel={`이미지 ${index + 1}/${modalAttachmentImages.length} 크게 보기`}
+                            style={({ pressed }) => [
+                              styles.imageThumb,
+                              modalAttachmentImages.length === 1 && styles.imageSingle,
+                              pressed && { opacity: 0.75 },
+                            ]}
+                            onPress={() => {
+                              void openAttachmentImagePreview(item.id);
+                            }}
+                          >
+                            <Image
+                              source={{ uri: item.url }}
+                              style={styles.imageThumbImage}
+                              resizeMethod="resize"
+                              resizeMode={modalAttachmentImages.length === 1 ? 'contain' : 'cover'}
+                            />
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    )}
                   </View>
                 )}
+
+                {modalLead.rest ? (
+                  <LinkifiedSelectableText text={modalLead.rest} style={styles.modalPostContent} />
+                ) : null}
 
                 <View style={styles.divider} />
 
@@ -1871,14 +1893,23 @@ const styles = StyleSheet.create({
   },
   modalHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 0,
     backgroundColor: '#fff',
+  },
+  modalGrabber: {
+    position: 'absolute',
+    top: 8,
+    alignSelf: 'center',
+    left: '50%',
+    marginLeft: -20,
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: BORDER,
   },
   modalHeaderActions: {
     flexDirection: 'row',
@@ -1893,20 +1924,69 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: CHARCOAL },
-  modalBody: { paddingHorizontal: 24, paddingVertical: 14 },
+  modalBody: { paddingHorizontal: 24, paddingTop: 0, paddingBottom: 14 },
   modalPostTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '800',
     color: CHARCOAL,
-    marginBottom: 12,
-    lineHeight: 28,
+    marginBottom: 10,
+    lineHeight: 30,
   },
   modalPostContent: {
-    fontSize: 15,
+    marginTop: 20,
+    fontSize: 17,
     color: CHARCOAL,
-    lineHeight: 24,
+    lineHeight: 28,
   },
+  leadBox: {
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: '#FFF7ED',
+  },
+  leadText: { fontSize: 17, lineHeight: 26, fontWeight: '700', color: CHARCOAL },
+  attachmentHeading: { fontSize: 13, fontWeight: '700', color: TEXT_MUTED },
+  fileCard: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#fff',
+  },
+  fileCardPressed: { backgroundColor: '#F9FAFB' },
+  fileKind: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fileKindPdf: { backgroundColor: '#FEE2E2' },
+  fileKindText: { fontSize: 12, fontWeight: '800', color: '#4B5563', includeFontPadding: false },
+  fileKindTextPdf: { color: '#B91C1C' },
+  fileCardBody: { flex: 1, minWidth: 0, gap: 2 },
+  fileCardName: { fontSize: 15, lineHeight: 21, fontWeight: '600', color: CHARCOAL },
+  fileCardMeta: { fontSize: 12, color: TEXT_MUTED },
+  imageStrip: { gap: 8 },
+  imageThumb: {
+    width: 112,
+    height: 112,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#F9FAFB',
+  },
+  imageThumbImage: { width: '100%', height: '100%' },
+  // A lone image (often a schedule table) gets the full width so it reads without opening the viewer.
+  imageSingle: { width: Dimensions.get('window').width - 48, height: Math.round((Dimensions.get('window').width - 48) * 0.75) },
   reactionsSection: { marginBottom: 20 },
   sectionTitle: {
     fontSize: 14,
@@ -1914,48 +1994,7 @@ const styles = StyleSheet.create({
     color: TEXT_MUTED,
     marginBottom: 12,
   },
-  attachmentSection: { marginTop: 20, marginBottom: 20, gap: 10 },
-  attachmentGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  attachmentGridItem: {
-    width: '48%',
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 12,
-    padding: 10,
-    backgroundColor: '#fff',
-    gap: 6,
-  },
-  attachmentGridImage: {
-    width: '100%',
-    height: 120,
-    borderRadius: 8,
-    backgroundColor: '#F9FAFB',
-  },
-  attachmentList: { gap: 10 },
-  attachmentItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: '#fff',
-  },
-  attachmentIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(243,111,33,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  attachmentName: { fontSize: 13, fontWeight: '600', color: CHARCOAL },
-  attachmentSize: { fontSize: 12, color: TEXT_MUTED },
+  attachmentSection: { marginTop: 16, gap: 8 },
   commentsSection: { marginBottom: 20 },
   commentItem: {
     padding: 12,
