@@ -11,6 +11,7 @@
 - 검증: 앱 tsc·lint(기존 경고 1) 통과, 웹 build 통과, 웹 테스트 806/806, root Jest는 병합 전 기준선 대비 새 실패 0(통합으로 생긴 소스 계약 테스트 3개와 웹 fc-delete 계약 1개는 새 코드에 맞춰 갱신). request_board 서버 build·messenger-export 10/10·bridge 22/22, 기존 실패(ACL rollout evidence, sentry-sanitize 등)는 `1ffc4bd`·`3b513ee`에서도 같다.
 - 한계: 기기는 OTA 꺼진 로컬 빌드라 OTA 수신을 직접 확인하지 못했다. Edge 함수 로그는 Supabase 플러그인 인증이 없어 확인하지 못했다. 배포 뒤 하단 시트 세션이 만든 `78c21ceb`는 이번 OTA에 없다.
 - 워크트리 정리: 병합·포함된 깨끗한 워크트리 16개를 지웠다(브랜치는 유지, 공유 node_modules 링크는 먼저 해제). 커밋 안 된 변경이 있는 board-attachment·latency, 메인 체크아웃, w1, 두 release 워크트리는 남겼다.
+- 추가 OTA: 하단 시트 13곳을 SystemBarsModal로 옮긴 `78c21ceb`를 합친 `326af6f9`를 production 채널에 배포했다(update group `d7147113-771f-463a-94ec-673a4017b1de`, runtime 4.2.21, Android·iOS, production 환경 변수 로드). tsc·lint 통과, root Jest는 직전 배포 대비 새 실패 0. 실기기는 원격이라 연결이 끊겨 Hanhwa_FC 에뮬레이터(x86_64, 3버튼 내비)에서 같은 코드(`78c21ceb`) 빌드로 설계코드 등록 시트를 열어 취소·등록 버튼(아래 끝 y=2195)이 내비게이션 바 위로 떨어진 것을 확인하고 취소로 닫았다(저장 없음). 로컬 빌드는 JS 묶음이 캐시되면 `.env`가 빠질 수 있어 묶음 출력을 지우고 다시 빌드했다.
 
 ## 2026-10-17 메신저 개편·가입 쌓이는 입력·FC 홈 개편 Android·iOS OTA
 
