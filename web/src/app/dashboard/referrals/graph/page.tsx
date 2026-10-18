@@ -2,14 +2,15 @@
 
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { ActionIcon, Badge, Box, Button, Center, Group, Loader, Paper, ScrollArea, SegmentedControl, Slider, Stack, Switch, Text, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Box, Button, Center, Group, Loader, SegmentedControl, Slider, Stack, Switch, Text, TextInput, Tooltip } from '@mantine/core';
 import { useDisclosure, useLocalStorage, useViewportSize } from '@mantine/hooks';
-import { IconAdjustmentsHorizontal, IconArrowLeft, IconFocus2, IconRefresh, IconSearch, IconSettings, IconX } from '@tabler/icons-react';
+import { IconArrowLeft, IconFocus2, IconRefresh, IconSearch, IconX } from '@tabler/icons-react';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import type { ReferralClusterGraphCanvasProps } from '@/components/referrals/ReferralClusterGraphCanvas';
 import type { ReferralGraphCanvasProps } from '@/components/referrals/ReferralGraphCanvas';
+import { GraphControlPanel, GraphControlSection } from '@/components/referrals/GraphControlPanel';
 import { GraphNodeDrawer } from '@/components/referrals/GraphNodeDrawer';
 import { useSession } from '@/hooks/use-session';
 import { buildReferralGraphDescendantCountMap } from '@/lib/referral-graph-descendants';
@@ -160,7 +161,12 @@ export default function ReferralGraphPage() {
   const [fitRequestId, setFitRequestId] = useState(0);
   const [resetLayoutRequestId, setResetLayoutRequestId] = useState(0);
   const [layoutMode, setLayoutMode] = useState<'cluster' | 'free'>('cluster');
-  const [physicsPanelOpen, setPhysicsPanelOpen] = useState(false);
+  // Obsidian처럼 설정은 접히는 패널 하나에. 열림 상태는 기억한다(처음엔 열어 둔다).
+  const [controlsOpen, setControlsOpen] = useLocalStorage<boolean>({
+    key: 'referral-graph-controls-open-v1',
+    defaultValue: true,
+    getInitialValueInEffect: true,
+  });
   const [storedPhysicsSettings, setStoredPhysicsSettings] = useLocalStorage<ReferralGraphPhysicsSettings>({
     key: 'referral-graph-physics-settings-v18-natural',
     defaultValue: DEFAULT_REFERRAL_GRAPH_PHYSICS,
@@ -378,6 +384,13 @@ export default function ReferralGraphPage() {
     setHideIsolatedNodes((current) => !current);
   }, []);
 
+  const resetControls = useCallback(() => {
+    setSearchTerm('');
+    setEnabledStatuses(STATUS_FILTERS.map((item) => item.key));
+    setHideIsolatedNodes(false);
+    setDepthHops(2);
+  }, []);
+
   const updatePhysicsSetting = useCallback(
     (key: keyof ReferralGraphPhysicsSettings, value: number) => {
       setDraftPhysicsSettings((current) => ({
@@ -421,234 +434,31 @@ export default function ReferralGraphPage() {
         overflow: isMobileGraph ? 'visible' : 'hidden',
       }}
     >
-      <Box
-        px={isMobileGraph ? 'md' : 'md'}
-        py={isMobileGraph ? 'sm' : 'sm'}
-        style={{
-          background: 'rgba(255, 255, 255, 0.94)',
-          borderBottom: '1px solid #dbe4ee',
-          flexShrink: 0,
-        }}
+      <Group
+        px="md"
+        py={6}
+        gap="xs"
+        wrap="nowrap"
+        style={{ background: 'rgba(255, 255, 255, 0.94)', borderBottom: '1px solid #dbe4ee', flexShrink: 0 }}
       >
-        <Stack gap={isMobileGraph ? 'xs' : 'sm'}>
-          <SegmentedControl aria-label="그래프 배치 방식" value={layoutMode} onChange={(value) => { setLayoutMode(value as 'cluster' | 'free'); setPhysicsPanelOpen(false); }} data={[{ value: 'cluster', label: '집단 배치' }, { value: 'free', label: '자유 배치' }]} size="xs" style={{ alignSelf: 'flex-start' }} />
-          <Group
-            justify="space-between"
-            wrap={responsiveLayout.headerStacked ? 'wrap' : 'nowrap'}
-            align="center"
-            style={{ rowGap: isMobileGraph ? 8 : undefined }}
-          >
-            <Group
-              gap="xs"
-              wrap="nowrap"
-              style={{
-                minWidth: 0,
-                flex: responsiveLayout.headerStacked ? '1 1 100%' : '1 1 auto',
-                width: responsiveLayout.headerStacked ? '100%' : undefined,
-              }}
-            >
-              {!isDownlineScope ? (
-                <Tooltip label="리스트로 돌아가기" withArrow>
-                  <ActionIcon aria-label="추천인 코드로 이동"
-                    component={Link}
-                    href="/dashboard/referrals"
-                    variant="subtle"
-                    color="gray"
-                    size="sm"
-                  >
-                    <IconArrowLeft size={16} />
-                  </ActionIcon>
-                </Tooltip>
-              ) : null}
-
-              <Box style={{ flex: 1, minWidth: 0 }}>
-                <Text
-                  size={isMobileGraph ? 'lg' : 'sm'}
-                  fw={isMobileGraph ? 800 : 700}
-                  c="dark.8"
-                  style={{ lineHeight: 1.18, whiteSpace: 'nowrap' }}
-                >
-                  {isMobileGraph ? '추천 관계 보기' : '추천인 그래프'}
-                </Text>
-                <Text size={isMobileGraph ? 'sm' : 'xs'} c="gray.7" style={{ lineHeight: 1.35 }}>
-                  {responsiveLayout.showLongDescription
-                    ? isDownlineScope
-                      ? '내 추천 관계 하위 조직만 보여줍니다.'
-                      : '현재 추천인으로 연결된 관계만 보여줍니다. 예전 `recommender` 문자열만 남은 사람은 노드 경고로 따로 표시합니다.'
-                    : isDownlineScope
-                      ? '내 하위 조직만 표시'
-                      : '추천 관계만 표시'}
-                </Text>
-              </Box>
-            </Group>
-
-            <Group
-              gap="xs"
-              wrap="nowrap"
-              style={{
-                width: responsiveLayout.controlsScrollable ? '100%' : undefined,
-                overflowX: responsiveLayout.controlsScrollable ? 'auto' : undefined,
-                paddingBottom: responsiveLayout.controlsScrollable ? 2 : undefined,
-              }}
-            >
-              <Button
-                size={isMobileGraph ? 'compact-sm' : 'xs'}
-                variant="light"
-                onClick={() => setFitRequestId((value) => value + 1)}
-                styles={{ root: { flex: '0 0 auto' } }}
-              >
-                {isMobileGraph ? '화면 맞춤' : '화면 맞춤'}
-              </Button>
-              <Tooltip label={layoutMode === 'cluster' ? '고정된 집단 배치 전체를 다시 보여줍니다.' : '배치를 초기 원형 구조로 다시 정리합니다.'} withArrow>
-                <Button
-                  size={isMobileGraph ? 'compact-sm' : 'xs'}
-                  variant="light"
-                  onClick={() => setResetLayoutRequestId((value) => value + 1)}
-                  styles={{ root: { flex: '0 0 auto' } }}
-                >
-                  {isMobileGraph ? '배치 초기화' : '배치 초기화'}
-                </Button>
-              </Tooltip>
-              <Button
-                size={isMobileGraph ? 'compact-sm' : 'xs'}
-                variant="subtle"
-                leftSection={<IconFocus2 size={14} />}
-                onClick={handleClearSelection}
-                disabled={!selectedNodeId}
-                styles={{ root: { flex: '0 0 auto' } }}
-              >
-                선택 해제
-              </Button>
-              <ActionIcon aria-label="추천 관계 새로고침"
-                variant="subtle"
-                color="gray"
-                size="sm"
-                loading={graphQuery.isFetching}
-                onClick={() => graphQuery.refetch()}
-              >
-                <IconRefresh size={16} />
-              </ActionIcon>
-            </Group>
-          </Group>
-
-          <Group justify="space-between" wrap="wrap" align="center">
-            <Group
-              gap="xs"
-              wrap={responsiveLayout.controlsScrollable ? 'nowrap' : 'wrap'}
-              style={{
-                flex: '1 1 auto',
-                minWidth: 0,
-                width: responsiveLayout.controlsScrollable ? '100%' : undefined,
-                overflowX: responsiveLayout.controlsScrollable ? 'auto' : undefined,
-                paddingBottom: responsiveLayout.controlsScrollable ? 2 : undefined,
-              }}
-            >
-              <TextInput rightSectionWidth={44}
-                placeholder="이름·소속·코드 검색"
-                size={isMobileGraph ? 'sm' : 'xs'}
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.currentTarget.value)}
-                leftSection={<IconSearch size={14} />}
-                rightSection={
-                  searchTerm ? (
-                    <ActionIcon aria-label="검색어 지우기" size="xs" variant="subtle" color="gray" onClick={() => setSearchTerm('')}>
-                      <IconX size={12} />
-                    </ActionIcon>
-                  ) : null
-                }
-                styles={{ input: { background: '#ffffff', color: '#0f172a', borderColor: '#cbd5e1' } }}
-                style={{
-                  flex: isMobileGraph ? '1 0 100%' : responsiveLayout.controlsScrollable ? '0 0 240px' : '0 1 280px',
-                  minWidth: isMobileGraph ? 0 : responsiveLayout.controlsScrollable ? 240 : 220,
-                }}
-              />
-
-              <Group
-                gap={isMobileGraph ? 6 : 'xs'}
-                wrap="nowrap"
-                style={{
-                  flexShrink: 0,
-                  width: isMobileGraph ? '100%' : undefined,
-                  overflowX: isMobileGraph ? 'auto' : undefined,
-                  paddingBottom: isMobileGraph ? 2 : undefined,
-                }}
-              >
-                {STATUS_FILTERS.map((item) => {
-                  const active = enabledStatusSet.has(item.key);
-                  return (
-                    <Button
-                      key={item.key}
-                      size={isMobileGraph ? 'compact-sm' : 'xs'}
-                      variant={active ? 'filled' : 'default'}
-                      color={item.color}
-                      onClick={() => toggleStatus(item.key)}
-                      styles={{ root: { flex: '0 0 auto' } }}
-                    >
-                      {item.label}
-                    </Button>
-                  );
-                })}
-              </Group>
-
-              {selectedNodeId ? (
-                <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
-                  <Text size="xs" c="dimmed">
-                    범위
-                  </Text>
-                  {[1, 2, 3].map((value) => (
-                    <Button
-                      key={value}
-                      size="xs"
-                      variant={depthHops === value ? 'filled' : 'default'}
-                      color="orange"
-                      onClick={() => setDepthHops(value as 1 | 2 | 3)}
-                    >
-                      {value}단계
-                    </Button>
-                  ))}
-                </Group>
-              ) : null}
-
-              <Switch
-                checked={hideIsolatedNodes}
-                onChange={toggleHideIsolatedNodes}
-                label="연결 없는 사람 숨기기"
-                size="sm"
-                style={{ flexShrink: 0, width: isMobileGraph ? '100%' : undefined }}
-              />
-            </Group>
-
-            <Group
-              gap="xs"
-              wrap={responsiveLayout.statsScrollable ? 'nowrap' : 'wrap'}
-              style={{
-                width: responsiveLayout.statsScrollable ? '100%' : undefined,
-                overflowX: responsiveLayout.statsScrollable ? 'auto' : undefined,
-                paddingBottom: responsiveLayout.statsScrollable ? 2 : undefined,
-              }}
-            >
-              {effectiveSelectedNodeId ? (
-                <Badge color="orange" variant="light" style={{ flex: '0 0 auto' }}>
-                  선택된 사람 주변 {depthHops}단계
-                </Badge>
-              ) : null}
-              <Badge color="gray" variant="light" style={{ flex: '0 0 auto' }}>
-                {isDownlineScope ? 'FC 전용 범위' : '조회 전용'}
-              </Badge>
-              <Badge color="gray" variant="light" style={{ flex: '0 0 auto' }}>
-                {visibleNodes.length.toLocaleString('ko-KR')}명
-              </Badge>
-              <Badge color="teal" variant="filled" style={{ flex: '0 0 auto' }}>
-                모든 위촉 완료 {visibleCompletedCommissionCount.toLocaleString('ko-KR')}명
-              </Badge>
-              <Badge color="gray" variant="light" style={{ flex: '0 0 auto' }}>
-                {visibleEdges.length.toLocaleString('ko-KR')}개 연결
-              </Badge>
-            </Group>
-          </Group>
-
-        </Stack>
-      </Box>
+        {!isDownlineScope ? (
+          <Tooltip label="리스트로 돌아가기" withArrow>
+            <ActionIcon aria-label="추천인 코드로 이동" component={Link} href="/dashboard/referrals" variant="subtle" color="gray" size="sm">
+              <IconArrowLeft size={16} />
+            </ActionIcon>
+          </Tooltip>
+        ) : null}
+        <Text size="sm" fw={700} c="dark.8" style={{ whiteSpace: 'nowrap' }}>
+          {isMobileGraph ? '추천 관계 보기' : '추천인 그래프'}
+        </Text>
+        <SegmentedControl aria-label="그래프 배치 방식" value={layoutMode} onChange={(value) => setLayoutMode(value as 'cluster' | 'free')}
+          data={[{ value: 'cluster', label: '집단 배치' }, { value: 'free', label: '자유 배치' }]} size="xs" />
+        <Box style={{ flex: 1 }} />
+        <ActionIcon aria-label="추천 관계 새로고침" variant="subtle" color="gray" size="sm"
+          loading={graphQuery.isFetching} onClick={() => graphQuery.refetch()}>
+          <IconRefresh size={16} />
+        </ActionIcon>
+      </Group>
 
       <Box
         ref={containerRef}
@@ -713,6 +523,7 @@ export default function ReferralGraphPage() {
             onNodeClick={handleNodeClick}
             width={canvasSize.width}
             height={canvasSize.height}
+            insetRight={drawerOpen && effectiveSelectedNodeId && !isMobileGraph ? 440 : 0}
           />
         ) : (
           <ReferralGraphCanvas
@@ -731,260 +542,122 @@ export default function ReferralGraphPage() {
           />
         )}
 
-        {layoutMode === 'free' ? <Tooltip label="배치 설정" withArrow>
-          <ActionIcon aria-label="그래프 움직임 설정" aria-expanded={physicsPanelOpen}
-            variant="filled"
-            radius="xl"
-            size="lg"
-            color={physicsPanelOpen ? 'orange' : 'dark'}
-            onClick={() => setPhysicsPanelOpen((current) => !current)}
-            style={{
-              position: 'absolute',
-              right: isMobileGraph ? 12 : 16,
-              top: isMobileGraph ? 12 : 16,
-              zIndex: 4,
-              boxShadow: '0 12px 24px rgba(15, 23, 42, 0.18)',
-            }}
-          >
-            <IconSettings size={18} />
-          </ActionIcon>
-        </Tooltip> : null}
-
-        <Paper
-          withBorder
-          radius="md"
-          p={isMobileGraph ? 8 : 'sm'}
-          style={{
-            position: 'absolute',
-            left: responsiveLayout.legendPlacement === 'bottom-strip' ? 8 : 16,
-            right: responsiveLayout.legendPlacement === 'bottom-strip' ? 8 : undefined,
-            bottom: responsiveLayout.legendPlacement === 'bottom-strip' ? 8 : 16,
-            maxWidth: responsiveLayout.legendPlacement === 'bottom-strip' ? 'calc(100% - 16px)' : 360,
-            maxHeight: isMobileGraph ? 86 : undefined,
-            background: 'rgba(255, 255, 255, 0.94)',
-            borderColor: '#dbe4ee',
-            pointerEvents: isMobileGraph ? 'auto' : 'none',
-            boxShadow: '0 18px 36px rgba(15, 23, 42, 0.08)',
-            overflow: 'hidden',
-          }}
-        >
-          <Stack gap={isMobileGraph ? 4 : 6}>
-            <Text size="xs" fw={700} c="dark.7" style={{ flexShrink: 0 }}>
-              {isMobileGraph ? '범례' : '색상 범례'}
+        <GraphControlPanel
+          open={controlsOpen}
+          onOpenChange={setControlsOpen}
+          onReset={resetControls}
+          right={drawerOpen && effectiveSelectedNodeId && !isMobileGraph ? 452 : 12}
+          width={isMobileGraph ? Math.min(320, (canvasSize?.width ?? 344) - 24) : 300}
+          maxHeight={isMobileGraph ? '70%' : 'calc(100% - 24px)'}
+          summary={(
+            <Text size="xs" c="gray.7" style={{ lineHeight: 1.5 }}>
+              <b>{visibleNodes.length.toLocaleString('ko-KR')}명</b>
+              {' · 위촉 완료 '}{visibleCompletedCommissionCount.toLocaleString('ko-KR')}명
+              {' · '}{visibleEdges.length.toLocaleString('ko-KR')}개 연결
+              {' · '}{isDownlineScope ? 'FC 전용 범위' : '조회 전용'}
             </Text>
-            <Group
-              gap={responsiveLayout.legendPlacement === 'bottom-strip' ? 'sm' : 4}
-              wrap={isMobileGraph ? 'nowrap' : 'wrap'}
-              style={{
-                overflowX: isMobileGraph ? 'auto' : undefined,
-                paddingBottom: isMobileGraph ? 2 : undefined,
-              }}
-            >
-              <Group gap={6} wrap="nowrap">
-                <Box
-                  style={{
-                    width: 12,
-                    height: 12,
-                    borderRadius: '999px',
-                    flexShrink: 0,
-                    background: '#0f9f6e',
-                  }}
-                />
-                <Text size="xs" c="gray.7">
-                  {isMobileGraph ? '위촉 완료' : '생명·손해 위촉 모두 완료'}
-                </Text>
-              </Group>
-              <Group gap={6} wrap="nowrap">
-                <Box
-                  style={{
-                    width: 12,
-                    height: 12,
-                    borderRadius: '999px',
-                    flexShrink: 0,
-                    background: '#ea580c',
-                  }}
-                />
-                <Text size="xs" c="gray.7">
-                  본등록 완료
-                </Text>
-              </Group>
-              <Group gap={6} wrap="nowrap">
-                <Box
-                  style={{
-                    width: 12,
-                    height: 12,
-                    borderRadius: '999px',
-                    flexShrink: 0,
-                    background: '#facc15',
-                  }}
-                />
-                <Text size="xs" c="gray.7">
-                  {isMobileGraph ? '현재 사용자' : highlightLegendLabel}
-                </Text>
-              </Group>
-              <Group gap={6} wrap="nowrap">
-                <Group gap={2} wrap="nowrap" style={{ flexShrink: 0 }}>
-                  <Box
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '999px',
-                      background: '#64748b',
-                    }}
-                  />
-                  <Box
-                    style={{
-                      width: 12,
-                      height: 12,
-                      borderRadius: '999px',
-                      background: '#64748b',
-                    }}
-                  />
-                  <Box
-                    style={{
-                      width: 16,
-                      height: 16,
-                      borderRadius: '999px',
-                      background: '#64748b',
-                    }}
-                  />
-                </Group>
-                <Text size="xs" c="gray.7">
-                  {isMobileGraph ? '크기=하위 수' : '크기: 하위 전체 조직 수'}
-                </Text>
-              </Group>
-              <Group gap={6} wrap="nowrap">
-                <Box
-                  style={{
-                    width: 12,
-                    height: 12,
-                    borderRadius: '999px',
-                    flexShrink: 0,
-                    background: '#94a3b8',
-                  }}
-                />
-                <Text size="xs" c="gray.7">
-                  {isMobileGraph ? '사전등록' : '사전등록까지만 한 사람'}
-                </Text>
-              </Group>
+          )}
+        >
+          <GraphControlSection title="필터" defaultOpen>
+            <TextInput
+              aria-label="이름·소속·코드 검색"
+              placeholder="이름·소속·코드 검색"
+              size="xs"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.currentTarget.value)}
+              leftSection={<IconSearch size={14} />}
+              rightSection={searchTerm ? (
+                <ActionIcon aria-label="검색어 지우기" size="xs" variant="subtle" color="gray" onClick={() => setSearchTerm('')}>
+                  <IconX size={12} />
+                </ActionIcon>
+              ) : null}
+            />
+            <Group gap={6}>
+              {STATUS_FILTERS.map((item) => {
+                const active = enabledStatusSet.has(item.key);
+                return (
+                  <Button key={item.key} size="compact-xs" radius="xl" variant={active ? 'filled' : 'default'} color={item.color}
+                    aria-pressed={active} onClick={() => toggleStatus(item.key)}>
+                    {item.label}
+                  </Button>
+                );
+              })}
             </Group>
-          </Stack>
-        </Paper>
+            <Switch checked={hideIsolatedNodes} onChange={toggleHideIsolatedNodes} label="연결 없는 사람 숨기기" size="xs" />
+          </GraphControlSection>
 
-        {layoutMode === 'free' && physicsPanelOpen ? (
-          <Paper
-            radius="lg"
-            withBorder
-            p={0}
-            style={{
-              position: 'absolute',
-              left: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? 8 : undefined,
-              right: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? 8 : 16,
-              top: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? undefined : 64,
-              bottom: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? 8 : 16,
-              width: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? 'auto' : responsiveLayout.physicsPanelWidth,
-              maxHeight: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? 'min(62dvh, 480px)' : undefined,
-              zIndex: 4,
-              background: '#3c362f',
-              borderColor: '#5f564c',
-              boxShadow: '0 24px 48px rgba(15, 23, 42, 0.24)',
-              overflow: 'hidden',
-            }}
-          >
-            <Stack gap={0} h="100%">
-              <Group justify="space-between" px="md" py="sm" style={{ borderBottom: '1px solid #5f564c' }}>
-                <Group gap="xs">
-                  <IconAdjustmentsHorizontal size={16} color="#f3eee6" />
-                  <Text size="sm" fw={700} c="#f3eee6">
-                    장력 설정
-                  </Text>
-                </Group>
-                <Group gap="xs">
-                  <ActionIcon aria-label="그래프 움직임 설정 초기화" variant="subtle" color="gray" onClick={resetPhysicsSettings}>
-                    <IconRefresh size={16} />
-                  </ActionIcon>
-                  <ActionIcon aria-label="그래프 움직임 설정 닫기" variant="subtle" color="gray" onClick={() => setPhysicsPanelOpen(false)}>
-                    <IconX size={16} />
-                  </ActionIcon>
-                </Group>
+          <GraphControlSection title="범위" defaultOpen={Boolean(selectedNodeId)}>
+            <Text size="xs" c="dimmed">{selectedNode ? `${selectedNode.name} 주변` : '사람을 선택하면 적용'}</Text>
+            <SegmentedControl aria-label="선택한 사람 주변 범위" size="xs" fullWidth disabled={!selectedNodeId}
+              value={String(depthHops)} onChange={(value) => setDepthHops(Number(value) as 1 | 2 | 3)}
+              data={[{ value: '1', label: '1단계' }, { value: '2', label: '2단계' }, { value: '3', label: '3단계' }]} />
+            {selectedNodeId ? (
+              <Button size="compact-xs" variant="subtle" leftSection={<IconFocus2 size={14} />} onClick={handleClearSelection}
+                style={{ alignSelf: 'flex-start' }}>
+                선택 해제
+              </Button>
+            ) : null}
+          </GraphControlSection>
+
+          <GraphControlSection title="색 그룹">
+            {[
+              { color: '#0f9f6e', label: '생명·손해 위촉 모두 완료' },
+              { color: '#ea580c', label: '본등록 완료' },
+              { color: '#facc15', label: highlightLegendLabel },
+              { color: '#94a3b8', label: '사전등록까지만 한 사람' },
+            ].map((item) => (
+              <Group key={item.label} gap={8} wrap="nowrap">
+                <Box style={{ width: 12, height: 12, borderRadius: 999, flexShrink: 0, background: item.color }} />
+                <Text size="xs" c="gray.7">{item.label}</Text>
               </Group>
+            ))}
+            <Group gap={8} wrap="nowrap">
+              <Group gap={2} wrap="nowrap" style={{ flexShrink: 0 }}>
+                {[8, 12, 16].map((size) => <Box key={size} style={{ width: size, height: size, borderRadius: 999, background: '#64748b' }} />)}
+              </Group>
+              <Text size="xs" c="gray.7">크기: 하위 전체 조직 수</Text>
+            </Group>
+          </GraphControlSection>
 
-              <ScrollArea style={{ flex: 1 }}>
-                <Stack gap="lg" p="md">
-                  <Box>
-                    <Text size="xs" fw={700} c="#d8cfc4" mb="xs">
-                      프리셋
-                    </Text>
-                    <Group gap="xs" wrap="wrap">
-                      {PHYSICS_PRESETS.map((preset) => (
-                        <Button
-                          key={preset.key}
-                          size="compact-sm"
-                          radius="xl"
-                          variant="light"
-                          color="orange"
-                          onClick={() => applyPhysicsPreset(preset.values)}
-                        >
-                          {preset.label}
-                        </Button>
-                      ))}
-                    </Group>
-                  </Box>
+          <GraphControlSection title="보기">
+            <Group gap={6}>
+              <Button size="compact-xs" variant="light" onClick={() => setFitRequestId((value) => value + 1)}>화면 맞춤</Button>
+              <Tooltip label={layoutMode === 'cluster' ? '고정된 집단 배치 전체를 다시 보여줍니다.' : '배치를 초기 원형 구조로 다시 정리합니다.'} withArrow>
+                <Button size="compact-xs" variant="light" onClick={() => setResetLayoutRequestId((value) => value + 1)}>배치 초기화</Button>
+              </Tooltip>
+            </Group>
+          </GraphControlSection>
 
-                  <Box>
-                    <Text size="xs" fw={700} c="#d8cfc4" mb="xs">
-                      장력
+          {layoutMode === 'free' ? (
+            <GraphControlSection title="힘">
+              <Group gap={6}>
+                {PHYSICS_PRESETS.map((preset) => (
+                  <Button key={preset.key} size="compact-xs" radius="xl" variant="light" color="orange" onClick={() => applyPhysicsPreset(preset.values)}>
+                    {preset.label}
+                  </Button>
+                ))}
+                <Button size="compact-xs" radius="xl" variant="subtle" color="gray" onClick={resetPhysicsSettings}>기본값</Button>
+              </Group>
+              {PHYSICS_SLIDERS.map((slider) => (
+                <Stack key={slider.key} gap={2}>
+                  <Group justify="space-between">
+                    <Text size="xs" fw={600} c="dark.6">{slider.description}</Text>
+                    <Text size="xs" c="dimmed" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {Number.isInteger(physicsSettings[slider.key]) ? physicsSettings[slider.key] : physicsSettings[slider.key].toFixed(2)}
                     </Text>
-                    <Stack gap="lg">
-                      {PHYSICS_SLIDERS.map((slider) => (
-                        <Stack key={slider.key} gap={6}>
-                          <Group justify="space-between" align="center">
-                            <Text size="sm" fw={600} c="#f8f5ef">
-                              {slider.label}
-                            </Text>
-                            <Badge variant="light" color="orange">
-                              {Number.isInteger(physicsSettings[slider.key])
-                                ? physicsSettings[slider.key]
-                                : physicsSettings[slider.key].toFixed(2)}
-                            </Badge>
-                          </Group>
-                          <Text size="xs" c="#b6a998">
-                            {slider.description}
-                          </Text>
-                          <Slider
-                            value={physicsSettings[slider.key]}
-                            onChange={(value) => updatePhysicsSetting(slider.key, value)}
-                            onChangeEnd={(value) => persistPhysicsSetting(slider.key, value)}
-                            min={slider.min}
-                            max={slider.max}
-                            step={slider.step}
-                            color="orange"
-                            size="sm"
-                            label={(value) => `${value}`}
-                            styles={{
-                              track: { backgroundColor: '#51473e' },
-                              bar: { backgroundColor: '#f59e0b' },
-                              thumb: { borderColor: '#fff7ed' },
-                              label: { backgroundColor: '#2f2924', color: '#f8f5ef' },
-                            }}
-                          />
-                          <Group justify="space-between">
-                            <Text size="xs" c="#9f9488">
-                              {slider.minLabel}
-                            </Text>
-                            <Text size="xs" c="#9f9488">
-                              {slider.maxLabel}
-                            </Text>
-                          </Group>
-                        </Stack>
-                      ))}
-                    </Stack>
-                  </Box>
+                  </Group>
+                  <Slider
+                    aria-label={slider.description}
+                    value={physicsSettings[slider.key]}
+                    onChange={(value) => updatePhysicsSetting(slider.key, value)}
+                    onChangeEnd={(value) => persistPhysicsSetting(slider.key, value)}
+                    min={slider.min} max={slider.max} step={slider.step} color="orange" size="xs" label={null}
+                  />
                 </Stack>
-              </ScrollArea>
-            </Stack>
-          </Paper>
-        ) : null}
+              ))}
+            </GraphControlSection>
+          ) : null}
+        </GraphControlPanel>
 
       </Box>
 

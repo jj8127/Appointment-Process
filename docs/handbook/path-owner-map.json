@@ -486,6 +486,9 @@
       "prefixes": [
         "supabase/functions/_shared/referral-code.ts",
         "supabase/functions/_shared/referral-link.ts",
+        "supabase/functions/_shared/referral-graph-cluster-core.ts",
+        "supabase/functions/_shared/referral-graph-cluster-layout.ts",
+        "supabase/functions/_shared/referral-graph-mobile-cluster.ts",
         "supabase/functions/get-my-referral-code/",
         "supabase/functions/get-fc-referral-code/",
         "supabase/functions/get-my-invitees/",

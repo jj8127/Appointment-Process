@@ -18,8 +18,13 @@ const graphChildLoader = source.slice(
 describe('referral graph read contract', () => {
   it('keeps graph mode additive to the legacy tree response', () => {
     expect(source).toContain("if (mode === 'graph')");
-    expect(source).toContain('return resolveReferralGraph(sessionResult.session)');
+    expect(source).toContain('return resolveReferralGraph(sessionResult.session, { withLayout })');
     expect(source).toContain('return resolveReferralTree(req, sessionResult.session)');
+  });
+
+  it('adds cluster layout coordinates only when the app explicitly asks for them', () => {
+    expect(source).toContain('withLayout = body.withLayout === true');
+    expect(graphResolver).toContain('...(options.withLayout ? { layout: buildReferralMobileClusterLayout(nodes, edges) } : {})');
   });
 
   it('limits native graph access to signed FC and manager sessions', () => {

@@ -123,7 +123,11 @@ export function GraphNodeDrawer({
       }
       position="right"
       size="md"
-      overlayProps={{ opacity: 0.08, color: '#94a3b8' }}
+      // Obsidian처럼 상세를 연 채로도 그래프를 확대·이동·선택할 수 있게 모달 막·스크롤 잠금을 쓰지 않는다.
+      withOverlay={false}
+      lockScroll={false}
+      trapFocus={false}
+      closeOnClickOutside={false}
       scrollAreaComponent={ScrollArea.Autosize}
     >
       {!node ? null : allowAdminDetail && detailQuery.isLoading ? (

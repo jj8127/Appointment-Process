@@ -7,6 +7,7 @@ import {
   type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
+import { buildReferralMobileClusterLayout } from '../_shared/referral-graph-mobile-cluster.ts';
 
 const corsHeaders = referralCorsHeaders();
 
@@ -843,7 +844,7 @@ function mapGraphNode(
   };
 }
 
-async function resolveReferralGraph(session: SessionPayload) {
+async function resolveReferralGraph(session: SessionPayload, options: { withLayout?: boolean } = {}) {
   if (session.role !== 'fc' && session.role !== 'manager') {
     return fail('forbidden', '추천 관계 그래프를 조회할 수 없는 계정입니다.', 403);
   }
@@ -930,11 +931,14 @@ async function resolveReferralGraph(session: SessionPayload) {
       fallback.truncated
       || boundaryEdges.length > 0;
 
+    const edges = Array.from(edgeMap.values()).sort((a, b) => a.id.localeCompare(b.id));
     return json({
       ok: true,
       mode: 'graph',
       nodes,
-      edges: Array.from(edgeMap.values()).sort((a, b) => a.id.localeCompare(b.id)),
+      edges,
+      // 앱 "전체 그래프"가 요청할 때만: 관리자 웹과 같은 집단 배치 좌표(폰에서 계산하면 수 초 걸려 서버에서 계산)
+      ...(options.withLayout ? { layout: buildReferralMobileClusterLayout(nodes, edges) } : {}),
       permissions: {
         canMutate: false,
         scope: 'downline',
@@ -1040,13 +1044,16 @@ serve(async (req: Request) => {
   }
 
   let mode: unknown = null;
+  let withLayout = false;
   try {
-    mode = (await req.clone().json() as { mode?: unknown }).mode;
+    const body = await req.clone().json() as { mode?: unknown; withLayout?: unknown };
+    mode = body.mode;
+    withLayout = body.withLayout === true;
   } catch {
     mode = null;
   }
   if (mode === 'graph') {
-    return resolveReferralGraph(sessionResult.session);
+    return resolveReferralGraph(sessionResult.session, { withLayout });
   }
 
   return resolveReferralTree(req, sessionResult.session);

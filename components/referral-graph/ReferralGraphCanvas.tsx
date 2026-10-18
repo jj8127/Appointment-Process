@@ -115,11 +115,19 @@ type ReferralGraphCanvasProps = {
   onSelectNode: (node: ReferralGraphNode) => void;
   fitRequestId: number;
   resetRequestId: number;
+  /** 주어지면 이 좌표(예: 관리자 웹과 같은 집단 배치)로 그린다. 없으면 기본 방사형 배치. */
+  positions?: ReadonlyMap<string, ReferralGraphPoint>;
 };
 
-export const ReferralGraphCanvas = memo(function ReferralGraphCanvas({ nodes, edges, selectedNodeId, onSelectNode, fitRequestId, resetRequestId, getNodeAccessibilityLabel, nodeAmounts }: ReferralGraphCanvasProps) {
+export const ReferralGraphCanvas = memo(function ReferralGraphCanvas({ nodes, edges, selectedNodeId, onSelectNode, fitRequestId, resetRequestId, getNodeAccessibilityLabel, nodeAmounts, positions: givenPositions }: ReferralGraphCanvasProps) {
   const { fontScale } = useWindowDimensions();
-  const positions = useMemo(() => buildReadableReferralGraphLayout(nodes, edges, fontScale), [edges, nodes, fontScale]);
+  const positions = useMemo(() => {
+    if (!givenPositions) return buildReadableReferralGraphLayout(nodes, edges, fontScale);
+    // 보이는 사람만 남겨 화면 맞춤이 숨긴 사람까지 포함하지 않게 한다
+    const visible = new Map<string, ReferralGraphPoint>();
+    for (const node of nodes) { const point = givenPositions.get(node.id); if (point) visible.set(node.id, point); }
+    return visible;
+  }, [givenPositions, edges, nodes, fontScale]);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [displayScale, setDisplayScale] = useState(1);
   const [renderCamera, setRenderCamera] = useState<ReferralGraphCameraSnapshot>({ scale: 1, panX: 0, panY: 0, width: 0, height: 0 });

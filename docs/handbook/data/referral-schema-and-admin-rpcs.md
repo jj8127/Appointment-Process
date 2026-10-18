@@ -25,7 +25,7 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 
 - FC/본부장 self-service current read path는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다.
 - FC/본부장 self-service referral tree path는 `hooks/use-referral-tree.ts -> get-referral-tree -> get_referral_subtree(...)`다.
-- FC/본부장 native referral graph path는 `app/referral-graph.tsx -> hooks/use-referral-graph.ts -> get-referral-tree(mode='graph')`다.
+- FC/본부장 native referral graph path는 `app/referral-graph.tsx -> hooks/use-referral-graph.ts -> get-referral-tree(mode='graph')`다. 앱의 '전체 그래프'는 `{ mode: 'graph', withLayout: true }`로 같은 응답에 관리자 웹 집단 배치 좌표 `layout: { version, positions: [id, x, y][] }`를 받는다. 배치 알고리즘 원본은 `supabase/functions/_shared/referral-graph-cluster-layout.ts`(관리자 웹 `web/src/lib/referral-graph-cluster-*`는 re-export)이고, 모바일 노드 크기 규칙은 `_shared/referral-graph-mobile-cluster.ts` 하나다. layout이 없거나 버전·노드가 맞지 않으면 앱이 같은 함수로 계산한다.
 - `/referral-revenue-graph`는 `data/referral-revenue-demo.ts`의 가상 parent chain만
   사용하는 로컬 샘플이며 이 문서의 referral schema, RPC, Edge Function 또는
   실제 사용자 관계를 읽지 않는다. 표시된 1~10단계 10%는 UI 시뮬레이션이지

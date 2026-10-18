@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { AppState } from 'react-native';
 
 import { parseReferralAllowanceResponse } from '@/lib/referral-allowance-response';
+import { fictionalAllowanceResponse, REFERRAL_FICTIONAL_DATA } from '@/lib/referral-dev-fictional';
 
 import { ReferralAppSessionError, useReferralAppSession } from './use-referral-app-session';
 import { useSession } from './use-session';
@@ -29,14 +30,15 @@ function useAllowanceQuery(action: 'access' | 'statement', month?: string) {
   const { invokeReferralFunction } = useReferralAppSession();
   const queryClient = useQueryClient();
   const isFocused = useIsFocused();
-  const canRequest = canRequestReferralAllowance(session);
+  // 개발용 가상 데이터 모드에서는 로그인 상태와 관계없이 화면을 확인할 수 있게 한다(정식 빌드에서는 항상 꺼짐).
+  const canRequest = REFERRAL_FICTIONAL_DATA || canRequestReferralAllowance(session);
   // Only an opaque, in-memory scope enters the query key. Tokens and account identifiers do not.
   const identity = JSON.stringify([session.residentId, session.role, session.readOnly,
     session.isRequestBoardDesigner, session.hydrated, Boolean(session.appSessionToken)]);
   // Token replacement renews this in-memory owner; only its numeric ID enters the cache.
   const scope = useMemo(() => ({ identity, token: session.appSessionToken, id: ++nextSessionScope }),
     [identity, session.appSessionToken]).id;
-  const needsLogin = session.hydrated && (session.role === 'fc' || (session.role === 'admin' && session.readOnly))
+  const needsLogin = !REFERRAL_FICTIONAL_DATA && session.hydrated && (session.role === 'fc' || (session.role === 'admin' && session.readOnly))
     && !session.isRequestBoardDesigner && Boolean(session.residentId) && !session.appSessionToken;
   const localSessionError = useMemo(() => needsLogin
     ? new ReferralAppSessionError('로그인 후 증원수당 내역을 다시 확인해주세요.', { needsRelogin: true }) : null, [needsLogin]);
@@ -56,7 +58,7 @@ function useAllowanceQuery(action: 'access' | 'statement', month?: string) {
       const request = ++requestSequence.current;
       const owner = identity;
       try {
-        const data = await invokeReferralFunction<{ ok?: boolean }>('get-my-referral-allowance', {
+        const data = REFERRAL_FICTIONAL_DATA ? fictionalAllowanceResponse(action, month) : await invokeReferralFunction<{ ok?: boolean }>('get-my-referral-allowance', {
           body: action === 'access' ? { action } : { action, ...(month ? { month } : {}) },
           fallbackMessage: '증원수당 내역을 불러오지 못했습니다. 다시 시도해주세요.',
           requireCurrentToken: true,

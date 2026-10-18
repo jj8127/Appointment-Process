@@ -64,7 +64,7 @@ source_of_truth: env contracts + reset-password functions + assisted-password fu
 
 ## Native referral graph read boundary (2026-07-26)
 
-- `get-referral-tree`의 additive graph mode는 `x-app-session-token`을 검증한 뒤 token source role `fc` 또는 `manager`만 허용하고, DB에서 다시 확인한 자기 profile id를 root로 고정합니다. 요청 body의 `fcId`, role, phone은 graph scope 근거가 아닙니다.
+- `get-referral-tree`의 additive graph mode는 `x-app-session-token`을 검증한 뒤 token source role `fc` 또는 `manager`만 허용하고, DB에서 다시 확인한 자기 profile id를 root로 고정합니다. 요청 body의 `fcId`, role, phone은 graph scope 근거가 아닙니다. `withLayout: true`는 같은 인가 범위의 노드 id와 좌표만 덧붙이며 이름·전화·코드 등 추가 필드를 내보내지 않습니다. 앱은 좌표를 노드·연결 구성 해시(이름·금액 미포함)를 키로만 기기에 저장합니다.
 - Graph 조회는 service role로 canonical `fc_profiles.recommender_fc_id` downline만 읽고 `permissions.canMutate=false`, `scope='downline'`를 반환합니다. phone, 주민정보, audit payload, 관계 변경 action은 응답과 모바일 상세 화면에 포함하지 않습니다.
 - Graph DB failure는 fixed `db_error` 사용자 응답과 closed `referral_tree.load:rpc_and_fallback_failed` diagnostic으로 끝납니다. raw database message, profile identifier, 추천코드, affiliation은 로그에 전달하지 않습니다.
 

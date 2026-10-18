@@ -5,6 +5,7 @@ import type {
   ReferralGraphStatusFilter,
   ReferralGraphViewport,
 } from '@/types/referral-graph';
+import { referralMobileNodeRadius } from '../supabase/functions/_shared/referral-graph-mobile-cluster';
 
 export const REFERRAL_GRAPH_SURFACE_SIZE = 1800;
 export const REFERRAL_GRAPH_SURFACE_CENTER = REFERRAL_GRAPH_SURFACE_SIZE / 2;
@@ -36,10 +37,8 @@ export function getReferralGraphRenderSurfaceSize(pixelRatio: number) {
 const compareNode = (a: ReferralGraphNode, b: ReferralGraphNode) =>
   a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id);
 
-export function getReferralGraphNodeRadius(totalDescendantCount: number) {
-  const safeCount = Math.max(0, Number(totalDescendantCount) || 0);
-  return (4.6 + Math.min(Math.log1p(safeCount) * 2.15, 9.4)) * 1.25;
-}
+/** 서버의 집단 배치 계산과 같은 크기 규칙을 쓰도록 _shared 한 곳에서 가져온다 */
+export const getReferralGraphNodeRadius = referralMobileNodeRadius;
 
 export function getReferralGraphNodeScreenRadius(totalDescendantCount: number) {
   return Math.max(

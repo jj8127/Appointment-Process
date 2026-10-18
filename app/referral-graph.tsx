@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactElement } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,22 +12,29 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ReferralBranchFocus, type BranchFocusRow } from '@/components/referral-graph/ReferralBranchFocus';
 import { ReferralGraphCanvas } from '@/components/referral-graph/ReferralGraphCanvas';
 import { ReferralGraphDetailSheet } from '@/components/referral-graph/ReferralGraphDetailSheet';
 import {
   isReferralReloginError,
 } from '@/hooks/use-referral-app-session';
+import { useReferralClusterLayout } from '@/hooks/use-referral-cluster-layout';
 import { useReferralGraph } from '@/hooks/use-referral-graph';
 import { useReferralGraphSearch } from '@/hooks/use-referral-graph-search';
 import { createReferralGraphFilter } from '@/lib/referral-graph-filter';
+import { buildBranchChildren, createBranchFocusIndex } from '@/lib/referral-branch-focus';
 import {
   getReferralGraphNeighborhood,
 } from '@/lib/referral-graph-native';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/lib/theme';
 import type {
+  ReferralGraphEdge,
   ReferralGraphNode,
   ReferralGraphStatusFilter,
 } from '@/types/referral-graph';
+
+const NO_NODES: ReferralGraphNode[] = [];
+const NO_EDGES: ReferralGraphEdge[] = [];
 
 const STATUS_FILTERS: {
   value: ReferralGraphStatusFilter;
@@ -46,6 +53,45 @@ const LEGEND = [
   { label: '사전등록', color: '#94a3b8' },
 ];
 
+function statusLabel(node: ReferralGraphNode) {
+  if (node.allCommissionsCompleted) return '위촉 완료';
+  if (node.signupCompleted) return '본등록';
+  return '사전등록';
+}
+
+/** 한 화면에 "기준 한 명 + 직접 추천한 사람별 가지 인원"만 보여준다. 전체 캔버스를 마운트하지 않아 가볍다. */
+function ReferralBranchView({ nodes, edges, onOpen, modeToggle }: {
+  nodes: ReferralGraphNode[]; edges: ReferralGraphEdge[]; onOpen: (node: ReferralGraphNode) => void; modeToggle: ReactElement;
+}) {
+  const index = useMemo(() => {
+    const parentOf = new Map<string, string>();
+    for (const edge of edges) if (!parentOf.has(edge.target)) parentOf.set(edge.target, edge.source);
+    return createBranchFocusIndex(nodes.map((node) => ({ ...node, parentId: parentOf.get(node.id) ?? null })));
+  }, [nodes, edges]);
+  const rootId = nodes.find((node) => node.isViewer)?.id ?? nodes[0]?.id;
+  const [focusId, setFocusId] = useState<string | undefined>(undefined);
+  const focus = (focusId ? index.byId.get(focusId) : undefined) ?? (rootId ? index.byId.get(rootId) : undefined);
+  const children = useMemo(() => focus ? buildBranchChildren(index, focus.id,
+    (id) => (index.byId.get(id)?.totalDescendantCount ?? 0) + 1) : [], [index, focus]);
+  const rows: BranchFocusRow[] = useMemo(() => children.map((child) => {
+    const node = index.byId.get(child.id)!;
+    return { id: child.id, label: node.name, valueText: `${child.value.toLocaleString('ko-KR')}명`, value: child.value,
+      meta: [statusLabel(node), child.childCount > 0 ? `직접 추천 ${child.childCount}명` : null, node.affiliation].filter(Boolean).join(' · '),
+      drillable: child.childCount > 0, accessibilityLabel: `${node.name}, ${statusLabel(node)}, 가지 인원 ${child.value}명` };
+  }), [children, index]);
+  if (!focus) return null;
+  const below = focus.totalDescendantCount;
+  return <ReferralBranchFocus inset={false}
+    path={index.pathTo(focus.id).map((node) => ({ id: node.id, label: node.isViewer ? '나' : node.name }))}
+    total={{ label: focus.isViewer ? '내 하위 조직' : `${focus.name}님 하위 조직`, valueText: `${below.toLocaleString('ko-KR')}명`,
+      accessibilityLabel: `${focus.isViewer ? '내' : `${focus.name}님`} 하위 조직 ${below}명` }}
+    accessory={focus.isViewer ? modeToggle : null}
+    rows={rows} listTitle={focus.isViewer ? '직접 추천한 사람' : `${focus.name}님이 직접 추천한 사람`}
+    emptyText="직접 추천한 사람이 없습니다."
+    onFocus={setFocusId} onOpen={(id) => { const node = index.byId.get(id); if (node) onOpen(node); }}
+    onTotalPress={focus.isViewer ? undefined : () => onOpen(focus)} />;
+}
+
 export default function ReferralGraphPage() {
   const router = useRouter();
   const {
@@ -55,6 +101,7 @@ export default function ReferralGraphPage() {
     isError,
     error,
     refetch,
+    loadClusterLayout,
     canUseReferralGraph,
   } = useReferralGraph();
   const { searchTerm, appliedSearchTerm, setSearchTerm, flushSearchTerm } = useReferralGraphSearch();
@@ -64,6 +111,11 @@ export default function ReferralGraphPage() {
   const [focusHops, setFocusHops] = useState<number | null>(null);
   const [fitRequestId, setFitRequestId] = useState(0);
   const [resetRequestId, setResetRequestId] = useState(0);
+  // 기본은 가지 보기(가벼움). 검색·필터·촌수 보기가 있는 전체 그래프는 고를 때만 마운트한다.
+  const [graphMode, setGraphMode] = useState<'branch' | 'full'>('branch');
+  // 전체 그래프는 관리자 웹과 같은 집단 배치. 전체 조직으로 한 번 계산해 기억하고, 필터는 그 좌표의 일부만 보여준다.
+  const clusterLayout = useReferralClusterLayout(data?.nodes ?? NO_NODES, data?.edges ?? NO_EDGES, graphMode === 'full' && Boolean(data),
+    loadClusterLayout);
 
   const neighborhood = useMemo(
     () => (
@@ -104,6 +156,18 @@ export default function ReferralGraphPage() {
     setFocusHops(null);
     setResetRequestId((value) => value + 1);
   };
+
+  const modeToggle = (
+    <View style={styles.modeRow} accessibilityRole="tablist">
+      {([{ value: 'branch', label: '가지' }, { value: 'full', label: '전체 그래프' }] as const).map((mode) => (
+        <Pressable key={mode.value} accessibilityRole="tab" accessibilityState={{ selected: graphMode === mode.value }}
+          accessibilityLabel={mode.value === 'branch' ? '가지 보기' : '전체 그래프'}
+          style={[styles.modeTab, graphMode === mode.value && styles.modeTabActive]} onPress={() => setGraphMode(mode.value)}>
+          <Text style={[styles.modeTabText, graphMode === mode.value && styles.modeTabTextActive]}>{mode.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
 
   if (!canUseReferralGraph) {
     return (
@@ -167,7 +231,7 @@ export default function ReferralGraphPage() {
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <View style={styles.page}>
-        <View style={styles.summaryRow}>
+        {graphMode === 'full' ? <View style={styles.summaryRow}>
           <View style={styles.summaryItem}>
             <Text style={styles.summaryValue}>{visibleNodes.length}</Text>
             <Text style={styles.summaryLabel}>표시 인원</Text>
@@ -185,7 +249,21 @@ export default function ReferralGraphPage() {
             </Text>
           </View>
           {isFetching ? <ActivityIndicator size="small" color={COLORS.primary} /> : null}
-        </View>
+        </View> : null}
+
+        {graphMode === 'full' ? modeToggle : null}
+
+        {graphMode === 'branch' ? (
+          <View style={styles.branchWrap}>
+            {data.truncated ? (
+              <View style={styles.warningBanner}>
+                <Feather name="info" size={14} color={COLORS.warning.dark} />
+                <Text style={styles.warningText}>모바일 표시 한도로 일부 하위 연결을 생략했습니다.</Text>
+              </View>
+            ) : null}
+            <ReferralBranchView nodes={data.nodes} edges={data.edges} onOpen={setDetailNode} modeToggle={modeToggle} />
+          </View>
+        ) : <>
 
         <View style={styles.searchRow}>
           <View style={styles.searchInputWrap}>
@@ -299,8 +377,14 @@ export default function ReferralGraphPage() {
         ) : null}
 
         <View style={styles.canvasCard}>
-          {visibleNodes.length > 0 ? (
+          {clusterLayout.computing ? (
+            <View style={styles.emptyGraph}>
+              <ActivityIndicator color={COLORS.primary} />
+              <Text style={styles.emptyGraphTitle}>배치 중</Text>
+            </View>
+          ) : visibleNodes.length > 0 ? (
             <ReferralGraphCanvas
+              positions={clusterLayout.positions ?? undefined}
               nodes={visibleNodes}
               edges={visibleEdges}
               selectedNodeId={selectedNode?.id ?? null}
@@ -317,6 +401,9 @@ export default function ReferralGraphPage() {
               </Text>
             </View>
           )}
+          {__DEV__ && clusterLayout.elapsedMs != null ? (
+            <Text style={styles.devTiming}>집단 배치 {clusterLayout.source === 'computed' ? '폰 계산' : clusterLayout.source === 'server' ? '서버' : '저장본'} {clusterLayout.elapsedMs}ms · {data.nodes.length}명</Text>
+          ) : null}
           <View style={styles.canvasActions}>
             <Pressable
               style={({ pressed }) => [styles.canvasButton, pressed && styles.pressed]}
@@ -355,6 +442,7 @@ export default function ReferralGraphPage() {
           ))}
           <Text style={styles.readOnlyText}>조회 전용</Text>
         </ScrollView>
+        </>}
       </View>
 
       <ReferralGraphDetailSheet
@@ -366,6 +454,43 @@ export default function ReferralGraphPage() {
 }
 
 const styles = StyleSheet.create({
+  modeRow: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    padding: 3,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.border.light,
+  },
+  modeTab: {
+    minHeight: 36,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: RADIUS.sm,
+  },
+  modeTabActive: {
+    backgroundColor: COLORS.white,
+  },
+  modeTabText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.text.secondary,
+  },
+  modeTabTextActive: {
+    color: COLORS.primaryDark,
+    fontWeight: '700',
+  },
+  devTiming: {
+    position: 'absolute',
+    left: 10,
+    top: 8,
+    fontSize: 11,
+    color: COLORS.text.muted,
+  },
+  branchWrap: {
+    flex: 1,
+    gap: 10,
+  },
   safe: {
     flex: 1,
     backgroundColor: COLORS.background.secondary,
