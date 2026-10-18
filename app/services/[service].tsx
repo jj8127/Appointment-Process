@@ -9,6 +9,7 @@ import { FAMILY_CARE_PROMOTION_URL, resolveInsuranceServiceRoute, resolveService
 import { useSession } from '@/hooks/use-session';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { COLORS } from '@/lib/theme';
+import { returnTo } from '@/lib/back-navigation';
 
 export function generateStaticParams() {
   return SERVICE_INFORMATION_KEYS.map((service) => ({ service }));
@@ -18,7 +19,7 @@ export default function ServiceInformationRoute() {
   const { service, code: inviteCode } = useLocalSearchParams<{ service?: string; code?: string }>();
   const session = useSession();
   const key = resolveServiceInformationKey(service);
-  const home = () => router.replace('/');
+  const home = () => returnTo(router, '/');
   const openCarePromotion = async () => {
     try {
       await openExternalUrl(FAMILY_CARE_PROMOTION_URL, { sameWindowOnWeb: true });

@@ -32,6 +32,7 @@ import {
   registerPushToken,
   type PushPermissionStatus,
 } from '@/lib/notifications';
+import { resetTo } from '@/lib/back-navigation';
 
 const ACCENT = '#F36F21';
 
@@ -112,7 +113,7 @@ export default function NotificationSettingsScreen() {
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
-      router.replace('/login');
+      resetTo(router, '/login');
     }
   }, [hydrated, role, router]);
 

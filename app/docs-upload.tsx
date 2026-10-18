@@ -32,6 +32,7 @@ import {
   invokeFcNotifyForDelivery,
 } from '@/lib/fc-notify-client';
 import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
+import { returnTo } from '@/lib/back-navigation';
 import { logger } from '@/lib/logger';
 import { getDocsStepNow } from '@/lib/onboarding-step-now';
 import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
@@ -187,6 +188,8 @@ function DocsUploadScreenContent() {
   const isDocsApproved = fc?.status === HANWHA_HANDOFF_STATUS;
   const footerRoute = !isAdmin && isDocsApproved ? '/hanwha-commission' : INSURANCE_HOME_ROUTE;
   const footerLabel = !isAdmin && isDocsApproved ? '다위촉 URL 단계로 이동' : '홈으로 가기';
+  // Home is a parent screen: go back to it rather than stacking another copy; the next step opens forward.
+  const openFooterRoute = () => (footerRoute === INSURANCE_HOME_ROUTE ? returnTo(router, footerRoute) : router.replace(footerRoute as any));
   const stepNow = getDocsStepNow({
     handedOff: isDocsApproved,
     docs: docs.map((doc) => ({ status: doc.status, hasFile: Boolean(doc.storagePath) })),
@@ -738,7 +741,7 @@ function DocsUploadScreenContent() {
               now={fc?.docs_deadline_at && stepNow.tone !== 'done'
                 ? { ...stepNow, detail: [stepNow.detail, `마감 ${fc.docs_deadline_at}`].filter(Boolean).join(' · ') }
                 : stepNow}
-              action={isDocsApproved ? { label: footerLabel, onPress: () => router.replace(footerRoute as any) } : undefined}
+              action={isDocsApproved ? { label: footerLabel, onPress: () => openFooterRoute() } : undefined}
             />
           ) : null}
           <View style={styles.list}>
@@ -885,7 +888,7 @@ function DocsUploadScreenContent() {
             )}
           </View>
           {isAdmin || !isDocsApproved ? <Button
-            onPress={() => router.replace(footerRoute as any)}
+            onPress={() => openFooterRoute()}
             variant="primary"
             size="lg"
             fullWidth

@@ -18,6 +18,7 @@ import { getAccountRoleLabel } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
+import { resetTo } from '@/lib/back-navigation';
 
 const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
@@ -80,7 +81,7 @@ export default function SettingsScreen() {
     await loginPlatformMember({ id: receipt.memberSession.memberId, name: receipt.memberSession.displayName }, receipt.memberSession.appSessionToken);
     Alert.alert(receipt.status === 'completed' ? '가람in 탈퇴 완료' : '가람in 탈퇴 처리 중',
       receipt.status === 'completed' ? '모두온 계정은 그대로 이용할 수 있어요.' : '가람링크 정리가 끝나면 자동으로 완료돼요.');
-    router.replace('/');
+    resetTo(router, '/');
   };
 
   const confirmDelete = async () => {

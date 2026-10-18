@@ -65,7 +65,7 @@ import {
 } from '@/lib/group-chat-display';
 import { findMessengerReadLineId } from '@/lib/messenger-read-line';
 import { messengerRunPosition, startsMessengerDay } from '@/lib/messenger-time';
-import { goBackOrReplace } from '@/lib/back-navigation';
+import { goBackOrReplace, resetTo } from '@/lib/back-navigation';
 import { pickMessengerFiles, pickMessengerPhotos } from '@/lib/messenger-attachment-picker';
 import {
   openAuthorizedMessengerAttachment,
@@ -1874,7 +1874,7 @@ export default function GroupChatScreen() {
           <Pressable accessibilityRole="button" disabled={refreshing} onPress={handleRefresh} style={styles.anchorLatestButton}>
             <Text style={styles.anchorLatestButtonText}>다시 시도</Text>
           </Pressable>
-          {roomLoadError.title === '단톡방 세션 확인 필요' ? <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}><Text style={styles.anchorLatestButtonText}>다시 로그인</Text></Pressable> : null}
+          {roomLoadError.title === '단톡방 세션 확인 필요' ? <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}><Text style={styles.anchorLatestButtonText}>다시 로그인</Text></Pressable> : null}
         </View>
       ) : null}
 

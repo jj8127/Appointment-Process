@@ -13,6 +13,7 @@ import { openExternalUrl } from '@/lib/open-external-url';
 import { captureAppSessionOwner } from '@/lib/request-board-api';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 import { COLORS, SPACING } from '@/lib/theme';
+import { resetTo } from '@/lib/back-navigation';
 
 export default function ServiceAccount() {
   const { data, error, needsConsent, canWithdraw, loading, refresh, session, token } = usePlatformAccount();
@@ -121,7 +122,7 @@ export default function ServiceAccount() {
       {consentError && <Text accessibilityRole="alert" style={styles.body}>{consentError}</Text>}
       <Button loading={consenting} disabled={!termsAccepted || consenting || deleteLoading} onPress={acceptTerms} fullWidth>동의하고 계속하기</Button>
     </View>}
-    {error && !needsConsent && <View><Text accessibilityRole="alert" style={styles.body}>{error}</Text><ServiceAction label="다시 확인" onPress={() => void refresh()} />{session.isPlatformSignedIn && <ServiceAction label="다시 로그인" onPress={() => { session.logout(); router.replace('/services/login'); }} />}</View>}
+    {error && !needsConsent && <View><Text accessibilityRole="alert" style={styles.body}>{error}</Text><ServiceAction label="다시 확인" onPress={() => void refresh()} />{session.isPlatformSignedIn && <ServiceAction label="다시 로그인" onPress={() => { session.logout(); resetTo(router, '/services/login'); }} />}</View>}
     {data && !needsConsent && <>
       <Text style={styles.sectionTitle}>제휴 서비스 혜택</Text>
       <Text style={styles.body}>각 제휴사의 정산이 끝난 뒤 7일 이내에 회사가 정한 비율로 지급합니다. 거래와 정산이 확인된 내역만 표시합니다.</Text>

@@ -103,6 +103,7 @@ import {
   getExamApplicationHistoryGuardState,
   getExamApplicationRouteHydrationKey,
 } from '@/lib/exam-apply-history-guard';
+import { resetTo, returnTo } from '@/lib/back-navigation';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -422,12 +423,12 @@ export default function ExamApplyScreen() {
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
-      router.replace('/login');
+      resetTo(router, '/login');
       return;
     }
     if (!canApplyExam) {
       Alert.alert('접근 불가', '시험 신청 권한이 없습니다.');
-      router.replace('/');
+      returnTo(router, '/');
     }
   }, [canApplyExam, role, hydrated]);
 

@@ -49,6 +49,7 @@ import {
   type RbConversation,
   type RbDmConversation,
 } from '@/lib/request-board-api';
+import { resetTo } from '@/lib/back-navigation';
 
 type SourceStore = {
   status: MessengerSearchSourceStatus;
@@ -428,7 +429,7 @@ export default function MessengerSearchScreen() {
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
-      router.replace('/login');
+      resetTo(router, '/login');
       return;
     }
     void loadInternal();

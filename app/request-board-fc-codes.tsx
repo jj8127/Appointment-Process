@@ -39,6 +39,7 @@ import {
 import { createReadScope } from '@/lib/request-board-read-state';
 import { isRequestBoardSessionReauthError, toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { resetTo, returnTo as returnToRoute } from '@/lib/back-navigation';
 
 /* ─── Helpers ─── */
 
@@ -177,7 +178,7 @@ export default function RequestBoardFcCodesScreen() {
 
   useEffect(() => {
     if (!hydrated || canManageCodes) return;
-    router.replace('/request-board' as any);
+    returnToRoute(router, '/request-board' as any);
   }, [canManageCodes, hydrated, router]);
 
   const handleRefresh = () => {
@@ -389,7 +390,7 @@ export default function RequestBoardFcCodesScreen() {
           <Pressable accessibilityRole="button" disabled={loading || refreshing} onPress={handleRefresh}>
             <Text style={styles.errorBannerText}>다시 시도</Text>
           </Pressable>
-          {isRequestBoardSessionReauthError(fetchError) ? <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}><Text style={styles.errorBannerText}>다시 로그인</Text></Pressable> : null}
+          {isRequestBoardSessionReauthError(fetchError) ? <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}><Text style={styles.errorBannerText}>다시 로그인</Text></Pressable> : null}
         </View>
       )}
 

@@ -34,7 +34,7 @@ import {
 } from '@/components/messenger/MessengerHubRows';
 import { MessengerTabBar, type MessengerTab } from '@/components/messenger/MessengerTabBar';
 import { useSession } from '@/hooks/use-session';
-import { goBackOrReplace } from '@/lib/back-navigation';
+import { goBackOrReplace, resetTo } from '@/lib/back-navigation';
 import { groupChatBootstrap, groupChatMarkRead, groupChatSetMuted } from '@/lib/group-chat-api';
 import {
   markGaraminDirectMessagesRead,
@@ -821,7 +821,7 @@ export default function MessengerHubScreen() {
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
-      router.replace('/login');
+      resetTo(router, '/login');
     }
   }, [hydrated, role, router]);
 

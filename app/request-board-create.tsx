@@ -101,6 +101,7 @@ import {
 import { createReadScope } from '@/lib/request-board-read-state';
 import { isRequestBoardSessionReauthError, toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { resetTo, returnTo } from '@/lib/back-navigation';
 
 type StepKey = 'customer' | 'newCustomer' | 'compose' | 'sent';
 type SortMode = 'name' | 'created';
@@ -825,7 +826,7 @@ export default function RequestBoardCreateScreen() {
 
   useEffect(() => {
     if (!hydrated || canUseCreateFlow) return;
-    router.replace('/request-board' as any);
+    returnTo(router, '/request-board' as any);
   }, [canUseCreateFlow, hydrated, router]);
 
   useEffect(() => {
@@ -2336,7 +2337,7 @@ export default function RequestBoardCreateScreen() {
       <Pressable style={styles.cta} onPress={() => router.replace('/request-board-requests' as any)}>
         <Text style={styles.ctaText}>진행중인 의뢰 보기</Text>
       </Pressable>
-      <Pressable style={styles.ctaOutline} onPress={() => router.replace('/request-board' as any)}>
+      <Pressable style={styles.ctaOutline} onPress={() => returnTo(router, '/request-board' as any)}>
         <Text style={styles.ctaOutlineText}>설계요청 홈</Text>
       </Pressable>
       {sentRequestIds.length > 0 ? (
@@ -2381,7 +2382,7 @@ export default function RequestBoardCreateScreen() {
             <Text style={styles.sentRetryText}>데이터 다시 불러오기</Text>
           </Pressable>
           {isRequestBoardSessionReauthError(dataError) ? (
-            <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}>
+            <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}>
               <Text style={styles.sentRetryText}>다시 로그인</Text>
             </Pressable>
           ) : null}
@@ -2400,7 +2401,7 @@ export default function RequestBoardCreateScreen() {
             <Text style={styles.ctaText}>다시 시도</Text>
           </Pressable>
           {isRequestBoardSessionReauthError(dataError) ? (
-            <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}>
+            <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}>
               <Text style={styles.loadingText}>다시 로그인</Text>
             </Pressable>
           ) : null}

@@ -92,6 +92,8 @@ function loadModule<T>(relativePath: string, dependencies: Record<string, unknow
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
     if (Object.prototype.hasOwnProperty.call(dependencies, name)) return dependencies[name];
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    if (name === '@/lib/back-navigation') return require('@/lib/back-navigation');
     throw new Error(`Unexpected test boundary: ${name}`);
   }, exports);
   return exports as T;

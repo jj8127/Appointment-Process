@@ -18,6 +18,7 @@ import { waitForNotificationNavigationDecision } from '@/lib/notification-naviga
 import { clearSavedLoginCredentials, getSavedLoginCredentials, setSavedLoginCredentials } from '@/lib/saved-login-credentials';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 import { normalizePhone, validatePhone, validateRequired } from '@/lib/validation';
+import { returnTo } from '@/lib/back-navigation';
 
 // A manual login yields to a pending notification only while that handoff can still take focus.
 const NOTIFICATION_HANDOFF_GRACE_MS = 1200;
@@ -129,7 +130,7 @@ export default function PlatformLogin() {
       <Stack.Screen options={{ headerShown: false, title: '모두온 로그인' }} />
       <View style={styles.header}>
         <Pressable accessibilityState={{ disabled: loading }} accessibilityRole="button" accessibilityLabel="전체 서비스로 돌아가기"
-          disabled={loading} onPress={() => router.replace('/')} style={styles.back}>
+          disabled={loading} onPress={() => returnTo(router, '/')} style={styles.back}>
           <Feather name="arrow-left" size={24} color={COLORS.text.primary} />
         </Pressable>
         <ModuonBrand />

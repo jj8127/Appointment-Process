@@ -40,6 +40,7 @@ import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
+import { returnTo } from '@/lib/back-navigation';
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const formatKoreanDate = (d: Date) =>
@@ -223,7 +224,7 @@ function AllowanceConsentScreenContent() {
         successMessage:
           '보증보험 조회 동의일이 제출되었습니다. 관리자가 사전 심사를 준비할 예정입니다.',
         notificationLabel: '관리자',
-        onDone: () => router.replace(INSURANCE_HOME_ROUTE),
+        onDone: () => returnTo(router, INSURANCE_HOME_ROUTE),
       });
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');

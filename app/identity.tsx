@@ -27,6 +27,7 @@ import { invokeStoreIdentity } from '@/lib/store-identity-api';
 import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, requireStoreIdentityReceipt, toResidentInputAlertMessage } from '@/lib/store-identity-error';
 import { toUserFacingAlertMessage } from '@/lib/user-facing-error';
 import { validateResidentId } from '@/lib/validation';
+import { returnTo } from '@/lib/back-navigation';
 
 const schema = z.object({
   residentFront: z.string().regex(/^[0-9]{6}$/, '앞 6자리를 숫자로 입력해주세요.'),
@@ -78,7 +79,7 @@ export default function IdentityScreen() {
       return;
     }
     if (role === 'admin') {
-      router.replace('/');
+      returnTo(router, '/');
     }
   }, [hydrated, role, isPlatformSignedIn]);
 

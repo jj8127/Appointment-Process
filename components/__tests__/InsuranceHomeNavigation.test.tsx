@@ -80,6 +80,8 @@ new Function('require', 'exports', output)((name: string) => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   if (name === 'react/jsx-runtime') return require(name);
   if (name in dependencies) return dependencies[name];
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  if (name === '@/lib/back-navigation') return require('@/lib/back-navigation');
   if (name.startsWith('@/components/')) return new Proxy({}, { get: (_, key) => String(key) });
   return {};
 }, exported);

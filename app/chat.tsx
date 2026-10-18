@@ -44,7 +44,7 @@ import { MessengerDayDivider } from '@/components/messenger/MessengerDayDivider'
 import { MessengerReadLine } from '@/components/messenger/MessengerReadLine';
 import { MessengerRoomSkeleton } from '@/components/messenger/MessengerRoomSkeleton';
 import { findMessengerReadLineId } from '@/lib/messenger-read-line';
-import { goBackOrReplace } from '@/lib/back-navigation';
+import { goBackOrReplace, resetTo } from '@/lib/back-navigation';
 import {
   deleteGaraminDirectMessage,
   fetchGaraminDirectMessageContext,
@@ -2269,7 +2269,7 @@ export default function ChatScreen() {
               onPress={() => {
                 if (targetsError === LEGACY_SESSION_ERROR) {
                   logout();
-                  router.replace('/login?skipAuto=1');
+                  resetTo(router, '/login?skipAuto=1');
                   return;
                 }
                 void loadFcTargets();

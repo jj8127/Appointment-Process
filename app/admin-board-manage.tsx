@@ -81,6 +81,7 @@ import {
   BOARD_LIST_SORT_LABELS,
   BoardListSortOption,
 } from '@/lib/board-list-query';
+import { returnTo } from '@/lib/back-navigation';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -262,7 +263,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
 
   useEffect(() => {
     if (role === 'admin' && isRequestBoardDesigner) {
-      router.replace('/request-board');
+      returnTo(router, '/request-board');
     }
   }, [isRequestBoardDesigner, role, router]);
 
