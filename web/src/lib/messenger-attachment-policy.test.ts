@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   MAX_MESSENGER_ATTACHMENT_BYTES,
   MESSENGER_ATTACHMENT_ERROR_COPY,
+  parseMessengerAttachmentDownloadUrl,
   validateMessengerAttachmentSelection,
 } from './messenger-attachment-policy.ts';
 import { normalizeMessengerAttachmentProxyPayload } from './messenger-attachment-proxy.ts';
@@ -91,6 +92,24 @@ test('proxy preserves Korean names and strips non-contract fields', () => {
   });
 });
 
+test('attachment download navigation accepts only credential-free HTTPS URLs', () => {
+  assert.equal(
+    parseMessengerAttachmentDownloadUrl({
+      ok: true,
+      download: { signedUrl: 'https://storage.example.test/file' },
+    }),
+    'https://storage.example.test/file',
+  );
+  for (const signedUrl of [
+    'javascript:alert(1)',
+    'data:text/html,unsafe',
+    'http://storage.example.test/file',
+    'https://user:secret@storage.example.test/file',
+  ]) {
+    assert.equal(parseMessengerAttachmentDownloadUrl({ ok: true, download: { signedUrl } }), null);
+  }
+});
+
 test('browser uploads bytes with uploadToSignedUrl and Next proxy never parses multipart bodies', () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   const client = readFileSync(path.join(root, 'src/lib/messenger-attachment-client.ts'), 'utf8');
@@ -99,6 +118,7 @@ test('browser uploads bytes with uploadToSignedUrl and Next proxy never parses m
   assert.match(client, /\.uploadToSignedUrl\(/);
   assert.match(client, /upload_intents_create/);
   assert.match(client, /response\.state === 'committed'/);
+  assert.match(client, /parseMessengerAttachmentDownloadUrl\(payload\)/);
   assert.doesNotMatch(route, /formData\(|arrayBuffer\(|blob\(/);
   assert.doesNotMatch(route, /signedUrl|storage_path|serviceRole/);
 });

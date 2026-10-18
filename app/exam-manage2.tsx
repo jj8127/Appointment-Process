@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import { invokeAdminAction } from '@/lib/admin-action-api';
 import {
   deleteExamRegistrationAsAdmin,
   transitionExamRegistrationAsAdmin,
@@ -31,15 +32,29 @@ import {
   formatExamRegistrationSubjectLabel,
   formatExamYmd,
 } from '@/lib/exam-display';
-import { logger } from '@/lib/logger';
 import { formatExamRegistrationStatus } from '@/lib/exam-flow-contract';
+import {
+  isExamAdminFcProfileRow,
+  isExamAdminRegistrationRow,
+  type ExamAdminFcProfileRow,
+  type ExamAdminRegistrationRow,
+} from '@/lib/exam-admin-applicant-query-contract';
 import { subscribeToExamRegistrationChanges } from '@/lib/exam-realtime-channel';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import {
   hasPresentRouteParam,
   parseExactlyOneUuidRouteParam,
 } from '@/lib/strict-route-params';
+import {
+  buildUnavailableResidentNumberEntries,
+  parseResidentNumberEntries,
+} from '@/lib/resident-number-response';
+import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
+import {
+  chunkSupabaseFilterValues,
+  collectSupabaseRows,
+} from '@/lib/supabase-query-contract';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 
 const ORANGE = '#f36f21';
@@ -55,38 +70,6 @@ const BADGE_PENDING_TEXT = '#b45309';
 
 // 손해보험 전용
 const EXAM_TYPE: 'nonlife' = 'nonlife';
-
-type ExamRoundRef = {
-  exam_type: 'life' | 'nonlife' | null;
-  exam_date: string | null;
-  round_label: string | null;
-};
-
-type ExamLocationRef = {
-  location_name: string | null;
-};
-
-type ExamRegistrationRaw = {
-  id: string;
-  resident_id: string;
-  status: string;
-  is_confirmed: boolean | null;
-  includes_primary_exam?: boolean | null;
-  is_third_exam?: boolean | null;
-  fee_paid_date?: string | null;
-  rejection_reason?: string | null;
-  created_at: string;
-  exam_rounds: ExamRoundRef | ExamRoundRef[] | null;
-  exam_locations: ExamLocationRef | ExamLocationRef[] | null;
-};
-
-type FcProfile = {
-  id: string;
-  name: string | null;
-  address: string | null;
-  phone: string | null;
-  affiliation: string | null;
-};
 
 type ApplicantRow = {
   registrationId: string;
@@ -105,57 +88,67 @@ type ApplicantRow = {
   rejectionReason?: string | null;
 };
 
-async function fetchApplicantsNonlife(adminPhone: string, appSessionToken: string | null): Promise<ApplicantRow[]> {
-  const { data, error } = await supabase
-    .from('exam_registrations')
-    .select(
-      `
-      id, resident_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, rejection_reason, created_at,
-      exam_rounds!exam_registrations_round_exam_type_fkey!inner ( exam_type, exam_date, round_label ),
-      exam_locations!exam_registrations_location_round_fkey ( location_name )
-    `,
-    )
-    .eq('exam_rounds.exam_type', EXAM_TYPE)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  const rows = (data ?? []) as ExamRegistrationRaw[];
+async function fetchApplicantsNonlife(adminPhone: string): Promise<ApplicantRow[]> {
+  const rows = await collectSupabaseRows<ExamAdminRegistrationRow>({
+    queryName: 'mobile_exam_nonlife_registrations',
+    fetchPage: (from, to) => supabase
+      .from('exam_registrations')
+      .select(
+        `
+        id, resident_id, status, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, rejection_reason, created_at,
+        exam_rounds!exam_registrations_round_exam_type_fkey!inner ( exam_type, exam_date, round_label ),
+        exam_locations!exam_registrations_location_round_fkey ( location_name )
+      `,
+      )
+      .eq('exam_rounds.exam_type', EXAM_TYPE)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(from, to),
+    isRow: isExamAdminRegistrationRow,
+    rowKey: (row) => row.id,
+  });
   if (rows.length === 0) return [];
 
   const residentIds = Array.from(new Set(rows.map((r) => r.resident_id).filter((v): v is string => !!v)));
   const profileLookupCandidates = Array.from(new Set(residentIds.flatMap((value) => buildExamPhoneCandidates(value))));
 
-  const profileMap = new Map<string, FcProfile>();
-  let residentNumbersByFcId: Record<string, string | null> = {};
+  const profileMap = new Map<string, ExamAdminFcProfileRow>();
+  let residentNumberEntries: ReturnType<typeof parseResidentNumberEntries> = {};
   if (profileLookupCandidates.length > 0) {
-    const { data: profiles, error: pError } = await supabase
-      .from('fc_profiles')
-      .select('id, name, address, phone, affiliation')
-      .in('phone', profileLookupCandidates);
-    if (pError) throw pError;
-    for (const profile of (profiles ?? []) as FcProfile[]) {
+    const profilePages = await Promise.all(
+      chunkSupabaseFilterValues(profileLookupCandidates).map((phoneBatch, batchIndex) => (
+        collectSupabaseRows<ExamAdminFcProfileRow>({
+          queryName: `mobile_exam_nonlife_profiles_${batchIndex}`,
+          fetchPage: (from, to) => supabase
+            .from('fc_profiles')
+            .select('id, name, address, phone, affiliation')
+            .in('phone', phoneBatch)
+            .order('id', { ascending: true })
+            .range(from, to),
+          isRow: isExamAdminFcProfileRow,
+          rowKey: (row) => row.id,
+        })
+      )),
+    );
+    const profiles = profilePages.flat();
+    for (const profile of profiles) {
       for (const candidate of buildExamPhoneCandidates(profile.phone)) {
         profileMap.set(candidate, profile);
       }
     }
 
-    const fcIds = Array.from(new Set(((profiles ?? []) as FcProfile[]).map((profile) => String(profile.id ?? '')).filter(Boolean)));
-    if (fcIds.length > 0 && appSessionToken) {
+    const fcIds = Array.from(new Set(profiles.map((profile) => profile.id)));
+    if (fcIds.length > 0) {
       try {
-        const { data: residentData, error: residentError } = await supabase.functions.invoke('admin-action', {
-          body: {
-            adminPhone: adminPhone.replace(/[^0-9]/g, ''),
-            appSessionToken,
-            action: 'getResidentNumbers',
-            payload: { fcIds },
-          },
-        });
-        if (residentError) throw residentError;
-        if (residentData?.ok && residentData?.residentNumbers) {
-          residentNumbersByFcId = residentData.residentNumbers as Record<string, string | null>;
-        }
-      } catch (err) {
-        logger.warn('[exam-manage2] resident number fetch failed', err);
+        const residentResult = await invokeAdminAction(
+          adminPhone.replace(/[^0-9]/g, ''),
+          'getResidentNumbers',
+          { fcIds },
+        );
+        residentNumberEntries = parseResidentNumberEntries(residentResult, fcIds);
+      } catch {
+        logger.warn('[exam-manage2] resident number enrichment unavailable');
+        residentNumberEntries = buildUnavailableResidentNumberEntries(fcIds);
       }
     }
   }
@@ -166,13 +159,18 @@ async function fetchApplicantsNonlife(adminPhone: string, appSessionToken: strin
     const profile = buildExamPhoneCandidates(key)
       .map((candidate) => profileMap.get(candidate))
       .find(Boolean);
+    const residentNumberEntry = profile?.id
+      ? residentNumberEntries[profile.id]
+      : undefined;
     result.push({
       registrationId: reg.id,
       residentId: key,
       headQuarter: profile?.affiliation ?? '-',
       name: profile?.name ?? '이름없음',
       residentNumber: profile?.id
-        ? ((residentNumbersByFcId[profile.id] ?? null) || '주민번호 조회 실패')
+        ? residentNumberEntry?.status === 'success'
+          ? (residentNumberEntry.value ?? '미등록')
+          : '조회 실패'
         : '-',
       address: profile?.address ?? '-',
       phone: profile?.phone ?? key,
@@ -214,7 +212,7 @@ export default function ExamManageNonlifeScreen() {
 
   const { data: applicants, isLoading, error: applicantsError, refetch } = useQuery<ApplicantRow[]>({
     queryKey: ['exam-applicants', EXAM_TYPE, residentId, appSessionToken],
-    queryFn: () => fetchApplicantsNonlife(residentId ?? '', appSessionToken),
+    queryFn: () => fetchApplicantsNonlife(residentId ?? ''),
     enabled: hydrated && canReadApplicants && !!residentId,
   });
   const routeRegistrationId =

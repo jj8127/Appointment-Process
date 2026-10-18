@@ -11,11 +11,15 @@ import {
     parseFcNotificationPhone,
 } from '@/lib/privileged-action-input-policy';
 import { getVerifiedAdminSession } from '@/lib/server-session';
+import { readAdminDocumentWorkflowRows } from '@/lib/admin-document-workflow';
 type UpdateDocStatusState = {
     success: boolean;
     message?: string;
     error?: string;
     warning?: string;
+    status?: 'pending' | 'approved' | 'rejected';
+    reviewerNote?: string | null;
+    allApproved?: boolean | null;
 };
 
 const NO_FILE_APPROVAL_NOTE = '총무 수동 승인: 파일 미제출';
@@ -80,7 +84,11 @@ export async function updateDocStatusAction(
         .eq('id', fcId)
         .single();
     if (profileLookupError) {
-        return { success: false, error: `프로필 조회 실패: ${profileLookupError.message}` };
+        logger.error('[docs/actions] profile lookup failed', {
+            code: profileLookupError.code ?? 'unknown',
+            reason: 'database_read_failed',
+        });
+        return { success: false, error: '프로필을 불러오지 못했습니다.' };
     }
     if (!profile) {
         return { success: false, error: '프로필을 찾을 수 없습니다.' };
@@ -139,7 +147,11 @@ export async function updateDocStatusAction(
         .maybeSingle();
 
     if (currentDocError) {
-        return { success: false, error: currentDocError.message };
+        logger.error('[docs/actions] document lookup failed', {
+            code: currentDocError.code ?? 'unknown',
+            reason: 'database_read_failed',
+        });
+        return { success: false, error: '문서 정보를 불러오지 못했습니다.' };
     }
     if (!currentDoc) {
         return { success: false, error: '문서 요청 row를 찾을 수 없습니다.' };
@@ -153,39 +165,53 @@ export async function updateDocStatusAction(
             ? trimmedReason
             : status === 'approved' && !hasFile
                 ? NO_FILE_APPROVAL_NOTE
-                : status === 'approved'
-                    ? null
-                    : undefined;
-    const { error: updateError } = await adminSupabase
+                : null;
+    const { data: updatedDoc, error: updateError } = await adminSupabase
         .from('fc_documents')
         .update({
             status,
-            ...(reviewerNote !== undefined ? { reviewer_note: reviewerNote } : {}),
+            reviewer_note: reviewerNote,
         })
         .eq('fc_id', fcId)
-        .eq('doc_type', docType);
+        .eq('doc_type', docType)
+        .select('status,reviewer_note')
+        .maybeSingle();
 
-    if (updateError) {
-        return { success: false, error: updateError.message };
+    if (
+        updateError
+        || !updatedDoc
+        || updatedDoc.status !== status
+        || updatedDoc.reviewer_note !== reviewerNote
+    ) {
+        logger.error('[docs/actions] document update failed', {
+            code: updateError?.code ?? 'unknown',
+            reason: updateError ? 'database_write_failed' : 'mutation_receipt_invalid',
+        });
+        return { success: false, error: '서류 상태를 업데이트하지 못했습니다.' };
     }
 
     let message = '서류 상태가 업데이트되었습니다.';
 
-    const { data: allDocs, error: fetchError } = await adminSupabase
-        .from('fc_documents')
-        .select('status, storage_path')
-        .eq('fc_id', fcId);
-
-    if (fetchError) {
-        logger.error('Error fetching docs for auto-advance check:', fetchError);
+    let docs;
+    try {
+        docs = await readAdminDocumentWorkflowRows(fcId, 'admin_docs_workflow');
+    } catch (error) {
+        logger.error('Error fetching docs for auto-advance check:', error);
         revalidatePath('/dashboard');
-        return { success: true, warning: 'workflow_update_incomplete', message: '서류 상태는 저장되었습니다. 진행 상태 확인에 실패했습니다.' };
+        return {
+            success: true,
+            warning: 'workflow_update_incomplete',
+            message: '서류 상태는 저장되었습니다. 진행 상태 확인에 실패했습니다.',
+            status: updatedDoc.status,
+            reviewerNote: updatedDoc.reviewer_note ?? null,
+            allApproved: null,
+        };
     }
 
-    const docs = allDocs ?? [];
     const allApproved = docs.length > 0 && docs.every((d) => d.status === 'approved');
 
-    const { error: profileError } = await adminSupabase
+    const nextProfileStatus = allApproved ? 'docs-approved' : 'docs-pending';
+    const { data: updatedProfile, error: profileError } = await adminSupabase
         .from('fc_profiles')
         .update(
             allApproved
@@ -195,11 +221,20 @@ export async function updateDocStatusAction(
                     ...buildDocWorkflowResetPayload(),
                 },
         )
-        .eq('id', fcId);
+        .eq('id', fcId)
+        .select('status')
+        .maybeSingle();
 
-    if (profileError) {
+    if (profileError || updatedProfile?.status !== nextProfileStatus) {
         revalidatePath('/dashboard');
-        return { success: true, warning: 'workflow_update_incomplete', message: '서류 상태는 저장되었습니다. 진행 상태 반영에 실패했습니다.' };
+        return {
+            success: true,
+            warning: 'workflow_update_incomplete',
+            message: '서류 상태는 저장되었습니다. 진행 상태 반영에 실패했습니다.',
+            status: updatedDoc.status,
+            reviewerNote: updatedDoc.reviewer_note ?? null,
+            allApproved,
+        };
     }
 
     let notificationWarning: string | undefined;
@@ -226,5 +261,12 @@ export async function updateDocStatusAction(
     }
 
     revalidatePath('/dashboard');
-    return { success: true, message, warning: notificationWarning };
+    return {
+        success: true,
+        message,
+        warning: notificationWarning,
+        status: updatedDoc.status,
+        reviewerNote: updatedDoc.reviewer_note ?? null,
+        allApproved,
+    };
 }

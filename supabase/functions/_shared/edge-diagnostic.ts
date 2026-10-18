@@ -59,10 +59,6 @@ type EdgeDiagnosticPair =
       reason: 'no_admin_recipients';
     }
   | {
-      event: 'fc_notify.attachment_cleanup';
-      reason: 'storage_remove_failed';
-    }
-  | {
       event: 'fc_notify.notification_insert';
       reason: 'insert_failed';
     }
@@ -185,7 +181,6 @@ const VALID_PAIRS = new Set<string>([
   'fc_notify.expo_push:request_failed',
   'fc_notify.expo_push:timeout',
   'fc_notify.recipient_resolution:no_admin_recipients',
-  'fc_notify.attachment_cleanup:storage_remove_failed',
   'fc_notify.notification_insert:insert_failed',
   'fc_notify.device_token_load:query_failed',
   'user_presence.rpc_fallback:get_failed',

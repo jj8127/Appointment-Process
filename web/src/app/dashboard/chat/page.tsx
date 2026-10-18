@@ -1,6 +1,8 @@
 'use client';
 
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { shouldSubmitOnEnter } from '@/lib/user-intent-policy';
+import { QueryReadError } from '@/lib/query-read-error';
 
 import { createChatRequestGuard } from '@/lib/chat-request-guard';
 
@@ -68,6 +70,10 @@ import {
   type PreparedMessengerAttachmentBatch,
 } from '@/lib/messenger-attachment-client';
 import { validateMessengerAttachmentCommitResponse } from '@/lib/messenger-attachment-commit';
+import {
+    parseDirectMessengerMessage,
+    parseDirectMessengerMessageList,
+} from '@/lib/messenger-message-contract';
 
 // --- Constants ---
 const HANWHA_ORANGE = '#f36f21';
@@ -79,6 +85,22 @@ const PRESENCE_POLL_INTERVAL_MS = 30_000;
 const VISIBLE_PRESENCE_LIMIT = 60;
 // --- Types ---
 type ChatPreview = AdminChatTarget;
+
+const isNullableString = (value: unknown): value is string | null =>
+    value === null || typeof value === 'string';
+
+function isChatPreview(value: unknown): value is ChatPreview {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const row = value as Record<string, unknown>;
+    return typeof row.fc_id === 'string'
+        && typeof row.name === 'string'
+        && typeof row.phone === 'string'
+        && (row.conversation_id === undefined || isNullableString(row.conversation_id))
+        && isNullableString(row.last_message)
+        && isNullableString(row.last_time)
+        && Number.isSafeInteger(row.unread_count)
+        && Number(row.unread_count) >= 0;
+}
 
 type Message = {
     id: string;
@@ -140,6 +162,7 @@ function ChatAccountPage() {
     const [selectedFc, setSelectedFc] = useState<ChatPreview | null>(null);
     const [keyword, setKeyword] = useState('');
     const [presenceByPhone, setPresenceByPhone] = useState<Record<string, WebPresenceSnapshot>>({});
+    const [presenceError, setPresenceError] = useState(false);
     const searchParams = useSearchParams();
     const myChatId = useMemo(
         () => getWebStaffChatActorId({ role, residentId, staffType }),
@@ -152,22 +175,22 @@ function ChatAccountPage() {
     );
 
     // --- Left Panel: Chat List Fetching ---
-    const { data: chatList, error: listError, isLoading: isListLoading, refetch: refetchList } = useQuery({
+    const {
+        data: chatList,
+        error: listError,
+        isFetching: isListFetching,
+        isLoading: isListLoading,
+        refetch: refetchList,
+    } = useQuery({
         queryKey: ['admin-chat-list', role, residentId, staffType],
         queryFn: async () => {
             const response = await fetch('/api/admin/chat-list', { cache: 'no-store' });
             const payload = await response.json().catch(() => null);
 
-            if (!response.ok) {
-                const message
-                    = typeof payload?.error === 'string' && payload.error.trim()
-                        ? payload.error
-                        : 'FC 목록을 불러오지 못했습니다.';
-                throw new Error(message);
-            }
+            if (!response.ok) throw new QueryReadError(response.status);
 
-            if (!Array.isArray(payload)) throw new Error('FC 목록 응답을 확인할 수 없습니다. 다시 시도해주세요.');
-            return payload as ChatPreview[];
+            if (!Array.isArray(payload) || !payload.every(isChatPreview)) throw new QueryReadError();
+            return payload;
         },
         enabled: hydrated && Boolean(role) && Boolean(myChatId),
         refetchInterval: CHAT_LIST_REFETCH_INTERVAL_MS,
@@ -203,16 +226,22 @@ function ChatAccountPage() {
     const loadPresence = useCallback(async (phones = trackedPresencePhones) => {
         if (phones.length === 0) {
             setPresenceByPhone({});
+            setPresenceError(false);
             return;
         }
 
-        const rows = await fetchPresence(phones);
-        const nextPresenceByPhone = rows.reduce<Record<string, WebPresenceSnapshot>>((acc, row) => {
-            acc[normalizePresencePhone(row.phone)] = row;
-            return acc;
-        }, {});
+        try {
+            const rows = await fetchPresence(phones);
+            const nextPresenceByPhone = rows.reduce<Record<string, WebPresenceSnapshot>>((acc, row) => {
+                acc[normalizePresencePhone(row.phone)] = row;
+                return acc;
+            }, {});
 
-        setPresenceByPhone(nextPresenceByPhone);
+            setPresenceByPhone(nextPresenceByPhone);
+            setPresenceError(false);
+        } catch {
+            setPresenceError(true);
+        }
     }, [trackedPresencePhones]);
 
     useEffect(() => {
@@ -273,16 +302,31 @@ function ChatAccountPage() {
                             value={keyword}
                             onChange={(e) => setKeyword(e.currentTarget.value)}
                         />
+                        {presenceError ? (
+                            <Group gap="xs" mt="xs" justify="space-between" wrap="nowrap" role="alert">
+                                <Text size="xs" c="dimmed">활동 상태를 갱신하지 못했습니다.</Text>
+                                <Button size="compact-xs" variant="subtle" onClick={() => { void loadPresence(); }}>
+                                    다시 시도
+                                </Button>
+                            </Group>
+                        ) : null}
                     </Box>
                     <ScrollArea flex={1}>
                         <Stack gap={0}>
+                            {listError ? (
+                                <Box p="md">
+                                    <QueryErrorAlert
+                                        error={listError}
+                                        onRetry={refetchList}
+                                        isFetching={isListFetching}
+                                        hasData={Boolean(chatList)}
+                                        subject="대화 목록"
+                                    />
+                                </Box>
+                            ) : null}
                             {isListLoading ? (
                                 <Text p="xl" ta="center" size="sm" c="dimmed">목록을 불러오는 중...</Text>
-                            ) : listError ? (
-                                <Text p="xl" ta="center" size="sm" c="red">
-                                    {listError instanceof Error ? listError.message : '대화 목록을 불러오지 못했습니다.'}
-                                </Text>
-                            ) : filteredList.length > 0 ? (
+                            ) : !chatList && listError ? null : filteredList.length > 0 ? (
                                 filteredList.map((item) => (
                                     <Box
                                         component="button"
@@ -529,12 +573,15 @@ function ChatRoom({
                     }),
                 });
                 const payload = await response.json().catch(() => null);
-                const data = payload?.data?.messages;
+                const data = parseDirectMessengerMessageList(
+                    payload?.data?.messages,
+                    activeConversationId,
+                );
                 if (!requestGuard.canApplyList(ticket)) return;
-                if (!response.ok || !payload?.ok || !Array.isArray(data)) throw new Error('chat_list_failed');
+                if (!response.ok || !payload?.ok || data === null) throw new Error('chat_list_failed');
                 setLoadError(null);
 
-                const changed = applyMessages(data as Message[]);
+                const changed = applyMessages(data);
                 if (changed && options?.scrollOnChange) {
                     scrollToBottom();
                 }
@@ -674,8 +721,11 @@ function ChatRoom({
             });
             const payload = await response.json().catch(() => null);
             if (!requestGuard.isCurrent(ticket)) return;
-            const inserted = payload?.data?.message as Message | undefined;
-            if (!response.ok || !payload?.ok || !inserted?.id) {
+            const inserted = parseDirectMessengerMessage(
+                payload?.data?.message,
+                activeConversationId,
+            );
+            if (!response.ok || !payload?.ok || !inserted) {
                 throw new Error('direct_message_send_failed');
             }
             if (
@@ -692,7 +742,7 @@ function ChatRoom({
             if (inserted) {
                 const deliveryFeedback = parseNotificationDeliveryFeedback(payload?.data);
                 const insertedMessage: Message = {
-                    ...(inserted as Message),
+                    ...inserted,
                     client_message_id: clientMessageId,
                     send_status: deliveryFeedback?.state === 'persistence_failed'
                         ? 'notification-failed'
@@ -793,8 +843,11 @@ function ChatRoom({
             });
             const payload = await response.json().catch(() => null);
             if (!requestGuard.isCurrent(ticket)) return;
-            const committed = payload?.data?.message as Message | undefined;
-            if (!response.ok || !payload?.ok || !committed?.id) {
+            const committed = parseDirectMessengerMessage(
+                payload?.data?.message,
+                activeConversationId,
+            );
+            if (!response.ok || !payload?.ok || !committed) {
                 throw new Error('notification_retry_failed');
             }
             const feedback = parseNotificationDeliveryFeedback(payload?.data);

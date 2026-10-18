@@ -52,7 +52,24 @@ create table if not exists public.fc_profiles (
   life_commission_completed boolean not null default false,
   nonlife_commission_completed boolean not null default false,
   license_statuses text[],
-  status text not null default 'draft',
+  status text not null default 'draft' check (
+    status in (
+      'draft',
+      'temp-id-issued',
+      'allowance-pending',
+      'allowance-consented',
+      'docs-requested',
+      'docs-pending',
+      'docs-submitted',
+      'docs-rejected',
+      'docs-approved',
+      'hanwha-commission-review',
+      'hanwha-commission-rejected',
+      'hanwha-commission-approved',
+      'appointment-completed',
+      'final-link-sent'
+    )
+  ),
   identity_completed boolean not null default false,
   signup_completed boolean not null default false,
   phone_verified boolean not null default false,
@@ -6169,7 +6186,6 @@ declare
   v_new_proof_paths text[] := array[]::text[];
   v_document_paths text[] := array[]::text[];
   v_board_paths text[] := array[]::text[];
-  v_chat_file_urls text[] := array[]::text[];
   v_auth_user_ids uuid[] := array[]::uuid[];
   v_post_ids uuid[] := array[]::uuid[];
   v_cleanup_outbox_id uuid;
@@ -6291,16 +6307,10 @@ begin
          = v_phone_digits
       or attachment.post_id = any(v_post_ids);
 
-  if to_regclass('public.messages') is not null then
-    execute $dynamic$
-      select coalesce(array_agg(file_url), array[]::text[])
-        from public.messages
-       where message_type in ('image', 'file')
-         and regexp_replace(coalesce(sender_id, ''), '[^0-9]', '', 'g') = $1
-    $dynamic$
-    into v_chat_file_urls
-    using v_phone_digits;
-  end if;
+  -- Legacy chat uploads used shared `chat/` and `group-chat/` prefixes without
+  -- an owner identifier. A message row therefore cannot prove ownership of the
+  -- referenced object. Keep these objects out of the service-role cleanup
+  -- receipt instead of trusting a user-controlled legacy file_url.
 
   delete from public.board_comment_likes
    where regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
@@ -6377,7 +6387,7 @@ begin
       'proof_paths', to_jsonb(v_proof_paths),
       'document_paths', to_jsonb(v_document_paths),
       'board_attachment_paths', to_jsonb(v_board_paths),
-      'chat_file_urls', to_jsonb(v_chat_file_urls),
+      'chat_file_urls', '[]'::jsonb,
       'auth_user_ids', to_jsonb(v_auth_user_ids)
     )
   )
@@ -6389,7 +6399,7 @@ begin
     'proof_paths', to_jsonb(v_proof_paths),
     'document_paths', to_jsonb(v_document_paths),
     'board_attachment_paths', to_jsonb(v_board_paths),
-    'chat_file_urls', to_jsonb(v_chat_file_urls),
+    'chat_file_urls', '[]'::jsonb,
     'auth_user_ids', to_jsonb(v_auth_user_ids)
   );
 end;
@@ -15652,3 +15662,892 @@ grant execute on function public.cleanup_platform_auth_challenges() to service_r
 create extension if not exists pg_cron with schema pg_catalog;
 select cron.schedule('platform-auth-challenge-cleanup','*/5 * * * *',
   'select public.cleanup_platform_auth_challenges();');
+-- 20261013063140_atomic_onboarding_writes.sql
+-- Keep the final multi-table onboarding writes inside one PostgreSQL transaction.
+-- Edge Functions encrypt/hash identity material before calling these RPCs; neither
+-- function accepts or returns a raw resident registration number or password.
+
+create or replace function public.store_fc_identity_atomic_v1(
+  p_fc_id uuid,
+  p_expected_phone text,
+  p_resident_number_encrypted text,
+  p_resident_id_masked text,
+  p_resident_id_hash text,
+  p_address text,
+  p_address_detail text,
+  p_address_encrypted text,
+  p_address_detail_encrypted text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_profile public.fc_profiles%rowtype;
+  v_normalized_phone text := regexp_replace(coalesce(p_expected_phone, ''), '[^0-9]', '', 'g');
+  v_address text := btrim(coalesce(p_address, ''));
+  v_address_detail text := nullif(btrim(coalesce(p_address_detail, '')), '');
+  v_has_resident_input boolean := p_resident_number_encrypted is not null
+    or p_resident_id_masked is not null
+    or p_resident_id_hash is not null;
+  v_secure_fc_id uuid;
+begin
+  if p_fc_id is null
+    or v_normalized_phone !~ '^01[0-9]{9}$'
+    or char_length(v_address) not between 1 and 500
+    or char_length(coalesce(v_address_detail, '')) > 500
+    or char_length(coalesce(p_address_encrypted, '')) not between 20 and 8192
+    or (v_address_detail is null) <> (p_address_detail_encrypted is null)
+    or (p_address_detail_encrypted is not null
+      and char_length(p_address_detail_encrypted) not between 20 and 8192) then
+    raise exception using errcode = '22023', message = 'identity_payload_invalid';
+  end if;
+
+  if v_has_resident_input and (
+    p_resident_number_encrypted is null
+    or p_resident_id_masked is null
+    or p_resident_id_hash is null
+    or char_length(p_resident_number_encrypted) not between 20 and 4096
+    or p_resident_id_masked !~ '^[0-9]{6}-[*]{7}$'
+    or char_length(p_resident_id_hash) <> 44
+    or p_resident_id_hash !~ '^[A-Za-z0-9+/]+={0,2}$'
+  ) then
+    raise exception using errcode = '22023', message = 'identity_payload_invalid';
+  end if;
+
+  select profile.*
+    into v_profile
+  from public.fc_profiles profile
+  where profile.id = p_fc_id
+    and regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g') = v_normalized_phone
+  for update;
+
+  if not found then
+    raise exception using errcode = 'P0002', message = 'identity_profile_not_found';
+  end if;
+
+  if v_has_resident_input then
+    insert into public.fc_identity_secure as secure (
+      fc_id,
+      resident_number_encrypted,
+      address_encrypted,
+      address_detail_encrypted
+    ) values (
+      p_fc_id,
+      p_resident_number_encrypted,
+      p_address_encrypted,
+      p_address_detail_encrypted
+    )
+    on conflict (fc_id) do update
+    set resident_number_encrypted = excluded.resident_number_encrypted,
+        address_encrypted = excluded.address_encrypted,
+        address_detail_encrypted = excluded.address_detail_encrypted
+    returning secure.fc_id into v_secure_fc_id;
+
+    update public.fc_profiles
+    set resident_id_masked = p_resident_id_masked,
+        resident_id_hash = p_resident_id_hash,
+        address = v_address,
+        address_detail = v_address_detail,
+        identity_completed = true
+    where id = p_fc_id;
+  else
+    if v_profile.resident_id_masked is null or v_profile.resident_id_hash is null then
+      raise exception using errcode = '22023', message = 'resident_identity_required';
+    end if;
+
+    update public.fc_identity_secure
+    set address_encrypted = p_address_encrypted,
+        address_detail_encrypted = p_address_detail_encrypted
+    where fc_id = p_fc_id
+    returning fc_id into v_secure_fc_id;
+
+    if v_secure_fc_id is null then
+      raise exception using errcode = '22023', message = 'resident_identity_required';
+    end if;
+
+    update public.fc_profiles
+    set address = v_address,
+        address_detail = v_address_detail,
+        identity_completed = true
+    where id = p_fc_id;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'fcId', p_fc_id,
+    'residentId', v_normalized_phone,
+    'identityCompleted', true
+  );
+end;
+$$;
+
+revoke all on function public.store_fc_identity_atomic_v1(
+  uuid, text, text, text, text, text, text, text, text
+) from public, anon, authenticated;
+grant execute on function public.store_fc_identity_atomic_v1(
+  uuid, text, text, text, text, text, text, text, text
+) to service_role;
+
+comment on function public.store_fc_identity_atomic_v1(
+  uuid, text, text, text, text, text, text, text, text
+) is 'Atomically stores pre-encrypted FC identity material and its profile completion receipt. Execute is service_role only.';
+
+create or replace function public.complete_fc_signup_atomic_v1(
+  p_fc_id uuid,
+  p_expected_phone text,
+  p_password_hash text,
+  p_password_salt text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_profile public.fc_profiles%rowtype;
+  v_normalized_phone text := regexp_replace(coalesce(p_expected_phone, ''), '[^0-9]', '', 'g');
+  v_existing_password_set_at timestamptz;
+  v_now timestamptz := clock_timestamp();
+begin
+  if p_fc_id is null
+    or v_normalized_phone !~ '^01[0-9]{9}$'
+    or char_length(coalesce(p_password_hash, '')) <> 44
+    or p_password_hash !~ '^[A-Za-z0-9+/]+={0,2}$'
+    or char_length(coalesce(p_password_salt, '')) <> 24
+    or p_password_salt !~ '^[A-Za-z0-9+/]+={0,2}$' then
+    raise exception using errcode = '22023', message = 'signup_completion_payload_invalid';
+  end if;
+
+  select profile.*
+    into v_profile
+  from public.fc_profiles profile
+  where profile.id = p_fc_id
+    and regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g') = v_normalized_phone
+  for update;
+
+  if not found
+    or v_profile.phone_verified is distinct from true
+    or coalesce(v_profile.is_manager_referral_shadow, false) then
+    raise exception using errcode = '42501', message = 'signup_completion_forbidden';
+  end if;
+
+  select credential.password_set_at
+    into v_existing_password_set_at
+  from public.fc_credentials credential
+  where credential.fc_id = p_fc_id
+  for update;
+
+  if found and v_existing_password_set_at is not null then
+    raise exception using errcode = '55000', message = 'signup_password_already_set';
+  end if;
+
+  update public.fc_profiles
+  set signup_completed = true,
+      signup_verification_method = 'phone_otp',
+      signup_verified_at = v_now,
+      signup_verified_by_admin_id = null
+  where id = p_fc_id;
+
+  insert into public.fc_credentials as credential (
+    fc_id,
+    password_hash,
+    password_salt,
+    password_set_at,
+    failed_count,
+    locked_until,
+    reset_token_hash,
+    reset_token_expires_at,
+    reset_sent_at,
+    reset_failed_count,
+    must_change_password,
+    temporary_password_issued_at,
+    updated_at
+  ) values (
+    p_fc_id,
+    p_password_hash,
+    p_password_salt,
+    v_now,
+    0,
+    null,
+    null,
+    null,
+    null,
+    0,
+    false,
+    null,
+    v_now
+  )
+  on conflict (fc_id) do update
+  set password_hash = excluded.password_hash,
+      password_salt = excluded.password_salt,
+      password_set_at = excluded.password_set_at,
+      failed_count = 0,
+      locked_until = null,
+      reset_token_hash = null,
+      reset_token_expires_at = null,
+      reset_sent_at = null,
+      reset_failed_count = 0,
+      must_change_password = false,
+      temporary_password_issued_at = null,
+      updated_at = excluded.updated_at;
+
+  return jsonb_build_object(
+    'ok', true,
+    'fcId', p_fc_id,
+    'residentId', v_normalized_phone,
+    'displayName', coalesce(v_profile.name, ''),
+    'signupCompleted', true,
+    'passwordSetAt', v_now
+  );
+end;
+$$;
+
+revoke all on function public.complete_fc_signup_atomic_v1(uuid, text, text, text)
+  from public, anon, authenticated;
+grant execute on function public.complete_fc_signup_atomic_v1(uuid, text, text, text)
+  to service_role;
+
+comment on function public.complete_fc_signup_atomic_v1(uuid, text, text, text)
+  is 'Atomically completes a phone-verified FC profile and stores its derived password credential. Execute is service_role only.';
+-- 20261013063142_atomic_password_login_attempts.sql
+-- Serialize password comparison and failure counters on the credential row.
+-- The Edge function derives the candidate PBKDF2 hash; this function compares
+-- it with the current hash after locking, then records the outcome atomically.
+set local lock_timeout = '3s';
+set local statement_timeout = '30s';
+
+create or replace function public.process_password_login_attempt_v1(
+  p_account_kind text,
+  p_account_id uuid,
+  p_expected_phone text,
+  p_candidate_hash text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_table text;
+  v_key text;
+  v_account jsonb;
+  v_profile public.fc_profiles%rowtype;
+  v_phone text := regexp_replace(coalesce(p_expected_phone, ''), '[^0-9]', '', 'g');
+  v_now timestamptz;
+  v_failed_count integer;
+  v_locked_until timestamptz;
+begin
+  if p_account_id is null or v_phone !~ '^01[0-9]{9}$'
+    or char_length(coalesce(p_candidate_hash, '')) <> 44
+    or p_candidate_hash !~ '^[A-Za-z0-9+/]+={0,2}$' then
+    return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end if;
+
+  case p_account_kind
+    when 'admin' then v_table := 'admin_accounts'; v_key := 'id';
+    when 'manager' then v_table := 'manager_accounts'; v_key := 'id';
+    when 'fc' then
+      v_table := 'fc_credentials'; v_key := 'fc_id';
+      select profile.* into v_profile
+      from public.fc_profiles profile
+      where profile.id = p_account_id
+        and regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g') = v_phone
+        and coalesce(profile.is_manager_referral_shadow, false) = false
+      for update;
+      if not found or v_profile.signup_completed is distinct from true then
+        return jsonb_build_object('ok', false, 'code', 'account_unavailable');
+      end if;
+    else
+      return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end case;
+
+  execute format(
+    'select to_jsonb(account) from public.%I account where %I = $1 for update',
+    v_table,
+    v_key
+  ) into v_account using p_account_id;
+
+  if v_account is null
+    or v_account->>'password_set_at' is null
+    or (p_account_kind <> 'fc' and (
+      regexp_replace(coalesce(v_account->>'phone', ''), '[^0-9]', '', 'g') is distinct from v_phone
+      or (v_account->>'active')::boolean is distinct from true
+    )) then
+    return jsonb_build_object('ok', false, 'code', 'account_unavailable');
+  end if;
+
+  v_now := clock_timestamp();
+  if (v_account->>'locked_until')::timestamptz > v_now then
+    return jsonb_build_object(
+      'ok', false,
+      'code', 'locked',
+      'lockedUntil', (v_account->>'locked_until')::timestamptz,
+      'remaining', 0
+    );
+  end if;
+
+  if v_account->>'password_hash' is distinct from p_candidate_hash then
+    v_failed_count := coalesce((v_account->>'failed_count')::integer, 0) + 1;
+    if v_failed_count >= 5 then
+      v_locked_until := v_now + interval '10 minutes';
+      execute format(
+        'update public.%I set failed_count = 0, locked_until = $2 where %I = $1',
+        v_table,
+        v_key
+      ) using p_account_id, v_locked_until;
+      return jsonb_build_object(
+        'ok', false,
+        'code', 'locked',
+        'lockedUntil', v_locked_until,
+        'remaining', 0
+      );
+    end if;
+
+    execute format(
+      'update public.%I set failed_count = $2, locked_until = null where %I = $1',
+      v_table,
+      v_key
+    ) using p_account_id, v_failed_count;
+    return jsonb_build_object(
+      'ok', false,
+      'code', 'invalid_password',
+      'remaining', 5 - v_failed_count
+    );
+  end if;
+
+  execute format(
+    'update public.%I set failed_count = 0, locked_until = null where %I = $1',
+    v_table,
+    v_key
+  ) using p_account_id;
+  return jsonb_build_object(
+    'ok', true,
+    'code', 'authenticated',
+    'accountKind', p_account_kind,
+    'accountId', p_account_id,
+    'residentId', v_phone
+  );
+end;
+$$;
+
+revoke all on function public.process_password_login_attempt_v1(text, uuid, text, text)
+  from public, anon, authenticated;
+grant execute on function public.process_password_login_attempt_v1(text, uuid, text, text)
+  to service_role;
+
+comment on function public.process_password_login_attempt_v1(text, uuid, text, text)
+  is 'Atomically compares a derived password hash and records login failure/lock state. Execute is service_role only.';
+
+-- 20261013063141_atomic_signup_otp_challenges.sql
+-- Own signup OTP issuance, guessing, verification, reset, and proof
+-- consumption under the FC profile row lock. Only service-role Edge
+-- functions may call these boundaries.
+set local lock_timeout = '3s';
+set local statement_timeout = '30s';
+
+alter table public.fc_profiles
+  add column if not exists phone_verification_challenge_id uuid;
+alter table public.fc_profiles
+  add column if not exists signup_verification_proof_hash text;
+alter table public.fc_profiles
+  add column if not exists signup_verification_proof_expires_at timestamptz;
+
+create or replace function public.issue_signup_otp_challenge_v1(
+  p_fc_id uuid,
+  p_expected_phone text,
+  p_challenge_id uuid,
+  p_otp_hash text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_profile public.fc_profiles%rowtype;
+  v_phone text := regexp_replace(coalesce(p_expected_phone, ''), '[^0-9]', '', 'g');
+  v_now timestamptz;
+  v_expires_at timestamptz;
+begin
+  if p_fc_id is null or p_challenge_id is null
+    or v_phone !~ '^01[0-9]{9}$'
+    or char_length(coalesce(p_otp_hash, '')) <> 44
+    or p_otp_hash !~ '^[A-Za-z0-9+/]+={0,2}$' then
+    return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end if;
+
+  select profile.* into v_profile
+  from public.fc_profiles profile
+  where profile.id = p_fc_id
+    and regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g') = v_phone
+    and coalesce(profile.is_manager_referral_shadow, false) = false
+  for update;
+
+  if not found or coalesce(v_profile.is_manager_referral_shadow, false) then
+    return jsonb_build_object('ok', false, 'code', 'profile_unavailable');
+  end if;
+  if v_profile.signup_completed is true and exists (
+    select 1 from public.fc_credentials credential
+    where credential.fc_id = v_profile.id
+      and credential.password_set_at is not null
+  ) then
+    return jsonb_build_object('ok', false, 'code', 'account_exists');
+  end if;
+
+  v_now := clock_timestamp();
+  if v_profile.phone_verification_locked_until > v_now then
+    return jsonb_build_object(
+      'ok', false,
+      'code', 'locked',
+      'lockedUntil', v_profile.phone_verification_locked_until
+    );
+  end if;
+  if v_profile.phone_verification_sent_at > v_now - interval '60 seconds' then
+    return jsonb_build_object('ok', false, 'code', 'cooldown');
+  end if;
+
+  v_expires_at := v_now + interval '5 minutes';
+  update public.fc_profiles
+  set phone_verification_challenge_id = p_challenge_id,
+      phone_verification_hash = p_otp_hash,
+      phone_verification_expires_at = v_expires_at,
+      phone_verification_sent_at = v_now,
+      phone_verification_attempts = 0,
+      phone_verification_locked_until = null,
+      updated_at = v_now
+  where id = p_fc_id;
+
+  return jsonb_build_object(
+    'ok', true,
+    'code', 'issued',
+    'profileId', p_fc_id,
+    'residentId', v_phone,
+    'challengeId', p_challenge_id,
+    'expiresAt', v_expires_at
+  );
+end;
+$$;
+
+create or replace function public.process_signup_otp_challenge_v1(
+  p_expected_phone text,
+  p_challenge_id uuid,
+  p_submitted_hash text,
+  p_verification_proof_hash text,
+  p_allow_test_bypass boolean default false
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_profile public.fc_profiles%rowtype;
+  v_phone text := regexp_replace(coalesce(p_expected_phone, ''), '[^0-9]', '', 'g');
+  v_now timestamptz;
+  v_attempts integer;
+  v_locked_until timestamptz;
+  v_proof_expires_at timestamptz;
+begin
+  if p_challenge_id is null or v_phone !~ '^01[0-9]{9}$'
+    or char_length(coalesce(p_submitted_hash, '')) <> 44
+    or p_submitted_hash !~ '^[A-Za-z0-9+/]+={0,2}$'
+    or char_length(coalesce(p_verification_proof_hash, '')) <> 44
+    or p_verification_proof_hash !~ '^[A-Za-z0-9+/]+={0,2}$' then
+    return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end if;
+
+  select profile.* into v_profile
+  from public.fc_profiles profile
+  where regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g') = v_phone
+    and coalesce(profile.is_manager_referral_shadow, false) = false
+  for update;
+
+  if not found or coalesce(v_profile.is_manager_referral_shadow, false) then
+    return jsonb_build_object('ok', false, 'code', 'not_found');
+  end if;
+  if v_profile.signup_completed is true and exists (
+    select 1 from public.fc_credentials credential
+    where credential.fc_id = v_profile.id
+      and credential.password_set_at is not null
+  ) then
+    return jsonb_build_object('ok', false, 'code', 'account_exists');
+  end if;
+
+  v_now := clock_timestamp();
+  if v_profile.phone_verification_locked_until > v_now then
+    return jsonb_build_object(
+      'ok', false,
+      'code', 'locked',
+      'lockedUntil', v_profile.phone_verification_locked_until
+    );
+  end if;
+  if v_profile.phone_verification_challenge_id is distinct from p_challenge_id then
+    return jsonb_build_object('ok', false, 'code', 'stale_challenge');
+  end if;
+  if v_profile.phone_verification_hash is null
+    or v_profile.phone_verification_expires_at is null then
+    return jsonb_build_object('ok', false, 'code', 'no_code');
+  end if;
+  if v_profile.phone_verification_expires_at <= v_now then
+    return jsonb_build_object('ok', false, 'code', 'expired_code');
+  end if;
+
+  if not p_allow_test_bypass
+    and v_profile.phone_verification_hash is distinct from p_submitted_hash then
+    v_attempts := coalesce(v_profile.phone_verification_attempts, 0) + 1;
+    if v_attempts >= 5 then
+      v_locked_until := v_now + interval '10 minutes';
+      update public.fc_profiles
+      set phone_verification_attempts = 0,
+          phone_verification_locked_until = v_locked_until,
+          updated_at = v_now
+      where id = v_profile.id;
+      return jsonb_build_object(
+        'ok', false,
+        'code', 'locked',
+        'lockedUntil', v_locked_until,
+        'remaining', 0
+      );
+    end if;
+
+    update public.fc_profiles
+    set phone_verification_attempts = v_attempts,
+        updated_at = v_now
+    where id = v_profile.id;
+    return jsonb_build_object(
+      'ok', false,
+      'code', 'invalid_code',
+      'remaining', 5 - v_attempts
+    );
+  end if;
+
+  -- Old DB-side onboarding artifacts are removed only after the caller has
+  -- proved control of the phone, and all changes roll back together.
+  delete from public.profiles where fc_id = v_profile.id;
+  delete from public.fc_identity_secure where fc_id = v_profile.id;
+  delete from public.fc_credentials where fc_id = v_profile.id;
+
+  v_proof_expires_at := v_now + interval '10 minutes';
+  update public.fc_profiles
+  set name = '',
+      affiliation = '',
+      recommender = null,
+      recommender_fc_id = null,
+      recommender_code_id = null,
+      recommender_code = null,
+      recommender_linked_at = null,
+      recommender_link_source = null,
+      email = '',
+      address = '',
+      address_detail = null,
+      resident_id_masked = null,
+      resident_id_hash = null,
+      identity_completed = false,
+      status = 'draft',
+      life_commission_completed = false,
+      nonlife_commission_completed = false,
+      temp_id = null,
+      allowance_date = null,
+      allowance_prescreen_requested_at = null,
+      allowance_reject_reason = null,
+      appointment_url = null,
+      appointment_date = null,
+      appointment_schedule_life = null,
+      appointment_schedule_nonlife = null,
+      appointment_date_life = null,
+      appointment_date_nonlife = null,
+      appointment_date_life_sub = null,
+      appointment_date_nonlife_sub = null,
+      appointment_reject_reason_life = null,
+      appointment_reject_reason_nonlife = null,
+      docs_deadline_at = null,
+      docs_deadline_last_notified_at = null,
+      hanwha_commission_date_sub = null,
+      hanwha_commission_date = null,
+      hanwha_commission_reject_reason = null,
+      hanwha_commission_pdf_path = null,
+      hanwha_commission_pdf_name = null,
+      dawichok_url_sent_at = null,
+      dawichok_url_sent_by = null,
+      signup_completed = false,
+      phone_verified = true,
+      phone_verified_at = v_now,
+      signup_verification_method = 'phone_otp',
+      signup_verified_at = v_now,
+      signup_verified_by_admin_id = null,
+      phone_verification_challenge_id = null,
+      phone_verification_hash = null,
+      phone_verification_expires_at = null,
+      phone_verification_sent_at = null,
+      phone_verification_attempts = 0,
+      phone_verification_locked_until = null,
+      signup_verification_proof_hash = p_verification_proof_hash,
+      signup_verification_proof_expires_at = v_proof_expires_at,
+      updated_at = v_now
+  where id = v_profile.id;
+
+  return jsonb_build_object(
+    'ok', true,
+    'code', 'verified',
+    'verified', true,
+    'profileId', v_profile.id,
+    'residentId', v_phone,
+    'challengeId', p_challenge_id,
+    'verifiedAt', v_now,
+    'proofExpiresAt', v_proof_expires_at
+  );
+end;
+$$;
+
+create or replace function public.validate_signup_verification_proof_v1(
+  p_expected_phone text,
+  p_verification_proof_hash text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_profile public.fc_profiles%rowtype;
+  v_phone text := regexp_replace(coalesce(p_expected_phone, ''), '[^0-9]', '', 'g');
+begin
+  if v_phone !~ '^01[0-9]{9}$'
+    or char_length(coalesce(p_verification_proof_hash, '')) <> 44
+    or p_verification_proof_hash !~ '^[A-Za-z0-9+/]+={0,2}$' then
+    return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end if;
+
+  select profile.* into v_profile
+  from public.fc_profiles profile
+  where regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g') = v_phone
+    and coalesce(profile.is_manager_referral_shadow, false) = false;
+
+  if not found or v_profile.phone_verified is distinct from true
+    or v_profile.signup_completed is true
+    or coalesce(v_profile.is_manager_referral_shadow, false)
+    or v_profile.signup_verification_proof_hash is distinct from p_verification_proof_hash
+    or v_profile.signup_verification_proof_expires_at is null
+    or v_profile.signup_verification_proof_expires_at <= clock_timestamp() then
+    return jsonb_build_object('ok', false, 'code', 'proof_invalid');
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'profileId', v_profile.id,
+    'residentId', v_phone
+  );
+end;
+$$;
+
+drop function if exists public.complete_fc_signup_atomic_v1(uuid, text, text, text);
+
+create or replace function public.complete_fc_signup_atomic_v1(
+  p_fc_id uuid,
+  p_expected_phone text,
+  p_password_hash text,
+  p_password_salt text,
+  p_verification_proof_hash text,
+  p_name text,
+  p_affiliation text,
+  p_email text,
+  p_carrier text,
+  p_license_statuses text[],
+  p_inviter_fc_id uuid,
+  p_referral_code_id uuid,
+  p_referral_code text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_profile public.fc_profiles%rowtype;
+  v_phone text := regexp_replace(coalesce(p_expected_phone, ''), '[^0-9]', '', 'g');
+  v_existing_password_set_at timestamptz;
+  v_now timestamptz;
+  v_name text := btrim(coalesce(p_name, ''));
+  v_affiliation text := btrim(coalesce(p_affiliation, ''));
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  v_carrier text := btrim(coalesce(p_carrier, ''));
+  v_referral_result jsonb;
+begin
+  if p_fc_id is null or v_phone !~ '^01[0-9]{9}$'
+    or char_length(coalesce(p_password_hash, '')) <> 44
+    or p_password_hash !~ '^[A-Za-z0-9+/]+={0,2}$'
+    or char_length(coalesce(p_password_salt, '')) <> 24
+    or p_password_salt !~ '^[A-Za-z0-9+/]+={0,2}$'
+    or char_length(coalesce(p_verification_proof_hash, '')) <> 44
+    or p_verification_proof_hash !~ '^[A-Za-z0-9+/]+={0,2}$'
+    or char_length(v_name) not between 1 and 100
+    or char_length(v_affiliation) not between 1 and 100
+    or v_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'
+    or v_carrier not in ('SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰')
+    or p_license_statuses is null
+    or cardinality(p_license_statuses) = 0
+    or exists (
+      select 1 from unnest(p_license_statuses) status_value
+      where status_value not in ('third', 'life', 'nonlife', 'none')
+    )
+    or ('none' = any(p_license_statuses) and cardinality(p_license_statuses) > 1)
+    or p_inviter_fc_id is null
+    or p_referral_code_id is null
+    or nullif(btrim(coalesce(p_referral_code, '')), '') is null then
+    raise exception using errcode = '22023', message = 'signup_completion_payload_invalid';
+  end if;
+
+  select profile.* into v_profile
+  from public.fc_profiles profile
+  where profile.id = p_fc_id
+    and regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g') = v_phone
+    and coalesce(profile.is_manager_referral_shadow, false) = false
+  for update;
+
+  v_now := clock_timestamp();
+  if not found or v_profile.phone_verified is distinct from true
+    or v_profile.signup_completed is true
+    or coalesce(v_profile.is_manager_referral_shadow, false)
+    or v_profile.signup_verification_proof_hash is distinct from p_verification_proof_hash
+    or v_profile.signup_verification_proof_expires_at is null
+    or v_profile.signup_verification_proof_expires_at <= v_now then
+    raise exception using errcode = '42501', message = 'signup_completion_proof_invalid';
+  end if;
+
+  select credential.password_set_at into v_existing_password_set_at
+  from public.fc_credentials credential
+  where credential.fc_id = p_fc_id
+  for update;
+  if found and v_existing_password_set_at is not null then
+    raise exception using errcode = '55000', message = 'signup_password_already_set';
+  end if;
+
+  update public.fc_profiles
+  set name = v_name,
+      affiliation = v_affiliation,
+      email = v_email,
+      carrier = v_carrier,
+      license_statuses = p_license_statuses,
+      status = 'draft',
+      life_commission_completed = false,
+      nonlife_commission_completed = false,
+      address = '',
+      address_detail = null,
+      resident_id_masked = null,
+      resident_id_hash = null,
+      identity_completed = false,
+      temp_id = null,
+      allowance_date = null,
+      allowance_prescreen_requested_at = null,
+      allowance_reject_reason = null,
+      appointment_url = null,
+      appointment_date = null,
+      appointment_schedule_life = null,
+      appointment_schedule_nonlife = null,
+      appointment_date_life = null,
+      appointment_date_nonlife = null,
+      appointment_date_life_sub = null,
+      appointment_date_nonlife_sub = null,
+      appointment_reject_reason_life = null,
+      appointment_reject_reason_nonlife = null,
+      docs_deadline_at = null,
+      docs_deadline_last_notified_at = null,
+      hanwha_commission_date_sub = null,
+      hanwha_commission_date = null,
+      hanwha_commission_reject_reason = null,
+      hanwha_commission_pdf_path = null,
+      hanwha_commission_pdf_name = null,
+      dawichok_url_sent_at = null,
+      dawichok_url_sent_by = null,
+      recommender = null,
+      recommender_fc_id = null,
+      recommender_code_id = null,
+      recommender_code = null,
+      recommender_linked_at = null,
+      recommender_link_source = null,
+      signup_completed = true,
+      signup_verification_method = 'phone_otp',
+      signup_verified_at = v_now,
+      signup_verified_by_admin_id = null,
+      signup_verification_proof_hash = null,
+      signup_verification_proof_expires_at = null,
+      updated_at = v_now
+  where id = p_fc_id;
+
+  v_referral_result := public.apply_referral_link_state(
+    p_invitee_fc_id => p_fc_id,
+    p_inviter_fc_id => p_inviter_fc_id,
+    p_referral_code_id => p_referral_code_id,
+    p_referral_code => upper(btrim(p_referral_code)),
+    p_source => 'signup',
+    p_actor_phone => v_phone,
+    p_actor_role => 'system',
+    p_actor_staff_type => null,
+    p_reason => 'set_password_signup'
+  );
+  if coalesce((v_referral_result ->> 'ok')::boolean, false) is not true
+    or v_referral_result ->> 'inviteeFcId' is distinct from p_fc_id::text
+    or v_referral_result ->> 'inviterFcId' is distinct from p_inviter_fc_id::text
+    or v_referral_result ->> 'referralCodeId' is distinct from p_referral_code_id::text then
+    raise exception using errcode = '55000', message = 'signup_referral_write_unverified';
+  end if;
+
+  insert into public.fc_credentials as credential (
+    fc_id, password_hash, password_salt, password_set_at,
+    failed_count, locked_until, reset_token_hash, reset_token_expires_at,
+    reset_sent_at, reset_failed_count, must_change_password,
+    temporary_password_issued_at, updated_at
+  ) values (
+    p_fc_id, p_password_hash, p_password_salt, v_now,
+    0, null, null, null, null, 0, false, null, v_now
+  )
+  on conflict (fc_id) do update
+  set password_hash = excluded.password_hash,
+      password_salt = excluded.password_salt,
+      password_set_at = excluded.password_set_at,
+      failed_count = 0,
+      locked_until = null,
+      reset_token_hash = null,
+      reset_token_expires_at = null,
+      reset_sent_at = null,
+      reset_failed_count = 0,
+      must_change_password = false,
+      temporary_password_issued_at = null,
+      updated_at = excluded.updated_at;
+
+  return jsonb_build_object(
+    'ok', true,
+    'fcId', p_fc_id,
+    'residentId', v_phone,
+    'displayName', v_name,
+    'signupCompleted', true,
+    'passwordSetAt', v_now,
+    'inviterFcId', v_referral_result ->> 'inviterFcId',
+    'referralCodeId', v_referral_result ->> 'referralCodeId',
+    'referralCode', v_referral_result ->> 'referralCode'
+  );
+end;
+$$;
+
+revoke all on function public.issue_signup_otp_challenge_v1(uuid, text, uuid, text)
+  from public, anon, authenticated;
+grant execute on function public.issue_signup_otp_challenge_v1(uuid, text, uuid, text)
+  to service_role;
+revoke all on function public.process_signup_otp_challenge_v1(text, uuid, text, text, boolean)
+  from public, anon, authenticated;
+grant execute on function public.process_signup_otp_challenge_v1(text, uuid, text, text, boolean)
+  to service_role;
+revoke all on function public.validate_signup_verification_proof_v1(text, text)
+  from public, anon, authenticated;
+grant execute on function public.validate_signup_verification_proof_v1(text, text)
+  to service_role;
+revoke all on function public.complete_fc_signup_atomic_v1(
+  uuid, text, text, text, text, text, text, text, text, text[], uuid, uuid, text
+)
+  from public, anon, authenticated;
+grant execute on function public.complete_fc_signup_atomic_v1(
+  uuid, text, text, text, text, text, text, text, text, text[], uuid, uuid, text
+)
+  to service_role;
+
+comment on function public.process_signup_otp_challenge_v1(text, uuid, text, text, boolean)
+  is 'Atomically verifies a current signup OTP, resets only DB-local partial artifacts, and issues a bounded one-time proof. Service role only.';
+comment on function public.complete_fc_signup_atomic_v1(
+  uuid, text, text, text, text, text, text, text, text, text[], uuid, uuid, text
+)
+  is 'Atomically consumes a phone/profile-bound signup proof while storing the profile, referral, credentials, and completed signup. Service role only.';

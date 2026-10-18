@@ -28,7 +28,9 @@ describe('admin web direct chat list source', () => {
     const page = readFileSync(chatPagePath, 'utf8');
     const route = readFileSync(chatListRoutePath, 'utf8');
 
-    expect(route).toContain('buildAdminChatConversationSummaries');
+    expect(route).toContain('fetchAdminChatSummaries');
+    expect(route).toContain(".rpc('get_internal_messenger_summaries_v1'");
+    expect(route).toContain('Promise.all(chunks.map');
     expect(page).not.toContain('for (const fc of baseTargets)');
     expect(route).not.toContain('for (const fc of baseTargets)');
     expect(page).not.toContain('.select(\'*\', { count: \'exact\', head: true })');
@@ -43,11 +45,13 @@ describe('admin web direct chat list source', () => {
     expect(page).not.toContain("fetch('/api/admin/list'");
     expect(page).toContain('CHAT_LIST_REFETCH_INTERVAL_MS');
     expect(page).not.toContain('refetchInterval: 10000');
-    expect(route).toContain('RECENT_CHAT_SUMMARY_LIMIT');
-    expect(route).toContain('.limit(RECENT_CHAT_SUMMARY_LIMIT)');
-    expect(route).toContain(".eq('receiver_id', myChatId)");
-    expect(route).toContain(".eq('is_read', false)");
-    expect(route).toContain('mergeAdminChatSummaryRows');
+    expect(route).toContain('collectSupabaseRows<AdminChatSourceRow>');
+    expect(route).toContain(".rpc('get_internal_messenger_summaries_v1'");
+    expect(route).toContain('p_viewer_id: viewerId');
+    expect(route).toContain('p_target_ids: targetIds');
+    expect(route).not.toContain(".from('messages')");
+    expect(route).not.toContain('RECENT_CHAT_SUMMARY_LIMIT');
+    expect(route).not.toContain('mergeAdminChatSummaryRows');
   });
 
   it('polls the server-owned chat list without subscribing to the protected messages table', () => {
@@ -124,7 +128,8 @@ describe('admin web direct chat list source', () => {
       expect(source).not.toContain("table: 'messages'");
     }
     expect(chatListRoute).toContain("from '@/lib/admin-supabase'");
-    expect(chatListRoute).toContain(".from('messages')");
+    expect(chatListRoute).toContain(".rpc('get_internal_messenger_summaries_v1'");
+    expect(chatListRoute).not.toContain(".from('messages')");
   });
 
   it('shows KakaoTalk-style unread recipient counts on sent direct messages', () => {
@@ -156,14 +161,15 @@ describe('admin web direct chat list source', () => {
     const notificationBell = readFileSync(notificationBellPath, 'utf8');
 
     expect(notificationBell).toContain("const inboxRole = role === 'fc' ? 'fc' : 'admin'");
-    expect(notificationBell).toContain('const inbox = await invokeInbox({');
     expect(notificationBell).toContain("const isPersonalAdminInbox = role === 'manager' || staffType === 'developer'");
-    expect(notificationBell).toContain(
-      "resident_id: inboxRole === 'fc' || isPersonalAdminInbox",
-    );
+    expect(notificationBell).toContain("const inboxResidentId = inboxRole === 'fc' || isPersonalAdminInbox");
     expect(notificationBell).toContain("? residentId.replace(/\\D/g, '')");
+    expect(notificationBell).toContain("type: 'inbox_list'");
+    expect(notificationBell).toContain("type: 'inbox_unread_count'");
+    expect(notificationBell).toContain("type: 'inbox_mark_all_read'");
+    expect(notificationBell).toContain('const unreadCount = countQuery.data ?? 0');
+    expect(notificationBell).not.toContain('unreadIds.length');
     expect(notificationBell).not.toContain('personalInboxHeld');
-    expect(notificationBell).not.toContain('Promise.all');
     expect(notificationBell).not.toContain('developerFcInbox');
     expect(notificationBell).not.toContain('actor_id:');
     expect(notificationBell).not.toContain('recipient_actor_id:');
@@ -262,22 +268,12 @@ describe('admin web direct chat list source', () => {
     expect(edgeFunction).toContain('authorizeNotificationReceipt(');
     expect(edgeFunction).toContain(".eq('role', 'admin')");
     expect(edgeFunction).toContain(".in('resident_id', sharedAdminPhones)");
-    expect(edgeFunction).toContain(`notifyAdminWebPush(
-        pushTitle,
-        message,
-        url,
-        target_id || null,
-        notificationId,
-        notificationTarget,
-      )`);
-    expect(edgeFunction).toContain(`notifyAdminWebPush(
-          title,
-          message,
-          targetUrl,
-          recipientId,
-          notificationId,
-          lifecycleTarget,
-        )`);
+    expect(edgeFunction).toMatch(
+      /notifyAdminWebPush\(\s*pushTitle,\s*message,\s*url,\s*target_id \|\| null,\s*notificationId,\s*notificationTarget,\s*\)/,
+    );
+    expect(edgeFunction).toMatch(
+      /notifyAdminWebPush\(\s*title,\s*message,\s*targetUrl,\s*recipientId,\s*notificationId,\s*lifecycleTarget,?\s*\)/,
+    );
     expect(edgeFunction).toContain('notificationId: notificationIdByRecipient.get');
     expect(edgeFunction).toContain('target: lifecycleTarget');
   });

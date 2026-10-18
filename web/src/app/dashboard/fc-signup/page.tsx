@@ -36,6 +36,9 @@ import {
   ADMIN_ASSISTED_CARRIER_OPTIONS,
   ADMIN_ASSISTED_LICENSE_OPTIONS,
   getSeoulTodayIsoDate,
+  parseAdminAssistedSignupSuccess,
+  readSignupReferralSearchResponse,
+  SignupReferralSearchError,
   type SignupReferralSearchResult,
 } from '@/lib/admin-assisted-signup-contract';
 
@@ -141,22 +144,12 @@ export default function AdminAssistedSignupPage() {
           `/api/admin/assisted-signup?q=${encodeURIComponent(referralQuery.trim())}`,
           { signal: controller.signal },
         );
-        const data = await response.json() as {
-          ok?: boolean;
-          results?: SignupReferralSearchResult[];
-          message?: string;
-        };
-        if (!response.ok || data.ok !== true) {
-          throw new Error(data.message || '추천인 검색에 실패했습니다.');
-        }
-        setReferralResults((data.results ?? []).filter((result) => (
-          typeof result.fcId === 'string'
-          && typeof result.name === 'string'
-          && typeof result.code === 'string'
-        )));
+        setReferralResults(await readSignupReferralSearchResponse(response));
       } catch (error) {
         if (controller.signal.aborted) return;
-        setSearchError(error instanceof Error ? error.message : '추천인 검색에 실패했습니다.');
+        setSearchError(error instanceof SignupReferralSearchError && error.message.trim()
+          ? error.message
+          : '추천인 검색에 실패했습니다.');
         setReferralResults([]);
       } finally {
         if (!controller.signal.aborted) setSearching(false);
@@ -224,16 +217,16 @@ export default function AdminAssistedSignupPage() {
           inviterFcId: selectedReferral.fcId,
         }),
       });
-      const data = await response.json() as {
-        ok?: boolean;
-        message?: string;
-        alreadyApplied?: boolean;
-      };
-      if (!response.ok || data.ok !== true) {
-        throw new Error(data.message || '회원가입을 생성하지 못했습니다.');
+      const payload: unknown = await response.json().catch(() => null);
+      const result = parseAdminAssistedSignupSuccess(payload);
+      if (!response.ok || !result) {
+        const message = payload && typeof payload === 'object' && 'message' in payload
+          ? String((payload as { message?: unknown }).message ?? '')
+          : '';
+        throw new Error(message || '회원가입을 생성하지 못했습니다.');
       }
 
-      setCreated({ alreadyApplied: data.alreadyApplied === true });
+      setCreated({ alreadyApplied: result.alreadyApplied });
       resetForm();
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : '회원가입을 생성하지 못했습니다.');

@@ -24,53 +24,18 @@ import dayjs from 'dayjs';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { useSession } from '@/hooks/use-session';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
+import { deleteAdminNotice, fetchAdminNotice } from '@/lib/admin-notice-client';
 
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
-
-type NoticeFile = {
-  name?: string;
-  url?: string;
-  type?: string;
-};
-
-type NoticeItem = {
-  id: string;
-  title: string;
-  body: string;
-  category?: string | null;
-  created_at?: string | null;
-  created_by?: string | null;
-  images?: string[] | null;
-  files?: NoticeFile[] | null;
-};
-
-type NoticeResponse = {
-  ok?: boolean;
-  notice?: NoticeItem;
-  error?: string;
-};
 
 const extractBoardPostId = (noticeId: string): string | null => {
   if (!noticeId.startsWith(BOARD_NOTICE_ID_PREFIX)) return null;
   const postId = noticeId.slice(BOARD_NOTICE_ID_PREFIX.length).trim();
   return postId.length > 0 ? postId : null;
 };
-
-async function fetchNotice(id: string): Promise<NoticeItem> {
-  const res = await fetch(`/api/admin/notices?id=${encodeURIComponent(id)}`, {
-    method: 'GET',
-    credentials: 'include',
-  });
-  const data = (await res.json().catch(() => ({}))) as NoticeResponse;
-
-  if (!res.ok || !data?.ok || !data.notice) {
-    throw new Error(data?.error ?? '공지 상세를 불러오지 못했습니다.');
-  }
-
-  return data.notice;
-}
 
 export default function NotificationDetailPage() {
   const router = useRouter();
@@ -87,9 +52,9 @@ export default function NotificationDetailPage() {
     router.replace(`/dashboard/board?postId=${encodeURIComponent(boardPostId)}`);
   }, [boardPostId, router]);
 
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ['notice-detail', id],
-    queryFn: () => fetchNotice(id),
+    queryFn: () => fetchAdminNotice(id),
     enabled: Boolean(id) && !boardPostId,
   });
 
@@ -99,14 +64,7 @@ export default function NotificationDetailPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch('/api/admin/notices', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ id }),
-      });
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-      if (!res.ok || !json.ok) throw new Error(json.error ?? '삭제에 실패했습니다.');
+      const json = await deleteAdminNotice(id);
       showAdminNotificationWarning(json);
     },
     onSuccess: () => {
@@ -172,17 +130,16 @@ export default function NotificationDetailPage() {
           ) : null}
 
           {!isLoading && isError ? (
-            <Stack gap="xs">
-              <Text c="red" fw={600}>
-                공지를 불러오지 못했습니다.
-              </Text>
-              <Text c="dimmed" size="sm">
-                {(error as Error)?.message ?? '다시 시도해주세요.'}
-              </Text>
-            </Stack>
+            <QueryErrorAlert
+              error={error}
+              onRetry={refetch}
+              isFetching={isFetching}
+              hasData={Boolean(data)}
+              subject="공지 상세"
+            />
           ) : null}
 
-          {!isLoading && !isError && data ? (
+          {!isLoading && data ? (
             <Stack gap="md">
               <NotificationDestinationReady />
               <Group justify="space-between" align="center">

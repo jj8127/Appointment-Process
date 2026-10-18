@@ -7,7 +7,7 @@ import { logger } from '@/lib/logger';
 import { clearRequestBoardState, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
 import { setPendingAssistedPasswordChange } from '@/lib/pending-assisted-password-change';
 import { clearSavedLoginCredentials } from '@/lib/saved-login-credentials';
-import { normalizeStaffType } from '@/lib/staff-identity';
+import { parseLoginSuccessResponse } from '@/lib/login-response-contract';
 import { supabase } from '@/lib/supabase';
 import { validatePhone, validateRequired, normalizePhone } from '@/lib/validation';
 
@@ -36,19 +36,16 @@ export function useLogin(options?: UseLoginOptions) {
   const [loading, setLoading] = useState(false);
 
   // Both the FC entry and the common entry receive this signed legacy response.
-  const acceptLoginResponse = async (data: LoginResponse) => {
-    if (!data.ok || !['admin', 'manager', 'fc'].includes(data.role ?? '') || !data.appSessionToken) {
-      throw new Error('로그인 결과를 확인하지 못했습니다. 다시 시도해주세요.');
-    }
-    const readOnly = data.role === 'manager';
-    const nextRole = data.role === 'admin' || data.role === 'manager' ? 'admin' : 'fc';
-    const requestBoardRole = data.requestBoardRole === 'fc' || data.requestBoardRole === 'designer'
-      ? data.requestBoardRole : null;
+  const acceptLoginResponse = async (data: LoginResponse, expectedResidentId = data.residentId ?? '') => {
+    const success = parseLoginSuccessResponse(data, expectedResidentId);
+    const readOnly = success.role === 'manager';
+    const nextRole = success.role === 'admin' || success.role === 'manager' ? 'admin' : 'fc';
+    const requestBoardRole = success.requestBoardRole;
     await clearRequestBoardState({ clearAppSession: true });
-    await setAppSessionToken(data.appSessionToken);
-    await setBridgeToken(data.requestBoardBridgeToken ?? null);
-    loginAs(nextRole, data.residentId ?? '', data.displayName ?? '', normalizeStaffType(data.staffType),
-      readOnly, requestBoardRole === 'designer' && nextRole === 'fc', requestBoardRole, data.appSessionToken);
+    await setAppSessionToken(success.appSessionToken);
+    await setBridgeToken(success.requestBoardBridgeToken);
+    loginAs(nextRole, success.residentId, success.displayName, success.staffType,
+      readOnly, requestBoardRole === 'designer' && nextRole === 'fc', requestBoardRole, success.appSessionToken);
     return nextRole;
   };
 
@@ -130,7 +127,7 @@ export function useLogin(options?: UseLoginOptions) {
         return false;
       }
 
-      const nextRole = await acceptLoginResponse({ ...data, residentId: data.residentId ?? digits });
+      const nextRole = await acceptLoginResponse(data, digits);
 
       // Navigate or call custom success handler
       if (options?.onSuccess) {

@@ -1,6 +1,11 @@
 import { getStoredAppSessionToken } from './request-board-api';
 import { supabase } from './supabase';
-import { requireCreationReceipt, requireDocumentReceipt, requireExamDeletionReceipt } from '../supabase/functions/_shared/ux-mutation-contract';
+import {
+  requireCreationReceipt,
+  requireDocumentReceipt,
+  requireExamDeletionReceipt,
+  requireMutationRowReceipt,
+} from '../supabase/functions/_shared/ux-mutation-contract';
 
 export class MissingAdminActionSessionError extends Error {
   readonly code = 'missing_app_session';
@@ -60,6 +65,16 @@ export async function invokeAdminActionWithDeps<
   if (action === 'deleteDocFile' || action === 'removeOwnDocument') requireDocumentReceipt(data, 'deleted');
   if (action === 'deleteExamRound') requireExamDeletionReceipt(data);
   if (action === 'createNotice') requireCreationReceipt(data.notice);
+  if (action === 'markDawichokUrlSent') {
+    requireMutationRowReceipt(data, {
+      id: payload.fcId,
+      dawichok_url_sent_by: actorPhone,
+    });
+    if (
+      typeof data.dawichok_url_sent_at !== 'string'
+      || !Number.isFinite(Date.parse(data.dawichok_url_sent_at))
+    ) throw new Error('mutation_receipt_unverified');
+  }
   if (['retryDocumentCleanup', 'retryOwnDocumentCleanup', 'getDocumentCleanupStatus', 'getOwnDocumentCleanupStatus'].includes(action)
     && typeof data.cleanupPending !== 'boolean') throw new Error('cleanup_state_unverified');
 

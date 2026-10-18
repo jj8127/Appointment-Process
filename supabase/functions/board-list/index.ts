@@ -23,6 +23,19 @@ import {
   boardListSortOrders,
   parseBoardListPagination,
 } from '../_shared/board-list-pagination.ts';
+import {
+  hasUniqueStringField,
+  isBoardAttachmentQueryRow,
+  isBoardAutomationListQueryRow,
+  isBoardListQueryRow,
+  isBoardPostReactionQueryRow,
+  type BoardListQueryRow,
+} from '../_shared/board-read-contract.ts';
+import {
+  collectGroupChatDataApiBatches,
+  collectGroupChatDataApiPages,
+} from '../_shared/group-chat-data-api-batching.ts';
+import { parseQueryRows } from '../_shared/query-result-contract.ts';
 
 type Payload = {
   actor?: {
@@ -84,14 +97,20 @@ serve(async (req: Request) => {
       .select(AUTOMATION_BOARD_LIST_SELECT)
       .eq('category_id', policy.categoryId)
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(AUTOMATION_BOARD_LIST_LIMIT);
 
     if (error) return dbError(error, origin);
 
+    const rows = parseQueryRows(data, isBoardAutomationListQueryRow);
+    if (!rows || !hasUniqueStringField(rows, 'id')) {
+      return dbError({ message: 'invalid automation board list query result' }, origin);
+    }
+
     return json({
       ok: true,
       data: {
-        items: (data ?? []).map((row) => ({
+        items: rows.map((row) => ({
           id: row.id,
           title: redactSensitiveText(row.title, '게시글'),
           createdAt: row.created_at,
@@ -110,7 +129,7 @@ serve(async (req: Request) => {
   const search = (body.search ?? '').trim();
 
   const baseSelect =
-    'id,category_id,title,content,author_name,author_role,author_resident_id,created_at,updated_at,edited_at,is_pinned,pinned_at,comment_count,reaction_count,attachment_count,view_count,search_vector';
+    'id,category_id,title,content,author_name,author_role,author_resident_id,created_at,updated_at,edited_at,is_pinned,pinned_at,comment_count,reaction_count,attachment_count,view_count';
 
   const applyFilters = (query: any) => {
     if (categoryId) query = query.eq('category_id', categoryId);
@@ -118,15 +137,18 @@ serve(async (req: Request) => {
     return query;
   };
 
-  let pinnedQuery = supabase
-    .from('board_posts_with_stats')
-    .select(baseSelect)
-    .eq('is_pinned', true)
-    .order('pinned_at', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(10);
+  const pinnedPagesPromise = collectGroupChatDataApiPages(async (from, to) => {
+    let query = supabase
+      .from('board_posts_with_stats')
+      .select(baseSelect)
+      .eq('is_pinned', true)
+      .order('pinned_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
 
-  pinnedQuery = applyFilters(pinnedQuery);
+    query = applyFilters(query);
+    return query.range(from, to);
+  }, 200);
 
   let listQuery = supabase
     .from('board_posts_with_stats')
@@ -144,22 +166,33 @@ serve(async (req: Request) => {
   // One extra row distinguishes a full final page from a page with more posts.
   listQuery = listQuery.limit(limit + 1);
 
-  const [pinnedResult, listResult] = await Promise.all([pinnedQuery, listQuery]);
+  const [pinnedPages, listResult] = await Promise.all([pinnedPagesPromise, listQuery]);
 
-  if (pinnedResult.error) {
-    return dbError(pinnedResult.error, origin);
+  if (!pinnedPages.ok) {
+    return dbError({ message: 'failed to load pinned board posts' }, origin);
   }
   if (listResult.error) {
     return dbError(listResult.error, origin);
   }
 
-  const listRows = (listResult.data ?? []).slice(0, limit);
+  const pinnedRows = parseQueryRows(pinnedPages.data, isBoardListQueryRow);
+  const listQueryRows = parseQueryRows(listResult.data, isBoardListQueryRow);
+  if (!pinnedRows
+    || !listQueryRows
+    || pinnedRows.some((row) => !row.is_pinned)
+    || listQueryRows.some((row) => row.is_pinned)
+    || (categoryId && [...pinnedRows, ...listQueryRows].some((row) => row.category_id !== categoryId))
+    || !hasUniqueStringField([...pinnedRows, ...listQueryRows], 'id')) {
+    return dbError({ message: 'invalid board list query result' }, origin);
+  }
+
+  const listRows = listQueryRows.slice(0, limit);
   const developerResidentIds = await resolveDeveloperResidentIds([
-    ...(pinnedResult.data ?? []),
+    ...pinnedRows,
     ...listRows,
   ]);
 
-  const normalize = (row: any) => ({
+  const normalize = (row: BoardListQueryRow) => ({
     id: row.id,
     categoryId: row.category_id,
     title: redactSensitiveText(row.title, '게시글'),
@@ -179,7 +212,7 @@ serve(async (req: Request) => {
     },
   });
 
-  const pinnedItems = (pinnedResult.data ?? []).map(normalize);
+  const pinnedItems = pinnedRows.map(normalize);
   const items = listRows.map(normalize);
 
   const postIds = Array.from(new Set([...pinnedItems, ...items].map((item) => item.id)));
@@ -198,27 +231,69 @@ serve(async (req: Request) => {
 
   if (postIds.length > 0) {
     const [reactionsRes, attachmentsRes] = await Promise.all([
-      supabase
-        .from('board_post_reactions')
-        .select('post_id,reaction_type')
-        .in('post_id', postIds),
-      supabase
-        .from('board_attachments')
-        .select('id,post_id,file_type,file_name,file_size,storage_path,sort_order,created_at')
-        .in('post_id', postIds)
-        .order('post_id', { ascending: true })
-        .order('sort_order', { ascending: true })
-        .order('created_at', { ascending: true }),
+      collectGroupChatDataApiBatches(postIds, async (postIdBatch) => {
+        const pages = await collectGroupChatDataApiPages(async (from, to) => {
+          const result = await supabase
+            .from('board_post_reactions')
+            .select('post_id,resident_id,reaction_type')
+            .in('post_id', postIdBatch)
+            .order('post_id', { ascending: true })
+            .order('resident_id', { ascending: true })
+            .range(from, to);
+          const rows = parseQueryRows(result.data, isBoardPostReactionQueryRow);
+          return {
+            data: rows,
+            error: result.error ?? (rows ? null : new Error('board_reaction_query_invalid')),
+          };
+        });
+        return pages.ok
+          ? { data: pages.data, error: null }
+          : { data: null, error: new Error('board_reaction_query_failed') };
+      }),
+      collectGroupChatDataApiBatches(postIds, async (postIdBatch) => {
+        const pages = await collectGroupChatDataApiPages(async (from, to) => {
+          const result = await supabase
+            .from('board_attachments')
+            .select('id,post_id,file_type,file_name,file_size,storage_path,sort_order,created_at')
+            .in('post_id', postIdBatch)
+            .order('post_id', { ascending: true })
+            .order('sort_order', { ascending: true })
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, to);
+          const rows = parseQueryRows(result.data, isBoardAttachmentQueryRow);
+          return {
+            data: rows,
+            error: result.error ?? (rows ? null : new Error('board_attachment_query_invalid')),
+          };
+        });
+        return pages.ok
+          ? { data: pages.data, error: null }
+          : { data: null, error: new Error('board_attachment_query_failed') };
+      }),
     ]);
 
-    if (reactionsRes.error) {
-      return dbError(reactionsRes.error, origin);
+    if (!reactionsRes.ok) {
+      return dbError({ message: 'board reaction query failed' }, origin);
     }
-    if (attachmentsRes.error) {
-      return dbError(attachmentsRes.error, origin);
+    if (!attachmentsRes.ok) {
+      return dbError({ message: 'board attachment query failed' }, origin);
     }
 
-    (reactionsRes.data ?? []).forEach((row) => {
+    const reactionRows = reactionsRes.data;
+    const attachmentRows = attachmentsRes.data;
+    const requestedPostIds = new Set(postIds);
+    const reactionKeys = reactionRows.map((row) => `${row.post_id}:${row.resident_id ?? ''}`);
+    if (reactionRows.some((row) => (
+        !requestedPostIds.has(row.post_id) || row.resident_id === undefined
+      ))
+      || attachmentRows.some((row) => !requestedPostIds.has(row.post_id))
+      || new Set(reactionKeys).size !== reactionKeys.length
+      || !hasUniqueStringField(attachmentRows, 'id')) {
+      return dbError({ message: 'invalid board list relation query result' }, origin);
+    }
+
+    reactionRows.forEach((row) => {
       const key = row.post_id;
       const current = reactionMap.get(key) ?? { like: 0, heart: 0, check: 0, smile: 0 };
       if (row.reaction_type === 'like') current.like += 1;
@@ -242,7 +317,7 @@ serve(async (req: Request) => {
       return null;
     };
 
-    for (const row of attachmentsRes.data ?? []) {
+    for (const row of attachmentRows) {
       if (row.file_type !== 'image') continue;
       const current = imageCounts.get(row.post_id) ?? 0;
       if (current >= 4) continue;
@@ -253,7 +328,7 @@ serve(async (req: Request) => {
       }
     }
 
-    (attachmentsRes.data ?? []).forEach((row) => {
+    attachmentRows.forEach((row) => {
       const list = attachmentMap.get(row.post_id) ?? [];
       list.push({
         id: row.id,
@@ -265,6 +340,22 @@ serve(async (req: Request) => {
       });
       attachmentMap.set(row.post_id, list);
     });
+
+    const itemById = new Map(
+      [...pinnedItems, ...items].map((item) => [item.id, item]),
+    );
+    for (const postId of postIds) {
+      const item = itemById.get(postId);
+      const reactionCounts = reactionMap.get(postId);
+      const returnedReactionCount = reactionCounts
+        ? reactionCounts.like + reactionCounts.heart + reactionCounts.check + reactionCounts.smile
+        : 0;
+      if (!item
+        || item.stats.reactionCount !== returnedReactionCount
+        || item.stats.attachmentCount !== (attachmentMap.get(postId)?.length ?? 0)) {
+        return dbError({ message: 'incomplete board list relation query result' }, origin);
+      }
+    }
   }
 
   const withExtras = (item: ReturnType<typeof normalize>) => ({
@@ -276,7 +367,7 @@ serve(async (req: Request) => {
   const enrichedPinned = pinnedItems.map(withExtras);
   const enrichedItems = items.map(withExtras);
 
-  const nextCursor = (listResult.data?.length ?? 0) > limit
+  const nextCursor = listQueryRows.length > limit
     ? boardListNextCursor(listRows[listRows.length - 1], pagination)
     : null;
 

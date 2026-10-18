@@ -129,12 +129,60 @@ export const adminAssistedSignupSchema = z.object({
 
 export type AdminAssistedSignupInput = z.infer<typeof adminAssistedSignupSchema>;
 
-export type SignupReferralSearchResult = {
-  fcId: string;
-  name: string;
-  affiliation: string;
-  code: string;
-};
+const signupReferralSearchResultSchema = z.object({
+  fcId: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  affiliation: z.string().trim(),
+  code: z.string().trim().min(1),
+});
+
+const signupReferralSearchResultsSchema = z.array(signupReferralSearchResultSchema);
+
+const signupReferralSearchSuccessSchema = z.object({
+  ok: z.literal(true),
+  results: signupReferralSearchResultsSchema,
+});
+
+const adminAssistedSignupSuccessSchema = z.object({
+  ok: z.literal(true),
+  fcId: z.string().trim().min(1),
+  verificationMethod: z.literal('admin_written_consent'),
+  requiresPasswordChange: z.literal(true),
+  alreadyApplied: z.boolean(),
+});
+
+export type SignupReferralSearchResult = z.infer<typeof signupReferralSearchResultSchema>;
+
+export class SignupReferralSearchError extends Error {
+  override readonly name = 'SignupReferralSearchError';
+}
+
+export function parseSignupReferralSearchResults(value: unknown): SignupReferralSearchResult[] | null {
+  const parsed = signupReferralSearchResultsSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+export async function readSignupReferralSearchResponse(response: Response): Promise<SignupReferralSearchResult[]> {
+  const payload: unknown = await response.json().catch(() => null);
+  const parsed = signupReferralSearchSuccessSchema.safeParse(payload);
+  if (response.ok && parsed.success) return parsed.data.results;
+
+  const message = payload !== null
+    && typeof payload === 'object'
+    && !Array.isArray(payload)
+    && typeof (payload as Record<string, unknown>).message === 'string'
+    && String((payload as Record<string, unknown>).message).trim()
+    ? String((payload as Record<string, unknown>).message)
+    : '추천인 검색에 실패했습니다.';
+  throw new SignupReferralSearchError(message);
+}
+
+export type AdminAssistedSignupSuccess = z.infer<typeof adminAssistedSignupSuccessSchema>;
+
+export function parseAdminAssistedSignupSuccess(value: unknown): AdminAssistedSignupSuccess | null {
+  const parsed = adminAssistedSignupSuccessSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
 
 export function firstAdminAssistedSignupError(error: z.ZodError) {
   return error.issues[0]?.message ?? '입력 내용을 확인해주세요.';

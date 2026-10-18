@@ -24,6 +24,7 @@ import {
 } from '@/components/ReferralSearchField';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { consumePendingReferralCode } from '@/lib/referral-deeplink';
+import { parseSignupReferralSearchResponse } from '@/lib/referral-read-response';
 import { useSession } from '@/hooks/use-session';
 import { safeStorage } from '@/lib/safe-storage';
 import {
@@ -43,6 +44,7 @@ import {
 } from '@/lib/license-statuses';
 import { supabase } from '@/lib/supabase';
 import { SIGNUP_AFFILIATION_OPTIONS, SIGNUP_CARRIER_OPTIONS } from '@/lib/signup-profile-options';
+import { requireSignupAvailabilityReceipt } from '@/lib/signup-otp-response';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { validatePhone, validateEmail, validateRequired, normalizePhone } from '@/lib/validation';
 import type { LicenseStatus } from '@/types/fc';
@@ -190,6 +192,7 @@ export default function SignupScreen() {
         Alert.alert('가입 불가', data?.message ?? '이미 가입된 번호입니다.');
         return;
       }
+      requireSignupAvailabilityReceipt(data, digits);
     } catch (err: any) {
       Alert.alert('오류', err?.message ?? '번호 확인 중 문제가 발생했습니다.');
       return;
@@ -313,21 +316,17 @@ export default function SignupScreen() {
     setReferralSearchError(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke<{
-        ok: boolean;
-        results?: ReferralSearchResult[];
-        message?: string;
-      }>('search-signup-referral', {
+      const { data, error } = await supabase.functions.invoke<unknown>('search-signup-referral', {
         body: { query: trimmed },
       });
 
       if (requestId !== referralSearchRequestRef.current) return;
 
-      if (!error && data?.ok) {
-        setReferralSearchResults(data.results ?? []);
+      if (!error) {
+        setReferralSearchResults(parseSignupReferralSearchResponse(data));
       } else {
         setReferralSearchResults([]);
-        setReferralSearchError(data?.message ?? REFERRAL_SEARCH_ERROR_MESSAGE);
+        setReferralSearchError(REFERRAL_SEARCH_ERROR_MESSAGE);
       }
     } catch {
       if (requestId === referralSearchRequestRef.current) {

@@ -28,6 +28,11 @@ This matrix defines business behavior that must stay consistent across GaramIn m
   lifecycle actions preserve durable inbox rows and deep-link targets.
 - The administrator dashboard FC population excludes canonical active manager
   identities in addition to designer affiliations.
+- Administrator dashboard FC-list reads accept the route's raw array and the
+  `{ data: array }` compatibility envelope. Mutation acknowledgement validators
+  must not run on list reads; invalid shapes and HTTP failures remain explicit
+  error states. `web/src/lib/board-read-state-runtime.test.mjs` is the runtime
+  regression evidence.
 - Exam applicant tables and exports share separate reception and lifecycle
   status formatters, including rejected and cancelled records.
 - Resident-number cells share the same `value`, `missing`, and `unavailable`

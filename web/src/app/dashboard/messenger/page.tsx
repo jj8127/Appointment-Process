@@ -26,9 +26,6 @@ import { useEffect } from 'react';
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
-type InboxNotification = {
-  category?: string | null;
-};
 
 type FcNotifyProxyEnvelope<T> = {
   ok?: boolean;
@@ -117,16 +114,16 @@ export default function MessengerHubPage() {
           return data.unread_count as number;
         })(),
         (async () => {
-          const data = await invokeFcNotifyProxy<{ ok?: boolean; notifications?: InboxNotification[] }>({
-            type: 'inbox_list',
+          const data = await invokeFcNotifyProxy<{ ok?: boolean; count?: number }>({
+            type: 'inbox_unread_count',
             role: role === 'fc' ? 'fc' : 'admin',
             resident_id: role === 'fc' || isPersonalAdminInbox ? sanitize(residentId) : null,
-            limit: 150,
+            only_request_board_categories: true,
           });
-          if (!data?.ok || !Array.isArray(data.notifications)) throw new QueryReadError();
-          return data.notifications.filter((item) =>
-            (item.category ?? '').trim().toLowerCase() === 'request_board_message',
-          ).length;
+          if (!data?.ok || !Number.isSafeInteger(data.count) || Number(data.count) < 0) {
+            throw new QueryReadError();
+          }
+          return Number(data.count);
         })(),
       ]);
       return {

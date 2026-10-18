@@ -93,4 +93,21 @@ describe('board post-commit attachment delivery', () => {
     expect(finalize).toHaveBeenCalledTimes(1);
     expect(deps.sign).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    'javascript:alert(1)',
+    'http://upload.invalid/signed',
+    'https://user:secret@upload.invalid/signed',
+  ])('does not upload to an unsafe signed URL: %s', async (signedUrl) => {
+    const deps = createDeps({
+      sign: jest.fn(async () => [{ storagePath: 'board/post/same_safe.pdf', signedUrl }]),
+    });
+
+    await expect(deliverBoardAttachments(files, null, deps)).resolves.toEqual({
+      complete: false,
+      manifest: null,
+    });
+    expect(deps.upload).not.toHaveBeenCalled();
+    expect(deps.finalize).not.toHaveBeenCalled();
+  });
 });

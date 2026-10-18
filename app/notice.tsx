@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { MotiView } from 'moti';
 import { useEffect, useMemo, useState } from 'react';
@@ -24,15 +24,14 @@ import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { invokeFcNotify } from '@/lib/fc-notify-client';
+import {
+  parseInboxListPayload,
+  type InboxNoticeFile,
+  type InboxListCursor,
+} from '@/lib/inbox-list-contract';
 import { resolveNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
-
-type AttachedFile = {
-  name: string;
-  url: string;
-  type: string;
-};
 
 type Notice = {
   id: string;
@@ -41,55 +40,46 @@ type Notice = {
   category: string | null;
   created_at: string;
   images: string[] | null;
-  files: AttachedFile[] | null;
+  files: InboxNoticeFile[] | null;
 };
 
-type InboxNoticePayload = {
-  id: string;
-  title: string;
-  body: string;
-  category?: string | null;
-  created_at?: string | null;
-  images?: unknown;
-  files?: unknown;
+type NoticePage = {
+  items: Notice[];
+  nextCursor: InboxListCursor | null;
 };
 
-type InboxListResponse = {
-  ok?: boolean;
-  message?: string;
-  notices?: InboxNoticePayload[];
-};
+const NOTICE_PAGE_SIZE = 50;
 
-const isAttachedFile = (value: unknown): value is AttachedFile => {
-  if (!value || typeof value !== 'object') return false;
-  const row = value as Record<string, unknown>;
-  return typeof row.name === 'string' && typeof row.url === 'string' && typeof row.type === 'string';
-};
+const fetchNotices = async (
+  role: 'admin' | 'fc' | null,
+  residentId: string,
+  cursor: InboxListCursor | null,
+): Promise<NoticePage> => {
+  if (!role) return { items: [], nextCursor: null };
 
-const fetchNotices = async (role: 'admin' | 'fc' | null, residentId: string): Promise<Notice[]> => {
-  if (!role) return [];
-
-  const { data, error } = await invokeFcNotify<InboxListResponse>({
+  const { data, error } = await invokeFcNotify<unknown>({
       type: 'inbox_list',
       role,
       resident_id: role === 'fc' ? (residentId || null) : null,
-      limit: 100,
+      limit: NOTICE_PAGE_SIZE,
+      ...(cursor ? { notice_cursor: cursor } : {}),
   });
 
   if (error) throw error;
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '공지를 불러오지 못했습니다.');
-  }
+  const inbox = parseInboxListPayload(data);
 
-  return (data.notices ?? []).map((item) => ({
-    id: item.id,
-    title: item.title,
-    body: item.body,
-    category: item.category ?? '공지',
-    created_at: item.created_at ?? new Date().toISOString(),
-    images: Array.isArray(item.images) ? item.images.filter((img): img is string => typeof img === 'string') : null,
-    files: Array.isArray(item.files) ? item.files.filter(isAttachedFile) : null,
-  }));
+  return {
+    items: inbox.notices.map((item) => ({
+      id: item.id,
+      title: item.title,
+      body: item.body,
+      category: item.category ?? '공지',
+      created_at: item.created_at,
+      images: item.images,
+      files: item.files,
+    })),
+    nextCursor: inbox.notice_has_more ? inbox.notice_next_cursor : null,
+  };
 };
 
 export default function NoticeScreen() {
@@ -108,14 +98,34 @@ export default function NoticeScreen() {
     }
   }, [isRequestBoardDesigner, role]);
 
-  const { data, isLoading, isError, error: noticesError, refetch } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    error: noticesError,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+  } = useInfiniteQuery({
     queryKey: ['notices', 'list', role, residentId],
-    queryFn: () => fetchNotices(role, residentId),
+    initialPageParam: null as InboxListCursor | null,
+    queryFn: ({ pageParam }) => fetchNotices(role, residentId, pageParam),
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: hydrated,
   });
 
   const [refreshing, setRefreshing] = useState(false);
-  const notices = useMemo(() => data ?? [], [data]);
+  const notices = useMemo(() => {
+    const byId = new Map<string, Notice>();
+    for (const page of data?.pages ?? []) {
+      for (const notice of page.items) {
+        if (!byId.has(notice.id)) byId.set(notice.id, notice);
+      }
+    }
+    return Array.from(byId.values());
+  }, [data]);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -212,7 +222,7 @@ export default function NoticeScreen() {
             key={n.id}
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ delay: index * 50 }}
+            transition={{ delay: Math.min(index, 10) * 30 }}
           >
             <Pressable style={styles.card} onPress={() => handleOpenNotice(n.id)}>
               <View style={styles.cardHeader}>
@@ -276,6 +286,28 @@ export default function NoticeScreen() {
             </Pressable>
           </MotiView>
         ))}
+
+        {notices.length > 0 && (hasNextPage || isFetchingNextPage || isFetchNextPageError) ? (
+          <View style={styles.loadMoreContainer}>
+            {isFetchNextPageError ? (
+              <Text style={styles.loadMoreError}>이전 공지를 불러오지 못했습니다.</Text>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="이전 공지 더 보기"
+              disabled={isFetchingNextPage}
+              onPress={() => void fetchNextPage()}
+              style={({ pressed }) => [
+                styles.loadMoreButton,
+                pressed && !isFetchingNextPage && styles.loadMoreButtonPressed,
+              ]}
+            >
+              <Text style={styles.loadMoreButtonText}>
+                {isFetchingNextPage ? '불러오는 중...' : isFetchNextPageError ? '다시 시도' : '이전 공지 더 보기'}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
       </Animated.ScrollView>
 
       <BottomNavigation
@@ -361,4 +393,19 @@ const styles = StyleSheet.create({
   emptyBox: { alignItems: 'center', marginTop: 60, gap: SPACING.sm },
   emptyText: { color: COLORS.text.secondary, fontSize: TYPOGRAPHY.fontSize.base },
   errorText: { color: COLORS.error, fontSize: TYPOGRAPHY.fontSize.base },
+  loadMoreContainer: { alignItems: 'center', gap: SPACING.sm, paddingVertical: SPACING.sm },
+  loadMoreButton: {
+    minHeight: 44,
+    minWidth: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.lg,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    backgroundColor: COLORS.background.secondary,
+  },
+  loadMoreButtonPressed: { opacity: 0.72 },
+  loadMoreButtonText: { color: COLORS.primary, fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: TYPOGRAPHY.fontWeight.bold },
+  loadMoreError: { color: COLORS.error, fontSize: TYPOGRAPHY.fontSize.xs },
 });

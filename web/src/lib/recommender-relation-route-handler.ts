@@ -39,8 +39,10 @@ export type RecommenderRelationRouteDeps = {
   logFailure?: (error: unknown) => void;
 };
 
-const RECOMMENDER_RPC_NOT_READY_MESSAGE =
+export const RECOMMENDER_RPC_NOT_READY_MESSAGE =
   '운영 DB에 추천인 상태 단일화 함수가 아직 적용되지 않았습니다. migration 20260423000001을 먼저 반영해주세요.';
+export const RECOMMENDER_RELATION_UNAVAILABLE_MESSAGE =
+  '추천인 관계 기능을 준비 중입니다. 잠시 후 다시 시도해주세요.';
 
 const CLIENT_ERROR_MESSAGES = new Set([
   '추천인 대상 FC를 찾을 수 없습니다.',
@@ -138,7 +140,7 @@ function handleFailure(error: unknown, deps: RecommenderRelationRouteDeps): Rout
   deps.logFailure?.(error);
   const message = error instanceof Error ? error.message : String(error);
   if (message === RECOMMENDER_RPC_NOT_READY_MESSAGE) {
-    return response(503, { error: RECOMMENDER_RPC_NOT_READY_MESSAGE });
+    return response(503, { error: RECOMMENDER_RELATION_UNAVAILABLE_MESSAGE });
   }
   if (CLIENT_ERROR_MESSAGES.has(message)) {
     return badRequest(message);

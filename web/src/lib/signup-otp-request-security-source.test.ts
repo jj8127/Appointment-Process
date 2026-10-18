@@ -15,6 +15,24 @@ const requestOtpSource = readFileSync(
   ),
   'utf8',
 );
+const signupSmsSource = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../../supabase/functions/_shared/signup-sms.ts',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
+const signupOtpMigrationSource = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../../supabase/migrations/20261013063141_atomic_signup_otp_challenges.sql',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
 
 type TestSmsConfig = {
   enabled: boolean;
@@ -122,23 +140,32 @@ describe('request-signup-otp production test-mode boundary', () => {
     );
   });
 
-  it('preserves random normal OTP, throttle, expiry, hash-only persistence, and provider delivery', () => {
+  it('preserves random OTP and delegates throttle, expiry, and hash-only persistence to the locked RPC', () => {
     assert.match(
       requestOtpSource,
       /function generateOtpCode\(\)[\s\S]*?signupTestSmsConfig\.enabled[\s\S]*?crypto\.getRandomValues/,
     );
     assert.match(
       requestOtpSource,
-      /phone_verification_locked_until[\s\S]*?OTP_COOLDOWN_SECONDS[\s\S]*?sha256Base64\(`\$\{code\}:\$\{phone\}`\)[\s\S]*?OTP_TTL_MINUTES[\s\S]*?phone_verification_hash: hash[\s\S]*?sendOtpSms\(phone, code\)/,
+      /sha256Base64\(`\$\{code\}:\$\{phone\}`\)[\s\S]*?issue_signup_otp_challenge_v1[\s\S]*?p_otp_hash: hash[\s\S]*?sendOtpSms\(phone, code\)/,
+    );
+    assert.match(
+      signupOtpMigrationSource,
+      /issue_signup_otp_challenge_v1[\s\S]*?for update[\s\S]*?phone_verification_locked_until > v_now[\s\S]*?interval '60 seconds'[\s\S]*?interval '5 minutes'[\s\S]*?phone_verification_hash = p_otp_hash/,
     );
     assert.match(
       requestOtpSource,
-      /async function sendOtpSms[\s\S]*?signupTestSmsConfig\.enabled[\s\S]*?fetch\(`https:\/\/sens\.apigw\.ntruss\.com/,
+      /async function sendOtpSms[\s\S]*?sendSignupSms\([\s\S]*?signupTestSmsConfig\.enabled\)/,
+    );
+    assert.match(
+      signupSmsSource,
+      /export async function sendSignupSms[\s\S]*?if \(localTest\)[\s\S]*?fetch\(`https:\/\/sens\.apigw\.ntruss\.com/,
     );
     assert.doesNotMatch(
       requestOtpSource,
       /phone_verification_(?:code|plain|otp)\s*:/,
     );
+    assert.doesNotMatch(requestOtpSource, /cleanupPartialSignupArtifacts|auth\.admin\.deleteUser/);
     assert.doesNotMatch(
       requestOtpSource,
       /console\.(?:log|info|warn|error|debug)\([^)]*(?:phone|code|secret)/,

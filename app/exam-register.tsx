@@ -41,6 +41,10 @@ import {
   sortExamRoundsNewestFirst,
   type ExamNotifyPayload,
 } from '@/lib/exam-flow-contract';
+import {
+  isExamRoundQueryRow,
+  toExamRoundWithLocations,
+} from '@/lib/exam-read-query-contract';
 import { logger } from '@/lib/logger';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import {
@@ -48,6 +52,7 @@ import {
   parseExactlyOneUuidRouteParam,
 } from '@/lib/strict-route-params';
 import { supabase } from '@/lib/supabase';
+import { collectSupabaseRows } from '@/lib/supabase-query-contract';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
@@ -92,33 +97,27 @@ const emptyRoundForm = {
 type RoundForm = typeof emptyRoundForm;
 
 const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
-  const { data, error } = await supabase
-    .from('exam_rounds')
-    .select(
-      'id,exam_month,exam_date,registration_deadline,round_label,notes,created_at,updated_at,exam_locations(id,round_id,location_name,sort_order,created_at,updated_at)',
-    )
-    .eq('exam_type', examFlowConfig.examType)
-    .order('exam_date', { ascending: true })
-    .order('registration_deadline', { ascending: true })
-    .order('sort_order', { foreignTable: 'exam_locations', ascending: true });
-  if (error) throw error;
+  const rows = await collectSupabaseRows({
+    queryName: 'exam_register_rounds',
+    fetchPage: (from, to) => supabase
+      .from('exam_rounds')
+      .select(
+        'id,exam_month,exam_date,registration_deadline,round_label,notes,created_at,updated_at,exam_locations(id,round_id,location_name,sort_order,created_at,updated_at)',
+      )
+      .eq('exam_type', examFlowConfig.examType)
+      .order('exam_date', { ascending: true })
+      .order('registration_deadline', { ascending: true })
+      .order('id', { ascending: true })
+      .order('sort_order', { foreignTable: 'exam_locations', ascending: true })
+      .range(from, to),
+    isRow: (value) => isExamRoundQueryRow(value, {
+      includeExamMonth: true,
+      includeExamType: false,
+    }),
+    rowKey: (row) => row.id,
+  });
 
-  return (
-    data?.map((row: any) => ({
-      id: row.id,
-      exam_month: row.exam_month,
-      exam_date: row.exam_date,
-      registration_deadline: row.registration_deadline,
-      round_label: row.round_label,
-      notes: row.notes,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-      locations: (row.exam_locations ?? []).sort(
-        (a: any, b: any) =>
-          a.sort_order - b.sort_order || a.location_name.localeCompare(b.location_name),
-      ),
-    })) ?? []
-  );
+  return rows.map((row) => toExamRoundWithLocations(row, true));
 };
 
 type RoundedButtonProps = {
@@ -848,7 +847,7 @@ export default function ExamRegisterScreen() {
                     <Text style={styles.dateText}>{formatKoreanDate(deadlineDate)}</Text>
                   </Pressable>
                 )}
-                {showDeadlinePicker && Platform.OS !== 'ios' && (
+                {showDeadlinePicker && Platform.OS === 'android' && (
                   <DateTimePicker
                     value={deadlineDate}
                     mode="date"

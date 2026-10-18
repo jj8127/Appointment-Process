@@ -15,6 +15,15 @@ const signupOtpSource = readFileSync(
   ),
   'utf8',
 );
+const signupOtpMigrationSource = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../../supabase/migrations/20261013063141_atomic_signup_otp_challenges.sql',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
 
 type SmsBypassConfig = {
   enabled: boolean;
@@ -44,15 +53,16 @@ function loadSignupSmsBypassResolver(): SmsBypassResolver {
 }
 
 describe('verify-signup-otp SMS bypass security contract', () => {
-  it('resolves policy before the public handler and gates the phone-verified writer without a fixed code', () => {
+  it('resolves policy before the public handler and gates atomic verification without a fixed code', () => {
     assert.match(
       signupOtpSource,
       /const signupSmsBypassConfig = resolveSignupSmsBypassConfig\(\{[\s\S]*?\}\);\s*[\s\S]*?serve\(async/,
     );
     assert.match(
       signupOtpSource,
-      /if \(signupSmsBypassConfig\.enabled && code === signupSmsBypassConfig\.code\) \{[\s\S]*?phone_verified: true/,
+      /const allowTestBypass = signupSmsBypassConfig\.enabled && code === signupSmsBypassConfig\.code;[\s\S]*?process_signup_otp_challenge_v1[\s\S]*?p_allow_test_bypass: allowTestBypass/,
     );
+    assert.doesNotMatch(signupOtpSource, /\.from\('fc_profiles'\)[\s\S]*?\.update\(/);
     assert.doesNotMatch(
       signupOtpSource,
       /SMS_BYPASS_CODE'\)\s*\?\?\s*getEnv\('TEST_SMS_CODE'\)\s*\?\?\s*['"]\d{6}['"]/,
@@ -121,10 +131,14 @@ describe('verify-signup-otp SMS bypass security contract', () => {
     );
   });
 
-  it('preserves normal OTP hash, expiry, attempts, lockout, and success behavior without sensitive logs', () => {
+  it('preserves hash, expiry, attempts, lockout, proof issuance, and success in one row-locked RPC', () => {
     assert.match(
       signupOtpSource,
-      /if \(!profile\.phone_verification_hash \|\| !profile\.phone_verification_expires_at\)[\s\S]*?phone_verification_locked_until[\s\S]*?new Date\(profile\.phone_verification_expires_at\)[\s\S]*?sha256Base64\(`\$\{code\}:\$\{phone\}`\)[\s\S]*?phone_verification_attempts \?\? 0\) \+ 1[\s\S]*?nextAttempts >= MAX_ATTEMPTS[\s\S]*?phone_verified: true/,
+      /sha256Base64\(`\$\{code\}:\$\{phone\}`\)[\s\S]*?verificationProofHash[\s\S]*?process_signup_otp_challenge_v1[\s\S]*?mutationRowReceiptMatches\(receipt/,
+    );
+    assert.match(
+      signupOtpMigrationSource,
+      /process_signup_otp_challenge_v1[\s\S]*?for update[\s\S]*?phone_verification_locked_until > v_now[\s\S]*?phone_verification_expires_at <= v_now[\s\S]*?v_attempts[\s\S]*?interval '10 minutes'[\s\S]*?signup_verification_proof_hash = p_verification_proof_hash/,
     );
     assert.doesNotMatch(signupOtpSource, /console\.(?:log|info|warn|error|debug)/);
   });

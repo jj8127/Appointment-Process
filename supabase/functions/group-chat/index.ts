@@ -59,6 +59,15 @@ import {
   collectGroupChatDataApiBatches,
   collectGroupChatDataApiPages,
 } from '../_shared/group-chat-data-api-batching.ts';
+import {
+  parseQueryCount,
+  parseQueryRows,
+} from '../_shared/query-result-contract.ts';
+import {
+  isAppPreferenceActorRow,
+  isAppPushPreferenceRow,
+  type AppPushPreferenceRow,
+} from '../_shared/notification-preferences.ts';
 
 type Payload =
   | { type: 'group_chat_bootstrap'; limit?: number }
@@ -137,27 +146,33 @@ type PreferenceRow = {
 type RoomNotificationPreferenceRow = {
   actor_id: string;
   actor_role: string;
-  muted: boolean | null;
-};
-
-type AppPushPreferenceRow = {
-  actor_id: string;
-  actor_role: string;
-  enabled: boolean | null;
+  muted: boolean;
 };
 
 type ReactionRow = {
+  room_id: string;
   message_id: string;
   actor_id: string;
   reaction: string;
 };
 
 type ReadStateRow = {
+  room_id: string;
   actor_id: string;
-  last_read_at: string | null;
+  last_read_at: string;
 };
 
+type ReadReceiptRow = {
+  room_id: string;
+  actor_id: string;
+  last_read_at: string;
+  last_read_message_id: string | null;
+};
+
+type ReadStateDetailRow = Pick<ReadReceiptRow, 'last_read_at' | 'last_read_message_id'>;
+
 type SendPermissionRow = {
+  room_id: string;
   actor_id: string;
   can_send_messages: boolean | null;
 };
@@ -216,6 +231,206 @@ const MAX_MESSAGE_LIMIT = 100;
 const GROUP_CHAT_APP_PUSH_CATEGORY = 'messages';
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const isString = (value: unknown): value is string => typeof value === 'string';
+const isNonEmptyString = (value: unknown): value is string =>
+  isString(value) && value.trim().length > 0;
+const isNullableString = (value: unknown): value is string | null =>
+  value === null || isString(value);
+const isNullableBoolean = (value: unknown): value is boolean | null =>
+  value === null || typeof value === 'boolean';
+const isTimestamp = (value: unknown): value is string =>
+  isNonEmptyString(value) && Number.isFinite(Date.parse(value));
+const isNullableTimestamp = (value: unknown): value is string | null =>
+  value === null || isTimestamp(value);
+const isNonNegativeSafeInteger = (value: unknown): value is number =>
+  Number.isSafeInteger(value) && Number(value) >= 0;
+const isGroupChatRole = (value: unknown): value is GroupChatRole =>
+  value === 'fc' || value === 'manager' || value === 'admin';
+const isGroupChatMessageType = (value: unknown): value is GroupChatMessageType =>
+  value === 'text' || value === 'image' || value === 'file';
+
+function isRoomRow(value: unknown): value is RoomRow {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.slug)
+    && isNonEmptyString(value.title)
+    && typeof value.is_active === 'boolean';
+}
+
+function isMessageRow(value: unknown): value is MessageRow {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.room_id)
+    && isNonEmptyString(value.sender_actor_id)
+    && isGroupChatRole(value.sender_role)
+    && isString(value.sender_phone)
+    && isNullableString(value.sender_name)
+    && isString(value.content)
+    && isGroupChatMessageType(value.message_type)
+    && isNullableString(value.file_url)
+    && isNullableString(value.file_name)
+    && (value.file_size === null || isNonNegativeSafeInteger(value.file_size))
+    && isNullableString(value.attachment_batch_id)
+    && isTimestamp(value.created_at)
+    && isNullableString(value.reply_to_message_id)
+    && isNullableString(value.reply_to_sender_name)
+    && isNullableString(value.reply_to_content)
+    && isNullableTimestamp(value.deleted_at)
+    && isNullableString(value.deleted_by_actor_id);
+}
+
+function isFcActorProfileListRow(value: unknown): value is FcActorProfileListRow {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNullableString(value.name)
+    && isNullableString(value.phone)
+    && isNullableString(value.affiliation)
+    && value.signup_completed === true
+    && isNullableBoolean(value.is_manager_referral_shadow)
+    && isNullableBoolean(value.life_commission_completed)
+    && isNullableBoolean(value.nonlife_commission_completed)
+    && isNullableString(value.appointment_date_life)
+    && isNullableString(value.appointment_date_nonlife);
+}
+
+function isFcActorProfileRow(value: unknown): value is FcActorProfileRow & {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  affiliation: string | null;
+  signup_completed: boolean;
+  is_manager_referral_shadow: boolean | null;
+} {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNullableString(value.name)
+    && isNullableString(value.phone)
+    && isNullableString(value.affiliation)
+    && typeof value.signup_completed === 'boolean'
+    && isNullableBoolean(value.is_manager_referral_shadow);
+}
+
+function isManagerActorRow(value: unknown): value is {
+  name: string | null;
+  phone: string | null;
+  active: boolean;
+} {
+  return isRecord(value)
+    && isNullableString(value.name)
+    && isNullableString(value.phone)
+    && typeof value.active === 'boolean';
+}
+
+function isAdminActorRow(value: unknown): value is {
+  name: string | null;
+  phone: string | null;
+  active: boolean;
+  staff_type: string;
+} {
+  return isRecord(value) && isNonEmptyString(value.staff_type) && isManagerActorRow(value);
+}
+
+function isManagerAccountListRow(value: unknown): value is Record<string, unknown> & {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  active: boolean;
+} {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNullableString(value.name)
+    && isNullableString(value.phone)
+    && value.active === true;
+}
+
+function isAdminAccountListRow(value: unknown): value is Record<string, unknown> & {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  active: boolean;
+  staff_type: string;
+} {
+  return isManagerAccountListRow(value) && isNonEmptyString(value.staff_type);
+}
+
+function isSendPermissionRow(value: unknown): value is SendPermissionRow {
+  return isRecord(value)
+    && isNonEmptyString(value.room_id)
+    && isNonEmptyString(value.actor_id)
+    && typeof value.can_send_messages === 'boolean';
+}
+
+function isGroupChatSearchMessageRow(value: unknown): value is GroupChatSearchMessageRow {
+  return isRecord(value)
+    && isNonEmptyString(value.id)
+    && isNonEmptyString(value.room_id)
+    && isNullableString(value.sender_name)
+    && isGroupChatRole(value.sender_role)
+    && isString(value.content)
+    && isTimestamp(value.created_at)
+    && isNullableTimestamp(value.deleted_at);
+}
+
+function isReactionRow(value: unknown): value is ReactionRow {
+  return isRecord(value)
+    && isNonEmptyString(value.room_id)
+    && isNonEmptyString(value.message_id)
+    && isNonEmptyString(value.actor_id)
+    && isNonEmptyString(value.reaction);
+}
+
+function isReadStateRow(value: unknown): value is ReadStateRow {
+  return isRecord(value)
+    && isNonEmptyString(value.room_id)
+    && isNonEmptyString(value.actor_id)
+    && isTimestamp(value.last_read_at);
+}
+
+function isReadReceiptRow(value: unknown): value is ReadReceiptRow {
+  return isRecord(value)
+    && isNonEmptyString(value.room_id)
+    && isNonEmptyString(value.actor_id)
+    && isTimestamp(value.last_read_at)
+    && isNullableString(value.last_read_message_id);
+}
+
+function isReadStateDetailRow(value: unknown): value is ReadStateDetailRow {
+  return isRecord(value)
+    && isTimestamp(value.last_read_at)
+    && isNullableString(value.last_read_message_id);
+}
+
+function isPreferenceRow(value: unknown): value is PreferenceRow {
+  return isRecord(value)
+    && isNonEmptyString(value.actor_id)
+    && isNullableBoolean(value.muted);
+}
+
+function isRoomNotificationPreferenceRow(value: unknown): value is RoomNotificationPreferenceRow {
+  return isAppPreferenceActorRow(value)
+    && typeof (value as Record<string, unknown>).muted === 'boolean';
+}
+
+function isDeviceTokenRow(value: unknown): value is DeviceTokenRow {
+  return isRecord(value)
+    && isNonEmptyString(value.expo_push_token)
+    && isNullableString(value.resident_id)
+    && (value.role === undefined || value.role === null || isString(value.role));
+}
+
+function isNoticeRow(value: unknown): value is NoticeRow {
+  return isRecord(value)
+    && isNonEmptyString(value.room_id)
+    && isNonEmptyString(value.message_id)
+    && isNonEmptyString(value.created_by_actor_id)
+    && isGroupChatRole(value.created_by_role)
+    && isTimestamp(value.created_at)
+    && isTimestamp(value.updated_at);
+}
 
 function groupChatNotificationRetrySecrets() {
   return Array.from(new Set([
@@ -352,7 +567,16 @@ async function ensureRoom(): Promise<RoomRow> {
     .maybeSingle();
 
   if (existing.error) throw existing.error;
-  if (existing.data?.id) return existing.data as RoomRow;
+  if (existing.data !== null) {
+    if (
+      !isRoomRow(existing.data)
+      || existing.data.slug !== GROUP_CHAT_ROOM_SLUG
+      || existing.data.title !== GROUP_CHAT_ROOM_TITLE
+    ) {
+      throw new Error('group_chat_room_response_invalid');
+    }
+    return existing.data;
+  }
 
   const inserted = await supabase
     .from('group_chat_rooms')
@@ -365,7 +589,15 @@ async function ensureRoom(): Promise<RoomRow> {
     .single();
 
   if (inserted.error) throw inserted.error;
-  return inserted.data as RoomRow;
+  if (
+    !isRoomRow(inserted.data)
+    || inserted.data.slug !== GROUP_CHAT_ROOM_SLUG
+    || inserted.data.title !== GROUP_CHAT_ROOM_TITLE
+    || inserted.data.is_active !== true
+  ) {
+    throw new Error('group_chat_room_receipt_invalid');
+  }
+  return inserted.data;
 }
 
 type FcActorProfileRow = {
@@ -374,6 +606,19 @@ type FcActorProfileRow = {
   affiliation?: string | null;
   signup_completed?: boolean | null;
   is_manager_referral_shadow?: boolean | null;
+};
+
+type FcActorProfileListRow = {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  affiliation: string | null;
+  signup_completed: boolean;
+  is_manager_referral_shadow: boolean | null;
+  life_commission_completed: boolean | null;
+  nonlife_commission_completed: boolean | null;
+  appointment_date_life: string | null;
+  appointment_date_nonlife: string | null;
 };
 
 type ActorBlockReason = {
@@ -437,6 +682,9 @@ async function resolveActor(session: AppSessionTokenPayload, origin?: string | n
       : await query.eq('phone', phone).maybeSingle();
 
     if (result.error) return { ok: false, response: dbError(result.error, origin) };
+    if (result.data !== null && !isFcActorProfileRow(result.data)) {
+      return { ok: false, response: dbError({ message: 'group_chat_fc_actor_response_invalid' }, origin) };
+    }
     const profile = result.data;
     const blockReason = getFcActorBlockReason(profile, phone);
     if (blockReason) {
@@ -458,6 +706,9 @@ async function resolveActor(session: AppSessionTokenPayload, origin?: string | n
       .eq('phone', phone)
       .maybeSingle();
     if (error) return { ok: false, response: dbError(error, origin) };
+    if (data !== null && (!isManagerActorRow(data) || sanitizeGroupChatPhone(data.phone) !== phone)) {
+      return { ok: false, response: dbError({ message: 'group_chat_manager_actor_response_invalid' }, origin) };
+    }
     if (!data?.active) {
       const blockReason = getInactiveActorBlockReason();
       return { ok: false, response: fail(blockReason.code, blockReason.message, blockReason.status, origin) };
@@ -474,6 +725,9 @@ async function resolveActor(session: AppSessionTokenPayload, origin?: string | n
     .eq('phone', phone)
     .maybeSingle();
   if (error) return { ok: false, response: dbError(error, origin) };
+  if (data !== null && (!isAdminActorRow(data) || sanitizeGroupChatPhone(data.phone) !== phone)) {
+    return { ok: false, response: dbError({ message: 'group_chat_admin_actor_response_invalid' }, origin) };
+  }
   if (!isEligibleGroupChatMember({ kind: 'admin', phone: data?.phone, active: data?.active, staff_type: data?.staff_type })) {
     const blockReason = data?.phone ? getInactiveActorBlockReason() : {
       code: 'group_chat_account_not_found',
@@ -497,7 +751,11 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
         .eq('signup_completed', true)
         .order('id', { ascending: true })
         .range(from, to);
-      return { data: result.data ?? [], error: result.error };
+      const rows = parseQueryRows(result.data, isFcActorProfileListRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('group_chat_fc_member_response_invalid')),
+      };
     }),
     collectGroupChatDataApiPages(async (from, to) => {
       const result = await supabase
@@ -506,7 +764,11 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
         .eq('active', true)
         .order('id', { ascending: true })
         .range(from, to);
-      return { data: result.data ?? [], error: result.error };
+      const rows = parseQueryRows(result.data, isManagerAccountListRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('group_chat_manager_member_response_invalid')),
+      };
     }),
     collectGroupChatDataApiPages(async (from, to) => {
       const result = await supabase
@@ -515,7 +777,11 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
         .eq('active', true)
         .order('id', { ascending: true })
         .range(from, to);
-      return { data: result.data ?? [], error: result.error };
+      const rows = parseQueryRows(result.data, isAdminAccountListRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('group_chat_admin_member_response_invalid')),
+      };
     }),
   ]);
 
@@ -525,7 +791,7 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
 
   const members: GroupChatMember[] = [];
 
-  (fcResult.data ?? []).forEach((row) => {
+  fcResult.data.forEach((row) => {
     if (!isEligibleGroupChatMember({
       kind: 'fc',
         phone: row.phone,
@@ -558,7 +824,7 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
     }
   });
 
-  (managerResult.data ?? []).forEach((row) => {
+  managerResult.data.forEach((row) => {
     if (!isEligibleGroupChatMember({ kind: 'manager', phone: row.phone, active: row.active })) return;
     const actor = buildGroupChatActor({ role: 'manager', phone: row.phone, name: row.name });
     if (actor) {
@@ -575,7 +841,7 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
     }
   });
 
-  (adminResult.data ?? []).forEach((row) => {
+  adminResult.data.forEach((row) => {
     if (!isEligibleGroupChatMember({ kind: 'admin', phone: row.phone, active: row.active, staff_type: row.staff_type })) return;
     const actor = buildGroupChatActor({ role: 'admin', phone: row.phone, name: row.name });
     if (actor) {
@@ -609,6 +875,10 @@ async function getEligibleFcMemberByActorId(actorId: string): Promise<GroupChatM
     .eq('phone', phone)
     .maybeSingle();
   if (error) throw error;
+
+  if (data !== null && !isFcActorProfileListRow(data)) {
+    throw new Error('group_chat_fc_member_response_invalid');
+  }
 
   if (!data || !isEligibleGroupChatMember({
     kind: 'fc',
@@ -646,12 +916,25 @@ async function getEligibleFcMemberByActorId(actorId: string): Promise<GroupChatM
 }
 
 async function listSendPermissions(roomId: string): Promise<SendPermissionRow[]> {
-  const { data, error } = await supabase
-    .from('group_chat_member_send_permissions')
-    .select('actor_id,can_send_messages')
-    .eq('room_id', roomId);
-  if (error) throw error;
-  return (data ?? []) as SendPermissionRow[];
+  const result = await collectGroupChatDataApiPages(async (from, to) => {
+    const page = await supabase
+      .from('group_chat_member_send_permissions')
+      .select('room_id,actor_id,can_send_messages')
+      .eq('room_id', roomId)
+      .order('actor_id', { ascending: true })
+      .range(from, to);
+    const rows = parseQueryRows(page.data, isSendPermissionRow);
+    return {
+      data: rows,
+      error: page.error ?? (rows ? null : new Error('group_chat_send_permission_response_invalid')),
+    };
+  });
+  if (!result.ok
+    || result.data.some((row) => row.room_id !== roomId)
+    || new Set(result.data.map((row) => row.actor_id)).size !== result.data.length) {
+    throw new Error('group_chat_send_permission_response_invalid');
+  }
+  return result.data;
 }
 
 function applySendPermissionsToMembers(
@@ -689,14 +972,24 @@ async function canActorSendMessages(roomId: string, actor: GroupChatActor) {
 
   const { data, error } = await supabase
     .from('group_chat_member_send_permissions')
-    .select('can_send_messages')
+    .select('room_id,actor_id,can_send_messages')
     .eq('room_id', roomId)
     .eq('actor_id', actor.id)
     .maybeSingle();
   if (error) throw error;
+  if (
+    data !== null
+    && (
+      !isSendPermissionRow(data)
+      || data.room_id !== roomId
+      || data.actor_id !== actor.id
+    )
+  ) {
+    throw new Error('group_chat_send_permission_response_invalid');
+  }
   return canGroupChatActorSendMessages({
     actor,
-    permissions: data ? [{ actor_id: actor.id, can_send_messages: data.can_send_messages }] : [],
+    permissions: data ? [data] : [],
   });
 }
 
@@ -707,9 +1000,14 @@ async function fetchMessages(roomId: string, limit = DEFAULT_MESSAGE_LIMIT): Pro
     .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,attachment_batch_id,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
     .eq('room_id', roomId)
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(safeLimit);
   if (error) throw error;
-  return (data ?? []) as MessageRow[];
+  const rows = parseQueryRows(data, isMessageRow);
+  if (!rows || rows.some((row) => row.room_id !== roomId)) {
+    throw new Error('group_chat_message_response_invalid');
+  }
+  return rows;
 }
 
 async function findExistingActiveSearchRoom(
@@ -722,7 +1020,10 @@ async function findExistingActiveSearchRoom(
     .maybeSingle();
   if (error) throw error;
 
-  const room = data as RoomRow | null;
+  if (data !== null && !isRoomRow(data)) {
+    throw new Error('group_chat_room_response_invalid');
+  }
+  const room = data;
   if (!room?.id || (requestedRoomId && room.id !== requestedRoomId)) {
     return { room: null, reason: 'not_found' };
   }
@@ -773,7 +1074,10 @@ async function handleSearch(
     .limit(limit);
   if (error) return dbError(error, origin);
 
-  const rows = (data ?? []) as GroupChatSearchMessageRow[];
+  const rows = parseQueryRows(data, isGroupChatSearchMessageRow);
+  if (!rows || rows.some((row) => row.room_id !== authorized.room!.id || row.deleted_at !== null)) {
+    return fail('db_error', '검색 결과를 확인하지 못했습니다.', 500, origin);
+  }
   return json({
     ok: true,
     results: rows.map((row) => serializeGroupChatSearchResult({
@@ -812,14 +1116,20 @@ async function handleContext(
     .select(select)
     .eq('room_id', authorized.room.id)
     .eq('id', messageId)
-    .is('deleted_at', null)
     .maybeSingle();
   if (anchorError) return dbError(anchorError, origin);
-  if (!anchorData?.id) {
+  if (anchorData === null) {
     return fail('message_not_found', '메시지를 찾지 못했습니다.', 404, origin);
   }
+  if (
+    !isMessageRow(anchorData)
+    || anchorData.id !== messageId
+    || anchorData.room_id !== authorized.room.id
+  ) {
+    return fail('db_error', '기준 메시지를 확인하지 못했습니다.', 500, origin);
+  }
 
-  const anchor = anchorData as MessageRow;
+  const anchor = anchorData;
   const tupleBefore = `created_at.lt.${anchor.created_at},and(created_at.eq.${anchor.created_at},id.lt.${anchor.id})`;
   const tupleAfter = `created_at.gt.${anchor.created_at},and(created_at.eq.${anchor.created_at},id.gt.${anchor.id})`;
   const sideFetchLimit = GROUP_CHAT_CONTEXT_SIDE_LIMIT + 1;
@@ -828,7 +1138,6 @@ async function handleContext(
       .from('group_chat_messages')
       .select(select)
       .eq('room_id', authorized.room.id)
-      .is('deleted_at', null)
       .or(tupleBefore)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
@@ -837,7 +1146,6 @@ async function handleContext(
       .from('group_chat_messages')
       .select(select)
       .eq('room_id', authorized.room.id)
-      .is('deleted_at', null)
       .or(tupleAfter)
       .order('created_at', { ascending: true })
       .order('id', { ascending: true })
@@ -846,9 +1154,20 @@ async function handleContext(
   if (beforeResult.error) return dbError(beforeResult.error, origin);
   if (afterResult.error) return dbError(afterResult.error, origin);
 
-  const beforeCandidates = ((beforeResult.data ?? []) as MessageRow[])
+  const beforeRows = parseQueryRows(beforeResult.data, isMessageRow);
+  const afterRows = parseQueryRows(afterResult.data, isMessageRow);
+  if (
+    !beforeRows
+    || !afterRows
+    || [...beforeRows, ...afterRows].some((row) =>
+      row.room_id !== authorized.room!.id
+    )
+  ) {
+    return fail('db_error', '메시지 문맥을 확인하지 못했습니다.', 500, origin);
+  }
+  const beforeCandidates = beforeRows
     .filter((row) => compareGroupChatMessageTuple(row, anchor) < 0);
-  const afterCandidates = ((afterResult.data ?? []) as MessageRow[])
+  const afterCandidates = afterRows
     .filter((row) => compareGroupChatMessageTuple(row, anchor) > 0);
   const before = beforeCandidates.slice(0, GROUP_CHAT_CONTEXT_SIDE_LIMIT).reverse();
   const after = afterCandidates.slice(0, GROUP_CHAT_CONTEXT_SIDE_LIMIT);
@@ -889,13 +1208,36 @@ async function listReactions(roomId: string, messageIds: string[]): Promise<Reac
   const ids = Array.from(new Set(messageIds.filter(Boolean)));
   if (ids.length === 0) return [];
 
-  const { data, error } = await supabase
-    .from('group_chat_reactions')
-    .select('message_id,actor_id,reaction')
-    .eq('room_id', roomId)
-    .in('message_id', ids);
-  if (error) throw error;
-  return (data ?? []) as ReactionRow[];
+  const idSet = new Set(ids);
+  const batchResults = await Promise.all(
+    chunkGroupChatDataApiValues(ids).map((messageIdBatch) =>
+      collectGroupChatDataApiPages(async (from, to) => {
+        const page = await supabase
+          .from('group_chat_reactions')
+          .select('room_id,message_id,actor_id,reaction')
+          .eq('room_id', roomId)
+          .in('message_id', messageIdBatch)
+          .order('message_id', { ascending: true })
+          .order('actor_id', { ascending: true })
+          .range(from, to);
+        const rows = parseQueryRows(page.data, isReactionRow);
+        return {
+          data: rows,
+          error: page.error ?? (rows ? null : new Error('group_chat_reaction_response_invalid')),
+        };
+      })
+    ),
+  );
+  if (batchResults.some((result) => !result.ok)) {
+    throw new Error('group_chat_reaction_response_invalid');
+  }
+  const rows = batchResults.flatMap((result) => result.ok ? result.data : []);
+  const rowKeys = rows.map((row) => `${row.message_id}:${row.actor_id}`);
+  if (rows.some((row) => row.room_id !== roomId || !idSet.has(row.message_id))
+    || new Set(rowKeys).size !== rowKeys.length) {
+    throw new Error('group_chat_reaction_response_invalid');
+  }
+  return rows;
 }
 
 function groupReactionsByMessageId(
@@ -927,16 +1269,33 @@ async function getReadState(roomId: string, actorId: string) {
     .eq('actor_id', actorId)
     .maybeSingle();
   if (error) throw error;
-  return data as { last_read_at?: string | null; last_read_message_id?: string | null } | null;
+  if (data === null) return null;
+  if (!isReadStateDetailRow(data)) {
+    throw new Error('group_chat_read_state_response_invalid');
+  }
+  return data;
 }
 
 async function listReadStates(roomId: string): Promise<ReadStateRow[]> {
-  const { data, error } = await supabase
-    .from('group_chat_reads')
-    .select('actor_id,last_read_at')
-    .eq('room_id', roomId);
-  if (error) throw error;
-  return (data ?? []) as ReadStateRow[];
+  const result = await collectGroupChatDataApiPages(async (from, to) => {
+    const page = await supabase
+      .from('group_chat_reads')
+      .select('room_id,actor_id,last_read_at')
+      .eq('room_id', roomId)
+      .order('actor_id', { ascending: true })
+      .range(from, to);
+    const rows = parseQueryRows(page.data, isReadStateRow);
+    return {
+      data: rows,
+      error: page.error ?? (rows ? null : new Error('group_chat_read_states_response_invalid')),
+    };
+  });
+  if (!result.ok
+    || result.data.some((row) => row.room_id !== roomId)
+    || new Set(result.data.map((row) => row.actor_id)).size !== result.data.length) {
+    throw new Error('group_chat_read_states_response_invalid');
+  }
+  return result.data;
 }
 
 function buildReplyContent(row: Pick<MessageRow, 'content' | 'message_type' | 'file_name' | 'deleted_at'>) {
@@ -949,17 +1308,8 @@ function buildReplyContent(row: Pick<MessageRow, 'content' | 'message_type' | 'f
 async function getReplySnapshot(roomId: string, messageId?: string | null) {
   const safeMessageId = normalizeGroupChatText(messageId);
   if (!safeMessageId) return null;
-
-  const { data, error } = await supabase
-    .from('group_chat_messages')
-    .select('id,room_id,sender_name,content,message_type,file_name,deleted_at')
-    .eq('room_id', roomId)
-    .eq('id', safeMessageId)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data?.id) return null;
-
-  const row = data as Pick<MessageRow, 'id' | 'room_id' | 'sender_name' | 'content' | 'message_type' | 'file_name' | 'deleted_at'>;
+  const row = await getMessageInRoom(roomId, safeMessageId);
+  if (!row) return null;
   return {
     reply_to_message_id: row.id,
     reply_to_sender_name: row.sender_name,
@@ -981,7 +1331,12 @@ async function getMuted(
       .eq('room_key', groupChatRoomPreferenceKey(roomId))
       .maybeSingle();
     if (canonical.error) throw canonical.error;
-    if (canonical.data) return canonical.data.muted === true;
+    if (canonical.data !== null) {
+      if (!isRecord(canonical.data) || typeof canonical.data.muted !== 'boolean') {
+        throw new Error('group_chat_room_preference_response_invalid');
+      }
+      return canonical.data.muted;
+    }
   }
 
   const { data, error } = await supabase
@@ -991,7 +1346,11 @@ async function getMuted(
     .eq('actor_id', actorId)
     .maybeSingle();
   if (error) throw error;
-  return data?.muted === true;
+  if (data === null) return false;
+  if (!isRecord(data) || typeof data.muted !== 'boolean') {
+    throw new Error('group_chat_preference_response_invalid');
+  }
+  return data.muted;
 }
 
 async function countUnread(roomId: string, actorId: string, lastReadAt?: string | null) {
@@ -1007,28 +1366,19 @@ async function countUnread(roomId: string, actorId: string, lastReadAt?: string 
 
   const { count, error } = await query;
   if (error) throw error;
-  return count ?? 0;
+  const parsedCount = parseQueryCount(count);
+  if (parsedCount === null) throw new Error('group_chat_unread_count_response_invalid');
+  return parsedCount;
 }
 
-async function upsertRead(roomId: string, actorId: string, messageId?: string | null) {
-  let lastReadAt = new Date().toISOString();
-  let lastReadMessageId: string | null = null;
-
-  if (messageId) {
-    const { data, error } = await supabase
-      .from('group_chat_messages')
-      .select('id,created_at')
-      .eq('room_id', roomId)
-      .eq('id', messageId)
-      .maybeSingle();
-    if (error) throw error;
-    if (data?.id) {
-      lastReadAt = data.created_at;
-      lastReadMessageId = data.id;
-    }
-  }
-
-  const { error } = await supabase
+async function upsertRead(
+  roomId: string,
+  actorId: string,
+  message?: Pick<MessageRow, 'id' | 'created_at'> | null,
+): Promise<ReadReceiptRow> {
+  const lastReadAt = message?.created_at ?? new Date().toISOString();
+  const lastReadMessageId = message?.id ?? null;
+  const { data, error } = await supabase
     .from('group_chat_reads')
     .upsert({
       room_id: roomId,
@@ -1036,8 +1386,20 @@ async function upsertRead(roomId: string, actorId: string, messageId?: string | 
       last_read_at: lastReadAt,
       last_read_message_id: lastReadMessageId,
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'room_id,actor_id' });
+    }, { onConflict: 'room_id,actor_id' })
+    .select('room_id,actor_id,last_read_at,last_read_message_id')
+    .single();
   if (error) throw error;
+  if (
+    !isReadReceiptRow(data)
+    || data.room_id !== roomId
+    || data.actor_id !== actorId
+    || data.last_read_message_id !== lastReadMessageId
+    || Date.parse(data.last_read_at) !== Date.parse(lastReadAt)
+  ) {
+    throw new Error('group_chat_read_receipt_invalid');
+  }
+  return data;
 }
 
 function countAcceptedExpoTickets(value: unknown, expectedCount: number) {
@@ -1119,7 +1481,8 @@ async function insertNotificationsWithFallback(rows: Record<string, unknown>[]):
       .from('notifications')
       .upsert(batch, { onConflict: 'delivery_key' })
       .select('id,resident_id,recipient_role,recipient_actor_id,target,delivery_key');
-    if (result.error) {
+    const receipts = parseQueryRows(result.data, isRecord);
+    if (result.error || !receipts) {
       console.warn('[group-chat] notification insert failed', { reason: 'notification_insert_failed' });
       return {
         inserted_count: insertedCount,
@@ -1131,7 +1494,7 @@ async function insertNotificationsWithFallback(rows: Record<string, unknown>[]):
 
     const confirmedBeforeBatch = idsByActor.size;
     let failureReason: string | undefined;
-    for (const row of result.data ?? []) {
+    for (const row of receipts) {
       const recipientActorId = String(row.recipient_actor_id ?? '');
       const expected = expectedByActor.get(recipientActorId);
       const expectedTarget = expected?.target;
@@ -1157,10 +1520,10 @@ async function insertNotificationsWithFallback(rows: Record<string, unknown>[]):
       idsByActor.set(recipientActorId, validation.notificationId);
     }
 
-    insertedCount += result.data?.length ?? 0;
+    insertedCount += receipts.length;
     if (
       failureReason
-      || (result.data?.length ?? 0) !== batch.length
+      || receipts.length !== batch.length
       || idsByActor.size - confirmedBeforeBatch !== batch.length
     ) {
       return {
@@ -1274,7 +1637,11 @@ async function resolveNativePushRecipients(recipients: GroupChatMember[]): Promi
         .select('actor_id,actor_role,enabled')
         .in('actor_id', actorIdBatch)
         .in('actor_role', actorRoles);
-      return { data: result.data ?? [], error: result.error };
+      const rows = parseQueryRows(result.data, isAppPushPreferenceRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('group_chat_app_push_preference_response_invalid')),
+      };
     }),
     collectGroupChatDataApiBatches(actorIds, async (actorIdBatch) => {
       const result = await supabase
@@ -1283,7 +1650,11 @@ async function resolveNativePushRecipients(recipients: GroupChatMember[]): Promi
         .in('actor_id', actorIdBatch)
         .in('actor_role', actorRoles)
         .eq('category', GROUP_CHAT_APP_PUSH_CATEGORY);
-      return { data: result.data ?? [], error: result.error };
+      const rows = parseQueryRows(result.data, isAppPushPreferenceRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('group_chat_app_push_preference_response_invalid')),
+      };
     }),
   ]);
   if (!globalResult.ok || !categoryResult.ok) {
@@ -1297,8 +1668,8 @@ async function resolveNativePushRecipients(recipients: GroupChatMember[]): Promi
     ok: true,
     recipients: selectNativePushRecipients(
       recipients,
-      globalResult.data as AppPushPreferenceRow[],
-      categoryResult.data as AppPushPreferenceRow[],
+      globalResult.data,
+      categoryResult.data,
     ),
   };
 }
@@ -1330,7 +1701,11 @@ async function notifyRecipients(input: {
         .eq('room_key', groupChatRoomPreferenceKey(input.roomId))
         .in('actor_id', actorIdBatch)
         .in('actor_role', effectiveActorRoles);
-      return { data: result.data ?? [], error: result.error };
+      const rows = parseQueryRows(result.data, isRoomNotificationPreferenceRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('group_chat_room_preference_response_invalid')),
+      };
     }),
     collectGroupChatDataApiBatches(legacyActorIds, async (actorIdBatch) => {
       const result = await supabase
@@ -1338,7 +1713,11 @@ async function notifyRecipients(input: {
         .select('actor_id,muted')
         .eq('room_id', input.roomId)
         .in('actor_id', actorIdBatch);
-      return { data: result.data ?? [], error: result.error };
+      const rows = parseQueryRows(result.data, isPreferenceRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('group_chat_room_preference_response_invalid')),
+      };
     }),
   ]);
   if (!canonicalPreferenceResult.ok || !legacyPreferenceResult.ok) {
@@ -1346,14 +1725,14 @@ async function notifyRecipients(input: {
   }
 
   const canonicalMutedByActor = new Map(
-    (canonicalPreferenceResult.data as RoomNotificationPreferenceRow[])
+    canonicalPreferenceResult.data
       .map((row) => [
         `${normalizeGroupChatText(row.actor_role).toLowerCase()}:${normalizeGroupChatText(row.actor_id).toLowerCase()}`,
         row.muted === true,
       ]),
   );
   const legacyMutedByActor = new Map(
-    (legacyPreferenceResult.data as PreferenceRow[])
+    legacyPreferenceResult.data
       .map((row) => [row.actor_id, row.muted === true]),
   );
 
@@ -1490,7 +1869,11 @@ async function notifyRecipients(input: {
         .from('device_tokens')
         .select('expo_push_token,resident_id,role')
         .in('resident_id', phoneBatch);
-      return { data: result.data ?? [], error: result.error };
+      const rows = parseQueryRows(result.data, isDeviceTokenRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('group_chat_device_token_response_invalid')),
+      };
     },
   );
   if (!tokenResult.ok) {
@@ -1515,7 +1898,7 @@ async function notifyRecipients(input: {
   }
 
   const allowedTokenRows = selectEligibleRecipientTokens(
-    tokenResult.data as DeviceTokenRow[],
+    tokenResult.data,
     nativePushRecipients,
   );
   if (allowedTokenRows.length === 0) {
@@ -1805,10 +2188,17 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
       .eq('room_id', room.id)
       .eq('id', messageId)
       .maybeSingle();
-    if (result.error || !result.data) {
+    if (
+      result.error
+      || !isMessageRow(result.data)
+      || result.data.id !== messageId
+      || result.data.room_id !== room.id
+      || result.data.sender_actor_id !== actor.id
+      || result.data.attachment_batch_id !== finalized.batchId
+    ) {
       return fail('db_error', '전송한 메시지를 확인하지 못했습니다.', 500, origin);
     }
-    message = result.data as unknown as MessageRow;
+    message = result.data;
     try {
       const attachmentMap = await listMessengerAttachmentsByBatchIds({
         supabase,
@@ -1843,7 +2233,16 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
       .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,attachment_batch_id,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
       .single();
     if (result.error) return dbError(result.error, origin);
-    message = result.data as unknown as MessageRow;
+    if (
+      !isMessageRow(result.data)
+      || result.data.room_id !== room.id
+      || result.data.sender_actor_id !== actor.id
+      || result.data.content !== content
+      || result.data.message_type !== 'text'
+    ) {
+      return fail('db_error', '전송한 메시지를 확인하지 못했습니다.', 500, origin);
+    }
+    message = result.data;
   }
   const eventKey = await deriveGroupChatNotificationEventKey({
     roomId: room.id,
@@ -1857,7 +2256,7 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
     : null;
   let readStateUpdated = true;
   try {
-    await upsertRead(room.id, actor.id, message.id);
+    await upsertRead(room.id, actor.id, message);
   } catch {
     readStateUpdated = false;
     console.warn('[group-chat] post-send read state update failed', {
@@ -2010,8 +2409,16 @@ async function handleNotificationRetry(
 
 async function handleMarkRead(actor: GroupChatActor, payload: Extract<Payload, { type: 'group_chat_mark_read' }>, origin?: string | null) {
   const room = await ensureRoom();
-  await upsertRead(room.id, actor.id, payload.message_id ?? null);
-  return json({ ok: true }, 200, origin);
+  const messageId = normalizeGroupChatText(payload.message_id).toLowerCase();
+  if (payload.message_id !== undefined && payload.message_id !== null && !UUID_PATTERN.test(messageId)) {
+    return fail('invalid_message_id', '메시지 식별자가 올바르지 않습니다.', 400, origin);
+  }
+  const message = messageId ? await getMessageInRoom(room.id, messageId) : null;
+  if (messageId && !message) {
+    return fail('not_found', '메시지를 찾지 못했습니다.', 404, origin);
+  }
+  const readState = await upsertRead(room.id, actor.id, message);
+  return json({ ok: true, read_state: readState }, 200, origin);
 }
 
 async function handlePreferences(actor: GroupChatActor, payload: Extract<Payload, { type: 'group_chat_preferences' }>, origin?: string | null) {
@@ -2049,7 +2456,7 @@ async function handlePreferences(actor: GroupChatActor, payload: Extract<Payload
     || saved?.actor_id !== member.immutable_actor_id
     || saved.actor_role !== member.role
     || saved.room_key !== roomKey
-    || typeof saved.muted !== 'boolean'
+    || saved.muted !== muted
   ) {
     console.warn('[group-chat] canonical room preference write failed', {
       reason: 'canonical_room_preference_write_failed',
@@ -2095,15 +2502,23 @@ async function handleMemberSendPermission(
       updated_by_role: actor.role,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'room_id,actor_id' })
-    .select('actor_id,can_send_messages')
+    .select('room_id,actor_id,can_send_messages')
     .single();
   if (error) return dbError(error, origin);
+  if (
+    !isSendPermissionRow(data)
+    || data.room_id !== room.id
+    || data.actor_id !== targetActorId
+    || data.can_send_messages !== canSendMessages
+  ) {
+    return fail('db_error', '채팅 권한 저장 결과를 확인하지 못했습니다.', 500, origin);
+  }
 
   return json({
     ok: true,
     member: {
       ...targetMember,
-      can_send_messages: data?.can_send_messages === true,
+      can_send_messages: data.can_send_messages,
     },
   }, 200, origin);
 }
@@ -2119,7 +2534,11 @@ async function getMessageInRoom(roomId: string, messageId?: string | null) {
     .eq('id', safeMessageId)
     .maybeSingle();
   if (error) throw error;
-  return data as MessageRow | null;
+  if (data === null) return null;
+  if (!isMessageRow(data) || data.id !== safeMessageId || data.room_id !== roomId) {
+    throw new Error('group_chat_message_response_invalid');
+  }
+  return data;
 }
 
 async function getNoticeRow(roomId: string) {
@@ -2129,7 +2548,11 @@ async function getNoticeRow(roomId: string) {
     .eq('room_id', roomId)
     .maybeSingle();
   if (error) throw error;
-  return data as NoticeRow | null;
+  if (data === null) return null;
+  if (!isNoticeRow(data) || data.room_id !== roomId) {
+    throw new Error('group_chat_notice_response_invalid');
+  }
+  return data;
 }
 
 async function clearNoticeForMessage(roomId: string, messageId: string) {
@@ -2139,6 +2562,14 @@ async function clearNoticeForMessage(roomId: string, messageId: string) {
     .eq('room_id', roomId)
     .eq('message_id', messageId);
   if (error) throw error;
+  const remaining = await supabase
+    .from('group_chat_notices')
+    .select('room_id,message_id')
+    .eq('room_id', roomId)
+    .eq('message_id', messageId)
+    .maybeSingle();
+  if (remaining.error) throw remaining.error;
+  if (remaining.data !== null) throw new Error('group_chat_notice_delete_receipt_invalid');
 }
 
 async function getCurrentNotice(roomId: string, viewerActorId: string) {
@@ -2194,6 +2625,17 @@ async function handleNoticeSet(actor: GroupChatActor, payload: Extract<Payload, 
     .select('room_id,message_id,created_by_actor_id,created_by_role,created_at,updated_at')
     .single();
   if (error) return dbError(error, origin);
+  if (
+    !isNoticeRow(data)
+    || data.room_id !== room.id
+    || data.message_id !== message.id
+    || data.created_by_actor_id !== actor.id
+    || data.created_by_role !== actor.role
+    || Date.parse(data.created_at) !== Date.parse(now)
+    || Date.parse(data.updated_at) !== Date.parse(now)
+  ) {
+    return fail('db_error', '공지 저장 결과를 확인하지 못했습니다.', 500, origin);
+  }
 
   const [reactions, attachmentsByBatch] = await Promise.all([
     listReactions(room.id, [message.id]),
@@ -2202,7 +2644,7 @@ async function handleNoticeSet(actor: GroupChatActor, payload: Extract<Payload, 
   return json({
     ok: true,
     notice: serializeNotice(
-      data as NoticeRow,
+      data,
       message,
       summarizeGroupChatReactions({
         viewerActorId: actor.id,
@@ -2226,6 +2668,9 @@ async function handleNoticeClear(actor: GroupChatActor, origin?: string | null) 
     .delete()
     .eq('room_id', room.id);
   if (error) return dbError(error, origin);
+  if (await getNoticeRow(room.id)) {
+    return fail('db_error', '공지 해제 결과를 확인하지 못했습니다.', 500, origin);
+  }
 
   return json({ ok: true, notice: null }, 200, origin);
 }
@@ -2236,6 +2681,7 @@ async function handleReactionSet(actor: GroupChatActor, payload: Extract<Payload
   if (!message?.id) return fail('not_found', '메시지를 찾지 못했습니다.', 404, origin);
 
   const reaction = normalizeGroupChatText(payload.reaction);
+  const persistedReaction = reaction ? reaction.slice(0, 16) : null;
   if (!reaction) {
     const { error } = await supabase
       .from('group_chat_reactions')
@@ -2252,10 +2698,34 @@ async function handleReactionSet(actor: GroupChatActor, payload: Extract<Payload
         message_id: message.id,
         actor_id: actor.id,
         actor_role: actor.role,
-        reaction: reaction.slice(0, 16),
+        reaction: persistedReaction,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'room_id,message_id,actor_id' });
     if (error) return dbError(error, origin);
+  }
+
+  const persisted = await supabase
+    .from('group_chat_reactions')
+    .select('room_id,message_id,actor_id,reaction')
+    .eq('room_id', room.id)
+    .eq('message_id', message.id)
+    .eq('actor_id', actor.id)
+    .maybeSingle();
+  if (persisted.error) return dbError(persisted.error, origin);
+  if (
+    (persistedReaction === null && persisted.data !== null)
+    || (
+      persistedReaction !== null
+      && (
+        !isReactionRow(persisted.data)
+        || persisted.data.room_id !== room.id
+        || persisted.data.message_id !== message.id
+        || persisted.data.actor_id !== actor.id
+        || persisted.data.reaction !== persistedReaction
+      )
+    )
+  ) {
+    return fail('db_error', '반응 저장 결과를 확인하지 못했습니다.', 500, origin);
   }
 
   const reactions = await listReactions(room.id, [message.id]);
@@ -2293,19 +2763,35 @@ async function handleDelete(actor: GroupChatActor, payload: Extract<Payload, { t
       },
     );
     if (deletion.error) return attachmentFailure(deletion.error, origin);
-    const result = deletion.data && typeof deletion.data === 'object'
-      ? deletion.data as Record<string, unknown>
-      : {};
-    const batchId = typeof result.batchId === 'string'
-      ? result.batchId
-      : message.attachment_batch_id;
+    const result = isRecord(deletion.data) ? deletion.data : null;
+    if (
+      !result
+      || result.deleted !== true
+      || result.batchId !== message.attachment_batch_id
+      || !isNonNegativeSafeInteger(result.scheduled)
+      || (
+        result.retainedForReferences !== undefined
+        && !isNonNegativeSafeInteger(result.retainedForReferences)
+      )
+    ) {
+      return fail('db_error', '첨부 메시지 삭제 결과를 확인하지 못했습니다.', 500, origin);
+    }
+    const batchId = result.batchId;
     const cleanup = await drainMessengerAttachmentCleanup({
       supabase,
       limit: 20,
       batchId,
     });
     const deletedMessage = await getMessageInRoom(room.id, message.id);
-    if (!deletedMessage) {
+    if (
+      !deletedMessage
+      || deletedMessage.id !== message.id
+      || deletedMessage.room_id !== room.id
+      || deletedMessage.attachment_batch_id !== message.attachment_batch_id
+      || deletedMessage.deleted_at === null
+      || deletedMessage.deleted_by_actor_id !== actor.id
+      || deletedMessage.content !== ''
+    ) {
       return fail('db_error', '삭제한 메시지를 확인하지 못했습니다.', 500, origin);
     }
     const reactions = await listReactions(room.id, [message.id]);
@@ -2320,7 +2806,7 @@ async function handleDelete(actor: GroupChatActor, payload: Extract<Payload, { t
         }),
       ),
       cleanup: {
-        scheduled: Number(result.scheduled ?? 0),
+        scheduled: result.scheduled,
         removed: cleanup.removed,
         requeued: cleanup.requeued,
         exhausted: cleanup.exhausted,
@@ -2340,13 +2826,23 @@ async function handleDelete(actor: GroupChatActor, payload: Extract<Payload, { t
     .select('id,room_id,sender_actor_id,sender_role,sender_phone,sender_name,content,message_type,file_url,file_name,file_size,attachment_batch_id,created_at,reply_to_message_id,reply_to_sender_name,reply_to_content,deleted_at,deleted_by_actor_id')
     .single();
   if (error) return dbError(error, origin);
+  if (
+    !isMessageRow(data)
+    || data.id !== message.id
+    || data.room_id !== room.id
+    || data.deleted_at === null
+    || data.deleted_by_actor_id !== actor.id
+    || data.content !== ''
+  ) {
+    return fail('db_error', '삭제한 메시지를 확인하지 못했습니다.', 500, origin);
+  }
 
   const reactions = await listReactions(room.id, [message.id]);
   await clearNoticeForMessage(room.id, message.id);
   return json({
     ok: true,
     message: serializeMessage(
-      data as MessageRow,
+      data,
       0,
       summarizeGroupChatReactions({
         viewerActorId: actor.id,

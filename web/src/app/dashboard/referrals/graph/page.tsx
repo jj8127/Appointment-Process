@@ -12,9 +12,11 @@ import type { ReferralClusterGraphCanvasProps } from '@/components/referrals/Ref
 import type { ReferralGraphCanvasProps } from '@/components/referrals/ReferralGraphCanvas';
 import { GraphControlPanel, GraphControlSection } from '@/components/referrals/GraphControlPanel';
 import { GraphNodeDrawer } from '@/components/referrals/GraphNodeDrawer';
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { useSession } from '@/hooks/use-session';
 import { buildReferralGraphDescendantCountMap } from '@/lib/referral-graph-descendants';
 import { getReferralGraphResponsiveLayout } from '@/lib/referral-graph-responsive';
+import { QueryReadError } from '@/lib/query-read-error';
 import {
   DEFAULT_REFERRAL_GRAPH_PHYSICS,
   type GraphApiResponse,
@@ -80,13 +82,43 @@ const PHYSICS_PRESETS: Array<{
   { key: 'tight', label: '밀집', values: { centerGravity: 0.36, repulsion: 8, linkStrength: 0.68, linkDistance: 150 } },
 ] as const;
 
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isNonNegativeSafeInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+const isGraphNode = (value: unknown): value is GraphNode => isRecord(value)
+  && typeof value.id === 'string'
+  && typeof value.name === 'string'
+  && typeof value.phone === 'string'
+  && typeof value.affiliation === 'string'
+  && (value.activeCode === null || typeof value.activeCode === 'string')
+  && isNonNegativeSafeInteger(value.referralCount)
+  && isNonNegativeSafeInteger(value.inboundCount)
+  && ['has_active_code', 'missing_code', 'code_disabled'].includes(String(value.nodeStatus))
+  && typeof value.isIsolated === 'boolean'
+  && typeof value.signupCompleted === 'boolean'
+  && typeof value.allCommissionsCompleted === 'boolean'
+  && typeof value.hasLegacyUnresolved === 'boolean'
+  && (value.highlightType === null || value.highlightType === 'manager' || value.highlightType === 'viewer');
+const isGraphEdge = (value: unknown): value is GraphEdge => isRecord(value)
+  && typeof value.id === 'string'
+  && typeof value.source === 'string'
+  && typeof value.target === 'string'
+  && (value.referralCode === null || typeof value.referralCode === 'string');
+
 function fetchGraphData(): Promise<GraphApiResponse> {
   return fetch('/api/admin/referrals/graph').then(async (res) => {
     if (!res.ok) {
-      throw new Error('그래프 데이터를 불러오지 못했습니다.');
+      throw new QueryReadError(res.status);
     }
-
-    return res.json();
+    const data: unknown = await res.json().catch(() => null);
+    const permissions = isRecord(data) ? data.permissions : null;
+    if (!isRecord(data) || data.ok !== true || !Array.isArray(data.nodes) || !data.nodes.every(isGraphNode)
+      || !Array.isArray(data.edges) || !data.edges.every(isGraphEdge) || !isRecord(permissions)
+      || typeof permissions.canMutate !== 'boolean' || !['all', 'downline'].includes(String(permissions.scope))
+      || !['admin', 'manager', 'fc'].includes(String(permissions.viewerRole))
+      || (permissions.rootFcId !== null && typeof permissions.rootFcId !== 'string')) {
+      throw new QueryReadError();
+    }
+    return data as GraphApiResponse;
   });
 }
 
@@ -460,6 +492,18 @@ export default function ReferralGraphPage() {
         </ActionIcon>
       </Group>
 
+      {graphQuery.isError ? (
+        <Box px="md" py="xs">
+          <QueryErrorAlert
+            error={graphQuery.error}
+            onRetry={graphQuery.refetch}
+            isFetching={graphQuery.isFetching}
+            hasData={Boolean(graphData)}
+            subject="추천인 그래프"
+          />
+        </Box>
+      ) : null}
+
       <Box
         ref={containerRef}
         style={{
@@ -478,18 +522,7 @@ export default function ReferralGraphPage() {
               </Text>
             </Stack>
           </Center>
-        ) : graphQuery.isError ? (
-          <Center h="100%">
-            <Stack align="center" gap="xs">
-              <Text c="red.4" size="sm">
-                그래프를 불러오지 못했습니다.
-              </Text>
-              <Button size="xs" variant="light" onClick={() => graphQuery.refetch()}>
-                다시 시도
-              </Button>
-            </Stack>
-          </Center>
-        ) : !isCanvasReady || !canvasSize ? (
+        ) : graphQuery.isError && !graphData ? null : !isCanvasReady || !canvasSize ? (
           <Center h="100%">
             <Stack align="center" gap="xs">
               <Loader size="lg" color="orange" />

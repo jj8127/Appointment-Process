@@ -45,6 +45,45 @@ export type ReferralAdminDetail = {
   recentEvents: ReferralAdminEventItem[];
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+function isReferralAdminCodeHistoryItem(value: unknown): value is ReferralAdminCodeHistoryItem {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.code === 'string'
+    && typeof value.isActive === 'boolean'
+    && typeof value.createdAt === 'string'
+    && isNullableString(value.disabledAt);
+}
+
+function isReferralAdminEventItem(value: unknown): value is ReferralAdminEventItem {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.eventType === 'string'
+    && typeof value.createdAt === 'string'
+    && isNullableString(value.referralCode)
+    && isRecord(value.metadata);
+}
+
+export function isReferralAdminDetail(value: unknown): value is ReferralAdminDetail {
+  return isRecord(value)
+    && typeof value.fcId === 'string'
+    && typeof value.name === 'string'
+    && typeof value.phone === 'string'
+    && typeof value.affiliation === 'string'
+    && (value.currentCode === null || isReferralAdminCodeHistoryItem(value.currentCode))
+    && Array.isArray(value.codeHistory)
+    && value.codeHistory.every(isReferralAdminCodeHistoryItem)
+    && Array.isArray(value.recentEvents)
+    && value.recentEvents.every(isReferralAdminEventItem);
+}
+
 export type ReferralAdminSummary = {
   eligibleCount: number;
   activeCodeCount: number;
@@ -139,9 +178,15 @@ export type ReferralAdminMutationResult = {
   eventType?: string | null;
   processed?: number;
   created?: number;
+  linked?: number;
   skipped?: number;
+  failed?: number;
   remaining?: number;
   limit?: number;
+  inviteeFcId?: string;
+  inviterFcId?: string | null;
+  recommenderName?: string | null;
+  referralCode?: string | null;
   [key: string]: unknown;
 };
 
@@ -150,3 +195,110 @@ export type ReferralAdminMutationResponse = {
   action: ReferralAdminMutationAction;
   result: ReferralAdminMutationResult;
 };
+
+export type RecommenderSelectionResult = {
+  changed: boolean;
+  inviteeFcId: string;
+  inviterFcId: string | null;
+  recommenderName: string | null;
+  referralCode: string | null;
+};
+
+const isNonEmptyString = (value: unknown): value is string => (
+  typeof value === 'string' && value.trim().length > 0
+);
+
+const isNonNegativeSafeInteger = (value: unknown): value is number => (
+  Number.isSafeInteger(value) && Number(value) >= 0
+);
+
+function expectedReferralMutationLimit(request: ReferralAdminMutationRequest): number {
+  const rawLimit = request.payload && 'limit' in request.payload ? request.payload.limit : undefined;
+  if (typeof rawLimit !== 'number' || !Number.isFinite(rawLimit) || rawLimit <= 0) return 100;
+  return Math.min(Math.max(Math.trunc(rawLimit), 1), 100);
+}
+
+export function isRecommenderSelectionResult(
+  value: unknown,
+  expected: { inviteeFcId: string; inviterFcId: string | null },
+): value is RecommenderSelectionResult {
+  if (!isRecord(value)
+    || typeof value.changed !== 'boolean'
+    || value.inviteeFcId !== expected.inviteeFcId
+    || value.inviterFcId !== expected.inviterFcId
+    || !isNullableString(value.recommenderName)
+    || !isNullableString(value.referralCode)) return false;
+
+  return expected.inviterFcId === null
+    ? value.recommenderName === null && value.referralCode === null
+    : isNonEmptyString(value.recommenderName) && isNonEmptyString(value.referralCode);
+}
+
+export function isReferralAdminMutationResponse(
+  value: unknown,
+  request: ReferralAdminMutationRequest,
+): value is ReferralAdminMutationResponse {
+  if (!isRecord(value) || value.ok !== true || value.action !== request.action || !isRecord(value.result)) {
+    return false;
+  }
+
+  const result = value.result;
+  if (request.action === 'rotate_code') {
+    return result.ok === true
+      && result.changed === true
+      && result.action === 'rotated'
+      && result.fcId === request.payload.fcId
+      && isNullableString(result.previousCodeId)
+      && isNullableString(result.previousCode)
+      && isNonEmptyString(result.codeId)
+      && isNonEmptyString(result.code)
+      && result.eventType === 'code_rotated';
+  }
+
+  if (request.action === 'disable_code') {
+    return result.ok === true
+      && result.changed === true
+      && result.action === 'disabled'
+      && result.fcId === request.payload.fcId
+      && isNonEmptyString(result.previousCodeId)
+      && isNonEmptyString(result.previousCode)
+      && result.codeId === null
+      && result.code === null
+      && result.eventType === 'code_disabled';
+  }
+
+  if (request.action === 'link_legacy_recommender') {
+    return isRecommenderSelectionResult(result, {
+      inviteeFcId: request.payload.inviteeFcId,
+      inviterFcId: request.payload.inviterFcId,
+    });
+  }
+
+  if (request.action === 'clear_legacy_recommender') {
+    return isRecommenderSelectionResult(result, {
+      inviteeFcId: request.payload.inviteeFcId,
+      inviterFcId: null,
+    });
+  }
+
+  const expectedLimit = expectedReferralMutationLimit(request);
+  if (request.action === 'backfill_missing_codes') {
+    return result.ok === true
+      && isNonNegativeSafeInteger(result.processed)
+      && isNonNegativeSafeInteger(result.created)
+      && isNonNegativeSafeInteger(result.skipped)
+      && isNonNegativeSafeInteger(result.remaining)
+      && result.limit === expectedLimit
+      && result.processed === result.created + result.skipped
+      && result.processed <= result.limit;
+  }
+
+  return isNonNegativeSafeInteger(result.processed)
+    && isNonNegativeSafeInteger(result.linked)
+    && isNonNegativeSafeInteger(result.skipped)
+    && isNonNegativeSafeInteger(result.failed)
+    && isNonNegativeSafeInteger(result.remaining)
+    && result.limit === expectedLimit
+    && result.processed === result.linked + result.skipped + result.failed
+    && result.processed <= result.limit;
+}

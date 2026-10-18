@@ -7,6 +7,8 @@ import {
 } from '../_shared/expo-push-delivery.ts';
 import { isGeneralExpoPushEnabled } from '../_shared/general-push-preference-policy.ts';
 import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
+import { requireMutationRowReceipt } from '../_shared/ux-mutation-contract.ts';
+import { collectSupabaseRows } from '../../../lib/supabase-query-contract.ts';
 
 type FcRow = {
   id: string;
@@ -44,6 +46,7 @@ const DEADLINE_HOUR_KST = 18;
 const REMINDER_DAYS = new Set([3, 1, 0, -1]);
 const REMINDER_CATEGORY = 'docs-deadline';
 const REMINDER_PUSH_CATEGORY = 'operations' as const;
+const QUERY_PAGE_SIZE = 500;
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -132,6 +135,102 @@ const summarizeWarnings = (counts: ReminderWarningCounts) =>
   Object.entries(counts)
     .filter(([, count]) => count > 0)
     .map(([code, count]) => ({ code, count }));
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+function isYmd(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  return Number.isFinite(toKstDate(value).getTime());
+}
+
+function isFcRow(value: unknown): value is FcRow {
+  if (!isRecord(value)) return false;
+  return typeof value.id === 'string'
+    && value.id.length > 0
+    && isNullableString(value.name)
+    && typeof value.phone === 'string'
+    && sanitize(value.phone).length === 11
+    && isYmd(value.docs_deadline_at)
+    && (value.docs_deadline_last_notified_at === null || isYmd(value.docs_deadline_last_notified_at))
+    && ['docs-requested', 'docs-pending', 'docs-submitted', 'docs-rejected'].includes(String(value.status));
+}
+
+function isTokenRow(value: unknown): value is TokenRow {
+  if (!isRecord(value)) return false;
+  return typeof value.expo_push_token === 'string'
+    && value.expo_push_token.trim().length > 0
+    && isNullableString(value.resident_id)
+    && isNullableString(value.display_name);
+}
+
+async function loadAllReminderTargets(
+  startDate: string,
+  endDate: string,
+  today: string,
+): Promise<FcRow[] | null> {
+  try {
+    return await collectSupabaseRows<FcRow>({
+      queryName: 'docs_deadline_reminder_targets',
+      isRow: isFcRow,
+      rowKey: (row) => row.id,
+      pageSize: QUERY_PAGE_SIZE,
+      fetchPage: (from, to) => supabase
+        .from('fc_profiles')
+        .select('id,name,phone,docs_deadline_at,docs_deadline_last_notified_at,status')
+        .gte('docs_deadline_at', startDate)
+        .lte('docs_deadline_at', endDate)
+        .or(`docs_deadline_last_notified_at.is.null,docs_deadline_last_notified_at.lt.${today}`)
+        .in('status', ['docs-requested', 'docs-pending', 'docs-submitted', 'docs-rejected'])
+        .order('id', { ascending: true })
+        .range(from, to),
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function loadAllDeviceTokens(residentId: string): Promise<TokenRow[] | null> {
+  try {
+    const rows = await collectSupabaseRows<TokenRow>({
+      queryName: 'docs_deadline_device_tokens',
+      isRow: isTokenRow,
+      rowKey: (row) => row.expo_push_token,
+      pageSize: QUERY_PAGE_SIZE,
+      fetchPage: (from, to) => supabase
+        .from('device_tokens')
+        .select('expo_push_token,resident_id,display_name')
+        .eq('role', 'fc')
+        .eq('resident_id', residentId)
+        .order('expo_push_token', { ascending: true })
+        .range(from, to),
+    });
+    return rows.every((row) => sanitize(row.resident_id) === residentId) ? rows : null;
+  } catch {
+    return null;
+  }
+}
+
+async function markReminderNotified(fcId: string, today: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .update({ docs_deadline_last_notified_at: today })
+    .eq('id', fcId)
+    .select('id,docs_deadline_last_notified_at')
+    .maybeSingle();
+  if (error) return false;
+  try {
+    requireMutationRowReceipt(data, { id: fcId, docs_deadline_last_notified_at: today });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function sendExpoPushPayloads(
   pushPayload: Record<string, unknown>[],
@@ -289,22 +388,14 @@ serve(async (req: Request) => {
   endDateObj.setDate(endDateObj.getDate() + 3);
   const endDate = endDateObj.toISOString().slice(0, 10);
 
-  const { data: targets, error } = await supabase
-    .from('fc_profiles')
-    .select('id,name,phone,docs_deadline_at,docs_deadline_last_notified_at,status')
-    .gte('docs_deadline_at', startDate)
-    .lte('docs_deadline_at', endDate)
-    .or(`docs_deadline_last_notified_at.is.null,docs_deadline_last_notified_at.lt.${today}`)
-    .in('status', ['docs-requested', 'docs-pending', 'docs-submitted', 'docs-rejected']);
-
-  if (error) {
-    return new Response(JSON.stringify({ ok: false, error: error.message }), {
+  const rows = await loadAllReminderTargets(startDate, endDate, today);
+  if (!rows) {
+    return new Response(JSON.stringify({ ok: false, error: 'Reminder target lookup failed' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
     });
   }
 
-  const rows = (targets ?? []) as FcRow[];
   let sent = 0;
   const warningCounts = createWarningCounts();
 
@@ -377,33 +468,24 @@ serve(async (req: Request) => {
         continue;
       }
 
-      const { error: updateError } = await supabase
-        .from('fc_profiles')
-        .update({ docs_deadline_last_notified_at: today })
-        .eq('id', row.id);
-      if (updateError) {
+      if (!(await markReminderNotified(row.id, today))) {
         warningCounts.deadline_update_failed += 1;
       }
       continue;
     }
 
-    const { data: tokens, error: tokenError } = await supabase
-      .from('device_tokens')
-      .select('expo_push_token,resident_id,display_name')
-      .eq('role', 'fc')
-      .eq('resident_id', residentId);
-
-    if (tokenError) {
+    const tokens = await loadAllDeviceTokens(residentId);
+    if (!tokens) {
       warningCounts.token_lookup_failed += 1;
       continue;
     }
 
-    if (!tokens?.length) {
+    if (tokens.length === 0) {
       warningCounts.no_registered_tokens += 1;
       continue;
     }
 
-    const payload = (tokens as TokenRow[]).map((t) => ({
+    const payload = tokens.map((t) => ({
       to: t.expo_push_token,
       title,
       body,
@@ -428,11 +510,7 @@ serve(async (req: Request) => {
       continue;
     }
 
-    const { error: updateError } = await supabase
-      .from('fc_profiles')
-      .update({ docs_deadline_last_notified_at: today })
-      .eq('id', row.id);
-    if (updateError) {
+    if (!(await markReminderNotified(row.id, today))) {
       warningCounts.deadline_update_failed += 1;
     }
   }

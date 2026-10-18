@@ -17,7 +17,9 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import { safeStorage } from '@/lib/safe-storage';
+import { setPendingSignupVerification } from '@/lib/pending-signup-verification';
 import { supabase } from '@/lib/supabase';
+import { requireSignupOtpSentReceipt, requireSignupOtpVerifiedReceipt } from '@/lib/signup-otp-response';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import type { CommissionCompletionStatus, LicenseStatus } from '@/types/fc';
 
@@ -45,6 +47,7 @@ export default function SignupVerifyScreen() {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+  const [challengeId, setChallengeId] = useState<string | null>(null);
   const keyboardPadding = useKeyboardPadding();
 
   useEffect(() => {
@@ -108,6 +111,8 @@ export default function SignupVerifyScreen() {
         Alert.alert('알림', data?.message ?? '인증 코드 발송에 실패했습니다.');
         return;
       }
+      const receipt = requireSignupOtpSentReceipt(data, digits);
+      setChallengeId(receipt.challengeId);
       setCooldown(60);
       Alert.alert('안내', '인증 코드가 문자로 발송되었습니다.');
     } catch (err: any) {
@@ -128,16 +133,25 @@ export default function SignupVerifyScreen() {
       Alert.alert('알림', '인증 코드는 6자리 숫자여야 합니다.');
       return;
     }
+    if (!challengeId) {
+      Alert.alert('알림', '인증 코드를 다시 요청해주세요.');
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('verify-signup-otp', {
-        body: { phone: digits, code: code.trim() },
+        body: { phone: digits, code: code.trim(), challengeId },
       });
       if (error) throw error;
       if (!data?.ok) {
         Alert.alert('알림', data?.message ?? '인증에 실패했습니다.');
         return;
       }
+      const receipt = requireSignupOtpVerifiedReceipt(data, digits);
+      setPendingSignupVerification({
+        residentId: digits,
+        verificationProof: receipt.verificationProof,
+      });
       if (payload) {
         await safeStorage.setItem(
           STORAGE_KEY,

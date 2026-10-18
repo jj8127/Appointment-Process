@@ -6,6 +6,8 @@ import {
 } from './board-actor-policy.ts';
 import { requireAppSessionFromRequest } from './request-board-auth.ts';
 import { reportEdgeDiagnostic } from './edge-diagnostic.ts';
+import { parseQueryRows } from './query-result-contract.ts';
+import { collectGroupChatDataApiBatches } from './group-chat-data-api-batching.ts';
 
 export type Role = 'admin' | 'manager' | 'fc';
 export type BoardDisplayRole = Role | 'developer';
@@ -270,7 +272,7 @@ export function previewContent(content: string, max = 140) {
   return `${normalized.slice(0, max)}...`;
 }
 
-export async function resolveDeveloperResidentIds(rows: Array<{ author_role?: string | null; author_resident_id?: string | null }>) {
+export async function resolveDeveloperResidentIds(rows: { author_role?: string | null; author_resident_id?: string | null }[]) {
   const adminResidentIds = Array.from(
     new Set(
       rows
@@ -282,16 +284,41 @@ export async function resolveDeveloperResidentIds(rows: Array<{ author_role?: st
 
   if (adminResidentIds.length === 0) return new Set<string>();
 
-  const { data, error } = await supabase
-    .from('admin_accounts')
-    .select('phone,staff_type,active')
-    .in('phone', adminResidentIds)
-    .eq('active', true);
-
-  if (error) throw error;
+  const isAccountRow = (value: unknown): value is {
+    phone: string;
+    staff_type: string | null;
+    active: boolean;
+  } => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const row = value as Record<string, unknown>;
+    return typeof row.phone === 'string'
+      && (row.staff_type === null || typeof row.staff_type === 'string')
+      && typeof row.active === 'boolean';
+  };
+  const accountsResult = await collectGroupChatDataApiBatches(
+    adminResidentIds,
+    async (phoneBatch) => {
+      const result = await supabase
+        .from('admin_accounts')
+        .select('phone,staff_type,active')
+        .in('phone', phoneBatch)
+        .eq('active', true)
+        .order('phone', { ascending: true });
+      const rows = parseQueryRows(result.data, isAccountRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('invalid board developer account query result')),
+      };
+    },
+  );
+  if (!accountsResult.ok
+    || accountsResult.data.some((row) => !row.active || !adminResidentIds.includes(cleanPhone(row.phone)))
+    || new Set(accountsResult.data.map((row) => cleanPhone(row.phone))).size !== accountsResult.data.length) {
+    throw new Error('invalid board developer account query result');
+  }
 
   return new Set(
-    (data ?? [])
+    accountsResult.data
       .filter((row) => row.staff_type === 'developer')
       .map((row) => cleanPhone(row.phone))
       .filter((residentId) => residentId.length === 11),

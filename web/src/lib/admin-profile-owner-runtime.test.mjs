@@ -32,6 +32,8 @@ function harness() {
   const requests = []; const notices = [];
   const mocks = {
     '@/lib/user-intent-policy': policy, '@/lib/query-read-error': readError, '@/lib/admin-temp-id-update': tempId,
+    '@/types/referrals': { isRecommenderSelectionResult: (value) => Boolean(value && typeof value === 'object') },
+    '@/lib/admin-document-client': { isAdminFcProfileDetail: (value) => Boolean(value && typeof value === 'object' && typeof value.id === 'string') },
     '@/components/QueryErrorAlert': { QueryErrorAlert: component('QueryErrorAlert') },
     '@/lib/presence-api': { fetchPresence: async () => [] }, '@/lib/presence': { formatPresenceLabel: () => '' },
     '@/lib/shared': { getAdminStepDisplay: () => ({ label: 'Test', color: 'gray' }), getStatusDisplay: () => ({ label: 'Test', color: 'gray' }) },

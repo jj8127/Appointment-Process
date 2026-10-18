@@ -30,6 +30,10 @@ describe('exam display helpers', () => {
       '010-1234-5678',
       '01012345678',
     ]);
+    expect(buildExamPhoneCandidates('01012345678')).toEqual([
+      '01012345678',
+      '010-1234-5678',
+    ]);
   });
 
   it('builds exam info from round and location rows', () => {

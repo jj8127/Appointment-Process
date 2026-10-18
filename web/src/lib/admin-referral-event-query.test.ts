@@ -43,12 +43,16 @@ test('deduplicates cross-chunk events and restores global newest-first order', (
 test('admin referral loading uses bounded chunks instead of one unbounded FC-id filter', () => {
   const source = readFileSync(new URL('./admin-referrals.ts', import.meta.url), 'utf8');
 
-  assert.equal(source.match(/chunkReferralEventFcIds\(fcIds\)\.map/g)?.length, 2);
+  assert.equal(source.match(/chunkReferralEventFcIds\(fcIds\)\.map/g)?.length, 3);
   assert.match(
     source,
     /async function fetchReferralCodes[\s\S]*?chunkReferralEventFcIds\(fcIds\)\.map[\s\S]*?\.in\('fc_id', chunk\)[\s\S]*?mergeReferralEventChunks\(codeChunks\)/,
   );
   assert.match(source, /mergeReferralEventChunks\(eventChunks\)/);
+  assert.match(
+    source,
+    /async function fetchActiveReferralCodes[\s\S]*?chunkReferralEventFcIds\(fcIds\)\.map[\s\S]*?\.in\('fc_id', chunk\)[\s\S]*?mergeReferralEventChunks\(chunks\)/,
+  );
   assert.doesNotMatch(
     source,
     /async function fetchReferralCodes[\s\S]*?\.in\('fc_id', fcIds\)[\s\S]*?async function fetchReferralEvents/,

@@ -57,7 +57,12 @@ describe('fc-notify general Expo preference enforcement', () => {
     expect(source).toContain('queryFcActors(residentIdsByRole.fc)');
     expect(source).toContain("buildGeneralPushActorKey(role, residentId)");
     expect(source).toContain('GENERAL_PUSH_PREFERENCE_QUERY_CHUNK_SIZE = 100');
-    expect(source).toContain('chunkGeneralPushPreferenceActorIds(actorIds)');
+    expect(source).toContain('chunkSupabaseFilterValues(');
+    expect(source).toContain('collectSupabaseRows<GeneralPushActorRow>({');
+    expect(source).toContain('collectSupabaseRows<GeneralPushFcActorRow>({');
+    expect(source).toContain(".in('phone', phoneChunk)");
+    expect(source).toContain(".order('id', { ascending: true })");
+    expect(source).toContain('.range(from, to)');
     expect(source).toContain('const globalRows = preferenceResults.flatMap');
     expect(source).toContain('const categoryRows = preferenceResults.flatMap');
     const generalStart = source.indexOf('async function loadGeneralPushPreferenceEligibility');
@@ -74,6 +79,39 @@ describe('fc-notify general Expo preference enforcement', () => {
     expect(source).toContain(".from('app_push_category_preferences')");
   });
 
+  it('rejects null, non-array, and malformed preference query successes', () => {
+    expect(source).toContain('isAppPushPreferenceRow as isGlobalPreferenceRow');
+    expect(source).toContain('isAppPushCategoryPreferenceRow as isCategoryPreferenceRow');
+    expect(source).toContain('isMessengerRoomPreferenceRow as isRoomPreferenceRow');
+    expect(source).not.toContain('function isGlobalPreferenceRow(');
+    expect(source).not.toContain('function isCategoryPreferenceRow(');
+    expect(source).not.toContain('function isRoomPreferenceRow(');
+    const directStart = source.indexOf('async function applyDirectMessageNotificationPreferences');
+    const directEnd = source.indexOf('function buildGeneralPushActorKey', directStart);
+    const directSource = source.slice(directStart, directEnd);
+    expect(directSource).toContain('parseQueryRows(globalResult.data, isGlobalPreferenceRow)');
+    expect(directSource).toContain('parseQueryRows(categoryResult.data, isCategoryPreferenceRow)');
+    expect(directSource).toContain('parseQueryRows(roomResult.data, isRoomPreferenceRow)');
+    expect(directSource).toContain('!hasUniquePreferenceActors(globalRows)');
+    expect(directSource).not.toContain('globalResult.data ?? []');
+    expect(directSource).not.toContain('categoryResult.data ?? []');
+    expect(directSource).not.toContain('roomResult.data ?? []');
+
+    const generalStart = source.indexOf('async function loadGeneralPushPreferenceEligibility');
+    const generalEnd = source.indexOf('async function applyGeneralPushPreferences', generalStart);
+    const generalSource = source.slice(generalStart, generalEnd);
+    expect(generalSource).toContain('const preferenceLookupInvalid = preferenceResults.some');
+    expect(generalSource).toContain('isRow: isGeneralPushStaffActorRow');
+    expect(generalSource).toContain('isRow: isGeneralPushFcActorRow');
+    expect(generalSource).toContain('!phoneSet.has(sanitize(row.phone))');
+    expect(generalSource).toContain('seenIds.has(row.id)');
+    expect(generalSource).toContain('parseQueryRows(globalResult.data, isGlobalPreferenceRow)');
+    expect(generalSource).toContain('parseQueryRows(categoryResult.data, isCategoryPreferenceRow)');
+    expect(generalSource).not.toContain('globalResult.data ?? []');
+    expect(generalSource).not.toContain('categoryResult.data ?? []');
+    expect(generalSource).not.toContain(".in('phone', Array.from(residentIds))");
+  });
+
   it('resolves manager-role designer tokens to their canonical FC preference actor', () => {
     expect(deviceTokens).toContain("role: designerCompany ? 'manager' as DeviceTokenRole : 'fc' as DeviceTokenRole");
     expect(preferences).toContain("role: isDesigner ? 'manager' : 'fc'");
@@ -81,7 +119,7 @@ describe('fc-notify general Expo preference enforcement', () => {
     expect(source).toContain(".select('id,phone,affiliation,signup_completed,is_manager_referral_shadow')");
     expect(source).toContain('parseDesignerCompanyNameFromAffiliation(row.affiliation)');
     expect(source).toMatch(
-      /addActors\(\s*'manager',[\s\S]*?designerFcResult[\s\S]*?is_manager_referral_shadow !== true/,
+      /addActors\(\s*'manager',[\s\S]*?designerFcRows[\s\S]*?is_manager_referral_shadow !== true/,
     );
     expect(source).toContain('selectSingleCanonicalPreferenceActor(candidates)');
   });

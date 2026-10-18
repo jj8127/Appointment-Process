@@ -39,6 +39,15 @@ function fail(code: string, message: string, status = 200) {
 
 type SessionPayload = AppSessionTokenPayload;
 
+function isRecommenderAffiliationRow(value: unknown): value is { affiliation: string | null } {
+  return value !== null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && ('affiliation' in value)
+    && ((value as { affiliation?: unknown }).affiliation === null
+      || typeof (value as { affiliation?: unknown }).affiliation === 'string');
+}
+
 async function readOptionalJsonBody(req: Request) {
   const raw = await req.text();
   if (!raw.trim()) {
@@ -193,7 +202,16 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
       .select('affiliation')
       .eq('id', recommenderFcId)
       .maybeSingle();
-    const aff = String(profileRes.data?.affiliation ?? '').trim();
+    if (profileRes.error) {
+      return fail('db_error', '추천인 정보를 불러오지 못했습니다.', 500);
+    }
+    if (profileRes.data === null) {
+      return fail('recommender_profile_missing', '추천인 정보를 찾을 수 없습니다.', 500);
+    }
+    if (!isRecommenderAffiliationRow(profileRes.data)) {
+      return fail('db_error', '추천인 정보 응답을 확인하지 못했습니다.', 500);
+    }
+    const aff = String(profileRes.data.affiliation ?? '').trim();
     if (aff) recommenderAffiliation = aff;
   }
 

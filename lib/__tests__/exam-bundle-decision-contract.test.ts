@@ -9,6 +9,10 @@ const migrationName =
   '20260724131931_exam_bundle_monthly_slot_and_decisions.sql';
 const typedNotificationMigrationName =
   '20260725004017_add_typed_notification_targets_and_receipts.sql';
+const accountDeleteLegacyChatPathMigrationName =
+  '20261013060002_filter_account_delete_legacy_chat_paths.sql';
+const messengerAttachmentMigrationName =
+  '20260725035711_add_private_messenger_attachments_v2.sql';
 
 const canonicalFunction = (source: string, functionName: string) => {
   const marker = `create or replace function public.${functionName}(`;
@@ -212,6 +216,12 @@ describe('exam bundle database contract', () => {
 
 describe('exam bundle client and admin source contract', () => {
   const migration = read(`supabase/migrations/${migrationName}`);
+  const accountDeleteLegacyChatPathMigration = read(
+    `supabase/migrations/${accountDeleteLegacyChatPathMigrationName}`,
+  );
+  const messengerAttachmentMigration = read(
+    `supabase/migrations/${messengerAttachmentMigrationName}`,
+  );
   const schema = read('supabase/schema.sql');
   const lifeApply = read('app/exam-apply.tsx');
   const nonlifeApply = read('app/exam-apply2.tsx');
@@ -248,9 +258,18 @@ describe('exam bundle client and admin source contract', () => {
   it('allows nonlife primary and third to be independently selected', () => {
     expect(nonlifeApply).toContain('const [wantsNonlife, setWantsNonlife]');
     expect(nonlifeApply).toContain('includesPrimaryExam: wantsNonlife');
-    expect(nonlifeApply).toContain('hasSelectedSubject: wantsNonlife || wantsThird');
+    expect(nonlifeApply.match(/hasSelectedSubject: wantsNonlife \|\| wantsThird/g)).toHaveLength(2);
+    expect(nonlifeApply).toContain("const roundId = selectedRoundId === 'undefined' ? null : selectedRoundId");
+    expect(nonlifeApply).toContain("const locationId = selectedLocationId === 'undefined' ? null : selectedLocationId");
     expect(nonlifeApply).toContain('손해보험 시험');
     expect(nonlifeApply).toContain('제3보험 시험');
+  });
+
+  it('keeps the native deadline picker platform guard identical across round admin flows', () => {
+    for (const source of [mobileLifeRoundAdmin, mobileNonlifeRoundAdmin]) {
+      expect(source).toContain("showDeadlinePicker && Platform.OS === 'android'");
+      expect(source).not.toContain("showDeadlinePicker && Platform.OS !== 'ios'");
+    }
   });
 
   it('uses service transitions instead of reachable registration table update/delete paths', () => {
@@ -372,12 +391,63 @@ describe('exam bundle client and admin source contract', () => {
       'detach_exam_registration_identity_for_account_deletion',
       'record_account_deletion_cleanup_attempt_v1',
       'list_account_deletion_cleanup_pending_v1',
-      'delete_account_core_transaction_v1',
     ]) {
       const migrationFunction = canonicalFunction(migration, functionName);
       const schemaFunction = canonicalFunction(schema, functionName);
       expect(migrationFunction).not.toBe('');
       expect(schemaFunction).toBe(migrationFunction);
+    }
+
+    const accountDeleteFunction = canonicalFunction(
+      accountDeleteLegacyChatPathMigration,
+      'delete_account_core_transaction_v1',
+    );
+    expect(accountDeleteFunction).not.toBe('');
+    expect(canonicalFunction(schema, 'delete_account_core_transaction_v1'))
+      .toBe(accountDeleteFunction);
+  });
+
+  it('excludes unowned legacy chat paths while preserving v2 trigger cleanup', () => {
+    const accountDeleteFunction = canonicalFunction(
+      accountDeleteLegacyChatPathMigration,
+      'delete_account_core_transaction_v1',
+    );
+    expect(accountDeleteFunction).not.toContain('array_agg(file_url)');
+    expect(accountDeleteFunction).toContain(
+      "'chat_file_urls', '[]'::jsonb",
+    );
+
+    for (const consumer of [
+      read('supabase/functions/delete-account/index.ts'),
+      read('supabase/functions/admin-action/index.ts'),
+      read('web/src/app/api/fc-delete/route.ts'),
+    ]) {
+      expect(consumer).not.toContain('extractChatUploadPath');
+      expect(consumer).not.toMatch(/from\(['"]chat-uploads['"]\)\.remove/);
+    }
+
+    const migratedV2CleanupTrigger = canonicalFunction(
+      messengerAttachmentMigration,
+      'queue_messenger_attachment_actor_cleanup_v2',
+    );
+    const v2CleanupTrigger = canonicalFunction(
+      schema,
+      'queue_messenger_attachment_actor_cleanup_v2',
+    );
+    expect(v2CleanupTrigger).toBe(migratedV2CleanupTrigger);
+    expect(v2CleanupTrigger).toContain(
+      'insert into public.messenger_attachment_cleanup_outbox',
+    );
+    expect(v2CleanupTrigger).toContain('storage_path = null');
+    expect(v2CleanupTrigger).toContain("status = 'tombstoned'");
+    for (const table of [
+      'fc_profiles',
+      'manager_accounts',
+      'admin_accounts',
+    ]) {
+      expect(schema).toMatch(new RegExp(
+        `before delete on public\\.${table}\\s+for each row execute function public\\.queue_messenger_attachment_actor_cleanup_v2\\(\\)`,
+      ));
     }
   });
 });

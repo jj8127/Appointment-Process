@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import {
   adminAssistedSignupSchema,
   firstAdminAssistedSignupError,
+  parseSignupReferralSearchResults,
   type SignupReferralSearchResult,
 } from '@/lib/admin-assisted-signup-contract';
 import { createAdminAssistedSignup } from '@/lib/admin-assisted-signup-server';
@@ -122,7 +123,8 @@ export async function GET(req: Request) {
     body: { query: query.slice(0, 40) },
   });
 
-  if (error || data?.ok !== true) {
+  const results = parseSignupReferralSearchResults(data?.results);
+  if (error || data?.ok !== true || !results) {
     logger.warn('[api/admin/assisted-signup] referral search failed', {
       code: typeof error === 'object' && error !== null && 'name' in error
         ? String(error.name)
@@ -134,7 +136,7 @@ export async function GET(req: Request) {
     );
   }
 
-  return NextResponse.json({ ok: true, results: data.results ?? [] });
+  return NextResponse.json({ ok: true, results });
 }
 
 export async function POST(req: Request) {

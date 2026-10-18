@@ -66,7 +66,6 @@ test('accepts every reviewed residual-closure event and reason pair', () => {
     { event: 'complete_assisted_password.rpc', reason: 'challenge_rejected' },
     { event: 'complete_assisted_password.rpc', reason: 'completion_failed' },
     { event: 'fc_notify.admin_web_push', reason: 'request_failed' },
-    { event: 'fc_notify.attachment_cleanup', reason: 'storage_remove_failed' },
     { event: 'fc_notify.notification_insert', reason: 'insert_failed' },
     { event: 'fc_notify.device_token_load', reason: 'query_failed' },
     { event: 'user_presence.rpc_fallback', reason: 'get_failed' },

@@ -8,6 +8,9 @@ import { goBackOrReplace } from '../back-navigation';
 import { INSURANCE_HOME_ROUTE } from '../service-home';
 import { normalizePhone, validatePassword, validatePhone, validateRequired } from '../validation';
 import { resolvePlatformAuthRoute } from '../session-landing';
+import { parseLoginSuccessResponse } from '../login-response-contract';
+import { parseInboxListPayload } from '../inbox-list-contract';
+import { buildExamPhoneCandidates, normalizeExamSingle } from '../exam-display';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 const root = join(__dirname, '../..');
@@ -215,10 +218,10 @@ function homeReadContext(overrides: Record<string, unknown> = {}) {
     requestBoardRefreshInFlightRef: { current: null as Promise<void> | null }, lastRequestBoardRefreshCompletedAtRef: { current: 0 },
     shouldSkipRequestBoardPassiveRefresh: () => false, role: 'fc', requestBoardRole: 'designer', notificationInboxResidentId: 'synthetic', includeRequestBoardFcInbox: false,
     beginHomeRead: () => () => true, accountScope: { current: controlledScope() }, sessionReadKey: 'synthetic-session',
-    isRequestBoardDesigner: true, hasRequestBoardFcReadAccess: false, REQUEST_BOARD_CATEGORY_PREFIX: 'request_board_',
-    invokeFcNotify: jest.fn(async () => ({ data: { ok: true, notifications: [] }, error: null })),
+    isRequestBoardDesigner: true, hasRequestBoardFcReadAccess: false, REQUEST_BOARD_CATEGORY_PREFIX: 'request_board_', parseInboxListPayload,
+    invokeFcNotify: jest.fn(async () => ({ data: { ok: true, notifications: [], notices: [] }, error: null })),
     fetchMobileUnreadNotificationCountOrThrow: jest.fn(async () => 0), ensureRequestBoardSession: jest.fn(async () => ({ ok: true })),
-    rbGetRequestList: jest.fn(async () => []), computeRequestBoardHomeStats: () => ({ total: 0 }),
+    rbGetRequestListOrThrow: jest.fn(async () => []), computeRequestBoardHomeStats: () => ({ total: 0 }),
     setRequestBoardAccessError: jest.fn(), setNotifications: jest.fn(), setUnreadNotifCount: jest.fn(), setUnreadNotifVerified: jest.fn(),
     setDesignerRequests: jest.fn(), setReqStats: jest.fn(), setLoading: jest.fn(), setRefreshing: jest.fn(),
     logger: { warn: jest.fn() }, toRequestBoardSessionErrorMessage: () => 'synthetic error', ...overrides,
@@ -230,7 +233,7 @@ describe('C03 / C04 / D06 / D08 request-board home reads', () => {
     const context = homeReadContext({ invokeFcNotify: async () => ({ data: { ok: true, notifications }, error: null }) });
     await routeHandler('app/request-board.tsx', 'fetchData', context)({ force: true });
     expect(context.setNotifications).not.toHaveBeenCalled();
-    expect(context.setRequestBoardAccessError).toHaveBeenLastCalledWith(expect.stringContaining('알림을 불러오지 못'));
+    expect(context.setRequestBoardAccessError).toHaveBeenLastCalledWith(expect.stringContaining('최근 활동을 불러오지 못'));
   });
 
   it('accepts an authoritative empty inbox after a failed read and clears its warning', async () => {
@@ -243,7 +246,7 @@ describe('C03 / C04 / D06 / D08 request-board home reads', () => {
   it('does not apply the original A home result after A to B to A', async () => {
     const scope = createReadScope(); scope.setScope('A');
     const pending = deferred<[]>();
-    const context = homeReadContext({ accountScope: { current: scope }, sessionReadKey: 'A', beginHomeRead: actualBeginAttempt(), rbGetRequestList: () => pending.promise });
+    const context = homeReadContext({ accountScope: { current: scope }, sessionReadKey: 'A', beginHomeRead: actualBeginAttempt(), rbGetRequestListOrThrow: () => pending.promise });
     const first = routeHandler('app/request-board.tsx', 'fetchData', context)({ force: true });
     await Promise.resolve(); await Promise.resolve();
     scope.setScope('B'); scope.setScope('A');
@@ -257,7 +260,7 @@ describe('C03 / C04 / D06 / D08 request-board home reads', () => {
     const inbox = deferred<{ data: { ok: boolean; notifications: [] }; error: null }>();
     const count = deferred<number>();
     const requests = deferred<[]>();
-    const context = homeReadContext({ accountScope: { current: controlledScope(() => current) }, invokeFcNotify: () => inbox.promise, fetchMobileUnreadNotificationCountOrThrow: () => count.promise, rbGetRequestList: () => requests.promise });
+    const context = homeReadContext({ accountScope: { current: controlledScope(() => current) }, invokeFcNotify: () => inbox.promise, fetchMobileUnreadNotificationCountOrThrow: () => count.promise, rbGetRequestListOrThrow: () => requests.promise });
     const first = routeHandler('app/request-board.tsx', 'fetchData', context)({ force: true });
     await Promise.resolve();
     current = false;
@@ -272,7 +275,7 @@ describe('C03 / C04 / D06 / D08 request-board home reads', () => {
 
   it('preserves successful counts and requests when their refresh fails', async () => {
     const context = homeReadContext({
-      rbGetRequestList: jest.fn(async () => { throw new Error('synthetic 503'); }),
+      rbGetRequestListOrThrow: jest.fn(async () => { throw new Error('synthetic 503'); }),
       fetchMobileUnreadNotificationCountOrThrow: jest.fn(async () => { throw new Error('synthetic 503'); }),
     });
     await routeHandler('app/request-board.tsx', 'fetchData', context)({ force: true });
@@ -285,10 +288,10 @@ describe('C03 / C04 / D06 / D08 request-board home reads', () => {
 
   it('coalesces overlapping home refreshes into one request list read', async () => {
     const pending = deferred<[]>();
-    const context = homeReadContext({ rbGetRequestList: jest.fn(() => pending.promise) });
+    const context = homeReadContext({ rbGetRequestListOrThrow: jest.fn(() => pending.promise) });
     const read = routeHandler('app/request-board.tsx', 'fetchData', context);
     const first = read({ force: true }); const second = read({ force: true });
-    await Promise.resolve(); expect(context.rbGetRequestList).toHaveBeenCalledTimes(1);
+    await Promise.resolve(); expect(context.rbGetRequestListOrThrow).toHaveBeenCalledTimes(1);
     pending.resolve([]); await Promise.all([first, second]);
   });
 });
@@ -662,12 +665,20 @@ describe('C01 / C02 / D01 / D08 actual mobile notice creation', () => {
 
 describe('mobile route regressions moved from the Edge fixture', () => {
   it('exam pending counts use the latest application status', async () => {
-    const rows = [['a', 'applied', false], ['b', 'cancelled', false], ['c', 'rejected', false], ['d', 'confirmed', true], ['e', 'applied', false], ['e', 'cancelled', false]]
+    const phones = ['01000000001', '01000000002', '01000000003', '01000000004', '01000000005'];
+    const rows = [[phones[0], 'applied', false], [phones[1], 'cancelled', false], [phones[2], 'rejected', false], [phones[3], 'confirmed', true], [phones[4], 'applied', false], [phones[4], 'cancelled', false]]
       .map(([resident_id, status, is_confirmed]) => ({ resident_id, status, is_confirmed, exam_rounds: { exam_type: 'life' } }));
-    const read = routeHandler('app/index.tsx', 'fetchExamStats', { supabase: { from(table: string) {
-      return table === 'exam_registrations' ? { select() { return this; }, order(field: string) { return field === 'created_at' ? Promise.resolve({ data: rows, error: null }) : this; } }
-        : { select() { return this; }, in: async () => ({ data: ['a', 'b', 'c', 'd', 'e'].map(phone => ({ phone })), error: null }) };
-    } } });
+    const collectSupabaseRows = async ({ fetchPage }: { fetchPage: (from: number, to: number) => Promise<{ data: unknown; error: unknown }> }) => {
+      const result = await fetchPage(0, 499); if (result.error) throw result.error; return result.data;
+    };
+    const read = routeHandler('app/index.tsx', 'fetchExamStats', {
+      buildExamPhoneCandidates, normalizeExamSingle, collectSupabaseRows, chunkSupabaseFilterValues: (values: unknown[]) => [values],
+      isExamStatsRegistrationRow: () => true, isExamStatsProfileRow: () => true,
+      supabase: { from(table: string) {
+        return table === 'exam_registrations' ? { select() { return this; }, order() { return this; }, range: async () => ({ data: rows, error: null }) }
+          : { select() { return this; }, in() { return this; }, order() { return this; }, range: async () => ({ data: phones.map((phone, index) => ({ id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`, phone })), error: null }) };
+      } },
+    });
     const result = await read() as { lifeTotal: number; lifePending: number; nonlifePending: number };
     expect(result).toMatchObject({ lifeTotal: 5, lifePending: 1, nonlifePending: 0 });
   });
@@ -760,6 +771,7 @@ describe('mobile route regressions moved from the Edge fixture', () => {
     await routeHandler('app/docs-upload.tsx', 'loadData', {
       beginRead: () => () => true, hasInvalidUserRoute: false, isAdmin: true, routeUserId: 'synthetic-profile', residentId: '00000000001', supabase: query,
       setProfileLoadState: jest.fn(), setFc: jest.fn(), setDocs: jest.fn(), setCleanupStatusError: jest.fn(), setCleanupPending, invokeAdminAction,
+      loadAllDocuments: async () => [], Alert: { alert: jest.fn() },
     })();
     expect(setCleanupPending).toHaveBeenCalledWith(true); expect(invokeAdminAction).toHaveBeenCalledWith('00000000001', 'getDocumentCleanupStatus', { fcId: 'synthetic-profile' });
   });
@@ -929,25 +941,25 @@ describe('common member signup and login use isolated verified authentication', 
   });
 
   it.each([
-    ['fc', 'fc', false, null], ['admin', 'admin', false, 'admin'], ['manager', 'admin', true, null],
-  ])('shared legacy session install preserves %s permissions and tokens', async (role, expectedRole, readOnly, staffType) => {
+    ['fc', 'fc', false, null, 'fc'], ['admin', 'admin', false, 'admin', null], ['manager', 'admin', true, null, 'fc'],
+  ])('shared legacy session install preserves %s permissions and tokens', async (role, expectedRole, readOnly, staffType, requestBoardRole) => {
     const context = {
       clearRequestBoardState: jest.fn(async () => undefined), setAppSessionToken: jest.fn(async () => undefined),
-      setBridgeToken: jest.fn(async () => undefined), loginAs: jest.fn(), normalizeStaffType: (value: unknown) => value ?? null,
+      setBridgeToken: jest.fn(async () => undefined), loginAs: jest.fn(), parseLoginSuccessResponse,
     };
     const result = await routeHandler('hooks/use-login.ts', 'acceptLoginResponse', context)({
-      ok: true, role, staffType, residentId: '01000000000', displayName: '가상 계정', appSessionToken: 'fictional-fc-token', requestBoardBridgeToken: 'fictional-bridge-token', requestBoardRole: 'fc',
+      ok: true, role, staffType, residentId: '01000000000', displayName: '가상 계정', appSessionToken: 'fictional-fc-token', requestBoardBridgeToken: 'fictional-bridge-token', requestBoardRole,
     });
     expect(result).toBe(expectedRole);
     expect(context.setAppSessionToken).toHaveBeenCalledWith('fictional-fc-token');
     expect(context.setBridgeToken).toHaveBeenCalledWith('fictional-bridge-token');
-    expect(context.loginAs).toHaveBeenCalledWith(expectedRole, '01000000000', '가상 계정', staffType, readOnly, false, 'fc', 'fictional-fc-token');
+    expect(context.loginAs).toHaveBeenCalledWith(expectedRole, '01000000000', '가상 계정', staffType, readOnly, false, requestBoardRole, 'fictional-fc-token');
   });
 
   it('a consumer role cannot be accepted as a legacy FC login response', async () => {
-    const context = { clearRequestBoardState: jest.fn(), setAppSessionToken: jest.fn(), setBridgeToken: jest.fn(), loginAs: jest.fn() };
+    const context = { clearRequestBoardState: jest.fn(), setAppSessionToken: jest.fn(), setBridgeToken: jest.fn(), loginAs: jest.fn(), parseLoginSuccessResponse };
     await expect(routeHandler('hooks/use-login.ts', 'acceptLoginResponse', context)({ ok: true, role: 'member', appSessionToken: 'fictional-consumer-token' }))
-      .rejects.toThrow('로그인 결과');
+      .rejects.toThrow('로그인 응답');
     expect(context.loginAs).not.toHaveBeenCalled();
     expect(context.setAppSessionToken).not.toHaveBeenCalled();
   });

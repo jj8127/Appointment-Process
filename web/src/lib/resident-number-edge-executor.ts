@@ -19,6 +19,7 @@ type ResidentNumberEdgeFallbackRequestBuilder = (options: {
 type ResidentNumberEdgeFallbackResponseParser = (options: {
   responseOk: boolean;
   data: unknown;
+  expectedFcIds: string[];
 }) => {
   ok: true;
   residentNumbers: ResidentNumberReadResult['residentNumbers'];
@@ -82,6 +83,7 @@ export async function readResidentNumbersFromEdgeFallback({
   const parsed = parseResponse({
     responseOk: resp.ok,
     data,
+    expectedFcIds: fcIds,
   });
 
   if (!parsed.ok) {

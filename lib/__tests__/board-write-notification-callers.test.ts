@@ -80,14 +80,27 @@ describe('board write notification callers', () => {
     });
   });
 
-  it('keeps older successful responses compatible and maps warnings to safe UI copy', async () => {
+  it('requires the explicit durable update acknowledgement and maps warnings to safe UI copy', async () => {
+    const deps = {
+      getStoredAppSessionToken: async () => 'signed-session',
+      invoke: async () => ({
+        data: { ok: true, data: null },
+        error: null,
+      }),
+    };
+    await expect(invokeBoardWriteWithDeps<null>(
+      'board-update',
+      { postId: 'post-id' },
+      deps,
+    )).rejects.toMatchObject({ code: 'invalid_response', status: 502 });
+
     const result = await invokeBoardWriteWithDeps<null>(
       'board-update',
       { postId: 'post-id' },
       {
-        getStoredAppSessionToken: async () => 'signed-session',
+        ...deps,
         invoke: async () => ({
-          data: { ok: true, data: null },
+          data: { ok: true, saved: true, data: null },
           error: null,
         }),
       },

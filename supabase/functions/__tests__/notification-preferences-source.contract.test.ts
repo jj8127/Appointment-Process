@@ -45,7 +45,7 @@ describe('notification preference privileged boundaries', () => {
     expect(preferences).toContain("body.action === 'leave_room'");
     expect(preferences).toContain("supabase.rpc('patch_messenger_room_preference_v1'");
     expect(preferences).toContain('new Date(row.updated_at).toISOString()');
-    expect(preferences).toContain(".select('room_key,muted,pinned_at,left_at,updated_at')");
+    expect(preferences).toContain(".select('room_key,muted,pinned_at,left_at,updated_at,actor_id,actor_role')");
     expect(hubActionsMigration).toContain('add column if not exists pinned_at timestamptz');
     expect(hubActionsMigration).toContain('add column if not exists left_at timestamptz');
     expect(hubActionsMigration).not.toMatch(/delete from|drop table/i);
@@ -54,6 +54,30 @@ describe('notification preference privileged boundaries', () => {
     expect(atomicPatchMigration).toContain("when p_action = 'set_room_pinned' then excluded.pinned_at");
     expect(atomicPatchMigration).toContain('to service_role');
     expect(atomicPatchMigration).toMatch(/revoke all[\s\S]*from public, anon, authenticated/i);
+  });
+
+  it('rejects malformed read successes and confirms each requested write', () => {
+    expect(preferences).toContain('parseQueryRows(categoryResult.data, isCategoryPreferenceRow)');
+    expect(preferences).toContain('parseQueryRows(roomResult.data, isRoomPreferenceRow)');
+    expect(preferences).toContain('collectSupabaseRows<RoomPreferenceRow>({');
+    expect(preferences).toContain("queryName: 'notification_preferences_room_preferences'");
+    expect(preferences).toMatch(/\.order\('updated_at', \{ ascending: false \}\)[\s\S]*\.order\('room_key', \{ ascending: true \}\)[\s\S]*\.range\(from, to\)/);
+    expect(preferences).toContain('rowKey: (row) => row.room_key');
+    expect(preferences).toContain('matchesAppPreferenceActor(globalRow, actor)');
+    expect(preferences).toContain('isAppPushPreferenceRow(value)');
+    expect(preferences).toContain('isAppPushCategoryPreferenceRow(value)');
+    expect(preferences).toContain('isMessengerRoomPreferenceRow(value)');
+    expect(preferences).not.toContain('function isExactPreferenceActor(');
+    expect(preferences).toContain('globalPushEnabled: globalRow?.enabled ?? true');
+    expect(preferences).not.toContain('categoryResult.data ?? []');
+    expect(preferences).not.toContain('roomResult.data ?? []');
+    expect(preferences).toContain(".select('enabled,updated_at,actor_id,actor_role')");
+    expect(preferences).toContain(".select('category,enabled,updated_at,actor_id,actor_role')");
+    expect(preferences).toContain('sameTimestamp(data.updated_at, updatedAt)');
+    expect(preferences).toContain('const receiptMatchesAction = isRoomPreferenceRow(receipt)');
+    expect(preferences).toContain('sameTimestamp(receipt.updated_at, updatedAt)');
+    expect(preferences).toContain('data.phone !== phone');
+    expect(preferences).toContain("value.staff_type === 'admin' || value.staff_type === 'developer'");
   });
 
   it('keeps all preference tables service-role-only with four frozen categories', () => {

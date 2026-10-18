@@ -55,6 +55,8 @@ class FakeQuery implements PromiseLike<QueryResult> {
     column: string;
     value: unknown;
   }> = [];
+  private readonly orderings: Array<{ column: string; ascending: boolean }> = [];
+  private page: { from: number; to: number } | null = null;
 
   constructor(
     private readonly owner: FakeSupabase,
@@ -79,12 +81,27 @@ class FakeQuery implements PromiseLike<QueryResult> {
     if (this.owner.tableErrors[this.table]) {
       return { data: null, error: this.owner.tableErrors[this.table]! };
     }
-    return {
-      data: (this.owner.rows[this.table] ?? []).filter((row) =>
-        matches(row, this.filters)
-      ),
-      error: null,
-    };
+    if (Object.prototype.hasOwnProperty.call(this.owner.tableDataOverrides, this.table)) {
+      return { data: this.owner.tableDataOverrides[this.table], error: null };
+    }
+    let rows = (this.owner.rows[this.table] ?? []).filter((row) =>
+      matches(row, this.filters)
+    );
+    if (this.orderings.length > 0) {
+      rows = [...rows].sort((left, right) => {
+        for (const ordering of this.orderings) {
+          const leftValue = left[ordering.column];
+          const rightValue = right[ordering.column];
+          const compared = typeof leftValue === 'number' && typeof rightValue === 'number'
+            ? leftValue - rightValue
+            : String(leftValue ?? '').localeCompare(String(rightValue ?? ''));
+          if (compared !== 0) return ordering.ascending ? compared : -compared;
+        }
+        return 0;
+      });
+    }
+    if (this.page) rows = rows.slice(this.page.from, this.page.to + 1);
+    return { data: rows, error: null };
   }
 
   async maybeSingle(): Promise<QueryResult> {
@@ -93,17 +110,17 @@ class FakeQuery implements PromiseLike<QueryResult> {
     return { ...result, data: rows[0] ?? null };
   }
 
-  async order(
+  order(
     column: string,
     options?: { ascending?: boolean },
-  ): Promise<QueryResult> {
-    const result = this.result();
-    const direction = options?.ascending === false ? -1 : 1;
-    const rows = Array.isArray(result.data) ? [...result.data] as Row[] : [];
-    rows.sort((left, right) =>
-      direction * (Number(left[column] ?? 0) - Number(right[column] ?? 0))
-    );
-    return { ...result, data: rows };
+  ) {
+    this.orderings.push({ column, ascending: options?.ascending !== false });
+    return this;
+  }
+
+  range(from: number, to: number) {
+    this.page = { from, to };
+    return this;
   }
 
   then<TResult1 = QueryResult, TResult2 = never>(
@@ -119,6 +136,7 @@ class FakeQuery implements PromiseLike<QueryResult> {
 class FakeSupabase {
   readonly rows: Record<string, Row[]> = {};
   readonly tableErrors: Record<string, Row | undefined> = {};
+  readonly tableDataOverrides: Record<string, unknown> = {};
   readonly rpcHandlers: Record<string, RpcHandler> = {};
   readonly rpcCalls: Array<{ name: string; args: Row }> = [];
   readonly storageDownloads: Array<{ bucket: string; path: string }> = [];
@@ -218,7 +236,7 @@ Deno.test("finalization rejects malformed actor-bound intent references before q
   assertEquals(Object.keys(fake.rows), []);
 });
 
-Deno.test("committed idempotent replay returns message ids without storage or validation calls", async () => {
+Deno.test("committed idempotent replay returns the batch without storage or validation calls", async () => {
   const fake = new FakeSupabase();
   fake.rows.messenger_attachment_delivery_batches = [pendingBatch({
     status: "committed",
@@ -236,7 +254,6 @@ Deno.test("committed idempotent replay returns message ids without storage or va
   assertEquals(result, {
     batchId: BATCH_ID,
     replayed: true,
-    committedMessageIds: [ATTACHMENT_ID],
     inspections: [],
   });
   assertEquals(fake.storageDownloads, []);
@@ -415,6 +432,27 @@ Deno.test("finalization fails closed for idempotency, expiry, missing bytes and 
   assertEquals(mimeError.status, 400);
 });
 
+Deno.test("finalization rejects a null successful upload-intent list", async () => {
+  const fake = new FakeSupabase();
+  fake.rows.messenger_attachment_delivery_batches = [pendingBatch()];
+  fake.tableDataOverrides.messenger_attachment_upload_intents = null;
+
+  const error = await assertRejects(
+    () =>
+      finalizeMessengerAttachmentBatch({
+        supabase: asClient(fake),
+        actor: { id: ACTOR_ID, role: "fc" },
+        deliveryKey: DELIVERY_KEY,
+        payloadFingerprint: FINGERPRINT,
+        intentIds: [INTENT_ID],
+      }),
+    MessengerAttachmentServiceError,
+    "attachment_database_unavailable",
+  );
+  assertEquals(error.status, 503);
+  assertEquals(fake.storageDownloads, []);
+});
+
 Deno.test("attachment listing is batch-bound, stable-order and excludes tombstoned objects", async () => {
   const fake = new FakeSupabase();
   const secondBatch = "00000000-0000-4000-8000-000000000202";
@@ -484,6 +522,50 @@ Deno.test("attachment listing is batch-bound, stable-order and excludes tombston
   assertEquals(result.has(secondBatch), false);
 });
 
+Deno.test("attachment listing rejects a null successful object list", async () => {
+  const fake = new FakeSupabase();
+  fake.tableDataOverrides.messenger_attachment_objects = null;
+
+  const error = await assertRejects(
+    () =>
+      listMessengerAttachmentsByBatchIds({
+        supabase: asClient(fake),
+        batchIds: [BATCH_ID],
+      }),
+    MessengerAttachmentServiceError,
+    "attachment_database_unavailable",
+  );
+  assertEquals(error.status, 503);
+});
+
+Deno.test("attachment listing chunks batch filters and pages every stable object row", async () => {
+  const fake = new FakeSupabase();
+  const batchIds = Array.from({ length: 101 }, (_, index) =>
+    `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`
+  );
+  fake.rows.messenger_attachment_objects = batchIds.flatMap((batchId, batchIndex) =>
+    Array.from({ length: 10 }, (_, sortOrder) => ({
+      id: `00000000-0000-4001-8000-${String(batchIndex * 10 + sortOrder + 1).padStart(12, "0")}`,
+      batch_id: batchId,
+      sort_order: sortOrder,
+      original_name: `${batchIndex}-${sortOrder}.txt`,
+      mime_type: "text/plain",
+      byte_size: sortOrder,
+      sha256: ((batchIndex + sortOrder) % 16).toString(16).repeat(64),
+      status: "active",
+    }))
+  );
+
+  const result = await listMessengerAttachmentsByBatchIds({
+    supabase: asClient(fake),
+    batchIds,
+  });
+
+  assertEquals(result.size, 101);
+  assertEquals(result.get(batchIds[0])?.length, 10);
+  assertEquals(result.get(batchIds[100])?.[9]?.name, "100-9.txt");
+});
+
 Deno.test("download signing is private, short-lived and uses the original filename", async () => {
   const fake = new FakeSupabase();
   fake.rows.messenger_attachment_objects = [{
@@ -534,6 +616,8 @@ Deno.test("cleanup failure is operational-only, while claimed jobs are completed
       supabase: asClient(unavailable),
     }),
     {
+      claimFailed: true,
+      completionFailed: false,
       claimed: 0,
       removed: 0,
       requeued: 0,
@@ -577,6 +661,8 @@ Deno.test("cleanup failure is operational-only, while claimed jobs are completed
       batchId: BATCH_ID,
     }),
     {
+      claimFailed: false,
+      completionFailed: false,
       claimed: 3,
       removed: 1,
       requeued: 1,
@@ -587,6 +673,78 @@ Deno.test("cleanup failure is operational-only, while claimed jobs are completed
     name: "claim_messenger_attachment_cleanup_v2",
     args: { p_limit: 100, p_batch_id: BATCH_ID },
   });
+});
+
+Deno.test("cleanup completion RPC errors and malformed statuses remain observable", async () => {
+  for (const completion of [
+    { data: null, error: { message: "completion unavailable" } },
+    { data: { status: "unknown" }, error: null },
+    { data: { status: "pending" }, error: null },
+  ]) {
+    const fake = new FakeSupabase();
+    fake.rpcHandlers.claim_messenger_attachment_cleanup_v2 = () => ({
+      data: [{
+        job_id: JOB_IDS[0],
+        bucket_id: MESSENGER_ATTACHMENT_BUCKET,
+        storage_path: "cleanup/0",
+      }],
+      error: null,
+    });
+    fake.rpcHandlers.complete_messenger_attachment_cleanup_v2 = () => completion;
+
+    assertEquals(
+      await drainMessengerAttachmentCleanup({
+        supabase: asClient(fake),
+      }),
+      {
+        claimFailed: false,
+        completionFailed: true,
+        claimed: 1,
+        removed: 0,
+        requeued: 0,
+        exhausted: 0,
+      },
+    );
+  }
+});
+
+Deno.test("cleanup rejects malformed or duplicate claim receipts before processing jobs", async () => {
+  const validJob = {
+    job_id: JOB_IDS[0],
+    bucket_id: MESSENGER_ATTACHMENT_BUCKET,
+    storage_path: "cleanup/0",
+  };
+  for (const data of [
+    null,
+    { jobs: [] },
+    [validJob, { ...validJob, job_id: "invalid" }],
+    [validJob, validJob],
+  ]) {
+    const fake = new FakeSupabase();
+    fake.rpcHandlers.claim_messenger_attachment_cleanup_v2 = () => ({
+      data,
+      error: null,
+    });
+
+    assertEquals(
+      await drainMessengerAttachmentCleanup({ supabase: asClient(fake) }),
+      {
+        claimFailed: true,
+        completionFailed: false,
+        claimed: 0,
+        removed: 0,
+        requeued: 0,
+        exhausted: 0,
+      },
+    );
+    assertEquals(fake.removalCalls, []);
+    assertEquals(
+      fake.rpcCalls.some((call) =>
+        call.name === "complete_messenger_attachment_cleanup_v2"
+      ),
+      false,
+    );
+  }
 });
 
 Deno.test("RPC error mapping uses intentional 400/403/404/409/410/429/503 semantics", () => {

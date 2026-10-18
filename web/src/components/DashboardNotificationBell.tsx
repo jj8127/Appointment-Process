@@ -1,7 +1,12 @@
 'use client';
 
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import {
+  isInboxNotificationPayload,
+  type InboxNotificationPayload,
+} from '@/lib/inbox-notification-contract';
 import { QueryReadError } from '@/lib/query-read-error';
+import { requireMutationSuccess } from '@/lib/user-intent-policy';
 import { notifications } from '@mantine/notifications';
 
 import type { StaffType } from '@/lib/staff-identity';
@@ -35,28 +40,24 @@ type DashboardNotificationBellProps = {
   staffType?: StaffType;
 };
 
-type InboxNotificationPayload = {
-  id: string;
-  title: string;
-  body: string;
-  category?: string | null;
-  target?: unknown;
-  target_url?: string | null;
-  created_at?: string | null;
-  read_at?: string | null;
-  dismissed_at?: string | null;
-};
-
 type InboxListResponse = {
   ok?: boolean;
-  message?: string;
   notifications?: InboxNotificationPayload[];
 };
 
 type InboxProxyResponse = {
   ok?: boolean;
-  data?: InboxListResponse;
+  data?: unknown;
   error?: string;
+};
+
+type InboxMarkAllReadResponse = {
+  ok: true;
+  authorized: true;
+  changed: boolean;
+  state: 'read' | 'already_read';
+  updated: number;
+  matched: number;
 };
 
 type HeaderNotificationItem = {
@@ -70,9 +71,6 @@ type HeaderNotificationItem = {
 };
 
 const LIST_LIMIT = 80;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 const formatCreatedAt = (value: string | null): string => {
   if (!value) return '';
   const date = new Date(value);
@@ -104,7 +102,11 @@ const categoryLabel = (target: NotificationTargetV1 | null, fallback: string) =>
   }
 };
 
-async function invokeInbox(body: Record<string, unknown>) {
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+);
+
+async function invokeInboxRequest(body: Record<string, unknown>): Promise<unknown> {
   const response = await fetch('/api/fc-notify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -113,10 +115,64 @@ async function invokeInbox(body: Record<string, unknown>) {
     body: JSON.stringify(body),
   });
   const payload = (await response.json().catch(() => null)) as InboxProxyResponse | null;
-  if (!response.ok || !payload?.ok || !payload.data?.ok) {
+  if (!response.ok || !payload?.ok || !isRecord(payload.data)) {
     throw new QueryReadError(response.status);
   }
   return payload.data;
+}
+
+async function invokeInboxList(body: Record<string, unknown>): Promise<InboxNotificationPayload[]> {
+  const data = await invokeInboxRequest(body) as InboxListResponse;
+  if (data.ok !== true
+      || !Array.isArray(data.notifications)
+      || !data.notifications.every(isInboxNotificationPayload)) {
+    throw new QueryReadError();
+  }
+  return data.notifications;
+}
+
+function requireInboxUnreadCount(value: unknown): number {
+  if (
+    !isRecord(value)
+    || value.ok !== true
+    || !Number.isSafeInteger(value.count)
+    || Number(value.count) < 0
+  ) throw new QueryReadError();
+  return Number(value.count);
+}
+
+function requireInboxMarkAllReadSuccess(
+  value: unknown,
+): asserts value is InboxMarkAllReadResponse {
+  requireMutationSuccess(value);
+  const updated = value.updated;
+  const matched = value.matched;
+  const changed = value.changed;
+  const state = value.state;
+  if (
+    value.authorized !== true
+    || typeof changed !== 'boolean'
+    || (state !== 'read' && state !== 'already_read')
+    || typeof updated !== 'number'
+    || !Number.isSafeInteger(updated)
+    || updated < 0
+    || !Number.isSafeInteger(matched)
+    || Number(matched) < 0
+    || Number(updated) > Number(matched)
+    || (changed ? state !== 'read' || updated === 0 : state !== 'already_read' || updated !== 0)
+  ) {
+    throw new Error('읽음 처리 결과를 확인하지 못했습니다. 상태를 확인한 뒤 다시 시도해주세요.');
+  }
+}
+
+async function invokeInboxUnreadCount(body: Record<string, unknown>): Promise<number> {
+  return requireInboxUnreadCount(await invokeInboxRequest(body));
+}
+
+async function invokeInboxMarkAllRead(): Promise<InboxMarkAllReadResponse> {
+  const data = await invokeInboxRequest({ type: 'inbox_mark_all_read' });
+  requireInboxMarkAllReadSuccess(data);
+  return data;
 }
 
 export function DashboardNotificationBell({
@@ -127,28 +183,33 @@ export function DashboardNotificationBell({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [opened, setOpened] = useState(false);
-  const queryKey = useMemo(
-    () => ['dashboard-header-notifications-v1', role, residentId, staffType] as const,
+  const listQueryKey = useMemo(
+    () => ['dashboard-header-notifications-v2', 'list', role, residentId, staffType] as const,
+    [residentId, role, staffType],
+  );
+  const countQueryKey = useMemo(
+    () => ['dashboard-header-notifications-v2', 'unread-count', role, residentId, staffType] as const,
     [residentId, role, staffType],
   );
   const isPersonalAdminInbox = role === 'manager' || staffType === 'developer';
+  const inboxRole = role === 'fc' ? 'fc' : 'admin';
+  const inboxResidentId = inboxRole === 'fc' || isPersonalAdminInbox
+    ? residentId.replace(/\D/g, '')
+    : null;
 
-  const { data: items = [], isLoading, isRefetching, error: inboxError, isSuccess, refetch } = useQuery({
-    queryKey,
+  const listQuery = useQuery({
+    queryKey: listQueryKey,
     refetchInterval: 30_000,
     queryFn: async (): Promise<HeaderNotificationItem[]> => {
-      const inboxRole = role === 'fc' ? 'fc' : 'admin';
-      const inbox = await invokeInbox({
+      const notifications = await invokeInboxList({
         type: 'inbox_list',
         role: inboxRole,
-        resident_id: inboxRole === 'fc' || isPersonalAdminInbox
-          ? residentId.replace(/\D/g, '')
-          : null,
+        resident_id: inboxResidentId,
         limit: LIST_LIMIT,
       });
 
-      return (inbox.notifications ?? [])
-        .filter((item) => !item.dismissed_at && UUID_PATTERN.test(String(item.id ?? '')))
+      return notifications
+        .filter((item) => !item.dismissed_at)
         .map((item) => ({
           id: item.id,
           title: redactSensitiveText(item.title, '알림'),
@@ -163,20 +224,35 @@ export function DashboardNotificationBell({
         );
     },
   });
+  const countQuery = useQuery({
+    queryKey: countQueryKey,
+    refetchInterval: 30_000,
+    queryFn: () => invokeInboxUnreadCount({
+      type: 'inbox_unread_count',
+      role: inboxRole,
+      resident_id: inboxResidentId,
+    }),
+  });
+  const items = listQuery.data ?? [];
+  const unreadCount = countQuery.data ?? 0;
+  const inboxError = listQuery.error ?? countQuery.error;
+  const isLoading = listQuery.isLoading || countQuery.isLoading;
+  const isRefetching = listQuery.isRefetching || countQuery.isRefetching;
+  const isSuccess = listQuery.isSuccess && countQuery.isSuccess;
+  const refetch = async () => {
+    await Promise.all([listQuery.refetch(), countQuery.refetch()]);
+  };
 
   const markAllMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      if (ids.length === 0) return;
-      await invokeInbox({ type: 'inbox_mark_read', notification_ids: ids });
-    },
+    mutationFn: invokeInboxMarkAllRead,
     onError: () => notifications.show({ title: '읽음 처리 실패', message: '알림을 읽음으로 저장하지 못했습니다. 다시 시도해주세요.', color: 'red' }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: listQueryKey }),
+        queryClient.invalidateQueries({ queryKey: countQueryKey }),
+      ]);
     },
   });
-
-  const unreadIds = items.filter((item) => !item.readAt).map((item) => item.id);
-  const unreadCount = unreadIds.length;
 
   const handleOpen = (item: HeaderNotificationItem) => {
     setOpened(false);
@@ -193,8 +269,8 @@ export function DashboardNotificationBell({
     <Menu opened={opened} onChange={setOpened} shadow="md" width={420} position="bottom-end" withinPortal>
       <Menu.Target>
         <Indicator
-          disabled={unreadCount === 0 && !inboxError}
-          label={inboxError ? '?' : unreadCount > 99 ? '99+' : unreadCount}
+          disabled={unreadCount === 0 && !countQuery.error}
+          label={countQuery.error ? '?' : unreadCount > 99 ? '99+' : unreadCount}
           size={18}
           color="red"
           offset={5}
@@ -224,8 +300,8 @@ export function DashboardNotificationBell({
                 size="compact-xs"
                 color="gray"
                 loading={markAllMutation.isPending}
-                disabled={unreadCount === 0 || Boolean(inboxError) || !isSuccess}
-                onClick={() => markAllMutation.mutate(unreadIds)}
+                disabled={unreadCount === 0 || Boolean(countQuery.error) || !countQuery.isSuccess}
+                onClick={() => markAllMutation.mutate()}
               >
                 모두 읽음
               </Button>

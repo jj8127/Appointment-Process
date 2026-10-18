@@ -61,6 +61,50 @@ export type EnrichedExamApplicantRow = ExamApplicantBaseRow & {
   address: string;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+const isNullableString = (value: unknown): value is string | null => value === null || typeof value === 'string';
+const isNullableBoolean = (value: unknown): value is boolean | null => value === null || typeof value === 'boolean';
+const isOptionalNullableString = (value: unknown): boolean => value === undefined || isNullableString(value);
+const isOptionalNullableBoolean = (value: unknown): boolean => value === undefined || isNullableBoolean(value);
+
+export function isExamRegistrationRow(value: unknown): value is ExamRegistrationRow {
+  if (!isRecord(value)
+    || typeof value.id !== 'string' || !value.id.trim()
+    || typeof value.status !== 'string' || !value.status.trim()
+    || typeof value.created_at !== 'string' || !value.created_at.trim()
+    || typeof value.resident_id !== 'string' || !value.resident_id.trim()
+    || typeof value.is_confirmed !== 'boolean'
+    || !isOptionalNullableString(value.round_id)
+    || !isOptionalNullableBoolean(value.includes_primary_exam)
+    || !isOptionalNullableBoolean(value.is_third_exam)
+    || !isOptionalNullableString(value.fee_paid_date)
+    || !isOptionalNullableBoolean(value.payment_proof_attached)
+    || !isOptionalNullableString(value.rejection_reason)
+    || !isOptionalNullableString(value.rejected_at)) return false;
+
+  const location = value.exam_locations;
+  if (location !== null && location !== undefined
+    && (!isRecord(location) || !isOptionalNullableString(location.location_name))) return false;
+  const round = value.exam_rounds;
+  return round === null || round === undefined || (
+    isRecord(round)
+    && isOptionalNullableString(round.round_label)
+    && isOptionalNullableString(round.exam_date)
+    && isOptionalNullableString(round.exam_type)
+  );
+}
+
+export function isExamApplicantProfileRow(value: unknown): value is ExamApplicantProfileRow {
+  return isRecord(value)
+    && typeof value.id === 'string' && value.id.trim().length > 0
+    && typeof value.phone === 'string' && value.phone.trim().length > 0
+    && isNullableString(value.name)
+    && isNullableString(value.affiliation)
+    && isNullableString(value.address);
+}
+
 const RESIDENT_NUMBER_LOOKUP_FAILURE = '주민번호 조회 실패';
 
 function phoneDigits(value: string): string {

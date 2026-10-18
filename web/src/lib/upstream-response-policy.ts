@@ -1,5 +1,154 @@
+export { isBoardSuccess } from './board-response-contract.ts';
+import {
+  parseGroupMessengerMessage,
+  parseGroupMessengerMessageList,
+  parseGroupMessengerReactionList,
+} from './messenger-message-contract.ts';
+
 const record = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
+
+const nonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
+const nullableString = (value: unknown): value is string | null =>
+  value === null || typeof value === 'string';
+const timestamp = (value: unknown): value is string =>
+  nonEmptyString(value) && Number.isFinite(Date.parse(value));
+const nullableTimestamp = (value: unknown): value is string | null =>
+  value === null || timestamp(value);
+const nonNegativeInteger = (value: unknown): value is number =>
+  Number.isSafeInteger(value) && Number(value) >= 0;
+const groupChatRole = (value: unknown) =>
+  value === 'fc' || value === 'manager' || value === 'admin';
+
+function groupChatActor(value: unknown) {
+  return record(value)
+    && nonEmptyString(value.id)
+    && groupChatRole(value.role)
+    && typeof value.phone === 'string'
+    && nullableString(value.name);
+}
+
+function groupChatRoom(value: unknown): value is Record<string, unknown> & {
+  id: string;
+  slug: string;
+  title: string;
+} {
+  return record(value)
+    && nonEmptyString(value.id)
+    && nonEmptyString(value.slug)
+    && nonEmptyString(value.title);
+}
+
+function groupChatMember(value: unknown): value is Record<string, unknown> & {
+  actor_id: string;
+} {
+  return record(value)
+    && nonEmptyString(value.actor_id)
+    && groupChatRole(value.role)
+    && typeof value.phone === 'string'
+    && nullableString(value.name)
+    && nullableString(value.headquarters)
+    && typeof value.appointment_label === 'string'
+    && typeof value.can_send_messages === 'boolean';
+}
+
+function groupChatNotice(value: unknown): value is Record<string, unknown> & {
+  room_id: string;
+  message_id: string;
+} {
+  if (!record(value)) return false;
+  const message = parseGroupMessengerMessage(value.message);
+  return nonEmptyString(value.room_id)
+    && nonEmptyString(value.message_id)
+    && nonEmptyString(value.created_by_actor_id)
+    && groupChatRole(value.created_by_role)
+    && timestamp(value.created_at)
+    && timestamp(value.updated_at)
+    && message !== null
+    && message.id === value.message_id
+    && message.room_id === value.room_id;
+}
+
+function groupChatSearchResult(value: unknown) {
+  return record(value)
+    && value.source === 'garamin_group'
+    && record(value.ref)
+    && value.ref.version === 1
+    && value.ref.kind === 'group_chat'
+    && nonEmptyString(value.ref.roomId)
+    && nonEmptyString(value.messageId)
+    && timestamp(value.sentAt)
+    && typeof value.excerpt === 'string'
+    && nonEmptyString(value.roomLabel)
+    && nonEmptyString(value.senderLabel);
+}
+
+function groupChatDelivery(value: unknown) {
+  return record(value)
+    && typeof value.notificationStored === 'boolean'
+    && (
+      value.pushStatus === 'accepted'
+      || value.pushStatus === 'no_registered_device'
+      || value.pushStatus === 'provider_rejected'
+      || value.pushStatus === 'not_attempted'
+    )
+    && typeof value.retryable === 'boolean'
+    && (
+      value.notificationIds === undefined
+      || (Array.isArray(value.notificationIds) && value.notificationIds.every(nonEmptyString))
+    );
+}
+
+function groupChatNotification(value: unknown) {
+  return record(value)
+    && typeof value.ok === 'boolean'
+    && (
+      value.status === 'skipped'
+      || value.status === 'inbox_only'
+      || value.status === 'provider_accepted'
+      || value.status === 'partial'
+    )
+    && nonNegativeInteger(value.recipient_count)
+    && nonNegativeInteger(value.notification_count)
+    && nonNegativeInteger(value.push_token_count)
+    && nonNegativeInteger(value.push_accepted_count)
+    && nonNegativeInteger(value.push_rejected_count)
+    && groupChatDelivery(value.delivery);
+}
+
+function groupChatReadReceipt(value: unknown) {
+  return record(value)
+    && nonEmptyString(value.room_id)
+    && nonEmptyString(value.actor_id)
+    && timestamp(value.last_read_at)
+    && nullableString(value.last_read_message_id);
+}
+
+function groupChatBootstrap(value: Record<string, unknown>) {
+  if (!groupChatActor(value.actor) || !groupChatRoom(value.room)) return false;
+  const messages = parseGroupMessengerMessageList(value.messages);
+  const lastMessage = value.last_message === null
+    ? null
+    : parseGroupMessengerMessage(value.last_message);
+  const members = Array.isArray(value.members) && value.members.every(groupChatMember)
+    ? value.members
+    : null;
+  if (!messages || !members) return false;
+  const roomId = value.room.id;
+  return typeof value.can_send_messages === 'boolean'
+    && nonNegativeInteger(value.member_count)
+    && value.member_count === members.length
+    && new Set(members.map((member) => member.actor_id)).size === members.length
+    && typeof value.muted === 'boolean'
+    && nonNegativeInteger(value.unread_count)
+    && nullableTimestamp(value.last_read_at)
+    && (value.last_message === null || lastMessage !== null)
+    && (value.notice === null || groupChatNotice(value.notice))
+    && messages.every((message) => message.room_id === roomId)
+    && (!lastMessage || lastMessage.room_id === roomId)
+    && (value.notice === null || value.notice.room_id === roomId);
+}
 
 /** A transport 200 is never substituted for an upstream acknowledgement. */
 export function parseUpstreamResponse(raw: string): Record<string, unknown> | null {
@@ -12,21 +161,42 @@ export function parseUpstreamResponse(raw: string): Record<string, unknown> | nu
 export function isGroupChatSuccess(type: unknown, value: unknown): boolean {
   if (!record(value) || value.ok !== true) return false;
   switch (type) {
-    case 'group_chat_bootstrap':
-      return record(value.actor) && record(value.room)
-        && Array.isArray(value.messages) && Array.isArray(value.members)
-        && typeof value.member_count === 'number' && typeof value.muted === 'boolean';
+    case 'group_chat_bootstrap': return groupChatBootstrap(value);
     case 'group_chat_send': case 'group_chat_delete':
-      return record(value.message) && typeof value.message.id === 'string';
+      return parseGroupMessengerMessage(value.message) !== null
+        && (type !== 'group_chat_send'
+          || (record(value.read_state)
+            && typeof value.read_state.updated === 'boolean'
+            && groupChatNotification(value.notification)
+            && groupChatDelivery(value.delivery)));
     case 'group_chat_preferences': return typeof value.muted === 'boolean';
-    case 'group_chat_reaction_set': return Array.isArray(value.reactions);
-    case 'group_chat_member_send_permission': return record(value.member);
-    case 'group_chat_notice_set': return record(value.notice);
+    case 'group_chat_reaction_set': return parseGroupMessengerReactionList(value.reactions) !== null;
+    case 'group_chat_member_send_permission': return groupChatMember(value.member);
+    case 'group_chat_notice_set': return groupChatNotice(value.notice);
     case 'group_chat_notice_clear': return value.notice === null;
-    case 'group_chat_mark_read': return true;
-    case 'group_chat_notification_retry': return record(value.notification) && record(value.delivery);
-    case 'group_chat_search': return Array.isArray(value.results);
-    case 'group_chat_context': return Array.isArray(value.messages);
+    case 'group_chat_mark_read':
+      return value.read_state === undefined || groupChatReadReceipt(value.read_state);
+    case 'group_chat_notification_retry':
+      return groupChatNotification(value.notification) && groupChatDelivery(value.delivery);
+    case 'group_chat_search':
+      return Array.isArray(value.results)
+        && value.results.every(groupChatSearchResult)
+        && value.coverage === 'bounded_first_page'
+        && value.nextCursor === null;
+    case 'group_chat_context': {
+      const messages = parseGroupMessengerMessageList(value.messages);
+      const roomRef = value.roomRef;
+      if (!record(roomRef) || !nonEmptyString(roomRef.roomId)) return false;
+      return roomRef.version === 1
+        && roomRef.kind === 'group_chat'
+        && nonEmptyString(value.anchorMessageId)
+        && messages !== null
+        && messages.some((message) => message.id === value.anchorMessageId)
+        && messages.every((message) => message.room_id === roomRef.roomId)
+        && typeof value.hasBefore === 'boolean'
+        && typeof value.hasAfter === 'boolean'
+        && value.nextCursor === null;
+    }
     default: return false;
   }
 }
@@ -37,26 +207,4 @@ export async function cleanupFailed(operation: () => Promise<unknown>): Promise<
     const result = await operation();
     return record(result) && Boolean(result.error);
   } catch { return true; }
-}
-
-
-export function isBoardSuccess(name: unknown, value: unknown): boolean {
-  if (!record(value) || value.ok !== true) return false;
-  const data = value.data;
-  switch (name) {
-    case 'board-create': return value.saved === true && record(data) && typeof data.id === 'string';
-    case 'board-update': return value.saved === true;
-    case 'board-list': return record(data) && Array.isArray(data.items);
-    case 'board-detail': return record(data) && record(data.post) && typeof data.post.id === 'string'
-      && Array.isArray(data.attachments) && Array.isArray(data.comments) && record(data.reactions);
-    case 'board-categories-list': case 'board-attachment-sign': return Array.isArray(data);
-    case 'board-comment-create': case 'board-category-create': return record(data) && typeof data.id === 'string';
-    case 'board-reaction-toggle': return record(data) && ('myReaction' in data);
-    case 'board-comment-like-toggle': return record(data) && typeof data.liked === 'boolean' && typeof data.likeCount === 'number';
-    case 'board-notification-retry': return record(value.delivery) && typeof value.delivery.notificationStored === 'boolean';
-    // These deployed contracts acknowledge commit with ok alone.
-    case 'board-delete': case 'board-comment-delete': case 'board-comment-update': case 'board-pin':
-    case 'board-attachment-delete': case 'board-attachment-finalize': case 'board-category-update': return true;
-    default: return false;
-  }
 }

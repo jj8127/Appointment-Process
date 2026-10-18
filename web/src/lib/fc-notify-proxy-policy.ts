@@ -22,8 +22,10 @@ export const REQUEST_BOARD_NOTIFY_CATEGORIES = [
 type RequestBoardNotifyCategory = (typeof REQUEST_BOARD_NOTIFY_CATEGORIES)[number];
 type BrowserAction =
   | 'inbox_list'
+  | 'inbox_unread_count'
   | 'inbox_get'
   | 'inbox_mark_read'
+  | 'inbox_mark_all_read'
   | 'inbox_dismiss'
   | 'internal_unread_count'
   | 'message'
@@ -64,6 +66,21 @@ export type BrowserFcNotifyPayload =
       role: 'admin' | 'fc';
       resident_id: string | null;
       limit: number;
+      viewer_actor_role: BrowserSessionRole;
+      viewer_actor_phone: string;
+    }
+  | {
+      type: 'inbox_unread_count';
+      role: 'admin' | 'fc';
+      resident_id: string | null;
+      only_request_board_categories?: true;
+      viewer_actor_role: BrowserSessionRole;
+      viewer_actor_phone: string;
+    }
+  | {
+      type: 'inbox_mark_all_read';
+      role: 'admin' | 'fc';
+      resident_id: string | null;
       viewer_actor_role: BrowserSessionRole;
       viewer_actor_phone: string;
     }
@@ -177,8 +194,10 @@ type PolicyResult<T> = PolicySuccess<T> | PolicyFailure;
 const PHONE_PATTERN = /^\d{11}$/;
 const browserActions = new Set<BrowserAction>([
   'inbox_list',
+  'inbox_unread_count',
   'inbox_get',
   'inbox_mark_read',
+  'inbox_mark_all_read',
   'inbox_dismiss',
   'internal_unread_count',
   'message',
@@ -404,10 +423,10 @@ export function verifyBrowserSameOrigin(input: {
   }
 }
 
-function buildInboxPayload(
+function resolveBrowserInboxScope(
   body: Record<string, unknown>,
   session: FcNotifyBrowserSession,
-): PolicyResult<BrowserFcNotifyPayload> {
+): PolicyResult<{ role: 'admin' | 'fc'; residentId: string | null }> {
   let role: 'admin' | 'fc';
   let residentId: string | null;
 
@@ -429,17 +448,47 @@ function buildInboxPayload(
     return fail(403, 'Inbox identity does not match the verified session');
   }
 
+  return {
+    ok: true,
+    payload: { role, residentId },
+  };
+}
+
+function buildInboxPayload(
+  body: Record<string, unknown>,
+  session: FcNotifyBrowserSession,
+): PolicyResult<BrowserFcNotifyPayload> {
+  const scope = resolveBrowserInboxScope(body, session);
+  if (!scope.ok) return scope;
+  const common = {
+    role: scope.payload.role,
+    resident_id: scope.payload.residentId,
+    viewer_actor_role: session.role,
+    viewer_actor_phone: session.residentDigits,
+  };
+  if (body.type === 'inbox_unread_count') {
+    return {
+      ok: true,
+      payload: {
+        type: body.type,
+        ...common,
+        ...(body.only_request_board_categories === true
+          ? { only_request_board_categories: true as const }
+          : {}),
+      },
+    };
+  }
+  if (body.type === 'inbox_mark_all_read') {
+    return { ok: true, payload: { type: body.type, ...common } };
+  }
   const requestedLimit = Number(body.limit ?? 80);
   const limit = Math.max(1, Math.min(Number.isFinite(requestedLimit) ? Math.trunc(requestedLimit) : 80, 200));
   return {
     ok: true,
     payload: {
       type: 'inbox_list',
-      role,
-      resident_id: residentId,
+      ...common,
       limit,
-      viewer_actor_role: session.role,
-      viewer_actor_phone: session.residentDigits,
     },
   };
 }
@@ -876,7 +925,9 @@ export function buildBrowserFcNotifyPayload(input: {
   const body = asRecord(input.body);
   if (!body) return fail(400, 'Invalid request body');
 
-  if (body.type === 'inbox_list') return buildInboxPayload(body, input.session);
+  if (body.type === 'inbox_list'
+    || body.type === 'inbox_unread_count'
+    || body.type === 'inbox_mark_all_read') return buildInboxPayload(body, input.session);
   if (body.type === 'inbox_get') return buildInboxGetPayload(body, input.session);
   if (body.type === 'inbox_mark_read' || body.type === 'inbox_dismiss') {
     return buildInboxMutationPayload(body, input.session);

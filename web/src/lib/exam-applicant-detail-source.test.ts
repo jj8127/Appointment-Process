@@ -63,6 +63,8 @@ test('applicant rows visually distinguish confirmed and pending reception states
 
 test('detail route loads only the selected registration and provides the reception action', () => {
   assert.match(detailSource, /registrationId=\$\{encodeURIComponent\(registrationId\)\}/);
+  assert.match(detailSource, /parseExactExamApplicantRow\(json\.applicants, registrationId\)/);
+  assert.doesNotMatch(detailSource, /const first = applicants\[0\]/);
   assert.match(detailSource, /시험 접수하기/);
   assert.match(
     detailSource,
@@ -133,9 +135,16 @@ test('every web reception decision uses the atomic service transition without du
     /action\?: 'confirm' \| 'unconfirm' \| 'reject' \| 'cancel_by_admin'/,
   );
 
-  assert.match(listSource, /action: isConfirmed \? 'confirm' : 'unconfirm'/);
+  assert.match(listSource, /const action = isConfirmed \? 'confirm' : 'unconfirm'/);
+  assert.match(listSource, /requireExamTransitionSuccess\(json, \{ action, registrationId: item\.id \}\)/);
   assert.doesNotMatch(listSource, /notifyFcExamApprovalStatus/);
 
-  assert.match(roundApplicantSource, /action: nextConfirmed \? 'confirm' : 'unconfirm'/);
+  assert.match(roundApplicantSource, /const action = nextConfirmed \? 'confirm' : 'unconfirm'/);
+  assert.match(roundApplicantSource, /requireExamTransitionSuccess\(json, \{ action, registrationId: row\.id \}\)/);
+  assert.match(detailSource, /requireExamTransitionSuccess\(json, \{[\s\S]*?registrationId: applicant\.id/);
+  assert.match(listSource, /isLoading && !applicants/);
+  assert.match(listSource, /applicantsError && !applicants/);
+  assert.match(detailSource, /if \(!applicant\)/);
+  assert.match(detailSource, /<QueryErrorAlert[\s\S]*?hasData[\s\S]*?subject="신청자 상세"/);
   assert.doesNotMatch(roundApplicantSource, /notifyFcExamApprovalStatus/);
 });

@@ -227,11 +227,11 @@ async function deliverToRegisteredTargets(
       .eq('resident_id', userId)
       .eq('role', 'fc');
 
-    if (tokensError) {
+    if (tokensError || !Array.isArray(tokens)) {
       addFailure(delivery, 'token_query_failed');
     } else {
       const uniqueTokens = Array.from(new Set(
-        (tokens ?? [])
+        tokens
           .map((token) => token.expo_push_token)
           .filter((token): token is string => typeof token === 'string' && token.length > 0),
       ));

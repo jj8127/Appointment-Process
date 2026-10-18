@@ -2,10 +2,20 @@ doc_id: FC-ADMIN-DASHBOARD-LIFECYCLE
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-08-10
+last_verified: 2026-10-13
 source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/dashboard/fc-signup/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/app/api/admin/list/route.ts + web/src/app/api/admin/assisted-signup/route.ts + web/src/lib/admin-assisted-signup-server.ts + web/src/lib/dashboard-table-display.ts + web/src/lib/shared.ts
 
 # Admin Web Playbook: Dashboard Lifecycle
+
+## 2026-10-13 FC 목록 읽기 응답 계약
+
+- `/dashboard`의 FC 목록 쿼리는 `/api/admin/list`가 반환하는 원시 배열과
+  `{ data: 배열 }` 호환 envelope만 정상 목록으로 인정한다.
+- 변경 작업의 `{ ok: true }` 응답을 확인하는 `requireMutationSuccess`는 목록
+  읽기에 적용하지 않는다. 배열이 아닌 응답과 HTTP 실패는 기존처럼 명시적인
+  조회 오류와 재시도로 표시하며, KPI를 0건으로 만들어 성공처럼 보이지 않는다.
+- 실행 회귀 근거는 `web/src/lib/board-read-state-runtime.test.mjs`의 dashboard
+  query 사례다.
 
 ## 2026-10-11 FC 목록 조회 응답 검증
 

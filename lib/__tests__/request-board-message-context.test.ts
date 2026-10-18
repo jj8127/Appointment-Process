@@ -196,6 +196,23 @@ describe('Request Board exact message context contracts', () => {
       /const handleReturnToLatestMessage = useCallback\(\(\) => \{[\s\S]{0,160}anchorContextSequenceRef\.current \+= 1/,
     );
   });
+
+  it('reuses exact message contexts to page through older request and direct-message history', () => {
+    const screen = readFileSync(
+      join(__dirname, '..', '..', 'app', 'request-board-messenger.tsx'),
+      'utf8',
+    );
+
+    expect(screen).toContain('const handleLoadOlderMessages = useCallback(async () => {');
+    expect(screen).toContain('historyAnchorByRoomRef');
+    expect(screen).toContain('rbGetMessagesOrThrow([roomId], 1)');
+    expect(screen).toContain('rbGetMessageContext(selectedRoomId, anchor.id)');
+    expect(screen).toContain('rbGetDirectMessageContext(selectedRoomId, anchor.id)');
+    expect(screen).toContain('historyExhaustedRoomIdsRef.current.add(selectedRoomId)');
+    expect(screen).toContain('mergeMessagesDesc([...messagesRef.current, ...incoming])');
+    expect(screen).toContain('accessibilityLabel="이전 메시지 더 보기"');
+    expect(screen).toContain('onPress={() => void handleLoadOlderMessages()}');
+  });
 });
 
 describe('Request Board messenger room preference API contracts', () => {

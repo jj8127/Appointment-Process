@@ -44,6 +44,10 @@ test('returns resident numbers from a successful edge fallback response', async 
             'fc-1': '900101-1234567',
             'fc-2': null,
           },
+          residentNumberStatuses: {
+            'fc-1': 'ready',
+            'fc-2': 'missing',
+          },
         }),
       };
     },

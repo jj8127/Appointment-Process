@@ -11,6 +11,20 @@ import {
   redactSensitiveText,
 } from '../_shared/board.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
+import {
+  type BoardReactionType,
+  hasUniqueStringField,
+  isBoardAttachmentQueryRow,
+  isBoardCommentLikeQueryRow,
+  isBoardCommentQueryRow,
+  isBoardDetailPostQueryRow,
+  isBoardPostReactionQueryRow,
+} from '../_shared/board-read-contract.ts';
+import {
+  collectGroupChatDataApiBatches,
+  collectGroupChatDataApiPages,
+} from '../_shared/group-chat-data-api-batching.ts';
+import { parseQueryRows } from '../_shared/query-result-contract.ts';
 
 type Payload = {
   actor?: {
@@ -20,8 +34,6 @@ type Payload = {
   };
   postId?: string;
 };
-
-const REACTION_TYPES = ['like', 'heart', 'check', 'smile'] as const;
 
 serve(async (req: Request) => {
   const origin = req.headers.get('origin') ?? undefined;
@@ -62,55 +74,119 @@ serve(async (req: Request) => {
 
   const { data: post, error: postError } = await supabase
     .from('board_posts_with_stats')
-    .select('id,category_id,title,content,author_name,author_role,author_resident_id,created_at,updated_at,edited_at,is_pinned,view_count')
+    .select('id,category_id,title,content,author_name,author_role,author_resident_id,created_at,updated_at,edited_at,is_pinned,comment_count,reaction_count,attachment_count,view_count')
     .eq('id', postId)
     .maybeSingle();
 
   if (postError) {
-    return json({ ok: false, code: 'db_error', message: postError.message }, 500, origin);
+    return dbError(postError, origin);
   }
   if (!post) {
     return json({ ok: false, code: 'not_found', message: 'post not found' }, 404, origin);
   }
+  if (!isBoardDetailPostQueryRow(post) || post.id !== postId) {
+    return dbError({ message: 'invalid board detail query result' }, origin);
+  }
 
-  const [attachmentsRes, reactionsRes, commentsRes, likesRes] = await Promise.all([
-    supabase
-      .from('board_attachments')
-      .select('id,file_type,file_name,file_size,mime_type,storage_path,sort_order')
-      .eq('post_id', postId)
-      .order('sort_order', { ascending: true })
-      .order('created_at', { ascending: true }),
-    supabase
-      .from('board_post_reactions')
-      .select('resident_id,reaction_type')
-      .eq('post_id', postId),
-    supabase
-      .from('board_comments_with_stats')
-      .select('id,parent_id,content,author_name,author_role,author_resident_id,created_at,edited_at,like_count,reply_count')
-      .eq('post_id', postId)
-      .order('created_at', { ascending: true }),
-    supabase
-      .from('board_comment_likes')
-      .select('comment_id,resident_id')
-      .eq('resident_id', actorCheck.actor.residentId),
+  const [attachmentsResult, reactionsResult, commentsResult] = await Promise.all([
+    collectGroupChatDataApiPages(async (from, to) => {
+      const result = await supabase
+        .from('board_attachments')
+        .select('id,post_id,file_type,file_name,file_size,mime_type,storage_path,sort_order')
+        .eq('post_id', postId)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to);
+      const rows = parseQueryRows(result.data, isBoardAttachmentQueryRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('board_attachment_query_invalid')),
+      };
+    }),
+    collectGroupChatDataApiPages(async (from, to) => {
+      const result = await supabase
+        .from('board_post_reactions')
+        .select('post_id,resident_id,reaction_type')
+        .eq('post_id', postId)
+        .order('resident_id', { ascending: true })
+        .range(from, to);
+      const rows = parseQueryRows(result.data, isBoardPostReactionQueryRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('board_reaction_query_invalid')),
+      };
+    }),
+    collectGroupChatDataApiPages(async (from, to) => {
+      const result = await supabase
+        .from('board_comments_with_stats')
+        .select('id,post_id,parent_id,content,author_name,author_role,author_resident_id,created_at,edited_at,like_count,reply_count')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to);
+      const rows = parseQueryRows(result.data, isBoardCommentQueryRow);
+      return {
+        data: rows,
+        error: result.error ?? (rows ? null : new Error('board_comment_query_invalid')),
+      };
+    }),
   ]);
 
-  if (attachmentsRes.error) {
-    return dbError(attachmentsRes.error, origin);
+  if (!attachmentsResult.ok || !reactionsResult.ok || !commentsResult.ok) {
+    return dbError({ message: 'board detail relation query failed' }, origin);
   }
-  if (reactionsRes.error) {
-    return dbError(reactionsRes.error, origin);
+  const attachmentRows = attachmentsResult.data;
+  const reactionRows = reactionsResult.data;
+  const commentRows = commentsResult.data;
+  if (attachmentRows.some((row) => row.post_id !== postId)
+    || reactionRows.some((row) => row.post_id !== postId || row.resident_id === undefined)
+    || commentRows.some((row) => row.post_id !== postId)
+    || post.attachment_count !== attachmentRows.length
+    || post.reaction_count !== reactionRows.length
+    || post.comment_count !== commentRows.length
+    || !hasUniqueStringField(attachmentRows, 'id')
+    || !hasUniqueStringField(commentRows, 'id')
+    || !hasUniqueStringField(reactionRows, 'resident_id')) {
+    return dbError({ message: 'invalid board detail relation query result' }, origin);
   }
-  if (commentsRes.error) {
-    return dbError(commentsRes.error, origin);
+
+  const commentIds = new Set(commentRows.map((row) => row.id));
+  if (commentRows.some((row) => row.parent_id !== null && !commentIds.has(row.parent_id))) {
+    return dbError({ message: 'invalid board comment hierarchy query result' }, origin);
   }
-  if (likesRes.error) {
-    return dbError(likesRes.error, origin);
+
+  let likeRows: { comment_id: string; resident_id: string }[] = [];
+  if (commentIds.size > 0) {
+    const likesResult = await collectGroupChatDataApiBatches(
+      [...commentIds],
+      async (commentIdBatch) => {
+        const result = await supabase
+          .from('board_comment_likes')
+          .select('comment_id,resident_id')
+          .eq('resident_id', actorCheck.actor.residentId)
+          .in('comment_id', commentIdBatch)
+          .order('comment_id', { ascending: true });
+        const rows = parseQueryRows(result.data, isBoardCommentLikeQueryRow);
+        return {
+          data: rows,
+          error: result.error ?? (rows ? null : new Error('board_comment_like_query_invalid')),
+        };
+      },
+    );
+    if (!likesResult.ok) return dbError({ message: 'board comment like query failed' }, origin);
+    if (likesResult.data.some((row) => (
+        row.resident_id !== actorCheck.actor.residentId || !commentIds.has(row.comment_id)
+      ))
+      || !hasUniqueStringField(likesResult.data, 'comment_id')) {
+      return dbError({ message: 'invalid board comment like query result' }, origin);
+    }
+    likeRows = likesResult.data;
   }
 
   const developerResidentIds = await resolveDeveloperResidentIds([
     { author_role: post.author_role, author_resident_id: post.author_resident_id },
-    ...((commentsRes.data ?? []).map((row) => ({
+    ...(commentRows.map((row) => ({
       author_role: row.author_role,
       author_resident_id: row.author_resident_id,
     }))),
@@ -121,22 +197,20 @@ serve(async (req: Request) => {
     heart: 0,
     check: 0,
     smile: 0,
-    myReaction: null as (typeof REACTION_TYPES)[number] | null,
+    myReaction: null as BoardReactionType | null,
   };
 
-  (reactionsRes.data ?? []).forEach((row) => {
-    const type = row.reaction_type as (typeof REACTION_TYPES)[number];
-    if (REACTION_TYPES.includes(type)) {
-      reactions[type] += 1;
-      if (row.resident_id === actorCheck.actor.residentId) {
-        reactions.myReaction = type;
-      }
+  reactionRows.forEach((row) => {
+    const type = row.reaction_type;
+    reactions[type] += 1;
+    if (row.resident_id === actorCheck.actor.residentId) {
+      reactions.myReaction = type;
     }
   });
 
-  const likedCommentIds = new Set((likesRes.data ?? []).map((row) => row.comment_id));
+  const likedCommentIds = new Set(likeRows.map((row) => row.comment_id));
 
-  const comments = (commentsRes.data ?? []).map((row) => ({
+  const comments = commentRows.map((row) => ({
     id: row.id,
     parentId: row.parent_id ?? null,
     content: redactSensitiveText(row.content),
@@ -152,11 +226,16 @@ serve(async (req: Request) => {
     isLiked: likedCommentIds.has(row.id),
   }));
 
-  const attachments = await Promise.all(
-    (attachmentsRes.data ?? []).map(async (row) => {
+  const attachmentResults = await Promise.all(
+    attachmentRows.map(async (row) => {
       const signed = await supabase.storage
         .from('board-attachments')
         .createSignedUrl(row.storage_path, 60 * 60);
+      if (
+        signed.error
+        || typeof signed.data?.signedUrl !== 'string'
+        || signed.data.signedUrl.trim().length === 0
+      ) return null;
       return {
         id: row.id,
         fileType: row.file_type,
@@ -164,9 +243,19 @@ serve(async (req: Request) => {
         fileSize: row.file_size,
         mimeType: row.mime_type ?? undefined,
         storagePath: row.storage_path,
-        signedUrl: signed.data?.signedUrl ?? undefined,
+        signedUrl: signed.data.signedUrl,
       };
     }),
+  );
+  if (attachmentResults.some((attachment) => attachment === null)) {
+    return json({
+      ok: false,
+      code: 'attachment_signing_failed',
+      message: '첨부파일을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.',
+    }, 500, origin);
+  }
+  const attachments = attachmentResults.filter(
+    (attachment): attachment is NonNullable<typeof attachment> => attachment !== null,
   );
 
   return json({

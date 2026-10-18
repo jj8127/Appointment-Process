@@ -17,9 +17,11 @@ import {
 } from '@mantine/core';
 import { IconCalendar, IconArrowRight, IconExternalLink, IconUser, IconUsers } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
+import { QueryErrorAlert } from '@/components/QueryErrorAlert';
+import { QueryReadError } from '@/lib/query-read-error';
 import { getReferralGraphHighlightLabel } from '@/lib/referral-graph-highlight';
 import type { GraphNode } from '@/types/referral-graph';
-import type { ReferralAdminDetail } from '@/types/referrals';
+import { isReferralAdminDetail, type ReferralAdminDetail } from '@/types/referrals';
 
 const EVENT_LABELS: Record<string, string> = {
   code_generated: '코드 발급',
@@ -40,6 +42,10 @@ function formatDate(isoString: string): string {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 export type GraphNodeDrawerProps = {
   node: GraphNode | null;
   opened: boolean;
@@ -53,11 +59,15 @@ export type GraphNodeDrawerProps = {
   }>;
 };
 
-async function fetchNodeDetail(fcId: string): Promise<ReferralAdminDetail | null> {
+export async function fetchNodeDetail(fcId: string): Promise<ReferralAdminDetail | null> {
   const res = await fetch(`/api/admin/referrals?fcId=${encodeURIComponent(fcId)}`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.detail ?? null;
+  const data: unknown = await res.json().catch(() => null);
+  if (!res.ok || !isRecord(data) || data.ok !== true) {
+    throw new QueryReadError(res.status);
+  }
+  if (data.detail === null) return null;
+  if (!isReferralAdminDetail(data.detail)) throw new QueryReadError();
+  return data.detail;
 }
 
 export function GraphNodeDrawer({
@@ -137,14 +147,17 @@ export function GraphNodeDrawer({
             불러오는 중...
           </Text>
         </Stack>
-      ) : allowAdminDetail && detailQuery.isError ? (
-        <Stack align="center" py="xl" gap="xs">
-          <Text c="dimmed" size="sm">
-            상세 정보를 불러올 수 없습니다.
-          </Text>
-        </Stack>
       ) : (
         <Stack gap="md">
+          {allowAdminDetail && detailQuery.isError ? (
+            <QueryErrorAlert
+              error={detailQuery.error}
+              onRetry={detailQuery.refetch}
+              isFetching={detailQuery.isFetching}
+              hasData={detailQuery.data !== undefined}
+              subject="FC 상세"
+            />
+          ) : null}
           <Group justify="space-between" align="flex-start">
             <Box>
               <Text size="sm" c="dimmed">

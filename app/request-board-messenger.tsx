@@ -281,6 +281,7 @@ const fileIcon = (type: string): FeatherIconName => {
 };
 
 const POLL_INTERVAL = 8000;
+const MESSAGE_PAGE_LIMIT = 100;
 const PRESENCE_POLL_INTERVAL = 30000;
 const STALE_PRESENCE_TIMESTAMP_MS = new Date(0).getTime();
 
@@ -418,6 +419,9 @@ export default function RequestBoardMessengerScreen() {
   const [selectCopyMessage, setSelectCopyMessage] = useState<UnifiedMessage | null>(null);
   const [msgLoading, setMsgLoading] = useState(false);
   const [msgError, setMsgError] = useState('');
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessageLoadError, setOlderMessageLoadError] = useState('');
   const [anchorContextError, setAnchorContextError] = useState('');
   const [anchorContextRetryKey, setAnchorContextRetryKey] = useState(0);
   const [anchorContextGaps, setAnchorContextGaps] = useState<AnchorContextGaps | null>(null);
@@ -445,6 +449,10 @@ export default function RequestBoardMessengerScreen() {
   const latestMessagesRef = useRef<UnifiedMessage[]>([]);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageLoadSequenceRef = useRef(0);
+  const historyLoadSequenceRef = useRef(0);
+  const historyLoadInFlightRef = useRef(false);
+  const historyAnchorByRoomRef = useRef<Map<number, { id: number; createdAt: string }>>(new Map());
+  const historyExhaustedRoomIdsRef = useRef<Set<number>>(new Set());
   const roomPreferenceLoadSequenceRef = useRef(0);
   const roomPreferenceSaveSequenceRef = useRef(0);
   const anchorContextAttemptRef = useRef<string | null>(null);
@@ -560,9 +568,50 @@ export default function RequestBoardMessengerScreen() {
     };
   }, [rbUser?.id]);
 
+  const getConversationRoomIds = useCallback((conversation: UnifiedConversation) => (
+    conversation.type === 'request'
+      ? conversation.conversationIds
+      : [conversation.primaryConversationId]
+  ), []);
+
+  const syncHistoryAvailability = useCallback((conversation: UnifiedConversation) => {
+    const exhaustedRoomIds = historyExhaustedRoomIdsRef.current;
+    setHasOlderMessages(
+      getConversationRoomIds(conversation).some((roomId) => !exhaustedRoomIds.has(roomId)),
+    );
+  }, [getConversationRoomIds]);
+
+  const rememberOldestRawAnchors = useCallback((rows: (RbMessage | RbDmMessage)[]) => {
+    for (const row of rows) {
+      const roomId = 'request_designer_id' in row
+        ? row.request_designer_id
+        : row.direct_conversation_id;
+      const currentAnchor = historyAnchorByRoomRef.current.get(roomId);
+      const rowTimestamp = Date.parse(row.created_at);
+      const currentTimestamp = currentAnchor ? Date.parse(currentAnchor.createdAt) : Number.POSITIVE_INFINITY;
+      if (
+        !currentAnchor
+        || rowTimestamp < currentTimestamp
+        || (rowTimestamp === currentTimestamp && row.id < currentAnchor.id)
+      ) {
+        historyAnchorByRoomRef.current.set(roomId, { id: row.id, createdAt: row.created_at });
+      }
+    }
+  }, []);
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    historyLoadSequenceRef.current += 1;
+    historyLoadInFlightRef.current = false;
+    historyAnchorByRoomRef.current = new Map();
+    historyExhaustedRoomIdsRef.current = new Set();
+    setHasOlderMessages(false);
+    setLoadingOlderMessages(false);
+    setOlderMessageLoadError('');
+  }, [activeConv?.id, sessionReadKey]);
 
   useEffect(() => {
     anchorContextAttemptRef.current = null;
@@ -1036,12 +1085,16 @@ export default function RequestBoardMessengerScreen() {
       return;
     }
 
-    const rows = await rbGetPresence(phones);
-    const nextPresenceByPhone = rows.reduce<Record<string, RbPresenceSnapshot>>((acc, row) => {
-      acc[normalizePresencePhone(row.phone)] = row;
-      return acc;
-    }, {});
-    setPresenceByPhone(nextPresenceByPhone);
+    try {
+      const rows = await rbGetPresence(phones);
+      const nextPresenceByPhone = rows.reduce<Record<string, RbPresenceSnapshot>>((acc, row) => {
+        acc[normalizePresencePhone(row.phone)] = row;
+        return acc;
+      }, {});
+      setPresenceByPhone(nextPresenceByPhone);
+    } catch {
+      logger.warn('[request-board-messenger] ignored malformed presence response');
+    }
   }, [authState, rbUser, trackedPhones]);
 
   useEffect(() => {
@@ -1136,25 +1189,41 @@ export default function RequestBoardMessengerScreen() {
     try {
       let raw: (RbMessage | RbDmMessage)[] = [];
       if (conv.type === 'request') {
-        raw = await rbGetMessagesOrThrow(conv.conversationIds, 100);
+        raw = await rbGetMessagesOrThrow(conv.conversationIds, MESSAGE_PAGE_LIMIT);
       } else {
-        raw = await rbGetDmMessagesOrThrow(conv.primaryConversationId, 100);
+        raw = await rbGetDmMessagesOrThrow(conv.primaryConversationId, MESSAGE_PAGE_LIMIT);
       }
 
       if (!isCurrent() || activeConversationRef.current !== conv.id) return;
+      rememberOldestRawAnchors(raw);
+      const roomIds = getConversationRoomIds(conv);
+      if (raw.length < MESSAGE_PAGE_LIMIT) {
+        historyExhaustedRoomIdsRef.current = new Set(roomIds);
+      }
+      syncHistoryAvailability(conv);
+      const deletedMessageIds = new Set(raw
+        .filter((message) => 'deleted_at' in message && message.deleted_at)
+        .map((message) => message.id));
       const mapped = mergeMessagesDesc(
         raw
           .filter((message) => !('deleted_at' in message && message.deleted_at))
           .map(mapRawMessageToUnified),
       );
 
-      latestMessagesRef.current = mapped;
+      latestMessagesRef.current = mergeMessagesDesc([
+        ...mapped,
+        ...latestMessagesRef.current.filter((message) => !deletedMessageIds.has(message.id)),
+      ]);
       setMsgError('');
-      setMessages(
-        hasAnchorMessageParam && matchesRouteConversationTarget(conv)
-          ? mergeMessagesDesc([...mapped, ...anchorContextMessagesRef.current])
-          : mapped,
-      );
+      const mergedMessages = mergeMessagesDesc([
+        ...mapped,
+        ...messagesRef.current.filter((message) => !deletedMessageIds.has(message.id)),
+        ...(hasAnchorMessageParam && matchesRouteConversationTarget(conv)
+          ? anchorContextMessagesRef.current
+          : []),
+      ]);
+      messagesRef.current = mergedMessages;
+      setMessages(mergedMessages);
       setLoadedConversationId(conv.id);
     } catch (err) {
       if (!isCurrent()) return;
@@ -1165,11 +1234,130 @@ export default function RequestBoardMessengerScreen() {
     }
   }, [
     hasAnchorMessageParam,
+    getConversationRoomIds,
     mapRawMessageToUnified,
     matchesRouteConversationTarget,
     mergeMessagesDesc,
+    rememberOldestRawAnchors,
     rbUser,
     sessionReadKey,
+    syncHistoryAvailability,
+  ]);
+
+  const handleLoadOlderMessages = useCallback(async () => {
+    const conv = activeConv;
+    if (!conv || !hasOlderMessages || historyLoadInFlightRef.current) return;
+    const scopeKey = `${sessionReadKey}:${conv.id}`;
+    if (activeConversationRef.current !== conv.id || !messageReadScope.current.matches(scopeKey)) return;
+
+    const sequence = historyLoadSequenceRef.current + 1;
+    historyLoadSequenceRef.current = sequence;
+    historyLoadInFlightRef.current = true;
+    setLoadingOlderMessages(true);
+    setOlderMessageLoadError('');
+    const isCurrent = () => historyLoadSequenceRef.current === sequence
+      && activeConversationRef.current === conv.id
+      && messageReadScope.current.matches(scopeKey);
+
+    try {
+      const roomIds = getConversationRoomIds(conv);
+      const availableRoomIds = roomIds
+        .filter((roomId) => !historyExhaustedRoomIdsRef.current.has(roomId))
+        .sort((leftRoomId, rightRoomId) => {
+          const left = historyAnchorByRoomRef.current.get(leftRoomId);
+          const right = historyAnchorByRoomRef.current.get(rightRoomId);
+          if (!left && !right) return leftRoomId - rightRoomId;
+          if (!left) return -1;
+          if (!right) return 1;
+          const timestampDifference = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+          return timestampDifference || right.id - left.id;
+        });
+
+      let selectedRoomId: number | null = null;
+      for (const roomId of availableRoomIds) {
+        if (!historyAnchorByRoomRef.current.has(roomId)) {
+          const seedRows = conv.type === 'request'
+            ? await rbGetMessagesOrThrow([roomId], 1)
+            : await rbGetDmMessagesOrThrow(roomId, 1);
+          if (!isCurrent()) return;
+          if (seedRows.length === 0) {
+            historyExhaustedRoomIdsRef.current.add(roomId);
+            continue;
+          }
+          rememberOldestRawAnchors(seedRows);
+          const visibleSeeds = seedRows
+            .filter((message) => !('deleted_at' in message && message.deleted_at))
+            .map(mapRawMessageToUnified);
+          if (visibleSeeds.length > 0) {
+            const seededMessages = mergeMessagesDesc([...messagesRef.current, ...visibleSeeds]);
+            messagesRef.current = seededMessages;
+            setMessages(seededMessages);
+            if (!isAnchorModeActive) {
+              latestMessagesRef.current = mergeMessagesDesc([
+                ...latestMessagesRef.current,
+                ...visibleSeeds,
+              ]);
+            }
+          }
+        }
+        if (historyAnchorByRoomRef.current.has(roomId)) {
+          selectedRoomId = roomId;
+          break;
+        }
+      }
+
+      if (selectedRoomId === null) {
+        syncHistoryAvailability(conv);
+        return;
+      }
+      const anchor = historyAnchorByRoomRef.current.get(selectedRoomId);
+      if (!anchor) throw new Error(REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE);
+
+      const result = conv.type === 'request'
+        ? await rbGetMessageContext(selectedRoomId, anchor.id)
+        : await rbGetDirectMessageContext(selectedRoomId, anchor.id);
+      if (!isCurrent()) return;
+      if (!result.success) throw new Error(result.error);
+
+      rememberOldestRawAnchors(result.data.messages);
+      const incoming = result.data.messages
+        .filter((message) => !('deleted_at' in message && message.deleted_at))
+        .map(mapRawMessageToUnified);
+      const mergedMessages = mergeMessagesDesc([...messagesRef.current, ...incoming]);
+      messagesRef.current = mergedMessages;
+      setMessages(mergedMessages);
+      if (!isAnchorModeActive) {
+        latestMessagesRef.current = mergeMessagesDesc([
+          ...latestMessagesRef.current,
+          ...incoming,
+        ]);
+      }
+      if (!result.data.hasBefore) {
+        historyExhaustedRoomIdsRef.current.add(selectedRoomId);
+      }
+      syncHistoryAvailability(conv);
+    } catch (error) {
+      if (!isCurrent()) return;
+      logger.warn('[messenger] older messages unavailable', error);
+      setOlderMessageLoadError(
+        toRequestBoardSessionErrorMessage(error, '이전 메시지를 불러오지 못했습니다.'),
+      );
+    } finally {
+      if (isCurrent()) {
+        historyLoadInFlightRef.current = false;
+        setLoadingOlderMessages(false);
+      }
+    }
+  }, [
+    activeConv,
+    getConversationRoomIds,
+    hasOlderMessages,
+    isAnchorModeActive,
+    mapRawMessageToUnified,
+    mergeMessagesDesc,
+    rememberOldestRawAnchors,
+    sessionReadKey,
+    syncHistoryAvailability,
   ]);
 
   useEffect(() => {
@@ -1261,7 +1449,19 @@ export default function RequestBoardMessengerScreen() {
 
         const contextMessages: (RbMessage | RbDmMessage)[] = result.data.messages;
         const mappedContext = contextMessages.map(mapRawMessageToUnified);
+        rememberOldestRawAnchors(contextMessages);
+        const contextRoomId = activeConv.type === 'request'
+          ? parsedRequestDesignerId!
+          : parsedDirectConversationId!;
+        if (!result.data.hasBefore) {
+          historyExhaustedRoomIdsRef.current.add(contextRoomId);
+        }
+        syncHistoryAvailability(activeConv);
         anchorContextMessagesRef.current = mappedContext;
+        setAnchorContextGaps({
+          hasBefore: result.data.hasBefore,
+          hasAfter: result.data.hasAfter,
+        });
         setMessages((current) => mergeMessagesDesc([...mappedContext, ...current]));
         focusAnchorMessage(parsedAnchorMessageId);
       } catch (error) {
@@ -1291,6 +1491,8 @@ export default function RequestBoardMessengerScreen() {
     parsedDirectConversationId,
     parsedRequestDesignerId,
     rbUser,
+    rememberOldestRawAnchors,
+    syncHistoryAvailability,
   ]);
 
   const retryAnchorContext = useCallback(() => {
@@ -2025,6 +2227,31 @@ export default function RequestBoardMessengerScreen() {
               keyboardDismissMode="none"
               contentContainerStyle={styles.msgListContent}
               onScrollToIndexFailed={handleAnchorScrollToIndexFailed}
+              ListFooterComponent={hasOlderMessages || loadingOlderMessages || olderMessageLoadError ? (
+                <View style={styles.historyFooter}>
+                  {olderMessageLoadError ? (
+                    <Text style={styles.historyErrorText}>{olderMessageLoadError}</Text>
+                  ) : null}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="이전 메시지 더 보기"
+                    disabled={loadingOlderMessages}
+                    onPress={() => void handleLoadOlderMessages()}
+                    style={({ pressed }) => [
+                      styles.historyButton,
+                      pressed && !loadingOlderMessages && styles.historyButtonPressed,
+                    ]}
+                  >
+                    {loadingOlderMessages ? (
+                      <BrandedLoadingSpinner size="sm" color={COLORS.primary} />
+                    ) : (
+                      <Text style={styles.historyButtonText}>
+                        {olderMessageLoadError ? '다시 시도' : '이전 메시지 더 보기'}
+                      </Text>
+                    )}
+                  </Pressable>
+                </View>
+              ) : null}
               renderItem={({ item, index }) => {
                 const showDate =
                   index === messages.length - 1 ||
@@ -2880,6 +3107,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   msgListContent: { paddingHorizontal: SPACING.base, paddingTop: SPACING.sm, paddingBottom: SPACING.sm },
+  historyFooter: { alignItems: 'center', gap: SPACING.sm, paddingVertical: SPACING.base },
+  historyButton: {
+    minHeight: 44,
+    minWidth: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.lg,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.warning.border,
+    backgroundColor: COLORS.warning.light,
+  },
+  historyButtonPressed: { opacity: 0.72 },
+  historyButtonText: { color: COLORS.primary, fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: TYPOGRAPHY.fontWeight.bold },
+  historyErrorText: { color: COLORS.error, fontSize: TYPOGRAPHY.fontSize.xs, textAlign: 'center' },
   anchorMessageHighlight: {
     backgroundColor: '#FFF7D6', borderRadius: RADIUS.md,
     paddingHorizontal: 6,

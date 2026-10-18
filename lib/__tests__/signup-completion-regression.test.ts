@@ -22,29 +22,32 @@ describe('signup completion regression guards', () => {
     ).toBe(true);
   });
 
-  it('keeps referral linking before irreversible password/signup completion writes', () => {
+  it('keeps profile and referral writes inside the atomic password/signup completion RPC', () => {
     const source = readFileSync(
       join(process.cwd(), 'supabase', 'functions', 'set-password', 'index.ts'),
+      'utf8',
+    );
+    const migration = readFileSync(
+      join(process.cwd(), 'supabase', 'migrations', '20261013063141_atomic_signup_otp_challenges.sql'),
       'utf8',
     );
 
     expect(source).toContain('if (!referralCode || !resolvedReferral)');
     expect(source).toContain("code: 'referral_invalid'");
-    expect(source).toContain('const referralResetPayload: Record<string, unknown> = referralCode');
 
     const alreadySetIndex = source.indexOf("return fail('already_set'");
     const referralRequiredIndex = source.indexOf('if (!referralCode || !resolvedReferral)');
-    const referralApplyIndex = source.indexOf('const applyResult = await applyReferralLinkState');
-    const credentialUpsertIndex = source.indexOf('password_hash: passwordHash');
-    const signupCompletedIndex = source.indexOf('Mark signup as completed');
+    const atomicCompletionIndex = source.indexOf(".rpc('complete_fc_signup_atomic_v1'");
 
     expect(alreadySetIndex).toBeGreaterThan(-1);
     expect(referralRequiredIndex).toBeGreaterThan(alreadySetIndex);
-    expect(referralApplyIndex).toBeGreaterThan(-1);
-    expect(credentialUpsertIndex).toBeGreaterThan(-1);
-    expect(signupCompletedIndex).toBeGreaterThan(-1);
-    expect(referralApplyIndex).toBeLessThan(credentialUpsertIndex);
-    expect(referralApplyIndex).toBeLessThan(signupCompletedIndex);
+    expect(atomicCompletionIndex).toBeGreaterThan(referralRequiredIndex);
+    expect(source).not.toContain('applyReferralLinkState');
+    expect(source).not.toContain(".from('fc_profiles')\n        .update");
+    expect(source).toContain('p_inviter_fc_id: resolvedReferral.inviterFcId');
+    expect(migration).toContain('v_referral_result := public.apply_referral_link_state(');
+    expect(source).toContain('isSignupCompletionReceipt(completionReceipt, fcId, phone)');
+    expect(source).not.toContain(".from('fc_credentials')\n    .upsert");
   });
 
   it('requires the validated stored referral again on the password screen', () => {
@@ -93,9 +96,63 @@ describe('signup completion regression guards', () => {
     );
 
     expect(source).not.toContain("console.log('[TEST MODE] OTP code for'");
-    expect(source).not.toContain('profileId, authDeleteError.message');
+    expect(source).not.toContain('auth.admin.deleteUser');
+    expect(source).not.toContain('cleanupPartialSignupArtifacts');
     expect(source).not.toContain('const text = await res.text()');
-    expect(source).toContain("reason: 'auth_cleanup_failed'");
     expect(source).toContain("console.info('[request-signup-otp] test delivery simulated')");
+  });
+
+  it('routes OTP state and one-time signup proof through atomic RPC receipts', () => {
+    const requestSource = readFileSync(
+      join(process.cwd(), 'supabase', 'functions', 'request-signup-otp', 'index.ts'),
+      'utf8',
+    );
+    const verifySource = readFileSync(
+      join(process.cwd(), 'supabase', 'functions', 'verify-signup-otp', 'index.ts'),
+      'utf8',
+    );
+    const signupSource = readFileSync(join(process.cwd(), 'app', 'signup.tsx'), 'utf8');
+    const verifyScreenSource = readFileSync(join(process.cwd(), 'app', 'signup-verify.tsx'), 'utf8');
+    const passwordScreenSource = readFileSync(join(process.cwd(), 'app', 'signup-password.tsx'), 'utf8');
+
+    expect(requestSource).toContain("'issue_signup_otp_challenge_v1'");
+    expect(requestSource).toContain('mutationRowReceiptMatches(insertReceipt, insertPayload)');
+    expect(requestSource).not.toContain(".from('fc_identity_secure').delete()");
+    expect(requestSource).not.toContain(".from('fc_credentials').delete()");
+    expect(verifySource).toContain("supabase.rpc('process_signup_otp_challenge_v1'");
+    expect(verifySource).not.toContain(".from('fc_profiles')");
+    expect(signupSource).toContain('requireSignupAvailabilityReceipt(data, digits)');
+    expect(verifyScreenSource).toContain('requireSignupOtpSentReceipt(data, digits)');
+    expect(verifyScreenSource).toContain('requireSignupOtpVerifiedReceipt(data, digits)');
+    expect(verifyScreenSource).toContain('setPendingSignupVerification({');
+    expect(passwordScreenSource).toContain('getPendingSignupVerification(parsed.phone)');
+    expect(passwordScreenSource).toContain('verificationProof,');
+    expect(passwordScreenSource).toContain('requireSignupCompletionReceipt(data, payload.phone)');
+    const persistedSignupStart = verifyScreenSource.indexOf('await safeStorage.setItem(');
+    const persistedSignupEnd = verifyScreenSource.indexOf("router.replace('/signup-password')");
+    expect(verifyScreenSource.slice(persistedSignupStart, persistedSignupEnd))
+      .not.toContain('verificationProof');
+    const pendingProofSource = readFileSync(
+      join(process.cwd(), 'lib', 'pending-signup-verification.ts'),
+      'utf8',
+    );
+    expect(pendingProofSource).not.toMatch(/safeStorage|SecureStore|localStorage/);
+  });
+
+  it('validates early and performs all signup state mutations only in proof-consuming completion', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'supabase', 'functions', 'set-password', 'index.ts'),
+      'utf8',
+    );
+    const proofValidationIndex = source.indexOf("'validate_signup_verification_proof_v1'");
+    const completionIndex = source.indexOf("'complete_fc_signup_atomic_v1'", proofValidationIndex);
+    expect(proofValidationIndex).toBeGreaterThan(-1);
+    expect(completionIndex).toBeGreaterThan(proofValidationIndex);
+    expect(source).toContain('p_verification_proof_hash: verificationProofHash');
+    expect(source).toContain('p_name: profileName');
+    expect(source).toContain('p_referral_code_id: resolvedReferral.referralCodeId');
+    expect(source).not.toContain('.update(updatePayload)');
+    expect(source).not.toContain('applyReferralLinkState');
+    expect(source).not.toContain('profile.phone_verified !== true');
   });
 });

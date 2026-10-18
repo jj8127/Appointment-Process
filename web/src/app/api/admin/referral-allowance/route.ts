@@ -6,7 +6,13 @@ import { requireAdminRoute } from '@/lib/admin-route-auth';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { ALLOWANCE_IMPORT_COLUMNS, allowanceAdminId, findAllowanceCandidates, getAllowancePilot, listAllowanceRecipients } from '@/lib/referral-allowance-admin';
 import { ALLOWANCE_MAX_FILE_BYTES, AllowanceWorkbookError, parseAllowanceWorkbook } from '@/lib/referral-allowance-workbook';
+import { collectSupabaseRows, requireSupabaseRowMatching } from '@/lib/supabase-query-contract';
 import { calculateReferralAllowance } from '@shared/lib/referral-allowance-calculation';
+import { parseCalendarDate } from '@shared/lib/calendar-date';
+import {
+  parseReferralAllowanceStatement,
+  parseReferralAllowanceSummary,
+} from '@shared/lib/referral-allowance-response';
 import { REFERRAL_ALLOWANCE_POLICY_VERSION } from '@shared/types/referral-allowance';
 
 export const runtime = 'nodejs';
@@ -15,6 +21,68 @@ const headers = { 'Cache-Control': 'no-store, private', 'X-Content-Type-Options'
 const reply = (body: unknown, status = 200) => NextResponse.json(body, { status, headers });
 const uuid = z.uuid();
 const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const ALLOWANCE_IMPORT_LIST_COLUMNS = 'id,status,revision,source_sha256,policy_version,performance_month,payment_date,genealogy_as_of,pilot_revision,created_at,published_at,summary:snapshot->summary';
+type AllowanceImportBaseQueryRow = {
+  id: string;
+  status: 'draft' | 'published' | 'superseded';
+  revision: number;
+  source_sha256: string;
+  policy_version: string;
+  performance_month: string;
+  payment_date: string;
+  genealogy_as_of: string;
+  pilot_revision: number;
+  created_at: string;
+  published_at: string | null;
+};
+type AllowanceImportListQueryRow = AllowanceImportBaseQueryRow & {
+  summary: unknown;
+};
+type AllowanceImportDetailQueryRow = AllowanceImportBaseQueryRow & {
+  snapshot: unknown;
+};
+
+function isAllowanceImportBaseQueryRow(value: unknown): value is AllowanceImportBaseQueryRow {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  if (!uuid.safeParse(row.id).success
+    || !['draft', 'published', 'superseded'].includes(String(row.status))
+    || !Number.isSafeInteger(row.revision) || Number(row.revision) < 1
+    || typeof row.source_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(row.source_sha256)
+    || row.policy_version !== REFERRAL_ALLOWANCE_POLICY_VERSION
+    || typeof row.performance_month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(row.performance_month)
+    || typeof row.payment_date !== 'string' || parseCalendarDate(row.payment_date) === null
+    || typeof row.genealogy_as_of !== 'string' || parseCalendarDate(row.genealogy_as_of) === null
+    || !Number.isSafeInteger(row.pilot_revision) || Number(row.pilot_revision) < 1
+    || typeof row.created_at !== 'string' || !Number.isFinite(Date.parse(row.created_at))
+    || (row.published_at !== null
+      && (typeof row.published_at !== 'string' || !Number.isFinite(Date.parse(row.published_at))))) return false;
+  return true;
+}
+
+function isAllowanceImportListQueryRow(value: unknown): value is AllowanceImportListQueryRow {
+  if (!isAllowanceImportBaseQueryRow(value)) return false;
+  try {
+    parseReferralAllowanceSummary((value as AllowanceImportListQueryRow).summary);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isAllowanceImportDetailQueryRow(value: unknown): value is AllowanceImportDetailQueryRow {
+  if (!isAllowanceImportBaseQueryRow(value)) return false;
+  try {
+    const row = value as AllowanceImportDetailQueryRow;
+    const statement = parseReferralAllowanceStatement(row.snapshot);
+    return statement.policyVersion === row.policy_version
+      && statement.performanceMonth === row.performance_month
+      && statement.paymentDate === row.payment_date
+      && statement.genealogyAsOf === row.genealogy_as_of;
+  } catch {
+    return false;
+  }
+}
 const actionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('configure'), managerAccountId: uuid.nullable(), beneficiaryFcId: uuid,
     employeeCode: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/), enabled: z.boolean(), expectedRevision: revision,
@@ -54,21 +122,38 @@ export async function GET(request: Request) {
     if (selectedId && !uuid.safeParse(selectedId).success) return reply({ error: '조회할 대상자를 다시 선택해주세요.' }, 400);
     const pilot = selectedId ? recipients.find((item) => item.beneficiary_fc_id === selectedId) : recipients[0];
     if (!pilot) return reply({ ok: true, recipients, pilot: null, imports: [] });
-    let query = adminSupabase.from('referral_allowance_imports').select(ALLOWANCE_IMPORT_COLUMNS)
+    const buildImportDetailQuery = () => adminSupabase.from('referral_allowance_imports').select(ALLOWANCE_IMPORT_COLUMNS)
+      .eq('beneficiary_fc_id', pilot.beneficiary_fc_id)
+      .eq('employee_code', pilot.employee_code).eq('pilot_revision', pilot.revision);
+    const buildImportListQuery = () => adminSupabase.from('referral_allowance_imports').select(ALLOWANCE_IMPORT_LIST_COLUMNS)
       .eq('beneficiary_fc_id', pilot.beneficiary_fc_id)
       .eq('employee_code', pilot.employee_code).eq('pilot_revision', pilot.revision);
     const importId = url.searchParams.get('importId');
     if (importId) {
       if (!uuid.safeParse(importId).success) return reply({ error: '검토할 자료를 다시 선택해주세요.' }, 400);
-      const { data, error } = await query.eq('id', importId).maybeSingle();
+      const { data, error } = await buildImportDetailQuery().eq('id', importId).maybeSingle();
       if (error) throw new Error('import_unavailable');
       if (!data) return reply({ error: '선택한 대상자의 자료를 찾을 수 없습니다.' }, 404);
-      return reply({ ok: true, import: data });
+      return reply({
+        ok: true,
+        import: requireSupabaseRowMatching(data, 'referral_allowance_import', isAllowanceImportDetailQueryRow),
+      });
     }
-    query = query.order('created_at', { ascending: false }).limit(36);
-    const { data, error } = await query;
-    if (error) throw new Error('imports_unavailable');
-    return reply({ ok: true, recipients, pilot, imports: (data ?? []).map(({ snapshot, ...row }) => ({ ...row, summary: snapshot?.summary ?? null })) });
+    const imports = await collectSupabaseRows<AllowanceImportListQueryRow>({
+      queryName: 'referral_allowance_imports',
+      fetchPage: (from, to) => buildImportListQuery()
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, to),
+      isRow: isAllowanceImportListQueryRow,
+      rowKey: (row) => row.id,
+    });
+    return reply({
+      ok: true,
+      recipients,
+      pilot,
+      imports: imports.map(({ summary, ...row }) => ({ ...row, summary: parseReferralAllowanceSummary(summary) })),
+    });
   } catch { return reply({ error: '증원수당 관리 기능을 준비 중입니다. 잠시 후 다시 시도해주세요.' }, 503); }
 }
 

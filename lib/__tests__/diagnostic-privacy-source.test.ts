@@ -66,7 +66,8 @@ describe('diagnostic privacy source boundary', () => {
     expect(otpSource).not.toContain("console.log('[TEST MODE] OTP code for'");
     expect(otpSource).not.toContain('profileId, authDeleteError.message');
     expect(otpSource).not.toContain('const text = await res.text()');
-    expect(otpSource).toContain("reason: 'auth_cleanup_failed'");
+    expect(otpSource).not.toContain("reason: 'auth_cleanup_failed'");
+    expect(otpSource).not.toContain('supabase.auth.admin.deleteUser');
     expect(otpSource).toContain("console.info('[request-signup-otp] test delivery simulated')");
 
     const groupChatSource = read('supabase/functions/group-chat/index.ts');
@@ -91,7 +92,8 @@ describe('diagnostic privacy source boundary', () => {
     expect(setPassword).not.toContain('applyReferralLinkState failed');
     expect(setPassword).toContain("event: 'set_password.referral_resolution'");
     expect(setPassword).toContain("event: 'set_password.referral_event'");
-    expect(setPassword).toContain("event: 'set_password.referral_link'");
+    expect(setPassword).not.toContain("event: 'set_password.referral_link'");
+    expect(setPassword).not.toContain('applyReferralLinkState');
 
     const login = read('supabase/functions/login-with-password/index.ts');
     expect(login).not.toContain('phone: cleanPhone(params.actorPhone)');
@@ -115,7 +117,6 @@ describe('diagnostic privacy source boundary', () => {
     expect(notify).not.toContain('device token load failed');
     expect(notify).not.toContain("event: 'fc_notify.admin_web_push'");
     expect(notify).toContain("event: 'fc_notify.recipient_resolution'");
-    expect(notify).toContain("event: 'fc_notify.attachment_cleanup'");
     expect(notify).toContain("event: 'fc_notify.notification_insert'");
     expect(notify).toContain("event: 'fc_notify.device_token_load'");
 

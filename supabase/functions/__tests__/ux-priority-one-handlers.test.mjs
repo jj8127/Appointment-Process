@@ -6,6 +6,19 @@ import test from 'node:test';
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 const root = new URL('../../../', import.meta.url);
+
+test('document writes require database receipts and admin handoff reuses the guarded action', async () => {
+  const source = await readFile(new URL('app/docs-upload.tsx', root), 'utf8');
+  assert.match(source, /requireMutationRowReceipt/);
+  assert.match(source, /loadAllDocuments\(targetId\)/);
+  assert.match(source, /collectSupabaseRows<DocumentRow>/);
+  assert.match(source, /\.range\(from, to\)/);
+  assert.match(source, /requireMutationRowReceipt\(documentReceipt, documentMutation\)/);
+  assert.match(source, /requireMutationRowReceipt\(profileReceipt, \{ id: fc\.id, status: 'docs-pending' \}\)/);
+  assert.match(source, /invokeAdminAction\(residentId \?\? '', 'updateStatus'/);
+  assert.doesNotMatch(source, /const requestedDocs = allDocs \?\? \[\]/);
+  assert.doesNotMatch(source, /updated \?\? \{ id:/);
+});
 async function extract(file, name, context) {
   const source = await readFile(new URL(file, root), 'utf8');
   const ast = ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
@@ -101,6 +114,246 @@ test('platform consent blocks common reads without enrolling legacy accounts and
   assert.equal(calls[1].args.p_account_kind,'fc');assert.equal(calls[1].args.p_account_id,'signed-fc-id');
 });
 
+async function extractIfBranch(file, condition, context) {
+  const source = await readFile(new URL(file, root), 'utf8');
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let statement;
+  function visit(node) {
+    if (ts.isIfStatement(node) && node.expression.getText(ast) === condition) {
+      statement = node.getText(ast);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(statement, `${file}:${condition} exists`);
+  const compiled = ts.transpileModule(`globalThis.run = async () => { ${statement} }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  const scope = vm.createContext({
+    ...context,
+    Date,
+    Map,
+    Set,
+    Promise,
+    String,
+    Boolean,
+    Array,
+    Number,
+  });
+  vm.runInContext(compiled, scope);
+  return scope.run;
+}
+async function loadUxMutationContract() {
+  const source = await readFile(new URL('supabase/functions/_shared/ux-mutation-contract.ts', root), 'utf8');
+  const module = { exports: {} };
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  vm.runInNewContext(compiled, { module, exports: module.exports });
+  return module.exports;
+}
+
+test('shared mutation receipts reject null, partial, mismatched, and malformed database success values', async () => {
+  const {
+    mutationRowReceiptMatches,
+    requireAccountDeletionReceipt,
+    requireExamTransitionReceipt,
+    requireMutationRowReceipt,
+  } = await loadUxMutationContract();
+  const registrationId = '00000000-0000-4000-8000-000000000001';
+  const transition = {
+    registration_id: registrationId,
+    status: 'confirmed',
+    proof_path: null,
+    target_resident_id: '01000000001',
+    exam_type: 'life',
+    notification_id: '00000000-0000-4000-8000-000000000002',
+    recipient_actor_id: '00000000-0000-4000-8000-000000000003',
+  };
+  assert.equal(requireExamTransitionReceipt([transition], registrationId, 'confirm').status, 'confirmed');
+  for (const value of [
+    null,
+    [],
+    [transition, transition],
+    { ...transition, registration_id: '00000000-0000-4000-8000-000000000004' },
+    { ...transition, status: 'rejected' },
+    { ...transition, exam_type: 'unknown' },
+    { ...transition, notification_id: undefined },
+  ]) {
+    assert.throws(() => requireExamTransitionReceipt(value, registrationId, 'confirm'), /mutation_receipt_unverified/);
+  }
+
+  const deletion = {
+    deleted: true,
+    cleanup_outbox_id: '00000000-0000-4000-8000-000000000005',
+    proof_paths: [],
+    document_paths: ['fc/document.pdf'],
+    board_attachment_paths: [],
+    chat_file_urls: [],
+    auth_user_ids: ['00000000-0000-4000-8000-000000000006'],
+  };
+  assert.equal(requireAccountDeletionReceipt(deletion).deleted, true);
+  for (const value of [
+    null,
+    { ...deletion, deleted: false },
+    { ...deletion, cleanup_outbox_id: 'invalid' },
+    { ...deletion, proof_paths: null },
+    { ...deletion, document_paths: [''] },
+    { ...deletion, auth_user_ids: ['invalid'] },
+  ]) {
+    assert.throws(() => requireAccountDeletionReceipt(value), /mutation_receipt_unverified/);
+  }
+
+  assert.equal(
+    requireMutationRowReceipt(
+      { id: registrationId, status: 'saved', updated_at: '2026-10-13T09:00:00.000+09:00' },
+      { id: registrationId, status: 'saved', updated_at: '2026-10-13T00:00:00.000Z' },
+    ).status,
+    'saved',
+  );
+  assert.equal(
+    mutationRowReceiptMatches(
+      { read_at: '2026-10-13T00:00:00.000+00:00', dismissed_at: null },
+      { read_at: '2026-10-13T00:00:00.000Z', dismissed_at: null },
+    ),
+    true,
+  );
+  assert.throws(
+    () => requireMutationRowReceipt(null, { id: registrationId }),
+    /mutation_receipt_unverified/,
+  );
+  assert.throws(
+    () => requireMutationRowReceipt({ id: registrationId, status: 'old' }, { id: registrationId, status: 'saved' }),
+    /mutation_receipt_unverified/,
+  );
+  assert.equal(mutationRowReceiptMatches(
+    { id: registrationId, status: 'saved' },
+    { id: registrationId, status: 'saved' },
+  ), true);
+  assert.equal(mutationRowReceiptMatches(null, { id: registrationId }), false);
+  assert.equal(mutationRowReceiptMatches(
+    { id: registrationId, status: 'old' },
+    { id: registrationId, status: 'saved' },
+  ), false);
+});
+
+test('all account deletion entrypoints verify the complete receipt before cleanup side effects', async () => {
+  for (const [file, cleanupMarker] of [
+    ['supabase/functions/admin-action/index.ts', "supabase.storage.from('exam-payment-proofs').remove"],
+    ['supabase/functions/delete-account/index.ts', 'removeStorageObjects('],
+    ['web/src/app/api/fc-delete/route.ts', 'removeStorageObjects('],
+  ]) {
+    const source = await readFile(new URL(file, root), 'utf8');
+    const receipt = source.indexOf('requireAccountDeletionReceipt(data)');
+    const cleanup = source.indexOf(cleanupMarker, receipt);
+    assert.ok(receipt >= 0, `${file} validates the account deletion receipt`);
+    assert.ok(cleanup > receipt, `${file} validates before cleanup`);
+  }
+});
+
+test('privileged Edge handlers do not expose raw RPC or thrown error messages', async () => {
+  const adminAction = await readFile(new URL('supabase/functions/admin-action/index.ts', root), 'utf8');
+  const deleteAccount = await readFile(new URL('supabase/functions/delete-account/index.ts', root), 'utf8');
+  assert.doesNotMatch(adminAction, /fail\(error\.message/);
+  assert.doesNotMatch(adminAction, /err\?\.message/);
+  assert.doesNotMatch(deleteAccount, /err\(error\.message/);
+});
+
+test('admin action row mutations reject zero-row success before downstream effects', async () => {
+  const { requireMutationRowReceipt } = await loadUxMutationContract();
+  const fcId = '00000000-0000-4000-8000-000000000001';
+
+  let profileReceipt = null;
+  const profileQuery = {
+    update() { return this; },
+    eq() { return this; },
+    select() { return this; },
+    maybeSingle: async () => ({ data: profileReceipt, error: null }),
+  };
+  const updateProfile = await extractIfBranch(
+    'supabase/functions/admin-action/index.ts',
+    "action === 'updateProfile'",
+    {
+      action: 'updateProfile',
+      payload: { fcId, data: { career_type: '경력' } },
+      supabase: { from: () => profileQuery },
+      fail: (message, status = 400) => ({ ok: false, message, status }),
+      json: (body) => body,
+      requireMutationRowReceipt,
+    },
+  );
+  await assert.rejects(updateProfile(), /mutation_receipt_unverified/);
+  profileReceipt = { id: fcId, career_type: '신입' };
+  await assert.rejects(updateProfile(), /mutation_receipt_unverified/);
+  profileReceipt = { id: fcId, career_type: '경력' };
+  assert.equal((await updateProfile()).ok, true);
+
+  let workflowCalls = 0;
+  const updateDocument = await extractIfBranch(
+    'supabase/functions/admin-action/index.ts',
+    "action === 'updateDocStatus'",
+    {
+      action: 'updateDocStatus',
+      payload: { fcId, docType: 'proof', status: 'approved' },
+      supabase: {
+        from() {
+          let operation = 'read';
+          return {
+            select() { return this; },
+            update() { operation = 'update'; return this; },
+            eq() { return this; },
+            maybeSingle: async () => operation === 'read'
+              ? { data: { storage_path: 'proof.pdf' }, error: null }
+              : { data: null, error: null },
+          };
+        },
+      },
+      fail: (message, status = 400) => ({ ok: false, message, status }),
+      json: (body) => body,
+      requireMutationRowReceipt,
+      syncProfileAfterDocMutation: async () => { workflowCalls += 1; return { allApproved: true }; },
+    },
+  );
+  await assert.rejects(updateDocument(), /mutation_receipt_unverified/);
+  assert.equal(workflowCalls, 0);
+});
+
+test('admin exam round saves require a UUID receipt matching an updated round', async () => {
+  const { requireCreationReceipt } = await loadUxMutationContract();
+  const roundId = '00000000-0000-4000-8000-000000000001';
+  let rpcReceipt = 'not-a-uuid';
+  const save = await extractIfBranch(
+    'supabase/functions/admin-action/index.ts',
+    "action === 'upsertExamRound'",
+    {
+      action: 'upsertExamRound',
+      payload: {
+        roundId,
+        data: {
+          exam_type: 'life',
+          exam_date: '2026-10-20',
+          exam_month: '2026-10-01',
+          registration_deadline: '2026-10-15',
+          round_label: 'Synthetic round',
+        },
+        locations: [{ location_name: 'Seoul', sort_order: 0 }],
+      },
+      supabase: { rpc: async () => ({ data: rpcReceipt, error: null }) },
+      trimOrNull: (value) => String(value ?? '').trim() || null,
+      isCanonicalYmd: () => true,
+      isCanonicalMonthStart: () => true,
+      examMonthFromDate: () => '2026-10-01',
+      fail: (message, status = 400) => ({ ok: false, message, status }),
+      json: (body) => body,
+      requireCreationReceipt,
+    },
+  );
+  assert.equal((await save()).status, 500);
+  rpcReceipt = '00000000-0000-4000-8000-000000000002';
+  assert.equal((await save()).status, 500);
+  rpcReceipt = roundId;
+  assert.equal(JSON.stringify(await save()), JSON.stringify({ ok: true, roundId }));
+});
 test('common withdrawal uses the signed member and stays available without renewing consent',async()=>{
   for(const generalMember of [true,false]) {
     const calls=[];
@@ -203,6 +456,25 @@ test('cleanup status fails on unknown counts; post-commit drain stays pending fo
   for (const [count,error,expected] of [[0,null,false],[1,null,true],[null,null,true],[0,new Error('synthetic'),true]]) {
     const supabase={from(){return this;},select(_field,options){this.head=options?.head;return this;},eq(){return this.head?Promise.resolve({count,error}):this;},limit:async()=>({data:[],error:null})};
     assert.equal(await (await extract('supabase/functions/admin-action/index.ts','drainDocumentCleanup',{supabase}))('synthetic'),expected);
+  }
+});
+
+test('document workflow sync rejects malformed successful document lists before changing status', async()=>{
+  for (const data of [null, { unexpected: true }]) {
+    let profileUpdates=0;
+    const supabase={
+      from(table){
+        if(table==='fc_documents') return {select(){return this;},eq(){return Promise.resolve({data,error:null});}};
+        if(table==='fc_profiles') return {update(){profileUpdates++;return this;},eq(){return Promise.resolve({error:null});}};
+        throw new Error(`unexpected table ${table}`);
+      },
+    };
+    const sync=await extract('supabase/functions/admin-action/index.ts','syncProfileAfterDocMutation',{
+      supabase,
+      buildWorkflowResetPayload:()=>({}),
+    });
+    await assert.rejects(sync('synthetic'),/fc_document_query_contract_invalid/);
+    assert.equal(profileUpdates,0);
   }
 });
 

@@ -9,6 +9,10 @@ export function parseCalendarDate(value?: string | null): Date | null {
   return date;
 }
 
+export function isValidCalendarDate(value: unknown): value is string {
+  return typeof value === 'string' && parseCalendarDate(value) !== null;
+}
+
 export function formatCalendarDate(value?: string | null): string {
   if (!value) return '미정';
   // Rendering must never interpret a date-only value as a UTC timestamp.

@@ -10,6 +10,7 @@ import { NotificationDestinationReady } from '@/components/NotificationDestinati
 import {
   groupChatBootstrap,
   groupChatClearNotice,
+  groupChatContext,
   groupChatDeleteMessage,
   groupChatMarkRead,
   groupChatRetryNotification,
@@ -106,6 +107,7 @@ function showGroupChatInboxWarning() {
 }
 
 const POLL_INTERVAL_MS = 10_000;
+const GROUP_CHAT_MESSAGE_LIMIT = 100;
 
 function sortMessages(messages: GroupChatMessage[]) {
   return [...messages].sort((left, right) => {
@@ -114,6 +116,17 @@ function sortMessages(messages: GroupChatMessage[]) {
     if (leftTime !== rightTime) return leftTime - rightTime;
     return left.id.localeCompare(right.id);
   });
+}
+
+function mergeMessages(
+  preferred: GroupChatMessage[],
+  fallback: GroupChatMessage[],
+) {
+  const byId = new Map<string, GroupChatMessage>();
+  for (const message of [...preferred, ...fallback]) {
+    if (!byId.has(message.id)) byId.set(message.id, message);
+  }
+  return sortMessages(Array.from(byId.values()));
 }
 
 function newestMessageId(messages: GroupChatMessage[]) {
@@ -170,6 +183,7 @@ function DashboardGroupChatContent() {
   const [muted, setMuted] = useState(false);
   const [canSendMessages, setCanSendMessages] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const noticeUpdatingRef = useRef(false);
@@ -187,8 +201,12 @@ function DashboardGroupChatContent() {
     useState<GroupChatNotificationRetry[]>([]);
   const [retryingNotificationMessageId, setRetryingNotificationMessageId] =
     useState<string | null>(null);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessageLoadError, setOlderMessageLoadError] = useState<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const pendingAttachmentBatchRef = useRef<PreparedMessengerAttachmentBatch | null>(null);
+  const historyLoadInFlightRef = useRef(false);
 
   const canUsePage = hydrated && (role === 'admin' || role === 'manager');
   const canManageMemberSendPermissions = isStaffGroupChatActor(actor);
@@ -201,12 +219,21 @@ function DashboardGroupChatContent() {
     }, 60);
   }, []);
 
-  const applyBootstrap = useCallback((data: Awaited<ReturnType<typeof groupChatBootstrap>>) => {
+  const applyBootstrap = useCallback((
+    data: Awaited<ReturnType<typeof groupChatBootstrap>>,
+    options?: { preserveMessages?: boolean },
+  ) => {
     setRoom(data.room);
     setActor(data.actor);
     setMembers(data.members ?? []);
     setMemberCount(data.member_count ?? data.members?.length ?? 0);
-    setMessages(sortMessages(data.messages ?? []));
+    setMessages((current) => options?.preserveMessages
+      ? mergeMessages(data.messages ?? [], current)
+      : sortMessages(data.messages ?? []));
+    if (!options?.preserveMessages) {
+      setHasOlderMessages((data.messages?.length ?? 0) >= GROUP_CHAT_MESSAGE_LIMIT);
+      setOlderMessageLoadError(null);
+    }
     setNotice(data.notice ?? null);
     setMuted(data.muted === true);
     setCanSendMessages(isStaffGroupChatActor(data.actor) || data.can_send_messages === true);
@@ -216,20 +243,58 @@ function DashboardGroupChatContent() {
     const ticket = requestGuard.beginList();
     if (!options?.silent) setLoading(true);
     try {
-      const data = await groupChatBootstrap(100);
+      const data = await groupChatBootstrap(GROUP_CHAT_MESSAGE_LIMIT);
       if (!requestGuard.canApplyList(ticket)) return;
-      applyBootstrap(data);
+      applyBootstrap(data, { preserveMessages: options?.keepScroll === true });
+      setLoadError(null);
       const topMessageId = newestMessageId(data.messages ?? []);
       if (topMessageId) {
         void groupChatMarkRead(topMessageId);
       }
       if (!options?.keepScroll) scrollToBottom();
     } catch (error) {
-      if (requestGuard.isLatestList(ticket) && !options?.silent) showGroupChatErrorNotification(error);
+      if (requestGuard.isLatestList(ticket)) {
+        setLoadError(classifyGroupChatError(error).message);
+        if (!options?.silent) showGroupChatErrorNotification(error);
+      }
     } finally {
       if (requestGuard.isLatestList(ticket)) setLoading(false);
     }
   }, [applyBootstrap, requestGuard, scrollToBottom]);
+
+  const handleLoadOlderMessages = useCallback(async () => {
+    if (!room?.id || historyLoadInFlightRef.current || !hasOlderMessages || messages.length === 0) return;
+    const oldestMessage = messages[0];
+    const viewport = viewportRef.current;
+    const previousScrollHeight = viewport?.scrollHeight ?? 0;
+    const previousScrollTop = viewport?.scrollTop ?? 0;
+
+    historyLoadInFlightRef.current = true;
+    setLoadingOlderMessages(true);
+    setOlderMessageLoadError(null);
+    try {
+      const context = await groupChatContext(room.id, oldestMessage.id);
+      if (context.roomRef.roomId !== room.id || context.anchorMessageId !== oldestMessage.id) {
+        throw new Error('invalid_group_chat_history_context');
+      }
+      setMessages((current) => mergeMessages(current, context.messages));
+      setHasOlderMessages(context.hasBefore);
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          const nextViewport = viewportRef.current;
+          if (!nextViewport) return;
+          nextViewport.scrollTop = previousScrollTop
+            + Math.max(0, nextViewport.scrollHeight - previousScrollHeight);
+        });
+      });
+    } catch (error) {
+      const message = classifyGroupChatError(error).message;
+      setOlderMessageLoadError(message);
+    } finally {
+      historyLoadInFlightRef.current = false;
+      setLoadingOlderMessages(false);
+    }
+  }, [hasOlderMessages, messages, room?.id]);
 
   useEffect(() => {
     if (!canUsePage) return;
@@ -761,6 +826,17 @@ function DashboardGroupChatContent() {
           </Badge>
         </Group>
 
+        {loadError ? (
+          <Alert color="red" title="대화 불러오기 실패" mx="lg" mt="md">
+            <Group justify="space-between" align="center">
+              <Text size="sm">{loadError}</Text>
+              <Button size="xs" variant="subtle" color="red" onClick={() => void loadGroupChat()}>
+                다시 시도
+              </Button>
+            </Group>
+          </Alert>
+        ) : null}
+
         {pendingNotificationRetries.map((retry) => (
           <Alert
             key={retry.messageId}
@@ -817,6 +893,22 @@ function DashboardGroupChatContent() {
             </Stack>
           ) : (
             <Stack gap="md">
+              {hasOlderMessages || loadingOlderMessages || olderMessageLoadError ? (
+                <Stack align="center" gap={6} py="xs">
+                  {olderMessageLoadError ? (
+                    <Text size="xs" c="red">{olderMessageLoadError}</Text>
+                  ) : null}
+                  <Button
+                    size="xs"
+                    variant="light"
+                    color="gray"
+                    loading={loadingOlderMessages}
+                    onClick={() => void handleLoadOlderMessages()}
+                  >
+                    {olderMessageLoadError ? '다시 시도' : '이전 메시지 더 보기'}
+                  </Button>
+                </Stack>
+              ) : null}
               {messages.map(renderMessage)}
             </Stack>
           )}

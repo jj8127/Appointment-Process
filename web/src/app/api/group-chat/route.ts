@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { parseUpstreamResponse, isGroupChatSuccess } from '@/lib/upstream-response-policy';
 import { NextResponse } from 'next/server';
 
+import { serverError } from '@/lib/api-error';
 import { checkRateLimit, SECURITY_HEADERS, verifyOrigin } from '@/lib/csrf';
 import {
   buildGroupChatFunctionHeaders,
@@ -25,14 +26,6 @@ function json(body: Record<string, unknown>, status = 200) {
 }
 
 export async function POST(req: Request) {
-  if (!supabaseUrl || !serviceKey) {
-    return json({
-      ok: false,
-      code: 'missing_group_chat_config',
-      message: 'Missing Supabase group chat configuration',
-    }, 500);
-  }
-
   const originCheck = await verifyOrigin();
   if (!originCheck.valid) {
     return json({ ok: false, code: 'invalid_origin', message: originCheck.error ?? 'Invalid origin' }, 403);
@@ -48,6 +41,14 @@ export async function POST(req: Request) {
       code: sessionCheck.status === 401 ? 'invalid_session' : 'forbidden',
       message: sessionCheck.error,
     }, sessionCheck.status);
+  }
+
+  if (!supabaseUrl || !serviceKey) {
+    return json({
+      ok: false,
+      code: 'service_unavailable',
+      message: '단톡방 요청을 처리하지 못했습니다.',
+    }, 503);
   }
 
   const rateLimit = checkRateLimit(
@@ -99,10 +100,6 @@ export async function POST(req: Request) {
     }
     return json(payload, response.status);
   } catch (error) {
-    return json({
-      ok: false,
-      code: 'group_chat_proxy_failed',
-      message: error instanceof Error ? error.message : '단톡방 요청을 처리하지 못했습니다.',
-    }, 500);
+    return serverError(error, 'api/group-chat', SECURITY_HEADERS);
   }
 }

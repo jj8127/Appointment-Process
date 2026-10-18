@@ -1,9 +1,16 @@
 import { isValidCareerType } from '@/lib/user-intent-policy';
+import {
+  buildFcDocWorkflowResetPayload,
+  isFcStatus,
+  parseFcStatusUpdateExtra,
+} from '@shared/lib/fc-status';
 import dayjs from 'dayjs';
 import { after, NextResponse } from 'next/server';
 
 import { adminSupabase } from '@/lib/admin-supabase';
+import { serverError } from '@/lib/api-error';
 import { resolveAdminTempIdUpdate } from '@/lib/admin-temp-id-update';
+import { isValidIsoDate } from '@/lib/calendar-date';
 import {
   persistNotificationToResident,
   sendPushNotificationToResident,
@@ -24,8 +31,13 @@ import { parseNotificationTargetV1 } from '@/lib/notification-target';
 import {
   hasRetiredLegacyRecommenderMutationFields,
   isRetiredLegacyRecommenderSearchAction,
+  RECOMMENDER_RELATION_UNAVAILABLE_MESSAGE,
+  RECOMMENDER_RPC_NOT_READY_MESSAGE,
 } from '@/lib/recommender-relation-route-handler';
 import { buildPhoneCandidates, getVerifiedServerSession } from '@/lib/server-session';
+import { requireSupabaseRows } from '@/lib/supabase-query-contract';
+import { readAdminDocumentWorkflowRows } from '@/lib/admin-document-workflow';
+import { ADMIN_FC_DETAIL_SELECT } from '@/lib/admin-document-client';
 
 type AdminAction =
   | 'getProfile'
@@ -88,8 +100,6 @@ type AdminRequest = {
   payload: Record<string, unknown>;
 };
 
-const RECOMMENDER_RPC_NOT_READY_MESSAGE =
-  '운영 DB에 추천인 상태 단일화 함수가 아직 적용되지 않았습니다. migration 20260423000001을 먼저 반영해주세요.';
 const DAWICHOK_URL_SIGNAL_STATUSES = new Set([
   'docs-approved',
   'hanwha-commission-review',
@@ -98,6 +108,25 @@ const DAWICHOK_URL_SIGNAL_STATUSES = new Set([
   'appointment-completed',
   'final-link-sent',
 ]);
+const ADMIN_PROFILE_UPDATE_FIELD_NAMES = [
+  'career_type',
+  'temp_id',
+  'status',
+  'allowance_date',
+  'allowance_prescreen_requested_at',
+  'allowance_reject_reason',
+  'life_commission_completed',
+  'nonlife_commission_completed',
+] as const;
+const ADMIN_PROFILE_UPDATE_FIELDS = new Set<string>(ADMIN_PROFILE_UPDATE_FIELD_NAMES);
+const ADMIN_PROFILE_UPDATE_RECEIPT_SELECT = [
+  'id',
+  'name',
+  'recommender',
+  'recommender_fc_id',
+  ...ADMIN_PROFILE_UPDATE_FIELD_NAMES,
+].join(',');
+const ADMIN_FC_STATUS_UPDATE_RECEIPT_SELECT = 'id,status,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,dawichok_url_sent_at,dawichok_url_sent_by,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,appointment_date_life,appointment_date_nonlife,life_commission_completed,nonlife_commission_completed';
 
 function notificationResponse(result: {
   success: boolean;
@@ -116,6 +145,43 @@ function notificationResponse(result: {
       ? {}
       : { warning: 'notification_persistence_incomplete' }),
   };
+}
+
+function requireFcMutationReceipt(
+  receipt: unknown,
+  expected: Record<string, unknown>,
+  mutationName: string,
+): Record<string, unknown> {
+  if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
+    throw new Error(`${mutationName}_mutation_receipt_invalid`);
+  }
+
+  const row = receipt as Record<string, unknown>;
+  for (const [field, expectedValue] of Object.entries(expected)) {
+    const actualValue = row[field];
+    if (Object.is(actualValue, expectedValue)) continue;
+    if (
+      field.endsWith('_at')
+      && typeof actualValue === 'string'
+      && typeof expectedValue === 'string'
+      && Number.isFinite(Date.parse(actualValue))
+      && Date.parse(actualValue) === Date.parse(expectedValue)
+    ) continue;
+    throw new Error(`${mutationName}_mutation_receipt_invalid`);
+  }
+  return row;
+}
+
+function requireSingleFcMutationReceipt(
+  receipts: Record<string, unknown>[] | null | undefined,
+  expected: Record<string, unknown>,
+  mutationName: string,
+): Record<string, unknown> {
+  const rows = requireSupabaseRows(receipts, mutationName);
+  if (rows.length !== 1) {
+    throw new Error(`${mutationName}_mutation_receipt_invalid`);
+  }
+  return requireFcMutationReceipt(rows[0], expected, mutationName);
 }
 
 async function resolveCanonicalFcNotificationRecipient(fcId: string): Promise<string | null> {
@@ -316,12 +382,6 @@ function requiresAllowanceDate(status: string, extra?: Record<string, unknown>) 
   return !hasRejectReason && (hasDateField || hasPrescreenRequest);
 }
 
-function isValidYmd(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00`);
-  return !Number.isNaN(parsed.getTime());
-}
-
 const isAffiliationAllowed = (scope: AffiliationScope, affiliation?: string | null) => {
   if (!scope.restricted) return true;
   const candidate = String(affiliation ?? '').trim();
@@ -356,30 +416,6 @@ function resolveAllowanceStatus(currentStatus: string | null | undefined): strin
   return currentStatus;
 }
 
-function buildDocWorkflowResetPayload() {
-  return {
-    hanwha_commission_date_sub: null,
-    hanwha_commission_date: null,
-    hanwha_commission_reject_reason: null,
-    hanwha_commission_pdf_path: null,
-    hanwha_commission_pdf_name: null,
-    dawichok_url_sent_at: null,
-    dawichok_url_sent_by: null,
-    appointment_url: null,
-    appointment_date: null,
-    appointment_schedule_life: null,
-    appointment_schedule_nonlife: null,
-    appointment_date_life_sub: null,
-    appointment_date_nonlife_sub: null,
-    appointment_reject_reason_life: null,
-    appointment_reject_reason_nonlife: null,
-    appointment_date_life: null,
-    appointment_date_nonlife: null,
-    life_commission_completed: false,
-    nonlife_commission_completed: false,
-  };
-}
-
 const NO_FILE_APPROVAL_NOTE = '총무 수동 승인: 파일 미제출';
 
 const isNoFileDoc = (storagePath: string | null | undefined) => {
@@ -388,39 +424,32 @@ const isNoFileDoc = (storagePath: string | null | undefined) => {
 };
 
 async function syncProfileAfterDocMutation(fcId: string) {
-  const { data: docs, error: docsError } = await adminSupabase
-    .from('fc_documents')
-    .select('status,storage_path')
-    .eq('fc_id', fcId);
-  if (docsError) throw docsError;
-
-  const allDocs = docs ?? [];
+  const allDocs = await readAdminDocumentWorkflowRows(fcId, 'admin_fc_document_workflow');
   const allApproved = allDocs.length > 0 && allDocs.every((doc) => doc.status === 'approved');
 
-  const { error: profileError } = await adminSupabase
+  const updatePayload = allApproved
+    ? { status: 'docs-approved' }
+    : {
+        status: 'docs-pending',
+        ...buildFcDocWorkflowResetPayload(),
+      };
+  const { data: updatedProfiles, error: profileError } = await adminSupabase
     .from('fc_profiles')
-    .update(
-      allApproved
-        ? { status: 'docs-approved' }
-        : {
-            status: 'docs-pending',
-            ...buildDocWorkflowResetPayload(),
-          },
-    )
-    .eq('id', fcId);
+    .update(updatePayload)
+    .eq('id', fcId)
+    .select(ADMIN_FC_STATUS_UPDATE_RECEIPT_SELECT);
   if (profileError) throw profileError;
+  requireSingleFcMutationReceipt(
+    updatedProfiles,
+    { ...updatePayload, id: fcId },
+    'admin_fc_document_workflow_profile',
+  );
 
   return { allApproved };
 }
 
 async function areAllRequestedDocsApproved(fcId: string) {
-  const { data: docs, error } = await adminSupabase
-    .from('fc_documents')
-    .select('status')
-    .eq('fc_id', fcId);
-  if (error) throw error;
-
-  const requestedDocs = docs ?? [];
+  const requestedDocs = await readAdminDocumentWorkflowRows(fcId, 'admin_fc_requested_documents');
   return requestedDocs.length > 0 && requestedDocs.every((doc) => doc.status === 'approved');
 }
 
@@ -429,7 +458,7 @@ async function drainDocumentCleanup(fcId: string): Promise<boolean> {
   try {
     const { data, error } = await adminSupabase.from('fc_document_cleanup_queue').select('storage_path').eq('fc_id', fcId).limit(20);
     if (error) return true;
-    for (const row of data ?? []) {
+    for (const row of requireSupabaseRows(data, 'admin_fc_document_cleanup_queue')) {
       const { error: removeError } = await adminSupabase.storage.from('fc-documents').remove([row.storage_path]);
       if (!removeError) {
         const { error: queueError } = await adminSupabase.from('fc_document_cleanup_queue').delete().eq('fc_id', fcId).eq('storage_path', row.storage_path);
@@ -505,7 +534,7 @@ export async function POST(req: Request) {
 
       const { data: profile, error: profileError } = await adminSupabase
         .from('fc_profiles')
-        .select('hanwha_commission_pdf_path')
+        .select('hanwha_commission_pdf_path,status')
         .eq('id', fcId)
         .maybeSingle();
       if (profileError) throw profileError;
@@ -519,16 +548,33 @@ export async function POST(req: Request) {
         .remove([storedPath]);
       if (deleteError) throw deleteError;
 
-      const { error: updateError } = await adminSupabase
+      const nextStatus = profile?.status === 'appointment-completed' || profile?.status === 'final-link-sent'
+        ? profile.status
+        : 'hanwha-commission-review';
+      const expectedUpdate = {
+        id: fcId,
+        hanwha_commission_pdf_path: null,
+        hanwha_commission_pdf_name: null,
+        status: nextStatus,
+      };
+      const { data: updatedProfile, error: updateError } = await adminSupabase
         .from('fc_profiles')
         .update({
           hanwha_commission_pdf_path: null,
           hanwha_commission_pdf_name: null,
+          status: nextStatus,
         })
-        .eq('id', fcId);
+        .eq('id', fcId)
+        .select('id,hanwha_commission_pdf_path,hanwha_commission_pdf_name,status')
+        .maybeSingle();
       if (updateError) throw updateError;
+      const receipt = requireFcMutationReceipt(
+        updatedProfile,
+        expectedUpdate,
+        'admin_fc_delete_hanwha_pdf',
+      );
 
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, profile: receipt });
     }
 
     if (action === 'getProfile') {
@@ -539,7 +585,7 @@ export async function POST(req: Request) {
 
       const { data, error } = await adminSupabase
         .from('fc_profiles')
-        .select('*, fc_documents(*)')
+        .select(ADMIN_FC_DETAIL_SELECT)
         .eq('id', fcId)
         .maybeSingle();
 
@@ -555,7 +601,9 @@ export async function POST(req: Request) {
         fcId?: string;
         data?: Record<string, unknown>;
       };
-      if (!fcId || !data) return badRequest('fcId and data are required');
+      if (!fcId || !data || typeof data !== 'object' || Array.isArray(data)) {
+        return badRequest('fcId and data are required');
+      }
       const scopeError = await requireFcProfileScope(adminSession, fcId);
       if (scopeError) return scopeError;
       if (hasRetiredLegacyRecommenderMutationFields(data)) {
@@ -564,6 +612,30 @@ export async function POST(req: Request) {
 
       if (Object.prototype.hasOwnProperty.call(data, 'career_type') && !isValidCareerType(data.career_type)) {
         return badRequest('경력 구분은 신입 또는 경력을 선택해주세요.');
+      }
+      if (Object.keys(data).some((field) => !ADMIN_PROFILE_UPDATE_FIELDS.has(field))) {
+        return badRequest('profile update fields are invalid');
+      }
+      if (Object.prototype.hasOwnProperty.call(data, 'status') && !isFcStatus(data.status)) {
+        return badRequest('profile status is invalid');
+      }
+      for (const field of ['life_commission_completed', 'nonlife_commission_completed']) {
+        if (Object.prototype.hasOwnProperty.call(data, field) && typeof data[field] !== 'boolean') {
+          return badRequest('commission completion fields must be boolean');
+        }
+      }
+      for (const field of [
+        'temp_id',
+        'allowance_date',
+        'allowance_prescreen_requested_at',
+        'allowance_reject_reason',
+      ]) {
+        if (Object.prototype.hasOwnProperty.call(data, field)
+          && data[field] !== null
+          && typeof data[field] !== 'string'
+        ) {
+          return badRequest('profile text fields must be strings or null');
+        }
       }
       const updateData = { ...data };
 
@@ -608,26 +680,47 @@ export async function POST(req: Request) {
         }
       }
 
+      let profileReceipt: Record<string, unknown>;
       if (Object.keys(updateData).length > 0) {
-        const { error: updateError } = await adminSupabase
+        const { data: updatedProfile, error: updateError } = await adminSupabase
           .from('fc_profiles')
           .update(updateData)
-          .eq('id', fcId);
+          .eq('id', fcId)
+          .select(ADMIN_PROFILE_UPDATE_RECEIPT_SELECT)
+          .maybeSingle();
         if (updateError) throw updateError;
+        profileReceipt = requireFcMutationReceipt(
+          updatedProfile,
+          updateData,
+          'admin_fc_update_profile',
+        );
+      } else {
+        const { data: profile, error: profileError } = await adminSupabase
+          .from('fc_profiles')
+          .select('id,name,recommender,recommender_fc_id,career_type,temp_id,status')
+          .eq('id', fcId)
+          .maybeSingle();
+        if (profileError) throw profileError;
+        profileReceipt = requireFcMutationReceipt(
+          profile,
+          {},
+          'admin_fc_reload_profile',
+        );
       }
 
       const shouldNotifyTemp = tempIdChanged && Boolean(nextTempId);
-      let updatedProfile: Record<string, unknown> | null = null;
-      const { data: profile, error: profileError } = await adminSupabase
-        .from('fc_profiles')
-        .select('name,recommender,recommender_fc_id,career_type,temp_id,status')
-        .eq('id', fcId)
-        .maybeSingle();
-      if (profileError) {
-        logger.warn('[api/admin/fc] profile reload failed after updateProfile', profileError);
-      } else {
-        updatedProfile = profile as Record<string, unknown> | null;
-      }
+      const updatedProfile = {
+        ...Object.fromEntries(
+          Object.keys(updateData).map((field) => [field, profileReceipt[field]]),
+        ),
+        id: profileReceipt.id,
+        career_type: profileReceipt.career_type,
+        name: profileReceipt.name,
+        recommender: profileReceipt.recommender,
+        recommender_fc_id: profileReceipt.recommender_fc_id,
+        status: profileReceipt.status,
+        temp_id: profileReceipt.temp_id,
+      };
 
       let notificationResult: PushNotificationResult | null = null;
       if (shouldNotifyTemp && nextTempId) {
@@ -656,10 +749,11 @@ export async function POST(req: Request) {
         msg?: string;
         extra?: Record<string, unknown>;
       };
-      if (!fcId || !status) return badRequest('fcId and status are required');
+      if (!fcId || !isFcStatus(status)) return badRequest('fcId and valid status are required');
       const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
       if (scopeError) return scopeError;
-      let extra = rawExtra;
+      let extra = parseFcStatusUpdateExtra(status, rawExtra);
+      if (!extra) return badRequest('status extra fields are invalid');
 
       if (isAllowanceFlowMutation(status, extra)) {
         const { data: currentProfile, error: profileError } = await adminSupabase
@@ -677,7 +771,7 @@ export async function POST(req: Request) {
         if (!normalizedAllowanceDate && requiresAllowanceDate(status, extra)) {
           return badRequest('보증보험 조회 동의일을 먼저 입력해주세요.');
         }
-        if (normalizedAllowanceDate && !isValidYmd(normalizedAllowanceDate)) {
+        if (normalizedAllowanceDate && !isValidIsoDate(normalizedAllowanceDate)) {
           return badRequest('유효한 보증보험 조회 동의일을 입력해주세요.');
         }
 
@@ -691,7 +785,7 @@ export async function POST(req: Request) {
         const approvedDate = String(extra?.hanwha_commission_date ?? dayjs().format('YYYY-MM-DD')).trim();
         const submittedDate = String(extra?.hanwha_commission_date_sub ?? '').trim();
 
-        if (!approvedDate || !isValidYmd(approvedDate)) {
+        if (!approvedDate || !isValidIsoDate(approvedDate)) {
           return badRequest('다위촉 URL 처리일이 필요합니다.');
         }
         extra = {
@@ -706,7 +800,7 @@ export async function POST(req: Request) {
           .maybeSingle();
         if (profileError) throw profileError;
         const effectiveSubmittedDate = submittedDate || String(currentProfile?.hanwha_commission_date_sub ?? '').trim();
-        if (!effectiveSubmittedDate || !isValidYmd(effectiveSubmittedDate)) {
+        if (!effectiveSubmittedDate || !isValidIsoDate(effectiveSubmittedDate)) {
           return badRequest('다위촉 URL 완료일을 입력해주세요.');
         }
         extra = {
@@ -722,23 +816,28 @@ export async function POST(req: Request) {
       if (status === 'docs-pending') {
         extra = {
           ...(extra ?? {}),
-          ...buildDocWorkflowResetPayload(),
+          ...buildFcDocWorkflowResetPayload(),
         };
       }
 
+      const updatePayload = { ...(extra ?? {}), status };
       const { data: updatedData, error: updateError } = await adminSupabase
         .from('fc_profiles')
-        .update({ status, ...(extra ?? {}) })
+        .update(updatePayload)
         .eq('id', fcId)
-        .select();
-
-      logger.debug('[api/admin/fc] updateStatus result', {
-        category: 'admin_fc_update',
-        resultStatus: updateError ? 'failed' : 'completed',
-        updatedCount: updatedData?.length,
-      });
+        .select(ADMIN_FC_STATUS_UPDATE_RECEIPT_SELECT);
 
       if (updateError) throw updateError;
+      const updatedProfile = requireSingleFcMutationReceipt(
+        updatedData,
+        updatePayload,
+        'admin_fc_update_status',
+      );
+      logger.debug('[api/admin/fc] updateStatus result', {
+        category: 'admin_fc_update',
+        resultStatus: 'completed',
+        updatedCount: 1,
+      });
 
       let notificationResult: PushNotificationResult | null = null;
       if (msg) {
@@ -768,7 +867,17 @@ export async function POST(req: Request) {
         });
       }
 
-      return NextResponse.json({ ok: true, ...notificationResponse(notificationResult) });
+      return NextResponse.json({
+        ok: true,
+        status: updatedProfile.status,
+        profile: {
+          id: updatedProfile.id,
+          ...Object.fromEntries(
+            Object.keys(updatePayload).map((field) => [field, updatedProfile[field]]),
+          ),
+        },
+        ...notificationResponse(notificationResult),
+      });
     }
 
     if (action === 'updateAllowanceDate') {
@@ -780,7 +889,7 @@ export async function POST(req: Request) {
       if (!fcId || !normalizedAllowanceDate) return badRequest('fcId and allowanceDate are required');
       const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
       if (scopeError) return scopeError;
-      if (!isValidYmd(normalizedAllowanceDate)) return badRequest('유효한 보증보험 조회 동의일을 입력해주세요.');
+      if (!isValidIsoDate(normalizedAllowanceDate)) return badRequest('유효한 보증보험 조회 동의일을 입력해주세요.');
 
       const { data: profile, error: profileError } = await adminSupabase
         .from('fc_profiles')
@@ -794,21 +903,29 @@ export async function POST(req: Request) {
       }
 
       const nextStatus = resolveAllowanceStatus(profile.status);
-      const { error: updateError } = await adminSupabase
+      const expectedUpdate = {
+        allowance_date: normalizedAllowanceDate,
+        allowance_prescreen_requested_at: null,
+        allowance_reject_reason: null,
+        status: nextStatus,
+      };
+      const { data: updatedProfile, error: updateError } = await adminSupabase
         .from('fc_profiles')
-        .update({
-          allowance_date: normalizedAllowanceDate,
-          allowance_prescreen_requested_at: null,
-          allowance_reject_reason: null,
-          status: nextStatus,
-        })
-        .eq('id', fcId);
+        .update(expectedUpdate)
+        .eq('id', fcId)
+        .select('allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,status')
+        .maybeSingle();
       if (updateError) throw updateError;
+      const receipt = requireFcMutationReceipt(
+        updatedProfile,
+        expectedUpdate,
+        'admin_fc_update_allowance_date',
+      );
 
       return NextResponse.json({
         ok: true,
-        allowance_date: normalizedAllowanceDate,
-        status: nextStatus,
+        allowance_date: receipt.allowance_date,
+        status: receipt.status,
       });
     }
 
@@ -821,7 +938,7 @@ export async function POST(req: Request) {
       if (!fcId || !normalizedSubmittedDate) return badRequest('fcId and submittedDate are required');
       const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
       if (scopeError) return scopeError;
-      if (!isValidYmd(normalizedSubmittedDate)) return badRequest('유효한 다위촉 URL 완료일을 입력해주세요.');
+      if (!isValidIsoDate(normalizedSubmittedDate)) return badRequest('유효한 다위촉 URL 완료일을 입력해주세요.');
 
       const { data: profile, error: profileError } = await adminSupabase
         .from('fc_profiles')
@@ -829,6 +946,7 @@ export async function POST(req: Request) {
         .eq('id', fcId)
         .maybeSingle();
       if (profileError) throw profileError;
+      if (!profile) return NextResponse.json({ error: 'FC profile not found' }, { status: 404 });
 
       const nextStatus =
         profile?.status === 'hanwha-commission-approved' ||
@@ -837,20 +955,28 @@ export async function POST(req: Request) {
           ? profile.status
           : 'hanwha-commission-review';
 
-      const { error: updateError } = await adminSupabase
+      const expectedUpdate = {
+        hanwha_commission_date_sub: normalizedSubmittedDate,
+        hanwha_commission_reject_reason: null,
+        status: nextStatus,
+      };
+      const { data: updatedProfile, error: updateError } = await adminSupabase
         .from('fc_profiles')
-        .update({
-          hanwha_commission_date_sub: normalizedSubmittedDate,
-          hanwha_commission_reject_reason: null,
-          status: nextStatus,
-        })
-        .eq('id', fcId);
+        .update(expectedUpdate)
+        .eq('id', fcId)
+        .select('hanwha_commission_date_sub,hanwha_commission_reject_reason,status')
+        .maybeSingle();
       if (updateError) throw updateError;
+      const receipt = requireFcMutationReceipt(
+        updatedProfile,
+        expectedUpdate,
+        'admin_fc_update_hanwha_submission_date',
+      );
 
       return NextResponse.json({
         ok: true,
-        hanwha_commission_date_sub: normalizedSubmittedDate,
-        status: nextStatus,
+        hanwha_commission_date_sub: receipt.hanwha_commission_date_sub,
+        status: receipt.status,
       });
     }
 
@@ -873,14 +999,22 @@ export async function POST(req: Request) {
 
       const sentAt = new Date().toISOString();
       const sentBy = sessionCheck.session.residentDigits;
-      const { error: updateError } = await adminSupabase
+      const expectedUpdate = {
+        dawichok_url_sent_at: sentAt,
+        dawichok_url_sent_by: sentBy,
+      };
+      const { data: updatedProfile, error: updateError } = await adminSupabase
         .from('fc_profiles')
-        .update({
-          dawichok_url_sent_at: sentAt,
-          dawichok_url_sent_by: sentBy,
-        })
-        .eq('id', fcId);
+        .update(expectedUpdate)
+        .eq('id', fcId)
+        .select('dawichok_url_sent_at,dawichok_url_sent_by')
+        .maybeSingle();
       if (updateError) throw updateError;
+      const receipt = requireFcMutationReceipt(
+        updatedProfile,
+        expectedUpdate,
+        'admin_fc_mark_dawichok_url_sent',
+      );
 
       const title = '다위촉 URL 안내';
       const msg = '카카오톡으로 전송된 다위촉 URL을 진행해 주세요.';
@@ -899,8 +1033,8 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         ok: true,
-        dawichok_url_sent_at: sentAt,
-        dawichok_url_sent_by: sentBy,
+        dawichok_url_sent_at: receipt.dawichok_url_sent_at,
+        dawichok_url_sent_by: receipt.dawichok_url_sent_by,
         ...notificationResponse(notificationResult),
       });
     }
@@ -920,7 +1054,7 @@ export async function POST(req: Request) {
       if (!['life', 'nonlife'].includes(category)) {
         return badRequest('유효한 위촉 구분이 필요합니다.');
       }
-      if (!isValidYmd(normalizedAppointmentDate)) {
+      if (!isValidIsoDate(normalizedAppointmentDate)) {
         return badRequest('유효한 위촉 완료일을 입력해주세요.');
       }
 
@@ -963,36 +1097,51 @@ export async function POST(req: Request) {
             };
       const nextStatus = resolveAppointmentCompletionStatus(nextProfile);
 
-      const { error: updateError } = await adminSupabase
+      const expectedUpdate = category === 'life'
+        ? {
+            appointment_date_life: normalizedAppointmentDate,
+            appointment_reject_reason_life: null,
+            status: nextStatus,
+          }
+        : {
+            appointment_date_nonlife: normalizedAppointmentDate,
+            appointment_reject_reason_nonlife: null,
+            status: nextStatus,
+          };
+      const { data: updatedProfile, error: updateError } = await adminSupabase
         .from('fc_profiles')
-        .update(
-          category === 'life'
-            ? {
-                appointment_date_life: normalizedAppointmentDate,
-                appointment_reject_reason_life: null,
-                status: nextStatus,
-              }
-            : {
-                appointment_date_nonlife: normalizedAppointmentDate,
-                appointment_reject_reason_nonlife: null,
-                status: nextStatus,
-              },
-        )
-        .eq('id', fcId);
+        .update(expectedUpdate)
+        .eq('id', fcId)
+        .select([
+          'appointment_date_life',
+          'appointment_reject_reason_life',
+          'appointment_date_nonlife',
+          'appointment_reject_reason_nonlife',
+          'status',
+        ].join(','))
+        .maybeSingle();
       if (updateError) throw updateError;
+      const receipt = requireFcMutationReceipt(
+        updatedProfile,
+        expectedUpdate,
+        'admin_fc_update_appointment_date',
+      );
+      const appointmentDateField = category === 'life'
+        ? 'appointment_date_life'
+        : 'appointment_date_nonlife';
 
       return NextResponse.json({
         ok: true,
-        appointmentDate: normalizedAppointmentDate,
+        appointmentDate: receipt[appointmentDateField],
         category,
-        status: nextStatus,
+        status: receipt.status,
       });
     }
 
     if (action === 'updateDocsRequest') {
       const { fcId, types, deadline } = payload as { fcId?: string; types?: string[]; deadline?: string | null };
       if (!fcId || !Array.isArray(types) || types.some((type) => typeof type !== 'string')) return badRequest('서류 종류를 확인해주세요.');
-      if (deadline && (!/^\d{4}-\d{2}-\d{2}$/.test(deadline) || !dayjs(deadline).isValid())) return badRequest('서류 마감일을 확인해주세요.');
+      if (deadline && !isValidIsoDate(deadline)) return badRequest('서류 마감일을 확인해주세요.');
       const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
       if (scopeError) return scopeError;
       const { data, error } = await adminSupabase.rpc('update_fc_document_requests_atomic_v1', {
@@ -1076,19 +1225,32 @@ export async function POST(req: Request) {
         updatePayload.reviewer_note = null;
       }
 
-      const { error: updateErr } = await adminSupabase
+      const { data: updatedDoc, error: updateErr } = await adminSupabase
         .from('fc_documents')
         .update(updatePayload)
         .eq('fc_id', fcId)
-        .eq('doc_type', docType);
+        .eq('doc_type', docType)
+        .select('status,reviewer_note')
+        .maybeSingle();
       if (updateErr) throw updateErr;
+      const documentReceipt = requireFcMutationReceipt(
+        updatedDoc,
+        updatePayload,
+        'admin_fc_update_document_status',
+      );
 
       let allApproved: boolean;
       try {
         ({ allApproved } = await syncProfileAfterDocMutation(fcId));
       } catch {
         logger.warn('[api/admin/fc] saved document workflow incomplete');
-        return NextResponse.json({ ok: true, warning: 'workflow_update_incomplete' });
+        return NextResponse.json({
+          ok: true,
+          warning: 'workflow_update_incomplete',
+          allApproved: null,
+          reviewerNote: documentReceipt.reviewer_note ?? null,
+          status: documentReceipt.status,
+        });
       }
 
       let notificationResult: NotificationPersistenceResult | null = null;
@@ -1133,6 +1295,8 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         allApproved,
+        reviewerNote: documentReceipt.reviewer_note ?? null,
+        status: documentReceipt.status,
         ...notificationResponse(notificationResult),
       });
     }
@@ -1174,8 +1338,12 @@ export async function POST(req: Request) {
       const { data: owner, error: ownerError } = await adminSupabase.from('fc_profiles')
         .select('hanwha_commission_pdf_path,fc_documents(storage_path)').eq('id', fcId).maybeSingle();
       if (ownerError) throw ownerError;
-      const paths = [owner?.hanwha_commission_pdf_path, ...(owner?.fc_documents ?? []).map((doc) => doc.storage_path)];
-      if (!owner || !paths.some((storedPath) => normalizeFcDocumentStoragePath(storedPath) === normalizedPath)) {
+      if (!owner) {
+        return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+      }
+      const documents = requireSupabaseRows(owner.fc_documents, 'admin_fc_document_owner');
+      const paths = [owner.hanwha_commission_pdf_path, ...documents.map((doc) => doc.storage_path)];
+      if (!paths.some((storedPath) => normalizeFcDocumentStoragePath(storedPath) === normalizedPath)) {
         return NextResponse.json({ error: 'Document not found' }, { status: 404 });
       }
       const { data, error } = await adminSupabase.storage
@@ -1243,9 +1411,9 @@ export async function POST(req: Request) {
   } catch (err: unknown) {
     const error = err as Error;
     if ((err as { code?: string })?.code === 'PGRST202') return NextResponse.json({ error: '서류 변경 기능이 아직 준비되지 않았습니다. 운영 담당자에게 문의해주세요.' }, { status: 503 });
-    logger.error('[api/admin/fc] failed', { code: (err as { code?: string })?.code ?? 'unknown' });
     if (isRecommenderRpcNotReadyError(error)) {
-      return NextResponse.json({ error: RECOMMENDER_RPC_NOT_READY_MESSAGE }, { status: 503 });
+      logger.error('[api/admin/fc] recommender RPC unavailable', error);
+      return NextResponse.json({ error: RECOMMENDER_RELATION_UNAVAILABLE_MESSAGE }, { status: 503 });
     }
     if (error?.message && [
       '추천인은 목록에서 선택해주세요.',
@@ -1256,7 +1424,6 @@ export async function POST(req: Request) {
       '자기 자신을 추천인으로 지정할 수 없습니다.',
       '추천 관계 대상 FC 전화번호가 올바르지 않습니다.',
       '추천인 후보 FC 전화번호가 올바르지 않습니다.',
-      RECOMMENDER_RPC_NOT_READY_MESSAGE,
     ].includes(error.message)) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
@@ -1266,11 +1433,14 @@ export async function POST(req: Request) {
       typeof (err as { message?: unknown })?.message === 'string' &&
       (err as { message?: string }).message?.includes('fc_profiles.admin_memo')
     ) {
+      logger.error('[api/admin/fc] admin memo column unavailable', {
+        code: (err as { code?: string })?.code ?? 'unknown',
+      });
       return NextResponse.json(
-        { error: '관리자 메모 컬럼이 없어 저장할 수 없습니다. Supabase 마이그레이션을 먼저 적용해주세요.' },
+        { error: '관리자 메모를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.' },
         { status: 500 }
       );
     }
-    return NextResponse.json({ error: '요청 처리에 실패했습니다.' }, { status: 500 });
+    return serverError(err, 'api/admin/fc');
   }
 }

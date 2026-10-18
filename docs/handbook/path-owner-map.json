@@ -297,7 +297,8 @@
         "web/src/app/api/fc-delete/route.ts",
         "web/src/app/api/admin/resident-numbers/route.ts",
         "lib/staff-identity.ts",
-        "web/src/lib/staff-identity.ts"
+        "web/src/lib/staff-identity.ts",
+        "supabase/functions/__tests__/admin-action-appointment-update.contract.test.js"
       ],
       "requires_any": [
         "docs/handbook/backend/admin-operations-api.md",
@@ -453,7 +454,8 @@
         "supabase/functions/_shared/group-chat-data-api-batching.ts",
         "supabase/functions/_shared/__tests__/group-chat-notification-event_test.ts",
         "supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts",
-        "supabase/functions/group-chat/"
+        "supabase/functions/group-chat/",
+        "supabase/functions/__tests__/group-chat-query-contract.test.node.ts"
       ],
       "requires_any": [
         "docs/handbook/mobile/messenger-and-content.md",
@@ -473,7 +475,9 @@
         "supabase/functions/_shared/board-list-pagination.ts",
         "supabase/functions/_shared/board-notification-event.ts",
         "supabase/functions/_shared/__tests__/board-notification-event_test.ts",
-        "supabase/functions/__tests__/board-"
+        "supabase/functions/__tests__/board-",
+        "supabase/functions/_shared/board-read-contract.ts",
+        "supabase/functions/_shared/__tests__/board-read-contract_test.ts"
       ],
       "requires_any": [
         "docs/handbook/backend/board-api-and-notice-model.md",
@@ -495,7 +499,10 @@
         "supabase/functions/get-referral-tree/",
         "supabase/functions/search-fc-for-referral/",
         "supabase/functions/refresh-app-session/",
-        "supabase/functions/update-my-recommender/"
+        "supabase/functions/update-my-recommender/",
+        "supabase/functions/_shared/referral-tree-query-contract.ts",
+        "supabase/functions/_shared/__tests__/referral-tree-query-contract_test.ts",
+        "supabase/functions/__tests__/referral-read-query-contract.test.node.ts"
       ],
       "requires_any": [
         "docs/handbook/data/referral-schema-and-admin-rpcs.md",
@@ -538,6 +545,18 @@
       ]
     },
     {
+      "id": "backend-query-result-contract",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/_shared/query-result-contract.ts",
+        "supabase/functions/_shared/__tests__/query-result-contract_test.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/data/data-model-canon.md",
+        "docs/handbook/shared/security-and-secret-operations.md"
+      ]
+    },
+    {
       "id": "backend-runtime",
       "severity": "contract",
       "prefixes": [
@@ -545,7 +564,9 @@
         "supabase/functions/user-presence/",
         "lib/presence.ts",
         "lib/user-presence-api.ts",
-        "web/src/app/api/presence/route.ts"
+        "web/src/app/api/presence/route.ts",
+        "supabase/functions/_shared/presence-query-contract.ts",
+        "supabase/functions/_shared/__tests__/presence-query-contract_test.ts"
       ],
       "requires_any": [
         "docs/handbook/backend/scheduled-jobs-and-runtime.md",

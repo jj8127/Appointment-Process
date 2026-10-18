@@ -1,19 +1,23 @@
 import { NextResponse } from 'next/server';
 
 import {
-  buildAdminChatConversationSummaries,
   buildAdminChatTargets,
-  mergeAdminChatSummaryRows,
-  type AdminChatMessageSummaryRow,
+  isAdminChatConversationRow,
+  isAdminChatSourceRow,
+  isAdminChatThreadRow,
+  type AdminChatConversationSummary,
+  type AdminChatConversationRow,
   type AdminChatSourceRow,
+  type AdminChatThreadRow,
 } from '@/lib/admin-chat-targets';
 import { adminSupabase } from '@/lib/admin-supabase';
+import { serverError } from '@/lib/api-error';
 import { getVerifiedReadOnlyAdminSession } from '@/lib/server-session';
-
+import { collectSupabaseRows } from '@/lib/supabase-query-contract';
 
 export const runtime = 'nodejs';
 
-const RECENT_CHAT_SUMMARY_LIMIT = 500;
+const QUERY_PAGE_SIZE = 500;
 
 // Keep UUID filters below proxy URL limits, including accounts with many messages.
 const QUERY_ID_BATCH_SIZE = 100;
@@ -24,6 +28,60 @@ function idBatches(ids: string[]) {
     batches.push(uniqueIds.slice(offset, offset + QUERY_ID_BATCH_SIZE));
   }
   return batches;
+}
+
+type AdminChatSummaryRpcRow = {
+  target_id: string;
+  last_message: string | null;
+  last_time: string | null;
+  unread_count: number;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+
+function isAdminChatSummaryRpcRow(value: unknown): value is AdminChatSummaryRpcRow {
+  return isRecord(value)
+    && typeof value.target_id === 'string'
+    && value.target_id.trim().length > 0
+    && (value.last_message === null || typeof value.last_message === 'string')
+    && (value.last_time === null
+      || (typeof value.last_time === 'string' && Number.isFinite(Date.parse(value.last_time))))
+    && Number.isSafeInteger(value.unread_count)
+    && Number(value.unread_count) >= 0;
+}
+
+async function fetchAdminChatSummaries(
+  viewerId: string,
+  counterpartPhones: string[],
+): Promise<Record<string, AdminChatConversationSummary>> {
+  const chunks = idBatches(counterpartPhones);
+  const chunkRows = await Promise.all(chunks.map(async (targetIds) => {
+    const { data, error } = await adminSupabase.rpc('get_internal_messenger_summaries_v1', {
+      p_viewer_id: viewerId,
+      p_target_ids: targetIds,
+    });
+    if (error) throw error;
+    if (!Array.isArray(data) || !data.every(isAdminChatSummaryRpcRow)) {
+      throw new Error('admin_chat_summary_query_contract_invalid');
+    }
+    const requestedTargets = new Set(targetIds);
+    const returnedTargets = new Set(data.map((row) => row.target_id.trim()));
+    if (returnedTargets.size !== data.length
+      || returnedTargets.size !== requestedTargets.size
+      || [...returnedTargets].some((targetId) => !requestedTargets.has(targetId))
+    ) {
+      throw new Error('admin_chat_summary_relation_contract_invalid');
+    }
+    return data;
+  }));
+
+  return Object.fromEntries(chunkRows.flat().map((row) => [row.target_id.trim(), {
+    last_message: row.last_message,
+    last_time: row.last_time,
+    unread_count: row.unread_count,
+  }]));
 }
 
 export async function GET() {
@@ -43,96 +101,95 @@ export async function GET() {
     const myChatId = residentDigits;
     const counterpartyRole = role === 'manager' ? 'manager' : staffType === 'developer' ? 'developer' : 'admin';
 
-    const [participantsResult, recentMessagesResult, unreadMessagesResult] = await Promise.all([
-      adminSupabase
+    const fcRows = await collectSupabaseRows<AdminChatSourceRow>({
+      queryName: 'admin_chat_participants',
+      pageSize: QUERY_PAGE_SIZE,
+      rowKey: (row) => row.id,
+      isRow: isAdminChatSourceRow,
+      fetchPage: async (from, to) => await adminSupabase
         .from('fc_profiles')
         .select('id,name,phone,signup_completed,affiliation')
         .eq('signup_completed', true)
-        .order('created_at', { ascending: false }),
-      adminSupabase
-        .from('messages')
-        .select('id,sender_id,receiver_id,content,created_at,is_read')
-        .or(`sender_id.eq.${myChatId},receiver_id.eq.${myChatId}`)
         .order('created_at', { ascending: false })
-        .limit(RECENT_CHAT_SUMMARY_LIMIT),
-      adminSupabase
-        .from('messages')
-        .select('id,sender_id,receiver_id,content,created_at,is_read')
-        .eq('receiver_id', myChatId)
-        .eq('is_read', false),
-    ]);
-
-    if (participantsResult.error) throw participantsResult.error;
-    if (recentMessagesResult.error) throw recentMessagesResult.error;
-    if (unreadMessagesResult.error) throw unreadMessagesResult.error;
-
-    const fcRows = (participantsResult.data ?? []) as AdminChatSourceRow[];
+        .order('id', { ascending: false })
+        .range(from, to),
+    });
+    if (fcRows.some((row) => !row.signup_completed)) {
+      throw new Error('admin_chat_participant_relation_contract_invalid');
+    }
     const baseTargets = buildAdminChatTargets(fcRows);
     if (baseTargets.length === 0) {
       return NextResponse.json([]);
     }
 
-    const rawSummaryRows = mergeAdminChatSummaryRows(
-      (recentMessagesResult.data ?? []) as AdminChatMessageSummaryRow[],
-      (unreadMessagesResult.data ?? []) as AdminChatMessageSummaryRow[],
+    const summariesByPhone = await fetchAdminChatSummaries(
+      myChatId,
+      baseTargets.map((target) => target.phone),
     );
-    const summaryMessageIds = rawSummaryRows
-      .map((row) => String(row.id ?? '').trim())
-      .filter(Boolean);
-    const attachmentCountByMessageId = new Map<string, number>();
-    const requestedMessageIds = new Set(summaryMessageIds);
-    const countedBatchIds = new Set<string>();
-    for (const messageIds of idBatches(summaryMessageIds)) {
-      // Links belong to a delivery batch, whose committed_message_ids bind its messages.
-      const { data: batches, error: batchesError } = await adminSupabase
-        .from('messenger_attachment_delivery_batches')
-        .select('id,committed_message_ids,messenger_message_attachments(sort_order)')
-        .in('context_kind', ['direct', 'direct_broadcast'])
-        .eq('status', 'committed')
-        .is('deleted_at', null)
-        .overlaps('committed_message_ids', messageIds);
-      if (batchesError) throw batchesError;
-      for (const batch of batches ?? []) {
-        if (countedBatchIds.has(batch.id)) continue;
-        countedBatchIds.add(batch.id);
-        const count = Array.isArray(batch.messenger_message_attachments)
-          ? batch.messenger_message_attachments.length : 0;
-        for (const messageId of batch.committed_message_ids ?? []) {
-          if (!requestedMessageIds.has(messageId)) continue;
-          attachmentCountByMessageId.set(messageId, (attachmentCountByMessageId.get(messageId) ?? 0) + count);
-        }
-      }
-    }
-    const summaryRows = rawSummaryRows.map((row) => ({
-      ...row,
-      attachment_count: attachmentCountByMessageId.get(String(row.id ?? '').trim()) ?? 0,
-    }));
-    const summariesByPhone = buildAdminChatConversationSummaries({
-      viewerId: myChatId,
-      counterpartPhones: baseTargets.map((target) => target.phone),
-      messages: summaryRows,
-    });
 
     const targets = buildAdminChatTargets(fcRows, summariesByPhone);
     const conversationByFcId = new Map<string, string>();
     for (const fcIds of idBatches(targets.map((target) => target.fc_id))) {
-      const { data: conversations, error: conversationError } = await adminSupabase
-        .from('garamin_direct_conversations')
-        .select('id,fc_id')
-        .in('fc_id', fcIds);
-      if (conversationError) throw conversationError;
-      const fcByLegacyId = new Map((conversations ?? []).map((row) => [row.id, row.fc_id]));
+      const requestedFcIds = new Set(fcIds);
+      const conversationRows = await collectSupabaseRows<AdminChatConversationRow>({
+        queryName: 'admin_chat_conversations',
+        pageSize: QUERY_ID_BATCH_SIZE,
+        maxRows: QUERY_ID_BATCH_SIZE,
+        rowKey: (row) => row.id,
+        isRow: isAdminChatConversationRow,
+        fetchPage: async (from, to) => await adminSupabase
+          .from('garamin_direct_conversations')
+          .select('id,fc_id')
+          .in('fc_id', fcIds)
+          .order('fc_id', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      });
+      const seenFcIds = new Set<string>();
+      const fcByLegacyId = new Map<string, string>();
+      for (const row of conversationRows) {
+        const conversationId = row.id.trim();
+        const fcId = row.fc_id.trim();
+        if (!requestedFcIds.has(fcId) || seenFcIds.has(fcId)) {
+          throw new Error('admin_chat_conversation_relation_contract_invalid');
+        }
+        seenFcIds.add(fcId);
+        fcByLegacyId.set(conversationId, fcId);
+      }
       if (fcByLegacyId.size === 0) continue;
-      const { data: threads, error: threadError } = await adminSupabase
-        .from('garamin_direct_threads')
-        .select('id,legacy_conversation_id')
-        .in('legacy_conversation_id', [...fcByLegacyId.keys()])
-        .eq('counterparty_role', counterpartyRole)
-        .eq('counterparty_actor_id', accountId);
-      if (threadError) throw threadError;
-      for (const thread of threads ?? []) {
-        const fcId = fcByLegacyId.get(thread.legacy_conversation_id);
-        if (fcId) conversationByFcId.set(fcId, thread.id);
+      const legacyConversationIds = [...fcByLegacyId.keys()];
+      const requestedConversationIds = new Set(legacyConversationIds);
+      const threads = await collectSupabaseRows<AdminChatThreadRow>({
+        queryName: 'admin_chat_threads',
+        pageSize: QUERY_ID_BATCH_SIZE,
+        maxRows: QUERY_ID_BATCH_SIZE,
+        rowKey: (row) => row.id,
+        isRow: isAdminChatThreadRow,
+        fetchPage: async (from, to) => await adminSupabase
+          .from('garamin_direct_threads')
+          .select('id,legacy_conversation_id')
+          .in('legacy_conversation_id', legacyConversationIds)
+          .eq('counterparty_role', counterpartyRole)
+          .eq('counterparty_actor_id', accountId)
+          .order('legacy_conversation_id', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      });
+      const seenConversationIds = new Set<string>();
+      for (const thread of threads) {
+        const threadId = thread.id.trim();
+        const legacyConversationId = thread.legacy_conversation_id.trim();
+        if (!requestedConversationIds.has(legacyConversationId)
+          || seenConversationIds.has(legacyConversationId)
+        ) {
+          throw new Error('admin_chat_thread_relation_contract_invalid');
+        }
+        seenConversationIds.add(legacyConversationId);
+        const fcId = fcByLegacyId.get(legacyConversationId);
+        if (!fcId || conversationByFcId.has(fcId)) {
+          throw new Error('admin_chat_thread_mapping_contract_invalid');
+        }
+        conversationByFcId.set(fcId, threadId);
       }
     }
     return NextResponse.json(targets.map((target) => ({
@@ -140,9 +197,6 @@ export async function GET() {
       conversation_id: conversationByFcId.get(target.fc_id) ?? null,
     })));
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Chat list failed' },
-      { status: 500 },
-    );
+    return serverError(error, 'api/admin/chat-list');
   }
 }

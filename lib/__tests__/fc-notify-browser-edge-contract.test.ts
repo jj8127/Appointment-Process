@@ -103,6 +103,43 @@ describe('FC notify browser-to-Edge contract', () => {
     })).toMatchObject({ ok: false, status: 403 });
   });
 
+  it.each(Object.entries(sessions))('%s binds inbox count and mark-all to the verified actor', (_name, session) => {
+    const role = session.role === 'fc' ? 'fc' : 'admin';
+    const residentId = session.role === 'admin' && session.staffType === 'admin'
+      ? null
+      : session.residentDigits;
+    const count = forwardToEdge({
+      type: 'inbox_unread_count',
+      role,
+      resident_id: residentId,
+      only_request_board_categories: true,
+    }, session);
+    expect(count.payload).toMatchObject({
+      type: 'inbox_unread_count',
+      role,
+      resident_id: residentId,
+      only_request_board_categories: true,
+      viewer_actor_phone: session.residentDigits,
+    });
+    expect(count.edge).toMatchObject({
+      type: 'inbox_unread_count',
+      viewer_actor_id: count.actor.actorId,
+      only_request_board_categories: true,
+    });
+
+    const markAll = forwardToEdge({
+      type: 'inbox_mark_all_read',
+      role,
+      resident_id: residentId,
+    }, session);
+    expect(markAll.edge).toMatchObject({
+      type: 'inbox_mark_all_read',
+      role,
+      resident_id: residentId,
+      viewer_actor_id: markAll.actor.actorId,
+    });
+  });
+
   it.each(['developer', 'manager', 'fc'])('%s cannot claim the legacy admin unread identity', (name) => {
     expect(buildBrowserFcNotifyPayload({
       body: { type: 'internal_unread_count', viewer_id: 'admin' },

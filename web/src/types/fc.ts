@@ -1,20 +1,8 @@
-export type CareerType = '신입' | '경력' | null;
+import type { FcStatus } from '../../../lib/fc-status.ts';
 
-export type FcStatus =
-  | 'draft'
-  | 'temp-id-issued'
-  | 'allowance-pending'
-  | 'allowance-consented'
-  | 'docs-requested'
-  | 'docs-pending'
-  | 'docs-submitted'
-  | 'docs-rejected'
-  | 'docs-approved'
-  | 'hanwha-commission-review'
-  | 'hanwha-commission-rejected'
-  | 'hanwha-commission-approved'
-  | 'appointment-completed'
-  | 'final-link-sent';
+export { FC_STATUSES, type FcStatus } from '../../../lib/fc-status.ts';
+
+export type CareerType = '신입' | '경력' | null;
 
 // 기본 제공 문자열 외에도 커스텀 서류명이 들어올 수 있으므로 string 으로 확장
 export type DocumentType = string;

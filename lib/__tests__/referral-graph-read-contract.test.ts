@@ -60,4 +60,14 @@ describe('referral graph read contract', () => {
     expect(graphResolver).toContain("return fail('db_error', '추천 관계 그래프를 불러오지 못했습니다.', 500)");
     expect(graphResolver).not.toContain('error.message');
   });
+
+  it('uses the complete paginated relation traversal for legacy trees too', () => {
+    const legacyLoader = source.slice(
+      source.indexOf('async function loadTreeRows'),
+      source.indexOf('async function resolveSelfProfile'),
+    );
+    expect(legacyLoader).toContain('await buildFallbackTreeRows(rootFcId, depth)');
+    expect(legacyLoader).not.toContain("supabase.rpc('get_referral_subtree'");
+    expect(source).toContain('.range(offset, offset + QUERY_PAGE_SIZE - 1)');
+  });
 });

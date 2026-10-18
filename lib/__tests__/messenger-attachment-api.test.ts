@@ -408,4 +408,32 @@ describe('native messenger attachment API', () => {
     expect(source).not.toMatch(/logger\.[a-z]+\([^)]*(signedUrl|token|path)/);
     expect(source).not.toContain('service_role');
   });
+
+  test.each([
+    'javascript:alert(1)',
+    'data:text/plain,unsafe',
+    'http://example.invalid/private',
+    'https://user:secret@example.invalid/private',
+  ])('rejects an unsafe attachment download URL: %s', async (signedUrl) => {
+    mockInvoke.mockResolvedValue({
+      data: {
+        ok: true,
+        attachment: {
+          id: INTENT_ID,
+          name: '안내.txt',
+          size: 1,
+          mimeType: 'text/plain',
+          sha256: 'a'.repeat(64),
+        },
+        download: {
+          signedUrl,
+          expiresAt: '2026-07-25T12:00:00.000Z',
+        },
+      },
+      error: null,
+    });
+
+    await expect(createMessengerAttachmentDownloadUrl(INTENT_ID))
+      .rejects.toThrow('파일을 열지 못했습니다. 다시 시도해 주세요.');
+  });
 });

@@ -1,5 +1,13 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261019-hotfix-integration"></a>
+## 2026-10-19 운영 핫픽스 통합
+
+- 대상: hotfix/admin-dashboard-list-20261013(49de1c0a)을 release/all-surfaces-20261004(61b09637) 위에 별도 worktree에서 병합했다. get-referral-tree는 운영 배포본(c837f29d: 49de1c0a + withLayout)에서 시작해 release의 serve-with-cors 공유 모듈만 더했다. cleanPhone·관리자 shadow profile은 운영 동작대로 함수 안에 남겼다.
+- 요청 게시판·로그인·관리자 목록·시험 신청자·FC 상세·그룹채팅은 핫픽스의 행 검증(collectSupabaseRows, 수신 확인, parseLoginSuccessResponse)과 release의 화면 구조(acceptLoginResponse, 일괄 접수, FC 홈 개편, admin-route-auth)를 함께 유지했다. schema.sql은 서로 겹치지 않는 두 migration 묶음을 날짜순으로 이었다.
+- release가 Edge fixture에서 mobile-acceptance-runtime으로 옮긴 시험 대기 수·서류 재진입 시험은 핫픽스 fixture를 반영해 옮긴 쪽에 두고, 핸들러 시험의 중복본과 release가 지운 메시지 초안 시험은 다시 넣지 않았다. release 소스 추출 시험에는 핫픽스의 새 의존성을 주입했다.
+- 검증: 앱·웹 tsc, deno check(get-referral-tree, login-with-password, request-signup-otp), jest, web node, edge node를 release·핫픽스 기준선과 비교해 새 실패 0건. 핫픽스 커밋에서 이미 실패하던 소스 문자열 시험 15건과 referral-graph-responsive 범례 시험 1건은 그대로 남아 있다.
+
 <a id="20261011-hospital-home-visual"></a>
 ## 2026-10-11 제휴병원 홈 시각 개선
 
@@ -165,6 +173,14 @@
 - UI 증거: 실제 Expo Web을 iframe으로 실행해 실제 innerWidth320/390/414px와 가로 넘침0을 확인했다. PNG 32/48/64px 정상 로딩, 좁은 화면 끝까지 scroll 시 안내 버튼과 하단 메뉴 분리를 확인했다. 원본 Expo 페이지에서 care/telecom/car/help/activity 및 비회원 보험/login/account 이동을 검증했다. 로컬 서버8087, 사용자 미리보기8793 `/app-preview/`, 증거/최종 export는 `D:/hanhwa/outputs/garamin-service-home-app-20261009/`에 있다.
 - 경계: 로컬 새 origin의 비회원 화면만 확인했고 실제 계정·고객 자료·PII·신청·운영 쓰기 작업을 사용하지 않았다. 실제 기기·시뮬레이터 설치와 스토어·OTA·서버 배포, Git push는 미실행이다. 로컬 완료이며 release HOLD다.
 - 워크트리 정리: 사용자 요청에 따라 서비스 홈 관련 추적14개·미추적19개, 총33개 파일을 하나의 로컬 커밋으로 보존한다. 검사한 경로에 무관한 변경·생성 파일은 없다. `git worktree list`의 현재 저장소는 주 checkout 한 개이며 별도 worktree 제거는 필요 없다. 코드가 바뀌지 않았으므로 앞서 통과한85개 검사와 타입·lint·bundle 근거를 유지하고, staging 후 거버넌스·공백·파일 목록을 확인한다. outputs의 증거/미리보기와 다른 저장소 작업은 보존한다.
+
+## <a id="20261013-admin-dashboard-list-hotfix"></a> 2026-10-13 Admin dashboard FC-list hotfix
+
+- Incident evidence: the administrator dashboard showed `FC 목록 조회 실패` and placeholder KPIs. Read-only Vercel and Supabase inspection found successful `/api/admin/list` and matching FC-list requests, so the failure was isolated to the browser response path rather than the route, database, credentials, or production data.
+- Root cause: the dashboard accepted the route's raw array or `{ data: array }` envelope, then passed that read result to `requireMutationSuccess`. That helper intentionally rejects arrays because it only validates write acknowledgements, so every valid raw list became a client error.
+- Change and contract: remove mutation-success validation from the list query while preserving explicit array-shape validation and existing HTTP error handling. The runtime regression covers raw arrays, data envelopes, invalid success objects, HTTP 500 failures, and the existing no-invented-zero error UI. The feature matrix now records that read/write boundary.
+- Verification: `web/src/lib/board-read-state-runtime.test.mjs` 27/27 passed; web TypeScript and scoped ESLint passed; the Next.js production build passed with synthetic build-only environment values and Sentry upload disabled; `git diff --check` passed. No production credential or customer record was captured.
+- Release boundary: the user authorized publishing the isolated hotfix branch and deploying only its clean, committed source to Vercel `admin_web`. No Supabase data/schema write, Edge deployment, unrelated source publication, or original dirty-worktree cleanup is included. Production success still requires READY state, exact source revision, `adminweb-red.vercel.app` alias resolution, safe route responses, and a bounded post-deploy error scan.
 
 ## <a id="20261008-exam-mobile-release"></a> 2026-10-08 Exam policy native release
 

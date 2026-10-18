@@ -2,31 +2,31 @@ import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
+import {
+  isExactStalePresenceReceipt,
+  isExactTouchPresenceReceipt,
+  isPresenceMutationSnapshot,
+  isPresencePhoneRow,
+  isPresenceSnapshot,
+  isPresenceTableRow,
+  mergePresenceSnapshots,
+  normalizePresencePhone,
+  presenceRowsHaveUniquePhones,
+  presenceRowsMatchRequestedPhones,
+  samePresenceTimestamp,
+  type PresenceSnapshot,
+  type PresenceTableRow,
+} from '../_shared/presence-query-contract.ts';
+import { parseQueryRows } from '../_shared/query-result-contract.ts';
 import { getEnv, parseAppSessionTokenDetailed } from '../_shared/request-board-auth.ts';
 
 type PresenceAction = 'heartbeat' | 'offline' | 'read';
 
 type RequestBody = {
-  sessionToken?: string;
-  action?: PresenceAction;
-  expectedAt?: string | null;
-  phones?: Array<string | null | undefined>;
-};
-
-type PresenceTableRow = {
-  phone: string;
-  garam_in_at: string | null;
-  garam_link_at: string | null;
-  updated_at: string | null;
-};
-
-type PresenceSnapshot = PresenceTableRow & {
-  last_seen_at: string | null;
-  is_online: boolean;
-};
-
-type PresenceMutationSnapshot = PresenceSnapshot & {
-  applied?: boolean;
+  sessionToken: string;
+  action: PresenceAction;
+  expectedAt: string | null;
+  phones: Array<string | null>;
 };
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '')
@@ -68,15 +68,46 @@ function fail(code: string, message: string, status = 400) {
   return json({ ok: false, code, message }, status);
 }
 
-function cleanPhone(input: string | null | undefined) {
-  return String(input ?? '').replace(/[^0-9]/g, '');
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(new Date(value).getTime());
+}
+
+function parseRequestBody(value: unknown): RequestBody | null {
+  if (!isRecord(value) || typeof value.sessionToken !== 'string') return null;
+  const sessionToken = value.sessionToken.trim();
+  const action = value.action === 'heartbeat'
+    ? 'heartbeat'
+    : value.action === 'offline'
+      ? 'offline'
+      : value.action === 'read'
+        ? 'read'
+        : null;
+  if (!sessionToken || !action) return null;
+
+  const phones = value.phones === undefined ? [] : value.phones;
+  if (!Array.isArray(phones)
+    || phones.some((phone) => phone !== null && typeof phone !== 'string')) {
+    return null;
+  }
+
+  let expectedAt: string | null = null;
+  if (value.expectedAt !== undefined && value.expectedAt !== null) {
+    if (!isTimestamp(value.expectedAt)) return null;
+    expectedAt = value.expectedAt;
+  }
+
+  return { sessionToken, action, expectedAt, phones };
 }
 
 function normalizePhones(values: Array<string | null | undefined>) {
   return Array.from(
     new Set(
       values
-        .map((value) => cleanPhone(value))
+        .map((value) => normalizePresencePhone(value))
         .filter((phone) => phone.length === 11),
     ),
   ).slice(0, 100);
@@ -115,30 +146,6 @@ function toPresenceSnapshot(row: PresenceTableRow): PresenceSnapshot {
   };
 }
 
-function createEmptyPresenceSnapshot(phone: string): PresenceSnapshot {
-  return {
-    phone,
-    garam_in_at: null,
-    garam_link_at: null,
-    updated_at: null,
-    last_seen_at: null,
-    is_online: false,
-  };
-}
-
-function mergePresenceSnapshots(
-  phones: string[],
-  snapshots: PresenceSnapshot[],
-): PresenceSnapshot[] {
-  const snapshotByPhone = new Map(
-    snapshots.map((snapshot) => [cleanPhone(snapshot.phone), snapshot] as const),
-  );
-
-  return normalizePhones(phones).map(
-    (phone) => snapshotByPhone.get(phone) ?? createEmptyPresenceSnapshot(phone),
-  );
-}
-
 async function getPresenceTableRow(phone: string) {
   const { data, error } = await supabase
     .from('user_presence')
@@ -150,7 +157,11 @@ async function getPresenceTableRow(phone: string) {
     throw error;
   }
 
-  return (data ?? null) as PresenceTableRow | null;
+  if (data === null) return null;
+  if (!isPresenceTableRow(data) || normalizePresencePhone(data.phone) !== phone) {
+    throw new Error('invalid presence row');
+  }
+  return data;
 }
 
 async function getPresenceSnapshots(phones: string[]) {
@@ -164,7 +175,11 @@ async function getPresenceSnapshots(phones: string[]) {
     if (error) {
       throw error;
     }
-    return mergePresenceSnapshots(normalizedPhones, (data ?? []) as PresenceSnapshot[]);
+    const rows = parseQueryRows(data, isPresenceSnapshot);
+    if (!rows || !presenceRowsMatchRequestedPhones(rows, normalizedPhones, true)) {
+      throw new Error('invalid presence RPC result');
+    }
+    return mergePresenceSnapshots(normalizedPhones, rows);
   } catch {
     reportEdgeDiagnostic({
       event: 'user_presence.rpc_fallback',
@@ -182,9 +197,14 @@ async function getPresenceSnapshots(phones: string[]) {
       throw tableError;
     }
 
+    const rows = parseQueryRows(data, isPresenceTableRow);
+    if (!rows || !presenceRowsMatchRequestedPhones(rows, normalizedPhones, false)) {
+      throw new Error('invalid presence table result');
+    }
+
     return mergePresenceSnapshots(
       normalizedPhones,
-      ((data ?? []) as PresenceTableRow[]).map(toPresenceSnapshot),
+      rows.map(toPresenceSnapshot),
     );
   }
 }
@@ -200,8 +220,11 @@ async function touchPresence(phone: string) {
       throw error;
     }
 
-    const snapshot = Array.isArray(data) ? data[0] ?? null : null;
-    return snapshot as PresenceSnapshot | null;
+    const rows = parseQueryRows(data, isPresenceSnapshot);
+    if (!rows || rows.length !== 1 || !isExactTouchPresenceReceipt(rows[0], phone)) {
+      throw new Error('invalid touch presence receipt');
+    }
+    return rows[0];
   } catch {
     reportEdgeDiagnostic({
       event: 'user_presence.rpc_fallback',
@@ -226,7 +249,16 @@ async function touchPresence(phone: string) {
     }
 
     if (updatedRow) {
-      return toPresenceSnapshot(updatedRow as PresenceTableRow);
+      if (!isPresenceTableRow(updatedRow) || normalizePresencePhone(updatedRow.phone) !== phone) {
+        throw new Error('invalid touch presence update receipt');
+      }
+      const snapshot = toPresenceSnapshot(updatedRow);
+      if (!samePresenceTimestamp(updatedRow.garam_in_at, touchedAt)
+        || !samePresenceTimestamp(updatedRow.updated_at, touchedAt)
+        || !isExactTouchPresenceReceipt(snapshot, phone)) {
+        throw new Error('invalid touch presence update receipt');
+      }
+      return snapshot;
     }
 
     const { data: insertedRow, error: insertError } = await supabase
@@ -244,7 +276,16 @@ async function touchPresence(phone: string) {
       throw insertError;
     }
 
-    return insertedRow ? toPresenceSnapshot(insertedRow as PresenceTableRow) : null;
+    if (!isPresenceTableRow(insertedRow) || normalizePresencePhone(insertedRow.phone) !== phone) {
+      throw new Error('invalid touch presence insert receipt');
+    }
+    const snapshot = toPresenceSnapshot(insertedRow);
+    if (!samePresenceTimestamp(insertedRow.garam_in_at, touchedAt)
+      || !samePresenceTimestamp(insertedRow.updated_at, touchedAt)
+      || !isExactTouchPresenceReceipt(snapshot, phone)) {
+      throw new Error('invalid touch presence insert receipt');
+    }
+    return snapshot;
   }
 }
 
@@ -260,8 +301,18 @@ async function stalePresence(phone: string, expectedAt: string | null) {
       throw error;
     }
 
-    const snapshot = Array.isArray(data) ? data[0] ?? null : null;
-    return snapshot as PresenceMutationSnapshot | null;
+    const rows = parseQueryRows(data, isPresenceMutationSnapshot);
+    if (!rows
+      || rows.length > 1
+      || (rows[0] && !isExactStalePresenceReceipt(
+        rows[0],
+        phone,
+        expectedAt,
+        STALE_PRESENCE_AT,
+      ))) {
+      throw new Error('invalid stale presence receipt');
+    }
+    return rows[0] ?? null;
   } catch {
     reportEdgeDiagnostic({
       event: 'user_presence.rpc_fallback',
@@ -275,21 +326,29 @@ async function stalePresence(phone: string, expectedAt: string | null) {
       return null;
     }
 
-    if (expectedAt && currentRow.garam_in_at !== expectedAt) {
-      return {
+    if (expectedAt && !samePresenceTimestamp(currentRow.garam_in_at, expectedAt)) {
+      const receipt = {
         ...toPresenceSnapshot(currentRow),
         applied: false,
       };
+      if (!isExactStalePresenceReceipt(receipt, phone, expectedAt, STALE_PRESENCE_AT)) {
+        throw new Error('invalid stale presence current receipt');
+      }
+      return receipt;
     }
 
     const updatedAt = new Date().toISOString();
-    const { data: updatedRow, error: updateError } = await supabase
+    let updateQuery = supabase
       .from('user_presence')
       .update({
         garam_in_at: STALE_PRESENCE_AT,
         updated_at: updatedAt,
       })
-      .eq('phone', phone)
+      .eq('phone', phone);
+    if (expectedAt !== null) {
+      updateQuery = updateQuery.eq('garam_in_at', expectedAt);
+    }
+    const { data: updatedRow, error: updateError } = await updateQuery
       .select(selectPresenceColumns)
       .maybeSingle();
 
@@ -297,10 +356,25 @@ async function stalePresence(phone: string, expectedAt: string | null) {
       throw updateError;
     }
 
-    return {
-      ...(updatedRow ? toPresenceSnapshot(updatedRow as PresenceTableRow) : toPresenceSnapshot(currentRow)),
-      applied: Boolean(updatedRow),
-    };
+    if (updatedRow) {
+      if (!isPresenceTableRow(updatedRow) || normalizePresencePhone(updatedRow.phone) !== phone) {
+        throw new Error('invalid stale presence update receipt');
+      }
+      const receipt = { ...toPresenceSnapshot(updatedRow), applied: true };
+      if (!samePresenceTimestamp(updatedRow.updated_at, updatedAt)
+        || !isExactStalePresenceReceipt(receipt, phone, expectedAt, STALE_PRESENCE_AT)) {
+        throw new Error('invalid stale presence update receipt');
+      }
+      return receipt;
+    }
+
+    const latestRow = await getPresenceTableRow(phone);
+    if (!latestRow) return null;
+    const receipt = { ...toPresenceSnapshot(latestRow), applied: false };
+    if (!isExactStalePresenceReceipt(receipt, phone, expectedAt, STALE_PRESENCE_AT)) {
+      throw new Error('invalid stale presence unchanged receipt');
+    }
+    return receipt;
   }
 }
 
@@ -316,11 +390,17 @@ async function ensureAuthorizedPhone(
       .maybeSingle();
 
     if (error) {
-      return fail('db_error', error.message, 500);
+      return fail('db_error', '계정 확인에 실패했습니다.', 500);
     }
 
-    if (!data?.phone) {
+    if (data === null) {
       return fail('not_found', '계정을 찾을 수 없습니다.', 404);
+    }
+    if (!isRecord(data)
+      || typeof data.phone !== 'string'
+      || data.phone !== phone
+      || typeof data.active !== 'boolean') {
+      return fail('db_error', '계정 확인에 실패했습니다.', 500);
     }
 
     if (!data.active) {
@@ -338,11 +418,17 @@ async function ensureAuthorizedPhone(
       .maybeSingle();
 
     if (error) {
-      return fail('db_error', error.message, 500);
+      return fail('db_error', '계정 확인에 실패했습니다.', 500);
     }
 
-    if (!data?.phone) {
+    if (data === null) {
       return fail('not_found', '계정을 찾을 수 없습니다.', 404);
+    }
+    if (!isRecord(data)
+      || typeof data.phone !== 'string'
+      || data.phone !== phone
+      || typeof data.active !== 'boolean') {
+      return fail('db_error', '계정 확인에 실패했습니다.', 500);
     }
 
     if (!data.active) {
@@ -359,11 +445,17 @@ async function ensureAuthorizedPhone(
     .maybeSingle();
 
   if (error) {
-    return fail('db_error', error.message, 500);
+    return fail('db_error', '계정 확인에 실패했습니다.', 500);
   }
 
-  if (!data?.phone) {
+  if (data === null) {
     return fail('not_found', '계정을 찾을 수 없습니다.', 404);
+  }
+  if (!isRecord(data)
+    || typeof data.phone !== 'string'
+    || data.phone !== phone
+    || typeof data.signup_completed !== 'boolean') {
+    return fail('db_error', '계정 확인에 실패했습니다.', 500);
   }
 
   if (!data.signup_completed) {
@@ -373,13 +465,18 @@ async function ensureAuthorizedPhone(
   return null;
 }
 
-async function getReadablePhones(role: 'fc' | 'admin' | 'manager', currentPhone: string) {
+async function getReadablePhones(
+  role: 'fc' | 'admin' | 'manager',
+  currentPhone: string,
+  requestedPhones: string[],
+) {
   const allowedPhones = new Set<string>([currentPhone]);
+  const scopedPhones = normalizePhones(requestedPhones);
 
   if (role === 'fc') {
     const [managersResult, adminsResult] = await Promise.all([
-      supabase.from('manager_accounts').select('phone').eq('active', true),
-      supabase.from('admin_accounts').select('phone').eq('active', true),
+      supabase.from('manager_accounts').select('phone').eq('active', true).in('phone', scopedPhones),
+      supabase.from('admin_accounts').select('phone').eq('active', true).in('phone', scopedPhones),
     ]);
 
     if (managersResult.error) {
@@ -389,14 +486,23 @@ async function getReadablePhones(role: 'fc' | 'admin' | 'manager', currentPhone:
       throw adminsResult.error;
     }
 
-    (managersResult.data ?? []).forEach((row) => {
-      const phone = cleanPhone(row.phone);
+    const managerRows = parseQueryRows(managersResult.data, isPresencePhoneRow);
+    const adminRows = parseQueryRows(adminsResult.data, isPresencePhoneRow);
+    if (!managerRows
+      || !adminRows
+      || !presenceRowsHaveUniquePhones(managerRows)
+      || !presenceRowsHaveUniquePhones(adminRows)) {
+      throw new Error('invalid readable staff phone result');
+    }
+
+    managerRows.forEach((row) => {
+      const phone = normalizePresencePhone(row.phone);
       if (phone.length === 11) {
         allowedPhones.add(phone);
       }
     });
-    (adminsResult.data ?? []).forEach((row) => {
-      const phone = cleanPhone(row.phone);
+    adminRows.forEach((row) => {
+      const phone = normalizePresencePhone(row.phone);
       if (phone.length === 11) {
         allowedPhones.add(phone);
       }
@@ -406,9 +512,9 @@ async function getReadablePhones(role: 'fc' | 'admin' | 'manager', currentPhone:
   }
 
   const [fcResult, managersResult, adminsResult] = await Promise.all([
-    supabase.from('fc_profiles').select('phone').eq('signup_completed', true),
-    supabase.from('manager_accounts').select('phone').eq('active', true),
-    supabase.from('admin_accounts').select('phone').eq('active', true),
+    supabase.from('fc_profiles').select('phone').eq('signup_completed', true).in('phone', scopedPhones),
+    supabase.from('manager_accounts').select('phone').eq('active', true).in('phone', scopedPhones),
+    supabase.from('admin_accounts').select('phone').eq('active', true).in('phone', scopedPhones),
   ]);
 
   if (fcResult.error) {
@@ -421,9 +527,21 @@ async function getReadablePhones(role: 'fc' | 'admin' | 'manager', currentPhone:
     throw adminsResult.error;
   }
 
-  [fcResult.data ?? [], managersResult.data ?? [], adminsResult.data ?? []].forEach((rows) => {
+  const fcRows = parseQueryRows(fcResult.data, isPresencePhoneRow);
+  const managerRows = parseQueryRows(managersResult.data, isPresencePhoneRow);
+  const adminRows = parseQueryRows(adminsResult.data, isPresencePhoneRow);
+  if (!fcRows
+    || !managerRows
+    || !adminRows
+    || !presenceRowsHaveUniquePhones(fcRows)
+    || !presenceRowsHaveUniquePhones(managerRows)
+    || !presenceRowsHaveUniquePhones(adminRows)) {
+    throw new Error('invalid readable account phone result');
+  }
+
+  [fcRows, managerRows, adminRows].forEach((rows) => {
     rows.forEach((row) => {
-      const phone = cleanPhone(row.phone);
+      const phone = normalizePresencePhone(row.phone);
       if (phone.length === 11) {
         allowedPhones.add(phone);
       }
@@ -442,35 +560,31 @@ serve(async (req: Request) => {
     return fail('method_not_allowed', 'Method not allowed', 405);
   }
 
-  let body: RequestBody;
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return fail('invalid_json', 'Invalid JSON');
   }
-
-  const sessionToken = String(body.sessionToken ?? '').trim();
-  if (!sessionToken) {
+  if (!isRecord(rawBody)
+    || typeof rawBody.sessionToken !== 'string'
+    || !rawBody.sessionToken.trim()) {
     return fail('missing_session_token', '앱 세션 토큰이 없습니다.');
   }
-
-  const action = body.action === 'offline'
-    ? 'offline'
-    : body.action === 'heartbeat'
-      ? 'heartbeat'
-      : body.action === 'read'
-        ? 'read'
-        : null;
-
-  if (!action) {
+  if (rawBody.action !== 'heartbeat'
+    && rawBody.action !== 'offline'
+    && rawBody.action !== 'read') {
     return fail('invalid_action', '유효한 액션이 아닙니다.');
   }
+  const body = parseRequestBody(rawBody);
+  if (!body) return fail('invalid_request', '요청 형식이 올바르지 않습니다.');
+  const { action, sessionToken } = body;
 
   const parsed = await parseAppSessionTokenDetailed(sessionToken);
   if (parsed.ok === false) return fail(parsed.code, parsed.message, parsed.status ?? 401);
   const session = parsed.payload;
 
-  const phone = cleanPhone(session.phone);
+  const phone = normalizePresencePhone(session.phone);
   if (phone.length !== 11) {
     return fail('invalid_phone', '유효한 전화번호가 아닙니다.', 401);
   }
@@ -481,20 +595,16 @@ serve(async (req: Request) => {
   }
 
   if (action === 'read') {
-    const requestedPhones = normalizePhones(body.phones ?? []);
+    const requestedPhones = normalizePhones(body.phones);
     if (requestedPhones.length === 0) {
       return json({ ok: true, data: [] });
     }
 
     let allowedPhones: Set<string>;
     try {
-      allowedPhones = await getReadablePhones(session.role, phone);
-    } catch (error) {
-      return fail(
-        'db_error',
-        error instanceof Error ? error.message : '활동 상태 조회에 실패했습니다.',
-        500,
-      );
+      allowedPhones = await getReadablePhones(session.role, phone, requestedPhones);
+    } catch {
+      return fail('db_error', '활동 상태 조회에 실패했습니다.', 500);
     }
 
     const scopedPhones = requestedPhones.filter((value) => allowedPhones.has(value));
@@ -505,12 +615,8 @@ serve(async (req: Request) => {
     try {
       const rows = await getPresenceSnapshots(scopedPhones);
       return json({ ok: true, data: rows });
-    } catch (error) {
-      return fail(
-        'db_error',
-        error instanceof Error ? error.message : '활동 상태 조회에 실패했습니다.',
-        500,
-      );
+    } catch {
+      return fail('db_error', '활동 상태 조회에 실패했습니다.', 500);
     }
   }
 
@@ -535,11 +641,7 @@ serve(async (req: Request) => {
         platform_at: snapshot.garam_in_at ?? null,
       },
     });
-  } catch (error) {
-    return fail(
-      'db_error',
-      error instanceof Error ? error.message : '활동 상태를 동기화하지 못했습니다.',
-      500,
-    );
+  } catch {
+    return fail('db_error', '활동 상태를 동기화하지 못했습니다.', 500);
   }
 });

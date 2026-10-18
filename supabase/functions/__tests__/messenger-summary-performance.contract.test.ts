@@ -38,6 +38,107 @@ describe('Internal Messenger V2 summary performance contract', () => {
     expect(helper).toContain('p_viewer_id: viewerId');
     expect(helper).toContain('p_target_ids: uniqueTargetIds');
     expect(helper).not.toMatch(/supabase\.(from|insert|update|upsert)\(/);
+    expect(helper).toContain('parseQueryRows(data, isInternalMessengerSummaryQueryRow)');
+    expect(helper).toContain('rows.some((row) => !targetIdSet.has(row.target_id.trim()))');
+    expect(helper).not.toContain('(data ?? [])');
+  });
+
+  test('paged RPC rejects malformed successes instead of filtering rows into an empty result', () => {
+    const internalListStart = edge.indexOf("if (body.type === 'internal_chat_list')");
+    const unreadStart = edge.indexOf("if (body.type === 'internal_unread_count')", internalListStart);
+    const internalList = edge.slice(internalListStart, unreadStart);
+
+    expect(internalList).toContain(
+      'const pageRows = parseQueryRows(pageRowPayload, isInternalChatPageQueryRow)',
+    );
+    expect(internalList).toContain("return err('Internal chat list failed', 500)");
+    expect(internalList).not.toContain('rawPageRows ?? []');
+    expect(internalList).not.toContain('.filter((row): row is InternalChatPageRow => row !== null)');
+  });
+
+  test('preserves the validated database cursor timestamp without millisecond truncation', () => {
+    const internalListStart = edge.indexOf("if (body.type === 'internal_chat_list')");
+    const unreadStart = edge.indexOf("if (body.type === 'internal_unread_count')", internalListStart);
+    const internalList = edge.slice(internalListStart, unreadStart);
+
+    expect(internalList).toContain("typeof latestAt !== 'string'");
+    expect(internalList).toContain('Number.isFinite(Date.parse(latestAt))');
+    expect(internalList).toContain('cursorLatestAt = latestAt');
+    expect(internalList).toContain('latest_at: row.latest_at as string');
+    expect(internalList).not.toContain('new Date(latestAt).toISOString()');
+    expect(internalList).not.toContain('new Date(String(row.latest_at)).toISOString()');
+  });
+
+  test('legacy summaries and chat history exhaust every stable message page', () => {
+    const legacySummaryStart = edge.indexOf('async function fetchLegacyInternalMessengerSummaries');
+    const receiptStart = edge.indexOf('function buildNotificationReceiptViewer', legacySummaryStart);
+    const compatibility = edge.slice(legacySummaryStart, receiptStart);
+    const profilesStart = edge.indexOf('function fetchInternalFcProfiles');
+    const actorStart = edge.indexOf('type FcNotifyActorResolution', profilesStart);
+    const profiles = edge.slice(profilesStart, actorStart);
+
+    expect(compatibility.match(/collectSupabaseRows<LegacyInternalMessageQueryRow>\(\{/g)).toHaveLength(2);
+    expect(compatibility.match(/isRow: isLegacyInternalMessageQueryRow/g)).toHaveLength(2);
+    expect(compatibility.match(/rowKey: \(row\) => row\.id/g)).toHaveLength(2);
+    expect(compatibility.match(/\.order\('created_at', \{ ascending: false \}\)/g)).toHaveLength(2);
+    expect(compatibility.match(/\.order\('id', \{ ascending: false \}\)/g)).toHaveLength(2);
+    expect(compatibility.match(/\.range\(from, to\)/g)).toHaveLength(2);
+    expect(compatibility).toContain(
+      "'id,sender_id,receiver_id,content,created_at,is_read,file_name,attachment_batch_id,deleted_at'",
+    );
+    expect(profiles).toContain('collectSupabaseRows<InternalFcProfileQueryRow>({');
+    expect(profiles).toContain('isRow: isInternalFcProfileQueryRow');
+    expect(profiles).toContain('rowKey: (row) => row.id');
+    expect(profiles).toContain(".order('id', { ascending: true })");
+    expect(profiles).toContain('.range(from, to)');
+  });
+
+  test('missing page RPC fallback preserves the database keyset and limit-plus-one contract', () => {
+    const internalListStart = edge.indexOf("if (body.type === 'internal_chat_list')");
+    const unreadStart = edge.indexOf("if (body.type === 'internal_unread_count')", internalListStart);
+    const internalList = edge.slice(internalListStart, unreadStart);
+    const fallbackStart = internalList.indexOf('if (pageError)');
+    const normalizedStart = internalList.indexOf('const pageRows = parseQueryRows', fallbackStart);
+    const fallback = internalList.slice(fallbackStart, normalizedStart);
+
+    expect(internalList).toContain('let pageRowPayload: unknown = rawPageRows');
+    expect(internalList).toContain('latest_at: item.last_time ?? INTERNAL_CHAT_EPOCH');
+    expect(internalList).toContain('Date.parse(right.latest_at) - Date.parse(left.latest_at)');
+    expect(internalList).toContain('right.fc_id.localeCompare(left.fc_id)');
+    expect(internalList).toContain('rowTimestamp < cursorTimestamp');
+    expect(internalList).toContain('row.fc_id < cursorFcId');
+    expect(internalList).toContain(
+      'pageRowPayload = legacyRows.slice(0, paginated ? pageLimit + 1 : pageLimit)',
+    );
+    expect(internalList).toContain('const hasMore = paginated && normalizedRows.length > pageLimit');
+    expect(fallback).not.toContain('return ok(');
+  });
+
+  test('chunks the complete internal participant set before exact unread counts', () => {
+    const unreadStart = edge.indexOf("if (body.type === 'internal_unread_count')");
+    const inboxStart = edge.indexOf("if (body.type === 'inbox_list')", unreadStart);
+    const unread = edge.slice(unreadStart, inboxStart);
+
+    expect(unread).toMatch(/Array\.from\(\s*new Set\(/);
+    expect(unread).toContain('for (const senderBatch of chunkSupabaseFilterValues(scopedSenderIds))');
+    expect(unread).toContain(".in('sender_id', senderBatch)");
+    expect(unread).toContain('const batchCount = parseQueryCount(count)');
+    expect(unread).toContain('!Number.isSafeInteger(exactCount + batchCount)');
+  });
+
+  test('chat targets require strict account and mapping row arrays', () => {
+    const chatTargetsStart = edge.indexOf("if (body.type === 'chat_targets')");
+    const internalListStart = edge.indexOf("if (body.type === 'internal_chat_list')", chatTargetsStart);
+    const chatTargets = edge.slice(chatTargetsStart, internalListStart);
+
+    expect(chatTargets).toContain('parseQueryRows(managers, isChatTargetManagerQueryRow)');
+    expect(chatTargets).toContain('parseQueryRows(developers, isChatTargetStaffQueryRow)');
+    expect(chatTargets).toContain('parseQueryRows(admins, isChatTargetStaffQueryRow)');
+    expect(chatTargets).toMatch(
+      /parseQueryRows\(\s*managerMappings,\s*isAffiliationManagerMappingQueryRow/,
+    );
+    expect(chatTargets).toContain("return err('Chat target lookup failed', 500)");
+    expect(chatTargets).not.toMatch(/return err\([^\n]*\.message, 500\)/);
   });
 
   test('uses the legacy summary query only as a missing-RPC rollout compatibility path', () => {
@@ -62,6 +163,7 @@ describe('Internal Messenger V2 summary performance contract', () => {
     expect(compatibility).toContain('async function fetchLegacyInternalChatList');
     expect(internalList).toContain('if (!isMissingInternalChatPageRpc(pageError))');
     expect(internalList).toContain('const legacy = await fetchLegacyInternalChatList(');
+    expect(internalList).not.toMatch(/return err\([^\n]*\.message, 500\)/);
   });
 
   test.each([migration, schema])(

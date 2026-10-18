@@ -20,10 +20,16 @@ test('resident-number list route keeps both direct and Edge reads encrypted-only
   assert.match(sessionSource, /data\.staff_type === 'developer'/);
   assert.match(serverSource, /\.from\('fc_identity_secure'\)/);
   assert.match(serverSource, /\.select\('fc_id,resident_number_encrypted'\)/);
+  assert.match(serverSource, /requireSupabaseRowsMatching\(/);
+  assert.match(serverSource, /resident_number_encrypted_rows_identity_contract_invalid/);
+  assert.match(serverSource, /resident_number_encrypted_rows_value_contract_invalid/);
   assert.match(serverSource, /readResidentNumbersFromEdgeFallback/);
   assert.match(edgeSource, /action === 'getResidentNumbers'/);
   assert.match(edgeSource, /\.from\('fc_identity_secure'\)/);
   assert.match(edgeSource, /\.select\('fc_id,resident_number_encrypted'\)/);
+  assert.match(edgeSource, /!Array\.isArray\(rows\).*resident_number_query_contract_invalid/);
+  assert.match(edgeSource, /resident_number_row_contract_invalid/);
+  assert.match(edgeSource, /!requestedIds\.has\(fcId\) \|\| seenIds\.has\(fcId\)/);
 });
 
 test('visible-page client uses one body-only no-store request without persistent query state', async () => {

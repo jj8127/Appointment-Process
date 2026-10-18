@@ -182,8 +182,6 @@ export function classifyGroupChatError(input: unknown): GroupChatUserError {
   if (
     (typeof status === 'number' && status >= 500)
     || code === 'db_error'
-    || code === 'group_chat_proxy_failed'
-    || code === 'missing_group_chat_config'
     || hasAny(normalizedMessage, ['failed to fetch', 'networkerror', 'load failed'])
   ) {
     return makeError({

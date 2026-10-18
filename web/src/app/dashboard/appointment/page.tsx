@@ -37,7 +37,7 @@ import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
-import { fetchAdminFcList } from '@/lib/admin-document-client';
+import { fetchAdminFcList, isAdminFcProfile } from '@/lib/admin-document-client';
 import { updateAppointmentAction } from './actions';
 
 // FC Profile 타입 정의
@@ -273,7 +273,9 @@ export default function AppointmentPage() {
   const { data: fcs, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['appointment-fcs'],
     queryFn: async () => {
-      const profiles = await fetchAdminFcList<FcProfile>();
+      const profiles = await fetchAdminFcList<FcProfile>(
+        (value): value is FcProfile => isAdminFcProfile(value),
+      );
       return profiles.filter((profile) => ['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected', 'hanwha-commission-approved', 'appointment-completed', 'final-link-sent'].includes(profile.status ?? ''));
     },
   });

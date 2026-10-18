@@ -1,14 +1,33 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { buildPhoneCandidates } from './phone-candidates.ts';
 import {
   applyExamApplicantApplicationTypes,
   buildExamApplicantBaseRows,
   buildExamApplicantPhoneCandidates,
   buildExamApplicantProfileMatchPlan,
+  isExamApplicantProfileRow,
+  isExamRegistrationRow,
   enrichExamApplicantsWithResidentNumbers,
 } from './exam-applicant-resident-number-enrichment.ts';
-import { buildPhoneCandidates } from './phone-candidates.ts';
+
+test('exam applicant source guards reject malformed successful query rows', () => {
+  const registration = {
+    id: 'registration-1', status: 'applied', created_at: '2026-01-01T00:00:00Z',
+    resident_id: '01000000000', is_confirmed: false,
+    exam_locations: { location_name: null },
+    exam_rounds: { round_label: '1회', exam_date: null, exam_type: 'life' },
+  };
+  assert.equal(isExamRegistrationRow(registration), true);
+  assert.equal(isExamRegistrationRow({ ...registration, is_confirmed: 'false' }), false);
+  assert.equal(isExamRegistrationRow({ ...registration, exam_rounds: [] }), false);
+
+  const profile = { id: 'fc-1', phone: '01000000000', name: null, affiliation: null, address: null };
+  assert.equal(isExamApplicantProfileRow(profile), true);
+  assert.equal(isExamApplicantProfileRow({ ...profile, phone: null }), false);
+  assert.equal(isExamApplicantProfileRow({ ...profile, address: 7 }), false);
+});
 
 test('exam applicant base rows keep current response defaults', () => {
   const baseRows = buildExamApplicantBaseRows([

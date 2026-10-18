@@ -25,7 +25,9 @@ import {
 } from '../_shared/exam-payment-proof.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import { mapExamCancellationError } from '../_shared/exam-cancellation-error.ts';
+import { parseQueryRows } from '../_shared/query-result-contract.ts';
 import { requireAppSessionFromRequest } from '../_shared/request-board-auth.ts';
+import { collectSupabaseRows } from '../../../lib/supabase-query-contract.ts';
 
 type RequestBody =
   | PrepareExamPaymentProofInput
@@ -82,6 +84,58 @@ type ProofUploadRow = {
   expires_at: string;
 };
 
+type ApplicationTargetRow = {
+  id: string;
+  name: string | null;
+  affiliation: string | null;
+  phone: string;
+  signup_completed: true;
+  is_manager_referral_shadow: false;
+};
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const QUERY_PAGE_SIZE = 500;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+function isPhoneRow(value: unknown): value is { phone: string } {
+  return isRecord(value)
+    && typeof value.phone === 'string'
+    && cleanPhone(value.phone).length === 11;
+}
+
+function isStaffActorRow(
+  value: unknown,
+): value is { id: string; phone: string; staff_type: string | null } {
+  if (!isPhoneRow(value)) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string'
+    && UUID_PATTERN.test(row.id)
+    && isNullableString(row.staff_type);
+}
+
+function isActorRow(value: unknown): value is { id: string; phone: string } {
+  if (!isPhoneRow(value)) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string'
+    && UUID_PATTERN.test(row.id);
+}
+
+function isApplicationTargetRow(value: unknown): value is ApplicationTargetRow {
+  if (!isActorRow(value)) return false;
+  const row = value as Record<string, unknown>;
+  return isNullableString(row.name)
+    && isNullableString(row.affiliation)
+    && row.signup_completed === true
+    && row.is_manager_referral_shadow === false;
+}
+
 function cleanPhone(value: unknown) {
   return String(value ?? '').replace(/\D/g, '');
 }
@@ -102,25 +156,37 @@ function isLinkedDesignerAffiliation(value: unknown) {
     || affiliation.replace(/\s/g, '').includes('설계매니저');
 }
 
-async function loadActiveNonFcPhones() {
-  const [managerResult, adminResult] = await Promise.all([
-    supabase
-      .from('manager_accounts')
-      .select('phone')
-      .eq('active', true)
-      .limit(2000),
-    supabase
-      .from('admin_accounts')
-      .select('phone')
-      .eq('active', true)
-      .limit(2000),
-  ]);
-  if (managerResult.error || adminResult.error) {
-    return { ok: false as const };
+async function loadAllActivePhoneRows(
+  table: 'manager_accounts' | 'admin_accounts',
+): Promise<Array<{ phone: string }> | null> {
+  try {
+    return await collectSupabaseRows<{ id: string; phone: string }>({
+      queryName: `${table}_active_phones`,
+      isRow: isActorRow,
+      rowKey: (row) => row.id,
+      pageSize: QUERY_PAGE_SIZE,
+      fetchPage: (from, to) => supabase
+        .from(table)
+        .select('id,phone')
+        .eq('active', true)
+        .order('phone', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    });
+  } catch {
+    return null;
   }
+}
+
+async function loadActiveNonFcPhones() {
+  const [managerRows, adminRows] = await Promise.all([
+    loadAllActivePhoneRows('manager_accounts'),
+    loadAllActivePhoneRows('admin_accounts'),
+  ]);
+  if (!managerRows || !adminRows) return { ok: false as const };
 
   const phones = new Set<string>();
-  for (const row of [...(managerResult.data ?? []), ...(adminResult.data ?? [])]) {
+  for (const row of [...managerRows, ...adminRows]) {
     const phone = cleanPhone(row.phone);
     if (phone.length === 11) phones.add(phone);
   }
@@ -149,14 +215,21 @@ async function resolveExamActor(session: AppSession, origin?: string) {
     const expectedStaffType = session.staffType === 'developer' ? 'developer' : 'admin';
     const { data, error } = await supabase
       .from('admin_accounts')
-      .select('id,staff_type')
+      .select('id,phone,staff_type')
       .in('phone', buildPhoneCandidates(phone))
       .eq('active', true)
       .limit(2);
-    const matches = (data ?? []).filter(
+    const rows = parseQueryRows(data, isStaffActorRow);
+    if (error || !rows || rows.some((row) => cleanPhone(row.phone) !== phone)) {
+      return {
+        ok: false as const,
+        response: failure('db_error', '활성 관리자 계정을 확인하지 못했습니다.', 500, origin),
+      };
+    }
+    const matches = rows.filter(
       (row) => (row.staff_type === 'developer' ? 'developer' : 'admin') === expectedStaffType,
     );
-    if (error || matches.length !== 1 || !matches[0]?.id) {
+    if (matches.length !== 1) {
       return {
         ok: false as const,
         response: failure('actor_not_found', '활성 관리자 계정을 확인하지 못했습니다.', 403, origin),
@@ -177,11 +250,18 @@ async function resolveExamActor(session: AppSession, origin?: string) {
   if (session.role === 'manager') {
     const { data, error } = await supabase
       .from('manager_accounts')
-      .select('id')
+      .select('id,phone')
       .in('phone', buildPhoneCandidates(phone))
       .eq('active', true)
       .limit(2);
-    if (error || data?.length !== 1 || !data[0]?.id) {
+    const rows = parseQueryRows(data, isActorRow);
+    if (error || !rows || rows.some((row) => cleanPhone(row.phone) !== phone)) {
+      return {
+        ok: false as const,
+        response: failure('db_error', '활성 본부장 계정을 확인하지 못했습니다.', 500, origin),
+      };
+    }
+    if (rows.length !== 1) {
       return {
         ok: false as const,
         response: failure('actor_not_found', '활성 본부장 계정을 확인하지 못했습니다.', 403, origin),
@@ -194,7 +274,7 @@ async function resolveExamActor(session: AppSession, origin?: string) {
         actorPhone: phone,
         actorFcId: null,
         actorAdminId: null,
-        actorManagerId: String(data[0].id),
+        actorManagerId: rows[0].id,
       } satisfies ExamApplicationActor,
     };
   }
@@ -230,8 +310,14 @@ async function resolveExamActor(session: AppSession, origin?: string) {
     };
   }
 
-  const exactMatches = (data ?? []).filter((row) => cleanPhone(row.phone) === phone);
-  if (exactMatches.length !== 1 || !exactMatches[0]?.id) {
+  const rows = parseQueryRows(data, isActorRow);
+  if (!rows || rows.some((row) => cleanPhone(row.phone) !== phone)) {
+    return {
+      ok: false as const,
+      response: failure('db_error', 'FC 정보를 확인하지 못했습니다.', 500, origin),
+    };
+  }
+  if (rows.length !== 1) {
     return {
       ok: false as const,
       response: failure('actor_not_found', 'FC 정보를 확인하지 못했습니다.', 403, origin),
@@ -243,7 +329,7 @@ async function resolveExamActor(session: AppSession, origin?: string) {
     actor: {
       actorType: 'fc',
       actorPhone: phone,
-      actorFcId: exactMatches[0].id as string,
+      actorFcId: rows[0].id,
       actorAdminId: null,
       actorManagerId: null,
     } satisfies ExamApplicationActor,
@@ -264,15 +350,26 @@ async function resolveApplicationTarget(
   const requestedTargetFcId = cleanTargetFcId(body);
   let targetFcId = actor.actorType === 'fc' ? actor.actorFcId : requestedTargetFcId;
   if (!targetFcId && actor.actorType === 'manager') {
-    const { data: legacyTarget } = await supabase
+    const { data: legacyTarget, error: legacyTargetError } = await supabase
       .from('fc_profiles')
-      .select('id')
+      .select('id,phone')
       .in('phone', buildPhoneCandidates(actor.actorPhone))
       .eq('signup_completed', true)
       .eq('is_manager_referral_shadow', false)
       .limit(2);
-    if (legacyTarget?.length === 1 && legacyTarget[0]?.id) {
-      targetFcId = String(legacyTarget[0].id);
+    const legacyRows = parseQueryRows(legacyTarget, isActorRow);
+    if (
+      legacyTargetError
+      || !legacyRows
+      || legacyRows.some((row) => cleanPhone(row.phone) !== actor.actorPhone)
+    ) {
+      return {
+        ok: false as const,
+        response: failure('db_error', '시험 신청 대상 FC를 확인하지 못했습니다.', 500, origin),
+      };
+    }
+    if (legacyRows.length === 1) {
+      targetFcId = legacyRows[0].id;
     }
   }
   if (!targetFcId) {
@@ -293,17 +390,30 @@ async function resolveApplicationTarget(
     .select('id,name,affiliation,phone,signup_completed,is_manager_referral_shadow')
     .eq('id', targetFcId)
     .maybeSingle();
-  const residentId = cleanPhone(data?.phone);
+  if (error) {
+    return {
+      ok: false as const,
+      response: failure('db_error', '시험 신청 대상 FC를 확인하지 못했습니다.', 500, origin),
+    };
+  }
+  if (data === null) {
+    return {
+      ok: false as const,
+      response: failure('target_not_found', '시험 신청 대상 FC를 확인하지 못했습니다.', 404, origin),
+    };
+  }
+  const row = isApplicationTargetRow(data) ? data : null;
+  const residentId = cleanPhone(row?.phone);
   if (
-    error
-    || !data?.id
-    || data.signup_completed !== true
-    || data.is_manager_referral_shadow === true
+    !row
+    || row.id !== targetFcId
+    || row.signup_completed !== true
+    || row.is_manager_referral_shadow !== false
     || residentId.length !== 11
   ) {
     return {
       ok: false as const,
-      response: failure('target_not_found', '시험 신청 대상 FC를 확인하지 못했습니다.', 404, origin),
+      response: failure('db_error', '시험 신청 대상 FC를 확인하지 못했습니다.', 500, origin),
     };
   }
 
@@ -316,7 +426,7 @@ async function resolveApplicationTarget(
       };
     }
     if (
-      isLinkedDesignerAffiliation(data.affiliation)
+      isLinkedDesignerAffiliation(row.affiliation)
       || excludedResult.phones.has(residentId)
     ) {
       return {
@@ -329,10 +439,10 @@ async function resolveApplicationTarget(
   return {
     ok: true as const,
     target: {
-      fcId: String(data.id),
+      fcId: row.id,
       residentId,
-      name: String(data.name ?? '').trim() || '이름 미입력',
-      affiliation: String(data.affiliation ?? '').trim(),
+      name: String(row.name ?? '').trim() || '이름 미입력',
+      affiliation: String(row.affiliation ?? '').trim(),
       phoneLast4: residentId.slice(-4),
     } satisfies ExamApplicationTarget,
   };
@@ -346,18 +456,29 @@ async function listApplicationTargets(actor: ExamApplicationActor, origin?: stri
   if (excludedResult.ok === false) {
     return failure('db_error', 'FC 목록을 불러오지 못했습니다.', 500, origin);
   }
-  const { data, error } = await supabase
-    .from('fc_profiles')
-    .select('id,name,affiliation,phone')
-    .eq('signup_completed', true)
-    .eq('is_manager_referral_shadow', false)
-    .order('name', { ascending: true })
-    .order('created_at', { ascending: true })
-    .limit(2000);
-  if (error) {
+  let rows: ApplicationTargetRow[];
+  try {
+    rows = await collectSupabaseRows<ApplicationTargetRow>({
+      queryName: 'exam_application_targets',
+      isRow: isApplicationTargetRow,
+      rowKey: (row) => row.id,
+      pageSize: QUERY_PAGE_SIZE,
+      fetchPage: (from, to) => supabase
+        .from('fc_profiles')
+        .select('id,name,affiliation,phone,signup_completed,is_manager_referral_shadow')
+        .eq('signup_completed', true)
+        .eq('is_manager_referral_shadow', false)
+        .order('name', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    });
+  } catch {
     return failure('db_error', 'FC 목록을 불러오지 못했습니다.', 500, origin);
   }
-  const targets = (data ?? []).flatMap((row) => {
+  if (
+    new Set(rows.map((row) => cleanPhone(row.phone))).size !== rows.length
+  ) return failure('db_error', 'FC 목록을 불러오지 못했습니다.', 500, origin);
+  const targets = rows.flatMap((row) => {
     const residentId = cleanPhone(row.phone);
     if (
       !row.id

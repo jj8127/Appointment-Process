@@ -59,6 +59,13 @@ export function fictionalReferralGraph(): ReferralGraphResponse {
   };
 }
 
+// The allowance contract pays on the 25th, two months after the performance month.
+function paymentMonth(month: string) {
+  const [year, monthNumber] = month.split('-').map(Number);
+  const index = year * 12 + monthNumber - 1 + 2;
+  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
+}
+
 function fictionalStatement(month: string) {
   const people = fictionalPeople();
   const next = rng(Number(month.replace('-', '')));
@@ -73,7 +80,7 @@ function fictionalStatement(month: string) {
   const net = nodes.reduce((sum, n) => sum + n.contributionKrw, 0);
   return {
     schemaVersion: 1, policyVersion: REFERRAL_ALLOWANCE_POLICY_VERSION, performanceMonth: month,
-    paymentDate: `${month}-25`, genealogyAsOf: `${month}-01`, sourceSnapshotDates: [`${month}-01`], usesLaterSnapshot: false,
+    paymentDate: `${paymentMonth(month)}-25`, genealogyAsOf: `${month}-01`, sourceSnapshotDates: [`${month}-01`], usesLaterSnapshot: false,
     eligibilityBasis: 'uploaded_snapshot', status: 'current_month_estimate', previousCarryIncluded: false,
     beneficiary: { nodeId: 'fic-0', name: '가상 나', eligibleAtBasisDate: true }, nodes,
     summary: { currentMonthNetKrw: net, newPaymentKrw: net, carryForwardKrw: 0, extinguishedKrw: 0, excludedByEligibilityKrw: 0 },

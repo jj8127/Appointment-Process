@@ -41,10 +41,23 @@ describe('messenger v2 Request Board search wrappers', () => {
     ).searchParams.get('q') ?? '')).toHaveLength(100);
   });
 
-  test('caps mapped server results at 50', () => {
-    const rows = Array.from({ length: 72 }, (_, id) => ({ id }));
-    expect(mapRbMessageSearchItems<{ id: number }>(rows)).toHaveLength(50);
-    expect(mapRbMessageSearchItems(null)).toEqual([]);
+  test('rejects malformed or oversized successful message search arrays', () => {
+    const row = {
+      id: 1,
+      request_designer_id: 2,
+      sender_id: 3,
+      message: '검색 결과',
+      is_read: false,
+      created_at: '2026-10-13T00:00:00.000Z',
+    };
+    expect(mapRbMessageSearchItems('request', [row])).toEqual([row]);
+    expect(mapRbMessageSearchItems('request', null)).toBeNull();
+    expect(mapRbMessageSearchItems('request', Array.from({ length: 51 }, (_, index) => ({
+      ...row,
+      id: index + 1,
+    })))).toBeNull();
+    expect(mapRbMessageSearchItems('request', [row, row])).toBeNull();
+    expect(mapRbMessageSearchItems('request', [{ ...row, created_at: 'invalid' }])).toBeNull();
   });
 
   test('the public search wrappers are strictly GET-only', () => {
@@ -55,7 +68,7 @@ describe('messenger v2 Request Board search wrappers', () => {
     );
     const directWrapper = source.slice(
       source.indexOf('export async function rbSearchDirectMessages'),
-      source.indexOf('export async function rbGetRequestList'),
+      source.indexOf('export async function rbGetRequestListOrThrow'),
     );
     expect(requestWrapper).toContain("method: 'GET'");
     expect(requestWrapper).toContain("diagnosticPath: '/api/messages/search'");

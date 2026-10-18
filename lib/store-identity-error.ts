@@ -11,6 +11,32 @@ const INVALID_IDENTITY_INPUT_MESSAGE = '입력한 주민번호 또는 주소를 
 const INVALID_LOGIN_STATE_MESSAGE = '로그인 정보를 다시 확인한 후 다시 시도해주세요.';
 const STORE_IDENTITY_GENERIC_MESSAGE = '신원 정보 저장에 실패했습니다. 잠시 후 다시 시도해주세요.';
 
+export type StoreIdentityReceipt = {
+  ok: true;
+  residentId: string;
+  identityCompleted: true;
+};
+
+export function requireStoreIdentityReceipt(
+  value: unknown,
+  expectedResidentId: string,
+): StoreIdentityReceipt {
+  const normalizedResidentId = expectedResidentId.replace(/\D/g, '');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(STORE_IDENTITY_GENERIC_MESSAGE);
+  }
+  const receipt = value as Record<string, unknown>;
+  if (
+    receipt.ok !== true
+    || receipt.identityCompleted !== true
+    || typeof receipt.residentId !== 'string'
+    || receipt.residentId.replace(/\D/g, '') !== normalizedResidentId
+  ) {
+    throw new Error(STORE_IDENTITY_GENERIC_MESSAGE);
+  }
+  return receipt as StoreIdentityReceipt;
+}
+
 export async function extractFunctionErrorMessage(
   err: unknown,
   fallback = STORE_IDENTITY_GENERIC_MESSAGE,

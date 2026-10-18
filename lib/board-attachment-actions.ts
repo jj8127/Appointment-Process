@@ -1,3 +1,5 @@
+import { isCredentialFreeHttpsUrl } from './external-url';
+
 type BoardAttachmentAlert = (title: string, message?: string) => void;
 type BoardAttachmentOpener = (url: string) => Promise<unknown>;
 type BoardAttachmentErrorLogger = (scope: string, error: unknown) => void;
@@ -15,7 +17,7 @@ export async function openBoardAttachment({
   alert,
   logError,
 }: OpenBoardAttachmentOptions) {
-  if (!signedUrl) {
+  if (!isCredentialFreeHttpsUrl(signedUrl)) {
     return false;
   }
 

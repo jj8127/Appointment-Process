@@ -92,3 +92,28 @@ test('web attachment retry refreshes an expired URL for the exact same storage p
     },
   ]);
 });
+
+test('web attachment delivery never uploads to an unsafe signed URL', async () => {
+  let uploadCalls = 0;
+  let finalizeCalls = 0;
+  const deps: BoardAttachmentDeliveryDeps<Source> = {
+    sign: async () => [{
+      storagePath: 'board/post/same_safe.pdf',
+      signedUrl: 'https://user:secret@upload.invalid/signed',
+    }],
+    upload: async () => {
+      uploadCalls += 1;
+    },
+    finalize: async () => {
+      finalizeCalls += 1;
+    },
+    areFinalized: async () => false,
+  };
+
+  assert.deepEqual(await deliverBoardAttachments(files, null, deps), {
+    complete: false,
+    manifest: null,
+  });
+  assert.equal(uploadCalls, 0);
+  assert.equal(finalizeCalls, 0);
+});

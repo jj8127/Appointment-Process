@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import { collectPresenceSnapshotBatches } from './presence-read-response';
 import { getStoredAppSessionToken } from './request-board-api';
 import { supabase } from './supabase';
 
@@ -104,51 +105,44 @@ export async function updateUserPresence(
 }
 
 export async function fetchUserPresence(
-  phones: Array<string | null | undefined>,
+  phones: (string | null | undefined)[],
 ): Promise<AppPresenceSnapshot[]> {
-  const normalizedPhones = Array.from(
-    new Set(
-      phones
-        .map((phone) => String(phone ?? '').replace(/[^0-9]/g, ''))
-        .filter((phone) => phone.length === 11),
-    ),
-  ).slice(0, 100);
+  let authPromise: ReturnType<typeof getUserPresenceSessionToken> | null = null;
 
-  if (normalizedPhones.length === 0) {
-    return [];
-  }
-
-  const auth = await getUserPresenceSessionToken();
-  if (!auth.ok) {
-    logger.warn('[presence] read skipped:', auth.code);
-    return [];
-  }
-
-  try {
-    const { data, error } = await supabase.functions.invoke<UserPresenceReadResponse>('user-presence', {
-      body: {
-        sessionToken: auth.sessionToken,
-        action: 'read',
-        phones: normalizedPhones,
-      },
-    });
-
-    if (error) {
-      logger.warn('[presence] user-presence read failed', error);
-      return [];
+  return collectPresenceSnapshotBatches(phones, async (phoneBatch) => {
+    const auth = await (authPromise ??= getUserPresenceSessionToken());
+    if (!auth.ok) {
+      logger.warn('[presence] read skipped:', auth.code);
+      throw new Error(auth.message);
     }
 
-    if (!data?.ok) {
-      logger.warn('[presence] user-presence read rejected', {
-        code: data?.code,
-        message: data?.message,
+    let result: { data: UserPresenceReadResponse | null; error: unknown };
+    try {
+      result = await supabase.functions.invoke<UserPresenceReadResponse>('user-presence', {
+        body: {
+          sessionToken: auth.sessionToken,
+          action: 'read',
+          phones: phoneBatch,
+        },
       });
-      return [];
+    } catch (error) {
+      logger.warn('[presence] user-presence read error', error);
+      throw error;
     }
 
-    return data.data ?? [];
-  } catch (error) {
-    logger.warn('[presence] user-presence read error', error);
-    return [];
-  }
+    if (result.error) {
+      logger.warn('[presence] user-presence read failed', result.error);
+      throw result.error;
+    }
+
+    if (!result.data?.ok) {
+      logger.warn('[presence] user-presence read rejected', {
+        code: result.data?.code,
+        message: result.data?.message,
+      });
+      throw new Error(result.data?.message ?? '활동 상태를 불러오지 못했습니다.');
+    }
+
+    return result.data.data;
+  });
 }
