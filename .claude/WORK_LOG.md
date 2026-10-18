@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-18 뒤로가기 기록 정리 OTA
+
+로그아웃·세션 만료 이동이 맨 위 화면만 바꿔 뒤로가기 때 로그아웃 상태 화면들이 차례로 다시 로그인으로 보내던 문제(같은 화면이 여러 번 뜸), 작업 후 홈·설계요청 홈으로 replace하며 같은 화면이 두 겹 쌓이던 문제, 하단 탭 전환마다 화면이 쌓이던 문제를 고쳤다. `lib/back-navigation.ts`에 `resetTo`(기록 비우고 열기: 로그아웃·세션 만료·전체 서비스)와 `returnTo`(기록에 있으면 돌아가기: 홈·설계요청 홈·권한 가드)를 두고 약 35곳을 바꿨으며, 하단 탭은 [홈, 현재 탭] 한 겹만 유지한다. `fix/back-navigation-20261018`(`4ba898b4`, 직전 OTA 소스 `326af6f9` 포함)을 production 채널에 배포했다(update group `a8bcda07-63b7-4d66-88a7-4ab910423953`, runtime 4.2.21, Android·iOS, production 환경 변수 로드). tsc·lint 통과, root Jest는 변경 전 대비 새 실패 0(손으로 의존성을 주입하던 테스트 7개는 실제 back-navigation 모듈을 쓰도록 갱신). Hanhwa_FC 에뮬레이터에서 모두온 탭 이동·종료 확인, 가람in 탭 → 홈 → 모두온 홈, 전체 서비스 뒤 종료 확인을 확인했다. 로그아웃 흐름은 재로그인이 필요해 기기 대신 `app-logout-navigation` 테스트(기록 비움이 로그인 이동보다 먼저)로만 확인했다.
+
 ## 2026-10-18 로컬 최신 통합 배포(게시판·설계요청·위촉 단계·설정 개편, 가람Link 연결·FC 삭제 수정)
 
 로컬 브랜치의 미배포 커밋을 운영 기준선 위에 합쳤다. 앱·Edge 기준선은 운영 OTA `e2bf640c`와 같은 `980695c9` 계열이고(board-list·delete-account 운영 소스가 이 계열과 일치), 관리자 웹 기준선은 운영 `d67cdfd`(admin-web-ux-r2)다. `release/all-latest-20261018`(`6e43670f`)에 게시판·설계요청·위촉 단계·설정·알림 설정 개편(feat/board-home-must-read-20261017, `4449d4bf`까지), `95c574c1`(가람Link 신원 검토 재로그인 안내 중단), `cccbcd0b`(FC 하드 삭제 전 가람Link 은퇴), 메신저 stage1, push-background의 fc-notify 커밋 6개(cherry-pick, 운영 fc-notify v108과 일치), admin-web-ux-r2·admin-referrals-embed·moduon-signup-code-check를 합쳤다. 이미 다른 SHA로 들어 있는 커밋(첨부 검은 화면, FC 홈 개편, 서비스 홈 사진, 지연 기준선, 10-13 계약 강화)과 stage1에 포함된 unified-model 초안은 다시 넣지 않았다. 메인 체크아웃의 커밋 안 된 변경 125건은 넣지 않았다.
