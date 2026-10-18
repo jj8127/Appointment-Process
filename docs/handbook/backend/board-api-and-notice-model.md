@@ -9,6 +9,12 @@ contract_guard_2026_07_03: mobile board/notice screens, admin board/notification
 
 # Backend Runbook: Board API And Notice Model
 
+## 2026-10-19 읽기 행 검증과 저장 수신 확인 (핫픽스 통합)
+
+- 게시판 Edge 읽기는 `_shared/board-read-contract.ts`의 행 검사로 카테고리·목록·상세·첨부·반응·댓글 행의 UUID, 작성자 역할, 반응 종류, 중복 ID를 확인한다. 형식이 맞지 않는 행이나 서명되지 않은 첨부 URL은 빈 목록이나 부분 성공으로 바꾸지 않고 조회 실패로 반환한다.
+- 상세 조회는 관계 행을 안정 정렬로 끝까지 페이지 조회하고, 댓글·작성자 ID는 Data API in-filter 전에 나눠 조회한다. 저장 계열은 삭제·첨부 확정·댓글 좋아요의 실제 행 수와 경로 집합을 확인한 뒤에만 성공을 반환하며, null 개수를 0건 성공으로 만들지 않는다.
+- 근거 시험은 `board-read-contract_test.ts`, `board-detail-query-contract.test.node.ts`, `board-mutation-receipts.test.node.ts`다. 운영 핫픽스(49de1c0a)와 같은 동작을 release에 합친 기록이며 새 배포를 뜻하지 않는다.
+
 ## 2026-10-06 게시판 이전 글 조회 (로컬 수정)
 
 - 모바일 일반/관리자 게시판과 관리자 웹은 첫 목록만 표시하지 않고 `nextCursor`를 이어 조회한다. 카테고리·검색·정렬·계정별 목록을 분리하고, 추가 조회 실패 시 이미 읽은 글과 재시도 동선을 유지한다. 반복 반환되는 고정글은 ID로 합친다.
