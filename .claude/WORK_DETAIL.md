@@ -1,5 +1,15 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261019-push-review-fixes"></a>
+## 2026-10-19 가람in 푸시 알림 검토 후속 수정
+
+- 커밋: 6853ed75·6f4a7b27(높음 3건), 22ee42c0 이후(중간 4건·오래된 계약 테스트 2건).
+- 높음: 서버·웹 발송 경로 5곳이 Expo ticket의 DeviceNotRegistered 토큰을 지운다. 관리자 웹 1:1 업무 알림은 보내기 전에 FC의 전체·분류 설정을 확인하고, 조회 실패면 보내지 않는다. 서류 마감 알림은 일시 실패 기기에만 한 번 다시 보내고, 받은 기기가 있거나 남은 토큰이 모두 만료였으면 당일 완료로 기록한다.
+- 중간: board_post를 notices로 매핑(서버·웹 같은 사례 시험). 로그아웃은 이 기기가 마지막으로 등록한 토큰만 지우고, 기억한 토큰이 없을 때만 전체 삭제. 루트 레이아웃은 권한을 묻지 않고 채널만 만든다. fc-notify 푸시 data에서 resident_id·name·sender_id·sender_name 제거(앱은 notificationId·target만 사용).
+- 배포: Edge 3개는 운영 소스(CLI download) + 높음 패치만 얹어 배포(fc-notify v109, group-chat v32, docs-deadline-reminder v14). release HEAD의 미배포 CORS 래퍼 등은 같이 나가지 않았다. 배포 뒤 파일 단위 일치·응답·로그를 확인했다. 관리자 웹은 Codex 개편 라인이 release에 합쳐진 뒤 배포하기로 했다(사용자 결정).
+- 미배포: 중간 수정의 fc-notify(푸시 data)·공유 매핑(fc-notify·group-chat·docs-deadline-reminder 번들), 관리자 웹, 앱(로그아웃·권한, OTA 필요).
+- 검증: jest 새 실패 0(기준선 27 → 23, 계약 테스트 2건 수정), deno check, 앱·웹 tsc(앱은 기존 typed route 오류 1건), eslint, web node 테스트 14/14.
+
 <a id="20261019-messenger-unified-line-integration"></a>
 ## 2026-10-19 운영 메신저 통합 모델 계열 통합
 

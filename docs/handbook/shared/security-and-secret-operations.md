@@ -91,7 +91,8 @@ source_of_truth: env contracts + reset-password functions + assisted-password fu
 ## 2026-07-24 Direct-message deep-link boundary
 
 - `fc-notify` derives a direct-message target from the authenticated sender identity. Browser callers still cannot choose `sender_id` or `sender_name`; the protected proxy rebuilds both from the verified session.
-- Message push data may contain only the canonical staff/FC chat actor ID, the bounded display name, the internal relative `/chat?...` route, category, source, and target role metadata. It must not contain session tokens, resident numbers, device tokens, provider responses, or raw database errors.
+- Push data may contain only the notification ID, typed target, the internal relative route, conversation ID, category/type, source, and send time. Since 2026-10-19 it must not contain phone numbers (`resident_id`, `sender_id`), names (`name`, `sender_name`), session tokens, resident numbers, device tokens, provider responses, or raw database errors; the app opens a push by notification ID and target only (`lib/__tests__/diagnostic-privacy-source.test.ts`).
+- Logout deletes only the Expo token this device registered; the all-device delete is reserved for global push OFF, and is the logout fallback only when no device token was remembered.
 - `chat_targets` can return per-target last-message time, preview, and unread count only to the signed FC whose viewer ID matches the app-session token. The Edge query is restricted to conversations between that FC and the already authorized staff target set.
 
 ## 2026-07-23 Exam Payment Proof Private Upload Contract
