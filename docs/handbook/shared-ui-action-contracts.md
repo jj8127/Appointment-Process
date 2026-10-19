@@ -124,3 +124,7 @@ Business formatting, normalization, mapping, grouping, and permission predicates
 - Reads distinguish loading, confirmed zero/empty, failure and retained old data. Failed unread reads do not call native badge/notification cleanup. Failed profile/approval/identity reads do not invent an unapproved or incomplete state.
 - Date-only fields use `lib/calendar-date.ts` without UTC conversion. An unset exam date displays the stored exam month. Allowance graph metadata distinguishes performance month from scheduled payment date.
 - Verification is local: actual-handler mocks, PGlite and isolated PostgreSQL16.14 multi-connection fixtures, compilers and source contracts. Native WebView/back/IME/font acceptance and operational DB/Storage/Edge rollout are separate gates. The migration must be applied and verified before its new callers are deployed; no split-write fallback is allowed.
+
+## 2026-10-16 App alert buttons
+
+- `AppAlertProvider`의 버튼 두 개는 한 줄을 반씩 나눠 쓰고(`flex: 1`), 라벨은 한 줄로 유지한다(필요하면 85%까지 축소). 고정 폭 100은 "내용 버리고 나가기"를 세 줄로 접어 모양이 깨졌다. 세 개 이상은 기존처럼 세로로 쌓는다.

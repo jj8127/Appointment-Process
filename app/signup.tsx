@@ -1,10 +1,10 @@
-import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   BackHandler,
-  Modal,
+  Keyboard,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import type { TextInput as TextInputType } from 'react-native';
+import { LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
@@ -22,7 +23,19 @@ import {
   ReferralSearchResultList,
   type ReferralSearchResult,
 } from '@/components/ReferralSearchField';
-import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import {
+  StackButton,
+  StackDockedNext,
+  StackField,
+  StackItem,
+  StackLabel,
+  StackSelectValue,
+  StackSheet,
+  StackSheetOption,
+  StackSubmit,
+  stackFormStyles,
+} from '@/components/StackedForm';
+import { useKeyboardPadding, useKeyboardVisible } from '@/hooks/use-keyboard-padding';
 import { consumePendingReferralCode } from '@/lib/referral-deeplink';
 import { useSession } from '@/hooks/use-session';
 import { safeStorage } from '@/lib/safe-storage';
@@ -43,11 +56,12 @@ import {
 } from '@/lib/license-statuses';
 import { supabase } from '@/lib/supabase';
 import { SIGNUP_AFFILIATION_OPTIONS, SIGNUP_CARRIER_OPTIONS } from '@/lib/signup-profile-options';
+import { advanceStackReveal, getStackOrder, SIGNUP_MOTION, SIGNUP_STEPS, type SignupStep } from '@/lib/signup-steps';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
-import { validatePhone, validateEmail, validateRequired, normalizePhone } from '@/lib/validation';
+import { validatePhone, validateEmail, validateRequired, normalizePhone, isValidMobilePhone } from '@/lib/validation';
 import type { LicenseStatus } from '@/types/fc';
 
-const AUTH_SCREEN_BACKGROUND = COLORS.primaryPale;
+const AUTH_SCREEN_BACKGROUND = COLORS.white;
 
 const STORAGE_KEY = 'fc-onboarding/signup';
 
@@ -60,6 +74,16 @@ const EMAIL_DOMAINS = [
   '직접입력',
 ];
 const REFERRAL_SEARCH_ERROR_MESSAGE = '추천인 검색을 지금 사용할 수 없습니다. 잠시 후 다시 시도해주세요.';
+
+type SignupSheet = 'carrier' | 'affiliation' | 'license' | 'domain';
+type TextField = 'name' | 'phone' | 'emailLocal' | 'customDomain' | 'referral';
+
+const SHEET_TITLES: Record<SignupSheet, string> = {
+  carrier: '통신사를 선택해 주세요',
+  affiliation: '소속을 선택해 주세요',
+  license: '보유한 자격증을 선택해 주세요',
+  domain: '이메일 주소를 선택해 주세요',
+};
 
 export default function SignupScreen() {
   const [selectedAffiliation, setSelectedAffiliation] = useState('');
@@ -79,11 +103,12 @@ export default function SignupScreen() {
   const [emailDomain, setEmailDomain] = useState('');
   const [customDomain, setCustomDomain] = useState('');
   const [carrier, setCarrier] = useState('');
-  const [showDomainPicker, setShowDomainPicker] = useState(false);
-  const [showCarrierPicker, setShowCarrierPicker] = useState(false);
-  const [showLicensePicker, setShowLicensePicker] = useState(false);
+  const [revealed, setRevealed] = useState(1);
+  const [sheet, setSheet] = useState<SignupSheet | null>(null);
+  const [focusedField, setFocusedField] = useState<TextField | null>('name');
   const [checking, setChecking] = useState(false);
   const keyboardPadding = useKeyboardPadding();
+  const keyboardVisible = useKeyboardVisible();
   const { referralNonce } = useLocalSearchParams<{ referralNonce?: string }>();
   const { role, hydrated } = useSession();
 
@@ -98,6 +123,8 @@ export default function SignupScreen() {
   const referralValidationRequestRef = useRef(0);
   const referralSearchRequestRef = useRef(0);
   const selectedReferralCodeRef = useRef('');
+  const revealedRef = useRef(1);
+  const motionTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const { scrollToInput } = useKeyboardAware();
 
@@ -108,6 +135,34 @@ export default function SignupScreen() {
     setTimeout(() => scrollToInput(target), 80);
     setTimeout(() => scrollToInput(target), 220);
   };
+
+  const later = useCallback((ms: number, run: () => void) => {
+    motionTimersRef.current.push(setTimeout(run, ms));
+  }, []);
+
+  useEffect(() => () => {
+    motionTimersRef.current.forEach(clearTimeout);
+  }, []);
+
+  /** Reveals the next question when the newest one was answered; returns whether it did. */
+  const advance = useCallback((answered: SignupStep) => {
+    const next = advanceStackReveal(SIGNUP_STEPS, revealedRef.current, answered);
+    revealedRef.current = next.revealed;
+    setRevealed(next.revealed);
+    return next.advanced;
+  }, []);
+
+  const focusAfterInsert = useCallback((ref: { current: TextInputType | null }) => {
+    later(SIGNUP_MOTION.focusDelay, () => ref.current?.focus());
+  }, [later]);
+
+  const openSheet = useCallback((next: SignupSheet) => {
+    Keyboard.dismiss();
+    setFocusedField(null);
+    setSheet(next);
+  }, []);
+
+  const closeSheet = useCallback(() => setSheet(null), []);
 
   const emailValue = useMemo(() => {
     const domainToUse = emailDomain === '직접입력' ? customDomain : emailDomain;
@@ -218,6 +273,72 @@ export default function SignupScreen() {
   };
   const normalizedLicenseStatusView = normalizeLicenseStatuses(licenseStatuses);
   const licenseStatusSummary = normalizedLicenseStatusView.map((status) => LICENSE_STATUS_LABELS[status]).join(', ');
+
+  const handlePhoneChange = (text: string) => {
+    const digits = normalizePhone(text).slice(0, 11);
+    setPhone(digits);
+    // Like the reference's resident number, a complete number moves on by itself.
+    if (isValidMobilePhone(digits) && advance('phone')) {
+      phoneRef.current?.blur();
+      openSheet('carrier');
+    }
+  };
+
+  const pickAndContinue = (answered: SignupStep, nextSheet: SignupSheet | null) => {
+    later(SIGNUP_MOTION.pickHold, () => {
+      setSheet(advance(answered) ? nextSheet : null);
+    });
+  };
+
+  const handleCarrierPick = (value: string) => {
+    setCarrier(value);
+    pickAndContinue('carrier', 'affiliation');
+  };
+
+  const handleAffiliationPick = (value: string) => {
+    setSelectedAffiliation(value);
+    pickAndContinue('affiliation', 'license');
+  };
+
+  const handleLicenseDone = () => {
+    closeSheet();
+    if (advance('license')) focusAfterInsert(emailLocalRef);
+  };
+
+  const handleDomainPick = (domain: string) => {
+    setEmailDomain(domain);
+    if (domain !== '직접입력') setCustomDomain('');
+    later(SIGNUP_MOTION.pickHold, () => {
+      closeSheet();
+      if (domain === '직접입력') {
+        later(SIGNUP_MOTION.sheet, () => customDomainRef.current?.focus());
+      } else if (advance('email')) {
+        focusAfterInsert(referralSearchInputRef);
+      }
+    });
+  };
+
+  const handleNameNext = () => {
+    if (advance('name')) focusAfterInsert(phoneRef);
+    else Keyboard.dismiss();
+  };
+
+  const handleEmailLocalNext = () => {
+    if (!emailDomain) {
+      openSheet('domain');
+    } else if (emailDomain === '직접입력') {
+      customDomainRef.current?.focus();
+    } else if (advance('email')) {
+      focusAfterInsert(referralSearchInputRef);
+    } else {
+      Keyboard.dismiss();
+    }
+  };
+
+  const handleCustomDomainNext = () => {
+    if (advance('email')) focusAfterInsert(referralSearchInputRef);
+    else Keyboard.dismiss();
+  };
 
   const resetSelectedReferral = useCallback(() => {
     referralValidationRequestRef.current += 1;
@@ -371,6 +492,7 @@ export default function SignupScreen() {
     setReferralInviterName('');
     setReferralInviterFcId(null);
     setSelectedReferral({ ...item, code: nextCode });
+    Keyboard.dismiss();
     void validateReferralCode(nextCode);
   };
 
@@ -411,12 +533,16 @@ export default function SignupScreen() {
   useFocusEffect(
     useCallback(() => {
       const onHardwareBack = () => {
+        if (sheet) {
+          closeSheet();
+          return true;
+        }
         handleBack();
         return true;
       };
       const subscription = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
       return () => subscription.remove();
-    }, [handleBack]),
+    }, [closeSheet, handleBack, sheet]),
   );
 
   useFocusEffect(
@@ -440,130 +566,150 @@ export default function SignupScreen() {
     void applyPendingReferralCode();
   }, [applyPendingReferralCode, referralNonce, hydrated, role]);
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.authBackground} pointerEvents="none" />
-      <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(160, keyboardPadding + 120) }]}
-        extraScrollHeight={220}
-        keyboardDismissMode="none"
-      >
-        <View style={styles.hero}>
-          <Text style={styles.heroEyebrow}>회원가입</Text>
-          <Text style={styles.title}>기본 정보를 입력해주세요</Text>
-          <Text style={styles.caption}>입력 후 비밀번호 설정 단계로 이동합니다.</Text>
-        </View>
+  const textNextHandlers: Partial<Record<TextField, { value: string; onNext: () => void }>> = {
+    name: { value: name.trim(), onNext: handleNameNext },
+    emailLocal: { value: emailLocal, onNext: handleEmailLocalNext },
+    customDomain: { value: customDomain, onNext: handleCustomDomainNext },
+  };
+  // Web reports no keyboard events, so the 다음 bar follows focus there.
+  const dockedNext = (keyboardVisible || Platform.OS === 'web') && focusedField ? textNextHandlers[focusedField] : undefined;
+  const showDockedNext = Boolean(dockedNext?.value) && !sheet;
+  const allRevealed = revealed >= SIGNUP_STEPS.length;
+  const showSubmit = allRevealed && !showDockedNext && !sheet && !keyboardVisible;
+  const canSubmit = referralStatus === 'valid' && !checking;
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>기본 정보</Text>
-          <View style={styles.affiliationBox}>
-            {SIGNUP_AFFILIATION_OPTIONS.map((opt) => {
-              const active = selectedAffiliation === opt;
-              return (
-                <Pressable
-                  key={opt}
-                  style={[styles.affiliationItem, active && styles.affiliationActive]}
-                  onPress={() => setSelectedAffiliation(opt)}
-                >
-                  <Text style={[styles.affiliationText, active && styles.affiliationTextActive]}>{opt}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+  // Android can hand focus back to an input when a sheet changes; only a visible keyboard means typing.
+  const isTyping = (field: TextField) => focusedField === field && (keyboardVisible || Platform.OS === 'web') && !sheet;
 
-          <View style={styles.field}>
-            <Text style={styles.label}>이름</Text>
+  const textFocus = (field: TextField) => ({
+    onFocus: (e: { nativeEvent: { target?: number } }) => {
+      setFocusedField(field);
+      handleFocusTarget(e.nativeEvent.target);
+    },
+    // On web a press on the 다음 bar blurs the input first; keep the field so the press still lands.
+    onBlur: () => {
+      if (Platform.OS !== 'web') setFocusedField((current) => (current === field ? null : current));
+    },
+  });
+
+  const renderStep = (step: SignupStep) => {
+    switch (step) {
+      case 'name':
+        return (
+          <StackField label="이름" active={isTyping('name')}>
             <TextInput
               ref={nameRef}
-              style={styles.input}
-              placeholder="홍길동"
+              style={stackFormStyles.input}
+              placeholder="이름 입력"
               placeholderTextColor={COLORS.text.muted}
               value={name}
               onChangeText={setName}
+              autoFocus
               returnKeyType="next"
-              onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
-              onSubmitEditing={() => phoneRef.current?.focus()}
+              onSubmitEditing={handleNameNext}
               blurOnSubmit={false}
               scrollEnabled={false}
+              {...textFocus('name')}
             />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>자격증 보유 현황</Text>
-            <Pressable style={styles.licenseSelectBox} onPress={() => setShowLicensePicker(true)}>
-              <Text
-                style={[
-                  styles.licenseSelectText,
-                  normalizedLicenseStatusView.includes(LICENSE_STATUS_NONE) && styles.licenseSelectPlaceholder,
-                ]}
-                numberOfLines={2}
-              >
-                {licenseStatusSummary}
-              </Text>
-              <Feather name="chevron-down" size={20} color={COLORS.text.secondary} />
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>연락처 및 이메일</Text>
-          <View style={styles.field}>
-            <Text style={styles.label}>휴대폰 번호</Text>
+          </StackField>
+        );
+      case 'phone': {
+        const phoneError = phone.length === 11 && !isValidMobilePhone(phone) ? validatePhone(phone).error : null;
+        return (
+          <StackField label="휴대폰 번호" active={isTyping('phone')} error={phoneError}>
             <TextInput
               ref={phoneRef}
-              style={styles.input}
-              placeholder="번호 입력 (- 없이 숫자만)"
+              style={stackFormStyles.input}
+              placeholder="숫자만 입력"
               placeholderTextColor={COLORS.text.muted}
               value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              returnKeyType="next"
-              onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
-              onSubmitEditing={() => {
-                setShowCarrierPicker(true);
-              }}
-              blurOnSubmit={false}
+              onChangeText={handlePhoneChange}
+              keyboardType="number-pad"
+              maxLength={11}
               scrollEnabled={false}
+              {...textFocus('phone')}
             />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>통신사</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={`통신사 선택, ${carrier || '미선택'}`} accessibilityState={{ expanded: showCarrierPicker }} aria-expanded={showCarrierPicker} style={styles.selectBox} onPress={() => setShowCarrierPicker(true)}>
+          </StackField>
+        );
+      }
+      case 'carrier':
+        return (
+          <StackField label="통신사" active={sheet === 'carrier'}>
+            <StackSelectValue value={carrier} placeholder="통신사 선택" accessibilityLabel={`통신사 선택, ${carrier || '미선택'}`} onPress={() => openSheet('carrier')} />
+          </StackField>
+        );
+      case 'affiliation':
+        return (
+          <StackField label="소속" active={sheet === 'affiliation'}>
+            <StackSelectValue value={selectedAffiliation} placeholder="소속 선택" accessibilityLabel={`소속 선택, ${selectedAffiliation || '미선택'}`} onPress={() => openSheet('affiliation')} />
+          </StackField>
+        );
+      case 'license':
+        return (
+          <StackField label="자격증 보유 현황" active={sheet === 'license'}>
+            <StackSelectValue value={licenseStatusSummary} placeholder="자격증 선택" accessibilityLabel={`자격증 보유 현황, ${licenseStatusSummary}`} onPress={() => openSheet('license')} />
+          </StackField>
+        );
+      case 'email':
+        return (
+          <StackField label="이메일" active={isTyping('emailLocal') || isTyping('customDomain') || sheet === 'domain'}>
+            <View style={styles.emailRow}>
               <TextInput
-                style={[styles.input, styles.inputWithIcon]}
-                placeholder="통신사 선택"
+                ref={emailLocalRef}
+                style={[stackFormStyles.input, styles.flex]}
+                placeholder="이메일 아이디"
                 placeholderTextColor={COLORS.text.muted}
-                value={carrier}
-                editable={false}
-                pointerEvents="none"
+                value={emailLocal}
+                onChangeText={(txt) => setEmailLocal(txt.trim())}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                returnKeyType="next"
+                onSubmitEditing={handleEmailLocalNext}
+                blurOnSubmit={false}
+                scrollEnabled={false}
+                {...textFocus('emailLocal')}
               />
-              <View style={styles.selectOverlay}>
-                <Feather name="chevron-down" size={20} color={COLORS.text.secondary} />
-              </View>
-            </Pressable>
-          </View>
-
+              <Text style={styles.emailAt}>@</Text>
+              {emailDomain === '직접입력' ? (
+                <TextInput
+                  ref={customDomainRef}
+                  style={[stackFormStyles.input, styles.flex]}
+                  placeholder="직접 입력"
+                  placeholderTextColor={COLORS.text.muted}
+                  value={customDomain}
+                  onChangeText={(txt) => setCustomDomain(txt.trim())}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  returnKeyType="next"
+                  onSubmitEditing={handleCustomDomainNext}
+                  blurOnSubmit={false}
+                  scrollEnabled={false}
+                  {...textFocus('customDomain')}
+                />
+              ) : (
+                <View style={styles.flex}>
+                  <StackSelectValue value={emailDomain} placeholder="선택" accessibilityLabel={`이메일 도메인 선택, ${emailDomain || '미선택'}`} onPress={() => openSheet('domain')} />
+                </View>
+              )}
+            </View>
+          </StackField>
+        );
+      case 'referral':
+        return (
           <View style={styles.field}>
-            <Text style={styles.label}>추천인 (필수)</Text>
+            <StackLabel>추천인 (필수)</StackLabel>
             <ReferralSearchField
               inputRef={referralSearchInputRef}
               searchQuery={referralSearchQuery}
               searching={referralSearching}
               onChangeText={handleReferralSearchChange}
               onClear={clearReferralSearchInput}
-              returnKeyType="next"
+              returnKeyType="search"
               textInputProps={{
-                onFocus: (e) => handleFocusTarget(e.nativeEvent.target),
-                onSubmitEditing: () => emailLocalRef.current?.focus(),
-                blurOnSubmit: false,
+                ...textFocus('referral'),
                 scrollEnabled: false,
               }}
             />
-            <Text style={styles.referralHelperText}>
-              추천인 이름을 입력한 뒤 검색 결과에서 한 명을 선택해주세요.
-            </Text>
             {referralSearchQuery.trim().length > 0 && referralSearchQuery.trim().length < 2 && (
               <Text style={styles.referralSearchHint}>{REFERRAL_SEARCH_MIN_CHARS_HINT}</Text>
             )}
@@ -605,11 +751,6 @@ export default function SignupScreen() {
                 {referralStatus === 'validating' && (
                   <Text style={styles.referralStatusHint}>추천인 정보를 확인 중입니다...</Text>
                 )}
-                {referralStatus === 'valid' && (
-                  <Text style={styles.referralStatusSuccess}>
-                    ✓ {referralInviterName}님이 추천인으로 적용됩니다
-                  </Text>
-                )}
                 {referralStatus === 'invalid' && (
                   <Text style={styles.referralStatusError}>
                     선택한 추천인을 확인하지 못했습니다. 다시 검색해 선택해주세요.
@@ -618,160 +759,66 @@ export default function SignupScreen() {
               </View>
             )}
           </View>
+        );
+    }
+  };
 
-          <View style={styles.field}>
-            <Text style={styles.label}>이메일</Text>
-            <View style={styles.emailRow}>
-              <TextInput
-                ref={emailLocalRef}
-                style={[styles.input, styles.emailLocal]}
-                placeholder="이메일 아이디"
-                placeholderTextColor={COLORS.text.muted}
-                value={emailLocal}
-                onChangeText={(txt) => setEmailLocal(txt.trim())}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                returnKeyType="next"
-                onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
-                onSubmitEditing={() => {
-                  if (emailDomain === '직접입력') {
-                    customDomainRef.current?.focus();
-                  } else {
-                    setShowDomainPicker(true);
-                  }
-                }}
-                blurOnSubmit={false}
-                scrollEnabled={false}
-              />
-              <Text style={styles.emailAt}>@</Text>
-              <View style={{ flex: 1 }}>
-                <Pressable accessibilityRole="button" accessibilityLabel={`이메일 도메인 선택, ${emailDomain || '미선택'}`} accessibilityState={{ expanded: showDomainPicker }} aria-expanded={showDomainPicker} style={styles.emailDomainBox} onPress={() => setShowDomainPicker(true)}>
-                  <TextInput
-                    style={[styles.input, styles.inputWithIcon]}
-                    placeholder="도메인 선택"
-                    placeholderTextColor={COLORS.text.muted}
-                    value={emailDomain}
-                    editable={false}
-                    pointerEvents="none"
-                  />
-                  <View style={styles.selectOverlay}>
-                    <Feather name="chevron-down" size={20} color={COLORS.text.secondary} />
-                  </View>
-                </Pressable>
+  const renderSheetContent = (current: SignupSheet) => {
+    switch (current) {
+      case 'carrier':
+        return SIGNUP_CARRIER_OPTIONS.map((value) => (
+          <StackSheetOption key={value} label={value} selected={carrier === value} onPress={() => handleCarrierPick(value)} />
+        ));
+      case 'affiliation':
+        return SIGNUP_AFFILIATION_OPTIONS.map((value) => (
+          <StackSheetOption key={value} label={value} selected={selectedAffiliation === value} onPress={() => handleAffiliationPick(value)} />
+        ));
+      case 'license':
+        return LICENSE_STATUS_OPTIONS.map((status) => (
+          <StackSheetOption
+            key={status}
+            label={LICENSE_STATUS_LABELS[status]}
+            multiple
+            selected={normalizedLicenseStatusView.includes(status)}
+            onPress={() => handleLicenseStatusToggle(status)}
+          />
+        ));
+      case 'domain':
+        return EMAIL_DOMAINS.map((domain) => (
+          <StackSheetOption key={domain} label={domain} selected={emailDomain === domain} onPress={() => handleDomainPick(domain)} />
+        ));
+    }
+  };
 
-                {emailDomain === '직접입력' ? (
-                  <TextInput
-                    ref={customDomainRef}
-                    style={[styles.input, styles.customDomainInput]}
-                    placeholder="직접 입력"
-                    placeholderTextColor={COLORS.text.muted}
-                    value={customDomain}
-                    onChangeText={(txt) => setCustomDomain(txt.trim())}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    returnKeyType="done"
-                    onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
-                    onSubmitEditing={handleNext}
-                    scrollEnabled={false}
-                  />
-                ) : null}
-              </View>
-            </View>
-          </View>
+  return (
+    <View style={styles.container}>
+      <View style={styles.authBackground} pointerEvents="none" />
+      <SafeAreaView style={styles.safe} edges={['left', 'right']}>
+        <Text style={stackFormStyles.title}>회원가입 정보를 입력해 주세요</Text>
+        <KeyboardAwareWrapper
+          contentContainerStyle={[stackFormStyles.content, { paddingBottom: Math.max(120, keyboardPadding + 96) }]}
+          extraScrollHeight={220}
+          keyboardDismissMode="none"
+        >
+          <LayoutAnimationConfig skipEntering>
+            {getStackOrder(SIGNUP_STEPS, revealed).map((step) => (
+              <StackItem key={step}>{renderStep(step)}</StackItem>
+            ))}
+          </LayoutAnimationConfig>
+        </KeyboardAwareWrapper>
 
-        </View>
-
-        <Pressable style={[styles.primaryButton, checking && { opacity: 0.6 }]} onPress={handleNext} disabled={checking}>
-          <Text style={styles.primaryButtonText}>{checking ? '확인 중...' : '비밀번호 설정으로 이동'}</Text>
-        </Pressable>
-
-        <Pressable style={styles.linkButton} onPress={() => router.replace('/login')}>
-          <Text style={styles.linkButtonText}>이미 계정이 있어요</Text>
-        </Pressable>
-      </KeyboardAwareWrapper>
+        {showDockedNext && dockedNext ? <StackDockedNext onPress={dockedNext.onNext} /> : null}
+        {showSubmit ? <StackSubmit label={checking ? '확인 중...' : '다음'} disabled={!canSubmit} onPress={handleNext} /> : null}
       </SafeAreaView>
 
-      <Modal visible={showLicensePicker} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowLicensePicker(false)}>
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>자격증 보유 현황</Text>
-            <View style={styles.modalOptions}>
-              {LICENSE_STATUS_OPTIONS.map((status) => {
-                const active = normalizeLicenseStatuses(licenseStatuses).includes(status);
-                return (
-                  <Pressable
-                    key={status}
-                    style={[styles.modalOption, active && styles.modalOptionActive]}
-                    onPress={() => handleLicenseStatusToggle(status)}
-                  >
-                    <Text style={[styles.modalOptionText, active && styles.modalOptionTextActive]}>
-                      {LICENSE_STATUS_LABELS[status]}
-                    </Text>
-                    {active ? <Feather name="check" size={18} color={COLORS.primary} /> : null}
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Pressable style={styles.modalCancel} onPress={() => setShowLicensePicker(false)}>
-              <Text style={styles.modalCancelText}>완료</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal visible={showDomainPicker} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowDomainPicker(false)}>
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>도메인 선택</Text>
-            <View style={styles.modalOptions}>
-              {EMAIL_DOMAINS.map((domain) => (
-                <Pressable
-                  key={domain}
-                  style={styles.modalOption}
-                  onPress={() => {
-                    setEmailDomain(domain);
-                    if (domain !== '직접입력') setCustomDomain('');
-                    setShowDomainPicker(false);
-                    if (domain === '직접입력') {
-                      setTimeout(() => customDomainRef.current?.focus(), 100);
-                    }
-                  }}
-                >
-                  <Text style={styles.modalOptionText}>{domain}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <Pressable style={styles.modalCancel} onPress={() => setShowDomainPicker(false)}>
-              <Text style={styles.modalCancelText}>취소</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-      <Modal visible={showCarrierPicker} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowCarrierPicker(false)}>
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>통신사 선택</Text>
-            <View style={styles.modalOptions}>
-              {SIGNUP_CARRIER_OPTIONS.map((value) => (
-                <Pressable
-                  key={value}
-                  style={styles.modalOption}
-                  onPress={() => {
-                    setCarrier(value);
-                    setShowCarrierPicker(false);
-                    setTimeout(() => referralSearchInputRef.current?.focus(), 100);
-                  }}
-                >
-                  <Text style={styles.modalOptionText}>{value}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <Pressable style={styles.modalCancel} onPress={() => setShowCarrierPicker(false)}>
-              <Text style={styles.modalCancelText}>취소</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <StackSheet
+        contentKey={sheet}
+        title={sheet ? SHEET_TITLES[sheet] : ''}
+        onClose={closeSheet}
+        footer={sheet === 'license' ? <StackButton label="선택 완료" onPress={handleLicenseDone} /> : null}
+      >
+        {sheet ? renderSheetContent(sheet) : null}
+      </StackSheet>
     </View>
   );
 }
@@ -787,177 +834,10 @@ const styles = StyleSheet.create({
     backgroundColor: AUTH_SCREEN_BACKGROUND,
   },
   safe: { flex: 1 },
-  scrollContent: { padding: SPACING.lg, gap: SPACING.lg },
-  hero: { gap: SPACING.sm, paddingVertical: SPACING.sm },
-  heroEyebrow: { color: COLORS.primary, fontWeight: TYPOGRAPHY.fontWeight.bold, fontSize: TYPOGRAPHY.fontSize.base },
-  title: { fontSize: TYPOGRAPHY.fontSize['3xl'], fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary, lineHeight: 34 },
-  caption: { color: COLORS.text.secondary, lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.md, fontSize: TYPOGRAPHY.fontSize.md },
-  sectionCard: {
-    backgroundColor: COLORS.white,
-    padding: SPACING.base,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    gap: SPACING.md,
-  },
-  sectionTitle: { fontWeight: TYPOGRAPHY.fontWeight.extrabold, fontSize: TYPOGRAPHY.fontSize.xl, color: COLORS.text.primary },
-  affiliationBox: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-  },
-  affiliationItem: {
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    borderRadius: RADIUS.md,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    backgroundColor: COLORS.white,
-  },
-  affiliationActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryPale },
-  affiliationText: { color: COLORS.text.primary, fontSize: TYPOGRAPHY.fontSize.md },
-  affiliationTextActive: { color: COLORS.primary, fontWeight: TYPOGRAPHY.fontWeight.bold },
-  licenseSelectBox: {
-    minHeight: 52,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    borderRadius: RADIUS.base,
-    backgroundColor: COLORS.white,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: SPACING.sm,
-  },
-  licenseSelectText: {
-    flex: 1,
-    color: COLORS.text.primary,
-    fontSize: TYPOGRAPHY.fontSize.md,
-    fontWeight: TYPOGRAPHY.fontWeight.semibold,
-  },
-  licenseSelectPlaceholder: {
-    color: COLORS.text.secondary,
-  },
+  flex: { flex: 1 },
   field: { gap: 6 },
-  label: { fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.primary, fontSize: TYPOGRAPHY.fontSize.md },
-  input: {
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    borderRadius: RADIUS.base,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: COLORS.white,
-    fontSize: TYPOGRAPHY.fontSize.md,
-    color: COLORS.text.primary,
-    height: 52,
-    lineHeight: 20,
-    textAlignVertical: 'center',
-  },
-  inputWithIcon: {
-    paddingRight: 44,
-  },
-  selectBox: {
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    borderRadius: RADIUS.base,
-    overflow: 'hidden',
-    justifyContent: 'center',
-    height: 52,
-    backgroundColor: COLORS.white,
-  },
-  selectPicker: {
-    color: COLORS.text.primary,
-    marginLeft: -10,
-    marginRight: -10,
-    paddingLeft: SPACING.md,
-    fontSize: TYPOGRAPHY.fontSize.md,
-  },
-  primaryButton: {
-    marginTop: SPACING.sm,
-    marginBottom: SPACING.xl,
-    backgroundColor: COLORS.primary,
-    paddingVertical: SPACING.lg,
-    borderRadius: RADIUS.md,
-    alignItems: 'center',
-  },
-  primaryButtonText: { color: COLORS.white, fontWeight: TYPOGRAPHY.fontWeight.extrabold, fontSize: TYPOGRAPHY.fontSize.lg },
-  linkButton: {
-    alignItems: 'center',
-    paddingVertical: SPACING.sm,
-  },
-  linkButtonText: {
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    color: COLORS.text.secondary,
-    fontWeight: TYPOGRAPHY.fontWeight.semibold,
-    textDecorationLine: 'underline',
-  },
-  emailRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: SPACING.sm,
-  },
-  emailLocal: {
-    flex: 0.9,
-    minWidth: 0,
-  },
-  emailAt: {
-    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
-    color: COLORS.text.primary,
-    fontSize: TYPOGRAPHY.fontSize.md,
-    marginTop: SPACING.md,
-  },
-  emailDomainBox: {
-    flex: 1.1,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    borderRadius: RADIUS.base,
-    overflow: 'hidden',
-    justifyContent: 'center',
-    height: 54,
-    backgroundColor: COLORS.white,
-  },
-  selectOverlay: {
-    position: 'absolute',
-    right: SPACING.md,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: SPACING['2xl'],
-  },
-  emailPicker: {
-    color: COLORS.text.primary,
-    marginLeft: -10,
-    marginRight: -10,
-    paddingLeft: SPACING.md,
-    fontSize: TYPOGRAPHY.fontSize.md,
-  },
-  customDomainInput: {
-    marginTop: SPACING.xs,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    borderRadius: RADIUS.base,
-    padding: SPACING.sm,
-    backgroundColor: COLORS.white,
-    fontSize: TYPOGRAPHY.fontSize.md,
-    height: 44,
-  },
-  referralHelperText: {
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    color: COLORS.text.secondary,
-    lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.sm,
-    marginTop: 2,
-  },
-  referralSearchSection: {
-    marginTop: SPACING.sm,
-  },
-  referralSearchLabel: {
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    fontWeight: TYPOGRAPHY.fontWeight.bold,
-    color: COLORS.text.primary,
-    marginBottom: 6,
-  },
+  emailRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  emailAt: { fontSize: TYPOGRAPHY.fontSize.lg, color: COLORS.text.secondary },
   referralSearchHint: {
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.text.muted,
@@ -1020,51 +900,9 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.text.muted,
   },
-  referralStatusSuccess: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    color: '#16a34a',
-  },
   referralStatusError: {
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.error,
     lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.xs,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: COLORS.background.overlay,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: SPACING.lg,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: COLORS.white,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.base,
-  },
-  modalTitle: { fontSize: TYPOGRAPHY.fontSize.md, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary, marginBottom: SPACING.md },
-  modalOptions: { gap: SPACING.sm },
-  modalOption: {
-    paddingVertical: 10,
-    paddingHorizontal: SPACING.sm,
-    borderRadius: RADIUS.base,
-    backgroundColor: COLORS.background.secondary,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  modalOptionActive: {
-    backgroundColor: COLORS.primaryPale,
-  },
-  modalOptionText: { fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: TYPOGRAPHY.fontWeight.semibold, color: COLORS.text.primary },
-  modalOptionTextActive: { color: COLORS.primary, fontWeight: TYPOGRAPHY.fontWeight.extrabold },
-  modalCancel: {
-    marginTop: SPACING.md,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: RADIUS.base,
-    backgroundColor: COLORS.gray[100],
-  },
-  modalCancelText: { fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.gray[600] },
 });

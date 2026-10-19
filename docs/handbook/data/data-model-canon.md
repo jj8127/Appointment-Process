@@ -214,3 +214,8 @@ The isolated PostgreSQL runner executes4 fixture files serially in one disposabl
 ## 2026-10-10 Notice creation actor provenance candidate
 
 `20261009163349_ux_notice_idempotent_actor.sql` is a local candidate after acceptance testing. The admin notice action uses the atomic creation RPC and keeps one request ID and identical uploaded payload for an unchanged retry. The RPC writes `notices.created_by` from the verified actor, ignores any author value in the notice payload, and returns the existing `{id}` result. Actor checks, invoker execution, service-role-only privileges, advisory transaction locking and atomic receipt insertion remain intact. A changed payload with the same key is rejected. The migration and final schema snapshot match; local PGlite and real PostgreSQL fixtures cover authorship, replay, rejection, rollback and concurrent creation. This candidate has not been applied to the operational database. Inbox delivery-key de-duplication does not prove exactly-once external push delivery.
+
+## 2026-10-16 모두온 가입 인증 코드 단독 확인
+
+- `check_platform_signup_otp(phone, code_hash)`는 `register_platform_member`와 같은 advisory lock, 만료, 5회 실패 10분 잠금, 시도 횟수를 공유하고 challenge를 소비하지 않는다. 최종 가입은 같은 코드를 다시 검증한다. 실행 권한은 `service_role`만 가진다.
+- Edge `platform-service`의 `check_signup_otp` 액션이 이 함수를 호출한다. 마이그레이션 `20261016040348_check_platform_signup_otp.sql`, 검증 `supabase/tests/platform-membership-sql.test.mjs`.

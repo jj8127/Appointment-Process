@@ -5858,3 +5858,10 @@
 - Cause: `FcHomeExamRounds` formatted `exam_rounds.exam_date` with `.split('-')`; production rounds can have a null `exam_date`. The section had no local error boundary, so one render error replaced the entire home.
 - Guardrail: treat every column read in a new home/dashboard section as nullable unless the schema says NOT NULL, format through a null-safe helper with a test, and wrap each independent home section in `FcHomeSectionBoundary` so a failure stays local.
 - Evidence: device logcat `TypeError: Cannot read property 'split' of null at formatMonthDay`; regression case in `lib/__tests__/fc-home-sections.test.ts` (`formatHomeMonthDay(null)`).
+
+## 2026-10-16 | A "our app signup" redesign landed on the legacy FC route instead of the screen users reach
+
+- Symptom: after implementing the stacked signup, the user reported that nothing changed.
+- Cause: the work targeted `app/signup.tsx` (FC 사전등록) by file name; the account users open from 내 정보 → 회원가입 is the 모두온 common signup `app/services/signup.tsx` (모두온 is the single account).
+- Guardrail: before redesigning a user-named screen, trace the route from the visible entry point (home/내 정보/login buttons) to the file, and verify on device through that same entry path, not by deep-linking straight to the edited route.
+- Evidence: emulator screenshot of `/services/signup` unchanged after the first pass; `app/services/account.tsx` `router.navigate('/services/signup')`.
