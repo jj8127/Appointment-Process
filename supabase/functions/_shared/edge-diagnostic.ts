@@ -203,6 +203,7 @@ const VALID_PAIRS = new Set<string>([
   'fc_notify.admin_web_push:request_failed',
   'fc_notify.expo_push:request_failed',
   'fc_notify.expo_push:timeout',
+  'fc_notify.device_token_cleanup:delete_failed',
   'fc_notify.recipient_resolution:no_admin_recipients',
   'fc_notify.notification_insert:insert_failed',
   'fc_notify.device_token_load:query_failed',

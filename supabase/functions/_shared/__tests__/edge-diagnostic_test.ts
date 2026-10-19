@@ -97,6 +97,7 @@ test('accepts every reviewed residual-closure event and reason pair', () => {
     { event: 'fc_notify.admin_web_push', reason: 'request_failed' },
     { event: 'fc_notify.notification_insert', reason: 'insert_failed' },
     { event: 'fc_notify.device_token_load', reason: 'query_failed' },
+    { event: 'fc_notify.device_token_cleanup', reason: 'delete_failed' },
     { event: 'user_presence.rpc_fallback', reason: 'get_failed' },
     { event: 'user_presence.rpc_fallback', reason: 'touch_failed' },
     { event: 'user_presence.rpc_fallback', reason: 'stale_failed' },
