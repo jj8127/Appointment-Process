@@ -23,7 +23,6 @@ import {
   IconSettings,
   IconSpeakerphone,
   IconUserPlus,
-  IconUsers
 } from '@tabler/icons-react';
 import { usePathname, useRouter } from 'next/navigation';
 import type React from 'react';
@@ -90,7 +89,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const canWrite = role === 'admin' && !isReadOnly;
       const adminItems: NavItem[] = [
         ...(canWrite ? [{ label: '처리 이력', icon: IconHistory, href: '/dashboard/audit' }] : []),
-        ...(staffType === 'developer' ? [{ label: '에이전트 룸', icon: IconUsers, href: '/dashboard/agent-room' }] : []),
       ];
       return [
         { label: '홈', items: [{ label: '홈', icon: IconHome, href: '/dashboard' }] },
@@ -114,7 +112,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         ...(adminItems.length ? [{ label: '관리', items: adminItems }] : []),
       ];
     },
-    [isReadOnly, role, staffType],
+    [isReadOnly, role],
   );
   const activeHref = findActiveNavHref(pathname, navGroups.flatMap((group) => group.items.map((item) => item.href)));
   // Pages outside the menu (FC 상세 is matched by href, 설정 is not) keep the home rail.

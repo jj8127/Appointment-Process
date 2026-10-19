@@ -16,9 +16,6 @@ const nextConfig: NextConfig = {
   },
   // Keep Vercel's tracing default from narrowing Turbopack to the web folder.
   outputFileTracingRoot: path.resolve(__dirname, '..'),
-  outputFileTracingExcludes: {
-    '/api/agent-room': ['./next.config.ts'],
-  },
   // The web app imports shared source from the repository root. Turbopack only
   // compiles files inside this root, even when TypeScript path aliases resolve.
   turbopack: {
