@@ -42,7 +42,7 @@ import { ConfirmModal } from '@/components/ConfirmModal';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
-import { fetchAdminDocuments, signAdminDocument, type AdminDocumentRow as DocumentRow } from '@/lib/admin-document-client';
+import { ADMIN_DOCUMENT_STATUS_LABELS, fetchAdminDocuments, signAdminDocument, type AdminDocumentRow as DocumentRow } from '@/lib/admin-document-client';
 import { requireDocumentStatusReceipt } from '@/lib/user-intent-policy';
 import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 // App Design Tokens
@@ -61,14 +61,6 @@ const getStatusColor = (status: string) => {
         default:
             return 'gray';
     }
-};
-
-const STATUS_MAP: Record<string, string> = {
-    pending: '요청중',
-    submitted: '제출됨',
-    approved: '승인됨',
-    rejected: '반려됨',
-    deleted: '삭제됨',
 };
 
 const NO_FILE_APPROVAL_NOTE = '총무 수동 승인: 파일 미제출';
@@ -337,7 +329,7 @@ export default function DocumentsPage() {
             </Table.Td>
             <Table.Td>
                 <Badge color={getStatusColor(doc.status)} variant="light" size="sm" radius="sm">
-                    {STATUS_MAP[doc.status] || doc.status}
+                    {ADMIN_DOCUMENT_STATUS_LABELS[doc.status] || doc.status}
                 </Badge>
             </Table.Td>
             <Table.Td>
@@ -541,7 +533,7 @@ export default function DocumentsPage() {
                                 ) : null}
                             </div>
                             <Badge size="lg" color={getStatusColor(selectedDoc.status)} variant="filled">
-                                {STATUS_MAP[selectedDoc.status] || selectedDoc.status}
+                                {ADMIN_DOCUMENT_STATUS_LABELS[selectedDoc.status] || selectedDoc.status}
                             </Badge>
                         </Group>
 

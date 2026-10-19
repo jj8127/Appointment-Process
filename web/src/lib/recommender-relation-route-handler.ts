@@ -92,13 +92,6 @@ export function isManagerShadowRecommenderEligible(input: {
 export function resolveVerifiedRecommenderRelationActor(
   session: VerifiedServerSession,
 ): RecommenderRelationActorContext {
-  if (session.role === 'manager') {
-    return {
-      actorPhone: session.residentDigits,
-      actorRole: 'manager',
-      actorStaffType: null,
-    };
-  }
   if (session.role === 'admin' && (session.staffType === 'admin' || session.staffType === 'developer')) {
     return {
       actorPhone: session.residentDigits,

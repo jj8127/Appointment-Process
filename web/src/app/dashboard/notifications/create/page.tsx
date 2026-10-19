@@ -2,6 +2,7 @@
 
 import {
     ActionIcon,
+    Alert,
     Box,
     Button,
     Container,
@@ -21,19 +22,21 @@ import {
 import { Dropzone, FileWithPath, IMAGE_MIME_TYPE } from '@mantine/dropzone';
 import { useForm, zodResolver } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
-import { IconArrowLeft, IconCheck, IconFile, IconPhoto, IconSend, IconUpload, IconX } from '@tabler/icons-react';
+import { IconArrowLeft, IconCheck, IconFile, IconInfoCircle, IconPhoto, IconSend, IconUpload, IconX } from '@tabler/icons-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { createNoticeAction } from '../actions';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { useSession } from '@/hooks/use-session';
 
 import { logger } from '@/lib/logger';
 import { noticeSchema as schema, noticeGlassStyle as glassStyle, uploadNoticeAttachment as uploadToSupabase } from '../form';
 import { CHARCOAL } from '@/lib/brand-colors';
 export default function CreateNoticePage() {
     const router = useRouter();
+    const { isReadOnly } = useSession();
     const [isPending, setSubmitting] = useState(false);
     const submittingRef = useRef(false);
     const pendingCreationRef = useRef<{ fingerprint: string; attachments: File[]; formData: FormData } | null>(null);
@@ -105,10 +108,10 @@ export default function CreateNoticePage() {
                 notifications.show({
                     title: notificationPersistenceFailed
                         ? '공지 등록 완료 · 알림 등록 실패'
-                        : '전송 완료',
+                        : '공지 등록 완료',
                     message: notificationPersistenceFailed
                         ? '요청은 처리됐지만 수신자 알림함에 등록하지 못했습니다.'
-                        : '알림을 보냈습니다.',
+                        : '알림함에 등록했습니다.',
                     color: notificationPersistenceFailed ? 'yellow' : 'teal',
                     icon: notificationPersistenceFailed
                         ? <IconX size={18} />
@@ -273,6 +276,12 @@ export default function CreateNoticePage() {
                     </Text>
                 </Stack>
 
+                {isReadOnly && (
+                    <Alert icon={<IconInfoCircle size={20} />} title="읽기 전용 모드" color="yellow" variant="light" mb="xl">
+                        본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
+                    </Alert>
+                )}
+
 
                 <Paper
                     radius="lg"
@@ -283,14 +292,14 @@ export default function CreateNoticePage() {
                     <LoadingOverlay visible={isPending} overlayProps={{ radius: 'lg', blur: 2 }} />
                     {isPending ? <Text role="status" size="sm">{submitPhase}</Text> : null}
 
-                    <form onSubmit={form.onSubmit((values) => { if (!submittingRef.current) setPendingSend(values); })}>
+                    <form onSubmit={form.onSubmit((values) => { if (!submittingRef.current && !isReadOnly) setPendingSend(values); })}>
                         <Stack gap="xl">
                             <TextInput
                                 label="카테고리"
                                 placeholder="예: 공지사항, 긴급, 이벤트"
                                 size="md"
                                 required
-                                disabled={false}
+                                disabled={isReadOnly}
                                 classNames={{ input: 'glass-input' }}
                                 {...form.getInputProps('category')}
                             />
@@ -300,7 +309,7 @@ export default function CreateNoticePage() {
                                 placeholder="제목을 입력하세요"
                                 size="md"
                                 required
-                                disabled={false}
+                                disabled={isReadOnly}
                                 {...form.getInputProps('title')}
                             />
 
@@ -311,7 +320,7 @@ export default function CreateNoticePage() {
                                 autosize
                                 size="md"
                                 required
-                                disabled={false}
+                                disabled={isReadOnly}
                                 {...form.getInputProps('body')}
                             />
 
@@ -325,7 +334,7 @@ export default function CreateNoticePage() {
                                     accept={IMAGE_MIME_TYPE}
                                     maxFiles={5}
                                     radius="md"
-                                    disabled={false}
+                                    disabled={isReadOnly}
                                     style={{
                                         border: '2px dashed var(--mantine-color-gray-3)',
                                         backgroundColor: 'rgba(255,255,255,0.5)',
@@ -381,7 +390,7 @@ export default function CreateNoticePage() {
                                     maxSize={10 * 1024 * 1024}
                                     maxFiles={5}
                                     radius="md"
-                                    disabled={false}
+                                    disabled={isReadOnly}
                                     style={{
                                         border: '2px dashed var(--mantine-color-gray-3)',
                                         backgroundColor: 'rgba(255,255,255,0.5)',
@@ -436,6 +445,7 @@ export default function CreateNoticePage() {
                                     radius="md"
                                     leftSection={<IconSend size={20} />}
                                     loading={isPending}
+                                    disabled={isReadOnly}
                                     style={{
                                         boxShadow: '0 4px 14px 0 rgba(232, 89, 12, 0.39)'
                                     }}

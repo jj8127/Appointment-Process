@@ -94,7 +94,7 @@ test('relation route requires a non-empty reason', async () => {
       inviterFcId: 'fc-inviter',
       reason: ' ',
     }),
-    makeDeps(session('manager', null), []),
+    makeDeps(session('admin', 'admin'), []),
   );
 
   assert.deepEqual(response, {
@@ -103,7 +103,7 @@ test('relation route requires a non-empty reason', async () => {
   });
 });
 
-test('verified manager actor metadata ignores body role and phone spoofing', async () => {
+test('manager sessions cannot change a recommender even with spoofed actor fields', async () => {
   const applyCalls: unknown[] = [];
   const response = await handleRecommenderRelationPost(
     async () => ({
@@ -117,17 +117,8 @@ test('verified manager actor metadata ignores body role and phone spoofing', asy
     makeDeps(session('manager', null), applyCalls),
   );
 
-  assert.equal(response.status, 200);
-  assert.deepEqual(applyCalls, [{
-    actor: {
-      actorPhone: '01012345678',
-      actorRole: 'manager',
-      actorStaffType: null,
-    },
-    inviteeFcId: 'fc-invitee',
-    inviterFcId: 'fc-inviter',
-    reason: '담당 조직 변경',
-  }]);
+  assert.deepEqual(response, { status: 403, body: { error: 'Forbidden' } });
+  assert.deepEqual(applyCalls, []);
 });
 
 test('verified general-affairs and developer sessions retain their server actor subtype', async () => {
@@ -158,7 +149,7 @@ test('verified general-affairs and developer sessions retain their server actor 
 
 test('candidate search uses the same verified staff-only policy', async () => {
   const searchCalls: unknown[] = [];
-  const deps = makeDeps(session('manager', null), []);
+  const deps = makeDeps(session('admin', 'admin'), []);
   deps.searchCandidates = async (params) => {
     searchCalls.push(params);
     return { candidates: [], selectedCandidate: null };
@@ -178,4 +169,10 @@ test('candidate search uses the same verified staff-only policy', async () => {
     excludeFcId: 'fc-1',
     selectedFcId: 'fc-2',
   }]);
+
+  const managerResponse = await handleRecommenderRelationGet(
+    'https://example.test/api/admin/fc/recommender?query=kim',
+    makeDeps(session('manager', null), []),
+  );
+  assert.deepEqual(managerResponse, { status: 403, body: { error: 'Forbidden' } });
 });

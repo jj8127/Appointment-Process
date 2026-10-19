@@ -75,8 +75,8 @@ export default function NotificationsPage() {
     };
 
     // 공지 작성/수정/삭제 가능 여부
-    // 본부장(manager)은 isReadOnly=true 이지만 공지 등록/본인글 수정-삭제는 허용
-    const canCreate = role === 'admin' || role === 'manager';
+    // 공지 등록은 관리자만, 본부장(manager)은 본인글 수정-삭제만 허용
+    const canCreate = role === 'admin';
     const canManageNotice = (notice: AdminNoticeItem) => {
         if (role === 'admin') return true;
         // 본부장은 본인 게시글만 수정/삭제 가능

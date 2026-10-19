@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { adminSupabase } from '@/lib/admin-supabase';
 
 import { logger } from '@/lib/logger';
-import { getVerifiedAdminSession } from '@/lib/server-session';
+import { getVerifiedAdminSession, getVerifiedReadOnlyAdminSession } from '@/lib/server-session';
 import { isHttpsResponseUrl } from '@/lib/user-intent-policy';
 import { isExactNoticeMutationReceipt } from '@/lib/notice-write-contract';
 import { loadActorScopedFcExpoTargets } from '@/lib/app-push-preference-service';
@@ -379,7 +379,7 @@ export async function updateNoticeAction(
 
     const { category, title, body, images, files } = validatedFields.data;
 
-    const sessionCheck = await getVerifiedAdminSession();
+    const sessionCheck = await getVerifiedReadOnlyAdminSession();
     if (!sessionCheck.ok) {
         return { success: false, message: sessionCheck.error };
     }

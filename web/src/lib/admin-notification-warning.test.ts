@@ -129,7 +129,7 @@ test('admin mutation callers surface canonical persistence warnings through the 
   const profileSource = readSource('app/dashboard/profile/[id]/page.tsx');
 
   assert.ok((dashboardSource.match(/showAdminNotificationWarning\(/g) ?? []).length >= 8);
-  assert.equal((appointmentSource.match(/showAdminNotificationWarning\(/g) ?? []).length, 2);
+  assert.equal((appointmentSource.match(/showAdminNotificationWarning\(/g) ?? []).length, 1);
   assert.equal((docsSource.match(/showAdminNotificationWarning\(/g) ?? []).length, 1);
   assert.equal((profileSource.match(/showAdminNotificationWarning\(/g) ?? []).length, 1);
 

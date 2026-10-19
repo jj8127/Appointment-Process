@@ -4,6 +4,7 @@ import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 
 import {
   ActionIcon,
+  Alert,
   Badge,
   Button,
   Checkbox,
@@ -27,13 +28,12 @@ import {
 import { DateInput } from '@mantine/dates';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconChevronDown, IconDeviceFloppy, IconRefresh, IconSearch, IconUser, IconX } from '@tabler/icons-react';
+import { IconChevronDown, IconDeviceFloppy, IconInfoCircle, IconRefresh, IconSearch, IconUser, IconX } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useCallback, useMemo, useRef, useState, useTransition } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
-import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
@@ -218,13 +218,8 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
 };
 
 export default function AppointmentPage() {
-  const [actionPending, startTransition] = useTransition();
   const { isReadOnly } = useSession();
   const [filterYear, setFilterYear] = useState<string | null>(() => dayjs().format('YYYY'));
-  const [rejectModalOpen, setRejectModalOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
-  const [rejectTarget, setRejectTarget] = useState<{ fc: FcProfile; category: 'life' | 'nonlife' } | null>(null);
-  const [rejectSubmitting, setRejectSubmitting] = useState(false);
 
   // 확인 모달 상태
   const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure(false);
@@ -386,51 +381,7 @@ export default function AppointmentPage() {
     }));
   };
 
-  const openRejectModal = (fc: FcProfile, category: 'life' | 'nonlife') => {
-    setRejectReason('');
-    setRejectTarget({ fc, category });
-    setRejectModalOpen(true);
-  };
-
-  const handleRejectSubmit = () => {
-    if (isReadOnly || rejectSubmitting) return;
-    if (!rejectTarget) return;
-    const reason = rejectReason.trim();
-    if (!reason) {
-      notifications.show({ title: '사유 입력', message: '반려 사유를 입력해주세요.', color: 'red' });
-      return;
-    }
-    setRejectSubmitting(true);
-    startTransition(async () => {
-      try {
-      const result = await updateAppointmentAction(
-        { success: false },
-        {
-          fcId: String(rejectTarget.fc.id),
-          type: 'reject',
-          category: rejectTarget.category,
-          value: null,
-          reason,
-        }
-      );
-
-      if (result.success) {
-        showAdminNotificationWarning(result);
-        notifications.show({ title: '성공', message: result.message, color: 'green' });
-        setRejectModalOpen(false);
-        setRejectTarget(null);
-        setRejectReason('');
-        refetch();
-      } else {
-        notifications.show({ title: '실패', message: result.error, color: 'red' });
-      }
-      } catch {
-        notifications.show({ title: '반려 결과 확인 필요', message: '요청 결과를 확인하지 못했습니다. 입력은 유지됩니다. 최신 상태를 확인해주세요.', color: 'red' });
-      } finally { setRejectSubmitting(false); }
-    });
-  };
-
-  const executeAction = (fc: FcProfile, type: 'schedule' | 'confirm' | 'reject', category: 'life' | 'nonlife') => {
+  const executeAction = (fc: FcProfile, type: 'schedule' | 'confirm', category: 'life' | 'nonlife') => {
     if (!canManageInsuranceStage(fc)) {
       notifications.show({
         title: '다위촉 URL 대기',
@@ -463,9 +414,6 @@ export default function AppointmentPage() {
         return;
       }
       value = dayjs(dateVal).format('YYYY-MM-DD');
-    } else if (type === 'reject') {
-      openRejectModal(fc, category);
-      return;
     }
 
     showConfirm({
@@ -562,12 +510,12 @@ export default function AppointmentPage() {
             w={160}
             value={scheduleValue}
             onChange={(v) => handleInputChange(fc.id, scheduleKey, v.currentTarget.value)}
-            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting || actionPending}
+            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting}
             disabled={isReadOnly || isConfirmed || !insuranceStageOpen}
           />
           {!isConfirmed && (
             <Tooltip label="예정 메모 저장">
-              <ActionIcon aria-label="위촉 일정 메모 저장" variant="light" color="orange" size="md" mb={2} loading={confirmSubmitting || actionPending} disabled={isReadOnly || !insuranceStageOpen || confirmSubmitting || actionPending} onClick={() => executeAction(fc, 'schedule', category)}>
+              <ActionIcon aria-label="위촉 일정 메모 저장" variant="light" color={isReadOnly ? 'gray' : 'orange'} size="md" mb={2} loading={confirmSubmitting} disabled={isReadOnly || !insuranceStageOpen || confirmSubmitting} onClick={() => executeAction(fc, 'schedule', category)}>
                 <IconDeviceFloppy size={16} />
               </ActionIcon>
             </Tooltip>
@@ -586,7 +534,7 @@ export default function AppointmentPage() {
             clearable={!isConfirmed}
             rightSectionWidth={44}
             clearButtonProps={{ "aria-label": `${category === "life" ? "생명" : "손해"} 확정일 지우기`, className: "appointment-date-clear" }}
-            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting || actionPending}
+            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting}
             disabled={isReadOnly || isConfirmed || !insuranceStageOpen}
           />
           {hasSubmitted && (
@@ -608,7 +556,8 @@ export default function AppointmentPage() {
             labelPending="미승인"
             labelApproved="위촉 완료"
             showNeutralForPending
-            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting || actionPending}
+            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting}
+            isManagerMode={isReadOnly}
           />
         </Group>
       </Stack>
@@ -630,20 +579,6 @@ export default function AppointmentPage() {
   return (
     <Container size="xl" py="xl">
       <Stack gap="lg">
-        <RejectReasonModal
-          opened={rejectModalOpen}
-          onClose={() => setRejectModalOpen(false)}
-          title="반려 사유 입력"
-          description="FC에게 전달될 반려 사유를 입력해주세요."
-          placeholder="예: 제출된 위촉 완료일이 확인되지 않아 재입력이 필요합니다."
-          value={rejectReason}
-          onChange={setRejectReason}
-          onSubmit={handleRejectSubmit}
-          submitting={rejectSubmitting}
-          submitDisabled={isReadOnly}
-          minRows={4}
-        />
-
         {/* 확인 모달 */}
         <ConfirmModal
           opened={confirmOpened}
@@ -674,6 +609,12 @@ export default function AppointmentPage() {
             </Button>
           </Group>
         </Group>
+
+        {isReadOnly && (
+          <Alert icon={<IconInfoCircle size={20} />} title="읽기 전용 모드" color="yellow" variant="light">
+            본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
+          </Alert>
+        )}
 
         {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!fcs} subject="위촉 대상 FC" />}
 

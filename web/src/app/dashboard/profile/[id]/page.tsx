@@ -17,11 +17,13 @@ import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warn
 import { resolveAdminTempIdUpdate } from '@/lib/admin-temp-id-update';
 import { RecommenderSelect } from '@/components/RecommenderSelect';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
-import { isAdminFcProfileDetail } from '@/lib/admin-document-client';
+import { ADMIN_DOCUMENT_STATUS_LABELS, isAdminFcProfileDetail } from '@/lib/admin-document-client';
 import { isRecommenderSelectionResult } from '@/types/referrals';
 import type { FcProfile } from '@/types/fc';
 import {
     ActionIcon,
+    Alert,
+    Anchor,
     Avatar,
     Badge,
     Box,
@@ -49,12 +51,14 @@ import {
     IconDeviceFloppy,
     IconEdit,
     IconFileText,
+    IconInfoCircle,
     IconMail,
     IconMapPin,
     IconPhone
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { use, useCallback, useEffect, useRef, useState } from 'react';
 import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
@@ -380,7 +384,6 @@ function FcProfileContent({ fcId }: { fcId: string }) {
 
     // --- Helpers ---
     const canEdit = hydrated && role === 'admin' && !isReadOnly;
-    const canEditRecommender = hydrated && (role === 'admin' || role === 'manager');
 
     const handleSaveInfo = () => {
         if (!canEdit) {
@@ -441,7 +444,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
     }, [profile]);
 
     const handleSaveRecommender = () => {
-        if (!canEditRecommender) {
+        if (!canEdit) {
             notifications.show({ title: '권한 없음', message: '추천인 관계를 수정할 수 없습니다.', color: 'yellow' });
             return;
         }
@@ -558,6 +561,11 @@ function FcProfileContent({ fcId }: { fcId: string }) {
 
             {/* Body */}
             <Container size="xl" py="xl">
+                {isReadOnly && (
+                    <Alert icon={<IconInfoCircle size={20} />} title="읽기 전용 모드" color="yellow" variant="light" mb="lg">
+                        본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
+                    </Alert>
+                )}
                 <Grid gutter="lg">
 
                     {/* Left Column: Info */}
@@ -684,7 +692,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                                         />
                                     </Grid.Col>
                                     <Grid.Col span={6}>
-                                        {isEditingRecommender && canEditRecommender ? (
+                                        {isEditingRecommender && canEdit ? (
                                             <Stack gap={6}>
                                                 <Box style={{ flex: 1 }}>
                                                     <RecommenderSelect
@@ -771,7 +779,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                                                         {isSignupReferralCodeFetching ? '조회 중...' : (signupReferralCode ?? '-')}
                                                     </Text>
                                                 </Text>
-                                                {canEditRecommender ? (
+                                                {canEdit ? (
                                                     <Button
                                                         size="xs"
                                                         variant="light"
@@ -827,11 +835,11 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                                                 <Text c="dimmed" size="xs" mt={4}>{dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</Text>
                                                 <Group mt={4}>
                                                     <Badge size="xs" color={doc.status === 'approved' ? 'green' : doc.status === 'rejected' ? 'red' : 'blue'}>
-                                                        {doc.status}
+                                                        {ADMIN_DOCUMENT_STATUS_LABELS[doc.status] || doc.status}
                                                     </Badge>
-                                                    <Text size="xs" c={HANWHA_ORANGE} style={{ cursor: 'pointer' }} onClick={() => notifications.show({ message: '서류 관리 메뉴에서 확인하세요.', color: 'blue' })}>
-                                                        View
-                                                    </Text>
+                                                    <Anchor component={Link} href="/dashboard/docs" size="xs" c={HANWHA_ORANGE}>
+                                                        보기
+                                                    </Anchor>
                                                 </Group>
                                             </Timeline.Item>
                                         ))}

@@ -136,11 +136,7 @@ type AdminActorContext = {
   actorStaffType: 'admin' | 'developer';
 };
 
-export type RecommenderRelationActorContext = {
-  actorPhone: string;
-  actorRole: 'admin' | 'manager';
-  actorStaffType: 'admin' | 'developer' | null;
-};
+export type RecommenderRelationActorContext = AdminActorContext;
 
 type ReferralAdminPermissions = {
   canMutate: boolean;

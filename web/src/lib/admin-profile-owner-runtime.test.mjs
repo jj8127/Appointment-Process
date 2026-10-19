@@ -44,6 +44,7 @@ function harness() {
     '@/components/RecommenderSelect': { RecommenderSelect: component('RecommenderSelect') },
     '@/components/NotificationDestinationReady': { NotificationDestinationReady: () => null },
     '@mantine/notifications': { notifications: { show: (notice) => notices.push(notice) } },
+    'next/link': { __esModule: true, default: () => null },
     'next/navigation': { useRouter: () => ({ back() {} }) },
     '@tanstack/react-query': { useMutation: query.useMutation, useQueryClient: () => client,
       useQuery: ({ queryKey, queryFn }) => {

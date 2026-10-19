@@ -3,6 +3,14 @@ import { isHttpsResponseUrl } from '@/lib/user-intent-policy';
 import { isFcStatus } from '@shared/lib/fc-status';
 import type { FcProfile, LicenseStatus } from '@/types/fc';
 
+export const ADMIN_DOCUMENT_STATUS_LABELS: Record<string, string> = {
+  pending: '요청중',
+  submitted: '제출됨',
+  approved: '승인됨',
+  rejected: '반려됨',
+  deleted: '삭제됨',
+};
+
 export type AdminDocumentRow = {
   id: string;
   fc_id: string;

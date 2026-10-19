@@ -14,7 +14,7 @@ import { getVerifiedServerSession } from '@/lib/server-session';
 
 const deps: RecommenderRelationRouteDeps = {
   getSession: () => getVerifiedServerSession({
-    allowedRoles: ['admin', 'manager'],
+    allowedRoles: ['admin'],
     requireActive: true,
   }),
   searchCandidates: searchRecommenderCandidates,
