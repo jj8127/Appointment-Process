@@ -715,7 +715,9 @@ test('dashboard failed FC reads do not display empty-list text or invented zero 
   await page.setQuery(success([]));
   assert.equal(page.find('QueryErrorAlert'), undefined);
   assert.ok(page.find('Text', (node) => node.props.children === '조건에 맞는 데이터가 없습니다.'));
-  assert.deepEqual(page.findAll('Text').filter((node) => node.props.size === '1.9rem').map((node) => node.props.children), [0, 0, 0, 0]);
-  assert.equal(page.find('Text', (node) => node.props.className === 'heroNumber')?.props.children, 0);
+  // Loaded numbers sit inside the reveal-animation span.
+  const shown = (node) => node?.props.children?.props?.children ?? node?.props.children;
+  assert.deepEqual(page.findAll('Text').filter((node) => node.props.size === '1.9rem').map(shown), [0, 0, 0, 0]);
+  assert.equal(shown(page.find('Text', (node) => node.props.className === 'heroNumber')), 0);
   await page.close();
 });
