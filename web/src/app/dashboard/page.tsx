@@ -28,7 +28,6 @@ import {
   Card,
   Chip,
   Group,
-  LoadingOverlay,
   Modal,
   Pagination,
   Paper,
@@ -81,7 +80,7 @@ import {
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { ChangeEvent, MouseEvent, useEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from 'react';
+import { ChangeEvent, MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from 'react';
 
 import { useSession } from '@/hooks/use-session';
 import { useResidentNumber } from '@/hooks/use-resident-number';
@@ -473,6 +472,9 @@ const getFcWorkQueueKey = (fc: FCProfileWithDocuments): DashboardWorkQueueKey | 
     nonlifeKey: getAppointmentProgress(fc, 'nonlife').key,
   });
 
+// Placeholder heights (%) for the step chart while the FC list loads.
+const SKELETON_BAR_HEIGHTS = [46, 72, 58, 84, 38, 62];
+
 const QUEUE_ICONS: Record<DashboardWorkQueueKey, typeof IconFileText> = {
   pendingAllowance: IconShieldCheck,
   pendingDocs: IconFileText,
@@ -781,7 +783,7 @@ export default function DashboardPage() {
     }
   };
 
-  const { data: fcs, isLoading, isError, error, refetch, isFetching } = useQuery({
+  const { data: fcs, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['dashboard-list', role, residentId],
     queryFn: () => fetchAdminFcList<FCProfileWithDocuments>(
       (value): value is FCProfileWithDocuments => isAdminFcProfile(value),
@@ -2254,6 +2256,10 @@ export default function DashboardPage() {
   }, [fcs]);
   const visibleWorkItems = workSummary.items.filter((item) => metricFilter === 'all' || item.queue.key === metricFilter);
   const maxStepCount = Math.max(1, ...workSummary.stepCounts);
+  // Until the FC list arrives each number, bar and row keeps its shape as a shimmer block; a failed read shows '—'.
+  const isListLoading = !fcs && !isError;
+  const skel = (width: number | string, height = 12) => <span className={styles.skel} style={{ width, height }} aria-hidden="true" />;
+  const listValue = (value: ReactNode, width: number, height?: number) => (fcs ? value : isListLoading ? skel(width, height) : '—');
   // The queue with the most waiting FCs gets the single accent tile.
   const hotQueueKey = DASHBOARD_WORK_QUEUES.reduce<DashboardWorkQueueKey | null>(
     (best, queue) => (workSummary.counts[queue.key] > (best ? workSummary.counts[best] : 0) ? queue.key : best),
@@ -2302,16 +2308,16 @@ export default function DashboardPage() {
                 aria-pressed={metricFilter === 'all' && (activeTab ?? 'all') === 'all'}
                 onClick={() => handleActiveTabChange('all')}
               >
-                총 인원 {fcs ? workSummary.total : '—'}명
+                총 인원 {listValue(workSummary.total, 22, 10)}명
               </UnstyledButton>
             </div>
             <div className={styles.bigValue}>
-              <Text className={styles.heroNumber} component="span">{fcs ? workSummary.pending : '—'}</Text>
+              <Text className={styles.heroNumber} component="span">{listValue(workSummary.pending, 76, 40)}</Text>
               <Text component="span" className={styles.bigUnit}>건</Text>
             </div>
             <div className={styles.deltaRow}>
               <span className={styles.delta} data-tone={workSummary.pending > 0 ? 'warn' : 'ok'}>
-                {fcs && workSummary.total > 0 ? `${Math.round((workSummary.pending / workSummary.total) * 100)}%` : '—'}
+                {fcs && workSummary.total > 0 ? `${Math.round((workSummary.pending / workSummary.total) * 100)}%` : isListLoading ? skel(26, 10) : '—'}
               </span>
               <Text component="span" size="xs" c="dimmed">전체 FC 중 처리 대기</Text>
             </div>
@@ -2369,7 +2375,7 @@ export default function DashboardPage() {
                     <span className={styles.tileIcon}><QueueIcon size={16} stroke={1.8} /></span>
                   </span>
                   <span className={styles.tileValue}>
-                    <Text component="span" size="1.9rem" className={styles.tileNumber}>{fcs ? workSummary.counts[queue.key] : '—'}</Text>
+                    <Text component="span" size="1.9rem" className={styles.tileNumber}>{listValue(workSummary.counts[queue.key], 44, 28)}</Text>
                     <span className={styles.tileUnit}>건</span>
                   </span>
                   <span className={styles.deltaRow}>
@@ -2400,12 +2406,13 @@ export default function DashboardPage() {
                     aria-label={`${label} ${fcs ? workSummary.stepCounts[index] : '—'}명`}
                     onClick={() => handleActiveTabChange(activeTab === key ? 'all' : key)}
                   >
-                    <Text size="xs" fw={700} className={styles.barCount}>{fcs ? workSummary.stepCounts[index] : '—'}</Text>
+                    <Text size="xs" fw={700} className={styles.barCount}>{listValue(workSummary.stepCounts[index], 14, 10)}</Text>
                     <span className={styles.barTrack}>
                       <span
                         className={styles.bar}
                         data-busiest={(index === busiestStep && workSummary.stepCounts[index] > 0) || undefined}
-                        style={{ height: `${Math.max(4, Math.round((workSummary.stepCounts[index] / maxStepCount) * 100))}%`, '--b': index } as CSSProperties}
+                        data-loading={isListLoading || undefined}
+                        style={{ height: isListLoading ? `${SKELETON_BAR_HEIGHTS[index]}%` : `${Math.max(4, Math.round((workSummary.stepCounts[index] / maxStepCount) * 100))}%`, '--b': index } as CSSProperties}
                       />
                     </span>
                     <span className={styles.barLabel}>{label.replace(/^\d단계\s*/, '')}</span>
@@ -2424,12 +2431,12 @@ export default function DashboardPage() {
         <section className={styles.card} style={{ '--i': 4 } as CSSProperties} aria-label="위촉 진행률">
           <div className={styles.cardHead}>
             <Text className={styles.cardTitle}>위촉 진행률</Text>
-            <span className={styles.softPill}>5단계 완료 {fcs ? workSummary.stepCounts[5] : '—'}명</span>
+            <span className={styles.softPill}>5단계 완료 {listValue(workSummary.stepCounts[5], 18, 10)}명</span>
           </div>
           <div>
             <div className={styles.progressMeta}>
               <Text component="span" className={styles.progressValue}>
-                {fcs && workSummary.total > 0 ? `${Math.round((workSummary.stepCounts[5] / workSummary.total) * 100)}%` : '—'}
+                {fcs && workSummary.total > 0 ? `${Math.round((workSummary.stepCounts[5] / workSummary.total) * 100)}%` : isListLoading ? skel(84, 34) : '—'}
               </Text>
               <Text component="span" size="xs" c="dimmed">{fcs ? `${workSummary.stepCounts[5]} / ${workSummary.total}명` : ''}</Text>
             </div>
@@ -2464,8 +2471,12 @@ export default function DashboardPage() {
                   </span>
                   <span className={styles.affiliationCount}>{count}명</span>
                 </UnstyledButton>
-              )) : (
-                <Text size="xs" c="dimmed">{isLoading ? 'FC 목록을 불러오는 중입니다.' : '—'}</Text>
+              )) : isListLoading ? (
+                [64, 48, 40, 30].map((width) => (
+                  <span key={width} className={styles.skelRow}>{skel(52)}<span className={styles.skelFill}>{skel(`${width}%`, 8)}</span>{skel(24)}</span>
+                ))
+              ) : (
+                <Text size="xs" c="dimmed">—</Text>
               )}
             </div>
           </div>
@@ -2481,8 +2492,16 @@ export default function DashboardPage() {
                   </span>
                   <span className={styles.affiliationCount}>{formatDashboardSignupDate(fc.signup_completed_at ?? fc.created_at)}</span>
                 </UnstyledButton>
-              )) : (
-                <Text size="xs" c="dimmed">{isLoading ? 'FC 목록을 불러오는 중입니다.' : '—'}</Text>
+              )) : isListLoading ? (
+                [0, 1, 2].map((row) => (
+                  <span key={row} className={styles.skelRow}>
+                    {skel(30, 30)}
+                    <span className={styles.skelStack}>{skel(64)}{skel(96, 10)}</span>
+                    {skel(36, 10)}
+                  </span>
+                ))
+              ) : (
+                <Text size="xs" c="dimmed">—</Text>
               )}
             </div>
           </div>
@@ -2534,9 +2553,19 @@ export default function DashboardPage() {
                   </span>
                 </div>
               );
-            }) : (
+            }) : isListLoading ? (
+              [0, 1, 2, 3].map((row) => (
+                <div key={row} className={styles.queueRow} aria-hidden="true">
+                  <span className={styles.person}>{skel(32, 32)}<span className={styles.skelStack}>{skel(58)}{skel(84, 10)}</span></span>
+                  {skel(120)}
+                  {skel(88)}
+                  {skel(48)}
+                  <span className={styles.rowAction}>{skel(52, 30)}</span>
+                </div>
+              ))
+            ) : (
               <div className={styles.queueEmpty}>
-                <Text size="sm" c="dimmed">{isLoading ? 'FC 목록을 불러오는 중입니다.' : !fcs ? 'FC 목록을 확인할 수 없습니다.' : '처리 대기 없음'}</Text>
+                <Text size="sm" c="dimmed">{!fcs ? 'FC 목록을 확인할 수 없습니다.' : '처리 대기 없음'}</Text>
               </div>
             )}
           </div>
@@ -2592,7 +2621,6 @@ export default function DashboardPage() {
           </Stack>
 
           <Box pos="relative" mih={400}>
-            <LoadingOverlay visible={!hydrated || isLoading} overlayProps={{ blur: 1 }} />
             <ScrollArea h="calc(100vh - 280px)" type="auto" offsetScrollbars>
               <Table verticalSpacing="sm" highlightOnHover highlightOnHoverColor="#fafaf9" className={styles.fcTable}>
                 <Table.Thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
@@ -2611,6 +2639,16 @@ export default function DashboardPage() {
                 <Table.Tbody>
                   {rows.length > 0 ? (
                     rows
+                  ) : isListLoading ? (
+                    Array.from({ length: 8 }, (_, row) => (
+                      <Table.Tr key={row} aria-hidden="true">
+                        {DASHBOARD_FC_LIST_COLUMNS.map((column, index) => (
+                          <Table.Td key={column.key} ta={column.align === 'center' ? 'center' : undefined}>
+                            {index === 0 ? <span className={styles.skelRow}>{skel(30, 30)}{skel(64)}</span> : skel(column.align === 'center' ? 48 : '70%')}
+                          </Table.Td>
+                        ))}
+                      </Table.Tr>
+                    ))
                   ) : (
                     <Table.Tr>
                       <Table.Td colSpan={DASHBOARD_FC_LIST_COLUMN_COUNT} align="center" py={80}>
@@ -2618,7 +2656,7 @@ export default function DashboardPage() {
                           <ThemeIcon size={60} radius="xl" color="gray" variant="light">
                             <IconSearch size={30} />
                           </ThemeIcon>
-                          <Text c="dimmed" fw={500}>{isLoading ? 'FC 목록을 불러오는 중입니다.' : isError ? 'FC 목록을 확인할 수 없습니다.' : '조건에 맞는 데이터가 없습니다.'}</Text>
+                          <Text c="dimmed" fw={500}>{isError ? 'FC 목록을 확인할 수 없습니다.' : '조건에 맞는 데이터가 없습니다.'}</Text>
                         </Stack>
                       </Table.Td>
                     </Table.Tr>

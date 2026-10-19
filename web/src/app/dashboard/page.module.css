@@ -443,6 +443,14 @@ button.softPill:hover,
   transform-origin: bottom;
   animation: barGrow 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: calc(240ms + var(--b, 0) * 70ms);
+  /* Placeholder bars morph into the real heights when the list arrives. */
+  transition: height 900ms cubic-bezier(0.22, 1, 0.36, 1), background-color 480ms ease;
+}
+
+.bar[data-loading] {
+  background: linear-gradient(90deg, #e6e5e0 0%, #f4f3ef 45%, #e6e5e0 90%) 0 0 / 300% 100%;
+  animation: barGrow 900ms cubic-bezier(0.22, 1, 0.36, 1) both, skelShimmer 1.8s ease-in-out infinite;
+  animation-delay: calc(240ms + var(--b, 0) * 70ms), 0s;
 }
 
 .bar[data-busiest] {
@@ -717,6 +725,51 @@ button.softPill:hover,
 .rowAction {
   display: flex;
   justify-content: flex-end;
+}
+
+/* Loading placeholders keep each block's shape while the FC list loads. */
+.skel {
+  display: inline-block;
+  flex-shrink: 0;
+  max-width: 100%;
+  vertical-align: middle;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e3e2dc 0%, #f1f0ec 45%, #e3e2dc 90%) 0 0 / 300% 100%;
+  animation: skelShimmer 1.8s ease-in-out infinite;
+}
+
+.skelRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.skelFill {
+  flex: 1;
+  min-width: 0;
+}
+
+.skelStack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@keyframes skelShimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skel,
+  .bar[data-loading] {
+    animation: none;
+  }
 }
 
 .queueEmpty {
