@@ -11,6 +11,7 @@ const hospitalMigration=await readFile(new URL('../migrations/20261012072611_hos
 const recoveryMigration=await readFile(new URL('../migrations/20261012072614_platform_membership_recovery_consent.sql',import.meta.url),'utf8');
 const smsDeliveryMigration=await readFile(new URL('../migrations/20261013094533_moduon_signup_sms_delivery_state.sql',import.meta.url),'utf8');
 const extendedSmsDeliveryMigration=await readFile(new URL('../migrations/20261013094539_extend_sms_delivery_tracking.sql',import.meta.url),'utf8');
+const checkOtpMigration=await readFile(new URL('../migrations/20261016040348_check_platform_signup_otp.sql',import.meta.url),'utf8');
 const generations=await readFile(new URL('../migrations/20261004133155_credential_session_generations.sql',import.meta.url),'utf8');
 const admin='90000000-0000-4000-8000-000000000001';
 const hash=Buffer.alloc(32,3).toString('base64'), salt=Buffer.alloc(16,4).toString('base64');
@@ -29,7 +30,7 @@ async function fixture() {
   `);
   await db.exec(generations.slice(generations.indexOf('create or replace function public.advance_credential_session_version()'),
     generations.indexOf('-- The service verifies')));
-  try {await db.exec(migration);await db.exec(hospitalMigration);await db.exec(recoveryMigration);await db.exec(smsDeliveryMigration);await db.exec(extendedSmsDeliveryMigration);}
+  try {await db.exec(migration);await db.exec(hospitalMigration);await db.exec(recoveryMigration);await db.exec(smsDeliveryMigration);await db.exec(extendedSmsDeliveryMigration);await db.exec(checkOtpMigration);}
   catch(error) {await db.close();throw new Error(error.message);}
   return db;
 }
@@ -130,6 +131,25 @@ async function apply(db,id,key='telecom',nonce='20000000-0000-4000-8000-00000000
 const settle=(db,a,p,amount=500000,nonce='30000000-0000-4000-8000-000000000011',transaction='test-transaction')=>rpc(db,
   'select settle_platform_application($1,$2,$3,$4,$5,$6,$7,$8) result',
   [admin,a,p,amount,'2026-01-01T00:00:00Z',nonce,transaction,'test-settlement-evidence']);
+
+test('the separate code check shares the signup lock and leaves the challenge for signup',async()=>{
+  const db=await fixture();try{
+    const check=(phone,code)=>rpc(db,'select check_platform_signup_otp($1,$2) result',[phone,code]);
+    await rpc(db,'select issue_platform_signup_otp($1,$2) result',['00000000014',hash]);
+    assert.equal((await check('00000000014',null)).code,'invalid_code');
+    assert.equal((await check('00000000014',hash)).ok,true);
+    // A confirmed code is not consumed: signup still verifies and uses it.
+    assert.equal((await rpc(db,'select register_platform_member($1,$2,$3,$4,$5,$6) result',['00000000014',hash,'Synthetic',hash,salt,null])).ok,true);
+    await rpc(db,'select issue_platform_signup_otp($1,$2) result',['00000000015',hash]);
+    for(let n=0;n<5;n++) assert.equal((await check('00000000015',null)).code,'invalid_code');
+    assert.equal((await check('00000000015',hash)).code,'locked');
+    assert.equal((await rpc(db,'select register_platform_member($1,$2,$3,$4,$5,$6) result',['00000000015',hash,'Synthetic',hash,salt,null])).code,'locked');
+    assert.equal((await check('00000000099',hash)).code,'expired_code');
+    await db.exec('set role anon');
+    await assert.rejects(db.query('select check_platform_signup_otp($1,$2)',['00000000014',hash]),/permission denied/);
+    await db.exec('reset role');
+  }finally{await db.close();}
+});
 
 test('minimal signup consumes OTP atomically, locks attempts, and has no FC or direct client privilege',async()=>{
   const db=await fixture();try{

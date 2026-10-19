@@ -7,7 +7,7 @@ export type PlatformService = keyof typeof PLATFORM_SERVICES;
 export type ApplicationService = Exclude<PlatformService, 'hospital'>;
 export const PLATFORM_TERMS_VERSION = '2026-10-12';
 export const PLATFORM_REQUEST_TIMEOUT_MS = 12_000;
-const timeoutActions = new Set(['request_otp','signup','login','request_password_reset','reset_password']);
+const timeoutActions = new Set(['request_otp','check_signup_otp','signup','login','request_password_reset','reset_password']);
 export const PLATFORM_PRIVACY_POLICY_URL = 'https://garam-public-web.vercel.app/moduon-privacy/';
 /** Release copy under review; keep signup and existing-member consent identical. */
 export const PLATFORM_CONSENT_TEXT = '수집 항목: 이름, 휴대폰 번호, 비밀번호 해시, 필수 동의 일시와 문서 버전, 선택한 추천 코드와 추천 관계\n이용 목적: 회원 확인, 휴대폰 인증, 로그인과 계정 복구, 공통 추천 관계 연결\n보유기간: 회원 이용 기간 동안 보관합니다. 공통 회원 탈퇴 시 공통 회원 정보의 이름·휴대폰 번호·비밀번호와 인증 기록을 삭제합니다. 이미 확정된 거래·정산 기록과 거래·정산 및 추천 관계를 연결하는 식별자는 정산 확인을 위해 유지합니다.\n비밀번호 원문은 보관하지 않습니다. 이 동의에는 마케팅 수신 동의가 포함되지 않습니다.\n동의를 거부할 수 있으며, 거부하면 공통 회원가입과 공통 추천 혜택 이용이 제한됩니다. 기존 보험·FC 업무와 공개 서비스 안내는 계속 이용할 수 있습니다.\n탈퇴 방법: 내 정보에서 공통 회원 탈퇴를 선택합니다. 기존 보험·FC 업무 계정은 유지되며 해당 계정 탈퇴는 보험 계정 설정에서 진행합니다.';
