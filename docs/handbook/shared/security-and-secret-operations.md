@@ -7,6 +7,12 @@ source_of_truth: env contracts + reset-password functions + assisted-password fu
 
 # Security And Secret Operations
 
+## 2026-10-19 푸시 수신자·토큰 등록 경계
+
+- FC 등록·수정 알림에서 같은 전화번호가 활성 admin과 manager 양쪽에 있어 계정 하나로 정해지지 않는 수신자는 그 수신자만 건너뛰고 고정 진단 `fc_notify.recipient_resolution:ambiguous_staff_recipient`를 남긴다. 다른 staff 수신자의 알림은 막지 않는다.
+- `device-token-register`는 DB 오류 원문 대신 고정 문구(`Database request failed`)를 돌려주고, `ExponentPushToken[...]`/`ExpoPushToken[...]` 형식이 아닌 토큰은 `invalid_push_token`으로 거절한다.
+- 앱은 전체 알림 OFF를 읽은 뒤에도 다음 포그라운드 복귀 때 설정을 다시 확인한다. 권한 팝업은 여전히 열지 않는다.
+
 ## 2026-10-19 관리자 웹 개편 병합의 보안 경계
 
 - 개편 라인의 설정 화면 변경은 헤더 상태 칩과 스타일뿐이며 세션·권한·민감 정보 표시 규칙은 바뀌지 않았다.
