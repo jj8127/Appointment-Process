@@ -22,7 +22,6 @@ import {
 import {
   ActionIcon,
   Alert,
-  Avatar,
   Badge,
   Box,
   Button,
@@ -114,6 +113,7 @@ import { sendPushNotificationForFc } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
 import styles from './page.module.css';
+import fcm from './fc-modal.module.css';
 import {
   DASHBOARD_FC_LIST_COLUMN_COUNT,
   DASHBOARD_FC_LIST_COLUMNS,
@@ -396,6 +396,13 @@ const getHanwhaStageDescription = (
   return '3단계 다위촉 URL 완료일이 저장되었습니다. 다위촉 URL PDF를 업로드해 승인을 완료해주세요.';
 };
 
+const FC_MODAL_STEPS = [
+  { value: 'info', label: '보증 보험 동의' },
+  { value: 'docs', label: '서류 관리' },
+  { value: 'hanwha', label: '다위촉' },
+  { value: 'appointment', label: '생명/손해 위촉' },
+] as const;
+
 const getDefaultModalTab = (profile: FCProfileWithDocuments): string => {
   const workflowStep = calcStep(profile);
   if (workflowStep === 2) return 'docs';
@@ -506,6 +513,8 @@ export default function DashboardPage() {
   // 모달 상태
   const [opened, { open, close }] = useDisclosure(false);
   const [selectedFc, setSelectedFc] = useState<FCProfileWithDocuments | null>(null);
+  // The modal step navigation marks earlier stages done and the workflow stage as current.
+  const currentStepIndex = selectedFc ? FC_MODAL_STEPS.findIndex((step) => step.value === getDefaultModalTab(selectedFc)) : -1;
   const [modalTab, setModalTab] = useState<string | null>('info');
 
   // 수정용 상태
@@ -2550,7 +2559,7 @@ export default function DashboardPage() {
         opened={opened}
         onClose={close}
         title={<Text fw={700} size="lg">FC 상세 관리</Text>}
-        size="lg"
+        size={1040}
         padding="xl"
         radius={28}
         centered
@@ -2563,71 +2572,62 @@ export default function DashboardPage() {
               서류 변경은 완료됐습니다. 삭제나 요청 변경을 반복하지 마세요.
               <Button radius="xl" size="xs" mt="xs" disabled={isReadOnly} loading={retryDocumentCleanupMutation.isPending} onClick={() => retryDocumentCleanupMutation.mutate(selectedFc.id)}>파일 정리만 다시 시도</Button>
             </Alert> : null}
-            <Group mb="xl" align="flex-start">
-              <Avatar size="lg" variant="gradient" gradient={{ from: '#ff9a52', to: '#c2470d', deg: 180 }} radius="xl">
-                {selectedFc.name?.slice(0, 1) || '?'}
-              </Avatar>
-              <div>
-                <Group gap="xs" align="center">
-                  <Text size="lg" fw={700}>
-                    {selectedFc.name}
-                  </Text>
-                  <Badge variant="light" color={!selectedFc.career_type ? 'gray' : 'blue'}>
-                    {selectedFc.career_type || '조회중'}
-                  </Badge>
-                </Group>
-                <Text size="sm" c="dimmed">
-                  {selectedFc.phone} · {selectedFc.affiliation || '소속 미정'}
-                </Text>
-                <Stack gap={2} mt={6}>
-                  <Text size="sm" fw={600} c="dark.8">
-                    주민등록번호:{' '}
-                    <Text component="span" size="sm" fw={700} c={isSelectedResidentNumberFetching ? 'dimmed' : 'dark.8'}>
-                      {selectedResidentNumberDisplay}
+            <Tabs
+              value={modalTab}
+              onChange={setModalTab}
+              variant="unstyled"
+              orientation="vertical"
+              className={fcm.shell}
+              style={{ display: 'grid' }}
+              classNames={{ list: fcm.stepList, tab: fcm.stepTab, tabLabel: fcm.stepInner, panel: fcm.panel }}
+            >
+              <aside className={fcm.side}>
+                <div className={fcm.identity}>
+                  <span className={fcm.avatar}>{selectedFc.name?.slice(0, 1) || '?'}</span>
+                  <div>
+                    <Group gap="xs" align="center">
+                      <Text className={fcm.name}>{selectedFc.name}</Text>
+                      <Badge variant="white" radius="xl" color={!selectedFc.career_type ? 'gray' : 'dark'}>
+                        {selectedFc.career_type || '조회중'}
+                      </Badge>
+                    </Group>
+                    <Text size="sm" c="dimmed" mt={4}>
+                      {selectedFc.phone} · {selectedFc.affiliation || '소속 미정'}
                     </Text>
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    생년월일: {selectedBirthDateDisplay}
-                  </Text>
-                </Stack>
-              </div>
-            </Group>
-
-            <Tabs value={modalTab} onChange={setModalTab} color="dark" variant="pills" radius="xl">
-              <Tabs.List
-                mb="lg"
-                style={{ display: 'flex', flexWrap: 'nowrap', gap: 4, overflowX: 'auto', background: 'var(--dashboard-panel)', borderRadius: 999, padding: 4 }}
-              >
-                <Tabs.Tab
-                  value="info"
-                  leftSection={<IconEdit size={16} />}
-                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
-                >
-                  보증 보험 동의
-                </Tabs.Tab>
-                <Tabs.Tab
-                  value="docs"
-                  leftSection={<IconFileText size={16} />}
-                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
-                >
-                  서류 관리
-                </Tabs.Tab>
-                <Tabs.Tab
-                  value="hanwha"
-                  leftSection={<IconCalendar size={16} />}
-                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
-                >
-                  다위촉
-                </Tabs.Tab>
-                <Tabs.Tab
-                  value="appointment"
-                  leftSection={<IconCalendar size={16} />}
-                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
-                >
-                  생명/손해 위촉
-                </Tabs.Tab>
-
-              </Tabs.List>
+                  </div>
+                  <div className={fcm.facts}>
+                    <Stack gap={2} mt={6}>
+                      <Text size="sm" fw={600} c="dark.8">
+                        주민등록번호:{' '}
+                        <Text component="span" size="sm" fw={700} c={isSelectedResidentNumberFetching ? 'dimmed' : 'dark.8'}>
+                          {selectedResidentNumberDisplay}
+                        </Text>
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        생년월일: {selectedBirthDateDisplay}
+                      </Text>
+                    </Stack>
+                  </div>
+                </div>
+                <Tabs.List aria-label="FC 진행 단계">
+                  {FC_MODAL_STEPS.map((step, index) => {
+                    const state = index < currentStepIndex ? 'done' : index === currentStepIndex ? 'current' : 'todo';
+                    return (
+                      <Tabs.Tab key={step.value} value={step.value} data-state={state}>
+                        <span className={fcm.stepDot}>{state === 'done' ? <IconCheck size={16} stroke={2.4} /> : index + 1}</span>
+                        <span className={fcm.stepText}>
+                          <span className={fcm.stepLabel}>{step.label}</span>
+                          <span className={fcm.stepState}>{state === 'done' ? '완료' : state === 'current' ? '현재 단계' : '대기'}</span>
+                        </span>
+                      </Tabs.Tab>
+                    );
+                  })}
+                </Tabs.List>
+              </aside>
+              <div className={fcm.content}>
+                <div className={fcm.contentHead}>
+                  <Text className={fcm.contentTitle}>{FC_MODAL_STEPS.find((step) => step.value === modalTab)?.label ?? ''}</Text>
+                </div>
               <Tabs.Panel value="info">
                 <Stack gap="md">
                   {(() => {
@@ -3574,6 +3574,7 @@ export default function DashboardPage() {
               </Tabs.Panel>
 
 
+              </div>
             </Tabs>
           </>
         )}
