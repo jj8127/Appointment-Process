@@ -25,6 +25,15 @@ describe('session push registration retry boundary', () => {
     expect(source).toContain('lastPushRegistrationKeyRef.current = null;');
   });
 
+  test('re-checks a global push OFF on the next foreground so another device can turn it back on', () => {
+    const offBranch = source.slice(
+      source.indexOf('if (!preferences.globalPushEnabled) {'),
+      source.indexOf('} catch {', source.indexOf('if (!preferences.globalPushEnabled) {')),
+    );
+    expect(offBranch).toContain('pushRegistrationForegroundRefreshKeyRef.current = pushRegistrationKey;');
+    expect(offBranch).not.toContain('pushRegistrationForegroundRefreshKeyRef.current = null;');
+  });
+
   test('never opens the OS permission prompt at app start', () => {
     // Only the notification settings switch may request permission (registerPushToken
     // with requestPermission); the root layout only creates the Android channel.

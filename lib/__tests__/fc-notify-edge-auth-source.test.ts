@@ -64,6 +64,14 @@ describe('fc-notify Edge authentication wiring', () => {
     expect(source).not.toContain('allowScopedManagerLifecycle: true');
   });
 
+  it('skips only an ambiguous staff recipient instead of failing every FC lifecycle push', () => {
+    // A phone active in both admin_accounts and manager_accounts resolves to no actor;
+    // the other staff still receive their inbox row and push.
+    expect(source).toContain("reason: 'ambiguous_staff_recipient'");
+    expect(source).not.toContain('notificationRows.length !== recipientResidentIds.length');
+    expect(source).toMatch(/notificationRows\.length === 0 \|\|\s+notificationIdByRecipient\.size !== notificationRows\.length/);
+  });
+
   it('keeps the retired admin web callback as an accepted local no-op', () => {
     expect(source).toContain("reason: 'in-app-only'");
     expect(source).toContain('noTarget: true');

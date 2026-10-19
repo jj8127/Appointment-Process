@@ -24,6 +24,10 @@ describe('priority security hardening source contracts', () => {
     const schema = readRepoFile('supabase/schema.sql');
 
     expect(source).toMatch(/functions\.invoke[\s\S]*'device-token-register'/);
+    const register = fs.readFileSync(path.join(process.cwd(), 'supabase', 'functions', 'device-token-register', 'index.ts'), 'utf8');
+    // Raw database errors never reach the app; only Expo-format tokens are stored.
+    expect(register).not.toContain('error.message');
+    expect(register).toContain("fail('invalid_push_token'");
     expect(source).not.toContain(".from('device_tokens')");
     expect(dashboardSource).not.toContain(".from('device_tokens')");
     expect(dashboardSource).toMatch(

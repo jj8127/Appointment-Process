@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-19 푸시 검토 남은 항목과 관리자 웹 개편 병합
+
+Codex 관리자 웹 개편 라인(3260e9c3)을 release에 합치고 관리자 웹을 배포했다. 이어서 푸시 검토의 남은 항목 중 M3·M6·M10과 L2·L3·L9·L10을 고쳤다. M7은 의도된 fail-closed 계약이라 유지했고, `/api/admin/push`는 운영 호출이 없음을 확인하지 못해 남겼다. [→ 상세](WORK_DETAIL.md#20261019-push-review-remaining)
+
 ## 2026-10-19 탈퇴·FC 삭제·추천 그래프 시험 정리
 
 가람Link 은퇴가 공유 모듈로 옮겨지고 웹 FC 삭제가 admin-action에 위임된 뒤(cccbcd0b) 따라가지 못한 Edge 시험 4건과, 범례가 설정 패널로 바뀐 추천 그래프 시험 1건을 현재 코드에 맞췄다. 운영 admin_audit_events 테이블은 이미 있으나 migration 적용 기록은 없다(적용 승인 거절).

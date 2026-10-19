@@ -16,16 +16,6 @@ describe('diagnostic privacy source boundary', () => {
     }
   });
 
-  test('push API diagnostics never interpolate or forward raw tokens and exceptions', () => {
-    const source = read('app/api/push+api.ts');
-    expect(source).not.toContain('Push token ${to}');
-    expect(source).not.toContain('console.error(error)');
-    expect(source).not.toContain("console.error('Push API Error:', error)");
-    expect(source).not.toContain('error: error.message');
-    expect(source).toContain("console.warn('[push-api] invalid push token')");
-    expect(source).toContain("reason: 'expo_delivery_failed'");
-  });
-
   test('push registration diagnostics expose state but not identifiers, tokens, or raw errors', () => {
     const source = read('lib/notifications.ts');
     expect(source).not.toContain("{ role, residentId }");
@@ -49,12 +39,14 @@ describe('diagnostic privacy source boundary', () => {
   });
 
   test('foreground notification handlers use the current Expo presentation fields', () => {
-    for (const relativePath of ['app/_layout.tsx', 'lib/notifications.ts']) {
-      const source = read(relativePath);
-      expect(source).toContain('shouldShowBanner: true');
-      expect(source).toContain('shouldShowList: true');
-      expect(source).not.toContain('shouldShowAlert');
-    }
+    // The root layout is the only foreground handler and Android channel owner.
+    const layout = read('app/_layout.tsx');
+    expect(layout).toContain('shouldShowBanner: true');
+    expect(layout).toContain('shouldShowList: true');
+    expect(layout).not.toContain('shouldShowAlert');
+    const registration = read('lib/notifications.ts');
+    expect(registration).not.toContain('setNotificationHandler');
+    expect(registration).not.toContain('setNotificationChannelAsync');
   });
 
   test('server push delivery diagnostics and failures never retain recipient content or provider bodies', () => {

@@ -161,7 +161,18 @@ export async function createNoticeAction(
     const targetUrl = `/notice-detail?id=${insertedNotice.id}`;
     const target = { version: 1, kind: 'notice', noticeId: insertedNotice.id } as const;
 
-    // 2. Insert Notification History
+    // 2. Insert Notification History. A replayed request (same requestId, e.g. after a
+    // lost response) finds the row already stored and must not push to every FC again.
+    const deliveryKey = `notice:${insertedNotice.id}:created`;
+    const { data: existingNotification } = await adminSupabase
+      .from('notifications')
+      .select('id')
+      .eq('delivery_key', deliveryKey)
+      .maybeSingle();
+    if (typeof existingNotification?.id === 'string') {
+        revalidatePath('/dashboard/notifications');
+        return { success: true, message: '공지사항이 등록되었습니다.' };
+    }
     const { data: insertedNotification, error: notifError } = await adminSupabase
       .from('notifications')
       .upsert({
@@ -172,7 +183,7 @@ export async function createNoticeAction(
         target,
         recipient_role: 'fc',
         resident_id: null, // Broadcast
-        delivery_key: `notice:${insertedNotice.id}:created`,
+        delivery_key: deliveryKey,
       }, { onConflict: 'delivery_key' })
       .select('id')
       .single();

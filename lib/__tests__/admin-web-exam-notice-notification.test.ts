@@ -67,7 +67,8 @@ describe('admin web exam and notice notification completion contract', () => {
     expect(notificationStart).toBeGreaterThan(saveStart);
     expect(returnStart).toBeGreaterThan(notificationStart);
     expect(noticeAction).toContain('p_request_id: requestId');
-    expect(noticeAction).toContain("delivery_key: `notice:${insertedNotice.id}:created`");
+    expect(noticeAction).toContain("const deliveryKey = `notice:${insertedNotice.id}:created`;");
+    expect(noticeAction).toContain('delivery_key: deliveryKey,');
     expect(noticeAction).toContain("message: notificationWarning");
     expect(noticeAction).toContain("'공지사항이 등록되었습니다.'");
     expect(noticeAction).not.toContain('공지사항이 등록 및 발송되었습니다.');

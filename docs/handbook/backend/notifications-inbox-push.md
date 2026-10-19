@@ -222,7 +222,7 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 
 - 문서 상태 변경은 승인과 반려 모두 FC 알림함 row를 정확히 1건 먼저 저장합니다. 일부 승인도 `서류 승인 안내`를 보내며, 마지막 승인만 `서류 검토 완료`와 `/hanwha-commission` 다음 단계 링크를 사용합니다.
 - 관리자 HTTP 응답은 문서·프로필 변경과 알림함 저장까지만 기다립니다. Expo
-  제공자 전송은 Next.js `after()`에서 같은 canonical FC 수신자에게 이어지며
+  제공자 전송은 Next.js `after()`에서 같은 canonical FC 수신자에게 이어지며(`api/admin/fc/route.ts`; 서류 화면 서버 액션 `dashboard/docs/actions.ts`는 전송 결과를 기다린다)
   알림함 row를 다시 insert하지 않습니다. 브라우저 Web Push는 조회하거나 보내지
   않습니다.
 - 수신자 확인 또는 알림함 저장이 실패하면 문서 변경은 유지하고 `notification_delivery_incomplete` 경고를 반환합니다.
@@ -250,7 +250,7 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 - 게시판 글 fanout은 최소 두 축이 필요합니다.
   - `target_role='fc'`: FC 앱 푸시
   - `target_role='admin'`: admin/manager 앱 푸시 + 관리자 웹 canonical inbox
-- 2026-06-16 기준, push data 또는 inbox row에 web/admin URL 형태(`/dashboard/board?postId=...`)나 legacy mobile URL(`/board-detail?postId=...`)이 들어와도 모바일은 `lib/notification-route.ts`에서 `/board?postId=...`로 변환해야 합니다. `app/_layout.tsx`에서 raw `content.data.url`을 직접 `router.push()`하지 않습니다.
+- 2026-06-16 기준, push data 또는 inbox row에 web/admin URL 형태(`/dashboard/board?postId=...`)나 legacy mobile URL(`/board-detail?postId=...`)이 들어와도 모바일은 `lib/notification-target.ts`의 typed target 경로(`buildNotificationTargetRoute`)로 `/board?postId=...`를 엽니다. `app/_layout.tsx`에서 raw `content.data.url`을 직접 `router.push()`하지 않습니다.
 
 ## 2026-06-05 Codex 보험 브리핑 메모
 

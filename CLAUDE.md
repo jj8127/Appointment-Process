@@ -325,7 +325,7 @@ See `DEPLOYMENT.md` for detailed deployment steps.
 
 ### Notifications
 - Mobile: Expo Notifications with channel setup (`alerts` channel)
-- Web: Web Push API (service worker in `web/public/sw.js`)
+- Web: no browser push; the admin web uses the in-app notification center. `web/public/sw.js` only retires old Web Push subscriptions.
 - Registration: `registerPushToken` in `lib/notifications.ts`
 
 ### Date Handling

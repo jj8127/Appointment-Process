@@ -6,8 +6,6 @@ import { getStoredAppSessionToken } from './request-board-api';
 import { safeStorage } from './safe-storage';
 import { supabase } from './supabase';
 
-let handlerSet = false;
-
 export type PushTokenRegistrationResult =
   | { ok: true; retryable: false; reason: 'registered' }
   | {
@@ -141,37 +139,7 @@ export async function registerPushToken(
     const Device = await import('expo-device');
     const Notifications = await import('expo-notifications');
 
-    if (!handlerSet) {
-      Notifications.setNotificationHandler({
-        handleNotification: async () => ({
-          shouldPlaySound: true,
-          shouldSetBadge: false,
-          shouldShowBanner: true,
-          shouldShowList: true,
-        }),
-      });
-      handlerSet = true;
-    }
-
-    // Android 헤드업 알림을 위해 채널 중요도를 MAX로 설정
-    if (Platform.OS === 'android') {
-      // 기본 채널
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF231F7C',
-      });
-      // fc-notify에서 사용하는 alerts 채널
-      await Notifications.setNotificationChannelAsync('alerts', {
-        name: 'Alerts',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF231F7C',
-        sound: 'default',
-      });
-    }
-
+    // The foreground handler and the Android 'alerts' channel are owned by app/_layout.tsx.
     if (!Device.isDevice) {
       return { ok: false, retryable: false, reason: 'physical_device_required' };
     }

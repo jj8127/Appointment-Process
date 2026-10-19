@@ -18,6 +18,9 @@ type RequestBody = {
 
 type DeviceTokenRole = 'admin' | 'fc' | 'manager';
 
+// Only Expo push tokens are stored; Expo sends to nothing else from device_tokens.
+const EXPO_PUSH_TOKEN_PATTERN = /^Expo(nent)?PushToken\[[^\]\s]+\]$/;
+
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '')
   .split(',')
   .map((origin) => origin.trim())
@@ -75,7 +78,7 @@ async function resolveDeviceTokenOwner(session: AppSessionTokenPayload) {
       .select('phone,active,name,staff_type')
       .eq('phone', residentId)
       .maybeSingle();
-    if (error) return { ok: false as const, status: 500, code: 'db_error', message: error.message };
+    if (error) return { ok: false as const, status: 500, code: 'db_error', message: 'Database request failed' };
     if (!data?.phone || !data.active) return { ok: false as const, status: 403, code: 'forbidden', message: 'Forbidden' };
     return {
       ok: true as const,
@@ -91,7 +94,7 @@ async function resolveDeviceTokenOwner(session: AppSessionTokenPayload) {
       .select('phone,active,name')
       .eq('phone', residentId)
       .maybeSingle();
-    if (error) return { ok: false as const, status: 500, code: 'db_error', message: error.message };
+    if (error) return { ok: false as const, status: 500, code: 'db_error', message: 'Database request failed' };
     if (!data?.phone || !data.active) return { ok: false as const, status: 403, code: 'forbidden', message: 'Forbidden' };
     return {
       ok: true as const,
@@ -106,7 +109,7 @@ async function resolveDeviceTokenOwner(session: AppSessionTokenPayload) {
     .select('phone,name,signup_completed,affiliation')
     .eq('phone', residentId)
     .maybeSingle();
-  if (error) return { ok: false as const, status: 500, code: 'db_error', message: error.message };
+  if (error) return { ok: false as const, status: 500, code: 'db_error', message: 'Database request failed' };
   if (!data?.phone || !data.signup_completed) {
     return { ok: false as const, status: 403, code: 'forbidden', message: 'Forbidden' };
   }
@@ -172,11 +175,14 @@ serve(async (req: Request) => {
       .eq('role', owner.role);
     if (expoPushToken) deleteQuery = deleteQuery.eq('expo_push_token', expoPushToken);
     const { error } = await deleteQuery;
-    if (error) return fail('db_error', error.message, 500);
+    if (error) return fail('db_error', 'Database request failed', 500);
     return json({ ok: true, disabledAll: body.disableAll === true });
   }
 
   if (!expoPushToken) return fail('missing_push_token', 'Expo push token is required');
+  if (!EXPO_PUSH_TOKEN_PATTERN.test(expoPushToken)) {
+    return fail('invalid_push_token', 'Expo push token format is invalid');
+  }
   if (body.disableAll === true) return fail('invalid_registration', 'disableAll is only valid for DELETE');
 
   const platform = cleanString(body.platform, 32) || 'unknown';
@@ -195,6 +201,6 @@ serve(async (req: Request) => {
       { onConflict: 'expo_push_token' },
     );
 
-  if (error) return fail('db_error', error.message, 500);
+  if (error) return fail('db_error', 'Database request failed', 500);
   return json({ ok: true, role: owner.role });
 });

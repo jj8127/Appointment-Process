@@ -1408,13 +1408,13 @@ test('D01: actual notice action retries an atomic receipt and rejects changed pa
   const HttpsUrlSchema = execute(extract('app/dashboard/notifications/actions.ts', 'HttpsUrlSchema'), { z, isHttpsResponseUrl });
   const NoticeSchema = execute(extract('app/dashboard/notifications/actions.ts', 'NoticeSchema'), { z, HttpsUrlSchema });
   const parseNoticeJsonField = execute(extract('app/dashboard/notifications/actions.ts', 'parseNoticeJsonField'), {});
-  const receipts = new Map(); const events = new Map(); let rows = 0; let loseResponse = true;
+  const receipts = new Map(); const events = new Map(); let rows = 0; let loseResponse = true; let pushAttempts = 0;
   const values = {
     z, NoticeSchema, parseNoticeJsonField,
     readErrorCode: (error) => (typeof error?.code === 'string' && error.code.trim() ? error.code : 'invalid_result'),
     logger: { error() {}, warn() {}, debug() {}, info() {} },
     getVerifiedAdminSession: async () => ({ ok: true, session: { role: 'admin', residentId: 'synthetic-actor' } }),
-    emptyExpoDelivery: () => ({ attempted: 0, accepted: 0, rejected: 0 }), revalidatePath() {}, recordAdminAuditEvent: async () => true,
+    emptyExpoDelivery: () => { pushAttempts++; return { attempted: 0, accepted: 0, rejected: 0 }; }, revalidatePath() {}, recordAdminAuditEvent: async () => true,
     adminSupabase: {
       async rpc(name, input) {
         assert.equal(name, 'create_notice_idempotent_v1'); assert.equal(input.p_actor_role, 'admin');
@@ -1426,11 +1426,17 @@ test('D01: actual notice action retries an atomic receipt and rejects changed pa
         return { data: receipts.get(key).result, error: null };
       },
       from(table) {
-        if (table === 'notifications') return { upsert(row, options) {
-          assert.equal(options.onConflict, 'delivery_key');
-          if (!events.has(row.delivery_key)) events.set(row.delivery_key, { id: 'synthetic-event' });
-          return { select: () => ({ single: async () => ({ data: events.get(row.delivery_key), error: null }) }) };
-        } };
+        if (table === 'notifications') return {
+          select: () => ({ eq: (column, key) => ({ maybeSingle: async () => {
+            assert.equal(column, 'delivery_key');
+            return { data: events.get(key) ?? null, error: null };
+          } }) }),
+          upsert(row, options) {
+            assert.equal(options.onConflict, 'delivery_key');
+            if (!events.has(row.delivery_key)) events.set(row.delivery_key, { id: 'synthetic-event' });
+            return { select: () => ({ single: async () => ({ data: events.get(row.delivery_key), error: null }) }) };
+          },
+        };
         assert.equal(table, 'device_tokens');
         return { select: () => ({ eq: async () => ({ data: [], error: null }) }) };
       },
@@ -1442,6 +1448,8 @@ test('D01: actual notice action retries an atomic receipt and rejects changed pa
   await assert.rejects(action({}, form), /response_lost/);
   assert.equal((await action({}, form)).success, true); assert.equal((await action({}, form)).success, true);
   assert.equal(rows, 1); assert.equal(events.size, 1);
+  // Only the first stored notification fans out; replays of the same request never push again.
+  assert.equal(pushAttempts, 1);
   form.set('body', 'changed body'); assert.equal((await action({}, form)).success, false);
   assert.equal(rows, 1);
 });

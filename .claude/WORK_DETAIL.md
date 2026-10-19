@@ -1,5 +1,19 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261019-push-review-remaining"></a>
+## 2026-10-19 푸시 검토 남은 항목과 관리자 웹 개편 병합
+
+- 병합: `feature/admin-redesign-shell-home-20261019`(3260e9c3, 46커밋, Codex 작업 폴더 미커밋 변경 없음)을 release a5d20a42에 일반 merge(25700dab). 충돌은 작업 기록 2개뿐이었고 양쪽 기록을 모두 남겼다. 웹 푸시 수정(6853ed75·22ee42c0)은 그대로 유지된다. 개편으로 바뀐 문구·KPI 구조에 맞춰 소스 시험 3개를 고쳤다(c623531f). 관리자 웹은 6b2ab849에서 배포했다.
+- M3: 전체 알림 OFF를 읽어도 다음 앱 복귀 때 설정을 다시 확인한다(다른 기기에서 다시 켜면 이 기기도 재등록).
+- M6: 같은 requestId로 공지를 다시 제출하면 알림 행이 이미 있으므로 푸시를 다시 보내지 않는다(D01 실행 시험에서 발송 진입 1회 확인).
+- M10: FC 등록·수정 알림에서 활성 계정이 하나로 정해지지 않는 수신자만 건너뛰고 진단(`fc_notify.recipient_resolution:ambiguous_staff_recipient`)을 남긴다. 다른 관리자 수신자는 그대로 받는다.
+- L2: 쓰지 않는 `app/api/push+api.ts`, 웹 `WebPushRegistrar`·`web-push-config`·`web-push-registration-policy`를 지웠다. 의존성(`expo-server-sdk`, `web-push`) 제거는 공유 node_modules·lockfile 변경이라 남겼다.
+- L3: 포그라운드 알림 표시 함수와 Android `alerts` 채널은 `app/_layout.tsx`만 설정한다(등록 함수의 중복 설정과 쓰지 않는 `default` 채널 제거).
+- L9: handbook의 없는 파일 참조와 서류 알림 after() 설명, CLAUDE.md의 웹 푸시 설명을 고쳤다.
+- L10: `device-token-register`는 DB 오류 원문 대신 고정 문구를 돌려주고, Expo 형식이 아닌 토큰을 거절한다.
+- 남김: M7(의도된 fail-closed), M8·M9·M11·L1·L5·L6·L7·L8(구조 변경 필요), L4(정책 결정 필요), `/api/admin/push` 삭제(운영 로그 검색이 경로 필터를 지원하지 않아 무호출 확인 불가).
+- 검증: jest 새 실패 0(26건은 기준선 실패), web node 816/816, 앱·웹 tsc, 변경 파일 eslint, deno check(fc-notify, device-token-register), Sentry 업로드 차단 웹 운영 빌드.
+
 <a id="20261019-withdrawal-graph-test-alignment"></a>
 ## 2026-10-19 탈퇴·FC 삭제·추천 그래프 시험 정리
 

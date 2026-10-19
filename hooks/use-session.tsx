@@ -550,7 +550,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         if (!preferences.globalPushEnabled) {
           suppressedPushRegistrationKeyRef.current = pushRegistrationKey;
-          pushRegistrationForegroundRefreshKeyRef.current = null;
+          // Re-check on the next foreground: turning push back ON on another device
+          // must re-register this device too.
+          pushRegistrationForegroundRefreshKeyRef.current = pushRegistrationKey;
           return;
         }
       } catch {

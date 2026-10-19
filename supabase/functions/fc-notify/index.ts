@@ -6619,9 +6619,18 @@ async function handleFcNotifyRequest(req: Request, timing: ServerTiming): Promis
       }
 
       const notificationRows = [];
+      // A phone that maps to no single active staff account (e.g. both admin and manager)
+      // is skipped on its own; it must not block every other staff recipient.
       for (const recipientId of recipientResidentIds) {
         const recipientActorId = await resolveNotificationRecipientActorId('admin', recipientId);
-        if (!recipientActorId) continue;
+        if (!recipientActorId) {
+          reportEdgeDiagnostic({
+            event: 'fc_notify.recipient_resolution',
+            reason: 'ambiguous_staff_recipient',
+            count: 1,
+          });
+          continue;
+        }
         notificationRows.push(
           sanitizeNotificationInsert({
           title,
@@ -6673,7 +6682,7 @@ async function handleFcNotifyRequest(req: Request, timing: ServerTiming): Promis
           notificationIdByRecipient.set(residentId, validation.notificationId);
         }
         if (
-          notificationRows.length !== recipientResidentIds.length ||
+          notificationRows.length === 0 ||
           notificationIdByRecipient.size !== notificationRows.length
         ) {
           notificationPersistenceFailed = true;
