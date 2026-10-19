@@ -2140,6 +2140,15 @@ export default function DashboardPage() {
       total: fcs?.length ?? 0,
       ...countDashboardWork(queued.map((row) => row.key)),
       stepCounts,
+      // 소속별 인원, 많은 순. 이름 없는 FC는 '소속 미정'으로 묶는다.
+      affiliations: [...(fcs ?? []).reduce((map, fc: FCProfileWithDocuments) => {
+        const name = fc.affiliation?.trim() || '소속 미정';
+        return map.set(name, (map.get(name) ?? 0) + 1);
+      }, new Map<string, number>())].sort((a, b) => b[1] - a[1]),
+      // Newest sign-ups first, using the same date as the list's 가입일 column.
+      recentSignups: [...(fcs ?? [])]
+        .sort((a, b) => String(b.signup_completed_at ?? b.created_at ?? '').localeCompare(String(a.signup_completed_at ?? a.created_at ?? '')))
+        .slice(0, 3),
       // Queue order first, then the existing list order inside each queue.
       items: DASHBOARD_WORK_QUEUES.flatMap((queue) =>
         queued.filter((row) => row.key === queue.key).map((row) => ({ fc: row.fc, queue })),
@@ -2313,8 +2322,77 @@ export default function DashboardPage() {
 
         {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!fcs} subject="FC 목록" />}
 
+        <div className={styles.workMid}>
+        {/* Progress and affiliation summary, from the same FC list */}
+        <section className={styles.card} style={{ '--i': 4 } as CSSProperties} aria-label="위촉 진행률">
+          <div className={styles.cardHead}>
+            <Text className={styles.cardTitle}>위촉 진행률</Text>
+            <span className={styles.softPill}>5단계 완료 {fcs ? workSummary.stepCounts[5] : '—'}명</span>
+          </div>
+          <div>
+            <div className={styles.progressMeta}>
+              <Text component="span" className={styles.progressValue}>
+                {fcs && workSummary.total > 0 ? `${Math.round((workSummary.stepCounts[5] / workSummary.total) * 100)}%` : '—'}
+              </Text>
+              <Text component="span" size="xs" c="dimmed">{fcs ? `${workSummary.stepCounts[5]} / ${workSummary.total}명` : ''}</Text>
+            </div>
+            <div className={styles.progressTrack} role="presentation">
+              <span
+                className={styles.progressFill}
+                style={{ width: fcs && workSummary.total > 0 ? `${(workSummary.stepCounts[5] / workSummary.total) * 100}%` : '0%' }}
+              />
+            </div>
+          </div>
+          <div className={styles.well}>
+            <div className={styles.cardHead} style={{ marginBottom: 8 }}>
+              <Text size="xs" fw={600} c="dimmed">소속별 FC</Text>
+              {keyword ? (
+                <UnstyledButton className={styles.softPillWhite} onClick={() => { setKeyword(''); setCurrentPage(1); }}>
+                  검색 해제
+                </UnstyledButton>
+              ) : null}
+            </div>
+            <div className={styles.affiliationList}>
+              {fcs ? workSummary.affiliations.slice(0, 5).map(([name, count]) => (
+                <UnstyledButton
+                  key={name}
+                  className={styles.affiliationRow}
+                  data-active={keyword === name || undefined}
+                  aria-pressed={keyword === name}
+                  onClick={() => { setKeyword(keyword === name ? '' : name); setCurrentPage(1); }}
+                >
+                  <span className={styles.affiliationName}>{name}</span>
+                  <span className={styles.affiliationBar}>
+                    <span style={{ width: `${Math.round((count / Math.max(1, workSummary.affiliations[0]?.[1] ?? 1)) * 100)}%` }} />
+                  </span>
+                  <span className={styles.affiliationCount}>{count}명</span>
+                </UnstyledButton>
+              )) : (
+                <Text size="xs" c="dimmed">{isLoading ? 'FC 목록을 불러오는 중입니다.' : '—'}</Text>
+              )}
+            </div>
+          </div>
+          <div className={`${styles.well} ${styles.affiliationWell}`}>
+            <Text size="xs" fw={600} c="dimmed" mb={8}>최근 가입</Text>
+            <div className={styles.affiliationList}>
+              {fcs ? workSummary.recentSignups.map((fc: FCProfileWithDocuments) => (
+                <UnstyledButton key={fc.id} className={styles.signupRow} onClick={() => router.push(`/dashboard/profile/${fc.id}`)}>
+                  <span className={styles.personAvatar}>{fc.name?.[0] ?? 'F'}</span>
+                  <span className={styles.signupText}>
+                    <span className={styles.affiliationName}>{fc.name}</span>
+                    <span className={styles.signupMeta}>{fc.affiliation || '-'}</span>
+                  </span>
+                  <span className={styles.affiliationCount}>{formatDashboardSignupDate(fc.signup_completed_at ?? fc.created_at)}</span>
+                </UnstyledButton>
+              )) : (
+                <Text size="xs" c="dimmed">{isLoading ? 'FC 목록을 불러오는 중입니다.' : '—'}</Text>
+              )}
+            </div>
+          </div>
+        </section>
+
         {/* Combined work queue */}
-        <section className={styles.card} style={{ '--i': 4 } as CSSProperties} aria-label="처리 대기열">
+        <section className={styles.card} style={{ '--i': 5 } as CSSProperties} aria-label="처리 대기열">
           <div className={styles.cardHead}>
             <Text className={styles.cardTitle}>
               처리 대기열{metricFilter !== 'all' ? ` · ${DASHBOARD_WORK_QUEUES.find((queue) => queue.key === metricFilter)?.label ?? ''}` : ''}
@@ -2355,8 +2433,9 @@ export default function DashboardPage() {
             )}
           </div>
         </section>
+        </div>
         {/* Main Content Area */}
-        <Paper radius={24} p="lg" bg="white" className={styles.card} style={{ '--i': 5 } as CSSProperties}>
+        <Paper radius={24} p="lg" bg="white" className={styles.card} style={{ '--i': 6 } as CSSProperties}>
           <Stack gap="xs" mb="md">
             <Group justify="space-between">
               <Tabs
