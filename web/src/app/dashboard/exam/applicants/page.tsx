@@ -10,13 +10,11 @@ import {
     Badge,
     Button,
     Checkbox,
-    Container,
     Divider,
     Group,
     Loader,
     Menu,
     Tabs,
-    Paper,
     Popover,
     ScrollArea,
     SegmentedControl,
@@ -46,7 +44,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 
 import styles from './page.module.css';
 
@@ -907,7 +905,7 @@ export default function ExamApplicantsPage() {
         }
 
         return (
-            <Table.Td key={column.key}>
+            <Table.Td key={column.key} className={column.key === 'name' ? styles.stickyName : undefined}>
                 <Text size="sm" fw={column.key === 'name' ? 600 : 400} c={column.key === 'resident_id' ? 'dimmed' : undefined}>
                     {value}
                 </Text>
@@ -916,79 +914,64 @@ export default function ExamApplicantsPage() {
     };
 
     return (
-        <Container size="xl" py="xl">
-            <Stack gap="xl">
+        <div className={styles.page}>
+            <Stack gap="md">
                 {/* Header */}
-                <Group justify="space-between" align="center">
+                <div className={styles.head} style={{ '--i': 0 } as CSSProperties}>
                     <div>
-                        <Title order={2} c={CHARCOAL}>신청자 관리</Title>
+                        <Title order={2} className={styles.title}>신청자 관리</Title>
                         <Text c={MUTED} size="sm">최근 신청자 목록 및 응시 과목을 확인합니다.</Text>
                     </div>
                     <Group gap="xs">
-                        <Button
-                            variant="light"
-                            color="orange"
-                            radius="md"
-                            disabled={isReadOnly || bulkConfirmTargets.length === 0}
-                            loading={bulkConfirmMutation.isPending}
-                            onClick={() => setBulkConfirmOpened(true)}
-                        >
-                            일괄 접수 ({bulkConfirmTargets.length}명)
-                        </Button>
-                        <Button
-                            leftSection={<IconDownload size={16} />}
-                            variant="filled"
-                            color="green"
-                            onClick={openExportReason}
-                            loading={isExporting}
-                            radius="md"
-                        >
-                            엑셀 다운로드
-                        </Button>
+                        <button type="button" className={styles.softButton} onClick={openExportReason} disabled={isExporting}>
+                            {isExporting ? <Loader size={14} color="dark" /> : <IconDownload size={16} stroke={1.8} />} 엑셀 다운로드
+                        </button>
                         <Tooltip label="데이터 새로고침">
-                            <ActionIcon aria-label="시험 신청자 새로고침" variant="light" color="gray" size="lg" onClick={() => refetch()} loading={isLoading}>
-                                <IconRefresh size={20} />
+                            <ActionIcon aria-label="시험 신청자 새로고침" variant="white" color="dark" radius="xl" size={44} onClick={() => refetch()} loading={isLoading}>
+                                <IconRefresh size={18} stroke={1.8} />
                             </ActionIcon>
                         </Tooltip>
                     </Group>
-                </Group>
+                </div>
 
-                {/* Stats */}
-                <Group gap="xs" align="flex-start" wrap="wrap">
-                    <Text size="xs" c="dimmed" fw={500}>빠른 분류:</Text>
-                    <Tabs
-                        value={quickAffiliation}
-                        onChange={(value) => setQuickAffiliation(value ?? EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE)}
-                        variant="pills"
-                        radius="xl"
-                        color="blue"
-                    >
-                        <Tabs.List bg="blue.0" p={4} style={{ borderRadius: 24, flexWrap: 'wrap' }}>
-                            {quickAffiliationOptions.map((option) => (
-                                <Tabs.Tab key={option} value={option} fw={600} px={14}>
-                                    {option}
-                                </Tabs.Tab>
-                            ))}
-                        </Tabs.List>
-                    </Tabs>
-                </Group>
-                <Group gap="xs" align="center" wrap="wrap">
-                    <Text size="xs" c="dimmed" fw={500}>시험 필터:</Text>
-                    <TopFilterMenu
-                        title="시험 종류"
-                        options={examSubjectFilterOptions}
-                        value={examSubjectFilter}
-                        onChange={handleExamSubjectFilterChange}
-                        kind="subject"
-                    />
-                    <TopFilterMenu
-                        title="시험 회차"
-                        options={examRoundFilterOptions}
-                        value={effectiveExamRoundFilter}
-                        onChange={setExamRoundFilter}
-                        kind="round"
-                    />
-                </Group>
+                {/* Filters: affiliation chips and exam menus on one bar */}
+                <div className={styles.filterBar} style={{ '--i': 1 } as CSSProperties}>
+                    <Group gap="xs" align="center" wrap="wrap">
+                        <Text size="xs" c="dimmed" fw={500}>빠른 분류:</Text>
+                        <Tabs
+                            value={quickAffiliation}
+                            onChange={(value) => setQuickAffiliation(value ?? EXAM_APPLICANT_ALL_AFFILIATION_FILTER_VALUE)}
+                            variant="pills"
+                            radius="xl"
+                            color="dark"
+                        >
+                            <Tabs.List bg="var(--dashboard-panel)" p={4} style={{ borderRadius: 24, flexWrap: 'wrap' }}>
+                                {quickAffiliationOptions.map((option) => (
+                                    <Tabs.Tab key={option} value={option} fw={500} px={14}>
+                                        {option}
+                                    </Tabs.Tab>
+                                ))}
+                            </Tabs.List>
+                        </Tabs>
+                    </Group>
+                    <Group gap="xs" align="center" wrap="wrap">
+                        <Text size="xs" c="dimmed" fw={500}>시험 필터:</Text>
+                        <TopFilterMenu
+                            title="시험 종류"
+                            options={examSubjectFilterOptions}
+                            value={examSubjectFilter}
+                            onChange={handleExamSubjectFilterChange}
+                            kind="subject"
+                        />
+                        <TopFilterMenu
+                            title="시험 회차"
+                            options={examRoundFilterOptions}
+                            value={effectiveExamRoundFilter}
+                            onChange={setExamRoundFilter}
+                            kind="round"
+                        />
+                    </Group>
+                </div>
                 {applicantsError ? (
                     <QueryErrorAlert
                         error={applicantsError}
@@ -998,82 +981,87 @@ export default function ExamApplicantsPage() {
                         subject="시험 신청 목록"
                     />
                 ) : null}
-                <Group grow align="stretch">
-                    <Paper
-                        component="button"
+
+                {/* Summary tiles: one white card, the 미접수 tile carries the accent */}
+                <div className={styles.statGroup} style={{ '--i': 2 } as CSSProperties}>
+                    <button
                         type="button"
-                        p="md"
-                        radius="md"
-                        withBorder
-                        shadow="sm"
                         className={styles.statCard}
                         data-active={!selectedReceptionStatus || undefined}
                         data-tone="total"
                         aria-pressed={!selectedReceptionStatus}
                         onClick={() => setReceptionStatusFilter(null)}
                     >
-                        <Group justify="space-between" gap="xs">
-                            <Text size="xs" c="dimmed" fw={700} tt="uppercase">총 신청자 (현재 필터)</Text>
-                            {!selectedReceptionStatus && <Badge size="xs" variant="light" color="gray">전체 보기</Badge>}
-                        </Group>
-                        <Text fw={700} size="xl" mt="xs" title={applicantsError ? '이전 조회 자료' : undefined}>{applicants ? `${stats.total}명` : isLoading ? '조회 중' : '확인 불가'}</Text>
-                    </Paper>
-                    <Paper
-                        component="button"
+                        <span className={styles.statHead}>
+                            <span>총 신청자 (현재 필터)</span>
+                            <span className={styles.statIcon}><IconListDetails size={16} stroke={1.8} /></span>
+                        </span>
+                        <span className={styles.statValue} title={applicantsError ? '이전 조회 자료' : undefined}>{applicants ? `${stats.total}명` : isLoading ? '조회 중' : '확인 불가'}</span>
+                        <span className={styles.statFoot}>{!selectedReceptionStatus ? '전체 보기' : '눌러서 전체 보기'}</span>
+                    </button>
+                    <button
                         type="button"
-                        p="md"
-                        radius="md"
-                        withBorder
-                        shadow="sm"
                         className={styles.statCard}
                         data-active={selectedReceptionStatus === '접수 완료' || undefined}
                         data-tone="confirmed"
                         aria-pressed={selectedReceptionStatus === '접수 완료'}
                         onClick={() => setReceptionStatusFilter('접수 완료')}
                     >
-                        <Group justify="space-between" gap="xs">
-                            <Text size="xs" c="orange" fw={700} tt="uppercase">접수 완료</Text>
-                            {selectedReceptionStatus === '접수 완료' && <Badge size="xs" color="orange">선택됨</Badge>}
-                        </Group>
-                        <Text fw={700} size="xl" mt="xs" c="orange">{applicants ? `${stats.confirmed}명` : isLoading ? '조회 중' : '확인 불가'}</Text>
-                    </Paper>
-                    <Paper
-                        component="button"
+                        <span className={styles.statHead}>
+                            <span>접수 완료</span>
+                            <span className={styles.statIcon}><IconCheck size={16} stroke={1.8} /></span>
+                        </span>
+                        <span className={styles.statValue}>{applicants ? `${stats.confirmed}명` : isLoading ? '조회 중' : '확인 불가'}</span>
+                        <span className={styles.statFoot}>{selectedReceptionStatus === '접수 완료' ? '선택됨' : ' '}</span>
+                    </button>
+                    <button
                         type="button"
-                        p="md"
-                        radius="md"
-                        withBorder
-                        shadow="sm"
                         className={styles.statCard}
                         data-active={selectedReceptionStatus === '미접수' || undefined}
                         data-tone="pending"
                         aria-pressed={selectedReceptionStatus === '미접수'}
                         onClick={() => setReceptionStatusFilter('미접수')}
                     >
-                        <Group justify="space-between" gap="xs">
-                            <Text size="xs" c="dimmed" fw={700} tt="uppercase">미접수</Text>
-                            {selectedReceptionStatus === '미접수' && <Badge size="xs" variant="filled" color="dark">선택됨</Badge>}
-                        </Group>
-                        <Text fw={700} size="xl" mt="xs" title={applicantsError ? '이전 조회 자료' : undefined}>{applicants ? `${stats.pending}명` : isLoading ? '조회 중' : '확인 불가'}</Text>
-                    </Paper>
-                </Group>
+                        <span className={styles.statHead}>
+                            <span>미접수</span>
+                            <span className={styles.statIcon}><IconCalendarEvent size={16} stroke={1.8} /></span>
+                        </span>
+                        <span className={styles.statValue} title={applicantsError ? '이전 조회 자료' : undefined}>{applicants ? `${stats.pending}명` : isLoading ? '조회 중' : '확인 불가'}</span>
+                        <span className={styles.statFoot}>{selectedReceptionStatus === '미접수' ? '선택됨' : ' '}</span>
+                    </button>
+                </div>
+
+                {/* Bulk reception: every 미접수 applicant in the current filter */}
+                <div className={styles.bulkBar} style={{ '--i': 3 } as CSSProperties}>
+                    <div>
+                        <Text fw={600} c="white" size="sm">일괄 접수 대상 {bulkConfirmTargets.length}명</Text>
+                        <Text size="xs" c="rgba(255,255,255,0.65)">현재 필터</Text>
+                    </div>
+                    <button
+                        type="button"
+                        className={styles.bulkButton}
+                        disabled={isReadOnly || bulkConfirmTargets.length === 0 || bulkConfirmMutation.isPending}
+                        onClick={() => setBulkConfirmOpened(true)}
+                    >
+                        {bulkConfirmMutation.isPending ? <Loader size={14} color="dark" /> : <IconCheck size={16} stroke={2} />}
+                        일괄 접수 ({bulkConfirmTargets.length}명)
+                    </button>
+                </div>
 
                 {/* Table */}
-                <Paper shadow="sm" radius="md" withBorder p="0" bg="white" style={{ overflow: 'hidden' }}>
+                <div className={styles.tableCard} style={{ '--i': 4 } as CSSProperties}>
                     <ScrollArea h={650} type="always" offsetScrollbars styles={{ viewport: { overflowX: 'auto', overflowY: 'auto' } }}>
                         <Table
-                            highlightOnHover
+                            className={styles.table}
                             verticalSpacing="sm"
                             horizontalSpacing="md"
-                            striped
-                            withColumnBorders
                             stickyHeader
                             style={{ minWidth: tableMinWidth }}
                         >
-                            <Table.Thead bg="gray.0">
+                            <Table.Thead>
                                 <Table.Tr>
                                     {EXAM_APPLICANT_EXPORT_COLUMNS.map((column) =>
-                                        renderHeader(column.title, column.key, column.minWidth),
+                                        renderHeader(column.title, column.key, column.minWidth, column.key === 'name' ? styles.stickyName : undefined),
                                     )}
                                     {renderHeader('입금 증빙', 'payment_proof', proofColumnMinWidth)}
                                     {renderHeader('접수 상태', 'is_confirmed', statusColumnMinWidth, styles.stickyStatus)}
@@ -1218,7 +1206,7 @@ export default function ExamApplicantsPage() {
                             </Table.Tbody>
                         </Table>
                     </ScrollArea>
-                </Paper>
+                </div>
             </Stack>
             <ConfirmModal
                 opened={exportReasonOpened}
@@ -1274,6 +1262,6 @@ export default function ExamApplicantsPage() {
                     }
                 }}
             />
-        </Container>
+        </div>
     );
 }

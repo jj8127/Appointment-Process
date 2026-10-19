@@ -1,28 +1,262 @@
+/* 시험 신청자: filters, summary tiles, bulk bar and the full 18-column table on the app panel. */
+.page {
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.head,
+.filterBar,
+.statGroup,
+.bulkBar,
+.tableCard {
+  animation: cardIn 640ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 6px 2px 0;
+}
+
+.title {
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--dashboard-ink);
+}
+
+.softButton,
+.bulkButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  height: 44px;
+  padding: 0 18px;
+  cursor: pointer;
+  transition: background-color 320ms ease, transform 200ms ease;
+}
+
+.softButton {
+  background: #fff;
+  color: var(--dashboard-ink);
+}
+
+.softButton:hover {
+  background: #ecece9;
+}
+
+.bulkButton {
+  background: #fff;
+  color: var(--dashboard-ink);
+}
+
+.bulkButton:hover {
+  background: #fff4ec;
+}
+
+.softButton:active,
+.bulkButton:active {
+  transform: scale(0.97);
+}
+
+.softButton:disabled,
+.bulkButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.softButton:focus-visible,
+.bulkButton:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.filterBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #fff;
+  border-radius: 20px;
+  padding: 10px 14px;
+}
+
+/* Summary: three tiles inside one white card; 미접수 is the accent tile. */
+.statGroup {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  background: #fff;
+  border-radius: 24px;
+  padding: 10px;
+}
+
+@media (max-width: 760px) {
+  .statGroup {
+    grid-template-columns: 1fr;
+  }
+}
+
+.statCard {
+  width: 100%;
+  min-height: 132px;
+  cursor: pointer;
+  appearance: none;
+  border: 0;
+  border-radius: 20px;
+  background: var(--dashboard-panel);
+  color: var(--dashboard-ink);
+  font: inherit;
+  text-align: left;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  box-shadow: inset 0 0 0 1.5px transparent;
+  transition: transform 320ms ease, box-shadow 320ms ease, background-color 320ms ease;
+}
+
+.statCard:hover {
+  transform: translateY(-2px);
+}
+
+.statCard:focus-visible {
+  outline: 2px solid #f37321;
+  outline-offset: 2px;
+}
+
+.statCard[data-active] {
+  box-shadow: inset 0 0 0 1.5px var(--dashboard-ink);
+}
+
+.statCard[data-tone='confirmed'][data-active] {
+  box-shadow: inset 0 0 0 1.5px var(--dashboard-ink);
+  background: #fff;
+}
+
+.statCard[data-tone='pending'] {
+  color: #fff;
+  background:
+    radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 55%),
+    linear-gradient(180deg, #ff9a52 0%, var(--primary-color) 46%, #c2470d 100%);
+}
+
+.statCard[data-tone='pending'][data-active] {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+
+.statHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.statIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e9e9e6;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.statCard[data-tone='pending'] .statIcon {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.statValue {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.statFoot {
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+/* Bulk bar */
+.bulkBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--dashboard-ink);
+  border-radius: 20px;
+  padding: 10px 10px 10px 20px;
+}
+
+/* Table: every column kept, quieter chrome. */
+.tableCard {
+  background: #fff;
+  border-radius: 24px;
+  padding: 10px;
+  overflow: hidden;
+}
+
+.table thead th {
+  background: var(--dashboard-panel);
+  border-bottom: 0;
+  font-weight: 500;
+  color: #6b6a65;
+}
+
+.table thead th:first-child {
+  border-radius: 14px 0 0 14px;
+}
+
+.table thead th:last-child {
+  border-radius: 0 14px 14px 0;
+}
+
+.table tbody td {
+  border-top: 0;
+  border-bottom: 1px solid #f0f0ee;
+}
+
 .applicantRow {
   cursor: pointer;
-  transition: box-shadow 160ms ease;
+  transition: box-shadow 320ms ease;
 }
 
 .applicantRow td {
-  transition: background-color 160ms ease, color 160ms ease;
+  transition: background-color 320ms ease, color 320ms ease;
 }
 
 .applicantRow[data-reception='confirmed'] td {
-  background-color: #fff8f1 !important;
+  background-color: #fffaf5 !important;
 }
 
 .applicantRow[data-reception='pending'] td {
-  background-color: #f8fafc !important;
+  background-color: #ffffff !important;
 }
 
 .applicantRow[data-reception='confirmed']:hover td,
 .applicantRow[data-reception='confirmed']:focus-visible td {
-  background-color: #ffedd5 !important;
+  background-color: #fff1e6 !important;
 }
 
 .applicantRow[data-reception='pending']:hover td,
 .applicantRow[data-reception='pending']:focus-visible td {
-  background-color: #eef2f7 !important;
+  background-color: #f7f7f5 !important;
 }
 
 .applicantRow:focus-visible {
@@ -31,16 +265,16 @@
 }
 
 .applicantRow[data-reception='confirmed'] td:first-child {
-  box-shadow: inset 4px 0 0 #f37321;
+  box-shadow: inset 3px 0 0 #f37321;
 }
 
 .applicantRow[data-reception='pending'] td:first-child {
-  box-shadow: inset 4px 0 0 #cbd5e1;
+  box-shadow: inset 3px 0 0 #e1e1dd;
 }
 
 .applicantRow[data-reception='pending']:hover td:first-child,
 .applicantRow[data-reception='pending']:focus-visible td:first-child {
-  box-shadow: inset 4px 0 0 #64748b;
+  box-shadow: inset 3px 0 0 #8a8983;
 }
 
 .floatingIdentityTooltip {
@@ -53,12 +287,13 @@
 .topFilterDropdown {
   overflow: hidden;
   padding: 0;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
+  border: 0;
+  border-radius: 18px;
+  box-shadow: 0 16px 40px rgba(30, 29, 24, 0.14);
 }
 
 .topFilterHeading {
-  background: #fafafa;
+  background: var(--dashboard-panel);
 }
 
 .topFilterOptions {
@@ -72,7 +307,7 @@
 .topFilterItem {
   min-height: 48px;
   margin-bottom: 4px;
-  border-radius: 10px;
+  border-radius: 12px;
   color: #374151;
 }
 
@@ -81,87 +316,49 @@
 }
 
 .topFilterItem:hover {
-  background: #fff7ed;
+  background: var(--dashboard-panel);
 }
 
 .topFilterItem[data-selected] {
   background: #fff1e6;
-  color: #d95f13;
+  color: #c2470d;
 }
 
 .roundDateBadge {
   flex: 0 0 auto;
   min-width: 96px;
   padding: 5px 8px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #f8fafc;
-  color: #475569;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dashboard-panel);
+  color: #4a4944;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.2;
   text-align: center;
 }
 
 .topFilterItem[data-selected] .roundDateBadge {
-  border-color: #f7b27d;
-  background: #fff7ed;
-  color: #d95f13;
+  background: #fff;
+  color: #c2470d;
 }
 
-.statCard {
-  width: 100%;
-  min-height: 112px;
-  cursor: pointer;
-  appearance: none;
-  background: #ffffff;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
-}
-
-.statCard:hover {
-  transform: translateY(-2px);
-  border-color: #cbd5e1;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.09);
-}
-
-.statCard:focus-visible {
-  outline: 2px solid #f37321;
-  outline-offset: 2px;
-}
-
-.statCard[data-active] {
-  border-color: #94a3b8;
-  background: #f8fafc;
-}
-
-.statCard[data-tone='confirmed'] {
-  border-left: 4px solid #f37321;
-}
-
-.statCard[data-tone='confirmed'][data-active] {
-  border-color: #f37321;
-  background: #fff7ed;
-  box-shadow: 0 8px 20px rgba(243, 115, 33, 0.14);
-}
-
-.statCard[data-tone='pending'][data-active] {
-  border-color: #475569;
-  background: #f8fafc;
-}
-
-/* Keep reception and row actions reachable while the wide table scrolls horizontally. */
+/* Pinned columns: 응시자 이름 on the left, 접수 상태 and 관리 on the right. */
+.stickyName,
 .stickyStatus,
 .stickyActions {
   position: sticky;
   z-index: 1;
 }
 
+.stickyName {
+  left: 0;
+  box-shadow: 6px 0 8px -6px rgba(30, 29, 24, 0.16);
+}
+
 .stickyStatus {
   right: 116px;
-  box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.18);
+  box-shadow: -6px 0 8px -6px rgba(30, 29, 24, 0.16);
 }
 
 .stickyActions {
@@ -170,13 +367,50 @@
   width: 116px;
 }
 
+th.stickyName,
 th.stickyStatus,
 th.stickyActions {
   z-index: 3;
-  background: var(--mantine-color-gray-0);
+  background: var(--dashboard-panel);
 }
 
+.applicantRow td.stickyName,
 .applicantRow td.stickyStatus,
 .applicantRow td.stickyActions {
   background-clip: padding-box;
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .head,
+  .filterBar,
+  .statGroup,
+  .bulkBar,
+  .tableCard {
+    animation: none;
+  }
+
+  .statCard,
+  .softButton,
+  .bulkButton,
+  .applicantRow,
+  .applicantRow td {
+    transition: none;
+  }
+
+  .statCard:hover {
+    transform: none;
+  }
 }
