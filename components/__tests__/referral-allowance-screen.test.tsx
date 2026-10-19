@@ -5,6 +5,7 @@ import { act, createElement, type ReactElement, type ReactNode } from 'react';
 import * as ts from 'typescript';
 
 import * as allowanceDisplay from '@/lib/referral-allowance-display';
+import * as branchFocus from '@/lib/referral-branch-focus';
 import * as theme from '@/lib/theme';
 import type { ReferralAllowanceNode, ReferralAllowanceStatement } from '@/types/referral-allowance';
 import type { ReferralGraphNode } from '@/types/referral-graph';
@@ -22,7 +23,7 @@ type Renderer = { root: Instance; update: (element: ReactElement) => void; unmou
 // The installed renderer has no separate types package; only the used test surface is declared.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { create } = require('react-test-renderer') as { create: (element: ReactElement) => Renderer };
-Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, __DEV__: false });
 
 const accessRetry = jest.fn();
 const statementRetry = jest.fn();
@@ -75,6 +76,12 @@ function loadScreen(): React.ComponentType {
       SafeAreaView: 'SafeAreaView', SafeAreaProvider: 'SafeAreaProvider',
     };
     if (name === '@/components/referral-graph/ReferralGraphCanvas') return { ReferralGraphCanvas: 'ReferralGraphCanvas' };
+    if (name === '@/components/referral-graph/ReferralBranchFocus') return { ReferralBranchFocus: 'ReferralBranchFocus' };
+    if (name === '@/lib/referral-branch-focus') return branchFocus;
+    // 집단 배치 계산은 별도 단위 테스트에서 검증한다. 화면 테스트에서는 계산이 끝난(기본 배치) 상태로 둔다.
+    if (name === '@/hooks/use-referral-cluster-layout') return {
+      useReferralClusterLayout: () => ({ positions: null, elapsedMs: null, source: null, computing: false }),
+    };
     if (name === '@/hooks/use-referral-allowance') return {
       useReferralAllowanceAccess: () => access, useReferralAllowance: useAllowance,
     };
@@ -126,7 +133,16 @@ describe('standalone allowance page interactions', () => {
   async function press(label: string) {
     await act(async () => { (pressable(label).props.onPress as () => void)(); });
   }
-  async function mount() { await act(async () => { renderer = create(createElement(Screen)); }); }
+  // 기본 그래프는 가지 보기다. 전체 그래프 상호작용을 보는 테스트는 전환한 뒤 검사한다.
+  // 가지 보기에서는 보기 전환 버튼이 합계 카드(accessory)로 넘어간다.
+  async function showFullGraph() {
+    const focus = root().findAllByType('ReferralBranchFocus')[0];
+    const toggle = focus?.props.accessory as ReactElement<{ onChange: (mode: 'branch' | 'full') => void }> | null | undefined;
+    if (toggle) await act(async () => { toggle.props.onChange('full'); });
+  }
+  async function mount() { await act(async () => { renderer = create(createElement(Screen)); }); await showFullGraph(); }
+  const focusView = () => root().findByType('ReferralBranchFocus');
+  const graphModeOf = (focus: Instance) => (focus.props.accessory as ReactElement<{ value: string }>).props.value;
   async function update() { await act(async () => { renderer!.update(createElement(Screen)); }); }
   const canvas = () => root().findByType('ReferralGraphCanvas');
   async function selectNode(id: string) {
@@ -168,6 +184,41 @@ describe('standalone allowance page interactions', () => {
     expect(root().findAllByType('Modal')).toHaveLength(0);
     expect(pressable('수당 그래프').props.accessibilityState).toMatchObject({ selected: true });
     expect(texts().join(' ')).toMatch(/실적월 2026-08.*지급예정일 2026-09-25/);
+  });
+
+  it('opens on the light branch view: my total, each direct branch total, and drill-down without mounting the full graph', async () => {
+    await act(async () => { renderer = create(createElement(Screen)); });
+    expect(root().findAllByType('ReferralGraphCanvas')).toHaveLength(0);
+    let focus = focusView();
+    expect(graphModeOf(focus)).toBe('branch');
+    expect(focus.props.total).toMatchObject({ label: '당월 신규 지급예정액', valueText: '10,000원' });
+    expect(focus.props.summary).toBe('가지 1개 +10,000원 · 9/25 지급 · 이월금 제외');
+    expect(focus.props.path).toEqual([{ id: 'root', label: '나' }]);
+    expect(focus.props.rows).toEqual([expect.objectContaining({ id: 'positive', label: '가상 기여자', valueText: '+10,000원', value: 10000, drillable: true })]);
+
+    await act(async () => { (focus.props.onFocus as (id: string) => void)('positive'); });
+    focus = focusView();
+    expect(focus.props.path).toEqual([{ id: 'root', label: '나' }, { id: 'positive', label: '가상 기여자' }]);
+    expect(focus.props.total).toMatchObject({ label: '가상 기여자님 가지 합계', valueText: '+10,000원' });
+    expect(focus.props.summary).toBe('본인 +30,000원 + 하위 가지 1개 −20,000원');
+    expect(focus.props.rows).toEqual([expect.objectContaining({ id: 'negative', valueText: '−20,000원', negative: true, drillable: false })]);
+
+    await act(async () => { (focus.props.onOpen as (id: string) => void)('negative'); });
+    expect(texts(root().findByType('Modal'))).toEqual(expect.arrayContaining(['가상 조정자', '−205,000.75원', '−20,000원']));
+    expect(root().findAllByType('ReferralGraphCanvas')).toHaveLength(0);
+  });
+
+  it('keeps later server-published months alongside the June-August baseline', async () => {
+    statements['2026-09'] = statement('2026-09');
+    access.data = { enabled: true, availableMonths: ['2026-09'] };
+    query.availableMonths = ['2026-09'];
+    query.statement = statements['2026-09'];
+    await mount();
+
+    expect(pressable('2026년 9월').props.accessibilityState).toMatchObject({ selected: true });
+    expect(pressable('2026년 6월')).toBeDefined();
+    expect(pressable('2026년 7월')).toBeDefined();
+    expect(pressable('2026년 8월')).toBeDefined();
   });
 
   it('switches to the virtualized FP details and monthly amounts, then back to the graph', async () => {
@@ -259,12 +310,36 @@ describe('standalone allowance page interactions', () => {
     query.availableMonths = ['2026-08'];
     await update();
 
-    expect(texts()).toContain('아직 등록된 수당 정보가 없습니다');
+    expect(texts()).toContain('2026년 7월 수당 명세가 없습니다');
+    expect(pressable('2026년 7월').props.accessibilityState).toMatchObject({ selected: true });
+    expect(pressable('2026년 6월')).toBeDefined();
+    expect(pressable('2026년 8월')).toBeDefined();
     expectNoGraphOrSample();
     await press('2026년 8월');
     expect(useAllowance).toHaveBeenLastCalledWith('2026-08');
     expect(canvas().props.selectedNodeId).toBeNull();
-    expect(texts()).not.toContain('아직 등록된 수당 정보가 없습니다');
+    expect(texts().join(' ')).not.toContain('수당 명세가 없습니다');
+  });
+
+  it('keeps June, July and August selectable for a June-only recipient', async () => {
+    statements = { '2026-06': statement('2026-06') };
+    access.data = { enabled: true, availableMonths: ['2026-06'] };
+    query.availableMonths = ['2026-06'];
+    query.statement = statements['2026-06'];
+    await mount();
+
+    expect(useAllowance).toHaveBeenLastCalledWith(undefined);
+    expect(pressable('2026년 6월').props.accessibilityState).toMatchObject({ selected: true });
+    expect(pressable('2026년 7월')).toBeDefined();
+    expect(pressable('2026년 8월')).toBeDefined();
+    await press('2026년 8월');
+    expect(useAllowance).toHaveBeenLastCalledWith('2026-08');
+    expect(pressable('2026년 8월').props.accessibilityState).toMatchObject({ selected: true });
+    expect(texts()).toContain('2026년 8월 수당 명세가 없습니다');
+    expectNoGraphOrSample();
+    await press('2026년 6월');
+    expect(useAllowance).toHaveBeenLastCalledWith('2026-06');
+    expect(canvas().props.selectedNodeId).toBeNull();
   });
 
   it('a new signed owner scope resets the selected month, detail view, and person', async () => {
@@ -278,9 +353,11 @@ describe('standalone allowance page interactions', () => {
     query.statement.nodes[0].name = '새 가상 수령인';
     await update();
     expect(useAllowance).toHaveBeenLastCalledWith(undefined);
-    expect(canvas().props.selectedNodeId).toBeNull();
     expect(root().findAllByType('Modal')).toHaveLength(0);
     expect(pressable('수당 그래프').props.accessibilityState).toMatchObject({ selected: true });
+    expect(graphModeOf(focusView())).toBe('branch');
+    await showFullGraph();
+    expect(canvas().props.selectedNodeId).toBeNull();
     expect(pressable('2026년 8월').props.accessibilityState).toMatchObject({ selected: true });
     expect((canvas().props.nodes as ReferralGraphNode[])[0].name).toBe('새 가상 수령인');
   });
@@ -292,10 +369,16 @@ describe('standalone allowance page interactions', () => {
     if (condition === 'statement-null') query.statement = null;
     if (condition === 'no-nodes') query.statement!.nodes = [];
     await mount();
-    expect(texts()).toEqual(expect.arrayContaining(['아직 등록된 수당 정보가 없습니다',
-      '수당 자료가 등록되면 이곳에서 월별 수당과 그래프를 확인할 수 있습니다.', '새로 확인']));
+    expect(texts()).toEqual(expect.arrayContaining(['2026년 8월 수당 명세가 없습니다',
+      '해당 월의 명세가 등록되면 이 화면에서 확인할 수 있습니다.', '다시 확인']));
+    expect(pressable('2026년 6월')).toBeDefined();
+    expect(pressable('2026년 7월')).toBeDefined();
+    expect(pressable('2026년 8월').props.accessibilityState).toMatchObject({ selected: true });
     expectNoGraphOrSample();
-    await press('새로 확인');
+    await press('2026년 6월');
+    expect(pressable('2026년 6월').props.accessibilityState).toMatchObject({ selected: true });
+    expect(texts()).toContain('2026년 6월 수당 명세가 없습니다');
+    await press('다시 확인');
     expect(condition === 'access-disabled' ? accessRetry : statementRetry).toHaveBeenCalledTimes(1);
     if (condition === 'access-disabled') expect(useAllowance).not.toHaveBeenCalled();
   });
@@ -306,7 +389,12 @@ describe('standalone allowance page interactions', () => {
     await mount();
     expect(root().findAllByType('ActivityIndicator')).toHaveLength(1);
     expect(texts()).toContain('증원수당 내역을 확인하고 있습니다.');
-    expect(texts()).not.toContain('아직 등록된 수당 정보가 없습니다');
+    expect(texts().join(' ')).not.toContain('수당 명세가 없습니다');
+    if (layer === 'statement') {
+      expect(pressable('2026년 6월')).toBeDefined();
+      expect(pressable('2026년 7월')).toBeDefined();
+      expect(pressable('2026년 8월')).toBeDefined();
+    }
     expectNoGraphOrSample();
   });
 
@@ -316,7 +404,7 @@ describe('standalone allowance page interactions', () => {
     else { query.error = error; query.data = undefined; }
     await mount();
     expect(texts()).toContain('수당 내역을 불러오지 못했습니다');
-    expect(texts()).not.toContain('아직 등록된 수당 정보가 없습니다');
+    expect(texts().join(' ')).not.toContain('수당 명세가 없습니다');
     expectNoGraphOrSample();
     await press('다시 시도');
     expect(layer === 'access' ? accessRetry : statementRetry).toHaveBeenCalledTimes(1);

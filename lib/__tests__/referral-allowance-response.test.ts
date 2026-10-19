@@ -20,6 +20,7 @@ describe('allowance response boundary before rendering', () => {
     expect(parseReferralAllowanceResponse({ ok: true, enabled: false }, 'statement')).toEqual({ ok: true, enabled: false });
     expect(parseReferralAllowanceResponse({ ok: true, enabled: true, availableMonths: [] }, 'access').enabled).toBe(true);
     expect(parseReferralAllowanceResponse(response(null), 'statement').statement).toBeNull();
+    expect(parseReferralAllowanceResponse(response(null), 'statement', '2026-08').statement).toBeNull();
   });
 
   it.each([null, undefined, [], false, { enabled: true }, { ok: false, enabled: false }, { ok: true, enabled: 'yes' }])

@@ -1,20 +1,30 @@
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
+import { ReferralBranchFocus, type BranchFocusRow } from '@/components/referral-graph/ReferralBranchFocus';
 import { ReferralGraphCanvas } from '@/components/referral-graph/ReferralGraphCanvas';
 import { useReferralAllowance, useReferralAllowanceAccess } from '@/hooks/use-referral-allowance';
+import { useReferralClusterLayout } from '@/hooks/use-referral-cluster-layout';
 import { isReferralReloginError } from '@/hooks/use-referral-app-session';
 import {
-  buildReferralAllowanceGraph, buildReferralAllowanceNodeAmounts, formatReferralAllowanceKrw,
+  buildReferralAllowanceGraph, buildReferralAllowanceNodeAmounts, buildReferralAllowancePathTotals, formatReferralAllowanceKrw,
   formatReferralAllowanceMonth, formatReferralAllowancePerformanceKrw,
 } from '@/lib/referral-allowance-display';
+import { buildBranchChildren, createBranchFocusIndex } from '@/lib/referral-branch-focus';
 import { COLORS, RADIUS, SPACING, TOUCH_TARGET } from '@/lib/theme';
 import type { ReferralAllowanceNode, ReferralAllowanceStatement } from '@/types/referral-allowance';
 import type { ReferralGraphNode } from '@/types/referral-graph';
+
+const BASELINE_ALLOWANCE_MONTHS = ['2026-06', '2026-07', '2026-08'] as const;
+const DEFAULT_ALLOWANCE_MONTH = '2026-08';
+
+function allowanceDisplayMonths(availableMonths: string[]) {
+  return [...new Set([...availableMonths, ...BASELINE_ALLOWANCE_MONTHS])];
+}
 
 function LoadingState() {
   return <View style={styles.state}><ActivityIndicator size="large" color={COLORS.primary} />
@@ -33,13 +43,13 @@ function ErrorState({ error, retry, inline = false }: { error: unknown; retry: (
     </Pressable></View>;
 }
 
-function EmptyState({ retry }: { retry: () => void }) {
+function EmptyState({ month, retry }: { month: string; retry: () => void }) {
   return <View style={styles.state}>
     <View style={styles.emptyIcon}><Feather name="bar-chart-2" size={30} color={COLORS.primaryDark} /></View>
-    <Text style={[styles.title, styles.stateText]}>아직 등록된 수당 정보가 없습니다</Text>
-    <Text style={[styles.body, styles.stateText]}>수당 자료가 등록되면 이곳에서 월별 수당과 그래프를 확인할 수 있습니다.</Text>
+    <Text style={[styles.title, styles.stateText]}>{formatReferralAllowanceMonth(month)} 수당 명세가 없습니다</Text>
+    <Text style={[styles.body, styles.stateText]}>해당 월의 명세가 등록되면 이 화면에서 확인할 수 있습니다.</Text>
     <Pressable style={styles.action} onPress={retry} accessibilityRole="button">
-      <Text style={styles.actionText}>새로 확인</Text>
+      <Text style={styles.actionText}>다시 확인</Text>
     </Pressable>
   </View>;
 }
@@ -49,7 +59,9 @@ export default function ReferralAllowancePage() {
   return <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
     {access.isLoading ? <LoadingState /> : access.error && !access.data ? <ErrorState error={access.error} retry={access.retry} />
       : <>{access.error ? <ErrorState error={access.error} retry={access.retry} inline /> : null}
-        {access.enabled ? <AllowanceStatement key={access.scope} /> : <EmptyState retry={access.retry} />}</>}
+        {access.enabled ? <AllowanceStatement key={access.scope}
+          initialAvailableMonths={access.data?.enabled ? access.data.availableMonths : []} />
+          : <UnavailableAllowanceStatement key={access.scope} retry={access.retry} />}</>}
   </SafeAreaView>;
 }
 
@@ -66,39 +78,68 @@ function MonthSelector({ months, selectedMonth, onChangeMonth }: {
   </ScrollView>;
 }
 
-function AllowanceStatement() {
+function AllowanceStateContent({ months, selectedMonth, onChangeMonth, children }: {
+  months: string[]; selectedMonth: string; onChangeMonth: (month: string) => void; children: ReactNode;
+}) {
+  return <View style={styles.content}>
+    <View style={styles.pageHeader}>
+      <View style={styles.headingRow}>
+        <MonthSelector months={months} selectedMonth={selectedMonth} onChangeMonth={onChangeMonth} />
+      </View>
+    </View>
+    {children}
+  </View>;
+}
+
+function UnavailableAllowanceStatement({ retry }: { retry: () => void }) {
+  const [month, setMonth] = useState(DEFAULT_ALLOWANCE_MONTH);
+  const months = useMemo(() => allowanceDisplayMonths([]), []);
+  return <AllowanceStateContent months={months} selectedMonth={month} onChangeMonth={setMonth}>
+    <EmptyState month={month} retry={retry} />
+  </AllowanceStateContent>;
+}
+
+function AllowanceStatement({ initialAvailableMonths }: { initialAvailableMonths: string[] }) {
   const [month, setMonth] = useState<string>();
   const [selection, setSelection] = useState<{ statement: ReferralAllowanceStatement; id: string } | null>(null);
   const [view, setView] = useState<'graph' | 'details'>('graph');
+  // 기본은 가볍게: 가운데 한 명 + 직접 추천 가지 합계. 전체 그래프는 고를 때만 마운트한다.
+  const [graphMode, setGraphMode] = useState<'branch' | 'full'>('branch');
   const query = useReferralAllowance(month);
   const statement = query.statement;
-  const months = query.availableMonths;
+  const months = useMemo(() => allowanceDisplayMonths([...initialAvailableMonths, ...query.availableMonths]),
+    [initialAvailableMonths, query.availableMonths]);
+  const selectedMonth = month ?? statement?.performanceMonth ?? initialAvailableMonths[0] ?? DEFAULT_ALLOWANCE_MONTH;
   const selectedId = selection?.statement === statement ? selection.id : null;
   const changeMonth = (next: string) => {
     setSelection(null);
     setMonth(next);
   };
 
-  if (query.error && !query.data) return <ErrorState error={query.error} retry={query.retry} />;
-  if (query.isLoading) return <LoadingState />;
-  if (!query.enabled || !statement || statement.nodes.length === 0) return <View style={styles.content}>
+  if (query.error && !query.data) return <AllowanceStateContent months={months} selectedMonth={selectedMonth} onChangeMonth={changeMonth}>
+    <ErrorState error={query.error} retry={query.retry} />
+  </AllowanceStateContent>;
+  if (query.isLoading) return <AllowanceStateContent months={months} selectedMonth={selectedMonth} onChangeMonth={changeMonth}>
+    <LoadingState />
+  </AllowanceStateContent>;
+  if (!query.enabled || !statement || statement.nodes.length === 0) return <AllowanceStateContent
+    months={months} selectedMonth={selectedMonth} onChangeMonth={changeMonth}>
     {query.error ? <ErrorState error={query.error} retry={query.retry} inline /> : null}
-    {query.enabled && months.length > 0 ? <View style={styles.pageHeader}>
-      <View style={styles.headingRow}><MonthSelector months={months} selectedMonth={month} onChangeMonth={changeMonth} /></View>
-    </View> : null}
-    <EmptyState retry={query.retry} />
-  </View>;
+    <EmptyState month={selectedMonth} retry={query.retry} />
+  </AllowanceStateContent>;
 
   return <>{query.error ? <ErrorState error={query.error} retry={query.retry} inline /> : null}
     <StatementContent statement={statement} months={months} onChangeMonth={changeMonth}
     selectedId={selectedId} onSelect={(id) => setSelection(id === null ? null : { statement, id })} view={view} onChangeView={setView}
+    graphMode={graphMode} onChangeGraphMode={setGraphMode}
     onRefresh={query.retry} refreshing={query.isRefreshing} /></>;
 }
 
-function StatementContent({ statement, months, onChangeMonth, selectedId, onSelect, view, onChangeView, onRefresh, refreshing }: {
+function StatementContent({ statement, months, onChangeMonth, selectedId, onSelect, view, onChangeView, graphMode, onChangeGraphMode, onRefresh, refreshing }: {
   statement: ReferralAllowanceStatement; months: string[]; onChangeMonth: (month: string) => void;
   selectedId: string | null; onSelect: (id: string | null) => void;
-  view: 'graph' | 'details'; onChangeView: (view: 'graph' | 'details') => void; onRefresh: () => void; refreshing: boolean;
+  view: 'graph' | 'details'; onChangeView: (view: 'graph' | 'details') => void;
+  graphMode: 'branch' | 'full'; onChangeGraphMode: (mode: 'branch' | 'full') => void; onRefresh: () => void; refreshing: boolean;
 }) {
   const rows = useMemo(() => statement.nodes.filter((node) => !node.isBeneficiary), [statement]);
   const selected = useMemo(() => statement.nodes.find((node) => node.id === selectedId), [statement, selectedId]);
@@ -119,7 +160,10 @@ function StatementContent({ statement, months, onChangeMonth, selectedId, onSele
           </Pressable>)}
       </View>
     </View>
-    {view === 'graph' ? <GestureHandlerRootView style={styles.graphPage}>
+    {view === 'graph' && graphMode === 'branch' ? <View style={styles.graphPage}>
+      <AllowanceBranchFocus statement={statement} onSelect={onSelect}
+        modeToggle={<GraphModeToggle value={graphMode} onChange={onChangeGraphMode} />} />
+    </View> : view === 'graph' ? <GestureHandlerRootView style={styles.graphPage}>
       <View style={styles.graphSummary} accessibilityRole="summary">
         <View style={styles.headingRow}>
         <Text style={styles.paymentLabel}>당월 신규 지급예정액</Text>
@@ -127,6 +171,7 @@ function StatementContent({ statement, months, onChangeMonth, selectedId, onSele
         </View>
         <Text style={styles.meta}>실적월 {statement.performanceMonth} · 지급예정일 {statement.paymentDate}</Text>
          <Text style={styles.meta}>전월 이월금 제외 · 실제 입금액과 다를 수 있습니다.</Text>
+        <GraphModeToggle value={graphMode} onChange={onChangeGraphMode} />
       </View>
       <AllowanceGraph statement={statement} selectedId={selectedId} onSelect={onSelect} />
     </GestureHandlerRootView> : <FlatList data={rows} keyExtractor={(node) => node.id} contentContainerStyle={styles.list}
@@ -188,6 +233,55 @@ function AllowanceDetail({ node, onClose }: { node: ReferralAllowanceNode; onClo
   </View>;
 }
 
+function GraphModeToggle({ value, onChange }: { value: 'branch' | 'full'; onChange: (mode: 'branch' | 'full') => void }) {
+  return <View style={styles.graphModes} accessibilityRole="tablist">
+    {([{ value: 'branch', label: '가지' }, { value: 'full', label: '전체 그래프' }] as const).map((mode) =>
+      <Pressable key={mode.value} accessibilityRole="tab" accessibilityState={{ selected: value === mode.value }}
+        accessibilityLabel={mode.value === 'branch' ? '가지 보기' : '전체 그래프'}
+        style={[styles.graphMode, value === mode.value && styles.graphModeSelected]} onPress={() => onChange(mode.value)}>
+        <Text style={[styles.graphModeText, value === mode.value && styles.graphModeSelectedText]}>{mode.label}</Text>
+      </Pressable>)}
+  </View>;
+}
+
+function AllowanceBranchFocus({ statement, onSelect, modeToggle }: {
+  statement: ReferralAllowanceStatement; onSelect: (id: string) => void; modeToggle: ReactElement;
+}) {
+  const index = useMemo(() => createBranchFocusIndex(statement.nodes), [statement]);
+  const totals = useMemo(() => buildReferralAllowancePathTotals(statement.nodes), [statement]);
+  const [focus, setFocus] = useState<{ statement: ReferralAllowanceStatement; id: string } | null>(null);
+  const focusNode = (focus?.statement === statement ? index.byId.get(focus.id) : undefined)
+    ?? index.byId.get(statement.beneficiary.nodeId) ?? statement.nodes[0];
+  const children = useMemo(() => buildBranchChildren(index, focusNode.id, (id) => totals.get(id) ?? 0),
+    [index, totals, focusNode.id]);
+  const krw = (amount: number) => formatReferralAllowanceKrw(amount, true);
+  const isRoot = focusNode.isBeneficiary;
+  const focusTotal = totals.get(focusNode.id) ?? 0;
+  const childrenSum = children.reduce((sum, child) => sum + child.value, 0);
+  const rows: BranchFocusRow[] = useMemo(() => children.map((child) => {
+    const node = index.byId.get(child.id)!;
+    return { id: child.id, label: node.name, valueText: krw(child.value), value: child.value, negative: child.value < 0,
+      meta: `본인 ${krw(node.contributionKrw)}${child.childCount > 0 ? ` · 직접 추천 ${child.childCount}명` : ''}`,
+      drillable: child.childCount > 0, accessibilityLabel: `${node.name}, 가지 합계 ${krw(child.value)}` };
+  }), [children, index]);
+  // 맨 위(나)는 지급예정액 하나만 크게, 그 아래 단계는 그 사람 가지 합계
+  const total = isRoot
+    ? { label: '당월 신규 지급예정액', valueText: formatReferralAllowanceKrw(statement.summary.newPaymentKrw),
+      accessibilityLabel: `당월 신규 지급예정액 ${formatReferralAllowanceKrw(statement.summary.newPaymentKrw)}` }
+    : { label: `${focusNode.name}님 가지 합계`, valueText: krw(focusTotal), negative: focusTotal < 0,
+      accessibilityLabel: `${focusNode.name} 가지 합계 ${krw(focusTotal)}` };
+  const summary = isRoot
+    ? `가지 ${children.length}개 ${krw(childrenSum)} · ${Number(statement.paymentDate.slice(5, 7))}/${Number(statement.paymentDate.slice(8))} 지급 · 이월금 제외`
+    : `본인 ${krw(focusNode.contributionKrw)} + 하위 가지 ${children.length}개 ${krw(childrenSum)}`;
+  return <ReferralBranchFocus inset={false}
+    path={index.pathTo(focusNode.id).map((node) => ({ id: node.id, label: node.isBeneficiary ? '나' : node.name }))}
+    total={total} summary={summary} accessory={isRoot ? modeToggle : null}
+    rows={rows} listTitle={isRoot ? '직접 추천 가지' : `${focusNode.name}님의 직접 추천 가지`}
+    emptyText="이 아래로 연결된 FP가 없습니다."
+    onFocus={(id) => setFocus({ statement, id })} onOpen={onSelect}
+    onTotalPress={isRoot ? undefined : () => onSelect(focusNode.id)} />;
+}
+
 function AllowanceGraph({ statement, selectedId, onSelect }: {
   statement: ReferralAllowanceStatement; selectedId: string | null; onSelect: (id: string) => void;
 }) {
@@ -196,6 +290,8 @@ function AllowanceGraph({ statement, selectedId, onSelect }: {
   const amountsByNodeId = useMemo(() => new Map(nodeAmounts.map((amounts) => [amounts.nodeId, amounts])), [nodeAmounts]);
   const nodeById = useMemo(() => new Map(statement.nodes.map((node) => [node.id, node])), [statement]);
   const [fit, setFit] = useState(0);
+  // 관리자 웹과 같은 집단 배치(계산 결과는 기억해 두고 다시 쓴다)
+  const cluster = useReferralClusterLayout(graph.nodes, graph.edges, true);
   const describeNode = useCallback((node: ReferralGraphNode) => {
     const source = nodeById.get(node.id)!;
     const amounts = amountsByNodeId.get(source.id);
@@ -207,9 +303,13 @@ function AllowanceGraph({ statement, selectedId, onSelect }: {
     <View style={styles.graphToolbar}><Text style={styles.meta}>관계 {graph.nodes.length} / {graph.totalNodeCount}명 표시</Text>
       <Pressable onPress={() => setFit((value) => value + 1)} style={styles.iconButton} accessibilityRole="button" accessibilityLabel="기여 관계 전체 보기">
         <Feather name="maximize" size={18} color={COLORS.primaryDark} /></Pressable></View>
-    <View style={styles.graphViewport}><ReferralGraphCanvas nodes={graph.nodes} edges={graph.edges}
+    {__DEV__ && cluster.elapsedMs != null ? <Text style={[styles.meta, styles.devTiming]}>
+      집단 배치 {cluster.source === 'computed' ? '폰 계산' : '저장본'} {cluster.elapsedMs}ms · {graph.nodes.length}명</Text> : null}
+    <View style={styles.graphViewport}>{cluster.computing ? <View style={styles.state}>
+      <ActivityIndicator color={COLORS.primary} /><Text style={styles.body}>배치 중</Text></View>
+      : <ReferralGraphCanvas positions={cluster.positions ?? undefined} nodes={graph.nodes} edges={graph.edges}
       selectedNodeId={selectedId} onSelectNode={selectNode} fitRequestId={fit} resetRequestId={0}
-      getNodeAccessibilityLabel={describeNode} nodeAmounts={nodeAmounts} /></View>
+      getNodeAccessibilityLabel={describeNode} nodeAmounts={nodeAmounts} />}</View>
     <Text style={styles.graphCaption}>이름 아래 직접: 해당 FP로부터 받는 수당 · 총: 하위 계보 포함. 확대하면 더 많은 금액이 표시됩니다.
       {graph.omittedNodeCount > 0 ? ` 화면 부하를 줄이기 위해 ${graph.omittedNodeCount}명은 그래프에 생략했습니다. 금액 합계와 상세 내역의 전체 FP 내역에는 모두 포함됩니다.` : ''}</Text>
   </View>;
@@ -230,6 +330,11 @@ const styles = StyleSheet.create({
   viewTabSelectedText: { color: COLORS.primaryDark, fontWeight: '700' },
   graphPage: { flex: 1, padding: SPACING.md, gap: 12 },
   graphSummary: { gap: 5 },
+  graphModes: { flexDirection: 'row', alignSelf: 'flex-start', padding: 3, borderRadius: RADIUS.md, backgroundColor: COLORS.border.light },
+  graphMode: { minHeight: 36, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.sm },
+  graphModeSelected: { backgroundColor: COLORS.white },
+  graphModeText: { fontSize: 13, fontWeight: '600', color: COLORS.text.secondary },
+  graphModeSelectedText: { color: COLORS.primaryDark, fontWeight: '700' },
   graphPaymentAmount: { fontSize: 24, fontWeight: '800', color: COLORS.text.primary, fontVariant: ['tabular-nums'], flexShrink: 1 },
   list: { padding: SPACING.md, paddingBottom: 32 },
   header: { gap: 14, paddingBottom: 12 },
@@ -259,6 +364,7 @@ const styles = StyleSheet.create({
   graphCard: { flex: 1, backgroundColor: COLORS.white, borderRadius: RADIUS.lg, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.border.light },
   graphToolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 12 },
   graphViewport: { flex: 1, minHeight: 0 },
+  devTiming: { paddingHorizontal: 12 },
   graphCaption: { color: COLORS.text.secondary, fontSize: 11, lineHeight: 18, padding: 12 },
   count: { color: COLORS.primaryDark, fontSize: 13, fontWeight: '700' },
   personRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.white, borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.border.light, padding: 14, marginBottom: 8, minHeight: 66 },
