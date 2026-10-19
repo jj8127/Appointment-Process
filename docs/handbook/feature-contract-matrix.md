@@ -37,6 +37,12 @@ This matrix defines business behavior that must stay consistent across GaramIn m
   numbers, step chart, lists, work queue and FC table show shape-matched
   skeleton placeholders instead of loading text; a failed read shows `—` with
   the explicit error state, never a skeleton.
+- Dashboard screen entrance motion is visual only: the page resolves from a
+  blur in place, titles sweep in left to right, cards land before their
+  contents, home numbers count up from 0 to the loaded value, and cards no
+  longer slide (home, documents, appointment, exam applicants and shared
+  surface pages). Reduced-motion users get the final state at once. Data,
+  actions and validation are unchanged.
 - Exam applicant tables and exports share separate reception and lifecycle
   status formatters, including rejected and cancelled records.
 - Resident-number cells share the same `value`, `missing`, and `unavailable`
